@@ -33,9 +33,8 @@ export default function BuildBadge() {
   ].filter(Boolean).join("\n");
 
   const btnCls =
-    "pixel-btn text-[12px] px-2 py-1 font-mono border-pixel-border " +
-    "text-pixel-gray bg-pixel-black/80 hover:text-green-400 " +
-    "hover:border-green-400 backdrop-blur-sm";
+    "pixel-btn text-[13px] px-2 py-1 font-mono border-pixel-border " +
+    "text-pixel-gray bg-pixel-black hover:text-green-400 hover:border-green-400";
 
   return (
     <div className="fixed bottom-2 right-2 z-40 flex flex-col items-end gap-1">

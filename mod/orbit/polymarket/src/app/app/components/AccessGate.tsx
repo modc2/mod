@@ -144,7 +144,7 @@ export default function AccessGate({ children }: { children: React.ReactNode }) 
             className="shrink-0 text-[10px] font-mono tracking-[0.12em] text-pixel-gray-light rounded-full px-2.5 py-1"
             style={{ border: "1px solid var(--border-strong)", background: "var(--btn-bg)" }}
           >
-            TERMS v{info?.termsVersion ?? "1.0"}
+            TERMS v{info?.termsVersion ?? "2.0"}
           </span>
         </div>
 
@@ -175,32 +175,20 @@ export default function AccessGate({ children }: { children: React.ReactNode }) 
               text and is recorded as proof of acceptance.
             </p>
 
-            {/* Terms scroller — inset well with a bottom fade cueing that
-                there is more to read. */}
+            {/* Terms well — the document is short by design, so it grows to
+                fit and only scrolls if a future version outgrows the card. */}
             <div
-              className="relative rounded-[var(--radius)] overflow-hidden"
+              className="rounded-[var(--radius)] max-h-[280px] overflow-y-auto px-4 py-3.5"
               style={{ border: "1px solid var(--border-strong)", background: "var(--input-bg)" }}
             >
-              <div className="h-[280px] overflow-y-auto px-4 py-3.5">
-                <pre className="whitespace-pre-wrap text-[11.5px] leading-[1.65] text-pixel-white/75 font-mono">
-                  {info?.terms ?? "Loading terms…"}
-                </pre>
-              </div>
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-x-0 bottom-0 h-9"
-                style={{ background: "linear-gradient(to top, var(--input-bg), transparent)" }}
-              />
+              <pre className="whitespace-pre-wrap text-[11.5px] leading-[1.65] text-pixel-white/75 font-mono">
+                {info?.terms ?? "Loading terms…"}
+              </pre>
             </div>
 
             <p className="text-[10.5px] leading-[1.6] text-pixel-gray">
-              By signing you confirm you have read and agree to the Terms of
-              Use in full, and that you are NOT located in, resident of, or
-              accessing this software from a jurisdiction where Polymarket or
-              prediction markets are prohibited or restricted (nor using a VPN
-              or proxy to circumvent such restrictions). Your signature is your
-              acceptance — the signed message embeds these statements and the
-              terms hash.
+              Your signature is your acceptance — the signed message embeds
+              these terms and their hash.
             </p>
 
             {error && (

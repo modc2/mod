@@ -17,7 +17,9 @@ export default function CurrencyToggle() {
       onClick={toggle}
       title={title}
       aria-label={`Toggle currency (currently ${currency})`}
-      className={`pixel-btn text-[11px] px-2 py-1.5 font-mono ${
+      /* VT323 sets ~30% small for its nominal size, so the mono chips run
+         a step above the Silkscreen caps beside them to match. */
+      className={`pixel-btn topbar-ctl px-3 font-mono text-[15px] ${
         currency === "USD"
           ? "border-green-400 text-green-400"
           : "text-pixel-gray-light"

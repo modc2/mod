@@ -38,7 +38,9 @@ export default function ChangeChip({
       ? { fg: "text-green-400", bg: "bg-green-400/10", bd: "border-green-400/25" }
       : { fg: "text-red-400", bg: "bg-red-400/10", bd: "border-red-400/25" };
 
-  const text = `${flat ? "" : up ? "+" : ""}${pct.toFixed(2)}%`;
+  // A hair below zero rounds to "-0.00%", which reads as a bug. Anything
+  // inside the flat band prints unsigned.
+  const text = `${flat ? "" : up ? "+" : ""}${(flat ? Math.abs(pct) : pct).toFixed(2)}%`;
 
   if (bare) {
     return (

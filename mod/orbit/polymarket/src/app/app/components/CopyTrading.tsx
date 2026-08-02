@@ -13,6 +13,8 @@ import { traderMatchesMarketQuery, marketQueryMatchCount } from "../lib/marketQu
 import { shortAddress } from "@/lib/auth";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { loadIndexes, getActiveIndexId } from "../lib/indexStore";
+import SyncScheduleChip from "./SyncScheduleChip";
+import { fetchSyncSchedule } from "../lib/syncSchedule";
 
 type TraderSort = "score" | "volume" | "pnl" | "positions" | "last";
 const DEFAULT_FORMULA = "sharpe";
@@ -526,13 +528,25 @@ export default function CopyTrading({
 
   // Background source-data refresh. The page-cache check above keeps the
   // CLIENT view fresh, but the chip the user sees ("sync 18h 31m ago") is
-  // server `syncedAt` — when Polymarket data was actually pulled. Once
-  // that crosses 10min we kick off `loadStream({ force: true })` in the
-  // background so the chip stays reasonably current. Threshold matches
-  // the staleness banner so the visible "STALE → SYNCING" transition
-  // tracks the actual auto-trigger. Guarded by inFlightRef and a
-  // per-attempt cooldown so a long-running force-sync (the pipeline
-  // takes 2–5 minutes on a cold scan) doesn't queue up.
+  // server `syncedAt` — when Polymarket data was actually pulled. Once that
+  // crosses the SERVER's sync cadence (sync.rs; hourly by default, owner-set)
+  // we kick off `loadStream({ force: true })` from the browser as a safety
+  // net — the schedule is the contract, so a tab left open must not re-pull
+  // on its own faster than the owner asked for. Floor of 10min keeps the old
+  // behavior for deployments that pause auto-sync entirely. Guarded by
+  // inFlightRef and a per-attempt cooldown so a long-running force-sync (the
+  // pipeline takes 2–5 minutes on a cold scan) doesn't queue up.
+  const [serverIntervalMs, setServerIntervalMs] = useState<number | null>(null);
+  const sourceStalenessMs = Math.max(10 * 60_000, serverIntervalMs ?? 0);
+  useEffect(() => {
+    const read = () =>
+      fetchSyncSchedule()
+        .then((s) => setServerIntervalMs(s.enabled ? s.intervalSecs * 1000 : null))
+        .catch(() => setServerIntervalMs(null));
+    void read();
+    const t = setInterval(read, 5 * 60_000);
+    return () => clearInterval(t);
+  }, []);
   const lastForceAtRef = useRef(0);
   // Flagged true when the most recent loadStream was kicked off by the
   // auto-refresh path (vs the user clicking ↻ SYNC or initial cold start).
@@ -541,7 +555,7 @@ export default function CopyTrading({
   // SYNCING badge animate, no banner needed for that case.
   const [autoSyncActive, setAutoSyncActive] = useState(false);
   useEffect(() => {
-    const MAX_SOURCE_STALENESS_MS = 10 * 60_000;
+    const MAX_SOURCE_STALENESS_MS = sourceStalenessMs;
     const MIN_RETRY_MS = 2 * 60_000;
     const TICK_MS = 30_000;
     const t = setInterval(() => {
@@ -558,7 +572,7 @@ export default function CopyTrading({
       });
     }, TICK_MS);
     return () => clearInterval(t);
-  }, [syncedAt, lastUpdated]);
+  }, [syncedAt, lastUpdated, sourceStalenessMs]);
 
   // 5-second tick so the "Xs ago" label re-renders even when nothing else changes.
   useEffect(() => {
@@ -832,7 +846,7 @@ export default function CopyTrading({
   // explains why a fresh pull kicked off after the data went stale.
   const staleStamp = syncedAt ?? lastUpdated;
   const staleAgeMs = staleStamp ? nowTick - staleStamp : 0;
-  const isStale = staleStamp != null && staleAgeMs >= 10 * 60_000;
+  const isStale = staleStamp != null && staleAgeMs >= sourceStalenessMs;
   const showSyncingBanner = isStale && (autoSyncActive || loading || refreshing);
 
   return (
@@ -963,6 +977,12 @@ export default function CopyTrading({
               );
             })()}
             {refreshing && <span className="text-[12px] text-green-400 animate-pulse">&#9679;</span>}
+
+            {/* Server-side schedule behind that "sync {age}" number — the API
+                re-warms the leaderboards hourly by default whether or not this
+                console is open. The chip lets the owner change the cadence,
+                pause it, or force a background run. */}
+            <SyncScheduleChip />
 
             <button
               onClick={toggleStratFilter}

@@ -24,9 +24,12 @@ wallet, and those always go out over our own wallet + RPC pool.
 - **Round-robin RPC pool**: `entrypoint-finney.opentensor.ai`, `archive.chain.opentensor.ai`, `lite.chain.opentensor.ai`, `bittensor-finney.api.onfinality.io` — shuffles on init, auto-fails over on RPC errors.
 - **Copy engine**: replicate a target validator's subnet allocations onto your own hotkey with safety limits (per-tx cap, daily cap, rebalance threshold).
 - **Index of traders (polymarket-style)**: build a named, weighted basket of validators and "Start Index Live" — the frontend spawns one server-side copy per trader with capital split by weight. Pause / Resume / Sync / Stop act on the whole basket. Stored client-side in localStorage (`copytensor:indexes:v1`).
-- **Trader pool (what the leaderboard ranks)**: the board can only rank coldkeys we watch, so the watchlist IS the visible trader set. One `get_delegates()` walk (~35 s, cached 6 h) yields the whole on-chain universe — every delegate owner **and every nominator staking to them**: ~2.3 k + ~57 k real coldkeys on finney — ranked by stake. At boot the pool tops itself up to `leaderboard_pool_size` (250; `auto_discover: false` disables it); `POST /pool?size=N` resizes it live (background, poll `GET /universe`), `POST /discover?top=N&kind=validator|nominator|all` adds the top N synchronously. Ranking stake is `Σ` per-subnet alpha from the delegate set — a ranking heuristic for *which* coldkeys to watch, never shown as a τ value; every τ figure on the board comes from priced positions. Every ss58 entering the watchlist is checksum-validated.
+- **The leaderboard is bt's** (v0.4.0): one call to bt's `bt_trader_board` ranks every coldkey bt indexes over the window, PnL already split into market move vs stake flow — **~260 ms for the whole board** against 211 s for the old per-account archive walk (measured on a 253-account pool). `src/engine/bt_board.py` only maps bt's rows onto the entry shape the API already served, so `/leaderboard` and the UI are unchanged. All five horizons warm in ~5 s at boot instead of ~7 min, and a cold horizon is priced **on the request thread** rather than returning `[]`. `build_leaderboard`'s chain walk is still there and takes over automatically when bt is down; `/universe` reports which engine priced each horizon (`board.source`) and how many coldkeys bt indexes (`board.indexed`). What this trades away: the board ranks what **bt indexes**, not the whole watchlist — see the mirror below.
+- **Mirroring the watchlist into bt**: bt only keeps history for coldkeys it tracks, so `bt_mirror_max` (120) is the real size of the visible board. Each tracked account costs bt one chain read per refresh pass (~1.75 s measured), so 120 accounts is ~3.5 min of every 15-min pass — raise it knowing that cost. The mirror pushes only accounts bt does not already have: `bt_track` snapshots on every call, so re-mirroring the same list each restart would spend minutes of chain reads to learn nothing.
+- **Trader pool (what the watchlist holds)**: the watchlist feeds the mirror, and with bt down it IS the ranked set. One `get_delegates()` walk (~35 s, cached 6 h) yields the whole on-chain universe — every delegate owner **and every nominator staking to them**: ~2.3 k + ~57 k real coldkeys on finney — ranked by stake. At boot the pool tops itself up to `leaderboard_pool_size` (250; `auto_discover: false` disables it); `POST /pool?size=N` resizes it live (background, poll `GET /universe`), `POST /discover?top=N&kind=validator|nominator|all` adds the top N synchronously. Ranking stake is `Σ` per-subnet alpha from the delegate set — a ranking heuristic for *which* coldkeys to watch, never shown as a τ value; every τ figure on the board comes from priced positions. Every ss58 entering the watchlist is checksum-validated.
 - **Honest PnL**: baselines come from local snapshots (30-min loop) or bt's trader index (`bt_trader_at`), which only counts a snapshot as a baseline if it actually sits near the block asked for — otherwise today's book would masquerade as last week's and PnL would read 0. The archive-node query is the fallback behind both (`archive_fallback: true`, `COPYTENSOR_ARCHIVE_FALLBACK=0/1` overrides): a pool of hundreds is only comparable if every trader is priced over the *same* window, and for a coldkey nobody has indexed only the archive can answer. Each row reports `window_days` — the history it actually covers — and the UI flags any row short of the horizon; if no baseline exists at all the row reports `baseline: false` and PnL 0 ("— warming"). Numbers are never invented.
-- **Scaling the board**: one build = one live read + one archive read per trader, so the pool is walked concurrently (`leaderboard_workers`, 8) over a pool of archive sockets (`archive_pool_size`, 4), with live positions cached briefly so all five horizons share one read per trader. Horizons build in the background (7d first, the UI default) and are never built on a request thread — a cold horizon returns `[]` with `board.building` set in `/universe`, and rows appear on the next poll. Refresh is rate-limited to one rebuild per three build-times so a big pool can't rebuild forever. SQLite runs in WAL (concurrent snapshot writers).
+- **Scaling the fallback board** (bt down only): one build = one live read + one archive read per trader, so the pool is walked concurrently (`leaderboard_workers`, 8) over a pool of archive sockets (`archive_pool_size`, 4), with live positions cached briefly so all five horizons share one read per trader. That path stays off the request thread — a cold horizon returns `[]` with `board.building` set in `/universe` and rows appear on the next poll — and it stands aside while the delegate walk runs. Refresh is rate-limited to one rebuild per three build-times so a big pool can't rebuild forever. SQLite runs in WAL (concurrent snapshot writers).
+- **Process supervision**: both services run under pm2 (`copytensor-api`, `copytensor-app`) and are in the pm2 dump, so a reboot restores them. `_pm2_spawn` passes `--interpreter none`: pm2 hands anything it doesn't recognise to node, so the python API crash-looped on `SyntaxError: Cannot use import statement outside a module` while `pm2 start` still exited 0 — the module reported "started", nothing was listening, and after a reboot the app served 500s against a dead backend for hours. `pm2 start` exiting 0 means the process was *accepted*, so the spawn now also waits for it to be online with a still restart counter before claiming success, and falls back to Popen otherwise.
 
 ## Usage
 
@@ -110,7 +113,8 @@ mod/orbit/copytensor/
     │   ├── bt_source.py         # BtSource + BtBackedClient — reads via the bt module
     │   └── snapshot.py          # Periodic snapshot capture
     ├── engine/
-    │   ├── leaderboard.py       # Rank watched accounts by N-day PnL
+    │   ├── bt_board.py          # The leaderboard, ranked by bt's index (the default path)
+    │   ├── leaderboard.py       # Fallback board: rank watched accounts by walking the chain
     │   ├── pnl.py               # Per-subnet PnL calc
     │   ├── curve.py             # Equity/PnL curve + trades inferred from snapshot deltas
     │   ├── copier.py            # Copy engine
@@ -118,6 +122,91 @@ mod/orbit/copytensor/
     ├── db.py                    # SQLite (snapshots, trades, copies, watches)
     └── app/                     # Next.js frontend (pixel theme, CRT shell)
 ```
+
+## UI — the 8-bit console
+
+The whole look is a design system, not a set of per-component styles. It lives in
+exactly two files, so the theme can be reasoned about (and changed) in one place:
+
+- `src/app/app/globals.css` — tokens, primitives (`.pixel-panel`, `.pixel-btn`,
+  `.pixel-input`, `.pixel-bar`, `.pixel-table`, `.pixel-badge`, `.page-head`,
+  `.stat-tile`, `.arcade-prose`), the CRT layers, and the sprite decorations. The
+  rules it enforces are written at the top of the file.
+- `src/app/tailwind.config.js` — the three pixel faces, the five-hue arcade palette,
+  and `borderRadius` pinned to `0` for **every** key including `full`, which is what
+  squares off the `rounded-full` pills already in the component tree.
+
+Five rules, in priority order: nothing is round; every edge is a solid 2–3px border
+(depth is one hard offset rectangle, never a blur); pressing a control translates it
+by its shadow offset; motion uses `steps()`; and the palette is five colours, with
+lime/red reserved for P&L sign so colour always means one thing.
+
+Two things worth knowing before editing:
+
+- **The accent remap.** Components reach for stock Tailwind accents
+  (`text-green-400`, `border-red-400`, `bg-amber-400/10`). Those classes are remapped
+  onto the arcade palette at the bottom of `globals.css` rather than being rewritten
+  across twenty files — the rules sit after `@tailwind utilities`, so they win the
+  cascade at equal specificity. Recolour there, not in JSX.
+- **Type sizing.** Press Start 2P (`.font-display`, `.arcade-title`) is drawn on an
+  8×8 pixel em, so it only renders cleanly at **multiples of 8** — anything else
+  resamples every glyph and the result looks smeared rather than pixelated. The
+  heading scale is therefore 16/12/12px, set on `h1/h2/h3.font-display` in CSS
+  (overriding the `text-2xl`/`text-lg` classes in the pages), and page titles are
+  16px / 24px at `md`. The sprite shadow on `.arcade-title` is always exactly one
+  design pixel — `font-size / 8`, so 2px at 16 and 3px at 24. VT323 (`.font-mono`,
+  every number and address) sets small for its point size — table cells run 14px and
+  stat readouts 30px.
+- **Silkscreen is chrome only.** It has no real lowercase (the glyphs are
+  small-caps-shaped), so a sentence set in it reads as one long shouted block with no
+  word silhouettes left to scan. Labels, buttons and table headers: Silkscreen.
+  Anything sentence-shaped — page standfirsts, subnet blurbs, empty states — goes in
+  `.arcade-prose` (VT323 at 17px, capped at 72ch; `.arcade-prose-sm` for card-sized
+  copy). Put the class on a `<p>`, not on a panel, or the 72ch measure caps the panel.
+
+Two shared components carry the page furniture, and both replaced per-page copies
+that had already drifted apart: `PageHeader.tsx` (the marquee band — title, optional
+controls on the right, standfirst below) and `StatTile.tsx` (a scoreboard readout;
+`tone` paints the lit strip across its top and the value). Use them rather than
+hand-rolling another header or tile.
+
+The top bar is two rows that collapse into one at `xl`. The controls cluster is
+pinned right on both layouts and the nav is a horizontal scroll strip, because the
+old single non-wrapping row ran everything from the search box rightwards off the
+page below ~1200px.
+
+Charts are plotted on the pixel lattice, not drawn: `Sparkline.tsx` snaps vertices to
+a 2px grid and emits an axis-aligned staircase, and the Recharts areas use
+`type="stepAfter"` to match. A smooth interpolation is the fastest way to break the
+spell, so if a new chart lands, step it.
+
+### Skins
+
+There are nine, and every one is a real cabinet rather than an inverted dark mode:
+ARCADE (default), FLYER (the daytime flyer), MANUAL (instruction booklet), GAMEBOY
+(DMG four-tone), PHOSPHOR (P1 green tube), AMBER (P3), C64, MIAMI, VECTOR. Each is
+one `[data-theme="<id>"]` block in `globals.css` restating the *same* token list in
+the same order — a block that drops a line silently inherits ARCADE's value for it,
+which is the only way the system breaks. The five hues are declared as `r g b`
+channels (`--neon-lime-rgb` …) and the named colours are derived from them once, so
+tinted fills, glows and the horizon grid all follow a skin for free.
+
+- `data-base` (`dark`/`light`) is stamped next to `data-theme` and carries the
+  field classification. Every generic light-field rule — grille, glow suppression,
+  input bevel, weight bump — keys on `data-base`, never on one id, so a new light
+  skin needs no CSS beyond its tokens.
+- Two invariants hold in all nine: lime = up / red = down (the monochrome tubes bend
+  and keep one green and one burnt-red, because a P&L sign that needs a legend is
+  broken), and the accent is never lime or red.
+- Registry is `context/ThemeContext.tsx` — id, label, base, and three chips sampled
+  from the skin's own palette, which is what `SkinPicker.tsx` renders in the rail.
+  Adding a skin = one entry there plus one token block.
+- Charts read colours through `useThemeColors()`, not `var()`: Recharts and our SVGs
+  paint into `stroke`/`fill` *attributes*, where a `var()` isn't dependable. The hook
+  resolves the tokens off `<html>` and re-resolves on every skin change.
+
+Check at least one light skin and one dark before shipping a visual change.
+`prefers-reduced-motion` kills the CRT sweep and marquee.
 
 ## Env vars
 

@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { TopTrader, formatVolume, formatPnl, timeAgo, matchMarketCategory, CategorySlug } from "../lib/polymarket";
+import { TopTrader, CATEGORIES, formatVolume, formatPnl, timeAgo, matchMarketCategory, CategorySlug } from "../lib/polymarket";
 import { shortAddress } from "@/lib/auth";
 import { PolymarketTrade, PolymarketPosition, TradeFilters } from "../lib/types";
 import { tradeMatchesFilters, describeTradeFilters } from "../lib/tradeFilters";
+import TradeFilterBar, { TradeFilterToggle, useTradeFilterBar } from "./TradeFilterBar";
 import PnlChart from "./PnlChart";
 import type { CurvePoint } from "./PnlChart";
 // No recharts — pure SVG charts for reliability with any version.
@@ -26,6 +27,9 @@ interface Props {
   onDaysChange?: (d: number | null) => void;
   searchFilter?: string;
   categoryFilter?: CategorySlug;
+  // Supplied ⇒ the FILTERS bar renders the global category buckets and can
+  // set them from here (same shared filter TRADERS/MARKETS/TRADES use).
+  onCategoryChange?: (c: CategorySlug) => void;
   // Strat trade-filter handoff: when set, every trade on this page is gated
   // through the copy engine's own tradeMatchesFilters — you see only the
   // trades the originating strat would mirror. Cleared via the chip's ✕.
@@ -128,6 +132,7 @@ export default function TraderProfile({
   onDaysChange,
   searchFilter = "",
   categoryFilter = "",
+  onCategoryChange,
   stratFilters = null,
   stratFilterName = "",
   onClearStratFilters,
@@ -141,8 +146,18 @@ export default function TraderProfile({
   const [tradeSort, setTradeSort] = useState<TradeSort>("timestamp");
   const [tradeSortDir, setTradeSortDir] = useState<SortDir>("desc");
   const [showCurrent, setShowCurrent] = useState(false);
-  type ProfileTab = "chart" | "positions" | "open" | "closed" | "all";
-  const [profileTab, setProfileTab] = useState<ProfileTab>("chart");
+  // Top level: what you're looking at. TRADES = the tape (with its own
+  // OPEN/CLOSED/ALL/POSITIONS view), P&L = curve + activity + results,
+  // INFO = who this trader is and how the numbers were built.
+  type ProfileTab = "trades" | "pnl" | "info";
+  const [profileTab, setProfileTab] = useState<ProfileTab>("trades");
+  type TradeView = "all" | "open" | "closed" | "positions";
+  const [tradeView, setTradeView] = useState<TradeView>("all");
+  // Same FILTERS bar as the TRADES tape — slices this trader's flow by side /
+  // entry price / size / keyword / category. Narrows EVERYTHING below (stats,
+  // curve, tables), like the search + category filters already do.
+  const [showFilters, setShowFilters] = useState(false);
+  const bar = useTradeFilterBar();
   // Selected-market filter over THIS trader's trades — set by clicking a
   // market name in the trade/results tables. No standing input: the chip in
   // the tab bar only appears while a market is selected (✕ clears it).
@@ -240,21 +255,23 @@ export default function TraderProfile({
   const filteredTrades = useMemo(() => {
     const q = searchFilter.trim().toLowerCase();
     const local = tradeQuery.trim().toLowerCase();
-    if (!q && !local && !categoryFilter && !stratFilters) return tradesInWindow;
+    if (!q && !local && !categoryFilter && !stratFilters && !bar.active) return tradesInWindow;
     return tradesInWindow.filter((t) => {
       if (q && !t.market.toLowerCase().includes(q)) return false;
       if (local && !t.market.toLowerCase().includes(local)) return false;
       if (categoryFilter && !matchMarketCategory(t.market, categoryFilter)) return false;
+      // The FILTERS bar — side / entry price / size / keyword.
+      if (!bar.matches(t)) return false;
       // Same gate the copy engine applies — incl. the default 60¢ BUY floor
       // when the strat has no explicit price band.
       if (stratFilters && !tradeMatchesFilters(t, stratFilters)) return false;
       return true;
     });
-  }, [tradesInWindow, searchFilter, tradeQuery, categoryFilter, stratFilters]);
+  }, [tradesInWindow, searchFilter, tradeQuery, categoryFilter, stratFilters, bar.active, bar.matches]);
 
   // Any trade-level filter active (TopBar search, local keyword, category,
-  // strat trade-filter handoff)?
-  const filterActive = !!(searchFilter.trim() || tradeQuery.trim() || categoryFilter || stratFilters);
+  // FILTERS bar, strat trade-filter handoff)?
+  const filterActive = !!(searchFilter.trim() || tradeQuery.trim() || categoryFilter || stratFilters || bar.active);
 
   // Mark-to-market cumulative P&L, one point per trade, plus a final "NOW"
   // mark that revalues any still-open inventory at current position prices.
@@ -430,16 +447,19 @@ export default function TraderProfile({
   const filteredPositions = useMemo(() => {
     const q = searchFilter.trim().toLowerCase();
     const stratCats = stratFilters?.categories ?? [];
-    if (!q && !categoryFilter && stratCats.length === 0) return positions;
+    if (!q && !categoryFilter && stratCats.length === 0 && bar.keywords.length === 0) return positions;
     return positions.filter((p) => {
       if (q && !p.market.toLowerCase().includes(q)) return false;
       if (categoryFilter && !matchMarketCategory(p.market, categoryFilter)) return false;
+      // Only the bar's keyword dimension applies — a position has no
+      // side/price/size-of-fill to gate on.
+      if (!bar.matchesText(`${p.market} ${p.outcome}`)) return false;
       // Positions have no side/price/size-of-fill, so only the strat filter's
       // category dimension can gate them.
       if (stratCats.length > 0 && !stratCats.some((c) => matchMarketCategory(p.market, c))) return false;
       return true;
     });
-  }, [positions, searchFilter, categoryFilter, stratFilters]);
+  }, [positions, searchFilter, categoryFilter, stratFilters, bar.keywords, bar.matchesText]);
 
   const sortedPositions = useMemo(() => {
     return [...filteredPositions].sort((a, b) => {
@@ -480,12 +500,50 @@ export default function TraderProfile({
     [filteredTrades, openConditionIds],
   );
 
-  // Trades for the active tab
+  // Trades for the active TRADES view
   const tabTrades = useMemo(() => {
-    if (profileTab === "open") return openTrades;
-    if (profileTab === "closed") return closedTrades;
+    if (tradeView === "open") return openTrades;
+    if (tradeView === "closed") return closedTrades;
     return filteredTrades; // "all"
-  }, [profileTab, openTrades, closedTrades, filteredTrades]);
+  }, [tradeView, openTrades, closedTrades, filteredTrades]);
+
+  // ── INFO tab — the shape of this trader's activity, not the P&L of it.
+  // Everything here is derived from the same filtered flow the other tabs
+  // show, so INFO never contradicts what's on screen.
+  const info = useMemo(() => {
+    const buys = filteredTrades.filter((t) => t.side === "BUY");
+    const sells = filteredTrades.filter((t) => t.side === "SELL");
+    const notional = (ts: typeof filteredTrades) => ts.reduce((s, t) => s + t.size * t.price, 0);
+    const timestamps = filteredTrades.map((t) => t.timestamp);
+    const markets = new Set(filteredTrades.map((t) => t.conditionId || t.market));
+    // Category mix by trade count — a trader's actual beat, not the buckets
+    // they'd claim. Untagged titles fall into OTHER.
+    const mix: { label: string; slug: CategorySlug; count: number }[] = CATEGORIES
+      .filter((c) => c.slug)
+      .map((c) => ({
+        label: c.label as string,
+        slug: c.slug as CategorySlug,
+        count: filteredTrades.filter((t) => matchMarketCategory(t.market, c.slug)).length,
+      }));
+    const untagged = filteredTrades.filter(
+      (t) => !CATEGORIES.some((c) => c.slug && matchMarketCategory(t.market, c.slug)),
+    ).length;
+    if (untagged > 0) mix.push({ label: "OTHER", slug: "" as CategorySlug, count: untagged });
+    return {
+      buyCount: buys.length,
+      sellCount: sells.length,
+      buyNotional: notional(buys),
+      sellNotional: notional(sells),
+      avgSize: filteredTrades.length ? notional(filteredTrades) / filteredTrades.length : 0,
+      firstTs: timestamps.length ? Math.min(...timestamps) : 0,
+      lastTs: timestamps.length ? Math.max(...timestamps) : 0,
+      markets: markets.size,
+      openValue: filteredPositions.reduce((s, p) => s + p.value, 0),
+      openPnl: filteredPositions.reduce((s, p) => s + p.pnlUsd, 0),
+      resolved: filteredPositions.filter((p) => p.redeemable).length,
+      mix: mix.filter((m) => m.count > 0).sort((a, b) => b.count - a.count),
+    };
+  }, [filteredTrades, filteredPositions]);
 
   const sortedTrades = useMemo(() => {
     return [...tabTrades].sort((a, b) => {
@@ -502,80 +560,60 @@ export default function TraderProfile({
   }, [tabTrades, tradeSort, tradeSortDir]);
 
   return (
-    <div className="space-y-4">
-      {/* Back + Header */}
-      <div className="flex items-center gap-3">
+    <div className="space-y-3">
+      {/* ── Header: back, identity, lookback and watch all on one line ──
+          Lookback pills set how far back this trader's stats/curve/tables
+          reach. The choice is saved for THIS trader (persisted by the page);
+          clicking the active pill again clears it back to the global window. */}
+      <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={onBack}
-          className="pixel-btn border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white text-[16px]"
+          className="pixel-btn border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white text-[16px] py-1"
         >
           BACK
         </button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 border-2 border-pixel-white flex items-center justify-center">
-              <div className="w-4 h-4 bg-pixel-white" />
-            </div>
-            <span className="text-sm text-pixel-white glow-green font-mono">
-              {shortAddress(trader.address)}
-            </span>
-            <button
-              onClick={() => navigator.clipboard.writeText(trader.address)}
-              className="text-[15px] text-pixel-gray hover:text-pixel-white"
-            >
-              [COPY]
-            </button>
-          </div>
-        </div>
+        <span className="text-sm text-pixel-white glow-green font-mono">
+          {shortAddress(trader.address)}
+        </span>
         <button
-          onClick={onToggleWatch}
-          className={`pixel-btn text-[16px] ${
-            watching
-              ? "border-pixel-white text-pixel-white bg-pixel-white/10"
-              : "border-pixel-border text-pixel-gray hover:border-pixel-white hover:text-pixel-white"
-          }`}
+          onClick={() => navigator.clipboard.writeText(trader.address)}
+          className="text-[15px] text-pixel-gray hover:text-pixel-white"
         >
-          {watching ? "WATCHING" : "WATCH"}
+          [COPY]
         </button>
-      </div>
 
-      {/* ── Per-trader lookback window ──
-          Pills set how far back this trader's stats/curve/tables reach.
-          The choice is saved for THIS trader (persisted by the page);
-          clicking the active pill again clears it back to the global window. */}
-      {onDaysChange && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[13px] text-pixel-gray tracking-wider">LOOKBACK</span>
-          {LOOKBACK_PRESETS.map((d) => {
-            const active = days === d;
-            return (
+        {onDaysChange && (
+          <>
+            <span className="text-[13px] text-pixel-gray tracking-wider ml-2">LOOKBACK</span>
+            {LOOKBACK_PRESETS.map((d) => {
+              const active = days === d;
+              return (
+                <button
+                  key={d}
+                  onClick={() => onDaysChange(daysOverride === d ? null : d)}
+                  title={`Last ${d} days`}
+                  className={`px-2 py-1 border-2 text-[13px] font-mono tracking-wider transition-colors ${
+                    active
+                      ? daysOverride !== null
+                        ? "border-pixel-white text-pixel-white bg-pixel-white/10"
+                        : "border-pixel-gray-light text-pixel-gray-light"
+                      : "border-pixel-border text-pixel-gray hover:border-pixel-white hover:text-pixel-white"
+                  }`}
+                >
+                  {`${d}D`}
+                </button>
+              );
+            })}
+            {/* Custom non-preset override shows as its own active pill */}
+            {days > 0 && !LOOKBACK_PRESETS.includes(days) && (
               <button
-                key={d}
-                onClick={() => onDaysChange(daysOverride === d ? null : d)}
-                title={`Last ${d} days`}
-                className={`px-2 py-1 border-2 text-[13px] font-mono tracking-wider transition-colors ${
-                  active
-                    ? daysOverride !== null
-                      ? "border-pixel-white text-pixel-white bg-pixel-white/10"
-                      : "border-pixel-gray-light text-pixel-gray-light"
-                    : "border-pixel-border text-pixel-gray hover:border-pixel-white hover:text-pixel-white"
-                }`}
+                onClick={() => onDaysChange(null)}
+                title={`Custom ${days}-day window — click to reset`}
+                className="px-2 py-1 border-2 border-pixel-white text-pixel-white bg-pixel-white/10 text-[13px] font-mono tracking-wider"
               >
-                {`${d}D`}
+                {days}D
               </button>
-            );
-          })}
-          {/* Custom non-preset override shows as its own active pill */}
-          {days > 0 && !LOOKBACK_PRESETS.includes(days) && (
-            <button
-              onClick={() => onDaysChange(null)}
-              title={`Custom ${days}-day window — click to reset`}
-              className="px-2 py-1 border-2 border-pixel-white text-pixel-white bg-pixel-white/10 text-[13px] font-mono tracking-wider"
-            >
-              {days}D
-            </button>
-          )}
-          <div className="flex items-center gap-1">
+            )}
             <input
               type="text"
               inputMode="numeric"
@@ -595,17 +633,27 @@ export default function TraderProfile({
               }}
               placeholder="N"
               title="Custom lookback in days (1–30) — Enter to apply"
-              className="w-12 bg-transparent border-2 border-pixel-border px-1 py-1 text-[13px] font-mono text-pixel-white text-center placeholder:text-pixel-gray focus:border-pixel-white outline-none"
+              className="w-10 bg-transparent border-2 border-pixel-border px-1 py-1 text-[13px] font-mono text-pixel-white text-center placeholder:text-pixel-gray focus:border-pixel-white outline-none"
             />
-            <span className="text-[13px] text-pixel-gray font-mono">D</span>
-          </div>
-          <span className="text-[12px] text-pixel-gray tracking-wider">
-            {daysOverride !== null
-              ? "SAVED FOR THIS TRADER"
-              : `FOLLOWING GLOBAL${globalDays ? ` (${globalDays}D)` : ""}`}
-          </span>
-        </div>
-      )}
+            <span className="text-[12px] text-pixel-gray tracking-wider">
+              {daysOverride !== null
+                ? "SAVED"
+                : `GLOBAL${globalDays ? ` ${globalDays}D` : ""}`}
+            </span>
+          </>
+        )}
+
+        <button
+          onClick={onToggleWatch}
+          className={`pixel-btn text-[16px] py-1 ml-auto ${
+            watching
+              ? "border-pixel-white text-pixel-white bg-pixel-white/10"
+              : "border-pixel-border text-pixel-gray hover:border-pixel-white hover:text-pixel-white"
+          }`}
+        >
+          {watching ? "WATCHING" : "WATCH"}
+        </button>
+      </div>
 
       {/* ── Strat trade-filter chip ──
           Shown when the profile was opened from a strat's trader list with
@@ -687,8 +735,8 @@ export default function TraderProfile({
                 stat.tone === "bad" ? "text-red-400" :
                 "text-pixel-white glow-green";
               return (
-                <div key={stat.label} className="pixel-panel p-4 text-center">
-                  <div className="text-[14px] text-pixel-gray tracking-wider mb-2">
+                <div key={stat.label} className="pixel-panel px-3 py-2 text-center">
+                  <div className="text-[14px] text-pixel-gray tracking-wider mb-1">
                     {stat.label}
                   </div>
                   <div className={`text-sm ${valueClass}`}>
@@ -699,16 +747,14 @@ export default function TraderProfile({
             })}
           </div>
 
-          {/* ── Tabbed: Chart / Open / Closed / All ── */}
+          {/* ── Tabbed: TRADES / P&L / INFO ── */}
           <div className="pixel-panel overflow-hidden">
             {/* Tab bar */}
             <div className="flex items-center border-b-2 border-pixel-border">
               {([
-                { id: "chart" as ProfileTab, label: "P&L", count: pnlCurve.length },
-                { id: "positions" as ProfileTab, label: "POSITIONS", count: filteredPositions.length },
-                { id: "open" as ProfileTab, label: "OPEN", count: openTrades.length },
-                { id: "closed" as ProfileTab, label: "CLOSED", count: closedTrades.length },
-                { id: "all" as ProfileTab, label: "ALL", count: filteredTrades.length },
+                { id: "trades" as ProfileTab, label: "TRADES", count: filteredTrades.length },
+                { id: "pnl" as ProfileTab, label: "P&L", count: null },
+                { id: "info" as ProfileTab, label: "INFO", count: null },
               ]).map((tab) => (
                 <button
                   key={tab.id}
@@ -720,118 +766,281 @@ export default function TraderProfile({
                   }`}
                 >
                   {tab.label}
-                  <span className="ml-1.5 text-[13px] text-pixel-gray">{tab.count}</span>
+                  {tab.count !== null && (
+                    <span className="ml-1.5 text-[13px] text-pixel-gray">{tab.count}</span>
+                  )}
                 </button>
               ))}
-              {/* Selected-market chip — only shown once a market is picked
-                  (click a market name in any table below). Narrows every tab
-                  (P&L curve, OPEN/CLOSED/ALL tables) and the stats above. */}
-              {tradeQuery && (
-                <div className="ml-auto mr-2 flex items-center gap-1 min-w-0">
-                  <span
-                    className="border-2 border-pixel-border px-2 py-1 text-[13px] font-mono text-pixel-white truncate max-w-[280px]"
-                    title={tradeQuery}
-                  >
-                    {tradeQuery}
-                  </span>
-                  <button
-                    onClick={() => setTradeQuery("")}
-                    className="text-[14px] text-pixel-gray hover:text-pixel-white px-1"
-                    title="Clear market filter"
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
+              <div className="ml-auto mr-2 flex items-center gap-1.5 min-w-0">
+                {/* Selected-market chip — only shown once a market is picked
+                    (click a market name in any table below). Narrows every tab
+                    (P&L curve, trade tables) and the stats above. */}
+                {tradeQuery && (
+                  <>
+                    <span
+                      className="border-2 border-pixel-border px-2 py-1 text-[13px] font-mono text-pixel-white truncate max-w-[280px]"
+                      title={tradeQuery}
+                    >
+                      {tradeQuery}
+                    </span>
+                    <button
+                      onClick={() => setTradeQuery("")}
+                      className="text-[14px] text-pixel-gray hover:text-pixel-white px-1"
+                      title="Clear market filter"
+                    >
+                      ✕
+                    </button>
+                  </>
+                )}
+                <TradeFilterToggle
+                  open={showFilters}
+                  onToggle={() => setShowFilters((s) => !s)}
+                  count={bar.count + (categoryFilter ? 1 : 0)}
+                />
+              </div>
             </div>
 
+            {/* The tape's own FILTERS bar — narrows every tab AND the stats
+                above, same as the search/category filters do. */}
+            <TradeFilterBar
+              bar={bar}
+              open={showFilters}
+              embedded
+              category={categoryFilter}
+              onCategoryChange={onCategoryChange}
+            />
+
             {/* Tab content */}
-            {profileTab === "positions" ? (
-              /* ── Current open positions (data-api /positions) ── */
-              sortedPositions.length > 0 ? (
-                <div className="max-h-[500px] overflow-y-auto overflow-x-auto">
-                  <table className="pixel-table" style={{ tableLayout: "fixed", width: "100%", minWidth: "700px" }}>
-                    <colgroup>
-                      <col style={{ width: "34%" }} />
-                      <col style={{ width: "70px" }} />
-                      <col style={{ width: "80px" }} />
-                      <col style={{ width: "70px" }} />
-                      <col style={{ width: "70px" }} />
-                      <col style={{ width: "80px" }} />
-                      <col style={{ width: "85px" }} />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th className={`sortable ${posSort === "market" ? "sorted" : ""}`} onClick={() => handlePosSort("market")}>
-                          MARKET <SortArrow active={posSort === "market"} dir={posSortDir} />
-                        </th>
-                        <th>OUTCOME</th>
-                        <th className={`sortable text-right ${posSort === "size" ? "sorted" : ""}`} onClick={() => handlePosSort("size")}>
-                          SHARES <SortArrow active={posSort === "size"} dir={posSortDir} />
-                        </th>
-                        <th className={`sortable text-right ${posSort === "avgPrice" ? "sorted" : ""}`} onClick={() => handlePosSort("avgPrice")}>
-                          AVG <SortArrow active={posSort === "avgPrice"} dir={posSortDir} />
-                        </th>
-                        <th className={`sortable text-right ${posSort === "currentPrice" ? "sorted" : ""}`} onClick={() => handlePosSort("currentPrice")}>
-                          NOW <SortArrow active={posSort === "currentPrice"} dir={posSortDir} />
-                        </th>
-                        <th className="text-right">VALUE</th>
-                        <th className={`sortable text-right ${posSort === "pnlUsd" ? "sorted" : ""}`} onClick={() => handlePosSort("pnlUsd")}>
-                          P&L <SortArrow active={posSort === "pnlUsd"} dir={posSortDir} />
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedPositions.slice(0, 300).map((p, i) => {
-                        const profit = p.pnlUsd > 0;
-                        const flat = p.pnlUsd === 0;
-                        return (
-                          <tr key={`${p.conditionId}-${p.outcome}-${i}`}>
-                            <td
-                              className={`truncate cursor-pointer hover:text-green-400 ${
-                                tradeQuery === p.market ? "text-green-400" : "text-pixel-white"
-                              }`}
-                              title={`${p.market} — click to filter trades to this market`}
-                              onClick={() =>
-                                setTradeQuery((q) => (q === p.market ? "" : p.market))
-                              }
-                            >
-                              {p.market}
-                            </td>
-                            <td>
-                              <span className="pixel-badge border-pixel-gray-light text-pixel-gray-light">
-                                {p.outcome || "—"}{p.redeemable ? " · RESOLVED" : ""}
-                              </span>
-                            </td>
-                            <td className="num text-right text-pixel-white font-mono">
-                              {p.size.toFixed(0)}
-                            </td>
-                            <td className="num text-right text-pixel-gray-light font-mono">
-                              {Math.round(p.avgPrice * 100)}c
-                            </td>
-                            <td className="num text-right text-pixel-white font-mono">
-                              {Math.round(p.currentPrice * 100)}c
-                            </td>
-                            <td className="num text-right text-pixel-white font-mono">
-                              ${p.value.toFixed(2)}
-                            </td>
-                            <td className={`num text-right font-mono ${flat ? "text-pixel-gray-light" : profit ? "text-green-400" : "text-red-400"}`}>
-                              {`${p.pnlUsd >= 0 ? "+" : ""}$${p.pnlUsd.toFixed(2)}`}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+            {profileTab === "trades" ? (
+              <>
+                {/* Which slice of the flow — the old top-level tabs, now a
+                    view switch inside TRADES. */}
+                <div className="flex items-center gap-1.5 flex-wrap px-3 py-2 border-b-2 border-pixel-border">
+                  {([
+                    { id: "all" as TradeView, label: "ALL", count: filteredTrades.length },
+                    { id: "open" as TradeView, label: "OPEN", count: openTrades.length },
+                    { id: "closed" as TradeView, label: "CLOSED", count: closedTrades.length },
+                    { id: "positions" as TradeView, label: "POSITIONS", count: filteredPositions.length },
+                  ]).map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => setTradeView(v.id)}
+                      className={`pixel-btn text-[13px] px-2 py-0.5 font-mono transition-colors ${
+                        tradeView === v.id
+                          ? "border-green-400 text-green-400 bg-green-400/10"
+                          : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+                      }`}
+                    >
+                      {v.label}
+                      <span className="ml-1.5 text-[12px] opacity-70">{v.count}</span>
+                    </button>
+                  ))}
+                  {filterActive && (
+                    <span className="ml-auto text-[12px] text-pixel-gray font-mono tracking-wider">
+                      {`${filteredTrades.length}/${tradesInWindow.length} TRADES MATCH`}
+                    </span>
+                  )}
                 </div>
-              ) : (
-                <div className="p-8 text-center">
-                  <div className="text-[15px] text-pixel-gray">
-                    {filterActive ? "NO MATCHING POSITIONS" : "NO OPEN POSITIONS"}
+                {tradeView === "positions" ? (
+                /* ── Current open positions (data-api /positions) ── */
+                sortedPositions.length > 0 ? (
+                  <div className="max-h-[500px] overflow-y-auto overflow-x-auto">
+                    <table className="pixel-table" style={{ tableLayout: "fixed", width: "100%", minWidth: "700px" }}>
+                      <colgroup>
+                        <col style={{ width: "34%" }} />
+                        <col style={{ width: "70px" }} />
+                        <col style={{ width: "80px" }} />
+                        <col style={{ width: "70px" }} />
+                        <col style={{ width: "70px" }} />
+                        <col style={{ width: "80px" }} />
+                        <col style={{ width: "85px" }} />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th className={`sortable ${posSort === "market" ? "sorted" : ""}`} onClick={() => handlePosSort("market")}>
+                            MARKET <SortArrow active={posSort === "market"} dir={posSortDir} />
+                          </th>
+                          <th>OUTCOME</th>
+                          <th className={`sortable text-right ${posSort === "size" ? "sorted" : ""}`} onClick={() => handlePosSort("size")}>
+                            SHARES <SortArrow active={posSort === "size"} dir={posSortDir} />
+                          </th>
+                          <th className={`sortable text-right ${posSort === "avgPrice" ? "sorted" : ""}`} onClick={() => handlePosSort("avgPrice")}>
+                            AVG <SortArrow active={posSort === "avgPrice"} dir={posSortDir} />
+                          </th>
+                          <th className={`sortable text-right ${posSort === "currentPrice" ? "sorted" : ""}`} onClick={() => handlePosSort("currentPrice")}>
+                            NOW <SortArrow active={posSort === "currentPrice"} dir={posSortDir} />
+                          </th>
+                          <th className="text-right">VALUE</th>
+                          <th className={`sortable text-right ${posSort === "pnlUsd" ? "sorted" : ""}`} onClick={() => handlePosSort("pnlUsd")}>
+                            P&L <SortArrow active={posSort === "pnlUsd"} dir={posSortDir} />
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedPositions.slice(0, 300).map((p, i) => {
+                          const profit = p.pnlUsd > 0;
+                          const flat = p.pnlUsd === 0;
+                          return (
+                            <tr key={`${p.conditionId}-${p.outcome}-${i}`}>
+                              <td
+                                className={`truncate cursor-pointer hover:text-green-400 ${
+                                  tradeQuery === p.market ? "text-green-400" : "text-pixel-white"
+                                }`}
+                                title={`${p.market} — click to filter trades to this market`}
+                                onClick={() =>
+                                  setTradeQuery((q) => (q === p.market ? "" : p.market))
+                                }
+                              >
+                                {p.market}
+                              </td>
+                              <td>
+                                <span className="pixel-badge border-pixel-gray-light text-pixel-gray-light">
+                                  {p.outcome || "—"}{p.redeemable ? " · RESOLVED" : ""}
+                                </span>
+                              </td>
+                              <td className="num text-right text-pixel-white font-mono">
+                                {p.size.toFixed(0)}
+                              </td>
+                              <td className="num text-right text-pixel-gray-light font-mono">
+                                {Math.round(p.avgPrice * 100)}¢
+                              </td>
+                              <td className="num text-right text-pixel-white font-mono">
+                                {Math.round(p.currentPrice * 100)}¢
+                              </td>
+                              <td className="num text-right text-pixel-white font-mono">
+                                ${p.value.toFixed(2)}
+                              </td>
+                              <td className={`num text-right font-mono ${flat ? "text-pixel-gray-light" : profit ? "text-green-400" : "text-red-400"}`}>
+                                {`${p.pnlUsd >= 0 ? "+" : ""}$${p.pnlUsd.toFixed(2)}`}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                </div>
-              )
-            ) : profileTab === "chart" ? (
+                ) : (
+                  <div className="p-8 text-center">
+                    <div className="text-[15px] text-pixel-gray">
+                      {filterActive ? "NO MATCHING POSITIONS" : "NO OPEN POSITIONS"}
+                    </div>
+                  </div>
+                )
+                ) : (
+                  /* ── Trade tables for open / closed / all ── */
+                sortedTrades.length > 0 ? (
+                  <div className="max-h-[500px] overflow-y-auto overflow-x-auto">
+                    <table className="pixel-table" style={{ tableLayout: "fixed", width: "100%", minWidth: "700px" }}>
+                      <colgroup>
+                        <col style={{ width: "65px" }} />
+                        <col style={{ width: "32%" }} />
+                        <col style={{ width: "42px" }} />
+                        <col style={{ width: "60px" }} />
+                        <col style={{ width: "80px" }} />
+                        <col style={{ width: "60px" }} />
+                        <col style={{ width: "80px" }} />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th className={`sortable ${tradeSort === "timestamp" ? "sorted" : ""}`} onClick={() => handleTradeSort("timestamp")}>
+                            TIME <SortArrow active={tradeSort === "timestamp"} dir={tradeSortDir} />
+                          </th>
+                          <th className={`sortable ${tradeSort === "market" ? "sorted" : ""}`} onClick={() => handleTradeSort("market")}>
+                            MARKET <SortArrow active={tradeSort === "market"} dir={tradeSortDir} />
+                          </th>
+                          <th>SIDE</th>
+                          <th className={`sortable text-right ${tradeSort === "price" ? "sorted" : ""}`} onClick={() => handleTradeSort("price")}>
+                            PRICE <SortArrow active={tradeSort === "price"} dir={tradeSortDir} />
+                          </th>
+                          <th className={`sortable text-right ${tradeSort === "size" ? "sorted" : ""}`} onClick={() => handleTradeSort("size")}>
+                            SIZE <SortArrow active={tradeSort === "size"} dir={tradeSortDir} />
+                          </th>
+                          <th className="text-right">ENTRY</th>
+                          <th className={`sortable text-right ${tradeSort === "pnl" ? "sorted" : ""}`} onClick={() => handleTradeSort("pnl")}>
+                            P&L <SortArrow active={tradeSort === "pnl"} dir={tradeSortDir} />
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedTrades.slice(0, 200).map((trade, i) => {
+                          const isEntering = trade.side === "BUY";
+                          const showRealized = !isEntering && trade.hasBasis;
+                          const isProfit = showRealized && trade.realized > 0;
+                          const sideColor = isEntering
+                            ? "border-pixel-gray-light text-pixel-gray-light"
+                            : !showRealized
+                            ? "border-pixel-gray text-pixel-gray"
+                            : isProfit
+                            ? "border-green-400 text-green-400"
+                            : "border-red-400 text-red-400";
+                          const pnlColor = !showRealized
+                            ? "text-pixel-gray-light"
+                            : isProfit
+                            ? "text-green-400"
+                            : "text-red-400";
+                          const hasBuyInfo = !isEntering && trade.buyPrice !== undefined;
+                          return (
+                            <tr key={`${trade.id}-${i}`}>
+                              <td className="text-pixel-gray font-mono">
+                                {timeAgo(trade.timestamp)}
+                              </td>
+                              <td
+                                className={`truncate cursor-pointer hover:text-green-400 ${
+                                  tradeQuery === trade.market ? "text-green-400" : "text-pixel-white"
+                                }`}
+                                title={`${trade.market} — click to filter to this market`}
+                                onClick={() =>
+                                  setTradeQuery((q) => (q === trade.market ? "" : trade.market))
+                                }
+                              >
+                                {trade.market}
+                              </td>
+                              <td>
+                                <span className={`pixel-badge ${sideColor}`}>
+                                  {trade.side}
+                                </span>
+                              </td>
+                              <td className="num text-right text-pixel-white font-mono">
+                                {Math.round(trade.price * 100)}¢
+                              </td>
+                              <td className="num text-right text-pixel-white font-mono">
+                                ${(trade.size * trade.price).toFixed(2)}
+                              </td>
+                              <td className="num text-right font-mono text-pixel-gray-light">
+                                {hasBuyInfo ? `${Math.round(trade.buyPrice! * 100)}¢` : isEntering ? "" : "\u2014"}
+                              </td>
+                              <td
+                                className={`num text-right font-mono ${pnlColor}`}
+                                title={!showRealized && !isEntering ? "no cost basis in trade history" : undefined}
+                              >
+                                {isEntering
+                                  ? ""
+                                  : !showRealized
+                                  ? "\u2014"
+                                  : `${trade.realized >= 0 ? "+" : ""}$${trade.realized.toFixed(2)}`}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-8 text-center">
+                    <div className="text-[15px] text-pixel-gray">
+                      {filterActive
+                        ? "NO TRADES MATCH THESE FILTERS"
+                        : tradeView === "open"
+                        ? "NO OPEN TRADES"
+                        : tradeView === "closed"
+                        ? "NO CLOSED TRADES"
+                        : "NO TRADES"}
+                    </div>
+                  </div>
+                  )
+                )}
+              </>
+            ) : profileTab === "pnl" ? (
               <div className="p-0">
                 {pnlCurve.length > 0 ? (
                   <PnlChart points={pnlCurve} dayLabel={dayLabel} tradesInWindow={filteredTrades} filtered={filterActive} />
@@ -853,97 +1062,256 @@ export default function TraderProfile({
                 )}
               </div>
             ) : (
-              /* ── Trade tables for open / closed / all ── */
-              sortedTrades.length > 0 ? (
-                <div className="max-h-[500px] overflow-y-auto overflow-x-auto">
-                  <table className="pixel-table" style={{ tableLayout: "fixed", width: "100%", minWidth: "700px" }}>
+              /* ── INFO — who this trader is, and how the numbers above
+                 were built. Everything here honors the same filters. ── */
+              <div className="p-4 space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {/* Identity */}
+                  <div className="border-2 border-pixel-border p-3 space-y-2">
+                    <div className="text-[13px] text-pixel-gray tracking-wider">ADDRESS</div>
+                    <div className="font-mono text-[13px] text-pixel-white break-all">{trader.address}</div>
+                    <div className="flex items-center gap-3 flex-wrap text-[13px] font-mono">
+                      <button
+                        onClick={() => navigator.clipboard.writeText(trader.address)}
+                        className="text-pixel-gray hover:text-pixel-white"
+                      >
+                        [COPY]
+                      </button>
+                      <a
+                        href={`https://polymarket.com/profile/${trader.address}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-pixel-gray hover:text-green-400"
+                      >
+                        [POLYMARKET ↗]
+                      </a>
+                      <a
+                        href={`https://polygonscan.com/address/${trader.address}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-pixel-gray hover:text-green-400"
+                      >
+                        [POLYGONSCAN ↗]
+                      </a>
+                      <span className={watching ? "text-pixel-white" : "text-pixel-gray"}>
+                        {watching ? "· ON WATCHLIST" : "· NOT WATCHED"}
+                      </span>
+                    </div>
+                  </div>
+                  {/* Where the data came from — a window + sync provenance
+                      card, so a thin-looking profile is explainable. */}
+                  <div className="border-2 border-pixel-border p-3 space-y-1.5 font-mono text-[13px]">
+                    {([
+                      ["WINDOW", `${dayLabel}${daysOverride !== null ? " (PINNED)" : ""}`],
+                      ["TRADES SYNCED", `${trades.length} · ${filteredTrades.length} AFTER FILTERS`],
+                      ["FIRST TRADE", info.firstTs ? new Date(info.firstTs).toLocaleString() : "—"],
+                      ["LAST TRADE", info.lastTs ? timeAgo(info.lastTs).toUpperCase() : "—"],
+                      ["MARKETS TRADED", `${info.markets}`],
+                      ["FEED", tradesError ? `SYNC FAILED — ${tradesError}` : "OK"],
+                    ] as const).map(([k, v]) => (
+                      <div key={k} className="flex items-baseline gap-2">
+                        <span className="text-pixel-gray tracking-wider w-[130px] shrink-0">{k}</span>
+                        <span className={k === "FEED" && tradesError ? "text-red-400" : "text-pixel-white"}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Flow shape — buy/sell split and exposure, the things the
+                    P&L tab can't tell you. */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {([
+                    { label: "BUYS", value: `${info.buyCount}`, sub: formatVolume(info.buyNotional) },
+                    { label: "SELLS", value: `${info.sellCount}`, sub: formatVolume(info.sellNotional) },
+                    { label: "AVG SIZE", value: formatVolume(info.avgSize), sub: "PER FILL" },
+                    { label: "WINS / LOSSES", value: `${stats.wins} / ${stats.losses}`, sub: "SCORED SELLS" },
+                    { label: "OPEN VALUE", value: formatVolume(info.openValue), sub: `${filteredPositions.length} POSITIONS` },
+                    { label: "OPEN P&L", value: formatPnl(info.openPnl), sub: "UNREALIZED" },
+                    { label: "RESOLVED", value: `${info.resolved}`, sub: "REDEEMABLE" },
+                    { label: "TURNOVER", value: formatVolume(info.buyNotional + info.sellNotional), sub: dayLabel },
+                  ] as const).map((c) => (
+                    <div key={c.label} className="border-2 border-pixel-border p-3">
+                      <div className="text-[13px] text-pixel-gray tracking-wider mb-1">{c.label}</div>
+                      <div
+                        className={`text-[15px] font-mono ${
+                          c.label === "OPEN P&L"
+                            ? info.openPnl > 0
+                              ? "text-green-400"
+                              : info.openPnl < 0
+                              ? "text-red-400"
+                              : "text-pixel-white"
+                            : "text-pixel-white"
+                        }`}
+                      >
+                        {c.value}
+                      </div>
+                      <div className="text-[12px] text-pixel-gray tracking-wider mt-0.5">{c.sub}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* What they actually trade — category mix by fill count.
+                    Click a bucket to filter the whole profile to it. */}
+                {info.mix.length > 0 && (
+                  <div className="border-2 border-pixel-border p-3">
+                    <div className="text-[13px] text-pixel-gray tracking-wider mb-2">MARKET MIX (BY FILLS)</div>
+                    <div className="space-y-1">
+                      {info.mix.map((m) => {
+                        const pct = Math.round((m.count / filteredTrades.length) * 100);
+                        const clickable = !!m.slug && !!onCategoryChange;
+                        return (
+                          <button
+                            key={m.label}
+                            disabled={!clickable}
+                            onClick={() => onCategoryChange?.(categoryFilter === m.slug ? "" : m.slug)}
+                            title={clickable ? `Filter this profile to ${m.label}` : undefined}
+                            className={`w-full flex items-center gap-2 font-mono text-[13px] group ${
+                              clickable ? "cursor-pointer" : "cursor-default"
+                            }`}
+                          >
+                            <span
+                              className={`w-[90px] shrink-0 text-left tracking-wider ${
+                                categoryFilter && categoryFilter === m.slug ? "text-green-400" : "text-pixel-gray-light"
+                              } ${clickable ? "group-hover:text-green-400" : ""}`}
+                            >
+                              {m.label}
+                            </span>
+                            <span className="flex-1 h-2 bg-pixel-border/40">
+                              <span
+                                className={`block h-full ${
+                                  categoryFilter && categoryFilter === m.slug ? "bg-green-400" : "bg-pixel-gray-light"
+                                }`}
+                                style={{ width: `${Math.max(2, pct)}%` }}
+                              />
+                            </span>
+                            <span className="w-[76px] shrink-0 text-right text-pixel-white">
+                              {m.count} · {pct}%
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="text-[12px] text-pixel-gray mt-2">
+                      BUCKETS OVERLAP — A TITLE CAN MATCH MORE THAN ONE
+                    </div>
+                  </div>
+                )}
+
+                {/* Exactly what is narrowing this page right now. */}
+                <div className="border-2 border-pixel-border p-3 font-mono text-[13px] space-y-1">
+                  <div className="text-[13px] text-pixel-gray tracking-wider mb-1">ACTIVE FILTERS</div>
+                  {filterActive ? (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {searchFilter.trim() && (
+                        <span className="pixel-badge border-pixel-gray-light text-pixel-gray-light">SEARCH “{searchFilter.trim()}”</span>
+                      )}
+                      {tradeQuery && (
+                        <span className="pixel-badge border-pixel-gray-light text-pixel-gray-light truncate max-w-[320px]">MARKET “{tradeQuery}”</span>
+                      )}
+                      {categoryFilter && (
+                        <span className="pixel-badge border-pixel-gray-light text-pixel-gray-light">{categoryFilter.toUpperCase()}</span>
+                      )}
+                      {bar.active && (
+                        <span className="pixel-badge border-green-400/60 text-green-400">{bar.describe()}</span>
+                      )}
+                      {stratFilters && (
+                        <span className="pixel-badge border-green-400/60 text-green-400">
+                          STRAT{stratFilterName ? ` — ${stratFilterName.toUpperCase()}` : ""}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-pixel-gray">NONE — SHOWING THIS TRADER&apos;S FULL {dayLabel} FLOW</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── P&L tab extras: activity, extremes, per-market results ── */}
+          {profileTab === "pnl" && (
+            <>
+            {/* Daily Activity */}
+            {dailyActivity.length > 0 && (
+              <DailyActivityChart data={dailyActivity} />
+            )}
+
+            {/* Biggest Wins/Losses */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="pixel-panel p-5 text-center">
+                <div className="text-[15px] text-pixel-gray tracking-wider mb-2">BIGGEST WIN</div>
+                <div className="text-base text-green-400">
+                  {formatPnl(stats.biggestWin)}
+                </div>
+              </div>
+              <div className="pixel-panel-red p-5 text-center">
+                <div className="text-[15px] text-pixel-gray tracking-wider mb-2">BIGGEST LOSS</div>
+                <div className="text-base text-red-400">
+                  {formatPnl(stats.biggestLoss)}
+                </div>
+              </div>
+            </div>
+
+            {/* Closed/Realized Results in Window */}
+            {closedInWindow.length > 0 && (
+              <div className="pixel-panel overflow-hidden">
+                <div className="px-5 py-4 border-b-2 border-pixel-border flex items-center justify-between">
+                  <span className="text-[16px] text-pixel-gray-light tracking-wider">
+                    {`${dayLabel} CLOSED RESULTS (PER MARKET)`}
+                  </span>
+                  <span className="text-[15px] text-pixel-gray">{closedInWindow.length} MARKETS</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="pixel-table" style={{ tableLayout: "fixed", width: "100%", minWidth: "640px" }}>
                     <colgroup>
-                      <col style={{ width: "65px" }} />
-                      <col style={{ width: "32%" }} />
-                      <col style={{ width: "42px" }} />
-                      <col style={{ width: "60px" }} />
-                      <col style={{ width: "80px" }} />
-                      <col style={{ width: "60px" }} />
-                      <col style={{ width: "80px" }} />
+                      <col style={{ width: "44%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "10%" }} />
+                      <col style={{ width: "22%" }} />
                     </colgroup>
                     <thead>
                       <tr>
-                        <th className={`sortable ${tradeSort === "timestamp" ? "sorted" : ""}`} onClick={() => handleTradeSort("timestamp")}>
-                          TIME <SortArrow active={tradeSort === "timestamp"} dir={tradeSortDir} />
-                        </th>
-                        <th className={`sortable ${tradeSort === "market" ? "sorted" : ""}`} onClick={() => handleTradeSort("market")}>
-                          MARKET <SortArrow active={tradeSort === "market"} dir={tradeSortDir} />
-                        </th>
-                        <th>SIDE</th>
-                        <th className={`sortable text-right ${tradeSort === "price" ? "sorted" : ""}`} onClick={() => handleTradeSort("price")}>
-                          PRICE <SortArrow active={tradeSort === "price"} dir={tradeSortDir} />
-                        </th>
-                        <th className={`sortable text-right ${tradeSort === "size" ? "sorted" : ""}`} onClick={() => handleTradeSort("size")}>
-                          SIZE <SortArrow active={tradeSort === "size"} dir={tradeSortDir} />
-                        </th>
-                        <th className="text-right">ENTRY</th>
-                        <th className={`sortable text-right ${tradeSort === "pnl" ? "sorted" : ""}`} onClick={() => handleTradeSort("pnl")}>
-                          P&L <SortArrow active={tradeSort === "pnl"} dir={tradeSortDir} />
-                        </th>
+                        <th>MARKET</th>
+                        <th className="text-right">BOUGHT</th>
+                        <th className="text-right">SOLD</th>
+                        <th className="text-right">TRADES</th>
+                        <th className="text-right">REALIZED</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedTrades.slice(0, 200).map((trade, i) => {
-                        const isEntering = trade.side === "BUY";
-                        const showRealized = !isEntering && trade.hasBasis;
-                        const isProfit = showRealized && trade.realized > 0;
-                        const sideColor = isEntering
-                          ? "border-pixel-gray-light text-pixel-gray-light"
-                          : !showRealized
-                          ? "border-pixel-gray text-pixel-gray"
-                          : isProfit
-                          ? "border-green-400 text-green-400"
-                          : "border-red-400 text-red-400";
-                        const pnlColor = !showRealized
+                      {closedInWindow.map((m) => {
+                        const isOpen = m.realized === 0;
+                        const profit = !isOpen && m.realized > 0;
+                        const pnlColor = isOpen
                           ? "text-pixel-gray-light"
-                          : isProfit
+                          : profit
                           ? "text-green-400"
                           : "text-red-400";
-                        const hasBuyInfo = !isEntering && trade.buyPrice !== undefined;
                         return (
-                          <tr key={`${trade.id}-${i}`}>
-                            <td className="text-pixel-gray font-mono">
-                              {timeAgo(trade.timestamp)}
-                            </td>
+                          <tr key={m.conditionId}>
                             <td
                               className={`truncate cursor-pointer hover:text-green-400 ${
-                                tradeQuery === trade.market ? "text-green-400" : "text-pixel-white"
+                                m.market && tradeQuery === m.market ? "text-green-400" : "text-pixel-white"
                               }`}
-                              title={`${trade.market} — click to filter to this market`}
+                              title={`${m.market || m.conditionId} — click to filter to this market`}
                               onClick={() =>
-                                setTradeQuery((q) => (q === trade.market ? "" : trade.market))
+                                m.market && setTradeQuery((q) => (q === m.market ? "" : m.market))
                               }
                             >
-                              {trade.market}
+                              {m.market || m.conditionId.slice(0, 12)}
                             </td>
-                            <td>
-                              <span className={`pixel-badge ${sideColor}`}>
-                                {trade.side}
-                              </span>
+                            <td className="num text-right text-pixel-gray-light font-mono">
+                              {m.bought.toFixed(0)}
                             </td>
-                            <td className="num text-right text-pixel-white font-mono">
-                              {Math.round(trade.price * 100)}c
+                            <td className="num text-right text-pixel-gray-light font-mono">
+                              {m.sold.toFixed(0)}
                             </td>
-                            <td className="num text-right text-pixel-white font-mono">
-                              ${(trade.size * trade.price).toFixed(2)}
+                            <td className="num text-right text-pixel-gray-light font-mono">
+                              {m.tradeCount}
                             </td>
-                            <td className="num text-right font-mono text-pixel-gray-light">
-                              {hasBuyInfo ? `${Math.round(trade.buyPrice! * 100)}c` : isEntering ? "" : "\u2014"}
-                            </td>
-                            <td
-                              className={`num text-right font-mono ${pnlColor}`}
-                              title={!showRealized && !isEntering ? "no cost basis in trade history" : undefined}
-                            >
-                              {isEntering
-                                ? ""
-                                : !showRealized
-                                ? "\u2014"
-                                : `${trade.realized >= 0 ? "+" : ""}$${trade.realized.toFixed(2)}`}
+                            <td className={`num text-right font-mono ${pnlColor}`}>
+                              {isOpen ? "—" : `${profit ? "+" : ""}$${m.realized.toFixed(2)}`}
                             </td>
                           </tr>
                         );
@@ -951,105 +1319,9 @@ export default function TraderProfile({
                     </tbody>
                   </table>
                 </div>
-              ) : (
-                <div className="p-8 text-center">
-                  <div className="text-[15px] text-pixel-gray">
-                    {profileTab === "open" ? "NO OPEN TRADES" : profileTab === "closed" ? "NO CLOSED TRADES" : "NO TRADES"}
-                  </div>
-                </div>
-              )
+              </div>
             )}
-          </div>
-
-          {/* Daily Activity */}
-          {dailyActivity.length > 0 && (
-            <DailyActivityChart data={dailyActivity} />
-          )}
-
-          {/* Biggest Wins/Losses */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="pixel-panel p-5 text-center">
-              <div className="text-[15px] text-pixel-gray tracking-wider mb-2">BIGGEST WIN</div>
-              <div className="text-base text-green-400">
-                {formatPnl(stats.biggestWin)}
-              </div>
-            </div>
-            <div className="pixel-panel-red p-5 text-center">
-              <div className="text-[15px] text-pixel-gray tracking-wider mb-2">BIGGEST LOSS</div>
-              <div className="text-base text-red-400">
-                {formatPnl(stats.biggestLoss)}
-              </div>
-            </div>
-          </div>
-
-          {/* Closed/Realized Results in Window */}
-          {closedInWindow.length > 0 && (
-            <div className="pixel-panel overflow-hidden">
-              <div className="px-5 py-4 border-b-2 border-pixel-border flex items-center justify-between">
-                <span className="text-[16px] text-pixel-gray-light tracking-wider">
-                  {`${dayLabel} CLOSED RESULTS (PER MARKET)`}
-                </span>
-                <span className="text-[15px] text-pixel-gray">{closedInWindow.length} MARKETS</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="pixel-table" style={{ tableLayout: "fixed", width: "100%", minWidth: "640px" }}>
-                  <colgroup>
-                    <col style={{ width: "44%" }} />
-                    <col style={{ width: "12%" }} />
-                    <col style={{ width: "12%" }} />
-                    <col style={{ width: "10%" }} />
-                    <col style={{ width: "22%" }} />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th>MARKET</th>
-                      <th className="text-right">BOUGHT</th>
-                      <th className="text-right">SOLD</th>
-                      <th className="text-right">TRADES</th>
-                      <th className="text-right">REALIZED</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {closedInWindow.map((m) => {
-                      const isOpen = m.realized === 0;
-                      const profit = !isOpen && m.realized > 0;
-                      const pnlColor = isOpen
-                        ? "text-pixel-gray-light"
-                        : profit
-                        ? "text-green-400"
-                        : "text-red-400";
-                      return (
-                        <tr key={m.conditionId}>
-                          <td
-                            className={`truncate cursor-pointer hover:text-green-400 ${
-                              m.market && tradeQuery === m.market ? "text-green-400" : "text-pixel-white"
-                            }`}
-                            title={`${m.market || m.conditionId} — click to filter to this market`}
-                            onClick={() =>
-                              m.market && setTradeQuery((q) => (q === m.market ? "" : m.market))
-                            }
-                          >
-                            {m.market || m.conditionId.slice(0, 12)}
-                          </td>
-                          <td className="num text-right text-pixel-gray-light font-mono">
-                            {m.bought.toFixed(0)}
-                          </td>
-                          <td className="num text-right text-pixel-gray-light font-mono">
-                            {m.sold.toFixed(0)}
-                          </td>
-                          <td className="num text-right text-pixel-gray-light font-mono">
-                            {m.tradeCount}
-                          </td>
-                          <td className={`num text-right font-mono ${pnlColor}`}>
-                            {isOpen ? "—" : `${profit ? "+" : ""}$${m.realized.toFixed(2)}`}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            </>
           )}
 
           {tradesInWindow.length === 0 && positions.length === 0 && (

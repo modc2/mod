@@ -5,7 +5,7 @@ import { useFilters, useFilterParams } from "../context/FiltersContext";
 import NavMenu from "./NavMenu";
 import HeaderStratPicker from "./HeaderStratPicker";
 import WalletChip from "./WalletChip";
-import ThemeToggle from "./ThemeToggle";
+import ThemePicker from "./ThemePicker";
 
 // Lower-cased 40-hex-char Ethereum address pattern — what Polymarket's trader
 // URLs accept. Matching here lets the search box double as a "jump to trader"
@@ -36,7 +36,25 @@ export default function TopBar({
 
   const searchBox = (
     <div className="relative w-full">
-      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[13px] text-pixel-gray pointer-events-none">/</span>
+      {/* A magnifier, not the old bare `/` glyph — at mono 14px the slash sat
+          one pixel off the placeholder and read as a rendering artifact
+          rather than as "this is a search box". */}
+      <svg
+        aria-hidden
+        className={`absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${
+          isAddrSearch ? "text-green-400" : "text-pixel-gray"
+        }`}
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      >
+        <circle cx="10.5" cy="10.5" r="6.5" />
+        <path d="M15.5 15.5 21 21" />
+      </svg>
       <input
         type="text"
         value={search}
@@ -45,9 +63,13 @@ export default function TopBar({
           if (e.key === "Enter" && isAddrSearch) goToTrader();
         }}
         placeholder={isAddrSearch ? "press ENTER to view this trader →" : searchPlaceholder}
-        className={`pixel-input-sm w-full pl-6 pr-20 font-mono text-[14px] ${
+        className={`pixel-input-sm w-full pr-20 font-mono text-[14px] ${
           isAddrSearch ? "border-green-400 text-green-400" : ""
         }`}
+        // `.pixel-input-sm` sets the `padding` shorthand, which beats a
+        // `pl-*` utility of equal specificity — the reason the old glyph and
+        // the placeholder both started at 10px and collided.
+        style={{ paddingLeft: 34 }}
       />
       {isAddrSearch && (
         <button
@@ -85,12 +107,12 @@ export default function TopBar({
           <HeaderStratPicker />
           <NavMenu />
         </div>
-        {/* ── Theme toggle + sign in — top-right corner. The toggle yields
+        {/* ── Theme picker + sign in — top-right corner. The picker yields
             on tiny screens so the wallet chip never gets shoved under the
             left cluster. ── */}
         <div className="flex items-center gap-2">
           <div className="hidden min-[480px]:block">
-            <ThemeToggle />
+            <ThemePicker />
           </div>
           <WalletChip />
         </div>

@@ -487,7 +487,14 @@ def sales_points(since: str = '2025-01-01', until: Optional[str] = None,
                  property_type: str = 'residential', limit: int = 12000,
                  min_price: Optional[int] = None, max_price: Optional[int] = None,
                  ttl: float = 2 * S.DAY) -> dict:
-    """Individual recorded sales as map points, newest first."""
+    """
+    Individual recorded sales as map points, newest first.
+
+    A window this wide holds more sales than a browser can draw (52k in 2025
+    alone, 101k from 2024), so the result is capped. ``meta`` reports the full
+    matching count next to what was returned: a map that quietly shows a
+    quarter of the sales reads as if that were all of them.
+    """
     key = f'points-{since}-{until}-{property_type}-{limit}-{min_price}-{max_price}'
 
     def fetch():
@@ -496,13 +503,21 @@ def sales_points(since: str = '2025-01-01', until: Optional[str] = None,
             extra += f' and sale_price >= {int(min_price)}'
         if max_price:
             extra += f' and sale_price <= {int(max_price)}'
+        where = _where('latitude', since, until, property_type, extra)
+        capped_at = min(int(limit), 50000)
         rows = S.soql(
             DOMAIN, DATASET,
             select=('address,neighborhood,borough,zip_code,sale_price,sale_date,'
                     'building_class_category,gross_square_feet,year_built,'
                     'residential_units,total_units,latitude,longitude'),
-            where=_where('latitude', since, until, property_type, extra),
-            order='sale_date DESC', limit=min(int(limit), 50000))
+            where=where, order='sale_date DESC', limit=capped_at)
+
+        total = None
+        try:
+            agg = S.soql(DOMAIN, DATASET, select='count(1) as n', where=where)
+            total = int(_num((agg or [{}])[0].get('n')) or 0)
+        except Exception:
+            pass       # the points matter more than the tally
 
         feats = []
         for r in rows:
@@ -529,7 +544,23 @@ def sales_points(since: str = '2025-01-01', until: Optional[str] = None,
                 },
                 'geometry': {'type': 'Point', 'coordinates': [round(lng, 5), round(lat, 5)]},
             })
-        return {'type': 'FeatureCollection', 'features': feats}
+        prices_ = sorted(f['properties']['price'] for f in feats)
+        return {
+            'type': 'FeatureCollection',
+            'features': feats,
+            'meta': {
+                'window': {'since': since, 'until': until,
+                           'property_type': property_type},
+                'matching_sales': total,
+                'returned': len(feats),
+                'limit': capped_at,
+                'truncated': bool(total and total > len(feats)),
+                'min_price': prices_[0] if prices_ else None,
+                'median_price': prices_[len(prices_) // 2] if prices_ else None,
+                'max_price': prices_[-1] if prices_ else None,
+                'source': 'NYC DOF Citywide Rolling Sales (w2pb-icbu)',
+            },
+        }
 
     return S.cached(key, ttl, fetch)
 

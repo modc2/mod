@@ -199,14 +199,14 @@ export default function PnlChart({ points, dayLabel, tradesInWindow, filtered = 
           <span className="text-pixel-white font-bold">{hp.time}</span>
           {hp.side !== "MARK" && (
             <span className="text-pixel-white">
-              {hp.side} {hp.size.toFixed(0)} @ {Math.round(hp.price * 100)}c
+              {hp.side} {hp.size.toFixed(0)} @ {Math.round(hp.price * 100)}¢
               <span className="text-pixel-gray-light"> · ${(hp.size * hp.price).toFixed(2)}</span>
             </span>
           )}
           {hp.side === "MARK" && <span className="text-pixel-white">MARK TO MARKET</span>}
           {hp.side === "SELL" && hp.buyPrice !== undefined && (
             <span className="text-pixel-gray-light">
-              ENTRY {Math.round(hp.buyPrice * 100)}c
+              ENTRY {Math.round(hp.buyPrice * 100)}¢
               {hp.buyTimestamp ? ` · ${timeAgo(hp.buyTimestamp)}` : ""}
             </span>
           )}

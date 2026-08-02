@@ -145,12 +145,14 @@ fn b64url_decode(s: &str) -> Result<Vec<u8>, String> {
 
 /// Public reads: market data, analytics, and index browsing — everything a
 /// signed-out visitor may see. All writes and all user-scoped reads are gated.
-fn is_public(method: &Method, path: &str) -> bool {
+pub fn is_public(method: &Method, path: &str) -> bool {
     if *method != Method::GET {
         return false;
     }
     matches!(path, "/" | "/health" | "/status" | "/mids" | "/leaderboard" | "/scan/progress"
         | "/wallet/config" | "/indexes" | "/vaults" | "/market/meta"
+        // MCP discovery: the tool schema is the module's public fn surface.
+        | "/mcp/schema"
         // deposit GETs are on-chain-public data (chain registry, balances,
         // bridge status) — watch-mode users see them without signing in.
         | "/deposit/chains" | "/deposit/balances" | "/deposit/status")
@@ -199,6 +201,12 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
     }
     let path = req.uri().path().to_string();
     if is_public(req.method(), &path) {
+        return next.run(req).await;
+    }
+    // MCP is a transport, not a privilege: `tools/list` and public tools must
+    // work signed-out. Each tool call re-enters this guard as a loopback
+    // request carrying the caller's own header, so gating happens there.
+    if path == "/mcp" {
         return next.run(req).await;
     }
 

@@ -296,13 +296,33 @@ startup, default `false` to avoid unprompted gas). Env overrides:
 
 ## Protocol auth flow
 
-1. App: MetaMask `personal_sign` over `JSON.stringify({data, time})`.
+1. App: `personal_sign` over `JSON.stringify({data, time})` — from MetaMask, or
+   from a **local key** (below).
 2. App assembles a base64url token `{data, time, key, signature}` — the envelope
    produced/verified by `mod core/server/auth` (`m.mod('auth')`).
 3. App stores the token in `localStorage`, sends `Authorization: Bearer <token>`.
 4. Server `AUTH.verify(token)` recovers the signer; the `key` field **is** the
    caller's address and the per-object `owner`. Tokens expire after
    `STORE_SESSION_TTL` (no server-side session/nonce state).
+
+### Local sign-in (no wallet extension)
+
+*Continue without a wallet* mints an ethers keypair **in the browser** and signs
+the same envelope with it — the API can't tell it from MetaMask (identical
+address space, identical `v=27/28` signature). The key is persisted in
+`localStorage` under `store:localkey` and is exempt from the quota-eviction sweep
+in `app/src/lib/safeStorage.ts`; everything else the module stores is
+re-derivable, this isn't.
+
+- Sessions renew silently: an expired token is re-signed on load instead of
+  bouncing the user to the sign-in screen (no prompt to accept).
+- The 🔑 chip button reveals the key for backup, imports another key, or erases
+  it. Erasing without a backup orphans everything stored under that address.
+- It's a browser-held key, not a vault — anything with access to the profile
+  (including neighbouring modules on the shared modc2.com origin) can read it.
+  The UI says so; treat local accounts as throwaway identities.
+- Server-side it's just another unwhitelisted address: view-only until the owner
+  whitelists it or it holds BlocTime.
 
 ## Access control & quotas (off-chain)
 

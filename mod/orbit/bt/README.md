@@ -54,7 +54,7 @@ from local SQLite — the questions that otherwise need an archive node.
 ## Architecture
 
 ```
-bt/tools.py       ← THE tool registry (36 tools, JSON schemas, handlers)
+bt/tools.py       ← THE tool registry (37 tools, JSON schemas, handlers)
 bt/history.py     ← the open indexer: SQLite snapshots + instant screener
 bt/traders.py     ← the trader index: tracked coldkeys, equity, inferred trades
 bt/mcp_server.py  ← zero-dep MCP stdio server (JSON-RPC over stdin/stdout)
@@ -74,7 +74,7 @@ the MCP schemas can never drift apart.
 | Wallet  | `bt_account` `bt_balance` `bt_wallets` `bt_wallet` `bt_create_wallet`\* `bt_transfer`\* |
 | Markets | `bt_screener` `bt_history` `bt_stats` `bt_price` `bt_scan` `bt_leaderboard` `bt_trades` |
 | Trading | `bt_portfolio` `bt_trader_balance` `bt_buy`\* `bt_sell`\* `bt_sell_all`\* `bt_swap`\* |
-| Traders | `bt_track` `bt_untrack` `bt_traders` `bt_trader` `bt_trader_history` `bt_trader_flows` `bt_trader_snapshot` `bt_trader_at` `bt_prices_at` |
+| Traders | `bt_track` `bt_untrack` `bt_traders` `bt_trader_board` `bt_trader` `bt_trader_history` `bt_trader_flows` `bt_trader_snapshot` `bt_trader_at` `bt_prices_at` |
 | Network | `bt_rpc_health` `bt_best_rpc` |
 
 \* = real on-chain write (moves TAO or creates key material). The MCP server's
@@ -87,6 +87,19 @@ before signing.
 live valuation. `bt_traders` / `bt_trader` / `bt_trader_flows` are the tracked
 side of that: instant, from the trader index.
 
+`bt_trader_board` ranks that whole index over N days in one SQL pass (~260ms
+for 141 traders). It splits each trader's PnL into what the book earned on
+price and what was staked in or out —
+
+    market = Σ alpha_start · (price_end − price_start)
+    flow   = Σ (alpha_end − alpha_start) · price_end
+
+— because ranking on the raw percentage crowns whoever wired stake in most
+recently. `market_pct` is the column that measures trading, so it is the
+default sort. A trader tracked for less than the window is ranked over the
+history that exists and says so in `window_days`; one with a single snapshot
+comes back `baseline: false` at PnL 0, never a fabricated number.
+
 ## Who else reads this
 
 `orbit/copytensor` (dTAO copy trading) no longer walks public RPCs for reads —
@@ -94,7 +107,9 @@ side of that: instant, from the trader index.
 `SubtensorClient` whose subnet, position and history reads come from here, and
 which falls back to its own RPC pool if bt is stopped. Its `/subnets` went
 from a multi-second `all_subnets()` walk to ~150ms, and its PnL baselines come
-from `bt_trader_at` instead of an archive node. Point it elsewhere with
+from `bt_trader_at` instead of an archive node. Its leaderboard is now one
+`bt_trader_board` call — 260ms against the 211s its own per-account archive
+walk took over a 253-account pool. Point it elsewhere with
 `COPYTENSOR_BT_URL`; turn it off with `COPYTENSOR_BT=0`.
 
 ## API

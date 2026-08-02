@@ -2,28 +2,32 @@
 
 import { useMemo, useState } from 'react'
 import type { TrendPoint } from '@/lib/api'
-import { usd, usdExact } from '@/lib/format'
+import { count } from '@/lib/format'
 
-type Measure = 'median_price' | 'median_ppsf'
-
-const MEASURES: Record<Measure, { label: string; short: string }> = {
-  median_price: { label: 'Median sale price', short: 'Price' },
-  median_ppsf: { label: 'Median price per ft²', short: '$/ft²' },
+type Props = {
+  series: TrendPoint[]
+  /** The most recent year, when it is still in progress. */
+  partialYear?: number | null
+  title?: string
 }
 
 /**
- * Yearly price history for one area.
+ * Yearly incident history for one area.
  *
- * Price and $/ft² are different scales, so they are never drawn on two y-axes
- * — the viewer switches between them and each gets the full height.
+ * The mark is an area, and an area encodes magnitude by height from its
+ * baseline — so the baseline is zero. Padding the band around the data (the
+ * right call for a price line) would make a 5% wobble look like a collapse.
+ *
+ * The current year is a partial count. It is drawn dashed and labelled rather
+ * than annualised, because a projection here would be our number, not the
+ * police service's.
  */
-export default function TrendChart({ series, title }: { series: TrendPoint[]; title?: string }) {
-  const [measure, setMeasure] = useState<Measure>('median_price')
+export default function TrendChart({ series, partialYear, title }: Props) {
   const [hover, setHover] = useState<number | null>(null)
 
   const pts = useMemo(
-    () => series.filter((s) => s[measure] !== null && s[measure] !== undefined),
-    [series, measure],
+    () => series.filter((s) => typeof s.incidents === 'number'),
+    [series],
   )
 
   const W = 244, H = 88, PL = 6, PR = 6, PT = 10, PB = 16
@@ -31,54 +35,52 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
   const geom = useMemo(() => {
     if (pts.length < 2) return null
     const xs = pts.map((p) => p.year)
-    const ys = pts.map((p) => p[measure] as number)
     const x0 = Math.min(...xs), x1 = Math.max(...xs)
-    // Baseline at zero would flatten every real movement into a straight line,
-    // so the band is padded around the data. A line chart may do this; a bar
-    // chart may not.
-    const lo = Math.min(...ys), hi = Math.max(...ys)
-    const pad = (hi - lo) * 0.18 || hi * 0.1 || 1
-    const yLo = lo - pad, yHi = hi + pad
+    const hi = Math.max(...pts.map((p) => p.incidents)) || 1
     const sx = (x: number) => PL + ((x - x0) / Math.max(x1 - x0, 1)) * (W - PL - PR)
-    const sy = (y: number) => PT + (1 - (y - yLo) / Math.max(yHi - yLo, 1)) * (H - PT - PB)
-    return { sx, sy, x0, x1, yLo, yHi, xs, ys }
-  }, [pts, measure])
+    const sy = (y: number) => PT + (1 - y / (hi * 1.12)) * (H - PT - PB)
+    return { sx, sy }
+  }, [pts])
 
   if (!geom) {
     return (
-      <p className="px-3 py-2 text-[11px] text-[#898781]">
-        Not enough {MEASURES[measure].label.toLowerCase()} history to chart.
+      <p className="px-3 py-2 text-[11px] text-muted">
+        Not enough history to chart.
       </p>
     )
   }
 
   const { sx, sy } = geom
-  const d = pts.map((p, i) => `${i ? 'L' : 'M'}${sx(p.year).toFixed(1)},${sy(p[measure] as number).toFixed(1)}`).join(' ')
+  const d = pts
+    .map((p, i) => `${i ? 'L' : 'M'}${sx(p.year).toFixed(1)},${sy(p.incidents).toFixed(1)}`)
+    .join(' ')
   const area = `${d} L${sx(pts[pts.length - 1].year).toFixed(1)},${H - PB} L${sx(pts[0].year).toFixed(1)},${H - PB} Z`
-  const last = pts[pts.length - 1]
   const first = pts[0]
-  const change = ((last[measure] as number) - (first[measure] as number)) / (first[measure] as number) * 100
+  const last = pts[pts.length - 1]
+
+  // A partial final year can't be compared with a full one, so the headline
+  // change is measured to the last *complete* year.
+  const endIdx = partialYear === last.year && pts.length > 2 ? pts.length - 2 : pts.length - 1
+  const end = pts[endIdx]
+  const change = first.incidents > 0
+    ? ((end.incidents - first.incidents) / first.incidents) * 100
+    : null
+
+  const partialSeg = partialYear === last.year && pts.length > 1
+    ? `M${sx(pts[pts.length - 2].year).toFixed(1)},${sy(pts[pts.length - 2].incidents).toFixed(1)} L${sx(last.year).toFixed(1)},${sy(last.incidents).toFixed(1)}`
+    : null
+
   const hp = hover !== null ? pts[hover] : null
 
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-wider text-[#898781]">
-          {title ?? MEASURES[measure].label}
+      <div className="mb-1 flex items-baseline justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-wider text-muted">
+          {title ?? 'Incidents by year'}
         </span>
-        <div className="flex gap-0.5 rounded-md bg-white/[0.06] p-0.5">
-          {(Object.keys(MEASURES) as Measure[]).map((k) => (
-            <button
-              key={k}
-              onClick={() => { setMeasure(k); setHover(null) }}
-              className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
-                measure === k ? 'bg-[#3987e5] text-white' : 'text-[#898781] hover:text-[#c3c2b7]'
-              }`}
-            >
-              {MEASURES[k].short}
-            </button>
-          ))}
-        </div>
+        {partialSeg && (
+          <span className="text-[9.5px] text-muted">{last.year} partial</span>
+        )}
       </div>
 
       <div className="relative">
@@ -86,31 +88,39 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
              onMouseLeave={() => setHover(null)}>
           <defs>
             <linearGradient id="trendfill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#3987e5" stopOpacity="0.28" />
-              <stop offset="100%" stopColor="#3987e5" stopOpacity="0" />
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
             </linearGradient>
           </defs>
 
-          <line x1={PL} y1={H - PB} x2={W - PR} y2={H - PB} stroke="#383835" strokeWidth="1" />
+          <line x1={PL} y1={H - PB} x2={W - PR} y2={H - PB} style={{ stroke: 'var(--line-strong)' }} strokeWidth="1" />
           <path d={area} fill="url(#trendfill)" />
-          <path d={d} fill="none" stroke="#3987e5" strokeWidth="2"
+          <path d={d} fill="none" style={{ stroke: 'var(--accent)' }} strokeWidth="2"
                 strokeLinecap="round" strokeLinejoin="round" />
+          {/* redraw the incomplete year's segment dashed, over the solid line */}
+          {partialSeg && (
+            <path d={partialSeg} fill="none" style={{ stroke: 'var(--surface-solid)' }} strokeWidth="3.2" />
+          )}
+          {partialSeg && (
+            <path d={partialSeg} fill="none" style={{ stroke: 'var(--accent)' }} strokeWidth="2"
+                  strokeDasharray="3 2.5" strokeLinecap="round" />
+          )}
 
           {hp && (
             <line x1={sx(hp.year)} y1={PT - 4} x2={sx(hp.year)} y2={H - PB}
-                  stroke="#c3c2b7" strokeWidth="1" strokeDasharray="2 2" />
+                  style={{ stroke: 'var(--ink-2)' }} strokeWidth="1" strokeDasharray="2 2" />
           )}
 
           {/* endpoint marker, direct-labelled below — no dot on every year */}
-          <circle cx={sx(last.year)} cy={sy(last[measure] as number)} r="3.4"
-                  fill="#3987e5" stroke="#121722" strokeWidth="2" />
+          <circle cx={sx(last.year)} cy={sy(last.incidents)} r="3.4"
+                  style={{ fill: 'var(--accent)', stroke: 'var(--surface-solid)' }} strokeWidth="2" />
           {hp && hover !== pts.length - 1 && (
-            <circle cx={sx(hp.year)} cy={sy(hp[measure] as number)} r="3.4"
-                    fill="#9ec5f4" stroke="#121722" strokeWidth="2" />
+            <circle cx={sx(hp.year)} cy={sy(hp.incidents)} r="3.4"
+                    style={{ fill: 'var(--accent-soft)', stroke: 'var(--surface-solid)' }} strokeWidth="2" />
           )}
 
-          <text x={PL} y={H - 4} fill="#898781" fontSize="9">{first.year}</text>
-          <text x={W - PR} y={H - 4} fill="#898781" fontSize="9" textAnchor="end">{last.year}</text>
+          <text x={PL} y={H - 4} style={{ fill: 'var(--muted)' }} fontSize="9">{first.year}</text>
+          <text x={W - PR} y={H - 4} style={{ fill: 'var(--muted)' }} fontSize="9" textAnchor="end">{last.year}</text>
 
           {/* invisible hit strips — bigger targets than the marks */}
           {pts.map((p, i) => (
@@ -122,24 +132,25 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
 
         {hp && (
           <div className="pointer-events-none absolute -top-1 left-0 right-0 flex justify-center">
-            <div className="rounded bg-[#0b0e14] px-1.5 py-0.5 text-[10px] tabular-nums text-[#e6e8ee] ring-1 ring-white/10">
-              {hp.year} · {measure === 'median_price'
-                ? usdExact(hp.median_price)
-                : `$${hp.median_ppsf}/ft²`} · {hp.sales.toLocaleString()} sales
+            <div className="panel-solid px-1.5 py-0.5 text-[10px] tabular-nums text-ink">
+              {hp.year} · {hp.incidents.toLocaleString()} incidents
+              {partialYear === hp.year ? ' so far' : ''}
             </div>
           </div>
         )}
       </div>
 
       <div className="mt-0.5 flex items-baseline justify-between">
-        <span className="text-[12px] font-medium tabular-nums text-[#e6e8ee]">
-          {measure === 'median_price' ? usd(last.median_price) : `$${last.median_ppsf}/ft²`}
-          <span className="ml-1 text-[10px] font-normal text-[#898781]">in {last.year}</span>
+        <span className="text-[12px] font-medium tabular-nums text-ink">
+          {count(last.incidents)}
+          <span className="ml-1 text-[10px] font-normal text-muted">in {last.year}</span>
         </span>
-        <span className="text-[10.5px] tabular-nums"
-              style={{ color: change >= 0 ? '#0ca30c' : '#d03b3b' }}>
-          {change >= 0 ? '↑' : '↓'} {Math.abs(change).toFixed(0)}% since {first.year}
-        </span>
+        {change !== null && (
+          <span className="text-[10.5px] tabular-nums"
+                style={{ color: change >= 0 ? 'var(--bad)' : 'var(--good)' }}>
+            {change >= 0 ? '↑' : '↓'} {Math.abs(change).toFixed(0)}% {first.year}→{end.year}
+          </span>
+        )}
       </div>
     </div>
   )

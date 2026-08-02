@@ -236,10 +236,44 @@ export type AccountWatch = {
   added_at: string | null;
 };
 
+// A row of bt's trader index: live value + windowed change, straight from
+// its local snapshots. Everything windowed is null until enough snapshots
+// have aged — render "warming", never a zero.
+export type TrackedTrader = {
+  ss58: string;
+  label: string | null;
+  free_tao: number;
+  staked_tao: number;
+  total_tao: number;
+  subnets: number;
+  top_subnets: { netuid: number; value_tao: number; alpha: number }[];
+  snapshots: number;
+  last_ts: number | null;
+  change_24h: number | null;
+  pnl_24h: number | null;
+  change_7d: number | null;
+  pnl_7d: number | null;
+  spark: number[] | null;
+};
+
+export type TraderBoard = {
+  count: number;
+  updated_at: number | null;
+  rows: TrackedTrader[];
+};
+
 // How many traders the leaderboard ranks, against how many the chain has.
 export type Universe = {
-  // Which horizons are priced, and which are still being walked.
-  board: { warm: number[]; building: number[]; rows: Record<string, number> };
+  // Which horizons are priced, which are still building, which engine priced
+  // each ("bt" = bt's index, "rpc" = the fallback chain walk), and how many
+  // coldkeys bt indexes — a bt-priced board ranks that set, not the watchlist.
+  board: {
+    warm: number[];
+    building: number[];
+    rows: Record<string, number>;
+    source?: Record<string, "bt" | "rpc">;
+    indexed?: number | null;
+  };
   watched: number;
   pool_size: number;
   auto_discover: boolean;

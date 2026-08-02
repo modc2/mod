@@ -31,6 +31,9 @@
         "prices",
         "trend",
         "sales",
+        "rents",
+        "homes",
+        "affordable",
         "where",
         "tools",
         "tool",
@@ -49,5 +52,5 @@
         "deregister"
     ],
     "key": "nyc",
-    "schema": "QmTbJG3jMkC2cH79sbAMNThxuS7C9Fze9wrVC5DgcN9PeB"
+    "schema": "QmTbznwgyzzAoWwei75Gar6n265VUBoVLFuCwbFGZn5ZQD"
 }

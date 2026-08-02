@@ -9,6 +9,7 @@ import {
 } from "../lib/api";
 import CopyForm from "../components/CopyForm";
 import StratPicker from "../components/StratPicker";
+import PageHeader from "../components/PageHeader";
 
 type Mode = "index" | "single";
 
@@ -35,33 +36,34 @@ function StratsBody() {
   };
 
   return (
-    <div className="space-y-8">
-      <header>
-        <h1 className="font-display text-2xl font-bold mb-1">Strats</h1>
-        <p className="text-pixel-gray-light text-sm">
-          Build an <span className="text-green-400">index of traders</span> to
-          mirror a weighted basket (polymarket-style), or run a single-target
-          copy. Set safety limits, pause/resume, or force-sync at any time.
-        </p>
-        <div className="mt-3 flex gap-1">
-          <button
-            className={`pixel-btn text-[11px] px-3 py-1 ${
-              mode === "index" ? "border-green-400 text-green-400" : ""
-            }`}
-            onClick={() => setMode("index")}
-          >
-            INDEX OF TRADERS
-          </button>
-          <button
-            className={`pixel-btn text-[11px] px-3 py-1 ${
-              mode === "single" ? "border-green-400 text-green-400" : ""
-            }`}
-            onClick={() => setMode("single")}
-          >
-            SINGLE TARGET
-          </button>
-        </div>
-      </header>
+    <div className="space-y-6">
+      <PageHeader
+        title="STRATS"
+        right={
+          <>
+            <button
+              className={`pixel-btn text-[11px] px-3 py-1 ${
+                mode === "index" ? "border-green-400 text-green-400" : ""
+              }`}
+              onClick={() => setMode("index")}
+            >
+              INDEX OF TRADERS
+            </button>
+            <button
+              className={`pixel-btn text-[11px] px-3 py-1 ${
+                mode === "single" ? "border-green-400 text-green-400" : ""
+              }`}
+              onClick={() => setMode("single")}
+            >
+              SINGLE TARGET
+            </button>
+          </>
+        }
+      >
+        Build an <span className="text-green-400">index of traders</span> to
+        mirror a weighted basket (polymarket-style), or run a single-target
+        copy. Set safety limits, pause/resume, or force-sync at any time.
+      </PageHeader>
 
       {mode === "index" && <StratPicker seedTarget={target} />}
 
@@ -70,8 +72,8 @@ function StratsBody() {
         {loading ? (
           <p className="text-pixel-gray text-sm">loading…</p>
         ) : copies.length === 0 ? (
-          <div className="pixel-panel p-6 text-pixel-gray-light text-sm">
-            No copies yet. Start one below.
+          <div className="pixel-panel p-6">
+            <p className="arcade-prose">No copies yet. Start one below.</p>
           </div>
         ) : (
           <div className="pixel-panel overflow-hidden">

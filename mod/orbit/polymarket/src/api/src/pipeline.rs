@@ -27,7 +27,11 @@ impl PipelineState {
         }
     }
 
-    pub async fn warmup_cycle(&self) {
+    /// One cycle, re-pulling any window last synced more than `min_age_secs`
+    /// ago. The scheduler derives that from the owner's cadence (sync.rs) —
+    /// a fixed 55min threshold would make a 15-minute cadence skip every
+    /// window and silently never sync. `0` forces a full re-pull.
+    pub async fn warmup_cycle(&self, min_age_secs: i64) {
         {
             let mut running = self.warmup_running.write();
             if *running {
@@ -45,24 +49,24 @@ impl PipelineState {
             }
         }
         let _guard = RunningGuard(&self.warmup_running);
-        tracing::info!("warmup cycle starting");
+        tracing::info!(min_age_secs, "warmup cycle starting");
 
-        // Skip a combo only if it was ACTUALLY synced within the hour.
+        // Skip a combo only if it was ACTUALLY synced within the window.
         // Memory freshness (`cache.get`) is the wrong signal here:
         // `get_or_disk` re-stamps disk payloads up to 24h old as fresh-in-
-        // memory, which used to make the hourly warmup skip genuinely stale
-        // data after a restart. 55min margin so an on-schedule tick never
-        // skips a combo that is about to fall due.
-        const RESYNC_AFTER_SECS: i64 = 3300;
+        // memory, which used to make the warmup skip genuinely stale data
+        // after a restart. The threshold sits just under the cadence so an
+        // on-schedule tick never skips a combo that is about to fall due.
         let now = chrono::Utc::now().timestamp();
 
         let combos = [(1u32, 0.0, 2000u32), (7, 0.0, 2000), (14, 0.0, 2000), (30, 0.0, 2000)];
         for (days, min_per_day, pool) in combos {
             let key = format!("{}:{}:{}", days, min_per_day, pool);
-            if self
-                .cache
-                .get(&key)
-                .is_some_and(|p| now - p.synced_at < RESYNC_AFTER_SECS)
+            if min_age_secs > 0
+                && self
+                    .cache
+                    .get(&key)
+                    .is_some_and(|p| now - p.synced_at < min_age_secs)
             {
                 continue;
             }

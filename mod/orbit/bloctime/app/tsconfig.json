@@ -14,6 +14,9 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+    // Don't auto-load @types/* hoisted from the module's hardhat deps —
+    // the @types/minimatch stub has no .d.ts and fails the build.
+    "types": ["node"],
     "plugins": [{ "name": "next" }],
     "paths": { "@/*": ["./src/*"] }
   },

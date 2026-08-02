@@ -1,5 +1,5 @@
 {
-  "comment": "Playbook parity fixture \u2014 asserted by BOTH app/lib/strats/__test__.ts (npx tsx) and live_engine.rs (cargo test). statsFromReturns / stats_from_returns, scoreCandidate / candidate_score, stopLossTriggered / stop_loss_hit, takeProfitTriggered / take_profit_hit, sizeAndPrice / plan_mirror, and the shared stopLoss/takeProfit defaults must reproduce these EXACT values in each language. Edit only by regenerating every expected value in both.",
+  "comment": "Playbook parity fixture — asserted by BOTH app/lib/strats/__test__.ts (npx tsx) and live_engine.rs (cargo test). statsFromReturns / stats_from_returns, scoreCandidate / candidate_score, copyRatio / copy_ratio_for, stopLossTriggered / stop_loss_hit, takeProfitTriggered / take_profit_hit, sizeAndPrice / plan_mirror, and the shared defaults must reproduce these EXACT values in each language. Edit only by regenerating every expected value in both.",
   "statsCases": [
     {
       "name": "empty",
@@ -212,7 +212,10 @@
   ],
   "defaults": {
     "stopLoss": 0.75,
-    "takeProfit": 0.99
+    "takeProfit": 0.99,
+    "maxUpscale": 2.0,
+    "minMinutesToClose": 60,
+    "maxTradeAgeSec": 300
   },
   "rebalanceMarginPct": 0.2,
   "sizingCases": [
@@ -226,7 +229,12 @@
       "minShares": 5,
       "ceiling": 100,
       "slippageBps": 300,
-      "expected": { "skip": null, "notional": 10, "limitPrice": 0.52 }
+      "expected": {
+        "skip": null,
+        "notional": 10,
+        "limitPrice": 0.52
+      },
+      "maxUpscale": null
     },
     {
       "name": "clampUpUser",
@@ -238,7 +246,12 @@
       "minShares": 5,
       "ceiling": 100,
       "slippageBps": 300,
-      "expected": { "skip": null, "notional": 1, "limitPrice": 0.1 }
+      "expected": {
+        "skip": null,
+        "notional": 1,
+        "limitPrice": 0.1
+      },
+      "maxUpscale": null
     },
     {
       "name": "clampUpClob",
@@ -250,7 +263,12 @@
       "minShares": 5,
       "ceiling": 100,
       "slippageBps": 300,
-      "expected": { "skip": null, "notional": 2.5, "limitPrice": 0.52 }
+      "expected": {
+        "skip": null,
+        "notional": 2.5,
+        "limitPrice": 0.52
+      },
+      "maxUpscale": null
     },
     {
       "name": "leaderDust",
@@ -262,7 +280,12 @@
       "minShares": 5,
       "ceiling": 100,
       "slippageBps": 300,
-      "expected": { "skip": "DUST", "notional": null, "limitPrice": null }
+      "expected": {
+        "skip": "DUST",
+        "notional": null,
+        "limitPrice": null
+      },
+      "maxUpscale": null
     },
     {
       "name": "ceilingBelow",
@@ -274,7 +297,12 @@
       "minShares": 5,
       "ceiling": 2,
       "slippageBps": 300,
-      "expected": { "skip": "CEILING", "notional": null, "limitPrice": null }
+      "expected": {
+        "skip": "CEILING",
+        "notional": null,
+        "limitPrice": null
+      },
+      "maxUpscale": null
     },
     {
       "name": "clampDown",
@@ -286,7 +314,12 @@
       "minShares": 5,
       "ceiling": 100,
       "slippageBps": 300,
-      "expected": { "skip": null, "notional": 100, "limitPrice": 0.52 }
+      "expected": {
+        "skip": null,
+        "notional": 100,
+        "limitPrice": 0.52
+      },
+      "maxUpscale": null
     },
     {
       "name": "sellWiden",
@@ -298,7 +331,12 @@
       "minShares": 5,
       "ceiling": 100,
       "slippageBps": 300,
-      "expected": { "skip": null, "notional": 10, "limitPrice": 0.49 }
+      "expected": {
+        "skip": null,
+        "notional": 10,
+        "limitPrice": 0.49
+      },
+      "maxUpscale": null
     },
     {
       "name": "zeroSlippage",
@@ -310,7 +348,12 @@
       "minShares": 5,
       "ceiling": 100,
       "slippageBps": 0,
-      "expected": { "skip": null, "notional": 10, "limitPrice": 0.5 }
+      "expected": {
+        "skip": null,
+        "notional": 10,
+        "limitPrice": 0.5
+      },
+      "maxUpscale": null
     },
     {
       "name": "nearOneCap",
@@ -322,7 +365,152 @@
       "minShares": 5,
       "ceiling": 100,
       "slippageBps": 300,
-      "expected": { "skip": null, "notional": 10, "limitPrice": 0.99 }
+      "expected": {
+        "skip": null,
+        "notional": 10,
+        "limitPrice": 0.99
+      },
+      "maxUpscale": null
+    },
+    {
+      "name": "subScaleSkip",
+      "side": "BUY",
+      "price": 0.5,
+      "leaderNotional": 200,
+      "copyRatio": 0.005,
+      "userFloor": 0.5,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 300,
+      "maxUpscale": 2.0,
+      "expected": {
+        "skip": "SUB_SCALE",
+        "notional": null,
+        "limitPrice": null
+      }
+    },
+    {
+      "name": "upscaleWithinLimit",
+      "side": "BUY",
+      "price": 0.5,
+      "leaderNotional": 200,
+      "copyRatio": 0.01,
+      "userFloor": 0.5,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 300,
+      "maxUpscale": 2.0,
+      "expected": {
+        "skip": null,
+        "notional": 2.5,
+        "limitPrice": 0.52
+      }
+    },
+    {
+      "name": "upscaleAtLimit",
+      "side": "BUY",
+      "price": 0.1,
+      "leaderNotional": 50,
+      "copyRatio": 0.01,
+      "userFloor": 1,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 300,
+      "maxUpscale": 2.0,
+      "expected": {
+        "skip": null,
+        "notional": 1,
+        "limitPrice": 0.1
+      }
+    },
+    {
+      "name": "proportionalUntouched",
+      "side": "BUY",
+      "price": 0.5,
+      "leaderNotional": 1000,
+      "copyRatio": 0.01,
+      "userFloor": 1,
+      "minShares": 5,
+      "ceiling": 100,
+      "slippageBps": 300,
+      "maxUpscale": 2.0,
+      "expected": {
+        "skip": null,
+        "notional": 10,
+        "limitPrice": 0.52
+      }
+    }
+  ],
+  "copyRatioCases": [
+    {
+      "name": "proportional",
+      "why": "leader risks 1% of a $100k bankroll -> we risk 1% of our $1k",
+      "accountValue": 1000,
+      "weightFraction": 1.0,
+      "leaderBankroll": 100000,
+      "capitalAlloc": 500,
+      "traderVol": 250000,
+      "expected": 0.01
+    },
+    {
+      "name": "halfWeight",
+      "why": "a trader holding half the watchlist weight gets half the account",
+      "accountValue": 1000,
+      "weightFraction": 0.5,
+      "leaderBankroll": 100000,
+      "capitalAlloc": 250,
+      "traderVol": 250000,
+      "expected": 0.005
+    },
+    {
+      "name": "biggerThanLeader",
+      "why": "copying someone smaller than us legitimately scales the trade UP",
+      "accountValue": 50000,
+      "weightFraction": 1.0,
+      "leaderBankroll": 10000,
+      "capitalAlloc": 500,
+      "traderVol": 250000,
+      "expected": 5.0
+    },
+    {
+      "name": "bankrollUnknown",
+      "why": "no balance sheet -> volume fallback (capitalAlloc / traderVol)",
+      "accountValue": 1000,
+      "weightFraction": 1.0,
+      "leaderBankroll": null,
+      "capitalAlloc": 500,
+      "traderVol": 250000,
+      "expected": 0.002
+    },
+    {
+      "name": "bankrollDust",
+      "why": "a sub-$1 bankroll is noise, not a denominator -> fallback",
+      "accountValue": 1000,
+      "weightFraction": 1.0,
+      "leaderBankroll": 0.4,
+      "capitalAlloc": 500,
+      "traderVol": 250000,
+      "expected": 0.002
+    },
+    {
+      "name": "emptyAccount",
+      "why": "nothing in the account -> fallback rather than a 0 ratio",
+      "accountValue": 0,
+      "weightFraction": 1.0,
+      "leaderBankroll": 100000,
+      "capitalAlloc": 500,
+      "traderVol": 250000,
+      "expected": 0.002
+    },
+    {
+      "name": "volumeFloor",
+      "why": "traderVol floors at 1 so the fallback can never divide by zero",
+      "accountValue": 1000,
+      "weightFraction": 1.0,
+      "leaderBankroll": null,
+      "capitalAlloc": 500,
+      "traderVol": 0,
+      "expected": 500.0
     }
   ]
 }

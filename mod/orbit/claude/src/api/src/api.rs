@@ -184,6 +184,10 @@ pub async fn serve(manager: AppState, port: u16) {
         .route("/changelog", get(get_changelog))
         .route("/versions/:version", get(get_version))
         .route("/modules/:name/versions", get(list_module_versions))
+        // Graph lenses over the same history: what one version changed, and
+        // how every module in the fleet relates to every other.
+        .route("/modules/:name/ontology", get(crate::graph::module_ontology))
+        .route("/graph/world", get(crate::graph::world_graph))
         .route("/modules/:name/registry", get(module_registry))
         .route("/autosnap/status", get(crate::autosnap::status_handler))
         // MR metadata is part of the public code ledger (like /jobs); the
@@ -276,6 +280,8 @@ async fn api_schema() -> impl IntoResponse {
             e("GET", "/modules/:name/config", "public", "A module's config.json"),
             e("GET", "/modules/:name/screenshot", "public", "PNG screenshot of the module's app (?fresh=1 captures now)"),
             e("GET", "/modules/:name/versions", "public", "Snapshot chain for a module"),
+            e("GET", "/modules/:name/ontology", "public", "What one version changed: ?cid=…[&base=…] → manifest diff"),
+            e("GET", "/graph/world", "public", "The fleet as a graph: modules, change history, dependency + fork edges"),
             e("GET", "/modules/:name/registry", "public", "On-chain registry status"),
             e("POST", "/modules/import", "owner", "Import a module: {github} or {cid}"),
             e("POST", "/modules/:name/mr-fork", "bearer", "Fork a module into your workspace pinned to a base CID: {refresh?}"),
@@ -1647,7 +1653,7 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                     "owner": host_owner.clone().or_else(|| config.get("owner").and_then(|v| v.as_str()).map(String::from)),
                     "version": config.get("version").and_then(|v| v.as_str()),
                     "cid": cid,
-                    "deps": str_list("deps"),
+                    "deps": crate::graph::declared_deps(&config),
                     "created_at": std::fs::metadata(dir_path).ok()
                         .and_then(|m| m.created().ok())
                         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -1681,8 +1687,8 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                 let mut version: Option<String> = None;
                 let mut cid: Option<String> = None;
                 // Module dependency edges, declared in config.json as
-                // `"deps": ["chain", "store", ...]`. Used to draw the hub
-                // dependency graph; modules that declare none are isolated.
+                // `"deps"` (or the mod protocol's `"dependencies"`). Used to
+                // draw the hub world graph; modules that declare none float.
                 let mut deps: Vec<String> = Vec::new();
 
                 let config_paths = vec![
@@ -1730,9 +1736,7 @@ async fn list_modules(Query(params): Query<ModuleQuery>) -> impl IntoResponse {
                                 if let Some(v) = config.get("version").and_then(|v| v.as_str()) {
                                     version = Some(v.to_string());
                                 }
-                                if let Some(arr) = config.get("deps").and_then(|v| v.as_array()) {
-                                    deps = arr.iter().filter_map(|v| v.as_str().map(String::from)).collect();
-                                }
+                                deps = crate::graph::declared_deps(&config);
                                 // CID from local config is ignored; registry is authoritative
                                 break; // Use first found config
                             }

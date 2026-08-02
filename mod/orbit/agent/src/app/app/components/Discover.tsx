@@ -278,7 +278,7 @@ export default function Discover({ onInstalled, token }: Props) {
             value={input}
             onChange={e => setInput(e.target.value)}
             placeholder="Search every platform — “pdf”, “postgres”, “security review”…"
-            className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl pl-10 pr-24 py-2.5 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-sky-500/40 focus:bg-white/[0.05] focus:shadow-[0_0_0_3px_rgba(56,189,248,0.08)] transition-all"
+            className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl pl-10 pr-24 py-2.5 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-sky-500/40 focus:bg-white/[0.05] focus:shadow-[0_0_0_3px_rgb(var(--i-400)/0.08)] transition-all"
           />
           <button type="submit" disabled={scanning}
             className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-sky-600/90 hover:bg-sky-500 text-white transition disabled:opacity-50">
@@ -435,7 +435,7 @@ export default function Discover({ onInstalled, token }: Props) {
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
           onClick={() => { setSelected(null); setDetail(null); setPreview(null) }}>
-          <div className="w-full max-w-2xl max-h-[84vh] flex flex-col bg-[#121214] border border-white/10 rounded-2xl shadow-2xl overflow-hidden lib-pop"
+          <div className="w-full max-w-2xl max-h-[84vh] flex flex-col bg-surface-2 border border-white/10 rounded-2xl shadow-2xl overflow-hidden lib-pop"
             onClick={e => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-3 shrink-0">
               <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${src(selected.source).badge}`}>
@@ -557,7 +557,7 @@ export default function Discover({ onInstalled, token }: Props) {
       )}
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl bg-[#141416] border border-white/10 shadow-2xl text-xs text-gray-200">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl bg-surface-2 border border-white/10 shadow-2xl text-xs text-gray-200">
           {toast}
         </div>
       )}

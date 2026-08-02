@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional
 
 from . import prices as P
+from . import rents as R
 from . import sources as S
 
 WEEK = 7 * S.DAY
@@ -208,33 +209,107 @@ def collisions() -> dict:
     return S.cached('safety-collisions', 2 * S.DAY, fetch)
 
 
+# Every income band the affordable-housing file reports, in the order HPD
+# ranks them. The first five are the AMI ladder; `other` is the catch-all for
+# units the programme counts but does not band.
+INCOME_BANDS = [
+    ('extremely_low_income_units', 'extremely_low', 'Extremely low (≤30% AMI)'),
+    ('very_low_income_units', 'very_low', 'Very low (31–50% AMI)'),
+    ('low_income_units', 'low', 'Low (51–80% AMI)'),
+    ('moderate_income_units', 'moderate', 'Moderate (81–120% AMI)'),
+    ('middle_income_units', 'middle', 'Middle (121–165% AMI)'),
+    ('other_income_units', 'other', 'Other / not banded'),
+]
+
+# The bedroom mix, so a family can see whether a building has anything big
+# enough for them rather than just a unit total.
+BEDROOM_COLUMNS = [
+    ('studio_units', 'studio'), ('_1_br_units', 'br1'), ('_2_br_units', 'br2'),
+    ('_3_br_units', 'br3'), ('_4_br_units', 'br4'), ('_5_br_units', 'br5'),
+    ('_6_br_units', 'br6'), ('unknown_br_units', 'br_unknown'),
+]
+
+
 def affordable_housing() -> dict:
-    """New affordable units financed by HPD, by building."""
+    """
+    Every affordable unit HPD has financed, by building.
+
+    All six income bands are carried, not just the bottom three — a moderate-
+    or middle-income unit is still an affordable unit somebody can apply for,
+    and omitting those bands undercounted large buildings badly.
+
+    About 1,900 buildings are published by HPD with the address redacted to
+    ``CONFIDENTIAL`` and no coordinates (they are typically small preservation
+    deals where naming the building would identify the tenants). They cannot be
+    drawn, so rather than vanish they are counted in ``meta`` — the map says
+    how many units it is *not* showing you.
+    """
     def fetch():
+        cols = [c for c, _, _ in INCOME_BANDS] + [c for c, _ in BEDROOM_COLUMNS]
         rows = S.soql_all(
             S.NYC, 'hg8x-zxpr', max_rows=20000,
             select=('project_name,house_number,street_name,borough,postcode,'
-                    'project_start_date,reporting_construction_type,'
-                    'extremely_low_income_units,very_low_income_units,'
-                    'low_income_units,all_counted_units,total_units,'
-                    'latitude,longitude'),
+                    'project_start_date,building_completion_date,'
+                    'reporting_construction_type,extended_affordability_status,'
+                    'counted_rental_units,counted_homeownership_units,'
+                    'all_counted_units,total_units,latitude,longitude,'
+                    + ','.join(cols)),
             where='latitude IS NOT NULL')
         for r in rows:
             r['name'] = (r.pop('project_name', '') or '').title()
             r['address'] = f"{r.pop('house_number','')} {r.pop('street_name','')}".strip().title()
             r['started'] = str(r.pop('project_start_date', ''))[:10]
+            r['completed'] = str(r.pop('building_completion_date', ''))[:10]
             r['construction'] = r.pop('reporting_construction_type', '')
-            for k, out in (('all_counted_units', 'units'),
-                           ('total_units', 'total'),
-                           ('extremely_low_income_units', 'extremely_low'),
-                           ('very_low_income_units', 'very_low'),
-                           ('low_income_units', 'low')):
-                r[out] = int(float(r.pop(k, 0) or 0))
-        return S.points_from_rows(
-            rows, 'latitude', 'longitude',
-            props=['name', 'address', 'borough', 'started', 'construction',
-                   'units', 'total', 'extremely_low', 'very_low', 'low'])
-    return S.cached('civic-affordable-housing', WEEK, fetch)
+            r['extended'] = r.pop('extended_affordability_status', '')
+            r['zip'] = str(r.pop('postcode', '') or '').split('.')[0]
+            for src, out in ([('all_counted_units', 'units'),
+                              ('total_units', 'total'),
+                              ('counted_rental_units', 'rental'),
+                              ('counted_homeownership_units', 'ownership')]
+                             + [(c, k) for c, k, _ in INCOME_BANDS]
+                             + list(BEDROOM_COLUMNS)):
+                r[out] = int(float(r.pop(src, 0) or 0))
+
+        props = (['name', 'address', 'borough', 'zip', 'started', 'completed',
+                  'construction', 'extended', 'units', 'total', 'rental',
+                  'ownership']
+                 + [k for _, k, _ in INCOME_BANDS]
+                 + [k for _, k in BEDROOM_COLUMNS])
+        fc = S.points_from_rows(rows, 'latitude', 'longitude', props=props)
+
+        # One aggregate call, not a second download: we only need the tally of
+        # what the redaction hides, not the redacted rows themselves.
+        hidden = {'buildings': 0, 'units': 0}
+        try:
+            agg = S.soql(S.NYC, 'hg8x-zxpr',
+                         select='count(1) as buildings, sum(all_counted_units) as units',
+                         where='latitude IS NULL')
+            if agg:
+                hidden = {'buildings': int(float(agg[0].get('buildings') or 0)),
+                          'units': int(float(agg[0].get('units') or 0))}
+        except Exception:
+            pass       # a failed tally must not cost us the whole layer
+
+        mapped = sum(f['properties']['units'] for f in fc['features'])
+        fc['meta'] = {
+            'buildings': len(fc['features']),
+            'units': mapped,
+            'address_suppressed_buildings': hidden['buildings'],
+            'address_suppressed_units': hidden['units'],
+            'units_total': mapped + hidden['units'],
+            'income_bands': [{'key': k, 'label': lbl} for _, k, lbl in INCOME_BANDS],
+            'source': 'NYC HPD Affordable Housing Production by Building (hg8x-zxpr)',
+            'note': ('HPD redacts the address of some buildings; those units '
+                     'are counted here but cannot be placed on the map.'),
+        }
+        return fc
+    return S.cached('civic-affordable-housing-v2', WEEK, fetch)
+
+
+def affordable_rents() -> dict:
+    """Published rents for the city's subsidised units (Local Law 44)."""
+    return R.rent_points()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -278,13 +353,27 @@ LAYERS: List[Dict[str, Any]] = [
         'source': _src('NYC DOF Citywide Rolling Sales', 'w2pb-icbu'),
     },
     {
-        'id': 'affordable_housing',
-        'title': 'Affordable housing built',
+        'id': 'affordable_rents',
+        'title': 'Affordable homes for rent',
         'category': 'Housing',
         'kind': 'point',
         'geometry': 'point',
         'default_on': False,
-        'description': 'HPD-financed affordable units by building, sized by unit count.',
+        'description': ('What subsidised homes actually rent for, by building — '
+                        'rent and income limit for every bedroom size.'),
+        'style': {'color': '#c084fc', 'color_by': 'rent_min'},
+        'endpoint': '/layers/affordable_rents',
+        'source': _src('HPD Local Law 44 — Unit Income Rent', '9ay9-xkek'),
+    },
+    {
+        'id': 'affordable_housing',
+        'title': 'Affordable units built',
+        'category': 'Housing',
+        'kind': 'point',
+        'geometry': 'point',
+        'default_on': False,
+        'description': ('Every affordable unit HPD has financed, by building and '
+                        'income band, sized by unit count.'),
         'style': {'color': '#4ade80', 'size_by': 'units'},
         'endpoint': '/layers/affordable_housing',
         'source': _src('HPD Affordable Housing Production by Building', 'hg8x-zxpr'),
@@ -419,6 +508,7 @@ LOADERS: Dict[str, Callable[[], dict]] = {
     'evacuation_zones': evacuation_zones,
     'collisions': collisions,
     'affordable_housing': affordable_housing,
+    'affordable_rents': affordable_rents,
     'boroughs': boroughs,
     'neighborhoods': neighborhoods,
     'zips': zips,

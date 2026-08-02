@@ -146,7 +146,7 @@ export default function Select({
     <>
       <div className="fixed inset-0 z-[90]" onPointerDown={() => setOpen(false)} />
       <div
-        className="fixed z-[91] flex flex-col bg-[#141414] border border-white/10 rounded-lg shadow-2xl overflow-hidden select-pop"
+        className="fixed z-[91] flex flex-col bg-surface-2 border border-white/10 rounded-lg shadow-2xl overflow-hidden select-pop"
         style={{
           left: box.left, right: box.right, top: box.top, bottom: box.bottom,
           width: 'max-content', minWidth: box.minW, maxWidth: box.maxW, maxHeight: box.maxH,

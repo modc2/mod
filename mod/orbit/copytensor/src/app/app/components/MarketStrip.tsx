@@ -7,6 +7,7 @@ import type { MarketStats, SubnetInfo } from "../lib/types";
 import { useCurrency } from "../context/CurrencyContext";
 import ChangeChip from "./ChangeChip";
 import SubnetLogo from "./SubnetLogo";
+import StatTile from "./StatTile";
 
 const POLL_MS = 30_000;
 
@@ -43,23 +44,23 @@ export default function MarketStrip() {
   return (
     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Tile
+        <StatTile
           label="TAO price"
           value={m?.tao_usd ? `$${m.tao_usd.toFixed(2)}` : "—"}
           sub="coingecko · 5m cache"
-          accent
+          tone="accent"
         />
-        <Tile
+        <StatTile
           label="alpha market cap"
           value={m ? show(m.total_market_cap_tao) : "—"}
           sub={m && currency !== "USD" ? usd(m.total_market_cap_tao) ?? undefined : undefined}
         />
-        <Tile
+        <StatTile
           label="24h volume"
           value={m ? show(m.volume_24h_tao) : "—"}
           sub={m ? `${fmtCompact(m.total_tao_in_pools)} τ in pools` : undefined}
         />
-        <Tile
+        <StatTile
           label="subnets"
           value={m ? String(m.subnets) : "—"}
           sub={m ? `block ${m.block.toLocaleString()}` : undefined}
@@ -70,32 +71,6 @@ export default function MarketStrip() {
         <Movers title="Top gainers 24h" rows={m?.gainers} />
         <Movers title="Top losers 24h" rows={m?.losers} />
       </div>
-    </div>
-  );
-}
-
-function Tile({
-  label,
-  value,
-  sub,
-  accent,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  accent?: boolean;
-}) {
-  return (
-    <div className="pixel-panel px-4 py-3">
-      <p className="text-[10px] tracking-[2px] uppercase text-pixel-gray">{label}</p>
-      <p
-        className={`font-mono text-xl font-bold tabular-nums mt-0.5 ${
-          accent ? "text-green-400" : "text-pixel-white"
-        }`}
-      >
-        {value}
-      </p>
-      {sub && <p className="text-[10px] text-pixel-gray font-mono mt-0.5 truncate">{sub}</p>}
     </div>
   );
 }

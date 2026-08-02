@@ -346,6 +346,31 @@ TOOLS: List[Tool] = [
           'search': _p('string', 'Filter by address/neighborhood substring')},
          _sales_table),
 
+    # ── affordable homes ─────────────────────────────────────────────────
+    Tool('nyc_rents',
+         'What affordable housing costs to rent in NYC: median, lowest and '
+         'highest rent by bedroom size, income band and borough, from the '
+         "city's Local Law 44 rent roll.",
+         'housing', {}, lambda: get_nyc().rents()),
+    Tool('nyc_homes',
+         'Affordable rentals somebody could apply for, cheapest first — '
+         'address, rent, bedroom size and the income limit to qualify. '
+         'Filter by budget, bedrooms, borough or name.',
+         'housing',
+         {'max_rent': _p('integer', 'Most you can pay per month'),
+          'bedrooms': _p('string', 'Bedrooms needed: "studio", "1", "2", "3"…'),
+          'borough': _p('string', 'Borough name'),
+          'search': _p('string', 'Filter by building name, address or ZIP'),
+          'limit': _p('integer', 'Max rows returned', 100)},
+         lambda max_rent=None, bedrooms='', borough='', search='', limit=100:
+             get_nyc().homes(max_rent=max_rent, bedrooms=bedrooms,
+                             borough=borough, search=search, limit=limit)),
+    Tool('nyc_affordable',
+         'How many affordable units NYC has financed, by income band and '
+         'borough — including the units HPD publishes with the address '
+         'redacted, which the map cannot draw.',
+         'housing', {}, lambda: get_nyc().affordable()),
+
     # ── the whole open-data portal ───────────────────────────────────────
     Tool('nyc_find_datasets',
          'Search ALL of NYC Open Data (or NY State) for datasets on any '

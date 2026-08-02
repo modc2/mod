@@ -1,6 +1,6 @@
 ---
 name: hyperliquid
-description: Copy-trade any Hyperliquid wallet by N-day performance and compose them into vault-backed indexes
+description: Copy-trade any Hyperliquid wallet by N-day performance, compose them into vault-backed indexes, and drive it all over REST or MCP
 ---
 
 # hyperliquid
@@ -63,6 +63,42 @@ hl.list_signals(follower='0x…')
 
 The same operations are reachable via `POST /forward` on the Rust API
 for keyless mod-protocol consumers.
+
+## Auth
+
+Public reads (market data, leaderboards, trader analysis, vaults, index
+browsing) are open. Everything wallet-scoped — follows, signals, signer,
+trading, transfers, live engine — needs a mod protocol-auth token as
+`Authorization: Bearer <token>`, and any `eoa`/`follower`/`owner` you pass
+must be that token's own address. Pass it as `m.mod('hyperliquid')(token=…)`
+or `HYPERLIQUID_TOKEN`; `HYPERLIQUID_ACCESS_OPEN=1` disables the gate for
+local dev.
+
+## MCP tool server
+
+The whole fn surface is also an MCP server — 53 tools, one per mod fn,
+named `hl_<fn>`. Transports: `POST /mcp` (Streamable HTTP, JSON-RPC 2.0,
+one message per POST) and stdio.
+
+```bash
+claude mcp add hyperliquid -- src/api/target/release/hyperliquid-api --stdio
+# or point an HTTP MCP client at  /api/hyperliquid/mcp
+```
+
+```python
+hl.mcp()                     # tool schema + the mod-protocol mapping
+hl.mcp_tools()               # [{name, fn, route, public, bound}, …]
+hl.mcp_call('hl_top_traders', days=7, pool=50)
+hl.mcp_config()              # client config snippets (stdio / http / gateway)
+```
+
+`GET /mcp/schema` is the bridge between the two protocols: every tool
+publishes the `fn` it fronts and the REST route that fn calls, so an MCP
+client and a mod client see the same module. Tool calls execute as loopback
+requests against this API carrying the caller's own `Authorization` header —
+the auth gate treats MCP exactly like browser traffic, and MCP grants no
+authority of its own. A unit test asserts every tool's `fn` is declared in
+`config.json`, so the two schemas cannot drift.
 
 ## Backend agent wallet
 

@@ -1,0 +1,15 @@
+{
+    "name": "hub",
+    "description": "Module catalog — every module in the orbit (orbit/ + core/) with its description and shipped docs (README.md / skill.md).",
+    "version": "0.1.0",
+    "deps": [],
+    "fns": [
+        "modules",
+        "names",
+        "dir",
+        "desc",
+        "doc",
+        "search",
+        "info"
+    ]
+}

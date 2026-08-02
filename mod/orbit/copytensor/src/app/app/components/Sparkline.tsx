@@ -1,22 +1,29 @@
 "use client";
 
-import { useId } from "react";
-
 /**
- * Dependency-free price sparkline.
+ * Dependency-free price sparkline, plotted on a pixel lattice.
  *
  * Recharts is fine for the one big detail chart, but a grid of 128 cards
  * wants something that costs a single <path>. Colors follow the series'
  * own direction (first → last) so a card's tint always agrees with its
  * change chip.
+ *
+ * Every vertex snaps to a CELL-px grid and the path moves in steps —
+ * across, then up — so the trace reads as something a console could
+ * actually have drawn. A smooth diagonal is the giveaway that a chart
+ * was rendered rather than plotted.
  */
+import { useThemeColors } from "../context/ThemeContext";
+
+const CELL = 2;
+const snap = (n: number) => Math.round(n / CELL) * CELL;
 export default function Sparkline({
   values,
   width = 120,
   height = 34,
   color,
   fill = true,
-  strokeWidth = 1.5,
+  strokeWidth = 2,
   className = "",
 }: {
   values: number[] | null | undefined;
@@ -27,7 +34,7 @@ export default function Sparkline({
   strokeWidth?: number;
   className?: string;
 }) {
-  const gradId = useId().replace(/:/g, "");
+  const skin = useThemeColors();
   const pts = (values || []).filter((v) => typeof v === "number" && isFinite(v));
 
   if (pts.length < 2) {
@@ -63,11 +70,20 @@ export default function Sparkline({
   const y = (v: number) =>
     max === min ? height / 2 : pad + (1 - (v - min) / span) * usable;
 
-  const line = pts.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(2)},${y(v).toFixed(2)}`).join(" ");
-  const area = `${line} L${width},${height} L0,${height} Z`;
+  // Staircase: hold the previous level across to the new x, then step to
+  // the new level. Two axis-aligned segments per point, no diagonals.
+  const line = pts
+    .map((v, i) => {
+      const px = snap(x(i));
+      const py = snap(y(v));
+      if (!i) return `M${px},${py}`;
+      return `H${px} V${py}`;
+    })
+    .join(" ");
+  const area = `${line} V${height} H0 Z`;
 
   const up = pts[pts.length - 1] >= pts[0];
-  const stroke = color || (up ? "#4ade80" : "#f87171");
+  const stroke = color || (up ? skin.lime : skin.red);
 
   return (
     <svg
@@ -78,24 +94,17 @@ export default function Sparkline({
       className={className}
       aria-hidden
     >
-      {fill && (
-        <>
-          <defs>
-            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={stroke} stopOpacity={0.28} />
-              <stop offset="100%" stopColor={stroke} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <path d={area} fill={`url(#${gradId})`} stroke="none" />
-        </>
-      )}
+      {/* Flat fill, not a gradient — a fade needs more colours than the
+          palette has. One translucent block under the trace. */}
+      {fill && <path d={area} fill={stroke} fillOpacity={0.16} stroke="none" shapeRendering="crispEdges" />}
       <path
         d={line}
         fill="none"
         stroke={stroke}
         strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        strokeLinecap="butt"
+        strokeLinejoin="miter"
+        shapeRendering="crispEdges"
         vectorEffect="non-scaling-stroke"
       />
     </svg>

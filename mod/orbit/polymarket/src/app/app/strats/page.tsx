@@ -7,7 +7,7 @@ import { useUrlSync } from "../context/FiltersContext";
 
 /// The STRAT page owns everything strat + account: the strat tabs
 /// (STRAT / BACKTEST / LIVE) full width, each with a subtab rail
-/// (STRAT → BUILD/SOURCE, BACKTEST → RESULTS/TRADES, LIVE →
+/// (STRAT → BUILD/SOURCE/MARKET, BACKTEST → RESULTS/TRADES, LIVE →
 /// PORTFOLIO/POSITIONS/STATS/TRADES/WALLET/HELP). Strat
 /// select/create lives in the TopBar picker, rename/delete in the
 /// STRAT tab, and the go-live checklist in the LIVE tab — no side

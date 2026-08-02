@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 import hashlib
 import signal
@@ -8,7 +9,7 @@ import threading
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Optional, Dict, Any, Union, List
+from typing import Callable, Optional, Dict, Any, Union, List
 import mod as m
 
 
@@ -31,6 +32,137 @@ WHAT GOOD LOOKS LIKE
 - Leave the codebase better lit than you found it: clear names, a why-comment where the reason isn't obvious.
 
 Ship it clean. Make Steve proud."""
+
+
+# ── harness trace ────────────────────────────────────────────────────
+# The job server streams one rendered line at a time (`⚡ Bash`, `$ ls`, the
+# EDIT diff block, `[VERSION] … cid …`). JobTrace reads that stream back into
+# the step dicts the fleet speaks — {'tool', 'params', 'result'|'error'} — so a
+# job run by this module renders in another module's console exactly like a
+# native one. It is the mirror of the Rust StreamParser in api/src/jobs.rs;
+# the two move together.
+
+HARNESS_TIMEOUT = 3600          # wall-clock cap on one harness run
+
+_TOOL_LINE = re.compile(r"^⚡\s*(\S+)\s*(.*)$")
+_DETAIL_LINE = re.compile(r"^(\$ |┌|│|└|→| )")
+
+# CLI tool names -> the fleet's skill names (unknown tools just lowercase)
+_TOOLS = {
+    "Bash": "bash", "Read": "read", "Write": "write", "Edit": "edit",
+    "MultiEdit": "edit", "NotebookEdit": "edit", "Glob": "glob",
+    "Grep": "grep", "Task": "task", "WebFetch": "fetch",
+    "WebSearch": "search", "TodoWrite": "todo",
+}
+
+
+class JobTrace:
+    """One job's output stream, translated into steps. Line in, steps out."""
+
+    MAX_RESULT = 4000
+
+    def __init__(self):
+        self._held: Optional[str] = None    # narration waiting to be flushed
+        self._tool: Optional[dict] = None   # tool step collecting its detail lines
+        self._detail: List[str] = []
+        self.cids: Dict[str, str] = {}      # {'version': cid, 'task': cid}
+        self.done = False                   # the server said [DONE]
+
+    @classmethod
+    def clip(cls, text: str) -> str:
+        return text if len(text) <= cls.MAX_RESULT else \
+            text[:cls.MAX_RESULT] + f"\n… [{len(text) - cls.MAX_RESULT} more chars]"
+
+    # An agent's prose is only a narration step once something follows it: the
+    # last thing it says is the answer, and that belongs in finish.
+    def hold(self, text: str) -> List[dict]:
+        out = self.flush()
+        self._held = (text or "").strip() or None
+        return out
+
+    def flush(self) -> List[dict]:
+        out = self._close_tool()
+        text, self._held = self._held, None
+        if text:
+            out.append({"tool": "response", "params": {}, "result": text})
+        return out
+
+    @property
+    def summary(self) -> str:
+        """The last thing the agent said — the answer."""
+        return self._held or ""
+
+    def line(self, text: str) -> List[dict]:
+        """Translate one line of job output into zero or more steps."""
+        stripped = text.strip()
+        if not stripped:
+            return []
+        if stripped == "[DONE]":
+            self.done = True
+            return []
+        if stripped.startswith("[VERSION]") or stripped.startswith("[STORE]"):
+            kind = "version" if stripped.startswith("[VERSION]") else "task"
+            cid = stripped.rsplit(" ", 1)[-1]
+            self.cids[kind] = cid
+            return self.flush() + [{"tool": "snapshot", "params": {"kind": kind},
+                                    "result": cid}]
+        if stripped.startswith("[ERROR]"):
+            return self.flush() + [{"tool": "error", "params": {},
+                                    "error": stripped[7:].strip()}]
+        if stripped.startswith("⏳"):
+            return []                       # session banner, not a step
+        if stripped.startswith("💭"):
+            return self.flush() + [{"tool": "think",
+                                    "params": {"thought": self.clip(stripped[1:].strip())}}]
+        tool = _TOOL_LINE.match(stripped)
+        if tool:
+            out = self.flush()
+            name, rest = tool.group(1), tool.group(2).strip()
+            self._tool = {"tool": _TOOLS.get(name, name.lower()), "params": {}}
+            self._detail = []
+            if rest:
+                self._detail.append(rest)
+            return out
+        if self._tool is not None and _DETAIL_LINE.match(text):
+            self._detail.append(text.rstrip())
+            return []
+        # anything else is the agent talking
+        return self.hold(stripped)
+
+    def _close_tool(self) -> List[dict]:
+        """Emit the tool step that was collecting detail lines."""
+        if self._tool is None:
+            return []
+        step, detail = self._tool, "\n".join(self._detail).strip()
+        self._tool, self._detail = None, []
+        params = step["params"]
+        # pull the shapes the server renders into real params; the rest of the
+        # block (a diff, a command's description) stays as the step's result
+        first = detail.split("\n", 1)[0] if detail else ""
+        if first.startswith("$ "):
+            params["command"] = first[2:].split(" # ", 1)[0]
+        elif first.startswith("┌─ EDIT: ") or first.startswith("┌─ WRITE: "):
+            params["file_path"] = first.split(": ", 1)[1].split(" (", 1)[0]
+        elif first.startswith("glob:") or first.startswith("grep:"):
+            params["pattern"] = first.split(":", 1)[1]
+        elif first.startswith("→ "):
+            params["description"] = first[2:]
+        elif first:
+            params["file_path" if step["tool"] in ("read", "write", "edit") else "detail"] = first
+        if detail:
+            step["result"] = self.clip(detail)
+        return [step]
+
+    def close(self, status: str, error: str = None) -> List[dict]:
+        """Terminal step, from the job's final state."""
+        out = self._close_tool()
+        text, self._held = self._held, None
+        if status == "completed":
+            params = {"summary": text or ""}
+            params.update({f"{k}_cid": v for k, v in self.cids.items()})
+            return out + [{"tool": "finish", "params": params}]
+        return out + [{"tool": "error", "params": {},
+                       "error": error or text or f"job {status}"}]
 
 
 class Mod:
@@ -755,6 +887,7 @@ class Mod:
     def submit(self, prompt: str, model: str = "sonnet", work_dir: str = None,
                module_name: str = None, creation_mode: str = None,
                github_url: str = None, anchor_dir: str = None,
+               system_prompt: str = None, agent_type: str = None,
                key: str = None, **kwargs) -> dict:
         """Submit a background job to the Rust server."""
         data = {"prompt": prompt, "model": model}
@@ -769,7 +902,19 @@ class Mod:
             data["github_url"] = github_url
         if anchor_dir:
             data["anchor_dir"] = anchor_dir
-        return self._request("POST", "/jobs", data)
+        if system_prompt:
+            data["system_prompt"] = system_prompt
+        if agent_type:
+            data["agent_type"] = agent_type
+        # The server reads the caller's identity off the token, not the body —
+        # sign the request so a submit works against a deployed API too, not
+        # only a local one. Unsignable key? Let the server decide (local mode
+        # still accepts it; a deployed one answers 401).
+        try:
+            headers = self._auth_headers(key)
+        except Exception:
+            headers = None
+        return self._request("POST", "/jobs", data, headers=headers)
 
     def jobs(self) -> list:
         """List all background jobs."""
@@ -857,6 +1002,111 @@ class Mod:
     def logs(self, job_id: str) -> str:
         """Get job output text."""
         return self._request("GET", f"/jobs/{job_id}").get("output", "")
+
+    # ── harness: hand a whole run to this module ──────────────────
+    # Other modules (orbit/agent) treat claude as an agent they can hand a run
+    # to. The contract is two calls — harness() and run() — the same pair the
+    # CLI harness modules answer (orbit/claudecode, orbit/codexcli). What's
+    # different is what backs it: a job here is sandboxed per caller, snapshots
+    # the module tree it touched into a CID, and lands in the public ledger.
+
+    def harness(self) -> dict:
+        """Harness card: who this is and whether it can run here."""
+        up = self._server_available()
+        return {
+            "name": "claudemod",
+            "label": "Claude Console",
+            "description": "This module's job server — Claude Code with per-caller "
+                           "sandboxing, snapshot CIDs and a public task ledger",
+            "available": up or bool(self._find_claude_safe()),
+            "server": up,
+            "install": "m claude/serve",
+            "api": self.api_url,
+            "module": "claude",
+        }
+
+    def _find_claude_safe(self) -> Optional[str]:
+        try:
+            return self._find_claude()
+        except Exception:
+            return None
+
+    def run(self, query: str, path: str = None, goal: str = None,
+            model: str = None, timeout: int = HARNESS_TIMEOUT,
+            on_step: Callable[[dict], None] = None, key=None,
+            **kwargs) -> List[dict]:
+        """Run a job here and return its step trace.
+
+        Submits the job, follows its live output, and translates it into the
+        step dicts every agent run in the fleet emits. Blocks until the job
+        reaches a terminal state; the job itself survives independently — its
+        id is on every step's `job` field, so a caller that gives up can still
+        follow, steer or cancel it.
+
+        Args:
+            query: the task, handed to the job as its prompt
+            path: work_dir for the job (a non-owner caller is confined to
+                  their own workspace by the server, whatever this says)
+            goal: system prompt for the run
+            model: model for the job ('auto' lets the server pick a tier)
+            timeout: wall-clock cap; the job is cancelled when it expires
+            on_step: called with each step as it happens (live progress)
+            key: caller identity — decides ownership, sandbox and ledger entry
+        """
+        job = self.submit(query, model=model or "auto", work_dir=path,
+                          system_prompt=goal, key=key)
+        job_id = job.get("id")
+        if not job_id:
+            raise RuntimeError(f"job was not accepted: {job.get('error') or job}")
+
+        trace = JobTrace()
+        steps: List[dict] = []
+
+        def emit(step: dict):
+            step.setdefault("params", {})
+            step["job"] = job_id
+            steps.append(step)
+            if on_step:
+                try:
+                    on_step(step)
+                except Exception:
+                    pass
+
+        deadline = time.time() + timeout
+        try:
+            for line in self._stream_lines(f"/jobs/{job_id}/stream", deadline):
+                for step in trace.line(line):
+                    emit(step)
+                if trace.done:
+                    break
+        except Exception as e:
+            # the stream broke, the job didn't — fall through to its final state
+            emit({"tool": "harness", "params": {}, "result": f"stream ended: {e}"})
+
+        expired = time.time() >= deadline
+        if expired and not trace.done:
+            self.cancel(job_id)
+        final = self.job(job_id) or {}
+        status = (final.get("status") or "").lower()
+        if expired and status not in ("completed", "failed"):
+            status, error = "timeout", f"exceeded {timeout}s — job {job_id} cancelled"
+        else:
+            error = final.get("error")
+        for step in trace.close(status or "unknown", error):
+            emit(step)
+        return steps
+
+    def _stream_lines(self, path: str, deadline: float):
+        """Yield the job's output lines from the SSE stream until it ends."""
+        url = f"{self.api_url}{path}"
+        req = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
+        with urllib.request.urlopen(req, timeout=max(1, deadline - time.time())) as resp:
+            for raw in resp:
+                if time.time() >= deadline:
+                    return
+                text = raw.decode("utf-8", errors="replace").rstrip("\n")
+                if text.startswith("data:"):
+                    yield text[5:]
 
     def tail(self, job_id: str) -> None:
         """Live-stream job output via SSE. Ctrl-C to detach."""

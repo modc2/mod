@@ -1,6 +1,22 @@
 {
     "name": "claudecode",
-    "description": "claudecode",
-    "version": "0.1.0",
-    "schema": "QmPp9mgkCa68R8mmSGGNMNmnbAN8GWFBjf2im8KU7esUqJ"
+    "version": "1.0.0",
+    "description": "The Claude Code CLI as a harness module — spawns the binary in stream-json mode and returns a step trace any module can render",
+    "icon": "⬡",
+    "color": "#cc785c",
+    "harness": {
+        "name": "claude",
+        "label": "Claude Code",
+        "bin": "claude",
+        "install": "npm install -g @anthropic-ai/claude-code"
+    },
+    "fns": [
+        "forward",
+        "harness",
+        "run",
+        "available",
+        "path",
+        "command",
+        "session"
+    ]
 }

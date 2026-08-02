@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Trade } from "../lib/types";
 import { fetchTrades, ago } from "../lib/api";
 import { useCurrency, fmtValue } from "../context/CurrencyContext";
+import PageHeader from "../components/PageHeader";
 
 export default function PortfolioPage() {
   const { currency, usdPerTao } = useCurrency();
@@ -18,21 +19,20 @@ export default function PortfolioPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="font-display text-2xl font-bold mb-1">Portfolio</h1>
-        <p className="text-pixel-gray-light text-sm">
-          Every stake / unstake the copy engine has fired on your behalf.
-        </p>
-      </header>
+    <div className="space-y-5">
+      <PageHeader title="PORTFOLIO">
+        Every stake / unstake the copy engine has fired on your behalf.
+      </PageHeader>
 
       {loading ? (
         <p className="text-pixel-gray text-sm">loading…</p>
       ) : trades.length === 0 ? (
-        <div className="pixel-panel p-6 text-pixel-gray-light text-sm">
-          No trades executed yet. Activate a copy from the
-          <a href="/strats" className="text-green-400 mx-1">strats</a>
-          tab to start mirroring a validator.
+        <div className="pixel-panel p-6">
+          <p className="arcade-prose">
+            No trades executed yet. Activate a copy from the
+            <a href="/strats" className="text-green-400 mx-1">strats</a>
+            tab to start mirroring a validator.
+          </p>
         </div>
       ) : (
         <div className="pixel-panel overflow-hidden">

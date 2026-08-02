@@ -265,7 +265,7 @@ export default function StratPicker({ seedTarget }: Props) {
     <div className="space-y-6">
       <header>
         <h2 className="font-display text-lg font-bold mb-1">Index of traders</h2>
-        <p className="text-pixel-gray-light text-xs">
+        <p className="arcade-prose arcade-prose-sm mt-1">
           Build a weighted basket of validators. Activating the index spawns one
           copy per trader with capital split by weight — like buying an ETF
           instead of a single stock.
@@ -472,7 +472,7 @@ export default function StratPicker({ seedTarget }: Props) {
           </div>
 
           {traders.length === 0 ? (
-            <div className="text-pixel-gray text-xs italic">
+            <div className="arcade-prose arcade-prose-sm">
               No traders yet. Open the picker above or paste an ss58 below.
             </div>
           ) : (

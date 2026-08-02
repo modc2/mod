@@ -94,12 +94,44 @@ fn default_inter_request_delay_ms() -> u64 { 400 }
 /// floor. The owner can lower this through the strat, but the default keeps a
 /// stale fast config (the persisted 5s era) safe.
 fn default_min_interval_ms() -> u64 { 30_000 }
+/// Wall-clock budget allowed per trader fetch when deriving the fan-out floor.
+/// A data-api `/activity` round trip lands in the 200–600ms band, so the upper
+/// end is what a cycle must be able to afford for EVERY watched trader.
+const TRADER_FETCH_ALLOWANCE_MS: u64 = 600;
+
+/// The cadence a session actually runs at: the strat's requested interval,
+/// floored by `min_interval_ms`, and never tighter than the per-trader fan-out
+/// itself can physically complete (each trader costs one spacing delay plus a
+/// fetch). Without the fan-out term a large watchlist silently drifts — "sync
+/// every 30s" with 60 traders needs ~60s of fetching alone — so the engine
+/// widens the period instead of pretending, and `/live/status` reports the
+/// widened value so the console shows the truth rather than the request.
+fn effective_interval_for(cfg: &EngineConfig, enabled_traders: usize) -> u64 {
+    let fanout_ms = enabled_traders as u64 * (cfg.inter_request_delay_ms + TRADER_FETCH_ALLOWANCE_MS);
+    cfg.interval_ms.max(cfg.min_interval_ms).max(fanout_ms)
+}
 /// Default entry-probability floor: a BUY mirror below this price (= implied
 /// probability) is skipped when the strat expresses NO explicit price band.
 /// "Likely to win" by default — sub-60¢ longshot flow (the movoaev8 leak) is
 /// only copied when a strat opts in with its own `minPrice`/`maxPrice`.
 /// Mirror of DEFAULT_MIN_ENTRY_PRICE in app/lib/tradeFilters.ts.
 const DEFAULT_MIN_ENTRY_PRICE: f64 = 0.60;
+/// Default proportional-fidelity limit — see `EngineConfig::max_upscale`.
+/// 2× is the most distortion a floor-clamped mirror may carry before the
+/// engine would rather place nothing.
+fn default_max_upscale() -> Option<f64> { Some(2.0) }
+/// Default time-to-resolution floor for MIRRORS (minutes) — see
+/// `EngineConfig::min_minutes_to_close`. 60 excludes the 5m/15m/hourly
+/// candle games while keeping every ordinary market.
+fn default_copy_min_minutes_to_close() -> Option<f64> { Some(60.0) }
+/// Default staleness cutoff for MIRRORS (seconds) — see
+/// `EngineConfig::max_trade_age_sec`. 5 minutes covers a couple of missed
+/// cycles without letting a backlog replay hours-old prices.
+fn default_max_trade_age_sec() -> Option<f64> { Some(300.0) }
+/// How long a leader's bankroll + position book is reused before refetching.
+/// Bankrolls move slowly relative to a 30s poll, and each refresh costs one
+/// data-api call plus one Polygon read per trader.
+const LEADER_BOOK_TTL_MS: i64 = 10 * 60_000;
 /// Capital-aware rebalancing: when free capital can't fund a higher-score
 /// candidate, sell the lowest-score held position(s) to make room. ON by
 /// default so a running strat always holds its top-scoring set.
@@ -250,11 +282,20 @@ pub struct CandleParams {
 /// What the engine needs to run a session. Persisted to disk verbatim.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineConfig {
-    /// User's EOA — used as the registry key and the on-disk filename.
+    /// User's EOA. Together with `strategy_id` it forms the session key —
+    /// one wallet can run several strats at once (see `session_key`).
     pub eoa: String,
-    /// Saved strat id (echoed back to the client; not used by the loop).
+    /// Saved strat id. Second half of the session key, and the tag every
+    /// fill / open position carries so the per-strat ledger can split one
+    /// wallet's activity across concurrently-funded strats.
     #[serde(rename = "strategyId")]
     pub strategy_id: String,
+    /// Set when the user stopped this session. The config is KEPT (so the
+    /// strat's realized ledger and tagged positions stay readable in the
+    /// console's per-strat money column) but `resume_persisted` skips it, so
+    /// a stopped strat never comes back to life on an API restart.
+    #[serde(default)]
+    pub stopped: bool,
     /// Proxy (Safe / POLY_PROXY) address where funds live.
     pub address: String,
     pub traders: Vec<TraderEntry>,
@@ -378,6 +419,28 @@ pub struct EngineConfig {
     /// traders AND ride momentum, or do either alone.
     #[serde(default)]
     pub momentum: Option<MomentumParams>,
+    // ── Proportional-copy fidelity (see `copy_ratio_for`) ──
+    /// How far a mirror may be UPSIZED past its proportional notional when
+    /// that notional lands below the effective order floor. 2.0 = "never
+    /// place more than 2× what proportionality calls for" — everything
+    /// smaller is skipped as `SUB_SCALE` rather than silently placed at the
+    /// floor. Unbounded upscaling is what turned a $0.20 intent into a $5
+    /// order 1064 times and burned the account, so this defaults ON.
+    /// `None`/0 ⇒ legacy clamp-to-floor with no fidelity limit.
+    #[serde(rename = "maxUpscale", default = "default_max_upscale")]
+    pub max_upscale: Option<f64>,
+    /// Don't mirror a leader BUY in a market resolving sooner than this many
+    /// minutes. Sub-hour Up/Down candles are HFT turf: by the time a 30s
+    /// poller sees the fill the candle has already moved, so copying them is
+    /// a structural loss, not a strategy. Omitted ⇒ 60; explicit 0 ⇒ off.
+    #[serde(rename = "minMinutesToClose", default = "default_copy_min_minutes_to_close")]
+    pub min_minutes_to_close: Option<f64>,
+    /// Don't mirror a leader BUY older than this many seconds. A fetch
+    /// outage (or a paused session) hands the engine a backlog whose prices
+    /// are long gone — copying it enters at a level the leader never paid.
+    /// Omitted ⇒ 300s; explicit 0 ⇒ off.
+    #[serde(rename = "maxTradeAgeSec", default = "default_max_trade_age_sec")]
+    pub max_trade_age_sec: Option<f64>,
 }
 
 /// Mirror of `TradeFilters` in app/lib/types.ts, applied by
@@ -594,7 +657,18 @@ pub struct EngineState {
     pub total_orders_failed: u64,
     #[serde(rename = "totalVolumeMirrored")]
     pub total_volume_mirrored: f64,
+    /// Free USDC (dollars) this session may still deploy — the deposit
+    /// wallet's real trading balance capped at the strat's allocation.
+    /// Refreshed at the top of every cycle; `None` only before the first
+    /// successful read (or while the Polygon RPCs are all down), which the
+    /// budget treats as "unknown, fall back to the ledger estimate".
     pub balance: Option<f64>,
+    /// `balance` + mark value of the positions this session holds — what the
+    /// strat is actually worth. Every proportional copy is a fraction of
+    /// this, so the position size tracks the account instead of a config
+    /// number that stopped being true after the first fill.
+    #[serde(rename = "accountValue", default)]
+    pub account_value: Option<f64>,
     pub log: Vec<LogEntry>,
     #[serde(rename = "observedTrades")]
     pub observed_trades: Vec<ObservedTrade>,
@@ -606,6 +680,13 @@ pub struct EngineState {
     /// the engine hasn't been able to reach.
     #[serde(rename = "traderLastSync", default)]
     pub trader_last_sync: HashMap<String, i64>,
+    /// The cadence the loop is actually running at (ms) — the strat's request
+    /// after the rate-limit floor and the fan-out widening (see
+    /// `effective_interval_ms`). The console shows this rather than the
+    /// requested `intervalMs`, so a clamped strat can't read as if it were
+    /// polling faster than it is.
+    #[serde(rename = "effectiveIntervalMs", default)]
+    pub effective_interval_ms: u64,
     /// Trade ids we've already placed a mirror for. Guards against
     /// double-copying a leader trade that reappears across the cursor's 60s
     /// overlap window. Bounded at `COPIED_IDS_CAP`.
@@ -652,11 +733,13 @@ impl EngineState {
             total_orders_failed: 0,
             total_volume_mirrored: 0.0,
             balance: None,
+            account_value: None,
             log: Vec::new(),
             observed_trades: Vec::new(),
             error: None,
             trader_cursors: HashMap::new(),
             trader_last_sync: HashMap::new(),
+            effective_interval_ms: 0,
             copied_ids: HashSet::new(),
             positions: HashMap::new(),
             strat_stats: HashMap::new(),
@@ -716,6 +799,10 @@ struct HeldPosition {
     size: f64,
     condition_id: String,
     market: String,
+    /// Mark-to-market value of the holding right now (`size × current
+    /// price`), as reported by the data-api. Summed into the account value
+    /// that proportional sizing divides by. 0.0 when the API omits it.
+    current_value: f64,
     /// Average price paid per share, as reported by the data-api — the cost
     /// basis used when the reconciler ADOPTS a holding the engine ledger
     /// doesn't know. 0.0 when the API omits it (stop-loss then can't arm on
@@ -765,15 +852,148 @@ async fn fetch_held_positions(http: &reqwest::Client, wallet: &str) -> Option<Ve
                 .get("avgPrice")
                 .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
                 .unwrap_or(0.0);
+            let current_value = p
+                .get("currentValue")
+                .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .unwrap_or(0.0);
             if !token_id.is_empty() && size > 0.0 {
-                out.push(HeldPosition { token_id, size, condition_id, market, avg_price });
+                out.push(HeldPosition { token_id, size, condition_id, market, avg_price, current_value });
             }
         }
     }
     Some(out)
 }
 
+/// Per-trader bankroll cache lifetime, jittered across [TTL, 1.5×TTL) by a
+/// hash of the address. Without the jitter every trader's entry expires on
+/// the same cycle — the whole watchlist refetches at once and that one cycle's
+/// fan-out doubles. Deterministic per address, so it survives restarts.
+fn leader_book_ttl(key: &str) -> i64 {
+    let h = key.bytes().fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(b as u64));
+    LEADER_BOOK_TTL_MS + (h % (LEADER_BOOK_TTL_MS as u64 / 2)) as i64
+}
+
+/// Does this gamma market object actually describe the condition we asked
+/// for? Gamma answers an unrecognised filter with its default market page
+/// instead of an error, so every by-id lookup checks the id came back.
+fn verify_condition(market: &Value, condition_id: &str) -> bool {
+    market
+        .get("conditionId")
+        .or_else(|| market.get("condition_id"))
+        .and_then(|v| v.as_str())
+        .map_or(false, |id| id.eq_ignore_ascii_case(condition_id))
+}
+
+/// `(negRisk, endDate ms)` out of a gamma market object.
+fn market_meta_of(market: &Value) -> (bool, Option<i64>) {
+    let neg_risk = market
+        .get("negRisk")
+        .or_else(|| market.get("neg_risk"))
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
+    let end = market
+        .get("endDate")
+        .or_else(|| market.get("end_date_iso"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.timestamp_millis());
+    (neg_risk, end)
+}
+
+/// A watched trader's balance sheet: what their whole book is worth, and how
+/// much of each token they still hold. Proportional copying needs both —
+/// the bankroll to size entries as the same *fraction of net worth* the
+/// leader risked, the per-token sizes to exit in the same *fraction of the
+/// position* the leader exited.
+#[derive(Clone, Debug, Default)]
+struct LeaderBook {
+    /// Positions mark value + free USDC cash. The denominator of the copy
+    /// ratio: "the leader put 2% of their net worth on this".
+    bankroll: f64,
+    /// token_id → shares still held, AFTER the trades we're reacting to.
+    sizes: HashMap<String, f64>,
+}
+
+/// Read a leader's bankroll and position book. Positions (and their mark
+/// value) come from the data-api; free cash is the V2 collateral balance on
+/// their proxy wallet — the same token our own balance check reads, so both
+/// sides of the ratio are measured the same way. Returns `None` when the
+/// positions fetch fails: an outage must never read as "bankroll 0", which
+/// would make the copy ratio explode.
+async fn fetch_leader_book(http: &reqwest::Client, address: &str) -> Option<LeaderBook> {
+    let held = fetch_held_positions(http, address).await?;
+    let positions_value: f64 = held.iter().map(|p| p.current_value).sum();
+    // Cash is best-effort: a Polygon outage degrades the bankroll to
+    // positions-only (a smaller denominator ⇒ a *larger* copy) rather than
+    // dropping the whole measurement, so it's floored into the ratio guard
+    // below by the caller's sanity clamp.
+    let cash = crate::relayer::usdc_balance(http, address)
+        .await
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|u| u / 1e6)
+        .unwrap_or(0.0);
+    Some(LeaderBook {
+        bankroll: positions_value + cash,
+        sizes: held.into_iter().map(|p| (p.token_id, p.size)).collect(),
+    })
+}
+
+/// What this session is actually worth right now — the numerator of every
+/// proportional copy. Cash is the deposit wallet's free USDC capped at the
+/// strat's allocation (one wallet funds several strats; a session may only
+/// claim its own slice), plus the mark value of the positions it holds.
+///
+/// Sizing against THIS instead of the static `capital` config is what makes
+/// the copy self-scaling: a session that doubles copies twice as big, one
+/// that's drawn down copies smaller, and one whose wallet is empty copies
+/// nothing at all instead of firing orders the CLOB rejects.
+/// One leader trade the engine decided to act on, with everything the
+/// execution pass needs to size it in proportion.
+struct MirrorCandidate {
+    trade: ObservedTrade,
+    /// Multiplier on the leader's notional — see `copy_ratio_for`.
+    copy_ratio: f64,
+    /// Shares the leader still holds in this token after the trade.
+    /// `Some(0.0)` on a SELL means they went flat, so we go flat too.
+    /// `None` = their book couldn't be read; exits fall back to ratio sizing.
+    leader_remaining: Option<f64>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct AccountValue {
+    /// Free USDC available to THIS session (dollars).
+    cash: f64,
+    /// Cash + mark value of the positions this session holds — the session's
+    /// account value, and the numerator of every proportional copy.
+    total: f64,
+}
+
 // ─── Handle / Registry ─────────────────────────────────────────────────
+
+/// Registry key for one live session: `<eoa>::<strategyId>`.
+///
+/// A wallet can fund and run SEVERAL strats at once. Each session budgets
+/// against its own `cfg.capital` allocation minus the positions IT opened
+/// (`execute_mirrors`' `free_capital`), and tags every fill with its
+/// `strategy_id`, so concurrent sessions on one deposit wallet keep separate
+/// books. The console is responsible for keeping the sum of allocations
+/// inside the wallet's USDC — over-allocating just means the later order
+/// fails on-chain for insufficient balance.
+fn session_key(eoa: &str, strategy_id: &str) -> String {
+    format!("{}::{}", eoa.to_lowercase(), strategy_id)
+}
+
+/// Filesystem-safe form of a session key — the on-disk config/state basename.
+/// Strat ids are base-36 timestamps today, but a shared strat could carry
+/// anything, so anything outside `[A-Za-z0-9._-]` collapses to `_`.
+fn session_file_stem(eoa: &str, strategy_id: &str) -> String {
+    let safe: String = strategy_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') { c } else { '_' })
+        .collect();
+    format!("{}__{}", eoa.to_lowercase(), safe)
+}
 
 pub struct EngineHandle {
     /// Behind a lock because the auto-watchlist refresh rewrites `traders`
@@ -791,8 +1011,13 @@ pub struct EngineRegistry {
     /// Per-EOA signing keys — the engine signs and places mirror orders
     /// autonomously through these (no browser wallet needed).
     signer_store: Arc<SignerStore>,
-    /// conditionId → negRisk flag, resolved once via gamma and reused.
-    neg_risk_cache: DashMap<String, bool>,
+    /// conditionId → (negRisk flag, market end date ms) resolved once via
+    /// gamma and reused. The end date gates mirrors in markets about to
+    /// resolve; `None` = gamma didn't report one.
+    neg_risk_cache: DashMap<String, (bool, Option<i64>)>,
+    /// trader address → (fetched-at ms, balance sheet). Shared by every
+    /// session so two strats watching the same leader pay for one fetch.
+    leader_books: DashMap<String, (i64, LeaderBook)>,
 }
 
 impl EngineRegistry {
@@ -812,6 +1037,7 @@ impl EngineRegistry {
             disk_dir,
             signer_store,
             neg_risk_cache: DashMap::new(),
+            leader_books: DashMap::new(),
         };
         reg
     }
@@ -823,52 +1049,245 @@ impl EngineRegistry {
     /// clean way to change it is to restart the session with the patched
     /// config — `start()` already stops + replaces any existing engine and
     /// preserves on-disk state (cursors, copied ids) across the swap.
-    pub fn set_auto_execute(self: &Arc<Self>, eoa: &str, on: bool) -> Option<bool> {
-        let mut cfg = self.config_of(eoa)?;
+    pub fn set_auto_execute(
+        self: &Arc<Self>,
+        eoa: &str,
+        strategy_id: Option<&str>,
+        on: bool,
+    ) -> Option<bool> {
+        let mut cfg = self.config_of(eoa, strategy_id)?;
         cfg.auto_execute = on;
         self.start(cfg);
         Some(on)
     }
 
-    /// Resolve (and cache) the negRisk flag for a market via gamma. A wrong
-    /// value yields a CLOB "bad signature" rejection, so we resolve it rather
-    /// than guessing; defaults to `false` only when gamma is unreachable.
-    async fn resolve_neg_risk(&self, condition_id: &str) -> bool {
+    /// Resolve (and cache) a market's `(negRisk, endDate)` from gamma in one
+    /// call. negRisk must be exact — a wrong value yields a CLOB "bad
+    /// signature" rejection — so we resolve rather than guess; the end date
+    /// feeds the time-to-resolution mirror gate. Both fall back to "unknown"
+    /// (false / None) when gamma can't answer.
+    ///
+    /// The filter is `condition_ids` (plural). The singular `condition_id`
+    /// gamma ACCEPTS and silently IGNORES, answering with its default page of
+    /// 20 unrelated markets — so reading `[0]` off that response returned some
+    /// other market's negRisk for every lookup. `verify_condition` below is
+    /// the guard against that class of bug recurring.
+    async fn resolve_market_meta(&self, condition_id: &str) -> (bool, Option<i64>) {
         if condition_id.is_empty() {
-            return false;
+            return (false, None);
         }
         if let Some(v) = self.neg_risk_cache.get(condition_id) {
             return *v;
         }
-        let url = format!("{}/markets?condition_id={}", GAMMA_API, condition_id);
-        let resolved = match self.http.get(&url).send().await {
-            Ok(resp) => {
-                let txt = resp.text().await.unwrap_or_default();
-                serde_json::from_str::<Value>(&txt)
-                    .ok()
-                    .and_then(|v| {
-                        let first = if v.is_array() { v.get(0).cloned() } else { Some(v) };
-                        first.and_then(|m| {
-                            m.get("negRisk")
-                                .or_else(|| m.get("neg_risk"))
-                                .and_then(|b| b.as_bool())
-                        })
-                    })
-                    .unwrap_or(false)
+        // Gamma's default page excludes closed markets; exits touch resolved
+        // ones, so fall through to an explicit closed lookup.
+        let mut resolved = None;
+        for suffix in ["", "&closed=true"] {
+            let url = format!("{}/markets?condition_ids={}{}", GAMMA_API, condition_id, suffix);
+            match self.http.get(&url).send().await {
+                Ok(resp) => {
+                    let txt = resp.text().await.unwrap_or_default();
+                    if let Some(m) = serde_json::from_str::<Value>(&txt)
+                        .ok()
+                        .and_then(|v| if v.is_array() { v.get(0).cloned() } else { Some(v) })
+                        .filter(|m| verify_condition(m, condition_id))
+                    {
+                        resolved = Some(market_meta_of(&m));
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(condition_id, error = %e, "market meta resolve failed; defaulting negRisk=false");
+                    break;
+                }
             }
-            Err(e) => {
-                tracing::warn!(condition_id, error = %e, "negRisk resolve failed; defaulting false");
-                false
-            }
-        };
+        }
+        let resolved = resolved.unwrap_or((false, None));
         self.neg_risk_cache.insert(condition_id.to_string(), resolved);
         resolved
     }
 
-    fn path_for_config(&self, eoa: &str) -> PathBuf {
+    async fn resolve_neg_risk(&self, condition_id: &str) -> bool {
+        self.resolve_market_meta(condition_id).await.0
+    }
+
+    /// Sync the internal ledger to the wallet's actual on-chain holdings and
+    /// price the session's account value — the two things every later
+    /// decision this cycle depends on.
+    ///
+    /// Runs FIRST so nothing downstream reasons about a stale book: mirrors
+    /// are sized as a fraction of the value measured here, protective exits
+    /// only ever sell what's really held, and the BUY budget is bounded by
+    /// cash that actually exists (the engine used to size against the static
+    /// `capital` config and fired tens of thousands of orders the CLOB
+    /// rejected with "not enough balance").
+    ///
+    /// Positions live on the V2 DEPOSIT WALLET (CREATE2 from the backend
+    /// signer) — reconciling against `cfg.address` (the user's EOA) reads an
+    /// empty set and silently wipes every ledger entry.
+    async fn reconcile_and_value(
+        &self,
+        cfg: &EngineConfig,
+        state: &Arc<RwLock<EngineState>>,
+    ) -> AccountValue {
+        // DRY RUN holds no real positions and spends no real cash, so both
+        // reads would be pure API load. The allocation IS the account value
+        // there — which is exactly what a preview should size against.
+        if !cfg.auto_execute {
+            return AccountValue { cash: cfg.capital, total: cfg.capital };
+        }
+        let wallet = self
+            .signer_store
+            .signer_address(&cfg.eoa)
+            .ok()
+            .and_then(|a| crate::deposit_wallet::derive_deposit_wallet(&a).ok());
+        let Some(wallet) = wallet else {
+            // No deposit wallet yet (unfunded strat) — same fallback.
+            return AccountValue { cash: cfg.capital, total: cfg.capital };
+        };
+        let (held, cash_raw) = tokio::join!(
+            fetch_held_positions(&self.http, &wallet),
+            crate::relayer::usdc_balance(&self.http, &wallet),
+        );
+
+        // None = fetch/derivation failed — keep the ledger as-is rather than
+        // reading an outage as "everything was sold".
+        if let Some(held) = &held {
+            let onchain: HashMap<&str, &HeldPosition> =
+                held.iter().map(|p| (p.token_id.as_str(), p)).collect();
+            let mut s = state.write();
+            // Drop / shrink ledger entries to match on-chain reality.
+            s.positions.retain(|token_id, pos| {
+                match onchain.get(token_id.as_str()) {
+                    Some(h) if h.size > 0.0 => {
+                        if h.size + 1e-6 < pos.size { pos.size = h.size; }
+                        true
+                    }
+                    _ => false, // no longer held → drop
+                }
+            });
+            // ADOPT real holdings the ledger doesn't know — bought before a
+            // state wipe, by an earlier session, or manually. Without a
+            // ledger entry the take-profit/stop-loss pass can't defend them
+            // and they'd sit pinned at 100¢ until resolution. Entry = the
+            // data-api's average price paid; entry_score = MAX so
+            // capital-rebalancing never sacrifices a hold this session didn't
+            // buy. Tokens the engine just SOLD are skipped for the cooldown
+            // window — the data-api still lists them until the fill settles,
+            // and re-adopting one re-fires its exit (double sell).
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            s.exited_recently.retain(|_, t| now_ms - *t < EXIT_READOPT_COOLDOWN_MS);
+            for h in held {
+                if s.exited_recently.contains_key(&h.token_id) { continue; }
+                if h.size > 0.0 && !s.positions.contains_key(&h.token_id) {
+                    s.positions.insert(h.token_id.clone(), OpenPosition {
+                        token_id: h.token_id.clone(),
+                        condition_id: h.condition_id.clone(),
+                        market: h.market.clone(),
+                        size: h.size,
+                        entry_price: h.avg_price,
+                        entry_score: f64::MAX,
+                        opened_at: now_ms,
+                        strategy_id: String::new(),
+                    });
+                }
+            }
+        }
+
+        // Value only the tokens THIS session's ledger claims — one wallet can
+        // fund several strats, and each must size against its own book.
+        let marks: HashMap<&str, f64> = held
+            .iter()
+            .flatten()
+            .map(|p| (p.token_id.as_str(), p.current_value))
+            .collect();
+        let positions_value: f64 = {
+            let s = state.read();
+            s.positions
+                .values()
+                .map(|p| match marks.get(p.token_id.as_str()) {
+                    Some(v) => *v,
+                    // Not in the on-chain read (fetch failed, or a fill that
+                    // hasn't indexed yet) — fall back to cost basis.
+                    None => p.size * p.entry_price,
+                })
+                .sum()
+        };
+        // A session may only claim its slice of a shared wallet: whatever the
+        // allocation has left after what's already deployed, bounded by the
+        // real balance. An unreadable balance leaves the ledger estimate.
+        let deployed_basis: f64 = {
+            let s = state.read();
+            s.positions.values().map(|p| p.size * p.entry_price).sum()
+        };
+        let unallocated = (cfg.capital - deployed_basis).max(0.0);
+        let cash = match cash_raw.ok().and_then(|s| s.parse::<f64>().ok()) {
+            Some(units) => (units / 1e6).min(unallocated),
+            None => unallocated,
+        };
+        let value = AccountValue { cash, total: cash + positions_value };
+        {
+            let mut s = state.write();
+            s.balance = Some(value.cash);
+            s.account_value = Some(value.total);
+        }
+        value
+    }
+
+    /// Public read of a trader's bankroll (positions mark value + free USDC),
+    /// through the same cache the engine sizes from — so the console's
+    /// backtest previews the exact ratio live will use.
+    pub async fn bankroll_of(&self, address: &str) -> Option<f64> {
+        self.leader_book(address).await.map(|b| b.bankroll)
+    }
+
+    /// A watched trader's bankroll + position book, cached for
+    /// `LEADER_BOOK_TTL_MS`. `None` = never successfully read (the caller
+    /// falls back to volume-based sizing and full-size exits).
+    ///
+    /// `spacing_ms` is slept AFTER a real fetch (never on a cache hit): the
+    /// caller's next move is another data-api call for the same trader, and
+    /// two back-to-back requests are what trips Cloudflare's per-second limit.
+    async fn leader_book_spaced(&self, address: &str, spacing_ms: u64) -> Option<LeaderBook> {
+        let key = address.to_lowercase();
+        let now = chrono::Utc::now().timestamp_millis();
+        if let Some(hit) = self.leader_books.get(&key) {
+            if now - hit.0 < leader_book_ttl(&key) {
+                return Some(hit.1.clone());
+            }
+        }
+        let fetched = fetch_leader_book(&self.http, address).await;
+        if spacing_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(spacing_ms)).await;
+        }
+        match fetched {
+            Some(book) => {
+                self.leader_books.insert(key, (now, book.clone()));
+                Some(book)
+            }
+            // Serve a stale entry rather than silently reverting a running
+            // strat to the fallback sizing model on one bad fetch.
+            None => self.leader_books.get(&key).map(|hit| hit.1.clone()),
+        }
+    }
+
+    async fn leader_book(&self, address: &str) -> Option<LeaderBook> {
+        self.leader_book_spaced(address, 0).await
+    }
+
+    fn path_for_config(&self, eoa: &str, strategy_id: &str) -> PathBuf {
+        self.disk_dir.join(format!("{}.config.json", session_file_stem(eoa, strategy_id)))
+    }
+    fn path_for_state(&self, eoa: &str, strategy_id: &str) -> PathBuf {
+        self.disk_dir.join(format!("{}.state.json", session_file_stem(eoa, strategy_id)))
+    }
+    /// Pre-multi-session layout: one `<eoa>.config.json` per wallet. Still
+    /// read (and migrated away from on resume) so an in-flight session
+    /// survives the upgrade.
+    fn legacy_path_for_config(&self, eoa: &str) -> PathBuf {
         self.disk_dir.join(format!("{}.config.json", eoa.to_lowercase()))
     }
-    fn path_for_state(&self, eoa: &str) -> PathBuf {
+    fn legacy_path_for_state(&self, eoa: &str) -> PathBuf {
         self.disk_dir.join(format!("{}.state.json", eoa.to_lowercase()))
     }
 
@@ -893,46 +1312,108 @@ impl EngineRegistry {
                 Ok(c) => c,
                 Err(e) => { tracing::warn!("resume: parse {}: {}", name, e); continue; }
             };
-            tracing::info!("resuming live engine for {}", cfg.eoa);
+            // Explicitly stopped — the config only survives so the console can
+            // still read this strat's ledger. Do NOT restart it.
+            if cfg.stopped { continue; }
+            tracing::info!(strat = %cfg.strategy_id, "resuming live engine for {}", cfg.eoa);
             // Restore state if present, else start fresh.
-            let restored_state = self.load_persisted_state(&cfg.eoa);
+            let restored_state = self.load_persisted_state(&cfg.eoa, &cfg.strategy_id);
+            // Migrate a pre-multi-session `<eoa>.config.json` onto the keyed
+            // layout. Leaving it would resume the SAME session twice on the
+            // next boot (once per filename) and leak a second trading task.
+            if p == self.legacy_path_for_config(&cfg.eoa) {
+                self.persist_config(&cfg);
+                if let Some(st) = restored_state.as_ref() {
+                    self.persist_state(&cfg.eoa, &cfg.strategy_id, st);
+                }
+                let _ = std::fs::remove_file(&p);
+                let _ = std::fs::remove_file(self.legacy_path_for_state(&cfg.eoa));
+            }
             self.start_internal(cfg, restored_state);
         }
     }
 
-    pub fn status_of(&self, eoa: &str) -> Option<EngineState> {
+    /// Resolve a session key. With an explicit `strategy_id` the lookup is
+    /// exact; without one it falls back to this EOA's single running session
+    /// (any of them when several run — callers that care pass the id).
+    fn resolve_key(&self, eoa: &str, strategy_id: Option<&str>) -> Option<String> {
+        if let Some(sid) = strategy_id {
+            let k = session_key(eoa, sid);
+            return self.engines.contains_key(&k).then_some(k);
+        }
+        let prefix = format!("{}::", eoa.to_lowercase());
         self.engines
-            .get(&eoa.to_lowercase())
-            .map(|h| h.state.read().clone())
+            .iter()
+            .find(|e| e.key().starts_with(&prefix))
+            .map(|e| e.key().clone())
     }
 
-    pub fn config_of(&self, eoa: &str) -> Option<EngineConfig> {
-        self.engines
-            .get(&eoa.to_lowercase())
-            .map(|h| h.config.read().clone())
+    pub fn status_of(&self, eoa: &str, strategy_id: Option<&str>) -> Option<EngineState> {
+        let key = self.resolve_key(eoa, strategy_id)?;
+        self.engines.get(&key).map(|h| h.state.read().clone())
     }
 
-    /// Every EOA with a persisted session on disk. Used by the scheduled
-    /// liquidation task to flatten all known accounts.
-    /// Last persisted (config, state) for an EOA — `/live/status`'s fallback
-    /// when no engine is running, so the per-strat ledger and tagged open
-    /// positions stay visible across engine stops and API restarts.
-    pub fn persisted_snapshot(&self, eoa: &str) -> Option<(EngineConfig, EngineState)> {
-        let cfg = self.load_persisted_config(eoa)?;
-        let state = self.load_persisted_state(eoa)?;
+    pub fn config_of(&self, eoa: &str, strategy_id: Option<&str>) -> Option<EngineConfig> {
+        let key = self.resolve_key(eoa, strategy_id)?;
+        self.engines.get(&key).map(|h| h.config.read().clone())
+    }
+
+    /// Strat ids this EOA has a session for — running ones first, then any
+    /// stopped-but-persisted snapshot still on disk. Backs `/live/sessions`,
+    /// which is how the console renders several funded strats side by side.
+    pub fn session_ids(&self, eoa: &str) -> Vec<String> {
+        let prefix = format!("{}::", eoa.to_lowercase());
+        let mut out: Vec<String> = self
+            .engines
+            .iter()
+            .filter_map(|e| e.key().strip_prefix(&prefix).map(str::to_string))
+            .collect();
+        for (persisted_eoa, sid) in self.persisted_sessions() {
+            if persisted_eoa == eoa.to_lowercase() && !out.contains(&sid) {
+                out.push(sid);
+            }
+        }
+        out
+    }
+
+    /// `(eoa, strategyId)` for every session with a config on disk.
+    fn persisted_sessions(&self) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        let Ok(rd) = std::fs::read_dir(&self.disk_dir) else { return out };
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if !p.is_file() { continue; }
+            let Some(name) = p.file_name().and_then(|n| n.to_str()) else { continue };
+            if !name.ends_with(".config.json") { continue; }
+            // Read the config rather than parsing the filename — the strat id
+            // is sanitized on the way to disk, so it isn't round-trippable.
+            let Ok(raw) = std::fs::read_to_string(&p) else { continue };
+            let Ok(cfg) = serde_json::from_str::<EngineConfig>(&raw) else { continue };
+            out.push((cfg.eoa.to_lowercase(), cfg.strategy_id));
+        }
+        out
+    }
+
+    /// Last persisted (config, state) for one session — `/live/status`'s
+    /// fallback when no engine is running, so the per-strat ledger and tagged
+    /// open positions stay visible across engine stops and API restarts.
+    pub fn persisted_snapshot(
+        &self,
+        eoa: &str,
+        strategy_id: Option<&str>,
+    ) -> Option<(EngineConfig, EngineState)> {
+        let cfg = self.load_persisted_config(eoa, strategy_id)?;
+        let state = self.load_persisted_state(eoa, &cfg.strategy_id)?;
         Some((cfg, state))
     }
 
+    /// Every EOA with a persisted session on disk. Used by the scheduled
+    /// liquidation task to flatten all known accounts — deduped, since one
+    /// wallet now writes one file per funded strat.
     pub fn persisted_eoas(&self) -> Vec<String> {
-        let mut out = Vec::new();
-        if let Ok(rd) = std::fs::read_dir(&self.disk_dir) {
-            for entry in rd.flatten() {
-                if let Some(name) = entry.path().file_name().and_then(|n| n.to_str()) {
-                    if let Some(eoa) = name.strip_suffix(".config.json") {
-                        out.push(eoa.to_string());
-                    }
-                }
-            }
+        let mut out: Vec<String> = Vec::new();
+        for (eoa, _) in self.persisted_sessions() {
+            if !out.contains(&eoa) { out.push(eoa); }
         }
         out
     }
@@ -971,7 +1452,12 @@ impl EngineRegistry {
             return Ok(result);
         }
 
-        let handle = self.engines.get(&eoa.to_lowercase()).map(|h| h.value().clone());
+        // A flatten is wallet-wide, not strat-scoped, so its log rows land on
+        // whichever of the wallet's sessions is running (any one of them).
+        let log_session = self.resolve_key(eoa, None);
+        let handle = log_session
+            .as_ref()
+            .and_then(|k| self.engines.get(k).map(|h| h.value().clone()));
 
         for pos in held {
             // Sizes floor to 2dp in `compute_amounts`; anything under a cent
@@ -1122,7 +1608,8 @@ impl EngineRegistry {
         }
 
         if let Some(h) = &handle {
-            self.persist_state(eoa, &h.state.read());
+            let sid = h.config.read().strategy_id.clone();
+            self.persist_state(eoa, &sid, &h.state.read());
         }
         tracing::info!(
             eoa = %eoa,
@@ -1147,17 +1634,19 @@ impl EngineRegistry {
         crate::relayer::redeem_resolved_positions(&self.http, &self.signer_store, eoa, true).await
     }
 
-    /// Start an engine. If one already exists for this EOA, it's stopped
-    /// and replaced (lets the user reconfigure mid-session without manual stop).
+    /// Start an engine. If one already exists for this (EOA, strat), it's
+    /// stopped and replaced (lets the user reconfigure mid-session without a
+    /// manual stop). Sessions for the wallet's OTHER strats keep running —
+    /// funding a second strat adds a session, it doesn't take over the wallet.
     ///
-    /// Restores the EOA's persisted state across the swap so a reconfigure or
-    /// an auto-execute toggle does NOT wipe order counters, the copy log, or
+    /// Restores the session's persisted state across the swap so a reconfigure
+    /// or an auto-execute toggle does NOT wipe order counters, the copy log, or
     /// `copied_ids`. Without this, every restart began from an empty state:
     /// the UI showed 0 trades despite real fills, and the engine re-mirrored
     /// trades it had already copied (cleared `copied_ids` → duplicate orders).
     pub fn start(self: &Arc<Self>, cfg: EngineConfig) {
-        let lc = cfg.eoa.to_lowercase();
-        if let Some((_, existing)) = self.engines.remove(&lc) {
+        let key = session_key(&cfg.eoa, &cfg.strategy_id);
+        if let Some((_, existing)) = self.engines.remove(&key) {
             existing.cancel.store(true, Ordering::Release);
             if let Some(t) = existing.task.lock().take() {
                 t.abort();
@@ -1166,47 +1655,64 @@ impl EngineRegistry {
         self.persist_config(&cfg);
         // Re-load whatever the engine last persisted (counters, log, copied
         // ids, cursors). Falls back to a fresh state for a brand-new session.
-        let restored = self.load_persisted_state(&cfg.eoa);
+        let restored = self.load_persisted_state(&cfg.eoa, &cfg.strategy_id);
         self.start_internal(cfg, restored);
     }
 
-    /// Read the persisted `EngineState` for an EOA from disk, if any.
-    fn load_persisted_state(&self, eoa: &str) -> Option<EngineState> {
-        let state_path = self.path_for_state(eoa);
-        std::fs::read_to_string(&state_path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<EngineState>(&s).ok())
+    /// Read the persisted `EngineState` for one session from disk, if any.
+    /// Falls back to the pre-multi-session `<eoa>.state.json`.
+    fn load_persisted_state(&self, eoa: &str, strategy_id: &str) -> Option<EngineState> {
+        let read = |p: PathBuf| {
+            std::fs::read_to_string(&p)
+                .ok()
+                .and_then(|s| serde_json::from_str::<EngineState>(&s).ok())
+        };
+        read(self.path_for_state(eoa, strategy_id))
+            .or_else(|| read(self.legacy_path_for_state(eoa)))
     }
 
-    /// Read the persisted `EngineConfig` for an EOA from disk, if any.
-    fn load_persisted_config(&self, eoa: &str) -> Option<EngineConfig> {
-        let path = self.path_for_config(eoa);
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<EngineConfig>(&s).ok())
+    /// Read the persisted `EngineConfig` for one session from disk, if any.
+    /// With no strat id, returns whichever of the EOA's persisted sessions is
+    /// found first (plus the legacy single-session file).
+    fn load_persisted_config(&self, eoa: &str, strategy_id: Option<&str>) -> Option<EngineConfig> {
+        let read = |p: PathBuf| {
+            std::fs::read_to_string(&p)
+                .ok()
+                .and_then(|s| serde_json::from_str::<EngineConfig>(&s).ok())
+        };
+        if let Some(sid) = strategy_id {
+            return read(self.path_for_config(eoa, sid))
+                .or_else(|| read(self.legacy_path_for_config(eoa)).filter(|c| c.strategy_id == sid));
+        }
+        for (persisted_eoa, sid) in self.persisted_sessions() {
+            if persisted_eoa == eoa.to_lowercase() {
+                if let Some(c) = read(self.path_for_config(eoa, &sid)) { return Some(c); }
+            }
+        }
+        read(self.legacy_path_for_config(eoa))
     }
 
-    /// The `auto_execute` currently in effect for an EOA — from the running
-    /// session if one exists, else the last persisted config. `None` when
+    /// The `auto_execute` currently in effect for a session — from the running
+    /// engine if one exists, else the last persisted config. `None` when
     /// neither exists (a brand-new session, so the caller's own value stands).
     /// Lets `/live/start` keep a live session's execution mode sticky across a
     /// config re-post that omits the flag, instead of reverting to DRY RUN.
-    pub fn current_auto_execute(&self, eoa: &str) -> Option<bool> {
-        self.config_of(eoa)
-            .or_else(|| self.load_persisted_config(eoa))
+    pub fn current_auto_execute(&self, eoa: &str, strategy_id: &str) -> Option<bool> {
+        self.config_of(eoa, Some(strategy_id))
+            .or_else(|| self.load_persisted_config(eoa, Some(strategy_id)))
             .map(|c| c.auto_execute)
     }
 
     fn persist_config(&self, cfg: &EngineConfig) {
-        let path = self.path_for_config(&cfg.eoa);
+        let path = self.path_for_config(&cfg.eoa, &cfg.strategy_id);
         if let Ok(json) = serde_json::to_string_pretty(cfg) {
             let _ = std::fs::write(&path, json);
             restrict_perms(&path);
         }
     }
 
-    fn persist_state(&self, eoa: &str, state: &EngineState) {
-        let path = self.path_for_state(eoa);
+    fn persist_state(&self, eoa: &str, strategy_id: &str, state: &EngineState) {
+        let path = self.path_for_state(eoa, strategy_id);
         if let Ok(json) = serde_json::to_string(state) {
             let _ = std::fs::write(&path, json);
             restrict_perms(&path);
@@ -1226,8 +1732,17 @@ impl EngineRegistry {
             cancel: cancel.clone(),
             task: parking_lot::Mutex::new(None),
         });
-        let lc = cfg.eoa.to_lowercase();
-        self.engines.insert(lc.clone(), handle.clone());
+        // Never silently replace a live handle — the old task would keep
+        // trading with nobody holding its cancel flag. `start()` clears the
+        // slot first; a resume hitting an occupied key means duplicate config
+        // files, so drop the newcomer rather than leak a second trader.
+        let key = session_key(&cfg.eoa, &cfg.strategy_id);
+        if self.engines.contains_key(&key) {
+            tracing::warn!(session = %key, "engine already running for this strat; skipping duplicate start");
+            cancel.store(true, Ordering::Release);
+            return;
+        }
+        self.engines.insert(key, handle.clone());
 
         // Spawn the loop.
         let registry = Arc::clone(self);
@@ -1239,24 +1754,49 @@ impl EngineRegistry {
     }
 
     /// Explicit user stop. Clears the persisted config so the next API boot
-    /// doesn't auto-resume the session.
-    pub fn stop(&self, eoa: &str) -> bool {
+    /// doesn't auto-resume the session. With no `strategy_id` this stops EVERY
+    /// session the wallet has running — the "stop everything" the old
+    /// single-session `/live/stop` meant.
+    pub fn stop(&self, eoa: &str, strategy_id: Option<&str>) -> bool {
+        let ids: Vec<String> = match strategy_id {
+            Some(sid) => vec![sid.to_string()],
+            None => self.session_ids(eoa),
+        };
+        let mut stopped = false;
+        for sid in ids {
+            stopped |= self.stop_one(eoa, &sid);
+        }
+        stopped
+    }
+
+    fn stop_one(&self, eoa: &str, strategy_id: &str) -> bool {
         let lc = eoa.to_lowercase();
-        let Some((_, handle)) = self.engines.remove(&lc) else { return false; };
+        let key = session_key(&lc, strategy_id);
+        // Flag the persisted config stopped rather than deleting it: the
+        // console still needs it to show this strat's realized ledger and
+        // open positions, and `resume_persisted` honors the flag so a stopped
+        // strat never revives on an API restart. Runs even with no live
+        // handle, so a session stopped twice stays stopped.
+        let mut marked = false;
+        if let Some(mut cfg) = self.load_persisted_config(&lc, Some(strategy_id)) {
+            cfg.stopped = true;
+            self.persist_config(&cfg);
+            marked = true;
+        }
+        let _ = std::fs::remove_file(self.legacy_path_for_config(&lc));
+        let Some((_, handle)) = self.engines.remove(&key) else { return marked; };
         handle.cancel.store(true, Ordering::Release);
         if let Some(t) = handle.task.lock().take() {
             t.abort();
         }
         // Mark state as stopped, then persist final shape so a quick reload
-        // sees the stopped state before the file deletion lands.
+        // sees the stopped state (the per-strat ledger survives the stop).
         {
             let mut s = handle.state.write();
             s.status = EngineStatus::Stopped;
             s.next_cycle_at = None;
         }
-        self.persist_state(&lc, &handle.state.read());
-        // Delete the config so resume_persisted() skips it on next boot.
-        let _ = std::fs::remove_file(self.path_for_config(&lc));
+        self.persist_state(&lc, strategy_id, &handle.state.read());
         true
     }
 
@@ -1271,10 +1811,13 @@ impl EngineRegistry {
         // engine's first cycle filters every fetched trade out because
         // `trade.ts > cursor` is false the moment after start (matches the JS
         // engine's bug we already fixed there).
-        // Clamp the configured cadence up to the rate-limit floor. Old sessions
-        // persisted a 5s interval that hammered the data-api into 429s; the floor
-        // makes a stale config self-heal on resume without the user re-saving.
-        let effective_interval_ms = cfg.interval_ms.max(cfg.min_interval_ms);
+        // The cadence is re-derived every cycle (see `effective_interval_ms`):
+        // clamped up to the rate-limit floor — so a stale 5s config self-heals
+        // on resume without the user re-saving — and widened when the watchlist
+        // grows past what one period can fetch. Auto-watchlist sessions change
+        // roster size mid-run, so this can't be computed once at start.
+        let mut effective_interval_ms =
+            effective_interval_for(&cfg, cfg.traders.iter().filter(|t| t.enabled).count());
 
         let now_ms = chrono::Utc::now().timestamp_millis();
         {
@@ -1283,7 +1826,7 @@ impl EngineRegistry {
                 let key = t.address.to_lowercase();
                 s.trader_cursors
                     .entry(key)
-                    .or_insert_with(|| now_ms - cfg.interval_ms as i64);
+                    .or_insert_with(|| now_ms - effective_interval_ms as i64);
             }
         }
 
@@ -1410,14 +1953,18 @@ impl EngineRegistry {
             }
 
             let cycle_started_at = chrono::Utc::now().timestamp_millis();
+            // Ledger ↔ chain reconciliation + account pricing, before any
+            // sizing decision reads either. See `reconcile_and_value`.
+            let account = self.reconcile_and_value(&cfg, &state).await;
             let mut new_observed: Vec<ObservedTrade> = Vec::new();
             let mut trader_sync_updates: Vec<(String, i64)> = Vec::new();
             let mut cursor_updates: Vec<(String, i64)> = Vec::new();
             let mut errors: Vec<(String, String)> = Vec::new();
-            // Mirror candidates collected this cycle: (newly-observed BUY, copyRatio).
-            // Executed after the state commit so order-placement HTTP never runs
-            // under the state lock.
-            let mut mirror_candidates: Vec<(ObservedTrade, f64)> = Vec::new();
+            // Mirror candidates collected this cycle: (newly-observed trade,
+            // copyRatio, leader shares still held in that token). Executed
+            // after the state commit so order-placement HTTP never runs under
+            // the state lock.
+            let mut mirror_candidates: Vec<MirrorCandidate> = Vec::new();
 
             // Snapshot cursors so we don't hold the RwLock across the HTTP fan-out.
             let (cursors, enabled_traders): (HashMap<String, i64>, Vec<TraderEntry>) = {
@@ -1425,6 +1972,10 @@ impl EngineRegistry {
                 let cursors = s.trader_cursors.clone();
                 (cursors, cfg.traders.iter().filter(|t| t.enabled).cloned().collect())
             };
+            // Re-derive the cadence against THIS cycle's roster — an
+            // auto-watchlist refresh (or a mid-run enable/disable) can change
+            // how long the fan-out needs.
+            effective_interval_ms = effective_interval_for(&cfg, enabled_traders.len());
             // Sum of enabled weights — denominator for each trader's capital
             // allocation. Guarded so a degenerate all-zero-weight config can't
             // divide by zero.
@@ -1447,7 +1998,13 @@ impl EngineRegistry {
                     tokio::time::sleep(Duration::from_millis(cfg.inter_request_delay_ms)).await;
                 }
                 let key = trader.address.to_lowercase();
-                let cursor = *cursors.get(&key).unwrap_or(&(now_ms - cfg.interval_ms as i64));
+                let cursor = *cursors.get(&key).unwrap_or(&(now_ms - effective_interval_ms as i64));
+                // The leader's balance sheet (cached ~10m) — the denominator
+                // of proportional sizing and the reference for proportional
+                // exits. Spaced from the activity fetch below on a cache miss.
+                let book = self
+                    .leader_book_spaced(&trader.address, cfg.inter_request_delay_ms)
+                    .await;
                 match fetch_recent_activity(&self.http, &trader.address).await {
                     Ok(items) => {
                         trader_sync_updates.push((key.clone(), chrono::Utc::now().timestamp_millis()));
@@ -1459,13 +2016,13 @@ impl EngineRegistry {
                             .filter_map(|v| parse_activity_trade(v, &trader.address))
                             .collect();
 
-                        // copyRatio = (capital × weight/totalWeight) / traderVol,
-                        // where traderVol = max(buyVol, sellVol, 1) over the window,
-                        // counting ONLY markets that pass the strat's topic query —
-                        // the backtest's `traderCopyRatio` filters the denominator
-                        // the same way, so a "bitcoin"-only strat sizes against the
-                        // trader's bitcoin volume, not their whole book. Matches
-                        // copyEngine.ts / the backtest tab exactly.
+                        // Fallback sizing denominator: traderVol =
+                        // max(buyVol, sellVol, 1) over the window, counting ONLY
+                        // markets that pass the strat's topic query — the
+                        // backtest's `traderCopyRatio` filters it the same way, so
+                        // a "bitcoin"-only strat sizes against the trader's
+                        // bitcoin volume, not their whole book. Used only when the
+                        // leader's bankroll can't be read (see `copy_ratio_for`).
                         let query_ok = |market: &str| {
                             cfg.market_query.as_deref().map_or(true, |q| {
                                 crate::categories::market_matches_query(market, q)
@@ -1483,8 +2040,15 @@ impl EngineRegistry {
                             }
                         }
                         let trader_vol = buy_vol.max(sell_vol).max(1.0);
-                        let capital_alloc = cfg.capital * (trader.weight / total_weight);
-                        let copy_ratio = capital_alloc / trader_vol;
+                        let weight_fraction = trader.weight / total_weight;
+                        let capital_alloc = cfg.capital * weight_fraction;
+                        let copy_ratio = copy_ratio_for(
+                            account.total,
+                            weight_fraction,
+                            book.as_ref().map(|b| b.bankroll),
+                            capital_alloc,
+                            trader_vol,
+                        );
 
                         // Sharpe/ROI over the fixed 30d window — the basis for
                         // each candidate's EP score (frozen on the position at
@@ -1530,7 +2094,16 @@ impl EngineRegistry {
                                 _ => false,
                             };
                             if mirror_ok && !t.token_id.is_empty() {
-                                mirror_candidates.push((t.clone(), copy_ratio));
+                                mirror_candidates.push(MirrorCandidate {
+                                    // The leader's book was read this cycle,
+                                    // i.e. AFTER this trade settled — so for
+                                    // a SELL this is what they kept.
+                                    leader_remaining: book
+                                        .as_ref()
+                                        .map(|b| b.sizes.get(&t.token_id).copied().unwrap_or(0.0)),
+                                    trade: t.clone(),
+                                    copy_ratio,
+                                });
                             }
                             new_observed.push(t);
                         }
@@ -1606,79 +2179,17 @@ impl EngineRegistry {
 
                 s.cycle_count += 1;
                 s.last_cycle_at = Some(cycle_ended_at);
-                s.next_cycle_at = Some(cycle_ended_at + effective_interval_ms as i64);
+                // Cycles are a fixed PERIOD from their own start, not a fixed
+                // gap after the work finishes — otherwise every fetch's latency
+                // is added to the cadence and a "30s" 10-trader session actually
+                // syncs every ~35s.
+                s.next_cycle_at = Some(cycle_started_at + effective_interval_ms as i64);
+                s.effective_interval_ms = effective_interval_ms;
                 s.status = EngineStatus::Running;
             }
 
             // Persist snapshot so a restart restores state.
-            self.persist_state(&cfg.eoa, &state.read());
-
-            // ── Position reconciliation ──
-            // Sync the internal ledger to the wallet's actual on-chain
-            // holdings before any protective-exit/rebalancing decision, so we
-            // never try to sell a token we no longer hold (manual exit,
-            // resolution, partial fill). Only runs when we might trade
-            // (auto_execute) to avoid needless data-api load on dry-run
-            // sessions. Positions live on the V2 DEPOSIT WALLET (CREATE2 from
-            // the backend signer) — reconciling against `cfg.address` (the
-            // user's EOA) always read an empty set and silently wiped every
-            // ledger entry each cycle, leaving stop-loss/rebalance nothing to
-            // work with.
-            if cfg.auto_execute {
-                let wallet = self
-                    .signer_store
-                    .signer_address(&cfg.eoa)
-                    .ok()
-                    .and_then(|a| crate::deposit_wallet::derive_deposit_wallet(&a).ok());
-                let held = match &wallet {
-                    Some(w) => fetch_held_positions(&self.http, w).await,
-                    None => None,
-                };
-                // None = fetch/derivation failed — keep the ledger as-is
-                // rather than reading an outage as "everything was sold".
-                if let Some(held) = held {
-                    let onchain: HashMap<&str, &HeldPosition> =
-                        held.iter().map(|p| (p.token_id.as_str(), p)).collect();
-                    let mut s = state.write();
-                    // Drop / shrink ledger entries to match on-chain reality.
-                    s.positions.retain(|token_id, pos| {
-                        match onchain.get(token_id.as_str()) {
-                            Some(h) if h.size > 0.0 => {
-                                if h.size + 1e-6 < pos.size { pos.size = h.size; }
-                                true
-                            }
-                            _ => false, // no longer held → drop
-                        }
-                    });
-                    // ADOPT real holdings the ledger doesn't know — bought
-                    // before a state wipe, by an earlier session, or manually.
-                    // Without a ledger entry the take-profit/stop-loss pass
-                    // can't defend them and they'd sit pinned at 100¢ until
-                    // resolution. Entry = the data-api's average price paid;
-                    // entry_score = MAX so capital-rebalancing never
-                    // sacrifices a hold this session didn't buy. Tokens the
-                    // engine just SOLD are skipped for the cooldown window —
-                    // the data-api still lists them until the fill settles,
-                    // and re-adopting one re-fires its exit (double sell).
-                    let now_ms = chrono::Utc::now().timestamp_millis();
-                    s.exited_recently.retain(|_, t| now_ms - *t < EXIT_READOPT_COOLDOWN_MS);
-                    for h in &held {
-                        if s.exited_recently.contains_key(&h.token_id) { continue; }
-                        if h.size > 0.0 && !s.positions.contains_key(&h.token_id) {
-                            s.positions.insert(h.token_id.clone(), OpenPosition {
-                                token_id: h.token_id.clone(),
-                                condition_id: h.condition_id.clone(),
-                                market: h.market.clone(),
-                                size: h.size,
-                                entry_price: h.avg_price,
-                                entry_score: f64::MAX,
-                                opened_at: now_ms,
-                                strategy_id: String::new(),
-                            });
-                        }
-                    }
-                }
-            }
+            self.persist_state(&cfg.eoa, &cfg.strategy_id, &state.read());
 
             // ── Stop-loss / take-profit pass ──
             // Protective exits run right after reconciliation (so we only ever
@@ -1760,7 +2271,7 @@ impl EngineRegistry {
                                     trades_seen: None,
                                 });
                             }
-                            self.persist_state(&cfg.eoa, &state.read());
+                            self.persist_state(&cfg.eoa, &cfg.strategy_id, &state.read());
                         }
                         Ok(_) => {}
                         // Throttled retry next window; a flaky data-api read or
@@ -1851,15 +2362,20 @@ impl EngineRegistry {
                 }
             }
 
-            // Sleep until the next cycle, but break out early on cancel.
-            // Polled sleep so cancel kicks in within ~200ms instead of waiting
-            // for the full interval.
-            let mut elapsed = 0u64;
+            // Sleep until this cycle's PERIOD is up — measured from when the
+            // cycle started, so the poll cadence the user picked is the cadence
+            // traders are actually synced at (the fan-out + order placement
+            // time is absorbed, not added). A cycle that overran its period
+            // sleeps zero and the next one starts immediately; the fan-out
+            // floor in `effective_interval_for` keeps that from becoming a
+            // no-gap hot loop. Polled in 200ms steps so cancel kicks in fast.
+            let deadline_ms = cycle_started_at + effective_interval_ms as i64;
             let step = 200u64;
-            while elapsed < effective_interval_ms {
+            loop {
                 if cancel.load(Ordering::Acquire) { break; }
-                tokio::time::sleep(Duration::from_millis(step.min(effective_interval_ms - elapsed))).await;
-                elapsed += step;
+                let remaining = deadline_ms - chrono::Utc::now().timestamp_millis();
+                if remaining <= 0 { break; }
+                tokio::time::sleep(Duration::from_millis(step.min(remaining as u64))).await;
             }
         }
 
@@ -1869,7 +2385,7 @@ impl EngineRegistry {
             s.status = EngineStatus::Stopped;
             s.next_cycle_at = None;
         }
-        self.persist_state(&cfg.eoa, &state.read());
+        self.persist_state(&cfg.eoa, &cfg.strategy_id, &state.read());
     }
 
     /// Mirror each candidate — leader SELLs first (proportional exits of held
@@ -1886,13 +2402,13 @@ impl EngineRegistry {
         cfg: &EngineConfig,
         state: &Arc<RwLock<EngineState>>,
         cancel: &Arc<AtomicBool>,
-        candidates: Vec<(ObservedTrade, f64)>,
+        candidates: Vec<MirrorCandidate>,
     ) {
         // Leader SELLs first: exits free capital that this cycle's BUYs can
         // then deploy — same ordering effect as the auto-redeem pass, and the
         // chronological replay the backtest performs.
         let (sell_candidates, mut candidates): (Vec<_>, Vec<_>) =
-            candidates.into_iter().partition(|(t, _)| t.side == "SELL");
+            candidates.into_iter().partition(|c| c.trade.side == "SELL");
         self.execute_mirror_sells(cfg, state, cancel, sell_candidates).await;
 
         // All knobs come from the strat-supplied config — nothing hardcoded.
@@ -1904,19 +2420,44 @@ impl EngineRegistry {
         // Highest EP score first: the best candidates claim free capital and win
         // rebalance contests before weaker ones get a look.
         candidates.sort_by(|a, b| {
-            b.0.score.partial_cmp(&a.0.score).unwrap_or(std::cmp::Ordering::Equal)
+            b.trade.score.partial_cmp(&a.trade.score).unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // Internal capital budget: the strat allocation minus cost basis already
-        // deployed in open positions. Selling a position returns its cost basis
-        // here; a BUY subtracts its notional.
+        // Internal capital budget: the strat allocation minus cost basis
+        // already deployed, and never more than the wallet's REAL free USDC
+        // (`state.balance`, refreshed this cycle by `reconcile_and_value`).
+        // Budgeting off the config alone is what produced tens of thousands of
+        // "not enough balance" CLOB rejections on an empty wallet. Selling a
+        // position returns its cost basis here; a BUY subtracts its notional.
         let mut free_capital = {
             let s = state.read();
             let deployed: f64 = s.positions.values().map(|p| p.size * p.entry_price).sum();
-            (cfg.capital - deployed).max(0.0)
+            let allocated = (cfg.capital - deployed).max(0.0);
+            match s.balance {
+                Some(cash) => allocated.min(cash),
+                None => allocated,
+            }
         };
+        // Nothing to spend and nothing to sell for it — say so once instead of
+        // once per candidate, and don't fire orders the CLOB will reject.
+        // Holdings + rebalancing still count as fundable: the loop below can
+        // liquidate a lower-score position to pay for a better candidate.
+        let can_rebalance = cfg.rebalance_enabled
+            && state.read().positions.values().any(|p| p.size > 0.0);
+        if cfg.auto_execute && free_capital < cfg.min_order_size && !can_rebalance && !candidates.is_empty() {
+            self.log_and_persist(cfg, state, mk_log(
+                "SKIP",
+                &format!("nocash-{}", chrono::Utc::now().timestamp_millis()),
+                format!(
+                    "NO_CASH · ${:.2} free < ${:.2} min order — {} mirror(s) deferred until an exit or a deposit frees capital",
+                    free_capital, cfg.min_order_size, candidates.len(),
+                ),
+                None,
+            ));
+            return;
+        }
 
-        for (trade, copy_ratio) in candidates {
+        for MirrorCandidate { trade, copy_ratio, .. } in candidates {
             if cancel.load(Ordering::Acquire) { break; }
             // Don't re-mirror a trade we've already acted on.
             if state.read().copied_ids.contains(&trade.id) { continue; }
@@ -1942,7 +2483,56 @@ impl EngineRegistry {
                 continue;
             }
 
-            let (size, notional, price) = match plan_mirror(&trade, copy_ratio, user_floor, min_shares, ceiling, cfg.max_slippage_bps) {
+            // ── Staleness gate ──
+            // Copying is a race we're already losing by one poll interval; a
+            // trade we only just discovered minutes late is being entered at a
+            // price the leader never paid. Cheap (no fetch), so it runs first.
+            if let Some(max_age) = cfg.max_trade_age_sec.filter(|s| *s > 0.0) {
+                let age_sec = (chrono::Utc::now().timestamp_millis() - trade.timestamp) as f64 / 1000.0;
+                if age_sec > max_age {
+                    let mut s = state.write();
+                    insert_copied_id(&mut s.copied_ids, trade.id.clone());
+                    push_log(&mut s.log, mk_log(
+                        "SKIP",
+                        &trade.id,
+                        format!(
+                            "STALE · leader traded {:.0}m ago (limit {:.0}m) — the price has moved · {}",
+                            age_sec / 60.0, max_age / 60.0, trade.market
+                        ),
+                        Some(&trade.trader),
+                    ));
+                    continue;
+                }
+            }
+
+            // ── Time-to-resolution gate ──
+            // Sub-hour Up/Down candles resolve before a 30s poller can even
+            // react, so copying them is a structural loss (measured: −$253
+            // realized across 1064 such mirrors). Gamma lookup is cached per
+            // market, and only reached by trades that already cleared every
+            // cheap filter. Unknown end date ⇒ allow (never block on an outage).
+            if let Some(min_close) = cfg.min_minutes_to_close.filter(|m| *m > 0.0) {
+                let (_, end_ms) = self.resolve_market_meta(&trade.condition_id).await;
+                if let Some(end) = end_ms {
+                    let mins_left = (end - chrono::Utc::now().timestamp_millis()) as f64 / 60_000.0;
+                    if mins_left < min_close {
+                        let mut s = state.write();
+                        insert_copied_id(&mut s.copied_ids, trade.id.clone());
+                        push_log(&mut s.log, mk_log(
+                            "SKIP",
+                            &trade.id,
+                            format!(
+                                "TOO_SOON · resolves in {:.0}m (min {:.0}m) — short-dated flow is HFT turf · {}",
+                                mins_left.max(0.0), min_close, trade.market
+                            ),
+                            Some(&trade.trader),
+                        ));
+                        continue;
+                    }
+                }
+            }
+
+            let (size, notional, price) = match plan_mirror(&trade, copy_ratio, user_floor, min_shares, ceiling, cfg.max_slippage_bps, cfg.max_upscale) {
                 MirrorPlan::Skip(reason) => {
                     self.log_and_persist(cfg, state, mk_log("SKIP", &trade.id, reason, Some(&trade.trader)));
                     continue;
@@ -1998,7 +2588,7 @@ impl EngineRegistry {
                         Some(&trade.trader),
                     ));
                 }
-                self.persist_state(&cfg.eoa, &state.read());
+                self.persist_state(&cfg.eoa, &cfg.strategy_id, &state.read());
                 continue;
             }
 
@@ -2029,7 +2619,7 @@ impl EngineRegistry {
                         Some(&trade.trader),
                     ));
                 }
-                self.persist_state(&cfg.eoa, &state.read());
+                self.persist_state(&cfg.eoa, &cfg.strategy_id, &state.read());
                 continue;
             }
 
@@ -2125,7 +2715,7 @@ impl EngineRegistry {
                     tracing::warn!(eoa = %cfg.eoa, market = %trade.market, error = %e, "mirror order failed");
                 }
             }
-            self.persist_state(&cfg.eoa, &state.read());
+            self.persist_state(&cfg.eoa, &cfg.strategy_id, &state.read());
             tokio::time::sleep(Duration::from_millis(cfg.order_delay_ms)).await;
         }
     }
@@ -2191,7 +2781,7 @@ impl EngineRegistry {
                 let mut s = state.write();
                 s.proposed_recently.insert(dedup_key.clone(), now);
                 drop(s);
-                registry.persist_state(&cfg.eoa, &state.read());
+                registry.persist_state(&cfg.eoa, &cfg.strategy_id, &state.read());
             };
             let limit_price = tick_round_price(p.limit_price);
             if !(limit_price > 0.0) {
@@ -2400,46 +2990,60 @@ impl EngineRegistry {
         }
     }
 
-    /// Mirror a leader's SELL: proportionally exit a token the engine holds
-    /// because a watched trader just exited it — the same exit replay the
-    /// backtest sim performs (`shares = min(mirrorNotional/price, held)`), so
-    /// live PnL tracks the preview instead of holding every position to its
-    /// stop/redeem. Sizing reuses `plan_mirror` (same floors/ceiling as
-    /// entries) capped at the held size; the fill is a marketable SELL at the
-    /// tick-rounded best bid. Exits deliberately do NOT count toward
-    /// `max_orders_per_cycle` (like stop-losses — an exit signal is never
-    /// deferred) and, like the backtest, bypass the semantic entry filters.
-    /// Leader exits of tokens we never entered are skipped silently — the
-    /// per-trader cursor guarantees each trade is only considered once.
+    /// Mirror a leader's SELL: exit the SAME FRACTION OF OUR POSITION that
+    /// the leader exited of theirs. If they sold 40% of their shares we sell
+    /// 40% of ours; if they went flat, so do we. That symmetry is what keeps
+    /// a copy portfolio tracking its leader — sizing exits off the leader's
+    /// *notional* instead (the old behaviour) systematically under-sold, and
+    /// the book filled up with positions the leader had long since left
+    /// (1064 mirrored entries against 79 exits, measured live).
+    ///
+    /// Falls back to `plan_mirror` ratio sizing when the leader's book can't
+    /// be read. The fill is a marketable SELL at the tick-rounded best bid.
+    /// Exits deliberately do NOT count toward `max_orders_per_cycle` (like
+    /// stop-losses — an exit signal is never deferred) and, like the
+    /// backtest, bypass the semantic entry filters. Leader exits of tokens we
+    /// never entered are skipped silently — the per-trader cursor guarantees
+    /// each trade is only considered once.
     async fn execute_mirror_sells(
         self: &Arc<Self>,
         cfg: &EngineConfig,
         state: &Arc<RwLock<EngineState>>,
         cancel: &Arc<AtomicBool>,
-        candidates: Vec<(ObservedTrade, f64)>,
+        candidates: Vec<MirrorCandidate>,
     ) {
-        for (trade, copy_ratio) in candidates {
+        for MirrorCandidate { trade, copy_ratio, leader_remaining } in candidates {
             if cancel.load(Ordering::Acquire) { break; }
             if state.read().copied_ids.contains(&trade.id) { continue; }
 
             let Some(pos) = state.read().positions.get(&trade.token_id).cloned() else { continue };
             if pos.size <= 0.0 { continue; }
 
-            // Proportional exit through the same clamps entries use, capped at
-            // what we hold. If the remainder would be an un-sellable stub
-            // (< min_shares), exit the whole position instead.
             let ceiling = cfg.max_order_size.unwrap_or(f64::INFINITY);
-            let planned = match plan_mirror(&trade, copy_ratio, cfg.min_order_size, cfg.min_shares, ceiling, cfg.max_slippage_bps) {
-                MirrorPlan::Skip(reason) => {
-                    self.log_and_persist(cfg, state, mk_log(
-                        "SKIP", &trade.id, format!("SELL {}", reason), Some(&trade.trader),
-                    ));
-                    continue;
+            let mut size = match leader_remaining {
+                // Proportional exit: sold / (sold + kept) of our own holding.
+                Some(kept) => {
+                    let before = trade.size + kept.max(0.0);
+                    let fraction = if before > 0.0 { (trade.size / before).clamp(0.0, 1.0) } else { 1.0 };
+                    pos.size * fraction
                 }
-                MirrorPlan::Place { size, .. } => size,
-            };
-            let mut size = planned.min(pos.size);
+                // Book unreadable — fall back to ratio sizing on the leader's
+                // notional, through the same clamps entries use.
+                None => match plan_mirror(&trade, copy_ratio, cfg.min_order_size, cfg.min_shares, ceiling, cfg.max_slippage_bps, cfg.max_upscale) {
+                    MirrorPlan::Skip(reason) => {
+                        self.log_and_persist(cfg, state, mk_log(
+                            "SKIP", &trade.id, format!("SELL {}", reason), Some(&trade.trader),
+                        ));
+                        continue;
+                    }
+                    MirrorPlan::Place { size, .. } => size,
+                },
+            }
+            .min(pos.size);
+            // If the remainder would be an un-sellable stub (< min_shares),
+            // exit the whole position instead of stranding it.
             if pos.size - size < cfg.min_shares { size = pos.size; }
+            if size <= 0.0 { continue; }
 
             // DRY RUN: surface the exit intent, place nothing, leave the trade
             // un-copied — mirrors the BUY-side dry-run contract.
@@ -2533,7 +3137,7 @@ impl EngineRegistry {
                     ));
                 }
             }
-            self.persist_state(&cfg.eoa, &state.read());
+            self.persist_state(&cfg.eoa, &cfg.strategy_id, &state.read());
             tokio::time::sleep(Duration::from_millis(cfg.order_delay_ms)).await;
         }
     }
@@ -2648,7 +3252,7 @@ impl EngineRegistry {
                     ));
                 }
             }
-            self.persist_state(&cfg.eoa, &state.read());
+            self.persist_state(&cfg.eoa, &cfg.strategy_id, &state.read());
             tokio::time::sleep(Duration::from_millis(cfg.order_delay_ms)).await;
         }
         freed
@@ -2763,7 +3367,7 @@ impl EngineRegistry {
                     continue;
                 }
             }
-            self.persist_state(&cfg.eoa, &state.read());
+            self.persist_state(&cfg.eoa, &cfg.strategy_id, &state.read());
             tokio::time::sleep(Duration::from_millis(cfg.order_delay_ms)).await;
         }
     }
@@ -2773,7 +3377,7 @@ impl EngineRegistry {
             let mut s = state.write();
             push_log(&mut s.log, entry);
         }
-        self.persist_state(&cfg.eoa, &state.read());
+        self.persist_state(&cfg.eoa, &cfg.strategy_id, &state.read());
     }
 }
 
@@ -2850,6 +3454,39 @@ fn widen_limit_price(price: f64, side: &str, slippage_bps: u32) -> f64 {
 /// unless the leader's own trade was sub-CLOB-floor dust (then we skip
 /// rather than over-mirror). Line-for-line port of strat.ts `sizeAndPrice`
 /// — the same hook the backtest sim and browser engine call.
+/// THE copy ratio — multiply a leader's trade notional by this to get the
+/// notional we should trade. Mirror of `copyRatio` in app/lib/strats/strat.ts
+/// and the backtest's `traderCopyRatio`; pinned cross-language by
+/// parity.fixture.json `copyRatio`.
+///
+/// The proportional model: **the leader risked `n / bankroll` of their net
+/// worth, so we risk the same fraction of ours**, scaled by the trader's
+/// share of the watchlist. That makes a $10,000 leader entry copy 100× larger
+/// than a $100 one — which is the whole point of copying, and precisely what
+/// the old volume model destroyed: `capital / leaderVolume` produced a ratio
+/// so small that virtually every mirror landed under the order floor and got
+/// clamped to the same flat $5, so a conviction bet and a throwaway punt were
+/// copied identically.
+///
+/// The volume model survives as the FALLBACK for when the leader's balance
+/// sheet can't be read (data-api outage, brand-new wallet): a bad ratio is
+/// better than no copying, and the `SUB_SCALE` gate in `plan_mirror` still
+/// stops it from placing wildly out-of-scale orders.
+fn copy_ratio_for(
+    account_value: f64,
+    weight_fraction: f64,
+    leader_bankroll: Option<f64>,
+    capital_alloc: f64,
+    trader_vol: f64,
+) -> f64 {
+    // Bankrolls under $1 are noise (a wallet mid-withdrawal, a parse of an
+    // empty book) and would blow the ratio up by orders of magnitude.
+    match leader_bankroll {
+        Some(b) if b >= 1.0 && account_value > 0.0 => (account_value * weight_fraction) / b,
+        _ => capital_alloc / trader_vol.max(1.0),
+    }
+}
+
 fn plan_mirror(
     trade: &ObservedTrade,
     copy_ratio: f64,
@@ -2857,6 +3494,7 @@ fn plan_mirror(
     min_shares: f64,
     ceiling: f64,
     slippage_bps: u32,
+    max_upscale: Option<f64>,
 ) -> MirrorPlan {
     let pm_floor = clob_min_notional(trade.price, min_shares);
     if ceiling < pm_floor {
@@ -2874,7 +3512,25 @@ fn plan_mirror(
                 trade.notional, pm_floor
             ));
         }
-        // Clamp the sub-floor mirror UP to the floor so it actually fills.
+        // ── Proportional fidelity ──
+        // Clamping up to the floor is a lie about size: the strat wanted
+        // `raw` and would place `min_notional`. A small lie (< max_upscale×)
+        // is the cost of a discrete order floor and is accepted; a big one
+        // means the account is simply too small to copy this leader in
+        // proportion, and placing anyway is how you end up with a book full
+        // of identical floor-sized bets. Say so instead, with the account
+        // value that WOULD make this trade copyable.
+        if let Some(mx) = max_upscale.filter(|m| *m > 0.0) {
+            if min_notional > raw * mx {
+                return MirrorPlan::Skip(format!(
+                    "SUB_SCALE · proportional ${:.2} vs ${:.2} min order — needs ~{:.0}× the account value to copy this leader in proportion",
+                    raw,
+                    min_notional,
+                    min_notional / raw.max(1e-9),
+                ));
+            }
+        }
+        // Small enough distortion to swallow — clamp up so it fills.
         min_notional.min(ceiling)
     } else {
         raw.min(ceiling)
@@ -3944,6 +4600,23 @@ mod tests {
             );
         }
 
+        // Copy ratio — the account-value proportional model and its
+        // volume-based fallback. This is the number that decides how big a
+        // mirror is, so the two languages agreeing on it IS the guarantee
+        // that a backtest predicts live position sizes.
+        for case in fx["copyRatioCases"].as_array().expect("copyRatioCases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let got = copy_ratio_for(
+                case["accountValue"].as_f64().unwrap(),
+                case["weightFraction"].as_f64().unwrap(),
+                case["leaderBankroll"].as_f64(),
+                case["capitalAlloc"].as_f64().unwrap(),
+                case["traderVol"].as_f64().unwrap(),
+            );
+            let want = case["expected"].as_f64().unwrap();
+            assert!(close(got, want), "copyRatio[{name}]: got {got}, want {want}");
+        }
+
         for case in fx["stopLossCases"].as_array().expect("stopLossCases") {
             let entry = case["entry"].as_f64().unwrap();
             let mark = case["mark"].as_f64().unwrap();
@@ -3977,6 +4650,7 @@ mod tests {
                 case["minShares"].as_f64().unwrap(),
                 case["ceiling"].as_f64().unwrap(),
                 case["slippageBps"].as_u64().unwrap() as u32,
+                case["maxUpscale"].as_f64(),
             );
             let want_skip = case["expected"]["skip"].as_str();
             match plan {
@@ -3985,6 +4659,8 @@ mod tests {
                         "CEILING"
                     } else if reason.starts_with("LEADER_DUST") {
                         "DUST"
+                    } else if reason.starts_with("SUB_SCALE") {
+                        "SUB_SCALE"
                     } else {
                         "OTHER"
                     };
@@ -4030,6 +4706,21 @@ mod tests {
             default_take_profit(),
             fx["defaults"]["takeProfit"].as_f64(),
             "take-profit default drifted from the fixture"
+        );
+        assert_eq!(
+            default_max_upscale(),
+            fx["defaults"]["maxUpscale"].as_f64(),
+            "proportional-fidelity default drifted from the fixture"
+        );
+        assert_eq!(
+            default_copy_min_minutes_to_close(),
+            fx["defaults"]["minMinutesToClose"].as_f64(),
+            "mirror time-to-close default drifted from the fixture"
+        );
+        assert_eq!(
+            default_max_trade_age_sec(),
+            fx["defaults"]["maxTradeAgeSec"].as_f64(),
+            "mirror staleness default drifted from the fixture"
         );
     }
 
@@ -4244,6 +4935,57 @@ mod tests {
     }
 
     #[test]
+    fn session_keys_separate_concurrently_funded_strats() {
+        // One wallet, two funded strats ⇒ two distinct registry keys and two
+        // distinct on-disk configs. Before multi-session both collapsed to the
+        // EOA, so starting the second strat killed the first.
+        let eoa = "0x89BC";
+        assert_ne!(session_key(eoa, "s1"), session_key(eoa, "s2"));
+        assert_ne!(
+            session_file_stem(eoa, "s1"),
+            session_file_stem(eoa, "s2"),
+        );
+        // EOA case never forks a session.
+        assert_eq!(session_key("0x89bc", "s1"), session_key("0x89BC", "s1"));
+        assert_eq!(session_file_stem("0x89bc", "s1"), session_file_stem("0x89BC", "s1"));
+        // Path separators in a shared strat id can't escape the data dir.
+        let stem = session_file_stem(eoa, "../../etc/passwd");
+        // No separator survives, so the id stays one path component — the
+        // remaining dots can't traverse out of the data dir.
+        assert!(!stem.contains('/'), "unsanitized strat id in filename: {stem}");
+        assert_eq!(stem, "0x89bc__.._.._etc_passwd");
+    }
+
+    #[test]
+    fn cadence_honors_the_floor_and_widens_for_big_watchlists() {
+        let base = json!({
+            "eoa": "0xe", "strategyId": "s", "address": "0xa",
+            "traders": [], "capital": 100.0, "intervalMs": 30000
+        });
+        let cfg: EngineConfig = serde_json::from_value(base).unwrap();
+        // A small watchlist syncs at exactly the requested 30s.
+        assert_eq!(effective_interval_for(&cfg, 1), 30_000);
+        assert_eq!(effective_interval_for(&cfg, 30), 30_000);
+        // 400ms spacing + 600ms fetch allowance ⇒ 31 traders need >30s of
+        // fan-out, so the period widens rather than silently drifting.
+        assert_eq!(effective_interval_for(&cfg, 31), 31_000);
+        // A stale sub-floor config self-heals up to the 30s floor.
+        let stale = json!({
+            "eoa": "0xe", "strategyId": "s", "address": "0xa",
+            "traders": [], "capital": 100.0, "intervalMs": 5000
+        });
+        let cfg: EngineConfig = serde_json::from_value(stale).unwrap();
+        assert_eq!(effective_interval_for(&cfg, 1), 30_000);
+        // An explicitly slower cadence is honored as-is.
+        let slow = json!({
+            "eoa": "0xe", "strategyId": "s", "address": "0xa",
+            "traders": [], "capital": 100.0, "intervalMs": 300000
+        });
+        let cfg: EngineConfig = serde_json::from_value(slow).unwrap();
+        assert_eq!(effective_interval_for(&cfg, 4), 300_000);
+    }
+
+    #[test]
     fn momentum_config_roundtrips_and_defaults_off() {
         // Old persisted configs (no momentum key) must deserialize with
         // momentum off; a momentum config must survive a round-trip.
@@ -4291,5 +5033,33 @@ mod tests {
         assert!(json_string_array(None).is_empty());
         assert_eq!(value_as_f64(Some(&json!("123.5"))), 123.5);
         assert_eq!(value_as_f64(Some(&json!(7))), 7.0);
+    }
+
+    #[test]
+    fn market_lookups_reject_gammas_default_page() {
+        // Gamma answers an unrecognised filter (the singular `condition_id`)
+        // with its default page of unrelated markets rather than an error —
+        // so every by-id lookup must confirm the id it got back. Without this
+        // the engine read some other market's negRisk on every resolve, and
+        // signed orders with the wrong flag.
+        let want = "0xa467b14d51f01b957109d9cbb1d6c124fab2a089d52ed8f471d23c2812e743b7";
+        let other = json!({
+            "conditionId": "0x6b4608b5184bfe17c6718ab07a5fb3e2d6b0903cddb88f0c4184dd54c5fca934",
+            "negRisk": true,
+            "endDate": "2026-08-02T08:10:00Z",
+        });
+        assert!(!verify_condition(&other, want), "a different market must not satisfy the lookup");
+
+        let mine = json!({ "conditionId": want, "negRisk": true, "endDate": "2026-12-31T00:00:00Z" });
+        assert!(verify_condition(&mine, want));
+        // Case-insensitive: gamma and the data-api disagree on hex casing.
+        assert!(verify_condition(&mine, &want.to_uppercase().replace("0X", "0x")));
+
+        let (neg_risk, end) = market_meta_of(&mine);
+        assert!(neg_risk);
+        assert_eq!(end, Some(1798675200000), "endDate must parse as RFC3339 with a Z offset");
+        // A market with no end date is "unknown", never "resolves now" — the
+        // time-to-close gate must not block on missing data.
+        assert_eq!(market_meta_of(&json!({"conditionId": want})), (false, None));
     }
 }

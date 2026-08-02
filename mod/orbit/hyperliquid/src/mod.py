@@ -58,6 +58,8 @@ class Hyperliquid(m.Mod):
         "forward", "serve", "app", "api", "kill", "status",
         "build", "logs", "test",
         "build_cid", "publish_build", "build_onchain",
+        # MCP tool server (the same fn surface, spoken as JSON-RPC)
+        "mcp", "mcp_tools", "mcp_call", "mcp_config",
         # strategies (modular Python classes)
         "strat", "list_strats", "run_strat",
         # data passthroughs
@@ -72,7 +74,7 @@ class Hyperliquid(m.Mod):
         "list_vaults", "vault_details", "vault_perf", "vault_intent",
         "create_vault", "vault_transfer",
         # backend signer / agent
-        "signer_address", "approve_agent_intent",
+        "signer_address", "agent_status", "approve_agent_intent",
         # trading
         "trade", "cancel", "cancel_by_cloid", "modify", "set_leverage",
         "update_isolated_margin", "schedule_cancel", "action",
@@ -83,18 +85,22 @@ class Hyperliquid(m.Mod):
         # live copy-trade engine
         "live_start", "live_stop", "live_status",
         # market / wallet data
-        "mids", "meta", "orderbook", "candles",
+        "mids", "meta", "orderbook", "candles", "wallet_config",
         "user_state", "user_fills", "user_pnl", "user_orders", "user_funding",
     ]
 
     api_port = 8919
     app_port = 3919
 
-    def __init__(self, testnet: bool = False, api_url: Optional[str] = None, **kwargs):
+    def __init__(self, testnet: bool = False, api_url: Optional[str] = None,
+                 token: Optional[str] = None, **kwargs):
         self.testnet = testnet or os.environ.get("HYPERLIQUID_TESTNET", "").lower() == "true"
         self.api_url = api_url or os.environ.get(
             "HL_API_URL", f"http://localhost:{self.api_port}"
         )
+        # Wallet-scoped fns (follows, signer, trading, live engine) are gated
+        # behind a mod protocol-auth token. Public reads need none.
+        self.token = token or os.environ.get("HYPERLIQUID_TOKEN", "")
 
     # ── lifecycle ────────────────────────────────────────────────────
 
@@ -389,28 +395,35 @@ class Hyperliquid(m.Mod):
 
     # ── data passthroughs (use the Rust API) ──────────────────────
 
+    def _headers(self) -> Dict[str, str]:
+        return {"Authorization": f"Bearer {self.token}"} if self.token else {}
+
     def _get(self, path: str, _timeout: float = 30, **params) -> Any:
         # Top-traders scan can legitimately take ~60s under HL's /info
         # rate limiting (parallel=2 × up to 8 retries × ~4s backoff). Keep
         # short timeouts for everything else but give the scan budget.
         if path.startswith("/traders/top") or path.startswith("/trader/"):
             _timeout = max(_timeout, 120)
-        r = requests.get(f"{self.api_url}{path}", params=params, timeout=_timeout)
+        r = requests.get(f"{self.api_url}{path}", params=params,
+                         headers=self._headers(), timeout=_timeout)
         r.raise_for_status()
         return r.json()
 
     def _post(self, path: str, body: Any) -> Any:
-        r = requests.post(f"{self.api_url}{path}", json=body, timeout=60)
+        r = requests.post(f"{self.api_url}{path}", json=body,
+                          headers=self._headers(), timeout=60)
         r.raise_for_status()
         return r.json()
 
     def _patch(self, path: str, body: Any) -> Any:
-        r = requests.patch(f"{self.api_url}{path}", json=body, timeout=30)
+        r = requests.patch(f"{self.api_url}{path}", json=body,
+                           headers=self._headers(), timeout=30)
         r.raise_for_status()
         return r.json()
 
     def _delete(self, path: str) -> Any:
-        r = requests.delete(f"{self.api_url}{path}", timeout=15)
+        r = requests.delete(f"{self.api_url}{path}",
+                            headers=self._headers(), timeout=15)
         r.raise_for_status()
         return r.json()
 
@@ -461,6 +474,7 @@ class Hyperliquid(m.Mod):
 
     def mids(self) -> Any: return self._get("/mids")
     def meta(self) -> Any: return self._get("/market/meta")
+    def wallet_config(self) -> Any: return self._get("/wallet/config")
     def orderbook(self, coin: str) -> Any: return self._get(f"/orderbook/{coin}")
     def candles(self, coin: str, interval: str = "1h", hours: int = 24) -> Any:
         return self._get(f"/candles/{coin}", interval=interval, hours=hours)
@@ -478,6 +492,10 @@ class Hyperliquid(m.Mod):
         master wallet must `approveAgent` this address before the engine
         can trade for them."""
         return self._post("/signer/address", {"eoa": eoa})
+
+    def agent_status(self, eoa: str) -> Any:
+        """Is the backend agent for this EOA approved on Hyperliquid yet?"""
+        return self._get("/agent/status", eoa=eoa)
 
     def approve_agent_intent(self, eoa: str, agent_name: Optional[str] = None) -> Any:
         """Return the `approveAgent` action + EIP-712 digest the user's
@@ -627,6 +645,74 @@ class Hyperliquid(m.Mod):
 
     def live_status(self, eoa: str) -> Any:
         return self._get("/live/status", eoa=eoa)
+
+    # ── MCP tool server (same fn surface, spoken as JSON-RPC 2.0) ──
+    #
+    # The Rust API serves the tools at POST /mcp; these are the thin mod-side
+    # client. Each tool fronts one of `fns` above — /mcp/schema publishes the
+    # tool → fn → route mapping, which `mcp_tools()` checks against this class.
+
+    def mcp(self) -> Any:
+        """The MCP tool schema and its mod-protocol mapping (public)."""
+        return self._get("/mcp/schema")
+
+    def mcp_tools(self) -> List[Dict[str, Any]]:
+        """Compact tool list: name, the fn it fronts, route, and whether that
+        fn exists here. `bound` false means schema drift — the tool names a fn
+        this module does not expose."""
+        schema = self.mcp()
+        return [{
+            "name": t["name"],
+            "fn": t["fn"],
+            "route": f'{t["method"]} {t["path"]}',
+            "public": t["public"],
+            "bound": t["fn"] in self.fns and hasattr(self, t["fn"]),
+        } for t in schema.get("tools", [])]
+
+    def mcp_call(self, tool: str, arguments: Optional[Dict[str, Any]] = None,
+                 **kwargs) -> Any:
+        """Invoke an MCP tool over the same JSON-RPC wire an MCP client uses."""
+        body = {
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": tool, "arguments": dict(arguments or {}, **kwargs)},
+        }
+        r = requests.post(f"{self.api_url}/mcp", json=body,
+                          headers=self._headers(), timeout=300)
+        r.raise_for_status()
+        msg = r.json()
+        if "error" in msg:
+            raise RuntimeError(msg["error"].get("message", str(msg["error"])))
+        result = msg.get("result", {})
+        if result.get("isError"):
+            raise RuntimeError(result.get("content", [{}])[0].get("text", "tool error"))
+        if "structuredContent" in result:
+            return result["structuredContent"]
+        text = result.get("content", [{}])[0].get("text", "")
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            return text
+
+    def mcp_config(self) -> Dict[str, Any]:
+        """Client config snippets for registering this server (stdio + HTTP)."""
+        binary = self._api_binary() or os.path.join(
+            API_DIR, "target", "release", "hyperliquid-api")
+        return {
+            "stdio": {
+                "command": binary,
+                "args": ["--stdio"],
+                "env": {"HL_API_URL": self.api_url,
+                        "HYPERLIQUID_TOKEN": "<mod protocol token, for wallet-scoped tools>"},
+            },
+            "http": {
+                "type": "http",
+                "url": f"{self.api_url}/mcp",
+                "headers": {"Authorization": "Bearer <mod protocol token>"},
+            },
+            # Same server through the public gateway (mod protocol URL shape).
+            "gateway": {"type": "http", "url": "/api/hyperliquid/mcp"},
+            "add_cmd": f"claude mcp add hyperliquid -- {binary} --stdio",
+        }
 
     # ── Modular strategies (see strat.py) ──
 
@@ -804,6 +890,13 @@ class Hyperliquid(m.Mod):
         _probe("mids", "/mids")
         _probe("meta", "/market/meta")
         _probe("leaderboard", "/leaderboard", timeout=20)
+        _probe("mcp_schema", "/mcp/schema", timeout=5)
+
+        # MCP is the same fn surface over JSON-RPC — drive one public tool.
+        try:
+            results["mcp_call"] = {"ok": self.mcp_call("hl_status").get("ok") is True}
+        except Exception as e:
+            results["mcp_call"] = {"ok": False, "error": str(e)}
 
         passed = sum(1 for v in results.values() if v.get("ok"))
         total = len(results)

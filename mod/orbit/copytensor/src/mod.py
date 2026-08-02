@@ -15,6 +15,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
 from typing import Any, Dict, List, Optional
 
@@ -195,22 +196,64 @@ class Copytensor(m.Mod):
 
     def _pm2_spawn(self, role: str, cmd: List[str], cwd: str,
                    env: Dict[str, str]) -> Optional[Dict[str, Any]]:
-        """Start `cmd` under pm2. Returns None if pm2 isn't usable."""
+        """Start `cmd` under pm2. Returns None if pm2 isn't usable.
+
+        `--interpreter none` is not optional: pm2 hands anything it doesn't
+        recognise to node, so the API's python entrypoint crash-looped on
+        "Cannot use import statement outside a module" while `pm2 start` still
+        exited 0. The API reported itself started, was never up, and after a
+        reboot the app served 500s against nothing. Hence also the online
+        check — pm2's exit code says the process was accepted, not that it
+        survived.
+        """
         pm2 = self._pm2_bin()
         if not pm2:
             return None
         name = self._pm2_name(role)
         subprocess.run([pm2, "delete", name], capture_output=True, timeout=30)
         proc = subprocess.run(
-            [pm2, "start", cmd[0], "--name", name, "--cwd", cwd, "--"] + cmd[1:],
+            [pm2, "start", cmd[0], "--name", name, "--cwd", cwd,
+             "--interpreter", "none", "--"] + cmd[1:],
             cwd=cwd, env={**os.environ, **env},
             capture_output=True, text=True, timeout=120,
         )
         if proc.returncode != 0:
             log.warning("pm2 start %s failed: %s", name, proc.stderr.strip())
             return None
+        if not self._pm2_settled(role):
+            log.warning("pm2 %s did not stay up — falling back to Popen", name)
+            subprocess.run([pm2, "delete", name], capture_output=True, timeout=30)
+            return None
         subprocess.run([pm2, "save"], capture_output=True, timeout=30)
         return {"ok": True, "supervisor": "pm2", "pm2_name": name}
+
+    def _pm2_settled(self, role: str, wait_sec: float = 8.0) -> bool:
+        """True once the process is online and has stopped restarting.
+
+        A crash-looping process reports "online" between restarts, so status
+        alone is not enough — the restart counter has to hold still too.
+        """
+        deadline = time.time() + wait_sec
+        restarts = None
+        while time.time() < deadline:
+            time.sleep(2)
+            proc = subprocess.run([self._pm2_bin(), "jlist"],
+                                  capture_output=True, text=True, timeout=15)
+            try:
+                procs = json.loads(proc.stdout or "[]")
+            except json.JSONDecodeError:
+                continue
+            for p in procs:
+                if p.get("name") != self._pm2_name(role):
+                    continue
+                env = p.get("pm2_env", {})
+                if env.get("status") != "online":
+                    return False
+                n = env.get("restart_time", 0)
+                if restarts is not None and n == restarts:
+                    return True
+                restarts = n
+        return restarts is not None
 
     def _pid_file(self, role: str) -> str:
         os.makedirs(self.LOG_DIR, exist_ok=True)
@@ -301,7 +344,7 @@ class Copytensor(m.Mod):
         # `src.api.app`. We run uvicorn from ROOT_DIR (one above src/) and
         # set PYTHONPATH there too so the `src` package is importable.
         cmd = [
-            "uvicorn", "src.api.app:app",
+            sys.executable or "python3", "-m", "uvicorn", "src.api.app:app",
             "--host", "0.0.0.0", "--port", str(port),
         ]
         env = {"PORT": str(port), "PYTHONPATH": ROOT_DIR}

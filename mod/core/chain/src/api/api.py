@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -1263,6 +1264,415 @@ async def control_deploy_script(req: DeployScriptReq):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ── Contract builder (write → compile → deploy from a wallet) ───────────────
+#
+# Compilation runs solc in a subprocess (src/build/compile.js); imports resolve
+# against the chain module's node_modules, so @openzeppelin/… just works.
+# Tests run in a throwaway Hardhat project (src/build/hardhat.template.js) that
+# borrows the same node_modules — offline, no compiler download.
+# Deployment itself is signed in the browser — the API never sees a user key.
+# Projects and the user's own deployments live off-tree in ~/.mod/chain/build/.
+
+BUILD_DIR = Path.home() / ".mod" / "chain" / "build"
+BUILD_TIMEOUT = 120
+TEST_TIMEOUT = 240
+
+
+def _build_dir() -> Path:
+    BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    return BUILD_DIR
+
+
+def _build_store(name: str) -> dict:
+    path = _build_dir() / name
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _build_save(name: str, data: dict):
+    path = _build_dir() / name
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+
+def _who(address: Optional[str]) -> str:
+    """Storage key for a user — an address, or 'anon' for unsigned sessions."""
+    return (address or "anon").lower()
+
+
+def _safe_rel(path: str) -> str:
+    """A project-relative path with no way out of the project directory."""
+    parts = [p for p in (path or "").replace("\\", "/").split("/") if p not in ("", ".")]
+    if not parts or any(p == ".." for p in parts):
+        raise HTTPException(status_code=400, detail=f"bad file path: {path}")
+    return "/".join(parts)
+
+
+def _layout(files: dict) -> dict:
+    """Normalise a project's files onto the Hardhat layout tests expect."""
+    out = {}
+    for raw, content in (files or {}).items():
+        path = _safe_rel(raw)
+        head = path.split("/")[0]
+        if path.endswith(".sol") and head != "contracts":
+            path = f"contracts/{path}"
+        elif path.endswith((".js", ".ts", ".cjs", ".mjs")) and head != "test":
+            path = f"test/{path}"
+        out[path] = content
+    return out
+
+
+class CompileReq(BaseModel):
+    source: Optional[str] = None            # single file …
+    filename: str = "Contract.sol"
+    sources: Optional[dict] = None          # … or a whole project {path: source}
+    optimize: bool = True
+    runs: int = 200
+
+
+@app.post("/build/compile")
+async def build_compile(req: CompileReq):
+    """Compile Solidity source (one file or a project); returns artifacts + diagnostics."""
+    import subprocess
+
+    base = _module_dir("chain")
+    script = os.path.join(base or "", "src", "build", "compile.js")
+    if not os.path.isfile(script):
+        raise HTTPException(status_code=503, detail="compiler not installed")
+
+    if req.sources:
+        # Keys are relative paths so `import "./Other.sol"` resolves between them.
+        sources = {_safe_rel(p): s for p, s in req.sources.items() if p.endswith(".sol")}
+        if not sources:
+            raise HTTPException(status_code=400, detail="no .sol sources to compile")
+    else:
+        filename = os.path.basename(req.filename) or "Contract.sol"
+        if not filename.endswith(".sol"):
+            filename += ".sol"
+        sources = {filename: req.source or ""}
+
+    payload = json.dumps({
+        "sources": sources,
+        "optimize": req.optimize,
+        "runs": req.runs,
+    })
+    try:
+        proc = subprocess.run(["node", script], input=payload, capture_output=True,
+                              text=True, timeout=BUILD_TIMEOUT, cwd=base)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="compile timed out")
+    try:
+        out = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail=(proc.stderr or "compiler failed")[:500])
+
+    errors, warnings = [], []
+    for d in out.get("errors", []):
+        entry = {
+            "severity": d.get("severity", "error"),
+            "message": d.get("formattedMessage") or d.get("message", ""),
+            "line": (d.get("sourceLocation") or {}).get("start"),
+        }
+        (errors if entry["severity"] == "error" else warnings).append(entry)
+
+    # Only contracts from the user's own files are deployable — imports are deps.
+    contracts = []
+    for path in sources:
+        for name, c in (out.get("contracts", {}).get(path, {}) or {}).items():
+            bytecode = "0x" + (c.get("evm", {}).get("bytecode", {}).get("object") or "")
+            deployed = c.get("evm", {}).get("deployedBytecode", {}).get("object") or ""
+            abi = c.get("abi") or []
+            ctor = next((f for f in abi if f.get("type") == "constructor"), None)
+            contracts.append({
+                "name": name,
+                "file": path,
+                "abi": abi,
+                "bytecode": bytecode,
+                "size": len(deployed) // 2,
+                "abstract": len(bytecode) <= 2,
+                "constructor": (ctor or {}).get("inputs", []),
+            })
+    contracts.sort(key=lambda c: (c["abstract"], c["name"].lower()))
+
+    return {"ok": not errors, "contracts": contracts,
+            "errors": errors, "warnings": warnings, "solc": out.get("version")}
+
+
+@app.get("/build/templates")
+async def build_templates():
+    """Starter projects — each a contract plus the test that proves it works."""
+    base = _module_dir("chain")
+    root = os.path.join(base or "", "src", "build", "templates")
+    out = []
+    for fname in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        if not fname.endswith(".sol"):
+            continue
+        stem = fname[:-4]
+        with open(os.path.join(root, fname)) as f:
+            source = f.read()
+        test = ""
+        test_path = os.path.join(root, f"{stem}.test.js")
+        if os.path.isfile(test_path):
+            with open(test_path) as f:
+                test = f.read()
+        # second comment line of each template is its one-line description
+        lines = source.splitlines()
+        desc = next((l.lstrip("/ ").strip() for l in lines[:4]
+                     if l.startswith("//") and "SPDX" not in l), "")
+        files = {f"contracts/{fname}": source}
+        if test:
+            files[f"test/{stem}.test.js"] = test
+        out.append({"key": stem.lower(), "name": stem, "description": desc,
+                    "source": source, "files": files})
+    return {"templates": out}
+
+
+# ── Projects ────────────────────────────────────────────────────────────────
+#
+# A project is a named bag of files — contracts/*.sol next to test/*.test.js —
+# stored per wallet address. It's what the sidebar lists and what the test
+# runner materialises into a Hardhat sandbox.
+
+
+def _projects_store() -> dict:
+    """All users' projects, migrating any pre-project drafts on first read."""
+    store = _build_store("projects.json")
+    drafts = _build_store("drafts.json")
+    changed = False
+    for user, user_drafts in drafts.items():
+        if user in store or not user_drafts:
+            continue
+        for dname, d in user_drafts.items():
+            stem = dname[:-4] if dname.endswith(".sol") else dname
+            store.setdefault(user, {})[stem] = {
+                "files": {f"contracts/{stem}.sol": d.get("source", "")},
+                "updated": d.get("updated", 0),
+            }
+        changed = True
+    if changed:
+        _build_save("projects.json", store)
+    return store
+
+
+def _project(address: Optional[str], name: str) -> dict:
+    proj = _projects_store().get(_who(address), {}).get(name)
+    if proj is None:
+        raise HTTPException(status_code=404, detail=f"no project named {name}")
+    return proj
+
+
+class ProjectReq(BaseModel):
+    address: Optional[str] = None
+    name: str
+    files: dict = {}
+
+
+@app.get("/build/projects")
+async def build_projects(address: Optional[str] = None):
+    """List a user's projects (newest first), without file bodies."""
+    projects = _projects_store().get(_who(address), {})
+    rows = [{
+        "name": n,
+        "updated": p.get("updated", 0),
+        "files": sorted((p.get("files") or {}).keys()),
+    } for n, p in projects.items()]
+    rows.sort(key=lambda p: p.get("updated", 0), reverse=True)
+    return {"projects": rows}
+
+
+@app.get("/build/projects/{name}")
+async def build_project_get(name: str, address: Optional[str] = None):
+    """One project, files and all."""
+    return {"name": name, **_project(address, name)}
+
+
+@app.post("/build/projects")
+async def build_project_save(req: ProjectReq):
+    """Create or overwrite a project under the caller's address."""
+    import time
+    if not req.name.strip():
+        raise HTTPException(status_code=400, detail="project needs a name")
+    store = _projects_store()
+    files = {_safe_rel(p): s for p, s in (req.files or {}).items()}
+    store.setdefault(_who(req.address), {})[req.name] = {
+        "files": files, "updated": time.time(),
+    }
+    _build_save("projects.json", store)
+    return {"ok": True, "name": req.name, "files": sorted(files)}
+
+
+@app.delete("/build/projects")
+async def build_project_delete(name: str, address: Optional[str] = None):
+    store = _projects_store()
+    user = store.get(_who(address), {})
+    if user.pop(name, None) is None:
+        raise HTTPException(status_code=404, detail=f"no project named {name}")
+    _build_save("projects.json", store)
+    return {"ok": True}
+
+
+# ── Test runner ─────────────────────────────────────────────────────────────
+#
+# Each user gets one sandbox under ~/.mod/chain/build/run/<who>/ holding the
+# generated hardhat.config.js, their files, and a warm compile cache. The
+# sandbox borrows the chain module's node_modules by symlink, so Hardhat, its
+# in-process EVM and solc are all already on disk — a run never hits the network.
+
+_test_locks: dict = {}
+
+
+def _sandbox(who: str) -> Path:
+    """A ready-to-run Hardhat project directory for one user."""
+    import shutil
+
+    base = _module_dir("chain")
+    template = os.path.join(base or "", "src", "build", "hardhat.template.js")
+    if not os.path.isfile(template):
+        raise HTTPException(status_code=503, detail="test runner not installed")
+
+    root = _build_dir() / "run" / re.sub(r"[^a-z0-9]", "_", who)
+    root.mkdir(parents=True, exist_ok=True)
+
+    modules = root / "node_modules"
+    if not modules.exists():
+        modules.symlink_to(os.path.join(base, "node_modules"))
+    # Hardhat insists on a package.json at (or above) the project root.
+    (root / "package.json").write_text('{"name": "chain-build-sandbox", "private": true}\n')
+    shutil.copyfile(template, root / "hardhat.config.js")
+
+    for sub in ("contracts", "test"):
+        shutil.rmtree(root / sub, ignore_errors=True)
+        (root / sub).mkdir()
+    return root
+
+
+class TestReq(BaseModel):
+    address: Optional[str] = None
+    files: dict = {}
+    grep: Optional[str] = None       # run only tests whose name matches
+
+
+@app.post("/build/test")
+async def build_test(req: TestReq):
+    """Run a project's Hardhat/Mocha tests against an in-process EVM."""
+    import subprocess
+    import threading
+
+    files = _layout(req.files)
+    if not any(p.startswith("test/") for p in files):
+        raise HTTPException(status_code=400, detail="no test files — add test/<Name>.test.js")
+
+    who = _who(req.address)
+    lock = _test_locks.setdefault(who, threading.Lock())
+    if not lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="a test run is already in flight")
+    try:
+        root = _sandbox(who)
+        for path, content in files.items():
+            dest = root / path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content or "")
+
+        report = root / "mocha.json"
+        report.unlink(missing_ok=True)
+        cmd = [os.path.join(_module_dir("chain"), "node_modules", ".bin", "hardhat"), "test"]
+        if req.grep:
+            cmd += ["--grep", req.grep]
+        try:
+            proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True,
+                                  timeout=TEST_TIMEOUT,
+                                  env={**os.environ, "HARDHAT_DISABLE_TELEMETRY_PROMPT": "true"})
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504,
+                                detail=f"tests timed out after {TEST_TIMEOUT}s")
+    finally:
+        lock.release()
+
+    # Hardhat greets every run with a Node-version warning; it isn't the user's news.
+    noise = re.compile(r"^WARNING: You are currently using Node\.js")
+    output = "\n".join(
+        line for chunk in (proc.stdout, proc.stderr) for line in chunk.splitlines()
+        if line.strip() and not noise.match(line)
+    )
+    try:
+        result = json.loads(report.read_text())
+    except Exception:
+        # No report means we never reached mocha — a compile error, almost always.
+        return {"ok": False, "passing": 0, "failing": 0, "tests": [],
+                "output": output, "error": output or "test run failed"}
+
+    stats = result.get("stats", {})
+    tests = []
+    for t in result.get("tests", []):
+        full, title = t.get("fullTitle", ""), t.get("title", "")
+        err = t.get("err") or {}
+        tests.append({
+            "title": title,
+            "suite": full[: len(full) - len(title)].strip(),
+            "duration": t.get("duration"),
+            "passed": not err,
+            "error": err.get("message"),
+            "diff": err.get("stack"),
+        })
+
+    return {
+        "ok": proc.returncode == 0 and not stats.get("failures"),
+        "passing": stats.get("passes", 0),
+        "failing": stats.get("failures", 0),
+        "duration": stats.get("duration", 0),
+        "tests": tests,
+        "output": output,
+    }
+
+
+class BuiltReq(BaseModel):
+    address: Optional[str] = None      # deployer (wallet that signed)
+    network: str = "testnet"
+    name: str
+    contract_address: str
+    tx_hash: Optional[str] = None
+    abi: list = []
+    source: Optional[str] = None
+
+
+@app.post("/build/deployments")
+async def build_record(req: BuiltReq):
+    """Record a wallet-signed deployment so it shows up in CONTRACTS / INTERACT."""
+    import time
+    store = _build_store("deployments.json")
+    rows = store.setdefault(_who(req.address), [])
+
+    abi_cid = src_cid = None
+    lf = _localfs()
+    if lf:  # pin ABI + source so a build is shareable by CID, like fleet contracts
+        try:
+            abi_cid = lf.put(req.abi) if req.abi else None
+            src_cid = lf.put(req.source) if req.source else None
+        except Exception:
+            pass
+
+    row = {"name": req.name, "network": req.network, "address": req.contract_address,
+           "tx_hash": req.tx_hash, "abi": req.abi, "abi_cid": abi_cid,
+           "src_cid": src_cid, "deployer": req.address, "created": time.time()}
+    rows.insert(0, row)
+    _build_save("deployments.json", store)
+    return {"ok": True, "deployment": row}
+
+
+@app.get("/build/deployments")
+async def build_deployments(address: Optional[str] = None, network: Optional[str] = None):
+    """A user's wallet-signed deployments, newest first."""
+    rows = _build_store("deployments.json").get(_who(address), [])
+    if network:
+        rows = [r for r in rows if r.get("network") == network]
+    return {"deployments": rows, "count": len(rows)}
+
+
 @app.get("/info")
 async def info():
     """API info."""
@@ -1283,5 +1693,7 @@ async def info():
             "pool/epochs", "pool/snapshot",
             "admin/owners", "admin/encode", "admin/send", "admin/transfer-all",
             "control/status", "control/verify", "control/deploy-script",
+            "build/compile", "build/templates", "build/test",
+            "build/projects", "build/projects/{name}", "build/deployments",
         ],
     }

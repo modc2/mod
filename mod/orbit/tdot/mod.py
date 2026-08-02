@@ -47,6 +47,7 @@ if str(MODULE_DIR) not in sys.path:
 
 from tdotgis import crime as C
 from tdotgis import layers as L
+from tdotgis import registry as R
 from tdotgis import sources as S
 
 # The six municipalities amalgamated into the City of Toronto in 1998 — still
@@ -110,9 +111,9 @@ class Mod:
         """The layer catalogue: every layer, its category, style and source."""
         return L.catalog()
 
-    def layer(self, id: str) -> dict:
+    def layer(self, id: str, refresh: bool = False) -> dict:
         """One layer as a GeoJSON FeatureCollection."""
-        return L.get(id)
+        return L.get(id, refresh=bool(refresh))
 
     def boundary(self, name: str = 'neighbourhood') -> dict:
         """A boundary layer: ``neighbourhood``, ``neighbourhood140``, ``ward`` or ``municipality``."""
@@ -225,35 +226,150 @@ class Mod:
         except Exception:
             return {}
 
+    # ── open-data registry ───────────────────────────────────────────────
+    #
+    # A layer is a spec, not a loader (see tdotgis/registry.py), so adding a
+    # dataset to the map is a data operation anyone can do — from the CLI, the
+    # API, the browser or the chat agent — with no code change and no redeploy.
+
+    def datasets(self) -> dict:
+        """Every spec-driven layer: the builtin ones and the ones you added."""
+        builtin = set(L.SPECS_BY_ID)
+        out = []
+        for spec in L.specs().values():
+            cached = S.cache_age(f'ds-{spec["id"]}')
+            out.append({'id': spec['id'], 'title': spec['title'],
+                        'category': spec.get('category', 'Open data'),
+                        'package': spec['package'],
+                        'mode': spec['locate']['mode'],
+                        'custom': spec['id'] not in builtin,
+                        'cached_seconds': int(cached) if cached else None})
+        return {'datasets': sorted(out, key=lambda d: (d['category'], d['title'])),
+                'count': len(out), 'store': str(R.STORE)}
+
+    def find_data(self, q: str, rows: int = 12) -> list:
+        """Search Toronto Open Data for datasets you could put on the map."""
+        return R.search(str(q), rows=int(rows))
+
+    def add_data(self, package: str, id: Optional[str] = None,
+                 title: Optional[str] = None, category: str = 'Open data',
+                 resource: Optional[str] = None, build: bool = True) -> dict:
+        """
+        Add a Toronto Open Data package as a map layer.
+
+        The spec is written by inspecting what the package publishes — a
+        GeoJSON export, a geometry column, lat/lng columns, the city's MTM
+        grid, or failing all of those, a per-ward count. It is saved under
+        ``~/.mod/tdot/datasets`` and appears in the catalogue immediately.
+        """
+        try:
+            spec = R.autodetect(str(package), resource=resource,
+                                category=category, title=title, dataset_id=id)
+        except Exception as e:
+            return {'ok': False, 'error': str(e), 'package': package}
+        R.save(spec)
+        out = {'ok': True, 'dataset': spec['id'], 'title': spec['title'],
+               'mode': spec['locate']['mode'], 'spec': spec}
+        if build:
+            try:
+                fc = R.build(spec)
+                out['features'] = len(fc.get('features', []))
+                out['kb'] = S.geojson_bytes(fc) // 1024
+            except Exception as e:
+                # The spec is saved either way — a source that is merely slow
+                # or briefly down shouldn't lose the user's dataset.
+                out['ok'] = False
+                out['error'] = f'saved, but the first build failed: {e}'
+        return out
+
+    def remove_data(self, id: str) -> dict:
+        """Remove a dataset you added (builtin layers can't be removed)."""
+        if id in L.SPECS_BY_ID:
+            return {'ok': False, 'error': f'{id!r} is a builtin layer'}
+        return {'ok': True, **R.remove(str(id))}
+
+    def dataset(self, id: str) -> dict:
+        """One dataset's spec — the recipe the layer is built from."""
+        spec = L.specs().get(str(id))
+        if not spec:
+            return {'error': f'unknown dataset {id!r}', 'known': sorted(L.specs())}
+        return {'spec': spec, 'custom': id not in L.SPECS_BY_ID,
+                'layer': R.layer_def(spec, custom=id not in L.SPECS_BY_ID)}
+
     # ── search ───────────────────────────────────────────────────────────
 
     def where(self, q: str, limit: int = 6) -> List[dict]:
+        """Geocode a Toronto address or place (OpenStreetMap Nominatim)."""
+        return S.geocode(q, limit=int(limit))
+
+    # ── housing ──────────────────────────────────────────────────────────
+
+    def housing(self, role: Optional[str] = None, live: bool = True) -> dict:
         """
-        Geocode a Toronto address or place via OpenStreetMap's Nominatim.
+        Every open dataset Toronto publishes about housing, and its role here.
 
-        Results are cached — Nominatim's usage policy asks for no more than one
-        request per second, and the same searches repeat constantly.
+        ``role`` filters: ``layer`` (on the map), ``feature`` (feeding the
+        score model), ``table`` (open but with nothing to draw) or ``closed``
+        (what people ask for that is not open data at all).
         """
-        import requests
-        query = str(q).strip()
-        if not query:
-            return []
+        from tdotgis import housing as H
+        return H.inventory(role=role, live=bool(live))
 
-        def fetch():
-            r = requests.get(
-                'https://nominatim.openstreetmap.org/search',
-                params={'q': query, 'format': 'jsonv2', 'limit': int(limit),
-                        'countrycodes': 'ca',
-                        'viewbox': '-79.65,43.87,-79.10,43.56', 'bounded': 1},
-                headers={'User-Agent': S.USER_AGENT}, timeout=20)
-            r.raise_for_status()
-            return [{'name': h.get('display_name', ''),
-                     'type': h.get('type', ''),
-                     'category': h.get('category', ''),
-                     'lat': float(h['lat']), 'lng': float(h['lon'])}
-                    for h in r.json()]
+    def housing_search(self, q: str = 'housing', rows: int = 20) -> list:
+        """Housing datasets on the portal that the catalogue does not cover."""
+        from tdotgis import housing as H
+        return H.search(str(q), rows=int(rows))
 
-        return S.cached(f'geocode-{query.lower()}-{limit}', 30 * S.DAY, fetch)
+    # ── the score model ──────────────────────────────────────────────────
+
+    def score(self, refresh: bool = False) -> dict:
+        """
+        How well open data predicts a building's RentSafeTO evaluation score.
+
+        Out-of-fold accuracy against a mean baseline, the inputs that drive it,
+        and what the model cannot see. Fitting happens on the first call after
+        a refresh; everything else is served from the cache.
+        """
+        from tdotgis import score as SC
+        return SC.report(refresh=bool(refresh))
+
+    def outliers(self, direction: str = 'under', limit: int = 25) -> dict:
+        """
+        Buildings scoring furthest from what comparable buildings score.
+
+        ``under`` is the shortlist — same age, size, systems and neighbourhood,
+        markedly worse inspection. ``over`` is the tail that beats its stock.
+        """
+        from tdotgis import score as SC
+        return SC.outliers(limit=int(limit), direction=str(direction))
+
+    def building(self, rsn: str) -> dict:
+        """One rental building: its filing, its prediction and what drives it."""
+        from tdotgis import score as SC
+        return SC.building(str(rsn))
+
+    # ── agent ────────────────────────────────────────────────────────────
+
+    def ask(self, question: str, session: Optional[str] = None) -> dict:
+        """
+        Ask the map a question in plain language.
+
+        The agent answers from this module's own tools — the catalogue, layer
+        queries, the crime record, the city's portal — and can turn layers on,
+        move the camera or add an entirely new open dataset while it does.
+        """
+        from tdotgis import agent as A
+        return A.ask(str(question), session=session)
+
+    def agent(self) -> dict:
+        """The agent's card: its skills, its tools and whether auth is set up."""
+        from tdotgis import agent as A
+        return A.card()
+
+    def tools(self) -> list:
+        """The tool registry the agent plays, grouped."""
+        from tdotgis import tools as T
+        return T.docs()
 
     # ── cache ────────────────────────────────────────────────────────────
 
@@ -267,6 +383,20 @@ class Mod:
                                 'kb': S.geojson_bytes(fc) // 1024}
             except Exception as e:
                 results[lid] = {'error': f'{type(e).__name__}: {e}'}
+        # The score model's own caches: the feature table (four datasets, one of
+        # them 125k rows) and the fitted report. Warming these is what keeps the
+        # housing panel from making its first visitor wait on a model fit.
+        try:
+            from tdotgis import housing as H
+            from tdotgis import score as SC
+            report = SC.report()
+            results['score:model'] = {'r2': report['accuracy']['model']['r2'],
+                                      'mae': report['accuracy']['model']['mae'],
+                                      'buildings': report['target']['buildings_scored']}
+            results['housing:inventory'] = {'datasets': H.inventory()['count']}
+        except Exception as e:
+            results['score:model'] = {'error': f'{type(e).__name__}: {e}'}
+
         if include_crime:
             # One dump download builds the whole warehouse; everything after
             # is served from the local month cube.

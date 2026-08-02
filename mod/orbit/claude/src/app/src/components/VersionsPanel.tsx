@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Bento, BentoGrid, CidChip, GlassButton } from "./Bento";
+import { VersionGraph } from "./VersionGraph";
 
 type VersionRecord = {
   cid: string;
@@ -70,6 +71,9 @@ export function VersionsPanel({ apiBase, module, authHeader, onForked }: Props) 
   const [snapBusy, setSnapBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Two readings of the same history: the timeline (what happened, when) and
+  // the graph (how the versions relate, and what each one changed).
+  const [view, setView] = useState<"timeline" | "graph">("timeline");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -149,6 +153,18 @@ export function VersionsPanel({ apiBase, module, authHeader, onForked }: Props) 
 
   const snapAction = (
     <div className="snap-bar">
+      <div className="vgr-toggle">
+        {(["timeline", "graph"] as const).map((v) => (
+          <button
+            key={v}
+            className={view === v ? "on" : undefined}
+            onClick={() => setView(v)}
+            title={v === "timeline" ? "Every version in order, newest first" : "Version lineage as a branch graph, plus the file tree each version changed"}
+          >
+            {v === "timeline" ? "≡ timeline" : "◆ graph"}
+          </button>
+        ))}
+      </div>
       <input
         type="text"
         className="snap-input"
@@ -192,7 +208,10 @@ export function VersionsPanel({ apiBase, module, authHeader, onForked }: Props) 
             no versions yet — describe &amp; snap above to start a history
           </div>
         )}
-        <div className="vtl fade-in">
+        {!loading && versions.length > 0 && view === "graph" && (
+          <VersionGraph apiBase={apiBase} module={module} versions={versions} />
+        )}
+        <div className="vtl fade-in" hidden={view !== "timeline"}>
           {groups.map((g, gi) => (
             <section key={g.label} className="vtl-group">
               <div className="vtl-day">

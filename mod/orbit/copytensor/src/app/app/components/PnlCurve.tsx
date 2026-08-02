@@ -14,16 +14,14 @@ import {
 } from "recharts";
 import type { CurveData, CurveEvent, CurvePoint } from "../lib/types";
 import { useCurrency, fmtValue, fmtPnlValue } from "../context/CurrencyContext";
+import { useThemeColors } from "../context/ThemeContext";
 import { fmtCompact, fmtPct } from "../lib/api";
 import type { Currency } from "../context/CurrencyContext";
 
 // One series on the plot at a time — never two y-scales. The trade markers
-// are the second layer, and they keep green/red to themselves, so the line
-// takes a neutral accent.
-const LINE = "#a78bfa";
-const BUY = "#86efac";
-const SELL = "#f43f5e";
-const SURFACE = "#0f0f0f";
+// are the second layer, and they keep gain/loss to themselves, so the line
+// takes a neutral accent. All four come off the active skin (recharts
+// paints into SVG attributes, where a `var()` isn't dependable).
 
 type Mode = "pnl" | "value" | "market";
 
@@ -64,6 +62,11 @@ export default function PnlCurve({
   curve: CurveData;
   days: number;
 }) {
+  const skin = useThemeColors();
+  const LINE = skin.cyan;      // the series itself — never a P&L colour
+  const BUY = skin.lime;
+  const SELL = skin.red;
+  const SURFACE = skin.panel;  // the ring that keeps markers separable
   const { currency, usdPerTao } = useCurrency();
   const [mode, setMode] = useState<Mode>("pnl");
   const [showTrades, setShowTrades] = useState(true);
@@ -277,17 +280,17 @@ export default function PnlCurve({
                 tickFormatter={(v) => fmtAxis(v, currency, usdPerTao)}
                 tickLine={false}
                 axisLine={false}
-                width={62}
+                width={74}
                 domain={["auto", "auto"]}
               />
               {mode !== "value" && (
-                <ReferenceLine y={0} stroke="rgba(255,255,255,0.18)" strokeDasharray="3 3" />
+                <ReferenceLine y={0} stroke={skin.border} strokeDasharray="3 3" />
               )}
               {focusTs !== null && (
-                <ReferenceLine x={focusTs} stroke="rgba(255,255,255,0.25)" />
+                <ReferenceLine x={focusTs} stroke={skin.fgDim} />
               )}
               <Tooltip
-                cursor={{ stroke: "rgba(255,255,255,0.2)", strokeWidth: 1 }}
+                cursor={{ stroke: skin.fgDim, strokeWidth: 1 }}
                 isAnimationActive={false}
                 content={(props) => {
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -338,7 +341,9 @@ export default function PnlCurve({
                 }}
               />
               <Area
-                type="monotone"
+                // Stepped, to match the pixel-lattice sparklines — a smooth
+                // interpolation is the one curve nothing 8-bit could draw.
+                type="stepAfter"
                 dataKey={key as string}
                 stroke={LINE}
                 strokeWidth={2}
@@ -405,7 +410,7 @@ export default function PnlCurve({
                       onClick={() => setPinnedTs(pinnedTs === tr.ts ? null : tr.ts)}
                       style={{
                         cursor: "pointer",
-                        background: focusTs === tr.ts ? "rgba(255,255,255,0.06)" : undefined,
+                        background: focusTs === tr.ts ? "var(--table-hover)" : undefined,
                       }}
                     >
                       <td className="font-mono text-[11px] text-pixel-gray whitespace-nowrap">
@@ -450,6 +455,7 @@ export default function PnlCurve({
 }
 
 function Metric({ label, tao, pct }: { label: string; tao: number; pct?: number }) {
+  const { lime: BUY, red: SELL } = useThemeColors();
   const { currency, usdPerTao } = useCurrency();
   return (
     <div className="pixel-panel p-3">

@@ -12,6 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useThemeColors } from "../../context/ThemeContext";
 import {
   fetchSubnetDetail,
   fetchSubnetHistory,
@@ -31,6 +32,7 @@ const RANGES: { label: string; hours: number }[] = [
 ];
 
 export default function SubnetDetailPage() {
+  const skin = useThemeColors();
   const { netuid } = useParams<{ netuid: string }>();
   const { currency, usdPerTao } = useCurrency();
   const [d, setD] = useState<SubnetDetail | null>(null);
@@ -86,7 +88,7 @@ export default function SubnetDetailPage() {
 
   const s = d.subnet;
   const up = (windowPct ?? s.change_24h ?? 0) >= 0;
-  const line = up ? "#4ade80" : "#f87171";
+  const line = up ? skin.lime : skin.red;
   const money = (tao: number | null | undefined) => {
     if (tao == null) return "—";
     return currency === "USD" && usdPerTao
@@ -129,7 +131,7 @@ export default function SubnetDetailPage() {
               <span className="pixel-badge border-green-400/30 text-green-400">live</span>
             </div>
             {s.description && (
-              <p className="text-pixel-gray-light text-sm mt-1.5 max-w-3xl">{s.description}</p>
+              <p className="arcade-prose mt-1.5">{s.description}</p>
             )}
             {links.length > 0 && (
               <div className="flex flex-wrap gap-3 mt-2">
@@ -231,16 +233,16 @@ export default function SubnetDetailPage() {
                 />
                 <YAxis
                   domain={["auto", "auto"]}
-                  width={72}
+                  width={86}
                   tickFormatter={(v) => (currency === "USD" ? `$${v.toPrecision(3)}` : v.toPrecision(4))}
                   tickLine={false}
                   axisLine={false}
                 />
                 <Tooltip
                   contentStyle={{
-                    background: "#0d0d0d",
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    borderRadius: 10,
+                    background: skin.panel,
+                    border: `2px solid ${skin.border}`,
+                    borderRadius: 0,
                     fontSize: 12,
                   }}
                   labelFormatter={(t) => new Date(Number(t)).toLocaleString()}
@@ -253,7 +255,8 @@ export default function SubnetDetailPage() {
                   }}
                 />
                 <Area
-                  type="monotone"
+                  // stepAfter everywhere: see Sparkline.tsx
+                  type="stepAfter"
                   dataKey="price"
                   stroke={line}
                   strokeWidth={1.8}
@@ -289,7 +292,7 @@ export default function SubnetDetailPage() {
             <table className="pixel-table" style={{ minWidth: 720 }}>
               <thead className="sticky">
                 <tr>
-                  <th style={{ width: 60 }}>UID</th>
+                  <th style={{ width: 74 }}>UID</th>
                   <th>Coldkey</th>
                   <th className="num">Stake (α)</th>
                   <th className="num" title="share of the stake held by the validators listed here">

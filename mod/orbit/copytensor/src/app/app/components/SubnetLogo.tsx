@@ -30,15 +30,18 @@ export default function SubnetLogo({
 
   return (
     <span
-      className="shrink-0 inline-flex items-center justify-center overflow-hidden rounded-full"
+      className="shrink-0 inline-flex items-center justify-center overflow-hidden"
       style={{
         width: size,
         height: size,
-        background: `linear-gradient(140deg, hsl(${hue} 60% 22%), hsl(${(hue + 40) % 360} 55% 12%))`,
-        border: `1px solid hsl(${hue} 55% 45% / 0.35)`,
-        fontSize: Math.round(size * 0.44),
+        // Flat fill + hard border + a 2px inset bevel — a sprite tile.
+        // A gradient here would be the one soft thing on the screen.
+        background: `hsl(${hue} 55% 18%)`,
+        border: `2px solid hsl(${hue} 70% 55%)`,
+        boxShadow: `inset 2px 2px 0 hsl(${hue} 60% 30%)`,
+        fontSize: Math.round(size * 0.4),
         lineHeight: 1,
-        color: `hsl(${hue} 70% 78%)`,
+        color: `hsl(${hue} 85% 72%)`,
       }}
       title={name || `SN${netuid}`}
     >
@@ -52,7 +55,9 @@ export default function SubnetLogo({
           loading="lazy"
           referrerPolicy="no-referrer"
           onError={() => setBroken(true)}
-          style={{ width: size, height: size, objectFit: "cover" }}
+          // Nearest-neighbour scaling so team logos land on the pixel grid
+          // instead of arriving as the only smooth thing on screen.
+          style={{ width: size, height: size, objectFit: "cover", imageRendering: "pixelated" }}
         />
       ) : (
         <span className="font-display font-bold select-none">{fallback}</span>

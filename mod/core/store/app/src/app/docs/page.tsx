@@ -115,6 +115,7 @@ export default function DocsPage() {
         <h2>Quickstart</h2>
         <ol>
           <li><strong>Sign in</strong> with MetaMask on the <Link href="/">main page</Link> — your wallet signature is the whole login; no password, no account creation.</li>
+          <li><strong>No wallet extension?</strong> <em>Continue without a wallet</em> mints a keypair inside your browser and signs with that instead — same addresses, same API. Back it up from the 🔑 button: clearing site data erases the key, and with it access to anything stored under that address.</li>
           <li><strong>Read &amp; sign the terms</strong> (once per version) when prompted.</li>
           <li><strong>Add data</strong> — pick File / Text / JSON / Image, choose a backend (or <code>both</code> to fan out), optionally tick <em>public</em> or drop it straight into a pool.</li>
           <li><strong>Open its page</strong> — every object row has an <em>open</em> link; the page shows content, metadata, market state, and the link graph.</li>

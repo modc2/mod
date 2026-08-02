@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect, ReactNode } from "react";
 import { CopyEngine, CopyEngineState, CopyEngineConfig } from "../lib/copyEngine";
 import { getOwnerAddress } from "../lib/access";
+import { stopLiveSession } from "../lib/liveSessions";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
 
@@ -15,6 +16,15 @@ interface CopyEngineContextValue {
   activeStrategyId: string | null;
   /** Whether the backend long-running engine is active (survives tab close). */
   backendRunning: boolean;
+  /** Per-trader ms epoch of the backend engine's last successful data-api
+      pull, keyed by lowercased address. Sourced from the backend rather than
+      the browser engine so the SYNC panel stays truthful after a tab reload
+      (the backend keeps polling; the browser engine may not be attached). */
+  backendTraderSync: Record<string, number>;
+  /** Cadence the backend engine is actually polling at (ms), or null when no
+      backend session is running. Differs from the strat's requested interval
+      whenever the engine's floor or fan-out widening kicked in. */
+  backendIntervalMs: number | null;
   /** Whether the backend engine places REAL orders (false = dry-run: mirrors
       are logged but nothing is sent to the CLOB). */
   autoExecute: boolean;
@@ -136,17 +146,11 @@ async function backendStart(config: CopyEngineConfig): Promise<boolean> {
   }
 }
 
-async function backendStop(eoa: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${API_URL}/live/stop`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ eoa }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+// Stop ONE funded strat. A wallet can run several sessions at once (see
+// lib/liveSessions.ts) — omitting strategyId is the backend's "stop the whole
+// wallet", which would take the user's other funded strats down too.
+async function backendStop(eoa: string, strategyId: string | null): Promise<boolean> {
+  return stopLiveSession(eoa, strategyId ?? undefined);
 }
 
 interface BackendStatus {
@@ -161,6 +165,10 @@ interface BackendStatus {
     totalOrdersFailed: number;
     totalVolumeMirrored: number;
     balance: number | null;
+    /** Cash + mark value of this session's positions — the number every
+        proportional mirror is sized as a fraction of (live_engine.rs
+        `AccountValue`). */
+    accountValue?: number | null;
     log: Array<{ id: string; timestamp: number; type: string; reason?: string }>;
     observedTrades: Array<{
       id: string; timestamp: number; trader: string; market: string;
@@ -170,12 +178,20 @@ interface BackendStatus {
     error: string | null;
     traderCursors: Record<string, number>;
     traderLastSync: Record<string, number>;
+    /** Cadence the backend loop is ACTUALLY running at — the strat's request
+        after the engine's rate-limit floor and fan-out widening. */
+    effectiveIntervalMs?: number;
   };
 }
 
-async function backendStatus(eoa: string): Promise<BackendStatus | null> {
+// Status for ONE session. Without a strategyId the backend answers for
+// whichever of the wallet's sessions it finds first — fine for the "is
+// anything running?" probe on mount, wrong once several strats are funded.
+async function backendStatus(eoa: string, strategyId?: string | null): Promise<BackendStatus | null> {
   try {
-    const res = await fetch(`${API_URL}/live/status?eoa=${encodeURIComponent(eoa)}`);
+    const qs = new URLSearchParams({ eoa });
+    if (strategyId) qs.set("strategyId", strategyId);
+    const res = await fetch(`${API_URL}/live/status?${qs.toString()}`);
     if (!res.ok) return null;
     return await res.json() as BackendStatus;
   } catch {
@@ -190,6 +206,8 @@ const CopyEngineContext = createContext<CopyEngineContextValue>({
   isLive: false,
   activeStrategyId: null,
   backendRunning: false,
+  backendTraderSync: {},
+  backendIntervalMs: null,
   autoExecute: false,
   setAutoExecute: async () => false,
   startLive: () => {},
@@ -210,9 +228,15 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
   const [isLive, setIsLive] = useState(false);
   const [activeStrategyId, setActiveStrategyId] = useState<string | null>(null);
   const [backendRunning, setBackendRunning] = useState(false);
+  const [backendTraderSync, setBackendTraderSync] = useState<Record<string, number>>({});
+  const [backendIntervalMs, setBackendIntervalMs] = useState<number | null>(null);
   const [autoExecute, setAutoExecuteState] = useState(false);
-  // EOA used for backend polling — set on start, cleared on stop.
+  // EOA + strat used for backend polling — set on start, cleared on stop.
+  // The strat id scopes every backend call to THIS session, so stopping or
+  // re-arming the browser-attached strat leaves the wallet's other funded
+  // strats running (see lib/liveSessions.ts).
   const backendEoaRef = useRef<string | null>(null);
+  const backendStrategyRef = useRef<string | null>(null);
 
   // Flip real order placement for the backend session via /live/execution.
   // The backend persists the flag with the session config, and /live/start
@@ -225,7 +249,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
       const res = await fetch(`${API_URL}/live/execution`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eoa, autoExecute: on }),
+        body: JSON.stringify({ eoa, strategyId: backendStrategyRef.current, autoExecute: on }),
       });
       if (!res.ok) return false;
       const j = (await res.json()) as { autoExecute?: boolean };
@@ -264,6 +288,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
 
     // Also start the backend long-running engine so it survives tab close.
     backendEoaRef.current = config.address;
+    backendStrategyRef.current = config.strategyId;
     // Reflect an explicitly-requested execution mode immediately — the
     // status poll confirms it within 5s, but the EXECUTING/DRY RUN pill
     // shouldn't lie in the meantime.
@@ -285,11 +310,13 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
     setActiveStrategyId(null);
     clearPersistedLive();
 
-    // Stop backend engine too
+    // Stop the backend engine for THIS strat only — other funded strats on
+    // the same wallet keep running.
     const eoa = backendEoaRef.current;
     if (eoa) {
-      void backendStop(eoa);
+      void backendStop(eoa, backendStrategyRef.current);
       backendEoaRef.current = null;
+      backendStrategyRef.current = null;
     }
     setBackendRunning(false);
   }, []);
@@ -340,7 +367,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
     const poll = async () => {
       const pollEoa = backendEoaRef.current;
       if (!pollEoa) return;
-      const status = await backendStatus(pollEoa);
+      const status = await backendStatus(pollEoa, backendStrategyRef.current);
       if (cancelled) return;
       // Mirror the backend's execution mode (running session or persisted
       // snapshot) so the DRY RUN / EXECUTING toggle always tells the truth.
@@ -349,6 +376,21 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
       }
       if (status?.running) {
         setBackendRunning(true);
+        // Per-trader sync freshness + the cadence actually in force. Read
+        // straight off the backend so the SYNC panel answers "is every trader
+        // I picked being polled?" even with no browser engine attached.
+        setBackendTraderSync(status.state?.traderLastSync ?? {});
+        setBackendIntervalMs(status.state?.effectiveIntervalMs || null);
+        // Account value is measured by the BACKEND only (it reads the
+        // deposit wallet's cash and marks its own positions each cycle), and
+        // it's what every proportional mirror is sized against — so surface
+        // the backend's number rather than leaving the card blank.
+        const backendAccount = status.state?.accountValue;
+        if (backendAccount != null) {
+          setEngineState((prev) =>
+            prev && prev.accountValue !== backendAccount ? { ...prev, accountValue: backendAccount } : prev,
+          );
+        }
         // Merge backend observed trades into engine state if the browser
         // engine isn't providing them (backend sees trades even when the
         // tab is minimized / CPU-throttled).
@@ -384,6 +426,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
         }
       } else {
         setBackendRunning(false);
+        setBackendIntervalMs(null);
       }
     };
 
@@ -402,7 +445,10 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
     const addr = persisted?.address ?? getOwnerAddress();
     if (!addr) return;
     backendEoaRef.current = addr;
-    void backendStatus(addr).then((status) => {
+    // Re-attach to the strat this browser last drove. Without a persisted
+    // session we probe unscoped — "is anything running for this wallet?".
+    backendStrategyRef.current = persisted?.strategyId ?? null;
+    void backendStatus(addr, backendStrategyRef.current).then((status) => {
       if (status?.config) {
         setAutoExecuteState(!!(status.config as { autoExecute?: boolean }).autoExecute);
       }
@@ -421,6 +467,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
   return (
     <CopyEngineContext.Provider value={{
       engineState, isLive, activeStrategyId, backendRunning,
+      backendTraderSync, backendIntervalMs,
       autoExecute, setAutoExecute,
       startLive, stopLive, pauseLive, resumeLive, clearLog, catchUp,
     }}>

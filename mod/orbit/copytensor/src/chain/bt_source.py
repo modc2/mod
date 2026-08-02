@@ -144,6 +144,13 @@ class BtSource:
     def traders(self, sort_by: str = "total_tao") -> Dict:
         return self.call("bt_traders", sort_by=sort_by)
 
+    def board(self, days: int = 7, top: int = 0,
+              min_subnets: int = 0) -> Dict:
+        """The whole leaderboard in one call: every tracked coldkey ranked
+        over `days`, PnL already split into market move vs stake flow."""
+        return self.call("bt_trader_board", days=days, top=top,
+                         min_subnets=min_subnets, timeout=60)
+
     def trader(self, ss58: str, hours: int = 168) -> Dict:
         return self.call("bt_trader", address=ss58, hours=hours)
 

@@ -1,14 +1,21 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+/* Only MARIO / WARP use this face (chunky pixel type on buttons + badges). */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ── Theme system ───────────────────────────────────────────────────
+   Two attributes on <html>, both stamped by ThemeContext: `data-theme`
+   picks the palette, `data-base` classifies it dark|light. Chrome rules
+   key on data-base so every light theme (DAYLIGHT, PAPER, WIN95, MARIO)
+   inherits the same legibility fixes, and only palettes key on
+   data-theme. :root holds the MIDNIGHT (default dark) values; the
+   [data-base="light"] block re-bases the neutrals for light themes; the
+   per-theme blocks after it override just what makes each distinct.
+   Source order matters — equal specificity, so themes must come last. */
 :root {
-  /* Dark theme is the default. Toggle by setting `data-theme="light"` on
-     the <html> element (handled by ThemeContext). Every color that flips
-     between modes goes through one of these vars so a single override
-     block below can recolor the whole UI. */
   --bg: #050505;
   --bg-elev: #0a0a0a;          /* page-level slight elevation (header strip etc) */
   --fg: #f5f5f5;
@@ -75,16 +82,31 @@
   --danger:   248 113 113;  /* red-400, used for NO/sell/error states */
   --warn:     251 191 36;   /* amber-400, used for pending/warning states */
 
-  /* Semantic PnL colors for INLINE-STYLE consumers (SVG charts, tooltips).
-     Class-based text gets the [data-theme="light"] .text-green-400 overrides
-     below, but `style={{ color: "#4ade80" }}` bypasses those — anything
-     colored programmatically must read these vars instead. */
-  --up:   #4ade80;
-  --down: #f87171;
+  /* Semantic P&L channels. These also back Tailwind's green/red/amber
+     families (see tailwind.config.js), so `text-green-400` means "a gain"
+     in every theme instead of a pinned emerald — that one indirection is
+     what carries a theme switch into the ~700 utility classes the app
+     already uses. --up/--down are the mirrors for INLINE-STYLE consumers
+     (SVG charts, tooltips) that can't reach a class. */
+  --up-rgb: 74 222 128;
+  --up:   rgb(var(--up-rgb));
+  --down: rgb(var(--danger));
   --flat: #999999;
+
+  /* Chart chrome + page vignette. Charts draw with !important strokes that
+     beat the JSX props, so they must be tokens or every non-default theme
+     gets white gridlines on its own background. */
+  --grid-line: rgba(255, 255, 255, 0.06);
+  --axis-text: #888888;
+  --screen-vignette:
+    inset 0 0 120px rgba(255, 255, 255, 0.015),
+    inset 0 0 240px rgba(0, 0, 0, 0.5);
+  --shadow-lift: 0 18px 44px -18px rgba(0, 0, 0, 0.75);
 }
 
-[data-theme="light"] {
+/* Generic light re-base — shared by every theme with base="light". Themes
+   layer their own character on top of this. */
+[data-base="light"] {
   --bg: #f4f5f7;
   --bg-elev: #ffffff;
   --fg: #111827;
@@ -123,14 +145,428 @@
   --pixel-gray-light: #9ca3af;
   --danger: 220 38 38;   /* red-600, darker for contrast on white */
   --warn: 180 83 9;      /* amber-700 */
-  --up:   #15803d;
-  --down: #dc2626;
+  --up-rgb: 21 128 61;
   --flat: #6b7280;
+
+  --grid-line: rgba(17, 24, 39, 0.08);
+  --axis-text: #6b7280;
+  --screen-vignette: inset 0 0 160px rgba(17, 24, 39, 0.03);
+  --shadow-lift: 0 18px 40px -20px rgba(17, 24, 39, 0.35);
+}
+
+/* ── Palettes ───────────────────────────────────────────────────────
+   Each block sets only what differs from its base. Keep the ids in sync
+   with THEMES in context/ThemeContext.tsx — that list drives the picker,
+   the boot script, and the data-base classification. */
+
+/* MATRIX — single-gun phosphor CRT. Every accent collapses toward green;
+   square-ish radii so panels read as terminal cells. */
+[data-theme="matrix"] {
+  --bg: #010502;
+  --bg-elev: #04120a;
+  --fg: #d7ffe6;
+  --fg-muted: #8effbe;
+  --fg-dim: #3e9a68;
+  --border: rgba(0, 255, 127, 0.13);
+  --border-strong: rgba(0, 255, 127, 0.30);
+  --panel-from: #05170d;
+  --panel-to: #020b06;
+  --input-bg: #020c06;
+  --input-bg-focus: #04150b;
+  --btn-bg: rgba(0, 255, 127, 0.04);
+  --btn-bg-hover: rgba(0, 255, 127, 0.10);
+  --btn-bg-active: rgba(0, 255, 127, 0.07);
+  --scroll-track: #010502;
+  --scroll-thumb: #0d4a2a;
+  --scroll-thumb-hover: #12693b;
+  --table-stripe: #03100a;
+  --table-hover: #072a17;
+  --table-head: #020b06;
+  --accent:   0 255 127;
+  --accent-2: 77 239 201;
+  --accent-3: 184 255 92;
+  --danger:   255 106 92;
+  --warn:     184 255 92;
+  --up-rgb: 0 255 127;
+  --flat: #3e9a68;
+  --pixel-bg-rgb: 1 5 2;
+  --pixel-panel-rgb: 5 23 13;
+  --pixel-border-rgb: 0 60 30;
+  --pixel-white-rgb: 215 255 230;
+  --pixel-gray-rgb: 62 154 104;
+  --pixel-gray-light-rgb: 110 200 150;
+  --pixel-black: #010502;
+  --pixel-bg: #010502;
+  --pixel-panel: #05170d;
+  --pixel-border: #003c1e;
+  --pixel-white: #d7ffe6;
+  --pixel-gray: #3e9a68;
+  --pixel-gray-light: #6ec896;
+  --grid-line: rgba(0, 255, 127, 0.10);
+  --axis-text: #3e9a68;
+  --radius-sm: 2px;
+  --radius: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+}
+
+/* NEON — hot magenta over deep violet, cyan for the second voice. */
+[data-theme="neon"] {
+  --bg: #0a0416;
+  --bg-elev: #140a26;
+  --fg: #ffe9fb;
+  --fg-muted: #d5a8e8;
+  --fg-dim: #8d6aa8;
+  --border: rgba(255, 45, 160, 0.16);
+  --border-strong: rgba(255, 45, 160, 0.34);
+  --panel-from: #1a0b2e;
+  --panel-to: #10061f;
+  --input-bg: #10061f;
+  --input-bg-focus: #180a2c;
+  --btn-bg: rgba(255, 45, 160, 0.05);
+  --btn-bg-hover: rgba(255, 45, 160, 0.12);
+  --btn-bg-active: rgba(255, 45, 160, 0.08);
+  --scroll-track: #0a0416;
+  --scroll-thumb: #4a1d6b;
+  --scroll-thumb-hover: #6b2a99;
+  --table-stripe: #150827;
+  --table-hover: #24103f;
+  --table-head: #10061f;
+  --accent:   255 45 160;
+  --accent-2: 15 240 212;
+  --accent-3: 138 92 255;
+  --danger:   255 45 111;
+  --warn:     255 214 102;
+  --up-rgb: 15 240 212;
+  --flat: #8d6aa8;
+  --pixel-bg-rgb: 10 4 22;
+  --pixel-panel-rgb: 26 11 46;
+  --pixel-border-rgb: 74 29 107;
+  --pixel-white-rgb: 255 233 251;
+  --pixel-gray-rgb: 141 106 168;
+  --pixel-gray-light-rgb: 190 150 215;
+  --pixel-black: #0a0416;
+  --pixel-bg: #0a0416;
+  --pixel-panel: #1a0b2e;
+  --pixel-border: #4a1d6b;
+  --pixel-white: #ffe9fb;
+  --pixel-gray: #8d6aa8;
+  --pixel-gray-light: #be96d7;
+  --grid-line: rgba(255, 45, 160, 0.10);
+  --axis-text: #8d6aa8;
+}
+
+/* EMBER — warm amber on charred brown. Lime carries "up" so the P&L
+   column doesn't disappear into the accent. */
+[data-theme="ember"] {
+  --bg: #0c0603;
+  --bg-elev: #170c05;
+  --fg: #fff0dc;
+  --fg-muted: #d9ae82;
+  --fg-dim: #946c47;
+  --border: rgba(255, 158, 44, 0.14);
+  --border-strong: rgba(255, 158, 44, 0.32);
+  --panel-from: #1c0e06;
+  --panel-to: #100703;
+  --input-bg: #100703;
+  --input-bg-focus: #190c05;
+  --btn-bg: rgba(255, 158, 44, 0.05);
+  --btn-bg-hover: rgba(255, 158, 44, 0.12);
+  --btn-bg-active: rgba(255, 158, 44, 0.08);
+  --scroll-track: #0c0603;
+  --scroll-thumb: #5a3216;
+  --scroll-thumb-hover: #7d4620;
+  --table-stripe: #150b05;
+  --table-hover: #26140a;
+  --table-head: #100703;
+  --accent:   255 158 44;
+  --accent-2: 255 215 94;
+  --accent-3: 255 111 60;
+  --danger:   255 92 72;
+  --warn:     255 215 94;
+  --up-rgb: 163 230 53;
+  --flat: #946c47;
+  --pixel-bg-rgb: 12 6 3;
+  --pixel-panel-rgb: 28 14 6;
+  --pixel-border-rgb: 90 50 22;
+  --pixel-white-rgb: 255 240 220;
+  --pixel-gray-rgb: 148 108 71;
+  --pixel-gray-light-rgb: 217 174 130;
+  --pixel-black: #0c0603;
+  --pixel-bg: #0c0603;
+  --pixel-panel: #1c0e06;
+  --pixel-border: #5a3216;
+  --pixel-white: #fff0dc;
+  --pixel-gray: #946c47;
+  --pixel-gray-light: #d9ae82;
+  --grid-line: rgba(255, 158, 44, 0.10);
+  --axis-text: #946c47;
+}
+
+/* ABYSS — cold deep-water blues, teal for gains. */
+[data-theme="abyss"] {
+  --bg: #030b18;
+  --bg-elev: #06162b;
+  --fg: #e2f2ff;
+  --fg-muted: #9dbdd8;
+  --fg-dim: #5c7d99;
+  --border: rgba(56, 189, 248, 0.13);
+  --border-strong: rgba(56, 189, 248, 0.30);
+  --panel-from: #08192f;
+  --panel-to: #041020;
+  --input-bg: #041020;
+  --input-bg-focus: #071b33;
+  --btn-bg: rgba(56, 189, 248, 0.05);
+  --btn-bg-hover: rgba(56, 189, 248, 0.12);
+  --btn-bg-active: rgba(56, 189, 248, 0.08);
+  --scroll-track: #030b18;
+  --scroll-thumb: #10416b;
+  --scroll-thumb-hover: #175d97;
+  --table-stripe: #06152a;
+  --table-hover: #0c2440;
+  --table-head: #041020;
+  --accent:   56 189 248;
+  --accent-2: 45 212 191;
+  --accent-3: 129 140 248;
+  --danger:   251 113 133;
+  --warn:     250 204 21;
+  --up-rgb: 45 212 191;
+  --flat: #5c7d99;
+  --pixel-bg-rgb: 3 11 24;
+  --pixel-panel-rgb: 8 25 47;
+  --pixel-border-rgb: 16 65 107;
+  --pixel-white-rgb: 226 242 255;
+  --pixel-gray-rgb: 92 125 153;
+  --pixel-gray-light-rgb: 157 189 216;
+  --pixel-black: #030b18;
+  --pixel-bg: #030b18;
+  --pixel-panel: #08192f;
+  --pixel-border: #10416b;
+  --pixel-white: #e2f2ff;
+  --pixel-gray: #5c7d99;
+  --pixel-gray-light: #9dbdd8;
+  --grid-line: rgba(56, 189, 248, 0.10);
+  --axis-text: #5c7d99;
+}
+
+/* WARP — the underground twin of MARIO: night-sky blue, coin gold,
+   pixel-sharp corners. */
+[data-theme="warp"] {
+  --bg: #050712;
+  --bg-elev: #0a0f22;
+  --fg: #eaf2ff;
+  --fg-muted: #9fb4d8;
+  --fg-dim: #63769a;
+  --border: rgba(47, 177, 240, 0.16);
+  --border-strong: rgba(47, 177, 240, 0.36);
+  --panel-from: #0d1430;
+  --panel-to: #070b1c;
+  --input-bg: #070b1c;
+  --input-bg-focus: #0b1128;
+  --btn-bg: rgba(47, 177, 240, 0.06);
+  --btn-bg-hover: rgba(47, 177, 240, 0.14);
+  --btn-bg-active: rgba(47, 177, 240, 0.09);
+  --scroll-track: #050712;
+  --scroll-thumb: #1c3a6b;
+  --scroll-thumb-hover: #2a5497;
+  --table-stripe: #0a1024;
+  --table-hover: #131c3d;
+  --table-head: #070b1c;
+  --accent:   47 177 240;
+  --accent-2: 251 208 0;
+  --accent-3: 229 37 33;
+  --danger:   229 37 33;
+  --warn:     251 208 0;
+  --up-rgb: 99 212 113;
+  --flat: #63769a;
+  --pixel-bg-rgb: 5 7 18;
+  --pixel-panel-rgb: 13 20 48;
+  --pixel-border-rgb: 28 58 107;
+  --pixel-white-rgb: 234 242 255;
+  --pixel-gray-rgb: 99 118 154;
+  --pixel-gray-light-rgb: 159 180 216;
+  --pixel-black: #050712;
+  --pixel-bg: #050712;
+  --pixel-panel: #0d1430;
+  --pixel-border: #1c3a6b;
+  --pixel-white: #eaf2ff;
+  --pixel-gray: #63769a;
+  --pixel-gray-light: #9fb4d8;
+  --grid-line: rgba(47, 177, 240, 0.12);
+  --axis-text: #63769a;
+  --radius-sm: 2px;
+  --radius: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+}
+
+/* PAPER — newsprint. Warm off-white stock, sienna rules, ink-black type;
+   the closest thing here to reading the tape on paper. */
+[data-theme="paper"] {
+  --bg: #f7f2e9;
+  --bg-elev: #fffdf8;
+  --fg: #241d15;
+  --fg-muted: #5c5145;
+  --fg-dim: #91836f;
+  --border: rgba(60, 45, 25, 0.14);
+  --border-strong: rgba(60, 45, 25, 0.30);
+  --panel-from: #fffdf8;
+  --panel-to: #f4eee2;
+  --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 3px 10px rgba(90, 70, 40, 0.10);
+  --input-bg: #fffdf8;
+  --input-bg-focus: #ffffff;
+  --btn-bg: rgba(60, 45, 25, 0.04);
+  --btn-bg-hover: rgba(60, 45, 25, 0.09);
+  --btn-bg-active: rgba(60, 45, 25, 0.06);
+  --scroll-track: #f7f2e9;
+  --scroll-thumb: #cdbfa6;
+  --scroll-thumb-hover: #b6a68a;
+  --table-stripe: #f1ebdd;
+  --table-hover: #e7dfcd;
+  --table-head: #fffdf8;
+  --accent:   21 128 61;
+  --accent-2: 154 91 44;
+  --accent-3: 120 53 15;
+  --danger:   185 28 28;
+  --warn:     180 83 9;
+  --up-rgb: 21 128 61;
+  --flat: #7a6a55;
+  --pixel-bg-rgb: 247 242 233;
+  --pixel-panel-rgb: 255 253 248;
+  --pixel-border-rgb: 224 214 195;
+  --pixel-white-rgb: 36 29 21;
+  --pixel-gray-rgb: 92 81 69;
+  --pixel-gray-light-rgb: 145 131 111;
+  --pixel-black: #f7f2e9;
+  --pixel-bg: #f7f2e9;
+  --pixel-panel: #fffdf8;
+  --pixel-border: #e0d6c3;
+  --pixel-white: #241d15;
+  --pixel-gray: #5c5145;
+  --pixel-gray-light: #91836f;
+  --grid-line: rgba(60, 45, 25, 0.10);
+  --axis-text: #91836f;
+  --radius-sm: 2px;
+  --radius: 3px;
+  --radius-lg: 5px;
+  --radius-xl: 7px;
+}
+
+/* WIN95 — teal desktop, putty panels, navy chrome. The bevels are carried
+   entirely by --panel-shadow + the .pixel-btn rule further down, so no
+   component markup changes. */
+[data-theme="win95"] {
+  --bg: #008080;
+  --bg-elev: #c0c0c0;
+  --fg: #000000;
+  --fg-muted: #2b2b2b;
+  --fg-dim: #5a5a5a;
+  --border: #808080;
+  --border-strong: #000000;
+  --panel-from: #c0c0c0;
+  --panel-to: #c0c0c0;
+  --panel-shadow:
+    inset 2px 2px 0 #ffffff,
+    inset -2px -2px 0 #808080,
+    2px 2px 0 rgba(0, 0, 0, 0.35);
+  --input-bg: #ffffff;
+  --input-bg-focus: #ffffff;
+  --btn-bg: #c0c0c0;
+  --btn-bg-hover: #cdcdcd;
+  --btn-bg-active: #b0b0b0;
+  --scroll-track: #d4d0c8;
+  --scroll-thumb: #a8a8a8;
+  --scroll-thumb-hover: #909090;
+  --table-stripe: #d4d0c8;
+  --table-hover: #b0c4de;
+  --table-head: #c0c0c0;
+  --accent:   0 0 128;
+  --accent-2: 0 128 128;
+  --accent-3: 128 0 128;
+  --danger:   168 0 0;
+  --warn:     128 96 0;
+  --up-rgb: 0 128 0;
+  --flat: #5a5a5a;
+  --pixel-bg-rgb: 192 192 192;
+  --pixel-panel-rgb: 192 192 192;
+  --pixel-border-rgb: 128 128 128;
+  --pixel-white-rgb: 0 0 0;
+  --pixel-gray-rgb: 64 64 64;
+  --pixel-gray-light-rgb: 90 90 90;
+  --pixel-black: #c0c0c0;
+  --pixel-bg: #c0c0c0;
+  --pixel-panel: #c0c0c0;
+  --pixel-border: #808080;
+  --pixel-white: #000000;
+  --pixel-gray: #404040;
+  --pixel-gray-light: #5a5a5a;
+  --grid-line: rgba(0, 0, 0, 0.12);
+  --axis-text: #404040;
+  --radius-sm: 0px;
+  --radius: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+/* MARIO — World 1-1. Sky-blue canvas, white blocks with hard black
+   outlines, coin gold and pipe green. It's-a theme. */
+[data-theme="mario"] {
+  --bg: #5c94fc;
+  --bg-elev: #ffffff;
+  --fg: #101820;
+  --fg-muted: #2b3a4a;
+  --fg-dim: #5a6b7d;
+  --border: rgba(16, 24, 32, 0.28);
+  --border-strong: #101820;
+  --panel-from: #ffffff;
+  --panel-to: #eaf3ff;
+  --panel-shadow: 0 0 0 2px #101820, 0 5px 0 -1px rgba(16, 24, 32, 0.30);
+  --input-bg: #ffffff;
+  --input-bg-focus: #ffffff;
+  --btn-bg: #ffffff;
+  --btn-bg-hover: #ffe9a8;
+  --btn-bg-active: #fbd000;
+  --scroll-track: #4a86f7;
+  --scroll-thumb: #fbd000;
+  --scroll-thumb-hover: #ffe14d;
+  --table-stripe: #eaf3ff;
+  --table-hover: #d5e7ff;
+  --table-head: #ffffff;
+  /* Coin gold (#fbd000) is unreadable as *type* on white blocks, so it
+     lives in the chrome (button press, scrollbar) and the accents take
+     the darker end of the same palette. */
+  --accent:   229 37 33;
+  --accent-2: 0 87 200;
+  --accent-3: 0 168 89;
+  --danger:   229 37 33;
+  --warn:     176 118 0;
+  --up-rgb: 0 168 89;
+  --flat: #5a6b7d;
+  --pixel-bg-rgb: 92 148 252;
+  --pixel-panel-rgb: 255 255 255;
+  --pixel-border-rgb: 16 24 32;
+  --pixel-white-rgb: 16 24 32;
+  --pixel-gray-rgb: 43 58 74;
+  --pixel-gray-light-rgb: 90 107 125;
+  --pixel-black: #5c94fc;
+  --pixel-bg: #5c94fc;
+  --pixel-panel: #ffffff;
+  --pixel-border: #101820;
+  --pixel-white: #101820;
+  --pixel-gray: #2b3a4a;
+  --pixel-gray-light: #5a6b7d;
+  --grid-line: rgba(16, 24, 32, 0.14);
+  --axis-text: #2b3a4a;
+  --screen-vignette: none;
+  --radius-sm: 0px;
+  --radius: 2px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
 }
 
 /* Light mode wants a cooler, fainter atmosphere — the dark-mode accent suns
    read muddy over near-white, so dial them down to a clean haze. */
-[data-theme="light"] body {
+[data-base="light"] body {
   background:
     radial-gradient(1200px 820px at 8% -12%, rgba(var(--accent) / 0.05), transparent 60%),
     radial-gradient(1100px 760px at 112% 6%, rgba(var(--accent-2) / 0.06), transparent 58%),
@@ -219,8 +655,8 @@ code, kbd, pre, samp {
   0%, 100% { opacity: 0.75; transform: translate3d(0, 0, 0) scale(1); }
   50%      { opacity: 1;    transform: translate3d(0, -1.4%, 0) scale(1.06); }
 }
-[data-theme="light"] .crt-overlay { opacity: 0.7; }
-[data-theme="light"] .crt-overlay::after { mix-blend-mode: multiply; opacity: 0.015; }
+[data-base="light"] .crt-overlay { opacity: 0.7; }
+[data-base="light"] .crt-overlay::after { mix-blend-mode: multiply; opacity: 0.015; }
 
 @media (prefers-reduced-motion: reduce) {
   .crt-overlay { animation: none; }
@@ -249,17 +685,15 @@ input[type="radio"] {
   inset: 0;
   border-radius: var(--radius-xl);
   pointer-events: none;
-  box-shadow:
-    inset 0 0 120px rgba(255, 255, 255, 0.015),
-    inset 0 0 240px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--screen-vignette);
   z-index: 1;
 }
 
 /* Glow effects — softer modern variants (kept for backward compat) */
 .glow-green   { text-shadow: 0 0 14px rgba(var(--accent) / 0.45); }
-.glow-cyan    { text-shadow: 0 0 14px rgba(125, 211, 252, 0.45); }
-.glow-amber   { text-shadow: 0 0 14px rgba(251, 191, 36, 0.45); }
-.glow-red     { text-shadow: 0 0 14px rgba(248, 113, 113, 0.45); }
+.glow-cyan    { text-shadow: 0 0 14px rgba(var(--accent-2) / 0.45); }
+.glow-amber   { text-shadow: 0 0 14px rgba(var(--warn) / 0.45); }
+.glow-red     { text-shadow: 0 0 14px rgba(var(--danger) / 0.45); }
 .glow-magenta { text-shadow: 0 0 14px rgba(244, 114, 182, 0.45); }
 
 /* Vibey rounded panel — replaces the Mario pixel block */
@@ -270,25 +704,29 @@ input[type="radio"] {
   box-shadow: var(--panel-shadow);
 }
 
+/* Accent-tinted panel variants. Same surface as .pixel-panel (so they follow
+   whatever the active theme paints panels with) plus a colored rim and halo
+   drawn from the accent tokens — previously these were pinned to a hardcoded
+   near-black gradient and turned into black holes under any light theme. */
 .pixel-panel-cyan {
-  border: 1px solid rgba(125, 211, 252, 0.25);
+  border: 1px solid rgba(var(--accent-2) / 0.35);
   border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, #141414 0%, #0e0e0e 100%);
-  box-shadow: 0 0 24px rgba(125, 211, 252, 0.06), 0 8px 24px rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, var(--panel-from) 0%, var(--panel-to) 100%);
+  box-shadow: 0 0 24px rgba(var(--accent-2) / 0.10), var(--panel-shadow);
 }
 
 .pixel-panel-amber {
-  border: 1px solid rgba(251, 191, 36, 0.25);
+  border: 1px solid rgba(var(--warn) / 0.35);
   border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, #141414 0%, #0e0e0e 100%);
-  box-shadow: 0 0 24px rgba(251, 191, 36, 0.06), 0 8px 24px rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, var(--panel-from) 0%, var(--panel-to) 100%);
+  box-shadow: 0 0 24px rgba(var(--warn) / 0.10), var(--panel-shadow);
 }
 
 .pixel-panel-red {
-  border: 1px solid rgba(248, 113, 113, 0.35);
+  border: 1px solid rgba(var(--danger) / 0.40);
   border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, #1a0e0e 0%, #0e0808 100%);
-  box-shadow: 0 0 24px rgba(248, 113, 113, 0.08), 0 8px 24px rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, var(--panel-from) 0%, var(--panel-to) 100%);
+  box-shadow: 0 0 24px rgba(var(--danger) / 0.12), var(--panel-shadow);
 }
 
 /* Vibey rounded button */
@@ -395,15 +833,15 @@ input[type="radio"] {
   filter: invert(var(--cal-icon-invert, 1));
   cursor: pointer;
 }
-[data-theme="light"] .pixel-input[type="date"]::-webkit-calendar-picker-indicator {
+[data-base="light"] .pixel-input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(0);
 }
 
 /* Vibey progress bar */
 .pixel-bar {
   height: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--btn-bg-hover);
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
   position: relative;
   overflow: hidden;
@@ -416,7 +854,7 @@ input[type="radio"] {
 
 /* Retro table — colors thread through theme vars so the stripe doesn't
    stay locked to dark mode (which made every other row unreadable on
-   light backgrounds). --table-* are defined in :root + [data-theme="light"]. */
+   light backgrounds). --table-* are defined per theme. */
 .pixel-table {
   font-size: 12px;
   width: 100%;
@@ -473,6 +911,16 @@ input[type="radio"] {
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: middle;
+}
+/* Prose variant — reference tables (docs) carry sentences, not figures, so
+   the nowrap+ellipsis above silently cut every description at the column
+   edge. Opt in with `pixel-table wrap-prose`. A utility class can't do this:
+   `.pixel-table td` (0,1,1) outranks `.whitespace-normal` (0,1,0). */
+.pixel-table.wrap-prose td {
+  white-space: normal;
+  text-overflow: clip;
+  line-height: 1.55;
+  vertical-align: top;
 }
 .pixel-table td.num,
 .pixel-table th.num {
@@ -552,26 +1000,19 @@ input[type="radio"] {
 }
 
 /* Recharts overrides — vibey numerics. The !important strokes/fills beat the
-   hardcoded props inside chart JSX, so they must flip per theme or light mode
-   gets invisible white gridlines on a white panel. */
+   hardcoded props inside chart JSX, so they read the --grid-line/--axis-text
+   tokens; every theme gets gridlines that sit on its own background. */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {
-  stroke: rgba(255, 255, 255, 0.06) !important;
+  stroke: var(--grid-line) !important;
 }
 .recharts-text {
-  fill: #888 !important;
+  fill: var(--axis-text) !important;
   font-family: "JetBrains Mono", ui-monospace, monospace !important;
   font-size: 10px !important;
 }
-[data-theme="light"] .recharts-cartesian-grid-horizontal line,
-[data-theme="light"] .recharts-cartesian-grid-vertical line {
-  stroke: rgba(17, 24, 39, 0.08) !important;
-}
-[data-theme="light"] .recharts-text {
-  fill: #6b7280 !important;
-}
-[data-theme="light"] .recharts-cartesian-axis-line {
-  stroke: rgba(17, 24, 39, 0.25) !important;
+.recharts-cartesian-axis-line {
+  stroke: var(--border-strong) !important;
 }
 
 /* ── Premium utilities ─────────────────────────────────────────────
@@ -610,13 +1051,33 @@ input[type="radio"] {
   .subtab-rail { animation: none; }
 }
 
-/* Left-docked drawer entrance (HeaderStratPicker strat sidebar). */
+/* Drawer entrances. `drawer-in-left` is kept for the centered modals that
+   borrowed it as a generic fade-in; the strat sidebar docks RIGHT. */
 @keyframes drawer-in-left {
   from { transform: translateX(-100%); }
   to { transform: translateX(0); }
 }
+@keyframes drawer-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
 @media (prefers-reduced-motion: reduce) {
-  [style*="drawer-in-left"] { animation: none !important; }
+  [style*="drawer-in-left"], [style*="drawer-in-right"] { animation: none !important; }
+}
+
+/* Strat sidebar dock. On a wide viewport the strat manager is a real right
+   column — the page insets by its width (--strat-dock) instead of being
+   covered, so you can edit a strat while the list, allocations and FUND bar
+   stay on screen. Narrow viewports keep the modal overlay drawer, so the
+   inset stays 0 there. HeaderStratPicker owns the html[data-strat-dock]
+   attribute. */
+:root { --strat-dock: 0px; }
+@media (min-width: 1024px) {
+  html[data-strat-dock="open"] { --strat-dock: 340px; }
+}
+.dock-inset { transition: padding-right 0.18s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .dock-inset { transition: none; }
 }
 
 /* Soft emerald halo for hero elements. */
@@ -635,59 +1096,88 @@ input[type="radio"] {
 }
 .u-lift:hover {
   transform: translateY(-2px);
-  box-shadow: 0 18px 44px -18px rgba(0, 0, 0, 0.75);
+  box-shadow: var(--shadow-lift);
 }
 
 /* ── Light-mode brand-color overrides ──────────────────────────────
-   The Tailwind 400-series accents (green-400 / red-400 / amber-400 / etc.)
-   were tuned for dark backgrounds where they need to be light to pop.
-   On a white background they wash out into pastels with poor contrast.
-   These overrides swap them for 600-700-shade equivalents and bump
-   the font weight so headlines / P&L deltas / status pills stay vibrant. */
-[data-theme="light"] .text-green-400 { color: #15803d; font-weight: 600; }
-[data-theme="light"] .text-green-300 { color: #16a34a; font-weight: 600; }
-[data-theme="light"] .text-green-500 { color: #15803d; font-weight: 600; }
-[data-theme="light"] .text-red-400   { color: #dc2626; font-weight: 600; }
-[data-theme="light"] .text-red-500   { color: #b91c1c; font-weight: 600; }
-[data-theme="light"] .text-amber-400 { color: #b45309; font-weight: 600; }
-[data-theme="light"] .text-amber-300 { color: #d97706; font-weight: 600; }
-[data-theme="light"] .text-blue-400  { color: #1d4ed8; font-weight: 600; }
-[data-theme="light"] .text-cyan-400  { color: #0e7490; font-weight: 600; }
-[data-theme="light"] .text-purple-400 { color: #7c3aed; font-weight: 600; }
-[data-theme="light"] .text-pink-400  { color: #db2777; font-weight: 600; }
+   The green/red/amber families now resolve to per-theme tokens (see
+   tailwind.config.js), so light themes get their darker equivalents for
+   free — no per-class color rules here. Only the weight bump remains:
+   at these sizes a 500-weight colored numeral goes thin on a pale
+   background. The blue/cyan/purple/pink utilities below are still stock
+   Tailwind (used decoratively, in a handful of places) and do need the
+   400→600-shade swap on light. */
+[data-base="light"] .text-green-400,
+[data-base="light"] .text-green-300,
+[data-base="light"] .text-green-500,
+[data-base="light"] .text-red-400,
+[data-base="light"] .text-red-500,
+[data-base="light"] .text-amber-400,
+[data-base="light"] .text-amber-300 { font-weight: 600; }
 
-[data-theme="light"] .border-green-400 { border-color: #16a34a; }
-[data-theme="light"] .border-red-400   { border-color: #dc2626; }
-[data-theme="light"] .border-amber-400 { border-color: #d97706; }
-[data-theme="light"] .border-purple-400 { border-color: #7c3aed; }
-[data-theme="light"] .border-blue-400  { border-color: #2563eb; }
+[data-base="light"] .text-blue-400  { color: #1d4ed8; font-weight: 600; }
+[data-base="light"] .text-cyan-400  { color: #0e7490; font-weight: 600; }
+[data-base="light"] .text-purple-400 { color: #7c3aed; font-weight: 600; }
+[data-base="light"] .text-pink-400  { color: #db2777; font-weight: 600; }
 
-/* Translucent backgrounds (bg-green-400/10 etc.) need a touch more
-   opacity in light mode to actually appear on a near-white surface. */
-[data-theme="light"] .bg-green-400\/10  { background-color: rgba(22, 163, 74, 0.14); }
-[data-theme="light"] .bg-green-400\/15  { background-color: rgba(22, 163, 74, 0.18); }
-[data-theme="light"] .bg-red-400\/10    { background-color: rgba(220, 38, 38, 0.12); }
-[data-theme="light"] .bg-red-400\/5     { background-color: rgba(220, 38, 38, 0.07); }
-[data-theme="light"] .bg-amber-400\/10  { background-color: rgba(217, 119, 6, 0.14); }
-[data-theme="light"] .bg-amber-400\/5   { background-color: rgba(217, 119, 6, 0.08); }
-[data-theme="light"] .bg-purple-400\/10 { background-color: rgba(124, 58, 237, 0.14); }
-[data-theme="light"] .bg-purple-400\/5  { background-color: rgba(124, 58, 237, 0.07); }
-[data-theme="light"] .bg-blue-400\/10   { background-color: rgba(37, 99, 235, 0.14); }
+[data-base="light"] .border-purple-400 { border-color: #7c3aed; }
+[data-base="light"] .border-blue-400  { border-color: #2563eb; }
 
-/* Pixel panel cyan/amber/red variants use semi-transparent borders + a
-   dark gradient that doesn't read on white. Recolor them in light mode. */
-[data-theme="light"] .pixel-panel-cyan {
-  background: linear-gradient(180deg, #f0f9ff 0%, #ffffff 100%);
-  border-color: rgba(14, 116, 144, 0.4);
-  box-shadow: 0 0 0 1px rgba(14, 116, 144, 0.05), 0 4px 12px rgba(14, 116, 144, 0.06);
+/* Translucent backgrounds need a touch more opacity in light mode to
+   actually appear on a near-white surface. */
+[data-base="light"] .bg-purple-400\/10 { background-color: rgba(124, 58, 237, 0.14); }
+[data-base="light"] .bg-purple-400\/5  { background-color: rgba(124, 58, 237, 0.07); }
+[data-base="light"] .bg-blue-400\/10   { background-color: rgba(37, 99, 235, 0.14); }
+
+/* ── Per-theme chrome ──────────────────────────────────────────────
+   Everything above is palette-only. These few rules change *shape* for
+   the three themes whose whole point is a different physical material. */
+
+/* WIN95 — raised bevels instead of hairlines, and no soft shadows
+   anywhere (1995 had no blur). */
+[data-theme="win95"] .pixel-btn,
+[data-theme="win95"] .pixel-badge {
+  border: 1px solid #000000;
+  box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080;
 }
-[data-theme="light"] .pixel-panel-amber {
-  background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
-  border-color: rgba(217, 119, 6, 0.4);
-  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.05), 0 4px 12px rgba(217, 119, 6, 0.06);
+[data-theme="win95"] .pixel-btn:hover {
+  transform: none;
+  box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #808080;
 }
-[data-theme="light"] .pixel-panel-red {
-  background: linear-gradient(180deg, #fef2f2 0%, #ffffff 100%);
-  border-color: rgba(220, 38, 38, 0.4);
-  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.05), 0 4px 12px rgba(220, 38, 38, 0.06);
+[data-theme="win95"] .pixel-btn:active {
+  box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff;
+}
+[data-theme="win95"] .pixel-input,
+[data-theme="win95"] .pixel-input-sm {
+  box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #ffffff;
+}
+[data-theme="win95"] .market-card:hover,
+[data-theme="win95"] .u-lift:hover {
+  transform: none;
+}
+
+/* MARIO / WARP — chunky pixel type on the small uppercase controls. Only
+   buttons and badges get the arcade face; body copy stays readable. */
+[data-theme="mario"] .pixel-btn,
+[data-theme="warp"] .pixel-btn {
+  font-family: "Press Start 2P", monospace;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  padding: 10px 14px;
+}
+[data-theme="mario"] .pixel-badge,
+[data-theme="warp"] .pixel-badge {
+  font-family: "Press Start 2P", monospace;
+  font-size: 7.5px;
+  letter-spacing: 0;
+  padding: 4px 8px;
+}
+/* MARIO's hard black outlines belong on the interactive chrome too. */
+[data-theme="mario"] .pixel-btn,
+[data-theme="mario"] .pixel-input,
+[data-theme="mario"] .pixel-input-sm {
+  border: 2px solid #101820;
+}
+[data-theme="mario"] .pixel-btn:active {
+  transform: translateY(2px);
 }

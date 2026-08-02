@@ -51,6 +51,7 @@ if str(MODULE_DIR) not in sys.path:
 
 from nycgis import layers as L
 from nycgis import prices as P
+from nycgis import rents as R
 from nycgis import sources as S
 from nycgis import tools as T
 
@@ -215,7 +216,57 @@ class Mod:
         """Everything the UI needs to build its housing controls."""
         return {'metrics': P.METRICS, 'geographies': P.GEOGRAPHIES,
                 'property_types': P.PROPERTY_TYPES,
+                'bedrooms': R.BEDROOM_ORDER,
+                'income_bands': [{'key': k, 'label': lbl}
+                                 for _, k, lbl in L.INCOME_BANDS],
                 'data_range': {'start': '2016-01-01', 'note': 'DOF rolling sales'}}
+
+    # ── affordable homes: what they cost to rent, and where they are ─────
+
+    def rents(self) -> dict:
+        """
+        What affordable housing costs in NYC — median rent by bedroom size,
+        income band and borough, from the city's Local Law 44 rent roll.
+        """
+        return R.summary()
+
+    def homes(self, max_rent=None, bedrooms: str = '', borough: str = '',
+              search: str = '', limit: int = 100) -> dict:
+        """
+        Affordable rentals you could apply for, cheapest first.
+
+        ``m nyc/homes max_rent=1500 bedrooms=2 borough=Bronx``
+        """
+        return R.listings(max_rent=int(max_rent) if max_rent else None,
+                          bedrooms=bedrooms, borough=borough,
+                          search=search, limit=int(limit))
+
+    def affordable(self) -> dict:
+        """Affordable units built, tallied by income band and borough."""
+        fc = L.affordable_housing()
+        meta = dict(fc.get('meta') or {})
+        bands = {k: 0 for _, k, _ in L.INCOME_BANDS}
+        boroughs: Dict[str, Dict[str, int]] = {}
+        rental = ownership = 0
+        for f in fc['features']:
+            p = f['properties']
+            rental += p.get('rental') or 0
+            ownership += p.get('ownership') or 0
+            for k in bands:
+                bands[k] += p.get(k) or 0
+            b = boroughs.setdefault(p.get('borough') or 'Unknown',
+                                    {'buildings': 0, 'units': 0})
+            b['buildings'] += 1
+            b['units'] += p.get('units') or 0
+        return {
+            'by_income_band': [{'key': k, 'label': lbl, 'units': bands[k]}
+                               for _, k, lbl in L.INCOME_BANDS],
+            'by_borough': sorted(
+                ({'borough': k, **v} for k, v in boroughs.items()),
+                key=lambda r: -r['units']),
+            'rental_units': rental, 'homeownership_units': ownership,
+            **meta,
+        }
 
     def _nta_names(self) -> Dict[str, str]:
         try:

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { API_URL } from '../config'
 import { qrSvg } from '../lib/qr'
 import Discover from './Discover'
+import Upload from './Upload'
 
 // ── types ───────────────────────────────────────────────────────────
 
@@ -21,6 +22,7 @@ export type LibItem = {
   icon?: string
   skills?: string[] | null
   model?: string | null
+  harness?: string | null     // agent runs on an external CLI ('claude' | 'codex')
   cid?: string
   updated?: number
   builtin?: boolean
@@ -65,28 +67,28 @@ const KINDS: Record<LibKind, {
     label: 'Prompt', plural: 'Prompts', glyph: '¶',
     dot: 'bg-amber-400', text: 'text-amber-300',
     chip: 'bg-amber-400/10 border-amber-400/25 text-amber-300',
-    cardHover: 'hover:border-amber-400/30 hover:shadow-[0_0_24px_rgba(251,191,36,0.07)]',
+    cardHover: 'hover:border-amber-400/30 hover:shadow-[0_0_24px_rgb(var(--w-400)/0.07)]',
     badge: 'bg-amber-400/10 text-amber-300/90',
   },
   skill: {
     label: 'Skill', plural: 'Skills', glyph: '⌘',
     dot: 'bg-sky-400', text: 'text-sky-300',
     chip: 'bg-sky-400/10 border-sky-400/25 text-sky-300',
-    cardHover: 'hover:border-sky-400/30 hover:shadow-[0_0_24px_rgba(56,189,248,0.07)]',
+    cardHover: 'hover:border-sky-400/30 hover:shadow-[0_0_24px_rgb(var(--i-400)/0.07)]',
     badge: 'bg-sky-400/10 text-sky-300/90',
   },
   memory: {
     label: 'Memory', plural: 'Memory', glyph: '◈',
     dot: 'bg-emerald-400', text: 'text-emerald-300',
     chip: 'bg-emerald-400/10 border-emerald-400/25 text-emerald-300',
-    cardHover: 'hover:border-emerald-400/30 hover:shadow-[0_0_24px_rgba(52,211,153,0.07)]',
+    cardHover: 'hover:border-emerald-400/30 hover:shadow-[0_0_24px_rgb(var(--glow)/0.07)]',
     badge: 'bg-emerald-400/10 text-emerald-300/90',
   },
   agent: {
     label: 'Agent', plural: 'Agents', glyph: '◆',
     dot: 'bg-violet-400', text: 'text-violet-300',
     chip: 'bg-violet-400/10 border-violet-400/25 text-violet-300',
-    cardHover: 'hover:border-violet-400/30 hover:shadow-[0_0_24px_rgba(167,139,250,0.07)]',
+    cardHover: 'hover:border-violet-400/30 hover:shadow-[0_0_24px_rgb(var(--v-400)/0.07)]',
     badge: 'bg-violet-400/10 text-violet-300/90',
   },
 }
@@ -307,7 +309,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
             {canCreate ? (
               <button
                 onClick={() => setShowNewMenu(v => !v)}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 text-white transition shadow-[0_0_18px_rgba(52,211,153,0.25)]"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium bg-emerald-600/90 hover:bg-emerald-500 text-white transition shadow-[0_0_18px_rgb(var(--glow)/0.25)]"
               >
                 <span className="text-sm leading-none">+</span> New
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${showNewMenu ? 'rotate-180' : ''}`}>
@@ -327,7 +329,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
               </button>
             )}
             {showNewMenu && canCreate && (
-              <div className="absolute right-0 top-full mt-1.5 w-44 bg-[#141416] border border-white/10 rounded-xl overflow-hidden z-50 shadow-2xl p-1">
+              <div className="absolute right-0 top-full mt-1.5 w-44 bg-surface-2 border border-white/10 rounded-xl overflow-hidden z-50 shadow-2xl p-1">
                 {(['prompt', 'memory', 'agent'] as LibKind[]).map(k => (
                   <button key={k}
                     onClick={() => { setCreating(k); setShowNewMenu(false) }}
@@ -339,9 +341,10 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
                 <div className="my-1 border-t border-white/[0.06]" />
                 <button
                   onClick={() => { setImporting(true); setShowNewMenu(false) }}
+                  title="Upload a file you wrote — agent, prompt, skill or note — or install one from a shared CID"
                   className="w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-white/[0.06] transition flex items-center gap-2.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400/60" />
-                  <span className="text-gray-300">Prompt from CID</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-white/40" />
+                  <span className="text-gray-300">Upload / from CID</span>
                 </button>
               </div>
             )}
@@ -358,7 +361,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
             value={q}
             onChange={e => setQ(e.target.value)}
             placeholder="Search prompts, skills, memory, agents…"
-            className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl pl-10 pr-16 py-2.5 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-emerald-500/40 focus:bg-white/[0.05] focus:shadow-[0_0_0_3px_rgba(52,211,153,0.08)] transition-all"
+            className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl pl-10 pr-16 py-2.5 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-emerald-500/40 focus:bg-white/[0.05] focus:shadow-[0_0_0_3px_rgb(var(--glow)/0.08)] transition-all"
           />
           <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-600 border border-white/[0.08] rounded px-1.5 py-0.5 select-none">/</kbd>
         </div>
@@ -537,7 +540,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
       {selected && selected.kind !== 'prompt' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm" onClick={() => setSelected(null)}>
           <div
-            className="w-full max-w-xl max-h-[80vh] flex flex-col bg-[#121214] border border-white/10 rounded-2xl shadow-2xl overflow-hidden lib-pop"
+            className="w-full max-w-xl max-h-[80vh] flex flex-col bg-surface-2 border border-white/10 rounded-2xl shadow-2xl overflow-hidden lib-pop"
             onClick={e => e.stopPropagation()}
           >
             <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-3 shrink-0">
@@ -682,11 +685,12 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
         />
       )}
 
-      {/* import prompt from CID */}
+      {/* bring your own — a file you wrote, or anything shared by CID */}
       {importing && (
-        <ImportModal
+        <UploadModal
           onClose={() => setImporting(false)}
-          onImported={() => { setImporting(false); refresh() }}
+          onDone={() => { refresh(); onAgentsChanged?.() }}
+          onSignIn={onSignIn}
           token={auth?.token}
         />
       )}
@@ -714,7 +718,7 @@ function PromptScreen({ item, copied, copy, onClose, onUse, useLabel, onEdit, on
   }, [item.cid])
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#0b0b0d] lib-pop">
+    <div className="fixed inset-0 z-50 flex flex-col bg-surface-1 lib-pop">
       {/* header */}
       <div className="shrink-0 px-6 md:px-10 py-4 border-b border-white/[0.06] flex items-center gap-3">
         <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${KINDS.prompt.badge}`}>prompt</span>
@@ -781,7 +785,7 @@ function PromptScreen({ item, copied, copy, onClose, onUse, useLabel, onEdit, on
                     {copied === 'cid' ? 'CID copied ✓' : 'Copy CID'}
                   </button>
                   <p className="mt-3 text-[10px] text-gray-600 leading-relaxed">
-                    Scan the QR or copy the CID — anyone can install this prompt via “Prompt from CID”.
+                    Scan the QR or copy the CID — anyone can install this prompt from “Upload / from CID”.
                   </p>
                 </>
               ) : (
@@ -825,65 +829,33 @@ function PromptScreen({ item, copied, copy, onClose, onUse, useLabel, onEdit, on
   )
 }
 
-// ── import-from-CID modal ───────────────────────────────────────────
+// ── upload / install-from-CID modal ─────────────────────────────────
+// Same box for every collection — the drop zone, the paste field and the CID
+// field all live in Upload, with docs/uploads.md rendered underneath.
 
-function ImportModal({ onClose, onImported, token }: {
-  onClose: () => void; onImported: () => void; token?: string | null
+function UploadModal({ onClose, onDone, onSignIn, token }: {
+  onClose: () => void; onDone: () => void
+  onSignIn?: () => void; token?: string | null
 }) {
-  const [cid, setCid] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-
-  const doImport = async () => {
-    if (!cid.trim()) { setErr('paste a localfs CID'); return }
-    setBusy(true)
-    setErr(null)
-    try {
-      const res = await fetch(`${API_URL}/prompts/import`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        // the importer owns their copy, so the server needs to know who they are
-        body: JSON.stringify({ cid: cid.trim(), key: token }),
-      })
-      const data = await res.json()
-      if (data.error) { setErr(data.error); setBusy(false); return }
-      onImported()
-    } catch (e: any) {
-      setErr(e.message)
-      setBusy(false)
-    }
-  }
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md bg-[#121214] border border-white/10 rounded-2xl shadow-2xl overflow-hidden lib-pop" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-          <span className="text-sm font-medium text-gray-100">Import prompt from CID</span>
+      <div className="w-full max-w-2xl max-h-[86vh] flex flex-col bg-surface-2 border border-white/10 rounded-2xl shadow-2xl overflow-hidden lib-pop" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-white/50" />
+          <span className="text-sm font-medium text-gray-100">Upload your own</span>
+          <span className="text-[11px] text-gray-600">agent · prompt · skill · memory note</span>
           <button onClick={onClose} className="ml-auto text-gray-600 hover:text-gray-300 transition p-1">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
-        <div className="px-5 py-4 space-y-3">
-          <input
-            value={cid} onChange={e => setCid(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') doImport() }}
-            placeholder="Qm… localfs CID" autoFocus
-            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-gray-200 font-mono outline-none placeholder:text-gray-600 focus:border-amber-400/40 transition"
-          />
-          <p className="text-[11px] text-gray-600 leading-relaxed">
-            Paste a CID from a shared prompt’s QR code. The prompt is fetched from localfs and added to your library.
-          </p>
-          {err && <p className="text-xs text-red-400">{err}</p>}
+        <div className="px-5 py-4 overflow-y-auto min-h-0">
+          <Upload token={token} onDone={onDone} onSignIn={onSignIn} />
         </div>
-        <div className="px-5 py-3.5 border-t border-white/[0.06] flex items-center gap-2">
-          <button onClick={doImport} disabled={busy}
-            className="px-4 py-2 rounded-lg text-xs font-medium bg-amber-500/90 hover:bg-amber-400 disabled:bg-white/5 disabled:text-gray-600 text-black transition">
-            {busy ? 'Importing…' : 'Import'}
-          </button>
+        <div className="px-5 py-3.5 border-t border-white/[0.06] flex items-center gap-2 shrink-0">
           <button onClick={onClose} className="px-3 py-2 rounded-lg text-xs text-gray-500 hover:text-gray-300 transition">
-            Cancel
+            Done
           </button>
         </div>
       </div>
@@ -946,7 +918,7 @@ function EditorModal({ kind, item, onClose, onSaved, token }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg bg-[#121214] border border-white/10 rounded-2xl shadow-2xl overflow-hidden lib-pop" onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-lg bg-surface-2 border border-white/10 rounded-2xl shadow-2xl overflow-hidden lib-pop" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2.5">
           <span className={`w-1.5 h-1.5 rounded-full ${K.dot}`} />
           <span className="text-sm font-medium text-gray-100">

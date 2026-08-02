@@ -146,6 +146,28 @@ def prices(since: str = Query('2024-01-01'), until: Optional[str] = Query(None),
                cache='public, max-age=3600')
 
 
+@app.get('/rents')
+def rents():
+    """What affordable homes rent for: medians by bedroom, income band, borough."""
+    return geo(nyc().rents(), cache='public, max-age=3600')
+
+
+@app.get('/homes')
+def homes(max_rent: Optional[int] = Query(None, ge=0),
+          bedrooms: str = Query(''), borough: str = Query(''),
+          search: str = Query(''), limit: int = Query(200, ge=1, le=5000)):
+    """Affordable rentals matching a budget and household size, cheapest first."""
+    return geo(nyc().homes(max_rent=max_rent, bedrooms=bedrooms,
+                           borough=borough, search=search, limit=limit),
+               cache='public, max-age=3600')
+
+
+@app.get('/affordable')
+def affordable():
+    """Affordable units built, tallied by income band and borough."""
+    return geo(nyc().affordable(), cache='public, max-age=3600')
+
+
 @app.get('/trend')
 def trend(area: Optional[str] = Query(None), geography: str = Query('nta'),
           property_type: str = Query('residential'),

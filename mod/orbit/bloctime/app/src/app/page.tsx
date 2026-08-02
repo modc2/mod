@@ -36,6 +36,35 @@ const API_URL = isLocal
   ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8851')
   : '/api/bloctime'
 
+// ── Networks ────────────────────────────────────────────────────────────
+
+interface NetworkDef {
+  chainId: string
+  label: string
+  rpc: string
+  symbol: string
+}
+
+// Chains you can deploy to / point the wallet at. The header picker drives
+// the wallet's chain; everything else (deploy, instance writes) follows it.
+const NETWORKS: NetworkDef[] = [
+  { chainId: '84532', label: 'Base Sepolia', rpc: 'https://sepolia.base.org', symbol: 'ETH' },
+  { chainId: '8453', label: 'Base', rpc: 'https://mainnet.base.org', symbol: 'ETH' },
+  { chainId: '11155111', label: 'Sepolia', rpc: 'https://ethereum-sepolia-rpc.publicnode.com', symbol: 'ETH' },
+  { chainId: '1', label: 'Ethereum', rpc: 'https://ethereum-rpc.publicnode.com', symbol: 'ETH' },
+  { chainId: '10', label: 'Optimism', rpc: 'https://mainnet.optimism.io', symbol: 'ETH' },
+  { chainId: '42161', label: 'Arbitrum One', rpc: 'https://arb1.arbitrum.io/rpc', symbol: 'ETH' },
+  { chainId: '137', label: 'Polygon', rpc: 'https://polygon-rpc.com', symbol: 'POL' },
+  { chainId: '1337', label: 'Localhost', rpc: 'http://localhost:8545', symbol: 'ETH' },
+]
+
+const DEFAULT_CHAIN = '84532'
+
+const netFor = (chainId: string): NetworkDef | null =>
+  NETWORKS.find(n => n.chainId === chainId) || null
+
+const netLabel = (chainId: string) => netFor(chainId)?.label || (chainId ? `Chain ${chainId}` : 'Unknown')
+
 // ── Types ───────────────────────────────────────────────────────────────
 
 interface StakePosition {
@@ -55,10 +84,24 @@ interface Overview {
   delegate: string
   pendingRewards: string
   votingPower: string
+  blocBalance: string   // BLOC held — what the weekly pot is split by
   positions: StakePosition[]
 }
 
+interface PotInfo {
+  pot: string
+  pendingInflation: string
+  projected: string
+  eligibleSupply: string
+  nextDistribution: number   // unix seconds
+  lastDistribution: number
+  due: boolean
+  secondsRemaining: number
+  schedule: string
+}
+
 interface Stats {
+  pot: PotInfo | null
   totalBlocTime: string
   totalSupply: string
   totalStakes: number
@@ -109,9 +152,40 @@ interface ContractInfo {
   id: string
   name: string
   address: string
+  chainId: string
+  rpc: string
   explorer: string
   abi: AbiEntry[]
   source: string
+  deployed?: boolean      // deployed through this console, not shipped with the module
+  deployer?: string
+}
+
+interface CompiledContract {
+  name: string
+  abi: AbiEntry[]
+  bytecode: string
+  constructor: AbiParam[]
+  deployable: boolean     // false for interfaces and abstract contracts
+}
+
+interface Compiled {
+  solc: string
+  filename: string
+  contracts: CompiledContract[]
+  warnings: string[]
+}
+
+interface Deployment {
+  id: string
+  name: string
+  address: string
+  chainId: string
+  rpc: string
+  deployer: string
+  txHash: string
+  explorer: string
+  createdAt: string
 }
 
 interface ContractsMeta {
@@ -206,6 +280,21 @@ const fmtEth = (wei: string) => {
 
 const fmtAddr = (s: string) => s.length > 16 ? `${s.slice(0, 8)}...${s.slice(-6)}` : s
 
+// The pot opens once a week, Friday 12:00 EST — 17:00 UTC year round.
+const WEEKLY_SCHEDULE = 'Weekly, Friday 12:00 EST (17:00 UTC)'
+
+const fmtCountdown = (secs: number) => {
+  if (secs <= 0) return 'now'
+  const d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600)
+  const m = Math.floor((secs % 3600) / 60), s = secs % 60
+  return d > 0 ? `${d}d ${h}h ${m}m` : h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`
+}
+
+const fmtWhen = (unix: number) =>
+  unix ? new Date(unix * 1000).toLocaleString(undefined, {
+    weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  }) : '--'
+
 const BRIDGE_APP_URL = isLocal ? 'http://localhost:8841/bridge' : '/bridge'
 
 // Halving schedule is deterministic — no need to hit the RPC per point.
@@ -263,7 +352,25 @@ async function readInstanceState(inst: Instance, kit: FactoryKit): Promise<{ sta
     }))
   } catch { /* older contract without getPoints */ }
 
+  let pot: PotInfo | null = null
+  try {
+    const pi = await c.getPotInfo()
+    const next = Number(pi[3])
+    pot = {
+      pot: pi[0].toString(),
+      pendingInflation: pi[1].toString(),
+      projected: (pi[0] + pi[1]).toString(),
+      eligibleSupply: pi[2].toString(),
+      nextDistribution: next,
+      lastDistribution: Number(pi[4]),
+      due: Boolean(pi[5]),
+      secondsRemaining: Math.max(0, next - Math.floor(Date.now() / 1000)),
+      schedule: WEEKLY_SCHEDULE,
+    }
+  } catch { /* older contract without the weekly pot */ }
+
   const stats: Stats = {
+    pot,
     totalBlocTime: totalBT.toString(),
     totalSupply: supply.toString(),
     totalStakes: Number(nextId),
@@ -291,9 +398,10 @@ async function readInstanceOverview(inst: Instance, kit: FactoryKit, addr: strin
       lockBlocks: Number(p[2]), blocTimeBalance: p[3].toString(), blocksRemaining: Number(p[4]),
     }
   }))
-  let pending = 0n, vp = 0n, deleg = ''
+  let pending = 0n, vp = 0n, deleg = '', bloc = 0n
   try { pending = await c.earned(addr) } catch {}
   try { vp = await c.getVotingPower(addr) } catch {}
+  try { bloc = await c.balanceOf(addr) } catch {}
   try {
     const d = await c.delegates(addr)
     deleg = d === ethers.ZeroAddress ? '' : d
@@ -306,6 +414,7 @@ async function readInstanceOverview(inst: Instance, kit: FactoryKit, addr: strin
     delegate: deleg,
     pendingRewards: pending.toString(),
     votingPower: vp.toString(),
+    blocBalance: bloc.toString(),
     positions,
   }
 }
@@ -400,6 +509,11 @@ function coerceForEthers(value: string, type: string): any {
   return value.trim()
 }
 
+// Explorer tx link for whatever chain the contract is on — derived from its
+// own address link, so custom deployments don't all point at Basescan.
+const txExplorer = (contract: ContractInfo, hash: string) =>
+  contract.explorer ? `${contract.explorer.replace(/\/address\/.*$/, '')}/tx/${hash}` : ''
+
 async function ensureChain(meta: { chainId: string; rpc: string }) {
   const w = window as any
   if (!w.ethereum || !meta.chainId) return
@@ -410,13 +524,18 @@ async function ensureChain(meta: { chainId: string; rpc: string }) {
     await w.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: hexId }] })
   } catch (err: any) {
     if (err?.code === 4902) {
+      const known = netFor(meta.chainId)
       await w.ethereum.request({
         method: 'wallet_addEthereumChain',
         params: [{
           chainId: hexId,
-          chainName: `Chain ${meta.chainId}`,
-          nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-          rpcUrls: [meta.rpc],
+          chainName: known?.label || `Chain ${meta.chainId}`,
+          nativeCurrency: {
+            name: known?.symbol || 'ETH',
+            symbol: known?.symbol || 'ETH',
+            decimals: 18,
+          },
+          rpcUrls: [meta.rpc || known?.rpc].filter(Boolean),
         }],
       })
     } else throw err
@@ -450,7 +569,8 @@ function AbiFunctionRow({ contract, fn, mode, writeVia, meta, connected }: {
       } else if (writeVia === 'wallet') {
         const w = window as any
         if (!w.ethereum) throw new Error('Install MetaMask')
-        await ensureChain(meta)
+        // A contract you deployed may live on a different chain than the module's.
+        await ensureChain({ chainId: contract.chainId || meta.chainId, rpc: contract.rpc || meta.rpc })
         const provider = new ethers.BrowserProvider(w.ethereum)
         const signer = await provider.getSigner()
         const c = new ethers.Contract(contract.address, contract.abi as any, signer)
@@ -462,7 +582,7 @@ function AbiFunctionRow({ contract, fn, mode, writeVia, meta, connected }: {
           success: receipt?.status === 1,
           tx_hash: tx.hash,
           block: receipt?.blockNumber,
-          explorer: `https://sepolia.basescan.org/tx/${tx.hash}`,
+          explorer: txExplorer(contract, tx.hash),
         })
         toast.success(`${fn.name} sent`)
       } else {
@@ -604,7 +724,9 @@ function ContractsPlayground({ meta, connected }: { meta: ContractsMeta, connect
               {c.name}
             </button>
           ))}
-          <span className="ml-auto text-[10px] uppercase tracking-wider text-violet-400/70">{meta.network} · chain {meta.chainId}</span>
+          <span className="ml-auto text-[10px] uppercase tracking-wider text-violet-400/70">
+            {contract.deployed ? 'deployed here' : meta.network} · chain {contract.chainId || meta.chainId}
+          </span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-mono text-white/60 break-all">{contract.address}</span>
@@ -848,18 +970,19 @@ function MarketPanel({ instances, activeId, account, loading, onUse, onRefresh }
 
 type StepState = 'pending' | 'active' | 'done' | 'error'
 
-function DeployPanel({ connected, getFactory, onDeployed }: {
+function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
   connected: boolean
+  chainId: string
   getFactory: () => Promise<FactoryKit>
   onDeployed: (entry: Instance) => void
 }) {
+  const known = netFor(chainId)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [supply, setSupply] = useState('1000000')
   const [maxLock, setMaxLock] = useState('100000')
   const [distPct, setDistPct] = useState('5000')
-  const [rpc, setRpc] = useState('https://sepolia.base.org')
-  const [network, setNetwork] = useState<'base_sepolia' | 'wallet'>('base_sepolia')
+  const [rpc, setRpc] = useState(known?.rpc || '')
   const [busy, setBusy] = useState(false)
   const [forkCmd, setForkCmd] = useState('m bloctime/fork name=<yourname>')
   const [steps, setSteps] = useState<{ label: string; state: StepState }[]>([])
@@ -874,11 +997,16 @@ function DeployPanel({ connected, getFactory, onDeployed }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Network comes from the header picker — follow it, but let the user type
+  // an RPC when the wallet sits on a chain we don't know a public one for.
+  useEffect(() => { setRpc(netFor(chainId)?.rpc || '') }, [chainId])
+
   const setStep = (i: number, state: StepState) =>
     setSteps(s => s.map((st, j) => j === i ? { ...st, state } : st))
 
   const handleDeploy = useCallback(async () => {
     if (!name.trim()) { toast.error('Name your instance'); return }
+    if (!rpc.trim()) { toast.error('Set a public RPC URL for this network'); return }
     const w = window as any
     if (!w.ethereum) { toast.error('Install MetaMask'); return }
     setBusy(true)
@@ -890,9 +1018,7 @@ function DeployPanel({ connected, getFactory, onDeployed }: {
     let step = 0
     try {
       const kit = await getFactory()
-      if (network === 'base_sepolia') {
-        await ensureChain({ chainId: '84532', rpc: 'https://sepolia.base.org' })
-      }
+      await ensureChain({ chainId, rpc })
       const provider = new ethers.BrowserProvider(w.ethereum)
       const signer = await provider.getSigner()
       setStep(step, 'done'); step = 1; setStep(step, 'active')
@@ -939,7 +1065,7 @@ function DeployPanel({ connected, getFactory, onDeployed }: {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Deploy failed')
     }
     setBusy(false)
-  }, [name, description, supply, maxLock, distPct, rpc, network, getFactory, onDeployed])
+  }, [name, description, supply, maxLock, distPct, rpc, chainId, getFactory, onDeployed])
 
   const input = "w-full text-sm px-4 py-2.5 rounded-lg border border-white/10 bg-white/5 text-white/90 focus:outline-none focus:border-white/30 font-mono transition-colors placeholder:text-white/20"
 
@@ -973,20 +1099,16 @@ function DeployPanel({ connected, getFactory, onDeployed }: {
           </div>
           <div>
             <p className="text-[9px] uppercase tracking-wider text-white/25 mb-1">Network</p>
-            <div className="flex gap-1 p-1 rounded-lg border border-white/10 bg-white/[0.02]">
-              {([['base_sepolia', 'Base Sepolia'], ['wallet', 'Wallet network']] as const).map(([v, label]) => (
-                <button key={v} onClick={() => setNetwork(v)}
-                  className={`flex-1 py-1.5 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all
-                    ${network === v ? 'bg-white/[0.08] text-white/80' : 'text-white/30 hover:text-white/50'}`}>
-                  {label}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 h-[42px] px-4 rounded-lg border border-white/[0.06] bg-white/[0.02]">
+              <span className={`w-1.5 h-1.5 rounded-full ${known ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+              <span className="text-sm text-white/70">{netLabel(chainId)}</span>
+              <span className="ml-auto text-[9px] uppercase tracking-wider text-white/25">pick it up top</span>
             </div>
           </div>
-          {network === 'wallet' && (
+          {!known && (
             <div className="md:col-span-2">
               <p className="text-[9px] uppercase tracking-wider text-white/25 mb-1">Public RPC URL of that network (used to verify + read stats)</p>
-              <input type="text" value={rpc} onChange={e => setRpc(e.target.value)} className={input} />
+              <input type="text" value={rpc} onChange={e => setRpc(e.target.value)} className={input} placeholder="https://..." />
             </div>
           )}
         </div>
@@ -1028,6 +1150,259 @@ function DeployPanel({ connected, getFactory, onDeployed }: {
         <pre className="text-[11px] font-mono text-cyan-300/80 bg-black/30 border border-white/[0.06] rounded-lg p-3 overflow-x-auto">{forkCmd}</pre>
         <p className="text-[10px] text-white/25 font-mono">then: m &lt;yourname&gt;/serve · deploy from its DEPLOY tab · m bloctime/register_instance to list it here</p>
       </div>
+    </div>
+  )
+}
+
+// ── Deploy any contract ─────────────────────────────────────────────────
+
+function BuildPanel({ connected, chainId, onDeployed }: {
+  connected: boolean
+  chainId: string
+  onDeployed: () => void
+}) {
+  const [source, setSource] = useState('')
+  const [filename, setFilename] = useState('Contract.sol')
+  const [compiling, setCompiling] = useState(false)
+  const [compiled, setCompiled] = useState<Compiled | null>(null)
+  const [error, setError] = useState('')
+  const [picked, setPicked] = useState(0)
+  const [args, setArgs] = useState<string[]>([])
+  const [deploying, setDeploying] = useState(false)
+  const [result, setResult] = useState<{ name: string; address: string; txHash: string } | null>(null)
+  const [rpc, setRpc] = useState('')
+  const [deployments, setDeployments] = useState<Deployment[]>([])
+
+  const known = netFor(chainId)
+
+  useEffect(() => {
+    api('compile/starter', {}, 'GET')
+      .then(d => { setSource(s => s || d.source); setFilename(f => d.filename || f) })
+      .catch(() => {})
+    api('deployments', {}, 'GET')
+      .then(d => setDeployments(d.deployments))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => { setRpc(netFor(chainId)?.rpc || '') }, [chainId])
+
+  const contract = compiled ? compiled.contracts[picked] : null
+
+  const handleCompile = useCallback(async () => {
+    setCompiling(true); setError(''); setResult(null)
+    try {
+      const out: Compiled = await api('compile', { source, filename })
+      setCompiled(out)
+      const first = out.contracts.findIndex(c => c.deployable)
+      const idx = first >= 0 ? first : 0
+      setPicked(idx)
+      setArgs((out.contracts[idx]?.constructor || []).map(() => ''))
+      toast.success(`Compiled ${out.contracts.length} contract${out.contracts.length !== 1 ? 's' : ''}`)
+    } catch (err: any) {
+      setCompiled(null)
+      setError(err?.message || 'Compile failed')
+    }
+    setCompiling(false)
+  }, [source, filename])
+
+  const pick = useCallback((i: number) => {
+    setPicked(i); setResult(null)
+    setArgs((compiled?.contracts[i]?.constructor || []).map(() => ''))
+  }, [compiled])
+
+  const handleDeploy = useCallback(async () => {
+    if (!contract) return
+    if (!rpc.trim()) { toast.error('Set a public RPC URL for this network'); return }
+    const w = window as any
+    if (!w.ethereum) { toast.error('Install MetaMask'); return }
+    setDeploying(true); setError('')
+    try {
+      await ensureChain({ chainId, rpc })
+      const provider = new ethers.BrowserProvider(w.ethereum)
+      const signer = await provider.getSigner()
+      const factory = new ethers.ContractFactory(contract.abi as any, contract.bytecode, signer)
+      const ctorArgs = (contract.constructor || []).map((inp, i) => coerceForEthers(args[i] || '', inp.type))
+      const deployed = await factory.deploy(...ctorArgs)
+      const txHash = deployed.deploymentTransaction()?.hash || ''
+      await deployed.waitForDeployment()
+      const address = await deployed.getAddress()
+      setResult({ name: contract.name, address, txHash })
+      toast.success(`${contract.name} deployed at ${fmtAddr(address)}`)
+
+      // Remembered server-side so it joins the CONTRACTS playground.
+      try {
+        const entry: Deployment = await api('deployments/record', {
+          name: contract.name, address, abi: contract.abi, rpc, chainId,
+          deployer: await signer.getAddress(), txHash,
+          source, filename, solc: compiled?.solc || '',
+        })
+        setDeployments(d => [...d, entry])
+        onDeployed()
+      } catch (err: any) {
+        toast.error(`Deployed, but not saved: ${err?.message || 'record failed'}`)
+      }
+    } catch (err: any) {
+      setError(err?.reason || err?.shortMessage || err?.message || 'Deploy failed')
+    }
+    setDeploying(false)
+  }, [contract, args, chainId, rpc, source, filename, compiled, onDeployed])
+
+  const handleForget = useCallback(async (entry: Deployment) => {
+    try {
+      let signature = ''
+      if (entry.deployer) {
+        const w = window as any
+        if (!w.ethereum) throw new Error('Install MetaMask to prove you deployed it')
+        const signer = await new ethers.BrowserProvider(w.ethereum).getSigner()
+        signature = await signer.signMessage(`bloctime:forget:${entry.id}`)
+      }
+      await api('deployments/forget', { id: entry.id, address: entry.deployer, signature })
+      setDeployments(d => d.filter(e => e.id !== entry.id))
+      onDeployed()
+      toast.success(`${entry.name} removed`)
+    } catch (err: any) {
+      toast.error(err?.shortMessage || err?.message || 'Could not remove')
+    }
+  }, [onDeployed])
+
+  const input = "w-full text-sm px-4 py-2.5 rounded-lg border border-white/10 bg-white/5 text-white/90 focus:outline-none focus:border-white/30 font-mono transition-colors placeholder:text-white/20"
+
+  return (
+    <div className="space-y-4">
+      <div className="border border-white/10 rounded-lg p-4 bg-white/[0.02] space-y-3">
+        <div className="flex items-center gap-2">
+          <CodeBracketIcon className="w-4 h-4 text-white/40" />
+          <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">Deploy any contract</span>
+          <span className="ml-auto text-[10px] uppercase tracking-wider text-violet-400/70">{netLabel(chainId)}</span>
+        </div>
+        <p className="text-[11px] text-white/35">
+          Write Solidity, compile it here, and deploy from <span className="text-white/60">your wallet</span>.
+          Imports resolve against this module — <span className="font-mono text-white/50">@openzeppelin/contracts/**</span> works.
+          Anything you deploy joins the CONTRACTS tab for reads and writes.
+        </p>
+
+        <textarea
+          value={source}
+          onChange={e => setSource(e.target.value)}
+          spellCheck={false}
+          rows={16}
+          className={`${input} resize-y leading-relaxed text-[12px]`}
+          placeholder="// SPDX-License-Identifier: MIT&#10;pragma solidity ^0.8.20;&#10;&#10;contract MyContract { }"
+        />
+
+        <div className="grid md:grid-cols-2 gap-3">
+          <div>
+            <p className="text-[9px] uppercase tracking-wider text-white/25 mb-1">File name</p>
+            <input type="text" value={filename} onChange={e => setFilename(e.target.value)} className={input} />
+          </div>
+          {!known && (
+            <div>
+              <p className="text-[9px] uppercase tracking-wider text-white/25 mb-1">Public RPC URL (used to verify the deployment)</p>
+              <input type="text" value={rpc} onChange={e => setRpc(e.target.value)} className={input} placeholder="https://..." />
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={handleCompile}
+          disabled={compiling || !source.trim()}
+          className="w-full py-2.5 rounded-lg border border-white/15 bg-white/5 text-white/70 text-[10px] font-bold uppercase tracking-wider hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+        >
+          {compiling ? <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Compiling...</> : <><BoltIcon className="w-3.5 h-3.5" /> Compile</>}
+        </button>
+
+        {error && (
+          <pre className="text-[11px] font-mono text-rose-400/80 whitespace-pre-wrap break-all border border-rose-500/20 bg-rose-500/[0.05] rounded-lg p-3 max-h-56 overflow-y-auto">{error}</pre>
+        )}
+
+        {compiled && (
+          <div className="space-y-3 border-t border-white/[0.06] pt-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              {compiled.contracts.map((c, i) => (
+                <button
+                  key={c.name}
+                  onClick={() => pick(i)}
+                  disabled={!c.deployable}
+                  title={c.deployable ? '' : 'Interface or abstract contract — nothing to deploy'}
+                  className={`px-4 py-2 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-colors disabled:opacity-25 disabled:cursor-not-allowed
+                    ${i === picked
+                      ? 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300'
+                      : 'border-white/10 bg-white/5 text-white/40 hover:text-white/60 hover:bg-white/10'}`}
+                >
+                  {c.name}
+                </button>
+              ))}
+              <span className="ml-auto text-[10px] font-mono text-white/25">solc {compiled.solc.split('+')[0]}</span>
+            </div>
+
+            {compiled.warnings.length > 0 && (
+              <pre className="text-[10px] font-mono text-amber-400/60 whitespace-pre-wrap break-all border border-amber-500/15 bg-amber-500/[0.03] rounded-lg p-3 max-h-40 overflow-y-auto">
+                {compiled.warnings.join('\n')}
+              </pre>
+            )}
+
+            {contract && (contract.constructor || []).map((inp, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-[10px] font-mono text-white/35 w-36 shrink-0 truncate">
+                  {inp.name || `arg${i}`} <span className="text-white/20">({inp.type})</span>
+                </span>
+                <input
+                  type="text"
+                  placeholder={inp.type.endsWith(']') ? '["a", "b"] (JSON array)' : inp.type}
+                  value={args[i] || ''}
+                  onChange={e => setArgs(a => a.map((v, j) => j === i ? e.target.value : v))}
+                  className="flex-1 text-xs px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-white/90 focus:outline-none focus:border-white/30 font-mono transition-colors placeholder:text-white/15"
+                />
+              </div>
+            ))}
+
+            <button
+              onClick={handleDeploy}
+              disabled={deploying || !connected || !contract?.deployable}
+              className="w-full py-3 rounded-lg border border-cyan-500/40 bg-cyan-500/15 text-cyan-300 text-[10px] font-bold uppercase tracking-wider hover:bg-cyan-500/25 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            >
+              {deploying
+                ? <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Deploying...</>
+                : <><RocketLaunchIcon className="w-3.5 h-3.5" /> Deploy {contract ? contract.name : ''} with wallet</>}
+            </button>
+            {!connected && <p className="text-[10px] text-amber-400/60 text-center">Connect your wallet first</p>}
+
+            {result && (
+              <div className="border border-emerald-500/15 bg-emerald-500/[0.03] rounded-lg p-3 space-y-1">
+                <p className="text-[11px] font-mono text-emerald-300/80 break-all">{result.name} → {result.address}</p>
+                <p className="text-[10px] text-white/30">Open the CONTRACTS tab to call it.</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {deployments.length > 0 && (
+        <div className="border border-white/10 rounded-lg bg-white/[0.02] overflow-hidden">
+          <div className="px-4 py-3 border-b border-white/5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+              Deployed here · {deployments.length}
+            </span>
+          </div>
+          {deployments.map(d => (
+            <div key={d.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-white/[0.04] last:border-b-0">
+              <span className="text-xs font-mono text-white/70 w-40 shrink-0 truncate">{d.name}</span>
+              <span className="text-[11px] font-mono text-white/40 truncate">{fmtAddr(d.address)}</span>
+              <span className="text-[10px] uppercase tracking-wider text-violet-400/60 shrink-0">chain {d.chainId || '?'}</span>
+              <div className="ml-auto flex items-center gap-1 shrink-0">
+                {d.explorer && (
+                  <a href={d.explorer} target="_blank" rel="noreferrer" className="p-1 rounded text-white/30 hover:text-cyan-400 transition-colors" title="View on explorer">
+                    <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
+                  </a>
+                )}
+                <button onClick={() => handleForget(d)} className="p-1 rounded text-white/30 hover:text-rose-400 transition-colors" title="Forget this deployment">
+                  <XMarkIcon className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -1157,6 +1532,57 @@ function BridgePanel({ account, connected }: { account: string; connected: boole
 
 // ── Main Page ───────────────────────────────────────────────────────────
 
+// ── Network picker (header) ─────────────────────────────────────────────
+
+function NetworkPicker({ chainId, onSelect }: {
+  chainId: string
+  onSelect: (net: NetworkDef) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const known = netFor(chainId)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-[10px] font-bold uppercase tracking-wider text-white/60 hover:bg-white/10 hover:text-white/80 transition-colors"
+      >
+        <span className={`w-1.5 h-1.5 rounded-full ${known ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+        {netLabel(chainId)}
+        <ChevronDownIcon className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 z-30 w-56 p-1 rounded-lg border border-white/10 bg-[#0d0d14] shadow-xl shadow-black/60">
+          {NETWORKS.map(net => (
+            <button
+              key={net.chainId}
+              onClick={() => { setOpen(false); onSelect(net) }}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-[10px] font-bold uppercase tracking-wider transition-colors
+                ${net.chainId === chainId ? 'bg-white/[0.08] text-white/90' : 'text-white/40 hover:bg-white/[0.04] hover:text-white/70'}`}
+            >
+              {net.label}
+              <span className="ml-auto font-mono text-white/25">{net.chainId}</span>
+            </button>
+          ))}
+          {!known && (
+            <p className="px-3 py-2 text-[9px] text-amber-300/60 leading-relaxed">
+              Wallet is on chain {chainId || '?'} — deploys will ask for its RPC.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BlocTimePageInner() {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
@@ -1164,6 +1590,7 @@ function BlocTimePageInner() {
   const [loading, setLoading] = useState(false)
   const [connected, setConnected] = useState(false)
   const [account, setAccount] = useState('')
+  const [chainId, setChainId] = useState(DEFAULT_CHAIN)
   const [tab, setTab] = useState<Tab>('stake')
 
   // Stake form
@@ -1183,6 +1610,11 @@ function BlocTimePageInner() {
   const [claiming, setClaiming] = useState(false)
   const [distributing, setDistributing] = useState(false)
   const [inflationCurve, setInflationCurve] = useState<InflationCurvePoint[]>([])
+
+  // Weekly pot — the countdown ticks locally between the 15s stats polls.
+  const [fundAmount, setFundAmount] = useState('')
+  const [funding, setFunding] = useState(false)
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000))
 
   // Contracts playground
   const [contractsMeta, setContractsMeta] = useState<ContractsMeta | null>(null)
@@ -1225,6 +1657,30 @@ function BlocTimePageInner() {
   }, [activeInst, getFactory])
 
   const instanceMode = !!(activeInst && !activeInst.official)
+
+  // ── Network ─────────────────────────────────────────────────────────
+
+  // The header picker mirrors the wallet's chain and drives it, so anything
+  // that switches networks (instance writes, deploys) keeps the header honest.
+  useEffect(() => {
+    const w = window as any
+    if (!w.ethereum) return
+    const apply = (hex: string) => { if (hex) setChainId(String(parseInt(hex, 16))) }
+    w.ethereum.request({ method: 'eth_chainId' }).then(apply).catch(() => {})
+    w.ethereum.on?.('chainChanged', apply)
+    return () => w.ethereum.removeListener?.('chainChanged', apply)
+  }, [])
+
+  const selectNetwork = useCallback(async (net: NetworkDef) => {
+    const w = window as any
+    if (!w.ethereum) { setChainId(net.chainId); return }
+    try {
+      await ensureChain({ chainId: net.chainId, rpc: net.rpc })
+      setChainId(net.chainId)
+    } catch (err: any) {
+      toast.error(err?.message || `Could not switch to ${net.label}`)
+    }
+  }, [])
 
   // ── Wallet connect ──────────────────────────────────────────────────
 
@@ -1302,6 +1758,12 @@ function BlocTimePageInner() {
   }, [fetchAll])
 
   useEffect(() => {
+    if (tab !== 'rewards') return
+    const iv = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000)
+    return () => clearInterval(iv)
+  }, [tab])
+
+  useEffect(() => {
     if (tab === 'market') loadMarket()
   }, [tab, loadMarket])
 
@@ -1313,6 +1775,9 @@ function BlocTimePageInner() {
     setTab('stake')
     toast.success(`Now using ${inst.name}`)
   }, [])
+
+  // Dropping the cache makes the CONTRACTS tab refetch with the new contract.
+  const handleContractDeployed = useCallback(() => setContractsMeta(null), [])
 
   const handleDeployed = useCallback((entry: Instance) => {
     setActiveInst(entry)
@@ -1418,6 +1883,25 @@ function BlocTimePageInner() {
     setClaiming(false)
   }, [fetchAll, instanceMode, withInstance])
 
+  const handleFundPot = useCallback(async () => {
+    if (!fundAmount || Number(fundAmount) <= 0) { toast.error('Enter amount'); return }
+    setFunding(true)
+    try {
+      const amt = ethers.parseEther(fundAmount)
+      if (instanceMode) {
+        await withInstance(async c => { await (await c.fundPot(amt)).wait() })
+      } else {
+        await api('fund_pot', { amount: fundAmount })
+      }
+      toast.success(`${fundAmount} BLOC added to the pot`)
+      setFundAmount('')
+      fetchAll()
+    } catch (err: any) {
+      toast.error(err?.reason || err?.shortMessage || err?.message || 'Funding failed')
+    }
+    setFunding(false)
+  }, [fetchAll, fundAmount, instanceMode, withInstance])
+
   const handleDistribute = useCallback(async () => {
     setDistributing(true)
     try {
@@ -1426,13 +1910,26 @@ function BlocTimePageInner() {
       } else {
         await api('distribute_rewards', {})
       }
-      toast.success('Rewards distributed')
+      toast.success('Pot distributed to BLOC holders')
       fetchAll()
     } catch (err: any) {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Distribution failed')
     }
     setDistributing(false)
   }, [fetchAll, instanceMode, withInstance])
+
+  // ── Weekly pot ─────────────────────────────────────────────────────
+
+  const potRemaining = stats?.pot ? Math.max(0, stats.pot.nextDistribution - nowSec) : 0
+  const potDue = !!stats?.pot && (stats.pot.due || potRemaining === 0)
+
+  // Pro-rata cut of everything the pot will hold at the next payout.
+  const potShare = useMemo(() => {
+    if (!stats?.pot || !overview) return '0'
+    const supply = BigInt(stats.pot.eligibleSupply || '0')
+    if (supply === 0n) return '0'
+    return (BigInt(stats.pot.projected) * BigInt(overview.blocBalance || '0') / supply).toString()
+  }, [overview, stats])
 
   // ── Sorting ────────────────────────────────────────────────────────
 
@@ -1493,6 +1990,7 @@ function BlocTimePageInner() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <NetworkPicker chainId={chainId} onSelect={selectNetwork} />
             {connected ? (
               <span className="text-xs text-emerald-400/70 font-mono">{fmtAddr(account)}</span>
             ) : (
@@ -1764,6 +2262,80 @@ function BlocTimePageInner() {
               </div>
             )}
 
+            {/* Weekly Pot — everything in it goes to BLOC holders on Friday */}
+            {stats?.pot && (
+              <div className="border border-amber-500/20 rounded-lg p-4 bg-amber-500/[0.03]">
+                <div className="flex items-center gap-2 mb-4">
+                  <FireIcon className="w-4 h-4 text-amber-400/60" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-white/40">Weekly Pot</span>
+                  <span className="ml-auto text-[10px] text-white/25">{stats.pot.schedule}</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                  <div className="p-3 rounded-lg border border-white/10 bg-white/[0.02]">
+                    <p className="text-[10px] text-white/25 uppercase tracking-wider mb-0.5">In the Pot</p>
+                    <p className="text-2xl font-bold text-amber-400 tabular-nums">{fmtEth(stats.pot.projected)} BLOC</p>
+                    {BigInt(stats.pot.pendingInflation || '0') > 0n && (
+                      <p className="text-[10px] text-white/25 mt-1 tabular-nums">
+                        {fmtEth(stats.pot.pot)} banked + {fmtEth(stats.pot.pendingInflation)} inflation
+                      </p>
+                    )}
+                  </div>
+                  <div className="p-3 rounded-lg border border-white/10 bg-white/[0.02]">
+                    <p className="text-[10px] text-white/25 uppercase tracking-wider mb-0.5">Next Payout</p>
+                    <p className={`text-2xl font-bold tabular-nums ${potDue ? 'text-emerald-400' : 'text-cyan-400'}`}>
+                      {potDue ? 'Ready' : fmtCountdown(potRemaining)}
+                    </p>
+                    <p className="text-[10px] text-white/25 mt-1">{fmtWhen(stats.pot.nextDistribution)}</p>
+                  </div>
+                  <div className="p-3 rounded-lg border border-white/10 bg-white/[0.02]">
+                    <p className="text-[10px] text-white/25 uppercase tracking-wider mb-0.5">Your Share</p>
+                    <p className="text-2xl font-bold text-emerald-400 tabular-nums">
+                      {connected && overview ? `${fmtEth(potShare)} BLOC` : '--'}
+                    </p>
+                    <p className="text-[10px] text-white/25 mt-1 tabular-nums">
+                      {fmtEth(stats.pot.eligibleSupply)} BLOC eligible
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="number"
+                    placeholder="Add BLOC to the pot"
+                    value={fundAmount}
+                    onChange={e => setFundAmount(e.target.value)}
+                    className="flex-1 text-sm px-4 py-2.5 rounded-lg border border-white/10 bg-white/5 text-white/90 focus:outline-none focus:border-white/30 tabular-nums transition-colors placeholder:text-white/20"
+                  />
+                  <button
+                    onClick={handleFundPot}
+                    disabled={funding || !connected || !fundAmount}
+                    className="px-4 py-2.5 rounded-lg border border-amber-500/40 bg-amber-500/15 text-amber-300 text-[10px] font-bold uppercase tracking-wider hover:bg-amber-500/25 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  >
+                    {funding ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> : <FireIcon className="w-3.5 h-3.5" />}
+                    Fund Pot
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleDistribute}
+                  disabled={distributing || !connected || !potDue}
+                  className="w-full py-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-[10px] font-bold uppercase tracking-wider hover:bg-amber-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                >
+                  {distributing
+                    ? <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Distributing...</>
+                    : <><FireIcon className="w-3.5 h-3.5" /> {potDue ? 'Distribute Pot to Holders' : `Opens in ${fmtCountdown(potRemaining)}`}</>}
+                </button>
+
+                <p className="text-[10px] text-white/25 mt-2 text-center">
+                  {stats.pot.lastDistribution
+                    ? `Last payout ${fmtWhen(stats.pot.lastDistribution)}. `
+                    : 'No payout yet. '}
+                  Anyone can trigger it once the window opens.
+                </p>
+              </div>
+            )}
+
             {/* Inflation Curve */}
             {inflationCurve.length > 1 && stats && (
               <div className="border border-white/10 rounded-lg p-4 bg-white/[0.02]">
@@ -1848,28 +2420,17 @@ function BlocTimePageInner() {
                 </div>
               )}
 
-              <div className="flex gap-2">
-                <button
-                  onClick={handleClaimRewards}
-                  disabled={claiming || !connected || !overview || overview.pendingRewards === '0'}
-                  className="flex-1 py-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-[10px] font-bold uppercase tracking-wider hover:bg-emerald-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-                >
-                  {claiming ? <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Claiming...</> : <><GiftIcon className="w-3.5 h-3.5" /> Claim Rewards</>}
-                </button>
-                <button
-                  onClick={handleDistribute}
-                  disabled={distributing || !connected}
-                  className="flex-1 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-300 text-[10px] font-bold uppercase tracking-wider hover:bg-amber-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-                >
-                  {distributing ? <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Distributing...</> : <><FireIcon className="w-3.5 h-3.5" /> Distribute Epoch</>}
-                </button>
-              </div>
+              <button
+                onClick={handleClaimRewards}
+                disabled={claiming || !connected || !overview || overview.pendingRewards === '0'}
+                className="w-full py-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-[10px] font-bold uppercase tracking-wider hover:bg-emerald-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              >
+                {claiming ? <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Claiming...</> : <><GiftIcon className="w-3.5 h-3.5" /> Claim Rewards</>}
+              </button>
 
-              {stats && stats.currentEpoch > stats.lastDistributionEpoch && (
-                <p className="text-[10px] text-amber-400/50 mt-2 text-center">
-                  {stats.currentEpoch - stats.lastDistributionEpoch} epoch{stats.currentEpoch - stats.lastDistributionEpoch !== 1 ? 's' : ''} ready to distribute
-                </p>
-              )}
+              <p className="text-[10px] text-white/25 mt-2 text-center">
+                Your share of every past payout. The next one lands {stats?.pot ? fmtWhen(stats.pot.nextDistribution) : 'Friday 12:00 EST'}.
+              </p>
             </div>
           </>
         )}
@@ -1888,7 +2449,10 @@ function BlocTimePageInner() {
 
         {/* ── Deploy Tab ───────────────────────────────────────────────── */}
         {tab === 'deploy' && (
-          <DeployPanel connected={connected} getFactory={getFactory} onDeployed={handleDeployed} />
+          <div className="space-y-4">
+            <DeployPanel connected={connected} chainId={chainId} getFactory={getFactory} onDeployed={handleDeployed} />
+            <BuildPanel connected={connected} chainId={chainId} onDeployed={handleContractDeployed} />
+          </div>
         )}
 
         {/* ── Bridge Tab ───────────────────────────────────────────────── */}

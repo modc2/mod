@@ -21,14 +21,15 @@ type AgentInfo = { value: string; label: string; icon: string; builtin?: boolean
 
 const NODE_W = 228
 // fallback only — the live list from /agents carries an authoritative builtin flag
-const BUILTINS = new Set(['default', 'architect', 'reviewer', 'debugger', 'builder', 'refactorer', 'safety'])
+const BUILTINS = new Set(['default', 'architect', 'reviewer', 'debugger', 'builder', 'refactorer',
+                          'safety', 'claude-code', 'codex'])
 const GRAPHS_KEY = 'agent_builder_graphs_v1'
 
 const KIND_META: Record<Exclude<NodeKind, 'agent'>, { label: string; icon: string; accent: string; border: string; wire: string; hint: string }> = {
-  prompt: { label: 'Prompt', icon: '¶', accent: 'text-amber-300', border: 'border-amber-400/30', wire: '#fbbf24', hint: 'system prompt' },
-  model:  { label: 'Model',  icon: '⬢', accent: 'text-sky-300',   border: 'border-sky-400/30',   wire: '#38bdf8', hint: 'LLM override' },
-  skill:  { label: 'Skill',  icon: '◇', accent: 'text-emerald-300', border: 'border-emerald-400/30', wire: '#34d399', hint: 'tool the agent may use' },
-  memory: { label: 'Memory', icon: '◈', accent: 'text-violet-300', border: 'border-violet-400/30', wire: '#a78bfa', hint: 'note injected as context' },
+  prompt: { label: 'Prompt', icon: '¶', accent: 'text-amber-300', border: 'border-amber-400/30', wire: 'rgb(var(--w-400))', hint: 'system prompt' },
+  model:  { label: 'Model',  icon: '⬢', accent: 'text-sky-300',   border: 'border-sky-400/30',   wire: 'rgb(var(--i-400))', hint: 'LLM override' },
+  skill:  { label: 'Skill',  icon: '◇', accent: 'text-emerald-300', border: 'border-emerald-400/30', wire: 'rgb(var(--a-400))', hint: 'tool the agent may use' },
+  memory: { label: 'Memory', icon: '◈', accent: 'text-violet-300', border: 'border-violet-400/30', wire: 'rgb(var(--v-400))', hint: 'note injected as context' },
 }
 
 let idSeq = 0
@@ -636,7 +637,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   return (
     <div className="h-full flex min-h-0">
       {/* ── palette ── */}
-      <div className="w-56 shrink-0 border-r border-white/[0.06] flex flex-col min-h-0 bg-[#0b0b0c]">
+      <div className="w-56 shrink-0 border-r border-white/[0.06] flex flex-col min-h-0 bg-surface-1">
         <div className="px-3 py-2.5 border-b border-white/[0.06] shrink-0">
           <div className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Nodes</div>
           <div className="text-[9px] text-gray-700 mt-0.5">drag onto the canvas → wires into the agent</div>
@@ -677,7 +678,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
       {/* ── canvas column ── */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
         {/* toolbar */}
-        <div className="border-b border-white/[0.06] px-3 py-2 flex items-center gap-2 shrink-0 bg-[#0b0b0c]">
+        <div className="border-b border-white/[0.06] px-3 py-2 flex items-center gap-2 shrink-0 bg-surface-1">
           <Select
             accent="emerald" className="max-w-[190px]"
             title="Load an existing agent into the builder"
@@ -753,7 +754,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
                 const from = nodes.find(n => n.id === e.from)
                 const to = nodes.find(n => n.id === e.to)
                 if (!from || !to) return null
-                const color = from.kind === 'agent' ? '#34d399' : KIND_META[from.kind as Exclude<NodeKind, 'agent'>].wire
+                const color = from.kind === 'agent' ? 'rgb(var(--a-400))' : KIND_META[from.kind as Exclude<NodeKind, 'agent'>].wire
                 const d = edgePath(portOut(from), portIn(to))
                 return (
                   <g key={e.id} className="pointer-events-auto">
@@ -761,16 +762,16 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
                       onClick={() => { setEdges(es => es.filter(x => x.id !== e.id)); setDirty(true) }}>
                       <title>click to disconnect</title>
                     </path>
-                    <path d={d} stroke={color} strokeWidth={1.8} fill="none" opacity={0.65} className="pointer-events-none builder-wire" />
+                    <path d={d} style={{ stroke: color }} strokeWidth={1.8} fill="none" opacity={0.65} className="pointer-events-none builder-wire" />
                   </g>
                 )
               })}
               {connecting && (() => {
                 const from = nodes.find(n => n.id === connecting.from)
                 if (!from) return null
-                const color = KIND_META[from.kind as Exclude<NodeKind, 'agent'>]?.wire || '#34d399'
+                const color = KIND_META[from.kind as Exclude<NodeKind, 'agent'>]?.wire || 'rgb(var(--a-400))'
                 return <path d={edgePath(portOut(from), { x: connecting.mx, y: connecting.my })}
-                  stroke={color} strokeWidth={1.8} strokeDasharray="5 4" fill="none" opacity={0.85} />
+                  style={{ stroke: color }} strokeWidth={1.8} strokeDasharray="5 4" fill="none" opacity={0.85} />
               })()}
             </g>
           </svg>
@@ -787,8 +788,8 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
                   ref={el => { nodeEls.current[n.id] = el }}
                   className={`absolute rounded-xl border shadow-xl transition-shadow ${
                     isAgent
-                      ? `bg-gradient-to-b from-emerald-500/[0.10] to-[#101312] ${sel ? 'border-emerald-400/60 shadow-[0_0_24px_rgba(52,211,153,0.25)]' : 'border-emerald-500/35 shadow-[0_0_18px_rgba(52,211,153,0.10)]'}`
-                      : `bg-[#131315] ${sel ? 'border-white/30' : meta!.border}`
+                      ? `bg-gradient-to-b from-emerald-500/[0.10] to-surface-1 ${sel ? 'border-emerald-400/60 shadow-[0_0_24px_rgb(var(--glow)/0.25)]' : 'border-emerald-500/35 shadow-[0_0_18px_rgb(var(--glow)/0.10)]'}`
+                      : `bg-surface-2 ${sel ? 'border-white/30' : meta!.border}`
                   }`}
                   style={{ left: n.x, top: n.y, width: NODE_W, pointerEvents: 'auto' }}
                   onPointerDown={e => { e.stopPropagation(); setSelected(n.id) }}
@@ -828,13 +829,13 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
                   {/* ports */}
                   {isAgent ? (
                     <div
-                      className="absolute -left-[7px] top-[14px] w-[14px] h-[14px] rounded-full bg-emerald-400 border-2 border-[#0b0b0c] shadow-[0_0_8px_rgba(52,211,153,0.7)]"
+                      className="absolute -left-[7px] top-[14px] w-[14px] h-[14px] rounded-full bg-emerald-400 border-2 border-surface-1 shadow-[0_0_8px_rgb(var(--glow)/0.7)]"
                       title="Input — drop wires here"
                     />
                   ) : (
                     <div
-                      className={`absolute -right-[7px] top-[14px] w-[14px] h-[14px] rounded-full border-2 border-[#0b0b0c] cursor-crosshair hover:scale-125 transition-transform ${connected(n.id) ? '' : 'animate-pulse'}`}
-                      style={{ background: meta!.wire, boxShadow: `0 0 8px ${meta!.wire}88` }}
+                      className={`absolute -right-[7px] top-[14px] w-[14px] h-[14px] rounded-full border-2 border-surface-1 cursor-crosshair hover:scale-125 transition-transform ${connected(n.id) ? '' : 'animate-pulse'}`}
+                      style={{ background: meta!.wire, boxShadow: `0 0 8px ${meta!.wire}` }}
                       onPointerDown={e => startConnect(e, n)}
                       title="Drag to the agent to connect"
                     />
@@ -848,7 +849,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
           <div className="absolute bottom-3 right-3 flex flex-col gap-1 z-10">
             {[['+', () => zoomBy(1.2)], ['−', () => zoomBy(0.84)], ['⌂', () => setViewport({ x: 0, y: 0, k: 1 })]].map(([label, fn]: any) => (
               <button key={label} onClick={fn}
-                className="w-7 h-7 rounded-md bg-[#141416] border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition text-sm flex items-center justify-center">
+                className="w-7 h-7 rounded-md bg-surface-2 border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition text-sm flex items-center justify-center">
                 {label}
               </button>
             ))}

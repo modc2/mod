@@ -23,10 +23,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // The default skin is server-rendered here and corrected to whatever
+    // the visitor last picked by ThemeBoot, before paint — so the first
+    // frame is already the right cabinet. `suppressHydrationWarning`
+    // because that script legitimately edits these two attributes.
+    <html lang="en" data-theme="dark" data-base="dark" suppressHydrationWarning>
       <head>
-        {/* Stamp data-theme="light" before React hydrates so light-mode
-            users don't see a dark-mode flash on first paint. */}
         <ThemeBoot />
       </head>
       <body className="font-pixel antialiased bg-pixel-bg text-pixel-white min-h-screen">

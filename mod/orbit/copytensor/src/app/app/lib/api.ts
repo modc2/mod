@@ -10,6 +10,7 @@ import type {
   SubnetDetail,
   SubnetInfo,
   Trade,
+  TraderBoard,
   Universe,
 } from "./types";
 
@@ -70,6 +71,13 @@ export const setPool = (size: number, refresh = false) =>
     `/pool?size=${size}&refresh=${refresh}`,
     { method: "POST" }
   );
+
+// ── trader index (bt) ──
+// Every tracked coldkey with live value, 24h/7d change and a spark — one
+// request, answered from bt's local index. Cheap enough to hang a whole
+// panel off, unlike /account/{ss58} which walks the chain per address.
+export const fetchTraders = (sortBy = "total_tao") =>
+  j<TraderBoard>(`/traders?sort_by=${sortBy}`);
 
 // ── watchlist ──
 export const fetchWatches = () =>

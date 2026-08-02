@@ -244,6 +244,21 @@ export interface SavedIndex {
   // the strat buys the outcome whose odds are RISING (e.g. 50¢ → 60¢),
   // exits when the momentum flips. Absent ⇒ pure copy strat.
   momentum?: MomentumParams;
+  // ── Proportional-copy fidelity ──
+  // How far a mirror may be upsized past its proportional notional when that
+  // notional lands under the order floor. 2 ⇒ "never place more than 2× what
+  // proportionality asked for"; smaller intents are skipped (SUB_SCALE)
+  // instead of all being placed at the same minimum. undefined ⇒ 2; explicit
+  // 0/null ⇒ legacy unbounded clamp-to-floor.
+  maxUpscale?: number | null;
+  // Don't mirror a leader BUY in a market resolving sooner than this many
+  // minutes — sub-hour Up/Down candles resolve before a poller can react.
+  // undefined ⇒ 60; explicit 0 ⇒ off.
+  minMinutesToClose?: number;
+  // Don't mirror a leader BUY older than this many seconds — a backlog after
+  // a fetch outage enters at prices the leader never paid. undefined ⇒ 300;
+  // explicit 0 ⇒ off.
+  maxTradeAgeSec?: number;
   createdAt: number;
   updatedAt: number;
   // Cached backtest snapshot (updated each time backtest runs)

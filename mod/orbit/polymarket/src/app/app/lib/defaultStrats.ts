@@ -144,8 +144,10 @@ export const DEFAULT_STRATS: StratTemplate[] = [
       maxPerCycle: 1,
       minTrade: 1,
       maxTrade: 10,
-      // 15s cycles: a 5-minute candle only lives ~20 of them, and the exit
-      // flip has to be seen with time left to act on it.
+      // Wants 15s cycles — a 5-minute candle only lives ~20 of them and the
+      // exit flip has to be seen with time left to act on it. The engine's
+      // 30s rate-limit floor (MIN_POLL_MINUTES) clamps it up, so this strat
+      // actually sees ~10 cycles per candle.
       livePollMinutes: 0.25,
       momentum: {
         candles: { slugPrefix: "btc-updown-5m", periodMinutes: 5 },

@@ -28,11 +28,11 @@ export default function CrimeControls({ options, query, onChange, busy }: Props)
   return (
     <div className="space-y-3 px-4 py-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#898781]">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
           Crime choropleth
         </h3>
         {busy && (
-          <span className="h-3 w-3 animate-spin rounded-full border border-white/25 border-t-transparent" />
+          <span className="h-3 w-3 animate-spin rounded-full border border-line-strong border-t-transparent" />
         )}
       </div>
 
@@ -66,11 +66,8 @@ export default function CrimeControls({ options, query, onChange, busy }: Props)
             <button
               key={w.since}
               onClick={() => onChange({ since: w.since })}
-              className={`rounded-md px-2 py-1.5 text-[11.5px] transition-colors ${
-                query.since === w.since
-                  ? 'bg-[#3987e5] text-white'
-                  : 'bg-white/[0.06] text-[#c3c2b7] hover:bg-white/[0.1]'
-              }`}
+              aria-pressed={query.since === w.since}
+              className="chip bg-fill px-2 py-1.5 text-[11.5px]"
             >
               {w.label}
             </button>
@@ -79,7 +76,7 @@ export default function CrimeControls({ options, query, onChange, busy }: Props)
       </Field>
 
       {query.metric === 'change' && win && (
-        <p className="rounded-md bg-black/25 px-2.5 py-2 text-[11px] leading-snug text-[#898781]">
+        <p className="rounded-ctl bg-inset px-2.5 py-2 text-[11px] leading-snug text-muted">
           Comparing {win.label} against {win.hint}. Areas with fewer than 10
           incidents in the prior window are left uncoloured.
         </p>
@@ -91,7 +88,7 @@ export default function CrimeControls({ options, query, onChange, busy }: Props)
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[10px] uppercase tracking-wider text-[#898781]">
+      <span className="mb-1 block text-[10px] uppercase tracking-wider text-muted">
         {label}
       </span>
       {children}
@@ -109,17 +106,17 @@ function Select({ value, onChange, items }: {
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full appearance-none rounded-md border border-white/10 bg-white/[0.06] px-2.5 py-1.5 pr-7 text-[12.5px] text-[#e6e8ee] outline-none focus:border-[#3987e5]"
+        className="field w-full appearance-none px-2.5 py-1.5 pr-7 text-[12.5px]"
       >
         {items.map(([k, label]) => (
-          <option key={k} value={k} className="bg-[#121722] text-[#e6e8ee]">
+          <option key={k} value={k} className="bg-surface-solid text-ink">
             {label}
           </option>
         ))}
       </select>
-      <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"
+      <svg className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted"
            width="10" height="6" viewBox="0 0 10 6" fill="none">
-        <path d="M1 1l4 4 4-4" stroke="#898781" strokeWidth="1.4" strokeLinecap="round" />
+        <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       </svg>
     </div>
   )

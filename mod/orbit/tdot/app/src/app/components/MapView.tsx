@@ -4,11 +4,10 @@ import { useEffect, useRef } from 'react'
 import maplibregl, { Map as MLMap } from 'maplibre-gl'
 import type { Catalog, Choropleth, LayerDef } from '@/lib/api'
 import {
-  CATEGORY_COLOR, DIVERGING, HEAT, LAYER_COLOR, NO_DATA, SEQUENTIAL,
-  divergingExpression, stepExpression,
+  classExpression, divergingExpression, mapPalette, seriesColor, sizeExpression,
+  stepExpression, type MapPalette,
 } from '@/lib/palette'
-
-export type Basemap = 'dark' | 'light' | 'streets'
+import type { BasemapId, ThemeBase } from '@/lib/theme'
 
 /** Bounding box of the amalgamated city, used to frame the opening view. */
 const TORONTO_BOUNDS: [[number, number], [number, number]] = [[-79.65, 43.56], [-79.10, 43.87]]
@@ -22,7 +21,7 @@ const TORONTO_BOUNDS: [[number, number], [number, number]] = [[-79.65, 43.56], [
 const OSM_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
 const CARTO_ATTR = `${OSM_ATTR} © <a href="https://carto.com/attributions">CARTO</a>`
 
-const BASEMAPS: Record<Basemap, { tiles: string[]; attribution: string }> = {
+const BASEMAPS: Record<BasemapId, { tiles: string[]; attribution: string }> = {
   dark: {
     tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
     attribution: CARTO_ATTR,
@@ -37,7 +36,7 @@ const BASEMAPS: Record<Basemap, { tiles: string[]; attribution: string }> = {
   },
 }
 
-function styleFor(basemap: Basemap): any {
+function styleFor(basemap: BasemapId): any {
   const b = BASEMAPS[basemap]
   return {
     version: 8,
@@ -58,7 +57,9 @@ type Props = {
   crime: Choropleth | null
   crimeMetric: string
   layerData: Record<string, GeoJSON.FeatureCollection>
-  basemap: Basemap
+  basemap: BasemapId
+  /** The active theme's surface. Picks which ramps the overlays are drawn with. */
+  base: ThemeBase
   flyTo: { lng: number; lat: number; zoom?: number; nonce: number } | null
   onFeatureClick: (payload: { layerId: string; props: Record<string, any> } | null) => void
   onMapReady: (map: MLMap) => void
@@ -66,8 +67,9 @@ type Props = {
 
 export default function MapView({
   catalog, active, opacity, crime, crimeMetric, layerData,
-  basemap, flyTo, onFeatureClick, onMapReady,
+  basemap, base, flyTo, onFeatureClick, onMapReady,
 }: Props) {
+  const pal = mapPalette(base)
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<MLMap | null>(null)
   const ready = useRef(false)
@@ -150,7 +152,7 @@ export default function MapView({
   useEffect(() => {
     redraw()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog, active, opacity, crime, crimeMetric, layerData])
+  }, [catalog, active, opacity, crime, crimeMetric, layerData, base])
 
   useEffect(() => {
     if (!flyTo || !map.current) return
@@ -183,7 +185,7 @@ export default function MapView({
     // Draw order: fills at the bottom, then lines, then points on top, so the
     // choropleth never buries the subway and stations stay clickable.
     const rank = (l: LayerDef) =>
-      l.kind === 'choropleth' || l.kind === 'polygon' ? 0
+      l.kind === 'choropleth' || l.kind === 'area' || l.kind === 'polygon' ? 0
         : l.kind === 'heatmap' ? 1
         : l.kind === 'outline' || l.kind === 'line' ? 2 : 3
     const ordered = active
@@ -195,10 +197,10 @@ export default function MapView({
       const alpha = opacity[def.id] ?? 1
       try {
         if (def.id === 'crime') {
-          if (crime) order.push(...addChoropleth(m, crime, crimeMetric, alpha))
+          if (crime) order.push(...addChoropleth(m, crime, crimeMetric, alpha, pal))
         } else {
           const data = layerData[def.id]
-          if (data) order.push(...addOverlay(m, def, data, alpha))
+          if (data) order.push(...addOverlay(m, def, data, alpha, pal))
         }
       } catch (err) {
         // A single malformed layer must not take the whole map down.
@@ -214,7 +216,8 @@ export default function MapView({
 
 // ── choropleth ────────────────────────────────────────────────────────────
 
-function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number): string[] {
+function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number,
+                       pal: MapPalette): string[] {
   const src = 'tdot-crime'
   m.addSource(src, { type: 'geojson', data: fc as any })
   const stops = fc.breaks?.stops ?? []
@@ -222,13 +225,13 @@ function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number):
 
   const color = diverging
     ? divergingExpression(metric, Math.max(
-        Math.abs(fc.breaks?.min ?? 0), Math.abs(fc.breaks?.max ?? 0)))
-    : stepExpression(metric, stops, SEQUENTIAL)
+        Math.abs(fc.breaks?.min ?? 0), Math.abs(fc.breaks?.max ?? 0)), pal.DIVERGING)
+    : stepExpression(metric, stops, pal.SEQUENTIAL)
 
   // Areas where the metric is unreportable (a thin prior sample for `change`)
   // are drawn as a flat grey rather than the ramp's lowest class — "no data"
   // and "least crime" must not look the same.
-  const fill: any = ['case', ['==', ['get', metric], null], NO_DATA, color]
+  const fill: any = ['case', ['==', ['get', metric], null], pal.NO_DATA, color]
 
   m.addLayer({
     id: 'crime--fill',
@@ -241,7 +244,7 @@ function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number):
     type: 'line',
     source: src,
     paint: {
-      'line-color': 'rgba(255,255,255,0.22)',
+      'line-color': pal.HAIRLINE,
       'line-width': 0.6,
     },
   })
@@ -251,10 +254,10 @@ function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number):
 // ── overlays ──────────────────────────────────────────────────────────────
 
 function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
-                    alpha: number): string[] {
+                    alpha: number, pal: MapPalette): string[] {
   const src = `tdot-${def.id}`
   m.addSource(src, { type: 'geojson', data: data as any })
-  const color = LAYER_COLOR[def.id] || '#3987e5'
+  const color = pal.LAYER_COLOR[def.id] || pal.POINT_DEFAULT
   const ids: string[] = []
 
   const add = (layer: any) => {
@@ -270,7 +273,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
         id: `${def.id}--line`, type: 'line', source: src,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': ['coalesce', ['get', 'color'], '#8b93a7'],
+          'line-color': ['coalesce', ['get', 'color'], pal.LINE_DEFAULT],
           'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.6, 13, 3.4, 16, 6],
           'line-opacity': 0.95 * alpha,
         },
@@ -297,7 +300,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
           'circle-color': color,
           // A 2px surface ring keeps overlapping stations countable.
           'circle-stroke-width': 1.4,
-          'circle-stroke-color': '#11151c',
+          'circle-stroke-color': pal.HALO,
           'circle-opacity': alpha,
         },
       })
@@ -313,8 +316,8 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
           'text-allow-overlap': false,
         },
         paint: {
-          'text-color': '#e6e8ee',
-          'text-halo-color': '#0b0e14',
+          'text-color': pal.LABEL,
+          'text-halo-color': pal.HALO,
           'text-halo-width': 1.4,
         },
       })
@@ -359,7 +362,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
           // the whole city one colour and buries every layer beneath it.
           'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 15, 2.4],
           'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
-            ...HEAT.flatMap(([stop, c]) => [stop, c])] as any,
+            ...pal.HEAT.flatMap(([stop, c]) => [stop, c])] as any,
           'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 9, 5, 15, 26],
           'heatmap-opacity': 0.62 * alpha,
         },
@@ -371,18 +374,18 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2.5, 17, 6],
           'circle-color': ['case', ['>', ['coalesce', ['get', 'killed'], 0], 0],
-            '#f2a0a0', color],
+            pal.FATAL, color],
           'circle-opacity': 0.85 * alpha,
           'circle-stroke-width': 0.8,
-          'circle-stroke-color': '#11151c',
+          'circle-stroke-color': pal.HALO,
         },
       })
       return [`${def.id}--circle`]
 
     case 'incidents': {
       const match: any[] = ['match', ['get', 'cat']]
-      Object.entries(CATEGORY_COLOR).forEach(([k, c]) => match.push(k, c))
-      match.push('#9ec5f4')
+      Object.entries(pal.CATEGORY_COLOR).forEach(([k, c]) => match.push(k, c))
+      match.push(pal.POINT_DEFAULT)
       add({
         id: `${def.id}--circle`, type: 'circle', source: src,
         paint: {
@@ -390,7 +393,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
           'circle-color': match as any,
           'circle-opacity': 0.8 * alpha,
           'circle-stroke-width': 0.4,
-          'circle-stroke-color': 'rgba(11,14,20,0.7)',
+          'circle-stroke-color': pal.HALO,
         },
       })
       return ids
@@ -407,10 +410,10 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
             15, ['*', 3.5, ['sqrt', ['/', ['coalesce', ['get', 'units'], 10], 20]]]],
           // Low-scoring buildings surface in the warning hue.
           'circle-color': ['step', ['coalesce', ['get', 'score'], 100],
-            '#e66767', 65, '#eda100', 80, color],
+            pal.SCORE[0], 65, pal.SCORE[1], 80, color],
           'circle-opacity': 0.7 * alpha,
           'circle-stroke-width': 1,
-          'circle-stroke-color': '#11151c',
+          'circle-stroke-color': pal.HALO,
         },
       })
       return ids
@@ -429,24 +432,122 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       return ids
 
     default:
-      // A layer added to the catalogue but not styled here still renders,
-      // picked by geometry, rather than silently disappearing.
-      if (def.geometry === 'polygon') {
-        add({
-          id: `${def.id}--fill`, type: 'fill', source: src,
-          paint: { 'fill-color': color, 'fill-opacity': 0.4 * alpha },
-        })
-      } else if (def.geometry === 'line') {
-        add({
-          id: `${def.id}--line`, type: 'line', source: src,
-          paint: { 'line-color': color, 'line-width': 1.2, 'line-opacity': alpha },
-        })
-      } else {
-        add({
-          id: `${def.id}--circle`, type: 'circle', source: src,
-          paint: { 'circle-radius': 3.2, 'circle-color': color, 'circle-opacity': alpha },
-        })
-      }
-      return ids
+      // Everything else is drawn from its `style` block — the real-estate and
+      // housing layers, and anything a person adds from the portal at runtime.
+      // Nothing here knows the layer's name, which is the point: a dataset
+      // added from the chat or the Add-data panel renders properly on arrival
+      // instead of falling back to an anonymous dot.
+      return addFromStyle(m, def, data, alpha, pal, add, ids)
   }
+}
+
+/**
+ * How far from zero a diverging field has to run to saturate the ramp.
+ *
+ * For a residual — how far a building is from what the model predicts — the
+ * meaningful unit is the model's own typical error: twice it is "well outside
+ * what this model gets wrong", and that is where the colour should top out.
+ * Falling back to the extreme value would put a single -41 building at full
+ * saturation and leave every other building sitting in the neutral middle.
+ */
+function divergingScale(data: GeoJSON.FeatureCollection): number {
+  const meta = (data as any).meta
+  if (typeof meta?.typical_error === 'number') return meta.typical_error * 2
+  const stops: number[] = (data as any).breaks?.stops ?? []
+  return stops.length ? Math.max(...stops.map(Math.abs)) : 1
+}
+
+/**
+ * The diverging ramp, oriented by what the metric's negative arm *means*.
+ *
+ * The palette's ramp runs blue→red because it was drawn for crime change,
+ * where up is bad. A residual is the other way round: below zero is the
+ * building doing worse than its peers, so `down_bad` flips it and red lands
+ * where it belongs.
+ */
+function divergingRamp(style: Record<string, any>, pal: MapPalette): string[] {
+  return style.diverging === 'down_bad' ? [...pal.DIVERGING].reverse() : pal.DIVERGING
+}
+
+/**
+ * Generic renderer: geometry decides the mark, `style` decides how it is
+ * encoded. Supported encodings are `color_by` + `classes` (categorical),
+ * `color_by` + `diverging` (a signed metric centred on zero), `size_by` +
+ * `size_norm` (√-scaled radius), and a graduated fill for the per-ward `area`
+ * layers, which carry their own class breaks.
+ */
+function addFromStyle(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
+                      alpha: number, pal: MapPalette,
+                      add: (l: any) => void, ids: string[]): string[] {
+  const src = `tdot-${def.id}`
+  const style = def.style || {}
+  const base = pal.LAYER_COLOR[def.id] || seriesColor(def.id, pal)
+
+  if (def.kind === 'area') {
+    // A count-per-ward map. Its breaks travel with the data because only the
+    // server has seen every value; the alternate ramp keeps it distinguishable
+    // from the crime choropleth when both are on.
+    const breaks = (data as any).breaks
+    const metric = style.color_by || breaks?.metric || 'count'
+    const color = breaks?.stops?.length
+      ? stepExpression(metric, breaks.stops, pal.SEQUENTIAL_ALT)
+      : base
+    add({
+      id: `${def.id}--fill`, type: 'fill', source: src,
+      paint: { 'fill-color': color as any, 'fill-opacity': 0.7 * alpha },
+    })
+    add({
+      id: `${def.id}--line`, type: 'line', source: src,
+      paint: { 'line-color': pal.HAIRLINE, 'line-width': 0.6 },
+    })
+    return [`${def.id}--fill`]
+  }
+
+  const color: any = style.color_by && style.classes
+    ? classExpression(style.color_by, style.classes, pal, base)
+    : style.color_by && style.diverging
+    ? divergingExpression(style.color_by, divergingScale(data), divergingRamp(style, pal))
+    : base
+
+  if (def.geometry === 'polygon') {
+    add({
+      id: `${def.id}--fill`, type: 'fill', source: src,
+      paint: { 'fill-color': color, 'fill-opacity': 0.42 * alpha },
+    })
+    add({
+      id: `${def.id}--line`, type: 'line', source: src,
+      paint: { 'line-color': color, 'line-width': 0.6, 'line-opacity': 0.8 * alpha },
+    })
+    return [`${def.id}--fill`]
+  }
+
+  if (def.geometry === 'line') {
+    add({
+      id: `${def.id}--line`, type: 'line', source: src,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': color,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 15, 2.4],
+        'line-opacity': 0.9 * alpha,
+      },
+    })
+    return ids
+  }
+
+  const radius: any = style.size_by
+    ? sizeExpression(style.size_by, Number(style.size_norm) || 100)
+    : ['interpolate', ['linear'], ['zoom'],
+       10, (Number(style.radius) || 3.2) * 0.55, 14, Number(style.radius) || 3.2,
+       17, (Number(style.radius) || 3.2) * 2]
+  add({
+    id: `${def.id}--circle`, type: 'circle', source: src,
+    paint: {
+      'circle-radius': radius,
+      'circle-color': color,
+      'circle-opacity': 0.75 * alpha,
+      'circle-stroke-width': 0.6,
+      'circle-stroke-color': pal.HALO,
+    },
+  })
+  return ids
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useThemeColors } from "../context/ThemeContext";
 
 type Health = {
   connected: boolean;
@@ -17,6 +18,7 @@ const BASE = process.env.NEXT_PUBLIC_API_URL || "/api/copytensor";
 // Compact status chip showing the active Bittensor RPC endpoint + full pool
 // in a tooltip. Green = connected, red = down. Polls every 30s.
 export default function RpcPoolChip() {
+  const skin = useThemeColors();
   const [h, setH] = useState<Health | null>(null);
 
   useEffect(() => {
@@ -37,13 +39,13 @@ export default function RpcPoolChip() {
 
   if (!h) {
     return (
-      <span className="pixel-btn text-[10px] px-2 py-1 font-mono text-pixel-gray">
+      <span className="pixel-btn topbar-ctl px-3 font-mono text-[15px] text-pixel-gray">
         rpc · …
       </span>
     );
   }
 
-  const dotColor = h.connected ? "#4ade80" : "#f87171";
+  const dotColor = h.connected ? skin.lime : skin.red;
   const host = (h.endpoint || "").replace(/^wss?:\/\//, "").split(":")[0];
   const shortHost = host.split(".").slice(0, 2).join(".") || "—";
 
@@ -57,10 +59,10 @@ export default function RpcPoolChip() {
   return (
     <span
       title={tooltip}
-      className="pixel-btn text-[10px] px-2 py-1 font-mono text-pixel-gray-light flex items-center gap-1.5"
+      className="pixel-btn topbar-ctl px-3 font-mono text-[15px] text-pixel-gray-light flex items-center gap-2"
     >
       <span
-        className="inline-block w-1.5 h-1.5 rounded-full"
+        className="inline-block w-2 h-2 rounded-full"
         style={{ background: dotColor, boxShadow: `0 0 6px ${dotColor}` }}
       />
       rpc · {shortHost}

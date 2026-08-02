@@ -33,6 +33,13 @@ console — Hub / Interact / Contracts / Control / Protocol / Owner / Docs).
 - **Admin / owner console**: read owner of every contract, encode or execute
   owner-only setters, transfer all ownership (e.g. to the Safe), export calls
   as a Safe multisig batch. Contract verification + deploy scripts via hardhat.
+- **Contract builder**: compile arbitrary Solidity with solc 0.8.26 in a
+  subprocess (`src/build/compile.js`); imports resolve against the module's
+  `node_modules`, so `@openzeppelin/contracts` works. The API returns ABI +
+  bytecode — deployment is signed in the browser, so no user key ever reaches
+  the server. Starter templates (`Counter`, `Token`, `NFT`, `Vault`,
+  `Splitter`) live in `src/build/templates/`; drafts and recorded builds go to
+  `~/.mod/chain/build/{drafts,deployments}.json`, keyed by deployer address.
 - **Wallets in the web console**: MetaMask (auto chain-switch/add on send) or a
   browser-local ethers keypair (import/export private key); reads are
   wallet-free via RPC.
@@ -105,6 +112,10 @@ curl -X POST localhost:8800/call -H 'Content-Type: application/json' \
 | GET | `/admin/owners` | Owner of each contract |
 | POST | `/admin/encode` · `/admin/send` · `/admin/transfer-all` | Owner-only calls / ownership transfer |
 | GET | `/control/status` — POST `/control/verify` · `/control/deploy-script` | Toolchain, verification, scripts |
+| POST | `/build/compile` | `{source, filename?, optimize?, runs?}` → deployable `{name, abi, bytecode, size, constructor}` + errors/warnings |
+| GET | `/build/templates` | Starter contracts |
+| GET/POST/DELETE | `/build/drafts` | Per-address source drafts |
+| GET/POST | `/build/deployments` | Per-address record of wallet-signed builds |
 
 ## Environment
 
@@ -121,4 +132,6 @@ Used by `hardhat.config.js` / deploy tooling (all optional; sane defaults):
 - `src/api/api.py` — FastAPI server; `src/api/start.sh`
 - `src/app/` — Next.js console; `src/app/start.sh` (`DEV=0` → build + start)
 - `src/contracts/<module>/` — Solidity sources, one README per module
+- `src/build/compile.js` + `src/build/templates/` — contract builder toolchain
+- `~/.mod/chain/build/` — builder drafts + recorded user deployments (off-tree)
 - `scripts/deploy-defi.js`, `hardhat.config.js` — hardhat tooling

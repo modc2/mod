@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>SUPER MARIO EMULATOR — an NES in the browser</title>
+<meta name="description" content="A cycle-checked NES emulator: 6502, 2C02 PPU, 2A03 sound, and the boards the Mario carts shipped on. Bring your own ROM.">
+<style>
+  :root {
+    color-scheme: dark;
+    --sky: #5c94fc;
+    --brick: #c84c0c;
+    --coin: #f7d51d;
+    --pipe: #00a800;
+    --ink: #0b0b12;
+    --panel: #15151f;
+    --line: #262633;
+    --text: #e8e8f0;
+    --dim: #8a8a9c;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--ink);
+    color: var(--text);
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none; user-select: none;
+  }
+
+  #app { height: 100%; display: flex; flex-direction: column; }
+
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(#191926, #12121c);
+    flex: 0 0 auto;
+  }
+  h1 {
+    margin: 0; font-size: 13px; letter-spacing: 2px; font-weight: 700;
+    color: var(--coin);
+    text-shadow: 2px 2px 0 #7a2000;
+  }
+  h1 small { color: var(--sky); letter-spacing: 1px; text-shadow: none; }
+  #cart {
+    margin-left: auto; display: flex; gap: 6px; align-items: center;
+    font-size: 10px; color: var(--dim); flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .chip {
+    border: 1px solid var(--line); border-radius: 3px;
+    padding: 2px 6px; background: #101019; white-space: nowrap;
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+
+  #stage {
+    flex: 1 1 auto; min-height: 0; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    padding: 12px;
+    background:
+      radial-gradient(ellipse at 50% 0%, #1a1a2c 0%, var(--ink) 70%);
+  }
+  canvas#screen {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: #000;
+    border: 3px solid #22222e;
+    border-radius: 3px;
+    box-shadow: 0 0 0 1px #000, 0 18px 60px rgba(0,0,0,.75),
+                0 0 90px rgba(92,148,252,.12);
+    max-width: 100%; max-height: 100%;
+  }
+  #screen.scanlines {
+    background-image: repeating-linear-gradient(
+      transparent 0 2px, rgba(0,0,0,.28) 2px 3px);
+    background-blend-mode: multiply;
+  }
+
+  /* the empty state, which is also the drop target */
+  #drop {
+    position: absolute; inset: 12px;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 14px; text-align: center;
+    border: 2px dashed #2e2e40; border-radius: 6px;
+    background: rgba(11,11,18,.86);
+    padding: 20px;
+  }
+  #drop.hide { display: none; }
+  #drop.over { border-color: var(--coin); background: rgba(24,20,6,.9); }
+  #drop h2 {
+    margin: 0; font-size: 15px; letter-spacing: 2px; color: var(--coin);
+    text-shadow: 2px 2px 0 #7a2000;
+  }
+  #drop p { margin: 0; font-size: 11px; color: var(--dim); line-height: 1.7; max-width: 46ch; }
+  #drop .note {
+    font-size: 10px; color: #6a6a7c; border-top: 1px solid var(--line);
+    padding-top: 12px; max-width: 52ch;
+  }
+
+  button, label.btn {
+    font: inherit; font-size: 11px;
+    color: var(--text); background: #1c1c28;
+    border: 1px solid var(--line); border-radius: 3px;
+    padding: 6px 10px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  button:hover, label.btn:hover { background: #26263a; border-color: #3a3a52; }
+  button:active { transform: translateY(1px); }
+  button.on { background: var(--brick); border-color: #e2691f; color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  .primary {
+    background: var(--brick); border-color: #e2691f; color: #fff;
+    font-weight: 700; letter-spacing: 1px; padding: 9px 16px;
+  }
+  .primary:hover { background: #e2691f; }
+  input[type=file] { display: none; }
+
+  footer {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--line);
+    background: #12121c;
+  }
+  #bar {
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    padding: 8px 14px;
+  }
+  #bar .sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+  #stats { margin-left: auto; font-size: 10px; color: var(--dim); }
+  #stats b { color: var(--pipe); }
+
+  #keys {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    padding: 0 14px 10px; font-size: 10px; color: var(--dim);
+  }
+  #keys span b { color: var(--text); font-weight: 600; }
+  kbd {
+    background: #1c1c28; border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: 3px;
+    padding: 1px 5px; font: inherit; font-size: 10px; color: var(--text);
+  }
+
+  #toast {
+    position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+    background: #000c; border: 1px solid var(--line); border-radius: 3px;
+    padding: 7px 14px; font-size: 11px; color: var(--coin);
+    opacity: 0; transition: opacity .25s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; }
+  #toast.bad { color: #ff6b6b; }
+
+  @media (max-width: 620px) {
+    #keys { display: none; }
+    #cart { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>SUPER MARIO <small>EMULATOR</small></h1>
+    <div id="cart"><span class="chip">no cartridge</span></div>
+  </header>
+
+  <div id="stage">
+    <canvas id="screen" width="256" height="240"></canvas>
+
+    <div id="drop">
+      <h2>INSERT CARTRIDGE</h2>
+      <p>
+        Drop a <b>.nes</b> file here, or pick one below.<br>
+        Everything runs locally in this tab — the ROM is never uploaded.
+      </p>
+      <label class="btn primary" for="file">CHOOSE A ROM</label>
+      <input type="file" id="file" accept=".nes,.zip,application/octet-stream">
+      <p class="note">
+        This is the console, not the cartridge. Super Mario Bros. and the rest
+        of the library are still under copyright, so no game data ships with
+        this module — supply a dump of a cartridge you own.
+      </p>
+    </div>
+
+    <div id="toast"></div>
+  </div>
+
+  <footer>
+    <div id="bar">
+      <label class="btn" for="file">OPEN</label>
+      <button id="pause" disabled>PAUSE</button>
+      <button id="reset" disabled>RESET</button>
+      <div class="sep"></div>
+      <button id="save" disabled>SAVE</button>
+      <button id="load" disabled>LOAD</button>
+      <button id="slot" disabled title="which save-state slot">SLOT 1</button>
+      <div class="sep"></div>
+      <button id="mute">SOUND ON</button>
+      <button id="crt" title="scanline overlay">CRT</button>
+      <button id="shot" disabled title="save a PNG of the screen">SHOT</button>
+      <button id="full">FULL</button>
+      <div id="stats"></div>
+    </div>
+    <div id="keys">
+      <span><b>D-PAD</b> <kbd>←↑↓→</kbd> / <kbd>WASD</kbd></span>
+      <span><b>A</b> <kbd>X</kbd> <kbd>K</kbd> <kbd>space</kbd></span>
+      <span><b>B</b> <kbd>Z</kbd> <kbd>J</kbd></span>
+      <span><b>START</b> <kbd>enter</kbd></span>
+      <span><b>SELECT</b> <kbd>shift</kbd></span>
+      <span><b>PAUSE</b> <kbd>P</kbd></span>
+      <span><b>STATE</b> <kbd>F2</kbd>/<kbd>F4</kbd></span>
+      <span><b>FAST</b> <kbd>tab</kbd></span>
+    </div>
+  </footer>
+</div>
+
+<script>
+// The bundle is loaded from script rather than from <script src> tags because
+// the gateway serves this document at /supermario with the trailing slash
+// stripped, and a relative src there resolves to /js/*, one level too high to
+// route. A path with no file extension IS the directory; anything else drops
+// its last segment.
+(function () {
+  var dir = location.pathname;
+  if (!/\/$/.test(dir)) dir = /\/[^/]*\.[^/]*$/.test(dir)
+    ? dir.slice(0, dir.lastIndexOf('/') + 1)
+    : dir + '/';
+  var base = document.createElement('base');
+  base.href = dir;
+  document.head.appendChild(base);
+  ['cpu', 'mappers', 'ppu', 'apu', 'nes', 'ui'].forEach(function (name) {
+    var s = document.createElement('script');
+    s.src = dir + 'js/' + name + '.js';
+    s.async = false;                     // keeps them executing in this order
+    document.head.appendChild(s);
+  });
+})();
+</script>
+<script>
+// A silent black screen is what a failed script load looks like; say so instead.
+addEventListener('load', function () {
+  if (window.__nes) return;
+  var d = document.getElementById('drop');
+  if (d) {
+    d.classList.remove('hide');
+    d.innerHTML = '<h2>THE EMULATOR DID NOT LOAD</h2>' +
+      '<p>js/ failed to fetch from<br><b>' + document.baseURI + '</b><br>' +
+      'open the console for the 404.</p>';
+  }
+});
+</script>
+</body>
+</html>

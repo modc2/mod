@@ -14,10 +14,27 @@ def g(tmp_path, monkeypatch):
     inst = gitmod.Mod()
     inst.state_path = str(tmp_path / 'state.json')
     inst.github_path = str(tmp_path / 'github.json')
+    inst.oauth_path = str(tmp_path / 'oauth.json')
+    inst.pending_path = str(tmp_path / 'pending.json')
     inst.access_path = str(tmp_path / 'access.json')
     inst.clones = str(tmp_path / 'repos')
-    monkeypatch.delenv('GIT_ACCESS_OPEN', raising=False)
+    for var in ('GIT_ACCESS_OPEN', 'GITHUB_TOKEN', 'GH_TOKEN',
+                'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'):
+        monkeypatch.delenv(var, raising=False)
     return inst
+
+
+@pytest.fixture()
+def gh_user(monkeypatch):
+    """Stub api.github.com — /user identifies whoever the token belongs to."""
+    def _api(self, path, token=None, params=None, address=None):
+        if path == '/user':
+            return {'login': f'user-{token}', 'name': 'T'}, {'X-OAuth-Scopes': 'repo'}
+        if path == '/rate_limit':
+            return {'resources': {'core': {'remaining': 4999, 'limit': 5000}}}, {}
+        return [], {}
+    import mod.orbit.git.mod as gitmod
+    monkeypatch.setattr(gitmod.Mod, '_gh_api', _api)
 
 
 def make_repo(path):
@@ -72,6 +89,94 @@ def test_track_rejects_garbage(g):
         g.track('definitely not a repo ///')
 
 
+class FakeAgent:
+    """Stands in for the agent module — records the prompt, replies (or dies)."""
+    DEFAULT_MODELS = {'model.openrouter': 'test/model'}
+
+    def __init__(self, reply=None, boom=None):
+        self._provider = 'model.openrouter'
+        self.reply, self.boom, self.prompts = reply, boom, []
+        outer = self
+
+        class _Model:
+            def forward(self, prompt, **kw):
+                outer.prompts.append((prompt, kw))
+                if outer.boom:
+                    raise RuntimeError(outer.boom)
+                return outer.reply
+        self.model = _Model()
+
+
+@pytest.fixture()
+def dirty(g, tmp_path):
+    """A tracked repo with one modified file."""
+    repo = make_repo(str(tmp_path / 'w'))
+    g.track(repo, name='w')
+    open(os.path.join(repo, 'a.txt'), 'w').write('one\ntwo\n')
+    return repo
+
+
+def test_agent_writes_the_commit_message(g, dirty):
+    g._agent_mod = FakeAgent(reply='```\nHere is the commit message:\n'
+                                   'add a second line to a.txt\n\n- because one was lonely\n```')
+    out = g.message('w')
+    assert out['by'] == 'agent' and out['model'] == 'test/model' and out['files'] == 1
+    assert out['message'] == 'add a second line to a.txt\n\n- because one was lonely'
+    prompt, kw = g._agent_mod.prompts[0]
+    assert '+two' in prompt and 'a.txt' in prompt and kw['temperature'] == 0
+
+
+def test_commit_takes_the_agent_message_and_msg_wins(g, dirty):
+    g._agent_mod = FakeAgent(reply='written by the agent')
+    out = g.commit('w')
+    assert out['committed'] and out['by'] == 'agent'
+    assert g.commits('w')[0]['message'] == 'written by the agent'
+    assert g.changes('w')['clean']
+    # an explicit message never reaches the agent
+    open(os.path.join(dirty, 'a.txt'), 'a').write('three\n')
+    out = g.commit('w', msg='mine')
+    assert out['by'] == 'caller' and g.commits('w')[0]['message'] == 'mine'
+    assert len(g._agent_mod.prompts) == 1
+
+
+def test_message_falls_back_when_the_agent_is_down(g, dirty):
+    open(os.path.join(dirty, 'b.txt'), 'w').write('b\n')
+    g._agent_mod = FakeAgent(boom='no api key')
+    out = g.message('w')
+    assert out['by'] == 'fallback' and 'no api key' in out['error']
+    assert out['message'] == 'update 2 files in a.txt, b.txt'
+    # a dead agent must not block the commit
+    assert g.commit('w')['committed'] and g.commits('w')[0]['message'] == out['message']
+
+
+def test_message_needs_something_to_describe(g, tmp_path):
+    g.track(make_repo(str(tmp_path / 'c')), name='c')
+    g._agent_mod = FakeAgent(reply='nope')
+    with pytest.raises(ValueError):
+        g.message('c')
+    assert not g._agent_mod.prompts
+
+
+def test_push_commits_then_pushes(g, dirty, tmp_path):
+    bare = str(tmp_path / 'remote.git')
+    subprocess.run(['git', 'init', '--bare', bare], capture_output=True, check=True)
+    for cmd in (['git', 'remote', 'add', 'origin', bare],
+                ['git', 'push', '-u', 'origin', 'main']):
+        subprocess.run(cmd, cwd=dirty, capture_output=True, check=True)
+    g._agent_mod = FakeAgent(reply='add two')
+    out = g.push('w')
+    assert out['committed'] and out['message'] == 'add two' and out['pushed']
+    assert g.commits('w')[0]['hash'].startswith(out['hash'])
+    # nothing left to commit — push is then a no-op that still reports honestly
+    again = g.push('w')
+    assert again['committed'] is False and again['pushed'] and len(g._agent_mod.prompts) == 1
+
+
+def test_push_output_never_leaks_the_token(g):
+    assert g._scrub('To https://x-access-token:ghp_secret@github.com/o/r.git') == \
+        'To https://***@github.com/o/r.git'
+
+
 def test_acl_roles_and_authorize(g):
     acl = g._acl()
     me = m.key().address
@@ -103,11 +208,95 @@ def test_write_rank(g):
 
 def test_github_disconnected_by_default(g):
     gh = g.github()
-    assert gh['connected'] is False
+    assert gh['connected'] is False and gh['keys'] == []
     with pytest.raises(PermissionError):
-        os.environ.pop('GITHUB_TOKEN', None)
-        os.environ.pop('GH_TOKEN', None)
         g.github_repos()
+
+
+def test_github_accounts_are_per_key(g, gh_user):
+    owner = g._acl()['owner']
+    g.connect('tok-a', address='0xA')
+    assert g.github(address='0xA')['login'] == 'user-tok-a'
+    assert g.github(address='0xB')['connected'] is False
+    # 0xB has no account of its own and the owner has none either → nothing
+    assert g._github_token('0xB') is None
+    g.connect('tok-owner')
+    assert g._github_token('0xA') == 'tok-a'          # your own key wins
+    assert g._github_token('0xB') == 'tok-owner'      # …else the owner's
+    assert {k['key'] for k in g.github()['keys']} == {'0xA', owner}
+    assert g.disconnect(address='0xA')['was'] == 'user-tok-a'
+    assert g.github(address='0xA')['connected'] is False
+
+
+def test_legacy_single_account_migrates_to_the_owner(g):
+    json.dump({'token': 'old', 'login': 'legacy'}, open(g.github_path, 'w'))
+    assert g._github_token() == 'old'
+    assert g.github()['login'] == 'legacy'
+    assert list(json.load(open(g.github_path))['accounts']) == [g._acl()['owner']]
+
+
+def fake_post(responses):
+    """Stub github.com/login/* — pops one canned json body per call."""
+    class R:
+        def __init__(self, body):
+            self.text = json.dumps(body)
+            self._b = body
+
+        def json(self):
+            return self._b
+    calls = []
+
+    def _post(url, headers=None, data=None, timeout=None):
+        calls.append((url, data))
+        return R(responses.pop(0))
+    return _post, calls
+
+
+def test_oauth_needs_an_app_first(g):
+    with pytest.raises(PermissionError):
+        g.oauth()
+    assert g.oauth_status()['configured'] is False
+    st = g.oauth_app(client_id='cid')
+    assert st['configured'] and st['device_flow'] and not st['web_flow']
+    assert g.oauth_app(client_id='cid', client_secret='sek')['web_flow'] is True
+    assert oct(os.stat(g.oauth_path).st_mode)[-3:] == '600'
+
+
+def test_oauth_device_flow_attaches_to_the_key(g, gh_user, monkeypatch):
+    import requests
+    g.oauth_app(client_id='cid')
+    post, calls = fake_post([
+        {'device_code': 'DEV', 'user_code': 'ABCD-1234', 'interval': 0,
+         'verification_uri': 'https://github.com/login/device', 'expires_in': 900},
+        {'error': 'authorization_pending'},
+        {'access_token': 'gho_new'},
+    ])
+    monkeypatch.setattr(requests, 'post', post)
+    s = g.oauth(address='0xA')
+    assert s['user_code'] == 'ABCD-1234' and s['key'] == '0xA'
+    assert g.oauth_poll(s['session'])['status'] == 'pending'
+    done = g.oauth_poll(s['session'])
+    assert done['status'] == 'connected' and done['login'] == 'user-gho_new'
+    assert g.github(address='0xA')['via'] == 'oauth'
+    assert g._github_token('0xA') == 'gho_new'
+    # the session is spent
+    with pytest.raises(KeyError):
+        g.oauth_poll(s['session'])
+
+
+def test_oauth_web_flow_binds_state_to_a_key(g, gh_user, monkeypatch):
+    import requests
+    g.oauth_app(client_id='cid', client_secret='sek')
+    url = g.oauth_url('https://x/git/oauth/callback', address='0xA')
+    assert 'client_id=cid' in url['url'] and url['state'] in g._pending()
+    post, _ = fake_post([{'access_token': 'gho_web'}])
+    monkeypatch.setattr(requests, 'post', post)
+    # a code with an unknown state can't graft an account onto a key
+    with pytest.raises(PermissionError):
+        g.oauth_callback(code='c', state='not-a-state')
+    out = g.oauth_callback(code='c', state=url['state'])
+    assert out['key'] == '0xA' and out['login'] == 'user-gho_web'
+    assert g._pending() == {}
 
 
 def test_info_reports_mod_changes(g):

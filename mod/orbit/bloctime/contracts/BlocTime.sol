@@ -9,8 +9,13 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title BlocTime
- * @dev Time-weighted staking with delegation, daily reward distribution,
- *      and Bitcoin-style inflation curve (halving schedule).
+ * @dev Time-weighted staking with delegation, a weekly reward pot, and a
+ *      Bitcoin-style inflation curve (halving schedule).
+ *
+ *      Rewards collect in a pot — inflation mints into it every epoch, and
+ *      anyone can top it up with `fundPot`. Once a week, from Friday 12:00 EST
+ *      onward, `distributeRewards` sweeps the entire pot out to BLOC holders
+ *      pro-rata. Nothing is paid out between those windows.
  */
 contract BlocTime is ERC20, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
@@ -60,6 +65,19 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
     InflationParams public inflationParams;
     uint256 public lastDistributionEpoch;
     uint256 public totalDistributed;
+    uint256 public constant MAX_CATCHUP_EPOCHS = 365;
+
+    // ── Weekly Pot ──────────────────────────────────────────────
+    uint256 public constant DISTRIBUTION_PERIOD = 7 days;
+    // Unix time 0 was a Thursday 00:00 UTC, so every 7-day window starts on a
+    // Thursday. Friday 12:00 EST (UTC-5) is 17:00 UTC — 1 day 17 hours in.
+    // Pinned to EST year round: the payout is the same instant in UTC every
+    // week, which is 11:00 local in New York over the summer (EDT).
+    uint256 public constant DISTRIBUTION_OFFSET = 1 days + 17 hours;
+
+    uint256 public rewardPot;               // BLOC waiting for the next payout
+    uint256 public lastDistributionTime;    // window paid out last (0 = never)
+    uint256 public immutable distributionStart;
 
     // ── Reward Accumulator (Synthetix pattern) ──────────────────
     uint256 public rewardPerTokenStored;
@@ -73,7 +91,8 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
     event PointsSet(uint256 pointCount);
     event DelegateChanged(address indexed delegator, address indexed fromDelegate, address indexed toDelegate);
     event InflationParamsUpdated(uint256 initialReward, uint256 halvingInterval, uint256 minReward, uint256 epochLength);
-    event RewardsDistributed(uint256 epoch, uint256 amount);
+    event PotFunded(address indexed from, uint256 amount, uint256 potSize);
+    event RewardsDistributed(uint256 indexed distributionTime, uint256 amount, uint256 minted);
     event RewardsClaimed(address indexed user, uint256 amount);
 
     constructor(
@@ -83,6 +102,7 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
     ) ERC20("BlocTime", "BLOC") Ownable(msg.sender) {
         require(_distributionPercentage <= 10000, "Max 100%");
         nativeToken = IERC20(_nativeToken);
+        distributionStart = block.timestamp;
         params = Params({
             maxLockBlocks: _maxLockBlocks,
             distributionPercentage: _distributionPercentage
@@ -93,11 +113,17 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
     // ── Modifiers ───────────────────────────────────────────────
 
     modifier updateReward(address account) {
-        if (account != address(0)) {
-            rewards[account] = earned(account);
-            userRewardPerTokenPaid[account] = rewardPerTokenStored;
-        }
+        _checkpoint(account);
         _;
+    }
+
+    /// @dev Bank what `account` has earned so far at the current accumulator.
+    ///      The contract's own balance (the pot + unclaimed rewards) never
+    ///      earns, so it is skipped.
+    function _checkpoint(address account) internal {
+        if (account == address(0) || account == address(this)) return;
+        rewards[account] = earned(account);
+        userRewardPerTokenPaid[account] = rewardPerTokenStored;
     }
 
     // ── Owner Functions ─────────────────────────────────────────
@@ -275,28 +301,77 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
         return reward;
     }
 
-    function distributeRewards() external {
-        uint256 epoch = currentEpoch();
-        require(epoch > lastDistributionEpoch, "Epoch not complete");
-        require(totalBlocTime > 0, "No stakers");
+    /// @notice BLOC that earns a share of the pot — every holder except the
+    ///         contract itself, which custodies the pot and unclaimed rewards.
+    function distributableSupply() public view returns (uint256) {
+        return totalSupply() - balanceOf(address(this));
+    }
 
-        uint256 totalMint = 0;
-        uint256 maxCatchup = 365;
+    /// @notice Top the pot up with BLOC. Paid out at the next weekly window.
+    function fundPot(uint256 amount) external {
+        require(amount > 0, "Amount > 0");
+        _transfer(msg.sender, address(this), amount);
+        rewardPot += amount;
+        emit PotFunded(msg.sender, amount, rewardPot);
+    }
+
+    /// @dev Start of the weekly window containing `ts` — Friday 12:00 EST.
+    function _windowStart(uint256 ts) internal pure returns (uint256) {
+        uint256 b = (ts / DISTRIBUTION_PERIOD) * DISTRIBUTION_PERIOD + DISTRIBUTION_OFFSET;
+        if (b <= ts) return b;
+        return b >= DISTRIBUTION_PERIOD ? b - DISTRIBUTION_PERIOD : 0;
+    }
+
+    /// @notice The next Friday 12:00 EST at which the pot may be swept.
+    function nextDistributionTime() public view returns (uint256) {
+        uint256 from = lastDistributionTime == 0 ? distributionStart : lastDistributionTime;
+        return _windowStart(from) + DISTRIBUTION_PERIOD;
+    }
+
+    function distributionDue() external view returns (bool) {
+        return block.timestamp >= nextDistributionTime();
+    }
+
+    /// @dev Mint the inflation owed for every completed epoch into the pot.
+    function _accrueInflation() internal returns (uint256 minted) {
+        uint256 epoch = currentEpoch();
+        if (epoch <= lastDistributionEpoch) return 0;
+
         uint256 startEpoch = lastDistributionEpoch + 1;
-        uint256 endEpoch = epoch;
-        if (endEpoch - startEpoch + 1 > maxCatchup) {
-            startEpoch = endEpoch - maxCatchup + 1;
+        if (epoch - startEpoch + 1 > MAX_CATCHUP_EPOCHS) {
+            startEpoch = epoch - MAX_CATCHUP_EPOCHS + 1;
         }
-        for (uint256 e = startEpoch; e <= endEpoch; e++) {
-            totalMint += getEpochReward(e);
-        }
-        if (totalMint > 0) {
-            _mint(address(this), totalMint);
-            rewardPerTokenStored += (totalMint * 1e18) / totalBlocTime;
+        for (uint256 e = startEpoch; e <= epoch; e++) {
+            minted += getEpochReward(e);
         }
         lastDistributionEpoch = epoch;
-        totalDistributed += totalMint;
-        emit RewardsDistributed(epoch, totalMint);
+        if (minted > 0) {
+            _mint(address(this), minted);
+            rewardPot += minted;
+        }
+    }
+
+    /// @notice Sweep the whole pot to BLOC holders, pro-rata. Permissionless,
+    ///         but only once per week — from Friday 12:00 EST onward.
+    function distributeRewards() external {
+        require(block.timestamp >= nextDistributionTime(), "Not distribution time");
+
+        // Snapshot the eligible supply before inflation lands in the pot,
+        // so freshly minted rewards don't dilute the holders they're for.
+        uint256 eligible = distributableSupply();
+        require(eligible > 0, "No holders");
+
+        uint256 minted = _accrueInflation();
+        uint256 perToken = (rewardPot * 1e18) / eligible;
+        require(perToken > 0, "Pot too small");
+
+        // Rounding dust stays in the pot and rides along next week.
+        uint256 paid = (perToken * eligible) / 1e18;
+        rewardPot -= paid;
+        rewardPerTokenStored += perToken;
+        lastDistributionTime = _windowStart(block.timestamp);
+        totalDistributed += paid;
+        emit RewardsDistributed(lastDistributionTime, paid, minted);
     }
 
     function earned(address account) public view returns (uint256) {
@@ -315,6 +390,10 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
     // ── ERC20 Hook (delegation bookkeeping, OZ v5) ──────────────
 
     function _update(address from, address to, uint256 value) internal virtual override {
+        // Bank both sides at the old balance — a transfer must not hand the
+        // recipient a share of rewards that accrued before they held the BLOC.
+        _checkpoint(from);
+        _checkpoint(to);
         super._update(from, to, value);
         if (from != address(0) && delegates[from] != address(0)) {
             delegatedVotingPower[delegates[from]] -= value;
@@ -338,6 +417,29 @@ contract BlocTime is ERC20, ReentrancyGuard, Ownable {
         uint256 elapsed = block.number > position.startBlock ? block.number - position.startBlock : 0;
         uint256 remaining = position.lockBlocks > elapsed ? position.lockBlocks - elapsed : 0;
         return (position.amount, position.startBlock, position.lockBlocks, position.blocTimeBalance, remaining);
+    }
+
+    /// @notice Everything the pot card needs: current pot, the schedule, the
+    ///         supply it will be split across, and inflation still to be minted.
+    function getPotInfo() external view returns (
+        uint256 pot, uint256 pendingInflation, uint256 eligibleSupply,
+        uint256 nextTime, uint256 lastTime, bool due
+    ) {
+        uint256 epoch = currentEpoch();
+        if (epoch > lastDistributionEpoch) {
+            uint256 startEpoch = lastDistributionEpoch + 1;
+            if (epoch - startEpoch + 1 > MAX_CATCHUP_EPOCHS) {
+                startEpoch = epoch - MAX_CATCHUP_EPOCHS + 1;
+            }
+            for (uint256 e = startEpoch; e <= epoch; e++) {
+                pendingInflation += getEpochReward(e);
+            }
+        }
+        uint256 next = nextDistributionTime();
+        return (
+            rewardPot, pendingInflation, distributableSupply(),
+            next, lastDistributionTime, block.timestamp >= next
+        );
     }
 
     function getInflationParams() external view returns (

@@ -6,6 +6,7 @@ mod vaults;
 mod copytrade;
 mod indexes;
 mod store;
+mod mcp;
 mod routes;
 mod signer;
 mod sign_l1;
@@ -31,10 +32,27 @@ pub struct AppState {
     pub meta: Arc<actions::MetaCache>,
     pub live: Arc<live_engine::EngineRegistry>,
     pub auth: Arc<auth::AuthCfg>,
+    /// Where this server can reach itself — MCP tool calls loop back through
+    /// the REST surface so the auth guard stays the single authority.
+    pub self_url: Arc<String>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let port: u16 = std::env::var("PORT").ok()
+        .and_then(|s| s.parse().ok()).unwrap_or(8919);
+    let self_url = std::env::var("HL_SELF_URL")
+        .unwrap_or_else(|_| format!("http://127.0.0.1:{port}"));
+
+    // `--stdio` runs only the MCP stdio transport, proxying to a running API
+    // (HL_API_URL / HL_SELF_URL). Checked before tracing is installed: stdout
+    // belongs to the JSON-RPC stream in this mode, so logs must stay off it.
+    if std::env::args().any(|a| a == "--stdio") {
+        let base = std::env::var("HL_API_URL").unwrap_or(self_url);
+        mcp::run_stdio(base).await;
+        return Ok(());
+    }
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| "hyperliquid_api=info,tower_http=info".into()))
@@ -44,8 +62,6 @@ async fn main() -> anyhow::Result<()> {
     let testnet = std::env::var("HYPERLIQUID_TESTNET")
         .map(|v| v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
-    let port: u16 = std::env::var("PORT").ok()
-        .and_then(|s| s.parse().ok()).unwrap_or(8919);
 
     let data_dir = std::env::var("HYPERLIQUID_DATA_DIR")
         .unwrap_or_else(|_| {
@@ -109,6 +125,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         hl, http, store, copy, progress, boards, signer, meta, live,
         auth: auth::AuthCfg::from_env(),
+        self_url: Arc::new(self_url),
     };
 
     let cors = CorsLayer::new()

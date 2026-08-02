@@ -11,8 +11,14 @@ Endpoints:
     GET  /agents       - list agent personas
     GET  /agents/{name} - get agent config
     POST /agents       - create agent    PUT /agents/{name}  DELETE /agents/{name}
+    POST /agents/import - install a shared agent from its localfs CID
+    GET  /harnesses    - external agent CLIs (claude code, codex) + availability
     GET  /chains       - list chain presets
     GET  /library      - unified index: prompts + skills + memory + agents (q/kind/tag filters)
+    POST /library/upload      - upload a file as a prompt/skill/memory note/agent
+    POST /library/upload/file - the same, as a multipart file post
+    POST /library/import      - install anything from a shared localfs CID
+    GET  /library/formats     - what an upload may look like + docs/uploads.md
     GET  /prompts      - prompt library      POST /prompts  DELETE /prompts/{id}
     POST /prompts/import - install a shared prompt from its localfs CID
     GET  /memory       - memory notes        POST /memory   DELETE /memory/{id}
@@ -37,6 +43,11 @@ Endpoints:
     GET  /vaults/public?address=&name= - anyone: a vault's public entries
     GET  /toolboxes    - skill bundles       POST /toolboxes  DELETE /toolboxes/{name}
     POST /toolboxes/{name}/snap   - snap a bundle onto the agent (unsnap to detach)
+    POST /toolboxes/unsnap        - detach everything, back to the full tool set
+    GET  /tools        - every callable tool: shipped skills + custom shell tools
+    POST /tools        - host: create/update a custom tool  DELETE /tools/{name}
+    POST /tools/{name}/run - host: execute one custom tool (the console's test run)
+    POST /tools/select - host: pin the loadout to an exact list (null = toolboxes)
     GET  /memory/state - memory subsystem layers (working/episodic/semantic)
     GET  /memory/recall?q= - facts scored against a query
     POST /memory/remember  - store a durable fact   DELETE /memory/facts/{id}
@@ -47,6 +58,7 @@ Endpoints:
     POST /credits/grant   - owner: adjust an account's credits (± amount)
     GET  /tasks        - server-side task registry (running + recent runs)
     GET  /tasks/{id}   - one task with its step trace
+    GET  /tasks/{id}/images - thumbnails of the images attached to that run
     POST /forward      - mod protocol entry point
     POST /run          - run the full agent loop
     POST /run/stream   - run the agent loop, streaming steps live (SSE)
@@ -63,7 +75,7 @@ import uuid
 import queue
 import threading
 from collections import OrderedDict
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -78,7 +90,15 @@ mod_root = os.path.abspath(os.path.join(module_root, '..', '..', '..'))  # mod f
 sys.path.insert(0, module_root)
 sys.path.insert(0, mod_root)
 
-app = FastAPI(title="Agent API", version="3.7.0", description="Autonomous coding agent API")
+# the module's config.json is the one place a version lives — a literal here
+# just drifts, and /health is what callers use to tell deploys apart
+try:
+    with open(os.path.join(module_root, 'config.json')) as f:
+        VERSION = json.load(f).get('version', '0.0.0')
+except Exception:
+    VERSION = '0.0.0'
+
+app = FastAPI(title="Agent API", version=VERSION, description="Autonomous coding agent API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -91,7 +111,7 @@ class ForwardRequest(BaseModel):
 
 class RunRequest(BaseModel):
     query: str
-    model: str = "anthropic/claude-sonnet-4.5"
+    model: str = "anthropic/claude-opus-5"
     provider: Optional[str] = None
     steps: int = 10
     skills: Optional[List[str]] = None
@@ -107,6 +127,7 @@ class RunRequest(BaseModel):
     memory_ids: Optional[List[str]] = None  # library memory note ids injected as context
     skill_ids: Optional[List[str]] = None   # installed external skill ids injected as context
     images: Optional[List[str]] = None      # pasted images (data: URLs) — needs a vision model
+    thumbs: Optional[List[str]] = None      # tiny copies of the same images, for the task registry
     key: Optional[str] = None
 
 class SkillRunRequest(BaseModel):
@@ -121,6 +142,7 @@ class AgentCreateRequest(BaseModel):
     icon: str = ">_"
     skills: Optional[List[str]] = None
     model: Optional[str] = None
+    harness: Optional[str] = None   # 'claude' | 'codex' — run on that CLI instead
     key: Optional[str] = None
 
 class AgentUpdateRequest(BaseModel):
@@ -129,8 +151,10 @@ class AgentUpdateRequest(BaseModel):
     icon: Optional[str] = None
     skills: Optional[List[str]] = None
     model: Optional[str] = None
+    harness: Optional[str] = None
     clear_skills: bool = False   # explicit: reset to all skills
     clear_model: bool = False    # explicit: reset to default model
+    clear_harness: bool = False  # explicit: back to this module's own loop
     key: Optional[str] = None
 
 class GrantRequest(BaseModel):
@@ -163,11 +187,13 @@ class ApiKeyRequest(BaseModel):
     api_key: str
     provider: str = "openrouter"
     passphrase: Optional[str] = None  # set -> key saved as an encrypted vault file
+    remember: bool = True             # keep it unlocked on this server across restarts
     key: Optional[str] = None
 
 class VaultRequest(BaseModel):
     provider: str = "openrouter"
     passphrase: Optional[str] = None
+    remember: bool = True
     key: Optional[str] = None
 
 class MemoryNoteRequest(BaseModel):
@@ -188,6 +214,17 @@ class SkillInstallRequest(BaseModel):
 
 class SkillImportRequest(BaseModel):
     cid: str
+    key: Optional[str] = None
+
+class UploadRequest(BaseModel):
+    text: str                             # the file's contents
+    filename: Optional[str] = None        # helps detect the kind
+    kind: Optional[str] = None            # prompt|skill|memory|agent, else auto
+    key: Optional[str] = None
+
+class LibraryImportRequest(BaseModel):
+    cid: str
+    kind: Optional[str] = None            # assert the bundle's type, else auto
     key: Optional[str] = None
 
 class DiscoverTokenRequest(BaseModel):
@@ -211,6 +248,23 @@ class ToolboxRequest(BaseModel):
     name: str
     tools: List[str] = []
     description: str = ""
+    key: Optional[str] = None
+
+class ToolRequest(BaseModel):
+    name: str
+    command: str
+    description: str = ""
+    params: Optional[Dict[str, Dict]] = None
+    cwd: Optional[str] = None
+    timeout: int = 60
+    key: Optional[str] = None
+
+class ToolRunRequest(BaseModel):
+    params: Dict[str, Any] = {}
+    key: Optional[str] = None
+
+class SelectRequest(BaseModel):
+    tools: Optional[List[str]] = None   # null = back to the snapped toolboxes
     key: Optional[str] = None
 
 class FactRequest(BaseModel):
@@ -262,6 +316,8 @@ TASKS: "OrderedDict[str, dict]" = OrderedDict()
 TASKS_LOCK = threading.Lock()
 MAX_TASKS = 100        # registry entries kept
 MAX_TRACE = 60         # trimmed steps kept per task
+MAX_TASK_THUMBS = 4    # attachment previews kept per task
+MAX_THUMB_BYTES = 96_000   # one preview — a thumbnail, never the full-size image
 
 
 def _caller_address(key: Optional[str]) -> Optional[str]:
@@ -281,13 +337,42 @@ def _caller_address(key: Optional[str]) -> Optional[str]:
     return None
 
 
-def _task_create(req: "RunRequest", chain: bool = False) -> dict:
+def _task_thumbs(req: "RunRequest") -> List[str]:
+    """Previews of what the caller attached, small enough to keep in memory.
+
+    The registry holds thumbnails only — full-size data URLs would be tens of
+    megabytes across 100 tasks, and they're never rendered larger than a chip.
+    """
+    src = req.thumbs or req.images or []
+    return [u for u in src
+            if isinstance(u, str) and u.startswith('data:image/')
+            and len(u) <= MAX_THUMB_BYTES][:MAX_TASK_THUMBS]
+
+
+def _task_model(req: "RunRequest") -> str:
+    """The model this run will actually use.
+
+    A FREE MODE run ignores req.model and resolves a zero-cost one, so the
+    requested model would be a lie in the ledger and in the console's trace.
+    """
+    if not req.free:
+        return req.model
+    try:
+        return get_mod().free_model() or req.model
+    except Exception:
+        return req.model
+
+
+def _task_create(req: "RunRequest", chain: bool = False, agent: str = None) -> dict:
     t = {
         "id": uuid.uuid4().hex[:12],
         "query": (req.query or "")[:400],
-        "agent_type": (req.agent_type or req.agent or "default"),
+        # the agent the run actually used — resolved by the caller when the
+        # request named none, so the registry doesn't say 'default' for a
+        # run that went to Claude Code
+        "agent_type": (agent or req.agent_type or req.agent or "default"),
         "provider": req.provider or "openrouter",
-        "model": req.model,
+        "model": _task_model(req),
         "chain": chain,
         "user": _caller_address(req.key),
         "status": "running",
@@ -297,6 +382,7 @@ def _task_create(req: "RunRequest", chain: bool = False) -> dict:
         "finished_at": None,
         "summary": None,
         "trace": [],           # [{tool, path}] — trimmed, no results
+        "thumbs": _task_thumbs(req),   # attachment previews, served on demand
     }
     with TASKS_LOCK:
         TASKS[t["id"]] = t
@@ -433,11 +519,12 @@ def list_providers():
             "configured": info.get("configured", False),
             "encrypted": info.get("encrypted", False),
             "unlocked": info.get("unlocked", False),
+            "remembered": info.get("remembered", False),
         })
     return {"providers": providers, "default": "openrouter"}
 
 @app.get("/params")
-def run_params():
+def run_params(key: Optional[str] = None):
     """Self-describing UI schema for a run's parameters. Sibling consoles
     (e.g. orbit/build) render this generically instead of hardcoding a
     panel per agent backend: each field maps 1:1 onto a RunRequest key,
@@ -473,7 +560,7 @@ def run_params():
         "run": {"endpoint": "/run/stream", "blocking": "/run", "auth": "body key (protocol-auth token)"},
         "fields": [
             {"name": "agent_type", "label": "PERSONA", "type": "select",
-             "default": "default", "options": personas},
+             "default": mod.default_agent(key), "options": personas},
             {"name": "provider", "label": "PROVIDER", "type": "select",
              "default": "openrouter", "options": providers},
             {"name": "model", "label": "MODEL", "type": "select", "depends": "provider",
@@ -499,6 +586,10 @@ def run_skill(req: SkillRunRequest):
     """Run a single skill. Write skills are path-restricted for non-owners."""
     mod = get_mod()
     try:
+        # custom tools have their own admin-gated route — this one is open
+        if req.name not in mod.skills.ls() and mod.tools.exists(req.name):
+            return {"skill": req.name, "error": f"'{req.name}' is a custom tool — "
+                    f"POST /tools/{req.name}/run", "code": 403}
         if req.name in ('write', 'edit', 'patch'):
             allowed = mod.allowed_paths_for(req.key)
             fp = req.params.get('file_path', '')
@@ -529,7 +620,8 @@ def set_key(req: ApiKeyRequest):
     """
     try:
         return get_mod().forward('set_key', key=req.key, api_key=req.api_key,
-                                 provider=req.provider, passphrase=req.passphrase)
+                                 provider=req.provider, passphrase=req.passphrase,
+                                 remember=req.remember)
     except PermissionError as e:
         return {"error": str(e), "code": 403}
     except ValueError as e:
@@ -537,10 +629,14 @@ def set_key(req: ApiKeyRequest):
 
 @app.post("/key/unlock")
 def unlock_key(req: VaultRequest):
-    """Decrypt the vaulted key into server memory for this session."""
+    """Decrypt the vaulted key into server memory.
+
+    `remember` (default true) re-seals it under this server's device key so the
+    unlock survives restarts — the passphrase is asked for once, not forever.
+    """
     try:
-        return get_mod().forward('unlock', key=req.key,
-                                 provider=req.provider, passphrase=req.passphrase or '')
+        return get_mod().forward('unlock', key=req.key, provider=req.provider,
+                                 passphrase=req.passphrase or '', remember=req.remember)
     except PermissionError as e:
         return {"error": str(e), "code": 403}
     except ValueError as e:
@@ -636,9 +732,15 @@ def credit_grant(req: CreditGrantRequest):
 
 @app.get("/tasks")
 def list_tasks(limit: int = 25):
-    """Running + recent runs across all clients (running first, newest first)."""
+    """Running + recent runs across all clients (running first, newest first).
+
+    Attachments come back as a count — the previews themselves are base64 and
+    this list is polled every few seconds, so they get their own route.
+    """
     with TASKS_LOCK:
-        items = [{k: v for k, v in t.items() if k != "trace"} for t in TASKS.values()]
+        items = [{**{k: v for k, v in t.items() if k not in ("trace", "thumbs")},
+                  "images": len(t.get("thumbs") or [])}
+                 for t in TASKS.values()]
     items.sort(key=lambda t: (t["status"] != "running", -t["started_at"]))
     running = sum(1 for t in items if t["status"] == "running")
     return {"tasks": items[:max(1, min(limit, MAX_TASKS))], "running": running}
@@ -649,7 +751,17 @@ def get_task(task_id: str):
         t = TASKS.get(task_id)
         if not t:
             return {"error": f"unknown task: {task_id}"}
-        return dict(t)
+        return {**{k: v for k, v in t.items() if k != "thumbs"},
+                "images": len(t.get("thumbs") or [])}
+
+@app.get("/tasks/{task_id}/images")
+def get_task_images(task_id: str):
+    """The images attached to a run, as thumbnails — fetched when a task is opened."""
+    with TASKS_LOCK:
+        t = TASKS.get(task_id)
+        if not t:
+            return {"error": f"unknown task: {task_id}"}
+        return {"id": task_id, "images": list(t.get("thumbs") or [])}
 
 # ── access control (gate) ────────────────────────────────────────────
 
@@ -680,9 +792,15 @@ def get_acl(key: Optional[str] = None):
 # ── agents (from agents/ registry) ──────────────────────────────────
 
 @app.get("/agents")
-def list_agents():
-    """List all agent personas from agents/ directory"""
-    return get_mod().forward('agents')
+def list_agents(key: Optional[str] = None):
+    """List all agent personas from agents/ directory.
+
+    `default` is the one a run lands on when none is named — Claude Code for
+    the host, the native agent for everyone else — so a console can preselect
+    it instead of deciding for itself.
+    """
+    mod = get_mod()
+    return {**mod.forward('agents'), "default": mod.default_agent(key)}
 
 @app.get("/agents/{name}")
 def get_agent(name: str):
@@ -703,7 +821,8 @@ def create_agent(req: AgentCreateRequest):
         # `action` arg — the agents action is public, so dispatch directly
         result = mod.agents.forward(action='create',
             name=req.name, description=req.description, goal=req.goal,
-            icon=req.icon, skills=req.skills, model=req.model, key=req.key)
+            icon=req.icon, skills=req.skills, model=req.model,
+            harness=req.harness, key=req.key)
         if isinstance(result, dict):
             result = {k: v for k, v in result.items() if k != 'cls'}
         return result
@@ -719,9 +838,10 @@ def update_agent(name: str, req: AgentUpdateRequest):
     try:
         skills = None if req.clear_skills else (req.skills if req.skills is not None else ...)
         model = None if req.clear_model else (req.model if req.model is not None else ...)
+        harness = None if req.clear_harness else (req.harness if req.harness is not None else ...)
         result = mod.agents.update(
             name=name, description=req.description, goal=req.goal,
-            icon=req.icon, skills=skills, model=model, key=req.key)
+            icon=req.icon, skills=skills, model=model, harness=harness, key=req.key)
         return {k: v for k, v in result.items() if k != 'cls'}
     except PermissionError as e:
         return {"error": str(e), "code": 403}
@@ -739,6 +859,16 @@ def remove_agent(name: str, key: Optional[str] = None):
     except KeyError as e:
         return {"error": str(e)}
 
+@app.post("/agents/import")
+def import_agent(req: LibraryImportRequest):
+    """Install a shared agent from its localfs CID (QR / share path)."""
+    try:
+        return get_mod().library.import_cid(req.cid, "agent", key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, RuntimeError, KeyError) as e:
+        return {"error": str(e)}
+
 @app.post("/agents/{name}/register")
 def register_agent(name: str, req: AgentRegisterRequest):
     """Register an agent on the registry (offchain or on-chain)"""
@@ -748,6 +878,12 @@ def register_agent(name: str, req: AgentRegisterRequest):
             name=name, backend=req.backend, key=req.key)
     except Exception as e:
         return {"error": str(e)}
+
+@app.get("/harnesses")
+def list_harnesses():
+    """External agent CLIs an agent can hand its run to, and whether the
+    binary is installed on this host."""
+    return get_mod().forward('harnesses')
 
 @app.get("/chains")
 def list_chains():
@@ -761,6 +897,58 @@ def get_library(q: Optional[str] = None, kind: Optional[str] = None,
                 tag: Optional[str] = None):
     """Unified filterable index across prompts, skills, memory, and agents."""
     return get_mod().library.items(q=q, kind=kind, tag=tag)
+
+@app.get("/library/formats")
+def library_formats():
+    """What an upload may look like, plus docs/uploads.md for the console."""
+    return get_mod().library.formats()
+
+@app.post("/library/upload")
+def library_upload(req: UploadRequest):
+    """Upload one file into the library — prompt, skill, memory note or agent.
+
+    The kind is the caller's pick, else the file's `type:`, else its name,
+    else its shape (see docs/uploads.md). Creating takes a sign-in.
+    """
+    try:
+        return get_mod().library.upload(req.text, req.filename, req.kind,
+                                        key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, RuntimeError) as e:
+        return {"error": str(e)}
+
+try:  # the file post needs python-multipart — JSON upload works either way
+    from fastapi import File, Form, UploadFile
+
+    @app.post("/library/upload/file")
+    async def library_upload_file(file: UploadFile = File(...),
+                                  kind: Optional[str] = Form(None),
+                                  key: Optional[str] = Form(None)):
+        """The same upload, posted as a file: `curl -F file=@my.agent.md`."""
+        raw = await file.read()
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return {"error": "upload must be UTF-8 text (JSON or markdown)"}
+        try:
+            return get_mod().library.upload(text, file.filename, kind, key=key)
+        except PermissionError as e:
+            return {"error": str(e), "code": 403}
+        except (ValueError, RuntimeError) as e:
+            return {"error": str(e)}
+except (ImportError, RuntimeError):
+    pass
+
+@app.post("/library/import")
+def library_import(req: LibraryImportRequest):
+    """Install anything from its localfs CID — the bundle says what it is."""
+    try:
+        return get_mod().library.import_cid(req.cid, req.kind, key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, RuntimeError, KeyError) as e:
+        return {"error": str(e)}
 
 @app.get("/prompts")
 def list_prompts():
@@ -1069,7 +1257,7 @@ def get_toolbox(name: str):
     mod = get_mod()
     try:
         box = mod.toolboxes.get(name).to_dict()
-        box["resolved"] = mod.toolboxes.get(name).resolve(mod.skills)
+        box["resolved"] = mod.toolboxes.get(name).resolve(mod.toolboxes.known())
         return box
     except KeyError:
         return {"error": f"toolbox not found: {name}", "available": mod.toolboxes.ls()}
@@ -1102,12 +1290,86 @@ def snap_toolbox(name: str, key: Optional[str] = None):
     except KeyError as e:
         return {"error": str(e)}
 
+@app.post("/toolboxes/unsnap")
+def unsnap_all(key: Optional[str] = None):
+    """Detach every box and drop any hand-picked list — back to all tools."""
+    try:
+        return get_mod().forward('unsnap', key=key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
 @app.post("/toolboxes/{name}/unsnap")
 def unsnap_toolbox(name: str, key: Optional[str] = None):
     try:
         return get_mod().forward('unsnap', key=key, name=name)
     except PermissionError as e:
         return {"error": str(e), "code": 403}
+
+# ── tools (shipped skills + custom shell tools, in one registry) ─────
+# A custom tool runs shell, so writing one is host-only — library skills are
+# documents for exactly that reason. Reading the registry is public.
+
+@app.get("/tools")
+def list_tools():
+    """Every tool the agent can call, in one list the console can render."""
+    mod = get_mod()
+    active = mod.active_skills()          # None = nothing filtered out
+    schemas = mod.skills.schema()
+    tools = [{"name": n, "kind": "skill", "builtin": True,
+              "description": (schemas.get(n) or {}).get("description", ""),
+              "params": (schemas.get(n) or {}).get("params", {}),
+              "active": active is None or n in active}
+             for n in mod.skills.ls()]
+    tools += [{**t, "builtin": False,
+               "active": active is None or t["name"] in active}
+              for t in mod.tools.items()]
+    return {"tools": tools, "snapped": mod.snapped(),
+            "toolboxes": mod.toolboxes.items(), "host": mod._owner}
+
+@app.post("/tools")
+def save_tool(req: ToolRequest):
+    """Create or update a custom tool. Host (or a granted admin) only."""
+    try:
+        return get_mod().forward('tool_add', key=req.key, name=req.name,
+                                 command=req.command, description=req.description,
+                                 params=req.params, cwd=req.cwd, timeout=req.timeout)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, KeyError) as e:
+        return {"error": str(e)}
+
+@app.delete("/tools/{name}")
+def delete_tool(name: str, key: Optional[str] = None):
+    try:
+        return get_mod().forward('tool_rm', key=key, name=name)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
+@app.post("/tools/select")
+def select_tools(req: SelectRequest):
+    """Pin the loadout to an exact tool list — the console's per-tool switch.
+
+    `tools: null` (or an empty list) hands the set back to whatever toolboxes
+    are snapped on. Admin, same as snapping: it changes what the model gets.
+    """
+    try:
+        return get_mod().forward('select', key=req.key, tools=req.tools)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e)}
+
+@app.post("/tools/{name}/run")
+def run_tool(name: str, req: ToolRunRequest):
+    """Execute one custom tool — the console's 'try it' button."""
+    try:
+        return {"tool": name,
+                "result": get_mod().forward('tool_run', key=req.key, name=name,
+                                            params=req.params)}
+    except PermissionError as e:
+        return {"tool": name, "error": str(e), "code": 403}
+    except (ValueError, KeyError) as e:
+        return {"tool": name, "error": str(e)}
 
 # ── memory subsystem (working/episodic/semantic layers, own process) ─
 
@@ -1200,14 +1462,14 @@ def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None):
 def run_agent(req: RunRequest):
     """Run the agent loop. Agent resolution happens in Mod._run()."""
     mod = get_mod()
-    if mod.model is None:
+    resolved_agent = req.agent_type or req.agent or mod.default_agent(req.key)
+    # a harness agent runs on its own CLI, so it needs no provider key here
+    if mod.model is None and not mod.harness_for(resolved_agent):
         return {"error": "No API key configured for the selected provider — add or unlock a key in the Builder (model node)."}
-
-    resolved_agent = req.agent_type or req.agent
 
     # chain execution
     if req.chain and len(req.chain) > 0:
-        task = _task_create(req, chain=True)
+        task = _task_create(req, chain=True, agent=resolved_agent)
         results = _run_chain(mod, req, on_step=lambda s: _task_step(task, s))
         errs = [r.get("error") for r in results if r.get("error")]
         _task_finish(task, 'error' if errs else 'done',
@@ -1217,7 +1479,7 @@ def run_agent(req: RunRequest):
                 "results": results, "charged": charge}
 
     # single agent run
-    task = _task_create(req)
+    task = _task_create(req, agent=resolved_agent)
     try:
         result = mod.forward('run',
             key=req.key,
@@ -1262,11 +1524,12 @@ def run_agent_stream(req: RunRequest):
     """
     mod = get_mod()
     events: "queue.Queue" = queue.Queue()
+    resolved_agent = req.agent_type or req.agent or mod.default_agent(req.key)
 
     def emit(ev):
         events.put(ev)
 
-    task = _task_create(req, chain=bool(req.chain))
+    task = _task_create(req, chain=bool(req.chain), agent=resolved_agent)
 
     def on_step(s):
         _task_step(task, s)
@@ -1274,7 +1537,7 @@ def run_agent_stream(req: RunRequest):
 
     def worker():
         try:
-            if mod.model is None:
+            if mod.model is None and not mod.harness_for(resolved_agent):
                 _task_finish(task, 'error', 'No API key configured')
                 emit({"type": "error", "error": "No API key configured for the selected provider — add or unlock a key in the Builder (model node)."})
                 return
@@ -1299,7 +1562,7 @@ def run_agent_stream(req: RunRequest):
                     steps=req.steps,
                     skills=req.skills,
                     toolbox=req.toolbox or req.toolboxes,
-                    agent_type=req.agent_type or req.agent,
+                    agent_type=resolved_agent,
                     temperature=req.temperature,
                     safety=req.safety,
                     free=req.free,

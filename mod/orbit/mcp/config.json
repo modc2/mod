@@ -1,6 +1,106 @@
 {
     "name": "mcp",
-    "description": "mcp",
-    "version": "0.1.0",
-    "schema": "QmXVLLGTMdWk4Uq9VsCaGN6LJKkwhitDBkmoye4DAKJYm7"
+    "title": "MCP Hub",
+    "version": "1.0.0",
+    "description": "A hub of MCP servers \u2014 aggregates the open-source Model Context Protocol ecosystem (official registry, GitHub, npm, Glama, Smithery, awesome-lists, the local mod fleet) into one searchable directory, live-probes servers for their real tool lists, and lets anyone publish their own: wallet-signed with a browser or locally derived key, manifest pinned by CID to the store mod",
+    "port": 50360,
+    "app_port": 50361,
+    "route": true,
+    "icon": "\u25c8",
+    "color": "#7c6cf0",
+    "deps": [
+        "store",
+        "auth"
+    ],
+    "fns": [
+        "forward",
+        "info",
+        "sources",
+        "search",
+        "server",
+        "probe",
+        "client_config",
+        "submit",
+        "submissions",
+        "stats"
+    ],
+    "urls": {
+        "api": "http://localhost:50360",
+        "app": "http://localhost:50361"
+    },
+    "app": {
+        "framework": "next",
+        "dir": "app",
+        "port": 50361
+    },
+    "api": {
+        "module": "api.api",
+        "app_obj": "app",
+        "port": 50360
+    },
+    "providers": [
+        "official",
+        "github",
+        "npm",
+        "glama",
+        "smithery",
+        "awesome",
+        "fleet",
+        "hub"
+    ],
+    "endpoints": {
+        "sources": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Provider catalog: id, label, what it indexes, cache TTL and whether it wants a key"
+        },
+        "search": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Search every provider at once: q, sources=, oss=1 (open source only, default), transport=, license=, tag=, sort=relevance|stars|downloads|new, limit=. The same project seen in several directories collapses onto one card by repo URL"
+        },
+        "server": {
+            "method": "GET",
+            "auth": false,
+            "docs": "GET /server?id= \u2014 one server card, merged across every provider that lists it, with install recipes and probed tools when known"
+        },
+        "probe": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Live MCP handshake against a remote server URL (initialize + tools/list): protocol version, server info and the real tool inventory; cached"
+        },
+        "client_config": {
+            "method": "GET",
+            "auth": false,
+            "docs": "GET /client_config?id=&client=claude|cursor|vscode|cli \u2014 ready-to-paste MCP client config (or a `claude mcp add` command) for a server"
+        },
+        "submit": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Publish an MCP server to the hub. The manifest is pinned to the store mod under the submitter's own address (CID recorded here); needs a mod protocol token \u2014 browser wallet or locally derived key"
+        },
+        "submissions": {
+            "method": "GET/DELETE",
+            "auth": "optional",
+            "docs": "GET community-submitted servers (?mine=1 with auth for your own); DELETE /submissions?id= removes your own (the hub owner may remove any)"
+        },
+        "stats": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Hub totals: servers per provider, submissions, probed servers, cache state"
+        },
+        "mcp": {
+            "method": "POST",
+            "auth": "optional",
+            "docs": "The hub is itself an MCP server (JSON-RPC 2.0, Streamable HTTP): mcp_sources, mcp_search, mcp_server, mcp_probe, mcp_client_config, mcp_stats (public); mcp_submit, mcp_submissions (mod protocol Bearer token)"
+        }
+    },
+    "auth": "mod-protocol",
+    "env": {
+        "MCP_HUB_DIR": "Off-tree state: submissions index, provider + probe cache, owner (default: ~/.mod/mcp)",
+        "MCP_STORE_URL": "store mod API used to pin submission manifests (default: http://localhost:50152)",
+        "MCP_GITHUB_TOKEN": "Optional GitHub token \u2014 lifts the 10 searches/min anonymous budget (also read from ~/.mod/mcp/github.token)",
+        "MCP_SESSION_TTL": "Max protocol-token age in seconds (default: 604800 / 7 days)"
+    },
+    "schema": "QmUu6VR1BjYjZSG5hPG94Sdjw1cdRnR8GmBgxLRyjMGFfD"
 }

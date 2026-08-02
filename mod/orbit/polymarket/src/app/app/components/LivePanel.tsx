@@ -12,7 +12,8 @@ import type { SavedIndex, PolymarketTrade } from "../lib/types";
 import type { ExecutionLogEntry, ObservedTrade } from "../lib/copyEngine";
 import { fetchWalletTradesUntil } from "../lib/polymarket";
 import { getOwnerAddress } from "../lib/access";
-import { DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT } from "../lib/strats/strat";
+import { startLiveSession } from "../lib/liveSessions";
+import { DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES } from "../lib/strats/strat";
 import PortfolioPanel from "./PortfolioPanel";
 import PositionsHistoryPanel from "./PositionsHistoryPanel";
 
@@ -26,10 +27,12 @@ const ERC20_BAL_ABI = [
 // group's `timestamp` stays the newest).
 type BatchedFill = PolymarketTrade & { count: number; firstTs: number };
 
-// Live monitoring poll cadence — configurable per-strat via `livePollMinutes`.
-// Defaults to 1 minute. The BACKTEST tab has its own `rebalanceMinutes` field
-// for historical-simulation aggregation; the two are decoupled so a slow
-// backtest cadence doesn't silently throttle real-time copy.
+// Live sync cadence — how often the engine re-polls every watched trader's
+// activity. Owned by the strat (`rebalanceMinutes`, mirrored to the legacy
+// `livePollMinutes`) and editable from the SYNC panel below, which shows the
+// cost of each choice against the currently-selected traders. Nothing below
+// the 30s floor is offered: both the frontend and the Rust engine clamp there,
+// so a "5s" option would just be a lie on screen.
 const LIVE_POLL_OPTIONS: { minutes: number; label: string }[] = [
   { minutes: 0.5, label: "30S" },
   { minutes: 1, label: "1MIN" },
@@ -40,16 +43,21 @@ const LIVE_POLL_OPTIONS: { minutes: number; label: string }[] = [
   { minutes: 30, label: "30MIN" },
   { minutes: 60, label: "1H" },
 ];
-// Poll cadence floor, in minute units. A near-real-time 5s cadence × N
-// watched traders was firing several req/s at Polymarket's data-api 24/7
-// and getting throttled with HTTP 429 (Cloudflare 1015) on nearly every
-// fetch → no trades observed → no copies. 30s halves mirror lag vs. the
-// old 1-minute floor while a 10-trader watchlist stays near ~0.3 req/s —
-// well under the limit (the engine spaces per-trader fetches 400ms apart).
-// Anything the strat configures below this floor gets clamped up; the Rust
-// engine enforces the same 30s floor (default_min_interval_ms).
-const DEFAULT_LIVE_POLL_MIN = 0.5;
-const MIN_LIVE_POLL_MIN = 0.5;
+// Per-trader spacing the engine uses inside a cycle, plus the wall-clock it
+// budgets per data-api fetch. Mirrors `default_inter_request_delay_ms` and
+// `TRADER_FETCH_ALLOWANCE_MS` in api/src/live_engine.rs — the SYNC panel
+// re-derives the engine's fan-out floor from them so the picker can warn
+// BEFORE the engine silently widens the period.
+const INTER_REQUEST_DELAY_MS = 400;
+const TRADER_FETCH_ALLOWANCE_MS = 600;
+
+// The cadence the engine will actually run at for `traderCount` traders —
+// same rule as `effective_interval_for` in the Rust engine. A watchlist whose
+// fan-out can't finish inside the requested period widens it.
+function effectiveIntervalMs(requestedMs: number, traderCount: number): number {
+  const fanoutMs = traderCount * (INTER_REQUEST_DELAY_MS + TRADER_FETCH_ALLOWANCE_MS);
+  return Math.max(requestedMs, MIN_POLL_MINUTES * 60_000, fanoutMs);
+}
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -163,7 +171,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   onTabChange?: (t: LiveTab) => void;
 } = {}) {
   const { auth, authenticate, loading: authLoading } = useAuth();
-  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, autoExecute, setAutoExecute, catchUp } = useCopyEngine();
+  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, backendTraderSync, backendIntervalMs, autoExecute, setAutoExecute, catchUp } = useCopyEngine();
   // confirm-start flow removed — user wants direct start/stop.
   const [liveCapital, setLiveCapital] = useState(100);
   // Proxy USDC.e balance — this is the on-chain "BALANCE" the engine should
@@ -411,20 +419,28 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stratTick]);
 
-  // Single source of truth for poll cadence: the STRAT panel's POLL EVERY
-  // field (`rebalanceMinutes`). Falls back to livePollMinutes (legacy) and
-  // then the 30s default. Strats still carrying the old 1-minute legacy
-  // default (`=== 1`) are auto-upgraded to 30s so nobody stays stuck behind
-  // the stale cadence (CopyIndex's POLL EVERY select applies the same `1 ⇒
-  // legacy` remap). Anything else (explicit 5m, 30m, …) is honored as-is.
+  // Single source of truth for poll cadence: the strat's `rebalanceMinutes`
+  // (written by the SYNC panel below and the STRAT panel's POLL EVERY field).
+  // Falls back to livePollMinutes (legacy) and then the 30s default. Strats
+  // still carrying the old 1-minute legacy default (`=== 1`) are auto-upgraded
+  // to 30s so nobody stays stuck behind the stale cadence (CopyIndex's POLL
+  // EVERY select applies the same `1 ⇒ legacy` remap). Anything else (explicit
+  // 5m, 30m, …) is honored as-is.
   const rawLivePollMin =
     activeStrat?.rebalanceMinutes ??
     activeStrat?.livePollMinutes ??
-    DEFAULT_LIVE_POLL_MIN;
-  const upgradedLivePollMin = rawLivePollMin === 1 ? DEFAULT_LIVE_POLL_MIN : rawLivePollMin;
+    MIN_POLL_MINUTES;
+  const upgradedLivePollMin = rawLivePollMin === 1 ? MIN_POLL_MINUTES : rawLivePollMin;
   // Clamp any sub-30s cadence (incl. the old 5s default) up to the floor so
   // a stale strat config can't keep hammering the data-api into rate limits.
-  const livePollMin = Math.max(MIN_LIVE_POLL_MIN, upgradedLivePollMin);
+  const livePollMin = Math.max(MIN_POLL_MINUTES, upgradedLivePollMin);
+
+  // Traders this strat is actually tracking — the set the SYNC panel reports
+  // freshness for and sizes the cadence against.
+  const watchedTraders = useMemo(
+    () => activeStrat?.traders.filter((t) => t.enabled !== false) ?? [],
+    [activeStrat],
+  );
 
   // Preconditions
   const hasWallet = auth.connected && !!auth.address;
@@ -446,6 +462,28 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   // flips a running session back to dry-run).
   const paperCapital = (activeStrat?.capital ?? 0) > 0 ? activeStrat!.capital! : 1000;
   const effectiveCapital = hasCapital ? liveCapital : paperCapital;
+
+  // Write the cadence through to the strat. `rebalanceMinutes` is canonical;
+  // `livePollMinutes` is mirrored for the legacy readers. A browser-attached
+  // session picks the change up through the configSig hot-restart effect
+  // below, so the user never has to STOP/GO LIVE to re-time their sync.
+  //
+  // When only the BACKEND session is running (the normal state after a reload
+  // without CLOB creds in hand), that effect can't fire — so re-post the
+  // config directly. `inheritExecution` keeps a deliberate DRY RUN dry.
+  const updateSyncMinutes = useCallback((minutes: number) => {
+    if (!activeStrat) return;
+    const patched = { ...activeStrat, rebalanceMinutes: minutes, livePollMinutes: minutes };
+    updateIndex(activeStrat.id, {
+      rebalanceMinutes: minutes,
+      livePollMinutes: minutes,
+      updatedAt: Date.now(),
+    });
+    setStratTick((n) => n + 1);
+    if (backendRunning && !isLive && auth.address) {
+      void startLiveSession(auth.address, patched, effectiveCapital, { inheritExecution: true });
+    }
+  }, [activeStrat, backendRunning, isLive, auth.address, effectiveCapital]);
   const canStart = hasWallet && hasCreds && hasTraders && hasRebalance;
 
   // Direct toggle — no confirmation step. The user explicitly asked to
@@ -527,25 +565,36 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   const status = engineState?.status || "stopped";
   const nextIn = engineState?.nextCycleAt ? engineState.nextCycleAt - now : 0;
 
-  // Auto-restart the engine when the STRAT POLL EVERY changes mid-run.
-  // Without this the engine keeps polling at whatever interval it was
-  // started with — the user sees POLL EVERY 15s but NEXT IN still
-  // counts down from 60s. Tracks the last-applied interval in a ref so
-  // we don't re-trigger on every render. Skips while paused (the engine
-  // is intentionally idle then, no point bouncing).
-  const lastAppliedIntervalRef = useRef<number | null>(null);
+  // Auto-restart the engine when a param that only takes effect at START
+  // changes mid-run. Two classes of them:
+  //   • STRAT POLL EVERY — the engine keeps polling at whatever interval it
+  //     was started with, so the user sees POLL EVERY 15s but NEXT IN still
+  //     counting down from 60s.
+  //   • The strat's GATES (market keywords + the semantic TRADE FILTER) —
+  //     the running session holds an immutable config snapshot, so editing
+  //     the filter mid-run silently did nothing and the engine kept copying
+  //     the unfiltered flow.
+  // Tracks the last-applied signature in a ref so we don't re-trigger on
+  // every render. Skips while paused (the engine is intentionally idle
+  // then, no point bouncing).
+  const configSig = JSON.stringify({
+    intervalMs: Math.max(1000, Math.round(livePollMin * 60_000)),
+    marketQuery: activeStrat?.marketQuery ?? "",
+    tradeFilters: activeStrat?.tradeFilters ?? {},
+  });
+  const lastAppliedSigRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isLive || status !== "running") return;
     if (!auth.clobCreds || !auth.address || !activeStrat) return;
     const intervalMs = Math.max(1000, Math.round(livePollMin * 60_000));
-    if (lastAppliedIntervalRef.current === null) {
-      lastAppliedIntervalRef.current = intervalMs;
+    if (lastAppliedSigRef.current === null) {
+      lastAppliedSigRef.current = configSig;
       return;
     }
-    if (lastAppliedIntervalRef.current === intervalMs) return;
-    lastAppliedIntervalRef.current = intervalMs;
+    if (lastAppliedSigRef.current === configSig) return;
+    lastAppliedSigRef.current = configSig;
     // Hot-restart: stop the existing engine, start a fresh one with the
-    // new interval. The CopyEngineContext preserves cursors via local
+    // new config. The CopyEngineContext preserves cursors via local
     // storage so we don't re-copy old trades on restart.
     stopLive();
     startLive({
@@ -566,7 +615,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       tradeFilters: activeStrat.tradeFilters,
       momentum: activeStrat.momentum,
     });
-  }, [livePollMin, isLive, status, activeStrat, auth.clobCreds, auth.address, effectiveCapital, startLive, stopLive]);
+  }, [configSig, livePollMin, isLive, status, activeStrat, auth.clobCreds, auth.address, effectiveCapital, startLive, stopLive]);
 
   return (
     <div className="space-y-1">
@@ -601,12 +650,9 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
             )}
           </div>
           <div className="flex items-center gap-1.5">
-            {/* SCAN dropdown removed — the STRAT panel's POLL EVERY field
-                is the single source of truth for poll cadence now. The
-                engine hot-restarts when that field changes (see the
-                lastAppliedIntervalRef effect above). Display-only echo
-                so the user can see at-a-glance what the engine is using. */}
-            <span className="text-[11px] text-pixel-gray tracking-wider" title="Poll cadence — change in PARAMS panel POLL EVERY">
+            {/* Cadence echo only — the SYNC panel below is where it's set,
+                next to the traders it costs requests against. */}
+            <span className="text-[11px] text-pixel-gray tracking-wider" title="Poll cadence — set it in the SYNC panel below">
               POLL <span className="font-mono text-pixel-white">{formatLivePoll(livePollMin)}</span>
             </span>
             {/* LOADED badge removed — duplicated the same proxy balance
@@ -685,6 +731,98 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
           answered by keeping alerts outside the tabs and echoing free cash
           + next-cycle countdown on the strip itself. */}
       <div className="space-y-3">
+
+      {/* ── SYNC ──
+          The cadence control, sitting with the traders it applies to: pick how
+          often the engine re-polls, see what that costs in data-api requests
+          for THIS watchlist, and see per-trader how long ago each one was
+          actually pulled. Freshness comes from the backend engine (it keeps
+          polling with the tab closed), so a stale chip means that trader is
+          genuinely not being synced — not that the browser looked away. */}
+      {activeStrat && (watchedTraders.length > 0 || isLive || backendRunning) && (() => {
+        const requestedMs = livePollMin * 60_000;
+        const plannedMs = effectiveIntervalMs(requestedMs, watchedTraders.length);
+        // Sustained request rate this cadence implies — one /activity pull per
+        // trader per cycle. Cloudflare starts 429ing the data-api in the
+        // low single digits, so this is the number that matters.
+        const reqPerSec = watchedTraders.length / (plannedMs / 1000);
+        const widened = plannedMs > requestedMs;
+        // What the engine reports it's running at, when a session is live.
+        const runningMs = backendIntervalMs;
+        return (
+          <div className="pixel-panel border-2 border-pixel-border px-3 py-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] text-pixel-gray tracking-[0.18em] shrink-0">SYNC</span>
+              <select
+                value={livePollMin}
+                onChange={(e) => updateSyncMinutes(Number(e.target.value))}
+                title="How often the engine re-polls every watched trader. Applies to a running session without a restart."
+                className="bg-pixel-black/40 border border-pixel-border/60 rounded px-1.5 py-0.5 font-mono text-[13px] text-pixel-white outline-none cursor-pointer"
+              >
+                {LIVE_POLL_OPTIONS.map((o) => (
+                  <option key={o.minutes} value={o.minutes}>{o.label}</option>
+                ))}
+              </select>
+              <span className="text-[12px] font-mono text-pixel-gray">
+                {watchedTraders.length} trader{watchedTraders.length === 1 ? "" : "s"}
+                {" · "}
+                <span className={widened ? "text-amber-400" : "text-green-400"}>
+                  every {formatLivePoll(plannedMs / 60_000)}
+                </span>
+                {" · "}
+                ~{reqPerSec.toFixed(2)} req/s
+              </span>
+              {widened && (
+                <span
+                  className="text-[11px] font-mono text-amber-400"
+                  title={`Polling ${watchedTraders.length} traders takes longer than ${formatLivePoll(livePollMin)} — the engine spaces requests ${INTER_REQUEST_DELAY_MS}ms apart to stay under Polymarket's rate limit. Drop traders or pick a slower cadence to make the requested interval reachable.`}
+                >
+                  ⚠ widened — {formatLivePoll(livePollMin)} can&apos;t fit {watchedTraders.length} traders
+                </span>
+              )}
+              {runningMs !== null && (
+                <span
+                  className={`ml-auto text-[11px] font-mono shrink-0 ${
+                    Math.abs(runningMs - plannedMs) < 1000 ? "text-green-400" : "text-amber-400"
+                  }`}
+                  title="Cadence the backend engine reports it is actually running at. Amber means the running session predates your latest change — it re-arms within a few seconds."
+                >
+                  ENGINE {formatLivePoll(runningMs / 60_000)}
+                </span>
+              )}
+            </div>
+            {watchedTraders.length > 0 && (
+              <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                {watchedTraders.map((t) => {
+                  const last = backendTraderSync[t.address.toLowerCase()];
+                  const age = last ? now - last : null;
+                  // One missed cycle is noise (a fetch can just be slow);
+                  // three consecutive misses is a trader going unwatched.
+                  const tone = age === null
+                    ? "border-pixel-border/60 text-pixel-gray bg-pixel-black/40"
+                    : age < plannedMs * 1.5
+                      ? "border-green-400/60 text-green-400 bg-green-400/10"
+                      : age < plannedMs * 3
+                        ? "border-amber-400/60 text-amber-400 bg-amber-400/10"
+                        : "border-red-400/60 text-red-400 bg-red-400/10";
+                  return (
+                    <span
+                      key={t.address}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-mono border ${tone}`}
+                      title={`${t.address} · weight ${t.weight}${
+                        last ? ` · last synced ${new Date(last).toLocaleTimeString()}` : " · not synced yet"
+                      }`}
+                    >
+                      <span>{t.address.slice(0, 6)}…{t.address.slice(-4)}</span>
+                      <span className="opacity-70">{age === null ? "—" : formatAgo(age)}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Preconditions ──
           Shown whenever the engine is stopped so the user knows what's
@@ -886,7 +1024,15 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
               label="FREE CASH"
               value={engineState.balance !== null ? `$${engineState.balance.toFixed(2)}` : "—"}
               tone="white"
-              title="Uninvested USDC the engine can spend. Equity (cash + open-position value) and per-position P&L live in the PORTFOLIO panel above."
+              title="Uninvested USDC the engine can spend. Per-position P&L lives in the PORTFOLIO panel above."
+            />
+            {/* The number every mirror is sized as a fraction of — see
+                ACCOUNT VALUE in the copy-sizing docs. */}
+            <StatCard
+              label="ACCOUNT"
+              value={engineState.accountValue != null ? `$${engineState.accountValue.toFixed(2)}` : "—"}
+              tone="white"
+              title="Account value = free cash + mark value of this strat's open positions. Every mirror is sized as the same fraction of THIS that the leader risked of their own bankroll, so position sizes track the account as it grows or draws down."
             />
             {/* Only show CAPITAL when it's actually different from BALANCE —
                 i.e. the user has manually capped below the proxy balance.

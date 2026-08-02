@@ -49,10 +49,14 @@ class Toolbox:
         self.cid = cid
 
     def resolve(self, skills=None) -> Dict[str, List[str]]:
-        """Split tools into those the skill registry knows and those missing."""
+        """Split tools into those the registry knows and those missing.
+
+        `skills` is either a registry with .ls() or a plain list of names —
+        the latter lets a caller pass shipped skills + custom tools as one set.
+        """
         if skills is None:
             return {'tools': self.tools, 'missing': []}
-        available = set(skills.ls())
+        available = set(skills if isinstance(skills, (list, tuple, set)) else skills.ls())
         return {
             'tools': [t for t in self.tools if t in available],
             'missing': [t for t in self.tools if t not in available],
@@ -75,8 +79,9 @@ class Toolboxes:
     """
     description = "Toolbox registry - named skill bundles that snap onto the agent"
 
-    def __init__(self, skills=None, path: str = None, **kwargs):
+    def __init__(self, skills=None, tools=None, path: str = None, **kwargs):
         self.skills = skills
+        self.tools = tools  # custom tool registry — boxes can bundle those too
         if path is None:
             state_dir = Path.home() / '.mod' / 'agent'
             try:
@@ -104,6 +109,13 @@ class Toolboxes:
         """All box names — built-ins first, then custom."""
         return list(BUILTINS.keys()) + sorted(self._custom.keys())
 
+    def known(self) -> List[str]:
+        """Every tool a box may reference: shipped skills + custom tools."""
+        names = list(self.skills.ls()) if self.skills is not None else []
+        if self.tools is not None:
+            names += [t for t in self.tools.ls() if t not in names]
+        return names
+
     def exists(self, name: str) -> bool:
         return name in BUILTINS or name in self._custom
 
@@ -125,9 +137,10 @@ class Toolboxes:
         if not tools:
             raise ValueError("a toolbox needs at least one tool")
         if self.skills is not None:
-            unknown = [t for t in tools if t not in self.skills.ls()]
+            available = self.known()
+            unknown = [t for t in tools if t not in available]
             if unknown:
-                raise ValueError(f"unknown tools: {unknown}. Available: {self.skills.ls()}")
+                raise ValueError(f"unknown tools: {unknown}. Available: {available}")
         entry = {'tools': list(dict.fromkeys(tools)), 'description': description}
         entry['cid'] = self._pin(name, entry)
         self._custom[name] = entry
@@ -167,7 +180,11 @@ class Toolboxes:
         """LLM tool schemas for the union of the given boxes."""
         if self.skills is None:
             raise RuntimeError("no skill registry attached")
-        return self.skills.schema(self.resolve(names))
+        picked = self.resolve(names)
+        schema = self.skills.schema([t for t in picked if t in self.skills.ls()])
+        if self.tools is not None:
+            schema.update(self.tools.schema(picked))
+        return schema
 
     def items(self) -> List[Dict[str, Any]]:
         return [self.get(n).to_dict() for n in self.ls()]

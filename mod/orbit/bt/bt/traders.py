@@ -393,6 +393,129 @@ def traders(sort_by: str = 'total_tao', limit: int = 0,
     return {'count': len(rows), 'updated_at': int(time.time()), 'rows': rows}
 
 
+BOARD_SORTS = ('market_pct', 'market_pnl_tao', 'pnl_pct', 'pnl_tao',
+               'total_stake_tao', 'num_subnets')
+
+
+def _board_row(conn, t: Dict, window: int, prices: Dict[int, float],
+               sparks: bool, names: Dict[int, str]) -> Dict:
+    """One trader ranked over `window` seconds, from the index alone."""
+    row = {'ss58': t['ss58'], 'label': t['label'],
+           'pnl_tao': 0.0, 'pnl_pct': 0.0, 'market_pnl_tao': 0.0,
+           'market_pct': 0.0, 'flow_tao': 0.0, 'num_subnets': 0,
+           'top_subnet': None, 'top_subnet_name': None, 'top_subnet_pnl': 0.0,
+           'baseline': False, 'window_days': 0.0, 'total_stake_tao': 0.0,
+           'free_tao': None}
+
+    now = int(time.time())
+    end = conn.execute(
+        'SELECT ts, free_tao, positions FROM trader_snaps WHERE ss58 = ? '
+        'ORDER BY ts DESC LIMIT 1', (t['ss58'],)).fetchone()
+    if end is None:
+        return row  # tracked, never snapshotted yet
+
+    after = _by_netuid(json.loads(end[2]))
+    row['free_tao'] = end[1]
+    row['num_subnets'] = len(after)
+    # Mark the book at live prices, like the trader table does, so the board
+    # never ranks on a stale snapshot price.
+    row['total_stake_tao'] = sum((prices.get(uid) or r['price'] or 0.0) * r['alpha']
+                                 for uid, r in after.items())
+    if sparks:
+        row['spark'] = _spark(conn, t['ss58'], hours=max(1, window // 3600))
+
+    # The oldest snapshot inside the window is the baseline. A trader tracked
+    # for less than the horizon is ranked over the history that exists, and
+    # window_days says so — a 30d column must never quietly show 3 days for
+    # one trader and 30 for the next.
+    start = conn.execute(
+        'SELECT ts, positions FROM trader_snaps WHERE ss58 = ? AND ts >= ? '
+        'ORDER BY ts LIMIT 1', (t['ss58'], now - window)).fetchone()
+    if start is None or start[0] >= end[0]:
+        return row
+
+    before = _by_netuid(json.loads(start[1]))
+    start_value = market = flow = 0.0
+    top_uid, top_pnl = None, 0.0
+
+    for uid in set(before) | set(after):
+        b, a = before.get(uid), after.get(uid)
+        alpha_b = b['alpha'] if b else 0.0
+        alpha_a = a['alpha'] if a else 0.0
+        price_b = (b['price'] if b else 0.0) or 0.0
+        # A position that left the book has no live mark of its own; value it
+        # at the price it had, so the exit reads as a withdrawal not a wipeout.
+        price_a = prices.get(uid) or (a['price'] if a else 0.0) or price_b
+        price_b = price_b or price_a
+
+        start_value += alpha_b * price_b
+        market += alpha_b * (price_a - price_b)
+        flow += (alpha_a - alpha_b) * price_a
+
+        sn_pnl = alpha_a * price_a - alpha_b * price_b
+        if sn_pnl > top_pnl:
+            top_uid, top_pnl = uid, sn_pnl
+
+    # market + flow is exactly end_value − start_value, by construction.
+    pnl = market + flow
+    row.update({
+        'baseline': True,
+        'window_days': round((end[0] - start[0]) / 86400, 2),
+        'start_value_tao': start_value,
+        'pnl_tao': pnl,
+        'pnl_pct': (pnl / start_value * 100) if start_value > 0 else 0.0,
+        'market_pnl_tao': market,
+        'market_pct': (market / start_value * 100) if start_value > 0 else 0.0,
+        'flow_tao': flow,
+        'top_subnet': top_uid,
+        'top_subnet_name': names.get(top_uid) if top_uid is not None else None,
+        'top_subnet_pnl': top_pnl,
+    })
+    return row
+
+
+def board(days: int = 7, top: int = 0, min_subnets: int = 0,
+          sort_by: str = 'market_pct', sparks: bool = False) -> Dict:
+    """Rank every tracked trader by what they actually earned over `days`.
+
+    One pass over the index — no chain round-trip, no archive node. For each
+    trader the oldest snapshot inside the window is the baseline and the
+    newest is the mark, and the change between them splits exactly into
+
+        market = Σ alpha_start · (price_end − price_start)   what the book did
+        flow   = Σ (alpha_end − alpha_start) · price_end     what was staked
+
+    Both are reported because ranking on the raw percentage puts every fresh
+    deposit above every real trader: a coldkey that merely wired stake in
+    shows a huge pnl_pct and a market_pct of nothing. `market_pct` is the
+    column that measures trading, so it is the default sort.
+    """
+    window = max(1, int(days)) * 86400
+    prices = _prices_now()
+    names = {r['netuid']: r.get('name')
+             for r in history.screener(sparks=False).get('rows', [])}
+    with _db_lock:
+        conn = _db()
+        try:
+            tracked = [dict(zip(('ss58', 'label'), r)) for r in conn.execute(
+                'SELECT ss58, label FROM traders').fetchall()]
+            rows = [_board_row(conn, t, window, prices, sparks, names)
+                    for t in tracked]
+        finally:
+            conn.close()
+
+    rows = [r for r in rows if r['num_subnets'] >= min_subnets]
+    key = sort_by if sort_by in BOARD_SORTS else 'market_pct'
+    # Unpriced rows all tie at 0; size breaks it so the table stays stable.
+    rows.sort(key=lambda r: (r.get(key) or 0.0, r['total_stake_tao']),
+              reverse=True)
+    if top:
+        rows = rows[:top]
+    return {'days': days, 'count': len(rows), 'sort_by': key,
+            'priced': sum(1 for r in rows if r['baseline']),
+            'updated_at': int(time.time()), 'rows': rows}
+
+
 def trader(address: str, hours: int = 168, flows_limit: int = 50) -> Dict:
     """One trader in full: positions now, equity curve, inferred trade tape."""
     prices = _prices_now()

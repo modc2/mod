@@ -170,6 +170,7 @@ def test_screener_tool_wired(store):
 # ----------------------------------------------------------------- traders
 
 WHALE = '5GsbTgfvgCH4xdqSkiPb7EaBBFLHjWH5vfEALhJaewSFpZX9'
+DEPOSITOR = '5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC'
 
 
 @pytest.fixture
@@ -279,6 +280,62 @@ def test_prices_at_reads_history(tstore):
     out = traders.prices_at(now - 86400)
     assert out['prices']['2'] == pytest.approx(0.02)
     assert traders.prices_at()['count'] == 3      # current marks
+
+
+def test_board_ranks_trading_above_deposits(tstore, monkeypatch):
+    """The whole point of the split: a coldkey that merely wired stake in
+    posts the bigger percentage, and must not outrank a real trader."""
+    monkeypatch.setattr(traders, 'snapshot', lambda a, bt=None: {
+        'ts': 1, 'total_tao': 0.0, 'positions': [], 'flows': []})
+    now = int(time.time())
+
+    traders.track(WHALE, label='trader')            # rode the price, no flow
+    _snap(WHALE, now - 2 * 86400, [_pos(1, 100.0, 0.25)])   # 25 τ
+    _snap(WHALE, now, [_pos(1, 100.0, 0.5)])                # 50 τ
+
+    traders.track(DEPOSITOR, label='depositor')     # staked in, price flat
+    _snap(DEPOSITOR, now - 2 * 86400, [_pos(3, 10.0, 2.0)])  # 20 τ
+    _snap(DEPOSITOR, now, [_pos(3, 60.0, 2.0)])              # 120 τ
+
+    rows = {r['ss58']: r for r in traders.board(days=7)['rows']}
+    trader_row, dep_row = rows[WHALE], rows[DEPOSITOR]
+
+    assert trader_row['market_pnl_tao'] == pytest.approx(25.0)   # 100 × Δ0.25
+    assert trader_row['flow_tao'] == pytest.approx(0.0)
+    assert trader_row['market_pct'] == pytest.approx(100.0)
+    assert dep_row['market_pnl_tao'] == pytest.approx(0.0)
+    assert dep_row['flow_tao'] == pytest.approx(100.0)          # 50 α × 2.0
+    assert dep_row['pnl_pct'] == pytest.approx(500.0)           # flatters him
+
+    # pnl_pct crowns the depositor; market_pct — the default — crowns the trader
+    assert traders.board(days=7, sort_by='pnl_pct')['rows'][0]['ss58'] == DEPOSITOR
+    assert traders.board(days=7)['rows'][0]['ss58'] == WHALE
+    # market + flow accounts for the change exactly, for both
+    for r in (trader_row, dep_row):
+        assert r['start_value_tao'] + r['market_pnl_tao'] + r['flow_tao'] \
+            == pytest.approx(r['total_stake_tao'])
+
+
+def test_board_reports_the_window_it_actually_covers(tstore, monkeypatch):
+    """A 30d column must never show 2 days of PnL as if it were 30."""
+    monkeypatch.setattr(traders, 'snapshot', lambda a, bt=None: {
+        'ts': 1, 'total_tao': 0.0, 'positions': [], 'flows': []})
+    now = int(time.time())
+    traders.track(WHALE)
+    _snap(WHALE, now - 2 * 86400, [_pos(1, 100.0, 0.25)])
+    _snap(WHALE, now, [_pos(1, 100.0, 0.5)])
+
+    row = traders.board(days=30)['rows'][0]
+    assert row['baseline'] is True
+    assert row['window_days'] == pytest.approx(2.0, abs=0.01)
+
+    # One snapshot is no baseline at all: reported as unpriced, never as 0%.
+    traders.track(DEPOSITOR)
+    _snap(DEPOSITOR, now, [_pos(3, 10.0, 2.0)])
+    dep = {r['ss58']: r for r in traders.board(days=30)['rows']}[DEPOSITOR]
+    assert dep['baseline'] is False
+    assert dep['pnl_tao'] == 0.0 and dep['window_days'] == 0.0
+    assert dep['total_stake_tao'] == pytest.approx(20.0)   # still sized
 
 
 def test_trader_tools_wired(tstore):

@@ -38,19 +38,35 @@ pub fn router() -> Router<AppState> {
         // the L2 call, POSTs to clob.polymarket.com/order. Returns CLOB's
         // raw response so the caller can read order id / status / fills.
         .route("/order/place", post(order_place_handler))
-        // Long-running copy engine — see live_engine.rs.
-        //   POST /live/start  — body: EngineConfig. Spawns a tokio task
-        //                       keyed by `eoa`. Persists config to disk so
-        //                       the session survives API restarts.
-        //   POST /live/stop   — body: {eoa}. Aborts the task, deletes the
-        //                       persisted config (next boot won't resume).
-        //   GET  /live/status — query: eoa. Returns the current EngineState
-        //                       JSON. 404 when no engine is running for eoa.
+        // Long-running copy engine — see live_engine.rs. One session per
+        // (eoa, strategyId): a wallet can fund and run several strats at
+        // once, each budgeting against its own capital allocation.
+        //   POST /live/start    — body: EngineConfig. Spawns a tokio task
+        //                         keyed by eoa+strategyId. Persists config to
+        //                         disk so the session survives API restarts.
+        //   POST /live/stop     — body: {eoa, strategyId?}. Aborts the task and
+        //                         deletes the persisted config. Without
+        //                         strategyId, stops ALL of the wallet's
+        //                         sessions (the old single-session behavior).
+        //   GET  /live/status   — query: eoa, strategyId?. Current EngineState
+        //                         JSON; falls back to the last persisted
+        //                         snapshot when stopped. Without strategyId
+        //                         it answers for any one running session.
+        //   GET  /live/sessions — query: eoa. EVERY session this wallet has
+        //                         (running or persisted), so the console can
+        //                         show all funded strats side by side.
         .route("/live/start", post(live_start))
         .route("/live/stop", post(live_stop))
         .route("/live/status", get(live_status))
-        // POST /live/execution — body: {eoa, autoExecute}. Flips real order
-        // placement on/off for a running session (default off = DRY RUN).
+        .route("/live/sessions", get(live_sessions))
+        // GET /live/bankroll — query: addresses=0xa,0xb. Each watched
+        // trader's balance sheet (positions mark value + free USDC), the
+        // denominator of proportional copy sizing. Served from the engine's
+        // shared ~10m cache so the backtest sizes trades with the exact
+        // number the live engine will use.
+        .route("/live/bankroll", get(live_bankroll))
+        // POST /live/execution — body: {eoa, strategyId?, autoExecute}. Flips
+        // real order placement on/off for one session (default off = DRY RUN).
         .route("/live/execution", post(live_execution))
         // POST /liquidate — body: {eoa}. Sell EVERY position the account's
         // deposit wallet holds, at the marketable price. Places real orders
@@ -58,6 +74,18 @@ pub fn router() -> Router<AppState> {
         // "flatten every N hours" task (POLYMARKET_LIQUIDATE_EVERY_HOURS)
         // calls the same path; this endpoint is the manual "sell now" trigger.
         .route("/liquidate", post(liquidate_handler))
+        // Background trader-data sync schedule — see sync.rs. Every 5 min by
+        // default; the owner can change the cadence, pause it, or force a
+        // run now. Owner-only comes free: the access gate (access.rs) wraps
+        // every route below /health.
+        //   GET  /sync/status — cadence + last/next run + last error
+        //   POST /sync/config — body: {enabled?, intervalSecs|intervalMinutes|
+        //                       intervalHours}. Persists to sync.json and
+        //                       re-schedules the sleeping task immediately.
+        //   POST /sync/run    — run a cycle now (bypasses the freshness skip)
+        .route("/sync/status", get(sync_status))
+        .route("/sync/config", get(sync_status).post(sync_config))
+        .route("/sync/run", post(sync_run))
         // Recycle the api process — container runs with
         // restart: unless-stopped so Docker auto-respawns it. Useful when
         // an engine task is wedged or after a deploy; persisted live
@@ -167,7 +195,7 @@ async fn live_start(
         ).into_response(),
     };
     if !explicit_auto {
-        if let Some(prev) = state.engines.current_auto_execute(&cfg.eoa) {
+        if let Some(prev) = state.engines.current_auto_execute(&cfg.eoa, &cfg.strategy_id) {
             cfg.auto_execute = prev;
         }
     }
@@ -178,49 +206,116 @@ async fn live_start(
 #[derive(Deserialize)]
 struct LiveEoaBody {
     eoa: String,
+    /// Which funded strat to stop. Omitted ⇒ every session this wallet runs.
+    #[serde(rename = "strategyId", default)]
+    strategy_id: Option<String>,
 }
 
 async fn live_stop(
     State(state): State<AppState>,
     Json(body): Json<LiveEoaBody>,
 ) -> impl IntoResponse {
-    let stopped = state.engines.stop(&body.eoa);
+    let stopped = state.engines.stop(&body.eoa, body.strategy_id.as_deref());
     Json(json!({"ok": stopped})).into_response()
 }
 
 #[derive(Deserialize)]
 struct LiveStatusQuery {
     eoa: String,
+    #[serde(rename = "strategyId", default)]
+    strategy_id: Option<String>,
+}
+
+/// One session's `{running, config, state}` envelope — running engine first,
+/// else the last snapshot persisted to disk.
+fn session_envelope(
+    state: &AppState,
+    eoa: &str,
+    strategy_id: Option<&str>,
+) -> serde_json::Value {
+    match state.engines.status_of(eoa, strategy_id) {
+        Some(s) => json!({
+            "running": true,
+            "config": state.engines.config_of(eoa, strategy_id),
+            "state": s,
+        }),
+        // Stopped engine: serve the last persisted snapshot so the per-strat
+        // ledger / open positions don't vanish from the UI between sessions.
+        None => match state.engines.persisted_snapshot(eoa, strategy_id) {
+            Some((cfg, st)) => json!({"running": false, "config": cfg, "state": st}),
+            None => json!({"running": false}),
+        },
+    }
 }
 
 async fn live_status(
     State(state): State<AppState>,
     Query(q): Query<LiveStatusQuery>,
 ) -> impl IntoResponse {
-    match state.engines.status_of(&q.eoa) {
-        Some(s) => Json(json!({
-            "running": true,
-            "config": state.engines.config_of(&q.eoa),
-            "state": s,
-        }))
-            .into_response(),
-        // Stopped engine: serve the last persisted snapshot so the per-strat
-        // ledger / open positions don't vanish from the UI between sessions.
-        None => match state.engines.persisted_snapshot(&q.eoa) {
-            Some((cfg, st)) => Json(json!({
-                "running": false,
-                "config": cfg,
-                "state": st,
-            }))
-                .into_response(),
-            None => Json(json!({"running": false})).into_response(),
-        },
+    Json(session_envelope(&state, &q.eoa, q.strategy_id.as_deref())).into_response()
+}
+
+#[derive(Deserialize)]
+struct LiveSessionsQuery {
+    eoa: String,
+}
+
+/// Every session this wallet has — the multi-strat view. The console reads
+/// this to render each funded strat's own engine state, ledger and positions
+/// instead of assuming one live strat per wallet.
+async fn live_sessions(
+    State(state): State<AppState>,
+    Query(q): Query<LiveSessionsQuery>,
+) -> impl IntoResponse {
+    let sessions: Vec<serde_json::Value> = state
+        .engines
+        .session_ids(&q.eoa)
+        .into_iter()
+        .map(|sid| {
+            let mut env = session_envelope(&state, &q.eoa, Some(&sid));
+            env["strategyId"] = json!(sid);
+            env
+        })
+        .collect();
+    Json(json!({"sessions": sessions})).into_response()
+}
+
+#[derive(Deserialize)]
+struct LiveBankrollQuery {
+    /// Comma-separated trader addresses.
+    addresses: String,
+}
+
+/// Each trader's bankroll — the denominator proportional copy sizing divides
+/// by. The console's backtest calls this so its preview sizes trades with the
+/// same number the live engine uses; without it the preview would fall back to
+/// the volume model and predict sizes live would never place.
+async fn live_bankroll(
+    State(state): State<AppState>,
+    Query(q): Query<LiveBankrollQuery>,
+) -> impl IntoResponse {
+    let addrs: Vec<String> = q
+        .addresses
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| s.starts_with("0x") && s.len() == 42)
+        .take(64)
+        .collect();
+    let mut out = serde_json::Map::new();
+    for a in addrs {
+        // Engine cache: repeated console loads cost nothing.
+        if let Some(bankroll) = state.engines.bankroll_of(&a).await {
+            out.insert(a.to_lowercase(), json!(bankroll));
+        }
     }
+    Json(json!({"bankrolls": out})).into_response()
 }
 
 #[derive(Deserialize)]
 struct LiveExecutionBody {
     eoa: String,
+    #[serde(rename = "strategyId", default)]
+    strategy_id: Option<String>,
     #[serde(rename = "autoExecute")]
     auto_execute: bool,
 }
@@ -233,7 +328,11 @@ async fn live_execution(
     State(state): State<AppState>,
     Json(body): Json<LiveExecutionBody>,
 ) -> impl IntoResponse {
-    match state.engines.set_auto_execute(&body.eoa, body.auto_execute) {
+    match state.engines.set_auto_execute(
+        &body.eoa,
+        body.strategy_id.as_deref(),
+        body.auto_execute,
+    ) {
         Some(v) => Json(json!({"ok": true, "autoExecute": v})).into_response(),
         None => (
             StatusCode::NOT_FOUND,
@@ -266,6 +365,53 @@ async fn liquidate_handler(
         )
             .into_response(),
     }
+}
+
+// ─── Background sync schedule ───────────────────────────────────────────
+
+/// Cadence + last/next run of the background trader-data sync. Everything
+/// the console's SYNC panel renders.
+async fn sync_status(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.sync.status_json())
+}
+
+#[derive(Deserialize)]
+struct SyncConfigRequest {
+    enabled: Option<bool>,
+    /// Cadence in seconds. `intervalMinutes` / `intervalHours` are accepted as
+    /// conveniences so CLI callers don't have to do the arithmetic.
+    #[serde(rename = "intervalSecs")]
+    interval_secs: Option<u64>,
+    #[serde(rename = "intervalMinutes")]
+    interval_minutes: Option<f64>,
+    #[serde(rename = "intervalHours")]
+    interval_hours: Option<f64>,
+}
+
+async fn sync_config(
+    State(state): State<AppState>,
+    Json(req): Json<SyncConfigRequest>,
+) -> impl IntoResponse {
+    let secs = req
+        .interval_secs
+        .or_else(|| req.interval_minutes.map(|m| (m * 60.0).round() as u64))
+        .or_else(|| req.interval_hours.map(|h| (h * 3600.0).round() as u64));
+    match state.sync.update(req.enabled, secs) {
+        Ok(()) => Json(state.sync.status_json()).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"ok": false, "error": e})),
+        )
+            .into_response(),
+    }
+}
+
+/// Run a cycle now. Returns immediately — the scheduler task picks the
+/// request up, so a manual run can never overlap a scheduled one. Poll
+/// `/sync/status` for progress.
+async fn sync_run(State(state): State<AppState>) -> impl IntoResponse {
+    state.sync.trigger_now();
+    Json(state.sync.status_json())
 }
 
 // ─── Admin ──────────────────────────────────────────────────────────────

@@ -1,0 +1,22 @@
+{
+    "name": "codexcli",
+    "version": "1.0.0",
+    "description": "The OpenAI Codex CLI as a harness module — spawns `codex exec --json` and returns a step trace any module can render",
+    "icon": "◇",
+    "color": "#10a37f",
+    "harness": {
+        "name": "codex",
+        "label": "Codex",
+        "bin": "codex",
+        "install": "npm install -g @openai/codex"
+    },
+    "fns": [
+        "forward",
+        "harness",
+        "run",
+        "available",
+        "path",
+        "command",
+        "session"
+    ]
+}

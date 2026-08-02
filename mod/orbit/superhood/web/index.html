@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>SUPER HOOD BROS. — Washington Park, Brooklyn</title>
+<meta name="description" content="An 8-bit platformer set in Brooklyn: Fifth Avenue, the G train and Washington Park. Runs entirely in the browser.">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: #0a0a12;
+    color: #e8e8f0;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none; user-select: none;
+  }
+  #app {
+    height: 100%;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px;
+  }
+  #stage {
+    flex: 1 1 auto;
+    width: 100%;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 0;
+  }
+  canvas#screen {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: #000;
+    border: 3px solid #22222e;
+    border-radius: 4px;
+    box-shadow: 0 0 0 1px #000, 0 18px 60px rgba(0, 0, 0, 0.75),
+                0 0 90px rgba(90, 120, 255, 0.10);
+  }
+  header {
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: #6d6d86;
+    text-transform: uppercase;
+  }
+  header b { color: #f7d51d; letter-spacing: 3px; }
+  footer {
+    font-size: 11px; color: #55556a; text-align: center; line-height: 1.7;
+  }
+  footer kbd {
+    display: inline-block;
+    background: #1b1b26; border: 1px solid #2e2e3e; border-bottom-width: 2px;
+    border-radius: 3px; padding: 1px 5px; color: #b9b9cc; font-size: 10px;
+  }
+  /* the hints are live buttons too — clicking one presses the key */
+  footer kbd[data-key] { cursor: pointer; touch-action: none; }
+  footer kbd[data-key]:hover { color: #e8e8f0; border-color: #45455e; }
+  footer kbd[data-key].on {
+    background: #3a3a58; border-color: #6a6a9a; color: #fff;
+    border-bottom-width: 1px; transform: translateY(1px);
+  }
+  /* touch controls — only on the small screens that need them */
+  #pad { display: none; width: 100%; max-width: 520px; touch-action: none; }
+  #pad .row { display: flex; justify-content: space-between; align-items: center; }
+  #pad button {
+    -webkit-appearance: none; appearance: none;
+    background: #1b1b28; color: #cfcfe4;
+    border: 2px solid #33334a; border-radius: 12px;
+    font: inherit; font-size: 15px; font-weight: 700;
+    width: 66px; height: 66px; margin: 4px;
+    touch-action: none;
+  }
+  #pad button.wide { width: 92px; height: 58px; border-radius: 14px; }
+  #pad button.on { background: #3a3a58; border-color: #6a6a9a; color: #fff; }
+  @media (pointer: coarse), (max-width: 720px) {
+    #pad { display: block; }
+    footer { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header><b>Super Hood Bros.</b> &nbsp;·&nbsp; Washington Park, Brooklyn</header>
+
+  <div id="stage"><canvas id="screen" width="256" height="240"></canvas></div>
+
+  <div id="pad">
+    <div class="row">
+      <div>
+        <button data-key="left" aria-label="left">&#9664;</button>
+        <button data-key="right" aria-label="right">&#9654;</button>
+      </div>
+      <div>
+        <button data-key="down" aria-label="down">&#9660;</button>
+      </div>
+      <div>
+        <button class="wide" data-key="run" aria-label="run">RUN</button>
+        <button class="wide" data-key="jump" aria-label="jump">JUMP</button>
+      </div>
+    </div>
+    <div class="row" style="justify-content:center">
+      <button class="wide" data-key="start" aria-label="start">START</button>
+    </div>
+  </div>
+
+  <footer>
+    <kbd data-key="left">&#8592;</kbd><kbd data-key="right">&#8594;</kbd> walk &nbsp;
+    <kbd data-key="down">&#8595;</kbd> duck / enter the subway &nbsp;
+    <kbd data-key="jump">Z</kbd> jump &nbsp;
+    <kbd data-key="run">X</kbd> run &amp; throw bottle caps<br>
+    <kbd data-key="start">Enter</kbd> start &nbsp;
+    <kbd data-key="pause">P</kbd> pause &nbsp;
+    <kbd data-key="mute">M</kbd> mute &nbsp;
+    &nbsp;— pizza makes you big, an egg cream arms you, a MetroCard makes you untouchable.
+  </footer>
+</div>
+
+<script>
+// The bundle is loaded from script, not from four <script src> tags, because
+// the gateway serves this document at /superhood — with the trailing slash
+// stripped — and a relative src there resolves to /js/*, one level too high to
+// route. Computing the directory ourselves fixes that; doing it dynamically
+// also keeps the preload scanner from speculatively fetching the wrong URL.
+// A path with no file extension IS the directory; anything else drops its name.
+(function () {
+  var dir = location.pathname;
+  if (!/\/$/.test(dir)) dir = /\/[^/]*\.[^/]*$/.test(dir)
+    ? dir.slice(0, dir.lastIndexOf('/') + 1)
+    : dir + '/';
+  var base = document.createElement('base');
+  base.href = dir;                       // so the load-failure notice can show it
+  document.head.appendChild(base);
+  ['sprites', 'audio', 'levels', 'game'].forEach(function (name) {
+    var s = document.createElement('script');
+    s.src = dir + 'js/' + name + '.js';
+    s.async = false;                     // keeps them executing in this order
+    document.head.appendChild(s);
+  });
+})();
+</script>
+<script>
+// If the bundle did not load, say so on the canvas. A silent black screen is
+// what a missing script used to look like, and it reads as a broken game.
+addEventListener('load', function () {
+  if (window.__sm) return;
+  var cv = document.getElementById('screen');
+  var g = cv.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, cv.width, cv.height);
+  g.fillStyle = '#f7d51d';
+  g.font = '10px ui-monospace, monospace';
+  g.textAlign = 'center';
+  g.fillText('GAME OVER — THE GAME DID NOT LOAD', cv.width / 2, 104);
+  g.fillStyle = '#c8c8d8';
+  g.fillText('js/ failed to fetch from', cv.width / 2, 126);
+  g.fillText(document.baseURI, cv.width / 2, 140);
+  g.fillText('open the console for the 404', cv.width / 2, 162);
+});
+</script>
+</body>
+</html>

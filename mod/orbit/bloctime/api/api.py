@@ -16,6 +16,7 @@ from web3 import Web3
 
 sys.path.insert(0, str(Path(__file__).parent))
 import bt_registry
+import bt_contracts
 
 app = FastAPI(title="BlocTime API", description="Time-weighted staking")
 
@@ -146,6 +147,10 @@ class SetInflationReq(BaseModel):
     min_reward: str = "0"    # ether amount
     epoch_length: int = 43200  # blocks per epoch
 
+class FundPotReq(BaseModel):
+    amount: str
+    as_ether: bool = True
+
 class AbiCallReq(BaseModel):
     contract: str            # "bloctime" | "nativeToken"
     fn: str
@@ -160,6 +165,29 @@ def _call(fn, default=None):
         return fn.call()
     except Exception:
         return default
+
+
+SCHEDULE = "Weekly, Friday 12:00 EST (17:00 UTC)"
+
+
+def _pot_info(contract):
+    """Reward pot + weekly schedule. None where the deployed contract
+    predates the pot (it distributed per-epoch instead)."""
+    info = _call(contract.functions.getPotInfo())
+    if info is None:
+        return None
+    pot, pending, eligible, next_time, last_time, due = info
+    return {
+        "pot": str(pot),
+        "pendingInflation": str(pending),
+        "projected": str(pot + pending),
+        "eligibleSupply": str(eligible),
+        "nextDistribution": next_time,
+        "lastDistribution": last_time,
+        "due": due,
+        "secondsRemaining": 0 if due else max(0, next_time - int(time.time())),
+        "schedule": SCHEDULE,
+    }
 
 
 # ── Core Endpoints ──────────────────────────────────────────────────────
@@ -211,6 +239,7 @@ async def overview(req: Optional[AddressReq] = None):
         "delegate": delegate_addr if delegate_addr != ZERO_ADDR else "",
         "pendingRewards": str(pending_rewards),
         "votingPower": str(voting_power),
+        "blocBalance": str(_call(contract.functions.balanceOf(addr), 0)),
         "positions": positions,
     }}
 
@@ -339,8 +368,10 @@ async def stats():
         epoch, epoch_reward, total_distributed, last_dist, infl = 0, 0, 0, 0, None
 
     bt_addr, ntv_addr, deploy = _load_deploy_info()
+    pot = _pot_info(contract)
 
     return {"result": {
+        "pot": pot,
         "totalBlocTime": str(total_bt),
         "totalSupply": str(supply),
         "totalStakes": next_id,
@@ -486,14 +517,48 @@ async def claim_rewards():
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/distribute_rewards")
-async def distribute_rewards():
+@app.get("/pot")
+async def pot():
+    """Reward pot waiting on the next weekly distribution."""
+    _, contract, _, _ = load_contract()
+    if not contract:
+        raise HTTPException(status_code=500, detail="Contract not deployed")
+    info = _pot_info(contract)
+    if info is None:
+        raise HTTPException(status_code=501, detail="Deployed contract predates the weekly pot")
+    return {"result": info}
+
+
+@app.post("/fund_pot")
+async def fund_pot(req: FundPotReq):
+    """Add BLOC to the pot — paid out at the next Friday 12:00 EST."""
     w3, contract, account, _ = load_contract()
     if not contract or not account:
         raise HTTPException(status_code=500, detail="Not loaded or no signer")
     try:
-        result = _send_tx(w3, account, contract.functions.distributeRewards())
+        amount = Web3.to_wei(req.amount, "ether") if req.as_ether else int(req.amount)
+        result = _send_tx(w3, account, contract.functions.fundPot(amount))
         return {"result": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/distribute_rewards")
+async def distribute_rewards():
+    """Sweep the pot to BLOC holders. Only opens Friday 12:00 EST, weekly."""
+    w3, contract, account, _ = load_contract()
+    if not contract or not account:
+        raise HTTPException(status_code=500, detail="Not loaded or no signer")
+    info = _pot_info(contract)
+    if info and not info["due"]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Next distribution at {info['nextDistribution']} "
+                   f"({info['secondsRemaining']}s away) — {SCHEDULE}",
+        )
+    try:
+        result = _send_tx(w3, account, contract.functions.distributeRewards())
+        return {"result": {**result, "pot": info}}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -536,7 +601,18 @@ def _load_any_contract(contract_id):
     """Load (w3, contract, account, abi) for any registered contract."""
     d = CONTRACT_DEFS.get(contract_id)
     if not d:
-        raise HTTPException(status_code=404, detail=f"Unknown contract '{contract_id}'")
+        # Contracts you deployed yourself are addressed as "deployed:<id>".
+        entry = bt_contracts.get_deployment(str(contract_id).removeprefix("deployed:"))
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Unknown contract '{contract_id}'")
+        rpc = entry["rpc"] or os.environ.get("BASE_TESTNET_RPC_URL", "https://sepolia.base.org")
+        w3 = Web3(Web3.HTTPProvider(rpc))
+        contract = w3.eth.contract(
+            address=Web3.to_checksum_address(entry["address"]), abi=entry["abi"],
+        )
+        pk = os.environ.get("PRIVATE_KEY")
+        account = w3.eth.account.from_key(pk) if pk else None
+        return w3, contract, account, entry["abi"]
     network, cfg = _network_cfg()
     addr = cfg.get(d["cfg_key"])
     if not addr:
@@ -614,9 +690,25 @@ async def contracts():
             "id": cid,
             "name": d["label"],
             "address": addr,
+            "chainId": str(cfg.get("chainId", "")),
+            "rpc": cfg.get("url", ""),
             "explorer": f"https://sepolia.basescan.org/address/{addr}" if addr else "",
             "abi": _load_abi(d["abi"]),
             "source": d["sol"].read_text() if d["sol"].exists() else "",
+        })
+    for e in bt_contracts.list_deployments():
+        out.append({
+            "id": f"deployed:{e['id']}",
+            "name": e["name"],
+            "address": e["address"],
+            "chainId": e["chainId"],
+            "rpc": e["rpc"],
+            "explorer": e["explorer"],
+            "abi": e["abi"],
+            "source": e["source"],
+            "deployed": True,
+            "deployer": e["deployer"],
+            "createdAt": e["createdAt"],
         })
     return {"result": {
         "network": network,
@@ -720,6 +812,172 @@ async def factory():
         "defaults": DEPLOY_DEFAULTS,
         "fork": "m bloctime/fork name=<yourname>   # copies the whole module into orbit/<yourname>",
     }}
+
+
+# ── Deploy anything: compile Solidity and put it on chain ────────────────
+
+STARTER_SOL = '''// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract Greeter {
+    string public greeting;
+
+    constructor(string memory _greeting) {
+        greeting = _greeting;
+    }
+
+    function setGreeting(string calldata _greeting) external {
+        greeting = _greeting;
+    }
+}
+'''
+
+
+class CompileReq(BaseModel):
+    source: str
+    filename: str = "Contract.sol"
+    optimize: bool = True
+    runs: int = 200
+
+class RecordDeployReq(BaseModel):
+    name: str
+    address: str
+    abi: list
+    rpc: str = ""
+    chainId: str = ""
+    deployer: str = ""
+    txHash: str = ""
+    source: str = ""
+    filename: str = ""
+    solc: str = ""
+
+class ForgetDeployReq(BaseModel):
+    id: str
+    address: str = ""
+    signature: str = ""
+
+class DeployContractReq(BaseModel):
+    source: str = ""
+    contract: str = ""       # which contract in the source (default: the only/last one)
+    abi: list = []           # or skip compiling and deploy a prebuilt artifact
+    bytecode: str = ""
+    args: list = []
+    rpc: str = ""
+    filename: str = "Contract.sol"
+    name: str = ""           # label in the store (default: contract name)
+    record: bool = True
+
+
+@app.get("/compile/starter")
+async def compile_starter():
+    """A tiny contract to start from, plus what the compiler here can do."""
+    return {"result": {
+        "source": STARTER_SOL,
+        "filename": "Greeter.sol",
+        "imports": "@openzeppelin/contracts/** resolves from this module's node_modules",
+    }}
+
+
+@app.post("/compile")
+async def compile_contract(req: CompileReq):
+    """Compile Solidity → ABI + bytecode for every contract in the file."""
+    try:
+        return {"result": bt_contracts.compile_source(
+            req.source, filename=req.filename, optimize=req.optimize, runs=req.runs,
+        )}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/deployments")
+async def deployments():
+    """Contracts deployed through this console (yours and anyone else's on this box)."""
+    entries = bt_contracts.list_deployments()
+    return {"result": {"count": len(entries), "deployments": entries}}
+
+
+@app.post("/deployments/record")
+async def deployments_record(req: RecordDeployReq):
+    """Remember a wallet-deployed contract so it joins the CONTRACTS playground."""
+    try:
+        entry = bt_contracts.add_deployment(
+            name=req.name, address=req.address, abi=req.abi, rpc=req.rpc,
+            chain_id=req.chainId, deployer=req.deployer, tx_hash=req.txHash,
+            source=req.source, filename=req.filename, solc=req.solc,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"result": entry}
+
+
+@app.post("/deployments/forget")
+async def deployments_forget(req: ForgetDeployReq):
+    """Drop a deployment record. Deployer must sign 'bloctime:forget:<id>'."""
+    entry = bt_contracts.get_deployment(req.id)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Unknown deployment '{req.id}'")
+    deployer = entry.get("deployer", "")
+    if deployer:
+        try:
+            from eth_account import Account
+            from eth_account.messages import encode_defunct
+            recovered = Account.recover_message(
+                encode_defunct(text=f"bloctime:forget:{req.id}"), signature=req.signature,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Bad signature: {e}")
+        if recovered.lower() != deployer.lower():
+            raise HTTPException(status_code=403, detail="Signature does not match the deployer")
+    try:
+        return {"result": bt_contracts.remove_deployment(req.id)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/deploy")
+async def deploy_contract(req: DeployContractReq):
+    """Deploy a contract with the server signer (PRIVATE_KEY) — the CLI path.
+
+    The app deploys from your own wallet instead; this is for headless use.
+    """
+    abi, bytecode, source, solc_version, name = req.abi, req.bytecode, "", "", req.contract
+    if req.source:
+        try:
+            compiled = bt_contracts.compile_source(req.source, filename=req.filename)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        picks = [c for c in compiled["contracts"] if c["deployable"]]
+        if req.contract:
+            picks = [c for c in picks if c["name"] == req.contract]
+        if not picks:
+            raise HTTPException(status_code=400, detail=f"No deployable contract '{req.contract}' in {req.filename}")
+        chosen = picks[-1]
+        abi, bytecode, name = chosen["abi"], chosen["bytecode"], chosen["name"]
+        source, solc_version = req.source, compiled["solc"]
+    if not abi or not bytecode:
+        raise HTTPException(status_code=400, detail="Provide `source`, or `abi` + `bytecode`")
+
+    ctor = next((e for e in abi if e.get("type") == "constructor"), None)
+    try:
+        args = bt_contracts.coerce_args(ctor.get("inputs", []) if ctor else [], req.args)
+        facts = bt_contracts.deploy(abi, bytecode, args=args, rpc=req.rpc or _network_cfg()[1].get("url"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    result = {**facts, "name": req.name or name or "Contract", "abi": abi}
+    if req.record:
+        try:
+            result["entry"] = bt_contracts.add_deployment(
+                name=result["name"], address=facts["address"], abi=abi, rpc=facts["rpc"],
+                chain_id=facts["chainId"], deployer=facts["deployer"], tx_hash=facts["txHash"],
+                source=source, filename=req.filename if source else "", solc=solc_version,
+                verify=False,
+            )
+        except ValueError as e:
+            result["recordError"] = str(e)
+    return {"result": result}
 
 
 # ── Marketplace: registry of deployed BlocTime instances ─────────────────

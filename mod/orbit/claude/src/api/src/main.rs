@@ -11,6 +11,7 @@ mod jobs;
 mod api;
 mod snapshots;
 mod merge;
+mod graph;
 mod screenshots;
 mod userspace;
 mod sudo;

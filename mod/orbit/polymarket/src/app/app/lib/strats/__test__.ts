@@ -19,8 +19,10 @@ import {
   successProbability,
   stopLossTriggered,
   takeProfitTriggered,
+  copyRatioFor,
   DEFAULT_STOP_LOSS,
   DEFAULT_TAKE_PROFIT,
+  DEFAULT_MAX_UPSCALE,
   REBALANCE_MARGIN_PCT,
 } from "./strat";
 import type { TraderRoiStats, PolymarketPosition } from "../types";
@@ -88,13 +90,20 @@ console.log("\n── sizeAndPrice — sub-$1 mirror clamps UP (no skip) ──"
 
 console.log("\n── sizeAndPrice — CLOB 5-share floor ──");
 {
-  const s = new Strat();
-  // At 50¢, 5-share floor = $2.50. Raw mirror $1.00 should clamp up to $2.50.
+  // At 50¢, 5-share floor = $2.50. Raw mirror $1.00 is 2.5× under it — past
+  // the default fidelity limit, so the default strat refuses rather than
+  // placing an order 2.5× the size proportionality asked for.
   const trade = buildTrade({ price: 0.50, notional: 200, copyRatio: 0.005 });
   const c: SizeConstraints = { userFloor: 0.5, userCeiling: 100, clobFloor: clobMinNotional(0.50), capital: 1000 };
-  const d = s.sizeAndPrice(trade, c, H);
   check("clobFloor at 50¢ = $2.50", c.clobFloor === 2.50, `got ${c.clobFloor}`);
-  check("clamped up to clobFloor", d.mirrorNotional === 2.50, `got ${d.mirrorNotional}`);
+
+  const refused = new Strat().sizeAndPrice(trade, c, H);
+  check("2.5× upscale is refused by default", refused.mirrorNotional === 0, `got ${refused.mirrorNotional}`);
+  check("reason says SUB_SCALE", !!refused.reason?.startsWith("SUB_SCALE"), `reason: ${refused.reason}`);
+
+  // maxUpscale: null opts back into the legacy unbounded clamp.
+  const d = new Strat({ maxUpscale: null }).sizeAndPrice(trade, c, H);
+  check("clamped up to clobFloor when unbounded", d.mirrorNotional === 2.50, `got ${d.mirrorNotional}`);
   check("reason mentions CLOB", !!d.reason?.includes("CLOB"), `reason: ${d.reason}`);
   // size = ceil(2.50 / 0.50) = 5 → matches CLOB minimum exactly
   check("resulting shares ≥ 5", Math.ceil(d.mirrorNotional / 0.50) >= POLYMARKET_MIN_SHARES);
@@ -440,7 +449,7 @@ console.log("\n── Cross-language playbook parity (parity.fixture.json) ─�
   // same slippage-widened tick-rounded limit price. This is what makes
   // "what you backtest is what live places" true beyond the score math.
   for (const c of fx.sizingCases) {
-    const s = new Strat({ slippageBps: c.slippageBps });
+    const s = new Strat({ slippageBps: c.slippageBps, maxUpscale: c.maxUpscale });
     const trade = buildTrade({
       side: c.side, price: c.price, size: c.leaderNotional / c.price,
       notional: c.leaderNotional, copyRatio: c.copyRatio,
@@ -450,7 +459,9 @@ console.log("\n── Cross-language playbook parity (parity.fixture.json) ─�
       clobFloor: clobMinNotional(c.price), capital: 1000,
     }, buildHistory());
     const skip = d.mirrorNotional <= 0
-      ? (d.reason?.startsWith("CEILING") ? "CEILING" : d.reason?.startsWith("LEADER_DUST") ? "DUST" : "OTHER")
+      ? (d.reason?.startsWith("CEILING") ? "CEILING"
+        : d.reason?.startsWith("LEADER_DUST") ? "DUST"
+        : d.reason?.startsWith("SUB_SCALE") ? "SUB_SCALE" : "OTHER")
       : null;
     const exp = c.expected;
     check(
@@ -461,9 +472,22 @@ console.log("\n── Cross-language playbook parity (parity.fixture.json) ─�
     );
   }
 
+  // Copy ratio — the number that decides how big every mirror is. The two
+  // languages agreeing on it IS the guarantee that a backtest predicts the
+  // position sizes the live engine will actually take.
+  for (const c of fx.copyRatioCases) {
+    const got = copyRatioFor(c.accountValue, c.weightFraction, c.leaderBankroll, c.capitalAlloc, c.traderVol);
+    check(
+      `copyRatio[${c.name}] — ${c.why}`,
+      close(got, c.expected),
+      `got ${got}, want ${c.expected}`,
+    );
+  }
+
   check("REBALANCE_MARGIN_PCT matches fixture", REBALANCE_MARGIN_PCT === fx.rebalanceMarginPct);
   check("DEFAULT_STOP_LOSS matches fixture", DEFAULT_STOP_LOSS === fx.defaults.stopLoss);
   check("DEFAULT_TAKE_PROFIT matches fixture", DEFAULT_TAKE_PROFIT === fx.defaults.takeProfit);
+  check("DEFAULT_MAX_UPSCALE matches fixture", DEFAULT_MAX_UPSCALE === fx.defaults.maxUpscale);
   check("successProbability falls back to 0.5 on stale cached stats",
     successProbability({ ...buildStats(), successProb: undefined as unknown as number }) === 0.5 &&
     successProbability(null) === 0.5);

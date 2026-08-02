@@ -16,6 +16,7 @@ run:
 import os
 import sys
 import json
+import time
 import tempfile
 import shutil
 import pytest
@@ -31,7 +32,10 @@ from src.memory.memory import Memory
 SKILL_COUNT = 23
 # shipped agents. Custom agents live in the same directory, so counts are
 # lower bounds — a host with their own agents installed still passes.
-AGENT_COUNT = 7
+AGENT_COUNT = 9
+# custom tools persist off-tree — tests get their own file so a run never
+# reads or clobbers the host's real ~/.mod/agent/tools.json
+TOOLS_PATH = "/tmp/agent_test_tools.json"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -398,7 +402,8 @@ class TestAgentsRegistry:
         names = agents.ls()
         assert len(names) >= AGENT_COUNT
         for expected in ["default", "architect", "reviewer", "debugger",
-                         "builder", "refactorer", "safety"]:
+                         "builder", "refactorer", "safety",
+                         "claude-code", "codex"]:
             assert expected in names
 
     def test_get_returns_config(self, agents):
@@ -633,7 +638,9 @@ class TestAgent:
         agent._session_keys = {}
         agent._snapped = []
         from src.toolbox.mod import Toolboxes
-        agent.toolboxes = Toolboxes(skills=agent.skills)
+        from src.tools.mod import Tools
+        agent.tools = Tools(skills=agent.skills, path=TOOLS_PATH)
+        agent.toolboxes = Toolboxes(skills=agent.skills, tools=agent.tools)
         agent.goal = Agent.goal
         agent.output_format = Agent.output_format
         agent.anchors = Agent.anchors
@@ -732,6 +739,110 @@ class TestAgent:
         assert len(steps) == 1
         assert steps[0]["tool"] == "read"
 
+    def test_parse_steps_extra_brace_repaired(self):
+        agent = self._make_agent()
+        output = ('<PLAN>\n<STEP>{"tool": "fetch", "params": '
+                  '{"url": "https://api.example.com/x?a=1&b=2"}}}</STEP>\n</PLAN>')
+        steps, raw = agent.parse_steps(output)
+        assert len(steps) == 1
+        assert steps[0]["tool"] == "fetch"
+        assert steps[0]["params"]["url"] == "https://api.example.com/x?a=1&b=2"
+
+    def test_first_object_ignores_braces_in_strings(self):
+        agent = self._make_agent()
+        s = '{"tool": "write", "params": {"content": "a } b {"}} trailing junk }'
+        assert json.loads(agent._first_object(s))["params"]["content"] == "a } b {"
+
+    def test_parse_steps_missing_params(self):
+        """Models routinely omit params on finish — that's still a step."""
+        agent = self._make_agent()
+        steps, raw = agent.parse_steps('<STEP>{"tool": "finish"}</STEP>')
+        assert len(steps) == 1
+        assert steps[0]["params"] == {}
+
+    def test_parse_steps_double_encoded_params(self):
+        agent = self._make_agent()
+        output = '<STEP>{"tool": "bash", "params": "{\\"command\\": \\"ls\\"}"}</STEP>'
+        steps, raw = agent.parse_steps(output)
+        assert steps[0]["params"] == {"command": "ls"}
+
+    def test_parse_steps_truncated_value_repaired(self):
+        """max_tokens cut the answer mid-string — keep what arrived."""
+        agent = self._make_agent()
+        output = '<STEP>{"tool": "bash", "params": {"command": "grep -rn foo</STEP>'
+        steps, raw = agent.parse_steps(output)
+        assert len(steps) == 1
+        assert steps[0]["params"]["command"] == "grep -rn foo"
+
+    def test_parse_steps_truncated_key_repaired(self):
+        """Cut off after a key: drop the orphan, keep the complete params."""
+        agent = self._make_agent()
+        output = '<STEP>{"tool": "bash", "params": {"command": "ls", "cwd":</STEP>'
+        steps, raw = agent.parse_steps(output)
+        assert steps[0]["params"] == {"command": "ls"}
+
+    def test_repair_keeps_commas_inside_strings(self):
+        """The repair pass must not rewrite the model's own text."""
+        agent = self._make_agent()
+        output = '<STEP>{"tool": "bash", "params": {"command": "ls a, ]",}}</STEP>'
+        steps, raw = agent.parse_steps(output)
+        assert steps[0]["params"]["command"] == "ls a, ]"
+
+    def test_parse_steps_python_dict_repaired(self):
+        agent = self._make_agent()
+        steps, raw = agent.parse_steps("<STEP>{'tool': 'bash', 'params': {'command': 'ls'}}</STEP>")
+        assert steps[0]["params"] == {"command": "ls"}
+
+    def test_parse_steps_rejects_non_string_tool(self):
+        """run_plan calls .lower() on the tool name — a number would crash it."""
+        agent = self._make_agent()
+        steps, raw = agent.parse_steps('<STEP>{"tool": 42, "params": {}}</STEP>')
+        assert steps == []
+
+    def test_parse_steps_stray_open_anchor(self):
+        agent = self._make_agent()
+        output = '<STEP>oops <STEP>{"tool": "bash", "params": {"command": "ls"}}</STEP>'
+        steps, raw = agent.parse_steps(output)
+        assert len(steps) == 1
+        assert steps[0]["tool"] == "bash"
+
+    def test_parse_steps_streamed_chunks(self):
+        """Chunked input, anchors split across boundaries — same result, raw intact."""
+        agent = self._make_agent()
+        chunks = ['<ST', 'EP>{"tool": "bash", "params": {"command": "ls"}}</ST', 'EP>',
+                  ' then <STEP>{"tool": "finish", "params": {"summary": "done"}}</STEP>']
+        steps, raw = agent.parse_steps(iter(chunks))
+        assert [s["tool"] for s in steps] == ["bash", "finish"]
+        assert raw == ''.join(chunks)
+
+    def test_parse_steps_is_linear(self):
+        """Guard the scan against going quadratic again: the old per-character
+        rescan took ~6s on this input, the linear one is milliseconds."""
+        import time
+        agent = self._make_agent()
+        output = ('thinking out loud. ' * 6000) + '<STEP>{"tool": "finish", "params": {}}</STEP>'
+        t = time.perf_counter()
+        steps, raw = agent.parse_steps(output)
+        elapsed = time.perf_counter() - t
+        assert len(steps) == 1
+        assert elapsed < 1.0, f"parse_steps took {elapsed:.2f}s on {len(output)} chars"
+
+    # ── plan fallback: never leak anchors to the user ──
+
+    def test_plan_unparseable_step_retries_not_answers(self):
+        """A broken tool call must not end the run as the user-facing answer."""
+        agent = self._make_agent()
+        plan = agent.plan('Here is the plan:\n<PLAN>\n<STEP>{"tool": broken}</STEP>\n</PLAN>')
+        assert len(plan) == 1
+        assert plan[0]["tool"] == "invalid"
+        assert plan[0].get("error")
+
+    def test_plan_plain_text_answer_strips_anchors(self):
+        agent = self._make_agent()
+        plan = agent.plan('<PLAN>\nThe weather is sunny.\n</PLAN>')
+        assert plan[0]["tool"] == "response"
+        assert plan[0]["result"] == "The weather is sunny."
+
     # ── _extract_step ──
 
     def test_extract_step_valid(self):
@@ -778,6 +889,50 @@ class TestAgent:
         agent = self._make_agent()
         result = agent.run_plan([], safety=False)
         assert result == []
+
+    # ── repeat-call guard ──
+
+    def test_run_plan_blocks_repeat_of_failed_call(self):
+        """The same failing call runs twice, then gets its old result back —
+        this is what kept the loop re-fetching a 403 URL until steps ran out."""
+        agent = self._make_agent()
+        agent._failed_calls = {}
+        call = {"tool": "bash", "params": {"command": "exit 3"}}
+        for _ in range(2):
+            r = agent.run_plan([dict(call)], safety=False)
+            assert not r[0]["result"]["success"]
+            assert "error" not in r[0]
+        r = agent.run_plan([dict(call)], safety=False)
+        assert "repeat call blocked" in r[0]["error"]
+        assert r[0]["result"]["code"] == 3       # the prior result rides along
+
+    def test_run_plan_repeats_successful_calls(self):
+        """Only failures are blocked — re-reading a file after an edit is a
+        legitimate identical call with a different answer."""
+        agent = self._make_agent()
+        agent._failed_calls = {}
+        call = {"tool": "bash", "params": {"command": "echo again"}}
+        for _ in range(4):
+            r = agent.run_plan([dict(call)], safety=False)
+            assert r[0]["result"]["success"]
+
+    def test_run_plan_different_params_not_blocked(self):
+        agent = self._make_agent()
+        agent._failed_calls = {}
+        for cmd in ("exit 1", "exit 1", "exit 2"):
+            r = agent.run_plan([{"tool": "bash", "params": {"command": cmd}}],
+                               safety=False)
+        assert "error" not in r[0]
+
+    def test_step_failed_counts_self_reported_failure(self):
+        """fetch answers 403 with success=False and never raises — the loop
+        has to read that as a failure or the recovery hint never fires."""
+        from src.mod import _step_failed
+        assert _step_failed({"tool": "fetch", "result": {"success": False, "status": 403}})
+        assert _step_failed({"tool": "read", "error": "boom"})
+        assert _step_failed({"tool": "x", "result": {"error": "nope"}})
+        assert not _step_failed({"tool": "bash", "result": {"success": True}})
+        assert not _step_failed({"tool": "finish", "params": {}})
 
     # ── init_memory ──
 
@@ -878,6 +1033,93 @@ class TestSkillPipeline:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  CUSTOM TOOLS
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestCustomTools:
+    def _tools(self, tmpdir):
+        from src.tools.mod import Tools
+        return Tools(skills=Skills(), path=os.path.join(tmpdir, "tools.json"))
+
+    def test_add_infers_params_from_template(self, tmpdir):
+        t = self._tools(tmpdir)
+        tool = t.add("loc", "wc -l {path}", description="Count lines")
+        assert tool["params"] == {"path": {"type": "string", "required": True}}
+        assert tool["kind"] == "custom"
+        assert t.ls() == ["loc"]
+
+    def test_schema_matches_skill_shape(self, tmpdir):
+        t = self._tools(tmpdir)
+        t.add("loc", "wc -l {path}", description="Count lines")
+        s = t.schema()["loc"]
+        assert s["description"] == "Count lines"
+        assert s["params"]["path"]["required"] is True
+
+    def test_run_renders_and_executes(self, tmpdir):
+        t = self._tools(tmpdir)
+        t.add("say", "echo {msg}")
+        r = t.run("say", msg="hello tools")
+        assert r["success"] and "hello tools" in r["stdout"]
+
+    def test_params_are_shell_quoted(self, tmpdir):
+        t = self._tools(tmpdir)
+        marker = os.path.join(tmpdir, "pwned")
+        t.add("say", "echo {msg}")
+        r = t.run("say", msg=f"x; touch {marker}")
+        assert r["success"]
+        assert not os.path.exists(marker), "a param must not open a second command"
+
+    def test_missing_required_param_raises(self, tmpdir):
+        t = self._tools(tmpdir)
+        t.add("say", "echo {msg}")
+        with pytest.raises(ValueError):
+            t.run("say")
+
+    def test_default_fills_in(self, tmpdir):
+        t = self._tools(tmpdir)
+        t.add("say", "echo {msg}",
+              params={"msg": {"type": "string", "required": False, "default": "quiet"}})
+        assert "quiet" in t.run("say")["stdout"]
+
+    def test_builtin_names_are_reserved(self, tmpdir):
+        t = self._tools(tmpdir)
+        with pytest.raises(ValueError):
+            t.add("bash", "echo no")
+        with pytest.raises(ValueError):
+            t.add("finish", "echo no")
+
+    def test_bad_name_rejected(self, tmpdir):
+        t = self._tools(tmpdir)
+        with pytest.raises(ValueError):
+            t.add("Bad Name!", "echo no")
+
+    def test_command_required(self, tmpdir):
+        t = self._tools(tmpdir)
+        with pytest.raises(ValueError):
+            t.add("empty", "   ")
+
+    def test_persists_across_instances(self, tmpdir):
+        self._tools(tmpdir).add("loc", "wc -l {path}")
+        assert self._tools(tmpdir).ls() == ["loc"]
+
+    def test_rm(self, tmpdir):
+        t = self._tools(tmpdir)
+        t.add("loc", "wc -l {path}")
+        assert t.rm("loc")["existed"]
+        assert t.ls() == []
+        assert t.rm("loc")["existed"] is False
+
+    def test_timeout_is_bounded(self, tmpdir):
+        t = self._tools(tmpdir)
+        t.add("slow", "sleep 5", timeout=1)
+        r = t.run("slow")
+        assert not r["success"] and "timeout" in r["stderr"]
+
+    def test_registry_self_test(self, tmpdir):
+        assert self._tools(tmpdir).test()["passed"]
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  MOD CLASS
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -888,7 +1130,9 @@ class TestMod:
         mod.skills = Skills()
         mod.agents = Agents()
         from src.toolbox.mod import Toolboxes
-        mod.toolboxes = Toolboxes(skills=mod.skills)
+        from src.tools.mod import Tools
+        mod.tools = Tools(skills=mod.skills, path=TOOLS_PATH)
+        mod.toolboxes = Toolboxes(skills=mod.skills, tools=mod.tools)
         mod._snapped = []
         mod.memory = Memory()
         mod.memory.clear()
@@ -957,6 +1201,54 @@ class TestMod:
         assert len(Mod.description) > 0
 
 
+class TestCustomToolsOnAgent:
+    """To the agent loop a custom tool is just another skill."""
+
+    def _mod(self):
+        mod = TestMod()._make_mod()
+        mod.tools.rm("t_loc")   # leftovers from a killed run would skew asserts
+        return mod
+
+    def test_schema_merges_custom_tools(self):
+        mod = self._mod()
+        mod.tools.add("t_loc", "wc -l {path}", description="lines")
+        try:
+            schema = mod.skill_schema()
+            assert "t_loc" in schema and "bash" in schema
+            assert schema["t_loc"]["custom"] is True
+        finally:
+            mod.tools.rm("t_loc")
+
+    def test_snapped_toolbox_filters_custom_tools_too(self):
+        mod = self._mod()
+        mod.tools.add("t_loc", "wc -l {path}")
+        try:
+            mod.toolboxes.add("t_box", ["read", "t_loc"], "custom + shipped")
+            mod.snap("t_box")
+            assert set(mod.skill_schema()) == {"read", "t_loc"}
+        finally:
+            mod.unsnap()
+            mod.toolboxes.rm("t_box")
+            mod.tools.rm("t_loc")
+
+    def test_run_plan_dispatches_to_a_custom_tool(self):
+        mod = self._mod()
+        mod.tools.add("t_loc", "echo {msg}")
+        try:
+            plan = mod.run_plan([{"tool": "t_loc", "params": {"msg": "from the loop"}}])
+            assert "from the loop" in plan[0]["result"]["stdout"]
+        finally:
+            mod.tools.rm("t_loc")
+
+    def test_status_lists_custom_tools(self):
+        mod = self._mod()
+        mod.tools.add("t_loc", "wc -l {path}")
+        try:
+            assert "t_loc" in mod.status()["custom_tools"]
+        finally:
+            mod.tools.rm("t_loc")
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  GATE / ACCESS CONTROL
 # ═══════════════════════════════════════════════════════════════════════
@@ -968,7 +1260,9 @@ class TestGate:
         mod.skills = Skills()
         mod.agents = Agents()
         from src.toolbox.mod import Toolboxes
-        mod.toolboxes = Toolboxes(skills=mod.skills)
+        from src.tools.mod import Tools
+        mod.tools = Tools(skills=mod.skills, path=TOOLS_PATH)
+        mod.toolboxes = Toolboxes(skills=mod.skills, tools=mod.tools)
         mod._snapped = []
         mod.memory = Memory()
         mod.memory.clear()
@@ -1368,6 +1662,28 @@ class TestApi:
         r = client.post("/prompts", json={"name": "x", "text": ""})
         assert "error" in r.json()
 
+    def test_library_formats_serves_the_docs(self):
+        """The console's upload panel renders docs/uploads.md from here."""
+        client = self._get_app()
+        d = client.get("/library/formats").json()
+        assert set(d["kinds"]) == {"prompt", "skill", "memory", "agent"}
+        assert d["doc"].startswith("# Upload your own")
+
+    def test_upload_rejects_unusable_files(self):
+        """Both upload doors reject before anything lands in the library."""
+        client = self._get_app()
+        assert "error" in client.post("/library/upload", json={"text": "  "}).json()
+        assert "error" in client.post("/library/upload",
+                                      json={"text": "hi", "kind": "nope"}).json()
+        r = client.post("/library/upload/file",
+                        files={"file": ("empty.md", b"", "text/markdown")})
+        assert "error" in r.json()
+
+    def test_import_rejects_a_junk_cid(self):
+        client = self._get_app()
+        assert "error" in client.post("/library/import", json={"cid": ""}).json()
+        assert "error" in client.post("/agents/import", json={"cid": "not-a-cid"}).json()
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  LIBRARY (unified prompts / skills / memory / agents index)
@@ -1459,6 +1775,165 @@ class TestLibrary:
     def test_selftest(self):
         from src.library.mod import Library
         assert Library().test() is True
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  UPLOADS  (bring your own prompt / skill / memory note / agent)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestUploadFormats:
+    """formats.py — one parser behind every upload path."""
+
+    def _parse(self, text, filename=None, kind=None):
+        from src.library import formats
+        return formats.parse(text, filename, kind)
+
+    def test_frontmatter_split(self):
+        from src.library.formats import split_frontmatter
+        meta, body = split_frontmatter("---\nname: x\ntags: [a, b]\n---\nthe body\n")
+        assert meta["name"] == "x" and meta["tags"] == ["a", "b"]
+        assert body == "the body"
+
+    def test_mini_yaml_without_pyyaml(self):
+        from src.library.formats import _mini_yaml
+        meta = _mini_yaml('name: x\ndescription: "quoted, comma"\nskills:\n  - bash\n  - git')
+        assert meta["name"] == "x"
+        assert meta["description"] == "quoted, comma"
+        assert meta["skills"] == ["bash", "git"]
+
+    def test_agent_from_markdown(self):
+        item = self._parse(
+            "---\ntype: agent\nname: Release Captain\ndescription: cuts releases\n"
+            "icon: X\nskills: [bash, git]\nmodel: anthropic/claude-sonnet-4.5\n---\n"
+            "You cut releases.", "whatever.md")
+        assert item["kind"] == "agent"
+        assert item["name"] == "release-captain"      # slugged for the registry
+        assert item["label"] == "Release Captain"
+        assert item["body"] == "You cut releases."
+        assert item["skills"] == ["bash", "git"]
+        assert item["icon"] == "X" and item["model"] == "anthropic/claude-sonnet-4.5"
+
+    def test_agent_from_json(self):
+        item = self._parse('{"type": "agent", "name": "x", "goal": "be brief"}')
+        assert item["kind"] == "agent" and item["body"] == "be brief"
+
+    def test_kind_from_filename(self):
+        assert self._parse("# pdf\ninstructions", "skills/pdf/SKILL.md")["kind"] == "skill"
+        assert self._parse("body", "notes/x.memory.md")["kind"] == "memory"
+        assert self._parse("body", "x.agent.md")["kind"] == "agent"
+
+    def test_kind_from_shape(self):
+        assert self._parse("---\nname: a\ngoal: g\n---\n")["kind"] == "agent"
+        assert self._parse("---\nname: a\nlicense: MIT\n---\nbody")["kind"] == "skill"
+
+    def test_explicit_kind_wins(self):
+        item = self._parse("---\ntype: agent\nname: a\n---\nbody", "a.agent.md",
+                           kind="prompt")
+        assert item["kind"] == "prompt"
+
+    def test_plain_text_is_a_prompt_named_after_the_file(self):
+        item = self._parse("just be brief", "brevity.txt")
+        assert item["kind"] == "prompt" and item["name"] == "brevity"
+
+    def test_bad_input_raises(self, ):
+        import pytest as p
+        from src.library import formats
+        with p.raises(ValueError):
+            formats.parse("   ")                       # empty file
+        with p.raises(ValueError):
+            formats.parse("{not json}", "x.json")      # broken json
+        with p.raises(ValueError):
+            formats.parse("body", None, kind="nope")   # unknown kind
+        with p.raises(ValueError):
+            formats.parse("---\nname: a\n---\n")       # nothing to install
+
+
+class TestUpload:
+    """library.upload / import_cid — the file lands in the right collection."""
+
+    def _lib(self, tmpdir, agents=False):
+        from src.library.mod import Library
+        return Library(dir=tmpdir, agents=Agents() if agents else None)
+
+    def test_upload_prompt(self, tmpdir):
+        lib = self._lib(tmpdir)
+        out = lib.upload("---\nname: brief\ntags: [style]\n---\nbe brief", "brief.prompt.md")
+        assert out["kind"] == "prompt"
+        saved = [p for p in lib.prompts() if p["name"] == "brief"][0]
+        assert saved["text"] == "be brief" and saved["tags"] == ["style"]
+
+    def test_upload_memory_note(self, tmpdir):
+        lib = self._lib(tmpdir)
+        out = lib.upload('{"type": "memory", "name": "conv", "content": "run tests"}',
+                         "conv.json")
+        assert out["kind"] == "memory"
+        assert lib.notes()[0]["content"] == "run tests"
+
+    def test_upload_skill(self, tmpdir):
+        lib = self._lib(tmpdir)
+        out = lib.upload("---\nname: pdf\ndescription: PDFs\n---\n# PDF\nuse pdftk",
+                         "skills/pdf/SKILL.md")
+        assert out["kind"] == "skill"
+        skill = lib.installed_skills()[0]
+        assert skill["source"] == "upload" and skill["body"].startswith("# PDF")
+
+    def test_upload_agent_installs_and_updates(self, tmpdir):
+        lib = self._lib(tmpdir, agents=True)
+        name = "upload-test-agent"
+        md = (f"---\ntype: agent\nname: {name}\ndescription: a test\n"
+              "skills: [bash]\n---\nBe brief.")
+        try:
+            out = lib.upload(md, "x.md")
+            assert out["kind"] == "agent" and out["name"] == name
+            assert out["item"]["skills"] == ["bash"]
+            # re-uploading your own agent updates it in place
+            again = lib.upload(md.replace("Be brief.", "Be terse."), "x.md")
+            assert again["item"]["goal"] == "Be terse."
+            assert name in lib._agents.ls()
+        finally:
+            shutil.rmtree(Path(__file__).parent.parent / "src" / "agents" / name,
+                          ignore_errors=True)
+            _drop_agent_cid(name)
+
+    def test_upload_agent_needs_the_registry(self, tmpdir):
+        lib = self._lib(tmpdir)
+        with pytest.raises(RuntimeError):
+            lib.upload("---\ntype: agent\nname: nope\n---\nbody", "x.md")
+
+    def test_upload_too_large(self, tmpdir):
+        lib = self._lib(tmpdir)
+        with pytest.raises(ValueError):
+            lib.upload("x" * (lib.MAX_UPLOAD_CHARS + 1), "big.md")
+
+    def test_import_cid_routes_by_bundle_type(self, tmpdir):
+        lib = self._lib(tmpdir)
+        note = lib.note_add("shared", "content")
+        if not note.get("cid"):
+            pytest.skip("localfs unavailable")
+        out = lib.import_cid(note["cid"])
+        assert out["kind"] == "memory" and out["item"]["name"] == "shared"
+        # asserting the wrong kind is refused
+        with pytest.raises(ValueError):
+            lib.import_cid(note["cid"], kind="agent")
+
+    def test_forward_actions(self, tmpdir):
+        lib = self._lib(tmpdir)
+        out = lib.forward("upload", text="---\nname: f\n---\nbody", filename="f.md")
+        assert out["kind"] == "prompt"
+        spec = lib.forward("formats")
+        assert "agent" in spec["kinds"] and "# Upload your own" in spec["doc"]
+
+
+def _drop_agent_cid(name):
+    """Keep a test's autopinned agent out of the committed CID index."""
+    index = Path(__file__).parent.parent / "src" / "agents" / ".agent_cids.json"
+    try:
+        entries = json.loads(index.read_text())
+    except Exception:
+        return
+    kept = [e for e in entries if e.get("name") != name]
+    if len(kept) != len(entries):
+        index.write_text(json.dumps(kept, indent=2))
 
 
 class TestVault:
@@ -1573,6 +2048,96 @@ class TestVault:
             mod.set_api_key("sk-whatever-123456789", "nope", passphrase=self.PASS)
 
 
+class TestVaultRemember:
+    """Stay-unlocked device seal: unlock once, survive restarts."""
+
+    KEY = TestVault.KEY
+    PASS = TestVault.PASS
+
+    def _mod(self, tmpdir):
+        from src.mod import Mod
+        mod = Mod()
+        mod._vault_dir = Path(tmpdir) / "vault"
+        mod._session_keys = {}
+        return mod
+
+    def _restart(self, tmpdir):
+        """A fresh Mod over the same vault dir — i.e. an API restart."""
+        mod = self._mod(tmpdir)
+        mod._vault_resume()
+        return mod
+
+    def test_remembered_by_default(self, tmpdir):
+        mod = self._mod(tmpdir)
+        r = mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        assert r["remembered"] is True
+        p = mod._remember_path("openrouter")
+        assert p.exists()
+        assert self.KEY not in p.read_text()   # sealed, not stashed
+        assert mod.key_info("openrouter")["remembered"] is True
+
+    def test_survives_restart_without_passphrase(self, tmpdir):
+        self._mod(tmpdir).set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        back = self._restart(tmpdir)
+        assert back._session_keys["openrouter"] == self.KEY
+        assert back.key_info("openrouter")["unlocked"] is True
+
+    def test_opt_out_is_session_only(self, tmpdir):
+        mod = self._mod(tmpdir)
+        r = mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS, remember=False)
+        assert r["remembered"] is False
+        assert not mod._remember_path("openrouter").exists()
+        assert self._restart(tmpdir)._session_keys == {}
+
+    def test_unlock_remembers_too(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS, remember=False)
+        mod.vault_lock("openrouter")
+        assert mod.vault_unlock("openrouter", self.PASS)["remembered"] is True
+        assert self._restart(tmpdir)._session_keys["openrouter"] == self.KEY
+
+    def test_lock_ends_the_remembering(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        mod.vault_lock("openrouter")
+        assert not mod._remember_path("openrouter").exists()
+        back = self._restart(tmpdir)
+        assert back._session_keys == {}
+        assert back.key_info("openrouter")["unlocked"] is False
+
+    def test_vault_rm_forgets_device_seal(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        mod.vault_rm("openrouter")
+        assert not mod._remember_path("openrouter").exists()
+        assert self._restart(tmpdir)._session_keys == {}
+
+    def test_expired_seal_is_pruned(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        p = mod._remember_path("openrouter")
+        blob = json.loads(p.read_text())
+        blob["expires"] = time.time() - 1
+        p.write_text(json.dumps(blob))
+        assert mod._remember_read("openrouter") is None
+        assert not p.exists()
+        assert self._restart(tmpdir)._session_keys == {}
+
+    def test_rotated_device_key_drops_stale_seal(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        (mod._vault_dir / '.device.key').write_bytes(os.urandom(32))
+        back = self._restart(tmpdir)
+        assert back._session_keys == {}
+        assert not back._remember_path("openrouter").exists()
+
+    def test_device_seal_never_holds_plaintext(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_api_key(self.KEY, "openrouter", passphrase=self.PASS)
+        for f in Path(mod._vault_dir).iterdir():
+            assert self.KEY.encode() not in f.read_bytes()
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  TOOLBOXES (snap-on skill bundles)
 # ═══════════════════════════════════════════════════════════════════════
@@ -1673,6 +2238,74 @@ class TestAgentSnap:
         agent.snap("vcs")
         agent._skill_names = ["bash"]
         assert agent.active_skills() == ["bash"]
+
+
+class TestAgentSelect:
+    """select() pins the loadout to an exact list — the console's per-tool switch."""
+
+    @pytest.fixture
+    def agent(self):
+        from src.mod import Agent
+        return Agent()
+
+    def test_select_pins_exact_list(self, agent):
+        state = agent.select(["bash", "read"])
+        assert state["source"] == "selection" and state["filtered"]
+        assert agent.active_skills() == ["bash", "read"]
+        assert set(agent.skill_schema().keys()) == {"bash", "read"}
+
+    def test_select_refines_a_snapped_box(self, agent):
+        agent.snap("vcs")
+        agent.select(["git"])
+        state = agent.snapped()
+        assert agent.active_skills() == ["git"]     # the pick wins…
+        assert state["snapped"] == ["vcs"]          # …but the box stays visible
+
+    def test_select_none_hands_back_to_the_box(self, agent):
+        agent.snap("vcs")
+        agent.select(["git"])
+        state = agent.select(None)
+        assert state["source"] == "toolboxes"
+        assert set(agent.active_skills()) == {"git", "diff"}
+
+    def test_empty_selection_is_a_reset(self, agent):
+        agent.select(["bash"])
+        assert agent.select([])["source"] == "all"
+        assert agent.active_skills() is None
+
+    def test_select_rejects_unknown_tools(self, agent):
+        with pytest.raises(ValueError):
+            agent.select(["bash", "not-a-tool"])
+
+    def test_select_dedupes(self, agent):
+        assert agent.select(["bash", "bash", "read"])["skills"] == ["bash", "read"]
+
+    def test_snapping_a_box_clears_the_selection(self, agent):
+        agent.select(["bash"])
+        agent.snap("vcs")
+        assert set(agent.active_skills()) == {"git", "diff"}
+
+    def test_unsnap_all_clears_everything(self, agent):
+        agent.snap("vcs")
+        agent.select(["git"])
+        state = agent.unsnap()
+        assert state["source"] == "all" and not state["filtered"]
+        assert agent.active_skills() is None
+
+    def test_unfiltered_set_counts_custom_tools_too(self, agent):
+        agent.tools.add("t_sel", "echo {x}")
+        try:
+            assert "t_sel" in agent.snapped()["skills"]
+        finally:
+            agent.tools.rm("t_sel")
+
+    def test_select_can_pick_a_custom_tool(self, agent):
+        agent.tools.add("t_sel", "echo {x}")
+        try:
+            agent.select(["bash", "t_sel"])
+            assert set(agent.skill_schema().keys()) == {"bash", "t_sel"}
+        finally:
+            agent.tools.rm("t_sel")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1816,6 +2449,76 @@ class TestToolboxMemoryApi:
         from src.api.api import RunRequest
         req = RunRequest(query="hi", toolbox="core", toolboxes=["vcs"])
         assert req.toolbox == "core" and req.toolboxes == ["vcs"]
+
+    # ── /tools: one registry the console can render ──
+
+    def test_list_tools_includes_shipped_skills(self):
+        client = self._client()
+        r = client.get("/tools")
+        assert r.status_code == 200
+        data = r.json()
+        names = [t["name"] for t in data["tools"]]
+        assert "bash" in names
+        bash = next(t for t in data["tools"] if t["name"] == "bash")
+        assert bash["kind"] == "skill" and bash["builtin"] and bash["active"]
+        assert bash["description"] and "command" in bash["params"]
+        assert "snapped" in data and "toolboxes" in data
+
+    def test_tool_crud_roundtrip(self):
+        client = self._client()
+        client.delete("/tools/t_api")
+        r = client.post("/tools", json={"name": "t_api", "command": "echo {msg}",
+                                        "description": "api echo"}).json()
+        assert r.get("name") == "t_api", r
+        assert r["params"]["msg"]["required"]
+        listed = client.get("/tools").json()["tools"]
+        entry = next(t for t in listed if t["name"] == "t_api")
+        assert entry["kind"] == "custom" and entry["builtin"] is False
+        run = client.post("/tools/t_api/run", json={"params": {"msg": "hey"}}).json()
+        assert "hey" in run["result"]["stdout"]
+        assert client.delete("/tools/t_api").json()["existed"]
+
+    def test_tool_cannot_shadow_a_shipped_skill(self):
+        client = self._client()
+        r = client.post("/tools", json={"name": "bash", "command": "echo no"}).json()
+        assert "error" in r
+
+    # ── the loadout: which of those tools the model actually gets ──
+
+    def test_select_route_pins_and_resets(self):
+        client = self._client()
+        try:
+            state = client.post("/tools/select", json={"tools": ["bash", "read"]}).json()
+            assert state["skills"] == ["bash", "read"] and state["source"] == "selection"
+            listed = client.get("/tools").json()["tools"]
+            assert next(t for t in listed if t["name"] == "bash")["active"]
+            assert not next(t for t in listed if t["name"] == "git")["active"]
+        finally:
+            back = client.post("/tools/select", json={"tools": None}).json()
+        assert back["source"] == "all" and back["filtered"] is False
+
+    def test_select_route_rejects_unknown_tools(self):
+        client = self._client()
+        assert "error" in client.post("/tools/select", json={"tools": ["nope"]}).json()
+
+    def test_snap_then_unsnap_all_route(self):
+        client = self._client()
+        try:
+            state = client.post("/toolboxes/vcs/snap").json()
+            assert state["snapped"] == ["vcs"] and set(state["skills"]) == {"git", "diff"}
+        finally:
+            state = client.post("/toolboxes/unsnap").json()
+        assert state["snapped"] == [] and state["source"] == "all"
+
+    def test_custom_tool_refused_on_the_open_skill_route(self):
+        client = self._client()
+        client.post("/tools", json={"name": "t_api", "command": "echo {msg}"})
+        try:
+            r = client.post("/skills/run", json={"name": "t_api",
+                                                 "params": {"msg": "x"}}).json()
+            assert r.get("code") == 403 and "/tools/t_api/run" in r["error"]
+        finally:
+            client.delete("/tools/t_api")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2113,6 +2816,295 @@ class TestInstalledSkills:
         lib = self._lib(tmpdir)
         s = lib.skill_add("big", "x" * 400_000)
         assert len(s["body"]) == lib.MAX_SKILL_CHARS
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  HARNESS  (external agent CLIs run as agents: claude code, codex)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestHarnessRegistry:
+    @pytest.fixture
+    def harness(self):
+        from src.harness.mod import Harness
+        return Harness()
+
+    def test_ls_lists_runners(self, harness):
+        names = [h["name"] for h in harness.ls()]
+        assert names == ["claude", "codex"]
+        for h in harness.ls():
+            assert isinstance(h["available"], bool)   # depends on the host
+            assert h["install"]
+
+    def test_get_unknown_raises(self, harness):
+        with pytest.raises(KeyError, match="unknown harness"):
+            harness.get("nope")
+
+    def test_run_unknown_raises(self, harness):
+        with pytest.raises(KeyError):
+            harness.run("nope", "hi")
+
+    def test_forward_lists(self, harness):
+        r = harness.forward()
+        assert len(r["harnesses"]) == 2
+        assert set(r["available"]) <= {"claude", "codex"}
+
+    def test_claude_command(self, harness):
+        cmd = harness.get("claude").command("fix it", goal="be nice", model="opus")
+        assert cmd[0] == "claude"
+        assert "--dangerously-skip-permissions" in cmd
+        assert cmd[cmd.index("--output-format") + 1] == "stream-json"
+        assert cmd[cmd.index("--model") + 1] == "opus"
+        assert cmd[cmd.index("--append-system-prompt") + 1] == "be nice"
+        assert cmd[-1] == "fix it"                    # the prompt is an argument
+
+    def test_codex_command(self, harness):
+        cmd = harness.get("codex").command("fix it", goal="be nice", path="/tmp")
+        assert cmd[:2] == ["codex", "exec"]
+        assert "--json" in cmd
+        assert cmd[cmd.index("-C") + 1] == "/tmp"
+        assert cmd[-1] == "be nice\n\nfix it"         # codex has no system-prompt flag
+
+    def test_run_missing_binary_explains_install(self, harness, monkeypatch):
+        runner = harness.get("claude")
+        monkeypatch.setattr(type(runner), "path", lambda self: None)
+        monkeypatch.setattr(harness, "get", lambda name: runner)
+        with pytest.raises(RuntimeError, match="npm install"):
+            harness.run("claude", "hi")
+
+
+class TestHarnessTranslation:
+    """CLI events in, the console's step dicts out."""
+
+    def _steps(self, runner, events):
+        out = []
+        for e in events:
+            out += runner.steps(e)
+        return out
+
+    def _claude(self):
+        from src.harness.mod import ClaudeCode
+        return ClaudeCode()
+
+    def _codex(self):
+        from src.harness.mod import Codex
+        return Codex()
+
+    def test_claude_tool_step_carries_its_result(self):
+        r = self._claude()
+        steps = self._steps(r, [
+            {"type": "system", "subtype": "init"},
+            {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "t1", "name": "Bash",
+                 "input": {"command": "ls"}}]}},
+            {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": "a.py"}]}},
+        ])
+        assert steps == [{"tool": "bash", "params": {"command": "ls"}, "result": "a.py"}]
+
+    def test_claude_narration_lands_before_the_tool_that_follows(self):
+        r = self._claude()
+        steps = self._steps(r, [
+            {"type": "assistant", "message": {"content": [
+                {"type": "text", "text": "I'll look around."},
+                {"type": "tool_use", "id": "t1", "name": "Read",
+                 "input": {"file_path": "a.py"}}]}},
+            {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "t1", "content": "code"}]}},
+        ])
+        assert [s["tool"] for s in steps] == ["response", "read"]
+        assert steps[0]["result"] == "I'll look around."
+
+    def test_claude_result_becomes_finish(self):
+        r = self._claude()
+        steps = self._steps(r, [
+            {"type": "assistant", "message": {"content": [
+                {"type": "text", "text": "done!"}]}},
+            {"type": "result", "subtype": "success", "result": "done!"},
+        ])
+        # the last message IS the answer — it belongs in finish, not the trace
+        assert steps == [{"tool": "finish", "params": {"summary": "done!"}}]
+
+    def test_claude_error_result(self):
+        r = self._claude()
+        steps = r.steps({"type": "result", "subtype": "error_during_execution",
+                         "is_error": True, "result": "boom"})
+        assert steps[0]["tool"] == "error" and steps[0]["error"] == "boom"
+
+    def test_claude_tool_error_is_kept_on_the_step(self):
+        r = self._claude()
+        steps = self._steps(r, [
+            {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "x"}}]}},
+            {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "t1",
+                 "content": [{"type": "text", "text": "not found"}], "is_error": True}]}},
+        ])
+        assert steps[0]["error"] == "not found" and "result" not in steps[0]
+
+    def test_codex_command_and_message(self):
+        r = self._codex()
+        steps = self._steps(r, [
+            {"type": "item.completed", "item": {
+                "type": "command_execution", "command": "ls",
+                "aggregated_output": "a.py", "exit_code": 0}},
+            {"type": "item.completed", "item": {"type": "agent_message", "text": "all set"}},
+            {"type": "turn.completed"},
+        ])
+        assert [s["tool"] for s in steps] == ["bash", "finish"]
+        assert steps[0]["result"] == "a.py"
+        assert steps[1]["params"]["summary"] == "all set"
+
+    def test_codex_recoverable_error_does_not_fail_the_run(self):
+        r = self._codex()
+        steps = self._steps(r, [
+            {"type": "item.completed", "item": {"type": "error", "message": "retrying"}},
+            {"type": "turn.completed"},
+        ])
+        # a plain trace row: an error step would mark the whole task failed
+        assert [s["tool"] for s in steps] == ["harness", "finish"]
+
+    def test_codex_turn_failed_is_an_error(self):
+        r = self._codex()
+        steps = r.steps({"type": "turn.failed", "error": {"message": "401"}})
+        assert steps[0]["tool"] == "error" and steps[0]["error"] == "401"
+
+    def test_close_falls_back_to_the_held_message(self):
+        r = self._codex()
+        r.steps({"type": "item.completed", "item": {"type": "agent_message", "text": "bye"}})
+        assert r.close(0, []) == [{"tool": "finish", "params": {"summary": "bye"}}]
+
+    def test_close_reports_a_silent_exit(self):
+        r = self._claude()
+        steps = r.close(1, ["command not found"])
+        assert steps[0]["tool"] == "error"
+        assert "command not found" in steps[0]["error"]
+
+    def test_close_is_quiet_once_a_terminal_step_was_emitted(self):
+        r = self._claude()
+        r.steps({"type": "result", "subtype": "success", "result": "ok"})
+        assert r.close(0, []) == []
+
+
+class TestHarnessAgents:
+    """Agents that hand their run to a CLI instead of this module's loop."""
+
+    def test_shipped_harness_agents(self, agents):
+        assert agents.get("claude-code")["harness"] == "claude"
+        assert agents.get("codex")["harness"] == "codex"
+        assert agents.get("default")["harness"] is None
+
+    def test_create_with_harness_round_trips(self, agents):
+        name = "test-harness-agent"
+        try:
+            cfg = agents.create(name, description="mine", harness="claude")
+            assert cfg["harness"] == "claude"
+            assert agents.get(name)["harness"] == "claude"
+            # an edit that doesn't mention the harness keeps it
+            assert agents.update(name, description="still mine")["harness"] == "claude"
+            # and an explicit None hands the run back to our own loop
+            assert agents.update(name, harness=None)["harness"] is None
+        finally:
+            agent_dir = agents._dir / name
+            if agent_dir.exists():
+                shutil.rmtree(agent_dir)
+
+    def test_unknown_harness_rejected(self, agents):
+        with pytest.raises(ValueError, match="unknown harness"):
+            agents.create("test-bogus-harness", harness="gpt-cli")
+        assert "test-bogus-harness" not in agents.ls()
+
+    def test_library_tags_harness_agents(self, tmpdir):
+        from src.library.mod import Library
+        lib = Library(skills=Skills(), agents=Agents(), dir=tmpdir)
+        item = next(i for i in lib.items(kind="agent")["items"]
+                    if i["name"] == "claude-code")
+        assert item["harness"] == "claude"
+        assert "harness" in item["tags"] and "claude" in item["tags"]
+
+
+class TestHarnessGate:
+    """A harness run is the host's own shell, so it's owner only."""
+
+    def _mod(self, is_owner):
+        from src.mod import Mod
+        from src.harness.mod import Harness
+        mod = Mod.__new__(Mod)
+        mod.agents = Agents()
+        mod.harness = Harness()
+        mod.is_owner = lambda key=None: is_owner
+        mod.allowed_paths_for = lambda key=None: None
+        mod.library = None
+        return mod
+
+    def test_harness_for(self):
+        mod = self._mod(True)
+        assert mod.harness_for("claude-code") == "claude"
+        assert mod.harness_for("default") is None
+        assert mod.harness_for("nope") is None
+        assert mod.harness_for(None) is None
+
+    def test_guest_is_refused(self):
+        mod = self._mod(False)
+        with pytest.raises(PermissionError, match="owner only"):
+            mod._run(agent_type="claude-code", query="hi", key="0xguest")
+
+    def test_owner_reaches_the_runner(self, monkeypatch):
+        mod = self._mod(True)
+        seen = {}
+        def fake_run(name, query, path=None, goal=None, model=None,
+                     timeout=None, on_step=None):
+            seen.update(name=name, query=query, path=path, goal=goal)
+            return [{"tool": "finish", "params": {"summary": "ok"}}]
+        monkeypatch.setattr(mod.harness, "run", fake_run)
+        out = mod._run(agent_type="claude-code", query="hi", key="0xowner",
+                       path="/tmp", model="anthropic/claude-sonnet-4.5")
+        assert out[0]["params"]["summary"] == "ok"
+        assert seen["name"] == "claude" and seen["path"] == "/tmp"
+        assert "orbit/agent console" in seen["goal"]
+
+
+class TestDefaultAgent:
+    """An unnamed run lands on Claude Code — for whoever is allowed to run it."""
+
+    def _mod(self, is_owner):
+        return TestHarnessGate()._mod(is_owner)
+
+    def _no_cli(self, mod, monkeypatch):
+        from src.harness.mod import ClaudeCode
+        monkeypatch.setattr(ClaudeCode, "path", lambda self: None)
+
+    def test_host_gets_claude_code(self):
+        mod = self._mod(True)
+        expected = ("claude-code" if mod.harness.get("claude").available()
+                    else "default")          # depends on the host's PATH
+        assert mod.default_agent("0xowner") == expected
+
+    def test_guest_stays_on_the_native_loop(self):
+        # a harness run is owner-only, so it can't be anyone's default
+        assert self._mod(False).default_agent("0xguest") == "default"
+
+    def test_missing_cli_falls_back(self, monkeypatch):
+        mod = self._mod(True)
+        self._no_cli(mod, monkeypatch)
+        assert mod.default_agent("0xowner") == "default"
+
+    def test_unnamed_run_goes_to_the_default(self, monkeypatch):
+        mod = self._mod(True)
+        if not mod.harness.get("claude").available():
+            pytest.skip("claude CLI not installed on this host")
+        seen = {}
+        monkeypatch.setattr(mod.harness, "run",
+                            lambda name, **kw: seen.update(name=name) or [])
+        mod._run(query="hi", key="0xowner", path="/tmp")
+        assert seen["name"] == "claude"
+
+    def test_named_agent_still_wins(self, monkeypatch):
+        mod = self._mod(True)
+        called = {}
+        mod.run = lambda **kw: called.update(kw) or []
+        mod.goal = "base"
+        mod._run(agent_type="architect", query="hi", key="0xowner")
+        assert called["query"] == "hi"       # native loop, not the CLI
 
 
 if __name__ == "__main__":

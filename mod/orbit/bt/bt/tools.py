@@ -313,6 +313,11 @@ def _traders(sort_by='total_tao', limit=0, sparks=True):
     from . import traders
     return traders.traders(sort_by=sort_by, limit=limit, sparks=sparks)
 
+def _trader_board(days=7, top=0, min_subnets=0, sort_by='market_pct', sparks=False):
+    from . import traders
+    return traders.board(days=days, top=top, min_subnets=min_subnets,
+                         sort_by=sort_by, sparks=sparks)
+
 def _trader(address, hours=168, flows_limit=50):
     from . import traders
     return traders.trader(address, hours=hours, flows_limit=flows_limit)
@@ -453,6 +458,13 @@ TOOLS: List[Tool] = [
               limit={'type': 'integer', 'description': 'Max rows (0 = all)', 'default': 0},
               sparks={'type': 'boolean', 'description': 'Include equity sparkline', 'default': True}),
          _traders),
+    Tool('bt_trader_board', 'INSTANT copy-trading leaderboard from the local index: every tracked coldkey ranked over N days, with PnL split into what the book earned on price (market) and what was staked in or out (flow) — so a trader who merely deposited does not outrank a real one. No chain round-trip.', 'Traders',
+         dict(days={'type': 'integer', 'description': 'Ranking window in days', 'default': 7},
+              top={'type': 'integer', 'description': 'Max rows (0 = all)', 'default': 0},
+              min_subnets={'type': 'integer', 'description': 'Drop traders holding fewer subnets than this', 'default': 0},
+              sort_by={'type': 'string', 'description': "Sort key: 'market_pct' (trading skill), 'pnl_pct', 'pnl_tao', 'market_pnl_tao', 'total_stake_tao', 'num_subnets'", 'default': 'market_pct'},
+              sparks={'type': 'boolean', 'description': 'Include an equity sparkline per trader', 'default': False}),
+         _trader_board),
     Tool('bt_trader', 'Full profile for one tracked trader: current positions per subnet with TAO value and portfolio weight, equity curve, inferred trades, and windowed PnL.', 'Traders',
          dict(address={'type': 'string', 'description': 'ss58 coldkey', 'required': True},
               hours={'type': 'integer', 'description': 'Equity-curve lookback in hours', 'default': 168},

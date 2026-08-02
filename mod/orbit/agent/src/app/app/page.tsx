@@ -3,9 +3,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { API_URL } from './config'
 import Library from './components/Library'
+import type { LibItem } from './components/Library'
+import Market from './components/Market'
 import Builder from './components/Builder'
 import CreditsSidebar, { CreditsInfo } from './components/Credits'
 import Select from './components/Select'
+import Tools from './components/Tools'
+import MemoryPanel from './components/Memory'
+import { ThemePicker, useTheme } from './components/Theme'
 import { loadLocalIdentity, getOrCreateLocalIdentity, clearLocalIdentity, localSign } from './lib/localWallet'
 
 type Skill = { description: string; params: Record<string, any> }
@@ -19,7 +24,10 @@ type Message = { role: 'user' | 'agent' | 'system'; text: string; steps?: any[];
 type TaskEntry = { id: number; query: string; status: 'running' | 'done' | 'error'; stepCount?: number; messages: Message[]; agent_type?: string; startedAt?: number; finishedAt?: number; uid?: string; cid?: string; synced?: boolean }
 
 const genUid = () => `c-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
-type Tab = 'tasks' | 'output' | 'tools' | 'deltas'
+type Tab = 'tasks' | 'output' | 'tools' | 'memory' | 'deltas'
+// the TOOLS tab answers two questions: what did this run call, and what can
+// the agent call at all
+type ToolPane = 'trace' | 'registry'
 
 // an image staged in the composer, not yet sent
 type Attachment = { id: string; name: string; url: string; thumb: string }
@@ -64,6 +72,8 @@ const toAttachment = async (file: File): Promise<Attachment> => ({
 // normal = resizable transcript, max = fills the workspace
 type DockMode = 'min' | 'normal' | 'max'
 type SidebarSide = 'left' | 'right'
+// the rail holds two lists: the chats you've had and the agents you can run as
+type RailPane = 'chats' | 'agents'
 
 type FileEntry = { path: string; content: string; action: 'read' | 'created' | 'modified' | 'searched' }
 
@@ -96,7 +106,9 @@ const detectKeyError = (text?: string): string | null => {
 type OwnerSource = 'item' | 'host' | null
 type Owned = { owner?: string | null; owner_source?: OwnerSource }
 
-type AgentOption = Owned & { value: string; label: string; icon: string; description?: string; builtin?: boolean }
+// harness: set -> the run isn't this module's loop at all, it's handed to an
+// agent CLI installed on the host (claude code, codex) — owner only
+type AgentOption = Owned & { value: string; label: string; icon: string; description?: string; builtin?: boolean; harness?: string | null }
 
 const DEFAULT_AGENTS: AgentOption[] = [
   { value: "default", label: "Default", icon: ">_", builtin: true },
@@ -105,6 +117,8 @@ const DEFAULT_AGENTS: AgentOption[] = [
   { value: "debugger", label: "Debugger", icon: "⬡", builtin: true },
   { value: "builder", label: "Builder", icon: "◆", builtin: true },
   { value: "refactorer", label: "Refactorer", icon: "⟳", builtin: true },
+  { value: "claude-code", label: "Claude Code", icon: "⬡", builtin: true, harness: "claude" },
+  { value: "codex", label: "Codex", icon: "◇", builtin: true, harness: "codex" },
 ]
 
 // ── Sign-in (mod protocol-auth token) ───────────────────────────────
@@ -145,6 +159,7 @@ type ServerTask = {
   user?: string | null; status: 'running' | 'done' | 'error'; steps: number
   tool?: string | null; started_at: number; finished_at?: number | null
   summary?: string | null; chain?: boolean
+  images?: number            // attachments the run carried — previews are a separate fetch
 }
 
 // a prompt from the library, selectable as an agent's system prompt
@@ -162,6 +177,7 @@ type Persona = Owned & {
   icon: string
   description?: string
   builtin?: boolean
+  harness?: string | null     // agent runs on an external CLI, not our loop
   prompt?: LibPrompt          // set for kind 'prompt'
 }
 
@@ -172,6 +188,7 @@ type MemNote = { id: string; name: string; content: string; tags: string[] }
 type KeyBalance = {
   provider: string; configured: boolean; key: string | null; supported?: boolean
   encrypted?: boolean; unlocked?: boolean; hint?: string | null; source?: string | null
+  remembered?: boolean; remember_expires?: number | null
   balance?: number; total_credits?: number; total_usage?: number
   balances?: Record<string, number>; error?: string
 }
@@ -179,18 +196,28 @@ type KeyBalance = {
 export default function Home() {
   // top-level view: the agent console, the visual agent builder, the library market, or the tasks page
   const [view, setView] = useState<'console' | 'builder' | 'library' | 'tasks'>('console')
+  // the look: palette + skin, persisted and applied to <html>
+  const [theme, setTheme] = useTheme()
   const [query, setQuery] = useState('')
   const [skills, setSkills] = useState<Record<string, Skill>>({})
   const [loading, setLoading] = useState(false)
   const [tasks, setTasks] = useState<TaskEntry[]>([])
   const [selectedTask, setSelectedTask] = useState<number | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>('output')
+  const [toolPane, setToolPane] = useState<ToolPane>('trace')
+  // {total, custom} from /tools — feeds the header's tool count
+  const [toolCounts, setToolCounts] = useState<{ total: number; custom: number } | null>(null)
   const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({})
   const [composeFocused, setComposeFocused] = useState(false)
-  // images staged in the composer + the one open in the lightbox
+  // images staged in the composer + the group open in the viewer
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [attachErr, setAttachErr] = useState<string | null>(null)
-  const [lightbox, setLightbox] = useState<string | null>(null)
+  // the viewer holds the whole group it was opened from, so arrow keys can
+  // step through the images of one message instead of just the one clicked
+  const [lightbox, setLightbox] = useState<{ srcs: string[]; i: number } | null>(null)
+  const openLightbox = (srcs: string[], i = 0) => setLightbox({ srcs, i })
+  const stepLightbox = (d: number) =>
+    setLightbox(l => l && { ...l, i: (l.i + d + l.srcs.length) % l.srcs.length })
   const fileRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -202,6 +229,9 @@ export default function Home() {
 
   // agent state
   const [agentType, setAgentType] = useState<string>('default')
+  // where a run lands when you haven't picked — the server decides per caller
+  // (Claude Code for the host, the native loop for guests), see fetchAgents
+  const [defaultAgent, setDefaultAgent] = useState<string>('default')
   const [agentOptions, setAgentOptions] = useState<AgentOption[]>(DEFAULT_AGENTS)
   // agent to preload on the visual builder canvas (null = fresh canvas)
   const [builderAgent, setBuilderAgent] = useState<string | null>(null)
@@ -251,6 +281,9 @@ export default function Home() {
   const [taskFilter, setTaskFilter] = useState<'all' | 'running' | 'done' | 'error'>('all')
   const [taskSearch, setTaskSearch] = useState('')
   const [expandedServerTasks, setExpandedServerTasks] = useState<Record<string, boolean>>({})
+  // attachment previews per task id — base64, so they're fetched only when a
+  // task is opened and never ride along with the 4s registry poll
+  const [taskImages, setTaskImages] = useState<Record<string, string[]>>({})
 
   const providerModels = providers.find(p => p.key === provider)?.models || []
 
@@ -262,12 +295,22 @@ export default function Home() {
     localStorage.setItem('agent_model', def)
   }
 
-  // workspace layout: chats live in the side rail, the console is docked at the bottom
+  // workspace layout: chats + agents in the side rail, the market on the other
+  // side, the console docked at the bottom
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarSide, setSidebarSide] = useState<SidebarSide>('left')
+  const [railPane, setRailPane] = useState<RailPane>('chats')
   const [dock, setDock] = useState<DockMode>('normal')
   const [dockHeight, setDockHeight] = useState(400)
   const [chatSearch, setChatSearch] = useState('')
+  const [agentSearch, setAgentSearch] = useState('')
+
+  // the market rail — the library, docked opposite the chats rail
+  const [marketOpen, setMarketOpen] = useState(true)
+  const [marketWidth, setMarketWidth] = useState(300)
+  // bumped whenever the console changes the library, so the market refetches
+  const [libVersion, setLibVersion] = useState(0)
+  const marketSide: SidebarSide = sidebarSide === 'left' ? 'right' : 'left'
 
   // phone layout: the rail becomes a slide-over drawer, the dock header wraps
   const [isMobile, setIsMobile] = useState(false)
@@ -312,6 +355,18 @@ export default function Home() {
       const d = localStorage.getItem('agent_dock') as DockMode | null
       if (d === 'min' || d === 'normal' || d === 'max') setDock(d)
       setSidebarCollapsed(localStorage.getItem('agent_rail_closed') === '1')
+      const pane = localStorage.getItem('agent_rail_pane')
+      if (pane === 'chats' || pane === 'agents') setRailPane(pane)
+      const mw = Number(localStorage.getItem('agent_market_w'))
+      if (mw >= 220) setMarketWidth(mw)
+      // open on a first visit — collapsed only if it was collapsed on purpose.
+      // Three columns need room: under 1100px the workspace between the rails
+      // shrinks to a gutter, so a first visit in a narrow window starts with
+      // the market as a strip (and under 900px the chats rail too).
+      const marketPref = localStorage.getItem('agent_market_open')
+      const wide = window.innerWidth
+      setMarketOpen(marketPref ? marketPref !== '0' : wide >= 1100)
+      if (!localStorage.getItem('agent_rail_closed') && wide < 900) setSidebarCollapsed(true)
       // floating prompt: width, position, and whether it was left undocked
       const pw = Number(localStorage.getItem('agent_prompt_w'))
       const pwv = pw >= 300 ? pw : 560
@@ -324,6 +379,7 @@ export default function Home() {
         // picked a dock size, the console fills the screen — chat-app feel,
         // prompt at the very bottom
         setSidebarCollapsed(true)
+        setMarketOpen(false)
         if (!d) setDock('max')
       }
     } catch {}
@@ -342,26 +398,55 @@ export default function Home() {
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
 
+    let last = sidebarWidth
     const onPointerMove = (ev: PointerEvent) => {
       if (!isDragging.current) return
       const delta = sidebarSide === 'left'
         ? ev.clientX - dragStartX.current
         : dragStartX.current - ev.clientX
       const maxWidth = Math.floor(window.innerWidth * 0.5)
-      const newWidth = Math.max(200, Math.min(maxWidth, dragStartWidth.current + delta))
-      setSidebarWidth(newWidth)
+      last = Math.max(200, Math.min(maxWidth, dragStartWidth.current + delta))
+      setSidebarWidth(last)
     }
     const onPointerUp = () => {
       isDragging.current = false
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
-      try { localStorage.setItem('agent_rail_w', String(dragStartWidth.current)) } catch {}
+      // the width we ended on, not the one we started from
+      try { localStorage.setItem('agent_rail_w', String(last)) } catch {}
       document.removeEventListener('pointermove', onPointerMove)
       document.removeEventListener('pointerup', onPointerUp)
     }
     document.addEventListener('pointermove', onPointerMove)
     document.addEventListener('pointerup', onPointerUp)
   }, [sidebarWidth, sidebarSide])
+
+  // market rail drag resize — same handle, mirrored, since it sits on the
+  // opposite edge of the workspace
+  const onMarketDragStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = marketWidth
+    let last = startW
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const delta = marketSide === 'left' ? ev.clientX - startX : startX - ev.clientX
+      const maxWidth = Math.floor(window.innerWidth * 0.5)
+      last = Math.max(220, Math.min(maxWidth, startW + delta))
+      setMarketWidth(last)
+    }
+    const onPointerUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      try { localStorage.setItem('agent_market_w', String(last)) } catch {}
+      document.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerup', onPointerUp)
+    }
+    document.addEventListener('pointermove', onPointerMove)
+    document.addEventListener('pointerup', onPointerUp)
+  }, [marketWidth, marketSide])
 
   // dock drag resize (vertical — drag the console's top edge)
   const onDockDragStart = useCallback((e: React.PointerEvent) => {
@@ -472,10 +557,18 @@ export default function Home() {
 
   const [apiStatus, setApiStatus] = useState<'ok' | 'down' | 'loading'>('loading')
 
-  const fetchAgents = useCallback(() => {
-    fetch(`${API_URL}/agents`, { signal: AbortSignal.timeout(5000) })
+  // token: the server answers with the default agent for THIS caller — the
+  // host gets Claude Code, a guest gets the native loop it's allowed to run
+  const fetchAgents = useCallback((token?: string) => {
+    const q = token ? `?key=${encodeURIComponent(token)}` : ''
+    fetch(`${API_URL}/agents${q}`, { signal: AbortSignal.timeout(5000) })
       .then(r => r.json())
       .then(d => {
+        // a pick of your own always wins — the default is only where you land
+        if (d.default) {
+          setDefaultAgent(d.default)
+          setAgentType(() => localStorage.getItem('agent_type') || d.default)
+        }
         if (d.schemas && typeof d.schemas === 'object') {
           const fetched: AgentOption[] = Object.entries(d.schemas).map(([key, val]: [string, any]) => ({
             value: key,
@@ -483,6 +576,7 @@ export default function Home() {
             icon: val.icon || '>_',
             description: val.description || '',
             builtin: !!val.builtin,
+            harness: val.harness || null,
             owner: val.owner || null,
             owner_source: (val.owner_source || null) as OwnerSource,
           }))
@@ -492,6 +586,10 @@ export default function Home() {
       })
       .catch(() => {})
   }, [])
+
+  // signing in changes who the caller is, and so which agent is the default:
+  // the host lands on Claude Code, a guest on the native loop
+  useEffect(() => { fetchAgents(auth?.token) }, [auth?.token, fetchAgents])
 
   // prompts + memory notes for the persona picker
   const fetchLibrary = useCallback(() => {
@@ -504,6 +602,17 @@ export default function Home() {
       .then(d => setMemNotes(d.memory || []))
       .catch(() => {})
   }, [])
+
+  // the market rail keeps its own copy of the catalogue, so anything the
+  // console changes has to tell it to refetch
+  const libChanged = useCallback(() => setLibVersion(v => v + 1), [])
+
+  // the library page can create and delete anything — refetch on the way back
+  const prevView = useRef(view)
+  useEffect(() => {
+    if (prevView.current !== view && view === 'console') { libChanged(); fetchLibrary() }
+    prevView.current = view
+  }, [view, libChanged, fetchLibrary])
 
   // remove an agent or a library prompt — the server only lets its owner or
   // the host through, so a refusal comes back as a 403 to surface
@@ -518,9 +627,10 @@ export default function Home() {
       const r = await fetch(`${API_URL}/${route}${q}`, { method: 'DELETE' }).then(x => x.json())
       if (r?.error) { setPersonaErr(r.error); return }
       setPersonaErr(null)
+      libChanged()
       if (p.kind === 'agent') {
-        if (agentType === p.id) selectAgent('default')
-        fetchAgents()
+        if (agentType === p.id) selectAgent(defaultAgent)
+        fetchAgents(auth?.token)
       } else {
         if (promptSel?.id === p.id) selectPrompt(null)
         fetchLibrary()
@@ -563,7 +673,8 @@ export default function Home() {
     ...agentOptions.map(a => ({
       key: `agent:${a.value}`, kind: 'agent' as const, id: a.value,
       label: a.label, icon: a.icon, description: a.description,
-      builtin: a.builtin, owner: a.owner, owner_source: a.owner_source,
+      builtin: a.builtin, harness: a.harness,
+      owner: a.owner, owner_source: a.owner_source,
     })),
     ...libPrompts.map(p => ({
       key: `prompt:${p.id}`, kind: 'prompt' as const, id: p.id,
@@ -581,14 +692,11 @@ export default function Home() {
   }
 
   // ── who may administer a persona ──────────────────────────────────
-  // The host owns anything nobody else does, so they can edit/remove
-  // everything — including the shipped agents.
-  // no host configured at all -> everyone is the host (the server agrees).
-  // While the host is still unknown, nobody gets admin controls.
-  const isHost = !!auth?.isOwner || owner === ''
-  // creating anything (agent, prompt, note) files it under your address, so
-  // it takes a sign-in — the server refuses an unsigned create either way
-  const canCreate = !!auth || isHost
+  // You are the host until something says otherwise: signed in, we trust the
+  // answer the server already gave us; signed out, we assume yes and let the
+  // API be the gate (a refusal shows up in the picker footer). The host owns
+  // anything nobody else does — including the shipped agents.
+  const isHost = auth ? auth.isOwner || owner === '' : true
   const ownedByMe = (p: Owned) =>
     !!auth && p.owner_source === 'item' &&
     (p.owner || '').toLowerCase() === auth.address.toLowerCase()
@@ -604,6 +712,69 @@ export default function Home() {
   const editPersona = (p: Persona) => {
     if (p.kind === 'agent') openBuilder(p.id)
     else { setShowPicker(false); setView('library') }
+  }
+
+  // one row for an agent or a library prompt — the dropdown picker and the
+  // rail's AGENTS pane show the same thing, so they share this
+  const personaRow = (p: Persona, onPicked?: () => void) => {
+    const active = p.key === activePersonaKey
+    const mine = ownedByMe(p)
+    return (
+      <div key={p.key} role="button" tabIndex={0}
+        onClick={() => { selectPersona(p); onPicked?.() }}
+        onKeyDown={e => { if (e.key === 'Enter') { selectPersona(p); onPicked?.() } }}
+        className={`w-full text-left px-2.5 py-2 rounded-md text-sm transition cursor-pointer group ${
+          active
+            ? p.kind === 'prompt'
+              ? 'bg-amber-400/10 border border-amber-400/30 text-gray-200'
+              : 'bg-emerald-500/10 border border-emerald-500/20 text-gray-200'
+            : 'border border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
+        }`}>
+        <div className="flex items-center gap-2">
+          <span className={`w-5 text-center shrink-0 ${p.kind === 'prompt' ? 'text-amber-300/80' : ''}`}>{p.icon}</span>
+          <span className="truncate">{p.label}</span>
+          <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 ${
+            p.kind === 'prompt' ? 'bg-amber-400/10 text-amber-300/90' : 'bg-white/[0.06] text-gray-500'
+          }`}>{p.kind}</span>
+          {p.harness && (
+            <span className="text-[9px] px-1 py-0.5 rounded shrink-0 bg-violet-400/10 border border-violet-400/25 text-violet-300/90"
+              title={`runs on the ${p.harness} CLI installed on this host — host owner only`}>
+              {p.harness}
+            </span>
+          )}
+          <span className="ml-auto flex items-center gap-1 shrink-0">
+            {canManage(p) && (
+              <>
+                <button title={`Edit this ${p.kind}`}
+                  onClick={e => { e.stopPropagation(); editPersona(p) }}
+                  className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition">
+                  ✎
+                </button>
+                <button title={p.builtin
+                  ? `Delete built-in agent "${p.label}" — host only`
+                  : `Delete this ${p.kind}`}
+                  onClick={e => { e.stopPropagation(); deletePersona(p) }}
+                  className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition">
+                  ✕
+                </button>
+              </>
+            )}
+            {active && <span className={`text-[10px] ${p.kind === 'prompt' ? 'text-amber-300' : 'text-emerald-300'}`}>active</span>}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 mt-0.5 pl-7">
+          {/* every persona shows who owns it — unowned means the host does */}
+          <span className={`text-[9px] font-mono shrink-0 ${
+            mine ? 'text-emerald-300/80' : p.owner_source === 'host' ? 'text-gray-600' : 'text-violet-300/80'
+          }`} title={ownerTitle(p)}>
+            {mine ? 'you' : ownerLabel(p)}
+          </span>
+          {p.description && (
+            <span className="text-[10px] text-gray-600 truncate">· {p.description}</span>
+          )}
+        </div>
+      </div>
+    )
   }
 
   const toggleNote = (id: string) => {
@@ -767,7 +938,14 @@ export default function Home() {
       .then(r => r.json())
       .then(d => { setSkills(d.schemas || {}); setApiStatus('ok') })
       .catch(() => setApiStatus('down'))
-    fetchAgents()
+    // tool counts up front so the TOOLS tab is labelled before it's opened
+    fetch(`${API_URL}/tools`, { signal: AbortSignal.timeout(5000) })
+      .then(r => r.json())
+      .then(d => setToolCounts({
+        total: (d.tools || []).length,
+        custom: (d.tools || []).filter((t: any) => t.kind === 'custom').length,
+      }))
+      .catch(() => {})
     // providers + models for the selector
     fetch(`${API_URL}/providers`, { signal: AbortSignal.timeout(5000) })
       .then(r => r.json())
@@ -959,7 +1137,8 @@ export default function Home() {
     const finishSummary = allSteps.filter((s: any) => s.tool === 'finish').map((s: any) => s.params?.summary).filter(Boolean).join('\n')
     const errorText = allSteps.filter((s: any) => s.tool === 'error' && s.error).map((s: any) => s.error).join('\n')
     const hasError = !!errorText || !!apiError
-    const visibleSteps = allSteps.filter((s: any) => !['response', 'error'].includes(s.tool))
+    // 'invalid' = a step the model malformed and the loop retried — internal noise
+    const visibleSteps = allSteps.filter((s: any) => !['response', 'error', 'invalid'].includes(s.tool))
     const displayText = apiError ? `Error: ${apiError}`
       : errorText ? `Error: ${errorText}`
       : responseText || finishSummary || (visibleSteps.length ? `Completed ${visibleSteps.length} step(s)` : 'Done')
@@ -1055,9 +1234,14 @@ export default function Home() {
       }
 
       const body: any = { query: q }
-      if (shots.length) body.images = shots.map(a => a.url)   // vision-capable models only
+      if (shots.length) {
+        body.images = shots.map(a => a.url)      // vision-capable models only
+        body.thumbs = shots.map(a => a.thumb)    // previews for the task registry
+      }
       if (auth?.token) body.key = auth.token   // signed identity rides along
-      if (agentType && agentType !== 'default') body.agent_type = agentType
+      // always named: an omitted agent means "server's default", which would
+      // turn an explicit pick of the native agent into a Claude Code run
+      if (agentType) body.agent_type = agentType
       if (provider) body.provider = provider
       if (model) body.model = model
       if (promptSel) {
@@ -1097,7 +1281,7 @@ export default function Home() {
               last.text = last.text ? `${last.text}\n${step.result}` : String(step.result)
             } else if (step.tool === 'finish') {
               last.text = step.params?.summary || last.text
-            } else {
+            } else if (step.tool !== 'invalid') {
               last.steps = [...(last.steps || []), step]
             }
             return { ...tk, messages: msgs }
@@ -1227,6 +1411,18 @@ export default function Home() {
       .filter((f): f is File => !!f)
     if (files.length) { e.preventDefault(); addFiles(files) }
   }
+
+  // the open viewer owns the keyboard: Esc closes it, arrows walk the group
+  useEffect(() => {
+    if (!lightbox) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightbox(null)
+      else if (e.key === 'ArrowLeft') stepLightbox(-1)
+      else if (e.key === 'ArrowRight') stepLightbox(1)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightbox])
 
   const statusIcon = (s: TaskEntry['status']) =>
     s === 'running' ? 'animate-spin text-emerald-300' :
@@ -1367,21 +1563,35 @@ export default function Home() {
       {open ? <path d="M8 11V7a4 4 0 0 1 7.7-1.5" /> : <path d="M8 11V7a4 4 0 0 1 8 0v4" />}
     </svg>
   )
+  // one colour scheme for the key, wherever it shows up
+  const keyTone = vaultLocked
+    ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20 pill-locked'
+    : balance && typeof balance.balance === 'number' && balance.balance > 0
+    ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300 hover:bg-emerald-500/20'
+    : balance && (!balance.configured || (typeof balance.balance === 'number' && balance.balance <= 0))
+    ? 'bg-amber-500/10 border-amber-500/25 text-amber-300 hover:bg-amber-500/20'
+    : 'border-white/10 text-gray-500 hover:text-gray-300 hover:border-white/20'
+  const keyTitle = vaultLocked
+    ? `${balance?.provider} key is encrypted — click to unlock it with your passphrase`
+    : balance?.key
+    ? `${balance.provider} key ${balance.key}${balance.unlocked ? ' (encrypted, unlocked)' : ''} — click to manage`
+    : 'Add your API key'
+
+  // Open the key vault modal focused on a given provider (from anywhere).
+  // It's an overlay, so it opens over whatever you were doing.
+  const openKeyPanel = (p: string) => { setKeyPanelProvider(p); setShowKeyPanel(true) }
+
+  // the tool registry lives in the console's TOOLS tab — open it from anywhere
+  const openToolRegistry = () => {
+    setView('console'); setActiveTab('tools'); setToolPane('registry')
+    if (dock === 'min') setDockPersist('normal')
+  }
+
   const balancePill = (
     <button
-      onClick={() => { setKeyPanelProvider(provider); setView('builder'); setShowKeyPanel(true) }}
-      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-mono font-medium transition shrink-0 border ${
-        vaultLocked
-          ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20 pill-locked'
-          : balance && typeof balance.balance === 'number' && balance.balance > 0
-          ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300 hover:bg-emerald-500/20'
-          : balance && (!balance.configured || (typeof balance.balance === 'number' && balance.balance <= 0))
-          ? 'bg-amber-500/10 border-amber-500/25 text-amber-300 hover:bg-amber-500/20'
-          : 'border-white/10 text-gray-500 hover:text-gray-300 hover:border-white/20'
-      }`}
-      title={vaultLocked
-        ? `${balance?.provider} key is encrypted — unlock it with your passphrase in the Builder`
-        : balance?.key ? `${balance.provider} key ${balance.key}${balance.unlocked ? ' (encrypted, unlocked)' : ''} — manage in the Builder` : 'Add your API key in the Builder'}
+      onClick={() => openKeyPanel(provider)}
+      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-mono font-medium transition shrink-0 border ${keyTone}`}
+      title={keyTitle}
     >
       {vaultLocked && lockGlyph(false)}
       {!vaultLocked && balance?.unlocked && lockGlyph(true)}
@@ -1389,8 +1599,23 @@ export default function Home() {
     </button>
   )
 
-  // Open the key vault modal focused on a given provider (from anywhere).
-  const openKeyPanel = (p: string) => { setKeyPanelProvider(p); setView('builder'); setShowKeyPanel(true) }
+  // the same key, squeezed into a 42px strip — with the rail collapsed and the
+  // console docked shut there'd otherwise be no way to reach a locked vault
+  const keyStripButton = (
+    <button
+      onClick={() => openKeyPanel(provider)}
+      className={`w-8 py-1 flex flex-col items-center gap-0.5 rounded-md border font-mono transition ${keyTone}`}
+      title={keyTitle}
+    >
+      {lockGlyph(!vaultLocked)}
+      <span className="text-[8px] leading-none">
+        {!balance ? '·' : vaultLocked ? 'lock'
+          : !balance.configured ? 'add'
+          : typeof balance.balance !== 'number' ? 'key'
+          : balance.balance >= 10 ? `$${Math.round(balance.balance)}` : `$${balance.balance.toFixed(1)}`}
+      </span>
+    </button>
+  )
 
   // Friendly "you need an API key" call-to-action, shown in place of the raw
   // provider error inside a task's output. One tap to add a key, one to go get one.
@@ -1429,34 +1654,21 @@ export default function Home() {
   // --- Background tasks — live server-side registry, visible from anywhere ---
   const runningCount = serverTasks.filter(t => t.status === 'running').length
 
+  // previews for a task, pulled the first time it's opened
+  const loadTaskImages = (t: ServerTask) => {
+    if (!t.images || taskImages[t.id]) return
+    fetch(`${API_URL}/tasks/${t.id}/images`, { signal: AbortSignal.timeout(10000) })
+      .then(r => r.json())
+      .then(d => setTaskImages(m => ({ ...m, [t.id]: Array.isArray(d.images) ? d.images : [] })))
+      .catch(() => {})
+  }
+
   // elapsed / duration for a server task (epoch seconds)
   const serverTaskTime = (t: ServerTask) => {
     const end = t.status === 'running' ? Date.now() / 1000 : (t.finished_at || t.started_at)
     const sec = Math.max(0, Math.floor(end - t.started_at))
     return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, '0')}s`
   }
-
-  const tasksButton = (
-    <button
-      onClick={() => { if (view !== 'tasks') fetchServerTasks(); setView(view === 'tasks' ? 'console' : 'tasks') }}
-      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] font-medium uppercase tracking-wider transition border ${
-        view === 'tasks'
-          ? 'border-emerald-500/40 text-emerald-200 bg-emerald-500/10'
-          : runningCount > 0
-          ? 'border-emerald-500/25 text-emerald-300 bg-emerald-500/[0.06] hover:bg-emerald-500/15'
-          : 'border-white/[0.06] text-gray-500 hover:text-gray-300 hover:border-white/20'
-      }`}
-      title={runningCount > 0 ? `${runningCount} task${runningCount !== 1 ? 's' : ''} running in the background` : 'Background tasks'}
-    >
-      <span className={`w-1.5 h-1.5 rounded-full ${runningCount > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
-      tasks
-      {runningCount > 0 && (
-        <span className="text-[9px] px-1 py-px rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-200 font-mono normal-case">
-          {runningCount}
-        </span>
-      )}
-    </button>
-  )
 
   // --- Tasks page — the server-side registry as a full view ---
   const taskCounts = {
@@ -1519,7 +1731,7 @@ export default function Home() {
             const expanded = !!expandedServerTasks[t.id]
             return (
               <div key={t.id}
-                onClick={() => setExpandedServerTasks(s => ({ ...s, [t.id]: !s[t.id] }))}
+                onClick={() => { setExpandedServerTasks(s => ({ ...s, [t.id]: !s[t.id] })); if (!expanded) loadTaskImages(t) }}
                 className={`px-4 py-3 rounded-lg border cursor-pointer transition ${
                   t.status === 'running'
                     ? 'bg-emerald-500/[0.05] border-emerald-500/15'
@@ -1533,6 +1745,12 @@ export default function Home() {
                   <span className={`flex-1 text-gray-200 text-sm min-w-0 ${expanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}>
                     {t.query}
                   </span>
+                  {!!t.images && (
+                    <span className="text-[10px] shrink-0 px-1.5 py-px rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300/80"
+                      title={`${t.images} image${t.images !== 1 ? 's' : ''} attached — open the task to see them`}>
+                      ▣ {t.images}
+                    </span>
+                  )}
                   <span className="text-[11px] text-gray-500 shrink-0 font-mono" title={`${t.steps} steps`}>
                     {t.steps} step{t.steps !== 1 ? 's' : ''} · {serverTaskTime(t)}
                   </span>
@@ -1562,6 +1780,16 @@ export default function Home() {
                     )}
                   </span>
                 </div>
+                {expanded && !!t.images && (
+                  <div className="mt-2 pl-8 flex items-center gap-1.5 flex-wrap">
+                    {(taskImages[t.id] || []).map((src, k) => (
+                      <img key={k} src={src} alt="attachment" title="Click to view"
+                        onClick={e => { e.stopPropagation(); openLightbox(taskImages[t.id], k) }}
+                        className="h-16 w-16 object-cover rounded-md border border-white/10 cursor-zoom-in hover:border-emerald-500/40 transition" />
+                    ))}
+                    {!taskImages[t.id] && <span className="text-[10px] text-gray-600 font-mono">loading images…</span>}
+                  </div>
+                )}
                 {expanded && (
                   <div className="mt-2 pl-8 flex items-center gap-4 text-[10px] text-gray-600 font-mono flex-wrap">
                     <span>id {t.id}</span>
@@ -1588,19 +1816,12 @@ export default function Home() {
           className={`flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full border transition ${
             showUserMenu ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-white/10 bg-white/[0.03] hover:border-white/20'
           }`}
-          title={`${auth.address}${auth.isOwner ? ' · owner' : ''}`}
+          title={auth.address}
         >
-          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-mono border ${
-            auth.isOwner ? 'bg-emerald-500/20 border-emerald-500/35 text-emerald-200' : 'bg-sky-500/15 border-sky-500/25 text-sky-200'
-          }`}>
+          <span className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-mono border bg-emerald-500/20 border-emerald-500/35 text-emerald-200">
             {auth.address.slice(2, 4).toUpperCase()}
           </span>
           <span className="text-xs text-gray-300 font-mono">{shortAddr(auth.address)}</span>
-          {auth.isOwner && (
-            <span className="text-[8px] px-1 py-px rounded bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 uppercase tracking-wider">
-              owner
-            </span>
-          )}
         </button>
       ) : (
         <button
@@ -1616,7 +1837,7 @@ export default function Home() {
       {showUserMenu && !auth && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-          <div className="absolute right-0 top-full mt-1 w-72 bg-[#141414] border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
+          <div className="absolute right-0 top-full mt-1 w-72 bg-surface-2 border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
             <div className="p-1.5">
               <button
                 onClick={signInWallet}
@@ -1652,18 +1873,15 @@ export default function Home() {
       {showUserMenu && auth && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-          <div className="absolute right-0 top-full mt-1 w-72 bg-[#141414] border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
+          <div className="absolute right-0 top-full mt-1 w-72 bg-surface-2 border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
             <div className="px-4 py-3 border-b border-white/[0.06] flex items-center gap-3">
-              <span className={`w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-mono border shrink-0 ${
-                auth.isOwner ? 'bg-emerald-500/20 border-emerald-500/35 text-emerald-200' : 'bg-sky-500/15 border-sky-500/25 text-sky-200'
-              }`}>
+              <span className="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-mono border shrink-0 bg-emerald-500/20 border-emerald-500/35 text-emerald-200">
                 {auth.address.slice(2, 4).toUpperCase()}
               </span>
               <div className="min-w-0">
                 <div className="text-xs text-gray-200 font-mono truncate">{auth.address}</div>
                 <div className="text-[10px] text-gray-500 mt-0.5">
-                  {auth.isOwner ? 'module owner — full access' : 'guest — public actions'}
-                  {auth.local ? ' · local key' : ''}
+                  {auth.local ? 'local key — held in this browser' : 'signed in with your wallet'}
                 </div>
               </div>
             </div>
@@ -1700,29 +1918,6 @@ export default function Home() {
         </>
       )}
     </div>
-  )
-
-  // --- Credits chip — guest balance spent on the module's public key ---
-  const creditsChip = auth && !auth.isOwner && (
-    <button
-      onClick={() => setShowCredits(true)}
-      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[10px] font-mono transition border ${
-        showCredits
-          ? 'border-emerald-500/40 text-emerald-200 bg-emerald-500/10'
-          : (creditsInfo?.account?.balance ?? 0) > 0
-          ? 'border-emerald-500/25 text-emerald-300 bg-emerald-500/[0.06] hover:bg-emerald-500/15'
-          : 'border-white/[0.06] text-gray-500 hover:text-gray-300 hover:border-white/20'
-      }`}
-      title="Credits — top up USDT/USDC and spend them to run on the module's public key"
-    >
-      <span className="text-emerald-400/80">◈</span>
-      ${(creditsInfo?.account?.balance ?? 0).toFixed(2)}
-      {!spendCredits && (
-        <span className="text-[8px] text-gray-500 uppercase tracking-wider" title="Spending is off — runs use free models">
-          free
-        </span>
-      )}
-    </button>
   )
 
   // --- Persona picker — choose an agent, a library prompt, and memory notes ---
@@ -1782,7 +1977,7 @@ export default function Home() {
       {showPicker && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowPicker(false)} />
-          <div className="absolute left-0 top-full mt-1 w-80 max-h-[65vh] flex flex-col bg-[#141414] border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
+          <div className="absolute left-0 top-full mt-1 w-80 max-h-[65vh] flex flex-col bg-surface-2 border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
             {/* tabs */}
             <div className="flex items-center gap-0.5 px-1.5 pt-1.5 border-b border-white/[0.06] shrink-0">
               {([
@@ -1811,76 +2006,13 @@ export default function Home() {
             <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
               {pickerTab === 'prompts' && personas
                 .filter(p => pickerFilter(p.label, p.description))
-                .map(p => {
-                  const active = p.key === activePersonaKey
-                  const mine = ownedByMe(p)
-                  return (
-                    <div key={p.key} role="button" tabIndex={0}
-                      onClick={() => { selectPersona(p); setShowPicker(false) }}
-                      onKeyDown={e => { if (e.key === 'Enter') { selectPersona(p); setShowPicker(false) } }}
-                      className={`w-full text-left px-2.5 py-2 rounded-md text-sm transition cursor-pointer group ${
-                        active
-                          ? p.kind === 'prompt'
-                            ? 'bg-amber-400/10 border border-amber-400/30 text-gray-200'
-                            : 'bg-emerald-500/10 border border-emerald-500/20 text-gray-200'
-                          : 'border border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
-                      }`}>
-                      <div className="flex items-center gap-2">
-                        <span className={`w-5 text-center shrink-0 ${p.kind === 'prompt' ? 'text-amber-300/80' : ''}`}>{p.icon}</span>
-                        <span className="truncate">{p.label}</span>
-                        <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 ${
-                          p.kind === 'prompt' ? 'bg-amber-400/10 text-amber-300/90' : 'bg-white/[0.06] text-gray-500'
-                        }`}>{p.kind}</span>
-                        <span className="ml-auto flex items-center gap-1 shrink-0">
-                          {canManage(p) && (
-                            <>
-                              <button title={`Edit this ${p.kind}`}
-                                onClick={e => { e.stopPropagation(); editPersona(p) }}
-                                className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition">
-                                ✎
-                              </button>
-                              <button title={p.builtin
-                                ? `Delete built-in agent "${p.label}" — host only`
-                                : `Delete this ${p.kind}`}
-                                onClick={e => { e.stopPropagation(); deletePersona(p) }}
-                                className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition">
-                                ✕
-                              </button>
-                            </>
-                          )}
-                          {active && <span className={`text-[10px] ${p.kind === 'prompt' ? 'text-amber-300' : 'text-emerald-300'}`}>active</span>}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-0.5 pl-7">
-                        {/* every persona shows who owns it — unowned means the host does */}
-                        <span className={`text-[9px] font-mono shrink-0 ${
-                          mine ? 'text-emerald-300/80' : p.owner_source === 'host' ? 'text-gray-600' : 'text-violet-300/80'
-                        }`} title={ownerTitle(p)}>
-                          {mine ? 'you' : ownerLabel(p)}
-                        </span>
-                        {p.description && (
-                          <span className="text-[10px] text-gray-600 truncate">· {p.description}</span>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
+                .map(p => personaRow(p, () => setShowPicker(false)))}
               {pickerTab === 'prompts' && (
-                // an agent is filed under the wallet that made it — sign in first
-                canCreate ? (
-                  <button
-                    onClick={() => openBuilder()}
-                    className="w-full text-left px-2.5 py-2 rounded-md text-xs transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
-                    <span className="w-5 text-center shrink-0">+</span> build a new agent
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => { setShowPicker(false); signIn() }}
-                    title="Agents and prompts are saved under the wallet that made them"
-                    className="w-full text-left px-2.5 py-2 rounded-md text-xs transition border border-dashed border-sky-500/25 text-sky-300/90 hover:bg-sky-500/10 flex items-center gap-2">
-                    <span className="w-5 text-center shrink-0">+</span> sign in to build your own agent
-                  </button>
-                )
+                <button
+                  onClick={() => openBuilder()}
+                  className="w-full text-left px-2.5 py-2 rounded-md text-xs transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
+                  <span className="w-5 text-center shrink-0">+</span> build a new agent
+                </button>
               )}
 
               {pickerTab === 'memory' && (
@@ -1918,8 +2050,6 @@ export default function Home() {
                   ? personaErr
                   : pickerTab === 'memory'
                   ? 'selected notes ride along as run context'
-                  : isHost
-                  ? 'you are the host — you own everything unowned'
                   : 'agents bring skills + a model, prompts just set the goal'}
               </span>
               <div className="ml-auto flex items-center gap-2">
@@ -1953,15 +2083,16 @@ export default function Home() {
       onDrop={e => { e.preventDefault(); addFiles(Array.from(e.dataTransfer?.files || [])) }}
       className={`rounded-xl border px-3 py-2 transition-all duration-200 ${
       composeFocused
-        ? 'border-emerald-500/40 bg-white/[0.04] shadow-[0_0_0_3px_rgba(52,211,153,0.08)]'
+        ? 'border-emerald-500/40 bg-white/[0.04] shadow-[0_0_0_3px_rgb(var(--glow)/0.08)]'
         : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.14]'
     }`}>
       {/* staged images — paste, drop, or pick them; they ride with the next run */}
       {(attachments.length > 0 || attachErr) && (
         <div className="flex items-center gap-1.5 flex-wrap pb-2">
-          {attachments.map(a => (
+          {attachments.map((a, k) => (
             <div key={a.id} className="relative group">
-              <img src={a.thumb} alt={a.name} title={a.name} onClick={() => setLightbox(a.url)}
+              <img src={a.thumb} alt={a.name} title={a.name}
+                onClick={() => openLightbox(attachments.map(x => x.url), k)}
                 className="h-12 w-12 object-cover rounded-md border border-emerald-500/20 cursor-zoom-in" />
               <button onClick={() => setAttachments(l => l.filter(x => x.id !== a.id))}
                 title="Remove"
@@ -2050,7 +2181,7 @@ export default function Home() {
   // floating shell — drag by the header bar, resize from the right edge
   const floatingPrompt = promptFloat ? (
     <div
-      className="fixed z-40 bg-[#0d0d0d]/95 backdrop-blur-sm border border-white/15 rounded-xl shadow-2xl"
+      className="fixed z-40 bg-surface-1/95 backdrop-blur-sm border border-white/15 rounded-xl shadow-2xl"
       style={{ left: promptPos.x, top: promptPos.y, width: Math.min(promptW, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 16) }}
     >
       <div
@@ -2086,7 +2217,7 @@ export default function Home() {
   ) : null
 
   // --- Tool trace — every step the run took, params and result in full ---
-  const toolTrace = (
+  const traceBody = (
     <div className="p-3 max-w-4xl mx-auto w-full">
       {!currentTask ? (
         <p className="text-sm text-gray-600 text-center mt-8">Select a chat to see what it ran</p>
@@ -2139,10 +2270,40 @@ export default function Home() {
     </div>
   )
 
+  // TRACE is this run's history; REGISTRY is the whole tool surface, and
+  // where a new tool gets added
+  const toolTrace = (
+    <div>
+      <div className="px-3 pt-3 max-w-4xl mx-auto w-full flex items-center gap-1.5">
+        {(['trace', 'registry'] as ToolPane[]).map(p => (
+          <button key={p} onClick={() => setToolPane(p)}
+            className={`px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider transition border ${
+              toolPane === p ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
+                             : 'bg-white/[0.03] border-white/[0.06] text-gray-600 hover:text-gray-300'
+            }`}>
+            {p}
+            {p === 'trace' && currentTask && getSteps(currentTask).length > 0 && (
+              <span className="ml-1 text-gray-500 normal-case">{getSteps(currentTask).length}</span>
+            )}
+            {p === 'registry' && toolCounts && (
+              <span className="ml-1 text-gray-500 normal-case">{toolCounts.total}</span>
+            )}
+          </button>
+        ))}
+      </div>
+      {toolPane === 'registry'
+        ? <Tools token={auth?.token} isHost={isHost} onCount={setToolCounts} />
+        : traceBody}
+    </div>
+  )
+
   // --- Transcript — the console body: the run's messages, its tool trace, or its file deltas ---
   const transcript = (
     <div className="h-full overflow-y-auto min-h-0">
-      {activeTab === 'tools' ? toolTrace : activeTab === 'deltas' ? (
+      {activeTab === 'tools' ? toolTrace : activeTab === 'memory' ? (
+        <MemoryPanel token={auth?.token} memSel={memSel} onToggleMem={toggleNote}
+          onNotesChanged={() => { fetchLibrary(); libChanged() }} />
+      ) : activeTab === 'deltas' ? (
         <div className="p-3 max-w-4xl mx-auto w-full">
           {!currentTask ? (
             <p className="text-sm text-gray-600 text-center mt-8">Select a chat to see what it touched</p>
@@ -2204,7 +2365,10 @@ export default function Home() {
           {currentTask.messages.map((msg, i) => {
             // the transcript is the conversation, not the trace: tool calls are
             // one line here and the whole story in the TOOLS tab
-            const shots = msg.images || msg.thumbs || []
+            // show the thumbnails, open the full-size copy — after a reload
+            // only the thumbnails survived, so they stand in for both
+            const shots = msg.thumbs || msg.images || []
+            const full = msg.images || msg.thumbs || []
             const lastStep = msg.steps?.[msg.steps.length - 1]
             return (
             <div key={i} className={`${msg.role === 'user' ? 'ml-auto max-w-[85%]' : 'max-w-full'}`}>
@@ -2219,7 +2383,8 @@ export default function Home() {
                 {shots.length > 0 && (
                   <div className="flex gap-1.5 flex-wrap mb-1.5">
                     {shots.map((src, k) => (
-                      <img key={k} src={src} alt="attachment" onClick={() => setLightbox(src)}
+                      <img key={k} src={src} alt="attachment" title="Click to view"
+                        onClick={() => openLightbox(full.length === shots.length ? full : shots, k)}
                         className="h-20 w-20 object-cover rounded-md border border-white/10 cursor-zoom-in hover:border-emerald-500/40 transition" />
                     ))}
                   </div>
@@ -2266,6 +2431,17 @@ export default function Home() {
     try { localStorage.setItem('agent_rail_closed', closed ? '1' : '0') } catch {}
   }
 
+  const setPane = (p: RailPane) => {
+    setRailPane(p)
+    try { localStorage.setItem('agent_rail_pane', p) } catch {}
+    if (p === 'agents') { fetchAgents(auth?.token); fetchLibrary() }
+  }
+
+  const setMarketOpenPersist = (open: boolean) => {
+    setMarketOpen(open)
+    try { localStorage.setItem('agent_market_open', open ? '1' : '0') } catch {}
+  }
+
   // chats bucketed by day, so a long history stays scannable
   const chatBucket = (t: TaskEntry) => {
     if (!t.startedAt) return 'earlier'
@@ -2307,6 +2483,20 @@ export default function Home() {
           className="w-4 h-4 hidden group-hover:flex items-center justify-center rounded text-gray-600 hover:text-red-400 shrink-0 text-[10px]"
         >✕</button>
       </div>
+      {/* a chat's attachments, so an image conversation is recognisable in the rail */}
+      {(() => {
+        const shots = t.messages.flatMap(m => m.thumbs || m.images || [])
+        return shots.length > 0 && (
+          <div className="flex items-center gap-1 mt-1 pl-[18px]">
+            {shots.slice(0, 4).map((src, k) => (
+              <img key={k} src={src} alt="" title="Click to view"
+                onClick={e => { e.stopPropagation(); openLightbox(shots, k) }}
+                className="h-7 w-7 object-cover rounded border border-white/10 hover:border-emerald-500/40 cursor-zoom-in transition" />
+            ))}
+            {shots.length > 4 && <span className="text-[9px] text-gray-600 font-mono">+{shots.length - 4}</span>}
+          </div>
+        )
+      })()}
       <div className="flex items-center gap-1.5 mt-0.5 pl-[18px] text-[10px] text-gray-600 font-mono">
         <span>{t.stepCount !== undefined ? `${t.stepCount} step${t.stepCount !== 1 ? 's' : ''} · ` : ''}{taskTime(t)}</span>
         {t.cid && (
@@ -2320,64 +2510,107 @@ export default function Home() {
     </div>
   )
 
+  // foot of the open rail: who you are, what the module can do, and the key —
+  // the same three things the strip carries when the rail is collapsed
   const identityFooter = (
     <div className="border-t border-white/[0.06] px-3 py-2.5 shrink-0 flex items-center gap-2.5">
-      {(() => {
-        const ident = auth?.address || owner
-        return (
-          <>
-            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 ${
-              auth
-                ? (auth.isOwner ? 'bg-emerald-500/15 border border-emerald-500/25 text-emerald-200' : 'bg-sky-500/15 border border-sky-500/25 text-sky-200')
-                : 'bg-white/5 border border-white/10 text-gray-500'
-            }`}>
-              {ident ? ident.slice(2, 4).toUpperCase() : '··'}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-xs text-gray-300 font-mono truncate flex items-center gap-1.5"
-                title={auth ? `signed in as ${auth.address}` : (owner ? `module owned by ${owner} — sign in with your wallet` : 'no owner configured')}>
-                {auth ? shortAddr(auth.address) : 'not signed in'}
-                {auth ? (
-                  <span className={`text-[8px] px-1 py-px rounded uppercase tracking-wider ${
-                    auth.isOwner ? 'bg-emerald-500/15 border border-emerald-500/25 text-emerald-300' : 'bg-sky-500/15 border border-sky-500/25 text-sky-300'
-                  }`}>{auth.isOwner ? 'owner' : 'guest'}</span>
-                ) : null}
-              </div>
-              <div className="text-[10px] text-gray-600 truncate">
-                {auth && tasks.some(t => t.synced)
-                  ? <span className="text-emerald-400/60" title="conversations pinned to localfs">⬡ {tasks.filter(t => t.synced).length} in localfs</span>
-                  : owner && !auth ? `owned by ${shortAddr(owner)}` : `${Object.keys(skills).length} skills`}
-              </div>
-            </div>
-            {!auth && (
-              <button onClick={signIn} disabled={authBusy}
-                className="text-[10px] px-2 py-1 rounded-md border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-60 transition shrink-0">
-                {authBusy ? '…' : 'Sign in'}
-              </button>
-            )}
-            <div className="flex items-center gap-1 shrink-0">
-              <span className={`w-1.5 h-1.5 rounded-full ${apiStatus === 'ok' ? 'bg-emerald-400' : apiStatus === 'down' ? 'bg-red-400' : 'bg-gray-500'}`} />
-              <span className="text-[10px] text-gray-600">{apiStatus === 'ok' ? 'online' : apiStatus === 'down' ? 'offline' : '…'}</span>
-            </div>
-          </>
-        )
-      })()}
+      <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-emerald-500/15 border border-emerald-500/25 text-emerald-200">
+        {auth ? auth.address.slice(2, 4).toUpperCase() : '··'}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-xs text-gray-300 font-mono truncate"
+          title={auth ? `signed in as ${auth.address}` : 'not signed in — sign in to save your work under your address'}>
+          {auth ? shortAddr(auth.address) : 'not signed in'}
+        </div>
+        <div className="text-[10px] text-gray-600 truncate flex items-center gap-1.5">
+          <button onClick={openToolRegistry} className="hover:text-emerald-300 transition" title="Open the tool registry">
+            {toolCounts?.total ?? Object.keys(skills).length} tools
+          </button>
+          {tasks.some(t => t.synced) && (
+            <span className="text-emerald-400/60" title="conversations pinned to localfs">
+              ⬡ {tasks.filter(t => t.synced).length}
+            </span>
+          )}
+          <span className={`ml-auto w-1.5 h-1.5 rounded-full shrink-0 ${
+            apiStatus === 'ok' ? 'bg-emerald-400' : apiStatus === 'down' ? 'bg-red-400' : 'bg-gray-500'
+          }`} title={apiStatus === 'ok' ? 'API online' : apiStatus === 'down' ? 'API offline' : 'checking the API'} />
+        </div>
+      </div>
+      {!auth && (
+        <button onClick={signIn} disabled={authBusy}
+          className="text-[10px] px-2 py-1 rounded-md border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-60 transition shrink-0">
+          {authBusy ? '…' : 'Sign in'}
+        </button>
+      )}
+      {keyStripButton}
     </div>
   )
 
-  const chatsRail = (
+  // --- Agents pane — the personas you can run as, beside the chats ---
+  const agentsPane = (
+    <>
+      <div className="px-2.5 py-2 border-b border-white/[0.06] shrink-0">
+        <input
+          value={agentSearch}
+          onChange={e => setAgentSearch(e.target.value)}
+          placeholder="Filter agents…"
+          className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-2.5 py-1.5 text-xs text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-500/40 transition"
+        />
+      </div>
+      <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
+        {(() => {
+          const s = agentSearch.trim().toLowerCase()
+          const shown = personas.filter(p => !s ||
+            p.label.toLowerCase().includes(s) || (p.description || '').toLowerCase().includes(s))
+          if (shown.length === 0) {
+            return <div className="text-center text-xs text-gray-500 py-10 px-3">Nothing matches</div>
+          }
+          // agents bring skills and a model; prompts only set the goal — keep
+          // the two apart so the distinction stays visible
+          return (['agent', 'prompt'] as const).map(kind => {
+            const rows = shown.filter(p => p.kind === kind)
+            if (rows.length === 0) return null
+            return (
+              <div key={kind}>
+                <div className="px-2 pt-2 pb-1 text-[9px] text-gray-600 uppercase tracking-wider">
+                  {kind === 'agent' ? 'agents' : 'prompts'}
+                </div>
+                {rows.map(p => personaRow(p))}
+              </div>
+            )
+          })
+        })()}
+      </div>
+      <div className="px-2 pb-2 shrink-0">
+        <button onClick={() => openBuilder()}
+          className="w-full text-left px-2.5 py-2 rounded-md text-xs transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
+          <span className="w-5 text-center shrink-0">+</span> build a new agent
+        </button>
+      </div>
+    </>
+  )
+
+  const railContent = (
     <div className="flex flex-col h-full min-h-0">
-      {/* rail header */}
-      <div className="px-3 py-2 border-b border-white/[0.06] flex items-center gap-2 shrink-0">
-        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Chats</span>
-        <span className="text-[10px] text-gray-600 font-mono">{tasks.length || ''}</span>
+      {/* rail header — two panes: the chats you've had, the agents you can be */}
+      <div className="px-2 py-2 border-b border-white/[0.06] flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-md p-0.5 min-w-0">
+          {([['chats', tasks.length], ['agents', personas.length]] as const).map(([pane, n]) => (
+            <button key={pane} onClick={() => setPane(pane as RailPane)}
+              className={`px-2 py-1 rounded text-[10px] uppercase tracking-wider transition ${
+                railPane === pane ? 'bg-emerald-500/15 text-emerald-200' : 'text-gray-500 hover:text-gray-300'
+              }`}>
+              {pane} <span className="opacity-60 font-mono">{n || ''}</span>
+            </button>
+          ))}
+        </div>
         <div className="ml-auto flex items-center gap-0.5">
-          <button onClick={newChat}
+          <button onClick={() => railPane === 'chats' ? newChat() : openBuilder()}
             className="w-6 h-6 flex items-center justify-center rounded-md text-emerald-300/90 hover:bg-emerald-500/10 border border-emerald-500/25 transition text-sm leading-none"
-            title="New chat">+</button>
+            title={railPane === 'chats' ? 'New chat' : 'Build a new agent'}>+</button>
           <button onClick={() => setSidebarSide(s => s === 'left' ? 'right' : 'left')}
             className="w-6 h-6 flex items-center justify-center rounded-md text-gray-600 hover:text-gray-300 hover:bg-white/5 transition"
-            title={`Move rail to the ${sidebarSide === 'left' ? 'right' : 'left'}`}>
+            title={`Swap sides — rail to the ${sidebarSide === 'left' ? 'right' : 'left'}, market opposite`}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" />
               <line x1={sidebarSide === 'left' ? '9' : '15'} y1="3" x2={sidebarSide === 'left' ? '9' : '15'} y2="21" />
@@ -2393,6 +2626,7 @@ export default function Home() {
         </div>
       </div>
 
+      {railPane === 'agents' ? agentsPane : <>
       {/* search — only worth the space once there's a history */}
       {tasks.length > 4 && (
         <div className="px-2.5 py-2 border-b border-white/[0.06] shrink-0">
@@ -2427,6 +2661,7 @@ export default function Home() {
           )
         })}
       </div>
+      </>}
 
       {/* library + builder shortcuts, then who you are */}
       <div className="px-2 py-1.5 border-t border-white/[0.06] shrink-0 flex items-center gap-1.5">
@@ -2445,7 +2680,7 @@ export default function Home() {
 
   // --- Workspace — files touched by the selected run, above the console ---
   const filesPanel = (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#0c0c0c]">
+    <div className="flex-1 flex flex-col min-h-0 bg-surface-1">
       <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0">
         {viewingFile ? (
           <>
@@ -2561,14 +2796,14 @@ export default function Home() {
   // --- The console dock — bottom of the screen, full width, resizable ---
   const consoleDock = (
     <div
-      className={`relative flex flex-col min-h-0 bg-[#0a0a0a] border-t border-white/[0.06] ${dock === 'max' ? 'flex-1' : 'shrink-0'}`}
+      className={`relative flex flex-col min-h-0 bg-surface-0 border-t border-white/[0.06] ${dock === 'max' ? 'flex-1' : 'shrink-0'}`}
       style={dock === 'normal' ? { height: dockHeight } : undefined}
     >
       {/* drag the console's top edge to resize; double-click to maximize */}
       {dock === 'normal' && (
         <div
-          className="absolute -top-[5px] left-0 right-0 h-[10px] z-20 cursor-row-resize group"
-          onMouseDown={onDockDragStart}
+          className="absolute -top-[5px] left-0 right-0 h-[10px] z-20 cursor-row-resize touch-none group"
+          onPointerDown={onDockDragStart}
           onDoubleClick={toggleDockMax}
         >
           <div className="w-full h-[1px] mt-[4px] bg-transparent group-hover:bg-emerald-500/60 group-active:bg-emerald-500 transition-colors" />
@@ -2580,10 +2815,13 @@ export default function Home() {
         </div>
       )}
 
-      {/* dock header — tabs, what's running, and the run controls */}
-      <div className="border-b border-white/[0.06] px-2 flex items-center gap-2 shrink-0 min-w-0">
+      {/* dock header — two lines: tabs + what's running on top, the run
+          controls (persona, model, credit) on their own line below, so neither
+          crowds the other in a narrow window. */}
+      <div className="border-b border-white/[0.06] shrink-0 min-w-0">
+      <div className="px-2 flex items-center gap-x-2 py-0.5 min-w-0">
         <div className="flex items-center shrink-0">
-          {(['output', 'tools', 'deltas'] as Tab[]).map(tab => (
+          {(['output', 'tools', 'memory', 'deltas'] as Tab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -2592,8 +2830,13 @@ export default function Home() {
               }`}
             >
               {tab === 'output' ? 'console' : tab}
-              {tab === 'tools' && currentTask && getSteps(currentTask).length > 0 && (
+              {tab === 'tools' && (currentTask && getSteps(currentTask).length > 0 ? (
                 <span className="ml-1 text-[9px] text-emerald-400/80 normal-case">{getSteps(currentTask).length}</span>
+              ) : toolCounts ? (
+                <span className="ml-1 text-[9px] text-gray-600 normal-case">{toolCounts.total}</span>
+              ) : null)}
+              {tab === 'memory' && memSel.length > 0 && (
+                <span className="ml-1 text-[9px] text-sky-400/80 normal-case">{memSel.length}</span>
               )}
               {tab === 'deltas' && currentTask && getDeltas(currentTask).length > 0 && (
                 <span className="ml-1 text-[9px] text-amber-400/80 normal-case">{getDeltas(currentTask).length}</span>
@@ -2629,13 +2872,6 @@ export default function Home() {
           ) : tasks.length > 0 ? (
             <span className="text-[11px] text-gray-700">· new chat</span>
           ) : null}
-        </div>
-
-        {/* run controls — persona, model, credit */}
-        <div className="flex items-center gap-1.5 shrink-0 min-w-0 max-w-[440px] py-1.5">
-          {personaPicker}
-          {modelControls}
-          {balancePill}
         </div>
 
         {/* dock size controls */}
@@ -2675,6 +2911,14 @@ export default function Home() {
         </div>
       </div>
 
+      {/* second line — run controls */}
+      <div className="px-2 pb-1 flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
+        {personaPicker}
+        {modelControls}
+        {balancePill}
+      </div>
+      </div>
+
       {dock !== 'min' && <div className="flex-1 min-h-0">{transcript}</div>}
       {composeBar}
     </div>
@@ -2703,7 +2947,22 @@ export default function Home() {
       {lightbox && (
         <div onClick={() => setLightbox(null)}
           className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex items-center justify-center p-8 cursor-zoom-out">
-          <img src={lightbox} alt="attachment" className="max-h-full max-w-full rounded-lg border border-white/10" />
+          <img src={lightbox.srcs[lightbox.i]} alt="attachment"
+            onClick={e => e.stopPropagation()}
+            className="max-h-full max-w-full rounded-lg border border-white/10 cursor-default" />
+          <button onClick={() => setLightbox(null)} title="Close (Esc)"
+            className="absolute top-4 right-5 w-8 h-8 rounded-lg bg-black/60 border border-white/10 text-gray-400 hover:text-gray-100 hover:border-white/25 transition">✕</button>
+          {lightbox.srcs.length > 1 && (
+            <>
+              {([['‹', -1, 'left-5'], ['›', 1, 'right-5']] as const).map(([glyph, d, side]) => (
+                <button key={side} onClick={e => { e.stopPropagation(); stepLightbox(d) }}
+                  className={`absolute ${side} top-1/2 -translate-y-1/2 w-9 h-14 rounded-lg bg-black/60 border border-white/10 text-xl text-gray-400 hover:text-gray-100 hover:border-white/25 transition`}>{glyph}</button>
+              ))}
+              <span className="absolute bottom-5 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-black/60 border border-white/10 text-[10px] font-mono text-gray-400">
+                {lightbox.i + 1} / {lightbox.srcs.length}
+              </span>
+            </>
+          )}
         </div>
       )}
     </>
@@ -2717,8 +2976,8 @@ export default function Home() {
     >
       {!sidebarCollapsed && (
         <div
-          className={`absolute top-0 bottom-0 z-20 w-[9px] cursor-col-resize group ${sidebarSide === 'left' ? '-right-[4px]' : '-left-[4px]'}`}
-          onMouseDown={onDragStart}
+          className={`absolute top-0 bottom-0 z-20 w-[9px] cursor-col-resize touch-none group ${sidebarSide === 'left' ? '-right-[4px]' : '-left-[4px]'}`}
+          onPointerDown={onDragStart}
         >
           <div className="h-full w-[1px] ml-[4px] bg-white/[0.06] group-hover:bg-emerald-500/60 group-active:bg-emerald-500 transition-colors" />
           <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
@@ -2736,24 +2995,29 @@ export default function Home() {
             <button
               onClick={() => setRailClosed(false)}
               className="text-gray-600 hover:text-gray-400 transition p-1"
-              title="Show chats"
+              title="Show the rail"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points={sidebarSide === 'left' ? '9 18 15 12 9 6' : '15 18 9 12 15 6'} />
               </svg>
             </button>
             <button
-              onClick={() => { setRailClosed(false); newChat() }}
+              onClick={() => { setRailClosed(false); setPane('chats'); newChat() }}
               className="w-6 h-6 flex items-center justify-center rounded-md text-emerald-300/90 border border-emerald-500/25 hover:bg-emerald-500/10 transition text-sm leading-none"
               title="New chat"
             >+</button>
-            <div className="flex flex-col items-center gap-1.5 mt-2">
+            <button
+              onClick={() => { setRailClosed(false); setPane('agents') }}
+              className="w-6 h-6 flex items-center justify-center rounded-md text-gray-500 hover:text-emerald-300 hover:bg-white/[0.06] transition text-[11px] leading-none"
+              title={`Agents — running as ${activePersona?.label || agentType}`}
+            >{promptSel ? '¶' : (currentAgentDef?.icon || '>_')}</button>
+            <div className="flex flex-col items-center gap-1.5 mt-2 overflow-y-auto min-h-0">
               {tasks.slice(0, 12).map(t => (
                 <button
                   key={t.id}
-                  onClick={() => { setSelectedTask(t.id); setActiveTab('output'); setRailClosed(false) }}
+                  onClick={() => { setSelectedTask(t.id); setActiveTab('output'); setPane('chats'); setRailClosed(false) }}
                   title={t.query}
-                  className={`w-5 h-5 rounded flex items-center justify-center text-[9px] transition ${
+                  className={`w-5 h-5 rounded flex items-center justify-center text-[9px] shrink-0 transition ${
                     selectedTask === t.id ? 'bg-emerald-500/20 border border-emerald-500/25' : 'hover:bg-white/[0.06]'
                   }`}
                 >
@@ -2761,8 +3025,75 @@ export default function Home() {
                 </button>
               ))}
             </div>
+            {/* the key sits at the foot of the strip, where the identity
+                footer sits when the rail is open */}
+            <div className="mt-auto pt-2">{keyStripButton}</div>
           </div>
-        ) : chatsRail}
+        ) : railContent}
+      </div>
+    </div>
+  )
+
+  // the market rail — the library docked on the far side of the workspace,
+  // so a run can be dressed with a prompt, a note or a skill without leaving
+  // the console. Collapses to a strip like the chats rail.
+  const marketPanel = (
+    <div
+      className={`flex min-h-0 sidebar-panel relative ${marketOpen ? 'shrink-0' : 'w-[42px] shrink-0'}`}
+      style={marketOpen ? { width: marketWidth } : undefined}
+    >
+      {marketOpen && (
+        <div
+          className={`absolute top-0 bottom-0 z-20 w-[9px] cursor-col-resize touch-none group ${marketSide === 'left' ? '-right-[4px]' : '-left-[4px]'}`}
+          onPointerDown={onMarketDragStart}
+        >
+          <div className="h-full w-[1px] ml-[4px] bg-white/[0.06] group-hover:bg-emerald-500/60 group-active:bg-emerald-500 transition-colors" />
+        </div>
+      )}
+      <div className={`flex-1 ${marketSide === 'left' ? 'border-r' : 'border-l'} border-white/[0.06] flex flex-col min-h-0 min-w-0 overflow-hidden`}>
+        {marketOpen ? (
+          <Market
+            auth={auth}
+            host={owner}
+            activeAgent={agentType}
+            activePromptId={promptSel?.id ?? null}
+            memSel={memSel}
+            skillSel={skillSel}
+            refreshKey={libVersion}
+            onSelectAgent={(name) => { selectAgent(name); fetchAgents(auth?.token) }}
+            onSelectPrompt={(item: LibItem) => selectPrompt({
+              id: item.id, name: item.name, description: item.description || '',
+              body: item.body || '', tags: item.tags || [],
+              owner: item.owner ?? null, owner_source: (item.owner_source ?? null) as OwnerSource,
+            })}
+            onToggleMemory={toggleNote}
+            onToggleSkill={(id) => setSkillSel(prev =>
+              prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])}
+            onOpenLibrary={() => setView('library')}
+            onClose={() => setMarketOpenPersist(false)}
+            onCreated={(kind) => { if (kind === 'agent') fetchAgents(auth?.token); fetchLibrary(); libChanged() }}
+            onSignIn={signIn}
+          />
+        ) : (
+          <div className="flex flex-col items-center py-3 gap-2 h-full">
+            <button
+              onClick={() => setMarketOpenPersist(true)}
+              className="text-gray-600 hover:text-gray-400 transition p-1"
+              title="Show the market"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points={marketSide === 'left' ? '9 18 15 12 9 6' : '15 18 9 12 15 6'} />
+              </svg>
+            </button>
+            <button
+              onClick={() => setMarketOpenPersist(true)}
+              title="Market — prompts, skills, memory and agents"
+              className="[writing-mode:vertical-rl] text-[10px] uppercase tracking-widest text-gray-600 hover:text-emerald-300 transition py-2"
+            >
+              market
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -2776,27 +3107,32 @@ export default function Home() {
   )
 
   return (
-    <main className="h-screen flex flex-col bg-[#0a0a0a]">
-      {/* top bar */}
-      <header className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-4 shrink-0 bg-[#0a0a0a]">
-        <div className="flex items-center gap-2.5">
-          <div className="brand-mark w-7 h-7 flex items-center justify-center">
+    <main className="h-screen flex flex-col bg-surface-0">
+      {/* top bar — the four views and who you are. Everything else lives where
+          it's used: the rails carry their own collapse, the dock its own size,
+          the key and the tool count sit in the rail's foot. */}
+      <header className="border-b border-white/[0.06] px-3 h-11 flex items-center gap-3 shrink-0 bg-surface-0">
+        <div className="flex items-center gap-2.5 shrink-0" title="Agent — mod framework">
+          <div className="brand-mark w-7 h-7 flex items-center justify-center shrink-0">
             <span className="select-none">{'>'}_</span>
           </div>
-          <div className="leading-tight">
-            <h1 className="text-sm font-semibold tracking-tight title-gradient">Agent</h1>
-            <div className="text-[9px] text-gray-600 uppercase tracking-widest">mod framework</div>
-          </div>
+          {/* wordmark — first thing the eye lands on, so it carries the theme's
+              accent. Drops out under 640px, where the bar needs the room. */}
+          <span className="title-gradient uppercase select-none hidden sm:block">agent</span>
         </div>
 
-        {/* view switcher */}
         <nav className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
-          {(['console', 'builder', 'library'] as const).map(v => (
-            <button key={v} onClick={() => setView(v)}
-              className={`px-3.5 py-1.5 rounded-md text-[11px] font-medium uppercase tracking-wider transition ${
-                view === v ? 'bg-emerald-500/15 text-emerald-200 shadow-[0_0_12px_rgba(52,211,153,0.12)]' : 'text-gray-500 hover:text-gray-300'
-              }`}>
+          {(['console', 'builder', 'library', 'tasks'] as const).map(v => (
+            <button key={v}
+              onClick={() => { if (v === 'tasks' && view !== 'tasks') fetchServerTasks(); setView(v) }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium uppercase tracking-wider transition ${
+                view === v ? 'bg-emerald-500/15 text-emerald-200' : 'text-gray-500 hover:text-gray-300'
+              }`}
+              title={v === 'tasks' && runningCount > 0 ? `${runningCount} running in the background` : undefined}>
               {v}
+              {v === 'tasks' && runningCount > 0 && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              )}
             </button>
           ))}
         </nav>
@@ -2808,53 +3144,12 @@ export default function Home() {
               working
             </span>
           )}
-          <span className="flex items-center gap-1.5 text-[10px] text-gray-500 font-mono">
-            <span className={`w-1.5 h-1.5 rounded-full ${apiStatus === 'ok' ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : apiStatus === 'down' ? 'bg-red-400' : 'bg-gray-600'}`} />
-            {Object.keys(skills).length} skills
-          </span>
           {apiStatus === 'down' && (
             <span className="text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded-md">
               API offline
             </span>
           )}
-
-          {/* background tasks (server-side registry) */}
-          {tasksButton}
-
-          {/* rail + dock toggles */}
-          {view === 'console' && (
-            <div className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
-              <button
-                onClick={() => setRailClosed(!sidebarCollapsed)}
-                className={`w-7 h-6 flex items-center justify-center rounded-md transition ${
-                  sidebarCollapsed ? 'text-gray-600 hover:text-gray-300' : 'bg-emerald-500/15 text-emerald-300'
-                }`}
-                title={sidebarCollapsed ? 'Show the chats rail' : 'Hide the chats rail'}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <line x1={sidebarSide === 'left' ? '9' : '15'} y1="3" x2={sidebarSide === 'left' ? '9' : '15'} y2="21" />
-                </svg>
-              </button>
-              <button
-                onClick={toggleDockMax}
-                className={`w-7 h-6 flex items-center justify-center rounded-md transition ${
-                  dock === 'max' ? 'bg-emerald-500/15 text-emerald-300' : 'text-gray-600 hover:text-gray-300'
-                }`}
-                title={dock === 'max' ? 'Restore the files panel (Esc)' : 'Maximize the console'}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <line x1="3" y1="14" x2="21" y2="14" />
-                </svg>
-              </button>
-            </div>
-          )}
-
-          {/* credits — top up USDT/USDC, spend on the public key */}
-          {creditsChip}
-
-          {/* user identity — top-right corner */}
+          <ThemePicker theme={theme} onPick={setTheme} />
           {userChip}
         </div>
       </header>
@@ -2880,7 +3175,7 @@ export default function Home() {
                 if (dock === 'min') setDockPersist('normal')
                 setTimeout(() => inputRef.current?.focus(), 60)
               }}
-              onAgentsChanged={fetchAgents}
+              onAgentsChanged={() => { fetchAgents(auth?.token); libChanged() }}
               onManageKey={(p) => { setKeyPanelProvider(p); setShowKeyPanel(true) }}
               keyVersion={keyVersion}
               token={auth?.token}
@@ -2926,7 +3221,7 @@ export default function Home() {
                 if (dock === 'min') setDockPersist('normal')
                 setTimeout(() => inputRef.current?.focus(), 60)
               }}
-              onAgentsChanged={fetchAgents}
+              onAgentsChanged={() => { fetchAgents(auth?.token); libChanged() }}
               onSignIn={signIn}
               auth={auth}
               host={owner}
@@ -2934,11 +3229,12 @@ export default function Home() {
           </div>
         )}
 
-        {/* console: chats rail beside the workspace, console docked at the bottom */}
+        {/* console: chats + agents rail on one side, the market on the other,
+            console docked at the bottom */}
         {view === 'console' && (
           sidebarSide === 'left'
-            ? <>{railPanel}{workspace}</>
-            : <>{workspace}{railPanel}</>
+            ? <>{railPanel}{workspace}{marketPanel}</>
+            : <>{marketPanel}{workspace}{railPanel}</>
         )}
       </div>
       {overlays}
@@ -2970,6 +3266,9 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
   const [unlockPass, setUnlockPass] = useState('')
   const [unlocking, setUnlocking] = useState(false)
   const [confirmForget, setConfirmForget] = useState(false)
+  // ON by default: unlock once, stay unlocked — retyping the passphrase after
+  // every restart is what made the vault annoying to actually live with
+  const [remember, setRemember] = useState(true)
 
   const refresh = useCallback((p: string) => {
     setLoadingInfo(true)
@@ -3001,10 +3300,13 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
       const data = await post('/key', {
         api_key: newKey.trim(), provider: tab,
         passphrase: encrypt ? passphrase : undefined,
+        remember,
       })
       if (data.error) { setErr(data.error); setSaving(false); return }
       setOk(encrypt
-        ? 'Key sealed with your passphrase — encrypted on the server, unlocked for this session.'
+        ? (remember
+          ? 'Key sealed with your passphrase — unlocked and kept unlocked on this server.'
+          : 'Key sealed with your passphrase — unlocked for this session only.')
         : 'Key saved.')
       setNewKey(''); setPassphrase('')
       setSaving(false)
@@ -3016,10 +3318,12 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
     if (!unlockPass) return
     setUnlocking(true); setErr(null); setOk(null)
     try {
-      const data = await post('/key/unlock', { provider: tab, passphrase: unlockPass })
+      const data = await post('/key/unlock', { provider: tab, passphrase: unlockPass, remember })
       if (data.error) { setErr(data.error === 'wrong passphrase' ? 'Wrong passphrase.' : data.error); setUnlocking(false); return }
       const r = data.result || data
-      setOk(`Unlocked ${r.key || ''} — live for this session.`)
+      setOk(`Unlocked ${r.key || ''} — ${r.remembered
+        ? 'staying unlocked on this server, no passphrase next time.'
+        : 'live for this session.'}`)
       setUnlockPass(''); setUnlocking(false)
       refresh(tab); onSaved()
     } catch (e: any) { setErr(e.message); setUnlocking(false) }
@@ -3030,7 +3334,7 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
     try {
       const data = await post('/key/lock', { provider: tab })
       if (data.error) { setErr(data.error); return }
-      setOk('Locked — the key is wiped from server memory.')
+      setOk('Locked — key wiped from memory; your passphrase is needed again.')
       refresh(tab); onSaved()
     } catch (e: any) { setErr(e.message) }
   }
@@ -3051,6 +3355,19 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
   const locked = !!info?.encrypted && !info?.unlocked
   const meta = PROVIDER_META[tab]
 
+  // one control, shown wherever a passphrase is asked for
+  const rememberToggle = (tone: 'amber' | 'emerald') => (
+    <button onClick={() => setRemember(v => !v)}
+      className="mt-2.5 flex items-center gap-2 text-[11px] text-gray-500 hover:text-gray-300 transition text-left">
+      <span className={`w-8 rounded-full p-0.5 transition-colors flex items-center h-[18px] shrink-0 ${
+        remember ? (tone === 'amber' ? 'bg-amber-500/70' : 'bg-emerald-500/70') : 'bg-white/10'
+      }`}>
+        <span className={`w-3.5 h-3.5 rounded-full bg-white transition-transform ${remember ? 'translate-x-3.5' : ''}`} />
+      </span>
+      stay unlocked on this server — don't ask for my passphrase again
+    </button>
+  )
+
   const lockIcon = (open: boolean, size = 11) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
       <rect x="4" y="11" width="16" height="10" rx="2" />
@@ -3060,7 +3377,7 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md vault-panel bg-[#0d1211] border border-white/10 rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-md vault-panel bg-surface-1 border border-white/10 rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* header */}
         <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-3">
           <span className="vault-ring w-7 h-7 rounded-lg flex items-center justify-center text-emerald-300">
@@ -3112,7 +3429,8 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
                           ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                           : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
                       }`}>
-                        {lockIcon(!!info.unlocked, 9)} {info.unlocked ? 'unlocked' : 'locked'}
+                        {lockIcon(!!info.unlocked, 9)}
+                        {info.unlocked ? (info.remembered ? 'stays unlocked' : 'unlocked') : 'locked'}
                       </span>
                     )}
                   </span>
@@ -3130,6 +3448,13 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
                 <div className="text-[11px] text-gray-600 mt-1.5 font-mono truncate">
                   key: {info.key}{info.source ? ` · via ${info.source}` : ''}
                 </div>
+                {info.remembered && (
+                  <div className="text-[10px] text-gray-600 mt-1">
+                    unlocked on this server{info.remember_expires
+                      ? ` until ${new Date(info.remember_expires * 1000).toLocaleDateString()}`
+                      : ''} — "Lock now" ends that.
+                  </div>
+                )}
                 {info.error && <div className="text-[11px] text-red-400/80 mt-1.5">{info.error}</div>}
               </>
             ) : locked ? (
@@ -3163,6 +3488,7 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
                   {unlocking ? 'Unlocking…' : 'Unlock'}
                 </button>
               </div>
+              {rememberToggle('amber')}
             </div>
           )}
 
@@ -3211,14 +3537,17 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
             </button>
 
             {encrypt && (
-              <input
-                value={passphrase}
-                onChange={e => setPassphrase(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') save() }}
-                placeholder="passphrase (never stored, never sent to providers)…"
-                type="password"
-                className="mt-2 w-full bg-white/[0.04] border border-emerald-500/20 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none font-mono placeholder:text-gray-600 focus:border-emerald-500/40 transition"
-              />
+              <>
+                <input
+                  value={passphrase}
+                  onChange={e => setPassphrase(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') save() }}
+                  placeholder="passphrase (never stored, never sent to providers)…"
+                  type="password"
+                  className="mt-2 w-full bg-white/[0.04] border border-emerald-500/20 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none font-mono placeholder:text-gray-600 focus:border-emerald-500/40 transition"
+                />
+                {rememberToggle('emerald')}
+              </>
             )}
 
             <button onClick={save} disabled={saving || !newKey.trim() || (encrypt && passphrase.length < 4)}
@@ -3230,7 +3559,10 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
             {ok && !err && <p className="text-xs text-emerald-300 mt-2">{ok}</p>}
             <p className="text-[10px] text-gray-600 mt-2.5 leading-relaxed">
               {encrypt
-                ? 'Sealed with AES-256-GCM under a key derived from your passphrase (PBKDF2, 600k rounds). The server stores only the encrypted file — without your passphrase nobody, including the server owner, can read it. Lock any time to wipe it from memory.'
+                ? `Sealed with AES-256-GCM under a key derived from your passphrase (PBKDF2, 600k rounds). The server stores only the encrypted file — without your passphrase nobody, including the server owner, can read it.${
+                    remember
+                      ? ' Staying unlocked keeps a copy sealed under this server\'s own device key so restarts don\'t ask again; "Lock now" wipes both.'
+                      : ' It stays unlocked only until the API restarts.'}`
                 : `Stored in plaintext on the server (~/.mod/model/${tab}) and shared with other modules. Flip the toggle above to encrypt it instead.`}
               {' '}Get a key at {meta.hint}.
             </p>

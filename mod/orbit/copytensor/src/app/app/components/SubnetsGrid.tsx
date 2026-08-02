@@ -6,6 +6,7 @@ import { fetchSubnets, fmtCompact } from "../lib/api";
 import type { SubnetInfo } from "../lib/types";
 import { useFilters } from "../context/FiltersContext";
 import { useCurrency, fmtAlphaPrice } from "../context/CurrencyContext";
+import { useThemeColors } from "../context/ThemeContext";
 import ChangeChip from "./ChangeChip";
 import Sparkline from "./Sparkline";
 import SubnetLogo from "./SubnetLogo";
@@ -174,6 +175,7 @@ function SubnetCard({
   currency: "TAO" | "USD";
   usdPerTao: number | null;
 }) {
+  const skin = useThemeColors();
   const up = (s.change_24h ?? 0) >= 0;
   const money = (tao: number | null | undefined) => {
     if (tao == null) return "—";
@@ -211,7 +213,7 @@ function SubnetCard({
             per α · 1h <ChangeChip pct={s.change_1h} size="xs" bare arrow={false} />
           </p>
         </div>
-        <Sparkline values={s.spark} width={112} height={36} color={up ? undefined : "#f87171"} />
+        <Sparkline values={s.spark} width={112} height={36} color={up ? undefined : skin.red} />
       </div>
 
       <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-pixel-white/5">
@@ -220,8 +222,11 @@ function SubnetCard({
         <Cell label="in pool" value={money(s.total_stake_tao)} />
       </div>
 
+      {/* Sentence-shaped copy goes in VT323, not Silkscreen — see
+          `.arcade-prose`. Two lines of subnet blurb in a small-caps bitmap
+          face is the least readable thing on the page. */}
       {s.description && (
-        <p className="text-[11px] text-pixel-gray mt-2.5 line-clamp-2 leading-snug">
+        <p className="arcade-prose arcade-prose-sm mt-2.5 line-clamp-2">
           {s.description}
         </p>
       )}

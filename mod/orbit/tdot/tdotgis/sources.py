@@ -34,7 +34,7 @@ import time
 import zipfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 import requests
 
@@ -155,6 +155,24 @@ def ckan_resource(package: str, match: str) -> dict:
     raise KeyError(f'no resource matching {match!r} in package {package!r}')
 
 
+def ckan_datastore(package: str, match: str) -> dict:
+    """
+    The first *queryable* resource matching ``match``.
+
+    A package publishes the same table several times over — the live datastore
+    plus exported .csv/.xml/.json/.geojson copies, all with near-identical
+    names. Only the datastore answers ``datastore_search``, and it is rarely
+    first in the list, so matching on name alone picks a file that 404s.
+    """
+    m = match.lower()
+    resources = ckan_package(package).get('resources', [])
+    for res in resources:
+        if res.get('datastore_active') and m in (res.get('name') or '').lower():
+            return res
+    raise KeyError(f'no datastore resource matching {match!r} in {package!r}; '
+                   f'have: {[r.get("name") for r in resources if r.get("datastore_active")]}')
+
+
 def ckan_geojson(package: str, match: str = '4326.geojson',
                  timeout: int = 300) -> dict:
     """
@@ -228,6 +246,42 @@ def points_from_rows(rows: Iterable[dict], lat_key: str, lng_key: str,
                       'geometry': {'type': 'Point',
                                    'coordinates': [round(lng, 5), round(lat, 5)]}})
     return {'type': 'FeatureCollection', 'features': feats}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# the city's address gazetteer
+# ─────────────────────────────────────────────────────────────────────────────
+
+ADDRESS_PACKAGE = 'address-points-municipal-toronto-one-address-repository'
+
+# Toronto's operational tables (building permits, above all) carry no
+# coordinates — they carry a GEO_ID, which is the ADDRESS_POINT_ID of the city's
+# One Address Repository. Pulling that repository's half-million points once and
+# keeping the id→point index means any such table can be mapped at the property
+# it actually refers to, rather than smeared over a ward.
+#
+# Only two columns are requested, so the CSV dump is ~30 MB and lands in seconds;
+# a datastore page-walk of the same table is 33 requests.
+
+def address_index() -> Dict[str, List[float]]:
+    """``{ADDRESS_POINT_ID: [lng, lat]}`` for every civic address in the city."""
+    def fetch():
+        res = ckan_resource(ADDRESS_PACKAGE, 'Address Points')
+        index: Dict[str, List[float]] = {}
+        for row in ckan_dump_rows(res['id'], ['ADDRESS_POINT_ID', 'geometry']):
+            key = str(row.get('ADDRESS_POINT_ID') or '').strip()
+            raw = row.get('geometry')
+            if not key or not raw:
+                continue
+            try:
+                lng, lat = json.loads(raw)['coordinates'][:2]
+            except (TypeError, ValueError, KeyError, IndexError):
+                continue
+            index[key] = [round(float(lng), 5), round(float(lat), 5)]
+        if not index:
+            raise ValueError('address repository returned no usable points')
+        return index
+    return cached('geo-address-index', 30 * DAY, fetch)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -355,6 +409,145 @@ def simplify_geojson(fc: dict, tol: float = 0.0001, precision: int = 5,
 
 def geojson_bytes(fc: dict) -> int:
     return len(json.dumps(fc, separators=(',', ':')))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# geocoding
+# ─────────────────────────────────────────────────────────────────────────────
+
+def geocode(q: str, limit: int = 6) -> List[dict]:
+    """
+    Geocode a Toronto address or place via OpenStreetMap's Nominatim.
+
+    Cached: Nominatim's usage policy asks for no more than one request per
+    second, and the same searches repeat constantly. The viewbox is the city's
+    bounding box, so "Main Street" resolves in Toronto rather than in Kansas.
+    """
+    query = str(q).strip()
+    if not query:
+        return []
+
+    def fetch():
+        r = _get('https://nominatim.openstreetmap.org/search', timeout=20,
+                 q=query, format='jsonv2', limit=int(limit), countrycodes='ca',
+                 viewbox='-79.65,43.87,-79.10,43.56', bounded=1)
+        return [{'name': h.get('display_name', ''),
+                 'type': h.get('type', ''),
+                 'category': h.get('category', ''),
+                 'lat': float(h['lat']), 'lng': float(h['lon'])}
+                for h in r.json()]
+
+    return cached(f'geocode-{query.lower()}-{limit}', 30 * DAY, fetch)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NAD83 / MTM zone 10 (EPSG:2952) → WGS84
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Toronto's municipal systems store coordinates on the province's MTM grid, so
+# several tabular datasets (development applications, permits) publish X/Y in
+# metres rather than lat/lng. This is the standard inverse transverse-Mercator
+# series — accurate to a few centimetres across the city, and 40 lines of
+# arithmetic instead of a pyproj/PROJ dependency the rest of the module doesn't
+# need. Values check out against the portal's own 4326 exports.
+
+_MTM_A = 6378137.0                      # GRS80 semi-major axis
+_MTM_F = 1 / 298.257222101              # GRS80 flattening
+_MTM_K0 = 0.9999                        # MTM scale factor at the meridian
+_MTM_FE = 304800.0                      # false easting (1,000,000 ft)
+_MTM_LON0 = math.radians(-79.5)         # zone 10 central meridian
+
+# Sanity envelope for "is this X/Y actually on the MTM grid?" — the city spans
+# roughly 290-350 km easting and 4,820-4,860 km northing on zone 10.
+MTM_BOUNDS = (250_000.0, 400_000.0, 4_750_000.0, 4_950_000.0)
+
+
+def mtm_to_wgs84(x: float, y: float) -> Tuple[float, float]:
+    """(lng, lat) for one MTM zone-10 easting/northing in metres."""
+    e2 = _MTM_F * (2 - _MTM_F)
+    e1 = (1 - math.sqrt(1 - e2)) / (1 + math.sqrt(1 - e2))
+    mu = (y / _MTM_K0) / (_MTM_A * (1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256))
+    phi = (mu
+           + (3 * e1 / 2 - 27 * e1 ** 3 / 32) * math.sin(2 * mu)
+           + (21 * e1 ** 2 / 16 - 55 * e1 ** 4 / 32) * math.sin(4 * mu)
+           + (151 * e1 ** 3 / 96) * math.sin(6 * mu)
+           + (1097 * e1 ** 4 / 512) * math.sin(8 * mu))
+    s, c, t = math.sin(phi), math.cos(phi), math.tan(phi)
+    ep2 = e2 / (1 - e2)
+    C, T = ep2 * c * c, t * t
+    N = _MTM_A / math.sqrt(1 - e2 * s * s)
+    R = _MTM_A * (1 - e2) / (1 - e2 * s * s) ** 1.5
+    D = (x - _MTM_FE) / (N * _MTM_K0)
+    lat = phi - (N * t / R) * (
+        D ** 2 / 2
+        - (5 + 3 * T + 10 * C - 4 * C * C - 9 * ep2) * D ** 4 / 24
+        + (61 + 90 * T + 298 * C + 45 * T * T - 252 * ep2 - 3 * C * C) * D ** 6 / 720)
+    lng = _MTM_LON0 + (
+        D
+        - (1 + 2 * T + C) * D ** 3 / 6
+        + (5 - 2 * C + 28 * T - 3 * C * C + 8 * ep2 + 24 * T * T) * D ** 5 / 120) / c
+    return math.degrees(lng), math.degrees(lat)
+
+
+def looks_like_mtm(x: float, y: float) -> bool:
+    x0, x1, y0, y1 = MTM_BOUNDS
+    return x0 <= x <= x1 and y0 <= y <= y1
+
+
+def _in_ring(lng: float, lat: float, ring: List[list]) -> bool:
+    """Ray-casting crossing test for one linear ring."""
+    inside = False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        xi, yi = ring[i][0], ring[i][1]
+        xj, yj = ring[j][0], ring[j][1]
+        if (yi > lat) != (yj > lat) and lng < (xj - xi) * (lat - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def point_in_geometry(lng: float, lat: float, geom: Optional[dict]) -> bool:
+    """Is the point inside this (Multi)Polygon? Holes are respected."""
+    if not geom:
+        return False
+    t, coords = geom.get('type'), geom.get('coordinates') or []
+    polys = [coords] if t == 'Polygon' else coords if t == 'MultiPolygon' else []
+    for rings in polys:
+        if rings and _in_ring(lng, lat, rings[0]) \
+                and not any(_in_ring(lng, lat, h) for h in rings[1:]):
+            return True
+    return False
+
+
+def area_locator(features: List[dict], prop: str) -> Callable[[float, float], Optional[str]]:
+    """
+    ``(lng, lat) → area code`` for a boundary FeatureCollection's features.
+
+    The city's operational tables name a building's ward but almost never its
+    neighbourhood, so anything joined to the 158-neighbourhood profile has to
+    be located the hard way. Each polygon is prefiltered by its bounding box,
+    which turns 158 ring walks per point into one or two.
+    """
+    index = []
+    for f in features:
+        code = str((f.get('properties') or {}).get(prop) or '').lstrip('0') or '0'
+        geom = f.get('geometry') or {}
+        t, coords = geom.get('type'), geom.get('coordinates') or []
+        polys = [coords] if t == 'Polygon' else coords if t == 'MultiPolygon' else []
+        pts = [p for rings in polys for p in rings[0]] if polys else []
+        if not pts:
+            continue
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        index.append((code, min(xs), min(ys), max(xs), max(ys), geom))
+
+    def at(lng: float, lat: float) -> Optional[str]:
+        for code, x0, y0, x1, y1, geom in index:
+            if x0 <= lng <= x1 and y0 <= lat <= y1 and point_in_geometry(lng, lat, geom):
+                return code
+        return None
+    return at
 
 
 def geometry_km2(geom: Optional[dict]) -> float:

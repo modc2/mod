@@ -120,8 +120,51 @@ pub fn router() -> Router<AppState> {
         .route("/live/stop", post(live_stop))
         .route("/live/status", get(live_status))
 
+        // ── MCP tool server (JSON-RPC 2.0 over Streamable HTTP) ──
+        .route("/mcp", post(mcp_post).get(mcp_get))
+        .route("/mcp/schema", get(mcp_schema))
+
         // ── generic mod-protocol passthrough ──
         .route("/forward", post(forward))
+}
+
+// ── MCP ──
+
+/// One JSON-RPC message per POST. Tool calls re-enter this server over
+/// loopback carrying the caller's Authorization header (see mcp.rs).
+async fn mcp_post(
+    State(s): State<AppState>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let msg: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            let err = crate::mcp::rpc_error(Value::Null, -32700, &format!("parse error: {e}"));
+            return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+        }
+    };
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok());
+    match crate::mcp::handle_message(&s.self_url, &msg, auth).await {
+        Some(resp) => Json(resp).into_response(),
+        // Notifications carry no id and get no body — 202 per the spec.
+        None => StatusCode::ACCEPTED.into_response(),
+    }
+}
+
+async fn mcp_get() -> (StatusCode, Json<Value>) {
+    (StatusCode::METHOD_NOT_ALLOWED, Json(json!({
+        "error": "POST JSON-RPC 2.0 messages to this endpoint",
+        "schema": "/mcp/schema",
+    })))
+}
+
+/// The MCP tool surface plus its mod-protocol mapping (tool → fn → route).
+async fn mcp_schema(State(s): State<AppState>) -> Json<Value> {
+    Json(crate::mcp::schema_doc(s.hl.testnet))
 }
 
 // Helper to convert anyhow::Error into a 500 with JSON body.
@@ -138,14 +181,23 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
     Json(json!({
         "name": "hyperliquid",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Hyperliquid full-stack — backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults",
+        "description": "Hyperliquid full-stack — backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server",
         "protocol": "mod",
         "auth": "mod protocol-auth Bearer token (personal_sign) — public reads open, user-scoped routes gated",
         "testnet": s.hl.testnet,
         "urls": { "app": "/hyperliquid", "api": "/api/hyperliquid" },
         "endpoints": {
-            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/indexes"],
+            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/indexes", "/mcp", "/mcp/schema"],
             "gated": ["/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action"],
+        },
+        // The mod-protocol fn surface is also an MCP tool server; /mcp/schema
+        // publishes the tool → fn → route mapping.
+        "mcp": {
+            "endpoint": "/mcp",
+            "schema": "/mcp/schema",
+            "transport": "streamable-http",
+            "protocolVersion": crate::mcp::DEFAULT_PROTOCOL_VERSION,
+            "tools": crate::mcp::tools().len(),
         },
     }))
 }

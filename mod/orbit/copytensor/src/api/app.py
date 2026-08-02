@@ -21,6 +21,7 @@ from ..chain.bt_source import BtSource, BtUnavailable, make_client
 from ..chain.client import SubtensorClient, TraderCandidate, is_valid_ss58
 from ..chain.snapshot import SnapshotManager
 from ..db import Database
+from ..engine.bt_board import build_bt_leaderboard
 from ..engine.copier import CopyConfig, CopyEngine
 from ..engine.curve import FLOW_MIN_FRACTION, FLOW_MIN_TAO, build_curve
 from ..engine.leaderboard import build_leaderboard
@@ -88,26 +89,46 @@ def _save_config():
 def _mirror_watchlist():
     """Register watched coldkeys with bt's trader index.
 
-    bt re-reads every tracked account from chain on its own cadence, so the
-    whole (now hundreds strong) pool must not be pushed at it — mirror the
-    accounts the user actually acts on: copy targets first, then the rest up
-    to `bt_mirror_max`. Everything else still resolves through bt on demand.
+    bt is the index of record — the leaderboard ranks what bt tracks — so
+    this is what decides how much of the watchlist is actually visible. It
+    is also what bt pays for: one chain read per account per refresh pass
+    (~1.75s each, measured), so the mirror is capped at `bt_mirror_max` and
+    the rest of the pool still resolves through bt on demand. Copy targets
+    go first; those are the accounts we size real trades off.
+
+    Only accounts bt does not already have are pushed: `bt_track` snapshots
+    on every call, so re-mirroring the same list each restart would spend
+    minutes of chain reads to learn nothing.
     """
     if not _bt or not _bt.available() or not _db:
         return
     limit = int(_config.get("bt_mirror_max", 25))
+    try:
+        known = {r["ss58"] for r in (_bt.traders() or {}).get("rows") or []}
+    except BtUnavailable as e:
+        log.warning("bt watchlist unavailable (%s) — mirror skipped", e)
+        return
+
     targets = {c["target_ss58"] for c in _db.list_copies()}
     accounts = _db.list_accounts()
     ordered = ([a for a in accounts if a["ss58"] in targets] +
                [a for a in accounts if a["ss58"] not in targets])[:limit]
-    for acct in ordered:
+    missing = [a for a in ordered if a["ss58"] not in known]
+    if not missing:
+        log.info("bt already indexes all %d mirrored accounts", len(ordered))
+        return
+
+    added = 0
+    for acct in missing:
         try:
             _bt.track(acct["ss58"], acct.get("label"))
+            added += 1
         except BtUnavailable as e:
-            log.warning("bt track failed for %s: %s", acct["ss58"][:8], e)
-            return
-    log.info("watchlist mirrored into bt (%d of %d accounts)",
-             len(ordered), len(accounts))
+            log.warning("bt track failed for %s: %s — mirror stopped at %d",
+                        acct["ss58"][:8], e, added)
+            break
+    log.info("watchlist mirrored into bt (+%d, %d of %d accounts indexed)",
+             added, len(ordered), len(accounts))
 
 
 # ── trader pool ──────────────────────────────────────────────────
@@ -199,14 +220,23 @@ def _grow_pool(size: Optional[int] = None, force: bool = False,
 
 def _boot_pool(size: Optional[int] = None, force: bool = False,
                grow: bool = True, claimed: bool = False):
-    """Top the pool up, then warm every horizon — in that order, on one
-    worker: warming a board that is about to triple wastes the work."""
+    """Warm every leaderboard horizon and top the trader pool up.
+
+    A bt-priced board ranks bt's index rather than the watchlist, so it owes
+    the delegate walk nothing: warm it first and the UI has rows a second
+    after boot instead of after the ~35s walk. Without bt the board *is* the
+    watchlist, so the walk has to land first or the warm is thrown away.
+    """
+    bt_first = bool(_bt and _bt.available())
+    if bt_first:
+        _warm_lb()
     if grow:
         try:
             _grow_pool(size, force=force, claimed=claimed)
         except Exception as e:
             log.warning("pool growth failed: %s", e)
-    _warm_lb()
+    if not bt_first:
+        _warm_lb()
 
 
 def _pool_label(c: TraderCandidate, validator_rank: int) -> Optional[str]:
@@ -746,10 +776,20 @@ LEADERBOARD_HORIZONS = [7, 1, 3, 14, 30]
 _lb_cache: Dict[int, tuple] = {}             # days -> (ts, entries)
 _lb_refreshing: set = set()
 _lb_build_sec: Dict[int, float] = {}         # days -> last build duration
+_lb_source: Dict[int, str] = {}              # days -> "bt" | "rpc"
 # Reentrant: the staleness check reads build timings while already holding it.
 _lb_lock = threading.RLock()
 # Serializes the builds themselves (they all queue on the same archive pool).
 _lb_build_gate = threading.Lock()
+
+
+def _bt_indexed() -> Optional[int]:
+    """How many coldkeys bt keeps history for — the size of a bt-priced board."""
+    if not _bt:
+        return None
+    info = _bt.info() or {}
+    tracked = (info.get("traders") or {}).get("tracked")
+    return int(tracked) if tracked is not None else None
 
 
 def _lb_ttl(days: int) -> float:
@@ -764,21 +804,35 @@ def _lb_ttl(days: int) -> float:
     return max(LEADERBOARD_TTL_SEC, 3 * last)
 
 
-def _build_lb(days: int):
+def _build_lb(days: int, allow_rpc: bool = True):
     # Mark here, not only at the request that triggered it: the startup warm
     # calls straight in, and /universe must report those builds too or the
     # UI shows an empty board with nothing apparently happening.
     with _lb_lock:
         _lb_refreshing.add(days)
     started = time.time()
+    workers = int(_config.get("leaderboard_workers", 8))
+    source = "bt"
     try:
         # One horizon at a time. Every build is bottlenecked on the same
         # handful of archive sockets, so running two concurrently doesn't
         # finish either sooner — it just delays both.
         with _lb_build_gate:
-            entries = build_leaderboard(
-                _client, _db, days=days, top=2000,
-                workers=int(_config.get("leaderboard_workers", 8)))
+            # bt's index prices the whole board from local SQLite in about a
+            # second; the archive walk over the full watchlist is minutes and
+            # only exists for when bt is down.
+            try:
+                if not _bt:
+                    raise BtUnavailable("no bt source configured")
+                entries = build_bt_leaderboard(_bt, days=days, top=2000)
+            except BtUnavailable as e:
+                if not allow_rpc:
+                    raise
+                log.warning("leaderboard %dd from bt failed (%s) — walking the "
+                            "chain instead", days, e)
+                source = "rpc"
+                entries = build_leaderboard(_client, _db, days=days, top=2000,
+                                            workers=workers)
     except Exception:
         with _lb_lock:
             _lb_refreshing.discard(days)
@@ -788,7 +842,9 @@ def _build_lb(days: int):
         _lb_cache[days] = (time.time(), entries)
         _lb_build_sec[days] = took
         _lb_refreshing.discard(days)
-    log.info("leaderboard %dd: %d traders priced in %.1fs", days, len(entries), took)
+        _lb_source[days] = source
+    log.info("leaderboard %dd: %d traders priced in %.1fs (from %s)",
+             days, len(entries), took, source)
     return entries
 
 
@@ -805,10 +861,15 @@ def _warm_lb():
 def _leaderboard_cached(days: int):
     """Whatever we have for this horizon, immediately.
 
-    A cold horizon over a pool of hundreds is a minutes-long chain walk, so
-    it is never built on the request thread — the caller gets an empty board
-    plus `building` in /universe, and the rows appear on the next poll.
+    A cold horizon out of bt's index is a second of local reads, so it is
+    priced on the request thread — the first person to open the page gets
+    rows, not an empty board. Only the archive walk (bt down, hundreds of
+    accounts, minutes) is pushed onto a background thread; then the caller
+    gets [] plus `building` in /universe and the rows land on the next poll.
     """
+    # A bt-priced board is local SQLite over HTTP, so it neither waits for
+    # nor slows the delegate walk. Only the chain walk has to stand aside.
+    bt_ready = bool(_bt and _bt.available())
     with _lb_lock:
         cached = _lb_cache.get(days)
         stale = cached and time.time() - cached[0] >= _lb_ttl(days)
@@ -816,11 +877,21 @@ def _leaderboard_cached(days: int):
         # Not while the pool is being discovered. The delegate walk decodes
         # tens of thousands of entries in-process; racing a board build
         # against it just makes both slow.
-        if _pool_busy():
+        if _pool_busy() and not bt_ready:
             kick = False
         if kick:
             _lb_refreshing.add(days)
     if kick:
+        if cached is None and bt_ready:
+            try:
+                return _build_lb(days, allow_rpc=False)
+            except Exception as e:
+                # bt went away between the ping and the build — leave the
+                # horizon cold and let the next poll start the chain walk.
+                log.warning("cold leaderboard %dd from bt failed: %s", days, e)
+                with _lb_lock:
+                    _lb_refreshing.discard(days)
+                return []
         threading.Thread(target=_build_lb, args=(days,), daemon=True).start()
     return cached[1] if cached else []
 
@@ -886,6 +957,11 @@ def universe():
             "warm": sorted(_lb_cache.keys()),
             "building": sorted(_lb_refreshing),
             "rows": {str(d): len(v[1]) for d, v in _lb_cache.items()},
+            # Which engine priced each horizon: bt's index, or the archive
+            # walk it fell back to. "watched" counts the whole watchlist;
+            # a bt-priced board only ranks the slice bt indexes.
+            "source": dict(_lb_source),
+            "indexed": _bt_indexed(),
         }
     return {
         "board": board,

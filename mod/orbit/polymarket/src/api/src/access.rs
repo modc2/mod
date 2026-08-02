@@ -40,122 +40,21 @@ use sha2::{Digest, Sha256};
 
 use crate::signer::{address_from_pubkey, keccak256};
 
-pub const TERMS_VERSION: &str = "1.0";
+pub const TERMS_VERSION: &str = "2.0";
 
+/// The whole agreement, deliberately short enough to actually be read. The
+/// signed challenge embeds its SHA-256, so any edit here invalidates prior
+/// acceptances — bump TERMS_VERSION with it.
 pub const TERMS_TEXT: &str = r#"POLYMARKET CONSOLE — TERMS OF USE
-Version 1.0 — Effective 2026-07-16
+Version 2.0 — Effective 2026-07-31
 
-READ CAREFULLY. BY SIGNING THE SIGN-IN MESSAGE YOU AGREE TO BE BOUND BY
-THESE TERMS. IF YOU DO NOT AGREE, DO NOT SIGN AND DO NOT USE THIS SOFTWARE.
+This is a private, self-hosted tool for its owner's own account — not a
+service, broker, or advice — provided as is, with no warranty and zero
+liability: you may lose everything, and every trade is your own action.
 
-1. PRIVATE DEPLOYMENT — NOT A PUBLIC SERVICE
-   This software ("the Console") is a private, self-hosted, personal
-   research and trading tool operated for its owner's own account. It is
-   not offered to the public, is not a brokerage, exchange, investment
-   service, or gambling service, and no relationship of any kind is
-   created between you and the operator or the developers by your use of
-   it. Access is restricted to the deployment's designated owner address;
-   any other access is unauthorized.
-
-2. ELIGIBILITY AND RESTRICTED JURISDICTIONS
-   By signing you REPRESENT AND WARRANT, each time you use the Console,
-   that:
-   (a) you are NOT located in, incorporated in, a citizen or resident of,
-       or accessing the Console from the United States of America, France,
-       Belgium, Poland, Thailand, Singapore, Taiwan, the United Arab
-       Emirates, Ontario (Canada), the United Kingdom where prohibited, or
-       any other jurisdiction in which access to or use of Polymarket,
-       prediction markets, event contracts, or binary options is
-       prohibited or restricted by applicable law or by Polymarket's own
-       terms of service;
-   (b) you are NOT a person or entity subject to, located in, or
-       organized under the laws of any jurisdiction subject to
-       comprehensive sanctions administered by OFAC, the EU, the UN, or
-       the UK (including without limitation Cuba, Iran, North Korea,
-       Syria, and the Crimea, Donetsk, and Luhansk regions), and are not
-       named on any sanctions or restricted-parties list;
-   (c) you will NOT use a VPN, proxy, or any other technique to obscure
-       your location or to circumvent geographic restrictions imposed by
-       Polymarket or by applicable law — such circumvention is expressly
-       prohibited by these Terms;
-   (d) you are of legal age and legally permitted to trade prediction
-       markets in every jurisdiction whose laws apply to you; and
-   (e) YOU ARE SOLELY RESPONSIBLE for determining whether your use of the
-       Console and of Polymarket is lawful where you are. The operator
-       and developers make no representation that the Console is
-       appropriate or lawful in any particular location, and use in
-       violation of applicable law is entirely at your own risk and your
-       own liability.
-
-3. THIRD-PARTY SERVICES
-   The Console interacts with Polymarket's public APIs and smart
-   contracts and with public blockchain networks. Your use of Polymarket
-   is governed independently by Polymarket's own Terms of Use, which you
-   must review and comply with. The operator and developers are not
-   affiliated with, endorsed by, or responsible for Polymarket or any
-   other third-party service, API, RPC provider, or smart contract.
-
-4. NON-CUSTODIAL; IRREVERSIBLE TRANSACTIONS
-   The Console is non-custodial with respect to your primary wallet: you
-   control your keys and your funds. Blockchain transactions are
-   irreversible. Deposits, trades, redemptions, and withdrawals you
-   initiate (including automated trades placed by strategies you enable)
-   are your own actions, executed on your instructions.
-
-5. ASSUMPTION OF RISK
-   Trading prediction markets involves substantial risk, including the
-   TOTAL LOSS of all funds committed. Automated / copy-trading strategies
-   can compound losses quickly and may behave unexpectedly. Software
-   bugs, API outages, rate limits, stale data, smart-contract defects,
-   blockchain congestion, and third-party failures can each cause loss.
-   You accept all such risks entirely.
-
-6. NO ADVICE
-   Nothing in the Console — including market data, leaderboards, trader
-   statistics, backtests, equity curves, or strategy output — is
-   financial, investment, legal, or tax advice, or a recommendation to
-   enter any transaction. Backtested or simulated performance does not
-   predict future results.
-
-7. NO WARRANTY
-   THE CONSOLE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY
-   OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION
-   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, AND
-   NON-INFRINGEMENT. NO ORAL OR WRITTEN INFORMATION OBTAINED FROM THE
-   CONSOLE CREATES ANY WARRANTY.
-
-8. LIMITATION OF LIABILITY
-   TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE OPERATOR, DEVELOPERS, AND
-   CONTRIBUTORS SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-   SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES, OR FOR ANY
-   LOSS OF PROFITS, FUNDS, TOKENS, DATA, OR GOODWILL, ARISING OUT OF OR
-   RELATING TO THE CONSOLE OR THESE TERMS, HOWEVER CAUSED AND UNDER ANY
-   THEORY OF LIABILITY, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
-   DAMAGES. AGGREGATE LIABILITY SHALL IN NO EVENT EXCEED ZERO DOLLARS
-   (USD $0), REFLECTING THAT THE CONSOLE IS PROVIDED FREE OF CHARGE.
-
-9. INDEMNIFICATION
-   You will indemnify, defend, and hold harmless the operator,
-   developers, and contributors from and against all claims, damages,
-   losses, liabilities, penalties, and expenses (including reasonable
-   legal fees) arising from your use of the Console, your trading
-   activity, or your breach of these Terms — including any use from, or
-   on behalf of any person in, a restricted jurisdiction and any
-   circumvention of geographic restrictions.
-
-10. ACCESS AND TERMINATION
-   Access may be suspended, revoked, or modified at any time, for any
-   reason, without notice. Sections 2 and 5–9 survive termination.
-
-11. CHANGES
-   These Terms may be updated; a new version requires a fresh signed
-   acceptance before continued use.
-
-12. GENERAL
-   If any provision is unenforceable, the remainder stays in effect.
-   These Terms are the entire agreement regarding the Console. Your
-   signed sign-in message, which embeds the SHA-256 hash of this exact
-   text, is conclusive evidence of your acceptance.
+By signing you confirm you are legally allowed to use Polymarket where you
+are (not a restricted or sanctioned jurisdiction, no VPN to get around it),
+you accept all risk, and you indemnify the operator and developers.
 "#;
 
 /// Token lifetime — 7 days. Owner-only deployment, so long-lived sessions
@@ -174,15 +73,23 @@ pub struct AccessStore {
     open: bool,
 }
 
+/// Per-deployment state that must stay OFF the repo tree: owner address, HMAC
+/// secret, terms acceptances, background sync cadence. Shared by every module
+/// that persists owner settings.
+pub fn state_dir() -> PathBuf {
+    let dir = std::env::var("POLYMARKET_ACCESS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
+            PathBuf::from(home).join(".mod").join("polymarket")
+        });
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
 impl AccessStore {
     pub fn from_env() -> Arc<Self> {
-        let dir = std::env::var("POLYMARKET_ACCESS_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
-                PathBuf::from(home).join(".mod").join("polymarket")
-            });
-        std::fs::create_dir_all(&dir).ok();
+        let dir = state_dir();
 
         let owner = Self::resolve_owner(&dir);
         match &owner {
@@ -277,11 +184,10 @@ impl AccessStore {
              terms-version: {}\n\
              terms-sha256: {}\n\
              \n\
-             I have read and accept the Terms of Use in full, including the \
-             eligibility and restricted-jurisdiction provisions in Section 2. \
-             I represent that I am not located in, resident of, or accessing \
-             this software from any jurisdiction where the use of Polymarket \
-             or prediction markets is prohibited or restricted, that I am not \
+             I have read and accept the Terms of Use in full. I represent \
+             that I am not located in, resident of, or accessing this \
+             software from any jurisdiction where the use of Polymarket or \
+             prediction markets is prohibited or restricted, that I am not \
              using a VPN or proxy to circumvent such restrictions, and that I \
              am solely responsible for compliance with the laws that apply to \
              me.",

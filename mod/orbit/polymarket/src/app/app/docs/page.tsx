@@ -37,7 +37,7 @@ const STRAT_HOOKS = [
     hook: "sizeAndPrice(trade, constraints, history)",
     returns: "{ mirrorNotional, limitPrice, reason? }",
     desc: "Final USD size + limit price for a candidate that already won the rank race. mirrorNotional 0 = skip with reason.",
-    def: "proportional mirror clamped to user floor/ceiling + CLOB per-price min",
+    def: "account-value-proportional mirror, clamped to user floor/ceiling + CLOB per-price min, refused past maxUpscale — see COPY SIZING",
   },
   {
     hook: "propose(history, constraints)",
@@ -252,6 +252,31 @@ const ENDPOINTS: Endpoint[] = [
       { name: "side", type: "string", desc: "BUY or SELL" },
     ],
   },
+  {
+    method: "GET",
+    path: "/api/polymarket/sync/status",
+    description:
+      "Background sync schedule: the server re-pulls the 1/7/14/30-day trader leaderboards on this cadence (every 5 minutes by default) whether or not the console is open. Returns cadence, last run + duration, next run, and the last error.",
+  },
+  {
+    method: "POST",
+    path: "/api/polymarket/sync/config",
+    description:
+      "Owner sets the sync cadence. Applies immediately (the sleeping scheduler is re-timed) and persists to ~/.mod/polymarket/sync.json. Range 5 minutes – 7 days.",
+    body: [
+      { name: "enabled", type: "boolean", desc: "Pause / resume auto-sync" },
+      { name: "intervalSecs", type: "number", desc: "Cadence in seconds (300–604800)" },
+      { name: "intervalMinutes", type: "number", desc: "Cadence in minutes" },
+      { name: "intervalHours", type: "number", desc: "Cadence in hours" },
+    ],
+    example: '{"intervalHours": 6}',
+  },
+  {
+    method: "POST",
+    path: "/api/polymarket/sync/run",
+    description:
+      "Run one background cycle now, bypassing the freshness skip. Queued for the scheduler, so a manual run can never overlap a scheduled one — poll /sync/status for progress.",
+  },
 ];
 
 const CLI_COMMANDS = [
@@ -266,6 +291,7 @@ const CLI_COMMANDS = [
   { cmd: "m polymarket/positions", desc: "Get current positions" },
   { cmd: "m polymarket/backtest start=0 end=9999999999", desc: "Run backtest" },
   { cmd: "m polymarket/scrape interval=60", desc: "Start price scraper" },
+  { cmd: "m polymarket/sync hours=6", desc: "Set the background sync cadence (no args = show it)" },
   { cmd: "m polymarket/serve", desc: "Start API + app" },
   { cmd: "m polymarket/kill", desc: "Stop all services" },
   { cmd: "m polymarket/status", desc: "Check service status" },
@@ -276,7 +302,7 @@ const CLI_COMMANDS = [
 function MethodBadge({ method }: { method: "GET" | "POST" }) {
   return (
     <span
-      className={`pixel-badge text-[7px] ${
+      className={`pixel-badge text-[10px] ${
         method === "GET"
           ? "border-pixel-white text-pixel-white"
           : "border-pixel-gray-light text-pixel-gray-light"
@@ -297,7 +323,14 @@ function SectionTitle({ id, children }: { id: string; children: React.ReactNode 
 
 function FieldTable({ rows, cols }: { rows: { name: string; type: string; desc: string }[]; cols: [string, string, string] }) {
   return (
-    <table className="pixel-table">
+    <table className="pixel-table wrap-prose">
+      {/* `table-layout: fixed` splits three columns evenly, which left the
+          prose column narrower than the names it explains. Give it half. */}
+      <colgroup>
+        <col style={{ width: "27%" }} />
+        <col style={{ width: "23%" }} />
+        <col style={{ width: "50%" }} />
+      </colgroup>
       <thead>
         <tr>
           <th>{cols[0]}</th>
@@ -322,6 +355,7 @@ function FieldTable({ rows, cols }: { rows: { name: string; type: string; desc: 
 
 const NAV = [
   ["#strategy", "STRATEGY CLASS"],
+  ["#sizing", "COPY SIZING"],
   ["#engine", "LIVE ENGINE"],
   ["#api", "API"],
   ["#cli", "CLI"],
@@ -424,7 +458,7 @@ export default function DocsPage() {
 
           <div className="pixel-panel p-4 space-y-3">
             <div className="text-[11px] text-pixel-white">Built-in modes — one class, param-selected</div>
-            <table className="pixel-table">
+            <table className="pixel-table wrap-prose">
               <thead>
                 <tr>
                   <th>MODE</th>
@@ -464,6 +498,71 @@ export default function DocsPage() {
           </div>
         </div>
 
+        {/* ── Copy sizing ── */}
+        <div className="space-y-4">
+          <SectionTitle id="sizing">COPY SIZING</SectionTitle>
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
+              <p>
+                Copying is <span className="text-pixel-white">proportional to account value</span>: whatever fraction of their
+                own net worth a leader risked, the strat risks that same fraction of yours.
+              </p>
+              <pre className="text-[10px] font-mono text-green-400 leading-relaxed">{`mirror$ = leader$ × (accountValue × weightFraction) / leaderBankroll`}</pre>
+              <p>
+                <span className="text-pixel-white">accountValue</span> = the strat&apos;s free cash + the mark value of the
+                positions it holds, re-read every cycle — so sizes grow with a winning account and shrink with a drawdown.
+                <span className="text-pixel-white"> leaderBankroll</span> = that trader&apos;s open-position value + free USDC.
+                A $10,000 conviction entry therefore copies 100× larger than a $100 punt from the same wallet.
+              </p>
+              <p>
+                When a leader&apos;s balance sheet can&apos;t be read, sizing falls back to the older volume model
+                (<span className="font-mono">capitalAlloc / leaderVolume</span> over the lookback window).
+              </p>
+            </div>
+            <table className="pixel-table wrap-prose">
+              <tbody>
+                <tr>
+                  <td className="text-pixel-white font-mono whitespace-nowrap">maxUpscale</td>
+                  <td className="text-pixel-gray-light">
+                    Exchange floors are discrete: Polymarket refuses orders under max($1, 5 shares). When the proportional
+                    size lands below that floor, the order can only be placed by making it BIGGER than intended. This caps
+                    that distortion — default 2×. A mirror that would need more is skipped as
+                    <span className="font-mono"> SUB_SCALE</span> rather than placed. Without it every sub-floor intent
+                    becomes the same flat minimum, and a conviction bet and a throwaway punt copy identically.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono whitespace-nowrap">exits</td>
+                  <td className="text-pixel-gray-light">
+                    Symmetric: a leader who sells 40% of their shares makes the strat sell 40% of its own; a leader who goes
+                    flat takes the strat flat. Sizing exits off the leader&apos;s notional instead systematically under-sells
+                    and leaves the book full of positions the leader has already left.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono whitespace-nowrap">minMinutesToClose</td>
+                  <td className="text-pixel-gray-light">
+                    Mirrors are refused in markets resolving sooner than this (default 60m). Sub-hour Up/Down candles are
+                    decided before a polling engine can react to the fill — copying them is a structural loss, not a strategy.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono whitespace-nowrap">maxTradeAgeSec</td>
+                  <td className="text-pixel-gray-light">
+                    Mirrors are refused for leader trades older than this (default 300s). After a fetch outage the backlog
+                    would otherwise be entered at prices the leader never paid.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="text-[10px] text-pixel-gray leading-relaxed">
+              The ratio, the clamps and these defaults are pinned across TypeScript and Rust by
+              <span className="font-mono"> parity.fixture.json</span>, so the BACKTEST tab previews the sizes the live engine
+              will actually place.
+            </div>
+          </div>
+        </div>
+
         {/* ── Live engine ── */}
         <div className="space-y-4">
           <SectionTitle id="engine">LIVE ENGINE</SectionTitle>
@@ -475,7 +574,7 @@ export default function DocsPage() {
                 and ROI stats refresh. Each cycle:
               </p>
             </div>
-            <table className="pixel-table">
+            <table className="pixel-table wrap-prose">
               <tbody>
                 <tr><td className="text-pixel-white font-mono whitespace-nowrap">0 · history</td><td className="text-pixel-gray-light">Assemble StratHistory: balance, stats, watchlist, positions (when the strat proposes).</td></tr>
                 <tr><td className="text-pixel-white font-mono whitespace-nowrap">1 · collect</td><td className="text-pixel-gray-light">Poll each watched trader, feed their lookback window into the history, pre-filter with shouldMirror.</td></tr>
@@ -519,10 +618,10 @@ export default function DocsPage() {
 
               {ep.params && ep.params.length > 0 && (
                 <div>
-                  <div className="text-[7px] text-pixel-gray tracking-wider mb-1.5">
+                  <div className="text-[10px] text-pixel-gray tracking-wider mb-1.5">
                     QUERY PARAMETERS
                   </div>
-                  <table className="pixel-table">
+                  <table className="pixel-table wrap-prose">
                     <thead>
                       <tr>
                         <th>NAME</th>
@@ -550,10 +649,10 @@ export default function DocsPage() {
 
               {ep.body && ep.body.length > 0 && (
                 <div>
-                  <div className="text-[7px] text-pixel-gray tracking-wider mb-1.5">
+                  <div className="text-[10px] text-pixel-gray tracking-wider mb-1.5">
                     REQUEST BODY (JSON)
                   </div>
-                  <table className="pixel-table">
+                  <table className="pixel-table wrap-prose">
                     <thead>
                       <tr>
                         <th>FIELD</th>
@@ -576,8 +675,8 @@ export default function DocsPage() {
 
               {ep.example && (
                 <div>
-                  <div className="text-[7px] text-pixel-gray tracking-wider mb-1">EXAMPLE</div>
-                  <code className="block text-[7px] text-pixel-gray-light font-mono bg-pixel-black/50 p-2 border border-pixel-border break-all">
+                  <div className="text-[10px] text-pixel-gray tracking-wider mb-1">EXAMPLE</div>
+                  <code className="block text-[10px] text-pixel-gray-light font-mono bg-pixel-black/50 p-2 border border-pixel-border break-all">
                     {ep.example}
                   </code>
                 </div>
@@ -593,7 +692,7 @@ export default function DocsPage() {
             <div className="text-[11px] text-pixel-gray-light leading-relaxed mb-2">
               All functions are accessible via the mod CLI. Requires the polymarket module.
             </div>
-            <table className="pixel-table">
+            <table className="pixel-table wrap-prose">
               <thead>
                 <tr>
                   <th>COMMAND</th>
@@ -619,18 +718,18 @@ export default function DocsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="pixel-panel p-3">
                 <div className="text-[11px] text-pixel-white mb-2">TraderTrade <span className="text-pixel-gray">(strat hook input)</span></div>
-                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                <div className="text-[10px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
                   <div>…PolymarketTrade fields, plus:</div>
                   <div>trader: string (watched address)</div>
                   <div>weight: number (watchlist weight)</div>
                   <div>weightFraction: number</div>
-                  <div>copyRatio: number (proportional sizing)</div>
+                  <div>copyRatio: number (account-value proportional)</div>
                   <div>notional: number (price × size, USD)</div>
                 </div>
               </div>
               <div className="pixel-panel p-3">
                 <div className="text-[11px] text-pixel-white mb-2">TraderRoiStats</div>
-                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                <div className="text-[10px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
                   <div>address: string</div>
                   <div>windowDays: number</div>
                   <div>roi: number (0.12 = +12%)</div>
@@ -642,7 +741,7 @@ export default function DocsPage() {
               </div>
               <div className="pixel-panel p-3">
                 <div className="text-[11px] text-pixel-white mb-2">PolymarketTrade</div>
-                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                <div className="text-[10px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
                   <div>id: string</div>
                   <div>market: string</div>
                   <div>conditionId: string</div>
@@ -656,7 +755,7 @@ export default function DocsPage() {
               </div>
               <div className="pixel-panel p-3">
                 <div className="text-[11px] text-pixel-white mb-2">PolymarketPosition</div>
-                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                <div className="text-[10px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
                   <div>conditionId: string</div>
                   <div>tokenId: string</div>
                   <div>market: string</div>

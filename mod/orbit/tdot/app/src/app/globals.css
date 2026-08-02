@@ -4,8 +4,262 @@
 
 @import 'maplibre-gl/dist/maplibre-gl.css';
 
+/* ──────────────────────────────────────────────────────────────────────
+ * Theme tokens.
+ *
+ * Every id in THEMES (src/lib/theme.ts) has a block below, and each block
+ * sets the same closed set of properties — the console is drawn entirely
+ * from these, so a theme is a palette and nothing else.
+ *
+ * `data-base` is the dark/light classification, set alongside data-theme.
+ * It carries the rules that are about the *surface* rather than the theme:
+ * `color-scheme`, and MapLibre's own chrome, whose icons are black PNGs
+ * that have to be inverted on a dark panel and left alone on a light one.
+ * ──────────────────────────────────────────────────────────────────────*/
+
 :root {
+  --radius: 8px;
+  --radius-sm: 6px;
+  --panel-blur: 10px;
+}
+
+:root[data-base='dark'] {
   color-scheme: dark;
+  --ctrl-icon-filter: invert(1) opacity(0.65);
+  --ctrl-icon-filter-hover: invert(1) opacity(1);
+  --scroll-thumb: rgba(255, 255, 255, 0.18);
+}
+
+:root[data-base='light'] {
+  color-scheme: light;
+  --ctrl-icon-filter: opacity(0.65);
+  --ctrl-icon-filter-hover: opacity(1);
+  --scroll-thumb: rgba(0, 0, 0, 0.22);
+}
+
+/* GLASS — the house default: a dark console around a dark basemap. */
+:root[data-theme='dark'] {
+  --bg: #0b0e14;
+  --surface: rgba(18, 23, 34, 0.95);
+  --surface-solid: #121722;
+  --fill: rgba(255, 255, 255, 0.06);
+  --fill-hover: rgba(255, 255, 255, 0.1);
+  --fill-strong: rgba(255, 255, 255, 0.14);
+  --inset: rgba(0, 0, 0, 0.25);
+  --ink: #e6e8ee;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.25);
+  --accent: #3987e5;
+  --accent-ink: #ffffff;
+  --accent-soft: #6da7ec;
+  --good: #35c759;
+  --bad: #ff6b6b;
+  --shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+}
+
+/* DAYLIGHT — the plain light console. */
+:root[data-theme='day'] {
+  --bg: #eef1f6;
+  --surface: rgba(255, 255, 255, 0.95);
+  --surface-solid: #ffffff;
+  --fill: rgba(15, 23, 42, 0.05);
+  --fill-hover: rgba(15, 23, 42, 0.09);
+  --fill-strong: rgba(15, 23, 42, 0.13);
+  --inset: rgba(15, 23, 42, 0.05);
+  --ink: #16202f;
+  --ink-2: #44526a;
+  --muted: #74809a;
+  --line: rgba(15, 23, 42, 0.12);
+  --line-strong: rgba(15, 23, 42, 0.28);
+  --accent: #1d6fd0;
+  --accent-ink: #ffffff;
+  --accent-soft: #1258ab;
+  --good: #0a7d32;
+  --bad: #c0392b;
+  --shadow: 0 10px 30px rgba(23, 37, 66, 0.16);
+}
+
+/* PAPER — warm cartographic stock, the closest thing here to a printed map. */
+:root[data-theme='paper'] {
+  --bg: #ece3d2;
+  --surface: rgba(250, 245, 235, 0.96);
+  --surface-solid: #faf5eb;
+  --fill: rgba(90, 64, 36, 0.07);
+  --fill-hover: rgba(90, 64, 36, 0.12);
+  --fill-strong: rgba(90, 64, 36, 0.16);
+  --inset: rgba(90, 64, 36, 0.08);
+  --ink: #2f2617;
+  --ink-2: #5d4c33;
+  --muted: #8b7a5f;
+  --line: rgba(90, 64, 36, 0.18);
+  --line-strong: rgba(90, 64, 36, 0.35);
+  --accent: #9a5b2c;
+  --accent-ink: #fffaf0;
+  --accent-soft: #7a4520;
+  --good: #3f6b23;
+  --bad: #a33a24;
+  --shadow: 0 10px 28px rgba(90, 64, 36, 0.22);
+}
+
+/* TTC — the network's own red on subway-tunnel black. */
+:root[data-theme='ttc'] {
+  --bg: #08090c;
+  --surface: rgba(20, 22, 27, 0.95);
+  --surface-solid: #14161b;
+  --fill: rgba(255, 255, 255, 0.06);
+  --fill-hover: rgba(255, 255, 255, 0.11);
+  --fill-strong: rgba(218, 37, 29, 0.22);
+  --inset: rgba(0, 0, 0, 0.3);
+  --ink: #f2f3f5;
+  --ink-2: #c8ccd4;
+  --muted: #8b8f99;
+  --line: rgba(255, 255, 255, 0.11);
+  --line-strong: rgba(255, 255, 255, 0.26);
+  --accent: #da251d;
+  --accent-ink: #ffffff;
+  --accent-soft: #f8c300;
+  --good: #00923f;
+  --bad: #ff6a5c;
+  --shadow: 0 12px 34px rgba(0, 0, 0, 0.6);
+}
+
+/* MATRIX — phosphor green. */
+:root[data-theme='matrix'] {
+  --bg: #010502;
+  --surface: rgba(4, 22, 12, 0.94);
+  --surface-solid: #04160c;
+  --fill: rgba(0, 255, 127, 0.08);
+  --fill-hover: rgba(0, 255, 127, 0.14);
+  --fill-strong: rgba(0, 255, 127, 0.2);
+  --inset: rgba(0, 0, 0, 0.4);
+  --ink: #d7ffe6;
+  --ink-2: #8effbe;
+  --muted: #3e9a68;
+  --line: rgba(0, 255, 127, 0.18);
+  --line-strong: rgba(0, 255, 127, 0.4);
+  --accent: #00ff7f;
+  --accent-ink: #01130a;
+  --accent-soft: #4defc9;
+  --good: #00ff7f;
+  --bad: #ff6a5c;
+  --shadow: 0 12px 34px rgba(0, 20, 8, 0.7);
+}
+
+/* NEON — after dark on Queen West. */
+:root[data-theme='neon'] {
+  --bg: #0a0416;
+  --surface: rgba(24, 10, 44, 0.94);
+  --surface-solid: #180a2c;
+  --fill: rgba(255, 45, 160, 0.09);
+  --fill-hover: rgba(255, 45, 160, 0.16);
+  --fill-strong: rgba(255, 45, 160, 0.22);
+  --inset: rgba(0, 0, 0, 0.35);
+  --ink: #ffe9fb;
+  --ink-2: #c9a6f0;
+  --muted: #8f76b8;
+  --line: rgba(255, 45, 160, 0.2);
+  --line-strong: rgba(255, 45, 160, 0.45);
+  --accent: #ff2da0;
+  --accent-ink: #14001a;
+  --accent-soft: #0ff0d4;
+  --good: #0ff0d4;
+  --bad: #ff5f6d;
+  --shadow: 0 12px 36px rgba(255, 45, 160, 0.18);
+}
+
+/* EMBER — amber on charcoal. */
+:root[data-theme='ember'] {
+  --bg: #0c0603;
+  --surface: rgba(28, 15, 7, 0.95);
+  --surface-solid: #1c0f07;
+  --fill: rgba(255, 158, 44, 0.08);
+  --fill-hover: rgba(255, 158, 44, 0.15);
+  --fill-strong: rgba(255, 158, 44, 0.2);
+  --inset: rgba(0, 0, 0, 0.35);
+  --ink: #ffeedd;
+  --ink-2: #e8c6a0;
+  --muted: #a58467;
+  --line: rgba(255, 158, 44, 0.18);
+  --line-strong: rgba(255, 158, 44, 0.4);
+  --accent: #ff9e2c;
+  --accent-ink: #1a0d04;
+  --accent-soft: #ffd75e;
+  --good: #8fce4b;
+  --bad: #ff5f4d;
+  --shadow: 0 12px 34px rgba(0, 0, 0, 0.6);
+}
+
+/* ABYSS — the lake, from underneath. */
+:root[data-theme='abyss'] {
+  --bg: #030b18;
+  --surface: rgba(8, 24, 44, 0.94);
+  --surface-solid: #08182c;
+  --fill: rgba(56, 189, 248, 0.08);
+  --fill-hover: rgba(56, 189, 248, 0.14);
+  --fill-strong: rgba(56, 189, 248, 0.2);
+  --inset: rgba(0, 0, 0, 0.35);
+  --ink: #e2f4ff;
+  --ink-2: #a8cfe6;
+  --muted: #6d93ab;
+  --line: rgba(56, 189, 248, 0.18);
+  --line-strong: rgba(56, 189, 248, 0.4);
+  --accent: #38bdf8;
+  --accent-ink: #021523;
+  --accent-soft: #2dd4bf;
+  --good: #2dd4bf;
+  --bad: #fb7185;
+  --shadow: 0 12px 34px rgba(2, 12, 26, 0.65);
+}
+
+/* WIN95 — square corners, hard bevels, no blur. The panel shadow does the
+   raised-control trick, so the radius and blur have to go to zero with it. */
+:root[data-theme='win95'] {
+  --radius: 0px;
+  --radius-sm: 0px;
+  --panel-blur: 0px;
+  --bg: #008080;
+  --surface: #c0c0c0;
+  --surface-solid: #c0c0c0;
+  --fill: rgba(0, 0, 0, 0.06);
+  --fill-hover: rgba(0, 0, 0, 0.12);
+  --fill-strong: rgba(0, 0, 128, 0.18);
+  --inset: rgba(0, 0, 0, 0.1);
+  --ink: #000000;
+  --ink-2: #202020;
+  --muted: #505050;
+  --line: #808080;
+  --line-strong: #000000;
+  --accent: #000080;
+  --accent-ink: #ffffff;
+  --accent-soft: #1084d0;
+  --good: #008000;
+  --bad: #800000;
+  --shadow: inset -1px -1px 0 #808080, inset 1px 1px 0 #ffffff, 2px 2px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* HI-CON — maximum legibility: solid panels, black hairlines, no blur. */
+:root[data-theme='contrast'] {
+  --panel-blur: 0px;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-solid: #ffffff;
+  --fill: rgba(0, 0, 0, 0.06);
+  --fill-hover: rgba(0, 0, 0, 0.12);
+  --fill-strong: rgba(0, 0, 0, 0.18);
+  --inset: rgba(0, 0, 0, 0.07);
+  --ink: #000000;
+  --ink-2: #1a1a1a;
+  --muted: #4a4a4a;
+  --line: rgba(0, 0, 0, 0.45);
+  --line-strong: #000000;
+  --accent: #0b4fd8;
+  --accent-ink: #ffffff;
+  --accent-soft: #062f80;
+  --good: #006b1f;
+  --bad: #a80000;
+  --shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
 html,
@@ -13,58 +267,238 @@ body {
   height: 100%;
   margin: 0;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  color: #e6e8ee;
-  background: #0b0e14;
+  color: var(--ink);
+  background: var(--bg);
 }
 
-/* MapLibre's default chrome is built for light basemaps — restyle it to sit
-   inside a dark console instead of floating on top as a white box. */
+/* ── Themed chrome ─────────────────────────────────────────────────────
+ * The console is five floating panels over a map. Giving them one class
+ * each keeps every theme-sensitive declaration in this file instead of
+ * scattered through the components as Tailwind arbitrary values.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(var(--panel-blur));
+}
+
+/* Menus and dropdowns sit over live map tiles, so they go fully opaque. */
+.panel-solid {
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+/* Segmented pills — basemap picker, time-window picker. */
+.chip {
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: transparent;
+  transition: background 120ms ease, color 120ms ease;
+}
+.chip:hover {
+  color: var(--ink);
+  background: var(--fill-hover);
+}
+.chip[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Selects and the search box. */
+.field {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--fill);
+  color: var(--ink);
+}
+.field:focus,
+.field:focus-within {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* ── Theme picker ──────────────────────────────────────────────────────
+ * A round portal in the header showing the current theme's glyph, opening
+ * a menu of every theme with swatch dots sampled from its own tokens.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+.theme-toggle {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  background: var(--fill);
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.theme-toggle:hover {
+  transform: translateY(-1px) rotate(10deg) scale(1.06);
+}
+.theme-toggle:active {
+  transform: scale(0.94);
+}
+.theme-toggle::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(#ff5f6d, #ffc371, #fdff8f, #7bffb0, #6cc7ff, #b18cff, #ff8ce1, #ff5f6d);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  animation: hue-spin 4s linear infinite;
+  pointer-events: none;
+}
+.theme-toggle:hover::before {
+  opacity: 1;
+}
+@keyframes hue-spin {
+  to {
+    filter: hue-rotate(360deg);
+  }
+}
+
+.theme-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  min-width: 178px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: menu-in 140ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  transform-origin: top right;
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(-4px);
+  }
+}
+
+.theme-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease, color 120ms ease;
+}
+.theme-menu__item:hover {
+  background: var(--fill-hover);
+  color: var(--ink);
+}
+.theme-menu__item[aria-checked='true'] {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: var(--fill-strong);
+}
+.theme-menu__glyph {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.theme-menu__swatch {
+  display: inline-flex;
+  gap: 3px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.theme-menu__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle,
+  .theme-toggle::before,
+  .theme-menu {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* ── MapLibre's own chrome ─────────────────────────────────────────────
+ * Built for a light basemap and shipped as black PNG icons, so it needs
+ * both the panel tokens and a per-base icon filter to sit inside the
+ * console instead of floating on top of it as a white box.
+ * ──────────────────────────────────────────────────────────────────────*/
+
 .maplibregl-ctrl-group {
-  background: rgba(18, 23, 34, 0.95) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important;
 }
 .maplibregl-ctrl-group button + button {
-  border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-top: 1px solid var(--line) !important;
 }
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
-  filter: invert(1) opacity(0.65);
+  filter: var(--ctrl-icon-filter);
 }
 .maplibregl-ctrl-group button:hover .maplibregl-ctrl-icon {
-  filter: invert(1) opacity(1);
+  filter: var(--ctrl-icon-filter-hover);
 }
 .maplibregl-ctrl-attrib {
-  background: rgba(11, 14, 20, 0.8) !important;
-  color: #898781 !important;
+  background: var(--surface) !important;
+  color: var(--muted) !important;
   font-size: 10px !important;
 }
 .maplibregl-ctrl-attrib a {
-  color: #c3c2b7 !important;
+  color: var(--ink-2) !important;
 }
 .maplibregl-ctrl-attrib-button {
-  filter: invert(1) opacity(0.6);
+  filter: var(--ctrl-icon-filter);
 }
 .maplibregl-ctrl-scale {
-  background: rgba(11, 14, 20, 0.7) !important;
-  border-color: rgba(255, 255, 255, 0.25) !important;
-  color: #c3c2b7 !important;
+  background: var(--surface) !important;
+  border-color: var(--line-strong) !important;
+  color: var(--ink-2) !important;
   font-size: 10px !important;
 }
 .maplibregl-canvas:focus {
   outline: none;
 }
 
-/* Thin scrollbars so the layer rail doesn't grow a chunky light-mode bar. */
+/* Thin scrollbars so the layer rail doesn't grow a chunky default bar. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 *::-webkit-scrollbar {
   width: 7px;
   height: 7px;
 }
 *::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--scroll-thumb);
   border-radius: 4px;
 }
 *::-webkit-scrollbar-track {

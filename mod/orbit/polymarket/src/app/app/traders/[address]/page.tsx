@@ -34,7 +34,7 @@ function TraderPageInner() {
   useUrlSync();
   const params = useParams();
   const router = useRouter();
-  const { daysAgo, setSearch, category, reloadKey } = useFilters();
+  const { daysAgo, setSearch, category, setCategory, reloadKey } = useFilters();
   const globalDays = Math.min(
     Number(daysAgo) > 0 ? Number(daysAgo) : 7,
     MAX_LOOKBACK_DAYS,
@@ -285,6 +285,7 @@ function TraderPageInner() {
           globalDays={globalDays}
           onDaysChange={changeDays}
           categoryFilter={category}
+          onCategoryChange={setCategory}
           stratFilters={stratFilters}
           stratFilterName={stratFilterName}
           onClearStratFilters={() => {

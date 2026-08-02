@@ -12,6 +12,11 @@ const memory = new Map<string, string>();
 // Keys this module owns and may evict to make room for a fresh write.
 const OWN_PREFIX = "store:";
 
+// The local sign-in private key. Everything else under OWN_PREFIX is session
+// state that can be re-derived; this one can't — evicting it would orphan every
+// object stored under that address — so the sweep below skips it.
+export const LOCAL_KEY_STORAGE = "store:localkey";
+
 function tryGet(storage: Storage, key: string): string | null {
   try {
     return storage.getItem(key);
@@ -62,7 +67,8 @@ export function storageSet(key: string, value: string) {
   try {
     for (let i = window.localStorage.length - 1; i >= 0; i--) {
       const k = window.localStorage.key(i);
-      if (k && k !== key && k.startsWith(OWN_PREFIX)) tryRemove(window.localStorage, k);
+      if (k && k !== key && k !== LOCAL_KEY_STORAGE && k.startsWith(OWN_PREFIX))
+        tryRemove(window.localStorage, k);
     }
   } catch {
     /* ignore */

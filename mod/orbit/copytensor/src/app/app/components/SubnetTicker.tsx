@@ -54,7 +54,7 @@ export default function SubnetTicker() {
 
   if (loading && subnets.length === 0) {
     return (
-      <div className="h-8 border-b border-pixel-border bg-pixel-black/80 flex items-center px-4">
+      <div className="h-11 border-b-2 border-pixel-border bg-pixel-black flex items-center px-4">
         <span className="text-[11px] tracking-[3px] text-pixel-gray uppercase">live · loading…</span>
       </div>
     );
@@ -70,22 +70,22 @@ export default function SubnetTicker() {
 
   return (
     <div
-      className="h-8 border-b border-pixel-border bg-pixel-black/80 overflow-hidden relative group"
+      className="h-11 border-b-2 border-pixel-border bg-pixel-black overflow-hidden relative group"
       role="region"
       aria-label="live subnet alpha prices"
     >
-      <div className="absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-pixel-black to-transparent pointer-events-none" />
-      <div className="absolute left-0 top-0 z-10 h-full px-3 flex items-center bg-pixel-black border-r border-pixel-border">
-        <span className="text-[11px] tracking-[3px] text-pixel-white uppercase font-mono flex items-center">
+      <div className="absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-pixel-black to-transparent pointer-events-none" />
+      <div className="absolute left-0 top-0 z-10 h-full w-[100px] px-3 flex items-center bg-pixel-black border-r-2 border-pixel-border">
+        <span className="text-[13px] tracking-[3px] text-pixel-white uppercase font-mono flex items-center">
           <span
-            className="inline-block w-1.5 h-1.5 mr-2 rounded-full bg-green-400"
+            className="inline-block w-1.5 h-1.5 mr-2 bg-green-400"
             style={{ animation: "ticker-pulse 1.4s infinite" }}
           />
           dTAO
         </span>
       </div>
       <div
-        className="flex items-center gap-5 h-full whitespace-nowrap pl-24 will-change-transform group-hover:[animation-play-state:paused]"
+        className="flex items-center h-full whitespace-nowrap pl-[112px] will-change-transform group-hover:[animation-play-state:paused]"
         style={{ animation: "ticker-marquee 90s linear infinite" }}
       >
         {loop.map((s, idx) => (
@@ -127,26 +127,34 @@ function TickerChip({
 
   const tick =
     prevPrice == null || prevPrice === price ? 0 : price > prevPrice ? 1 : -1;
+  // Palette vars, not literal hexes — the tape was the last surface still
+  // painting itself in stock Tailwind green/red, so it drifted off the
+  // five-colour palette in light mode.
+  const up = "var(--neon-lime)";
+  const down = "var(--neon-red)";
+  const flat = "var(--fg-dim)";
   const changeColor =
-    change == null ? "#888" : change > 0.005 ? "#4ade80" : change < -0.005 ? "#f87171" : "#888";
-  const priceColor = tick > 0 ? "#4ade80" : tick < 0 ? "#f87171" : "var(--fg)";
+    change == null ? flat : change > 0.005 ? up : change < -0.005 ? down : flat;
+  const priceColor = tick > 0 ? up : tick < 0 ? down : "var(--fg)";
 
   return (
+    // Each entry is a cell on the tape, divided by a hard rule — with only
+    // whitespace between them the chips ran together into one long word.
     <button
       onClick={onClick}
-      className="flex items-center gap-2 cursor-pointer hover:bg-pixel-white/5 px-1.5 py-0.5 rounded-sm transition-colors"
+      className="flex items-center gap-2 h-full shrink-0 cursor-pointer px-4 border-r border-pixel-border hover:bg-pixel-white/10 transition-colors"
       title={`${subnet.name} — ${fmtAlphaPrice(price, currency, usdPerTao)} per α`}
     >
-      <span className="text-[11px] text-pixel-gray font-mono">SN{subnet.netuid}</span>
-      <span className="text-[11px] text-pixel-gray-light max-w-[92px] truncate">{subnet.name}</span>
+      <span className="text-[13px] text-pixel-gray font-mono">SN{subnet.netuid}</span>
+      <span className="text-[10px] text-pixel-gray-light max-w-[120px] truncate">{subnet.name}</span>
       <span
-        className="text-[12px] font-mono font-bold tabular-nums transition-colors duration-500"
+        className="text-[15px] font-mono tabular-nums transition-colors duration-500"
         style={{ color: priceColor }}
       >
         {fmtAlphaPrice(price, currency, usdPerTao)}
       </span>
       {change != null && (
-        <span className="text-[11px] font-mono tabular-nums" style={{ color: changeColor }}>
+        <span className="text-[13px] font-mono tabular-nums" style={{ color: changeColor }}>
           {change > 0 ? "▲" : change < 0 ? "▼" : ""}
           {Math.abs(change).toFixed(2)}%
         </span>

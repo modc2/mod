@@ -137,7 +137,7 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
   return (
     <>
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
-      <aside className="fixed inset-y-0 right-0 w-[380px] max-w-[92vw] z-50 bg-[#101010] border-l border-white/10 shadow-2xl flex flex-col">
+      <aside className="fixed inset-y-0 right-0 w-[380px] max-w-[92vw] z-50 bg-surface-1 border-l border-white/10 shadow-2xl flex flex-col">
         {/* header */}
         <div className="px-4 py-3 border-b border-white/[0.06] flex items-center gap-2 shrink-0">
           <span className="text-emerald-300">◈</span>

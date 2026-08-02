@@ -1,9 +1,12 @@
 {
     "name": "git",
-    "description": "Repo change tracker for the mod protocol: tracks ALL changes in the mod repo (status, per-file diffs, commits, ahead/behind) and any other local or GitHub repos you point it at. Connect a GitHub account (PAT stored off-chain in ~/.mod/git) to list/track/push private repos, and manage per-address write/admin access with signed auth-module tokens.",
-    "version": "0.2.0",
+    "description": "Repo change tracker for the mod protocol: tracks ALL changes in the mod repo (status, per-file diffs, commits, ahead/behind) and any other local or GitHub repos you point it at. Push a commit without writing the message: the agent module reads the pending diff and proposes one, and this module finalizes it \u2014 stage, commit, push \u2014 behind its own ACL and over your GitHub account. Connect GitHub by OAuth (device or redirect flow) or a PAT \u2014 the account is attached to your mod key and stored off-chain in ~/.mod/git \u2014 to list/track/push private repos, and manage per-address write/admin access with signed auth-module tokens.",
+    "version": "0.4.0",
+    "dependencies": [
+        "agent"
+    ],
     "anchor": "mod.py",
-    "icon": "⎇",
+    "icon": "\u2387",
     "color": "#f0883e",
     "port": 50330,
     "app_port": 50330,
@@ -26,6 +29,8 @@
         "repo_url",
         "pull",
         "push",
+        "message",
+        "commit",
         "repos",
         "track",
         "attach",
@@ -35,6 +40,12 @@
         "disconnect",
         "github",
         "github_repos",
+        "oauth",
+        "oauth_poll",
+        "oauth_url",
+        "oauth_callback",
+        "oauth_app",
+        "oauth_status",
         "access",
         "grant",
         "revoke",
@@ -47,5 +58,5 @@
         "stop_worker"
     ],
     "key": "git",
-    "schema": "QmVrsqX7W8da2PP7as1TKX6ix2va8AaVE7dAz2VL9RidY6"
+    "schema": "QmemMvcZEzocrkKvfKrsDGpeXrStQ46WvdgzH7Ah6mosiW"
 }

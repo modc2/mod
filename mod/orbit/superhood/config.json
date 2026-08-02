@@ -1,0 +1,55 @@
+{
+    "name": "superhood",
+    "version": "1.0.0",
+    "description": "SUPER HOOD BROS.: WASHINGTON PARK \u2014 an 8-bit side-scrolling platformer set in Brooklyn. Three courses (Fifth Avenue in Park Slope, the G train tunnel, and Washington Park), pigeons and rats and trash-can lids, pizza and egg creams and MetroCards, subway tokens for coins, and a landlord boss. Runs entirely in the browser: no build step and no assets on disk \u2014 every sprite is drawn from a pixel grid at load time and every sound is synthesised in WebAudio.",
+    "icon": "\ud83c\udf55",
+    "color": "#f7d51d",
+    "anchor": "mod.py",
+    "network": "testnet",
+    "port": 50341,
+    "app_port": 50341,
+    "gateway_port": 50341,
+    "base_path": "/superhood",
+    "route": true,
+    "urls": {
+        "app": "http://localhost:50341/superhood",
+        "api": "http://localhost:50341"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "url",
+        "api_url",
+        "path",
+        "levels",
+        "files",
+        "play",
+        "stop",
+        "serve",
+        "serve_app",
+        "serve_api",
+        "test",
+        "kill",
+        "register",
+        "deregister"
+    ],
+    "endpoints": {
+        "play": "Serve the game in this process and open a browser",
+        "serve": "Run the game server under pm2 and register the gateway route",
+        "levels": "The course list",
+        "test": "Files + JS syntax + every level builds"
+    },
+    "api_fns": [
+        "info",
+        "health",
+        "readme",
+        "url",
+        "path",
+        "levels",
+        "files"
+    ],
+    "key": "superhood",
+    "schema": "QmVn2UEsj2HD7FKkEs7guUDtmcrddtXvnnKxB5ZYaPXzr7"
+}

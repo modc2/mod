@@ -1,0 +1,57 @@
+{
+    "name": "supermario",
+    "version": "1.0.0",
+    "description": "An NES emulator that runs in the browser: a cycle-checked 6502, a per-dot 2C02 PPU with sprite-0 hit and the loopy scroll registers, the 2A03's five sound channels through WebAudio, and the cartridge boards the Mario games shipped on (NROM, MMC1, UxROM, CNROM, MMC3, AxROM, GxROM). No build step and no game data \u2014 bring a dump of a cartridge you own and it stays in your browser.",
+    "icon": "\ud83c\udf44",
+    "color": "#c84c0c",
+    "anchor": "mod.py",
+    "network": "testnet",
+    "port": 50342,
+    "app_port": 50342,
+    "gateway_port": 50342,
+    "base_path": "/supermario",
+    "route": true,
+    "urls": {
+        "app": "http://localhost:50342/supermario",
+        "api": "http://localhost:50342"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "url",
+        "api_url",
+        "path",
+        "boards",
+        "files",
+        "play",
+        "stop",
+        "serve",
+        "serve_app",
+        "serve_api",
+        "test",
+        "fetch_test_roms",
+        "kill",
+        "register",
+        "deregister"
+    ],
+    "endpoints": {
+        "play": "Serve the emulator in this process and open a browser",
+        "serve": "Run the emulator under pm2 and register the gateway route",
+        "boards": "The cartridge mappers this build supports",
+        "test": "Run the 6502 conformance diff and the PPU/APU test ROMs",
+        "fetch_test_roms": "Download the public NES test ROMs used by test()"
+    },
+    "api_fns": [
+        "info",
+        "health",
+        "readme",
+        "url",
+        "path",
+        "boards",
+        "files"
+    ],
+    "key": "supermario",
+    "schema": "QmRWdejTp66zKdcfVnpccDQ7M8VLeGRgGZAmgTCUKTno5K"
+}

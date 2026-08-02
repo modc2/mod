@@ -1,12 +1,12 @@
 "use client";
 
 // Global nav in the top header — replaces the old LeftNav rail. On wide
-// viewports every destination (STRAT / TRADERS / TRADES / DOCS) is laid out
+// viewports every destination (STRAT / TRADERS / MARKETS / DOCS) is laid out
 // inline as tabs to the RIGHT of the strat picker; below COLLAPSE_BP the row
 // folds into the square-mark dropdown so it never fights the search box.
-// Market detail pages (/markets/[slug]) are still reachable via trade rows,
-// just not from the nav. Wallet + trading-wallet chrome is NOT here — it's a
-// WALLET tab inside the STRAT page.
+// The global fills tape (/trades) is no longer a nav destination — fills live
+// in the STRAT page's TRADES tab. Wallet + trading-wallet chrome is NOT here
+// either — it's a WALLET tab inside the STRAT page.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -50,12 +50,14 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    href: "/trades",
-    label: "TRADES",
+    href: "/markets",
+    label: "MARKETS",
     icon: (
       <svg className={ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M4 7h10M4 12h16M4 17h7" />
-        <path d="M18 5l3 2-3 2" />
+        <rect x="3" y="4" width="7" height="7" rx="1" />
+        <rect x="14" y="4" width="7" height="7" rx="1" />
+        <rect x="3" y="15" width="7" height="5" rx="1" />
+        <rect x="14" y="15" width="7" height="5" rx="1" />
       </svg>
     ),
   },

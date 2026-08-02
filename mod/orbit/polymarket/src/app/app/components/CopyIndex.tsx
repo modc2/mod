@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES } from "../lib/polymarket";
 import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats, TradeFilters } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
-import { Strat, clobMinNotional, statsFromReturns, stopLossTriggered, takeProfitTriggered, successProbability, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, REBALANCE_MARGIN_PCT } from "../lib/strats/strat";
+import { Strat, clobMinNotional, statsFromReturns, stopLossTriggered, takeProfitTriggered, successProbability, copyRatioFor, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, REBALANCE_MARGIN_PCT, MIN_POLL_MINUTES } from "../lib/strats/strat";
 import type { TraderTrade as StratTraderTrade, StratHistory } from "../lib/strats/strat";
 import { marketMatchesQuery } from "../lib/marketQuery";
 import { shortAddress } from "@/lib/auth";
@@ -19,6 +19,7 @@ import type { CurvePoint } from "./PnlChart";
 import { computeFifoTrades, buildPnlCurve, buildCombinedPnlCurve, aggregateToRebalanceWindows } from "../lib/pnlEngine";
 import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId, equalWeightTraders } from "../lib/indexStore";
 import { pushStrat } from "../lib/stratSync";
+import { fetchTraderBankrolls } from "../lib/liveSessions";
 import LivePanel, { type LiveTab } from "./LivePanel";
 // Client-only: the `?raw` source imports resolve to different strings in the
 // server and client bundles (server sees a shorter transform), so SSR-ing the
@@ -29,6 +30,7 @@ import WalletTokenPanel from "./WalletTokenPanel";
 import WalletPanel from "./WalletPanel";
 import WalletFundingPanel from "./WalletFundingPanel";
 import PolymarketAccountPanel from "./PolymarketAccountPanel";
+import UserStratsPanel from "./UserStratsPanel";
 
 // ══════════════════════════════════════════
 // ── Subtab rail — second-level nav under the main STRAT / BACKTEST / LIVE
@@ -37,7 +39,7 @@ import PolymarketAccountPanel from "./PolymarketAccountPanel";
 //    own accent so the rail reads as a mode switch, not just more buttons.
 // ══════════════════════════════════════════
 type MainTab = "STRATS" | "BACKTEST" | "LIVE";
-type StratSub = "build" | "source";
+type StratSub = "build" | "source" | "market";
 type BacktestSub = "results" | "trades";
 type LiveSub = LiveTab | "wallet";
 
@@ -45,6 +47,7 @@ const SUBTABS: Record<MainTab, { id: string; glyph: string; label: string; title
   STRATS: [
     { id: "build", glyph: "◈", label: "BUILD", title: "Traders + params — who you copy and every tuning knob" },
     { id: "source", glyph: "</>", label: "SOURCE", title: "The strat's code — read-only built-ins, editable uploads" },
+    { id: "market", glyph: "▤", label: "MARKET", title: "Strat market — publish yours, browse and fork other traders', import by CID" },
   ],
   BACKTEST: [
     { id: "results", glyph: "◔", label: "RESULTS", title: "Run the sim — P&L, fees, simulated equity curve" },
@@ -710,6 +713,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // ── Data state ──
   const [traderData, setTraderData] = useState<Map<string, PolymarketPosition[]>>(new Map());
   const [traderTrades, setTraderTrades] = useState<Map<string, PolymarketTrade[]>>(new Map());
+  // Watched traders' bankrolls (positions + cash), keyed lowercase — the
+  // denominator of proportional copy sizing. See `traderCopyRatio`.
+  const [traderBankrolls, setTraderBankrolls] = useState<Map<string, number>>(new Map());
   const [loadedCount, setLoadedCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
@@ -787,7 +793,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // unless an older strat still has a non-zero value.
   const [rebalancePeriod, setRebalancePeriod] = useState<number>(0); // hours (0 = per-trade)
   const [rebalanceHour, setRebalanceHour] = useState<number>(0); // 0-23 (unused when per-trade)
-  const [rebalanceMinutes, setRebalanceMinutes] = useState<number>(5 / 60); // minutes between live polls (5s)
+  const [rebalanceMinutes, setRebalanceMinutes] = useState<number>(MIN_POLL_MINUTES); // minutes between live polls (30s floor)
   const [customDaysInput, setCustomDaysInput] = useState("");
   const [expandedTrader, setExpandedTrader] = useState<string | null>(null);
   const [showSimTrades, setShowSimTrades] = useState<Record<string, boolean>>({});
@@ -896,6 +902,15 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     [activeIndex],
   );
   const watchlistKey = watchlist.join(",");
+
+  // Bankrolls for the current watchlist, refreshed when it changes. Cached
+  // server-side (~10m), so this is one cheap call per roster edit.
+  useEffect(() => {
+    if (!watchlistKey) { setTraderBankrolls(new Map()); return; }
+    let alive = true;
+    fetchTraderBankrolls(watchlistKey.split(",")).then((m) => { if (alive) setTraderBankrolls(m); });
+    return () => { alive = false; };
+  }, [watchlistKey]);
 
   // ── Init: load or auto-create a single default strat ──
   useEffect(() => {
@@ -1011,13 +1026,14 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     // windows with no way to undo from the UI.
     setRebalancePeriod(0);
     setRebalanceHour(0);
-    // Treat the legacy 1-minute default as "unset" and surface the new 5s
-    // default — keeps strats saved before the 5s switch from being stuck
-    // on the slow cadence.
+    // Treat the legacy 1-minute default as "unset" and surface the 30s
+    // default. Sub-floor values from the old 5s era are clamped up: both the
+    // console and the engine already run them at 30s, so showing "5s" in the
+    // picker would just misreport the cadence (and match no option).
     setRebalanceMinutes(
       activeIndex.rebalanceMinutes && activeIndex.rebalanceMinutes !== 1
-        ? activeIndex.rebalanceMinutes
-        : 5 / 60,
+        ? Math.max(MIN_POLL_MINUTES, activeIndex.rebalanceMinutes)
+        : MIN_POLL_MINUTES,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex?.id]);
@@ -1529,7 +1545,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       stopLoss: DEFAULT_STOP_LOSS,
       rebalancePeriod: 0,
       rebalanceHour: 0,
-      rebalanceMinutes: 5 / 60,
+      rebalanceMinutes: MIN_POLL_MINUTES,
       // Drop the cached backtest snapshot so the leaderboard doesn't show
       // stale +145 / +1.4% next to an empty strat.
       lastPnl: undefined,
@@ -1565,14 +1581,20 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // ── Backtests ──
   const backtests = useMemo((): TraderBacktest[] => {
     return watchlist.map((addr) => {
-      // Honor the strat's market-topic filter so the preview P&L reflects only
-      // the markets the live strat would actually trade.
+      // Honor BOTH strat gates so the preview P&L reflects only the flow the
+      // live strat would actually copy: the market-topic query, and the
+      // semantic per-trade filter (side / entry price / size / category).
+      // The trade filter gates ENTRIES only — same as the live engine, which
+      // keeps every leader SELL so exits always clear. computeBacktest then
+      // drops SELLs with no surviving BUY behind them, so filtering out a BUY
+      // takes its exit with it.
       const trades = (traderTrades.get(addr) || [])
-        .filter((t) => marketMatchesQuery(t.market, marketQuery));
+        .filter((t) => marketMatchesQuery(t.market, marketQuery))
+        .filter((t) => t.side !== "BUY" || tradeMatchesFilters(t, tradeFilters));
       const positions = traderData.get(addr) || [];
       return computeBacktest(trades, positions, backtestDays, addr, capital, rebalancePeriod, rebalanceHour);
     }).sort((a, b) => b.estimatedPnl - a.estimatedPnl);
-  }, [watchlist, traderTrades, traderData, backtestDays, capital, rebalancePeriod, rebalanceHour, marketQuery]);
+  }, [watchlist, traderTrades, traderData, backtestDays, capital, rebalancePeriod, rebalanceHour, marketQuery, tradeFilters]);
 
   const totalBacktestPnl = backtests.reduce((s, b) => s + b.estimatedPnl, 0);
   // Only sum weights of enabled traders
@@ -1672,12 +1694,17 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     return out;
   }, [watchlist, traderTrades, traderData, marketQuery]);
 
-  // ── Per-trader copy ratio — same formula the live engine hands hooks:
-  // (capital × weightFraction) / max(buyVol, sellVol) over the window.
-  // The backtest used to pass copyRatio: 0 into scoreCandidate, which made
-  // every BUY score roi × notional × 0 = 0 — and the top-N filter only keeps
-  // scores > 0, so NO buy ever survived and every backtest executed 0 trades
-  // (the "P&L -$3.64 · 0 TXS · GROSS +$1.56" header nonsense).
+  // ── Per-trader copy ratio — the same `copyRatioFor` the live engine sizes
+  // with: the leader risked `notional / bankroll` of their net worth, so the
+  // strat risks that fraction of its capital, split by watchlist weight.
+  // Bankrolls come from the engine's own cache (`/live/bankroll`), so the
+  // preview and the live session divide by the same denominator; traders
+  // whose book can't be read fall back to the volume model.
+  //
+  // (This is also why copyRatio must never be 0 here: the backtest used to
+  // pass 0 into scoreCandidate, making every BUY score roi × notional × 0 = 0
+  // — and the top-N filter only keeps scores > 0, so NO buy ever survived and
+  // every backtest executed 0 trades.)
   const traderCopyRatio = useMemo(() => {
     const out = new Map<string, number>();
     const cutoff = Date.now() - backtestDays * 86400_000;
@@ -1689,10 +1716,16 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         if (t.side === "BUY") buyVol += v; else sellVol += v;
       }
       const wFrac = totalWeight > 0 ? (traderWeights[addr] || 0) / totalWeight : 1 / watchlist.length;
-      out.set(addr, (capital * wFrac) / Math.max(buyVol, sellVol, 1));
+      out.set(addr, copyRatioFor(
+        capital,
+        wFrac,
+        traderBankrolls.get(addr.toLowerCase()),
+        capital * wFrac,
+        Math.max(buyVol, sellVol),
+      ));
     }
     return out;
-  }, [watchlist, traderTrades, traderWeights, totalWeight, backtestDays, capital, marketQuery]);
+  }, [watchlist, traderTrades, traderWeights, totalWeight, backtestDays, capital, marketQuery, traderBankrolls]);
 
   // ── Backtest StratHistory — same shape the live engine hands hooks ──
   // Every strat hook takes the full observed history, so history-aware
@@ -3178,9 +3211,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                     onChange={(e) => updateRebalanceMinutes(Number(e.target.value))}
                     className="bg-transparent font-mono text-[13px] text-pixel-white outline-none cursor-pointer pr-1"
                   >
-                    <option value={5 / 60}>5s</option>
-                    <option value={10 / 60}>10s</option>
-                    <option value={15 / 60}>15s</option>
+                    {/* Nothing below 30s: the engine's rate-limit floor
+                        (MIN_POLL_MINUTES) clamps faster picks, so offering
+                        them would misreport the real cadence. */}
                     <option value={30 / 60}>30s</option>
                     <option value={1}>1m</option>
                     <option value={2}>2m</option>
@@ -3392,6 +3425,13 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
           mod.py / mod.rs files (persisted via /api/polymarket/user-strats). */}
       {mode === "STRATS" && stratSub === "source" && <StratSourceViewer />}
 
+      {/* ── STRAT → MARKET subtab — the strat market ──
+          Publish your uploaded strats (public, or by CID), browse every
+          public strat other traders shipped, fork one into your own list.
+          Keyed on the signed-in wallet so YOURS is distinguishable from
+          theirs (UserStratsPanel). */}
+      {mode === "STRATS" && stratSub === "market" && <UserStratsPanel eoa={auth.address ?? undefined} />}
+
       {/* ── Add trader bar (BACKTEST — on STRAT it lives inside TRADERS + PARAMS) ── */}
       {mode === "BACKTEST" && (
         <div className="pixel-panel px-3 py-1.5">
@@ -3413,16 +3453,45 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       {/* ── Active view ── */}
       {activeIndex && (
         <>
-          {/* Empty trader state */}
-          {watchlist.length === 0 && !(mode === "LIVE" && liveSub === "wallet") && (
-            <div className="pixel-panel p-4 text-center space-y-2">
-              <div className="text-[14px] text-pixel-gray">NO TRADERS YET</div>
-              <div className="text-[12px] text-pixel-gray-light">
-                ADD TRADERS FROM{" "}
-                <button onClick={() => { setMode("STRATS"); pickSub("STRATS", "build"); setBrowseOpen(true); }} className="text-pixel-white hover:text-green-400 transition-colors">
-                  PARAMS → TRADERS + PARAMS
-                </button>.
+          {/* Empty trader state — suppressed under STRAT → MARKET (and LIVE →
+              WALLET): the market is about OTHER people's strats, so a "no
+              traders yet" nag under it is noise. */}
+          {watchlist.length === 0 &&
+            !(mode === "LIVE" && liveSub === "wallet") &&
+            !(mode === "STRATS" && stratSub === "market") && (
+            // Real empty state, not a nag line: the panel is the CTA. The old
+            // copy pointed at a breadcrumb ("ADD TRADERS FROM PARAMS →
+            // TRADERS + PARAMS") that named the panel it was sitting under,
+            // so the one thing to do next is now a button.
+            <div className="pixel-panel py-10 px-4 flex flex-col items-center text-center gap-3">
+              <div
+                className="w-11 h-11 grid place-items-center rounded-[var(--radius)] text-pixel-gray"
+                style={{ border: "1px dashed var(--border-strong)", background: "var(--input-bg)" }}
+              >
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="9" cy="8" r="3.4" />
+                  <path d="M3.5 19.5c0-3.2 2.5-5.2 5.5-5.2s5.5 2 5.5 5.2" />
+                  <path d="M18.5 8.5v5M16 11h5" />
+                </svg>
               </div>
+              <div className="font-display text-[15px] font-semibold tracking-[0.08em] text-pixel-white">
+                NO TRADERS YET
+              </div>
+              <div className="text-[12.5px] leading-5 text-pixel-gray-light max-w-[46ch]">
+                A strategy mirrors the traders you pick. Add a few and the
+                backtest and live engine start following their fills.
+              </div>
+              <button
+                onClick={() => { setMode("STRATS"); pickSub("STRATS", "build"); setBrowseOpen(true); }}
+                className="mt-1 rounded-[var(--radius)] px-4 py-2 text-[12px] font-bold tracking-[0.1em] transition-all hover:brightness-110 hover:-translate-y-px active:translate-y-0"
+                style={{
+                  color: "#06130c",
+                  background: "linear-gradient(180deg, rgb(var(--accent)) 0%, rgb(var(--accent) / 0.82) 100%)",
+                  boxShadow: "0 1px 0 rgba(255,255,255,0.25) inset, 0 8px 22px -10px rgb(var(--accent) / 0.55)",
+                }}
+              >
+                BROWSE TRADERS
+              </button>
               {mode === "BACKTEST" && (
                 <div className="text-[11px] text-pixel-gray tracking-wider">
                   BACKTESTS RUN ON SIMULATED FUNDS — NO WALLET OR DEPOSIT NEEDED.
@@ -3948,7 +4017,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                                   }
                                 </td>
                                 <td className="text-right text-pixel-gray-light font-mono whitespace-nowrap">
-                                  {Math.round(t.price * 100)}c
+                                  {Math.round(t.price * 100)}¢
                                 </td>
                                 <td className="text-right text-amber-400/70 font-mono whitespace-nowrap">
                                   ${t.fee.toFixed(2)}

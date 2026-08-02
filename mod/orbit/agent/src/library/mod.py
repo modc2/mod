@@ -22,6 +22,11 @@ saved them — so making one takes a sign-in. Seeded and legacy items have no
 owner, so they belong to the HOST (the module owner), who can edit or remove
 anything. Everyone else manages only their own.
 
+Anything in the library can also be brought in from outside: upload() takes a
+file (JSON or markdown with front matter) and files it under the right
+collection — including a whole agent — and import_cid() does the same from a
+shared localfs CID. formats.py parses; docs/uploads.md is the reference.
+
 Usage:
     lib = Library(skills=skills, agents=agents)
     lib.items(q="review", kind="prompt", tag="quality")
@@ -45,6 +50,11 @@ except ImportError:  # running the library standalone
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from src.identity import Identity
+
+try:
+    from . import formats
+except ImportError:  # running the library standalone
+    from src.library import formats
 
 
 SEED_PROMPTS = [
@@ -168,6 +178,15 @@ class Library:
                 pass
         return changed
 
+    @staticmethod
+    def _fetch(localfs, cid: str):
+        """Read a CID, turning a bad or unknown one into a plain refusal —
+        a mistyped CID is a user error, not a server error."""
+        try:
+            return localfs.get(cid)
+        except Exception as e:
+            raise ValueError(f"nothing stored under that CID: {cid} ({e})")
+
     def _fetch_bundle(self, cid: str, kind: str) -> Dict:
         """Load and type-check a share bundle from its localfs CID."""
         if not cid:
@@ -175,7 +194,7 @@ class Library:
         localfs = self._localfs()
         if localfs is None:
             raise RuntimeError("localfs unavailable")
-        bundle = localfs.get(cid)
+        bundle = self._fetch(localfs, cid)
         if not isinstance(bundle, dict) or bundle.get("type") != kind:
             raise ValueError(f"CID does not contain a {kind}: {cid}")
         return bundle
@@ -428,6 +447,103 @@ class Library:
         want = set(ids or [])
         return [s for s in self.installed_skills() if s.get("id") in want]
 
+    # ── uploads (bring your own prompt / skill / note / agent) ───────
+    # One door for every collection: hand it a file's text and it lands in the
+    # right one. formats.py owns the parsing and docs/uploads.md documents it.
+
+    MAX_UPLOAD_CHARS = formats.MAX_UPLOAD_CHARS
+
+    def upload(self, text: str, filename: str = None, kind: str = None,
+               key: str = None) -> Dict:
+        """Install one uploaded file into the library.
+
+        kind is optional — 'auto' (or None) lets formats.detect() read the
+        file's `type:`, its filename, then its shape. Uploading is a create
+        like any other, so it takes a sign-in and the uploader owns the result.
+        """
+        if len(text or "") > self.MAX_UPLOAD_CHARS:
+            raise ValueError(f"file too large: {len(text)} chars "
+                             f"(max {self.MAX_UPLOAD_CHARS})")
+        item = formats.parse(text, filename, kind)
+        k = item["kind"]
+        if k == "prompt":
+            saved = self.prompt_add(item["name"], item["body"],
+                                    item["description"], item["tags"], key=key)
+        elif k == "memory":
+            saved = self.note_add(item["name"], item["body"], item["tags"],
+                                  key=key)
+        elif k == "skill":
+            saved = self.skill_add(item["name"], item["body"], item["description"],
+                                   item["tags"], item["source"], item["url"],
+                                   origin_id=f"upload:{item['name']}",
+                                   license=item["license"], key=key)
+        else:
+            saved = self._upload_agent(item, key=key)
+        return {"kind": k, "name": saved.get("name", item["name"]), "item": saved}
+
+    def _upload_agent(self, item: Dict, key: str = None) -> Dict:
+        """Install an uploaded agent definition. Re-uploading an agent you own
+        updates it in place; someone else's is theirs, so rename yours."""
+        if self._agents is None:
+            raise RuntimeError("agent registry unavailable — cannot install an agent here")
+        name = item["name"]
+        fields = dict(description=item["description"], goal=item["body"],
+                      icon=item["icon"], skills=item["skills"],
+                      model=item["model"], harness=item["harness"], key=key)
+        try:
+            saved = self._agents.create(name=name, **fields)
+        except FileExistsError:
+            if not self._agents.can_manage(name, key):
+                raise ValueError(f"an agent named {name} already exists and "
+                                 f"belongs to someone else — rename yours")
+            saved = self._agents.update(name=name, **fields)
+        # the registry keys agents by their slug and shows the pretty form as
+        # the label — report it the way the library index does
+        return {k: v for k, v in saved.items() if k != "cls"} | {
+            "name": name, "label": saved.get("name", name)}
+
+    def import_cid(self, cid: str, kind: str = None, key: str = None) -> Dict:
+        """Install anything from its localfs CID — the bundle says what it is.
+
+        Prompts, notes and skills come back through their own importers; an
+        agent CID is installed into the registry.
+        """
+        cid = (cid or "").strip()
+        if not cid:
+            raise ValueError("cid required")
+        localfs = self._localfs()
+        if localfs is None:
+            raise RuntimeError("localfs unavailable")
+        bundle = self._fetch(localfs, cid)
+        if not isinstance(bundle, dict):
+            raise ValueError(f"CID does not contain a library item: {cid}")
+        found = bundle.get("type")
+        if kind and kind != "auto" and found != kind:
+            raise ValueError(f"CID holds a {found or 'unknown item'}, not a {kind}")
+        if found == "prompt":
+            return {"kind": "prompt", "item": self.prompt_import(cid, key=key)}
+        if found == "memory":
+            return {"kind": "memory", "item": self.note_import(cid, key=key)}
+        if found == "skill":
+            return {"kind": "skill", "item": self.skill_import(cid, key=key)}
+        if found == "agent":
+            if self._agents is None:
+                raise RuntimeError("agent registry unavailable — cannot install an agent here")
+            try:
+                agent = self._agents.load_and_create(cid, key=key)
+            except FileExistsError as e:
+                raise ValueError(f"{e} — remove it or rename the incoming one first")
+            item = {k: v for k, v in agent.items() if k != "cls"}
+            return {"kind": "agent",
+                    "item": item | {"name": formats.slug(item.get("name", "")),
+                                    "label": item.get("name")}}
+        raise ValueError(f"CID holds an unknown item type: {found or '?'}")
+
+    @staticmethod
+    def formats() -> Dict:
+        """What upload accepts, plus the docs the console renders."""
+        return formats.spec()
+
     # ── conversations (per-user console chat history) ────────────────
     # Server-side so sessions survive browsers/devices and the shared modc2
     # localStorage origin. Scoped by the caller's verified address; every
@@ -572,14 +688,25 @@ class Library:
                 schemas = self._agents.schema()
             except Exception:
                 schemas = {}
+            # every agent is pinned on create/update — carry its latest CID so
+            # an installed agent can be shared (and re-installed) like the rest
+            try:
+                pinned = {c.get("name"): c.get("cid") for c in self._agents.ls_cids()
+                          if not c.get("private")}
+            except Exception:
+                pinned = {}
             for aname, cfg in schemas.items():
                 if "error" in cfg:
                     continue
                 items.append({"kind": "agent", "id": f"a-{aname}", "name": aname,
                               "label": cfg.get("name", aname),
                               "description": cfg.get("description", ""),
-                              "tags": ["installed"] + ([] if cfg.get("builtin") else ["custom"]),
+                              "tags": ["installed"]
+                                      + ([] if cfg.get("builtin") else ["custom"])
+                                      + (["harness", cfg["harness"]] if cfg.get("harness") else []),
+                              "harness": cfg.get("harness"),
                               "icon": cfg.get("icon", ">_"),
+                              "cid": pinned.get(aname),
                               "body": cfg.get("goal", "") or "",
                               "builtin": bool(cfg.get("builtin")),
                               "owner": cfg.get("owner"),
@@ -656,6 +783,14 @@ class Library:
             return self.skill_import(kwargs.get("cid", ""), key=kwargs.get("key"))
         if action == "skill_rm":
             return self.skill_rm(kwargs.get("id", ""), key=kwargs.get("key"))
+        if action == "upload":
+            return self.upload(kwargs.get("text", ""), kwargs.get("filename"),
+                               kwargs.get("kind"), key=kwargs.get("key"))
+        if action == "import":
+            return self.import_cid(kwargs.get("cid", ""), kwargs.get("kind"),
+                                   key=kwargs.get("key"))
+        if action == "formats":
+            return self.formats()
         if action == "conversations":
             return {"conversations": self.convs(kwargs.get("user", ""))}
         if action == "conversation_save":
@@ -751,6 +886,15 @@ class Library:
                 assert dup["id"] == s["id"]                  # same url ⇒ upsert
             lib.skill_rm(s["id"])
             assert lib.installed_skills() == []
+            # uploads: one door, the file says which collection it lands in
+            up = lib.upload("---\nname: uploaded\ntags: [x]\n---\nbe brief",
+                            "uploaded.prompt.md")
+            assert up["kind"] == "prompt"
+            lib.prompt_rm(up["item"]["id"])
+            up = lib.upload('{"type": "memory", "name": "n", "content": "c"}',
+                            "note.json")
+            assert up["kind"] == "memory"
+            lib.note_rm(up["item"]["id"])
             # conversations: per-user scoping + localfs pin + import
             u = "0xabc0000000000000000000000000000000000001"
             c = lib.conv_save(u, query="hello", messages=[{"role": "user", "text": "hi"}])

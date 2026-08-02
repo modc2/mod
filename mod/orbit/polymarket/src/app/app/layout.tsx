@@ -21,10 +21,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // data-theme/data-base are server-rendered as the MIDNIGHT default and
+    // corrected by ThemeBoot below for any saved theme, so first paint
+    // already has the final palette. suppressHydrationWarning because that
+    // script mutates these attributes before React ever looks at them.
+    <html lang="en" data-theme="dark" data-base="dark" suppressHydrationWarning>
       <head>
-        {/* Stamp data-theme="light" before React hydrates so light-mode
-            users don't see a dark-mode flash on first paint. */}
+        {/* Stamp the saved theme before React hydrates so returning users
+            don't see a flash of the default palette on first paint. */}
         <ThemeBoot />
         {/* Deploy self-healing: the app is rebuilt+restarted in place, so a
             page loaded just before (or held open across) a deploy references
@@ -50,7 +54,13 @@ export default function RootLayout({
                   Explicit STOP clears the record, so accidental reloads
                   auto-resume but deliberate stops stay stopped. */}
               <div className="crt-overlay" />
-              <div className="crt-screen min-h-screen">
+              {/* The whole console insets when the strat sidebar is docked
+                  open (--strat-dock, set by HeaderStratPicker) — header
+                  included, so the wallet chip never slides under it. */}
+              <div
+                className="crt-screen dock-inset min-h-screen"
+                style={{ paddingRight: "var(--strat-dock, 0px)" }}
+              >
                 {/* Owner-only gate: the API 401s everything until the sudo
                     address signs the terms-acceptance challenge, so the
                     whole console (panels, auto-resume) waits behind
@@ -59,8 +69,11 @@ export default function RootLayout({
                   <LiveAutoResume />
                   {/* No sidebars: global nav is a dropdown in each page's
                       TopBar, and wallet chrome is a WALLET tab inside the
-                      STRAT page. Content gets the full viewport. */}
-                  <main className="min-w-0">{children}</main>
+                      STRAT page. Content gets the full viewport.
+                      `pb-14` reserves a lane for the fixed BuildBadge —
+                      without it the badge sits on top of the last table row
+                      (and its +ADD button) on every long page. */}
+                  <main className="min-w-0 pb-14">{children}</main>
                   <BuildBadge />
                 </AccessGate>
               </div>

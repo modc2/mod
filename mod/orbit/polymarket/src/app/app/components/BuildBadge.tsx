@@ -157,7 +157,14 @@ export default function BuildBadge() {
   const btnCls = "pixel-btn text-[12px] px-2 py-1 font-mono border-pixel-border text-pixel-gray bg-pixel-black/80 hover:text-green-400 hover:border-green-400 backdrop-blur-sm";
 
   return (
-    <div className="fixed bottom-2 right-2 z-40 flex flex-col items-end gap-1">
+    // Build provenance is reference chrome, not content — it rests at low
+    // opacity so it reads as a watermark over the page it floats on, and
+    // comes back to full strength on hover (or while a publish is running).
+    <div
+      className={`fixed bottom-2 right-2 z-40 flex flex-col items-end gap-1 transition-opacity duration-200 hover:opacity-100 ${
+        status || busy ? "opacity-100" : "opacity-45"
+      }`}
+    >
       {status && (
         <div className="pixel-btn text-[12px] px-2 py-0.5 font-mono border-pixel-border text-green-400 bg-pixel-black/80 backdrop-blur-sm">
           {status}

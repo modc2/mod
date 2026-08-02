@@ -8,6 +8,7 @@ Polymarket prediction market interface with trading, data, scraping, and backtes
 - **Live Price Ticker**: Slim auto-scrolling tape above every page — top 24 markets, polls every 8s, Δ since last poll with up/down arrows, paused while tab is hidden
 - **Trading**: Place limit and market orders via Polymarket CLOB (requires wallet + API credentials)
 - **Copy Trading**: Track top traders by PNL/volume, view their positions and activity
+- **Proportional copy sizing**: mirrors are sized as `leader$ × (accountValue × weightFraction) / leaderBankroll` — the fraction of net worth the leader risked, applied to yours. `accountValue` (free cash + mark value of the strat's positions) and each leader's bankroll (their positions + free USDC) are re-read every cycle, so sizes track the account as it grows or draws down, and a $10k conviction entry copies 100× larger than a $100 punt. Guardrails, all defaulted on: `maxUpscale` 2× (a mirror that could only be placed by inflating it past the order floor is refused as `SUB_SCALE`, not silently placed at the minimum), proportional exits (leader sells 40% of their shares → the strat sells 40% of its own; leader flat → strat flat), `minMinutesToClose` 60m (sub-hour Up/Down candles resolve before a poller can react), `maxTradeAgeSec` 300s, and a BUY budget bounded by real wallet cash rather than the `capital` config. The ratio and clamps are pinned across TypeScript and Rust by `parity.fixture.json`, so the BACKTEST tab previews the sizes live will place
 - **Strategy Index** (`/strats`): Build/edit a basket of traders, set capital + rebalance cadence, then go live. A pre-flight `CHECKLIST` sits at the top of the page — wallet, CLOB auth, strategy, traders, rebalance, capital — and goes from `4/6 complete` → `6/6 · ready to go live` as the user fills each gap
 - **CLOB refresh-from-UI**: When the checklist's `CLOB AUTHENTICATED` row is unchecked, an amber `refresh` pill fires `authenticate()` (single MetaMask sig → derived API key) inline — no page hop
 - **Wallet Funding Panel**: Source picker (network ▾) + asset chips that each show their **live balance** so you can see what you'd be spending before clicking. Polls every 30s + manual refresh; chips wrap onto their own row in narrow sidebar mounts so they're always visible
@@ -36,9 +37,36 @@ Global tokens in `globals.css`:
 
 Top bar simplified from a five-chip cluster (wallet · CLOB · token · split · panel) down to **wallet chip + profile menu**. Trading readiness is communicated by the wallet chip's dot color, not by separate chips. The dropped chips (`ClobChip`, `TokenChip`, `SplitButton`) still live on disk for re-mounting inside the profile menu later.
 
-**Theming**: dark is the default; setting `data-theme="light"` on `<html>` flips every color through a single set of CSS vars (`--bg`, `--fg`, `--panel-from/to`, `--border`, etc., plus channel-style `--pixel-*-rgb` vars so Tailwind opacity modifiers like `text-pixel-white/60` keep working).
+**Theming**: ten themes, picked from the swatch chip in the top bar and stored in `localStorage.poly_theme`.
+
+| | | |
+|---|---|---|
+| `dark` **MIDNIGHT** (default) | `light` **DAYLIGHT** | `matrix` **MATRIX** |
+| `neon` **NEON** | `ember` **EMBER** | `abyss` **ABYSS** |
+| `warp` **WARP** | `paper` **PAPER** | `win95` **WIN95** |
+| `mario` **MARIO** | | |
+
+`ThemeContext` stamps two attributes on `<html>`, and `THEMES` there is the single source of truth (picker + boot script + classification):
+
+- `data-theme` — the palette. Each id has one `[data-theme="id"]` token block in `globals.css` setting only what differs from its base.
+- `data-base` — `dark` or `light`. All the generic light-mode legibility rules key on this, so a new light theme inherits them for free.
+
+Every color flows through CSS vars (`--bg`, `--fg`, `--panel-from/to`, `--border`, `--grid-line`, …). Two indirections make a theme switch reach the whole UI without touching components:
+
+- channel-style `--pixel-*-rgb` vars back the `pixel.*` Tailwind palette, so opacity modifiers like `text-pixel-white/60` keep working;
+- the `green` / `red` / `amber` 300–500 shades are re-pointed in `tailwind.config.js` at `--up-rgb` / `--danger` / `--warn`, so the ~700 existing `text-green-400`-style classes mean *gain / loss / warning* in every theme rather than a pinned emerald.
+
+Adding a theme = one entry in `THEMES` + one token block in `globals.css`. WIN95 (bevels), MARIO and WARP (`Press Start 2P` on buttons/badges) also carry a handful of shape rules under `── Per-theme chrome ──`.
 
 Component-size sweep: every `text-[8–14px]` across all `app/components/*.tsx` and `app/**/page.tsx` was bumped one step up (8→11, 9→12, 10→12, 11→13, 12→14, 13→15, 14→16, 18→26) so Inter has room to breathe.
+
+Alignment + legibility pass:
+
+- `.pixel-table td` nowraps and ellipsises every cell — right for the dense leaderboards, wrong for reference tables, where it cut every description mid-sentence. Docs tables opt into `.pixel-table.wrap-prose` (wrap, `vertical-align: top`) and the docs `FieldTable` gives its prose column half the width
+- Market cards reserve 3 question lines and always lay out the conviction row, so price bars, chips and footers land on one baseline across a grid row instead of drifting per card
+- `formatVolume` / `formatPnl` bucket on the *rounded* value (`>= 999.5`, not `>= 1_000`) — a volume of 999.6 used to print `$1000` in a column of `$10.0K`s
+- The `BuildBadge` CID chip rests at 45% opacity (full on hover / while publishing) and `<main>` carries `pb-14`, so build provenance stops sitting on top of the last table row
+- Empty states are the CTA: STRAT's "NO TRADERS YET" is a dashed-icon panel with one **BROWSE TRADERS** button, replacing a line of copy that pointed at the panel it sat under
 
 ## Usage
 
@@ -106,6 +134,7 @@ m polymarket/open_orders
 m polymarket/backtest start=0 end=9999999999 strategy=threshold
 m polymarket/scrape interval=60
 m polymarket/scrape_stop
+m polymarket/sync hours=6
 m polymarket/serve
 m polymarket/kill
 m polymarket/status
@@ -204,6 +233,18 @@ A free-text topic filter, finer than the fixed `category` keyword buckets and �
 
 The same `marketQuery` lives on a **strat** (`SavedIndex.marketQuery`, edited via the STRAT panel's **MARKET** box): the backtest preview, the in-browser copy engine (`CopyTrader.shouldMirror`), and the backend live engine (`EngineConfig.marketQuery`) all only act on matching markets, so a strat stays focused on one theme instead of mirroring every fill a watched trader makes. Non-matching trades are still *observed* (visible in the log/rail) but never mirrored.
 
+#### Trader profile — TRADES / P&L / INFO
+
+A trader page (`/traders/<address>`) is three tabs over one filtered flow:
+
+| Tab | What |
+|---|---|
+| **TRADES** | the fill tape, with an ALL / OPEN / CLOSED / POSITIONS view switch |
+| **P&L** | MTM curve, daily activity, biggest win/loss, per-market closed results |
+| **INFO** | address + links, window/sync provenance, buy-sell split, exposure, market mix, and exactly which filters are on |
+
+The **FILTERS** button in the tab bar opens the same bar the TRADES tape uses (`app/components/TradeFilterBar.tsx` — side / entry-price band / USD size band / keyword chips / category buckets). It narrows *everything* on the page: the stat grid, the P&L curve, and every table, so the tabs can never disagree with each other. The side/price/size dimensions are the exact gate a strat copies flow through (`app/lib/tradeFilters.ts`); keywords are a UI-only OR-match on market title + outcome. The bar's gate is skipped entirely when nothing is set — an all-defaults `TradeFilters` would otherwise impose the strat-side 60¢ BUY floor and silently hide half the tape.
+
 ### Caching
 
 Markets/search hit the Polymarket API live (short TTL). Trader data and historical data are **persisted to disk** on first fetch and never re-requested — survives server restarts, no risk of rate limits.
@@ -213,13 +254,37 @@ Markets/search hit the Polymarket API live (short TTL). Trader data and historic
 | **Frontend** (localStorage) | Market search, price history, market trades, positions, wallet trades | Hourly (same-hour = no refetch) | Browser |
 | **Rust proxy** (in-memory) | Markets, events, search | 5 min | Memory only |
 | **Rust proxy** (memory + disk) | Trader activity, positions, price history, market trades, leaderboard | 24h memory / **indefinite on disk** | `/tmp/polymarket-proxy-cache/` |
-| **Pipeline** (memory + disk) | Aggregated active-trader data | 1 hour, warmed in background | `/tmp/polymarket-active-traders-cache/` |
+| **Pipeline** (memory + disk) | Aggregated active-trader data | 1 hour ceiling, re-warmed every 5 min in background | `/tmp/polymarket-active-traders-cache/` |
 
 **Persistent endpoints** (disk-cached on first fetch): `activity`, `positions`, `users/`, `trades`, `v1/` (leaderboard), `holders`, `value`, `prices-history`, `market-trades`
 
 **Ephemeral endpoints** (memory-only, fine to re-hit API): `markets`, `events`, `public-search`, `book`, `midpoint`, `price`
 
 The proxy serves stale cache on upstream errors and sets `x-cache: HIT|MISS|STALE` headers.
+
+### Background sync
+
+The API re-pulls the 1/7/14/30-day trader leaderboards on a timer of its own — **every 5 minutes by default**, running whether or not the console is open (`src/api/src/sync.rs`). Each cycle only re-fetches windows that are actually stale, and a panicking cycle is caught so the schedule survives a bad upstream payload.
+
+5 minutes is the floor and a *start-to-start target*, not a promise: a full sweep of ~6k traders takes 8–10 minutes, so at the default the scheduler effectively never idles and cycles queue back-to-back. That is the intent — maximum freshness — but it keeps steady pressure on the Polymarket data-api, and a trader that gets 429'd mid-sweep drops out of that window until the next pass. Raise the cadence if you'd rather have a quieter upstream than the freshest possible leaderboard; copy trading is unaffected either way, since the live engine polls tracked traders on its own 60s loop.
+
+The **owner** can change that cadence — from the AUTO chip in the TRADERS header, or over the API. It persists to `~/.mod/polymarket/sync.json` (off-tree, per-deployment) and applies immediately: a sleeping scheduler is woken and re-times against the new interval instead of finishing its old sleep. Range: 5 minutes – 7 days.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /sync/status | Cadence, last run + duration, next run, last error |
+| POST | /sync/config | `{enabled?, intervalSecs \| intervalMinutes \| intervalHours}` |
+| POST | /sync/run | Run one cycle now (bypasses the freshness skip) |
+
+```bash
+m polymarket/sync                # current schedule
+m polymarket/sync hours=6        # every 6 hours
+m polymarket/sync minutes=30     # every 30 minutes
+m polymarket/sync enabled=false  # pause
+m polymarket/sync now=true       # run one cycle now
+```
+
+`POLYMARKET_SYNC_INTERVAL_SECS` seeds the cadence on a deployment that has never been configured; after the first owner change, `sync.json` wins.
 
 ### URL Sync
 
@@ -238,6 +303,7 @@ Parameter mapping: `search→q`, `daysAgo→days`, `category→cat`, `marketQuer
 | NEXT_PUBLIC_API_URL | Backend API URL (default http://localhost:50091) |
 | NEXT_PUBLIC_BASE_PATH | Base path for app routing (default /polymarket) |
 | POLYMARKET_PRIVATE_KEY | Wallet private key for trading (Python only) |
+| POLYMARKET_SYNC_INTERVAL_SECS | Initial background-sync cadence (default 300; owner setting in `~/.mod/polymarket/sync.json` overrides) |
 
 ## Mod Protocol
 

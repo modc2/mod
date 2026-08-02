@@ -7,6 +7,7 @@ Time-weighted staking protocol on Base Sepolia. Stake native tokens for blocks, 
 - **Staking** — stake ERC20 tokens with optional block-lock for multiplier boost
 - **Multiplier Curve** — owner-configurable piecewise-linear curve (e.g. 1x → 3x over 100k blocks)
 - **BLOC Token** — ERC20 reward token minted proportional to stake × time × multiplier
+- **Weekly Pot** — rewards collect in a pot (inflation mints into it, anyone can `fundPot`); every Friday at 12:00 EST the whole pot is swept to BLOC holders pro-rata. Permissionless trigger, one payout per week
 - **Unstaking** — withdraw after lock expires, BLOC balance snapshots on unstake
 - **Deploy** — deploy new BlocTime contracts via MetaMask from the app
 - **Fork** — `m bloctime/fork name=x` copies the whole module into orbit/x with its own ports/route
@@ -44,6 +45,12 @@ bt.stake(amount=100, lock_blocks=10000)
 bt.unstake(stake_id=0)
 bt.get_multiplier(block_count=10000)
 bt.get_points()
+
+# weekly pot — Friday 12:00 EST (17:00 UTC)
+bt.pot()                            # pot size, next payout, seconds remaining
+bt.fund_pot(50)                     # add 50 BLOC to this week's pot
+bt.distribute()                     # sweeps the pot; no-ops outside the window
+bt.claim_rewards()                  # take your share
 
 # fork & marketplace
 bt.fork('mybloctime')                       # your own module copy (auto ports, route, basePath)
@@ -108,6 +115,33 @@ The app serves under basePath `/bloctime` → http://localhost:8852/bloctime.
 | POST | /get_multiplier | Multiplier for N lock blocks |
 | POST | /stake | Stake tokens (server-side signer) |
 | POST | /unstake | Unstake by ID (server-side signer) |
+| GET | /pot | Pot size, eligible supply, next/last payout, `due` |
+| POST | /fund_pot | Add BLOC to the pot (server-side signer) |
+| POST | /distribute_rewards | Sweep the pot — 409 outside the weekly window |
+
+## Weekly Pot
+
+Rewards no longer trickle out per epoch. They pool:
+
+- **Inflation** mints into the pot for every completed epoch (halving curve unchanged).
+- **Anyone** can top it up: `fundPot(amount)` moves BLOC from your balance into the pot.
+- **Every Friday at 12:00 EST** (17:00 UTC — the schedule is pinned to EST, so it does
+  not shift with daylight saving) `distributeRewards()` opens. It is permissionless:
+  any caller sweeps the *entire* pot to BLOC holders pro-rata by balance, and the window
+  closes until the next Friday. A missed week doesn't drift the schedule — the payout
+  lands on the window it was called in.
+- Holders claim with `claimRewards()`. Rounding dust stays in the pot for next week.
+
+Nothing calls it for you. Point a keeper at it on any cadence — `distribute()` no-ops
+politely when the window is shut:
+
+```bash
+# hourly is plenty — it no-ops until the window opens
+0 * * * * cd /root/mod/mod/orbit/bloctime && m bloctime/distribute
+```
+
+Contract surface: `rewardPot()`, `distributableSupply()`, `nextDistributionTime()`,
+`distributionDue()`, `getPotInfo()`, `fundPot(uint256)`, `distributeRewards()`.
 
 ## Structure
 
@@ -123,6 +157,7 @@ bloctime/
 ├── app/                    # Next.js frontend (port 8852)
 │   └── src/app/page.tsx    # Staking UI
 ├── scripts/deploy.js       # Hardhat deploy script
+├── test/weekly.test.js     # Weekly pot schedule + payout tests (npx hardhat test)
 ├── hardhat.config.js       # Solidity compiler config
 ├── package.json            # Hardhat dependencies
 ├── docker-compose.yml

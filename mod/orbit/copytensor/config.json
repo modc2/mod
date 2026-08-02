@@ -3,11 +3,11 @@
     "app_port": 3150,
     "archive_pool_size": 6,
     "auto_discover": true,
-    "bt_mirror_max": 25,
+    "bt_mirror_max": 120,
     "bt_url": "http://localhost:50280",
     "cooldown_sec": 60,
     "daily_limit_tao": 100.0,
-    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers; reads served by the bt module's local index (public RPCs as fallback)",
+    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers; the leaderboard and every read are served by the bt module's local index (public RPCs as fallback)",
     "endpoints": {
         "/account/{ss58}": {
             "docs": "Coldkey allocations + N-day PnL",
@@ -54,7 +54,7 @@
             "method": "GET"
         },
         "/leaderboard": {
-            "docs": "Top performers by N-day alpha PnL (?days=7&top=50)",
+            "docs": "Top performers by N-day alpha PnL, ranked out of bt's trader index (?days=7&top=50) \u2014 PnL split into market move vs stake flow",
             "method": "GET"
         },
         "/market": {
@@ -166,7 +166,7 @@
         "forward"
     ],
     "gateway_port": 3001,
-    "leaderboard_pool_size": 100,
+    "leaderboard_pool_size": 1000,
     "leaderboard_workers": 8,
     "max_subnets": 20,
     "max_tao_per_tx": 10.0,
@@ -226,7 +226,7 @@
         "gateway_api": "http://localhost:3001/api/copytensor",
         "gateway_app": "http://localhost:3001/copytensor"
     },
-    "version": "0.3.0",
+    "version": "0.5.0",
     "watched_accounts": [
         "5GsbTgfvgCH4xdqSkiPb7EaBBFLHjWH5vfEALhJaewSFpZX9",
         "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",

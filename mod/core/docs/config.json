@@ -1,12 +1,17 @@
 {
     "name": "docs",
-    "description": "Documentation hub \u2014 protocol doc pages + aggregated module docs + the whitepaper, with a web app at /docs",
-    "version": "0.1.0",
+    "description": "Documentation hub \u2014 protocol doc pages + the whitepaper, with a web app at /docs; the module catalog comes from the hub module",
+    "version": "0.3.0",
+    "deps": [
+        "hub"
+    ],
     "port": 50191,
     "app_port": 50191,
+    "mcp_port": 50192,
     "urls": {
-        "app": "http://localhost:50191/docs"
+        "app": "http://localhost:50191/docs",
+        "mcp": "http://localhost:50191/docs/mcp"
     },
     "base_path": "/docs",
-    "schema": "QmbFUJz5UtXzmp5RBXPweFqWysk4JbbNzjQ4E7aPa6YuDy"
+    "schema": "QmYEHySTH8KBW19ezGL6efNeFydDxMeYnAMzXL7hEM6aLo"
 }

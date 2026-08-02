@@ -1,7 +1,7 @@
 {
     "name": "hyperliquid",
-    "version": "0.3.0",
-    "description": "Hyperliquid full-stack \u2014 backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults",
+    "version": "0.4.0",
+    "description": "Hyperliquid full-stack \u2014 backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server",
     "anchor": "src/mod.py",
     "fns": [
         "forward",
@@ -16,6 +16,13 @@
         "build_cid",
         "publish_build",
         "build_onchain",
+        "mcp",
+        "mcp_tools",
+        "mcp_call",
+        "mcp_config",
+        "strat",
+        "list_strats",
+        "run_strat",
         "top_traders",
         "analyze_trader",
         "leaderboard",
@@ -40,6 +47,7 @@
         "create_vault",
         "vault_transfer",
         "signer_address",
+        "agent_status",
         "approve_agent_intent",
         "trade",
         "cancel",
@@ -61,6 +69,7 @@
         "meta",
         "orderbook",
         "candles",
+        "wallet_config",
         "user_state",
         "user_fills",
         "user_pnl",
@@ -78,9 +87,18 @@
     },
     "layout": {
         "src/mod.py": "Python orchestrator (serve/kill/status/forward, plus typed wrappers for every endpoint)",
-        "src/api/": "Rust REST API (axum, tokio) \u2014 backend agent signer, action signing, /exchange poster, live engine",
+        "src/api/": "Rust REST API (axum, tokio) \u2014 backend agent signer, action signing, /exchange poster, live engine, MCP tool server",
+        "src/api/src/mcp.rs": "MCP tool registry + JSON-RPC dispatch \u2014 one schema for the mod fn surface and the MCP tool list",
         "src/app/": "Next.js 14 app (copy-trade UI, indexes, vaults, live panel)"
     },
-    "schema": "QmPtySMV2ZDapEisu8QTzjvQWNaZgN8KT9kbBsdm32mxSS",
+    "mcp": {
+        "endpoint": "POST /mcp",
+        "schema": "GET /mcp/schema",
+        "transport": "streamable-http (JSON-RPC 2.0, one message per POST) + stdio (`hyperliquid-api --stdio`)",
+        "auth": "optional \u2014 same Authorization: Bearer <mod protocol token> as the REST API; public tools work signed-out",
+        "tool_prefix": "hl_",
+        "docs": "Every MCP tool fronts a mod-protocol fn from `fns` and executes as a loopback call to its REST route, so the auth gate applies unchanged. GET /mcp/schema publishes the tool \u2192 fn \u2192 route mapping."
+    },
+    "schema": "QmNNmais8mBgXpsyxQsdCmB9rXcTivJKXMVep1wKdFzEzF",
     "gateway_port": 3919
 }

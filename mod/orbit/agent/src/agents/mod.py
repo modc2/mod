@@ -25,7 +25,7 @@ import os
 import json
 import time
 import secrets
-import importlib.util
+import types
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 
@@ -42,7 +42,8 @@ except ImportError:  # running the registry standalone
     from src.identity import Identity
 
 # shipped agents — host-owned; anyone else must clone them into a custom agent
-BUILTINS = {"default", "architect", "reviewer", "debugger", "builder", "refactorer", "safety"}
+BUILTINS = {"default", "architect", "reviewer", "debugger", "builder", "refactorer",
+            "safety", "claude-code", "codex", "claude-mod"}
 
 AGENT_TEMPLATE = '''"""{name} agent - {description}"""
 
@@ -53,6 +54,7 @@ class Agent:
     icon = "{icon}"
     skills = {skills}
     model = {model}
+    harness = {harness}
     owner = {owner}
 
     goal = """{goal}"""
@@ -88,10 +90,13 @@ class Agents:
         mod_path = self._dir / name / "mod.py"
         if not mod_path.exists():
             raise KeyError(f"agent not found: {name}")
-        spec = importlib.util.spec_from_file_location(f"agents.{name}", str(mod_path))
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        cls = getattr(mod, "Agent", None)
+        # compiled straight from source, never through __pycache__: two edits
+        # inside the same second that leave the file the same length reuse a
+        # stale .pyc, and an agent that was just updated would read back old
+        module = types.ModuleType(f"agents.{name}")
+        module.__file__ = str(mod_path)
+        exec(compile(mod_path.read_text(), str(mod_path), "exec"), module.__dict__)
+        cls = getattr(module, "Agent", None)
         if cls is None:
             raise AttributeError(f"no Agent class in {name}/mod.py")
         config = {
@@ -101,6 +106,9 @@ class Agents:
             "icon": getattr(cls, "icon", ">_"),
             "skills": getattr(cls, "skills", None),
             "model": getattr(cls, "model", None),
+            # set -> the run is handed to an external CLI (see harness/mod.py)
+            # instead of this module's own loop
+            "harness": getattr(cls, "harness", None),
             "builtin": name in BUILTINS,
             # unowned -> the host owns it
             **self.identity.owner_of(getattr(cls, "owner", None)),
@@ -132,9 +140,23 @@ class Agents:
         return self.identity.can_manage(self._recorded_owner(name), key,
                                         builtin=name in BUILTINS)
 
+    @staticmethod
+    def _check_harness(harness: Optional[str]) -> Optional[str]:
+        """Validate a harness name against the installed runners."""
+        if not harness:
+            return None
+        try:
+            from ..harness.mod import Harness
+        except ImportError:  # registry running standalone — trust the caller
+            return harness
+        h = Harness()
+        if not h.exists(harness):
+            raise ValueError(f"unknown harness: {harness} (have: {', '.join(h.names())})")
+        return harness
+
     def create(self, name: str, description: str = "", goal: str = "",
                icon: str = ">_", skills: list = None, model: str = None,
-               key: str = None) -> Dict[str, Any]:
+               harness: str = None, key: str = None) -> Dict[str, Any]:
         """Create a new agent locally in agents/ directory.
 
         Signed-in callers only — the agent is filed under the address that
@@ -147,9 +169,12 @@ class Agents:
             icon: display icon
             skills: optional list of skill names to restrict to
             model: optional model override
+            harness: external CLI to hand the run to ('claude', 'codex'), or
+                     None to run on this module's own loop
             key: caller auth token — the resolved address becomes the owner
         """
         name = name.lower().replace(" ", "-").replace("_", "-")
+        harness = self._check_harness(harness)
         self.identity.require_signed_in(key, f"create agent: {name}")
         agent_dir = self._dir / name
         if agent_dir.exists():
@@ -165,6 +190,7 @@ class Agents:
             icon=icon,
             skills=repr(skills) if skills else "None",
             model=repr(model) if model else "None",
+            harness=repr(harness) if harness else "None",
             owner=repr(owner) if owner else "None",
             goal=goal or f"You are a {label} agent.",
         )
@@ -177,13 +203,13 @@ class Agents:
 
     def update(self, name: str, description: str = None, goal: str = None,
                icon: str = None, skills: list = ..., model: str = ...,
-               key: str = None) -> Dict[str, Any]:
+               harness: str = ..., key: str = None) -> Dict[str, Any]:
         """Update an agent in place. The owner or the host may edit it —
         for everyone else built-ins are read-only, so clone them instead.
 
         Only the fields passed are changed; the rest keep their current value.
-        skills/model use `...` as the not-passed sentinel so an explicit None
-        can clear them (None = all skills / default model).
+        skills/model/harness use `...` as the not-passed sentinel so an explicit
+        None can clear them (None = all skills / default model / own loop).
         """
         name = name.lower().replace(" ", "-").replace("_", "-")
         agent_dir = self._dir / name
@@ -194,6 +220,7 @@ class Agents:
         current = self.get(name)
         new_skills = current.get("skills") if skills is ... else skills
         new_model = current.get("model") if model is ... else model
+        new_harness = current.get("harness") if harness is ... else self._check_harness(harness)
         label = name.replace("-", " ").title()
         content = AGENT_TEMPLATE.format(
             name=name,
@@ -202,6 +229,7 @@ class Agents:
             icon=icon if icon is not None else current.get("icon", ">_"),
             skills=repr(new_skills) if new_skills else "None",
             model=repr(new_model) if new_model else "None",
+            harness=repr(new_harness) if new_harness else "None",
             # an edit never transfers ownership
             owner=repr(self._recorded_owner(name)) if self._recorded_owner(name) else "None",
             goal=goal if goal is not None else (current.get("goal") or f"You are a {label} agent."),
@@ -226,7 +254,8 @@ class Agents:
 
     def _build_config(self, name: str = None, description: str = None,
                       goal: str = None, icon: str = ">_", skills: list = None,
-                      model: str = None, memory: str = None) -> Dict[str, Any]:
+                      model: str = None, memory: str = None,
+                      harness: str = None) -> Dict[str, Any]:
         """Build an agent config dict from name/overrides."""
         config = {}
         if name and name in self.ls():
@@ -246,6 +275,8 @@ class Agents:
             config["icon"] = icon
         if memory is not None:
             config["memory"] = memory
+        if harness is not None:
+            config["harness"] = harness
         if name:
             config["name"] = name
 
@@ -255,7 +286,7 @@ class Agents:
 
     def save(self, name: str = None, description: str = None, goal: str = None,
              icon: str = ">_", skills: list = None, model: str = None,
-             memory: str = None, private: bool = False,
+             memory: str = None, harness: str = None, private: bool = False,
              provider_key: str = None, client_key: str = None,
              key: str = None) -> Dict[str, Any]:
         """Save an agent definition as a JSON CID on localfs.
@@ -287,7 +318,7 @@ class Agents:
             raise RuntimeError("mod framework required for CID storage")
 
         config = self._build_config(name, description, goal, icon,
-                                    skills, model, memory)
+                                    skills, model, memory, harness)
 
         if private:
             return self._save_private(config, provider_key, client_key)
@@ -416,6 +447,7 @@ class Agents:
             icon=data.get("icon", ">_"),
             skills=data.get("skills"),
             model=data.get("model"),
+            harness=data.get("harness"),
             key=key,
         )
 
@@ -510,6 +542,7 @@ class Agents:
                 icon=kwargs.get("icon", ">_"),
                 skills=kwargs.get("skills"),
                 model=kwargs.get("model"),
+                harness=kwargs.get("harness"),
                 key=kwargs.get("key"),
             )
         if action == "update":
@@ -520,6 +553,7 @@ class Agents:
                 icon=kwargs.get("icon"),
                 skills=kwargs.get("skills", ...),
                 model=kwargs.get("model", ...),
+                harness=kwargs.get("harness", ...),
                 key=kwargs.get("key"),
             )
         if action == "remove":
@@ -533,6 +567,7 @@ class Agents:
                 skills=kwargs.get("skills"),
                 model=kwargs.get("model"),
                 memory=kwargs.get("memory"),
+                harness=kwargs.get("harness"),
                 private=kwargs.get("private", False),
                 provider_key=kwargs.get("provider_key"),
                 client_key=kwargs.get("client_key"),

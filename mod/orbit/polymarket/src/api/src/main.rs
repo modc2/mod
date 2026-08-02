@@ -98,6 +98,7 @@ async fn main() -> anyhow::Result<()> {
     let user_strats = Arc::new(polymarket_api::UserStratStore::new());
     let share = polymarket_api::ShareStore::from_env();
     tracing::info!(backend = %share.label(), "strat share store");
+    let sync = polymarket_api::SyncSchedule::from_env();
     let state = AppState {
         http: http.clone(),
         proxy_cache: proxy_cache.clone(),
@@ -107,35 +108,51 @@ async fn main() -> anyhow::Result<()> {
         engines,
         user_strats,
         share,
+        sync: sync.clone(),
     };
 
-    // Background warmup: traders pipeline. HOURLY cadence — re-warming the
-    // 1D/7D/14D/30D leaderboards (~6k traders) every minute was the dominant
-    // source of data-api rate-limiting (429s). The leaderboard is slow-moving
-    // (30d Sharpe barely shifts minute-to-minute), so a ~1h refresh is plenty;
-    // the live engine polls the user's tracked traders separately at 60s, so
-    // copy responsiveness is unaffected. Paired with the 1h `AGG_TTL` in
-    // cache.rs so warmed entries stay valid between cycles instead of expiring
-    // after 60s and triggering on-demand refetches. Each cycle still only
-    // re-fetches expired entries, so steady-state load stays proportional to
-    // the candidate pool size (default 2000 traders).
+    // Background warmup: traders pipeline. 5-MINUTE cadence by default — the
+    // freshest schedule the sweep can absorb, and deliberately aggressive: a
+    // full 1D/7D/14D/30D pass over ~6k traders takes 8–10 min, so in practice
+    // cycles run back-to-back and the effective cadence is the cycle duration.
+    // Expect steady data-api 429s at this setting; individual traders that get
+    // rate-limited drop out of a window and reappear on the next pass. Raising
+    // the interval (AUTO chip / `/sync/config`) buys a quieter upstream and a
+    // scheduler that actually idles. Copy responsiveness never depended on
+    // this: the live engine polls the user's tracked traders separately at 60s.
+    // Paired with the 1h `AGG_TTL` in cache.rs, which is now an upper bound
+    // rather than a match — warmed entries are replaced long before they
+    // expire. Each cycle still only re-fetches windows past
+    // `resync_after_secs`, so a restart loop can't multiply the load.
     //
-    // Cadence guarantee: ticks are start-to-start (tokio interval), not
-    // sleep-after-work — the old pattern drifted to 1h + cycle duration.
-    // Each cycle is panic-guarded so one bad upstream payload can't kill
-    // the task and silently stop historical syncs for good.
+    // The cadence is OWNER-SETTABLE (sync.rs): `wait_for_next_run` schedules
+    // start-to-start off the persisted interval — never sleep-after-work, which
+    // drifted to interval + cycle duration — and wakes early when the owner
+    // changes the schedule or presses SYNC NOW. Each cycle is panic-guarded so
+    // one bad upstream payload can't kill the task and silently stop syncs.
     let warmup_pipeline = pipeline.clone();
+    let warmup_sync = sync.clone();
     tokio::spawn(async move {
         use futures::FutureExt;
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        let mut tick = tokio::time::interval(std::time::Duration::from_secs(3600));
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
-            tick.tick().await;
-            let cycle = warmup_pipeline.warmup_cycle();
-            if std::panic::AssertUnwindSafe(cycle).catch_unwind().await.is_err() {
-                tracing::error!("warmup cycle panicked; next sync in 1h");
+            let trigger = warmup_sync.wait_for_next_run().await;
+            // A manual "sync now" bypasses the freshness skip entirely (0) —
+            // the owner asked for fresh data, not for a no-op cycle.
+            let min_age = match trigger {
+                polymarket_api::sync::Trigger::Manual => 0,
+                polymarket_api::sync::Trigger::Scheduled => warmup_sync.resync_after_secs(),
+            };
+            warmup_sync.mark_started(trigger);
+            let cycle = warmup_pipeline.warmup_cycle(min_age);
+            let panicked = std::panic::AssertUnwindSafe(cycle).catch_unwind().await.is_err();
+            if panicked {
+                tracing::error!(
+                    interval_secs = warmup_sync.interval_secs(),
+                    "warmup cycle panicked; retrying on the next scheduled sync",
+                );
             }
+            warmup_sync.mark_finished(panicked.then(|| "cycle panicked".to_string()));
             // Hand the cycle's burst heap back to the OS. Parsing thousands
             // of trader activity pages allocates GBs that glibc otherwise
             // keeps in its arenas forever — RSS sat pinned at the ~11GB

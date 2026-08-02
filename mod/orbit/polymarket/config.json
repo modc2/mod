@@ -20,6 +20,7 @@
         "trending",
         "events",
         "active_traders",
+        "sync",
         "forward"
     ],
     "endpoints": {
@@ -46,6 +47,18 @@
         "/active-traders": {
             "method": "GET",
             "docs": "Active traders pipeline (streaming/paged/json)"
+        },
+        "/sync/status": {
+            "method": "GET",
+            "docs": "Background sync schedule: cadence, last run, next run, last error"
+        },
+        "/sync/config": {
+            "method": "POST",
+            "docs": "Owner sets the sync cadence: {enabled?, intervalSecs|intervalMinutes|intervalHours} (5min\u20137d); persists to ~/.mod/polymarket/sync.json"
+        },
+        "/sync/run": {
+            "method": "POST",
+            "docs": "Run one background sync cycle now (bypasses the freshness skip)"
         },
         "/?endpoint=markets": {
             "method": "GET",
@@ -76,6 +89,6 @@
             "docs": "Import a strat by CID as a private copy you own"
         }
     },
-    "schema": "QmekoQcn4MrjvW757N1dv9xYJiSDDK1tiJYZjCqbLh1dec",
+    "schema": "QmTu2XxuDfgqCCAQbTuH5bTxrHmbdoaVsA1Qj3D3LBgfTo",
     "gateway_port": 3091
 }

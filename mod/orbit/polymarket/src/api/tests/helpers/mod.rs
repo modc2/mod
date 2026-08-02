@@ -8,6 +8,13 @@ use tower_http::cors::{Any, CorsLayer};
 use polymarket_api::{AppState, ProxyCache, PipelineState};
 
 pub fn test_app() -> Router {
+    // Keep owner state (sync cadence, secrets) out of the real ~/.mod dir —
+    // a test run must never rewrite the deployment's schedule.
+    std::env::set_var(
+        "POLYMARKET_ACCESS_DIR",
+        std::env::temp_dir().join("polymarket-test-state"),
+    );
+
     let http = reqwest::Client::builder()
         .pool_max_idle_per_host(16)
         .timeout(std::time::Duration::from_secs(30))
@@ -34,6 +41,7 @@ pub fn test_app() -> Router {
         engines,
         user_strats,
         share,
+        sync: polymarket_api::SyncSchedule::from_env(),
     };
 
     let cors = CorsLayer::new()

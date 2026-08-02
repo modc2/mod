@@ -1,17 +1,18 @@
 "use client";
 
 // Upload + manage user-written strats (mod.py / mod.rs) AND share them.
+// Rendered as the STRAT → MARKET subtab (CopyIndex).
 //
 // The Polymarket engine ships a Python `Strat` base class in
 // `src/strats/base.py` plus a reference `copytrader.py`. This panel has
 // three sections:
-//   1. MY STRATS   — your uploads. Make each public/private, download,
-//                    delete, view source. Public ones appear in every
-//                    trader's community gallery.
-//   2. UPLOAD      — stage a new strat (file or paste) with a title +
+//   1. MARKET      — every public strat, from any trader. Fork one into
+//                    your own list (lineage tracked) and tweak, or pull a
+//                    strat in by CID. Opens here.
+//   2. MY STRATS   — your uploads. Make each public/private, download,
+//                    delete, view source. Public ones list in the market.
+//   3. UPLOAD      — stage a new strat (file or paste) with a title +
 //                    description, optionally publishing immediately.
-//   3. COMMUNITY   — public strats shared by other traders. Fork any of
-//                    them into your own list (lineage tracked) and tweak.
 //
 // Ownership is keyed on the connected wallet (`eoa`). The actual runtime
 // that loads + executes uploaded code is a follow-up — for now this gives
@@ -86,7 +87,10 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
   const [community, setCommunity] = useState<UserStratEntry[]>([]);
   // Toggle between managing your own strats (upload/publish/fork) and the
   // community hub (observe/fork other traders' public strats).
-  const [hubTab, setHubTab] = useState<"mine" | "hub">("mine");
+  // Opens on the MARKET side: this panel is reached from the STRAT →
+  // MARKET subtab, so the gallery of other traders' strats is the point of
+  // arrival; MY STRATS is one click away for publishing your own.
+  const [hubTab, setHubTab] = useState<"mine" | "hub">("hub");
 
   // Upload form
   const [id, setId] = useState("");
@@ -353,18 +357,18 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     <div className="pixel-panel border-2 border-pixel-border p-3 space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs uppercase tracking-wide text-pixel-muted">
-          Strategy Hub
+          Strat Market
         </span>
         <span className="text-[10px] text-pixel-muted">
           Upload, publish, and fork copy-trading strats.
         </span>
       </div>
 
-      {/* ── Tabs: MY STRATS (upload/manage) vs HUB (community/fork) ── */}
+      {/* ── Tabs: MARKET (community/fork/import) vs MY STRATS (upload/manage) ── */}
       <div className="flex border-b border-pixel-border/60">
         {([
+          ["hub", `Market${community.length ? ` (${community.length})` : ""}`],
           ["mine", `My Strats${mine.length ? ` (${mine.length})` : ""}`],
-          ["hub", `Hub${community.length ? ` (${community.length})` : ""}`],
         ] as const).map(([id, label]) => (
           <button
             key={id}
@@ -461,7 +465,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
                     </button>
                   </div>
                   <div className="text-[9px] text-pixel-muted">
-                    Anyone can pull this strat in via <b>Hub → Import by CID</b>. The
+                    Anyone can pull this strat in via <b>Market → Import by CID</b>. The
                     CID is content-addressed, so it also resolves on any
                     IPFS-compatible store.
                   </div>
@@ -558,7 +562,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
       {status && <div className="text-xs text-green-400 font-mono break-all">{status}</div>}
       {error && <div className="text-xs text-red-400 font-mono break-all">{error}</div>}
 
-      {/* ── IMPORT BY CID (Hub tab) ── */}
+      {/* ── IMPORT BY CID (Market tab) ── */}
       {hubTab === "hub" && (
       <div className="border border-blue-400/30 bg-blue-400/[0.03] rounded p-2 space-y-1.5">
         <div className="text-[10px] uppercase tracking-wide text-blue-300/80">
@@ -594,7 +598,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
       </div>
       )}
 
-      {/* ── COMMUNITY GALLERY (Hub tab) ── */}
+      {/* ── COMMUNITY GALLERY (Market tab) ── */}
       {hubTab === "hub" && (
       <div className="border border-pixel-border rounded p-2 space-y-1.5">
         <div className="flex items-center justify-between">
@@ -764,7 +768,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
             <b>Sharing (anywhere) via CID:</b> hit <b>⇪ Share</b> on one of your
             strats to publish it to a content-addressable store (localfs by
             default) and get back a <b>CID</b>. Send that CID to anyone — they
-            paste it into <b>Hub → Import by CID</b> to pull the strat in as a
+            paste it into <b>Market → Import by CID</b> to pull the strat in as a
             private copy they own. The CID is content-addressed (IPFS-compatible),
             so it works across deploys and resolves on any IPFS-compatible store
             — point <code className="font-mono">POLYMARKET_SHARE_URL</code> at a

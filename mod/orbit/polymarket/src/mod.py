@@ -43,7 +43,7 @@ class Polymarket(m.Mod):
     fns = [
         "serve", "kill", "status", "build", "logs", "test",
         "search", "markets", "trending", "events",
-        "active_traders", "forward",
+        "active_traders", "sync", "forward",
         "build_cid", "publish_build", "build_onchain",
     ]
 
@@ -513,6 +513,44 @@ class Polymarket(m.Mod):
         # call returns the pre-aggregated payload instantly instead of
         # forcing a fresh multi-minute pipeline run.
         return self._get("/active-traders", days=str(days), pool=str(pool))
+
+    # ── background sync schedule ─────────────────────────────────
+
+    def sync(self, hours: Optional[float] = None, minutes: Optional[float] = None,
+             enabled: Optional[bool] = None, now: bool = False) -> Any:
+        """Show or set the background sync cadence (default: every 5 minutes).
+
+        m polymarket/sync                  → current schedule + last/next run
+        m polymarket/sync hours=6          → re-warm the leaderboards every 6h
+        m polymarket/sync minutes=30       → …every 30 minutes (5min floor)
+        m polymarket/sync enabled=false    → pause auto-sync
+        m polymarket/sync now=true         → run one cycle right now
+        """
+        headers = {}
+        tok = os.environ.get("POLYMARKET_ACCESS_TOKEN")
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+
+        if now:
+            r = requests.post(f"{self.api_url}/sync/run", headers=headers, timeout=30)
+            r.raise_for_status()
+            return r.json()
+
+        body = {}
+        if hours is not None:
+            body["intervalHours"] = float(hours)
+        if minutes is not None:
+            body["intervalMinutes"] = float(minutes)
+        if enabled is not None:
+            body["enabled"] = enabled if isinstance(enabled, bool) else str(enabled).lower() == "true"
+        if not body:
+            return self._get("/sync/status")
+
+        r = requests.post(f"{self.api_url}/sync/config", json=body, headers=headers, timeout=30)
+        if r.status_code == 400:
+            return {"ok": False, **r.json()}
+        r.raise_for_status()
+        return r.json()
 
     # ── test ──────────────────────────────────────────────────────
 

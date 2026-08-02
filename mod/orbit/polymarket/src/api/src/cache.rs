@@ -21,11 +21,12 @@ pub struct ProxyCache {
     disk_dir: PathBuf,
 }
 
-/// Freshness window for trader activity/trades (seconds). Matches the hourly
-/// warmup cadence in main.rs and `AGG_TTL` below: warmed entries stay valid for
-/// the full hour instead of expiring early and forcing an on-demand data-api
-/// refetch (the dominant 429 source). The live copy engine does NOT use this
-/// cache — it fetches data-api directly at its own 60s cadence — so copy
+/// Freshness window for trader activity/trades (seconds). An upper bound, not a
+/// match, now that the background warmup runs every 5 min by default (main.rs):
+/// warmed entries stay valid for up to an hour instead of expiring early and
+/// forcing an on-demand data-api refetch (the dominant 429 source) — in
+/// practice a warmup cycle replaces them first. The live copy engine does NOT
+/// use this cache — it fetches data-api directly at its own 60s cadence — so copy
 /// responsiveness is unaffected by this window.
 const FRESHNESS_TTL_SECS: u64 = 3600;
 
@@ -101,7 +102,7 @@ impl ProxyCache {
     /// Trader trade/activity endpoints persist to disk (survive restarts) but
     /// memory-cache for only `FRESHNESS_TTL_SECS` (1h), not 24h. This bounds how
     /// stale a trader's activity can get while still letting it survive between
-    /// hourly warmup cycles. Markets/holders/historical data still cache for 24h
+    /// warmup cycles. Markets/holders/historical data still cache for 24h
     /// — those don't churn meaningfully.
     fn is_freshness_critical(endpoint: &str) -> bool {
         let ep = endpoint.to_lowercase();
@@ -128,9 +129,9 @@ impl ProxyCache {
 
     pub fn set(&self, key: String, data: Value, ttl: Duration, endpoint: &str) {
         let persist = Self::is_persistent(endpoint);
-        // Trader trade/activity entries get a 1-hour memory TTL (matching the
-        // hourly warmup) so on-demand browse requests hit the warmed cache
-        // instead of refetching data-api every minute.
+        // Trader trade/activity entries get a 1-hour memory TTL (an upper bound
+        // on the warmup cadence) so on-demand browse requests hit the warmed
+        // cache instead of refetching data-api every minute.
         let mem_ttl = if persist {
             Self::persist_freshness(endpoint)
         } else {
@@ -228,9 +229,11 @@ impl ProxyCache {
     }
 }
 
-// ─── Pipeline Cache (Memory + Disk, hourly) ───
+// ─── Pipeline Cache (Memory + Disk, 1h ceiling) ───
 
-// 1 hour — matches the hourly warmup cadence in main.rs. The aggregated
+// 1 hour — the ceiling on leaderboard staleness when the background warmup is
+// paused or falling behind; on the default 5-min cadence a fresh cycle
+// overwrites these entries long before the TTL matters. The aggregated
 // leaderboard (30d trader Sharpe/ROI) is slow-moving, so serving it from
 // cache for an hour avoids re-pulling ~6k traders from the data-api on every
 // on-demand request (the old 60s TTL was a major 429 source).

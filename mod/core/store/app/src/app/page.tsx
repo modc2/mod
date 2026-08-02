@@ -12,6 +12,15 @@ import {
   shortAddress,
 } from "@/lib/wallet";
 import {
+  createLocalKey,
+  exportLocalKey,
+  forgetLocalKey,
+  hasLocalKey,
+  importLocalKey,
+  loadLocalKey,
+  localSign,
+} from "@/lib/localKey";
+import {
   api,
   ApiError,
   BackendStatus,
@@ -31,9 +40,13 @@ import { storageGet, storageRemove, storageSet } from "@/lib/safeStorage";
 
 const TOKEN_KEY = "store:token";
 const ADDR_KEY = "store:addr";
+const MODE_KEY = "store:mode";
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
 type View = "market" | "files" | "add" | "shared" | "pins" | "pools" | "backends" | "status";
+
+/** How the session was signed: an injected wallet, or a key this browser holds. */
+type SignInMode = "wallet" | "local";
 
 /* storage backends surfaced in the UI — 'both' fans out to filecoin+hippius */
 const UPLOAD_BACKENDS = ["localfs", "filecoin", "hippius", "lighthouse", "both"] as const;
@@ -163,9 +176,19 @@ const WalletIcon = () => (
   </svg>
 );
 
+const KeyIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <circle cx="8" cy="15" r="4" />
+    <path d="M10.9 12.1 20 3" />
+    <path d="M17 6l2.5 2.5" />
+  </svg>
+);
+
 export default function Page() {
   const router = useRouter();
   const [hasWallet, setHasWallet] = useState(false);
+  const [hasLocal, setHasLocal] = useState(false);
+  const [mode, setMode] = useState<SignInMode>("wallet");
   const [address, setAddress] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
@@ -205,6 +228,7 @@ export default function Page() {
   const [ticketFor, setTicketFor] = useState<StoredObject | null>(null);
   const [infoFor, setInfoFor] = useState<string | null>(null);
   const [linkPhone, setLinkPhone] = useState<{ code: string; expires: number } | null>(null);
+  const [showLocalKey, setShowLocalKey] = useState(false);
   const [openPool, setOpenPool] = useState<PoolDetail | null>(null);
   const [termsDoc, setTermsDoc] = useState<TermsResponse | null>(null);
 
@@ -224,17 +248,30 @@ export default function Page() {
   // Storing requires a wallet-signed acceptance of the current terms of service.
   const termsSigned = me?.terms ? me.terms.accepted : true;
 
-  const applySession = useCallback((t: string, r: MeResponse) => {
+  const applySession = useCallback((t: string, r: MeResponse, how: SignInMode = "wallet") => {
     storageSet(TOKEN_KEY, t);
     storageSet(ADDR_KEY, r.address);
+    storageSet(MODE_KEY, how);
     setToken(t);
     setAddress(r.address);
     setMe(r);
+    setMode(how);
   }, []);
+
+  /** Sign a fresh session with the browser-held key. No prompt, no wallet. */
+  const localSession = useCallback(async () => {
+    const w = loadLocalKey();
+    if (!w) return false;
+    const t = await buildModToken(w.address, { domain: window.location.host, scope: "store" }, localSign);
+    applySession(t, await api.me(t), "local");
+    setHasLocal(true);
+    return true;
+  }, [applySession]);
 
   // claim a QR handoff (?claim=code)
   useEffect(() => {
     setHasWallet(hasMetaMask());
+    setHasLocal(hasLocalKey());
     api.status().then(setServiceStatus).catch(() => setSvcDown(true));
 
     const url = new URL(window.location.href);
@@ -257,23 +294,28 @@ export default function Page() {
       return;
     }
     const t = storageGet(TOKEN_KEY);
+    const savedMode = (storageGet(MODE_KEY) as SignInMode) || "wallet";
     if (t) {
       api
         .me(t)
-        .then((r) => applySession(t, r))
-        .catch((e) => {
+        .then((r) => applySession(t, r, savedMode))
+        .catch(async (e) => {
           // Only forget the session when the API actually rejected it — an
           // outage (404/5xx) must not silently sign the user out.
           const st = (e as ApiError).status;
-          if (st === 401 || st === 403) {
-            storageRemove(TOKEN_KEY);
-            storageRemove(ADDR_KEY);
-          } else {
+          if (st !== 401 && st !== 403) {
             setError(errorText(e));
+            return;
           }
+          // A local key can re-sign without a prompt, so an expired session
+          // renews itself instead of bouncing the user to the sign-in screen.
+          if (savedMode === "local" && (await localSession().catch(() => false))) return;
+          storageRemove(TOKEN_KEY);
+          storageRemove(ADDR_KEY);
+          storageRemove(MODE_KEY);
         });
     }
-  }, [applySession]);
+  }, [applySession, localSession]);
 
   const refreshFiles = useCallback(async (t: string) => {
     try {
@@ -342,7 +384,7 @@ export default function Page() {
       const t = await buildModToken(addr, { domain: window.location.host, scope: "store" });
       setBusy("verifying…");
       const r = await api.me(t);
-      applySession(t, r);
+      applySession(t, r, "wallet");
       setSuccess(r.authorized ? `signed in${r.admin ? " as admin" : ""}` : "signed in — not whitelisted to store");
     } catch (e) {
       setError(errorText(e));
@@ -351,15 +393,47 @@ export default function Page() {
     }
   };
 
+  /** Sign in with a browser-held keypair — minted on first use. */
+  const signInLocal = async () => {
+    setError(null);
+    const fresh = !hasLocalKey();
+    setBusy(fresh ? "creating a local key…" : "signing in…");
+    try {
+      if (fresh) {
+        const { persisted } = createLocalKey();
+        if (!persisted) {
+          setError(
+            "this browser wouldn't save the key (private mode or full storage) — back it up before you store anything, or it's gone when the tab closes"
+          );
+        }
+      }
+      await localSession();
+      setSuccess(
+        fresh
+          ? "local account created — back up the key before you store anything"
+          : "signed in with this browser's key"
+      );
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Ends the session but keeps the local key — signing back in is one click.
+  // Destroying the key is a separate, spelled-out action in the key modal.
   const signOut = () => {
     storageRemove(TOKEN_KEY);
     storageRemove(ADDR_KEY);
+    storageRemove(MODE_KEY);
     setToken(null);
     setMe(null);
     setObjects([]);
     setSharedObjects([]);
     setPools([]);
     setPins([]);
+    setShowLocalKey(false);
+    setHasLocal(hasLocalKey());
   };
 
   const upload = async () => {
@@ -575,15 +649,24 @@ export default function Page() {
               <BookIcon />
             </Link>
             <ThemeToggle />
-            {!hasWallet && !token && (
-              <span className="id-chip idle">
-                <span className="dot warn" />
-                <span className="muted" style={{ fontSize: 12.5 }}>MetaMask not detected</span>
-              </span>
-            )}
-            {hasWallet && !token && (
+            {!token && hasWallet && (
               <button className="primary" onClick={signIn} disabled={!!busy}>
                 <span className="btn-ico"><WalletIcon /></span> Sign in with wallet
+              </button>
+            )}
+            {!token && (
+              <button
+                className={hasWallet ? "ghost" : "primary"}
+                onClick={signInLocal}
+                disabled={!!busy}
+                title={
+                  hasLocal
+                    ? "Sign in with the key already stored in this browser"
+                    : "Create a keypair in this browser — no wallet extension needed"
+                }
+              >
+                <span className="btn-ico"><KeyIcon /></span>
+                {hasLocal ? "Sign in with local key" : hasWallet ? "Use a local key" : "Continue without a wallet"}
               </button>
             )}
             {token && address && (
@@ -595,6 +678,7 @@ export default function Page() {
                 {!me?.admin && me?.via === "bloctime" && <span className="pill bloctime">⏱ bloctime</span>}
                 {!me?.admin && me?.via !== "bloctime" && me?.authorized && <span className="pill">member</span>}
                 {me && !me.authorized && <span className="pill private">view-only</span>}
+                {mode === "local" && <span className="pill">local key</span>}
                 <button
                   className="id-addr"
                   title={`${address} — click to copy`}
@@ -603,6 +687,15 @@ export default function Page() {
                   {copied === "hdr-addr" ? "✓ copied" : shortAddress(address)}
                 </button>
                 <span className="id-sep" />
+                {mode === "local" && (
+                  <button
+                    className="ghost icon"
+                    onClick={() => setShowLocalKey(true)}
+                    title="Local key — back it up, import another, or forget it"
+                  >
+                    <KeyIcon />
+                  </button>
+                )}
                 <button className="ghost icon" onClick={startLinkPhone} disabled={!!busy} title="Link a phone — QR sign-in, no wallet needed">
                   <PhoneIcon />
                 </button>
@@ -677,6 +770,12 @@ export default function Page() {
             Access is restricted to the <strong>mod owner</strong> and on-chain <strong>BlocTime</strong> holders.
             Sign in with your wallet to check your access — holding BlocTime grants entry automatically, no
             whitelisting needed.
+          </p>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            No wallet extension? <strong>{hasLocal ? "Sign in with local key" : "Continue without a wallet"}</strong>{" "}
+            {hasLocal ? "uses the keypair already in this browser" : "mints a keypair right here in your browser"} — it
+            signs the same way a wallet does, so you can browse the market and hold an address immediately. Back the key
+            up from the 🔑 button once you&apos;re in; clearing site data destroys it.
           </p>
         </div>
       )}
@@ -961,6 +1060,32 @@ export default function Page() {
       {ticketFor && token && <TicketModal token={token} object={ticketFor} onClose={() => setTicketFor(null)} setError={setError} />}
       {infoFor && token && <InfoModal token={token} cid={infoFor} onClose={() => setInfoFor(null)} onNavigate={setInfoFor} />}
       {linkPhone && <LinkPhoneModal data={linkPhone} onClose={() => setLinkPhone(null)} />}
+      {showLocalKey && address && (
+        <LocalKeyModal
+          address={address}
+          copied={copied}
+          onCopy={copyText}
+          onClose={() => setShowLocalKey(false)}
+          onImported={async () => {
+            setShowLocalKey(false);
+            setBusy("switching key…");
+            try {
+              await localSession();
+              setSuccess("signed in with the imported key");
+            } catch (e) {
+              setError(errorText(e));
+            } finally {
+              setBusy(null);
+            }
+          }}
+          onForget={() => {
+            forgetLocalKey();
+            signOut();
+            setSuccess("local key erased from this browser");
+          }}
+          setError={setError}
+        />
+      )}
       {termsDoc && token && (
         <Modal title={`Terms of service — v${termsDoc.version}`} onClose={() => setTermsDoc(null)}>
           <div className="terms-text">
@@ -1688,6 +1813,93 @@ function ShareModal({
             <button onClick={() => revoke(g.id)} disabled={busy}>revoke</button>
           </div>
         ))}
+      </div>
+    </Modal>
+  );
+}
+
+/* ──────────────────────────── local key modal ─────────────────────────── */
+
+function LocalKeyModal({
+  address, copied, onCopy, onClose, onImported, onForget, setError,
+}: {
+  address: string;
+  copied: string | null;
+  onCopy: (s: string, tag: string) => void;
+  onClose: () => void;
+  onImported: () => void;
+  onForget: () => void;
+  setError: (s: string) => void;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const [importPk, setImportPk] = useState("");
+  const [confirmForget, setConfirmForget] = useState(false);
+  const pk = revealed ? exportLocalKey() : null;
+
+  const doImport = () => {
+    try {
+      importLocalKey(importPk);
+      onImported();
+    } catch {
+      setError("that doesn't look like a private key — expect 64 hex characters");
+    }
+  };
+
+  return (
+    <Modal title="Local key" onClose={onClose}>
+      <p className="muted" style={{ marginTop: 0 }}>
+        This account lives in <strong>this browser</strong> — no extension, no server copy. It signs every request the
+        same way a wallet would, but nothing else protects it: anyone using this browser profile can act as{" "}
+        <code>{shortAddress(address)}</code>, and clearing site data erases it for good.
+      </p>
+
+      <h3 className="panel-title">Back it up</h3>
+      <div className="col">
+        {!revealed ? (
+          <button onClick={() => setRevealed(true)}>Reveal private key</button>
+        ) : (
+          <>
+            <input type="text" readOnly value={pk ?? ""} onFocus={(e) => e.currentTarget.select()} />
+            <div className="row">
+              <button className="primary" onClick={() => pk && onCopy(pk, "localpk")}>
+                {copied === "localpk" ? "✓ copied" : "Copy key"}
+              </button>
+              <button onClick={() => setRevealed(false)}>Hide</button>
+            </div>
+            <p className="muted hint">
+              Store it somewhere only you can read. Whoever holds this key owns everything stored under the address.
+            </p>
+          </>
+        )}
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <h3 className="panel-title">Use a different key</h3>
+        <div className="col">
+          <input
+            type="password"
+            placeholder="paste a private key to restore"
+            value={importPk}
+            onChange={(e) => setImportPk(e.target.value)}
+          />
+          <div className="row">
+            <button className="primary" onClick={doImport} disabled={!importPk.trim()}>Import &amp; sign in</button>
+          </div>
+          <p className="muted hint">Replaces the key in this browser — back up the current one first.</p>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <h3 className="panel-title">Forget this key</h3>
+        {!confirmForget ? (
+          <button onClick={() => setConfirmForget(true)}>Erase from this browser</button>
+        ) : (
+          <div className="row">
+            <span className="muted">Without a backup this is permanent.</span>
+            <button className="primary" onClick={onForget}>Erase it</button>
+            <button onClick={() => setConfirmForget(false)}>Cancel</button>
+          </div>
+        )}
       </div>
     </Modal>
   );

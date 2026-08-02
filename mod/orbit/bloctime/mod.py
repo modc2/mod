@@ -14,6 +14,9 @@ Usage:
   m.fn('bloctime/distribute')()
   m.fn('bloctime/claim_rewards')()
   m.fn('bloctime/fork')(name='mybloctime')       # your own copy of the module
+  m.fn('bloctime/compile_contract')(path='contracts/MyToken.sol')
+  m.fn('bloctime/deploy_contract')(path='contracts/MyToken.sol', args=[1000])
+  m.fn('bloctime/deployments')()                 # what you have deployed here
   m.fn('bloctime/market')()                      # browse deployed instances
   m.fn('bloctime/register_instance')(name='x', rpc='...', bloctime='0x...')
   m.fn('bloctime/bridge')(fn='in_snapshot', address='...')
@@ -90,6 +93,94 @@ class Mod:
     def test(self):
         output = _run('npx hardhat test', cwd=str(self.module_dir), timeout=300)
         return {'output': output}
+
+    # ── Deploy any contract ───────────────────────────────────────
+
+    def _contracts_store(self):
+        """api/bt_contracts.py — solc compile + the deployment store."""
+        import sys
+        api_dir = str(self.module_dir / 'api')
+        if api_dir not in sys.path:
+            sys.path.insert(0, api_dir)
+        import bt_contracts
+        return bt_contracts
+
+    def _source(self, source=None, path=None):
+        if path:
+            p = Path(path)
+            if not p.is_absolute():
+                p = self.module_dir / p
+            if not p.exists():
+                raise FileNotFoundError(f"No such file: {p}")
+            return p.read_text(), p.name
+        if not source:
+            raise ValueError("Pass path='MyToken.sol' or source='<solidity>'")
+        return source, 'Contract.sol'
+
+    def _rpc(self, rpc=None):
+        if rpc:
+            return rpc
+        network = self.config.get('network', 'testnet')
+        return self.config.get('contracts', {}).get(network, {}).get('url')
+
+    def compile_contract(self, source=None, path=None, optimize=True, runs=200):
+        """Compile any Solidity file or string. Imports resolve like hardhat's."""
+        src, filename = self._source(source, path)
+        out = self._contracts_store().compile_source(
+            src, filename=filename, optimize=optimize, runs=runs,
+        )
+        return {
+            'solc': out['solc'],
+            'filename': out['filename'],
+            'warnings': out['warnings'],
+            'contracts': [{
+                'name': c['name'],
+                'constructor': [f"{i['type']} {i.get('name', '')}".strip() for i in c['constructor']],
+                'bytes': max(0, len(c['bytecode']) // 2 - 1),
+                'deployable': c['deployable'],
+            } for c in out['contracts']],
+        }
+
+    def deploy_contract(self, source=None, path=None, contract=None, args=None,
+                        rpc=None, name=None, record=True):
+        """Compile and deploy any contract with the server signer (PRIVATE_KEY).
+
+        The app's DEPLOY tab does the same thing from your own browser wallet.
+        Deployed contracts are remembered and show up in the CONTRACTS tab.
+        """
+        bt = self._contracts_store()
+        src, filename = self._source(source, path)
+        compiled = bt.compile_source(src, filename=filename)
+        picks = [c for c in compiled['contracts'] if c['deployable']]
+        if contract:
+            picks = [c for c in picks if c['name'] == contract]
+        if not picks:
+            wanted = f" '{contract}'" if contract else ''
+            raise ValueError(f"No deployable contract{wanted} in {filename}")
+        chosen = picks[-1]
+
+        ctor = next((e for e in chosen['abi'] if e.get('type') == 'constructor'), None)
+        ctor_args = bt.coerce_args(ctor.get('inputs', []) if ctor else [], args or [])
+        facts = bt.deploy(chosen['abi'], chosen['bytecode'], args=ctor_args, rpc=self._rpc(rpc))
+
+        result = {'name': name or chosen['name'], **facts}
+        if record:
+            result['entry'] = bt.add_deployment(
+                name=result['name'], address=facts['address'], abi=chosen['abi'],
+                rpc=facts['rpc'], chain_id=facts['chainId'], deployer=facts['deployer'],
+                tx_hash=facts['txHash'], source=src, filename=filename,
+                solc=compiled['solc'], verify=False,
+            )
+        return result
+
+    def deployments(self):
+        """Every contract deployed through this module (app or CLI)."""
+        entries = self._contracts_store().list_deployments()
+        return {'count': len(entries), 'deployments': entries}
+
+    def forget_deployment(self, id):
+        """Drop a deployment record (local trusted path — no signature needed)."""
+        return self._contracts_store().remove_deployment(id)
 
     # ── Serve ─────────────────────────────────────────────────────
 
@@ -235,7 +326,38 @@ class Mod:
 
     # ── Rewards ───────────────────────────────────────────────────
 
-    def distribute(self):
+    def pot(self):
+        """Reward pot and the weekly Friday 12:00 EST distribution schedule."""
+        import time
+        _, contract, _ = self._load_bloctime()
+        pot, pending, eligible, next_time, last_time, due = contract.functions.getPotInfo().call()
+        return {
+            'pot': str(pot),
+            'pendingInflation': str(pending),
+            'projected': str(pot + pending),
+            'eligibleSupply': str(eligible),
+            'nextDistribution': time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(next_time)),
+            'lastDistribution': (
+                time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(last_time)) if last_time else ''
+            ),
+            'secondsRemaining': 0 if due else max(0, next_time - int(time.time())),
+            'due': due,
+            'schedule': 'Weekly, Friday 12:00 EST (17:00 UTC)',
+        }
+
+    def fund_pot(self, amount):
+        """Add BLOC to the pot — paid out at the next weekly distribution."""
+        from web3 import Web3
+        amount_wei = Web3.to_wei(amount, 'ether') if isinstance(amount, (int, float)) else int(amount)
+        return self._send_tx(lambda c: c.functions.fundPot(amount_wei))
+
+    def distribute(self, force=False):
+        """Sweep the pot to BLOC holders. No-ops politely outside the weekly
+        window, so a keeper can call it on any cadence (`m bloctime/distribute`)."""
+        if not force:
+            info = self.pot()
+            if not info['due']:
+                return {'distributed': False, **info}
         return self._send_tx(lambda c: c.functions.distributeRewards())
 
     def claim_rewards(self):
@@ -264,6 +386,7 @@ class Mod:
             'totalStaked': str(sum(int(p['amount']) for p in positions)),
             'totalBlocTime': str(sum(int(p['blocTimeBalance']) for p in positions)),
             'pendingRewards': str(pending),
+            'blocBalance': str(contract.functions.balanceOf(addr).call()),
             'votingPower': str(vp),
             'delegate': deleg if deleg != '0x0000000000000000000000000000000000000000' else '',
             'positions': positions,

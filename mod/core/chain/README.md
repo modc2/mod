@@ -15,6 +15,10 @@ concern, composed into a single protocol and operated from one console.
   operations — see `/docs` on the running server.
 - **Python orchestrator** (`src/mod.py`): the full-power surface — deploys,
   forks, staking, registry, pool, yield, admin.
+- **Contract builder** (`src/build`): write Solidity in the browser, compile it
+  here with solc 0.8.26 (`@openzeppelin/contracts` imports resolve), then deploy
+  it from your own wallet. Starter templates in `src/build/templates/`; the
+  console for it is the app's `/chain` page.
 - **Wallets**: MetaMask (automatic chain switch/add on send) or a
   browser-local keypair — reads never need a wallet.
 
@@ -36,7 +40,8 @@ Deploy order (parallel within a group, sequential across):
 
 Per-network deployments (addresses + pinned ABI/source CIDs) live in
 `config.json`. Contract sources are under `src/contracts/<module>/`, each with
-its own README.
+its own README. Builder drafts and wallet-signed builds are per-user state, so
+they live off-tree in `~/.mod/chain/build/`.
 
 **For agents:** read [`skill.md`](./skill.md) — capabilities, functions,
 endpoints and examples in one sheet. In-app docs at `/docs` on the console.

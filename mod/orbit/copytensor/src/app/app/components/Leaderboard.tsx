@@ -6,7 +6,9 @@ import type { LeaderboardEntry, SubnetInfo, Universe } from "../lib/types";
 import { fetchLeaderboard, fetchSubnets, fetchUniverse, fmtCompact,
          setPool, shortSs58 } from "../lib/api";
 import PnlBadge from "./PnlBadge";
+import Identicon from "./Identicon";
 import SubnetLogo from "./SubnetLogo";
+import StatTile from "./StatTile";
 import { useFilters, type SortKey } from "../context/FiltersContext";
 import { useCurrency, fmtValue } from "../context/CurrencyContext";
 
@@ -124,19 +126,21 @@ export default function Leaderboard() {
     <section className="space-y-4">
       {/* summary tiles */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Tile label="traders ranked" value={String(entries.length)}
+        <StatTile label="traders ranked" value={String(entries.length)}
               sub={totals.warming
                 ? `${totals.warming} still warming`
-                : universe?.known
-                  ? `of ${fmtCompact(universe.known)} coldkeys on-chain`
-                  : "all with history"} />
-        <Tile label="combined stake" value={fmtValue(totals.stake, currency, usdPerTao)} />
-        <Tile
+                : universe?.board?.indexed
+                  ? `indexed by bt · ${universe.watched} watched`
+                  : universe?.known
+                    ? `of ${fmtCompact(universe.known)} coldkeys on-chain`
+                    : "all with history"} />
+        <StatTile label="combined stake" value={fmtValue(totals.stake, currency, usdPerTao)} />
+        <StatTile
           label={`${days}d combined pnl`}
           value={fmtValue(totals.pnl, currency, usdPerTao)}
           tone={totals.pnl >= 0 ? "up" : "down"}
         />
-        <Tile
+        <StatTile
           label={`best ${days}d market`}
           value={totals.best
             ? `${(totals.best.market_pct ?? 0) >= 0 ? "+" : ""}${(totals.best.market_pct ?? 0).toFixed(1)}%`
@@ -151,7 +155,11 @@ export default function Leaderboard() {
           Top performers
           <span className="text-pixel-gray text-xs ml-2 font-mono">
             ({filtered.length}/{entries.length}
-            {universe?.known ? ` of ${fmtCompact(universe.known)} on-chain` : ""})
+            {universe?.board?.indexed
+              ? " indexed"
+              : universe?.known
+                ? ` of ${fmtCompact(universe.known)} on-chain`
+                : ""})
           </span>
           {universe?.status === "discovering" && (
             <span className="text-[10px] ml-2 font-mono text-green-400 animate-pulse">
@@ -230,8 +238,8 @@ export default function Leaderboard() {
               <Th k="pnl_pct" label={`${days}d %`} num />
               <Th k="market_pct" label="Market %" num />
               <Th k="num_subnets" label="SNs" num />
-              <th style={{ width: 150 }}>Top subnet</th>
-              <th style={{ width: 84 }}></th>
+              <th style={{ width: 190 }}>Top subnet</th>
+              <th style={{ width: 104 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -281,10 +289,15 @@ export default function Leaderboard() {
                       </Link>
                     </td>
                     <td className="num font-mono stack">
-                      <span className="block">{fmtValue(e.total_stake_tao, currency, usdPerTao)}</span>
-                      <span className="pixel-bar !h-1 mt-1 ml-auto block" style={{ maxWidth: 90 }}>
+                      {/* `.stack` turns wrapping back on so the meter below
+                          can sit on its own line — the number itself must
+                          still be one line or "13.38K τ" breaks after the K. */}
+                      <span className="block whitespace-nowrap">{fmtValue(e.total_stake_tao, currency, usdPerTao)}</span>
+                      {/* 8px tall, not 4 — the meter needs room inside its
+                          2px frame for the cell notches to read at all. */}
+                      <span className="pixel-bar !h-2 mt-1.5 ml-auto block" style={{ maxWidth: 90 }}>
                         <span
-                          className="pixel-bar-fill block bg-pixel-white/25"
+                          className="pixel-bar-fill block bg-pixel-white/45"
                           style={{ width: `${share}%` }}
                         />
                       </span>
@@ -380,51 +393,17 @@ export default function Leaderboard() {
 }
 
 function Rank({ i }: { i: number }) {
-  const medal = ["#facc15", "#cbd5e1", "#d97706"][i];
-  if (!medal) return <span className="text-pixel-gray">{i + 1}</span>;
+  // Solid medal plate, dark glyph. The old version tinted the badge to 13%
+  // of the medal colour, which left silver invisible on a light background —
+  // a filled block reads at any brightness, and looks like a scoreboard.
+  const medal = ["#ffcf28", "#c9d4e8", "#ff8a1f"][i];
+  if (!medal) return <span className="text-pixel-gray font-mono">{i + 1}</span>;
   return (
     <span
-      className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold"
-      style={{ background: `${medal}22`, color: medal, border: `1px solid ${medal}55` }}
+      className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold"
+      style={{ background: medal, color: "#05030a", boxShadow: "2px 2px 0 var(--shadow-hard)" }}
     >
       {i + 1}
     </span>
-  );
-}
-
-/** Deterministic two-tone dot so each coldkey is visually distinct. */
-function Identicon({ ss58 }: { ss58: string }) {
-  const seed = ss58.split("").reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
-  return (
-    <span
-      className="shrink-0 w-6 h-6 rounded-full"
-      style={{
-        background: `linear-gradient(135deg, hsl(${seed} 65% 45%), hsl(${(seed + 60) % 360} 60% 28%))`,
-        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.12)",
-      }}
-      aria-hidden
-    />
-  );
-}
-
-function Tile({
-  label,
-  value,
-  sub,
-  tone,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: "up" | "down";
-}) {
-  const color =
-    tone === "up" ? "text-green-400" : tone === "down" ? "text-red-400" : "text-pixel-white";
-  return (
-    <div className="pixel-panel px-4 py-3">
-      <p className="text-[10px] tracking-[2px] uppercase text-pixel-gray">{label}</p>
-      <p className={`font-mono text-lg font-bold tabular-nums mt-0.5 truncate ${color}`}>{value}</p>
-      {sub && <p className="text-[10px] text-pixel-gray font-mono truncate">{sub}</p>}
-    </div>
   );
 }

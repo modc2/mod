@@ -1,19 +1,36 @@
 "use client";
 
 // One-line strat selector for the top header: the active strat's name opens
-// a left-docked sidebar drawer of every saved strat (click to switch, ✎ or
-// double-click to rename, × to delete) — the drawer header shows the deposit
-// wallet's on-chain USDC, and each row shows that strat's OWN cash (its
-// capital allocation minus deployed basis, click the chip to retune the
-// allocation) plus 24h PnL from the signed-in wallet's engine ledger.
-// The [+] beside the name creates a new strat, and a DEFAULT
-// STRATS gallery at the bottom forks curated templates (lib/defaultStrats.ts)
-// into user-owned strats. This is THE strat manager — indexStore localStorage
+// the strat manager in the RIGHT sidebar — every saved strat (click to
+// switch, ✎ or double-click to rename, × to delete), with the sidebar header
+// showing the deposit wallet's on-chain USDC and each row showing that
+// strat's OWN cash (its capital allocation minus deployed basis) plus 24h
+// PnL from the signed-in wallet's engine ledger.
+//
+// On a wide viewport (≥1024px) the sidebar DOCKS: no backdrop, no scroll
+// lock, the page insets by its width and it stays open across navigation and
+// reloads, so you can edit a strat on the left while its allocation, cash and
+// FUND bar sit beside it. Below that width there isn't room for a column, so
+// it falls back to a modal overlay drawer.
+//
+// The sidebar is also the FUNDING desk. Every row carries an editable
+// allocation, and edits accumulate as drafts: type amounts across as many
+// strats as you like, watch ALLOCATED / UNALLOCATED track against the
+// wallet's USDC, then commit them all with one FUND button. Committing a
+// non-zero allocation to a strat also starts (or re-arms) that strat's own
+// backend session — the engine runs one session per (wallet, strat), so
+// several strats trade side by side, each budgeting against its own
+// allocation (lib/liveSessions.ts). ■ STOP takes a single strat down without
+// touching the others.
+//
+// The [+] beside the name creates a new strat, and a DEFAULT STRATS gallery
+// at the bottom forks curated templates (lib/defaultStrats.ts) into
+// user-owned strats. This is THE strat manager — indexStore localStorage
 // store, `strat-updated` window event, best-effort server sync — so
 // CopyIndex, the LIVE checklist and this picker can never disagree about
 // which strat is active.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -32,22 +49,38 @@ import { fetchTopTraderAddresses } from "../lib/polymarket";
 import { useEmbedded } from "../lib/embedded";
 import { DEFAULT_STRATS, forkDefaultStrat, type StratTemplate } from "../lib/defaultStrats";
 import { useStratStats, fmtUsd } from "../lib/stratStats";
+import { startLiveSession, stopLiveSession } from "../lib/liveSessions";
 import StratCardsBrowser from "./StratCardsBrowser";
 import type { SavedIndex } from "../lib/types";
 
+// Wide enough for a real column beside the console; below this the sidebar
+// falls back to a modal overlay. Matches the media query in globals.css that
+// gives --strat-dock its width.
+const DOCK_MQ = "(min-width: 1024px)";
+const DOCK_KEY = "poly_strat_dock";
+
+// TopBar (and this picker with it) remounts on every page navigation, so a
+// docked sidebar has to restore itself — and restore BEFORE paint, or the
+// console visibly un-insets and re-insets on each route change. Layout
+// effects don't run on the server; useEffect there keeps React quiet.
+const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
 export default function HeaderStratPicker() {
   const embedded = useEmbedded();
-  const { localToken } = useAuth();
+  const { localToken, auth } = useAuth();
   const { category, marketQuery, daysAgo, minPerDay } = useFilters();
   const [indexes, setIndexes] = useState<SavedIndex[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [docked, setDocked] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  // Inline per-strat cash-allocation editor (the ".. cash" chip on each row).
-  const [editingCapId, setEditingCapId] = useState<string | null>(null);
-  const [capValue, setCapValue] = useState("");
+  // Uncommitted allocation edits, stratId → raw input text. Several rows can
+  // hold a draft at once — that's the point: fund a whole book in one pass
+  // instead of one strat per round-trip. Committed (and cleared) by fundAll.
+  const [allocDrafts, setAllocDrafts] = useState<Record<string, string>>({});
+  const [funding, setFunding] = useState(false);
   // In-app delete confirmation (replaces the native window.confirm popup so
   // the "Delete strat?" prompt renders inside the console, styled like the
   // rest of the UI, instead of an ugly modc2.com-says browser dialog).
@@ -56,7 +89,7 @@ export default function HeaderStratPicker() {
   // Per-strat live PnL from the backend engine's tagged fills + the deposit
   // wallet's USDC cash — rendered as a second line on each dropdown row and
   // on the cards.
-  const { stats: stratStats, cash } = useStratStats();
+  const { stats: stratStats, cash, running: liveStratIds } = useStratStats();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -92,23 +125,59 @@ export default function HeaderStratPicker() {
     });
   }, [localToken, initialSynced, reload]);
 
-  // Close on Escape and lock page scroll while the drawer is open. Outside
-  // clicks are handled by the drawer's own backdrop — the panel is
+  // Pick dock vs overlay, and re-open a docked sidebar the user left open.
+  // Both before paint — see useIsoLayoutEffect.
+  useIsoLayoutEffect(() => {
+    const mq = window.matchMedia(DOCK_MQ);
+    setDocked(mq.matches);
+    try {
+      if (mq.matches && localStorage.getItem(DOCK_KEY) === "1") setOpen(true);
+    } catch {}
+    const onChange = (e: MediaQueryListEvent) => setDocked(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  /** Open/close the sidebar, remembering the choice so it survives navigation
+      and reloads. Written here rather than in an effect: an effect would fire
+      on mount with the pre-restore `open` and clobber the saved state. */
+  const setDrawer = useCallback((next: boolean) => {
+    setOpen(next);
+    try {
+      localStorage.setItem(DOCK_KEY, next ? "1" : "0");
+    } catch {}
+  }, []);
+
+  // Inset the console for the docked column (CSS var, consumed by
+  // .crt-screen in layout.tsx and by the BuildBadge).
+  useEffect(() => {
+    const el = document.documentElement;
+    if (open && docked) el.dataset.stratDock = "open";
+    else delete el.dataset.stratDock;
+    return () => {
+      delete el.dataset.stratDock;
+    };
+  }, [open, docked]);
+
+  // Close on Escape; lock page scroll only in overlay mode — a docked sidebar
+  // is furniture, not a modal, so the page behind it stays scrollable. Outside
+  // clicks are handled by the overlay's own backdrop: the panel is
   // portal-rendered to <body>, so a document-level containment check against
   // this component's root would treat clicks inside the panel as "outside".
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") setDrawer(false);
     };
     document.addEventListener("keydown", onKey);
+    if (docked) return () => document.removeEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [open]);
+  }, [open, docked, setDrawer]);
 
   const broadcast = useCallback(() => {
     reload();
@@ -118,7 +187,9 @@ export default function HeaderStratPicker() {
   const select = (id: string) => {
     setActiveIndexId(id);
     setActiveId(id);
-    setOpen(false);
+    // A docked sidebar stays put — switching strats is something you do a few
+    // times in a row, and the column isn't covering anything.
+    if (!docked) setDrawer(false);
     broadcast();
   };
 
@@ -148,18 +219,68 @@ export default function HeaderStratPicker() {
     if (localToken) deleteServerStrat(id, localToken.token);
   };
 
-  // Commit the row's cash-allocation edit. `capital` is the same field the
-  // LIVE panel and backtest sim size against, so tailoring it here retargets
-  // the engine's free-capital budget for that strat.
-  const commitCapital = (id: string) => {
-    if (editingCapId !== id) return;
-    const v = Number(capValue);
-    setEditingCapId(null);
-    if (!Number.isFinite(v) || v <= 0) return;
-    updateIndex(id, { capital: Math.round(v), updatedAt: Date.now() });
-    const updated = loadIndexes().find((i) => i.id === id);
-    if (updated && localToken) pushStrat(updated, localToken.token);
+  // ── Funding desk ──────────────────────────────────────────────
+  // `capital` is the same field the LIVE panel and backtest sim size against,
+  // and the budget each backend session spends against, so an allocation set
+  // here IS that strat's funding.
+
+  /** Allocation a row currently shows: its uncommitted draft if it has one,
+      else the persisted `capital`. */
+  const allocOf = (idx: SavedIndex): number => {
+    const draft = allocDrafts[idx.id];
+    if (draft !== undefined) {
+      const n = Number(draft);
+      return Number.isFinite(n) && n >= 0 ? n : 0;
+    }
+    return idx.capital ?? 0;
+  };
+
+  const draftIds = Object.keys(allocDrafts);
+  // Total across ALL strats, drafts included — funding is a book-level
+  // decision, so the bar has to price every strat, not just the edited ones.
+  const totalAllocated = indexes.reduce((s, i) => s + allocOf(i), 0);
+  const unallocated = cash === null ? null : cash - totalAllocated;
+  const overAllocated = unallocated !== null && unallocated < 0;
+
+  /** Commit every draft at once: persist each allocation, then start (or
+      re-arm) a backend session for the funded ones so they actually trade.
+      Strats drafted down to $0 are stopped. */
+  const fundAll = async () => {
+    if (draftIds.length === 0 || funding) return;
+    setFunding(true);
+    try {
+      const current = loadIndexes();
+      for (const id of draftIds) {
+        const idx = current.find((i) => i.id === id);
+        if (!idx) continue;
+        const amount = Math.max(0, Math.round(allocOf(idx)));
+        updateIndex(id, { capital: amount, liveEnabled: amount > 0, updatedAt: Date.now() });
+      }
+      setAllocDrafts({});
+      broadcast();
+      const saved = loadIndexes();
+      for (const id of draftIds) {
+        const idx = saved.find((i) => i.id === id);
+        if (!idx) continue;
+        if (localToken) pushStrat(idx, localToken.token);
+        // Arming needs a wallet to fund from — without one this is just a
+        // saved allocation the LIVE tab will pick up later.
+        if (!auth.address) continue;
+        const amount = idx.capital ?? 0;
+        if (amount > 0) await startLiveSession(auth.address, idx, amount);
+        else await stopLiveSession(auth.address, id);
+      }
+      broadcast();
+    } finally {
+      setFunding(false);
+    }
+  };
+
+  /** Take one strat's session down without touching the wallet's others. */
+  const stopStrat = async (id: string) => {
+    updateIndex(id, { liveEnabled: false, updatedAt: Date.now() });
     broadcast();
+    if (auth.address) await stopLiveSession(auth.address, id);
   };
 
   const commitRename = () => {
@@ -191,7 +312,7 @@ export default function HeaderStratPicker() {
     };
     saveIndex(idx);
     setActiveIndexId(idx.id);
-    setOpen(false);
+    if (!docked) setDrawer(false);
     broadcast();
     if (localToken) pushStrat(idx, localToken.token);
 
@@ -216,7 +337,7 @@ export default function HeaderStratPicker() {
       broadcast();
       if (localToken) pushStrat(seeded, localToken.token);
     });
-    setOpen(false);
+    if (!docked) setDrawer(false);
     broadcast();
     if (localToken) pushStrat(idx, localToken.token);
   };
@@ -234,10 +355,10 @@ export default function HeaderStratPicker() {
   return (
     <div className="relative flex items-center gap-1">
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setDrawer(!open)}
         title={
           active
-            ? `Strat: ${active.name}${activeKeywords ? ` — keywords: ${activeKeywords}` : ""} — click to switch`
+            ? `Strat: ${active.name}${activeKeywords ? ` — keywords: ${activeKeywords}` : ""} — click to ${open ? "close" : "open"} the strat sidebar`
             : "Select a strat"
         }
         aria-expanded={open}
@@ -245,12 +366,22 @@ export default function HeaderStratPicker() {
           open ? "bg-pixel-white/[0.06]" : "hover:bg-pixel-white/[0.06]"
         }`}
       >
-        {active?.liveEnabled && (
-          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" title="LIVE" />
+        {/* Engine truth, not the strat's `liveEnabled` intent flag — and the
+            count when the wallet is running more than this one strat. */}
+        {active && liveStratIds.has(active.id) && (
+          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" title="Engine running for this strat" />
         )}
         <span className="truncate min-w-0 text-[12.5px] font-mono font-semibold text-green-400">
           {active ? active.name : "NO STRAT"}
         </span>
+        {liveStratIds.size > 1 && (
+          <span
+            className="text-[10px] font-mono text-green-400/80 shrink-0"
+            title={`${liveStratIds.size} strats funded and running`}
+          >
+            ●{liveStratIds.size}
+          </span>
+        )}
         {active && (
           <span className="text-[10px] text-pixel-gray shrink-0">{active.traders.length}T</span>
         )}
@@ -274,7 +405,7 @@ export default function HeaderStratPicker() {
         +
       </button>
       <button
-        onClick={() => { setOpen(false); setBrowserOpen(true); }}
+        onClick={() => { if (!docked) setDrawer(false); setBrowserOpen(true); }}
         title="Browse strats as cards"
         className="hidden min-[480px]:grid place-items-center w-[22px] h-[22px] rounded-[var(--radius-sm)] border border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors text-[11px] leading-none shrink-0"
       >
@@ -290,13 +421,13 @@ export default function HeaderStratPicker() {
             <div className="absolute inset-0" style={{ background: "rgb(var(--pixel-black-rgb)/0.35)" }} />
             <aside
               onClick={(e) => e.stopPropagation()}
-              className="absolute inset-y-0 left-0 w-[320px] max-w-[85vw] flex flex-col backdrop-blur-md"
+              className="absolute inset-y-0 right-0 w-[340px] max-w-[85vw] flex flex-col backdrop-blur-md"
               style={{
                 background:
                   "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.97), rgb(var(--pixel-bg-rgb)/0.95))",
-                borderRight: "1px solid var(--border)",
-                boxShadow: "12px 0 32px rgba(0,0,0,0.45)",
-                animation: "drawer-in-left 0.18s ease-out",
+                borderLeft: "1px solid var(--border)",
+                boxShadow: "-12px 0 32px rgba(0,0,0,0.45)",
+                animation: "drawer-in-right 0.18s ease-out",
               }}
             >
               <div
@@ -337,9 +468,14 @@ export default function HeaderStratPicker() {
             const money = stratStats[idx.id];
             const pnl24h = money?.pnl24h ?? 0;
             const roi24h = money?.roi24h ?? null;
-            const cap = idx.capital ?? 1000;
+            const alloc = allocOf(idx);
+            const drafted = allocDrafts[idx.id] !== undefined;
             const deployed = money?.moneyIn ?? 0;
-            const stratCash = Math.max(0, cap - deployed);
+            const stratCash = Math.max(0, alloc - deployed);
+            // The engine is the truth about what's running; `liveEnabled` is
+            // only the strat's own intent flag and goes stale when a session
+            // is stopped elsewhere.
+            const isRunning = liveStratIds.has(idx.id);
             return (
               <div
                 key={idx.id}
@@ -355,8 +491,11 @@ export default function HeaderStratPicker() {
                     isActive ? "h-5 opacity-100 shadow-[0_0_10px_rgba(74,222,128,0.7)]" : "h-0 opacity-0"
                   }`}
                 />
-                {idx.liveEnabled && (
-                  <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" title="LIVE" />
+                {isRunning && (
+                  <span
+                    className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0"
+                    title="Engine running for this strat"
+                  />
                 )}
                 {renamingId === idx.id ? (
                   <input
@@ -391,34 +530,11 @@ export default function HeaderStratPicker() {
                           : "No fills from your wallet in this strat yet"
                       }
                     >
-                      {editingCapId === idx.id ? (
-                        <input
-                          type="number"
-                          min={1}
-                          value={capValue}
-                          onChange={(e) => setCapValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") commitCapital(idx.id);
-                            if (e.key === "Escape") setEditingCapId(null);
-                          }}
-                          onBlur={() => commitCapital(idx.id)}
-                          onClick={(e) => e.stopPropagation()}
-                          autoFocus
-                          className="w-[64px] bg-transparent border-b border-green-400 text-green-400 text-[10px] font-mono outline-none"
-                        />
-                      ) : (
-                        <span
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingCapId(idx.id);
-                            setCapValue(String(cap));
-                          }}
-                          title={`This strat's cash: $${cap} allocation − ${fmtUsd(deployed)} deployed. Click to change the allocation${cash !== null ? ` (wallet holds ${fmtUsd(cash)} USDC)` : ""}.`}
-                          className="underline decoration-dotted decoration-pixel-gray/50 underline-offset-2 hover:text-green-400 cursor-text"
-                        >
-                          {fmtUsd(stratCash)} cash
-                        </span>
-                      )}
+                      <span
+                        title={`This strat's cash: $${alloc} allocation − ${fmtUsd(deployed)} deployed${cash !== null ? ` (wallet holds ${fmtUsd(cash)} USDC)` : ""}.`}
+                      >
+                        {fmtUsd(stratCash)} cash
+                      </span>
                       {" "}· 24h{" "}
                       <span className={pnl24h > 0 ? "text-green-400" : pnl24h < 0 ? "text-red-400" : ""}>
                         {pnl24h >= 0 ? "+" : ""}{fmtUsd(pnl24h)}
@@ -427,14 +543,48 @@ export default function HeaderStratPicker() {
                     </span>
                   </span>
                 )}
-                <span className="text-[10px] text-pixel-gray shrink-0">{idx.traders.length}T</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setRenamingId(idx.id); setRenameValue(idx.name); }}
-                  className="text-[11px] text-pixel-gray hover:text-green-400 shrink-0"
-                  title="Rename"
+                {/* Allocation — a draft here doesn't commit until FUND, so
+                    several strats can be funded in one pass. */}
+                <span
+                  onClick={(e) => e.stopPropagation()}
+                  className={`flex items-center shrink-0 rounded-[var(--radius-sm)] border px-1 font-mono text-[11px] ${
+                    drafted
+                      ? "border-amber-400/70 bg-amber-500/10 text-amber-300"
+                      : "border-pixel-border text-pixel-gray-light"
+                  }`}
+                  title={`Capital allocated to ${idx.name}. Edit as many strats as you like, then FUND to commit them all.`}
                 >
-                  ✎
-                </button>
+                  <span className="opacity-60">$</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={10}
+                    value={allocDrafts[idx.id] ?? String(idx.capital ?? 0)}
+                    onChange={(e) =>
+                      setAllocDrafts((prev) => ({ ...prev, [idx.id]: e.target.value }))
+                    }
+                    onKeyDown={(e) => { if (e.key === "Enter") void fundAll(); }}
+                    className="w-[52px] bg-transparent text-right outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                </span>
+                <span className="text-[10px] text-pixel-gray shrink-0">{idx.traders.length}T</span>
+                {isRunning ? (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); void stopStrat(idx.id); }}
+                    className="text-[10px] font-mono text-pixel-gray hover:text-red-400 shrink-0"
+                    title="Stop this strat's engine — the wallet's other funded strats keep running"
+                  >
+                    ■
+                  </button>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setRenamingId(idx.id); setRenameValue(idx.name); }}
+                    className="text-[11px] text-pixel-gray hover:text-green-400 shrink-0"
+                    title="Rename"
+                  >
+                    ✎
+                  </button>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); remove(idx.id); }}
                   className="text-[13px] text-pixel-gray hover:text-red-400 shrink-0"
@@ -452,7 +602,7 @@ export default function HeaderStratPicker() {
             + NEW STRAT
           </button>
           <button
-            onClick={() => { setOpen(false); setBrowserOpen(true); }}
+            onClick={() => { if (!docked) setDrawer(false); setBrowserOpen(true); }}
             className="rounded-[var(--radius-sm)] px-3 py-2 text-left text-[11px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 hover:bg-pixel-white/[0.06] transition-colors"
           >
             ▦ BROWSE CARDS
@@ -485,6 +635,62 @@ export default function HeaderStratPicker() {
               </button>
             ))}
           </div>
+              </div>
+
+              {/* ── Funding bar ──
+                  Prices the WHOLE book against the wallet, then commits every
+                  drafted allocation in one action: each funded strat gets (or
+                  keeps) its own backend session, each drafted to $0 is
+                  stopped. Sits outside the scroll area so the numbers stay
+                  visible while you edit rows above. */}
+              <div
+                className="shrink-0 px-3 py-2 space-y-1.5"
+                style={{ borderTop: "1px solid var(--border)" }}
+              >
+                <div className="flex items-center justify-between text-[10px] font-mono">
+                  <span className="text-pixel-gray tracking-[0.14em]">ALLOCATED</span>
+                  <span className={overAllocated ? "text-red-400" : "text-pixel-white"}>
+                    {fmtUsd(totalAllocated)}
+                    {cash !== null && <span className="text-pixel-gray"> / {fmtUsd(cash)}</span>}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[10px] font-mono">
+                  <span className="text-pixel-gray tracking-[0.14em]">UNALLOCATED</span>
+                  <span className={overAllocated ? "text-red-400" : "text-pixel-gray-light"}>
+                    {unallocated === null ? "…" : fmtUsd(unallocated)}
+                  </span>
+                </div>
+                {overAllocated && (
+                  <div className="text-[9.5px] font-mono leading-snug text-red-400/90">
+                    Allocations exceed the wallet — the strats that run out of
+                    USDC first will fail their orders on-chain.
+                  </div>
+                )}
+                <button
+                  onClick={() => void fundAll()}
+                  disabled={draftIds.length === 0 || funding}
+                  title={
+                    draftIds.length === 0
+                      ? "Edit one or more $ allocations above, then fund them together"
+                      : `Commit ${draftIds.length} allocation(s) and arm each funded strat's engine`
+                  }
+                  className={`w-full rounded-[var(--radius-sm)] border px-3 py-1.5 text-[11px] font-mono font-bold tracking-[0.1em] transition-colors ${
+                    draftIds.length === 0 || funding
+                      ? "border-pixel-border text-pixel-gray/50 cursor-not-allowed"
+                      : "border-green-400/60 bg-green-400/10 text-green-400 hover:bg-green-400/20"
+                  }`}
+                >
+                  {funding
+                    ? "FUNDING…"
+                    : draftIds.length === 0
+                      ? "FUND STRATS"
+                      : `FUND ${draftIds.length} STRAT${draftIds.length > 1 ? "S" : ""}`}
+                </button>
+                {!auth.address && draftIds.length > 0 && (
+                  <div className="text-[9.5px] font-mono leading-snug text-pixel-gray">
+                    Not signed in — allocations save, but no engine is armed.
+                  </div>
+                )}
               </div>
             </aside>
           </div>,

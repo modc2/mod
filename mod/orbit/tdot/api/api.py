@@ -10,20 +10,25 @@ responses are also given a long browser cache lifetime, since the underlying
 open data updates weekly at most.
 """
 
+import json
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 import mod as m
+from tdotgis import agent as A
+from tdotgis import registry as R
+from tdotgis import tools as T
 
 _tdot = None
 
@@ -54,6 +59,26 @@ def geo(payload: dict, cache: str = LAYER_CACHE) -> JSONResponse:
     return JSONResponse(payload, headers={'Cache-Control': cache})
 
 
+@app.on_event('startup')
+def warm_score_model() -> None:
+    """
+    Fit the score model in the background as the API comes up.
+
+    The layer, the report and the outlier list all come off disk, but a
+    per-building explanation needs the fold estimators in memory, and fitting
+    them takes ~25 seconds. Doing it at startup means the first person to click
+    a building waits for a round trip rather than for a gradient booster.
+    """
+    def fit():
+        try:
+            from tdotgis import score as SC
+            SC.model()
+        except Exception as e:                      # a warm-up is never fatal
+            print(f'tdot: score model not warmed ({type(e).__name__}: {e})')
+
+    threading.Thread(target=fit, name='tdot-score-warm', daemon=True).start()
+
+
 @app.get('/')
 def root():
     return tdot().info()
@@ -72,8 +97,14 @@ def view():
 
 @app.get('/layers')
 def layers():
-    """The layer catalogue that drives the UI's layer panel."""
-    return geo(tdot().layers(), cache='public, max-age=300')
+    """
+    The layer catalogue that drives the UI's layer panel.
+
+    Deliberately uncacheable: adding a dataset changes it, and a browser
+    holding a five-minute-old copy would show the person a map missing the
+    layer they just added. It is a few KB — correctness is worth more.
+    """
+    return geo(tdot().layers(), cache='no-cache')
 
 
 @app.get('/options')
@@ -111,15 +142,129 @@ def incidents(
 
 
 @app.get('/layers/{layer_id}')
-def layer(layer_id: str):
+def layer(layer_id: str, refresh: bool = Query(False)):
     """Any catalogue layer as a GeoJSON FeatureCollection."""
     try:
-        return geo(tdot().layer(layer_id))
+        return geo(tdot().layer(layer_id, refresh=refresh))
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=502,
                             detail=f'upstream source failed: {type(e).__name__}: {e}')
+
+
+# ── open-data registry ──────────────────────────────────────────────────────
+# Adding a dataset is a first-class operation, not an admin chore: the same
+# calls back the CLI, the browser's "Add open data" panel and the chat agent.
+
+@app.get('/datasets')
+def datasets():
+    """Every spec-driven layer — the builtin ones and the ones you added."""
+    return tdot().datasets()
+
+
+@app.get('/datasets/search')
+def datasets_search(q: str = Query(..., min_length=2), rows: int = Query(10, ge=1, le=40)):
+    """Search Toronto Open Data for something to put on the map."""
+    try:
+        return {'results': tdot().find_data(q, rows=rows), 'query': q}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f'portal search failed: {e}')
+
+
+@app.post('/datasets')
+def datasets_add(body: dict = Body(...)):
+    """Add a CKAN package as a map layer. The spec is worked out from the data."""
+    package = str(body.get('package') or '').strip()
+    if not package:
+        raise HTTPException(status_code=400, detail='package is required')
+    out = tdot().add_data(package,
+                          id=body.get('id'), title=body.get('title'),
+                          category=body.get('category') or 'Open data',
+                          resource=body.get('resource'))
+    if not out.get('ok'):
+        raise HTTPException(status_code=422, detail=out.get('error'))
+    return out
+
+
+@app.get('/datasets/{dataset_id}')
+def dataset(dataset_id: str):
+    """One dataset's spec — the recipe its layer is built from."""
+    out = tdot().dataset(dataset_id)
+    if out.get('error'):
+        raise HTTPException(status_code=404, detail=out['error'])
+    return out
+
+
+@app.delete('/datasets/{dataset_id}')
+def dataset_remove(dataset_id: str):
+    out = tdot().remove_data(dataset_id)
+    if not out.get('ok'):
+        raise HTTPException(status_code=400, detail=out.get('error'))
+    return out
+
+
+# ── housing ─────────────────────────────────────────────────────────────────
+
+@app.get('/housing')
+def housing(role: Optional[str] = Query(None),
+            live: bool = Query(True)):
+    """
+    Every open dataset the city publishes about housing, and what tdot does
+    with each: drawn as a layer, fed to the score model, open-but-unmappable,
+    or not open at all.
+    """
+    try:
+        return geo(tdot().housing(role=role, live=live),
+                   cache='public, max-age=3600')
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get('/housing/search')
+def housing_search(q: str = Query('housing', min_length=2),
+                   rows: int = Query(20, ge=1, le=50)):
+    """Housing datasets on the portal that the catalogue does not yet cover."""
+    try:
+        return {'query': q, 'results': tdot().housing_search(q, rows=rows)}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f'portal search failed: {e}')
+
+
+# ── the score model ─────────────────────────────────────────────────────────
+
+@app.get('/score/model')
+def score_model(refresh: bool = Query(False)):
+    """
+    How well open data predicts a building's RentSafeTO score: out-of-fold
+    accuracy against a mean baseline, what drives it, and what it cannot see.
+    """
+    try:
+        return geo(tdot().score(refresh=refresh), cache='public, max-age=3600')
+    except RuntimeError as e:                       # scikit-learn missing
+        raise HTTPException(status_code=501, detail=str(e))
+
+
+@app.get('/score/outliers')
+def score_outliers(direction: str = Query('under', pattern='^(under|over)$'),
+                   limit: int = Query(25, ge=1, le=200)):
+    """The buildings furthest from what comparable buildings score."""
+    try:
+        return geo(tdot().outliers(direction=direction, limit=limit),
+                   cache='public, max-age=3600')
+    except RuntimeError as e:
+        raise HTTPException(status_code=501, detail=str(e))
+
+
+@app.get('/score/building/{rsn}')
+def score_building(rsn: str):
+    """One building: its filing, its prediction, and what is driving it."""
+    try:
+        return geo(tdot().building(rsn), cache='public, max-age=3600')
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=501, detail=str(e))
 
 
 @app.get('/boundary/{name}')
@@ -159,6 +304,50 @@ def where(q: str = Query(..., min_length=1), limit: int = Query(6, ge=1, le=20))
 @app.get('/cache')
 def cache():
     return tdot().cache()
+
+
+# ── agent ───────────────────────────────────────────────────────────────────
+
+@app.get('/agent/card')
+@app.get('/.well-known/agent.json')
+def agent_card():
+    """Who the agent is and what it can do — the discovery document."""
+    return A.card()
+
+
+@app.get('/agent/status')
+def agent_status():
+    return A.status()
+
+
+@app.get('/agent/tools')
+def agent_tools():
+    """The tools the agent plays, grouped — this is also the console's help."""
+    return {'groups': T.docs(), 'count': len(T.TOOLS)}
+
+
+@app.post('/agent/chat')
+def agent_chat(body: dict = Body(...)):
+    """
+    Ask the map a question. Streams SSE events; ``map`` events carry an action
+    the browser applies to the live map.
+    """
+    question = str(body.get('message') or body.get('question') or '').strip()
+    if not question:
+        raise HTTPException(status_code=400, detail='message is required')
+    session = body.get('session') or None
+
+    def stream():
+        try:
+            for ev in A.chat(question, session=session):
+                yield f'data: {json.dumps(ev, default=str)}\n\n'
+        except Exception as e:                      # never hang an open stream
+            yield f'data: {json.dumps({"type": "error", "error": str(e)})}\n\n'
+
+    return StreamingResponse(stream(), media_type='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',                  # let the gateway pass it through
+    })
 
 
 if __name__ == '__main__':

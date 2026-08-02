@@ -34,17 +34,23 @@ export interface TopTrader {
 
 // ── Formatting helpers ──────────────────────────────────────────
 
+// Thresholds sit just below each unit so the ROUNDED value picks the bucket,
+// not the raw one: at `>= 1_000` a volume of 999.6 fell through to the plain
+// branch and rendered "$1000" — four digits sitting in a column of "$10.0K"s,
+// which reads as a broken formatter rather than as a number.
 export function formatVolume(vol: number): string {
-  if (vol >= 1_000_000) return `$${(vol / 1_000_000).toFixed(1)}M`;
-  if (vol >= 1_000) return `$${(vol / 1_000).toFixed(1)}K`;
+  if (vol >= 999_950) return `$${(vol / 1_000_000).toFixed(1)}M`;
+  if (vol >= 999.5) return `$${(vol / 1_000).toFixed(1)}K`;
   return `$${vol.toFixed(0)}`;
 }
 
 export function formatPnl(pnl: number): string {
   const prefix = pnl >= 0 ? "+$" : "-$";
   const abs = Math.abs(pnl);
-  if (abs >= 1_000_000) return `${prefix}${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${prefix}${(abs / 1_000).toFixed(1)}K`;
+  // Same rounding seam as formatVolume — 999.996 must be "+$1.0K", not
+  // "+$1000.00". The cent branch below rounds to 2dp, hence 999.995.
+  if (abs >= 999_950) return `${prefix}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 999.995) return `${prefix}${(abs / 1_000).toFixed(1)}K`;
   return `${prefix}${abs.toFixed(2)}`;
 }
 

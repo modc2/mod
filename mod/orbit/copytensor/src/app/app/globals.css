@@ -1,362 +1,1054 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Silkscreen:wght@400;700&family=VT323&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  /* Dark theme is the default. Toggle by setting `data-theme="light"` on
-     the <html> element (handled by ThemeContext). Every color that flips
-     between modes goes through one of these vars so a single override
-     block below can recolor the whole UI. */
-  --bg: #050505;
-  --bg-elev: #0a0a0a;          /* page-level slight elevation (header strip etc) */
-  --fg: #f5f5f5;
-  --fg-muted: #999999;
-  --fg-dim: #666666;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.18);
-  --panel-from: #141414;
-  --panel-to: #0e0e0e;
-  --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.45);
-  --input-bg: #0a0a0a;
-  --input-bg-focus: #0d0d0d;
-  --btn-bg: rgba(255, 255, 255, 0.02);
-  --btn-bg-hover: rgba(255, 255, 255, 0.06);
-  --btn-bg-active: rgba(255, 255, 255, 0.04);
-  --scroll-track: #050505;
-  --scroll-thumb: #2a2a2a;
-  --scroll-thumb-hover: #3a3a3a;
-  --table-stripe: #0d0d0d;
-  --table-hover: #1a1a1a;
-  --table-head: #0a0a0a;
+/* ════════════════════════════════════════════════════════════════════
+   copytensor — 8-bit arcade console
+   ────────────────────────────────────────────────────────────────────
+   The rules of this system, in order of importance:
 
-  /* Tailwind `pixel.*` palette refs — `_rgb` channel vars are what the
-     tailwind.config.js consumes via `rgb(var(--pixel-x-rgb) / <alpha>)`
-     so opacity modifiers (`text-pixel-white/50`) keep working. The hex
-     mirrors below are kept for any inline-style consumers that read the
-     plain value directly. */
-  --pixel-black-rgb: 0 0 0;
-  --pixel-bg-rgb: 10 10 10;
-  --pixel-panel-rgb: 26 26 26;
-  --pixel-border-rgb: 51 51 51;
-  --pixel-white-rgb: 255 255 255;
-  --pixel-gray-rgb: 102 102 102;
-  --pixel-gray-light-rgb: 153 153 153;
-  --pixel-black: #000000;
-  --pixel-bg: #0a0a0a;
-  --pixel-panel: #1a1a1a;
-  --pixel-border: #333333;
-  --pixel-white: #ffffff;
-  --pixel-gray: #666666;
-  --pixel-gray-light: #999999;
+   1. NOTHING IS ROUND. Radius is 0 everywhere (enforced in
+      tailwind.config.js, including `rounded-full`).
+   2. EVERY EDGE IS HARD. Borders are 2-3px of a solid colour — never a
+      translucent hairline, never a soft shadow. Depth is one offset
+      black rectangle (`4px 4px 0`), the way a sprite casts a shadow.
+   3. PRESSING MOVES THE PIXEL. Buttons translate by exactly their
+      shadow offset on :active and drop the shadow — the control
+      physically sinks into the board.
+   4. MOTION IS STEPPED. `steps(n)` everywhere. Smooth interpolation is
+      the one thing a 1985 console couldn't do.
+   5. FIVE COLOURS. Lime, cyan, magenta, amber, red on a void. Lime and
+      red are reserved for P&L sign and are never used decoratively —
+      on a trading screen colour has to mean one thing.
 
-  /* Vibey rounded radii — used by every panel/button/input. */
-  --radius-sm: 6px;
-  --radius:    10px;
-  --radius-lg: 14px;
-  --radius-xl: 18px;
+   Everything that changes between skins goes through a var, so a
+   [data-theme="…"] block below recolours the whole console — the cabinet
+   is the same machine, wearing a different marquee. `data-base` (stamped
+   next to data-theme) says whether a skin is dark- or light-fielded, and
+   the generic rules further down key on that rather than on any one id.
+   ════════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme="dark"] {
+  /* ── Surfaces: a CRT switched off is not black, it's deep violet ── */
+  --bg: #0a0614;
+  --bg-elev: #100a20;
+  --fg: #f4f0ff;
+  --fg-muted: #a99cc9;
+  --fg-dim: #6f6392;
+  --border: #2e2050;
+  --border-strong: #56399a;
+  --panel-from: #17102b;
+  --panel-to: #0f0a1d;
+  /* Depth is a hard offset block, not a blur. */
+  --shadow-hard: #000000;
+  --input-bg: #070410;
+  --input-bg-focus: #0b0618;
+  --btn-bg: #17102b;
+  --btn-bg-hover: #241738;
+  --btn-bg-active: #120c22;
+  --scroll-track: #0a0614;
+  --scroll-thumb: #56399a;
+  --scroll-thumb-hover: #7a52d6;
+  --table-stripe: #0f0a1d;
+  --table-hover: #1d1435;
+  --table-head: #0a0614;
+
+  /* ── The five-colour arcade palette ──
+     Declared as `r g b` channels: a skin restates six numbers and the
+     whole board follows — type, borders, tinted fills, the glow behind
+     the glow, the horizon grid. The named colours are derived from these
+     once, at the bottom of this block, and never redeclared per skin. */
+  --neon-lime-rgb:    43 255 136;
+  --neon-cyan-rgb:    34 240 255;
+  --neon-magenta-rgb: 255 47 185;
+  --neon-amber-rgb:   255 207 40;
+  --neon-red-rgb:     255 51 85;
+  /* The accent is cyan here: focus rings, active nav, the ticker pulse.
+     It is never lime or red in any skin — those two mean P&L sign. */
+  --accent-rgb:       34 240 255;
+
+  /* Tailwind `pixel.*` palette refs — the tailwind.config.js consumes
+     these via `rgb(var(--pixel-x-rgb) / <alpha-value>)` so opacity
+     modifiers (`text-pixel-white/50`) keep working across skins. */
+  --pixel-black-rgb: 5 3 10;
+  --pixel-bg-rgb: 10 6 20;
+  --pixel-panel-rgb: 23 16 43;
+  --pixel-border-rgb: 86 57 154;
+  --pixel-white-rgb: 244 240 255;
+  --pixel-gray-rgb: 111 99 146;
+  --pixel-gray-light-rgb: 169 156 201;
+
+  /* Radii stay in the token set so any component still reading them
+     gets the square value for free. */
+  --radius-sm: 0px;
+  --radius:    0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+
+  /* Scanline strength — dialled right down on light skins, where a dark
+     grille over paper just reads as dirt. */
+  --scan-alpha: 0.20;
+  --grid-alpha: 0.45;
 }
 
+/* Everything the components and rules below actually read, derived from
+   the channels above. Substitution is lazy, so a skin only ever has to
+   restate the six channel vars and these follow it. */
+:root {
+  --neon-lime:    rgb(var(--neon-lime-rgb));
+  --neon-cyan:    rgb(var(--neon-cyan-rgb));
+  --neon-magenta: rgb(var(--neon-magenta-rgb));
+  --neon-amber:   rgb(var(--neon-amber-rgb));
+  --neon-red:     rgb(var(--neon-red-rgb));
+  --accent:       rgb(var(--accent-rgb));
+  --panel-shadow: 4px 4px 0 var(--shadow-hard);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   SKINS
+   ────────────────────────────────────────────────────────────────────
+   One block per cabinet. Every block restates the SAME token list in
+   the SAME order — a skin that drops a line silently inherits ARCADE's
+   value for it, which is the only way this system breaks.
+
+   Two rules survive every skin, because they're the reason the console
+   is readable rather than pretty:
+     · lime = up, red = down. Even the monochrome tubes bend and keep
+       one green and one burnt-red, because a P&L sign that needs a
+       legend is a broken P&L sign.
+     · the accent is never lime or red. Chrome doesn't get to borrow a
+       colour that means money.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* FLYER — daytime arcade: the cabinet's side-art flyer, not a white
+   webapp. Hard near-black borders are what keep it 8-bit instead of
+   flat, and the five hues are driven down in luminance so they hold
+   contrast on paper instead of glowing off it. */
 [data-theme="light"] {
-  --bg: #f4f5f7;
-  --bg-elev: #ffffff;
-  --fg: #111827;
-  --fg-muted: #4b5563;
-  --fg-dim: #9ca3af;
-  --border: rgba(17, 24, 39, 0.10);
-  --border-strong: rgba(17, 24, 39, 0.22);
+  --bg: #e8e3f5;
+  --bg-elev: #f7f4ff;
+  --fg: #150a24;
+  --fg-muted: #493a63;
+  --fg-dim: #7a6b96;
+  --border: #150a24;
+  --border-strong: #150a24;
   --panel-from: #ffffff;
-  --panel-to: #fafafa;
-  --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 4px 14px rgba(17, 24, 39, 0.06);
+  --panel-to: #f2eeff;
+  --shadow-hard: #150a24;
   --input-bg: #ffffff;
   --input-bg-focus: #ffffff;
-  --btn-bg: rgba(17, 24, 39, 0.03);
-  --btn-bg-hover: rgba(17, 24, 39, 0.07);
-  --btn-bg-active: rgba(17, 24, 39, 0.05);
-  --scroll-track: #f4f5f7;
-  --scroll-thumb: #d1d5db;
-  --scroll-thumb-hover: #b7bcc4;
-  --table-stripe: #f3f4f6;
-  --table-hover: #e5e7eb;
+  --btn-bg: #ffffff;
+  --btn-bg-hover: #ded5f7;
+  --btn-bg-active: #cfc3ee;
+  --scroll-track: #ded5f7;
+  --scroll-thumb: #150a24;
+  --scroll-thumb-hover: #3b2166;
+  --table-stripe: #f2eeff;
+  --table-hover: #ddd2f8;
   --table-head: #ffffff;
 
+  --neon-lime-rgb:    6 122 65;
+  --neon-cyan-rgb:    11 109 133;
+  --neon-magenta-rgb: 180 23 126;
+  --neon-amber-rgb:   154 90 0;
+  --neon-red-rgb:     196 15 54;
+  --accent-rgb:       107 47 214;
+
   --pixel-black-rgb: 255 255 255;
-  --pixel-bg-rgb: 244 245 247;
+  --pixel-bg-rgb: 232 227 245;
   --pixel-panel-rgb: 255 255 255;
-  --pixel-border-rgb: 229 231 235;
-  --pixel-white-rgb: 17 24 39;
-  --pixel-gray-rgb: 107 114 128;
-  --pixel-gray-light-rgb: 156 163 175;
-  --pixel-black: #ffffff;
-  --pixel-bg: #f4f5f7;
-  --pixel-panel: #ffffff;
-  --pixel-border: #e5e7eb;
-  --pixel-white: #111827;
-  --pixel-gray: #6b7280;
-  --pixel-gray-light: #9ca3af;
+  --pixel-border-rgb: 21 10 36;
+  --pixel-white-rgb: 21 10 36;
+  --pixel-gray-rgb: 122 107 150;
+  --pixel-gray-light-rgb: 73 58 99;
+
+  --scan-alpha: 0.05;
+  --grid-alpha: 0.10;
 }
 
+/* MANUAL — the instruction booklet that shipped in the box: newsprint
+   cream, brown-black ink, and flat spot colours off a four-plate press.
+   Nothing glows, because paper doesn't. */
+[data-theme="manual"] {
+  --bg: #efe7d5;
+  --bg-elev: #fbf6ea;
+  --fg: #1f1a12;
+  --fg-muted: #574a35;
+  --fg-dim: #8a7a5f;
+  --border: #1f1a12;
+  --border-strong: #1f1a12;
+  --panel-from: #fbf6ea;
+  --panel-to: #f2ead8;
+  --shadow-hard: #1f1a12;
+  --input-bg: #fffdf6;
+  --input-bg-focus: #fffdf6;
+  --btn-bg: #fffdf6;
+  --btn-bg-hover: #e6dcc4;
+  --btn-bg-active: #d8ccae;
+  --scroll-track: #e6dcc4;
+  --scroll-thumb: #1f1a12;
+  --scroll-thumb-hover: #574a35;
+  --table-stripe: #f2ead8;
+  --table-hover: #e8dfc9;
+  --table-head: #fbf6ea;
+
+  --neon-lime-rgb:    28 122 53;
+  --neon-cyan-rgb:    23 85 127;
+  --neon-magenta-rgb: 168 31 107;
+  --neon-amber-rgb:   156 100 16;
+  --neon-red-rgb:     179 18 38;
+  --accent-rgb:       23 85 127;
+
+  --pixel-black-rgb: 255 253 246;
+  --pixel-bg-rgb: 239 231 213;
+  --pixel-panel-rgb: 251 246 234;
+  --pixel-border-rgb: 31 26 18;
+  --pixel-white-rgb: 31 26 18;
+  --pixel-gray-rgb: 138 122 95;
+  --pixel-gray-light-rgb: 87 74 53;
+
+  --scan-alpha: 0.04;
+  --grid-alpha: 0.05;
+}
+
+/* GAMEBOY — the DMG's four tones of olive and nothing else. The P&L
+   pair is the one bend: deep grass for up, rust for down, so the sign
+   survives on a screen that only ever had one hue. */
+[data-theme="gameboy"] {
+  --bg: #8bac0f;
+  --bg-elev: #9bbc0f;
+  --fg: #0f380f;
+  --fg-muted: #204d20;
+  --fg-dim: #306230;
+  --border: #0f380f;
+  --border-strong: #0f380f;
+  --panel-from: #9bbc0f;
+  --panel-to: #93b40f;
+  --shadow-hard: #0f380f;
+  --input-bg: #9bbc0f;
+  --input-bg-focus: #a3c40f;
+  --btn-bg: #9bbc0f;
+  --btn-bg-hover: #85a50e;
+  --btn-bg-active: #6f8c0c;
+  --scroll-track: #8bac0f;
+  --scroll-thumb: #0f380f;
+  --scroll-thumb-hover: #306230;
+  --table-stripe: #93b40f;
+  --table-hover: #82a00e;
+  --table-head: #9bbc0f;
+
+  --neon-lime-rgb:    15 77 20;
+  --neon-cyan-rgb:    22 73 74;
+  --neon-magenta-rgb: 76 42 83;
+  --neon-amber-rgb:   92 74 6;
+  --neon-red-rgb:     124 35 18;
+  --accent-rgb:       15 56 15;
+
+  --pixel-black-rgb: 155 188 15;
+  --pixel-bg-rgb: 139 172 15;
+  --pixel-panel-rgb: 155 188 15;
+  --pixel-border-rgb: 15 56 15;
+  --pixel-white-rgb: 15 56 15;
+  --pixel-gray-rgb: 48 98 48;
+  --pixel-gray-light-rgb: 32 77 32;
+
+  --scan-alpha: 0.12;
+  --grid-alpha: 0.05;
+}
+
+/* PHOSPHOR — a P1 tube: one green gun, run hot. Every accent collapses
+   toward the phosphor; only the loss colour is allowed off it. */
+[data-theme="phosphor"] {
+  --bg: #010a04;
+  --bg-elev: #04170a;
+  --fg: #b9ffcf;
+  --fg-muted: #59c47e;
+  --fg-dim: #2f7d4c;
+  --border: #0d3a1e;
+  --border-strong: #1d6a38;
+  --panel-from: #04170a;
+  --panel-to: #020f06;
+  --shadow-hard: #000000;
+  --input-bg: #010a04;
+  --input-bg-focus: #021106;
+  --btn-bg: #04170a;
+  --btn-bg-hover: #0a2c14;
+  --btn-bg-active: #010a04;
+  --scroll-track: #010a04;
+  --scroll-thumb: #1d6a38;
+  --scroll-thumb-hover: #35c46a;
+  --table-stripe: #020f06;
+  --table-hover: #0a2c14;
+  --table-head: #010a04;
+
+  --neon-lime-rgb:    61 255 122;
+  --neon-cyan-rgb:    18 240 168;
+  --neon-magenta-rgb: 168 255 54;
+  --neon-amber-rgb:   216 255 46;
+  --neon-red-rgb:     255 92 71;
+  --accent-rgb:       18 240 168;
+
+  --pixel-black-rgb: 0 6 3;
+  --pixel-bg-rgb: 1 10 4;
+  --pixel-panel-rgb: 4 23 10;
+  --pixel-border-rgb: 29 106 56;
+  --pixel-white-rgb: 185 255 207;
+  --pixel-gray-rgb: 47 125 76;
+  --pixel-gray-light-rgb: 89 196 126;
+
+  --scan-alpha: 0.28;
+  --grid-alpha: 0.28;
+}
+
+/* AMBER — the P3 tube off a terminal: soot, warm oranges, and a
+   yellow-green for gains that the amber gun could just about reach. */
+[data-theme="amber"] {
+  --bg: #0d0700;
+  --bg-elev: #1a0f02;
+  --fg: #ffd9a0;
+  --fg-muted: #c89551;
+  --fg-dim: #8a6329;
+  --border: #3a2409;
+  --border-strong: #7a4d12;
+  --panel-from: #1a0f02;
+  --panel-to: #120a01;
+  --shadow-hard: #000000;
+  --input-bg: #0d0700;
+  --input-bg-focus: #140b01;
+  --btn-bg: #1a0f02;
+  --btn-bg-hover: #2b1a05;
+  --btn-bg-active: #0d0700;
+  --scroll-track: #0d0700;
+  --scroll-thumb: #7a4d12;
+  --scroll-thumb-hover: #d08a1c;
+  --table-stripe: #120a01;
+  --table-hover: #2b1a05;
+  --table-head: #0d0700;
+
+  --neon-lime-rgb:    168 224 44;
+  --neon-cyan-rgb:    255 207 107;
+  --neon-magenta-rgb: 255 138 61;
+  --neon-amber-rgb:   255 194 31;
+  --neon-red-rgb:     255 68 54;
+  --accent-rgb:       255 207 107;
+
+  --pixel-black-rgb: 7 3 0;
+  --pixel-bg-rgb: 13 7 0;
+  --pixel-panel-rgb: 26 15 2;
+  --pixel-border-rgb: 122 77 18;
+  --pixel-white-rgb: 255 217 160;
+  --pixel-gray-rgb: 138 99 41;
+  --pixel-gray-light-rgb: 200 149 81;
+
+  --scan-alpha: 0.26;
+  --grid-alpha: 0.26;
+}
+
+/* C64 — boot screen blue, lavender type, and accents taken straight off
+   the VIC-II's sixteen. The most colour-limited skin here that still
+   isn't monochrome. */
+[data-theme="c64"] {
+  --bg: #322a8e;
+  --bg-elev: #3d34a8;
+  --fg: #b8aeff;
+  --fg-muted: #8f84e0;
+  --fg-dim: #6f65c4;
+  --border: #221a66;
+  --border-strong: #7c70da;
+  --panel-from: #3d34a8;
+  --panel-to: #382fa0;
+  --shadow-hard: #16104a;
+  --input-bg: #2a2280;
+  --input-bg-focus: #322a8e;
+  --btn-bg: #3d34a8;
+  --btn-bg-hover: #4a40c0;
+  --btn-bg-active: #2a2280;
+  --scroll-track: #322a8e;
+  --scroll-thumb: #7c70da;
+  --scroll-thumb-hover: #b8aeff;
+  --table-stripe: #382fa0;
+  --table-hover: #4a40c0;
+  --table-head: #322a8e;
+
+  --neon-lime-rgb:    170 255 102;
+  --neon-cyan-rgb:    170 255 238;
+  --neon-magenta-rgb: 238 136 238;
+  --neon-amber-rgb:   238 238 119;
+  --neon-red-rgb:     255 119 119;
+  --accent-rgb:       170 255 238;
+
+  --pixel-black-rgb: 42 34 128;
+  --pixel-bg-rgb: 50 42 142;
+  --pixel-panel-rgb: 61 52 168;
+  --pixel-border-rgb: 124 112 218;
+  --pixel-white-rgb: 184 174 255;
+  --pixel-gray-rgb: 111 101 196;
+  --pixel-gray-light-rgb: 143 132 224;
+
+  --scan-alpha: 0.16;
+  --grid-alpha: 0.20;
+}
+
+/* MIAMI — the neon-noir cabinet in the back of the bar: ox-blood room,
+   hot pink sign, and the loss colour pushed to orange-red so it can't
+   be mistaken for the chrome. */
+[data-theme="miami"] {
+  --bg: #16030f;
+  --bg-elev: #24061a;
+  --fg: #ffe6f4;
+  --fg-muted: #d78ab8;
+  --fg-dim: #96557f;
+  --border: #4a0d33;
+  --border-strong: #a01a6b;
+  --panel-from: #24061a;
+  --panel-to: #1c0413;
+  --shadow-hard: #000000;
+  --input-bg: #10020b;
+  --input-bg-focus: #180410;
+  --btn-bg: #24061a;
+  --btn-bg-hover: #3a0a2a;
+  --btn-bg-active: #10020b;
+  --scroll-track: #16030f;
+  --scroll-thumb: #a01a6b;
+  --scroll-thumb-hover: #ff2d95;
+  --table-stripe: #1c0413;
+  --table-hover: #3a0a2a;
+  --table-head: #16030f;
+
+  --neon-lime-rgb:    43 255 158;
+  --neon-cyan-rgb:    0 229 255;
+  --neon-magenta-rgb: 255 45 149;
+  --neon-amber-rgb:   255 184 0;
+  --neon-red-rgb:     255 59 46;
+  --accent-rgb:       255 45 149;
+
+  --pixel-black-rgb: 12 1 8;
+  --pixel-bg-rgb: 22 3 15;
+  --pixel-panel-rgb: 36 6 26;
+  --pixel-border-rgb: 160 26 107;
+  --pixel-white-rgb: 255 230 244;
+  --pixel-gray-rgb: 150 85 127;
+  --pixel-gray-light-rgb: 215 138 184;
+
+  --scan-alpha: 0.22;
+  --grid-alpha: 0.50;
+}
+
+/* VECTOR — the black-and-white cabinet next door: no raster, no fill,
+   just bright lines on a tube that's genuinely off. Borders run white,
+   the drop shadows land in the dark and disappear. That's the look. */
+[data-theme="vector"] {
+  --bg: #000000;
+  --bg-elev: #08080c;
+  --fg: #ffffff;
+  --fg-muted: #b9b9c4;
+  --fg-dim: #6e6e7c;
+  --border: #24242e;
+  --border-strong: #e8e8f2;
+  --panel-from: #08080c;
+  --panel-to: #050508;
+  --shadow-hard: #000000;
+  --input-bg: #000000;
+  --input-bg-focus: #08080c;
+  --btn-bg: #08080c;
+  --btn-bg-hover: #17171f;
+  --btn-bg-active: #000000;
+  --scroll-track: #000000;
+  --scroll-thumb: #e8e8f2;
+  --scroll-thumb-hover: #ffffff;
+  --table-stripe: #050508;
+  --table-hover: #17171f;
+  --table-head: #000000;
+
+  --neon-lime-rgb:    51 255 102;
+  --neon-cyan-rgb:    51 255 255;
+  --neon-magenta-rgb: 255 51 255;
+  --neon-amber-rgb:   255 204 51;
+  --neon-red-rgb:     255 51 51;
+  --accent-rgb:       51 255 255;
+
+  --pixel-black-rgb: 0 0 0;
+  --pixel-bg-rgb: 0 0 0;
+  --pixel-panel-rgb: 8 8 12;
+  --pixel-border-rgb: 232 232 242;
+  --pixel-white-rgb: 255 255 255;
+  --pixel-gray-rgb: 110 110 124;
+  --pixel-gray-light-rgb: 185 185 196;
+
+  --scan-alpha: 0.06;
+  --grid-alpha: 0.14;
+}
+
+/* ── Chunky square scrollbar — a slider on a cabinet, not a hairline ── */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb) var(--scroll-track);
 }
-
-*::-webkit-scrollbar { width: 10px; height: 10px; }
-*::-webkit-scrollbar-track { background: var(--scroll-track); }
+*::-webkit-scrollbar { width: 12px; height: 12px; }
+*::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+  border-left: 2px solid var(--border);
+}
 *::-webkit-scrollbar-thumb {
   background: var(--scroll-thumb);
-  border-radius: 999px;
+  border-radius: 0;
   border: 2px solid var(--scroll-track);
 }
 *::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
+*::-webkit-scrollbar-corner { background: var(--scroll-track); }
 
+/* Strips that scroll sideways inside chrome (the nav tabs) — a 12px
+   cabinet slider under a 34px row is thicker than the thing it scrolls. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { width: 0; height: 0; }
+
+/* ── Type ────────────────────────────────────────────────────────────
+   Silkscreen carries the interface, Press Start 2P is the logo voice
+   (`.font-display`), VT323 owns every number (`.font-mono`). Font
+   smoothing is switched OFF: these are bitmap faces and antialiasing
+   sands the corners off the very thing that makes them read as 8-bit. */
 body {
   color: var(--fg);
   background: var(--bg);
-  /* Vibey modern stack — Inter for body, JetBrains Mono for numerics.
-     Default weight bumped to 500 so labels read with confidence; component
-     overrides (700 on headers, 600 on buttons) build on top. */
-  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-feature-settings: "ss01", "cv11";
-  font-weight: 500;
-  font-size: 14px;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  letter-spacing: 0.005em;
+  font-family: 'Silkscreen', 'Press Start 2P', ui-monospace, monospace;
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1.7;          /* bitmap faces need air to stay readable */
+  letter-spacing: 0.02em;
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+  font-smooth: never;
+  text-rendering: geometricPrecision;
 }
 
-/* Numeric / mono-style content (prices, percents, addresses) */
+/* Numerics / addresses. VT323 is monospaced and narrow, which is why
+   the dense tables got *more* readable, not less, when they moved off
+   a proportional face. */
 .font-mono,
 [class*="font-mono"],
 code, kbd, pre, samp {
-  font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace !important;
-  font-feature-settings: "tnum", "ss01";
+  font-family: 'VT323', 'Silkscreen', ui-monospace, monospace !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
 }
 
-/* Headlines / branding accents */
+/* Headlines / branding. Press Start 2P is enormous per-character — it
+   only ever appears at small px with generous tracking. */
 .font-display {
-  font-family: "Space Grotesk", "Inter", sans-serif;
-  letter-spacing: -0.01em;
+  font-family: '"Press Start 2P"', 'Press Start 2P', Silkscreen, monospace;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
 }
 
-/* Subtle ambient vignette — replaces the heavy Game Boy scanline overlay. */
+/* Press Start 2P is enormous per character, so the heading scale runs
+   much smaller than a proportional face would — and it snaps to the
+   font's 8px design grid (see `.arcade-title`), which is why these are
+   24 / 16 / 16 and not a smooth ramp. The size classes in the components
+   (`text-2xl`, `text-lg`) are overridden here rather than in fifteen
+   files. */
+h1.font-display { font-size: 24px; }
+h2.font-display { font-size: 16px; }
+h3.font-display { font-size: 16px; }
+
+/* Section headers get a solid cyan block in the gutter instead of a
+   rule — a marker, the way a menu points at the current line. */
+h2.font-display::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 16px;
+  margin-right: 10px;
+  vertical-align: -2px;
+  background: var(--accent);
+}
+
+/* Prose that isn't chrome gets extra leading so a bitmap face stays
+   comfortable over several lines. */
+p { line-height: 1.7; }
+
+/* Running prose — the one thing Silkscreen is bad at. Its lowercase is
+   small-caps-shaped, so four lines of it read as one long SHOUTED block
+   with no word silhouettes left to scan. Body copy therefore moves to
+   VT323 (a terminal face, so still period-correct) at a size where its
+   lowercase actually has descenders, and the measure is capped at 72ch. */
+.arcade-prose {
+  font-family: 'VT323', 'Silkscreen', ui-monospace, monospace;
+  font-size: 20px;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  color: var(--fg-muted);
+  max-width: 72ch;
+}
+/* Card-sized blurbs. Declared after `.arcade-prose` because both it and a
+   Tailwind `text-[…]` utility sit at one-class specificity, so a size on
+   the element would lose to the base rule. */
+.arcade-prose-sm { font-size: 18px; max-width: none; }
+
+/* ── The screen ──────────────────────────────────────────────────────
+   Two fixed layers, both pointer-events:none:
+     body::before — the synthwave horizon grid, behind everything
+     .crt-overlay — the phosphor grille + vignette, over everything
+   Kept deliberately faint. A CRT you *notice* is a CRT you can't read
+   through; this should register as texture, not as a filter. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    /* horizon bloom — the skin's own magenta below, accent above */
+    radial-gradient(ellipse 120% 60% at 50% 100%,
+      rgb(var(--neon-magenta-rgb) / calc(var(--grid-alpha) * 0.5)) 0%, transparent 60%),
+    radial-gradient(ellipse 90% 50% at 50% 0%,
+      rgb(var(--accent-rgb) / calc(var(--grid-alpha) * 0.22)) 0%, transparent 70%);
+}
+
+/* The receding grid floor. A separate layer so it can be skewed in
+   perspective without dragging the bloom with it. */
+body::after {
+  content: "";
+  position: fixed;
+  left: -50%;
+  right: -50%;
+  bottom: -60vh;
+  height: 110vh;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--grid-alpha);
+  transform: perspective(340px) rotateX(62deg);
+  transform-origin: 50% 100%;
+  background-image:
+    repeating-linear-gradient(90deg,
+      transparent 0 58px, rgb(var(--neon-magenta-rgb) / 0.8) 58px 60px),
+    repeating-linear-gradient(0deg,
+      transparent 0 58px, rgb(var(--accent-rgb) / 0.5) 58px 60px);
+  mask-image: linear-gradient(to top, #000 0%, transparent 70%);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, transparent 70%);
+}
+
+/* Phosphor grille + tube vignette. */
 .crt-overlay {
   pointer-events: none;
   position: fixed;
   inset: 0;
   z-index: 9999;
   background:
-    radial-gradient(ellipse at top, rgba(74, 222, 128, 0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at bottom, rgba(125, 211, 252, 0.03) 0%, transparent 55%);
+    repeating-linear-gradient(180deg,
+      rgba(0, 0, 0, var(--scan-alpha)) 0 1px,
+      transparent 1px 3px),
+    radial-gradient(ellipse 100% 100% at 50% 50%,
+      transparent 55%, rgba(0, 0, 0, 0.45) 100%);
+}
+/* On a light skin the grille is drawn in that skin's own ink (which is
+   what --pixel-white-rgb holds there) and the tube vignette goes — a
+   dark halo around paper reads as a smudge. */
+[data-base="light"] .crt-overlay {
+  background:
+    repeating-linear-gradient(180deg,
+      rgb(var(--pixel-white-rgb) / var(--scan-alpha)) 0 1px,
+      transparent 1px 3px);
 }
 
-/* Universal rounding sweep — every native control + bordered div picks up the
-   vibe without per-component className edits. */
-button,
-input,
-select,
-textarea {
-  border-radius: var(--radius);
-}
-input[type="checkbox"],
-input[type="radio"] {
-  border-radius: var(--radius-sm);
-}
-
-/* Page-level inner glow */
-.crt-screen {
-  position: relative;
-}
-.crt-screen::before {
+/* One bright scan sweeping down the tube, ~7s apart. */
+.crt-overlay::after {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: var(--radius-xl);
-  pointer-events: none;
-  box-shadow:
-    inset 0 0 120px rgba(255, 255, 255, 0.015),
-    inset 0 0 240px rgba(0, 0, 0, 0.5);
+  left: 0;
+  right: 0;
+  height: 140px;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.035) 45%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0.035) 55%,
+    transparent 100%);
+  animation: crt-sweep 7s linear infinite;
+}
+@keyframes crt-sweep {
+  0%   { transform: translateY(-140px); }
+  100% { transform: translateY(100vh); }
+}
+[data-base="light"] .crt-overlay::after { display: none; }
+
+/* Page content rides above the grid backdrop. */
+.crt-screen {
+  position: relative;
   z-index: 1;
 }
 
-/* Glow effects — softer modern variants (kept for backward compat) */
-.glow-green   { text-shadow: 0 0 14px rgba(74, 222, 128, 0.45); }
-.glow-cyan    { text-shadow: 0 0 14px rgba(125, 211, 252, 0.45); }
-.glow-amber   { text-shadow: 0 0 14px rgba(251, 191, 36, 0.45); }
-.glow-red     { text-shadow: 0 0 14px rgba(248, 113, 113, 0.45); }
-.glow-magenta { text-shadow: 0 0 14px rgba(244, 114, 182, 0.45); }
+/* Anyone who asks for less motion gets a still screen — the sweep and
+   the marquee are decoration, and decoration is the first thing to go. */
+@media (prefers-reduced-motion: reduce) {
+  .crt-overlay::after { animation: none; display: none; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
 
-/* Vibey rounded panel — replaces the Mario pixel block */
-.pixel-panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, var(--panel-from) 0%, var(--panel-to) 100%);
+/* ── Neon text ───────────────────────────────────────────────────────
+   Real glow now (the old build had these as near-invisible blurs). In
+   light mode a glow reads as a printing error, so they go flat. */
+.glow-green   { color: var(--neon-lime);    text-shadow: 0 0 8px var(--neon-lime), 0 0 20px rgb(var(--neon-lime-rgb) / 0.35); }
+.glow-cyan    { color: var(--neon-cyan);    text-shadow: 0 0 8px var(--neon-cyan), 0 0 20px rgb(var(--neon-cyan-rgb) / 0.35); }
+.glow-amber   { color: var(--neon-amber);   text-shadow: 0 0 8px var(--neon-amber), 0 0 20px rgb(var(--neon-amber-rgb) / 0.35); }
+.glow-red     { color: var(--neon-red);     text-shadow: 0 0 8px var(--neon-red), 0 0 20px rgb(var(--neon-red-rgb) / 0.35); }
+.glow-magenta { color: var(--neon-magenta); text-shadow: 0 0 8px var(--neon-magenta), 0 0 20px rgb(var(--neon-magenta-rgb) / 0.35); }
+[data-base="light"] [class^="glow-"],
+[data-base="light"] [class*=" glow-"] { text-shadow: none; }
+
+/* The title treatment: hard 8-bit drop shadow in magenta, offset by
+   whole pixels. No blur — a sprite shadow is just the sprite again,
+   moved two pixels and recoloured.
+
+   ONE offset, not two. The old stacked magenta-at-2px + black-at-4px
+   put the second colour inside the letterforms at display sizes (Press
+   Start's strokes are only 2-3px), so the title read as a misregistered
+   print rather than a sprite.
+
+   And the offset is always exactly ONE design pixel: Press Start 2P is
+   drawn on an 8×8 em, so a design pixel is font-size/8. Sizes therefore
+   have to be multiples of 8 or the renderer resamples every glyph — the
+   old 18/19px titles were being scaled by 2.375, which is what made them
+   look smeared rather than pixelated. 16px → 2px shadow, 24px → 3px. */
+.arcade-title {
+  font-family: '"Press Start 2P"', 'Press Start 2P', monospace;
+  font-size: 24px;
+  color: var(--fg);
+  text-shadow: 3px 3px 0 var(--neon-magenta);
+  letter-spacing: 0.04em;
+}
+.page-head .arcade-title { font-size: 24px; }
+@media (min-width: 768px) {
+  .page-head .arcade-title {
+    font-size: 32px;
+    text-shadow: 4px 4px 0 var(--neon-magenta);
+  }
+}
+
+/* ── Page head ───────────────────────────────────────────────────────
+   The cabinet marquee: the title sits in a lit band across the top of
+   the board with the grid floor showing through, and the standfirst
+   hangs under it on the panel. Gives every page the same silhouette and
+   stops the h1 from floating loose on the void. */
+.page-head {
+  border: 2px solid var(--border-strong);
+  background: var(--panel-from);
   box-shadow: var(--panel-shadow);
 }
-
-.pixel-panel-cyan {
-  border: 1px solid rgba(125, 211, 252, 0.25);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, #141414 0%, #0e0e0e 100%);
-  box-shadow: 0 0 24px rgba(125, 211, 252, 0.06), 0 8px 24px rgba(0, 0, 0, 0.45);
+.page-head-band {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 2px solid var(--border-strong);
+  background:
+    linear-gradient(180deg,
+      rgb(var(--neon-magenta-rgb) / 0.14) 0%, transparent 100%),
+    var(--bg);
+}
+[data-base="light"] .page-head-band {
+  background:
+    linear-gradient(180deg,
+      rgb(var(--neon-magenta-rgb) / 0.10) 0%, transparent 100%),
+    var(--bg);
+}
+/* Two stacked bars in the gutter — the marquee's light housing. */
+.page-head-band::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  align-self: stretch;
+  background: repeating-linear-gradient(180deg,
+    var(--neon-cyan) 0 4px, transparent 4px 8px);
 }
 
-.pixel-panel-amber {
-  border: 1px solid rgba(251, 191, 36, 0.25);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, #141414 0%, #0e0e0e 100%);
-  box-shadow: 0 0 24px rgba(251, 191, 36, 0.06), 0 8px 24px rgba(0, 0, 0, 0.45);
+/* ── Controls ────────────────────────────────────────────────────────
+   Native elements are squared globally so a stray <select> can't sneak
+   a rounded corner into the layout. */
+button, input, select, textarea {
+  border-radius: 0;
+  font-family: inherit;
 }
 
-.pixel-panel-red {
-  border: 1px solid rgba(248, 113, 113, 0.35);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, #1a0e0e 0%, #0e0808 100%);
-  box-shadow: 0 0 24px rgba(248, 113, 113, 0.08), 0 8px 24px rgba(0, 0, 0, 0.45);
-}
-
-/* Vibey rounded button */
+/* The button. Sits on a 3px black block; pressing translates it exactly
+   3px down-right and removes the block, so the cap meets the board. */
 .pixel-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  padding: 8px 14px;
-  font-family: inherit;
-  font-size: 13px;
+  border: 2px solid var(--border-strong);
+  border-radius: 0;
+  padding: 9px 14px;
+  font-family: 'Silkscreen', monospace;
+  font-size: 12px;
+  /* Explicit, so a cap's height is padding + glyph and nothing else —
+     the header rail lines its controls up against this number. */
+  line-height: 1;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.10em;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.05s, box-shadow 0.15s;
   background: var(--btn-bg);
   color: var(--fg);
+  box-shadow: 3px 3px 0 var(--shadow-hard);
+  /* Stepped, and short enough to feel mechanical rather than animated. */
+  transition: background 0.08s steps(2, end), color 0.08s steps(2, end),
+              border-color 0.08s steps(2, end);
 }
 .pixel-btn:hover {
   background: var(--btn-bg-hover);
-  border-color: var(--border-strong);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  border-color: var(--accent);
+  color: var(--fg);
 }
-.pixel-btn:active {
-  transform: translateY(1px);
+.pixel-btn:active,
+.pixel-btn[aria-pressed="true"]:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 var(--shadow-hard);
   background: var(--btn-bg-active);
 }
+.pixel-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.pixel-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: 3px 3px 0 var(--shadow-hard);
+}
+.pixel-btn:disabled:active { transform: none; }
 
-/* Vibey rounded input */
-.pixel-input {
-  background: var(--input-bg);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 500;
+/* Header rail. Chips, toggles and caps in the top bar arrive at four
+   different heights otherwise (each one padded by hand), which is what
+   made the row read as loose parts instead of one instrument strip.
+   Every control in the bar carries this and nothing else sets its
+   vertical size. */
+.topbar-ctl {
+  height: 34px;
+  padding-top: 0;
+  padding-bottom: 0;
+  flex: none;
+}
+
+/* Selected nav item: inverted solid block. A menu cursor on a console
+   doesn't tint the label, it fills the cell behind it. */
+.pixel-btn.nav-active,
+.pixel-btn.nav-active:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  box-shadow: 3px 3px 0 var(--shadow-hard);
+}
+
+/* ── Skin picker ─────────────────────────────────────────────────────
+   The cabinet's DIP-switch panel. The cap on the rail carries three
+   chips off the current palette; opening it drops a hard menu of every
+   skin, each row showing its own three, so you read the cabinet before
+   you switch it on. Same menu-cursor idiom as the nav: the selected row
+   is a filled cell with a ▸ in the gutter, not a tinted label. */
+.skin-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 196px;
+  padding: 4px;
+  background: var(--panel-from);
+  border: 2px solid var(--border-strong);
+  box-shadow: var(--panel-shadow);
+}
+.skin-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  font-family: 'Silkscreen', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  background: transparent;
+  cursor: pointer;
+  border: 0;
+}
+.skin-menu__item:hover {
+  background: var(--btn-bg-hover);
   color: var(--fg);
-  outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
 }
-.pixel-input:focus {
-  border-color: rgba(74, 222, 128, 0.55);
-  background: var(--input-bg-focus);
-  box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.08);
+.skin-menu__item[aria-checked="true"] {
+  background: var(--accent);
+  color: var(--bg);
 }
-.pixel-input::placeholder {
-  color: var(--fg-dim);
+.skin-menu__item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* Fixed-width gutter so the labels don't shift when the cursor lands. */
+.skin-menu__cursor {
+  flex: none;
+  width: 9px;
+  text-align: left;
+}
+.skin-chips {
+  display: inline-flex;
+  gap: 2px;
+  flex: none;
+  margin-left: auto;
+}
+.skin-chip {
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--shadow-hard);
 }
 
-/* Compact filter input — smaller padding for inline filter bars */
+/* The input is the inverse of the button: recessed, so the bevel runs
+   dark on the top-left and light on the bottom-right. */
+.pixel-input,
 .pixel-input-sm {
   background: var(--input-bg);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  border: 2px solid var(--border-strong);
+  border-radius: 0;
+  font-family: 'VT323', monospace;
   color: var(--fg);
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  box-shadow: inset 2px 2px 0 rgba(0, 0, 0, 0.55);
+  transition: border-color 0.08s steps(2, end), box-shadow 0.08s steps(2, end);
 }
+.pixel-input { padding: 9px 12px; font-size: 19px; line-height: 1; }
+.pixel-input-sm { padding: 7px 10px; font-size: 17px; line-height: 1; }
+.pixel-input:focus,
 .pixel-input-sm:focus {
-  border-color: rgba(74, 222, 128, 0.55);
+  border-color: var(--accent);
   background: var(--input-bg-focus);
-  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.08);
+  box-shadow: inset 2px 2px 0 rgba(0, 0, 0, 0.55), 0 0 0 2px rgb(var(--accent-rgb) / 0.25);
 }
+.pixel-input::placeholder,
 .pixel-input-sm::placeholder {
   color: var(--fg-dim);
 }
+[data-base="light"] .pixel-input,
+[data-base="light"] .pixel-input-sm {
+  box-shadow: inset 2px 2px 0 rgba(21, 10, 36, 0.18);
+}
 
-/* Native date-input internals — inherit the vibey font instead of forcing the
-   retro pixel face. */
+/* Native date-input internals inherit the pixel face. */
 .pixel-input[type="date"]::-webkit-datetime-edit,
 .pixel-input[type="date"]::-webkit-datetime-edit-fields-wrapper,
 .pixel-input[type="date"]::-webkit-datetime-edit-text,
 .pixel-input[type="date"]::-webkit-datetime-edit-month-field,
 .pixel-input[type="date"]::-webkit-datetime-edit-day-field,
 .pixel-input[type="date"]::-webkit-datetime-edit-year-field {
-  font-family: inherit;
+  font-family: 'VT323', monospace;
   color: var(--fg);
 }
 .pixel-input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(var(--cal-icon-invert, 1));
+  filter: invert(1);
   cursor: pointer;
 }
-[data-theme="light"] .pixel-input[type="date"]::-webkit-calendar-picker-indicator {
+[data-base="light"] .pixel-input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(0);
 }
 
-/* Vibey progress bar */
+/* ── Panels ──────────────────────────────────────────────────────────
+   A dialog box from a 1987 RPG: solid fill, hard border, hard shadow,
+   and a 2px inset highlight along the top-left so the plate reads as
+   raised off the board. */
+.pixel-panel {
+  border: 2px solid var(--border-strong);
+  border-radius: 0;
+  background: var(--panel-from);
+  box-shadow:
+    inset 2px 2px 0 rgba(255, 255, 255, 0.06),
+    var(--panel-shadow);
+}
+[data-base="light"] .pixel-panel {
+  background: var(--panel-from);
+  box-shadow: var(--panel-shadow);
+}
+
+/* Accent panel variants — the border colour is the whole signal. */
+.pixel-panel-cyan,
+.pixel-panel-amber,
+.pixel-panel-red {
+  border: 2px solid;
+  border-radius: 0;
+  background: var(--panel-from);
+  box-shadow: var(--panel-shadow);
+}
+.pixel-panel-cyan  { border-color: var(--neon-cyan); }
+.pixel-panel-amber { border-color: var(--neon-amber); }
+.pixel-panel-red   { border-color: var(--neon-red); }
+
+/* Notched corners — the 8-bit way to soften a box without curving it.
+   Applied only to hero surfaces; clip-path eats the drop shadow, so
+   these trade depth for silhouette on purpose. */
+.pixel-notch {
+  clip-path: polygon(
+    0 4px, 4px 4px, 4px 0,
+    calc(100% - 4px) 0, calc(100% - 4px) 4px, 100% 4px,
+    100% calc(100% - 4px), calc(100% - 4px) calc(100% - 4px),
+    calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 4px), 0 calc(100% - 4px)
+  );
+  box-shadow: none !important;
+}
+
+/* ── Progress / meters ───────────────────────────────────────────────
+   Stepped fill: the bar advances in visible cells, like an energy meter,
+   instead of sliding continuously. */
 .pixel-bar {
-  height: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
+  height: 10px;
+  background: var(--input-bg);
+  border: 2px solid var(--border-strong);
+  border-radius: 0;
   position: relative;
   overflow: hidden;
+  box-shadow: inset 2px 2px 0 rgba(0, 0, 0, 0.5);
 }
 .pixel-bar-fill {
   height: 100%;
-  border-radius: 999px;
-  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  border-radius: 0;
+  /* the notches that turn a solid fill into discrete cells */
+  background-image: repeating-linear-gradient(90deg,
+    rgba(0, 0, 0, 0.35) 0 2px, transparent 2px 6px);
+  transition: width 0.4s steps(12, end);
 }
 
-/* Retro table — colors thread through theme vars so the stripe doesn't
-   stay locked to dark mode (which made every other row unreadable on
-   light backgrounds). --table-* are defined in :root + [data-theme="light"]. */
+/* ── Tables ──────────────────────────────────────────────────────────
+   The densest surface in the app, so it gets the most restraint: no
+   glow, no gradients. Headers in Silkscreen (compact enough for
+   "Market cap"), values in VT323 at a size that stays legible. */
 .pixel-table {
-  font-size: 12px;
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
 }
 .pixel-table th {
   text-align: left;
-  padding: 10px 12px;
+  padding: 9px 12px;
   color: var(--fg-muted);
+  background: var(--table-head);
   border-bottom: 2px solid var(--border-strong);
-  letter-spacing: 1px;
+  font-family: 'Silkscreen', monospace;
   font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   white-space: nowrap;
   user-select: none;
 }
-.pixel-table th.sortable {
-  cursor: pointer;
-  transition: color 0.1s;
-}
-.pixel-table th.sortable:hover {
-  color: var(--fg);
-}
-.pixel-table th.sorted {
-  color: var(--fg);
-}
+.pixel-table th.sortable { cursor: pointer; }
+.pixel-table th.sortable:hover { color: var(--accent); }
+.pixel-table th.sorted { color: var(--accent); }
 .pixel-table td {
-  padding: 9px 12px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 17px;              /* VT323 runs small; 17 is its "15" */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -365,283 +1057,371 @@ input[type="radio"] {
 .pixel-table td.num,
 .pixel-table th.num {
   font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
 }
-.pixel-table tbody tr {
-  transition: background 0.1s;
-}
-.pixel-table tbody tr:nth-child(even) td {
-  background: var(--table-stripe);
-}
-.pixel-table tbody tr:hover td {
-  background: var(--table-hover);
+.pixel-table tbody tr:nth-child(even) td { background: var(--table-stripe); }
+/* Hover marks the row with a solid accent bar in the gutter — a cursor,
+   the way a menu highlights a selection. */
+.pixel-table tbody tr:hover td { background: var(--table-hover); }
+.pixel-table tbody tr:hover td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .pixel-table thead.sticky th {
   position: sticky;
   top: 0;
-  background: var(--table-head);
   z-index: 1;
 }
 
-/* Vibey rounded badge */
-.pixel-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  border: 1px solid;
-  border-radius: 999px;
-  letter-spacing: 0.04em;
-}
-
-/* Market card — vibey rounded */
-.market-card {
-  background: linear-gradient(180deg, #131313 0%, #0e0e0e 100%);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s, background 0.2s;
-  position: relative;
-  overflow: hidden;
-}
-.market-card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(74, 222, 128, 0.5), transparent);
-  opacity: 0;
-  transition: opacity 0.25s;
-}
-.market-card:hover {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: linear-gradient(180deg, #181818 0%, #111 100%);
-  transform: translateY(-2px);
-  box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(74, 222, 128, 0.10);
-}
-.market-card:hover::before {
-  opacity: 1;
-}
-.market-card:active {
-  transform: translateY(0);
-}
-.market-card-selected {
-  border-color: rgba(74, 222, 128, 0.6) !important;
-  box-shadow: 0 0 24px rgba(74, 222, 128, 0.18), inset 0 0 30px rgba(74, 222, 128, 0.04);
-}
-
-/* Market card in light mode — the hardcoded near-black gradient above is
-   dark-only; without this the whole subnet grid stays black on white. */
-[data-theme="light"] .market-card {
-  background: linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%);
-  border-color: rgba(17, 24, 39, 0.10);
-}
-[data-theme="light"] .market-card:hover {
-  background: linear-gradient(180deg, #ffffff 0%, #f6f7f9 100%);
-  border-color: rgba(17, 24, 39, 0.20);
-  box-shadow: 0 12px 28px rgba(17, 24, 39, 0.10), 0 0 0 1px rgba(22, 163, 74, 0.12);
-}
-
-/* Loading placeholder — same footprint as the card it stands in for, so the
-   grid doesn't jump when data lands. */
-@keyframes skeleton-breathe {
-  0%, 100% { opacity: 0.45; }
-  50%      { opacity: 0.8; }
-}
-.skeleton-pulse {
-  animation: skeleton-breathe 1.6s ease-in-out infinite;
-}
-
-/* Cells that hold a stacked label + sub-label (validator name over its
-   ss58, stake over its share bar) need to breathe past the one-line
-   default and must not clip their second row. */
+/* Cells holding a stacked label + sub-label need to breathe past the
+   one-line default and must not clip their second row. */
 .pixel-table td.stack {
   white-space: normal;
   overflow: visible;
 }
 
-/* Recharts overrides — vibey numerics */
-.recharts-cartesian-grid-horizontal line,
-.recharts-cartesian-grid-vertical line {
-  stroke: rgba(255, 255, 255, 0.06) !important;
-}
-.recharts-text {
-  fill: #888 !important;
-  font-family: "JetBrains Mono", ui-monospace, monospace !important;
-  font-size: 10px !important;
+/* ── Badges ──────────────────────────────────────────────────────────
+   Square, 2px, uppercase. Reads as a label stamped on the cabinet. */
+.pixel-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  font-family: 'Silkscreen', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  border: 2px solid;
+  border-radius: 0;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
 }
 
-/* Pixel sprite decorations - Mario coin */
+/* ── Cards ───────────────────────────────────────────────────────────
+   The one place with a hover *lift*: the card rises 2px and its shadow
+   grows to match, so the block looks like it popped up off the board. */
+.market-card {
+  background: var(--panel-from);
+  border: 2px solid var(--border-strong);
+  border-radius: 0;
+  padding: 18px;
+  position: relative;
+  box-shadow: var(--panel-shadow);
+  transition: transform 0.08s steps(2, end), border-color 0.08s steps(2, end),
+              box-shadow 0.08s steps(2, end), background 0.08s steps(2, end);
+}
+.market-card:hover {
+  border-color: var(--accent);
+  background: var(--btn-bg-hover);
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--shadow-hard);
+}
+.market-card:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--shadow-hard);
+}
+.market-card-selected {
+  border-color: var(--neon-magenta) !important;
+  box-shadow: 4px 4px 0 var(--shadow-hard), inset 0 0 0 2px rgb(var(--neon-magenta-rgb) / 0.25);
+}
+
+/* ── Stat tile ───────────────────────────────────────────────────────
+   The scoreboard readout: a lit strip across the top in the tile's own
+   tone, then label / value / footnote on a tight rhythm. The strip is
+   what makes a row of these read as one instrument cluster instead of
+   four unrelated boxes — and it carries the up/down signal without
+   having to colour the whole plate. */
+.stat-tile {
+  position: relative;
+  border: 2px solid var(--border-strong);
+  background: var(--panel-from);
+  box-shadow: var(--panel-shadow);
+  padding: 11px 14px 12px;
+  overflow: hidden;
+}
+.stat-tile::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--tile-tone, var(--border-strong));
+}
+.stat-tile-up      { --tile-tone: var(--neon-lime); }
+.stat-tile-down    { --tile-tone: var(--neon-red); }
+.stat-tile-accent  { --tile-tone: var(--neon-cyan); }
+
+.stat-tile-label {
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+/* VT323 sets ~30% small for its point size, hence 40px for a "32px" tile. */
+.stat-tile-value {
+  font-family: 'VT323', monospace;
+  font-size: 40px;
+  line-height: 1;
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat-tile-sub {
+  font-family: 'VT323', monospace;
+  font-size: 17px;
+  line-height: 1.2;
+  margin-top: 6px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Loading placeholder — same footprint as the card it stands in for, so
+   the grid doesn't jump when data lands. Stepped, so it reads as a
+   blinking cursor rather than a modern shimmer. */
+@keyframes skeleton-breathe {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.75; }
+}
+.skeleton-pulse {
+  animation: skeleton-breathe 1.2s steps(6, end) infinite;
+}
+
+/* ── Charts ──────────────────────────────────────────────────────────
+   Recharts draws with its own defaults; these pull it onto the grid and
+   into the pixel face. `shape-rendering: crispEdges` kills SVG
+   antialiasing, which is what makes the plot look plotted rather than
+   drawn. */
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--border) !important;
+  stroke-dasharray: 2 4 !important;
+  shape-rendering: crispEdges;
+}
+.recharts-text {
+  fill: var(--fg-dim) !important;
+  font-family: 'VT323', monospace !important;
+  font-size: 15px !important;
+}
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  stroke: var(--border-strong) !important;
+  shape-rendering: crispEdges;
+}
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: var(--panel-from) !important;
+  border: 2px solid var(--border-strong) !important;
+  border-radius: 0 !important;
+  box-shadow: 4px 4px 0 var(--shadow-hard);
+  font-family: 'VT323', monospace !important;
+}
+
+/* ── Sprites ─────────────────────────────────────────────────────────
+   Small decorations, drawn in whole pixels with hard-stop gradients.
+   Used sparingly — one coin in the header earns its keep, twenty is a
+   theme park. */
+
+/* Spinning coin: 4-frame squash, no rotation blur. */
 .sprite-coin::before {
   content: "";
   display: inline-block;
-  width: 12px; height: 12px;
-  background:
-    linear-gradient(90deg,
-      #000 0%, #000 2px,
-      #fff 2px, #fff 4px,
-      #000 4px, #000 6px,
-      #fff 6px, #fff 8px,
-      #000 8px, #000 10px,
-      #fff 10px, #fff 12px
-    );
-  border: 2px solid #ffffff;
-  box-shadow: inset 2px 2px 0 #666666, inset -2px -2px 0 #000000;
-  margin-right: 4px;
-  vertical-align: middle;
-  border-radius: 50%;
+  width: 14px;
+  height: 18px;
+  margin-right: 8px;
+  vertical-align: -2px;
+  background: var(--neon-amber);
+  box-shadow:
+    inset -2px 0 0 #c99400,
+    inset 2px 0 0 #ffe98a;
+  animation: coin-flip 1.2s steps(4, end) infinite;
+}
+@keyframes coin-flip {
+  0%   { transform: scaleX(1); }
+  25%  { transform: scaleX(0.4); }
+  50%  { transform: scaleX(0.12); }
+  75%  { transform: scaleX(0.4); }
+  100% { transform: scaleX(1); }
 }
 
-/* Animated cursor */
+/* Terminal cursor. */
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
 .pixel-cursor::after {
   content: "_";
+  color: var(--accent);
   animation: cursor-blink 1s step-end infinite;
 }
 
-/* Mario-style question block */
+/* "?" block — bevelled amber, black legend. */
 .mario-block {
   width: 16px;
   height: 16px;
-  background: #ffffff;
-  border: 2px solid #000000;
+  background: var(--neon-amber);
+  border: 2px solid #05030a;
   position: relative;
-  box-shadow: inset 2px 2px 0 #cccccc, inset -2px -2px 0 #666666;
+  box-shadow: inset 2px 2px 0 #ffe98a, inset -2px -2px 0 #c99400;
 }
-
 .mario-block::after {
   content: "?";
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-family: "Press Start 2P", monospace;
-  font-size: 10px;
-  color: #000000;
+  font-family: '"Press Start 2P"', 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: #05030a;
 }
 
-/* Mario pipe decoration */
+/* Warp pipe. */
 .mario-pipe {
-  width: 20px;
+  width: 22px;
   height: 30px;
-  background: #666666;
-  border: 2px solid #ffffff;
-  border-radius: 4px 4px 0 0;
+  background: #14b85e;
+  border: 2px solid #05030a;
+  border-radius: 0;
   position: relative;
-  box-shadow: inset 2px 2px 0 #999999, inset -2px -2px 0 #333333;
+  box-shadow: inset 3px 0 0 #2bff88, inset -3px 0 0 #0a7a3d;
 }
-
 .mario-pipe::before {
   content: "";
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
-  height: 6px;
-  background: #999999;
-  border-bottom: 2px solid #ffffff;
+  left: -3px;
+  right: -3px;
+  height: 8px;
+  background: #14b85e;
+  border: 2px solid #05030a;
+  box-shadow: inset 3px 0 0 #2bff88, inset -3px 0 0 #0a7a3d;
 }
 
-/* Mario mushroom */
+/* 1-up mushroom. */
 .mario-mushroom {
   width: 16px;
   height: 16px;
   background:
-    radial-gradient(circle at 30% 30%, #ffffff 20%, transparent 20%),
-    radial-gradient(circle at 70% 30%, #ffffff 20%, transparent 20%),
-    #000000;
-  border: 2px solid #ffffff;
-  border-radius: 50% 50% 0 0;
+    radial-gradient(circle at 30% 35%, #fff 0 3px, transparent 3px),
+    radial-gradient(circle at 70% 35%, #fff 0 3px, transparent 3px),
+    var(--neon-red);
+  border: 2px solid #05030a;
+  border-radius: 0;
 }
 
-/* Brick block pattern */
+/* Brick course. */
 .brick-pattern {
+  background-color: #6b2f14;
   background-image:
-    repeating-linear-gradient(0deg, #333333 0px, #333333 1px, transparent 1px, transparent 8px),
-    repeating-linear-gradient(90deg, #333333 0px, #333333 1px, transparent 1px, transparent 16px);
-}
-
-/* Star power animation */
-@keyframes star-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.mario-star {
-  animation: star-spin 2s linear infinite;
-}
-
-/* Ground pattern like Mario level */
-.mario-ground {
-  background-image:
+    repeating-linear-gradient(0deg,
+      #05030a 0 2px, transparent 2px 14px),
     repeating-linear-gradient(90deg,
-      #000 0px, #000 2px,
-      #fff 2px, #fff 4px,
-      #000 4px, #000 6px,
-      #fff 6px, #fff 8px
-    );
-  height: 4px;
+      #05030a 0 2px, transparent 2px 28px);
 }
 
-/* ── Light-mode brand-color overrides ──────────────────────────────
-   The Tailwind 400-series accents (green-400 / red-400 / amber-400 / etc.)
-   were tuned for dark backgrounds where they need to be light to pop.
-   On a white background they wash out into pastels with poor contrast.
-   These overrides swap them for 600-700-shade equivalents and bump
-   the font weight so headlines / P&L deltas / status pills stay vibrant. */
-[data-theme="light"] .text-green-400 { color: #15803d; font-weight: 600; }
-[data-theme="light"] .text-green-300 { color: #16a34a; font-weight: 600; }
-[data-theme="light"] .text-green-500 { color: #15803d; font-weight: 600; }
-[data-theme="light"] .text-red-400   { color: #dc2626; font-weight: 600; }
-[data-theme="light"] .text-red-500   { color: #b91c1c; font-weight: 600; }
-[data-theme="light"] .text-amber-400 { color: #b45309; font-weight: 600; }
-[data-theme="light"] .text-amber-300 { color: #d97706; font-weight: 600; }
-[data-theme="light"] .text-blue-400  { color: #1d4ed8; font-weight: 600; }
-[data-theme="light"] .text-cyan-400  { color: #0e7490; font-weight: 600; }
-[data-theme="light"] .text-purple-400 { color: #7c3aed; font-weight: 600; }
-[data-theme="light"] .text-pink-400  { color: #db2777; font-weight: 600; }
-
-[data-theme="light"] .border-green-400 { border-color: #16a34a; }
-[data-theme="light"] .border-red-400   { border-color: #dc2626; }
-[data-theme="light"] .border-amber-400 { border-color: #d97706; }
-[data-theme="light"] .border-purple-400 { border-color: #7c3aed; }
-[data-theme="light"] .border-blue-400  { border-color: #2563eb; }
-
-/* Translucent backgrounds (bg-green-400/10 etc.) need a touch more
-   opacity in light mode to actually appear on a near-white surface. */
-[data-theme="light"] .bg-green-400\/10  { background-color: rgba(22, 163, 74, 0.14); }
-[data-theme="light"] .bg-green-400\/15  { background-color: rgba(22, 163, 74, 0.18); }
-[data-theme="light"] .bg-red-400\/10    { background-color: rgba(220, 38, 38, 0.12); }
-[data-theme="light"] .bg-red-400\/5     { background-color: rgba(220, 38, 38, 0.07); }
-[data-theme="light"] .bg-amber-400\/10  { background-color: rgba(217, 119, 6, 0.14); }
-[data-theme="light"] .bg-amber-400\/5   { background-color: rgba(217, 119, 6, 0.08); }
-[data-theme="light"] .bg-purple-400\/10 { background-color: rgba(124, 58, 237, 0.14); }
-[data-theme="light"] .bg-purple-400\/5  { background-color: rgba(124, 58, 237, 0.07); }
-[data-theme="light"] .bg-blue-400\/10   { background-color: rgba(37, 99, 235, 0.14); }
-
-/* Pixel panel cyan/amber/red variants use semi-transparent borders + a
-   dark gradient that doesn't read on white. Recolor them in light mode. */
-[data-theme="light"] .pixel-panel-cyan {
-  background: linear-gradient(180deg, #f0f9ff 0%, #ffffff 100%);
-  border-color: rgba(14, 116, 144, 0.4);
-  box-shadow: 0 0 0 1px rgba(14, 116, 144, 0.05), 0 4px 12px rgba(14, 116, 144, 0.06);
+/* Star power. */
+@keyframes star-blink {
+  0%, 100% { filter: hue-rotate(0deg); }
+  50%      { filter: hue-rotate(120deg); }
 }
-[data-theme="light"] .pixel-panel-amber {
-  background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
-  border-color: rgba(217, 119, 6, 0.4);
-  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.05), 0 4px 12px rgba(217, 119, 6, 0.06);
+.mario-star {
+  animation: star-blink 0.6s steps(3, end) infinite;
 }
-[data-theme="light"] .pixel-panel-red {
-  background: linear-gradient(180deg, #fef2f2 0%, #ffffff 100%);
-  border-color: rgba(220, 38, 38, 0.4);
-  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.05), 0 4px 12px rgba(220, 38, 38, 0.06);
+
+/* Level ground: alternating light/dark cells. */
+.mario-ground {
+  height: 6px;
+  background-image: repeating-linear-gradient(90deg,
+    var(--neon-magenta) 0 3px,
+    var(--neon-cyan) 3px 6px);
+  opacity: 0.55;
 }
+
+/* ── Type scale remap ────────────────────────────────────────────────
+   The component tree pins a lot of chrome to literal pixel sizes
+   (`text-[10px]`, `text-[11px]`) from when the whole board ran two steps
+   smaller. Rather than touch a hundred class strings across twenty
+   files, every rung of the old scale is re-pointed here — same trick as
+   the accent remap below, same reason: one place, and the whole board
+   moves together. A bitmap face has no hinting to fall back on, so
+   anything under 11px is guesswork at arm's length from the cabinet.
+
+   Steps are +2px and stay on even numbers where Silkscreen's 8px design
+   grid wants them; VT323 rungs (15/19) carry the extra since it sets
+   ~30% small for its nominal size. */
+.text-\[8px\]  { font-size: 10px; }
+.text-\[9px\]  { font-size: 11px; }
+.text-\[10px\] { font-size: 12px; }
+.text-\[11px\] { font-size: 13px; }
+.text-\[12px\] { font-size: 14px; }
+.text-\[13px\] { font-size: 15px; }
+.text-\[15px\] { font-size: 17px; }
+.text-\[19px\] { font-size: 22px; }
+
+/* Tailwind's named ramp, used for the prose-ish surfaces. Line heights
+   move with the sizes — the stock pairings assume a face with real
+   descenders. */
+.text-xs   { font-size: 13px; line-height: 1.5; }
+.text-sm   { font-size: 15px; line-height: 1.6; }
+.text-base { font-size: 17px; line-height: 1.6; }
+.text-lg   { font-size: 20px; line-height: 1.5; }
+.text-xl   { font-size: 24px; line-height: 1.4; }
+.text-2xl  { font-size: 28px; line-height: 1.3; }
+.text-3xl  { font-size: 34px; line-height: 1.25; }
+
+/* ── Accent remap ────────────────────────────────────────────────────
+   The component tree reaches for Tailwind's stock 400-series accents
+   (`text-green-400`, `border-red-400`, `bg-amber-400/10`). Rather than
+   rewrite twenty files, the stock ramp is remapped onto the arcade
+   palette here — one place, and every surface moves together.
+
+   These rules sit after `@tailwind utilities`, so at equal specificity
+   they win the cascade. */
+.text-green-400,  .text-green-300,  .text-green-500  { color: var(--neon-lime); }
+.text-red-400,    .text-red-500                      { color: var(--neon-red); }
+.text-amber-400,  .text-amber-300,  .text-yellow-400 { color: var(--neon-amber); }
+.text-cyan-400,   .text-cyan-300,   .text-blue-400   { color: var(--neon-cyan); }
+.text-purple-400, .text-pink-400,   .text-fuchsia-400{ color: var(--neon-magenta); }
+
+.border-green-400  { border-color: var(--neon-lime); }
+.border-red-400    { border-color: var(--neon-red); }
+.border-amber-400  { border-color: var(--neon-amber); }
+.border-cyan-400,
+.border-blue-400   { border-color: var(--neon-cyan); }
+.border-purple-400,
+.border-pink-400   { border-color: var(--neon-magenta); }
+
+.bg-green-400   { background-color: var(--neon-lime); }
+.bg-red-400     { background-color: var(--neon-red); }
+.bg-amber-400   { background-color: var(--neon-amber); }
+.bg-blue-400    { background-color: var(--neon-cyan); }
+.bg-purple-400  { background-color: var(--neon-magenta); }
+
+.bg-green-400\/10,  .bg-green-400\/15 { background-color: rgb(var(--neon-lime-rgb) / 0.14); }
+.bg-green-400\/60                     { background-color: rgb(var(--neon-lime-rgb) / 0.6); }
+.bg-red-400\/10,    .bg-red-400\/5    { background-color: rgb(var(--neon-red-rgb) / 0.14); }
+.bg-amber-400\/10,  .bg-amber-400\/5  { background-color: rgb(var(--neon-amber-rgb) / 0.14); }
+.bg-purple-400\/10, .bg-purple-400\/5 { background-color: rgb(var(--neon-magenta-rgb) / 0.14); }
+.bg-blue-400\/10                      { background-color: rgb(var(--neon-cyan-rgb) / 0.14); }
+
+/* Border alpha variants collapse to the solid hue — a translucent 2px
+   border is a soft edge, and there are no soft edges here. */
+.border-green-400\/25,  .border-green-400\/30,
+.border-green-400\/40                          { border-color: var(--neon-lime); }
+.border-red-400\/25,    .border-red-400\/30,
+.border-red-400\/40,    .border-red-400\/50     { border-color: var(--neon-red); }
+.border-amber-400\/40                          { border-color: var(--neon-amber); }
+.border-pixel-white\/10 { border-color: var(--border-strong); }
+
+/* Light mode: same five hues, already driven down in the token block.
+   Only the weight bump is needed — a bitmap face at 400 on paper reads
+   thinner than the same face on a lit tube. */
+[data-base="light"] .text-green-400,
+[data-base="light"] .text-green-300,
+[data-base="light"] .text-green-500,
+[data-base="light"] .text-red-400,
+[data-base="light"] .text-red-500,
+[data-base="light"] .text-amber-400,
+[data-base="light"] .text-amber-300,
+[data-base="light"] .text-cyan-400,
+[data-base="light"] .text-blue-400,
+[data-base="light"] .text-purple-400,
+[data-base="light"] .text-pink-400 { font-weight: 700; }

@@ -1,49 +1,20 @@
 // Per-strat money-in + live performance. The backend live engine tags every
 // open position with the strat that bought it and keeps a per-strat realized
-// ledger (stratStats) in its persisted state — /live/status serves both even
-// when the engine is stopped. This hook joins that with the deposit wallet's
-// live positions feed (current prices) into one map the strat picker and the
-// cards browser can render: stratId → { moneyIn, unrealized, realized, … }.
+// ledger (stratStats) in its persisted state — /live/sessions serves that for
+// EVERY session the wallet has, running or stopped. This hook merges them and
+// joins the result with the deposit wallet's live positions feed (current
+// prices) into one map the strat picker and the cards browser can render:
+// stratId → { moneyIn, unrealized, realized, … }.
+//
+// Merging across sessions is what makes several concurrently-funded strats
+// add up: each runs its own engine, so each holds only its own slice.
 
 import { useEffect, useRef, useState } from "react";
 import { fetchPositions } from "./polymarket";
 import { useAuth } from "../context/AuthContext";
+import { fetchLiveSessions, runningStrategyIds, type SessionStratLedger } from "./liveSessions";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
-
-interface EnginePosition {
-  tokenId: string;
-  size: number;
-  entryPrice: number;
-  strategyId?: string;
-  openedAt?: number;
-}
-
-interface RealizedEvent {
-  t: number;
-  strategyId: string;
-  pnl: number;
-  basis: number;
-}
-
-interface EngineStratLedger {
-  realized?: number;
-  volume?: number;
-  buys?: number;
-  sells?: number;
-  redeems?: number;
-  lastFillAt?: number;
-}
-
-interface LiveStatusResponse {
-  running?: boolean;
-  state?: {
-    balance?: number | null;
-    positions?: Record<string, EnginePosition>;
-    stratStats?: Record<string, EngineStratLedger>;
-    realizedEvents?: RealizedEvent[];
-  };
-}
 
 export interface StratMoney {
   /** Open cost basis the strat currently has deployed (USDC). */
@@ -73,6 +44,9 @@ export interface StratStatsResult {
       engine-reported balance as fallback; null until known (render as
       "unknown", never $0). */
   cash: number | null;
+  /** Strat ids with a RUNNING backend engine right now. Several strats can be
+      funded and live at the same time. */
+  running: Set<string>;
 }
 
 const num = (v: unknown): number => {
@@ -86,12 +60,12 @@ const num = (v: unknown): number => {
 export function useStratStats(pollMs = 30_000): StratStatsResult {
   const { auth } = useAuth();
   const address = auth.address;
-  const [result, setResult] = useState<StratStatsResult>({ stats: {}, cash: null });
+  const [result, setResult] = useState<StratStatsResult>({ stats: {}, cash: null, running: new Set() });
   // Deposit wallet is CREATE2-stable per EOA — resolve once and reuse.
   const walletRef = useRef<{ eoa: string; wallet: string } | null>(null);
 
   useEffect(() => {
-    if (!address) { setResult({ stats: {}, cash: null }); return; }
+    if (!address) { setResult({ stats: {}, cash: null, running: new Set() }); return; }
     let cancelled = false;
 
     const poll = async () => {
@@ -120,18 +94,25 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
           }
         } catch { /* fall through to engine balance */ }
 
-        const res = await fetch(`${API_URL}/live/status?eoa=${encodeURIComponent(address)}`);
-        if (!res.ok) {
-          // Still publish the fresh cash read; keep the last stats snapshot.
-          if (!cancelled) setResult((prev) => ({ stats: prev.stats, cash }));
-          return;
+        // Every session the wallet has, not just one: several strats can be
+        // funded and running at once, each with its own engine state. Merging
+        // them is what makes the sidebar's per-strat money add up.
+        const sessions = await fetchLiveSessions(address);
+        const running = runningStrategyIds(sessions);
+        if (cash === null) {
+          const bal = sessions.map((s) => s.state?.balance).find((b) => typeof b === "number");
+          if (typeof bal === "number") cash = bal;
         }
-        const j = (await res.json()) as LiveStatusResponse;
-        if (cash === null && typeof j.state?.balance === "number") cash = j.state.balance;
-        const positions = Object.values(j.state?.positions ?? {});
-        const ledger = j.state?.stratStats ?? {};
+        const positions = sessions.flatMap((s) => Object.values(s.state?.positions ?? {}));
+        const ledger: Record<string, SessionStratLedger[]> = {};
+        for (const s of sessions) {
+          for (const [id, l] of Object.entries(s.state?.stratStats ?? {})) {
+            (ledger[id] ??= []).push(l);
+          }
+        }
+        const realizedEvents = sessions.flatMap((s) => s.state?.realizedEvents ?? []);
         if (positions.length === 0 && Object.keys(ledger).length === 0) {
-          if (!cancelled) setResult({ stats: {}, cash });
+          if (!cancelled) setResult({ stats: {}, cash, running });
           return;
         }
 
@@ -186,13 +167,15 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
             basis24h[id] = (basis24h[id] ?? 0) + cost;
           }
         }
-        for (const [id, l] of Object.entries(ledger)) {
+        for (const [id, ledgers] of Object.entries(ledger)) {
           const s = entryFor(id);
-          s.realized += num(l.realized);
-          s.fills += num(l.buys) + num(l.sells) + num(l.redeems);
-          s.lastFillAt = Math.max(s.lastFillAt, num(l.lastFillAt));
+          for (const l of ledgers) {
+            s.realized += num(l.realized);
+            s.fills += num(l.buys) + num(l.sells) + num(l.redeems);
+            s.lastFillAt = Math.max(s.lastFillAt, num(l.lastFillAt));
+          }
         }
-        for (const ev of j.state?.realizedEvents ?? []) {
+        for (const ev of realizedEvents) {
           if (num(ev.t) < cutoff) continue;
           const id = ev.strategyId || "unassigned";
           const s = entryFor(id);
@@ -206,7 +189,7 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
           const b = basis24h[id] ?? 0;
           s.roi24h = b > 0 ? (s.pnl24h / b) * 100 : null;
         }
-        if (!cancelled) setResult({ stats: next, cash });
+        if (!cancelled) setResult({ stats: next, cash, running });
       } catch { /* transient — keep last snapshot */ }
     };
 

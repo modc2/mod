@@ -54,9 +54,10 @@ export interface TraderTrade extends PolymarketTrade {
   weight: number;
   /** Trader's total weight share (`weight / sum(weights)`). */
   weightFraction: number;
-  /** Proportional copy ratio: `(capital × weightFraction) / max(buyVol, sellVol)`
-      over the strat's backtest window. Multiply by trade.notional to get the
-      raw mirror notional before clamping. */
+  /** Proportional copy ratio — multiply by `trade.notional` for the raw
+      mirror notional before clamping. See `copyRatioFor`: the leader risked
+      some fraction of their bankroll, we risk the same fraction of our
+      account value. */
   copyRatio: number;
   /** `price × size` — leader's dollar exposure on this trade. */
   notional: number;
@@ -215,6 +216,13 @@ export interface StratParams {
       (BUY = up, SELL = down) so mirrors don't sit unfilled behind the
       market. 300 = 3¢ tolerance on a 100¢ market. Default 300. */
   slippageBps?: number;
+  /** How far a mirror may be UPSIZED past its proportional notional when
+      that notional lands below the order floor — the proportional-fidelity
+      limit. 2 = "never place more than 2× what proportionality calls for";
+      anything smaller is skipped rather than placed at the floor. Default 2.
+      0 / null ⇒ legacy clamp-to-floor with no limit (how the strat used to
+      turn every $0.20 intent into an identical $5 order). */
+  maxUpscale?: number | null;
   /** Opt-in flow-momentum origination — see FlowParams. Absent = pure
       mirror strat, `propose` returns []. */
   flow?: FlowParams;
@@ -301,13 +309,17 @@ export class Strat {
   // Called AFTER score-ranking, so the candidate is already a "we want
   // this one". Order of clamping is significant:
   //   1. Ceiling can't accommodate CLOB floor          → skip (no legal order)
-  //   2. Raw mirror below effective floor + leader real → clamp up
-  //   3. Raw mirror below effective floor + leader dust → skip (no signal)
-  //   4. Raw mirror above ceiling                       → clamp down
+  //   2. Raw mirror below effective floor + leader dust → skip (no signal)
+  //   3. Raw mirror below effective floor, but the floor is more than
+  //      `maxUpscale`× the proportional size            → skip (SUB_SCALE)
+  //   4. Raw mirror below effective floor, small gap    → clamp up
+  //   5. Raw mirror above ceiling                       → clamp down
   // The effective floor is max(user TRADE SIZE floor, CLOB per-price min).
-  // Proportional dust is clamped UP to that floor (not skipped) so small-
-  // but-real leader trades still copy. Return `mirrorNotional: 0` to SKIP
-  // with `reason` shown verbatim in the log.
+  // Clamping UP is a lie about size, so it's bounded: a small distortion is
+  // the price of a discrete order floor, a large one means the account
+  // simply can't copy this leader in proportion and the mirror is refused.
+  // Return `mirrorNotional: 0` to SKIP with `reason` shown verbatim in the
+  // log. Mirrors live_engine.rs `plan_mirror` — parity-fixture-tested.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   sizeAndPrice(trade: TraderTrade, c: SizeConstraints, history: StratHistory): CandidateDecision {
     const rawMirrorNotional = trade.notional * trade.copyRatio;
@@ -324,10 +336,10 @@ export class Strat {
     // Effective minimum order: the larger of the user's TRADE SIZE floor
     // and the CLOB per-price hard floor (max($1, 5 × price)).
     const minNotional = Math.max(c.userFloor, c.clobFloor);
+    const maxUpscale = this.params.maxUpscale === undefined ? DEFAULT_MAX_UPSCALE : this.params.maxUpscale;
     let mirrorNotional = rawMirrorNotional;
     let reason: string | undefined;
-    // (2)/(3) Below the effective floor — clamp UP unless the leader's own
-    //     trade is itself below the CLOB floor (then it's not real signal).
+    // (2)/(3)/(4) Below the effective floor.
     if (rawMirrorNotional < minNotional) {
       if (trade.notional < c.clobFloor) {
         return {
@@ -336,10 +348,18 @@ export class Strat {
           reason: `LEADER_DUST · leader $${trade.notional.toFixed(2)} < Polymarket $${c.clobFloor.toFixed(2)} hard floor (5 shares × ${(trade.price * 100).toFixed(0)}¢)`,
         };
       }
+      const upscale = minNotional / Math.max(rawMirrorNotional, 1e-9);
+      if (maxUpscale && maxUpscale > 0 && upscale > maxUpscale) {
+        return {
+          mirrorNotional: 0,
+          limitPrice,
+          reason: `SUB_SCALE · proportional $${rawMirrorNotional.toFixed(2)} vs $${minNotional.toFixed(2)} min order — needs ~${upscale.toFixed(0)}× the account value to copy this leader in proportion`,
+        };
+      }
       mirrorNotional = minNotional;
       reason = `clamped up: proportional $${rawMirrorNotional.toFixed(2)} → $${minNotional.toFixed(2)} (min order: max floor $${c.userFloor.toFixed(2)}, CLOB $${c.clobFloor.toFixed(2)} = 5 shares × ${(trade.price * 100).toFixed(0)}¢)`;
     }
-    // (4) Above ceiling — clamp down.
+    // (5) Above ceiling — clamp down.
     if (mirrorNotional > c.userCeiling) {
       mirrorNotional = c.userCeiling;
       reason = `clamped down: proportional $${rawMirrorNotional.toFixed(2)} → ceiling $${c.userCeiling.toFixed(2)}`;
@@ -706,6 +726,41 @@ export function statsFromReturns(returns: number[]): {
   return { roi, stdev, sharpe, sampleSize: n, wins, successProb };
 }
 
+/** THE copy ratio — multiply a leader's trade notional by this to get the
+    notional we should trade. Mirror of live_engine.rs `copy_ratio_for`;
+    pinned cross-language by parity.fixture.json `copyRatioCases`.
+
+    The proportional model: **the leader risked `notional / bankroll` of
+    their net worth, so we risk the same fraction of ours**, scaled by that
+    trader's share of the watchlist weight. A $10,000 conviction entry then
+    copies 100× larger than a $100 punt — which is the entire point of
+    copying, and exactly what the old volume model destroyed: `capital /
+    leaderVolume` produced a ratio so small that nearly every mirror landed
+    under the order floor and was clamped to the same flat minimum.
+
+    `leaderBankroll` = their positions' mark value + free USDC. Unknown (or
+    under $1, which is noise rather than a denominator) falls back to the
+    volume model — a rough ratio beats not copying, and `sizeAndPrice`'s
+    SUB_SCALE gate still stops it from placing wildly out-of-scale orders. */
+export function copyRatioFor(
+  accountValue: number,
+  weightFraction: number,
+  leaderBankroll: number | null | undefined,
+  capitalAlloc: number,
+  traderVol: number,
+): number {
+  if (typeof leaderBankroll === "number" && leaderBankroll >= 1 && accountValue > 0) {
+    return (accountValue * weightFraction) / leaderBankroll;
+  }
+  return capitalAlloc / Math.max(traderVol, 1);
+}
+
+/** Default proportional-fidelity limit (live_engine.rs
+    `default_max_upscale`): a floor-clamped mirror may be at most 2× the
+    size proportionality asked for before the strat would rather place
+    nothing. See `StratParams.maxUpscale`. */
+export const DEFAULT_MAX_UPSCALE = 2;
+
 /** Probability-of-success for a candidate copied from this trader. Missing
     or pre-upgrade cached stats (no `successProb` field) read as the neutral
     0.5 prior rather than 0 — a trade must never be zeroed out by a stale
@@ -746,6 +801,14 @@ export const DEFAULT_STOP_LOSS = 0.75;
     liquidate once the exit mark reaches 99¢ — the top tick, i.e. the market
     ran to 100%. */
 export const DEFAULT_TAKE_PROFIT = 0.99;
+
+/** Live sync cadence floor in MINUTES (live_engine.rs
+    `default_min_interval_ms` = 30_000). Polymarket's data-api sits behind
+    Cloudflare, which 429s a sustained few req/s; anything faster gets
+    rate-limited into zero observations. Both the console and the engine clamp
+    here, so the console must never offer a faster option than it can deliver.
+    Also the default for a strat that has never set one. */
+export const MIN_POLL_MINUTES = 0.5;
 
 /** Anti-churn rebalance margin (live_engine.rs `default_rebalance_margin_pct`):
     a candidate must out-score a held position by this fraction before the

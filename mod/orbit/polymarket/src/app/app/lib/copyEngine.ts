@@ -95,6 +95,10 @@ export interface CopyEngineState {
   totalOrdersFailed: number;
   totalVolumeMirrored: number;
   balance: number | null;
+  /** Cash + mark value of this session's open positions — the number every
+      proportional mirror is sized as a fraction of. Backend-only
+      (live_engine.rs `AccountValue`); the in-browser engine leaves it unset. */
+  accountValue?: number | null;
   log: ExecutionLogEntry[];
   /** Ring buffer of upstream trades observed in recent cycles. Capped to
       RECENT_TRADES_LIMIT so memory stays bounded. Newest-first ordering. */
