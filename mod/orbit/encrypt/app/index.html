@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>encrypt · bring your own circuit</title>
+<style>
+  :root {
+    --bg: #07090c; --panel: #0d1117; --line: #1c2531; --ink: #d7e2ee;
+    --dim: #6b7d92; --accent: #3ddc97; --warn: #ffb454; --danger: #ff6b6b;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--mono);
+         font-size: 13px; line-height: 1.5; }
+  a { color: var(--accent); }
+  header { display: flex; align-items: center; gap: 14px; padding: 14px 20px;
+           border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5; }
+  header h1 { font-size: 14px; margin: 0; letter-spacing: 2px; }
+  header h1 span { color: var(--accent); }
+  .tagline { color: var(--dim); font-size: 11px; }
+  .spacer { flex: 1; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px;
+          font-size: 11px; color: var(--dim); white-space: nowrap; }
+  .chip.on { color: var(--accent); border-color: #1f5c45; }
+  .chip.off { color: var(--warn); border-color: #5c4a1f; }
+  nav { display: flex; gap: 4px; padding: 10px 20px 0; }
+  nav button { background: none; border: 1px solid transparent; border-bottom: none;
+               color: var(--dim); padding: 7px 16px; cursor: pointer; font-family: var(--mono);
+               font-size: 12px; letter-spacing: 1px; }
+  nav button.active { color: var(--ink); border-color: var(--line); background: var(--panel); }
+  main { padding: 16px 20px 60px; max-width: 1080px; }
+  .card { border: 1px solid var(--line); background: var(--panel); padding: 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 12px; letter-spacing: 1.5px; margin: 0 0 12px; color: var(--dim); font-weight: 500; }
+  label { display: block; font-size: 11px; color: var(--dim); margin: 10px 0 4px; letter-spacing: .5px; }
+  input, textarea, select, button.btn {
+    width: 100%; background: #060a0f; border: 1px solid var(--line); color: var(--ink);
+    padding: 8px 10px; font-family: var(--mono); font-size: 12px; }
+  textarea { min-height: 90px; resize: vertical; }
+  input[type=file] { padding: 6px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 180px; }
+  .checks { display: flex; gap: 18px; margin: 12px 0 4px; color: var(--dim); font-size: 11px; }
+  .checks label { display: flex; align-items: center; gap: 6px; margin: 0; cursor: pointer; }
+  .checks input { width: auto; }
+  button.btn { cursor: pointer; letter-spacing: 1px; }
+  button.btn:hover { border-color: var(--accent); color: var(--accent); }
+  button.btn.primary { border-color: #1f5c45; color: var(--accent); margin-top: 14px; }
+  button.mini { width: auto; padding: 4px 10px; font-size: 11px; background: #060a0f;
+                border: 1px solid var(--line); color: var(--dim); cursor: pointer; font-family: var(--mono); }
+  button.mini:hover { color: var(--ink); border-color: var(--accent); }
+  button.mini.danger:hover { color: var(--danger); border-color: var(--danger); }
+  .item { border: 1px solid var(--line); padding: 12px; margin-bottom: 10px; background: #0a0e14; }
+  .item .top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .item .name { color: var(--ink); }
+  .item .meta { color: var(--dim); font-size: 11px; }
+  .cid { color: var(--dim); font-size: 11px; word-break: break-all; }
+  .actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  pre { background: #060a0f; border: 1px solid var(--line); padding: 12px; overflow: auto;
+        max-height: 340px; font-size: 11px; color: #b9c9da; }
+  .empty { color: var(--dim); font-size: 12px; padding: 8px 0; }
+  #toast { position: fixed; right: 18px; bottom: 18px; max-width: 460px; padding: 10px 14px;
+           border: 1px solid var(--line); background: var(--panel); display: none; font-size: 12px; }
+  #toast.err { border-color: var(--danger); color: var(--danger); }
+  #toast.ok { border-color: #1f5c45; color: var(--accent); }
+  .note { color: var(--dim); font-size: 11px; margin-top: 8px; }
+  .kv { color: var(--dim); font-size: 11px; }
+  .kv b { color: var(--ink); font-weight: 500; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ENCRYPT<span>·</span></h1>
+  <span class="tagline">bring your own circuit — ciphertext only, stored as CIDs</span>
+  <span class="spacer"></span>
+  <span id="sandboxChip" class="chip">sandbox …</span>
+  <span id="storeChip" class="chip">store …</span>
+  <span id="who" class="chip">signed out</span>
+  <button class="mini" id="signBtn">SIGN IN</button>
+</header>
+
+<nav>
+  <button data-tab="messages" class="active">MESSAGES</button>
+  <button data-tab="circuits">CIRCUITS</button>
+  <button data-tab="about">ABOUT</button>
+</nav>
+
+<main>
+  <!-- ── messages ─────────────────────────────────────────────── -->
+  <section id="tab-messages">
+    <div class="card">
+      <h2>NEW MESSAGE</h2>
+      <div class="row">
+        <div>
+          <label>circuit</label>
+          <select id="msgCircuit"></select>
+        </div>
+        <div>
+          <label>label (optional)</label>
+          <input id="msgLabel" placeholder="note" />
+        </div>
+      </div>
+      <label>key / passphrase — used once, never stored</label>
+      <input id="msgKey" type="password" placeholder="passphrase" autocomplete="off" />
+      <label>plaintext</label>
+      <textarea id="msgText" placeholder="the part nobody else should read"></textarea>
+      <div class="checks">
+        <label><input type="checkbox" id="msgPublic" /> public ciphertext (anyone with the CID can fetch it)</label>
+        <label><input type="checkbox" id="msgBurn" /> burn after read</label>
+      </div>
+      <button class="btn primary" id="encryptBtn">ENCRYPT → STORE</button>
+      <div class="note">The plaintext goes to the API, through your circuit in the sandbox, and only the
+        ciphertext is uploaded — under your own store identity, so quota and ACLs are yours.</div>
+    </div>
+
+    <div class="card">
+      <h2>MY MESSAGES</h2>
+      <div id="messageList" class="empty">sign in to see your messages.</div>
+    </div>
+  </section>
+
+  <!-- ── circuits ─────────────────────────────────────────────── -->
+  <section id="tab-circuits" hidden>
+    <div class="card">
+      <h2>BRING A CIRCUIT</h2>
+      <div class="note">A python file exposing
+        <b>encrypt(data: bytes, key: bytes, params: dict) -&gt; bytes</b> and
+        <b>decrypt(data, key, params) -&gt; bytes</b>. It has to survive a roundtrip
+        selftest in the sandbox before it is accepted.</div>
+      <div class="row">
+        <div>
+          <label>upload a .py file</label>
+          <input type="file" id="circuitFile" accept=".py,text/x-python" />
+        </div>
+        <div>
+          <label>name</label>
+          <input id="circuitName" placeholder="my_cipher" />
+        </div>
+      </div>
+      <label>…or paste the source</label>
+      <textarea id="circuitSource" placeholder="def encrypt(data, key, params): ..."></textarea>
+      <div class="checks">
+        <label><input type="checkbox" id="circuitPublic" /> public (others can install it by CID)</label>
+      </div>
+      <button class="btn primary" id="addCircuitBtn">VALIDATE + REGISTER</button>
+    </div>
+
+    <div class="card">
+      <h2>INSTALL FROM A CID</h2>
+      <div class="row">
+        <div><label>store cid</label><input id="installCid" placeholder="Qm…" /></div>
+        <div><label>name (optional)</label><input id="installName" placeholder="shared_cipher" /></div>
+      </div>
+      <button class="btn primary" id="installBtn">FETCH + VALIDATE</button>
+    </div>
+
+    <div class="card">
+      <h2>MY CIRCUITS</h2>
+      <div id="circuitList" class="empty">sign in to see your circuits.</div>
+    </div>
+
+    <div class="card" id="sourceCard" hidden>
+      <h2>SOURCE <span id="sourceName" class="kv"></span></h2>
+      <pre id="sourceView"></pre>
+    </div>
+  </section>
+
+  <!-- ── about ────────────────────────────────────────────────── -->
+  <section id="tab-about" hidden>
+    <div class="card">
+      <h2>WHAT THIS IS</h2>
+      <p>An encrypted message vault that ships no cipher of its own. You bring the circuit; the
+      module runs it and keeps the ciphertext.</p>
+      <ol>
+        <li><b>Bring a circuit</b> — a python file with <code>encrypt</code>/<code>decrypt</code>.
+            It is validated by a roundtrip in a sandbox: no network, dropped privileges,
+            cpu/memory limits, no filesystem writes.</li>
+        <li><b>Encrypt</b> — the plaintext is passed to your circuit server-side. The ciphertext
+            is uploaded to the <b>store</b> mod with your own protocol token and comes back as a CID.</li>
+        <li><b>Keys are never persisted.</b> They live for one request. Nothing in the index can
+            decrypt anything — it holds a CID, a circuit id and a label.</li>
+        <li><b>Take it back.</b> Circuits and ciphertext both download. Delete removes the store
+            object and the row; burn-after-read does it for you on first open.</li>
+      </ol>
+      <p class="note">Want the server never to see the plaintext at all? Encrypt locally, upload to
+      the store yourself, and register the CID with <code>POST /messages/attach</code>.</p>
+    </div>
+    <div class="card">
+      <h2>STATUS</h2>
+      <pre id="statusView">…</pre>
+    </div>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const BASE = location.pathname.replace(/\/$/, "").startsWith("/encrypt") ? "/encrypt" : "";
+const API = BASE + "/_api";
+const $ = (id) => document.getElementById(id);
+let TOKEN = localStorage.getItem("encrypt.token") || "";
+let ADDRESS = localStorage.getItem("encrypt.address") || "";
+let CIRCUITS = [];
+
+// ── plumbing ────────────────────────────────────────────────────
+function toast(msg, kind = "ok") {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = kind;
+  t.style.display = "block";
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => (t.style.display = "none"), kind === "err" ? 9000 : 4000);
+}
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (TOKEN) headers.Authorization = "Bearer " + TOKEN;
+  if (opts.body && !(opts.body instanceof FormData)) headers["content-type"] = "application/json";
+  const r = await fetch(API + path, { ...opts, headers });
+  if (r.status === 401) { signOut(); throw new Error("session expired — sign in again"); }
+  const ct = r.headers.get("content-type") || "";
+  if (!r.ok) {
+    let detail = r.statusText;
+    try { detail = ct.includes("json") ? (await r.json()).detail : (await r.text()).slice(0, 300); } catch {}
+    throw new Error(detail || `http ${r.status}`);
+  }
+  return ct.includes("json") ? r.json() : r.text();
+}
+
+const bytes = (n) => (n == null ? "—" : n < 1024 ? n + " B" : (n / 1024).toFixed(1) + " KB");
+const when = (ts) => (ts ? new Date(ts * 1000).toLocaleString() : "");
+const short = (s, n = 12) => (!s ? "" : s.length <= n * 2 ? s : s.slice(0, n) + "…" + s.slice(-6));
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ── sign-in: the same wallet-signed envelope the whole fleet uses ──
+function b64url(obj) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(obj))))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function signIn() {
+  if (!window.ethereum) {
+    const pasted = prompt("No wallet found. Paste a mod protocol token instead:");
+    if (!pasted) return;
+    TOKEN = pasted.trim();
+    ADDRESS = "";
+  } else {
+    const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+    const address = accounts[0];
+    const time = (Date.now() / 1000).toString();
+    const data = { scope: "encrypt" };
+    const signature = await window.ethereum.request({
+      method: "personal_sign",
+      params: [JSON.stringify({ data, time }), address],
+    });
+    TOKEN = b64url({ data, time, key: address, signature });
+    ADDRESS = address;
+  }
+  localStorage.setItem("encrypt.token", TOKEN);
+  localStorage.setItem("encrypt.address", ADDRESS);
+  await whoami();
+  refresh();
+}
+
+function signOut() {
+  TOKEN = ""; ADDRESS = "";
+  localStorage.removeItem("encrypt.token");
+  localStorage.removeItem("encrypt.address");
+  $("who").textContent = "signed out";
+  $("who").className = "chip";
+  $("signBtn").textContent = "SIGN IN";
+}
+
+async function whoami() {
+  if (!TOKEN) return signOut();
+  try {
+    const me = await api("/me");
+    ADDRESS = me.address;
+    const store = me.store || {};
+    $("who").textContent = short(me.address, 6);
+    $("who").className = "chip on";
+    $("signBtn").textContent = "SIGN OUT";
+    if (store.error) toast("store: " + store.error, "err");
+  } catch (e) { toast(e.message, "err"); }
+}
+
+// ── circuits ────────────────────────────────────────────────────
+async function loadCircuits() {
+  if (!TOKEN) return;
+  const { circuits } = await api("/circuits");
+  CIRCUITS = circuits;
+  const sel = $("msgCircuit");
+  sel.innerHTML = circuits.length
+    ? circuits.map((c) => `<option value="${c.id}">${esc(c.name)} · ${c.id}</option>`).join("")
+    : `<option value="">— bring a circuit first —</option>`;
+  $("circuitList").className = circuits.length ? "" : "empty";
+  $("circuitList").innerHTML = circuits.length
+    ? circuits.map(circuitRow).join("")
+    : "no circuits yet — bring one above.";
+}
+
+function circuitRow(c) {
+  return `<div class="item">
+    <div class="top">
+      <span class="name">${esc(c.name)}</span>
+      <span class="meta">${c.id} · ${bytes(c.bytes)} · ${c.public ? "public" : "private"} ·
+        ${c.selftest?.ok ? "selftest ✓" : "unverified"} · ${c.messages} message(s)</span>
+    </div>
+    <div class="cid">store: ${c.cid ? esc(c.cid) : "not pinned"}</div>
+    <div class="meta">sha256 ${short(c.sha256, 10)} · added ${when(c.created_at)}</div>
+    <div class="actions">
+      <button class="mini" onclick="viewSource('${c.id}')">SOURCE</button>
+      <button class="mini" onclick="downloadCircuit('${c.id}')">DOWNLOAD</button>
+      ${c.cid ? `<button class="mini" onclick="copy('${c.cid}')">COPY CID</button>` : ""}
+      ${c.mine ? `<button class="mini danger" onclick="rmCircuit('${c.id}')">DELETE</button>` : ""}
+    </div>
+  </div>`;
+}
+
+async function addCircuit() {
+  const file = $("circuitFile").files[0];
+  const source = $("circuitSource").value.trim();
+  const name = $("circuitName").value.trim();
+  const isPublic = $("circuitPublic").checked;
+  if (!file && !source) return toast("upload a .py file or paste the source", "err");
+  try {
+    toast("validating in the sandbox…");
+    let row;
+    if (file) {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("name", name || file.name.replace(/\.py$/, ""));
+      form.append("public", isPublic);
+      row = await api("/circuits/upload", { method: "POST", body: form });
+    } else {
+      row = await api("/circuits", { method: "POST",
+        body: JSON.stringify({ source, name: name || "circuit", public: isPublic }) });
+    }
+    toast(`circuit ${row.name} registered · ${row.id}`);
+    $("circuitSource").value = ""; $("circuitFile").value = ""; $("circuitName").value = "";
+    loadCircuits();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function installCircuit() {
+  const cid = $("installCid").value.trim();
+  if (!cid) return toast("paste a store CID", "err");
+  try {
+    const row = await api("/circuits/install", { method: "POST",
+      body: JSON.stringify({ cid, name: $("installName").value.trim() || null }) });
+    toast(`installed ${row.name} · ${row.id}`);
+    $("installCid").value = "";
+    loadCircuits();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function viewSource(id) {
+  try {
+    const src = await api(`/circuits/${id}/source`);
+    $("sourceCard").hidden = false;
+    $("sourceName").textContent = id;
+    $("sourceView").textContent = src;
+    $("sourceCard").scrollIntoView({ behavior: "smooth" });
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function downloadCircuit(id) {
+  try {
+    const src = await api(`/circuits/${id}/source`);
+    const name = (CIRCUITS.find((c) => c.id === id) || {}).name || id;
+    save(new Blob([src], { type: "text/x-python" }), `${name}.py`);
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function rmCircuit(id) {
+  const used = (CIRCUITS.find((c) => c.id === id) || {}).messages;
+  const warn = used ? `\n\n${used} message(s) still need it to decrypt.` : "";
+  if (!confirm(`Delete circuit ${id} from the server?${warn}`)) return;
+  try {
+    await api(`/circuits/${id}?force=${used ? "true" : "false"}`, { method: "DELETE" });
+    toast("circuit deleted server-side");
+    loadCircuits();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+// ── messages ────────────────────────────────────────────────────
+async function loadMessages() {
+  if (!TOKEN) return;
+  const { messages } = await api("/messages");
+  $("messageList").className = messages.length ? "" : "empty";
+  $("messageList").innerHTML = messages.length
+    ? messages.map(messageRow).join("")
+    : "nothing stored yet.";
+}
+
+function messageRow(msg) {
+  return `<div class="item">
+    <div class="top">
+      <span class="name">${esc(msg.label || msg.id)}</span>
+      <span class="meta">${msg.id} · ${bytes(msg.bytes)} ciphertext ·
+        ${esc(msg.circuit_name || msg.circuit || "no circuit")} ·
+        ${msg.public ? "public" : "private"}${msg.burn ? " · burn-after-read" : ""} ·
+        ${msg.mode === "client" ? "client-encrypted" : "server-encrypted"} · ${when(msg.created_at)}</span>
+    </div>
+    <div class="cid">cid ${esc(msg.cid)}</div>
+    <div class="actions">
+      <button class="mini" onclick="openMessage('${msg.id}')">OPEN</button>
+      <button class="mini" onclick="downloadMessage('${msg.id}')">DOWNLOAD</button>
+      <button class="mini" onclick="copy('${msg.cid}')">COPY CID</button>
+      <button class="mini" onclick="publishMessage('${msg.id}', ${!msg.public})">
+        MAKE ${msg.public ? "PRIVATE" : "PUBLIC"}</button>
+      <button class="mini danger" onclick="rmMessage('${msg.id}')">DELETE</button>
+    </div>
+    <div id="out-${msg.id}"></div>
+  </div>`;
+}
+
+async function encryptMessage() {
+  const circuit = $("msgCircuit").value;
+  const key = $("msgKey").value;
+  const text = $("msgText").value;
+  if (!circuit) return toast("bring a circuit first", "err");
+  if (!key) return toast("a key is required — the server keeps none for you", "err");
+  if (!text) return toast("nothing to encrypt", "err");
+  try {
+    toast("running your circuit…");
+    const row = await api("/messages", { method: "POST", body: JSON.stringify({
+      circuit, key, text, label: $("msgLabel").value.trim() || null,
+      public: $("msgPublic").checked, burn: $("msgBurn").checked }) });
+    toast(`stored ${bytes(row.bytes)} of ciphertext · ${row.cid}`);
+    $("msgText").value = ""; $("msgKey").value = ""; $("msgLabel").value = "";
+    loadMessages();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function openMessage(id) {
+  const key = prompt("key / passphrase for this message:");
+  if (!key) return;
+  try {
+    const out = await api(`/messages/${id}/open`, { method: "POST", body: JSON.stringify({ key }) });
+    const body = out.text != null ? out.text : `(binary, base64)\n${out.data_b64}`;
+    const target = $(`out-${id}`);
+    if (target) target.innerHTML = `<pre>${esc(body)}</pre>`;
+    if (out.burned) { toast("opened once — burned server-side"); loadMessages(); }
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function downloadMessage(id) {
+  try {
+    const r = await fetch(`${API}/messages/${id}/download`, { headers: { Authorization: "Bearer " + TOKEN } });
+    if (!r.ok) throw new Error(((await r.json()).detail) || `http ${r.status}`);
+    save(await r.blob(), `${id}.enc`);
+    const msg = (await api("/messages")).messages.find((mm) => mm.id === id);
+    if (!msg) { toast("burn-after-read: downloaded, then deleted server-side"); loadMessages(); }
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function publishMessage(id, makePublic) {
+  try {
+    await api(`/messages/${id}/publish`, { method: "POST", body: JSON.stringify({ public: makePublic }) });
+    toast(makePublic ? "ciphertext is public — anyone with the CID can fetch it" : "ciphertext is private again");
+    loadMessages();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function rmMessage(id) {
+  if (!confirm(`Delete ${id}? The store object goes too — this cannot be undone.`)) return;
+  try {
+    const out = await api(`/messages/${id}`, { method: "DELETE" });
+    toast(`deleted ${out.deleted} (store: ${out.store_removed})`);
+    loadMessages();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+// ── misc ────────────────────────────────────────────────────────
+function save(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function copy(text) {
+  navigator.clipboard.writeText(text).then(() => toast("copied " + short(text, 8)));
+}
+
+async function loadStatus() {
+  try {
+    const s = await api("/status");
+    $("statusView").textContent = JSON.stringify(s, null, 2);
+    const sb = s.sandbox || {};
+    const isolated = sb.network_isolated && !sb.runs_as_root;
+    $("sandboxChip").textContent = isolated ? "sandbox isolated" : "sandbox degraded";
+    $("sandboxChip").className = "chip " + (isolated ? "on" : "off");
+    $("storeChip").textContent = s.store?.ok ? "store ok" : "store down";
+    $("storeChip").className = "chip " + (s.store?.ok ? "on" : "off");
+  } catch (e) {
+    $("storeChip").textContent = "api down";
+    $("storeChip").className = "chip off";
+  }
+}
+
+async function refresh() {
+  loadStatus();
+  if (!TOKEN) return;
+  try { await loadCircuits(); await loadMessages(); } catch (e) { toast(e.message, "err"); }
+}
+
+document.querySelectorAll("nav button").forEach((b) =>
+  b.addEventListener("click", () => {
+    document.querySelectorAll("nav button").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    for (const tab of ["messages", "circuits", "about"])
+      $("tab-" + tab).hidden = tab !== b.dataset.tab;
+  })
+);
+
+$("signBtn").addEventListener("click", () => (TOKEN ? signOut() : signIn().catch((e) => toast(e.message, "err"))));
+$("encryptBtn").addEventListener("click", encryptMessage);
+$("addCircuitBtn").addEventListener("click", addCircuit);
+$("installBtn").addEventListener("click", installCircuit);
+
+if (TOKEN) whoami().then(refresh); else refresh();
+</script>
+</body>
+</html>

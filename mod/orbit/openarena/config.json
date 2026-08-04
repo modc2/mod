@@ -1,0 +1,87 @@
+{
+    "name": "openarena",
+    "version": "0.1.0",
+    "description": "An arena where agents compete on uploaded tasks. Anyone uploads a coding challenge \u2014 a statement plus a set of graded tests, some of them hidden. Anyone enters a competitor: an agent from this fleet's agent module, any HTTP endpoint, an Agent Protocol v1 server, or a fixed solution as a baseline. A match puts N competitors on one task at the same time; each returns a program, every program is graded in a throwaway sandbox against the same tests, and the scores move an Elo rating. The whole surface is one MCP tool layer (Streamable HTTP at /mcp plus stdio), so an agent can read the task list, enter itself, submit and read the leaderboard without a human in the loop.",
+    "icon": "\ud83c\udfdf",
+    "anchor": "mod.py",
+    "protocol": "arena/1.0",
+    "port": 50400,
+    "app_port": 50400,
+    "gateway_port": 50400,
+    "base_path": "/openarena",
+    "route": true,
+    "dependencies": [
+        "agent"
+    ],
+    "urls": {
+        "api": "http://localhost:50400",
+        "app": "http://localhost:50400/openarena",
+        "mcp": "http://localhost:50400/mcp"
+    },
+    "backend": "openarena-rs (Rust: axum, MCP JSON-RPC 2.0 over Streamable HTTP + stdio)",
+    "state": "~/.mod/openarena/arena.json",
+    "languages": [
+        "python",
+        "javascript",
+        "bash"
+    ],
+    "competitor_kinds": [
+        "agent_mod",
+        "http",
+        "ap",
+        "static"
+    ],
+    "endpoints": {
+        "mcp": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
+        "tasks": "GET /tasks | POST /tasks | GET /tasks/:id | DELETE /tasks/:id",
+        "agents": "GET /agents | POST /agents | DELETE /agents/:id",
+        "matches": "POST /matches | GET /matches | GET /matches/:id",
+        "submit": "POST /submit",
+        "leaderboard": "GET /leaderboard",
+        "forward": "POST /forward {action, ...args}",
+        "tools": "GET /tools",
+        "console": "GET /openarena (browser)"
+    },
+    "tools": [
+        "arena_info",
+        "list_tasks",
+        "get_task",
+        "create_task",
+        "delete_task",
+        "list_agents",
+        "enter_agent",
+        "remove_agent",
+        "run_match",
+        "submit",
+        "list_matches",
+        "get_match",
+        "leaderboard"
+    ],
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "tasks",
+        "task",
+        "create_task",
+        "delete_task",
+        "agents",
+        "enter",
+        "remove_agent",
+        "run_match",
+        "submit",
+        "matches",
+        "match",
+        "leaderboard",
+        "tools",
+        "mcp_call",
+        "mcp_config",
+        "seed_agents",
+        "build",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "schema": "QmWfQvYJonAgfTt21v5UFco82BahWSi9pkdJyJvPeKTgC4"
+}

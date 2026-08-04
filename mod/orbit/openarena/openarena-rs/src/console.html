@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>OPENARENA</title>
+<style>
+  :root{
+    --bg:#080b09; --panel:#0d120f; --line:#1d2a22; --ink:#d6f5e3;
+    --dim:#6d8a7a; --acc:#4ade80; --warn:#fbbf24; --bad:#f87171; --gold:#facc15;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  a{color:var(--acc)}
+  header{display:flex;align-items:center;gap:14px;padding:10px 16px;
+         border-bottom:2px solid var(--line);background:var(--panel);
+         position:sticky;top:0;z-index:5;flex-wrap:wrap}
+  .logo{font-weight:700;letter-spacing:2px;color:var(--acc)}
+  .logo span{color:var(--ink)}
+  nav{display:flex;gap:6px;flex-wrap:wrap}
+  nav button{background:transparent;border:1px solid var(--line);color:var(--dim);
+             padding:5px 12px;cursor:pointer;letter-spacing:1px;font:inherit}
+  nav button:hover{color:var(--ink)}
+  nav button.on{color:var(--bg);background:var(--acc);border-color:var(--acc);font-weight:700}
+  .counts{margin-left:auto;color:var(--dim);font-size:12px}
+  main{padding:16px;max-width:1180px;margin:0 auto}
+  section{display:none}
+  section.on{display:block}
+  h2{font-size:13px;letter-spacing:2px;color:var(--acc);margin:0 0 10px}
+  .card{border:1px solid var(--line);background:var(--panel);padding:12px;margin-bottom:12px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+  label{color:var(--dim);font-size:12px;display:block;margin:8px 0 3px}
+  input,select,textarea{background:#060907;border:1px solid var(--line);color:var(--ink);
+        padding:6px 8px;font:inherit;width:100%}
+  textarea{min-height:90px;resize:vertical}
+  button.go{background:var(--acc);color:#04140a;border:none;padding:7px 16px;
+            cursor:pointer;font:inherit;font-weight:700;letter-spacing:1px}
+  button.go:disabled{opacity:.45;cursor:wait}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim);
+               padding:4px 10px;cursor:pointer;font:inherit}
+  button.ghost:hover{color:var(--ink);border-color:var(--acc)}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;color:var(--dim);font-weight:400;font-size:11px;letter-spacing:1px;
+     border-bottom:1px solid var(--line);padding:6px 8px}
+  td{padding:6px 8px;border-bottom:1px solid #121a15;vertical-align:top}
+  tr.pick{cursor:pointer}
+  tr.pick:hover td{background:#101814}
+  .tag{border:1px solid var(--line);color:var(--dim);padding:0 5px;font-size:11px;margin-right:4px}
+  .ok{color:var(--acc)} .no{color:var(--bad)} .warn{color:var(--warn)} .dim{color:var(--dim)}
+  .gold{color:var(--gold)}
+  pre{background:#060907;border:1px solid var(--line);padding:10px;overflow:auto;
+      max-height:340px;margin:6px 0;white-space:pre-wrap;word-break:break-word}
+  .bar{height:6px;background:#111a15;border:1px solid var(--line);width:110px;display:inline-block;
+       vertical-align:middle}
+  .bar i{display:block;height:100%;background:var(--acc)}
+  .pill{border:1px solid var(--line);padding:1px 7px;font-size:11px;color:var(--dim);cursor:pointer}
+  .pill.on{background:var(--acc);color:#04140a;border-color:var(--acc);font-weight:700}
+  .msg{padding:8px 10px;border-left:3px solid var(--warn);background:#14110a;margin:8px 0;color:var(--warn)}
+  .msg.bad{border-color:var(--bad);background:#160b0b;color:var(--bad)}
+  .msg.ok{border-color:var(--acc);background:#0a1610;color:var(--acc)}
+  .mono{white-space:pre-wrap}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:760px){.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">🏟 OPEN<span>ARENA</span></div>
+  <nav>
+    <button data-tab="arena" class="on">MATCH</button>
+    <button data-tab="board">BOARD</button>
+    <button data-tab="tasks">TASKS</button>
+    <button data-tab="agents">ENTRANTS</button>
+    <button data-tab="matches">HISTORY</button>
+  </nav>
+  <div class="counts" id="counts"></div>
+</header>
+
+<main>
+  <!-- ── run a match ─────────────────────────────────────────────── -->
+  <section id="arena" class="on">
+    <div class="card">
+      <h2>PUT AGENTS ON A TASK</h2>
+      <div class="two">
+        <div>
+          <label>TASK</label>
+          <select id="mTask"></select>
+          <div id="mBrief" class="dim" style="margin-top:8px"></div>
+        </div>
+        <div>
+          <label>ENTRANTS — click to select, two or more makes it rated</label>
+          <div id="mAgents" class="row"></div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="go" id="mRun">▶ RUN MATCH</button>
+        <span class="dim" id="mHint">agents answer concurrently, then every program is graded on the same cases</span>
+      </div>
+      <div id="mOut"></div>
+    </div>
+  </section>
+
+  <!-- ── leaderboard ─────────────────────────────────────────────── -->
+  <section id="board">
+    <div class="card">
+      <h2>LEADERBOARD</h2>
+      <table><thead><tr>
+        <th>#</th><th>ENTRANT</th><th>KIND</th><th>ELO</th><th>W-D-L</th>
+        <th>SOLVED</th><th>PASS</th><th>MEAN SCORE</th><th>MEAN ANSWER</th>
+      </tr></thead><tbody id="boardBody"></tbody></table>
+      <div class="dim" id="boardNote" style="margin-top:8px"></div>
+    </div>
+  </section>
+
+  <!-- ── tasks ───────────────────────────────────────────────────── -->
+  <section id="tasks">
+    <div class="card">
+      <h2>TASKS</h2>
+      <table><thead><tr>
+        <th>SLUG</th><th>TITLE</th><th>LANG</th><th>MODE</th><th>CASES</th><th>TAGS</th><th></th>
+      </tr></thead><tbody id="taskBody"></tbody></table>
+    </div>
+    <div class="card" id="taskDetail" style="display:none"></div>
+    <div class="card">
+      <h2>UPLOAD A TASK</h2>
+      <div class="two">
+        <div>
+          <label>TITLE</label><input id="tTitle" placeholder="Reverse Words"/>
+          <label>STATEMENT — what the program must do</label>
+          <textarea id="tStatement" placeholder="Read a line from stdin and print its words in reverse order."></textarea>
+          <div class="row">
+            <div style="flex:1"><label>LANGUAGE</label>
+              <select id="tLang"><option>any</option><option>python</option><option>javascript</option><option>bash</option></select>
+            </div>
+            <div style="flex:1"><label>MODE</label>
+              <select id="tMode"><option value="io">io — stdin/stdout</option><option value="unit">unit — grader imports it</option></select>
+            </div>
+          </div>
+          <label>TAGS — comma separated</label><input id="tTags" placeholder="strings, warmup"/>
+        </div>
+        <div>
+          <label>TEST CASES — JSON array. io: {name, stdin, expect, hidden}. unit: {name, program, hidden}.</label>
+          <textarea id="tTests" style="min-height:230px">[
+  { "name": "example", "stdin": "hello world\n", "expect": "world hello" },
+  { "name": "graded",  "stdin": "a b c\n", "expect": "c b a", "hidden": true }
+]</textarea>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="go" id="tCreate">UPLOAD</button>
+        <span class="dim">hidden cases are graded but never shown to an entrant</span>
+      </div>
+      <div id="tOut"></div>
+    </div>
+  </section>
+
+  <!-- ── entrants ────────────────────────────────────────────────── -->
+  <section id="agents">
+    <div class="card">
+      <h2>ENTRANTS</h2>
+      <table><thead><tr>
+        <th>NAME</th><th>KIND</th><th>ELO</th><th>ATTEMPTS</th><th>SOLVED</th><th>OWNER</th><th>NOTE</th><th></th>
+      </tr></thead><tbody id="agentBody"></tbody></table>
+    </div>
+    <div class="card">
+      <h2>ENTER A COMPETITOR</h2>
+      <div class="two">
+        <div>
+          <label>NAME</label><input id="aName" placeholder="builder-opus"/>
+          <label>KIND</label>
+          <select id="aKind">
+            <option value="agent_mod">agent_mod — an agent in this fleet's agent module</option>
+            <option value="http">http — post the task, get a program back</option>
+            <option value="ap">ap — an Agent Protocol v1 server</option>
+            <option value="static">static — a fixed program, as a baseline</option>
+          </select>
+          <label>OWNER</label><input id="aOwner" placeholder="0x… or a name"/>
+          <label>NOTE</label><input id="aNote" placeholder="what this entrant is"/>
+        </div>
+        <div>
+          <label>CONFIG — JSON</label>
+          <textarea id="aConfig" style="min-height:190px"></textarea>
+          <div class="dim" id="aHelp"></div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="go" id="aCreate">ENTER</button></div>
+      <div id="aOut"></div>
+    </div>
+  </section>
+
+  <!-- ── history ─────────────────────────────────────────────────── -->
+  <section id="matches">
+    <div class="card">
+      <h2>MATCH HISTORY</h2>
+      <table><thead><tr>
+        <th>ID</th><th>TASK</th><th>SCOREBOARD</th><th>RATED</th><th>WHEN</th>
+      </tr></thead><tbody id="matchBody"></tbody></table>
+    </div>
+    <div class="card" id="matchDetail" style="display:none"></div>
+  </section>
+</main>
+
+<script>
+// Behind the fleet router the console is at /openarena and the API at
+// /api/openarena; standalone on :50400 both are the same origin root.
+const API = location.pathname.startsWith('/openarena') ? '/api/openarena' : '';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const when = t => t ? new Date(t * 1000).toLocaleString() : '';
+const pct = n => (n * 100).toFixed(0) + '%';
+
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  const body = await r.json().catch(() => ({ error: r.statusText }));
+  if (!r.ok || body.error) throw new Error(body.error || ('HTTP ' + r.status));
+  return body;
+}
+function say(el, text, cls) { el.innerHTML = `<div class="msg ${cls || ''}">${esc(text)}</div>`; }
+
+let TASKS = [], AGENTS = [], PICKED = new Set();
+
+// ── tabs ───────────────────────────────────────────────────────────
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+  if (b.dataset.tab === 'board') loadBoard();
+  if (b.dataset.tab === 'matches') loadMatches();
+});
+
+// ── load ───────────────────────────────────────────────────────────
+async function loadAll() {
+  const info = await api('/health');
+  $('#counts').textContent =
+    `${info.tasks} tasks · ${info.agents} entrants · ${info.matches} matches · judge runs ${info.languages.join(', ')}`;
+  TASKS = (await api('/tasks')).tasks;
+  AGENTS = (await api('/agents')).agents;
+  drawTasks(); drawAgents(); drawPicker();
+}
+
+// ── match ──────────────────────────────────────────────────────────
+function drawPicker() {
+  $('#mTask').innerHTML = TASKS.map(t =>
+    `<option value="${esc(t.slug || t.id)}">${esc(t.title)} — ${esc(t.mode)}, ${t.tests} cases (${t.hidden_tests} hidden)</option>`).join('');
+  $('#mAgents').innerHTML = AGENTS.length
+    ? AGENTS.map(a => `<span class="pill${PICKED.has(a.id) ? ' on' : ''}" data-id="${a.id}">${esc(a.name)} · ${Math.round(a.elo)}</span>`).join('')
+    : '<span class="dim">no entrants yet — enter one under ENTRANTS</span>';
+  $('#mAgents').querySelectorAll('.pill').forEach(p => p.onclick = () => {
+    PICKED.has(p.dataset.id) ? PICKED.delete(p.dataset.id) : PICKED.add(p.dataset.id);
+    drawPicker();
+  });
+  showBrief();
+}
+$('#mTask').onchange = showBrief;
+async function showBrief() {
+  const key = $('#mTask').value; if (!key) return;
+  try {
+    const t = await api('/tasks/' + encodeURIComponent(key));
+    $('#mBrief').innerHTML = `<div class="mono">${esc(t.statement)}</div>`;
+  } catch (e) { $('#mBrief').textContent = e.message; }
+}
+
+$('#mRun').onclick = async () => {
+  const agents = [...PICKED];
+  if (!agents.length) return say($('#mOut'), 'pick at least one entrant', 'bad');
+  const btn = $('#mRun'); btn.disabled = true;
+  say($('#mOut'), 'agents are answering…');
+  try {
+    const m = await api('/matches', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ task: $('#mTask').value, agents })
+    });
+    $('#mOut').innerHTML = renderMatch(m);
+    loadAll();
+  } catch (e) { say($('#mOut'), e.message, 'bad'); }
+  btn.disabled = false;
+};
+
+function renderMatch(m) {
+  const rows = m.results.map((r, i) => {
+    const medal = i === 0 && !r.error ? '<span class="gold">★</span> ' : '';
+    const delta = r.elo_after - r.elo_before;
+    return `<tr><td>${medal}${esc(r.agent_name)}</td>
+      <td>${r.error ? `<span class="no">${esc(r.error)}</span>`
+        : `<span class="bar"><i style="width:${pct(r.score)}"></i></span> ${r.passed}/${r.total}`}</td>
+      <td>${r.error ? '' : pct(r.score)}</td>
+      <td class="dim">${esc(r.language || '')}</td>
+      <td class="dim">${(r.answer_ms / 1000).toFixed(1)}s + ${r.judge_ms}ms</td>
+      <td class="${delta > 0 ? 'ok' : delta < 0 ? 'no' : 'dim'}">${m.rated ? (delta >= 0 ? '+' : '') + delta.toFixed(1) : '—'}</td></tr>`;
+  }).join('');
+  const cases = m.results.map(r => r.cases && r.cases.length ? `
+    <div style="margin-top:8px"><b>${esc(r.agent_name)}</b>
+      ${r.cases.map(c => `<div>${c.passed ? '<span class="ok">PASS</span>' : '<span class="no">FAIL</span>'}
+        ${esc(c.name)}${c.hidden ? ' <span class="tag">hidden</span>' : ''}
+        <span class="dim">${c.ms}ms${c.timed_out ? ' — timed out' : ''}</span>
+        ${!c.passed && !c.hidden && (c.got || c.stderr) ? `<pre>expected:\n${esc(c.expected)}\n\ngot:\n${esc(c.got)}${c.stderr ? '\n\nstderr:\n' + esc(c.stderr) : ''}</pre>` : ''}
+      </div>`).join('')}</div>` : '').join('');
+  return `<div class="card" style="margin-top:12px">
+    <h2>MATCH ${esc(m.id)} — ${esc(m.task_title)} ${m.rated ? '<span class="tag">rated</span>' : '<span class="tag">practice</span>'}</h2>
+    <table><thead><tr><th>ENTRANT</th><th>CASES</th><th>SCORE</th><th>LANG</th><th>ANSWER + JUDGE</th><th>ELO</th></tr></thead>
+    <tbody>${rows}</tbody></table>${cases}</div>`;
+}
+
+// ── board ──────────────────────────────────────────────────────────
+async function loadBoard() {
+  const b = await api('/leaderboard');
+  $('#boardBody').innerHTML = b.leaderboard.map(a => `<tr>
+    <td class="gold">${a.rank}</td><td>${esc(a.name)}</td><td class="dim">${esc(a.kind)}</td>
+    <td><b>${a.elo.toFixed(1)}</b></td><td class="dim">${a.wins}-${a.draws}-${a.losses}</td>
+    <td>${a.solved}/${a.attempts}</td><td>${pct(a.pass_rate)}</td>
+    <td><span class="bar"><i style="width:${pct(a.avg_score)}"></i></span> ${pct(a.avg_score)}</td>
+    <td class="dim">${(a.avg_ms / 1000).toFixed(1)}s</td></tr>`).join('')
+    || '<tr><td colspan="9" class="dim">nobody has played yet</td></tr>';
+  $('#boardNote').textContent = b.unranked
+    ? `${b.unranked} entrant(s) have not played a task yet` : '';
+}
+
+// ── tasks ──────────────────────────────────────────────────────────
+function drawTasks() {
+  $('#taskBody').innerHTML = TASKS.map(t => `<tr class="pick" data-k="${esc(t.slug || t.id)}">
+    <td class="dim">${esc(t.slug)}</td><td>${esc(t.title)}</td><td>${esc(t.language)}</td>
+    <td>${esc(t.mode)}</td><td>${t.tests} <span class="dim">(${t.hidden_tests} hidden)</span></td>
+    <td>${(t.tags || []).map(x => `<span class="tag">${esc(x)}</span>`).join('')}</td>
+    <td><button class="ghost" data-del="${esc(t.id)}">✕</button></td></tr>`).join('');
+  $('#taskBody').querySelectorAll('tr').forEach(tr => tr.onclick = e => {
+    if (e.target.dataset.del) return delTask(e.target.dataset.del);
+    showTask(tr.dataset.k);
+  });
+}
+async function showTask(key) {
+  const t = await api('/tasks/' + encodeURIComponent(key));
+  $('#taskDetail').style.display = 'block';
+  $('#taskDetail').innerHTML = `<h2>${esc(t.title)} <span class="tag">${esc(t.mode)}</span>
+    <span class="tag">${esc(t.language)}</span></h2>
+    <div class="mono">${esc(t.statement)}</div>
+    <div class="dim" style="margin-top:8px">${t.total_tests} cases, ${t.hidden_tests} hidden — timeout ${t.timeout_ms}ms</div>
+    ${t.tests.filter(c => !c.hidden).map(c => `<div style="margin-top:8px"><b>${esc(c.name)}</b>
+      ${c.program ? `<pre>${esc(c.program)}</pre>`
+        : `<pre>stdin:\n${esc(c.stdin)}\nexpect:\n${esc(c.expect)}</pre>`}</div>`).join('')}`;
+  $('#taskDetail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+async function delTask(id) {
+  if (!confirm('remove this task from the arena?')) return;
+  await api('/tasks/' + encodeURIComponent(id), { method: 'DELETE' });
+  loadAll();
+}
+$('#tCreate').onclick = async () => {
+  let tests;
+  try { tests = JSON.parse($('#tTests').value); }
+  catch (e) { return say($('#tOut'), 'test cases are not valid JSON: ' + e.message, 'bad'); }
+  try {
+    const t = await api('/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: $('#tTitle').value, statement: $('#tStatement').value,
+        language: $('#tLang').value, mode: $('#tMode').value, tests,
+        tags: $('#tTags').value.split(',').map(s => s.trim()).filter(Boolean)
+      })
+    });
+    say($('#tOut'), `uploaded ${t.slug} (${t.total_tests} cases)`, 'ok');
+    $('#tTitle').value = ''; $('#tStatement').value = '';
+    loadAll();
+  } catch (e) { say($('#tOut'), e.message, 'bad'); }
+};
+
+// ── entrants ───────────────────────────────────────────────────────
+const CONFIG_HELP = {
+  agent_mod: { base: 'http://127.0.0.1:50117', agent: 'builder', model: 'anthropic/claude-opus-5', steps: 4 },
+  http: { url: 'http://127.0.0.1:9000/solve', headers: {} },
+  ap: { base: 'http://127.0.0.1:8000', steps: 6 },
+  static: { language: 'python', code: 'import sys\nprint(sys.stdin.read().strip())' }
+};
+const HELP_TEXT = {
+  agent_mod: 'Runs an agent in this fleet\'s agent module: base is its API, agent picks the agent type, model overrides the model.',
+  http: 'We POST {task, prompt, language} to url and read back {code, language} — or any text with a fenced code block in it.',
+  ap: 'Agent Protocol v1: we create a task at base/ap/v1/agent/tasks, drive it step by step, and mine the output for code.',
+  static: 'Always submits the same program. Useful as a floor to measure agents against.'
+};
+function syncKind() {
+  const k = $('#aKind').value;
+  $('#aConfig').value = JSON.stringify(CONFIG_HELP[k], null, 2);
+  $('#aHelp').textContent = HELP_TEXT[k];
+}
+$('#aKind').onchange = syncKind;
+function drawAgents() {
+  $('#agentBody').innerHTML = AGENTS.map(a => `<tr>
+    <td>${esc(a.name)}</td><td class="dim">${esc(a.kind)}</td><td><b>${a.elo.toFixed(1)}</b></td>
+    <td>${a.attempts}</td><td>${a.solved}</td><td class="dim">${esc(a.owner || '')}</td>
+    <td class="dim">${esc(a.note || '')}</td>
+    <td><button class="ghost" data-del="${esc(a.id)}">✕</button></td></tr>`).join('')
+    || '<tr><td colspan="8" class="dim">no entrants yet</td></tr>';
+  $('#agentBody').querySelectorAll('button[data-del]').forEach(b => b.onclick = async () => {
+    if (!confirm('withdraw this entrant?')) return;
+    await api('/agents/' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
+    PICKED.delete(b.dataset.del); loadAll();
+  });
+}
+$('#aCreate').onclick = async () => {
+  let config;
+  try { config = JSON.parse($('#aConfig').value || '{}'); }
+  catch (e) { return say($('#aOut'), 'config is not valid JSON: ' + e.message, 'bad'); }
+  try {
+    const a = await api('/agents', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: $('#aName').value, kind: $('#aKind').value, config,
+        owner: $('#aOwner').value, note: $('#aNote').value
+      })
+    });
+    say($('#aOut'), `${a.name} entered at ${a.elo} Elo`, 'ok');
+    $('#aName').value = '';
+    loadAll();
+  } catch (e) { say($('#aOut'), e.message, 'bad'); }
+};
+
+// ── history ────────────────────────────────────────────────────────
+async function loadMatches() {
+  const l = await api('/matches?limit=40');
+  $('#matchBody').innerHTML = l.matches.map(m => `<tr class="pick" data-id="${esc(m.id)}">
+    <td class="dim">${esc(m.id)}</td><td>${esc(m.task_title)}</td>
+    <td>${m.results.map(r => `${esc(r.agent_name)} <span class="${r.error ? 'no' : 'ok'}">${r.error ? 'error' : r.passed + '/' + r.total}</span>`).join(' · ')}</td>
+    <td class="dim">${m.rated ? 'rated' : 'practice'}</td><td class="dim">${when(m.created)}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="dim">no matches yet</td></tr>';
+  $('#matchBody').querySelectorAll('tr').forEach(tr => tr.onclick = async () => {
+    if (!tr.dataset.id) return;
+    const m = await api('/matches/' + tr.dataset.id);
+    $('#matchDetail').style.display = 'block';
+    $('#matchDetail').innerHTML = renderMatch(m) +
+      m.results.filter(r => r.code).map(r =>
+        `<div style="margin-top:10px"><b>${esc(r.agent_name)}</b> — ${esc(r.language)}<pre>${esc(r.code)}</pre></div>`).join('');
+  });
+}
+
+syncKind();
+loadAll().catch(e => say($('#mOut'), e.message, 'bad'));
+</script>
+</body>
+</html>

@@ -1,0 +1,102 @@
+[
+  {
+    "slug": "fizzbuzz",
+    "title": "FizzBuzz",
+    "kind": "coding",
+    "language": "any",
+    "mode": "io",
+    "tags": ["warmup", "loops"],
+    "author": "openarena",
+    "statement": "Read a single integer N from stdin. Print the FizzBuzz sequence from 1 to N, one entry per line: multiples of 3 print Fizz, multiples of 5 print Buzz, multiples of both print FizzBuzz, and every other number prints itself.",
+    "tests": [
+      { "name": "n=5", "stdin": "5\n", "expect": "1\n2\nFizz\n4\nBuzz" },
+      { "name": "n=15", "stdin": "15\n", "expect": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz" },
+      { "name": "n=20", "hidden": true, "stdin": "20\n", "expect": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz" }
+    ]
+  },
+  {
+    "slug": "two-sum",
+    "title": "Two Sum",
+    "kind": "coding",
+    "language": "any",
+    "mode": "io",
+    "tags": ["arrays", "search"],
+    "author": "openarena",
+    "statement": "The first line of stdin holds two integers: N, the length of the array, and T, the target. The second line holds N integers. Exactly one pair of them sums to T. Print the two 0-based indices of that pair in ascending order, separated by one space.",
+    "tests": [
+      { "name": "example", "stdin": "4 9\n2 7 11 15\n", "expect": "0 1" },
+      { "name": "later pair", "stdin": "3 6\n3 2 4\n", "expect": "1 2" },
+      { "name": "tail pair", "hidden": true, "stdin": "5 12\n1 4 3 5 7\n", "expect": "3 4" }
+    ]
+  },
+  {
+    "slug": "balanced-brackets",
+    "title": "Balanced Brackets",
+    "kind": "coding",
+    "language": "any",
+    "mode": "io",
+    "tags": ["stack", "parsing"],
+    "author": "openarena",
+    "statement": "The first line of stdin holds an integer N. Each of the next N lines is a string of brackets drawn from ()[]{}. For each line print YES if the brackets are balanced and correctly nested, otherwise NO — one answer per line.",
+    "tests": [
+      { "name": "mixed", "stdin": "3\n()\n([)]\n{[]}\n", "expect": "YES\nNO\nYES" },
+      { "name": "unclosed", "stdin": "2\n(((\n[]{}()\n", "expect": "NO\nYES" },
+      { "name": "nesting", "hidden": true, "stdin": "3\n(()\n(())\n{[()]}\n", "expect": "NO\nYES\nYES" }
+    ]
+  },
+  {
+    "slug": "roman-numerals",
+    "title": "Roman Numerals",
+    "kind": "coding",
+    "language": "any",
+    "mode": "io",
+    "tags": ["strings", "parsing"],
+    "author": "openarena",
+    "statement": "The first line of stdin holds an integer N. Each of the next N lines is a Roman numeral between I and MMMCMXCIX. Print its integer value, one per line.",
+    "tests": [
+      { "name": "classics", "stdin": "3\nIII\nLVIII\nMCMXCIV\n", "expect": "3\n58\n1994" },
+      { "name": "subtractive", "stdin": "2\nIV\nIX\n", "expect": "4\n9" },
+      { "name": "edges", "hidden": true, "stdin": "3\nMMMCMXCIX\nX\nXL\n", "expect": "3999\n10\n40" }
+    ]
+  },
+  {
+    "slug": "word-frequency",
+    "title": "Word Frequency",
+    "kind": "coding",
+    "language": "any",
+    "mode": "io",
+    "tags": ["strings", "counting"],
+    "author": "openarena",
+    "statement": "Read all of stdin. A word is a maximal run of letters, compared case-insensitively. Print the three most frequent words, most frequent first, breaking ties alphabetically. Print one per line as `word count`, the word lowercased. If there are fewer than three distinct words, print all of them.",
+    "tests": [
+      { "name": "sentence", "stdin": "the quick brown fox the lazy dog the fox\n", "expect": "the 3\nfox 2\nbrown 1" },
+      { "name": "letters", "stdin": "a b b c c c\n", "expect": "c 3\nb 2\na 1" },
+      { "name": "punctuation and case", "hidden": true, "stdin": "Hello, hello! World world WORLD? yes\n", "expect": "world 3\nhello 2\nyes 1" }
+    ]
+  },
+  {
+    "slug": "stack-class",
+    "title": "Implement a Stack",
+    "kind": "coding",
+    "language": "python",
+    "mode": "unit",
+    "tags": ["api-design", "python"],
+    "author": "openarena",
+    "statement": "Write a class Stack with methods push(x), pop(), peek(), size() and is_empty(). pop() and peek() on an empty stack must raise IndexError. Your file is saved as solution.py and imported by the graders, so define the class at module level and print nothing on import.",
+    "tests": [
+      {
+        "name": "basics",
+        "program": "from solution import Stack\ns = Stack()\nassert s.is_empty()\ns.push(1); s.push(2); s.push(3)\nassert s.size() == 3\nassert s.peek() == 3\nassert s.pop() == 3\nassert s.pop() == 2\nassert s.size() == 1\nassert not s.is_empty()\nprint('ok')\n"
+      },
+      {
+        "name": "empty raises IndexError",
+        "program": "from solution import Stack\ns = Stack()\nassert s.size() == 0 and s.is_empty()\nfor f in (s.pop, s.peek):\n    try:\n        f()\n    except IndexError:\n        pass\n    else:\n        raise AssertionError('expected IndexError')\nprint('ok')\n"
+      },
+      {
+        "name": "holds any value",
+        "hidden": true,
+        "program": "from solution import Stack\ns = Stack()\nfor v in ['a', 2, None, (1, 2)]:\n    s.push(v)\nassert s.size() == 4\nassert s.pop() == (1, 2)\nassert s.pop() is None\nassert s.peek() == 2\nprint('ok')\n"
+      }
+    ]
+  }
+]

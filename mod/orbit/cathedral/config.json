@@ -1,0 +1,165 @@
+{
+    "name": "cathedral",
+    "version": "0.1.0",
+    "description": "Rent confidential compute from cathedral.computer \u2014 attested Intel TDX CPU jobs, sealed persistent workers, and confidential GPU executions, each returning a signed receipt binding evidence, workload, result, charge and teardown. BYOK: every run is billed to the caller's own prepaid Cathedral credits, never a shared house key.",
+    "anchor": "mod.py",
+    "icon": "\u26ea",
+    "color": "#7c6cff",
+    "port": 50390,
+    "app_port": 50391,
+    "route": true,
+    "provider": "cathedral.computer",
+    "upstream": "https://cathedral.computer/v1",
+    "urls": {
+        "api": "http://localhost:50390",
+        "app": "http://localhost:50391/cathedral",
+        "gateway": "http://localhost:3000/cathedral",
+        "provider": "https://cathedral.computer",
+        "docs": "https://cathedral.computer/docs/",
+        "account": "https://cathedral.computer/account/"
+    },
+    "byok": {
+        "headers": [
+            "Authorization: Bearer cat_sk_...",
+            "x-cathedral-key"
+        ],
+        "get_keys": "https://cathedral.computer/account/",
+        "store": "~/.mod/cathedral/keys.json",
+        "note": "keys are never committed, never logged, and never shared between accounts; the API refuses to serve a caller with the server's own key"
+    },
+    "billing": {
+        "model": "prepaid USD credits on the caller's own Cathedral account",
+        "confirm_threshold_usd": 0.2,
+        "per_execution_usd": {
+            "free_test": 0.0,
+            "attest.v1": 0.2,
+            "cc_gpu": 3.0
+        },
+        "hourly_keep_alive_usd": {
+            "4x16": 0.4,
+            "8x32": 0.8,
+            "22x88": 2.2,
+            "44x176": 4.4
+        }
+    },
+    "endpoints": {
+        "/": {
+            "method": "GET",
+            "docs": "Module info, BYOK contract, endpoint map"
+        },
+        "/health": {
+            "method": "GET",
+            "docs": "Liveness probe"
+        },
+        "/prices": {
+            "method": "GET",
+            "docs": "Published price sheet (public)"
+        },
+        "/profiles": {
+            "method": "GET",
+            "docs": "Live profile catalog and runtime gates (public)"
+        },
+        "/gpu/ready": {
+            "method": "GET",
+            "docs": "Whether the confidential-GPU gates all PASS right now (public)"
+        },
+        "/me": {
+            "method": "GET",
+            "docs": "Key fingerprint + credit balance of the paying caller"
+        },
+        "/credits": {
+            "method": "GET",
+            "docs": "Caller's prepaid USD balance"
+        },
+        "/credits/packs": {
+            "method": "GET",
+            "docs": "Buyable credit packs (public)"
+        },
+        "/credits/checkout": {
+            "method": "POST",
+            "docs": "Hosted Stripe URL for the caller's own top-up"
+        },
+        "/credits/verify": {
+            "method": "POST",
+            "docs": "Settle the post-checkout redirect race (idempotent)"
+        },
+        "/free-test": {
+            "method": "POST",
+            "docs": "The one free restricted minute per verified account"
+        },
+        "/run": {
+            "method": "POST",
+            "docs": "attest.v1 \u2014 one verified TDX CPU job ($0.20/completed execution)"
+        },
+        "/rent": {
+            "method": "POST",
+            "docs": "custom.v1 \u2014 keep a sealed worker alive (hourly), optional hybrid GPU preview"
+        },
+        "/gpu": {
+            "method": "POST",
+            "docs": "cc_gpu \u2014 one confidential GPU execution ($3.00), refused unless catalog gates PASS"
+        },
+        "/workers": {
+            "method": "GET",
+            "docs": "Caller's workers"
+        },
+        "/workers/:id": {
+            "method": "GET",
+            "docs": "One worker's state (completed only after teardown is confirmed)"
+        },
+        "/workers/:id (DELETE)": {
+            "method": "DELETE",
+            "docs": "Tear a worker down"
+        },
+        "/receipts/:id": {
+            "method": "GET",
+            "docs": "Signed cathedral_customer_receipt_v1 (425 while pending)"
+        }
+    },
+    "app": {
+        "dir": "app/",
+        "port": 50391,
+        "route": "/cathedral",
+        "api_alias": "/cathedral/_api",
+        "serves": "zero-dependency console: catalog + gates, quoted spend guard, jobs, workers, receipts, credits",
+        "keys": "held in the browser tab (sessionStorage) and sent as Authorization; never stored, logged, or proxied elsewhere"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "prices",
+        "estimate",
+        "login",
+        "logout",
+        "accounts",
+        "whoami",
+        "credits",
+        "packs",
+        "topup",
+        "verify_payment",
+        "profiles",
+        "gpu_ready",
+        "free_test",
+        "run",
+        "rent",
+        "gpu",
+        "workers",
+        "worker",
+        "wait",
+        "stop",
+        "receipt",
+        "ledger",
+        "app",
+        "serve",
+        "serve_api",
+        "serve_app",
+        "kill"
+    ],
+    "env": {
+        "CATHEDRAL_API_KEY": "cat_sk_* key for the default CLI account (optional \u2014 the API gateway never uses it for callers)",
+        "CATHEDRAL_BASE": "override the upstream base URL (default https://cathedral.computer/v1)",
+        "CATHEDRAL_UPSTREAM": "where app/serve.py forwards /_api (default http://127.0.0.1:50390)"
+    },
+    "key": "cathedral",
+    "schema": "QmciGP15UXR81XTo4CzxZTJuogZkz2cZpSot97FRSiQS32"
+}

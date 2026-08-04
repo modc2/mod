@@ -1,0 +1,7 @@
+{
+    "name": "privtest",
+    "description": "scratch module for verifying public/private hub filtering",
+    "version": "0.0.1",
+    "port": 59999,
+    "schema": "Qmain6g1338iK1xdh5KmvjKr9savziprngEoMB4fsxQJt5"
+}

@@ -1,0 +1,92 @@
+{
+    "name": "openbnb",
+    "description": "Open short-stay marketplace \u2014 hosts list places, guests book nights, and the module owner programs every rule (policy knobs, a pricing/eligibility rule engine, webhooks) at runtime.",
+    "version": "1.0.0",
+    "port": 50370,
+    "app_port": 50371,
+    "urls": {
+        "api": "http://localhost:50370",
+        "app": "http://localhost:50371"
+    },
+    "network": "mainnet",
+    "payments": {
+        "chain": "base",
+        "tokens": {
+            "base": {
+                "USDC": {
+                    "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                    "decimals": 6
+                },
+                "USDT": {
+                    "address": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+                    "decimals": 6
+                }
+            },
+            "base-sepolia": {
+                "USDC": {
+                    "address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+                    "decimals": 6
+                }
+            }
+        },
+        "facilitator": "https://x402.org/facilitator"
+    },
+    "fns": [
+        "forward",
+        "health",
+        "status",
+        "kinds",
+        "amenities",
+        "cities",
+        "listings",
+        "listing",
+        "create_listing",
+        "edit_listing",
+        "set_status",
+        "block_dates",
+        "calendar",
+        "quote",
+        "book",
+        "booking",
+        "bookings",
+        "approve_booking",
+        "decline_booking",
+        "cancel_booking",
+        "payment_requirements",
+        "verify_owner",
+        "owner_state",
+        "policy",
+        "set_policy",
+        "reset_policy",
+        "policy_schema",
+        "rules",
+        "fact_keys",
+        "sandbox",
+        "add_rule",
+        "update_rule",
+        "delete_rule",
+        "move_rule",
+        "test_rule",
+        "hooks",
+        "add_hook",
+        "delete_hook",
+        "hook_deliveries",
+        "owner_delete_listing",
+        "owner_delete_booking",
+        "owner_set_booking_status",
+        "export_state",
+        "import_state",
+        "seed_demo",
+        "wipe_demo",
+        "serve",
+        "kill",
+        "serve_api",
+        "kill_api",
+        "serve_app",
+        "kill_app",
+        "register",
+        "deregister"
+    ],
+    "gateway_port": 50371,
+    "schema": "QmXc6i6DRygJ3fmYar57gUsqRw2TscWaFNayMBibpoyXDa"
+}
