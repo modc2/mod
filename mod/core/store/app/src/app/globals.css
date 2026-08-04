@@ -636,6 +636,42 @@ button.danger:hover:not(:disabled) {
 }
 .graph-legend { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 11px; }
 
+/* ── store-wide CID graph ─────────────────────────────────────────────────── */
+
+.cg-stats { gap: 8px; margin-bottom: 10px; }
+.cg-wrap { display: grid; grid-template-columns: 1fr 260px; gap: 14px; align-items: start; }
+.cg-svg {
+  background: var(--surface-1); border: 1px solid var(--line);
+  border-radius: var(--radius-xs); display: block; height: auto;
+}
+.cg-edge { stroke: var(--line-strong); stroke-width: 1.5; }
+.cg-edge.lit { stroke: var(--accent); stroke-width: 2.5; }
+.cg-arrow-head { fill: var(--line-strong); }
+.cg-node { cursor: pointer; }
+.cg-node circle { stroke-width: 2; transition: filter 0.12s var(--ease); }
+.cg-node.public circle { fill: color-mix(in srgb, var(--good) 45%, var(--surface-2)); stroke: var(--good); }
+.cg-node.private circle { fill: color-mix(in srgb, var(--accent) 42%, var(--surface-2)); stroke: var(--accent); }
+.cg-node.external circle { fill: none; stroke: var(--ink-mute); stroke-dasharray: 3 3; }
+.cg-node.lit circle { stroke: var(--warn); filter: drop-shadow(0 0 6px var(--accent-glow)); }
+.cg-label {
+  fill: var(--ink-dim); font-family: var(--mono); font-size: 12px; text-anchor: middle;
+  text-transform: none; letter-spacing: normal; pointer-events: none;
+  paint-order: stroke; stroke: var(--surface-1); stroke-width: 3px;   /* halo over edges */
+}
+.cg-node.lit .cg-label { fill: var(--ink-max); }
+.cg-band { fill: var(--ink-faint); font-size: 11px; text-anchor: middle; }
+.cg-card {
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--radius-xs); padding: 12px; display: flex; flex-direction: column; gap: 6px;
+}
+.cg-card.empty { color: var(--ink-mute); }
+.cg-card-name { font-size: 13px; word-break: break-all; }
+.cg-card .cid { font-size: 10px; word-break: break-all; color: var(--ink-mute); }
+
+@media (max-width: 760px) {
+  .cg-wrap { grid-template-columns: 1fr; }
+}
+
 /* ── pools ────────────────────────────────────────────────────────────────── */
 
 .pool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 16px; }

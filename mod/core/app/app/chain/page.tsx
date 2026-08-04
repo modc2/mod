@@ -6,6 +6,7 @@ import { Btn, panelStyle } from './ui'
 import { WalletBar, useChainWallet } from './WalletBar'
 import { Balances } from './Balances'
 import { Sidebar } from './Sidebar'
+import { Gallery } from './Gallery'
 import { useProjects } from './projects'
 import { BuildTab } from './BuildTab'
 import { TestTab } from './TestTab'
@@ -80,7 +81,15 @@ export default function ChainPage() {
         <Balances wallet={wallet} network={network} />
 
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-          <Sidebar projects={projects} address={wallet.address} />
+          {/* Left rail — your projects on top, the shared gallery under them */}
+          <div style={{
+            width: '232px', flexShrink: 0, alignSelf: 'flex-start',
+            position: 'sticky', top: '16px', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto',
+            display: 'flex', flexDirection: 'column', gap: '12px',
+          }}>
+            <Sidebar projects={projects} address={wallet.address} />
+            <Gallery projects={projects} address={wallet.address} />
+          </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* Tabs */}

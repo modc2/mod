@@ -6,16 +6,15 @@ All logic lives in agent/mod.py. The API just dispatches to forward().
 Endpoints:
     GET  /health       - health check
     GET  /status       - module status
-    GET  /skills       - list skills + schemas
-    GET  /schema       - get skill schemas for LLM
+    GET  /schema       - tool schemas for the LLM
     GET  /agents       - list agent personas
     GET  /agents/{name} - get agent config
     POST /agents       - create agent    PUT /agents/{name}  DELETE /agents/{name}
     POST /agents/import - install a shared agent from its localfs CID
     GET  /harnesses    - external agent CLIs (claude code, codex) + availability
     GET  /chains       - list chain presets
-    GET  /library      - unified index: prompts + skills + memory + agents (q/kind/tag filters)
-    POST /library/upload      - upload a file as a prompt/skill/memory note/agent
+    GET  /library      - unified index: prompts + tool docs + memory + agents (q/kind/tag filters)
+    POST /library/upload      - upload a file as a prompt/tool doc/memory note/agent
     POST /library/upload/file - the same, as a multipart file post
     POST /library/import      - install anything from a shared localfs CID
     GET  /library/formats     - what an upload may look like + docs/uploads.md
@@ -23,15 +22,15 @@ Endpoints:
     POST /prompts/import - install a shared prompt from its localfs CID
     GET  /memory       - memory notes        POST /memory   DELETE /memory/{id}
     POST /memory/import - install a shared memory note from its localfs CID
-    GET  /discover     - scan GitHub/npm/MCP/Glama/awesome-lists for skills (q/sources/kind)
+    GET  /discover     - scan GitHub/npm/MCP/Glama/awesome-lists for tools (q/sources/kind)
     GET  /discover/sources - the source catalog + GitHub token state
     GET  /discover/item?id= - full record for one result (SKILL.md paths, readme)
     GET  /discover/doc?id=  - preview the document an install would add
     POST /discover/install  - install a scanned result into the library
     POST /discover/token    - owner: store a GitHub token (lifts rate limits)
-    GET  /skills/installed  - external skills installed from the aggregator
-    POST /skills/import     - install an external skill from its CID
-    DELETE /skills/installed/{id} - uninstall one
+    GET  /tools/installed  - external tool documents installed from the aggregator
+    POST /tools/import     - install an external tool document from its CID
+    DELETE /tools/installed/{id} - uninstall one
     GET  /conversations - the caller's saved console conversations (localfs-pinned)
     POST /conversations - upsert a conversation  DELETE /conversations/{id}
     POST /conversations/import - restore a shared conversation from its CID
@@ -41,12 +40,13 @@ Endpoints:
     POST /vaults/{name}/entries - upsert {entry, value, private}
     DELETE /vaults/{name}/entries/{entry} - remove one entry
     GET  /vaults/public?address=&name= - anyone: a vault's public entries
-    GET  /toolboxes    - skill bundles       POST /toolboxes  DELETE /toolboxes/{name}
+    GET  /toolboxes    - tool bundles        POST /toolboxes  DELETE /toolboxes/{name}
     POST /toolboxes/{name}/snap   - snap a bundle onto the agent (unsnap to detach)
     POST /toolboxes/unsnap        - detach everything, back to the full tool set
-    GET  /tools        - every callable tool: shipped skills + custom shell tools
+    GET  /tools        - the whole registry: built-in + custom (?mods=1 adds the fleet)
+    GET  /tools/mods   - the fleet on its own (?q= filters), one tool per module
     POST /tools        - host: create/update a custom tool  DELETE /tools/{name}
-    POST /tools/{name}/run - host: execute one custom tool (the console's test run)
+    POST /tools/{name}/run - host: execute one tool (the console's test run)
     POST /tools/select - host: pin the loadout to an exact list (null = toolboxes)
     GET  /memory/state - memory subsystem layers (working/episodic/semantic)
     GET  /memory/recall?q= - facts scored against a query
@@ -56,13 +56,22 @@ Endpoints:
     GET  /credits      - deposit info + caller's credit balance/history
     POST /credits/deposit - verify a USDT/USDC tx hash, credit the on-chain sender
     POST /credits/grant   - owner: adjust an account's credits (± amount)
+    GET  /credits/treasury - owner: deposits in, provider credits out, margin kept
+    POST /credits/topup   - owner: record API credits bought at a provider
+    POST /credits/withdraw - owner: take earned margin out of the float
+    POST /credits/config  - owner: set fee_rate / pricing knobs
+    GET  /arena        - the ranked board + what the background process is doing
+    GET  /arena/tasks  - the task pool, and this season's slice of it
+    GET  /arena/matches?limit=&agent=&task= - recent matches, newest first
+    GET  /arena/agents/{name} - one agent's record (rating, per-task, matches)
+    POST /arena/run    - admin: play a match (agent=, task=) or a whole round
+    POST /arena/config - admin: the board's knobs + scheduler on/off
     GET  /tasks        - server-side task registry (running + recent runs)
     GET  /tasks/{id}   - one task with its step trace
     GET  /tasks/{id}/images - thumbnails of the images attached to that run
     POST /forward      - mod protocol entry point
     POST /run          - run the full agent loop
     POST /run/stream   - run the agent loop, streaming steps live (SSE)
-    POST /skills/run   - run a single skill
 
 Usage:
     uvicorn api:app --host 0.0.0.0 --port 50117 --reload
@@ -114,9 +123,9 @@ class RunRequest(BaseModel):
     model: str = "anthropic/claude-opus-5"
     provider: Optional[str] = None
     steps: int = 10
-    skills: Optional[List[str]] = None
+    tools: Optional[List[str]] = None
     toolbox: Optional[str] = None           # toolbox name to snap on for this run
-    toolboxes: Optional[List[str]] = None   # or several — skills = union of boxes
+    toolboxes: Optional[List[str]] = None   # or several — tools = union of boxes
     temperature: float = 0.0
     safety: bool = False
     free: bool = False
@@ -125,12 +134,12 @@ class RunRequest(BaseModel):
     chain: Optional[List[dict]] = None
     prompt: Optional[str] = None          # system prompt override (library prompt or free text)
     memory_ids: Optional[List[str]] = None  # library memory note ids injected as context
-    skill_ids: Optional[List[str]] = None   # installed external skill ids injected as context
+    tool_ids: Optional[List[str]] = None    # installed tool-doc ids injected as context
     images: Optional[List[str]] = None      # pasted images (data: URLs) — needs a vision model
     thumbs: Optional[List[str]] = None      # tiny copies of the same images, for the task registry
     key: Optional[str] = None
 
-class SkillRunRequest(BaseModel):
+class ToolRunRequest(BaseModel):
     name: str
     params: dict = {}
     key: Optional[str] = None
@@ -140,7 +149,7 @@ class AgentCreateRequest(BaseModel):
     description: str = ""
     goal: str = ""
     icon: str = ">_"
-    skills: Optional[List[str]] = None
+    tools: Optional[List[str]] = None
     model: Optional[str] = None
     harness: Optional[str] = None   # 'claude' | 'codex' — run on that CLI instead
     key: Optional[str] = None
@@ -149,17 +158,17 @@ class AgentUpdateRequest(BaseModel):
     description: Optional[str] = None
     goal: Optional[str] = None
     icon: Optional[str] = None
-    skills: Optional[List[str]] = None
+    tools: Optional[List[str]] = None
     model: Optional[str] = None
     harness: Optional[str] = None
-    clear_skills: bool = False   # explicit: reset to all skills
+    clear_tools: bool = False    # explicit: reset to every tool
     clear_model: bool = False    # explicit: reset to default model
     clear_harness: bool = False  # explicit: back to this module's own loop
     key: Optional[str] = None
 
 class GrantRequest(BaseModel):
     address: str
-    actions: Optional[List[str]] = None  # default: ['run', 'skill']
+    actions: Optional[List[str]] = None  # default: ['run', 'tool_run']
     key: Optional[str] = None  # owner auth token
 
 class RevokeRequest(BaseModel):
@@ -207,19 +216,19 @@ class MemoryImportRequest(BaseModel):
     cid: str
     key: Optional[str] = None
 
-class SkillInstallRequest(BaseModel):
+class ToolInstallRequest(BaseModel):
     id: str                               # discover result id, e.g. gh:owner/repo:skills/pdf
     path: Optional[str] = None            # explicit SKILL.md path within the repo
     key: Optional[str] = None
 
-class SkillImportRequest(BaseModel):
+class ToolDocImportRequest(BaseModel):
     cid: str
     key: Optional[str] = None
 
 class UploadRequest(BaseModel):
     text: str                             # the file's contents
     filename: Optional[str] = None        # helps detect the kind
-    kind: Optional[str] = None            # prompt|skill|memory|agent, else auto
+    kind: Optional[str] = None            # prompt|tool|memory|agent, else auto
     key: Optional[str] = None
 
 class LibraryImportRequest(BaseModel):
@@ -284,6 +293,46 @@ class CreditGrantRequest(BaseModel):
     note: str = ""
     key: Optional[str] = None
 
+class TopupRequest(BaseModel):
+    provider: str                     # openrouter | venice
+    amount: float                     # USD of API credits bought
+    ref: str = ""                     # receipt / invoice id, for the books
+    note: str = ""
+    key: Optional[str] = None
+
+class WithdrawRequest(BaseModel):
+    amount: float
+    note: str = ""
+    key: Optional[str] = None
+
+class CreditConfigRequest(BaseModel):
+    fee_rate: Optional[float] = None          # 0.05 = a 5% margin over cost
+    price_per_step: Optional[float] = None    # fallback price for unpriced runs
+    cost_multiplier: Optional[float] = None   # safety factor on the estimate
+    deposit_address: Optional[str] = None
+    key: Optional[str] = None
+
+class ArenaRunRequest(BaseModel):
+    agent: Optional[str] = None      # None = the whole field
+    task: Optional[str] = None       # None = this season's rotation
+    model: Optional[str] = None
+    steps: Optional[int] = None
+    free: Optional[bool] = None
+    key: Optional[str] = None
+
+class ArenaConfigRequest(BaseModel):
+    enabled: Optional[bool] = None
+    free: Optional[bool] = None            # run matches on zero-cost models
+    model: Optional[str] = None
+    steps: Optional[int] = None
+    period_hours: Optional[float] = None   # 24 = a round a day
+    poll_seconds: Optional[int] = None     # how fast a new agent is spotted
+    tasks_per_round: Optional[int] = None
+    max_matches: Optional[int] = None
+    harnesses: Optional[bool] = None       # let CLI-backed agents compete
+    scheduler: Optional[bool] = None       # start/stop the background process
+    key: Optional[str] = None
+
 class VaultCreateRequest(BaseModel):
     name: str
     key: Optional[str] = None
@@ -305,6 +354,17 @@ def get_mod():
         from src.mod import Mod
         _mod = Mod()
     return _mod
+
+
+def signed_in(key) -> bool:
+    """Did this request carry an identity at all?
+
+    A key of None means "the process itself" to mod.forward — which is how a
+    local CLI call is the host. Over HTTP that is wrong: this API is proxied to
+    the open internet, so a request with no key is an anonymous stranger, not
+    the server. Host-only routes say so with this before they dispatch.
+    """
+    return bool(key and str(key).strip())
 
 
 # ── server-side task registry ────────────────────────────────────────
@@ -442,11 +502,12 @@ def _task_finish(t: dict, status: str, summary: str = "") -> None:
             t["summary"] = summary[:400]
 
 
-def _charge_run(req: "RunRequest", t: dict) -> Optional[dict]:
-    """Bill a finished non-owner run against the caller's credit ledger.
+def _run_budget(req: "RunRequest", t: dict):
+    """A spend ceiling for a run that will be billed, or None if it won't be.
 
-    Owners run free on their own key; `free` runs (free models) cost
-    nothing. Everyone else pays steps × price, clamped to their balance.
+    Charges are clamped to the balance, so without this a dust account could
+    start an Opus run and leave the module holding the overrun. The ceiling is
+    what the caller can actually pay for at the current margin.
     """
     if req.free or not t.get("user"):
         return None
@@ -454,7 +515,42 @@ def _charge_run(req: "RunRequest", t: dict) -> Optional[dict]:
     try:
         if mod.is_owner(req.key):
             return None
-        charge = mod.credits.charge_steps(t["user"], t["steps"], note=t["query"][:80])
+        balance = mod.credits.balance(t["user"])
+    except Exception:
+        return None
+    fee = 1 + max(0.0, mod.credits.fee_rate)
+    return lambda cost: cost * fee < balance
+
+
+def _charge_run(req: "RunRequest", t: dict) -> Optional[dict]:
+    """Bill a finished non-owner run against the caller's credit ledger.
+
+    Owners run free on their own key; `free` runs (free models) cost
+    nothing. Everyone else pays what the run actually burned on the
+    module's provider key plus the margin — that is what turns their
+    deposit into the OpenRouter/Venice credits the run just spent.
+
+    The cost comes off this thread's meter, so it has to be read whether
+    or not the caller is billed: an unread tally would be handed to the
+    next run on this thread.
+    """
+    mod = get_mod()
+    try:
+        usage = mod.meter.take()
+    except Exception:
+        usage = {}
+    # every run reports what it burned on the key, billed or not — an owner
+    # run costs real money too, it just isn't charged to anyone
+    if usage.get("priced") and usage.get("calls"):
+        with TASKS_LOCK:
+            t["cost"] = round(usage.get("cost", 0.0), 6)
+    if req.free or not t.get("user"):
+        return None
+    try:
+        if mod.is_owner(req.key):
+            return None
+        usage = dict(usage or {}, steps=t["steps"])
+        charge = mod.charge_run(t["user"], usage, note=t["query"][:80])
         if charge.get("charged"):
             with TASKS_LOCK:
                 t["charged"] = charge["charged"]
@@ -495,14 +591,10 @@ def forward(req: ForwardRequest):
     except Exception as e:
         return {"action": req.action, "error": str(e)}
 
-@app.get("/skills")
-def list_skills():
-    mod = get_mod()
-    return {"skills": mod.skills.ls(), "schemas": mod.skill_schema()}
-
 @app.get("/schema")
 def get_schema():
-    return get_mod().skill_schema()
+    """The tool schemas the LLM is handed for the current loadout."""
+    return get_mod().tool_schema()
 
 @app.get("/providers")
 def list_providers():
@@ -569,7 +661,7 @@ def run_params(key: Optional[str] = None):
              "options": [{"value": None, "label": "auto", "hint": "persona default"}] + toolboxes},
             {"name": "steps", "label": "MAX STEPS", "type": "number",
              "default": 10, "min": 1, "max": 50, "step": 1,
-             "hint": "agent-loop iterations — also the billing unit"},
+             "hint": "agent-loop iterations — more steps, more provider spend"},
             {"name": "temperature", "label": "TEMP", "type": "number",
              "default": 0.0, "min": 0.0, "max": 2.0, "step": 0.1},
             {"name": "safety", "label": "SAFETY REVIEW", "type": "toggle", "default": False,
@@ -578,31 +670,9 @@ def run_params(key: Optional[str] = None):
              "hint": "free models only; run is never billed"},
         ],
         "credits": {"info": "/credits", "deposit": "/credits/deposit",
+                    "treasury": "/credits/treasury", "topup": "/credits/topup",
                     "balance": "/balance", "whoami": "/whoami"},
     }
-
-@app.post("/skills/run")
-def run_skill(req: SkillRunRequest):
-    """Run a single skill. Write skills are path-restricted for non-owners."""
-    mod = get_mod()
-    try:
-        # custom tools have their own admin-gated route — this one is open
-        if req.name not in mod.skills.ls() and mod.tools.exists(req.name):
-            return {"skill": req.name, "error": f"'{req.name}' is a custom tool — "
-                    f"POST /tools/{req.name}/run", "code": 403}
-        if req.name in ('write', 'edit', 'patch'):
-            allowed = mod.allowed_paths_for(req.key)
-            fp = req.params.get('file_path', '')
-            if fp and allowed is not None:
-                from src.mod import check_path_allowed
-                if not check_path_allowed(fp, allowed):
-                    return {"skill": req.name, "error": f"Permission denied: cannot write to {fp}", "code": 403}
-        result = mod.run_skill(req.name, **req.params)
-        return {"skill": req.name, "result": result}
-    except KeyError:
-        return {"skill": req.name, "error": f"unknown skill: {req.name}", "available": mod.skills.ls()}
-    except Exception as e:
-        return {"skill": req.name, "error": str(e)}
 
 @app.get("/key")
 def key_info(provider: str = "openrouter"):
@@ -728,6 +798,57 @@ def credit_grant(req: CreditGrantRequest):
     except ValueError as e:
         return {"error": str(e)}
 
+@app.get("/credits/treasury")
+def credits_treasury(key: Optional[str] = None, live: bool = True):
+    """Owner: deposits in, provider credits out, margin kept.
+
+    `topup_needed` is the operative number — unspent guest credits at cost,
+    minus what the OpenRouter/Venice keys still hold.
+    """
+    try:
+        return get_mod().credits_treasury(key, live=live)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/credits/topup")
+def credit_topup(req: TopupRequest):
+    """Owner: record API credits bought at a provider out of the deposit float."""
+    try:
+        return get_mod().credit_topup(req.provider, req.amount, req.ref,
+                                      req.note, key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e)}
+
+@app.post("/credits/withdraw")
+def credit_withdraw(req: WithdrawRequest):
+    """Owner: take earned margin out of the float."""
+    try:
+        return get_mod().credit_withdraw(req.amount, req.note, key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e)}
+
+@app.post("/credits/config")
+def credit_config(req: CreditConfigRequest):
+    """Owner: set the margin (fee_rate) and the pricing knobs."""
+    try:
+        return get_mod().credit_config(
+            key=req.key,
+            **{k: v for k, v in (("fee_rate", req.fee_rate),
+                                 ("price_per_step", req.price_per_step),
+                                 ("cost_multiplier", req.cost_multiplier),
+                                 ("deposit_address", req.deposit_address))
+               if v is not None})
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e)}
+
 # ── server-side tasks (background runs) ──────────────────────────────
 
 @app.get("/tasks")
@@ -821,7 +942,7 @@ def create_agent(req: AgentCreateRequest):
         # `action` arg — the agents action is public, so dispatch directly
         result = mod.agents.forward(action='create',
             name=req.name, description=req.description, goal=req.goal,
-            icon=req.icon, skills=req.skills, model=req.model,
+            icon=req.icon, tools=req.tools, model=req.model,
             harness=req.harness, key=req.key)
         if isinstance(result, dict):
             result = {k: v for k, v in result.items() if k != 'cls'}
@@ -836,12 +957,12 @@ def update_agent(name: str, req: AgentUpdateRequest):
     """Update an agent. Its owner or the host — built-ins are host-only."""
     mod = get_mod()
     try:
-        skills = None if req.clear_skills else (req.skills if req.skills is not None else ...)
+        tools = None if req.clear_tools else (req.tools if req.tools is not None else ...)
         model = None if req.clear_model else (req.model if req.model is not None else ...)
         harness = None if req.clear_harness else (req.harness if req.harness is not None else ...)
         result = mod.agents.update(
             name=name, description=req.description, goal=req.goal,
-            icon=req.icon, skills=skills, model=model, harness=harness, key=req.key)
+            icon=req.icon, tools=tools, model=model, harness=harness, key=req.key)
         return {k: v for k, v in result.items() if k != 'cls'}
     except PermissionError as e:
         return {"error": str(e), "code": 403}
@@ -890,12 +1011,12 @@ def list_chains():
     """List chain presets"""
     return get_mod().forward('chains')
 
-# ── library (prompts / skills / memory / agent market) ──────────────
+# ── library (prompts / tool docs / memory / agent market) ───────────
 
 @app.get("/library")
 def get_library(q: Optional[str] = None, kind: Optional[str] = None,
                 tag: Optional[str] = None):
-    """Unified filterable index across prompts, skills, memory, and agents."""
+    """Unified filterable index across prompts, tool docs, memory, agents."""
     return get_mod().library.items(q=q, kind=kind, tag=tag)
 
 @app.get("/library/formats")
@@ -905,7 +1026,7 @@ def library_formats():
 
 @app.post("/library/upload")
 def library_upload(req: UploadRequest):
-    """Upload one file into the library — prompt, skill, memory note or agent.
+    """Upload one file into the library — prompt, tool doc, note or agent.
 
     The kind is the caller's pick, else the file's `type:`, else its name,
     else its shape (see docs/uploads.md). Creating takes a sign-in.
@@ -1025,7 +1146,7 @@ def delete_memory(note_id: str, key: Optional[str] = None):
     except KeyError as e:
         return {"error": str(e)}
 
-# ── discover (internet-wide skill aggregator) ───────────────────────
+# ── discover (internet-wide tool aggregator) ────────────────────────
 # Read-only scanning is public; installs land in the shared library as
 # documents. Setting the GitHub token / clearing the cache is owner-only.
 
@@ -1059,19 +1180,19 @@ def discover_detail(id: str):
 def discover_doc(id: str, path: Optional[str] = None):
     """Preview the exact document an install would add to the library."""
     try:
-        return get_mod().discover.skill_doc(id, path)
+        return get_mod().discover.tool_doc(id, path)
     except (KeyError, ValueError) as e:
         return {"error": str(e)}
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
 
 @app.post("/discover/install")
-def discover_install(req: SkillInstallRequest):
-    """Install a scanned result into the library as an external skill.
+def discover_install(req: ToolInstallRequest):
+    """Install a scanned result into the library as an external tool doc.
 
     Signed-in callers only — the installer owns what they added."""
     try:
-        return get_mod().skill_install(req.id, req.path, key=req.key)
+        return get_mod().tool_install(req.id, req.path, key=req.key)
     except PermissionError as e:
         return {"error": str(e), "code": 403}
     except (KeyError, ValueError) as e:
@@ -1095,28 +1216,28 @@ def discover_clear_cache(req: DiscoverTokenRequest):
         return {"error": "owner only", "code": 403}
     return mod.discover.clear_cache()
 
-@app.get("/skills/installed")
-def list_installed_skills():
-    """External skills installed from the aggregator, with their owner."""
+@app.get("/tools/installed")
+def list_installed_tools():
+    """Tool documents installed from the aggregator, with their owner."""
     lib = get_mod().library
-    return {"skills": [{**s, **lib.skill_owner(s)} for s in lib.installed_skills()],
+    return {"tools": [{**s, **lib.tool_owner(s)} for s in lib.installed_tools()],
             "host": lib.identity.host}
 
-@app.post("/skills/import")
-def import_installed_skill(req: SkillImportRequest):
-    """Install an external skill from its localfs CID (the share path)."""
+@app.post("/tools/import")
+def import_installed_tool(req: ToolDocImportRequest):
+    """Install a tool document from its localfs CID (the share path)."""
     try:
-        return get_mod().library.skill_import(req.cid.strip(), key=req.key)
+        return get_mod().library.tool_import(req.cid.strip(), key=req.key)
     except PermissionError as e:
         return {"error": str(e), "code": 403}
     except (ValueError, RuntimeError) as e:
         return {"error": str(e)}
 
-@app.delete("/skills/installed/{skill_id}")
-def delete_installed_skill(skill_id: str, key: Optional[str] = None):
-    """Uninstall an external skill. Whoever installed it, or the host."""
+@app.delete("/tools/installed/{tool_id}")
+def delete_installed_tool(tool_id: str, key: Optional[str] = None):
+    """Uninstall a tool document. Whoever installed it, or the host."""
     try:
-        return get_mod().library.skill_rm(skill_id, key=key)
+        return get_mod().library.tool_rm(tool_id, key=key)
     except PermissionError as e:
         return {"error": str(e), "code": 403}
     except KeyError as e:
@@ -1244,7 +1365,7 @@ def delete_vault(name: str, key: Optional[str] = None):
     except (KeyError, ValueError) as e:
         return {"error": str(e)}
 
-# ── toolboxes (snap-on skill bundles) ────────────────────────────────
+# ── toolboxes (snap-on tool bundles) ─────────────────────────────────
 
 @app.get("/toolboxes")
 def list_toolboxes():
@@ -1305,30 +1426,38 @@ def unsnap_toolbox(name: str, key: Optional[str] = None):
     except PermissionError as e:
         return {"error": str(e), "code": 403}
 
-# ── tools (shipped skills + custom shell tools, in one registry) ─────
-# A custom tool runs shell, so writing one is host-only — library skills are
-# documents for exactly that reason. Reading the registry is public.
+# ── tools (built-in + custom shell tools + the fleet, in one registry) ─
+# A custom tool runs shell and a fleet tool calls another module, so writing
+# or running one is host-only — library tool documents are text for exactly
+# that reason. Reading the registry is public.
 
 @app.get("/tools")
-def list_tools():
-    """Every tool the agent can call, in one list the console can render."""
+def list_tools(mods: bool = False, q: str = "", limit: int = 40):
+    """Every tool the agent can call, in one list the console can render.
+
+    The default list is the loadout material: shipped tools + custom shell
+    tools. `mods=true` adds the fleet — three hundred modules, so it takes a
+    `q` and a `limit` and searches server-side instead of shipping the lot.
+    """
     mod = get_mod()
-    active = mod.active_skills()          # None = nothing filtered out
-    schemas = mod.skills.schema()
-    tools = [{"name": n, "kind": "skill", "builtin": True,
-              "description": (schemas.get(n) or {}).get("description", ""),
-              "params": (schemas.get(n) or {}).get("params", {}),
-              "active": active is None or n in active}
-             for n in mod.skills.ls()]
-    tools += [{**t, "builtin": False,
-               "active": active is None or t["name"] in active}
-              for t in mod.tools.items()]
+    active = mod.active_tools()           # None = nothing filtered out
+    tools = [{**t, "active": active is None or t["name"] in active}
+             for t in mod.tools.items(mods=mods, q=q, limit=limit)]
+    # a fleet tool that's switched on stays visible even when it's not in the
+    # current page of search results — the console must be able to switch it off
+    shown = {t["name"] for t in tools}
+    tools += [{**mod.tools.mods.get(n), "builtin": False, "active": True,
+               "params": mod.tools.mods.schema([n])[n]["params"]}
+              for n in (active or []) if n not in shown and mod.tools.is_mod(n)]
     return {"tools": tools, "snapped": mod.snapped(),
-            "toolboxes": mod.toolboxes.items(), "host": mod._owner}
+            "toolboxes": mod.toolboxes.items(), "host": mod._owner,
+            "fleet": len(mod.tools.mods.ls()), "mods": mods, "q": q}
 
 @app.post("/tools")
 def save_tool(req: ToolRequest):
     """Create or update a custom tool. Host (or a granted admin) only."""
+    if not signed_in(req.key):
+        return {"error": "sign in — a custom tool runs shell on the host", "code": 401}
     try:
         return get_mod().forward('tool_add', key=req.key, name=req.name,
                                  command=req.command, description=req.description,
@@ -1340,6 +1469,8 @@ def save_tool(req: ToolRequest):
 
 @app.delete("/tools/{name}")
 def delete_tool(name: str, key: Optional[str] = None):
+    if not signed_in(key):
+        return {"error": "sign in to change the tool registry", "code": 401}
     try:
         return get_mod().forward('tool_rm', key=key, name=name)
     except PermissionError as e:
@@ -1352,6 +1483,8 @@ def select_tools(req: SelectRequest):
     `tools: null` (or an empty list) hands the set back to whatever toolboxes
     are snapped on. Admin, same as snapping: it changes what the model gets.
     """
+    if not signed_in(req.key):
+        return {"error": "sign in to change the loadout", "code": 401}
     try:
         return get_mod().forward('select', key=req.key, tools=req.tools)
     except PermissionError as e:
@@ -1359,16 +1492,45 @@ def select_tools(req: SelectRequest):
     except ValueError as e:
         return {"error": str(e)}
 
+@app.get("/tools/mods")
+def list_mod_tools(q: str = "", limit: int = 60):
+    """The fleet on its own: one entry per module, with the functions it
+    declares. These are potential tools — off the default loadout until
+    someone switches them on."""
+    mod = get_mod()
+    active = mod.active_tools() or []
+    items = mod.tools.mods.items(q, limit)
+    return {"mods": [{**e, "active": e["name"] in active} for e in items],
+            "total": len(items), "fleet": len(mod.tools.mods.ls()), "q": q}
+
 @app.post("/tools/{name}/run")
 def run_tool(name: str, req: ToolRunRequest):
-    """Execute one custom tool — the console's 'try it' button."""
+    """Execute one tool — the console's 'try it' button.
+
+    A built-in is open (write tools stay inside the caller's sandbox); a
+    custom shell tool or a fleet module is admin, same as creating one.
+    """
+    mod = get_mod()
+    if mod.tools.kind(name) != 'builtin' and not signed_in(req.key):
+        return {"tool": name, "code": 401,
+                "error": "sign in — this call runs shell or another module on the host"}
     try:
+        if mod.tools.kind(name) == 'builtin':
+            if name in ('write', 'edit', 'patch'):
+                allowed = mod.allowed_paths_for(req.key)
+                fp = req.params.get('file_path', '')
+                if fp and allowed is not None:
+                    from src.mod import check_path_allowed
+                    if not check_path_allowed(fp, allowed):
+                        return {"tool": name, "code": 403,
+                                "error": f"Permission denied: cannot write to {fp}"}
+            return {"tool": name, "result": mod.run_tool(name, **req.params)}
         return {"tool": name,
-                "result": get_mod().forward('tool_run', key=req.key, name=name,
-                                            params=req.params)}
+                "result": mod.forward('tool_run', key=req.key, name=name,
+                                      params=req.params)}
     except PermissionError as e:
         return {"tool": name, "error": str(e), "code": 403}
-    except (ValueError, KeyError) as e:
+    except Exception as e:
         return {"tool": name, "error": str(e)}
 
 # ── memory subsystem (working/episodic/semantic layers, own process) ─
@@ -1418,7 +1580,82 @@ def memory_serve(key: Optional[str] = None, port: Optional[int] = None):
 
 # ── run (delegates to mod.forward('run')) ────────────────────────────
 
-def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None):
+# ── arena (same tasks, one ranked board) ─────────────────────────────
+
+@app.get("/arena")
+def arena_board():
+    """The ranked board plus what the background process is up to."""
+    return get_mod().forward('arena')
+
+@app.get("/arena/tasks")
+def arena_tasks():
+    """The task pool, and which slice of it this season plays."""
+    return get_mod().forward('arena_tasks')
+
+@app.get("/arena/matches")
+def arena_matches(limit: int = 50, agent: Optional[str] = None,
+                  task: Optional[str] = None):
+    return get_mod().forward('arena_matches', limit=limit, agent=agent, task=task)
+
+@app.get("/arena/agents/{name}")
+def arena_card(name: str):
+    """One agent's record: rating, per-task scores, recent matches."""
+    return get_mod().forward('arena_card', agent=name)
+
+@app.post("/arena/run")
+def arena_run(req: ArenaRunRequest):
+    """Play a match now — one agent on one task, or the whole field.
+
+    Admin: a round spends real steps on the module's provider key, so it is
+    not something a passer-by gets to start.
+    """
+    if not signed_in(req.key):
+        return {"error": "sign in — an arena round spends steps on the host's key",
+                "code": 401}
+    try:
+        return get_mod().forward('arena_run', key=req.key, agent=req.agent,
+                                 task=req.task, model=req.model, steps=req.steps,
+                                 free=req.free, reason='manual')
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": f"unknown task: {e}"}
+
+@app.post("/arena/config")
+def arena_config(req: ArenaConfigRequest):
+    """Set the board's knobs, and start or stop the background process."""
+    if not signed_in(req.key):
+        return {"error": "sign in to configure the arena", "code": 401}
+    mod = get_mod()
+    fields = {k: v for k, v in req.dict().items()
+              if v is not None and k not in ('key', 'scheduler')}
+    try:
+        if fields:
+            mod.forward('arena_config', key=req.key, **fields)
+        if req.scheduler is not None:
+            mod.forward('arena_scheduler', key=req.key, on=req.scheduler)
+        return mod.forward('arena_status')
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
+
+@app.on_event("startup")
+def _start_arena():
+    """Bring the board's background process up with the API.
+
+    Off-switch: ARENA_SCHEDULER=0 in the environment, for a host that wants the
+    arena on demand only. The thread waits before its first tick, so a boot
+    that gets restarted twice in a row never starts a round.
+    """
+    if os.environ.get("ARENA_SCHEDULER", "1") in ("0", "false", "no"):
+        return
+    try:
+        get_mod().arena_scheduler(True)
+    except Exception as e:
+        print(f"arena scheduler not started: {e}")
+
+
+def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None, budget=None):
     """Execute a multi-agent chain, feeding each step's summary into the next."""
     chain_results = []
     context = req.query
@@ -1444,8 +1681,9 @@ def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None):
                 safety=req.safety,
                 free=req.free,
                 memory_ids=req.memory_ids,
-                skill_ids=req.skill_ids,
+                tool_ids=req.tool_ids,
                 on_step=on_step,
+                budget=budget,
             )
             summary = ""
             if isinstance(result, list):
@@ -1470,7 +1708,8 @@ def run_agent(req: RunRequest):
     # chain execution
     if req.chain and len(req.chain) > 0:
         task = _task_create(req, chain=True, agent=resolved_agent)
-        results = _run_chain(mod, req, on_step=lambda s: _task_step(task, s))
+        results = _run_chain(mod, req, on_step=lambda s: _task_step(task, s),
+                             budget=_run_budget(req, task))
         errs = [r.get("error") for r in results if r.get("error")]
         _task_finish(task, 'error' if errs else 'done',
                      errs[0] if errs else (results[-1].get("summary", "") if results else ""))
@@ -1487,7 +1726,7 @@ def run_agent(req: RunRequest):
             model=req.model,
             provider=req.provider,
             steps=req.steps,
-            skills=req.skills,
+            tools=req.tools,
             toolbox=req.toolbox or req.toolboxes,
             agent_type=resolved_agent,
             temperature=req.temperature,
@@ -1495,9 +1734,10 @@ def run_agent(req: RunRequest):
             free=req.free,
             prompt=req.prompt,
             memory_ids=req.memory_ids,
-            skill_ids=req.skill_ids,
+            tool_ids=req.tool_ids,
             images=req.images,
             on_step=lambda s: _task_step(task, s),
+            budget=_run_budget(req, task),
         )
         _task_finish(task, _status_of(result), _summary_of(result))
         charge = _charge_run(req, task)
@@ -1546,6 +1786,7 @@ def run_agent_stream(req: RunRequest):
                     mod, req,
                     on_step=on_step,
                     on_chain_step=lambda i, a: emit({"type": "chain_step", "index": i, "agent": a}),
+                    budget=_run_budget(req, task),
                 )
                 errs = [r.get("error") for r in results if r.get("error")]
                 _task_finish(task, 'error' if errs else 'done',
@@ -1560,7 +1801,7 @@ def run_agent_stream(req: RunRequest):
                     model=req.model,
                     provider=req.provider,
                     steps=req.steps,
-                    skills=req.skills,
+                    tools=req.tools,
                     toolbox=req.toolbox or req.toolboxes,
                     agent_type=resolved_agent,
                     temperature=req.temperature,
@@ -1568,9 +1809,10 @@ def run_agent_stream(req: RunRequest):
                     free=req.free,
                     prompt=req.prompt,
                     memory_ids=req.memory_ids,
-                    skill_ids=req.skill_ids,
+                    tool_ids=req.tool_ids,
                     images=req.images,
                     on_step=on_step,
+                    budget=_run_budget(req, task),
                 )
                 _task_finish(task, _status_of(result), _summary_of(result))
                 charge = _charge_run(req, task)

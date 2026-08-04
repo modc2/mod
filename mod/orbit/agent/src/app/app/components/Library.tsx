@@ -8,7 +8,7 @@ import Upload from './Upload'
 
 // ── types ───────────────────────────────────────────────────────────
 
-export type LibKind = 'prompt' | 'skill' | 'memory' | 'agent'
+export type LibKind = 'prompt' | 'tool' | 'memory' | 'agent'
 
 export type LibItem = {
   kind: LibKind
@@ -20,14 +20,14 @@ export type LibItem = {
   body?: string
   params?: Record<string, { type?: string; required?: boolean; default?: any }>
   icon?: string
-  skills?: string[] | null
+  tools?: string[] | null
   model?: string | null
   harness?: string | null     // agent runs on an external CLI ('claude' | 'codex')
   cid?: string
   updated?: number
   builtin?: boolean
   external?: boolean          // installed from the internet via Discover
-  url?: string                // where an external skill came from
+  url?: string                // where an external tool document came from
   source?: string
   license?: string | null
   // who owns it: 'item' = the address that made it, 'host' = nobody did, so
@@ -51,8 +51,8 @@ type Props = {
   onSelectPrompt?: (item: LibItem) => void
   // toggle a memory note into the console's run context
   onUseMemory?: (id: string) => void
-  // toggle an installed external skill into the console's run context
-  onUseSkill?: (id: string) => void
+  // toggle an installed external tool document into the console's run context
+  onUseTool?: (id: string) => void
   // wallet sign-in, offered wherever creating is blocked
   onSignIn?: () => void
 }
@@ -70,8 +70,8 @@ const KINDS: Record<LibKind, {
     cardHover: 'hover:border-amber-400/30 hover:shadow-[0_0_24px_rgb(var(--w-400)/0.07)]',
     badge: 'bg-amber-400/10 text-amber-300/90',
   },
-  skill: {
-    label: 'Skill', plural: 'Skills', glyph: '⌘',
+  tool: {
+    label: 'Tool', plural: 'Tools', glyph: '⌘',
     dot: 'bg-sky-400', text: 'text-sky-300',
     chip: 'bg-sky-400/10 border-sky-400/25 text-sky-300',
     cardHover: 'hover:border-sky-400/30 hover:shadow-[0_0_24px_rgb(var(--i-400)/0.07)]',
@@ -93,7 +93,7 @@ const KINDS: Record<LibKind, {
   },
 }
 
-const KIND_ORDER: LibKind[] = ['prompt', 'skill', 'memory', 'agent']
+const KIND_ORDER: LibKind[] = ['prompt', 'tool', 'memory', 'agent']
 
 // ── local library ⇄ internet aggregator ─────────────────────────────
 
@@ -117,8 +117,8 @@ function ModeSwitch({ mode, setMode, onLeaveDiscover }: {
   return (
     <div className="shrink-0 px-6 pt-4 max-w-6xl w-full mx-auto">
       <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg border border-white/[0.07] bg-white/[0.02]">
-        {tab('library', 'INSTALLED', 'Your prompts, skills, memory and agents')}
-        {tab('discover', 'DISCOVER', 'Scan the internet for skills across platforms')}
+        {tab('library', 'INSTALLED', 'Your prompts, tools, memory and agents')}
+        {tab('discover', 'DISCOVER', 'Scan the internet for tools across platforms')}
       </div>
     </div>
   )
@@ -126,7 +126,7 @@ function ModeSwitch({ mode, setMode, onLeaveDiscover }: {
 
 // ── component ───────────────────────────────────────────────────────
 
-export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, onSelectPrompt, onUseMemory, onUseSkill, onSignIn, auth, host }: Props) {
+export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, onSelectPrompt, onUseMemory, onUseTool, onSignIn, auth, host }: Props) {
   const [items, setItems] = useState<LibItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -230,7 +230,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
     const route = item.kind === 'prompt' ? `prompts/${item.id}`
       : item.kind === 'memory' ? `memory/${item.id}`
       : item.kind === 'agent' ? `agents/${item.name}`
-      : item.kind === 'skill' && item.external ? `skills/installed/${item.id}` : null
+      : item.kind === 'tool' && item.external ? `tools/installed/${item.id}` : null
     if (!route) return
     const q = auth?.token ? `?key=${encodeURIComponent(auth.token)}` : ''
     const r = await fetch(`${API_URL}/${route}${q}`, { method: 'DELETE' })
@@ -254,10 +254,10 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
       if (onSelectPrompt) onSelectPrompt(item)
       else onUsePrompt(item.body || '')
     }
-    else if (item.kind === 'skill') {
+    else if (item.kind === 'tool') {
       // an installed SKILL.md is instructions — attach it to the run context
-      if (item.external && onUseSkill) onUseSkill(item.id)
-      else onUsePrompt(`Use the ${item.name} skill to `)
+      if (item.external && onUseTool) onUseTool(item.id)
+      else onUsePrompt(`Use the ${item.name} tool to `)
     }
     else if (item.kind === 'memory') {
       if (onUseMemory) onUseMemory(item.id)
@@ -269,7 +269,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
 
   const useLabel = (k: LibKind, installed: boolean, external = false) =>
     k === 'prompt' ? (onSelectPrompt ? 'Use as system prompt' : 'Use prompt')
-    : k === 'skill' ? (external && onUseSkill ? 'Add to run context' : 'Try in console')
+    : k === 'tool' ? (external && onUseTool ? 'Add to run context' : 'Try in console')
     : k === 'memory' ? (onUseMemory ? 'Add to context' : 'Use as context')
     : installed ? 'Chat with agent' : ''
 
@@ -278,7 +278,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
   const clearFilters = () => { setQ(''); setKind(null); setTag(null) }
   const hasFilters = q.trim() !== '' || kind !== null || tag !== null
 
-  // the internet-wide aggregator lives behind the same tab — installed skills
+  // the internet-wide aggregator lives behind the same tab — installed tool docs
   // land in this library, so refresh on the way back
   if (mode === 'discover') {
     return (
@@ -300,7 +300,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
           <div>
             <h2 className="text-xl font-semibold tracking-tight text-gray-100">Library</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Prompts, skills, memory and agents — one searchable market.
+              Prompts, tools, memory and agents — one searchable market.
             </p>
           </div>
 
@@ -341,7 +341,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
                 <div className="my-1 border-t border-white/[0.06]" />
                 <button
                   onClick={() => { setImporting(true); setShowNewMenu(false) }}
-                  title="Upload a file you wrote — agent, prompt, skill or note — or install one from a shared CID"
+                  title="Upload a file you wrote — agent, prompt, tool or note — or install one from a shared CID"
                   className="w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-white/[0.06] transition flex items-center gap-2.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-white/40" />
                   <span className="text-gray-300">Upload / from CID</span>
@@ -360,7 +360,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
             ref={searchRef}
             value={q}
             onChange={e => setQ(e.target.value)}
-            placeholder="Search prompts, skills, memory, agents…"
+            placeholder="Search prompts, tools, memory, agents…"
             className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl pl-10 pr-16 py-2.5 text-sm text-gray-200 outline-none placeholder:text-gray-600 focus:border-emerald-500/40 focus:bg-white/[0.05] focus:shadow-[0_0_0_3px_rgb(var(--glow)/0.08)] transition-all"
           />
           <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-600 border border-white/[0.08] rounded px-1.5 py-0.5 select-none">/</kbd>
@@ -460,7 +460,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-1">
               {filtered.map(item => {
                 const K = KINDS[item.kind]
-                // built-in skills have no owner fields, so this is simply blank
+                // built-in tools have no owner fields, so this is simply blank
                 const owner = ownerLabel(item)
                 return (
                   <button key={item.id}
@@ -501,7 +501,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
                           {t}
                         </span>
                       ))}
-                      {item.kind === 'skill' && item.params && (
+                      {item.kind === 'tool' && item.params && (
                         <span className="text-[10px] text-gray-700 ml-auto">
                           {Object.keys(item.params).length} params
                         </span>
@@ -536,7 +536,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
         />
       )}
 
-      {/* detail overlay (skills / memory / agents) */}
+      {/* detail overlay (tools / memory / agents) */}
       {selected && selected.kind !== 'prompt' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm" onClick={() => setSelected(null)}>
           <div
@@ -576,7 +576,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
                 </div>
               )}
 
-              {/* where an internet-installed skill came from */}
+              {/* where an internet-installed tool doc came from */}
               {selected.external && (
                 <div className="mb-4 flex items-center gap-2 flex-wrap text-[11px]">
                   {selected.source && <span className="text-gray-600">via <span className="text-gray-400">{selected.source}</span></span>}
@@ -597,8 +597,8 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
                 </pre>
               )}
 
-              {/* skill params */}
-              {selected.kind === 'skill' && selected.params && Object.keys(selected.params).length > 0 && (
+              {/* tool params */}
+              {selected.kind === 'tool' && selected.params && Object.keys(selected.params).length > 0 && (
                 <div className="mt-1">
                   <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">parameters</div>
                   <div className="space-y-1">
@@ -619,7 +619,7 @@ export default function Library({ onUsePrompt, onSelectAgent, onAgentsChanged, o
               {selected.kind === 'agent' && (
                 <div className="mt-3 space-y-1.5 text-xs">
                   {selected.model && <div className="text-gray-500">model: <span className="text-gray-400 font-mono">{selected.model}</span></div>}
-                  {selected.skills && <div className="text-gray-500">skills: <span className="text-gray-400 font-mono">{selected.skills.join(', ')}</span></div>}
+                  {selected.tools && <div className="text-gray-500">tools: <span className="text-gray-400 font-mono">{selected.tools.join(', ')}</span></div>}
                   {selected.cid && (
                     <div className="flex items-center gap-2 text-gray-500">
                       cid: <span className="text-gray-400 font-mono truncate">{selected.cid}</span>
@@ -843,7 +843,7 @@ function UploadModal({ onClose, onDone, onSignIn, token }: {
         <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-2.5 shrink-0">
           <span className="w-1.5 h-1.5 rounded-full bg-white/50" />
           <span className="text-sm font-medium text-gray-100">Upload your own</span>
-          <span className="text-[11px] text-gray-600">agent · prompt · skill · memory note</span>
+          <span className="text-[11px] text-gray-600">agent · prompt · tool · memory note</span>
           <button onClick={onClose} className="ml-auto text-gray-600 hover:text-gray-300 transition p-1">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />

@@ -6,7 +6,7 @@ import type { LibKind } from './Library'
 
 // ── bring your own ──────────────────────────────────────────────────
 // One box for every collection: drop a file (or paste one, or hand it a
-// shared CID) and it lands in the library as a prompt, a skill, a memory
+// shared CID) and it lands in the library as a prompt, a tool doc, a memory
 // note or a whole agent. The server decides which from the file's `type:`,
 // its name, then its shape — the chips below override that. The format
 // reference is docs/uploads.md, served by GET /library/formats so the panel
@@ -14,10 +14,10 @@ import type { LibKind } from './Library'
 
 type Kind = LibKind | 'auto'
 
-const KINDS: Kind[] = ['auto', 'agent', 'prompt', 'skill', 'memory']
+const KINDS: Kind[] = ['auto', 'agent', 'prompt', 'tool', 'memory']
 
 const DOT: Record<LibKind, string> = {
-  prompt: 'bg-amber-400', skill: 'bg-sky-400',
+  prompt: 'bg-amber-400', tool: 'bg-sky-400',
   memory: 'bg-emerald-400', agent: 'bg-violet-400',
 }
 
@@ -162,7 +162,7 @@ export default function Upload({ token, onDone, onAgent, compact = false, onSign
           {busy ? 'uploading…' : 'Drop files or click to pick'}
         </div>
         <div className={`${label} text-gray-600 mt-0.5`}>
-          .md with front matter or .json — agents, prompts, skills, notes
+          .md with front matter or .json — agents, prompts, tools, notes
         </div>
       </div>
 

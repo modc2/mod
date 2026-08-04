@@ -2,7 +2,7 @@
 from typing import Dict, Any
 
 
-class Skill:
+class Tool:
     description = "Think step-by-step. Use this to reason, plan, reflect, or work through problems before acting. No side effects."
 
     def forward(self, thought: str, **kwargs) -> Dict[str, Any]:

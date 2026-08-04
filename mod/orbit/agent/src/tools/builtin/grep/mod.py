@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-class Skill:
+class Tool:
     description = "Search for regex patterns in files"
 
     def forward(self, pattern: str, path: str = ".", file_pattern: str = None, ignore_case: bool = False, context: int = 0, max_results: int = 100, **kwargs) -> Dict[str, Any]:
@@ -42,6 +42,6 @@ class Skill:
         return {"success": True, "matches": matches, "total": len(matches)}
 
     def test(self):
-        r = self.forward("class Skill", path=str(Path(__file__).parent.parent), file_pattern="*.py")
+        r = self.forward("class Tool", path=str(Path(__file__).parent.parent), file_pattern="*.py")
         assert r["success"] and r["total"] > 0
         return True

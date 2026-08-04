@@ -1,7 +1,7 @@
 """task - spawn a sub-agent for complex work"""
 from typing import Dict, Any, Optional
 
-class Skill:
+class Tool:
     description = "Spawn a sub-agent to handle a complex task"
 
     def forward(self, prompt: str, agent_type: str = "general", model: str = "sonnet", max_steps: int = 10, **kwargs) -> Dict[str, Any]:

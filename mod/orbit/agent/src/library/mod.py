@@ -3,8 +3,8 @@ library - unified agent library
 
 One filterable index across four collections:
     prompts  - reusable prompt templates (user-curated, seeded with defaults)
-    skills   - the agent's skill registry (read-only, from skills/) plus
-               external skills installed from the internet via discover/
+    tools    - the agent's tool registry (read-only, from tools/) plus the
+               tool documents installed from the internet via discover/
     memory   - persistent knowledge notes the agent can be pointed at
     agents   - installed agent personas + published agent CIDs (the market)
 
@@ -17,7 +17,7 @@ Every prompt, note, and conversation is ALSO pinned to localfs — the mod
 framework's content-addressed blob store — and carries its CID, so any item
 can be shared/restored by CID alone.
 
-Prompts, memory notes, and installed skills carry an owner — the address that
+Prompts, memory notes, and installed tool docs carry an owner — the address that
 saved them — so making one takes a sign-in. Seeded and legacy items have no
 owner, so they belong to the HOST (the module owner), who can edit or remove
 anything. Everyone else manages only their own.
@@ -28,7 +28,7 @@ collection — including a whole agent — and import_cid() does the same from a
 shared localfs CID. formats.py parses; docs/uploads.md is the reference.
 
 Usage:
-    lib = Library(skills=skills, agents=agents)
+    lib = Library(tools=tools, agents=agents)
     lib.items(q="review", kind="prompt", tag="quality")
     lib.prompt_add("bug hunt", "Find and fix ...", tags=["debug"])
     lib.note_add("api conventions", "All endpoints return ...", tags=["project"])
@@ -84,8 +84,8 @@ SEED_PROMPTS = [
      "tags": ["performance", "review"]},
 ]
 
-# rough category tags for built-in skills so they participate in tag filtering
-SKILL_TAGS = {
+# rough category tags for built-in tools so they participate in tag filtering
+TOOL_TAGS = {
     "read": ["files"], "write": ["files"], "edit": ["files"], "patch": ["files"],
     "glob": ["files", "search"], "tree": ["files", "explore"],
     "grep": ["search"], "search": ["search"], "symbols": ["search", "code"],
@@ -99,13 +99,13 @@ SKILL_TAGS = {
 
 
 class Library:
-    description = "Unified library: prompts, memory notes, skills, and the agent market"
+    description = "Unified library: prompts, memory notes, tool docs, and the agent market"
 
-    def __init__(self, skills=None, agents=None, dir: str = None,
+    def __init__(self, tools=None, agents=None, dir: str = None,
                  identity: "Identity" = None):
         self.dir = Path(dir) if dir else Path.home() / '.mod' / 'agent' / 'library'
         self.dir.mkdir(parents=True, exist_ok=True)
-        self._skills = skills
+        self._tools = tools
         self._agents = agents
         # unbound library: no host known, so unowned items stay open
         self.identity = identity or Identity()
@@ -149,8 +149,8 @@ class Library:
         if kind == "memory":
             return {"type": "memory", "name": item.get("name", ""),
                     "content": item.get("content", ""), "tags": item.get("tags", [])}
-        if kind == "skill":
-            return {"type": "skill", "name": item.get("name", ""),
+        if kind == "tool":
+            return {"type": "tool", "name": item.get("name", ""),
                     "description": item.get("description", ""),
                     "body": item.get("body", ""), "tags": item.get("tags", []),
                     "source": item.get("source", ""), "url": item.get("url", "")}
@@ -195,7 +195,9 @@ class Library:
         if localfs is None:
             raise RuntimeError("localfs unavailable")
         bundle = self._fetch(localfs, cid)
-        if not isinstance(bundle, dict) or bundle.get("type") != kind:
+        # "skill" is what tool documents shared before the rename
+        want = {kind, "skill"} if kind == "tool" else {kind}
+        if not isinstance(bundle, dict) or bundle.get("type") not in want:
             raise ValueError(f"CID does not contain a {kind}: {cid}")
         return bundle
 
@@ -349,45 +351,50 @@ class Library:
         self._save('memory', [n for n in data if n.get("id") != id])
         return {"removed": id}
 
-    # ── installed skills (external, from the discover aggregator) ────
-    # A skill found on the internet is instruction markdown (a SKILL.md), not
+    # ── installed tool documents (external, from the discover aggregator) ──
+    # A tool found on the internet is instruction markdown (a SKILL.md), not
     # code — installing one never adds an executable to the registry. It is
     # stored as a document the agent can be pointed at, pinned to localfs like
     # every other library item so it can be re-shared by CID.
 
-    MAX_SKILL_CHARS = 120_000
+    MAX_TOOL_CHARS = 120_000
 
-    def installed_skills(self) -> List[Dict]:
-        """External skills installed from the aggregator."""
-        data = self._load('skills') or []
-        if self._mint_cids(data, "skill"):
-            self._save('skills', data)
+    def installed_tools(self) -> List[Dict]:
+        """External tool documents installed from the aggregator."""
+        data = self._load('tools')
+        if data is None:
+            # installs from before the rename live in skills.json — adopt them
+            data = self._load('skills') or []
+            if data:
+                self._save('tools', data)
+        if self._mint_cids(data, "tool"):
+            self._save('tools', data)
         return data
 
-    def skill_owner(self, skill: Dict) -> Dict:
-        """Effective owner of an installed skill — its own, else the host."""
-        return self.identity.owner_of(skill.get("owner"))
+    def tool_owner(self, tool: Dict) -> Dict:
+        """Effective owner of an installed tool doc — its own, else the host."""
+        return self.identity.owner_of(tool.get("owner"))
 
-    def _require_skill(self, skill: Dict, key: str = None, operation: str = "modify"):
+    def _require_tool(self, tool: Dict, key: str = None, operation: str = "modify"):
         self.identity.require(
-            skill.get("owner"), key,
-            operation=f"cannot {operation} installed skill: {skill.get('name') or skill.get('id')}",
+            tool.get("owner"), key,
+            operation=f"cannot {operation} installed tool: {tool.get('name') or tool.get('id')}",
             builtin=False)
 
-    def skill_add(self, name: str, body: str, description: str = "",
-                  tags: List[str] = None, source: str = "", url: str = "",
-                  origin_id: str = "", license: str = None,
-                  id: str = None, key: str = None) -> Dict:
-        """Install (or refresh) an external skill.
+    def tool_add(self, name: str, body: str, description: str = "",
+                 tags: List[str] = None, source: str = "", url: str = "",
+                 origin_id: str = "", license: str = None,
+                 id: str = None, key: str = None) -> Dict:
+        """Install (or refresh) an external tool document.
 
-        Upserts on id, else on origin_id/url — re-installing the same skill
+        Upserts on id, else on origin_id/url — re-installing the same tool
         updates it in place instead of piling up duplicates. Installing is a
         signed-in action and the installer owns what they added; refreshing
         someone else's install is theirs (or the host's) to do.
         """
         if not name or not body:
-            raise ValueError("skill requires name and body")
-        data = self.installed_skills()
+            raise ValueError("tool document requires name and body")
+        data = self.installed_tools()
         prior = None
         if id:
             prior = next((s for s in data if s.get("id") == id), None)
@@ -396,16 +403,16 @@ class Library:
                           if (origin_id and s.get("origin_id") == origin_id)
                           or (url and s.get("url") == url)), None)
         if prior is not None:
-            self._require_skill(prior, key, "refresh")
+            self._require_tool(prior, key, "refresh")
         else:
-            self.identity.require_signed_in(key, f"install skill: {name}")
+            self.identity.require_signed_in(key, f"install tool: {name}")
         # a refresh may carry fewer fields than the original install — keep
         # the provenance (url/source/origin) rather than blanking it
         was = prior or {}
         entry = {
             "id": was.get("id") or id or f"k-{uuid.uuid4().hex[:8]}",
             "name": name, "description": description or was.get("description", ""),
-            "body": body[:self.MAX_SKILL_CHARS],
+            "body": body[:self.MAX_TOOL_CHARS],
             "tags": tags or was.get("tags") or [],
             "source": source or was.get("source") or "web",
             "url": url or was.get("url", ""),
@@ -417,37 +424,37 @@ class Library:
         owner = was.get("owner") or self.identity.addr(key)
         if owner:
             entry["owner"] = owner
-        self._mint_cids([entry], "skill")
+        self._mint_cids([entry], "tool")
         data = [s for s in data if s.get("id") != entry["id"]]
         data.append(entry)
-        self._save('skills', data)
-        return {**entry, **self.skill_owner(entry)}
+        self._save('tools', data)
+        return {**entry, **self.tool_owner(entry)}
 
-    def skill_import(self, cid: str, key: str = None) -> Dict:
-        """Install an external skill from its localfs CID."""
-        bundle = self._fetch_bundle(cid, "skill")
+    def tool_import(self, cid: str, key: str = None) -> Dict:
+        """Install an external tool document from its localfs CID."""
+        bundle = self._fetch_bundle(cid, "tool")
         if not bundle.get("name") or not bundle.get("body"):
-            raise ValueError(f"skill bundle missing name/body: {cid}")
-        return self.skill_add(bundle["name"], bundle["body"],
-                              bundle.get("description", ""), bundle.get("tags"),
-                              bundle.get("source", ""), bundle.get("url", ""),
-                              key=key)
+            raise ValueError(f"tool bundle missing name/body: {cid}")
+        return self.tool_add(bundle["name"], bundle["body"],
+                             bundle.get("description", ""), bundle.get("tags"),
+                             bundle.get("source", ""), bundle.get("url", ""),
+                             key=key)
 
-    def skill_rm(self, id: str, key: str = None) -> Dict:
-        data = self.installed_skills()
+    def tool_rm(self, id: str, key: str = None) -> Dict:
+        data = self.installed_tools()
         target = next((s for s in data if s.get("id") == id), None)
         if target is None:
-            raise KeyError(f"installed skill not found: {id}")
-        self._require_skill(target, key, "uninstall")
-        self._save('skills', [s for s in data if s.get("id") != id])
+            raise KeyError(f"installed tool not found: {id}")
+        self._require_tool(target, key, "uninstall")
+        self._save('tools', [s for s in data if s.get("id") != id])
         return {"removed": id}
 
-    def skill_docs(self, ids: List[str]) -> List[Dict]:
-        """The installed skills matching these ids (run-context injection)."""
+    def tool_docs(self, ids: List[str]) -> List[Dict]:
+        """The installed tool documents matching these ids (run context)."""
         want = set(ids or [])
-        return [s for s in self.installed_skills() if s.get("id") in want]
+        return [s for s in self.installed_tools() if s.get("id") in want]
 
-    # ── uploads (bring your own prompt / skill / note / agent) ───────
+    # ── uploads (bring your own prompt / tool / note / agent) ────────
     # One door for every collection: hand it a file's text and it lands in the
     # right one. formats.py owns the parsing and docs/uploads.md documents it.
 
@@ -472,11 +479,11 @@ class Library:
         elif k == "memory":
             saved = self.note_add(item["name"], item["body"], item["tags"],
                                   key=key)
-        elif k == "skill":
-            saved = self.skill_add(item["name"], item["body"], item["description"],
-                                   item["tags"], item["source"], item["url"],
-                                   origin_id=f"upload:{item['name']}",
-                                   license=item["license"], key=key)
+        elif k == "tool":
+            saved = self.tool_add(item["name"], item["body"], item["description"],
+                                  item["tags"], item["source"], item["url"],
+                                  origin_id=f"upload:{item['name']}",
+                                  license=item["license"], key=key)
         else:
             saved = self._upload_agent(item, key=key)
         return {"kind": k, "name": saved.get("name", item["name"]), "item": saved}
@@ -488,7 +495,7 @@ class Library:
             raise RuntimeError("agent registry unavailable — cannot install an agent here")
         name = item["name"]
         fields = dict(description=item["description"], goal=item["body"],
-                      icon=item["icon"], skills=item["skills"],
+                      icon=item["icon"], tools=item["tools"],
                       model=item["model"], harness=item["harness"], key=key)
         try:
             saved = self._agents.create(name=name, **fields)
@@ -505,7 +512,7 @@ class Library:
     def import_cid(self, cid: str, kind: str = None, key: str = None) -> Dict:
         """Install anything from its localfs CID — the bundle says what it is.
 
-        Prompts, notes and skills come back through their own importers; an
+        Prompts, notes and tool docs come back through their own importers; an
         agent CID is installed into the registry.
         """
         cid = (cid or "").strip()
@@ -524,8 +531,8 @@ class Library:
             return {"kind": "prompt", "item": self.prompt_import(cid, key=key)}
         if found == "memory":
             return {"kind": "memory", "item": self.note_import(cid, key=key)}
-        if found == "skill":
-            return {"kind": "skill", "item": self.skill_import(cid, key=key)}
+        if found in ("tool", "skill"):
+            return {"kind": "tool", "item": self.tool_import(cid, key=key)}
         if found == "agent":
             if self._agents is None:
                 raise RuntimeError("agent registry unavailable — cannot install an agent here")
@@ -637,11 +644,13 @@ class Library:
         """Aggregate all collections into one filterable list.
 
         Filters compose: q matches name/description/body text, kind is one of
-        prompt|skill|memory|agent, tag must be present in the item's tags.
+        prompt|tool|memory|agent, tag must be present in the item's tags.
         Facet counts (kinds, tags) are computed BEFORE the kind filter so the
         UI can show counts for every pill while one is selected.
         """
         items: List[Dict] = []
+        # a bookmarked ?kind=skill link predates the rename — still answer it
+        kind = "tool" if kind == "skill" else kind
 
         for p in self.prompts():
             items.append({"kind": "prompt", "id": p["id"], "name": p["name"],
@@ -651,20 +660,20 @@ class Library:
                           "builtin": p.get("builtin", False),
                           **self.prompt_owner(p)})
 
-        if self._skills:
+        if self._tools:
             try:
-                schemas = self._skills.schema()
+                schemas = self._tools.schema()
             except Exception:
                 schemas = {}
-            for sname in self._skills.ls():
+            for sname in self._tools.ls():
                 sch = schemas.get(sname, {})
-                items.append({"kind": "skill", "id": f"s-{sname}", "name": sname,
+                items.append({"kind": "tool", "id": f"s-{sname}", "name": sname,
                               "description": sch.get("description", ""),
-                              "tags": SKILL_TAGS.get(sname, ["skill"]),
+                              "tags": TOOL_TAGS.get(sname, ["tool"]),
                               "params": sch.get("params", {}), "builtin": True})
 
-        for s in self.installed_skills():
-            items.append({"kind": "skill", "id": s["id"], "name": s["name"],
+        for s in self.installed_tools():
+            items.append({"kind": "tool", "id": s["id"], "name": s["name"],
                           "description": s.get("description", ""),
                           "tags": list(dict.fromkeys(
                               ["installed", s.get("source", "web")]
@@ -674,7 +683,7 @@ class Library:
                           "license": s.get("license"),
                           "updated": s.get("updated"), "cid": s.get("cid"),
                           "external": True, "builtin": False,
-                          **self.skill_owner(s)})
+                          **self.tool_owner(s)})
 
         for n in self.notes():
             items.append({"kind": "memory", "id": n["id"], "name": n["name"],
@@ -711,7 +720,7 @@ class Library:
                               "builtin": bool(cfg.get("builtin")),
                               "owner": cfg.get("owner"),
                               "owner_source": cfg.get("owner_source"),
-                              "skills": cfg.get("skills"), "model": cfg.get("model")})
+                              "tools": cfg.get("tools"), "model": cfg.get("model")})
             try:
                 for c in self._agents.ls_cids():
                     items.append({"kind": "agent", "id": f"a-cid-{c['cid']}",
@@ -771,18 +780,18 @@ class Library:
             return self.note_import(kwargs.get("cid", ""), key=kwargs.get("key"))
         if action == "memory_rm":
             return self.note_rm(kwargs.get("id", ""), key=kwargs.get("key"))
-        if action == "installed_skills":
-            return {"skills": self.installed_skills()}
-        if action == "skill_add":
-            return self.skill_add(kwargs.get("name", ""), kwargs.get("body", ""),
+        if action == "installed_tools":
+            return {"tools": self.installed_tools()}
+        if action == "tool_add":
+            return self.tool_add(kwargs.get("name", ""), kwargs.get("body", ""),
                                   kwargs.get("description", ""), kwargs.get("tags"),
                                   kwargs.get("source", ""), kwargs.get("url", ""),
                                   kwargs.get("origin_id", ""), kwargs.get("license"),
                                   kwargs.get("id"), key=kwargs.get("key"))
-        if action == "skill_import":
-            return self.skill_import(kwargs.get("cid", ""), key=kwargs.get("key"))
-        if action == "skill_rm":
-            return self.skill_rm(kwargs.get("id", ""), key=kwargs.get("key"))
+        if action == "tool_import":
+            return self.tool_import(kwargs.get("cid", ""), key=kwargs.get("key"))
+        if action == "tool_rm":
+            return self.tool_rm(kwargs.get("id", ""), key=kwargs.get("key"))
         if action == "upload":
             return self.upload(kwargs.get("text", ""), kwargs.get("filename"),
                                kwargs.get("kind"), key=kwargs.get("key"))
@@ -838,20 +847,20 @@ class Library:
             # creating anything at all takes a sign-in once a host is known
             for make in (lambda: owned.prompt_add("anon", "text"),
                          lambda: owned.note_add("anon", "content"),
-                         lambda: owned.skill_add("anon", "# body")):
+                         lambda: owned.tool_add("anon", "# body")):
                 try:
                     make()
                     raise AssertionError("anonymous create allowed")
                 except PermissionError:
                     pass
-            # notes and installed skills own like prompts do
+            # notes and installed tool docs own like prompts do
             note = owned.note_add("mine", "content", key=other)
             assert note["owner"] == other and note["owner_source"] == "item"
-            skill = owned.skill_add("mine", "# body", origin_id="x:1", key=other)
-            assert skill["owner"] == other
+            doc = owned.tool_add("mine", "# body", origin_id="x:1", key=other)
+            assert doc["owner"] == other
             for stranger in (None, "0xccc0000000000000000000000000000000000003"):
                 for rm in (lambda: owned.note_rm(note["id"], key=stranger),
-                           lambda: owned.skill_rm(skill["id"], key=stranger),
+                           lambda: owned.tool_rm(doc["id"], key=stranger),
                            lambda: owned.note_add("hijack", "c", id=note["id"], key=stranger)):
                     try:
                         rm()
@@ -859,7 +868,7 @@ class Library:
                     except PermissionError:
                         pass
             owned.note_rm(note["id"], key=other)        # own note
-            owned.skill_rm(skill["id"], key=host)       # host removes anything
+            owned.tool_rm(doc["id"], key=host)          # host removes anything
             n = lib.note_add("k", "v", tags=["y"])
             assert lib.notes()[0]["name"] == "k"
             out = lib.items(q="k", kind="memory")
@@ -870,22 +879,22 @@ class Library:
                 lib.note_rm(imported["id"])
             lib.note_rm(n["id"])
             assert lib.notes() == []
-            # installed skills: upsert by origin, indexed as kind=skill
-            s = lib.skill_add("pdf", "# PDF\ndo pdfs", "Handle PDFs",
-                              tags=["docs"], source="github",
-                              url="https://github.com/a/b/blob/HEAD/SKILL.md",
-                              origin_id="gh:a/b")
-            again = lib.skill_add("pdf v2", "# PDF\nv2", origin_id="gh:a/b")
-            assert again["id"] == s["id"] and len(lib.installed_skills()) == 1
+            # installed tool docs: upsert by origin, indexed as kind=tool
+            s = lib.tool_add("pdf", "# PDF\ndo pdfs", "Handle PDFs",
+                             tags=["docs"], source="github",
+                             url="https://github.com/a/b/blob/HEAD/SKILL.md",
+                             origin_id="gh:a/b")
+            again = lib.tool_add("pdf v2", "# PDF\nv2", origin_id="gh:a/b")
+            assert again["id"] == s["id"] and len(lib.installed_tools()) == 1
             assert again["installed"] == s["installed"]      # install date survives
-            found = lib.items(q="pdf", kind="skill")["items"]
+            found = lib.items(q="pdf", kind="tool")["items"]
             assert any(i["id"] == s["id"] and i.get("external") for i in found)
-            assert lib.skill_docs([s["id"]])[0]["body"] == "# PDF\nv2"
+            assert lib.tool_docs([s["id"]])[0]["body"] == "# PDF\nv2"
             if again.get("cid"):
-                dup = lib.skill_import(again["cid"])
+                dup = lib.tool_import(again["cid"])
                 assert dup["id"] == s["id"]                  # same url ⇒ upsert
-            lib.skill_rm(s["id"])
-            assert lib.installed_skills() == []
+            lib.tool_rm(s["id"])
+            assert lib.installed_tools() == []
             # uploads: one door, the file says which collection it lands in
             up = lib.upload("---\nname: uploaded\ntags: [x]\n---\nbe brief",
                             "uploaded.prompt.md")

@@ -91,6 +91,11 @@
             "auth": false,
             "docs": "Full object info: stored when/by whom, backends, visibility, semhash, pinned, and who has access (grants+pools, owner-only roster)"
         },
+        "graph": {
+            "method": "GET/POST",
+            "auth": true,
+            "docs": "CID graph: GET /graph returns nodes (objects + upload time) and edges (an object's content embeds another CID); ?scope=all adds objects shared with you, ?isolated=true adds unlinked ones, CIDs not stored here come back as external nodes. POST /graph/scan re-derives the edges from content (?scope=all = every object, owner only)"
+        },
         "publish": {
             "method": "POST",
             "auth": true,
@@ -154,7 +159,7 @@
         "mcp": {
             "method": "POST",
             "auth": "optional",
-            "docs": "Model Context Protocol (Streamable HTTP, JSON-RPC 2.0) tool server for LLM agents; auth via the same Bearer protocol token. Tools: store_status, store_market_browse, store_terms (public); store_me, store_list, store_search, store_get, store_object_info, store_put_text, store_share, store_pin, store_pins, store_pools (authed)"
+            "docs": "Model Context Protocol (Streamable HTTP, JSON-RPC 2.0) tool server for LLM agents; auth via the same Bearer protocol token. Tools: store_status, store_market_browse, store_terms (public); store_me, store_list, store_search, store_get, store_object_info, store_graph, store_put_text, store_share, store_pin, store_pins, store_pools (authed)"
         }
     },
     "auth": "mod-protocol",

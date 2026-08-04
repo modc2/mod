@@ -879,6 +879,36 @@ function parseActivityTrade(t: Record<string, unknown>): PolymarketTrade | null 
   };
 }
 
+// Minimum wall-clock between two /activity syncs of the SAME trader, shared
+// by every caller in the tab. The watched traders are polled from several
+// places at once — the live engine's cycle, the console's background curve
+// refresh, the LIVE fills panel — and each used to pull its own copy, so a
+// 30s cadence in three places was three times the data-api budget. One sync
+// per trader per 30s: callers that ask sooner get the cache the last sync
+// left behind. Mirrors MIN_POLL_MINUTES here and `default_min_interval_ms`
+// in api/src/live_engine.rs.
+export const TRADER_SYNC_MIN_MS = 30_000;
+
+// addr → epoch ms of the last COMPLETED sync (success or failure; a failed
+// fetch still spent the request budget).
+const lastTraderSyncAt = new Map<string, number>();
+// addr → in-flight sync, so two callers landing in the same tick share one
+// request instead of racing two identical page walks.
+const traderSyncInFlight = new Map<string, Promise<PolymarketTrade[]>>();
+
+// Freshest series we can hand back without touching the network: whichever
+// of the caller's baseline and the trade cache carries the newer trade.
+function freshestKnownTrades(
+  address: string,
+  existing: PolymarketTrade[],
+): PolymarketTrade[] {
+  const cached = getTradeCache(address);
+  if (!cached) return existing;
+  const newestOf = (ts: PolymarketTrade[]) =>
+    ts.reduce((m, t) => (t.timestamp > m ? t.timestamp : m), 0);
+  return newestOf(cached) >= newestOf(existing) ? cached : existing;
+}
+
 // Incremental refresh — paginates /activity from the newest trade backwards
 // and stops as soon as it hits a trade we already have cached, then merges
 // the fresh window with the existing array (dedupe by tx hash). Avoids the
@@ -886,11 +916,34 @@ function parseActivityTrade(t: Record<string, unknown>): PolymarketTrade | null 
 // older trades from being silently dropped if Polymarket trims the activity
 // feed. `existing` is whatever's already in memory or trade cache; pass `[]`
 // to force a full backfill (delegates to fetchWalletTradesUntil).
+//
+// Rate-gated by TRADER_SYNC_MIN_MS — see above.
 export async function fetchWalletTradesIncremental(
   address: string,
   existing: PolymarketTrade[],
   windowUntilTsSec: number,
   maxPages = 5,
+): Promise<PolymarketTrade[]> {
+  const key = address.toLowerCase();
+  const inFlight = traderSyncInFlight.get(key);
+  if (inFlight) return inFlight;
+  const since = Date.now() - (lastTraderSyncAt.get(key) ?? 0);
+  if (since < TRADER_SYNC_MIN_MS) return freshestKnownTrades(address, existing);
+
+  const run = syncWalletTrades(address, existing, windowUntilTsSec, maxPages)
+    .finally(() => {
+      lastTraderSyncAt.set(key, Date.now());
+      traderSyncInFlight.delete(key);
+    });
+  traderSyncInFlight.set(key, run);
+  return run;
+}
+
+async function syncWalletTrades(
+  address: string,
+  existing: PolymarketTrade[],
+  windowUntilTsSec: number,
+  maxPages: number,
 ): Promise<PolymarketTrade[]> {
   if (existing.length === 0) {
     // No baseline — incremental can't do better than the full fetch.

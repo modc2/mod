@@ -410,8 +410,8 @@ export default function DocsPage() {
               <span className="text-pixel-white">propose</span> its own from any aggregation of that history.
             </p>
             <p>
-              The same class runs everywhere: the BACKTEST preview, the top-N sampling shown in the feed, and the LIVE
-              engine all construct the identical class with the identical params, so what you backtest is what trades.
+              The same class runs everywhere: the TEST preview, the top-N sampling shown in the feed, and the LIVE
+              engine all construct the identical class with the identical params, so what you test is what trades.
             </p>
           </div>
         </div>
@@ -557,7 +557,7 @@ export default function DocsPage() {
             </table>
             <div className="text-[10px] text-pixel-gray leading-relaxed">
               The ratio, the clamps and these defaults are pinned across TypeScript and Rust by
-              <span className="font-mono"> parity.fixture.json</span>, so the BACKTEST tab previews the sizes the live engine
+              <span className="font-mono"> parity.fixture.json</span>, so the TEST tab previews the sizes the live engine
               will actually place.
             </div>
           </div>

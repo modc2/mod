@@ -1,15 +1,17 @@
 'use client'
 
 // Builder — n8n-style visual agent composer.
-// Drag Prompt / Model / Skill / Memory nodes from the palette onto the canvas,
+// Drag Prompt / Model / Tool / Memory nodes from the palette onto the canvas,
 // wire them into the AGENT node, then save — the graph compiles down to the
-// backend's agent config (goal / skills / model) via POST /agents.
+// backend's agent config (goal / tools / model) via POST /agents.
+// A Tool node is any name in the registry: a built-in, a custom shell tool, or
+// a fleet module (`mod.<name>`), which the palette search fetches on demand.
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { API_URL } from '../config'
 import Select from './Select'
 
-type NodeKind = 'agent' | 'prompt' | 'model' | 'skill' | 'memory'
+type NodeKind = 'agent' | 'prompt' | 'model' | 'tool' | 'memory'
 type BNode = { id: string; kind: NodeKind; x: number; y: number; data: Record<string, any> }
 type BEdge = { id: string; from: string; to: string }
 type Viewport = { x: number; y: number; k: number }
@@ -28,7 +30,7 @@ const GRAPHS_KEY = 'agent_builder_graphs_v1'
 const KIND_META: Record<Exclude<NodeKind, 'agent'>, { label: string; icon: string; accent: string; border: string; wire: string; hint: string }> = {
   prompt: { label: 'Prompt', icon: '¶', accent: 'text-amber-300', border: 'border-amber-400/30', wire: 'rgb(var(--w-400))', hint: 'system prompt' },
   model:  { label: 'Model',  icon: '⬢', accent: 'text-sky-300',   border: 'border-sky-400/30',   wire: 'rgb(var(--i-400))', hint: 'LLM override' },
-  skill:  { label: 'Skill',  icon: '◇', accent: 'text-emerald-300', border: 'border-emerald-400/30', wire: 'rgb(var(--a-400))', hint: 'tool the agent may use' },
+  tool:   { label: 'Tool',   icon: '◇', accent: 'text-emerald-300', border: 'border-emerald-400/30', wire: 'rgb(var(--a-400))', hint: 'tool the agent may use' },
   memory: { label: 'Memory', icon: '◈', accent: 'text-violet-300', border: 'border-violet-400/30', wire: 'rgb(var(--v-400))', hint: 'note injected as context' },
 }
 
@@ -70,7 +72,10 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   // ── catalog data ──
-  const [skills, setSkills] = useState<Record<string, { description?: string }>>({})
+  const [tools, setTools] = useState<Record<string, { description?: string; kind?: string }>>({})
+  // fleet matches for the current palette search — fetched, not held: there are
+  // hundreds of modules and only the ones you look for belong in the list
+  const [fleet, setFleet] = useState<Record<string, { description?: string; kind?: string }>>({})
   const [prompts, setPrompts] = useState<LibPrompt[]>([])
   const [notes, setNotes] = useState<MemNote[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -118,14 +123,34 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   }, [])
 
   useEffect(() => {
-    fetch(`${API_URL}/skills`, { signal: AbortSignal.timeout(8000) })
-      .then(r => r.json()).then(d => setSkills(d.schemas || {})).catch(() => {})
+    // the default loadout material: shipped tools + the custom ones
+    fetch(`${API_URL}/tools`, { signal: AbortSignal.timeout(8000) })
+      .then(r => r.json())
+      .then(d => setTools(Object.fromEntries((d.tools || []).map((t: any) =>
+        [t.name, { description: t.description, kind: t.kind }]))))
+      .catch(() => {})
     fetch(`${API_URL}/library?kind=prompt`, { signal: AbortSignal.timeout(8000) })
       .then(r => r.json()).then(d => setPrompts((d.items || []).filter((i: any) => i.kind === 'prompt'))).catch(() => {})
     fetch(`${API_URL}/memory`, { signal: AbortSignal.timeout(8000) })
       .then(r => r.json()).then(d => setNotes(d.memory || [])).catch(() => {})
     fetchAgentList()
   }, [fetchAgentList])
+
+  // a palette search is a fleet search too, once typing stops
+  useEffect(() => {
+    const q = paletteSearch.trim()
+    if (q.length < 2) { setFleet({}); return }
+    const t = setTimeout(() => {
+      fetch(`${API_URL}/tools?mods=true&q=${encodeURIComponent(q)}&limit=25`,
+        { signal: AbortSignal.timeout(10000) })
+        .then(r => r.json())
+        .then(d => setFleet(Object.fromEntries((d.tools || [])
+          .filter((t: any) => t.kind === 'mod')
+          .map((t: any) => [t.name, { description: t.description, kind: 'mod' }]))))
+        .catch(() => {})
+    }, 250)
+    return () => clearTimeout(t)
+  }, [paletteSearch])
 
   // providers carry key state (configured / encrypted / unlocked) — refetch after key changes
   useEffect(() => {
@@ -213,9 +238,9 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
         ns.push({ id: mId, kind: 'model', x: 90, y: 330, data: { provider: prov, model: cfg.model } })
         es.push({ id: nid(), from: mId, to: agentId })
       }
-      ;(cfg.skills || []).forEach((s: string, i: number) => {
+      ;((cfg.tools || cfg.skills) || []).forEach((s: string, i: number) => {
         const sId = nid()
-        ns.push({ id: sId, kind: 'skill', x: 330 + (i % 2) * 40, y: 40 + i * 96, data: { name: s } })
+        ns.push({ id: sId, kind: 'tool', x: 330 + (i % 2) * 40, y: 40 + i * 96, data: { name: s } })
         es.push({ id: nid(), from: sId, to: agentId })
       })
       setNodes(ns)
@@ -253,7 +278,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
       const p = providers[0]
       data = { provider: p?.key || 'openrouter', model: p?.default_model || '' }
     }
-    if (kind === 'skill') data = { name: arg || Object.keys(skills)[0] || 'bash' }
+    if (kind === 'tool') data = { name: arg || Object.keys(tools)[0] || 'bash' }
     if (kind === 'memory') data = { noteId: arg || notes[0]?.id || '' }
     const node: BNode = { id: nid(), kind, x: wx - NODE_W / 2, y: wy - 20, data }
     setNodes(ns => [...ns, node])
@@ -379,11 +404,11 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     const srcIds = edges.filter(e => e.to === agent.id).map(e => e.from)
     const srcs = nodes.filter(n => srcIds.includes(n.id))
     const goal = srcs.filter(n => n.kind === 'prompt').map(n => String(n.data.text || '').trim()).filter(Boolean).join('\n\n')
-    const skillNames = Array.from(new Set(srcs.filter(n => n.kind === 'skill').map(n => n.data.name).filter(Boolean)))
+    const toolNames = Array.from(new Set(srcs.filter(n => n.kind === 'tool').map(n => n.data.name).filter(Boolean)))
     const model = srcs.find(n => n.kind === 'model')?.data.model || null
     const memoryIds = srcs.filter(n => n.kind === 'memory').map(n => n.data.noteId).filter(Boolean)
     const slug = slugify(agent.data.name || '')
-    return { slug, agent, goal, skillNames, model, memoryIds }
+    return { slug, agent, goal, toolNames, model, memoryIds }
   }
 
   const save = async (): Promise<string | null> => {
@@ -404,8 +429,8 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
         goal: c.goal,
         icon: c.agent!.data.icon || '>_',
         ...(existing
-          ? (c.skillNames.length ? { skills: c.skillNames } : { clear_skills: true })
-          : { skills: c.skillNames.length ? c.skillNames : null }),
+          ? (c.toolNames.length ? { tools: c.toolNames } : { clear_tools: true })
+          : { tools: c.toolNames.length ? c.toolNames : null }),
         ...(existing
           ? (c.model ? { model: c.model } : { clear_model: true })
           : { model: c.model }),
@@ -469,8 +494,11 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     return `M ${a.x} ${a.y} C ${a.x + c} ${a.y}, ${b.x - c} ${b.y}, ${b.x} ${b.y}`
   }
 
-  const filteredSkills = Object.keys(skills).filter(s =>
+  // the palette lists the default loadout; a search also asks the server for
+  // fleet modules, so any of the ~300 mods can be wired onto an agent
+  const filteredTools = Object.keys(tools).filter(s =>
     !paletteSearch.trim() || s.toLowerCase().includes(paletteSearch.trim().toLowerCase()))
+    .concat(Object.keys(fleet).filter(f => !(f in tools)))
 
   const zoomBy = (f: number) => {
     const el = canvasRef.current
@@ -501,8 +529,8 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
             <span className={`text-[9px] px-1.5 py-0.5 rounded border ${c.goal ? 'border-amber-400/30 text-amber-300/90 bg-amber-400/[0.06]' : 'border-white/10 text-gray-600'}`}>
               ¶ prompt {c.goal ? '✓' : '—'}
             </span>
-            <span className={`text-[9px] px-1.5 py-0.5 rounded border ${c.skillNames?.length ? 'border-emerald-400/30 text-emerald-300/90 bg-emerald-400/[0.06]' : 'border-white/10 text-gray-600'}`}>
-              ◇ {c.skillNames?.length ? `${c.skillNames.length} skills` : 'all skills'}
+            <span className={`text-[9px] px-1.5 py-0.5 rounded border ${c.toolNames?.length ? 'border-emerald-400/30 text-emerald-300/90 bg-emerald-400/[0.06]' : 'border-white/10 text-gray-600'}`}>
+              ◇ {c.toolNames?.length ? `${c.toolNames.length} tools` : 'every tool'}
             </span>
             <span className={`text-[9px] px-1.5 py-0.5 rounded border ${c.model ? 'border-sky-400/30 text-sky-300/90 bg-sky-400/[0.06]' : 'border-white/10 text-gray-600'}`}>
               ⬢ {c.model ? String(c.model).split('/').pop() : 'default model'}
@@ -582,16 +610,22 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
         </div>
       )
     }
-    if (n.kind === 'skill') {
+    if (n.kind === 'tool') {
       return (
         <div className="p-2.5 space-y-1" onPointerDown={e => e.stopPropagation()}>
           <Select
-            size="sm" accent="emerald" className="w-full" placeholder="pick a skill…"
+            size="sm" accent="emerald" className="w-full" placeholder="pick a tool…"
             value={n.data.name || ''}
             onChange={v => patchNode(n.id, { name: v })}
-            options={Object.keys(skills).map(s => ({ value: s, label: s, icon: '◇', hint: skills[s]?.description }))} />
+            // a node dropped from a fleet search keeps its name even though the
+            // fleet isn't in the default list — carry it into the options
+            options={Array.from(new Set([...Object.keys(tools), ...Object.keys(fleet),
+                                         ...(n.data.name ? [n.data.name] : [])]))
+              .map(s => ({ value: s, label: s, icon: '◇',
+                           hint: (tools[s] || fleet[s])?.description }))} />
           <div className="text-[10px] text-gray-600 leading-snug line-clamp-2">
-            {skills[n.data.name]?.description || ''}
+            {(tools[n.data.name] || fleet[n.data.name])?.description ||
+              (String(n.data.name || '').startsWith('mod.') ? 'fleet module' : '')}
           </div>
         </div>
       )
@@ -648,30 +682,41 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
           {paletteItem('memory', '◈', 'Memory', 'library note as context', 'text-violet-300')}
         </div>
         <div className="px-3 pt-2 pb-1.5 border-t border-white/[0.06] shrink-0 flex items-center gap-2">
-          <span className="text-[10px] text-emerald-300/80 uppercase tracking-wider font-medium">◇ Skills</span>
-          <span className="text-[9px] text-gray-700">{Object.keys(skills).length}</span>
+          <span className="text-[10px] text-emerald-300/80 uppercase tracking-wider font-medium">◇ Tools</span>
+          <span className="text-[9px] text-gray-700">{Object.keys(tools).length}</span>
+          {!!Object.keys(fleet).length && (
+            <span className="ml-auto text-[9px] text-violet-300/70">+{Object.keys(fleet).length} fleet</span>
+          )}
         </div>
         <div className="px-2 pb-1.5 shrink-0">
-          <input value={paletteSearch} onChange={e => setPaletteSearch(e.target.value)} placeholder="filter skills…"
+          <input value={paletteSearch} onChange={e => setPaletteSearch(e.target.value)}
+            placeholder="filter tools + the fleet…"
             className="w-full bg-white/[0.04] border border-white/[0.08] rounded-md px-2 py-1 text-[11px] text-gray-300 outline-none placeholder:text-gray-700 focus:border-emerald-500/40 transition" />
         </div>
         <div className="flex-1 overflow-y-auto min-h-0 px-2 pb-2 space-y-0.5">
-          {filteredSkills.map(s => (
-            <div key={s}
-              draggable
-              onDragStart={e => { e.dataTransfer.setData('text/agent-node', `skill:${s}`); e.dataTransfer.effectAllowed = 'copy' }}
-              onClick={() => {
-                const at = clickPlace()
-                addNode(`skill:${s}`, at.x, at.y)
-              }}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-transparent hover:border-emerald-500/20 hover:bg-emerald-500/[0.05] cursor-grab active:cursor-grabbing transition select-none group"
-              title={skills[s]?.description || s}
-            >
-              <span className="text-emerald-400/70 text-[11px] shrink-0">◇</span>
-              <span className="text-[11px] text-gray-400 group-hover:text-gray-200 font-mono truncate">{s}</span>
-              <span className="ml-auto text-gray-800 group-hover:text-gray-600 text-[10px] shrink-0">⠿</span>
-            </div>
-          ))}
+          {filteredTools.map(s => {
+            const meta = tools[s] || fleet[s] || {}
+            const isMod = meta.kind === 'mod'
+            return (
+              <div key={s}
+                draggable
+                onDragStart={e => { e.dataTransfer.setData('text/agent-node', `tool:${s}`); e.dataTransfer.effectAllowed = 'copy' }}
+                onClick={() => {
+                  const at = clickPlace()
+                  addNode(`tool:${s}`, at.x, at.y)
+                }}
+                className={`flex items-center gap-2 px-2 py-1.5 rounded-md border border-transparent cursor-grab active:cursor-grabbing transition select-none group ${
+                  isMod ? 'hover:border-violet-500/20 hover:bg-violet-500/[0.05]'
+                        : 'hover:border-emerald-500/20 hover:bg-emerald-500/[0.05]'
+                }`}
+                title={meta.description || s}
+              >
+                <span className={`text-[11px] shrink-0 ${isMod ? 'text-violet-400/70' : 'text-emerald-400/70'}`}>◇</span>
+                <span className="text-[11px] text-gray-400 group-hover:text-gray-200 font-mono truncate">{s}</span>
+                <span className="ml-auto text-gray-800 group-hover:text-gray-600 text-[10px] shrink-0">⠿</span>
+              </div>
+            )
+          })}
         </div>
       </div>
 

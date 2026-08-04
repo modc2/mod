@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Dict, Any, List
 
-class Skill:
+class Tool:
     description = "Find files matching a glob pattern"
 
     def forward(self, pattern: str, path: str = ".", recursive: bool = True, max_results: int = 500, **kwargs) -> Dict[str, Any]:

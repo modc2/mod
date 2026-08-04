@@ -5,7 +5,7 @@ class Agent:
     name = "Refactorer"
     description = "Code improvement and cleanup"
     icon = "⟳"
-    skills = ["read", "edit", "patch", "test", "lint", "symbols", "diff", "think"]
+    tools = ["read", "edit", "patch", "test", "lint", "symbols", "diff", "think"]
     model = None
 
     goal = """You are a refactoring specialist. You improve code structure without changing behavior.

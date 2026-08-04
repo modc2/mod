@@ -8,9 +8,14 @@ chart / change-% / volume query is served from the local store in
 microseconds — no chain round-trip, no third-party API, no key.
 
 Store: ~/.mod/bt/history.db  (override dir with BT_DATA_DIR)
-  snaps(ts, netuid, price, mcap, tao_in, volume, emission)
+  snaps(ts, netuid, price, mcap, tao_in, volume, emission,
+        block, alpha_in, alpha_out, moving_price)
   subnet_meta(netuid, name, symbol, github, url, discord, logo,
               description, registered_at, updated_ts, tempo, owner)
+
+Every snapshot carries the chain block it was read at, so `sync()` can
+answer the only question that matters for an index: how far behind head
+are we, and is anything missing.
 
 The refresher uses its OWN Bt connection (the substrate websocket is not
 thread-safe), so API calls never wait behind a snapshot.
@@ -30,7 +35,7 @@ SPARK_POINTS = 48
 
 _db_lock = threading.Lock()
 _cache_lock = threading.Lock()
-_cache: Dict[str, Any] = {'rows': None, 'ts': None}
+_cache: Dict[str, Any] = {'rows': None, 'ts': None, 'block': None}
 _thread: Optional[threading.Thread] = None
 
 
@@ -56,7 +61,17 @@ def _db() -> sqlite3.Connection:
     for col, decl in (('tempo', 'INTEGER'), ('owner', 'TEXT')):
         if col not in have:
             conn.execute(f'ALTER TABLE subnet_meta ADD COLUMN {col} {decl}')
+    have = {r[1] for r in conn.execute('PRAGMA table_info(snaps)')}
+    for col, decl in (('block', 'INTEGER'), ('alpha_in', 'REAL'),
+                      ('alpha_out', 'REAL'), ('moving_price', 'REAL')):
+        if col not in have:
+            conn.execute(f'ALTER TABLE snaps ADD COLUMN {col} {decl}')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_snaps_ts ON snaps(ts)')
     return conn
+
+
+SNAP_COLS = ('ts', 'netuid', 'price', 'mcap', 'tao_in', 'volume', 'emission',
+             'block', 'alpha_in', 'alpha_out', 'moving_price')
 
 
 def row_from_subnet(s: Dict) -> Dict:
@@ -75,6 +90,8 @@ def row_from_subnet(s: Dict) -> Dict:
         'alpha_out': s.get('alpha_out') or 0.0,
         'volume': s.get('subnet_volume') or 0.0,
         'emission': s.get('emission') or 0.0,
+        # the chain's EMA price — what emission splits are actually paid on
+        'moving_price': s.get('moving_price'),
         'registered_at': s.get('network_registered_at'),
         'tempo': s.get('tempo'),
         'owner': s.get('owner_coldkey'),
@@ -86,16 +103,19 @@ def row_from_subnet(s: Dict) -> Dict:
     }
 
 
-def record(rows: List[Dict], ts: Optional[int] = None) -> None:
+def record(rows: List[Dict], ts: Optional[int] = None,
+           block: Optional[int] = None) -> None:
     """Persist one snapshot of all subnets and refresh the warm cache."""
     ts = int(ts if ts is not None else time.time())
     with _db_lock:
         conn = _db()
         try:
             conn.executemany(
-                'INSERT OR REPLACE INTO snaps VALUES (?,?,?,?,?,?,?)',
+                f'INSERT OR REPLACE INTO snaps ({",".join(SNAP_COLS)}) '
+                f'VALUES ({",".join("?" * len(SNAP_COLS))})',
                 [(ts, r['netuid'], r['price'], r['market_cap'], r['tao_in'],
-                  r['volume'], r['emission']) for r in rows])
+                  r['volume'], r['emission'], block, r.get('alpha_in'),
+                  r.get('alpha_out'), r.get('moving_price')) for r in rows])
             conn.executemany(
                 'INSERT OR REPLACE INTO subnet_meta (netuid, name, symbol, github, '
                 'url, discord, logo, description, registered_at, updated_ts, '
@@ -110,6 +130,7 @@ def record(rows: List[Dict], ts: Optional[int] = None) -> None:
     with _cache_lock:
         _cache['rows'] = rows
         _cache['ts'] = ts
+        _cache['block'] = block
 
 
 def _load_last_snapshot() -> None:
@@ -124,18 +145,21 @@ def _load_last_snapshot() -> None:
                 '''SELECT s.netuid, m.name, m.symbol, s.price, s.mcap, s.tao_in,
                           s.volume, s.emission, m.github, m.url, m.discord,
                           m.logo, m.description, m.registered_at, m.tempo,
-                          m.owner
+                          m.owner, s.alpha_in, s.alpha_out, s.moving_price,
+                          s.block
                    FROM snaps s LEFT JOIN subnet_meta m ON m.netuid = s.netuid
                    WHERE s.ts = ?''', (last,)).fetchall()
         finally:
             conn.close()
     cols = ('netuid', 'name', 'symbol', 'price', 'market_cap', 'tao_in',
             'volume', 'emission', 'github', 'url', 'discord', 'logo',
-            'description', 'registered_at', 'tempo', 'owner')
+            'description', 'registered_at', 'tempo', 'owner', 'alpha_in',
+            'alpha_out', 'moving_price', 'block')
     with _cache_lock:
         if _cache['rows'] is None:
             _cache['rows'] = [dict(zip(cols, r)) for r in rows]
             _cache['ts'] = last
+            _cache['block'] = rows[0][-1] if rows else None
 
 
 def _prices_at(ago_sec: int, now: int, tolerance: float = 0.5) -> Dict[int, float]:
@@ -186,11 +210,11 @@ def screener(sort_by: str = 'market_cap', limit: int = 0,
              search: Optional[str] = None, sparks: bool = True) -> Dict:
     """The instant market table: cached rows + change % + 24h volume + sparklines."""
     with _cache_lock:
-        rows, ts = _cache['rows'], _cache['ts']
+        rows, ts, block = _cache['rows'], _cache['ts'], _cache['block']
     if rows is None:
         _load_last_snapshot()
         with _cache_lock:
-            rows, ts = _cache['rows'], _cache['ts']
+            rows, ts, block = _cache['rows'], _cache['ts'], _cache['block']
     if rows is None:
         return {'warming': True, 'updated_at': None, 'rows': [],
                 'note': 'first chain snapshot in progress — retry in ~1 min'}
@@ -219,7 +243,8 @@ def screener(sort_by: str = 'market_cap', limit: int = 0,
         out.sort(key=lambda r: r.get(sort_by) or 0.0, reverse=True)
     if limit:
         out = out[:limit]
-    return {'updated_at': ts, 'age_sec': now - ts, 'count': len(out), 'rows': out}
+    return {'updated_at': ts, 'age_sec': now - ts, 'block': block,
+            'count': len(out), 'rows': out}
 
 
 def _volumes_at(ago_sec: int, now: int) -> Dict[int, float]:
@@ -267,11 +292,106 @@ def stats() -> Dict:
         'total_tao_in_pools': sum(r['tao_in'] for r in rows),
         'volume_24h_tao': sum(vol) if vol else None,
         'updated_at': scr.get('updated_at'),
+        'block': scr.get('block'),
         'warming': scr.get('warming', False),
     }
 
 
+# ------------------------------------------------------------- sync state
+
+BLOCK_SEC = 12.0   # finney target block time — lets the index state its
+                   # lag in blocks even when the tip is unreachable
+
+
+def sync(head: bool = True, gap_factor: float = 2.0) -> Dict:
+    """Where the subnet index stands: block, lag, cadence, coverage.
+
+    `head=True` costs one chain read for the tip; everything else is
+    answered from SQLite.
+    """
+    now = int(time.time())
+    with _db_lock:
+        conn = _db()
+        try:
+            last_ts, first_ts, rows_n, snaps_n = conn.execute(
+                'SELECT MAX(ts), MIN(ts), COUNT(*), COUNT(DISTINCT ts) '
+                'FROM snaps').fetchone()
+            if last_ts is None:
+                return {'warming': True, 'block': None, 'snapshots': 0,
+                        'note': 'no snapshot yet'}
+            block, subnets_now = conn.execute(
+                'SELECT MAX(block), COUNT(*) FROM snaps WHERE ts = ?',
+                (last_ts,)).fetchone()
+            first_block_ts = conn.execute(
+                'SELECT MIN(ts) FROM snaps WHERE block IS NOT NULL').fetchone()[0]
+            known = conn.execute('SELECT COUNT(*) FROM subnet_meta').fetchone()[0]
+            # a netuid the index has seen but that is missing from the newest
+            # snapshot is either deregistered or a dropped read — name it
+            missing = [r[0] for r in conn.execute(
+                'SELECT DISTINCT netuid FROM snaps WHERE netuid NOT IN '
+                '(SELECT netuid FROM snaps WHERE ts = ?)', (last_ts,))]
+            tss = [r[0] for r in conn.execute(
+                'SELECT DISTINCT ts FROM snaps ORDER BY ts')]
+        finally:
+            conn.close()
+
+    deltas = sorted(tss[i + 1] - tss[i] for i in range(len(tss) - 1))
+    median = deltas[len(deltas) // 2] if deltas else None
+    limit = (median or REFRESH_SEC) * gap_factor
+    gaps = [{'after_ts': tss[i], 'gap_sec': tss[i + 1] - tss[i]}
+            for i in range(len(tss) - 1) if tss[i + 1] - tss[i] > limit]
+    missed = sum(int(g['gap_sec'] / (median or REFRESH_SEC)) - 1 for g in gaps)
+
+    age = now - last_ts
+    tip = head_block() if head else None
+    out = {
+        'block': block,
+        'block_ts': last_ts,
+        'age_sec': age,
+        'head_block': tip,
+        'blocks_behind': (tip - block) if (tip and block)
+                         else int(age / BLOCK_SEC),
+        'blocks_behind_exact': bool(tip and block),
+        'network': os.environ.get('BT_NETWORK', 'finney'),
+        'refresh_sec': REFRESH_SEC,
+        'healthy': age < 3 * REFRESH_SEC,
+        'subnets': {
+            'in_last_snapshot': subnets_now,
+            'ever_seen': known,
+            'missing_now': missing,
+            'complete': not missing,
+        },
+        'snapshots': {
+            'count': snaps_n,
+            'rows': rows_n,
+            'first_ts': first_ts,
+            'last_ts': last_ts,
+            'span_hours': round((last_ts - first_ts) / 3600, 1),
+            'median_interval_sec': median,
+            'blocks_stamped_since': first_block_ts,
+            'gaps': gaps[-10:],
+            'gap_count': len(gaps),
+            'missed_snapshots': max(missed, 0),
+        },
+    }
+    if block is None:
+        out['note'] = ('this snapshot predates block stamping — the block '
+                       'lands on the next refresh')
+    return out
+
+
 # ------------------------------------------------------------- refresher
+
+def head_block(bt=None) -> Optional[int]:
+    """Current finalized block, or None if the chain is unreachable."""
+    try:
+        if bt is None:
+            from .tools import get_bt
+            bt = get_bt()
+        return int(bt.subtensor.block)
+    except Exception:
+        return None
+
 
 def refresh_once(bt=None) -> int:
     """One snapshot: pull all subnets from chain, normalize, persist."""
@@ -279,10 +399,11 @@ def refresh_once(bt=None) -> int:
         from .bt import Bt
         from .tools import DEFAULT_NETWORK
         bt = Bt(network=DEFAULT_NETWORK)
+    block = head_block(bt)
     subs = bt.subnets(n=10000)
     rows = [row_from_subnet(s) for s in subs]
     if rows:
-        record(rows)
+        record(rows, block=block)
     return len(rows)
 
 
@@ -295,7 +416,9 @@ def _loop() -> None:
                 from .tools import DEFAULT_NETWORK
                 bt = Bt(network=DEFAULT_NETWORK)
             n = refresh_once(bt)
-            print(f'[bt.history] snapshot: {n} subnets', flush=True)
+            with _cache_lock:
+                blk = _cache['block']
+            print(f'[bt.history] snapshot: {n} subnets @ block {blk}', flush=True)
         except Exception as e:
             print(f'[bt.history] snapshot failed: {type(e).__name__}: {e}', flush=True)
             bt = None  # reconnect next round

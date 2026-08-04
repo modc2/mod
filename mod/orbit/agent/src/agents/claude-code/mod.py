@@ -5,7 +5,7 @@ class Agent:
     name = "Claude Code"
     description = "Anthropic's Claude Code CLI — its own tools, sandbox and models"
     icon = "⬡"
-    skills = None
+    tools = None
     model = None
     # not a persona over our loop: the whole run goes to the `claude` binary
     harness = "claude"

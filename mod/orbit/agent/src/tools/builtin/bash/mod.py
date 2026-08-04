@@ -3,7 +3,7 @@ import subprocess
 import os
 from typing import Dict, Any, Optional
 
-class Skill:
+class Tool:
     description = "Run shell commands and return output"
 
     def forward(self, command: str, cwd: str = None, timeout: int = 30, **kwargs) -> Dict[str, Any]:

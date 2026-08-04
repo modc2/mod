@@ -40,6 +40,14 @@ console — Hub / Interact / Contracts / Control / Protocol / Owner / Docs).
   the server. Starter templates (`Counter`, `Token`, `NFT`, `Vault`,
   `Splitter`) live in `src/build/templates/`; drafts and recorded builds go to
   `~/.mod/chain/build/{drafts,deployments}.json`, keyed by deployer address.
+- **Project gallery**: upload a project off your machine, or publish one you
+  built so anybody can fork it (`~/.mod/chain/build/shared.json`, keyed
+  `<author>/<name>`). BlocTime ships in the gallery read-only — fork it and its
+  13 tests run as-is.
+- **Owner-only host readout**: per-core CPU, memory, swap, disk, per-interface
+  network traffic, socket census and the top processes of the machine the API
+  runs on. Gated by a wallet signature from an address in
+  `~/.mod/chain/owners.json`; the console renders nothing for anyone else.
 - **Wallets in the web console**: MetaMask (auto chain-switch/add on send) or a
   browser-local ethers keypair (import/export private key); reads are
   wallet-free via RPC.
@@ -114,8 +122,12 @@ curl -X POST localhost:8800/call -H 'Content-Type: application/json' \
 | GET | `/control/status` — POST `/control/verify` · `/control/deploy-script` | Toolchain, verification, scripts |
 | POST | `/build/compile` | `{source, filename?, optimize?, runs?}` → deployable `{name, abi, bytecode, size, constructor}` + errors/warnings |
 | GET | `/build/templates` | Starter contracts |
+| GET/POST/DELETE | `/build/projects` — GET `/build/projects/{name}` | Per-address projects (a named bag of files) |
+| GET/POST/DELETE | `/build/shared` — GET `/build/shared/{id}` | Shared project gallery; publish yours, fork anyone's. Ships `fleet/bloctime` read-only |
 | GET/POST/DELETE | `/build/drafts` | Per-address source drafts |
 | GET/POST | `/build/deployments` | Per-address record of wallet-signed builds |
+| GET | `/system/access` · `/system/challenge` — POST `/system/login` | Owner sign-in for the host readout (wallet signature → 12h Bearer token) |
+| GET | `/system/stats` | **Owner-only.** CPU per core, memory, disk, network traffic per interface, sockets, top processes |
 
 ## Environment
 
@@ -133,5 +145,11 @@ Used by `hardhat.config.js` / deploy tooling (all optional; sane defaults):
 - `src/app/` — Next.js console; `src/app/start.sh` (`DEV=0` → build + start)
 - `src/contracts/<module>/` — Solidity sources, one README per module
 - `src/build/compile.js` + `src/build/templates/` — contract builder toolchain
+- `src/build/shared/` — fixtures the shipped gallery entries need (BlocTime's
+  staking `Token.sol`), kept out of the compiled contracts tree
+- `src/api/host.py` — /proc reader behind `/system/stats` (stdlib only)
 - `~/.mod/chain/build/` — builder drafts + recorded user deployments (off-tree)
+- `~/.mod/chain/owners.json` — who may read the host (0600, seeded from the
+  non-local deployers; `CHAIN_OWNERS=0x…,0x…` overrides it)
+- `~/.mod/chain/server.secret` — HMAC key for host-access tokens (0600)
 - `scripts/deploy-defi.js`, `hardhat.config.js` — hardhat tooling

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 
-class Skill:
+class Tool:
     description = "Run linters, formatters, and type checkers. Auto-detects tools. Supports ruff, eslint, prettier, mypy, tsc, and more."
 
     TOOLS = {

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 
-class Skill:
+class Tool:
     description = "Analyze stack traces, error messages, and logs. Extracts file locations, error types, and suggests fixes."
 
     def forward(self, error: str = None, log_file: str = None,

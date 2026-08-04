@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 
 import pytest
 import mod as m
@@ -17,8 +18,10 @@ def g(tmp_path, monkeypatch):
     inst.oauth_path = str(tmp_path / 'oauth.json')
     inst.pending_path = str(tmp_path / 'pending.json')
     inst.access_path = str(tmp_path / 'access.json')
+    inst.owner_path = str(tmp_path / 'owner.json')
+    inst.host_owner_path = str(tmp_path / 'host_owner.json')
     inst.clones = str(tmp_path / 'repos')
-    for var in ('GIT_ACCESS_OPEN', 'GITHUB_TOKEN', 'GH_TOKEN',
+    for var in ('GIT_ACCESS_OPEN', 'GIT_OWNER', 'MOD_OWNER', 'GITHUB_TOKEN', 'GH_TOKEN',
                 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'):
         monkeypatch.delenv(var, raising=False)
     return inst
@@ -172,6 +175,26 @@ def test_push_commits_then_pushes(g, dirty, tmp_path):
     assert again['committed'] is False and again['pushed'] and len(g._agent_mod.prompts) == 1
 
 
+def test_refused_push_names_the_missing_piece(g, dirty, gh_user):
+    """A push GitHub refuses says what to fix, not what git printed."""
+    refusal = ("fatal: could not read Username for 'https://github.com': "
+               'terminal prompts disabled')
+    subprocess.run(['git', 'remote', 'add', 'origin', 'https://github.com/o/r.git'],
+                   cwd=dirty, capture_output=True, check=True)
+    assert 'no GitHub account connected' in g._push_hint(dirty, None, None, refusal)
+    # connected, but that account can't write here — a different fix
+    g.connect('ghp_x', address='0xA')
+    assert 'reconnect' in g._push_hint(dirty, '0xA', None, refusal)
+    # and anything that isn't an auth refusal gets no hint at all
+    assert g._push_hint(dirty, None, None, 'error: failed to push some refs') is None
+
+
+def test_network_git_never_waits_on_a_prompt(g):
+    """Headless under pm2 there is nobody to type a password."""
+    assert g.GIT_ENV['GIT_TERMINAL_PROMPT'] == '0'
+    assert 'BatchMode=yes' in g.GIT_ENV['GIT_SSH_COMMAND']
+
+
 def test_push_output_never_leaks_the_token(g):
     assert g._scrub('To https://x-access-token:ghp_secret@github.com/o/r.git') == \
         'To https://***@github.com/o/r.git'
@@ -197,6 +220,54 @@ def test_acl_roles_and_authorize(g):
         g.grant('0xabc', role='god')
     g.revoke('0xabc')
     assert g._role_of('0xabc') is None
+
+
+def wallet_token(acct, data=None):
+    """What the app's "sign in with wallet" mints: base64url of
+    {data,time,key,signature} over the compact {"data":…,"time":…}."""
+    import base64
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+    body = {'data': data or {'mod': 'git'}, 'time': str(time.time())}
+    sig = Account.sign_message(
+        encode_defunct(text=json.dumps(body, separators=(',', ':'))),
+        private_key=acct.key).signature.hex()
+    tok = dict(body, key=acct.address.lower(),
+               signature=sig if sig.startswith('0x') else '0x' + sig)
+    return base64.urlsafe_b64encode(
+        json.dumps(tok, separators=(',', ':')).encode()).rstrip(b'=').decode()
+
+
+def test_host_owner_can_commit_without_a_grant(g):
+    from eth_account import Account
+    host, stranger = Account.create(), Account.create()
+    # the box records its owner the way every module does; checksummed there,
+    # lowercase from the wallet — the ACL must not care
+    json.dump({'owner': host.address}, open(g.host_owner_path, 'w'))
+    assert g.access()['host_owner'] == host.address
+    assert g._role_of(host.address.lower()) == 'owner'
+    who = g._authorize({'Authorization': f'Bearer {wallet_token(host)}'}, need='write')
+    assert who['role'] == 'owner' and who['address'] == host.address.lower()
+    # …and the gate still holds for everyone else
+    with pytest.raises(PermissionError):
+        g._authorize({'Authorization': f'Bearer {wallet_token(stranger)}'}, need='write')
+
+
+def test_host_owner_sources_in_order(g, monkeypatch):
+    from eth_account import Account
+    a, b, c = (Account.create().address for _ in range(3))
+    assert g._host_owner() is None                      # nothing pinned anywhere
+    json.dump({'owner': a}, open(g.host_owner_path, 'w'))
+    assert g._host_owner() == a                         # the host's owner of record
+    g.set_owner(b, host=True)
+    assert g._host_owner() == b                         # git's own file wins
+    monkeypatch.setenv('GIT_OWNER', c)
+    assert g._host_owner() == c                         # …and the env wins over both
+
+
+def test_grants_are_case_insensitive(g):
+    g.grant('0xAbCdEf0000000000000000000000000000000001', role='write')
+    assert g._role_of('0xabcdef0000000000000000000000000000000001') == 'write'
 
 
 def test_write_rank(g):

@@ -16,7 +16,10 @@ every address keeps its own GitHub connection, stored off-chain in
 ~/.mod/git/github.json (0600), and clones/pushes run as whoever is signed in.
 Write endpoints are gated by the shared auth module (m.mod('auth') signed
 tokens): the owner can grant/revoke write or admin access per address, all
-managed from the app's ACCESS tab or the CLI.
+managed from the app's ACCESS tab or the CLI. Whoever owns the mod host (the
+box's owner of record, ~/.mod/git/owner.json or the host console's) is an owner
+here too — sign in on the ACCESS tab with that wallet and you can commit and
+push your own changes without granting yourself anything.
 
 Mod protocol: null call returns info; the app + JSON API share one port
 (50330) and tolerate the gateway prefix, so caddy routes /{git} (app) and
@@ -57,6 +60,8 @@ GITHUB = '~/.mod/git/github.json'       # github accounts per key (secret, 0600)
 OAUTH = '~/.mod/git/oauth.json'         # github oauth app creds (secret, 0600)
 PENDING = '~/.mod/git/oauth_pending.json'   # in-flight oauth handshakes (0600)
 ACCESS = '~/.mod/git/access.json'       # owner + per-address grants
+OWNER = '~/.mod/git/owner.json'         # who owns this box, if it is pinned for git
+HOST_OWNER = '~/.mod/claude/owner.json'  # …else the host's owner of record
 CLONES = '~/.mod/git/repos'             # where tracked github repos get cloned
 GH_RE = re.compile(r'(?:https?://github\.com/|git@github\.com:)?([\w.-]+)/([\w.-]+?)(?:\.git)?/?$')
 MAX_DIFF = 200_000                      # chars of diff returned per request
@@ -79,13 +84,22 @@ class Mod:
         self.oauth_path = m.abspath(OAUTH)
         self.pending_path = m.abspath(PENDING)
         self.access_path = m.abspath(ACCESS)
+        self.owner_path = m.abspath(OWNER)
+        self.host_owner_path = m.abspath(HOST_OWNER)
         self.clones = m.abspath(CLONES)
         self._path = m.abspath(path) if path else None
 
     # --- plumbing -----------------------------------------------------------
 
+    # never let a network git block on a prompt — this runs headless under pm2,
+    # so an unauthenticated push must fail in a second, not hang for `timeout`
+    GIT_ENV = {'GIT_TERMINAL_PROMPT': '0', 'GIT_ASKPASS': '', 'SSH_ASKPASS': '',
+               'GCM_INTERACTIVE': 'never',
+               'GIT_SSH_COMMAND': 'ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new'}
+
     def _run(self, args, cwd, timeout=60, check=True, full=False):
-        r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout,
+                           env={**os.environ, **self.GIT_ENV})
         if check and r.returncode != 0:
             raise RuntimeError(self._scrub((r.stderr or r.stdout or f'{args[0]} failed').strip())[:500])
         return r if full else r.stdout
@@ -321,7 +335,33 @@ class Mod:
                       timeout=300, check=False, full=True)
         out['push'] = self._scrub((r.stdout + r.stderr).strip())
         out['pushed'] = r.returncode == 0
+        if not out['pushed']:
+            hint = self._push_hint(path, address, login, out['push'])
+            if hint:
+                out['hint'] = hint
         return out
+
+    # git's own wording for "you are not allowed to push here"
+    AUTH_FAIL = ('authentication failed', 'could not read username', 'no anonymous write',
+                 'permission denied', 'terminal prompts disabled', 'invalid username or password',
+                 'repository not found')
+
+    def _push_hint(self, path, address, login, err: str) -> str:
+        """Turn git's auth refusal into the one thing the caller has to do."""
+        if not any(s in (err or '').lower() for s in self.AUTH_FAIL):
+            return None
+        url = self._run(['git', 'remote', 'get-url', 'origin'], cwd=path, check=False).strip()
+        if not url:
+            return 'this repo has no origin remote — nothing to push to'
+        if not url.startswith('https://'):
+            return (f'origin is {url} — pushes over ssh use this box\'s ssh key, not your '
+                    'GitHub connection; add the key to github.com/settings/keys')
+        if self._github_token(address, login):
+            return (f'{self._rec(address, login).get("login")} was refused — that account may '
+                    'lack write access to this repo, or its token expired (reconnect it on the '
+                    'GITHUB tab)')
+        return (f'no GitHub account connected to {self._key(address)} — connect one on the '
+                'GITHUB tab (or `m git/connect <github_pat>`); GitHub refuses anonymous writes')
 
     # --- agent-written commits ----------------------------------------------
 
@@ -926,17 +966,35 @@ diff:
         acl.setdefault('grants', {})
         return acl
 
+    def _host_owner(self):
+        """Whoever owns the mod host this runs on — an owner here, no grant
+        needed, so the person who owns the box can commit their own changes
+        from the app by signing in with that wallet. Every module records the
+        host's owner the same way (~/.mod/<mod>/owner.json), so git reads its
+        own file if the box pins one and the host console's otherwise — one
+        owner of record per box. $GIT_OWNER overrides both."""
+        env = os.environ.get('GIT_OWNER') or os.environ.get('MOD_OWNER')
+        if env:
+            return env.strip()
+        for path in (self.owner_path, self.host_owner_path):
+            rec = m.get(path, {}) or {}
+            if rec.get('owner'):
+                return str(rec['owner'])
+        return None
+
     def access(self) -> dict:
-        """Who can do what: the owner plus every granted address/role. Reads
-        are open; write ops need role write+, github/access management needs
-        admin+ (the owner is always admin)."""
+        """Who can do what: the owner (plus the mod host's owner) and every
+        granted address/role. Reads are open; write ops need role write+,
+        github/access management needs admin+ (owners are always admin)."""
         acl = self._acl()
-        return {'owner': acl['owner'], 'grants': acl['grants'],
+        host = self._host_owner()
+        return {'owner': acl['owner'], 'host_owner': host, 'grants': acl['grants'],
                 'roles': {'write': ['track', 'untrack', 'pull', 'commit', 'push',
                                     'agent-written messages',
                                     'connect/disconnect your own GitHub'],
                           'admin': ['grant', 'revoke', 'oauth app', "another key's GitHub"]},
-                'auth': "signed token from m.mod('auth') — mint one with `m git/token`",
+                'auth': "signed token from m.mod('auth') — mint one with `m git/token`, "
+                        'or sign in with the wallet that owns this host',
                 'open': bool(os.environ.get('GIT_ACCESS_OPEN'))}
 
     def grant(self, address: str, role: str = 'write') -> dict:
@@ -954,9 +1012,13 @@ diff:
         m.put(self.access_path, acl)
         return self.access()
 
-    def set_owner(self, address: str) -> dict:
+    def set_owner(self, address: str, host: bool = False) -> dict:
         """Hand the module to another address (CLI/local only — not exposed
-        over the HTTP API)."""
+        over the HTTP API). host=True instead pins the mod host's owner for
+        git (~/.mod/git/owner.json), which is an owner here alongside it."""
+        if host:
+            m.put(self.owner_path, {'owner': str(address)})
+            return self.access()
         acl = self._acl()
         acl['owner'] = str(address)
         m.put(self.access_path, acl)
@@ -964,15 +1026,25 @@ diff:
 
     def token(self, data: dict = None) -> str:
         """Mint a signed auth token for this box's key — paste it into the app
-        (ACCESS tab) or send it as `Authorization: Bearer <token>`."""
+        (ACCESS tab) or send it as `Authorization: Bearer <token>`. A wallet
+        signs its own instead: base64url of {data, time, key, signature} where
+        signature is a personal_sign over the compact {"data":…,"time":…} (what
+        the app's "sign in with wallet" does)."""
         with contextlib.redirect_stdout(io.StringIO()):
             return m.mod('auth')().token(data or {'mod': 'git'})
 
     def _role_of(self, address: str):
+        """Role for an address — the module's owner and the host's owner both
+        rank as owner. Compared case-insensitively: wallets sign in lowercase
+        while owner records are checksummed."""
+        who = str(address or '').lower()
+        if not who:
+            return None
         acl = self._acl()
-        if address == acl['owner']:
+        if who in {str(a or '').lower() for a in (acl['owner'], self._host_owner())}:
             return 'owner'
-        return (acl['grants'].get(address) or {}).get('role')
+        return next((g.get('role') for a, g in acl['grants'].items()
+                     if str(a).lower() == who), None)
 
     def _authorize(self, headers, need: str = 'write') -> dict:
         """Verify a Bearer token (shared auth module) and enforce the ACL.
@@ -1066,6 +1138,7 @@ diff:
             'agent': {'mod': AGENT_MOD, 'writes': 'commit messages from the diff',
                       'loaded': getattr(self, '_agent_mod', None) is not None},
             'owner': acl['owner'],
+            'host_owner': self._host_owner(),
             'grants': len(acl['grants']),
             'port': APP_PORT,
             'url': f'http://localhost:{APP_PORT}',
@@ -1361,6 +1434,7 @@ INDEX_HTML = r"""<!doctype html>
     --line2:#2d3648; --text:#e9edf4; --muted:#8a93a6; --faint:#59637a;
     --accent:#f0883e; --accent2:#ffab70; --green:#3fb950; --red:#f85149; --blue:#58a6ff;
     --r:12px; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --hh:100px;   /* header height — measured at runtime, the sidebar hangs off it */
   }
   *{box-sizing:border-box}
   body{margin:0;color:var(--text);background:
@@ -1397,7 +1471,7 @@ INDEX_HTML = r"""<!doctype html>
   main{flex:1;min-width:0;max-width:1060px;margin:0 auto;padding:20px 20px 80px}
   /* commit sidebar — toggled from the header, remembered across reloads */
   aside{flex:0 0 288px;width:288px;border-right:1px solid var(--line);padding:14px 10px 60px;
-    position:sticky;top:100px;max-height:calc(100vh - 108px);overflow:auto}
+    position:sticky;top:var(--hh);max-height:calc(100vh - var(--hh) - 8px);overflow:auto}
   body.noside aside{display:none}
   aside h3{margin:0 0 8px;padding:0 6px;font-size:11px;letter-spacing:.6px;color:var(--muted);
     text-transform:uppercase;display:flex;gap:8px;align-items:center}
@@ -1415,8 +1489,12 @@ INDEX_HTML = r"""<!doctype html>
     background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:10px 14px;
     font-size:13px;white-space:pre-wrap;box-shadow:0 10px 34px rgba(0,0,0,.55)}
   #toast.err{border-color:var(--red);color:var(--red)}
-  @media(max-width:820px){aside{position:fixed;z-index:9;background:var(--bg2);height:100vh;top:0;
-    max-height:none;box-shadow:0 0 40px rgba(0,0,0,.6)}}
+  /* narrow: the sidebar becomes a drawer over the content, below the header, with a scrim */
+  #scrim{display:none;position:fixed;inset:0;z-index:8;background:rgba(0,0,0,.55)}
+  @media(max-width:820px){
+    aside{position:fixed;left:0;top:var(--hh);height:calc(100vh - var(--hh));z-index:9;
+      background:var(--bg2);max-height:none;box-shadow:0 0 40px rgba(0,0,0,.6)}
+    body:not(.noside) #scrim{display:block}}
   .view{display:none}.view.on{display:block;animation:fade .2s ease}
   @keyframes fade{from{opacity:0;transform:translateY(3px)}to{opacity:1}}
   .card{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);
@@ -1477,6 +1555,7 @@ INDEX_HTML = r"""<!doctype html>
   </div>
   <div class="row" id="repopills" style="margin-top:10px"></div>
 </header>
+<div id="scrim" onclick="toggleSide()"></div>
 <div class="wrap">
 <aside id="side"></aside>
 <main>
@@ -1493,10 +1572,16 @@ const $=s=>document.querySelector(s);
 const BASE=location.pathname.replace(/\/+$/,'').replace(/\/index\.html$/,'');
 const api=p=>BASE+p;
 const TABS=['changes','repos','github','access'];
-let VIEW='changes', REPO=null, REPOS={}, TOKEN='', ME=null;
+let VIEW='changes', REPO=null, REPOS={}, TOKEN='', ME=null, WALLET='';
 let SHA=null, SIDE_N=30, SIDE=true;     // selected commit, how many to list, sidebar open
-try{ TOKEN=localStorage.getItem('git.token')||''; SIDE=localStorage.getItem('git.side')!=='0'; }catch(e){}
+const narrow=()=>matchMedia('(max-width:820px)').matches;
+// on a phone the sidebar is a drawer over the content — start it closed unless asked for
+try{ TOKEN=localStorage.getItem('git.token')||''; WALLET=localStorage.getItem('git.wallet')||'';
+     SIDE=narrow()?localStorage.getItem('git.side')==='1':localStorage.getItem('git.side')!=='0'; }catch(e){}
 document.body.classList.toggle('noside',!SIDE);
+// the header wraps at narrow widths — measure it so the sidebar always hangs off its real bottom
+function fitHeader(){document.documentElement.style.setProperty('--hh',$('header').offsetHeight+'px')}
+addEventListener('resize',fitHeader);fitHeader();
 
 function esc(s){return (''+(s??'')).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function ago(d){if(!d)return'';const s=(Date.now()-new Date(d))/1e3;
@@ -1519,12 +1604,13 @@ function toggleSide(){SIDE=!SIDE;document.body.classList.toggle('noside',!SIDE);
   $('#sidebtn').classList.toggle('active',SIDE);
   try{localStorage.setItem('git.side',SIDE?'1':'0');}catch(e){}
   if(SIDE)loadSide();}
-let LOG=[], WORK=null;
+let LOG=[], WORK=null, LOADING=false;
 async function loadSide(){
   if(!SIDE)return;
+  LOADING=true;paintSide();       // git log --shortstat takes seconds on a big repo
   try{LOG=await GET('/api/commits?n='+SIDE_N+'&repo='+encodeURIComponent(REPO||''));}
-  catch(e){LOG=[];$('#side').innerHTML=`<div class="err">${esc(e.message)}</div>`;return}
-  paintSide();}
+  catch(e){LOG=[];LOADING=false;$('#side').innerHTML=`<div class="err">${esc(e.message)}</div>`;return}
+  LOADING=false;paintSide();}
 function paintSide(){
   const w=WORK;
   $('#side').innerHTML=`<h3>commits <span class="sub">${esc(REPO||'')}</span><span class="grow"></span>
@@ -1537,8 +1623,8 @@ function paintSide(){
       <div class="msg">${esc(c.message)}</div>
       <div class="meta"><span class="sha">${esc(c.hash)}</span><span>${esc(c.author)}</span><span>${ago(c.date)}</span>
         <span class="add">+${c.additions}</span><span class="del">−${c.deletions}</span></div></div>`).join('')
-      ||'<div class="sub" style="padding:8px">no commits</div>'}`;}
-function openCommit(sha){SHA=sha;setView('commit');}
+      ||`<div class="sub" style="padding:8px">${LOADING?'reading the log…':'no commits'}</div>`}`;}
+function openCommit(sha){SHA=sha;if(narrow()&&SIDE)toggleSide();setView('commit');}
 
 async function loadPills(){
   try{REPOS=await GET('/api/repos');}catch(e){REPOS={};}
@@ -1546,7 +1632,8 @@ async function loadPills(){
   if(!REPO||!names.includes(REPO))REPO=names.includes('mod')?'mod':names[0];
   $('#repopills').innerHTML=names.map(n=>{const r=REPOS[n];
     return `<span class="pill ${REPO===n?'active':''} ${r.changes?'dirty':''}" onclick="pickRepo('${n}')">
-      ${esc(n)} <span class="n">${r.error?'!':(r.changes??'?')}</span></span>`}).join('');}
+      ${esc(n)} <span class="n">${r.error?'!':(r.changes??'?')}</span></span>`}).join('');
+  fitHeader();}   // the pills row just changed the header's height
 function pickRepo(n){REPO=n;SHA=null;loadPills();loadSide();load(VIEW==='commit'?'changes':VIEW);
   if(VIEW==='commit')setView('changes');}
 
@@ -1677,11 +1764,16 @@ async function load(v){
           <div class="row">
             ${o.web_flow?`<button class="btn primary" ${signedIn?'':'disabled'} onclick="ghWeb()">Connect with GitHub</button>`:''}
             ${o.device_flow?`<button class="btn ${o.web_flow?'':'primary'}" ${signedIn?'':'disabled'} onclick="ghDevice()">${o.web_flow?'use a device code':'Connect with GitHub (device code)'}</button>`:''}
-            <button class="btn" onclick="$('#patrow').style.display='flex'">use a token instead</button>
+            <button class="btn" onclick="$('#patrow').style.display='flex';$('#pathint').style.display='block'">use a token instead</button>
           </div>
           <div class="row" id="patrow" style="display:none;margin-top:10px">
             <input id="pat" type="password" placeholder="ghp_… / github_pat_…" style="flex:1;min-width:260px"/>
             <button class="btn" onclick="ghConnect()">attach token</button></div>
+          <div class="sub" id="pathint" style="display:none;margin-top:6px">don't have one? make a
+            <a href="https://github.com/settings/tokens/new?scopes=repo,read:org&description=mod%20git" target="_blank">classic token</a>
+            (scopes <span class="mono">repo</span>, <span class="mono">read:org</span>) or a
+            <a href="https://github.com/settings/personal-access-tokens/new" target="_blank">fine-grained one</a>
+            (repository permissions — contents: read/write, metadata: read). GitHub shows it once, so copy it before you leave.</div>
           <div id="oauthbox"></div>
           ${!o.configured?'<div class="sub" style="margin-top:8px">no OAuth app configured yet — see below</div>':''}
           ${g.env_token?'<div class="sub" style="margin-top:6px">($GITHUB_TOKEN from the environment is being used as a fallback)</div>':''}</div>`;
@@ -1715,13 +1807,19 @@ async function load(v){
     }
     if(v==='access'){
       const a=await GET('/api/access');
+      const host=a.host_owner&&a.host_owner.toLowerCase()!==(a.owner||'').toLowerCase()?a.host_owner:null;
       el.innerHTML=`<div class="card"><h3>your key</h3>
-        <div class="sub" style="margin-bottom:8px">Reads are open. Writes need a signed token from the shared auth module — on the server run <span class="mono">m git/token</span> and paste it here.</div>
+        <div class="sub" style="margin-bottom:8px">Reads are open. Writes need a signed token from the shared auth module — sign in with your wallet, or run <span class="mono">m git/token</span> on the server and paste it here.</div>
+        <div class="row" style="margin-bottom:8px">
+          <button class="btn primary" onclick="signInWallet()">⬡ sign in with wallet</button>
+          ${WALLET?`<span class="sub">last signed as <span class="mono">${esc(short(WALLET))}</span></span>`:''}
+          ${TOKEN?'<span class="grow"></span><button class="btn" onclick="clearToken()">sign out</button>':''}</div>
         <div class="row"><input id="tok" type="password" placeholder="signed token" style="flex:1;min-width:260px" value="${esc(TOKEN)}"/>
-        <button class="btn primary" onclick="saveToken()">sign in</button>
-        ${TOKEN?'<button class="btn" onclick="clearToken()">sign out</button>':''}</div>
-        <div class="sub" id="tokmsg" style="margin-top:6px">${ME?(ME.ok?`<span class="ok">✓ ${esc(ME.address)} · ${esc(ME.role)}</span>`:`<span class="err">${esc(ME.error||'')}</span>`):''}</div></div>
-      <div class="card"><h3>owner</h3><div class="row"><span class="mono">${esc(a.owner)}</span><span class="badge owner">OWNER</span></div>
+        <button class="btn" onclick="saveToken()">use token</button></div>
+        <div class="sub" id="tokmsg" style="margin-top:6px">${sessionMsg()}</div></div>
+      <div class="card"><h3>owner${host?'s':''}</h3><div class="row"><span class="mono">${esc(a.owner)}</span><span class="badge owner">OWNER</span></div>
+        ${host?`<div class="row" style="margin-top:6px"><span class="mono">${esc(host)}</span><span class="badge owner">HOST OWNER</span></div>
+        <div class="sub" style="margin-top:8px">Whoever owns this mod host is an owner here too — sign in with that wallet and you can commit and push without granting yourself anything.</div>`:''}
         ${a.open?'<div class="err" style="text-align:left;padding:8px 0 0">⚠ GIT_ACCESS_OPEN=1 — auth is bypassed (dev mode)</div>':''}</div>
       <div class="card"><h3>grants</h3>
         <div class="row" style="margin-bottom:10px"><input id="gaddr" placeholder="0x address" style="flex:1;min-width:260px"/>
@@ -1744,12 +1842,51 @@ async function whoami(){ME=null;
     if(a.active)gh=` · <span title="active github account (${a.accounts.length} connected)">⑂ ${esc(a.active)}</span>`;
   }catch(e){}
   $('#who').innerHTML=(ME&&ME.ok
-    ?`<span class="ok">${ME.address.slice(0,6)}…${ME.address.slice(-4)} · ${ME.role}</span>`
-    :'read-only')+gh;}
+    ?`<span class="ok">${esc(short(ME.address))} · ${esc(ME.role)}</span>`
+    : `<span class="pill" onclick="setView('access')">${TOKEN?'session expired':'read-only'} · sign in</span>`)+gh;}
 
-function saveToken(){TOKEN=$('#tok').value.trim();try{localStorage.setItem('git.token',TOKEN);}catch(e){}
+function saveToken(){TOKEN=$('#tok').value.trim();WALLET='';
+  try{localStorage.setItem('git.token',TOKEN);localStorage.removeItem('git.wallet');}catch(e){}
   whoami().then(()=>load('access'))}
-function clearToken(){TOKEN='';try{localStorage.removeItem('git.token');}catch(e){}whoami().then(()=>load('access'))}
+function clearToken(){TOKEN='';WALLET='';
+  try{localStorage.removeItem('git.token');localStorage.removeItem('git.wallet');}catch(e){}
+  whoami().then(()=>load('access'))}
+
+// --- sign in with a wallet ---------------------------------------------------
+// A token is base64url of {data,time,key,signature}, where the signature is an
+// EIP-191 personal_sign over the compact {"data":…,"time":…} — the same bytes
+// `m git/token` signs with the box key, so a wallet mints its own for its own
+// address and the server verifies it statelessly. Own the host and that alone
+// makes you an owner here: no grant, nothing to paste.
+const eth=()=>window.ethereum;
+const short=a=>a?a.slice(0,6)+'…'+a.slice(-4):'';
+function b64url(o){return btoa(unescape(encodeURIComponent(JSON.stringify(o))))
+  .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+function tokenAge(t){try{const j=JSON.parse(decodeURIComponent(escape(
+    atob(t.replace(/-/g,'+').replace(/_/g,'/')))));return Date.now()/1000-Number(j.time)}catch(e){return null}}
+function signInWallet(){const p=eth();
+  if(!p)return toast('no wallet found — install MetaMask, or paste a token from `m git/token`',true);
+  act(async()=>{
+    const accs=await p.request({method:'eth_requestAccounts'});
+    const addr=String((accs||[])[0]||'').toLowerCase();
+    if(!addr)throw new Error('no account selected');
+    const data={mod:'git'}, time=(Date.now()/1000).toString();
+    const signature=await p.request({method:'personal_sign',
+      params:[JSON.stringify({data,time}),addr]});   // must match the server's sig_data
+    TOKEN=b64url({data,time,key:addr,signature});WALLET=addr;
+    try{localStorage.setItem('git.token',TOKEN);localStorage.setItem('git.wallet',addr);}catch(e){}
+    await whoami();load('access');
+    toast(ME&&ME.ok?'signed in as '+short(addr)+' · '+ME.role
+      :(ME&&ME.error)||'signed in, but this key has no access yet',!(ME&&ME.ok));})}
+// the session line under the sign-in row: who you are, or why you aren't
+function sessionMsg(){
+  if(!TOKEN)return 'not signed in';
+  if(ME&&ME.ok){const age=tokenAge(TOKEN);
+    return `<span class="ok">✓ ${esc(ME.address)} · ${esc(ME.role)}</span>`+
+      (age!=null?` <span class="sub">· expires in ${Math.max(0,60-Math.round(age/60))}m</span>`:'');}
+  const stale=(tokenAge(TOKEN)||0)>3600;
+  return `<span class="err">${esc((ME&&ME.error)||'not signed in')}</span>`+
+    (stale&&WALLET?' <span class="sub">— tokens last an hour, sign in with your wallet again</span>':'');}
 let TT=null;
 function toast(msg,err){const t=$('#toast');t.className=err?'err':'';t.textContent=msg;
   t.style.display='block';clearTimeout(TT);TT=setTimeout(()=>t.style.display='none',err?9000:6000)}
@@ -1784,7 +1921,9 @@ function doCommit(){act(async()=>{const r=await POST('/api/commit',{repo:REPO,ms
   loadPills();load('changes');alert(`${r.hash} — ${r.message}`)})}
 function doPush(){act(async()=>{const r=await POST('/api/push',{repo:REPO,msg:cmsg(),free:cfree()});
   loadPills();load('changes');
-  alert((r.committed?`${r.hash} — ${r.message}\n\n`:'')+(r.push||(r.pushed?'pushed':'nothing pushed')))})}
+  alert((r.committed?`${r.hash} — ${r.message}\n\n`:'')+(r.push||(r.pushed?'pushed':'nothing pushed'))
+    +(r.hint?`\n\n⚠ ${r.hint}`:''));
+  if(r.hint&&/GitHub account/.test(r.hint))setView('github')})}
 function ghConnect(){act(async()=>{await POST('/api/connect',{token:$('#pat').value.trim()});
   load('github');whoami()})}
 function ghSwitch(login){act(async()=>{const g=await POST('/api/switch',{login});load('github');whoami();

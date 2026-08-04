@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 
-class Skill:
+class Tool:
     description = "Refactoring operations: rename symbols across files, extract functions, find/replace with scope awareness."
 
     def forward(self, action: str, path: str = None, **kwargs) -> Dict[str, Any]:

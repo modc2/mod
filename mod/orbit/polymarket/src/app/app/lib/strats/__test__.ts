@@ -169,9 +169,16 @@ console.log("\n── shouldMirror + propose defaults ──");
   check("pure mirror strat: proposes() false", s.proposes() === false);
   const noMirror = new Strat({ mirror: false });
   check("mirror:false gates every trade", noMirror.shouldMirror(buildTrade({ price: 0.65 }), H) === false);
+  // Entry gates never gate an EXIT: whatever we bought has to be sellable
+  // when the leader sells, or the strat opens positions it can't close.
   const filtered = new Strat({ tradeFilters: { sides: "buy" } });
-  check("tradeFilters gate SELL", filtered.shouldMirror(buildTrade({ side: "SELL", price: 0.65 }), H) === false);
+  check("tradeFilters never gate SELL", filtered.shouldMirror(buildTrade({ side: "SELL", price: 0.65 }), H) === true);
   check("tradeFilters pass BUY", filtered.shouldMirror(buildTrade({ side: "BUY", price: 0.65 }), H) === true);
+  // …but the topic query still does: a market outside the strat's universe
+  // is one it never held, so there is nothing to exit.
+  const btc = new Strat({ marketQuery: "bitcoin" });
+  check("marketQuery still gates SELL",
+    btc.shouldMirror(buildTrade({ side: "SELL", market: "Presidential debate?" }), H) === false);
 }
 
 console.log("\n── FILTER — only the top-ranked traders get copied ──");
@@ -194,6 +201,10 @@ console.log("\n── FILTER — only the top-ranked traders get copied ──")
   check("top-ranked trader passes", s.shouldMirror(buildTrade({ trader: "0xaaa" }), hist) === true);
   check("2nd-ranked trader passes", s.shouldMirror(buildTrade({ trader: "0xbbb" }), hist) === true);
   check("bottom trader is filtered out", s.shouldMirror(buildTrade({ trader: "0xccc" }), hist) === false);
+  // Their EXITS still come through — a trader can slide out of the top N
+  // while we're still holding what we bought copying them.
+  check("filtered-out trader's SELL still mirrors",
+    s.shouldMirror(buildTrade({ trader: "0xccc", side: "SELL" }), hist) === true);
   check("case-insensitive on address", s.shouldMirror(buildTrade({ trader: "0xAAA" }), hist) === true);
   check("skipReason names the rank", /rank 3 of 3/.test(s.skipReason(buildTrade({ trader: "0xccc" }), hist)));
   check("ranking() is best-first", s.ranking(hist).map((r) => r.address).join(",") === "0xaaa,0xbbb,0xccc");

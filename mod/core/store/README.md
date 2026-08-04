@@ -103,6 +103,8 @@ m store/stop                      # pm2 stop
 | GET    | `/get`       | opt  | retrieve by CID; private objects need `?token=` or Bearer |
 | GET    | `/preview`   | opt  | peek content: truncated text + `size`/`truncated` flag |
 | GET    | `/object`    | opt  | full info: stored when/by-whom, backends, visibility, semhash, **who has access** |
+| GET    | `/graph`     | ✓    | the whole CID graph: `nodes` + `edges` (`?scope=all` adds shared, `?isolated=true` adds unlinked) |
+| POST   | `/graph/scan`| ✓    | re-derive the graph from content (`?scope=all` = every object, owner only) |
 | POST   | `/publish`   | owner| flip an object private⇄public `{cid, public}` |
 | POST   | `/pin`       | ✓ wl | pin a CID on a backend |
 | GET    | `/pins`      | ✓    | list the caller's pinned objects |
@@ -162,6 +164,7 @@ frameworks) can drive the store as tools:
 | `store_search` | ✓ | substring (`q`) + semantic (`semantic_q`) search, `scope` mine/shared/all |
 | `store_get` | opt | preview object content by CID (`max_bytes` cap); public objects need no auth |
 | `store_object_info` | opt | full object profile incl. the CID links graph |
+| `store_graph` | ✓ | the whole CID graph: nodes (key/size/upload time) + edges (`scope`, `isolated`) |
 | `store_put_text` | ✓ wl+tos | store a text/JSON payload (`name`, `text`, `backend`, `public`, `pool`) |
 | `store_share` | ✓ | timed read grant (`grantee`, `cid`, `ttl_seconds`) |
 | `store_pin` / `store_pins` | ✓ | pin a CID / list the caller's pins |
@@ -256,6 +259,15 @@ Private auth/access state lives under `~/.mod/store/` (never committed):
   it, backends, visibility, pinned state, the semantic hash, and (for the owner)
   the full access roster: every active grant (grantee/scope/expiry) and every
   pool it lives in. Non-owners only learn whether *they* can read it.
+- **CID graph** — every upload is scanned for CID-shaped tokens in its content,
+  and each hit is recorded as an edge: this object was *mapped from* that one.
+  `GET /graph` returns the whole picture at once — nodes carry key, size and
+  **upload time**, edges carry direction — so a manifest and the parts it names
+  form a visible cluster. CIDs the store doesn't hold come back as `external`
+  nodes (the store is cid-agnostic; a link out is still a link). Edges are only
+  shown when the caller can read the *source* object, so the graph can't leak
+  the existence of someone else's private data. `POST /graph/scan` re-derives
+  the edges for objects stored before their target existed.
 - **Pin management** — `GET /pins` lists your pins; `POST /pin` pins (and tracks)
   a CID; `DELETE /pin?cid=…` unpins.
 - **Content viewer** — `GET /preview?cid=…&max_bytes=…` returns up to N bytes
@@ -264,7 +276,9 @@ Private auth/access state lives under `~/.mod/store/` (never committed):
 
 The app surfaces all of this: instant CID/name search + a 🧠 semantic toggle, a
 per-object content viewer (truncate + copy-all), a 📱 one-time-ticket QR for
-phone hand-off, an object-info panel, a fetch-by-CID box, and a pins tab.
+phone hand-off, an object-info panel, a fetch-by-CID box, a pins tab, upload
+times on every object row, and a 🕸 **Graph** tab that draws the whole CID graph
+(force-directed, hover for details, click to open, `rescan` to re-derive).
 
 ## On-chain (BlocTime + chain Registry)
 

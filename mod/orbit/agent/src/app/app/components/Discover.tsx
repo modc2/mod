@@ -8,7 +8,7 @@ import { API_URL } from '../config'
 export type Found = {
   id: string
   source: string
-  kind: 'skill' | 'mcp' | 'package'
+  kind: 'tool' | 'mcp' | 'package'
   name: string
   title?: string
   description: string
@@ -44,7 +44,7 @@ type ScanResult = {
 type SourceDef = { id: string; label: string; kind: string; about: string; auth: string }
 
 type Detail = Found & {
-  skills?: { path: string; name: string; unverified?: boolean }[]
+  docs?: { path: string; name: string; unverified?: boolean }[]
   readme?: string
   version?: string
   topics?: string[]
@@ -68,7 +68,7 @@ const SRC: Record<string, { label: string; chip: string; badge: string; dot: str
   glama:     { label: 'Glama',     chip: 'bg-cyan-400/15 border-cyan-400/30 text-cyan-200',      badge: 'bg-cyan-400/10 text-cyan-300',         dot: 'bg-cyan-400' },
 }
 
-const KIND_LABEL: Record<string, string> = { skill: 'Skills', mcp: 'MCP servers', package: 'Packages' }
+const KIND_LABEL: Record<string, string> = { tool: 'Tools', mcp: 'MCP servers', package: 'Packages' }
 
 const src = (id: string) => SRC[id] || { label: id, chip: 'bg-white/10 border-white/20 text-gray-200', badge: 'bg-white/[0.06] text-gray-400', dot: 'bg-gray-400' }
 
@@ -103,11 +103,11 @@ export default function Discover({ onInstalled, token }: Props) {
   // ── bootstrap: source catalog + what's already installed ─────────
 
   const loadInstalled = useCallback(() => {
-    fetch(`${API_URL}/skills/installed`, { signal: AbortSignal.timeout(8000) })
+    fetch(`${API_URL}/tools/installed`, { signal: AbortSignal.timeout(8000) })
       .then(r => r.json())
       .then(d => {
         const map: Record<string, string> = {}
-        for (const s of d.skills || []) {
+        for (const s of d.tools || d.skills || []) {
           if (s.origin_id) map[s.origin_id] = s.id
           if (s.url) map[s.url] = s.id
         }
@@ -251,7 +251,7 @@ export default function Discover({ onInstalled, token }: Props) {
           <div>
             <h2 className="text-xl font-semibold tracking-tight text-gray-100">Discover</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Scan the internet for skills — GitHub, npm, the MCP registry, Glama and curated lists, in one search.
+              Scan the internet for tools — GitHub, npm, the MCP registry, Glama and curated lists, in one search.
             </p>
           </div>
           <button
@@ -390,7 +390,7 @@ export default function Discover({ onInstalled, token }: Props) {
                   >
                     <div className="flex items-center gap-2 mb-2">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${S.badge}`}>{S.label}</span>
-                      {item.kind !== 'skill' && (
+                      {item.kind !== 'tool' && (
                         <span className="text-[9px] text-gray-600 border border-white/[0.06] rounded px-1 py-0.5">{item.kind}</span>
                       )}
                       {done && (
@@ -480,17 +480,17 @@ export default function Discover({ onInstalled, token }: Props) {
                 </div>
               )}
 
-              {/* per-skill install: repos that ship several SKILL.md files */}
+              {/* per-doc install: repos that ship several SKILL.md files */}
               {detailBusy && !detail && (
                 <div className="h-16 rounded-lg bg-white/[0.02] border border-white/[0.05] animate-pulse" />
               )}
-              {!!detail?.skills?.length && (
+              {!!detail?.docs?.length && (
                 <div>
                   <div className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">
-                    skills in this repo ({detail.skills.length})
+                    documents in this repo ({detail.docs.length})
                   </div>
                   <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
-                    {detail.skills.map(s => (
+                    {detail.docs.map(s => (
                       <div key={s.path} className="flex items-center gap-2 text-xs bg-white/[0.02] border border-white/[0.05] rounded-lg px-3 py-2">
                         <span className="text-gray-300 truncate">{s.name}</span>
                         <span className="text-[10px] text-gray-600 truncate">{s.path}</span>

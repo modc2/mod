@@ -77,7 +77,7 @@ def test_jsonable():
 @pytest.fixture
 def store(tmp_path, monkeypatch):
     monkeypatch.setenv('BT_DATA_DIR', str(tmp_path))
-    monkeypatch.setattr(history, '_cache', {'rows': None, 'ts': None})
+    monkeypatch.setattr(history, '_cache', {'rows': None, 'ts': None, 'block': None})
     return tmp_path
 
 
@@ -150,7 +150,7 @@ def test_history_stats_excludes_root(store):
 
 def test_history_cold_start_from_disk(store):
     history.record(_synth_rows(1.0))
-    history._cache = {'rows': None, 'ts': None}   # simulate restart
+    history._cache = {'rows': None, 'ts': None, 'block': None}   # simulate restart
     out = history.screener()
     assert out.get('warming') is not True and out['count'] == 3
     assert out['rows'][0]['name'].startswith('net')
@@ -186,11 +186,11 @@ def _pos(netuid, alpha, price, hotkey='hk1'):
             'price': price, 'value_tao': alpha * price}
 
 
-def _snap(ss58, ts, positions, free=1.0):
+def _snap(ss58, ts, positions, free=1.0, block=None):
     staked = sum(p['value_tao'] for p in positions)
     return traders._record(ss58, ts, {
         'free_tao': free, 'staked_tao': staked, 'total_tao': free + staked,
-        'positions': positions})
+        'positions': positions}, block)
 
 
 def test_track_requires_valid_ss58(tstore):
@@ -352,6 +352,66 @@ def test_trader_tools_wired(tstore):
     assert tools.call_tool('bt_untrack', {'address': WHALE,
                                           'purge': True})['purged'] is True
     assert traders.stats()['snapshots'] == 0
+
+
+# ----------------------------------------------------------------- sync state
+
+def test_snapshot_carries_the_block(store):
+    history.record(_synth_rows(1.0), block=8_758_433)
+    out = history.screener()
+    assert out['block'] == 8_758_433
+    assert history.stats()['block'] == 8_758_433
+    r = next(x for x in out['rows'] if x['netuid'] == 2)
+    assert r['alpha_in'] == 100.0 and r['alpha_out'] == 100.0
+
+
+def test_sync_reports_lag_coverage_and_gaps(store, monkeypatch):
+    now = int(time.time())
+    monkeypatch.setattr(history, 'head_block', lambda bt=None: 8_758_500)
+    for i, ts in enumerate((now - 3600, now - 3000, now - 300, now)):
+        history.record(_synth_rows(1.0), ts=ts, block=8_758_000 + i)
+    s = history.sync()
+    assert s['block'] == 8_758_003 and s['head_block'] == 8_758_500
+    assert s['blocks_behind'] == 497 and s['blocks_behind_exact'] is True
+    assert s['subnets'] == {'in_last_snapshot': 3, 'ever_seen': 3,
+                            'missing_now': [], 'complete': True}
+    # the 45m hole between snapshot 2 and 3 is reported, not smoothed over
+    assert s['snapshots']['gap_count'] == 1
+    assert s['snapshots']['gaps'][0]['gap_sec'] == 2700
+
+
+def test_sync_flags_a_subnet_that_stopped_reporting(store):
+    now = int(time.time())
+    history.record(_synth_rows(1.0), ts=now - 600, block=1)
+    history.record(_synth_rows(1.0)[:2], ts=now, block=2)
+    s = history.sync(head=False)
+    assert s['subnets']['missing_now'] == [3]
+    assert s['subnets']['complete'] is False
+
+
+def test_trader_sync_covers_the_watchlist(tstore, monkeypatch):
+    now = int(time.time())
+    monkeypatch.setattr(history, 'head_block', lambda bt=None: 8_758_500)
+    traders.track(WHALE, label='whale')
+    _snap(WHALE, now, [_pos(1, 100.0, 0.5)], block=8_758_400)
+    s = traders.sync()
+    assert s['block'] == 8_758_400 and s['blocks_behind'] == 100
+    assert s['traders']['tracked'] == 1 and s['traders']['complete'] is True
+    assert s['traders']['untracked_with_history'] == 0
+    # an untracked address whose history stays behind is a hole, and says so
+    _snap(DEPOSITOR, now, [_pos(1, 10.0, 0.5)], block=8_758_400)
+    assert traders.sync(head=False)['traders']['untracked_with_history'] == 1
+
+
+def test_sync_tool_wired(tstore, monkeypatch):
+    monkeypatch.setattr(history, 'head_block', lambda bt=None: 8_758_500)
+    history.record(_synth_rows(1.0), block=8_758_400)
+    _snap(WHALE, int(time.time()), [_pos(1, 100.0, 0.5)], block=8_758_390)
+    out = tools.call_tool('bt_sync', {})
+    assert out['head_block'] == 8_758_500
+    assert out['block'] == 8_758_390          # the laggard of the two indexes
+    assert out['subnet_index']['block'] == 8_758_400
+    assert out['trader_index']['blocks_behind'] == 110
 
 
 # ----------------------------------------------------------------- MCP stdio

@@ -5,7 +5,7 @@ class Agent:
     name = "Agi"
     description = "Agi agent"
     icon = ">_"
-    skills = None
+    tools = None
     model = 'venice-uncensored-1-2'
     owner = None
 

@@ -5,7 +5,7 @@ class Agent:
     name = "Dev12"
     description = "broski"
     icon = ">_"
-    skills = ['bash', 'context']
+    tools = ['bash', 'context']
     model = None
     owner = '0xd779eb61ced815570f74ab15a52ee8378a66996f'
 

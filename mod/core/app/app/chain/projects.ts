@@ -43,6 +43,14 @@ describe("${name}", function () {
 });
 `
 
+/** `token`, then `token-2`, `token-3`… — a name no existing project holds. */
+export function uniqueName(base: string, taken: string[]): string {
+  const used = new Set(taken)
+  let name = base
+  for (let i = 2; used.has(name); i++) name = `${base}-${i}`
+  return name
+}
+
 export function newProjectFiles(name: string): Record<string, string> {
   return {
     [`contracts/${name}.sol`]: STARTER_CONTRACT(name),

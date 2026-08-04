@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 
-class Skill:
+class Tool:
     description = "Analyze project structure: detect language, framework, dependencies, entry points, config. Provides full project context."
 
     def forward(self, path: str = None, **kwargs) -> Dict[str, Any]:

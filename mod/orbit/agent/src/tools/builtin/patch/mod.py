@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 
-class Skill:
+class Tool:
     description = "Apply multiple find-replace edits to a file atomically. More efficient than calling edit multiple times."
 
     def forward(self, file_path: str, edits: List[Dict[str, str]] = None, **kwargs) -> Dict[str, Any]:
@@ -51,7 +51,7 @@ class Skill:
 
     def test(self):
         import tempfile, os
-        p = os.path.join(tempfile.gettempdir(), "skill_patch_test.txt")
+        p = os.path.join(tempfile.gettempdir(), "tool_patch_test.txt")
         Path(p).write_text("hello world\nfoo bar\nbaz qux")
         r = self.forward(p, edits=[
             {"old": "hello", "new": "hi"},

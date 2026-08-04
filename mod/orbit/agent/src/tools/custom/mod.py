@@ -1,8 +1,8 @@
 """
-tools - custom tools, added from the console instead of shipped in the repo
+custom - tools added from the console instead of shipped in the repo
 
-A shipped skill is a Python module under src/skills/. A custom tool is the
-same idea without the deploy: a name, a description, typed params, and a
+A built-in tool is a Python module under src/tools/builtin/. A custom tool is
+the same idea without the deploy: a name, a description, typed params, and a
 shell command template with {placeholders}. The agent sees it in its tool
 schema exactly like a built-in and calls it the same way — the difference is
 only where it came from.
@@ -13,14 +13,14 @@ Values are shell-quoted when the template is rendered, so a param carrying
 Custom tools are user state, not module code, so they live off-tree in
 ~/.mod/agent/tools.json — same place as toolboxes, the ACL and the vault.
 They run shell, so creating one is host-only (see Mod._admin_actions);
-library skills stay documents-only for exactly that reason.
+library tool documents stay documents-only for exactly that reason.
 
 Usage:
-    tools = Tools(skills=Skills())
-    tools.add('loc', 'Count lines in a file', command='wc -l {path}')
-    tools.ls()                          # ['loc']
-    tools.run('loc', path='src/mod.py')
-    tools.rm('loc')
+    custom = CustomTools(builtin=Builtins())
+    custom.add('loc', 'Count lines in a file', command='wc -l {path}')
+    custom.ls()                          # ['loc']
+    custom.run('loc', path='src/mod.py')
+    custom.rm('loc')
 """
 import json
 import re
@@ -75,7 +75,7 @@ class Tool:
                 for p in cls.placeholders(command) if p not in RESERVED}
 
     def schema(self) -> Dict[str, Any]:
-        """The shape Skills.schema() produces, so the LLM sees one tool list."""
+        """The shape Builtins.schema() produces, so the LLM sees one tool list."""
         params = {}
         for pname, spec in self.params.items():
             entry = {'type': spec.get('type', 'string'),
@@ -112,12 +112,12 @@ class Tool:
                 'cid': self.cid, 'kind': 'custom'}
 
 
-class Tools:
-    """Custom tool registry — persisted off-tree, callable like a skill."""
-    description = "Custom tool registry - shell-backed tools the agent calls like a skill"
+class CustomTools:
+    """Custom tool registry — persisted off-tree, callable like a built-in."""
+    description = "Custom tool registry - shell-backed tools the agent calls like a built-in"
 
-    def __init__(self, skills=None, path: str = None, **kwargs):
-        self.skills = skills
+    def __init__(self, builtin=None, path: str = None, **kwargs):
+        self.builtin = builtin
         if path is None:
             state_dir = Path.home() / '.mod' / 'agent'
             try:
@@ -166,13 +166,13 @@ class Tools:
     def add(self, name: str, command: str, description: str = '',
             params: Dict[str, Dict] = None, cwd: str = None, timeout: int = 60,
             owner: str = None) -> Dict[str, Any]:
-        """Create or update a custom tool. Shipped skill names are reserved."""
+        """Create or update a custom tool. Built-in tool names are reserved."""
         name = (name or '').strip().lower().replace(' ', '-')
         if not NAME_RE.match(name):
             raise ValueError("name must be lowercase letters, digits, - or _ "
                              "(max 40 chars, starting with a letter)")
-        if self.skills is not None and name in self.skills.ls():
-            raise ValueError(f"'{name}' is a built-in skill — pick another name")
+        if self.builtin is not None and name in self.builtin.ls():
+            raise ValueError(f"'{name}' is a built-in tool — pick another name")
         if name in ('finish', 'review'):
             raise ValueError(f"'{name}' is reserved by the agent loop")
         if not (command or '').strip():
@@ -254,7 +254,7 @@ class Tools:
     def test(self) -> Dict[str, Any]:
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            t = Tools(path=Path(tmp) / 'tools.json')
+            t = CustomTools(path=Path(tmp) / 'tools.json')
             t.add('echoer', 'echo {msg}', description='Echo a message')
             assert t.ls() == ['echoer']
             assert t.schema()['echoer']['params']['msg']['required']

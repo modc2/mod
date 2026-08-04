@@ -24,7 +24,10 @@ import {
   api,
   ApiError,
   BackendStatus,
+  CidGraphData,
   Grant,
+  GraphEdge,
+  GraphNode,
   MarketBrowse,
   MarketListing,
   MeResponse,
@@ -43,7 +46,7 @@ const ADDR_KEY = "store:addr";
 const MODE_KEY = "store:mode";
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
-type View = "market" | "files" | "add" | "shared" | "pins" | "pools" | "backends" | "status";
+type View = "market" | "files" | "add" | "shared" | "pins" | "pools" | "graph" | "backends" | "status";
 
 /** How the session was signed: an injected wallet, or a key this browser holds. */
 type SignInMode = "wallet" | "local";
@@ -108,6 +111,17 @@ function fmtDuration(secs: number | null): string {
   if (h) return `${h}h ${m}m`;
   if (m) return `${m}m`;
   return `${secs}s`;
+}
+
+/** Compact upload stamp for list rows: "3 Aug, 14:37" this year, "3 Aug 2025"
+ *  before that — the year only earns its space once it stops being obvious. */
+function fmtStamp(secs: number | null | undefined): string {
+  if (!secs) return "—";
+  const d = new Date(secs * 1000);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return sameYear
+    ? d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
 function fmtDate(secs: number | null | undefined): string {
@@ -718,6 +732,7 @@ export default function Page() {
                 ["shared", "Shared with you", sharedObjects.length],
                 ["pins", "Pins", pins.length],
                 ["pools", "Pools", pools.length],
+                ["graph", "🕸 Graph", null],
                 ["backends", "🗄 Backends", bkStatus ? Object.values(bkStatus).filter((s) => s.needs_key).length || null : null],
               ] as [View, string, number | null][]
             ).map(([v, label, n]) => (
@@ -937,6 +952,11 @@ export default function Page() {
             ))}
           </ul>
         </div>
+      )}
+
+      {/* the whole CID graph — what references what */}
+      {token && view === "graph" && (
+        <GraphPanel token={token} onInfo={(c) => setInfoFor(c)} setError={setError} setSuccess={setSuccess} />
       )}
 
       {/* shared with you */}
@@ -1351,6 +1371,11 @@ function ObjectRow({
           {o.similarity != null && <span className="pill sim">{Math.round(o.similarity * 100)}% match</span>}
           {o.key && <span className="muted">{o.key}</span>}
           {o.size != null && <span className="muted">{fmtBytes(o.size)}</span>}
+          {!!o.timestamp && (
+            <span className="muted" title={`uploaded ${fmtDate(o.timestamp)} · ${fmtAgo(o.timestamp)}`}>
+              🕗 {fmtStamp(o.timestamp)}
+            </span>
+          )}
         </div>
         <button className="cid-btn" title="Copy CID" onClick={() => onCopy(o.cid, o.cid)}>
           <span className="cid">{o.cid}</span>
@@ -1722,6 +1747,305 @@ function CidGraph({
         <span className="muted">← mapped from (this object's content references these)</span>
         <span className="muted">mapped into (these were built from this) →</span>
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────── store-wide CID graph ─────────────────────── */
+
+const GW = 640;   // layout canvas — the SVG scales to fit its container
+const GH = 430;
+const GPAD = 34;        // keeps node circles + their labels inside the frame
+const LOOSE_STEP = 16;  // grid pitch for the unlinked band under the graph
+const LOOSE_R = 5;      // …drawn as uniform dots: their size says nothing here
+
+type Pt = { x: number; y: number; dx: number; dy: number };
+
+/**
+ * Fruchterman-Reingold on the *linked* subgraph, seeded from each CID so the
+ * same store always draws the same picture (no jitter between renders). Loose
+ * objects — nothing references them, they reference nothing — are parked in a
+ * grid underneath instead of being simulated: with a thousand of them the
+ * O(n²) pass would stall the tab and the cloud would say nothing anyway.
+ */
+function layoutGraph(nodes: GraphNode[], edges: GraphEdge[]): { pos: Map<string, Pt>; loose: Set<string>; height: number } {
+  const linkedIds = new Set<string>();
+  edges.forEach((e) => { linkedIds.add(e.from); linkedIds.add(e.to); });
+  const linked = nodes.filter((n) => linkedIds.has(n.cid));
+  const loose = nodes.filter((n) => !linkedIds.has(n.cid)).map((n) => n.cid);
+
+  const pos = new Map<string, Pt>();
+  linked.forEach((n) => {
+    let s = 0;
+    for (let i = 0; i < n.cid.length; i++) s = (s * 31 + n.cid.charCodeAt(i)) >>> 0;
+    const a = ((s % 997) / 997) * Math.PI * 2;
+    const r = 40 + ((s >> 7) % 100) / 100 * (Math.min(GW, GH) / 2 - 60);
+    pos.set(n.cid, { x: GW / 2 + Math.cos(a) * r, y: GH / 2 + Math.sin(a) * r, dx: 0, dy: 0 });
+  });
+
+  const k = Math.sqrt((GW * GH) / Math.max(linked.length, 1)) * 0.55;
+  const iters = 320;
+  for (let it = 0; it < iters; it++) {
+    const temp = (1 - it / iters) * (GW / 12);
+    for (let i = 0; i < linked.length; i++) {
+      const a = pos.get(linked[i].cid)!;
+      a.dx = 0; a.dy = 0;
+      for (let j = 0; j < linked.length; j++) {
+        if (i === j) continue;
+        const b = pos.get(linked[j].cid)!;
+        let ex = a.x - b.x, ey = a.y - b.y;
+        let d = Math.hypot(ex, ey);
+        if (d < 0.01) { ex = (i - j) * 0.1; ey = 0.1; d = 0.14; }
+        const f = (k * k) / d;
+        a.dx += (ex / d) * f; a.dy += (ey / d) * f;
+      }
+      // pull toward the middle so disconnected clusters don't drift off-canvas
+      a.dx += (GW / 2 - a.x) * 0.03;
+      a.dy += (GH / 2 - a.y) * 0.03;
+    }
+    for (const e of edges) {
+      const a = pos.get(e.from), b = pos.get(e.to);
+      if (!a || !b) continue;
+      const ex = a.x - b.x, ey = a.y - b.y;
+      const d = Math.max(Math.hypot(ex, ey), 0.01);
+      const f = (d * d) / k;
+      const fx = (ex / d) * f, fy = (ey / d) * f;
+      a.dx -= fx; a.dy -= fy;
+      b.dx += fx; b.dy += fy;
+    }
+    for (const n of linked) {
+      const p = pos.get(n.cid)!;
+      const d = Math.max(Math.hypot(p.dx, p.dy), 0.01);
+      const step = Math.min(d, temp);
+      p.x = Math.max(GPAD, Math.min(GW - GPAD, p.x + (p.dx / d) * step));
+      p.y = Math.max(GPAD, Math.min(GH - GPAD, p.y + (p.dy / d) * step));
+    }
+  }
+
+  // Zoom the settled cloud to fill the frame — a two-node graph shouldn't be
+  // two dots in the middle of an empty canvas. Aspect ratio is preserved so
+  // the springs still look like equal lengths.
+  if (linked.length > 1) {
+    const xs = linked.map((n) => pos.get(n.cid)!.x);
+    const ys = linked.map((n) => pos.get(n.cid)!.y);
+    const [x0, x1] = [Math.min(...xs), Math.max(...xs)];
+    const [y0, y1] = [Math.min(...ys), Math.max(...ys)];
+    const s = Math.min((GW - 2 * GPAD) / Math.max(x1 - x0, 1),
+                       (GH - 2 * GPAD) / Math.max(y1 - y0, 1), 3);
+    const ox = (GW - (x1 - x0) * s) / 2, oy = (GH - (y1 - y0) * s) / 2;
+    for (const n of linked) {
+      const p = pos.get(n.cid)!;
+      p.x = ox + (p.x - x0) * s;
+      p.y = oy + (p.y - y0) * s;
+    }
+  }
+
+  const perRow = Math.floor((GW - 40) / LOOSE_STEP);
+  const rows = Math.ceil(loose.length / perRow);
+  loose.forEach((cid, i) => {
+    pos.set(cid, {
+      x: 30 + (i % perRow) * LOOSE_STEP,
+      y: GH + 46 + Math.floor(i / perRow) * LOOSE_STEP,
+      dx: 0, dy: 0,
+    });
+  });
+  return { pos, loose: new Set(loose), height: loose.length ? GH + 60 + rows * LOOSE_STEP : GH };
+}
+
+/** Uploads without an explicit key land as `<epoch-ms>-<filename>`; the graph
+ *  shows the human half, short enough not to smear across its neighbours. */
+function nodeLabel(n: GraphNode): string {
+  const base = (n.key || "").replace(/^\d{10,}-/, "");
+  if (!base) return shortCid(n.cid);
+  return base.length > 26 ? `${base.slice(0, 24)}…` : base;
+}
+
+function nodeRadius(n: GraphNode): number {
+  if (n.external) return 6;
+  const kb = (n.size || 0) / 1024;
+  return 7 + Math.min(11, Math.log10(kb + 1) * 5);
+}
+
+function GraphPanel({
+  token, onInfo, setError, setSuccess,
+}: {
+  token: string;
+  onInfo: (cid: string) => void;
+  setError: (s: string | null) => void;
+  setSuccess: (s: string | null) => void;
+}) {
+  const [data, setData] = useState<CidGraphData | null>(null);
+  const [scope, setScope] = useState<"mine" | "all">("mine");
+  const [showLoose, setShowLoose] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [hover, setHover] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await api.graph(token, { scope, isolated: showLoose }));
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }, [token, scope, showLoose, setError]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const rescan = async () => {
+    setScanning(true);
+    try {
+      const r = await api.graphScan(token);
+      setError(null);
+      await load();
+      setSuccess(
+        r.edges
+          ? `scanned ${r.scanned} objects — ${r.edges} link${r.edges === 1 ? "" : "s"} across ${r.with_refs} of them`
+          : `scanned ${r.scanned} objects — none of them mention another CID`
+      );
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const nodes = useMemo(() => data?.nodes ?? [], [data]);
+  const edges = useMemo(() => data?.edges ?? [], [data]);
+  const byCid = useMemo(() => new Map(nodes.map((n) => [n.cid, n])), [nodes]);
+  const { pos, loose, height } = useMemo(() => layoutGraph(nodes, edges), [nodes, edges]);
+  const degree = useMemo(() => {
+    const d = new Map<string, { in: number; out: number }>();
+    const bump = (cid: string, side: "in" | "out") => {
+      const e = d.get(cid) || { in: 0, out: 0 };
+      e[side]++; d.set(cid, e);
+    };
+    edges.forEach((e) => { bump(e.from, "out"); bump(e.to, "in"); });
+    return d;
+  }, [edges]);
+
+  const focus = hover ? byCid.get(hover) : null;
+  const externals = nodes.filter((n) => n.external).length;
+
+  return (
+    <div className="panel">
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 10 }}>
+        <h2 className="panel-title" style={{ margin: 0 }}>CID graph</h2>
+        <div className="row">
+          <div className="sort-seg">
+            <button className={`seg ${scope === "mine" ? "active" : ""}`} onClick={() => setScope("mine")}>mine</button>
+            <button className={`seg ${scope === "all" ? "active" : ""}`} onClick={() => setScope("all")} title="Include objects shared with you">+ shared</button>
+            <button className={`seg ${showLoose ? "active" : ""}`} onClick={() => setShowLoose((v) => !v)} title="Also show objects with no links">
+              unlinked
+            </button>
+          </div>
+          <button onClick={rescan} disabled={scanning} title="Re-read your objects and re-derive their links">
+            {scanning ? "scanning…" : "↻ rescan"}
+          </button>
+        </div>
+      </div>
+      <p className="muted hint" style={{ marginTop: 0 }}>
+        An edge means one object’s content contains another CID — a manifest pointing at what it was built from.
+        Dashed nodes are CIDs referenced but not stored here.
+      </p>
+
+      {!data && <p className="muted">loading…</p>}
+      {data && (
+        <>
+          <div className="row cg-stats">
+            <span className="pill">{data.total_objects} objects</span>
+            <span className="pill">{edges.length} links</span>
+            <span className="pill">{data.linked} linked</span>
+            {externals > 0 && <span className="pill">{externals} external</span>}
+          </div>
+
+          {edges.length === 0 && (
+            <p className="muted" style={{ marginTop: 14 }}>
+              Nothing references anything yet. Links are detected when you upload — hit <strong>rescan</strong> to
+              re-read objects stored before that, or ones whose targets arrived later.
+            </p>
+          )}
+
+          {(edges.length > 0 || showLoose) && (
+            <div className="cg-wrap">
+              <svg className="cg-svg" viewBox={`0 0 ${GW} ${height}`} width="100%">
+                <defs>
+                  <marker id="cg-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M0,0 L8,4 L0,8 z" className="cg-arrow-head" />
+                  </marker>
+                </defs>
+                {edges.map((e) => {
+                  const a = pos.get(e.from), b = pos.get(e.to);
+                  if (!a || !b) return null;
+                  const lit = hover === e.from || hover === e.to;
+                  const bn = byCid.get(e.to);
+                  const r = bn ? nodeRadius(bn) + 5 : 10;
+                  const d = Math.max(Math.hypot(b.x - a.x, b.y - a.y), 0.01);
+                  return (
+                    <line
+                      key={`${e.from}-${e.to}`}
+                      className={`cg-edge ${lit ? "lit" : ""}`}
+                      x1={a.x} y1={a.y}
+                      x2={b.x - ((b.x - a.x) / d) * r} y2={b.y - ((b.y - a.y) / d) * r}
+                      markerEnd="url(#cg-arrow)"
+                    />
+                  );
+                })}
+                {nodes.map((n) => {
+                  const p = pos.get(n.cid);
+                  if (!p) return null;
+                  const deg = degree.get(n.cid);
+                  const r = loose.has(n.cid) ? LOOSE_R : nodeRadius(n);
+                  return (
+                    <g
+                      key={n.cid}
+                      className={`cg-node ${n.external ? "external" : n.visibility === "private" ? "private" : "public"} ${hover === n.cid ? "lit" : ""}`}
+                      transform={`translate(${p.x},${p.y})`}
+                      onMouseEnter={() => setHover(n.cid)}
+                      onMouseLeave={() => setHover((h) => (h === n.cid ? null : h))}
+                      onClick={() => onInfo(n.cid)}
+                    >
+                      <circle r={r} />
+                      <title>{`${n.key || n.cid}\n${n.external ? "not stored here" : `${fmtBytes(n.size)} · uploaded ${fmtDate(n.timestamp)}`}\n${deg ? `${deg.out} out · ${deg.in} in` : ""}`}</title>
+                      {(hover === n.cid || (deg && deg.out + deg.in > 1)) && (
+                        <text className="cg-label" y={-r - 6}>{nodeLabel(n)}</text>
+                      )}
+                    </g>
+                  );
+                })}
+                {showLoose && loose.size > 0 && (
+                  <text className="cg-band" x={GW / 2} y={GH + 26}>
+                    {loose.size} unlinked object{loose.size === 1 ? "" : "s"}
+                  </text>
+                )}
+              </svg>
+
+              <div className={`cg-card ${focus ? "" : "empty"}`}>
+                {focus ? (
+                  <>
+                    <div className="row">
+                      {focus.external
+                        ? <span className="pill">external</span>
+                        : <span className={`pill ${focus.visibility === "private" ? "private" : "public"}`}>{focus.visibility === "private" ? "🔒 private" : "🌐 public"}</span>}
+                      {focus.backend && <span className={`pill ${focus.backend}`}>{focus.backend}</span>}
+                    </div>
+                    <strong className="cg-card-name" title={focus.key || focus.cid}>{nodeLabel(focus)}</strong>
+                    <span className="cid">{focus.cid}</span>
+                    <div className="info-grid" style={{ marginTop: 8 }}>
+                      <span className="muted">Uploaded</span>
+                      <span>{focus.external ? "— (not stored here)" : `${fmtDate(focus.timestamp)} · ${fmtAgo(focus.timestamp)}`}</span>
+                      <span className="muted">Size</span><span>{focus.external ? "—" : fmtBytes(focus.size)}</span>
+                      <span className="muted">Links</span>
+                      <span>{(degree.get(focus.cid)?.out ?? 0)} out · {(degree.get(focus.cid)?.in ?? 0)} in</span>
+                    </div>
+                    <button className="ghost" style={{ marginTop: 10 }} onClick={() => onInfo(focus.cid)}>open info</button>
+                  </>
+                ) : (
+                  <p className="muted">Hover a node for its details — click to open it.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

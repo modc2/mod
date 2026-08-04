@@ -3,24 +3,21 @@ import type { Metadata } from "next";
 import Header from "./components/Header";
 import TickerTape from "./components/TickerTape";
 import { WalletProvider } from "./lib/wallet";
+import { themeBootScript } from "./lib/themes";
 
 export const metadata: Metadata = {
   title: "Hyperliquid · Copy, Strats & Vaults",
   description: "Copy top traders by ROI, build community strats, and invest in vaults on Hyperliquid",
 };
 
-// Runs before first paint: apply the persisted theme (or OS preference) so
-// there is no flash of the wrong mode. Storage reads are try/caught — the
-// shared modc2 localStorage origin can be full or blocked.
-const THEME_INIT = `(function(){var t;try{t=localStorage.getItem("hl.theme")}catch(e){}
-if(t!=="light"&&t!=="dark"){try{t=window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}catch(e){t="dark"}}
-document.documentElement.classList.add(t);})();`;
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    // Server-rendered as the Midnight default; the boot script below corrects
+    // both attributes for a saved theme before first paint, which is why the
+    // hydration warning is suppressed here.
+    <html lang="en" data-theme="dark" data-base="dark" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript() }} />
       </head>
       <body className="font-sans antialiased">
         <WalletProvider>

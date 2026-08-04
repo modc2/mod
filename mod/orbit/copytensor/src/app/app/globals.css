@@ -985,6 +985,52 @@ button, input, select, textarea {
 .pixel-panel-amber { border-color: var(--neon-amber); }
 .pixel-panel-red   { border-color: var(--neon-red); }
 
+/* ── The drawer ──────────────────────────────────────────────────────
+   Docked to the right edge or torn off as a window, it's the same
+   element — only the chrome changes, so a half-built basket survives
+   the trip. */
+
+/* The seam you drag to resize the docked drawer. */
+.drawer-grip {
+  width: 6px;
+  background: var(--border-strong);
+  cursor: col-resize;
+  transition: background 120ms;
+}
+.drawer-grip:hover  { background: var(--neon-cyan); }
+.drawer-grip:active { background: var(--pixel-white, #fff); }
+
+/* The tab rail. Doubles as the window's title bar. */
+.drawer-bar {
+  display: flex;
+  align-items: center;
+  /* Tabs and window caps wrap onto a second row rather than overflowing —
+     at 420px the five controls don't fit on one line. */
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.375rem 0.5rem;
+  border-bottom: 2px solid var(--border-strong);
+  background: var(--panel-from);
+}
+.drawer-bar-drag { cursor: grab; user-select: none; }
+.drawer-bar-drag:active { cursor: grabbing; }
+
+/* Popped out: a cabinet window floating over the board. */
+.drawer-win {
+  position: fixed;
+  z-index: 40;
+  border: 2px solid var(--border-strong);
+  background: var(--panel-from);
+  box-shadow: var(--panel-shadow), 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* The classic resize gripper, drawn in the bottom-right corner. */
+.drawer-corner {
+  background:
+    linear-gradient(135deg, transparent 45%, var(--border-strong) 45%, var(--border-strong) 55%, transparent 55%),
+    linear-gradient(135deg, transparent 70%, var(--border-strong) 70%, var(--border-strong) 80%, transparent 80%);
+}
+
 /* Notched corners — the 8-bit way to soften a box without curving it.
    Applied only to hero surfaces; clip-path eats the drop shadow, so
    these trade depth for silhouette on purpose. */
@@ -996,6 +1042,106 @@ button, input, select, textarea {
     calc(100% - 4px) 100%, 4px 100%, 4px calc(100% - 4px), 0 calc(100% - 4px)
   );
   box-shadow: none !important;
+}
+
+/* ── The drawer, docked and popped out ───────────────────────────────
+   Same panel, two housings. Docked it's a column bolted to the right
+   edge; POP OUT tears it off into a window you can drag anywhere over
+   the board. The window is a plate on the same 8-bit rules as every
+   other surface — hard border, hard shadow, no curve — just lifted
+   further off the board (8px instead of 4) with a thin halo of the
+   accent, which is the only thing that says "this is floating".
+
+   The resize gutter between board and drawer. Grip notches sit in the
+   middle of the strip so it reads as something you pull, and the whole
+   strip lights up in the accent while you're pulling it. */
+.drawer-grip {
+  width: 8px;
+  cursor: col-resize;
+  border-left: 2px solid var(--border-strong);
+  background-color: var(--bg-elev);
+  background-image: repeating-linear-gradient(180deg,
+    var(--fg-dim) 0 2px, transparent 2px 8px);
+  /* A 2px dotted column down the middle of the strip. It runs the WHOLE
+     height on purpose: docked, the drawer is as tall as the page, so a
+     centred patch of notches would sit thousands of pixels below the fold. */
+  background-size: 2px 100%;
+  background-position: center top;
+  background-repeat: no-repeat;
+  transition: background-color 0.08s steps(2, end);
+}
+.drawer-grip:hover { background-color: var(--btn-bg-hover); }
+.drawer-grip:active { background-color: var(--accent); }
+
+.drawer-win {
+  position: fixed;
+  z-index: 40;
+  border: 2px solid var(--border-strong);
+  background: var(--panel-from);
+  box-shadow:
+    inset 2px 2px 0 rgba(255, 255, 255, 0.06),
+    8px 8px 0 var(--shadow-hard),
+    0 0 26px rgb(var(--accent-rgb) / 0.20);
+}
+[data-base="light"] .drawer-win {
+  box-shadow: 8px 8px 0 var(--shadow-hard);
+}
+
+/* Title bar / tab rail. Lit band, same marquee treatment as .page-head
+   so the window announces itself as part of the cabinet, with the
+   stacked bars in the gutter doubling as the thing you grab. */
+.drawer-bar {
+  display: flex;
+  align-items: center;
+  /* Two tabs and four caps do not fit across a 420px drawer — the rail
+     wraps onto a second line rather than pushing the close cap off the
+     edge, which is exactly what it did before. */
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: none;
+  padding: 6px 8px;
+  border-bottom: 2px solid var(--border-strong);
+  background:
+    linear-gradient(180deg, rgb(var(--accent-rgb) / 0.16) 0%, transparent 100%),
+    var(--bg);
+}
+[data-base="light"] .drawer-bar {
+  background:
+    linear-gradient(180deg, rgb(var(--accent-rgb) / 0.12) 0%, transparent 100%),
+    var(--bg);
+}
+.drawer-bar::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  align-self: stretch;
+  margin-right: 2px;
+  background: repeating-linear-gradient(180deg,
+    var(--accent) 0 4px, transparent 4px 8px);
+}
+.drawer-bar button { white-space: nowrap; }
+.drawer-bar-drag { cursor: move; }
+/* The tab rail sitting under a title bar: no second marquee gutter, and a
+   flatter field so the lit band above it stays the top of the window. */
+.drawer-bar-sub {
+  background: var(--bg-elev);
+}
+.drawer-bar-sub::before { display: none; }
+.drawer-title {
+  font-family: 'Silkscreen', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg);
+  padding: 0 4px;
+}
+
+/* The corner you pull the window bigger by: a hatched tab, like the
+   grip moulded into the bottom-right of a plastic dialog. */
+.drawer-corner {
+  background: repeating-linear-gradient(135deg,
+    var(--fg-dim) 0 2px, transparent 2px 5px);
 }
 
 /* ── Progress / meters ───────────────────────────────────────────────
@@ -1410,6 +1556,102 @@ button, input, select, textarea {
 .border-red-400\/40,    .border-red-400\/50     { border-color: var(--neon-red); }
 .border-amber-400\/40                          { border-color: var(--neon-amber); }
 .border-pixel-white\/10 { border-color: var(--border-strong); }
+
+/* ── Handheld ────────────────────────────────────────────────────────
+   The cabinet, shrunk to a pocket console. Two rules:
+
+   1. NOTHING may be wider than the glass. One 500px control rail in the
+      header used to push the layout viewport out to 659px, and the phone
+      answered by zooming the whole board to 59% — every number on the
+      screen was rendered at half its designed size. That's why the page
+      reads as "tiny", not the font sizes.
+   2. Chrome shrinks, CONTENT DOESN'T. The marquee, the tiles and the
+      standfirst all step down a size here; the numbers you came to read
+      stay where they are.
+   ──────────────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .arcade-title,
+  .page-head .arcade-title {
+    font-size: 16px;                 /* on Press Start's 8px grid */
+    text-shadow: 2px 2px 0 var(--neon-magenta);
+  }
+  .page-head-band { padding: 10px 12px; gap: 9px; }
+  .page-head-band::before { width: 4px; }
+
+  h1.font-display { font-size: 16px; }
+  h2.font-display,
+  h3.font-display { font-size: 14px; }
+  h2.font-display::before { width: 5px; height: 13px; margin-right: 7px; }
+
+  /* The scoreboard sits two-up on a phone; 40px numerals ellipsised
+     "3.76M τ" into "3.7…". */
+  .stat-tile { padding: 9px 11px 11px; }
+  .stat-tile-value { font-size: 30px; margin-top: 6px; }
+  .stat-tile-sub { font-size: 15px; }
+  .stat-tile-label { font-size: 10px; letter-spacing: 0.12em; }
+
+  .pixel-table th { padding: 8px 10px; }
+  .pixel-table td { padding: 9px 10px; }
+
+  /* The horizon grid and the tube vignette are the two effects that cost
+     the most contrast, and a phone is the screen most likely to be read
+     in daylight. Keep the grille, drop the haze. */
+  body::after { opacity: calc(var(--grid-alpha) * 0.4); }
+}
+
+/* A finger is not a mouse pointer: every cap on a handheld gets a hit box
+   you can actually land on. Scoped to small screens so a touch-capable
+   desktop doesn't get 40px COPY buttons in its table rows. */
+@media (pointer: coarse) and (max-width: 1023px) {
+  .pixel-btn { min-height: 40px; padding-left: 12px; padding-right: 12px; }
+  .pixel-btn.topbar-ctl { height: 40px; }
+  .pixel-input-sm { padding: 10px; }
+  .skin-menu__item { padding: 11px 8px; }
+}
+
+/* Pill rows that would wrap into three ragged lines — window pickers, sort
+   keys, nav tabs — run as one sideways strip instead. Bleeds to the edge of
+   the board so the cut-off chip reads as "there's more", not as clipping. */
+.rail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.rail > * { flex: none; }
+
+/* Stacked key/value rows — the phone's answer to a nine-column table.
+   Same plate, same hard edges; the columns just become lines. */
+.row-card {
+  border: 2px solid var(--border-strong);
+  background: var(--panel-from);
+  box-shadow: var(--panel-shadow);
+  padding: 10px 12px;
+}
+.row-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+.row-card-k {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  line-height: 1.4;
+}
+.row-card-v {
+  font-family: 'VT323', monospace;
+  font-size: 19px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Light mode: same five hues, already driven down in the token block.
    Only the weight bump is needed — a bitmap face at 400 on paper reads

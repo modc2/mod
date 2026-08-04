@@ -18,6 +18,7 @@ import {
   NoSymbolIcon,
 } from '@heroicons/react/24/outline'
 import { Shell, NetworkSelect, RefreshBtn } from '../components/Shell'
+import { HostStats } from '../components/HostStats'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -530,6 +531,11 @@ function AdminInner() {
             Hand the protocol to a Safe by transferring each contract's ownership to the Safe address. Afterwards, use <span className="text-teal-300/80">Queue</span> on any action and export a Safe batch — the multisig signers execute it from the Safe UI.
           </p>
         </Card>
+      </div>
+
+      {/* ═══ Host readout — renders only for owner wallets ═══ */}
+      <div className="fade-up" style={{ '--i': 5 } as any}>
+        <HostStats network={network} />
       </div>
 
       {/* ═══ Safe batch cart ═══ */}

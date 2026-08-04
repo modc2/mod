@@ -1,15 +1,24 @@
 {
     "name": "prefi",
-    "description": "Trading protocol on Base \u2014 profit to treasury, earn PREFI, stake for weekly claims",
+    "description": "Trading protocol on Base — profit to treasury, earn PREFI, stake for weekly claims",
+    "anchor": "mod.py",
     "network": "baseSepolia",
+    "port": 50410,
+    "app_port": 50411,
+    "gateway_port": 50411,
+    "route": true,
     "urls": {
-        "api": "http://localhost:8830",
-        "app": "http://localhost:8831"
+        "api": "http://localhost:50410",
+        "app": "http://localhost:50411"
     },
     "contracts": {},
     "fns": [
-        "serve"
+        "serve",
+        "serve_api",
+        "serve_app",
+        "kill",
+        "health",
+        "status"
     ],
-    "schema": "QmeT3WYLoFicjPzXEfVJk9m9dZryiWhKXGcedTSQ4fLxn8",
-    "gateway_port": 8831
+    "schema": "QmeT3WYLoFicjPzXEfVJk9m9dZryiWhKXGcedTSQ4fLxn8"
 }

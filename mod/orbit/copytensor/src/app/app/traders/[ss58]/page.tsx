@@ -15,12 +15,14 @@ import PnlBadge from "../../components/PnlBadge";
 import PnlCurve from "../../components/PnlCurve";
 import SubnetPositions from "../../components/SubnetPositions";
 import { useCurrency, fmtValue } from "../../context/CurrencyContext";
+import { useSidebar } from "../../context/SidebarContext";
 
 const WINDOWS = [1, 3, 7, 14, 30];
 
 export default function TraderPage() {
   const { ss58 } = useParams<{ ss58: string }>();
   const { currency, usdPerTao } = useCurrency();
+  const { openStrat } = useSidebar();
   const [days, setDays] = useState(7);
   const [account, setAccount] = useState<AccountData | null>(null);
   const [pnl, setPnl] = useState<PnlData | null>(null);
@@ -92,12 +94,13 @@ export default function TraderPage() {
           >
             {watched ? "★ WATCHED" : "+ WATCH"}
           </button>
-          <Link
-            href={`/strats?target=${ss58}`}
-            className="pixel-btn text-[11px] border-green-400 text-green-400 no-underline"
+          <button
+            onClick={() => openStrat(ss58)}
+            title="Add to the strat maker's basket"
+            className="pixel-btn text-[11px] border-green-400 text-green-400"
           >
             COPY
-          </Link>
+          </button>
         </div>
       </header>
 

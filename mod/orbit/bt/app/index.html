@@ -851,7 +851,8 @@ function sparkSVG(pts, dir, w=110, h=30) {
 })();
 
 /* ---------- stats ---------- */
-let SYNC_AT = null;   // unix seconds of the newest indexer snapshot
+let SYNC_AT = null;      // unix seconds of the newest indexer snapshot
+let SYNC_BLOCK = null;   // chain block that snapshot was read at
 
 function agoText(sec) {
   if (sec < 5) return 'just now';
@@ -872,15 +873,17 @@ function renderSync() {
   const age = Math.max(0, Math.floor(Date.now() / 1000) - SYNC_AT);
   const clock = new Date(SYNC_AT * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
   el.className = 'synced' + (age > 900 ? ' dead' : age > 300 ? ' stale' : '');
-  el.title = 'Local indexer snapshot · ' + new Date(SYNC_AT * 1000).toLocaleString();
-  el.querySelector('em').textContent = `last sync ${agoText(age)} · ${clock}`;
+  el.title = 'Local indexer snapshot · ' + new Date(SYNC_AT * 1000).toLocaleString()
+    + (SYNC_BLOCK ? ' · chain block ' + SYNC_BLOCK.toLocaleString() : '');
+  const at = SYNC_BLOCK ? `block #${SYNC_BLOCK.toLocaleString()}` : clock;
+  el.querySelector('em').textContent = `synced ${agoText(age)} · ${at}`;
 }
 
 async function loadStats() {
   try {
     const j = await call('bt_stats', {});
     const s = j.result;
-    if (s.updated_at) { SYNC_AT = s.updated_at; renderSync(); }
+    if (s.updated_at) { SYNC_AT = s.updated_at; SYNC_BLOCK = s.block || null; renderSync(); }
     if (s.warming) return;
     document.getElementById('stat-subnets').textContent = s.subnets || '—';
     document.getElementById('hud-coins').textContent = s.subnets || '∞';
@@ -963,7 +966,7 @@ async function loadScreener() {
     }
     SCREEN = res.rows || [];
     const age = res.age_sec;
-    if (res.updated_at) { SYNC_AT = res.updated_at; renderSync(); }
+    if (res.updated_at) { SYNC_AT = res.updated_at; SYNC_BLOCK = res.block || null; renderSync(); }
     document.getElementById('scr-updated').textContent =
       age != null ? `updated ${age < 90 ? age + 's' : Math.round(age / 60) + 'm'} ago` : '';
     renderScreener();

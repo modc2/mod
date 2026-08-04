@@ -302,6 +302,64 @@ def test_graph_hides_private_refs_from_non_owner(client):
     assert [l["cid"] for l in aowner["links"]["out"]] == [part_cid]
 
 
+def test_graph_endpoint_returns_nodes_and_edges(client):
+    """/graph is the whole picture at once: linked objects as nodes, the CIDs
+    their content embeds as edges, and unlinked objects only on request."""
+    part_cid = _upload(client, ALICE, content=b"part one", public=True)
+    _upload(client, ALICE, content=b"lonely", public=True)  # references nothing
+    manifest = ('{"parts": ["%s"]}' % part_cid).encode()
+    r = client.post("/put", headers=H(ALICE), files={"file": ("bundle.json", manifest)},
+                    data={"backend": "localfs", "public": "true"})
+    manifest_cid = r.json()["results"]["localfs"]["cid"]
+
+    g = client.get("/graph", headers=H(ALICE)).json()
+    assert g["edges"] == [{"from": manifest_cid, "to": part_cid, "created": g["edges"][0]["created"]}]
+    assert {n["cid"] for n in g["nodes"]} == {manifest_cid, part_cid}
+    assert g["total_objects"] == 3 and g["linked"] == 2
+    # Nodes carry the upload time so the graph can show when each landed.
+    assert all(n["timestamp"] for n in g["nodes"])
+
+    loose = client.get("/graph?isolated=true", headers=H(ALICE)).json()
+    assert len(loose["nodes"]) == 3
+
+
+def test_graph_records_cids_stored_elsewhere(client):
+    """The store is cid-agnostic: a reference to content it doesn't hold is
+    still an edge, surfaced as an external node."""
+    _accept_terms(client, ALICE)
+    foreign = "Qm" + "z" * 44
+    content = ('{"from": "%s"}' % foreign).encode()
+    r = client.post("/put", headers=H(ALICE), files={"file": ("m.json", content)},
+                    data={"backend": "localfs", "public": "true"})
+    assert r.json()["refs"] == [foreign]
+
+    g = client.get("/graph", headers=H(ALICE)).json()
+    ext = [n for n in g["nodes"] if n["external"]]
+    assert [n["cid"] for n in ext] == [foreign]
+    assert ext[0]["timestamp"] is None
+
+
+def test_graph_scan_rebuilds_links_for_older_objects(client):
+    """Refs are detected at upload time, so an object stored *before* its
+    target existed has no edge until a rescan re-reads it."""
+    manifest_cid = _upload(client, ALICE, content=b'{"parts": ["Qm' + b"y" * 44 + b'"]}')
+    assert len(client.get(f"/object?cid={manifest_cid}", headers=H(ALICE)).json()["links"]["out"]) == 1
+
+    # Wipe the recorded edge, as if the object predated ref detection.
+    import api.api as a_mod
+    a_mod.ACCESS.set_refs(manifest_cid, [])
+    assert client.get("/graph", headers=H(ALICE)).json()["edges"] == []
+
+    scan = client.post("/graph/scan", headers=H(ALICE)).json()
+    assert scan["scanned"] == 1 and scan["with_refs"] == 1 and scan["edges"] == 1
+    assert len(client.get("/graph", headers=H(ALICE)).json()["edges"]) == 1
+
+
+def test_graph_scan_all_is_admin_only(client):
+    _upload(client, BOB, content=b"hi")
+    assert client.post("/graph/scan?scope=all", headers=H(BOB)).status_code == 403
+
+
 def test_terms_gate_blocks_put_until_signed(client):
     """Storing requires a signed acceptance of the current terms (451)."""
     r = client.post("/put", headers=H(ALICE),

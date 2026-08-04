@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 
-class Skill:
+class Tool:
     description = "Compare two files or two strings and generate a unified diff. Shows exactly what changed."
 
     def forward(self, file_a: str = None, file_b: str = None,

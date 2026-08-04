@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 
-class Skill:
+class Tool:
     description = "Show directory tree with smart filtering. Skips node_modules, .git, __pycache__, etc."
 
     SKIP = {

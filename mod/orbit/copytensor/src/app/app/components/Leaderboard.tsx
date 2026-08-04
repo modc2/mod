@@ -11,6 +11,7 @@ import SubnetLogo from "./SubnetLogo";
 import StatTile from "./StatTile";
 import { useFilters, type SortKey } from "../context/FiltersContext";
 import { useCurrency, fmtValue } from "../context/CurrencyContext";
+import { useSidebar } from "../context/SidebarContext";
 
 const WINDOWS = [1, 3, 7, 14, 30];
 // Trader-pool sizes. Every step is real coldkeys ranked by on-chain stake;
@@ -21,6 +22,7 @@ export default function Leaderboard() {
   const { days, setDays, search, sortKey, sortDir, toggleSort, minSubnets,
           setMinSubnets, reloadKey, reload } = useFilters();
   const { currency, usdPerTao } = useCurrency();
+  const { openStrat } = useSidebar();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [subnets, setSubnets] = useState<Map<number, SubnetInfo>>(new Map());
   const [universe, setUniverse] = useState<Universe | null>(null);
@@ -172,6 +174,18 @@ export default function Leaderboard() {
             </span>
           )}
         </h2>
+
+        {/* A basket is the point of the board — take the slice you're looking
+            at straight into the builder instead of clicking COPY ten times. */}
+        {filtered.length > 1 && (
+          <button
+            onClick={() => openStrat(...filtered.slice(0, 10).map((e) => e.ss58))}
+            title="Open the strat maker with the top 10 rows shown"
+            className="pixel-btn text-[11px] px-2 py-1 text-green-400 border-green-400/40"
+          >
+            + INDEX TOP {Math.min(10, filtered.length)}
+          </button>
+        )}
 
         <div className="flex gap-1">
           {WINDOWS.map((w) => (
@@ -374,12 +388,13 @@ export default function Leaderboard() {
                       )}
                     </td>
                     <td>
-                      <Link
-                        href={`/strats?target=${e.ss58}`}
-                        className="pixel-btn text-[10px] px-2 py-0.5 text-green-400 border-green-400/40 no-underline"
+                      <button
+                        onClick={() => openStrat(e.ss58)}
+                        title="Add to the strat maker's basket"
+                        className="pixel-btn text-[10px] px-2 py-0.5 text-green-400 border-green-400/40"
                       >
                         COPY
-                      </Link>
+                      </button>
                     </td>
                   </tr>
                 );

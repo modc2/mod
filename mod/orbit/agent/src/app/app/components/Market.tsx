@@ -9,7 +9,7 @@ import type { LibItem, LibKind, LibAuth } from './Library'
 // The full Library is a page you go to; this is the same catalogue docked
 // beside the console so a run can be dressed without leaving it. Clicking a
 // row attaches it to the next run — prompt as system prompt, memory note and
-// installed skill as context, agent as the persona. The + in the header adds
+// installed tool doc as context, agent as the persona. The + in the header adds
 // to the market from here: an agent (this module's loop, or an external CLI
 // harness like Claude Code / Codex), a prompt, or a memory note.
 
@@ -19,8 +19,8 @@ const KINDS: Record<LibKind, { plural: string; glyph: string; dot: string; on: s
     on: 'bg-amber-400/10 border-amber-400/30',
     chip: 'bg-amber-400/10 border-amber-400/25 text-amber-300',
   },
-  skill: {
-    plural: 'Skills', glyph: '⌘', dot: 'bg-sky-400',
+  tool: {
+    plural: 'Tools', glyph: '⌘', dot: 'bg-sky-400',
     on: 'bg-sky-400/10 border-sky-400/30',
     chip: 'bg-sky-400/10 border-sky-400/25 text-sky-300',
   },
@@ -36,9 +36,9 @@ const KINDS: Record<LibKind, { plural: string; glyph: string; dot: string; on: s
   },
 }
 
-const KIND_ORDER: LibKind[] = ['prompt', 'skill', 'memory', 'agent']
+const KIND_ORDER: LibKind[] = ['prompt', 'tool', 'memory', 'agent']
 
-// what the rail can make on the spot — a skill is written from the internet
+// what the rail can make on the spot — a tool doc is written from the internet
 // (Discover) or uploaded, so it isn't in the make-one list. `upload` swaps the
 // form for a drop zone: a file (or a shared CID) can land as any kind, agents
 // included.
@@ -55,11 +55,11 @@ type Props = {
   activeAgent: string
   activePromptId?: string | null
   memSel: string[]
-  skillSel: string[]
+  toolSel: string[]
   onSelectAgent: (name: string) => void
   onSelectPrompt: (item: LibItem) => void
   onToggleMemory: (id: string) => void
-  onToggleSkill: (id: string) => void
+  onToggleTool: (id: string) => void
   // anything the rail can't do inline (install a published agent, edit, QR)
   // hands off to the full library page
   onOpenLibrary: () => void
@@ -72,8 +72,8 @@ type Props = {
 }
 
 export default function Market({
-  auth, host, activeAgent, activePromptId, memSel, skillSel,
-  onSelectAgent, onSelectPrompt, onToggleMemory, onToggleSkill,
+  auth, host, activeAgent, activePromptId, memSel, toolSel,
+  onSelectAgent, onSelectPrompt, onToggleMemory, onToggleTool,
   onOpenLibrary, onClose, onCreated, onSignIn, refreshKey = 0,
 }: Props) {
   const [items, setItems] = useState<LibItem[]>([])
@@ -147,7 +147,7 @@ export default function Market({
   const attached = (i: LibItem) =>
     i.kind === 'prompt' ? activePromptId === i.id
       : i.kind === 'memory' ? memSel.includes(i.id)
-      : i.kind === 'skill' ? skillSel.includes(i.id)
+      : i.kind === 'tool' ? toolSel.includes(i.id)
       : i.kind === 'agent' ? !activePromptId && activeAgent === i.name
       : false
 
@@ -156,7 +156,7 @@ export default function Market({
   const inlineUsable = (i: LibItem) =>
     i.kind === 'prompt' ? true
       : i.kind === 'memory' ? true
-      : i.kind === 'skill' ? !!i.external
+      : i.kind === 'tool' ? !!i.external
       : i.kind === 'agent' ? i.tags.includes('installed')
       : false
 
@@ -164,21 +164,21 @@ export default function Market({
     if (!inlineUsable(i)) { onOpenLibrary(); return }
     if (i.kind === 'prompt') onSelectPrompt(i)
     else if (i.kind === 'memory') onToggleMemory(i.id)
-    else if (i.kind === 'skill') onToggleSkill(i.id)
+    else if (i.kind === 'tool') onToggleTool(i.id)
     else if (i.kind === 'agent') onSelectAgent(i.name)
   }
 
   const useTitle = (i: LibItem) =>
     !inlineUsable(i)
       ? i.kind === 'agent' ? 'published agent — open the library to install it'
-        : 'built-in skill — always available to the agent'
+        : 'built-in tool — always available to the agent'
       : i.kind === 'prompt' ? 'Run with this as the system prompt'
       : i.kind === 'memory' ? 'Attach this note to the run context'
-      : i.kind === 'skill' ? 'Attach this skill document to the run context'
+      : i.kind === 'tool' ? 'Attach this tool document to the run context'
       : i.harness ? `Run the task on the ${i.harness} CLI installed on this host`
       : 'Run as this agent'
 
-  const attachedCount = memSel.length + skillSel.length + (activePromptId ? 1 : 0)
+  const attachedCount = memSel.length + toolSel.length + (activePromptId ? 1 : 0)
 
   // ── adding to the market from the rail ──────────────────────────────
   // Everything made here is filed under the wallet that made it, so the form
@@ -283,7 +283,7 @@ export default function Market({
           <div className="text-[9px] text-gray-600 uppercase tracking-wider">runs on</div>
           <div className="flex flex-wrap items-center gap-1">
             <button onClick={() => setHarness('')}
-              title="This module's own loop — its skills, your provider key, sandboxed per user"
+              title="This module's own loop — its tools, your provider key, sandboxed per user"
               className={`px-1.5 py-0.5 rounded-md text-[10px] border transition ${
                 harness === '' ? 'border-white/20 text-gray-200 bg-white/[0.06]' : 'border-white/[0.08] text-gray-500 hover:text-gray-300'
               }`}>

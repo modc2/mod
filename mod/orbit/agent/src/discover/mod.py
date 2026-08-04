@@ -1,8 +1,8 @@
 """
-discover - internet-wide skill aggregator
+discover - internet-wide tool aggregator
 
 Scans public registries for things an agent can learn: Claude/agent SKILL.md
-skills, MCP servers, and agent packages. Every source is a small adapter that
+documents, MCP servers, and agent packages. Every source is a small adapter that
 normalizes its results into one shape, so the console can search "pdf" once
 and see hits from GitHub, npm, the MCP registry, Glama, and curated
 awesome-lists side by side.
@@ -30,7 +30,7 @@ Usage:
     d.search("pdf")                        # scan every source
     d.search("postgres", sources=["mcp"])  # one platform
     d.detail("gh:anthropics/skills:skills/pdf")
-    d.skill_doc("gh:anthropics/skills:skills/pdf")   # installable markdown
+    d.tool_doc("gh:anthropics/skills:skills/pdf")    # installable markdown
 """
 import base64
 import hashlib
@@ -53,13 +53,13 @@ UA = "mod-agent-discover/1.0 (+https://github.com/mod)"
 # (the official skill repo, awesome-lists) cache far longer than search.
 
 SOURCES: List[Dict[str, Any]] = [
-    {"id": "github", "label": "GitHub", "kind": "skill", "ttl": 900,
+    {"id": "github", "label": "GitHub", "kind": "tool", "ttl": 900,
      "about": "Repo search for skill repositories"},
-    {"id": "topics", "label": "GitHub Topics", "kind": "skill", "ttl": 900,
+    {"id": "topics", "label": "GitHub Topics", "kind": "tool", "ttl": 900,
      "about": "Repos tagged claude-skill / agent-skill / claude-code-skill"},
-    {"id": "anthropic", "label": "Anthropic", "kind": "skill", "ttl": 21600,
+    {"id": "anthropic", "label": "Anthropic", "kind": "tool", "ttl": 21600,
      "about": "The official anthropics/skills catalog"},
-    {"id": "awesome", "label": "Awesome Lists", "kind": "skill", "ttl": 21600,
+    {"id": "awesome", "label": "Awesome Lists", "kind": "tool", "ttl": 21600,
      "about": "Curated community indexes of skills and MCP servers"},
     {"id": "npm", "label": "npm", "kind": "package", "ttl": 1800,
      "about": "npm packages: MCP servers and skill installers"},
@@ -74,7 +74,7 @@ SOURCE_IDS = [s["id"] for s in SOURCES]
 # curated awesome-lists: (raw markdown url, kind, label)
 AWESOME_LISTS = [
     ("https://raw.githubusercontent.com/ComposioHQ/awesome-claude-skills/master/README.md",
-     "skill", "awesome-claude-skills"),
+     "tool", "awesome-claude-skills"),
     ("https://raw.githubusercontent.com/wong2/awesome-mcp-servers/main/README.md",
      "mcp", "awesome-mcp-servers"),
     ("https://raw.githubusercontent.com/punkpeye/awesome-mcp-servers/main/README.md",
@@ -145,7 +145,7 @@ def parse_frontmatter(md: str) -> Dict[str, Any]:
 
 
 class Discover:
-    description = "Scan public registries for agent skills, MCP servers, and packages"
+    description = "Scan public registries for agent tool docs, MCP servers, and packages"
 
     def __init__(self, dir: str = None, timeout: int = 12):
         self.dir = Path(dir) if dir else Path.home() / '.mod' / 'agent' / 'discover'
@@ -272,7 +272,7 @@ class Discover:
     #   {id, source, kind, name, title, description, url, repo, author,
     #    stars, license, tags, updated, installable, install}
 
-    def _gh_item(self, repo: Dict, path: str = None, kind: str = "skill",
+    def _gh_item(self, repo: Dict, path: str = None, kind: str = "tool",
                  source: str = "github") -> Dict:
         full = repo.get("full_name") or ""
         return {
@@ -413,7 +413,7 @@ class Discover:
             links = pkg.get("links", {}) or {}
             repo = links.get("repository") or ""
             kws = pkg.get("keywords") or []
-            kind = "skill" if any("skill" in str(k) for k in kws) else "mcp" \
+            kind = "tool" if any("skill" in str(k) for k in kws) else "mcp" \
                 if any("mcp" in str(k) for k in kws) else "package"
             out.append({
                 "id": f"npm:{pkg.get('name')}", "source": "npm", "kind": kind,
@@ -522,7 +522,7 @@ class Discover:
             s -= 6.0
         s += min(math.log10(1 + (item.get("stars") or 0)) * 0.7, 3.0)
         s += min(math.log10(1 + (item.get("downloads") or 0)) * 0.3, 1.5)
-        if item.get("kind") == "skill":
+        if item.get("kind") == "tool":
             s += 1.5
         if not item.get("description"):
             s -= 1.0
@@ -638,7 +638,7 @@ class Discover:
                 return None
         return None
 
-    def find_skills(self, repo: str, path: str = None) -> List[Dict]:
+    def find_docs(self, repo: str, path: str = None) -> List[Dict]:
         """Locate SKILL.md files in a repo: at `path`, at the root, or one
         level down under skills/ (the common multi-skill layout)."""
         found: List[Dict] = []
@@ -666,7 +666,7 @@ class Discover:
         return found[:40]
 
     def detail(self, id: str) -> Dict:
-        """Full record for one result, including installable skill paths."""
+        """Full record for one result, including installable doc paths."""
         cached = self.cache_get(f"detail:{id}", 3600)
         if cached is not None:
             return cached
@@ -675,7 +675,7 @@ class Discover:
         if kind == "gh":
             repo = self._get(f"https://api.github.com/repos/{ref}", gh=True)
             out = self._gh_item(repo, path=path)
-            out["skills"] = self.find_skills(ref, path)
+            out["docs"] = self.find_docs(ref, path)
             out["readme"] = (self._gh_file(ref, "README.md") or "")[:8000]
             out["topics"] = repo.get("topics") or []
             out["forks"] = repo.get("forks_count")
@@ -711,13 +711,13 @@ class Discover:
             if out.get("repo") and "github.com" in out["repo"]:
                 slug = _norm_repo(out["repo"]).replace("github.com/", "")
                 out["readme"] = (self._gh_file(slug, "README.md") or "")[:8000]
-                out["skills"] = self.find_skills(slug)
+                out["docs"] = self.find_docs(slug)
         else:
             raise KeyError(f"cannot resolve id: {id}")
         self.cache_put(f"detail:{id}", out)
         return out
 
-    def skill_doc(self, id: str, path: str = None) -> Dict:
+    def tool_doc(self, id: str, path: str = None) -> Dict:
         """Build the installable document for a result.
 
         Real SKILL.md content when the source has one; otherwise a reference
@@ -732,7 +732,7 @@ class Discover:
             if path and not path.endswith(".md"):
                 candidates = [f"{path.rstrip('/')}/SKILL.md"]
             if not candidates:
-                candidates = [s["path"] for s in self.find_skills(ref)] or ["README.md"]
+                candidates = [s["path"] for s in self.find_docs(ref)] or ["README.md"]
             for cand in candidates[:6]:
                 md = self._gh_file(ref, cand)
                 if not md:
@@ -751,7 +751,7 @@ class Discover:
                     "tags": ["github"] + ([str(t) for t in fm.get("tags", [])][:6]
                                           if isinstance(fm.get("tags"), list) else []),
                     "source": "github", "url": url, "origin_id": id,
-                    "kind": "skill",
+                    "kind": "tool",
                     "license": fm.get("license"),
                 }
             raise KeyError(f"no SKILL.md or README.md found in {ref}")
@@ -800,7 +800,7 @@ class Discover:
         if action == "detail":
             return self.detail(kwargs.get("id", ""))
         if action == "doc":
-            return self.skill_doc(kwargs.get("id", ""), kwargs.get("path"))
+            return self.tool_doc(kwargs.get("id", ""), kwargs.get("path"))
         if action == "token":
             return self.set_token(kwargs.get("token", ""))
         if action == "clear_cache":
@@ -840,7 +840,7 @@ class Discover:
 
             # ranking prefers name hits and stars
             hi = dc._score({"source": "github", "name": "pdf tools",
-                            "description": "x", "stars": 900, "kind": "skill"}, "pdf")
+                            "description": "x", "stars": 900, "kind": "tool"}, "pdf")
             lo = dc._score({"source": "npm", "name": "other",
                             "description": "y", "kind": "package"}, "pdf")
             assert hi > lo
@@ -859,7 +859,7 @@ class Discover:
 
             # merge keeps one card per repo and records the other sources
             dc.src_github = lambda q, l: [{"id": "gh:a/b", "source": "github",
-                                           "kind": "skill", "name": "b",
+                                           "kind": "tool", "name": "b",
                                            "description": "", "repo": "https://github.com/a/b",
                                            "stars": 5}]
             dc.src_npm = lambda q, l: [{"id": "npm:b", "source": "npm", "kind": "package",

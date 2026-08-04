@@ -103,6 +103,13 @@ def _t_object_info(args, auth):
     return store_api.object_info(cid=_req(args, 'cid'), authorization=auth)
 
 
+def _t_graph(args, auth):
+    return store_api.graph(scope=args.get('scope') or 'mine',
+                           isolated=bool(args.get('isolated')),
+                           limit=int(args.get('limit') or 2000),
+                           authorization=auth)
+
+
 async def _t_put_text(args, auth):
     # Reuse the real /put path (terms gate, quota, semantic hash, ACL,
     # CID-ref graph) by feeding the text through an in-memory UploadFile.
@@ -220,6 +227,19 @@ TOOLS = {
             'cid': {'type': 'string', 'description': 'object CID'},
         }, 'required': ['cid']},
         'handler': _t_object_info,
+    },
+    'store_graph': {
+        'description': 'The whole CID graph the caller can see: nodes are '
+                       'objects (with key, size and upload time), edges point '
+                       "from an object to the CIDs its content embeds. CIDs "
+                       'this store does not hold come back as external nodes. '
+                       'isolated=true also returns unlinked objects. Requires auth.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'scope': {'type': 'string', 'enum': ['mine', 'all'], 'description': "'all' also includes objects shared with the caller"},
+            'isolated': {'type': 'boolean', 'description': 'include objects with no links (default false)'},
+            'limit': {'type': 'integer', 'description': 'max objects to consider (default 2000)'},
+        }},
+        'handler': _t_graph,
     },
     'store_put_text': {
         'description': 'Store a text or JSON payload as a content-addressed '

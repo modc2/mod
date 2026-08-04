@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any
 
-class Skill:
+class Tool:
     description = "Write content to a file, creating directories as needed"
 
     def forward(self, file_path: str, content: str, **kwargs) -> Dict[str, Any]:
@@ -18,7 +18,7 @@ class Skill:
 
     def test(self):
         import tempfile
-        p = os.path.join(tempfile.gettempdir(), "skill_write_test.txt")
+        p = os.path.join(tempfile.gettempdir(), "tool_write_test.txt")
         r = self.forward(p, "hello")
         assert r["success"]
         os.unlink(p)

@@ -23,13 +23,21 @@ Flow:
   4. Save a design (private)           — save_design(...)
   5. Publish / copy-remix / city       — publish_design / copy_design / save_city
 
+Agents skip straight to the text rail: agent_spec() hands over the whole
+vocabulary, build("a 2-bed Toronto laneway house with a roof garden") returns
+a placed, priced, code-checked building, and edit(design_id, "add a bedroom,
+make it japandi") changes one. Both report what they understood, what they
+assumed and what still fails compliance — see skill.md.
+
 Storage: ~/.modcity/{designs.json, cities.json, bricks.json}
 Built-in catalog + styles are seeded in-code so the protocol is
 self-describing and reproducible on any node.
 """
 
 import json
+import math
 import os
+import re
 import time
 import hashlib
 from pathlib import Path
@@ -391,6 +399,143 @@ LANEWAY_TEMPLATES = [
          {"x": 0, "z": 2, "stack": ["garden"]}, {"x": 1, "z": 2, "stack": ["garden"]},
      ]},
 ]
+
+
+# ━━ Agent rail — plain English in, buildings out ━━━━━━━━━━━━━━━━━━━
+# An autonomous agent drives ModCity with nothing but text: build() turns a
+# brief into a placed, priced, code-checked building; edit() turns an
+# instruction into edits on one that already exists. Both parse down to the
+# same deterministic op list, and nothing on this path calls an LLM — the
+# agent IS the language model, so this side stays reproducible and free.
+
+_NUM_WORDS = {'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+              'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+              'single': 1, 'double': 2, 'triple': 3, 'no': 0, 'zero': 0}
+
+# room words → catalog module id. Order matters: the specific patterns
+# ('bay window', 'garden suite'…) have to win before the generic ones.
+_ROOM_WORDS = [
+    (r'bay windows?', 'bay'),
+    (r'bed\s?rooms?|\bbeds?\b|\bbr\b|sleeping (?:rooms?|nooks?)', 'bedroom'),
+    (r'bath\s?rooms?|\bbaths?\b|washrooms?|\bwcs?\b|wet cores?|ensuites?|powder rooms?', 'bath'),
+    (r'kitchens?|galleys?', 'kitchen'),
+    (r'living (?:rooms?|halls?)?|lounges?|family rooms?|great rooms?', 'living'),
+    (r'offices?|stud(?:y|ies)|workspaces?|work pods?|home ?offices?', 'office'),
+    (r'studios?|micro[- ]?homes?|bachelors?', 'studio'),
+    (r'atriums?|atria|double[- ]height|light ?wells?', 'atrium'),
+    (r'stairs?|staircases?|stair cores?', 'stair'),
+    (r'solar|\bpv\b|net[- ]?(?:zero|positive)', 'solar'),
+    (r'gardens?(?!\s+suite)|terraces?|decks?|green roofs?|roof ?tops?|patios?', 'garden'),
+    (r'mezzanines?|lofts?', 'mezz'),
+    (r'retail|shops?|stores?|caf[eé]s?|store ?fronts?|commercial', 'retail'),
+    (r'stoops?', 'stoop'),
+    (r'parlou?rs?', 'parlor'),
+    (r'cornices?', 'cornice'),
+]
+
+_STYLE_WORDS = [
+    (r'brownstones?|new york|\bnyc\b|harlem|brooklyn|manhattan', 'brownstone'),
+    (r'bauhaus|modernist', 'bauhaus'),
+    (r'brutalis[tm]|raw concrete|b[eé]ton brut', 'brutalist'),
+    (r'scandi\w*|nordic|hygge|swedish|danish', 'scandi'),
+    (r'japandi|japanese|wabi[- ]?sabi|\bzen\b', 'japandi'),
+    (r'mediterranean|greek|santorini|whitewash\w*', 'mediterranean'),
+    (r'neo[- ]?tokyo|cyberpunk|neon|blade runner', 'neotokyo'),
+    (r'adobe|desert|south ?west\w*|pueblo', 'adobe'),
+    (r'glass ?house|all[- ]glass|glass tower', 'glasshouse'),
+]
+
+# code words → laneway/ADU preset. 'garden suite' before 'toronto', and the
+# bare 'laneway/ADU' fallback last, so the most specific reading wins.
+_CODE_WORDS = [
+    (r'garden suites?', 'to_garden'),
+    (r'toronto|\bgta\b|ontario', 'to_laneway'),
+    (r'vancouver|british columbia', 'van_laneway'),
+    (r'cmhc|housing design catalogue|pre[- ]approved', 'cmhc_adu'),
+    (r'\bnbc\b|part 9|national building code', 'nbc_part9'),
+    (r'laneway|\badus?\b|accessory dwelling|backyard (?:home|suite|house)|coach house|carriage house', 'cmhc_adu'),
+]
+
+_SKIN_WORDS = [
+    (r'curtain walls?|all[- ]glass|unitis?ed|unitiz?ed', 'curtain_glass'),
+    (r'\bclt\b|mass timber|cross[- ]laminated', 'clt_solid'),
+    (r'\bsips?\b|structural insulated', 'sip_window'),
+    (r'precast|concrete panels?', 'precast_concrete'),
+    (r'louv(?:er|re)s?|screens?|shading', 'steel_louver'),
+    (r'charred timber|shou ?sugi|(?:timber|wood|board)[- ]clad\w*|board[- ]on[- ]board', 'timber_board'),
+]
+
+# Where a module wants to sit in the stack. 'core' = its own full-height column.
+_BAND_BY_CATEGORY = {'living': 'upper', 'work': 'upper', 'light': 'upper',
+                     'service': 'ground', 'commerce': 'ground', 'structure': 'ground',
+                     'roof': 'roof', 'outdoor': 'roof'}
+_BAND_OVERRIDE = {'stoop': 'ground', 'retail': 'ground', 'parlor': 'ground',
+                  'living': 'ground', 'studio': 'ground', 'kitchen': 'ground',
+                  'bath': 'ground', 'stair': 'core',
+                  'solar': 'roof', 'garden': 'roof', 'cornice': 'roof'}
+_ROOF_CAPS = ('solar', 'garden', 'cornice')
+
+# the order a program is laid out in: street level first, sleeping above, crown last
+_PROGRAM_ORDER = ['stoop', 'retail', 'parlor', 'living', 'kitchen', 'bath', 'studio',
+                  'bedroom', 'bay', 'mezz', 'office', 'atrium', 'stair',
+                  'solar', 'garden', 'cornice']
+
+# constraint keys an agent may set through text or ops (everything estimate() reads)
+_CONSTRAINT_KEYS = {
+    'code', 'skin', 'lot_w', 'lot_d', 'max_floors', 'max_budget', 'max_carbon_kg',
+    'min_occupancy', 'max_coverage_pct', 'max_fsr', 'plot_w_m', 'plot_d_m',
+    'setback_front_m', 'setback_rear_m', 'setback_side_m', 'site_built_cost_m2',
+    'soft_cost_pct', 'land_cost_usd', 'vacancy_pct', 'opex_pct',
+    'rent_per_m2_mo', 'monthly_rent_usd',
+}
+
+_NUM_RE = r'\b(\d+|' + '|'.join(_NUM_WORDS) + r')\b'
+
+
+def _int(token, default=1):
+    """'3' / 'three' → 3."""
+    token = str(token or '').strip().lower()
+    if token.isdigit():
+        return int(token)
+    return _NUM_WORDS.get(token, default)
+
+
+def _bounded(pattern):
+    """Whole-word form of a vocabulary pattern — without this 'single-storey'
+    reads as a 'store' and the house grows a shopfront."""
+    return r'\b(?:' + pattern + r')\b'
+
+
+def _qty(text, pattern, default=1):
+    """How many of a thing the text asks for: '3 bedrooms' → 3, 'a bedroom' → 1."""
+    total = 0
+    for hit in re.finditer(_bounded(pattern), text):
+        head = text[max(0, hit.start() - 16):hit.start()]
+        num = re.search(_NUM_RE + r'[\s-]*$', head)
+        total += _int(num.group(1), default) if num else default
+    return total
+
+
+def _first(pairs, text):
+    """First id whose pattern appears in the text, else None."""
+    for pattern, value in pairs:
+        if re.search(_bounded(pattern), text):
+            return value
+    return None
+
+
+def _money(text):
+    """'$450k' / '450,000' / '1.2 million' → 450000.0 / 1200000.0, else None."""
+    hit = re.search(r'\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(k\b|m\b|thousand|million)?', text)
+    if not hit:
+        return None
+    value = float(hit.group(1).replace(',', ''))
+    unit = (hit.group(2) or '').strip()
+    if unit in ('k', 'thousand'):
+        value *= 1_000
+    elif unit in ('m', 'million'):
+        value *= 1_000_000
+    return value
 
 
 class Mod:
@@ -1566,7 +1711,751 @@ class Mod:
         self._save_designs(designs)
         return {'seeded': added, 'total_featured': len(SEED_DESIGNS) + len(LANEWAY_TEMPLATES)}
 
-    # ━━ Health / status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ━━ Agent rail: text → building → text-edited building ━━━━━━━━━
+    def agent_spec(self):
+        """Everything an agent needs to drive ModCity, in one call.
+
+        The vocabulary is the contract: these module ids, style ids, code ids
+        and ops are the only strings the other agent fns accept. Call this
+        first, then ``build`` — never guess an id."""
+        idx = self._spec_index()
+        return {
+            'module': 'modcity', 'protocol': 1,
+            'summary': 'Describe a building in plain English; get a placed, priced, '
+                       'code-checked modular design back. Then edit it by instruction.',
+            'quickstart': [
+                {'fn': 'build', 'params': {
+                    'brief': 'a 2-bedroom Toronto laneway house, scandi, roof garden and solar, under $400k',
+                    'owner': 'agent:<your-id>'},
+                 'note': 'one call: parses the brief, masses the building, prices it, '
+                         'checks the code envelope and saves it (private).'},
+                {'fn': 'edit', 'params': {'design_id': 'dsn_…',
+                                          'instruction': 'add a bedroom and an office, make it japandi'},
+                 'note': 'plain-English edit. Returns the ops it understood and any clause it did not.'},
+                {'fn': 'edit_design', 'params': {'design_id': 'dsn_…',
+                                                 'ops': [{'op': 'add', 'module': 'bath'},
+                                                         {'op': 'constraint', 'key': 'max_budget', 'value': 500000}]},
+                 'note': 'the same edits as an exact op list, when you do not want text parsed.'},
+                {'fn': 'audit', 'params': {'design_id': 'dsn_…', 'provider': 'rules'},
+                 'note': 'plan-examiner review. provider="rules" is offline and always available.'},
+                {'fn': 'publish_design', 'params': {'design_id': 'dsn_…', 'public': True},
+                 'note': 'designs are PRIVATE until you publish them.'},
+            ],
+            'workflow': [
+                'build(brief=…, owner=…)  → design_id + stats + compliance + advice',
+                'read stats.compliance: every rule is {value, limit, ok}; fix what is not ok',
+                'edit(design_id, instruction=…) until compliance.ok is true',
+                'audit(design_id) for the plan-examiner read, export_design(design_id) for the CID',
+            ],
+            'cell_schema': {
+                'cells': "[{'x': int, 'z': int, 'stack': [module_id, …]}]",
+                'note': 'x/z are grid columns (3 m each), stack is bottom→top; '
+                        'one stack entry = one 3 m storey. Stacks are contiguous from the ground.',
+            },
+            'vocabulary': {
+                'modules': [{'id': s['id'], 'name': s['name'], 'category': s['category'],
+                             'band': self._band(s['id'], s)} for s in idx.values()],
+                'styles': [s['id'] for s in STYLES],
+                'codes': [{'id': c['id'], 'name': c['name'], 'region': c['region']}
+                          for c in LANEWAY_CODES],
+                'skins': [p['id'] for p in self._panel_index().values()],
+                'constraints': sorted(_CONSTRAINT_KEYS),
+                'ops': ['add', 'remove', 'place', 'clear', 'style', 'floors', 'add_floor',
+                        'rename', 'describe', 'constraint', 'publish'],
+            },
+            'rules': [
+                'owner is your identity string — you can only edit/delete designs you own.',
+                'designs are private by default; publish_design makes one public.',
+                'compliance is advisory massing guidance, not a stamped approval.',
+                'unknown module/style/code ids are rejected, never silently ignored.',
+            ],
+        }
+
+    def _band(self, module_id, spec=None):
+        """Where a module wants to sit: 'ground', 'upper', 'roof' or 'core'."""
+        if module_id in _BAND_OVERRIDE:
+            return _BAND_OVERRIDE[module_id]
+        spec = spec or self._spec_index().get(module_id) or {}
+        return _BAND_BY_CATEGORY.get(spec.get('category'), 'upper')
+
+    # ── brief → program ──────────────────────────────────────────────
+    def parse_brief(self, brief: str = '', **overrides):
+        """Read a plain-English brief into a structured program.
+
+        Deterministic keyword parsing — no model call. Explicit keyword
+        arguments (``style``, ``floors``, ``bedrooms``…) always beat the text,
+        so an agent can mix prose with exact numbers. ``assumed`` lists every
+        value that was defaulted rather than asked for, so a caller can tell
+        what it actually got."""
+        text = ' ' + (brief or '').lower().strip() + ' '
+        assumed, matched = [], []
+
+        def given(key):
+            v = overrides.get(key)
+            return None if v in (None, '', []) else v
+
+        # rooms — every catalog word, plus any custom brick named outright
+        want = {}
+        for pattern, mid in _ROOM_WORDS:
+            n = _qty(text, pattern)
+            if n:
+                want[mid] = max(want.get(mid, 0), n)
+                matched.append(mid)
+        for b in self._load_bricks().values():
+            word = re.escape((b.get('name') or '').lower())
+            if word and re.search(r'\b' + word + r's?\b', text):
+                want[b['id']] = max(want.get(b['id'], 0), _qty(text, r'\b' + word + r's?\b'))
+                matched.append(b['id'])
+
+        style = given('style') or _first(_STYLE_WORDS, text)
+        if style and style not in _STYLE_INDEX:
+            return {'error': f'unknown style: {style}'}
+        code = given('code') or _first(_CODE_WORDS, text)
+        if code and code not in _CODE_INDEX:
+            return {'error': f'unknown code: {code}'}
+        if not style:
+            # a laneway/ADU brief reads as a backyard suite, not a row house
+            style = 'scandi' if code else _DEFAULT_STYLE
+            assumed.append('style')
+        skin = given('skin') or _first(_SKIN_WORDS, text)
+
+        beds = given('bedrooms')
+        beds = int(beds) if beds is not None else want.pop('bedroom', 0)
+        if not beds:
+            # "for a family of four", "sleeps 6" — two to a bedroom
+            hit = re.search(r'(?:family of|sleeps|houses|home for)\s+' + _NUM_RE +
+                            r'|' + _NUM_RE + r'[\s-]*(?:people|persons?|occupants)', text)
+            people = _int(hit.group(1) or hit.group(2), 0) if hit else 0
+            if people:
+                beds = math.ceil(people / 2)
+                assumed.append('bedrooms')
+        baths = given('bathrooms')
+        baths = int(baths) if baths is not None else want.pop('bath', 0)
+        if not baths:
+            baths = 1 if beds <= 2 else 2
+            assumed.append('bathrooms')
+
+        floors = given('floors')
+        if floors is None:
+            hit = re.search(_NUM_RE + r'[\s-]*(?:storey|story|storeys|stories|floors?|levels?)', text)
+            floors = _int(hit.group(1)) if hit else None
+            if re.search(r'bungalow|single[- ](?:storey|story|level)|one[- ]level|flat roof cottage', text):
+                floors = 1
+        if floors is None:
+            assumed.append('floors')
+        budget = None
+        hit = re.search(r'(?:budget|under|below|less than|no more than|max(?:imum)?(?: cost| spend)?|up to)[^.\d$]{0,12}(\$?\s*\d[\d,.]*\s*(?:k\b|m\b|thousand|million)?)', text)
+        if hit:
+            budget = _money(hit.group(1))
+
+        # a real parcel: "on a 10 by 30 m lot"
+        plot = None
+        hit = re.search(r'(\d+(?:\.\d+)?)\s*(?:m|metres?|meters?|ft|feet|foot|\')?\s*(?:x|by|×)\s*'
+                        r'(\d+(?:\.\d+)?)\s*(m\b|metres?|meters?|ft|feet|foot|\')?', text)
+        if hit and re.search(r'\blots?\b|\bparcels?\b|\bsites?\b|\byards?\b', text):
+            w, d = float(hit.group(1)), float(hit.group(2))
+            if (hit.group(3) or '').strip("' ") in ('ft', 'feet', 'foot') or "'" in (hit.group(3) or ''):
+                w, d = w * 0.3048, d * 0.3048
+            plot = {'plot_w_m': round(w, 2), 'plot_d_m': round(d, 2)}
+
+        name = given('name')
+        if not name:
+            hit = re.search(r'(?:called|named|title[d]?)\s+["\']?([^"\'.,;]{2,48})', text)
+            name = hit.group(1).strip() if hit else None
+
+        return {
+            'text': (brief or '').strip(), 'style': style, 'code': code, 'skin': skin,
+            'bedrooms': max(0, beds), 'bathrooms': max(0, baths), 'floors': floors,
+            'extra': want, 'max_budget': budget, 'plot': plot, 'name': name,
+            'matched': sorted(set(matched)), 'assumed': assumed,
+        }
+
+    def _program(self, b):
+        """A parsed brief → (ordered rooms, roof caps). One entry per module."""
+        brown = b['style'] == 'brownstone'
+        want = dict(b.get('extra') or {})
+        if b['bedrooms']:
+            want['bedroom'] = b['bedrooms']
+        want['bath'] = max(want.get('bath', 0), b['bathrooms'])
+        want.setdefault('kitchen', 1)
+        if b['bedrooms'] or want.get('living'):
+            want.setdefault('parlor' if brown else 'living', 1)
+        else:
+            want.setdefault('studio', 1)
+        if brown:
+            want.setdefault('stoop', 1)
+            want.setdefault('cornice', 1)
+        if (b['floors'] or 1) >= 2:
+            want.setdefault('stair', 1)
+
+        rooms, caps = [], []
+        order = _PROGRAM_ORDER + [k for k in want if k not in _PROGRAM_ORDER]
+        for mid in order:
+            for i in range(int(want.get(mid, 0))):
+                band = self._band(mid)
+                if mid == 'bath' and i > 0:
+                    band = 'upper'          # the first wet core lands at grade
+                if band == 'roof':
+                    caps.append(mid)
+                else:
+                    rooms.append((mid, band))
+        return rooms, caps
+
+    def _massing(self, rooms, caps, floors, constraints):
+        """Pack a room program into stacked 3 m columns.
+
+        Ground-band rooms take grade, upper-band rooms fill the levels above
+        (widest floor first, so a stack is always contiguous from the ground),
+        a stair runs its own full-height column when a grid cell is spare, and
+        roof caps crown the tallest columns."""
+        c = constraints or {}
+        max_w = (int(c['lot_w']) // 2 + 1) if c.get('lot_w') else 4
+        max_d = (int(c['lot_d']) // 2 + 1) if c.get('lot_d') else 4
+        ground = [r for r, band in rooms if band == 'ground']
+        upper = [r for r, band in rooms if band == 'upper']
+        core = [r for r, band in rooms if band == 'core']
+        queue = ground + upper
+        floors = max(1, int(floors or 1))
+        warnings = []
+
+        # a roof cap occupies the top level of a column, so it competes with the
+        # rooms for the floor budget — size the footprint for both at once
+        slots = len(queue) + len(caps)
+        need = max(len(ground), math.ceil(slots / floors)) + (1 if core else 0)
+        w = max(1, min(max_w, math.ceil(math.sqrt(need))))
+        d = max(1, min(max_d, math.ceil(need / w)))
+        positions = [(x, z) for z in range(d) for x in range(w)]
+
+        room_cols = max(1, min(len(positions) - (1 if core else 0),
+                               max(len(ground), math.ceil(slots / floors))))
+        stacks = [[] for _ in range(room_cols)]
+        for level in range(floors):
+            if not queue:
+                break
+            width = room_cols if level == 0 else \
+                max(1, min(room_cols, math.ceil(len(queue) / (floors - level))))
+            for i in range(width):
+                if not queue:
+                    break
+                stacks[i].append(queue.pop(0))
+        if queue:
+            warnings.append(f'{len(queue)} module(s) did not fit {room_cols} cell(s) × {floors} '
+                            f'floor(s) — stacked above the target height')
+            i = 0
+            while queue:
+                stacks[i % room_cols].append(queue.pop(0))
+                i += 1
+
+        stacks = [s for s in stacks if s]       # a column nobody filled is free ground
+        spare = len(positions) - len(stacks) - (1 if core else 0)
+        for cap in caps:
+            tallest = sorted(range(len(stacks)), key=lambda i: -len(stacks[i]))
+            open_top = [i for i in tallest if stacks[i] and stacks[i][-1] not in _ROOF_CAPS]
+            spot = next((i for i in open_top if len(stacks[i]) < floors), None)
+            if spot is not None:
+                stacks[spot].append(cap)
+            elif spare > 0:                     # set it on grade rather than overshoot
+                stacks.append([cap])
+                spare -= 1
+            elif open_top:
+                stacks[open_top[0]].append(cap)
+                warnings.append(f'{cap} roof pushes a column one level above the target height')
+            else:
+                warnings.append(f'no column left to crown with {cap}')
+                break
+
+        cells = [{'x': x, 'z': z, 'stack': s} for (x, z), s in zip(positions, stacks) if s]
+        if core:
+            if len(positions) > len(stacks):
+                x, z = positions[len(stacks)]
+                height = min(max((len(s) for s in stacks), default=floors), floors)
+                cells.append({'x': x, 'z': z, 'stack': ['stair'] * max(2, height)})
+            else:
+                warnings.append('no spare grid cell for a stair core — circulation sits inside the rooms')
+        return cells, warnings
+
+    def _constraints_from(self, b, extra=None):
+        """Brief + explicit constraints → the constraints dict estimate() reads."""
+        c = {k: v for k, v in (extra or {}).items() if k in _CONSTRAINT_KEYS}
+        if b.get('code'):
+            c.setdefault('code', b['code'])
+        if b.get('skin'):
+            c.setdefault('skin', b['skin'])
+        if b.get('max_budget'):
+            c.setdefault('max_budget', b['max_budget'])
+        for k, v in (b.get('plot') or {}).items():
+            c.setdefault(k, v)
+        rec = (_CODE_INDEX.get(c.get('code')) or {}).get('recommend') or {}
+        for k in ('lot_w', 'lot_d', 'max_floors'):
+            if rec.get(k):
+                c.setdefault(k, rec[k])
+        return c or None
+
+    _ADVICE = {
+        'budget': 'over budget — drop a module, or pick a cheaper style/skin (see panel_catalog)',
+        'floors': 'too tall for max_floors — spread the program over more grid cells',
+        'storeys': 'over the code storey cap — spread the program sideways',
+        'height_m': 'over the code height limit — remove a level',
+        'gfa': 'over the code floor-area cap — drop a module or split into two buildings',
+        'footprint': 'footprint over the code cap — stack higher instead of wider',
+        'lot': 'wider/deeper than the lot — raise lot_w/lot_d or stack higher',
+        'plot_fit': 'building exceeds the buildable rectangle after setbacks',
+        'coverage': 'site coverage over the limit — shrink the footprint',
+        'fsr': 'floor-space ratio over the limit — remove floor area',
+        'carbon': 'over the carbon cap — try a timber skin (clt_solid / timber_board)',
+        'occupancy': 'not enough sleeping modules — add a bedroom or studio',
+    }
+
+    def _advice(self, stats):
+        """Turn failed compliance rules into edit instructions an agent can run."""
+        out = []
+        for key, rule in (stats.get('compliance') or {}).items():
+            if key == 'ok' or not isinstance(rule, dict) or rule.get('ok', True):
+                continue
+            out.append(f"{key}: {rule.get('value')} vs limit {rule.get('limit')} — "
+                       f"{self._ADVICE.get(key, 'adjust the design')}")
+        if not stats.get('occupancy'):
+            out.append('no sleeping module — this building houses nobody; add a bedroom or studio')
+        return out
+
+    def build(self, brief: str = '', name: str = None, owner: str = '', style: str = None,
+              code: str = None, bedrooms: int = None, bathrooms: int = None,
+              floors: int = None, constraints: Dict[str, Any] = None,
+              description: str = None, public: bool = False, save: bool = True,
+              design_id: str = None):
+        """Build a house from a sentence.
+
+        ``build(brief="a 2-bed Toronto laneway house with a roof garden and
+        solar, scandi, under $400k")`` parses the brief, masses the building on
+        the 3 m grid, prices it, checks it against the code envelope and saves
+        it PRIVATE to ``owner``. Keyword args override anything the text says.
+        Set ``save=False`` for a dry run — same answer, nothing persisted."""
+        b = self.parse_brief(brief, style=style, code=code, bedrooms=bedrooms,
+                             bathrooms=bathrooms, floors=floors, name=name)
+        if 'error' in b:
+            return b
+        cons = self._constraints_from(b, constraints)
+        rooms, caps = self._program(b)
+        if not rooms:
+            return {'error': 'nothing to build — name at least one room, e.g. "a 2-bedroom house"'}
+
+        floors = b['floors'] or self._default_floors(b, rooms, caps)
+        cap = (cons or {}).get('max_floors') or (_CODE_INDEX.get((cons or {}).get('code')) or {}).get('max_storeys')
+        if cap:
+            floors = min(floors, int(cap))
+        if floors != b['floors']:
+            b['floors'] = floors             # a stacked house needs a stair core
+            rooms, caps = self._program(b)
+        cells, warnings = self._massing(rooms, caps, floors, cons)
+
+        title = b['name'] or name or self._auto_name(b)
+        note = description if description is not None else (b['text'][:280] or '')
+        if save:
+            rec = self.save_design(name=title, owner=owner, cells=cells, style=b['style'],
+                                   design_id=design_id, description=note, public=public,
+                                   constraints=cons)
+            if 'error' in rec:
+                return rec
+        else:
+            rec = self._hydrate_design({'id': None, 'name': title, 'owner': owner,
+                                        'description': note, 'style': b['style'], 'cells': cells,
+                                        'public': False, 'constraints': cons,
+                                        'created': int(time.time()), 'updated': int(time.time())})
+        return {'design_id': rec.get('id'), 'design': rec, 'brief': b, 'saved': bool(save),
+                'stats': rec['stats'], 'compliance': rec['stats'].get('compliance'),
+                'warnings': warnings, 'advice': self._advice(rec['stats'])}
+
+    # a house wants a house-shaped footprint — about four 3 m cells per floor.
+    # Anything the brief calls a tower is allowed to go up instead of out.
+    _CELLS_PER_FLOOR = 4
+
+    def _default_floors(self, b, rooms, caps):
+        """How tall to build when the brief never says. Roof caps count: a
+        solar roof or garden deck occupies the top level of its column."""
+        slots = len(rooms) + len(caps)
+        tall = bool(re.search(r'tower|spire|high[- ]?rise|apartment|condo|block',
+                              (b.get('text') or '').lower()))
+        return min(max(1, math.ceil(slots / self._CELLS_PER_FLOOR)), 6 if tall else 3)
+
+    def _auto_name(self, b):
+        """A readable name when the brief did not give one."""
+        beds = b['bedrooms']
+        kind = f"{beds}-Bed" if beds else 'Studio'
+        style = _STYLE_INDEX.get(b['style'], {}).get('name', '')
+        form = 'Laneway' if (b.get('code') or '').startswith(('to_', 'van_', 'cmhc')) else 'House'
+        return f"{kind} {style} {form}".strip()
+
+    # ── instruction → ops → building ─────────────────────────────────
+    def _clauses(self, text):
+        """Split an instruction into edit clauses, keeping an implied verb.
+
+        'add a bedroom and a bath, then make it japandi' → three clauses, the
+        second one inheriting 'add'."""
+        parts = [p.strip() for p in re.split(r'[;\n]|,\s*|\s+and then\s+|\s+then\s+|\s+and\s+|\s+also\s+',
+                                             text or '', flags=re.I) if p and p.strip()]
+        verb, out = '', []
+        for part in parts:
+            hit = re.match(r'(add|append|include|put|remove|delete|drop|take out|swap|change|make|set|'
+                           r'rename|call|publish|unpublish|clad|skin)\b', part, re.I)
+            if hit:
+                verb = hit.group(1).lower()
+            elif verb:
+                part = f'{verb} {part}'
+            out.append(part)
+        return out
+
+    def parse_instruction(self, instruction: str = ''):
+        """Plain-English edit → the op list ``edit_design`` runs.
+
+        Returns ``{'ops': [...], 'unparsed': [...]}`` — anything it could not
+        read comes back in ``unparsed`` rather than being silently dropped."""
+        ops, unparsed = [], []
+        for clause in self._clauses(instruction):
+            op = self._clause_op(clause)
+            if op:
+                ops.extend(op)
+            else:
+                unparsed.append(clause)
+        return {'ops': ops, 'unparsed': unparsed}
+
+    def _clause_op(self, original):
+        """One clause → zero or more ops. Matching is case-insensitive, but a
+        name the caller typed keeps the capitals they gave it."""
+        clause = original.lower()
+        removing = bool(re.match(r'(remove|delete|drop|take out)\b', clause))
+
+        hit = re.search(r'(?:rename|call)\s+(?:it\s+|this\s+)?(?:to\s+)?["\']?([^"\']{2,48})',
+                        original, re.I)
+        if hit:
+            return [{'op': 'rename', 'name': hit.group(1).strip()}]
+        if re.search(r'\bunpublish\b|\bmake it private\b|\bprivate\b', clause):
+            return [{'op': 'publish', 'public': False}]
+        if re.search(r'\bpublish\b|\bmake it public\b|\bshare it\b', clause):
+            return [{'op': 'publish', 'public': True}]
+
+        # floors — 'add a floor' vs 'make it 3 storeys'
+        if re.search(r'storey|story|storeys|stories|\bfloors?\b|\blevels?\b', clause):
+            hit = re.search(_NUM_RE + r'[\s-]*(?:storey|story|storeys|stories|floors?|levels?)', clause)
+            if re.match(r'(add|append|include|put)\b', clause) and not hit:
+                return [{'op': 'add_floor'}]
+            if hit:
+                n = _int(hit.group(1))
+                if re.match(r'(add|append|include|put)\b', clause):
+                    return [{'op': 'add_floor'} for _ in range(max(1, n))]
+                return [{'op': 'floors', 'floors': n}]
+
+        # constraints
+        hit = re.search(r'(?:budget|under|below|less than|no more than|max(?:imum)?(?: cost| spend)?|up to)'
+                        r'[^.\d$]{0,12}(\$?\s*\d[\d,.]*\s*(?:k\b|m\b|thousand|million)?)', clause)
+        if hit:
+            return [{'op': 'constraint', 'key': 'max_budget', 'value': _money(hit.group(1))}]
+        code = _first(_CODE_WORDS, clause)
+        if code and re.search(r'\bcode\b|\bzoning\b|\bbylaw\b|laneway|garden suite|\badus?\b|comply', clause):
+            return [{'op': 'constraint', 'key': 'code', 'value': code}]
+        skin = _first(_SKIN_WORDS, clause)
+        if skin and re.search(r'\bclad\w*|\bskin\b|\bpanel\w*|\bfa[cç]ade\b|\bwrap\b|\benvelope\b', clause):
+            return [{'op': 'constraint', 'key': 'skin', 'value': skin}]
+
+        # rooms — count them before styles, so 'add a bay window' is not a style
+        rooms = []
+        for pattern, mid in _ROOM_WORDS:
+            n = _qty(clause, pattern, default=1)
+            if n:
+                rooms.append((mid, n))
+        if rooms:
+            return [{'op': 'remove' if removing else 'add', 'module': mid, 'count': n}
+                    for mid, n in rooms]
+
+        style = _first(_STYLE_WORDS, clause)
+        if style:
+            return [{'op': 'style', 'style': style}]
+        return []
+
+    def edit(self, design_id: str = '', instruction: str = '', owner: str = '', save: bool = True):
+        """Edit a saved design with a sentence.
+
+        ``edit(design_id, "add a bedroom and an office, make it japandi")``.
+        The reply carries the ops it ran, anything in the instruction it could
+        NOT read (``unparsed``), and the re-priced, re-checked design."""
+        parsed = self.parse_instruction(instruction)
+        if not parsed['ops']:
+            return {'error': 'nothing understood in that instruction',
+                    'unparsed': parsed['unparsed'],
+                    'hint': 'try "add a bedroom", "make it brutalist", "3 storeys", '
+                            '"budget $400k", or call agent_spec() for the vocabulary'}
+        out = self.edit_design(design_id, parsed['ops'], owner=owner, save=save)
+        if isinstance(out, dict) and 'error' not in out:
+            out['instruction'] = instruction
+            out['unparsed'] = parsed['unparsed']
+        return out
+
+    def edit_design(self, design_id: str = '', ops: List[Dict[str, Any]] = None,
+                    owner: str = '', save: bool = True):
+        """Run an exact op list against a design.
+
+        Ops: ``add``/``remove`` {module, count}, ``place`` {x, z, level, module},
+        ``clear`` {x, z}, ``style`` {style}, ``floors`` {floors},
+        ``add_floor`` {module?}, ``rename`` {name}, ``describe`` {description},
+        ``constraint`` {key, value}, ``publish`` {public}. Unknown ops and
+        unknown ids are rejected — nothing is applied silently."""
+        rec = self._load_designs().get(design_id)
+        if not rec:
+            return {'error': f'unknown design: {design_id}'}
+        if owner and rec.get('owner') and rec['owner'] != owner:
+            return {'error': 'not your design'}
+        if rec.get('featured') and save:
+            return {'error': 'featured examples are read-only — copy_design first, then edit the copy'}
+        ops = ops if isinstance(ops, list) else ([ops] if isinstance(ops, dict) else [])
+        if not ops:
+            return {'error': 'no ops given'}
+
+        before = self._hydrate_design(rec)['stats']
+        draft = json.loads(json.dumps(rec))       # apply to a copy; publish only if every op lands
+        applied, failed = [], []
+        for op in ops:
+            if not isinstance(op, dict):
+                failed.append({'op': op, 'error': 'op must be an object'})
+                continue
+            result = self._apply_op(draft, op)
+            (applied if result.get('ok') else failed).append({**op, **result})
+        if failed and not applied:
+            return {'error': failed[0].get('error', 'no op applied'), 'failed': failed}
+
+        draft['updated'] = int(time.time())
+        if save:
+            saved = self.save_design(name=draft['name'], owner=draft.get('owner', ''),
+                                     cells=draft['cells'], style=draft['style'],
+                                     design_id=design_id, description=draft.get('description', ''),
+                                     public=draft.get('public', False),
+                                     constraints=draft.get('constraints'))
+            if 'error' in saved:
+                return saved
+            rec = saved
+        else:
+            rec = self._hydrate_design(draft)
+        return {'design_id': design_id, 'design': rec, 'applied': applied, 'failed': failed,
+                'saved': bool(save), 'stats': rec['stats'],
+                'compliance': rec['stats'].get('compliance'),
+                'changed': {'price_usd': rec['stats']['price_usd'] - before['price_usd'],
+                            'floor_area_m2': round(rec['stats']['floor_area_m2'] - before['floor_area_m2'], 1),
+                            'modules': rec['stats']['module_count'] - before['module_count']},
+                'advice': self._advice(rec['stats'])}
+
+    # ── the ops themselves ───────────────────────────────────────────
+    def _apply_op(self, rec, op):
+        """Mutate ``rec`` in place for one op. Returns {'ok', 'detail'|'error'}."""
+        kind = str(op.get('op') or '').strip().lower()
+        cells = rec.setdefault('cells', [])
+        idx = self._spec_index()
+
+        if kind in ('add', 'remove'):
+            mid = str(op.get('module') or '').strip()
+            if mid not in idx:
+                return {'ok': False, 'error': f'unknown module: {mid or "(none)"}'}
+            n = max(1, _int(op.get('count', 1)))
+            done = 0
+            for _ in range(n):
+                if (self._add_module(rec, mid) if kind == 'add' else self._remove_module(rec, mid)):
+                    done += 1
+            if not done:
+                return {'ok': False, 'error': f'no {mid} to remove' if kind == 'remove'
+                        else f'nowhere to put a {mid}'}
+            return {'ok': True, 'detail': f'{kind} {done}× {mid}'}
+
+        if kind == 'place':
+            mid = str(op.get('module') or '').strip()
+            if mid not in idx:
+                return {'ok': False, 'error': f'unknown module: {mid or "(none)"}'}
+            x, z = int(op.get('x', 0)), int(op.get('z', 0))
+            cell = next((c for c in cells if int(c['x']) == x and int(c['z']) == z), None)
+            if cell is None:
+                cell = {'x': x, 'z': z, 'stack': []}
+                cells.append(cell)
+            level = op.get('level')
+            level = len(cell['stack']) if level is None else int(level)
+            if level > len(cell['stack']):
+                return {'ok': False, 'error': f'level {level} would float — '
+                                              f'stack at {x},{z} is {len(cell["stack"])} high'}
+            if level == len(cell['stack']):
+                cell['stack'].append(mid)
+            else:
+                cell['stack'][level] = mid
+            return {'ok': True, 'detail': f'{mid} at {x},{z} level {level}'}
+
+        if kind == 'clear':
+            x, z = int(op.get('x', 0)), int(op.get('z', 0))
+            keep = [c for c in cells if not (int(c['x']) == x and int(c['z']) == z)]
+            if len(keep) == len(cells):
+                return {'ok': False, 'error': f'no column at {x},{z}'}
+            rec['cells'] = keep
+            return {'ok': True, 'detail': f'cleared {x},{z}'}
+
+        if kind == 'style':
+            style = str(op.get('style') or '').strip()
+            if style not in _STYLE_INDEX:
+                return {'ok': False, 'error': f'unknown style: {style or "(none)"}'}
+            rec['style'] = style
+            return {'ok': True, 'detail': f'style → {style}'}
+
+        if kind == 'add_floor':
+            mid = str(op.get('module') or 'bedroom')
+            if mid not in idx:
+                return {'ok': False, 'error': f'unknown module: {mid}'}
+            top = max((self._height(c) for c in cells), default=0)
+            grown = 0
+            for c in cells:
+                if self._height(c) == top and c['stack']:
+                    self._stack_under_cap(c, mid)
+                    grown += 1
+            return ({'ok': True, 'detail': f'+1 floor of {mid} on {grown} column(s)'} if grown
+                    else {'ok': False, 'error': 'no column to build on'})
+
+        if kind == 'floors':
+            target = max(1, _int(op.get('floors', 1)))
+            guard = 0
+            while rec['cells'] and max(map(self._height, rec['cells'])) > target and guard < 100:
+                stack = max(rec['cells'], key=self._height)['stack']
+                cap = stack.pop() if stack[-1] in _ROOF_CAPS else None
+                if stack:
+                    stack.pop()
+                if cap:
+                    stack.append(cap)       # the roof follows the building down
+                rec['cells'] = [c for c in rec['cells'] if c['stack']]
+                guard += 1
+            while (max((self._height(c) for c in rec['cells']), default=0) < target
+                   and guard < 100):
+                grew = self._apply_op(rec, {'op': 'add_floor', 'module': op.get('module', 'bedroom')})
+                if not grew.get('ok'):
+                    break
+                guard += 1
+            return {'ok': True, 'detail': f'{target} floor(s)'}
+
+        if kind == 'rename':
+            name = str(op.get('name') or '').strip()
+            if not name:
+                return {'ok': False, 'error': 'rename needs a name'}
+            rec['name'] = name[:64]
+            return {'ok': True, 'detail': f'name → {rec["name"]}'}
+
+        if kind == 'describe':
+            rec['description'] = str(op.get('description') or '')[:500]
+            return {'ok': True, 'detail': 'description updated'}
+
+        if kind == 'constraint':
+            key = str(op.get('key') or '').strip()
+            if key not in _CONSTRAINT_KEYS:
+                return {'ok': False, 'error': f'unknown constraint: {key or "(none)"} — '
+                                              f'see agent_spec().vocabulary.constraints'}
+            value = op.get('value')
+            if key == 'code' and value and value not in _CODE_INDEX:
+                return {'ok': False, 'error': f'unknown code: {value}'}
+            if key == 'skin' and value and value not in self._panel_index():
+                return {'ok': False, 'error': f'unknown panel: {value}'}
+            c = dict(rec.get('constraints') or {})
+            if value in (None, ''):
+                c.pop(key, None)
+            else:
+                c[key] = value
+            if key == 'code':
+                for k, v in ((_CODE_INDEX.get(value) or {}).get('recommend') or {}).items():
+                    c.setdefault(k, v)
+            rec['constraints'] = c or None
+            return {'ok': True, 'detail': f'{key} → {value}'}
+
+        if kind == 'publish':
+            rec['public'] = bool(op.get('public', True))
+            return {'ok': True, 'detail': 'public' if rec['public'] else 'private'}
+
+        return {'ok': False, 'error': f'unknown op: {kind or "(none)"} — '
+                                      f'see agent_spec().vocabulary.ops'}
+
+    @staticmethod
+    def _height(cell):
+        return len(cell.get('stack') or [])
+
+    @staticmethod
+    def _stack_under_cap(cell, mid):
+        """Add a module to a column, keeping any roof cap on top."""
+        stack = cell['stack']
+        if stack and stack[-1] in _ROOF_CAPS:
+            stack.insert(len(stack) - 1, mid)
+        else:
+            stack.append(mid)
+
+    def _free_cell(self, rec):
+        """The next empty grid position inside the lot, scanning outward."""
+        taken = {(int(c['x']), int(c['z'])) for c in rec.get('cells', [])}
+        c = rec.get('constraints') or {}
+        max_x = (int(c['lot_w']) // 2) if c.get('lot_w') else 3
+        max_z = (int(c['lot_d']) // 2) if c.get('lot_d') else 3
+        for radius in range(0, max(max_x, max_z) + 1):
+            for z in range(0, min(radius, max_z) + 1):
+                for x in range(0, min(radius, max_x) + 1):
+                    if max(x, z) == radius and (x, z) not in taken:
+                        return x, z
+        return None
+
+    def _add_module(self, rec, mid):
+        """Put one module where it belongs.
+
+        Roof caps crown the tallest column that still has headroom; ground
+        rooms take a free grid cell; everything else lands on the shortest
+        column under the height cap. When nothing has headroom the building
+        grows sideways rather than silently breaking its own storey limit."""
+        cells = rec.setdefault('cells', [])
+        band = self._band(mid)
+        c = rec.get('constraints') or {}
+        cap_floors = c.get('max_floors') or (_CODE_INDEX.get(c.get('code')) or {}).get('max_storeys')
+        cap_floors = int(cap_floors) if cap_floors else None
+
+        def free_cell():
+            spot = self._free_cell(rec)
+            if not spot:
+                return False
+            cells.append({'x': spot[0], 'z': spot[1], 'stack': [mid]})
+            return True
+
+        if band == 'roof' and cells:
+            open_top = [cell for cell in sorted(cells, key=self._height, reverse=True)
+                        if cell['stack'] and cell['stack'][-1] not in _ROOF_CAPS]
+            spot = next((cell for cell in open_top
+                         if not cap_floors or self._height(cell) < cap_floors), None)
+            if spot:
+                spot['stack'].append(mid)
+                return True
+            if free_cell():                 # a deck/array set on grade beats overshooting
+                return True
+            if open_top:
+                open_top[0]['stack'].append(mid)
+                return True
+        if band in ('ground', 'core') or not cells:
+            if free_cell():
+                return True
+        room = [cell for cell in cells
+                if not cap_floors or self._height(cell) < cap_floors]
+        if not room and free_cell():        # every column is at the cap — go wider
+            return True
+        target = min(room or cells, key=self._height, default=None)
+        if target is None:
+            return False
+        self._stack_under_cap(target, mid)
+        return True
+
+    def _remove_module(self, rec, mid):
+        """Take out the highest instance of a module, dropping empty columns."""
+        cells = rec.get('cells', [])
+        best, best_level = None, -1
+        for cell in cells:
+            for level, m_id in enumerate(cell.get('stack') or []):
+                if m_id == mid and level > best_level:
+                    best, best_level = cell, level
+        if best is None:
+            return False
+        best['stack'].pop(best_level)
+        rec['cells'] = [c for c in cells if c.get('stack')]
+        return True
+
+    # ━━ Health / status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     def health(self):
         return {'status': 'ok', 'module': 'modcity',
                 'builtin_modules': len(CATALOG), 'custom_bricks': len(self._load_bricks()),
@@ -1589,10 +2478,71 @@ class Mod:
             'total_floor_area_m2': round(sum(d['stats']['floor_area_m2'] for d in hydrated), 1),
         }
 
+    # ━━ Self-test ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    def test(self):
+        """Exercise the agent rail end to end: brief → building → edits.
+
+        Builds a throwaway design under a test owner and deletes it again, so
+        it is safe to run against a live node."""
+        owner = 'test:modcity'
+        b = self.parse_brief('a 2-bedroom Toronto laneway house, scandi, '
+                             'with an office, roof garden and solar, under $400k')
+        assert b['bedrooms'] == 2, b
+        assert b['style'] == 'scandi' and b['code'] == 'to_laneway', b
+        assert b['extra'].get('office') == 1 and b['extra'].get('solar') == 1, b
+        assert b['max_budget'] == 400_000, b
+        assert self.parse_brief('a house', style='nope').get('error'), 'bad style must be rejected'
+
+        dry = self.build('a studio laneway house in vancouver', save=False)
+        assert dry['saved'] is False and dry['design']['id'] is None
+        assert dry['design']['constraints']['code'] == 'van_laneway', dry['design']['constraints']
+        assert dry['stats']['module_count'] >= 3, dry['stats']
+
+        built = self.build('a 3-bedroom brownstone with a stoop and a roof garden',
+                           owner=owner, name='Test Row House')
+        did = built['design_id']
+        try:
+            assert did and built['stats']['occupancy'] >= 3, built['stats']
+            assert built['design']['style'] == 'brownstone'
+            assert any(s == 'stoop' for c in built['design']['cells'] for s in c['stack'])
+            # every stack is contiguous from grade and only holds known modules
+            idx = self._spec_index()
+            for cell in built['design']['cells']:
+                assert cell['stack'] and all(mid in idx for mid in cell['stack']), cell
+
+            e = self.edit(did, 'add a bathroom and an office, make it japandi', owner=owner)
+            assert e['design']['style'] == 'japandi', e['applied']
+            assert e['changed']['modules'] == 2, e['changed']
+            assert e['changed']['price_usd'] > 0
+
+            e = self.edit(did, 'remove the office', owner=owner)
+            assert e['changed']['modules'] == -1, e['changed']
+
+            e = self.edit_design(did, [{'op': 'floors', 'floors': 2},
+                                       {'op': 'constraint', 'key': 'max_budget', 'value': 50000}],
+                                 owner=owner)
+            assert e['stats']['floors'] == 2, e['stats']['floors']
+            assert e['compliance']['budget']['ok'] is False
+            assert e['advice'], 'a failing budget should produce advice'
+
+            bad = self.edit_design(did, [{'op': 'add', 'module': 'jacuzzi'}], owner=owner)
+            assert 'error' in bad, 'unknown module must be rejected'
+            assert self.edit(did, 'do a barrel roll').get('error'), 'unparsable edit must error'
+            assert self.edit_design(did, [{'op': 'add', 'module': 'bath'}],
+                                    owner='someone:else').get('error') == 'not your design'
+
+            spec = self.agent_spec()
+            assert {'modules', 'styles', 'codes', 'ops'} <= set(spec['vocabulary'])
+        finally:
+            if did:
+                self.delete_design(did, owner=owner)
+        return {'passed': True, 'built': did, 'checks': 18}
+
     # ━━ Source ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     _SOURCE_FILES = [
-        ('mod.py', 'python', 'The protocol: prefab spec, styles, brick forge, composition, constraints engine.'),
+        ('mod.py', 'python', 'The protocol: prefab spec, styles, brick forge, composition, constraints engine, agent rail.'),
         ('api/api.py', 'python', 'FastAPI REST surface over the module.'),
+        ('skill.md', 'markdown', 'How an agent drives the module from plain text.'),
     ]
 
     def source(self):
@@ -1720,6 +2670,28 @@ class Mod:
             return str(v).lower() in ('1', 'true', 'yes', 'on') if not isinstance(v, bool) else v
 
         actions = {
+            'agent_spec': lambda: self.agent_spec(),
+            'parse_brief': lambda: self.parse_brief(kwargs.get('brief', ''),
+                                                    **{k: v for k, v in kwargs.items()
+                                                       if k in ('style', 'code', 'bedrooms',
+                                                                'bathrooms', 'floors', 'name')}),
+            'parse_instruction': lambda: self.parse_instruction(kwargs.get('instruction', '')),
+            'build': lambda: self.build(
+                brief=kwargs.get('brief', ''), name=kwargs.get('name'),
+                owner=kwargs.get('owner', ''), style=kwargs.get('style'),
+                code=kwargs.get('code'), bedrooms=kwargs.get('bedrooms'),
+                bathrooms=kwargs.get('bathrooms'), floors=kwargs.get('floors'),
+                constraints=_j(kwargs.get('constraints')), description=kwargs.get('description'),
+                public=_b(kwargs.get('public', False)), save=_b(kwargs.get('save', True)),
+                design_id=kwargs.get('design_id')),
+            'edit': lambda: self.edit(design_id=kwargs.get('design_id', ''),
+                                      instruction=kwargs.get('instruction', ''),
+                                      owner=kwargs.get('owner', ''),
+                                      save=_b(kwargs.get('save', True))),
+            'edit_design': lambda: self.edit_design(design_id=kwargs.get('design_id', ''),
+                                                    ops=_j(kwargs.get('ops')),
+                                                    owner=kwargs.get('owner', ''),
+                                                    save=_b(kwargs.get('save', True))),
             'health': lambda: self.health(),
             'status': lambda: self.status(),
             'catalog': lambda: self.catalog(owner=kwargs.get('owner')),

@@ -246,6 +246,22 @@ def _stats():
     from . import history
     return history.stats()
 
+def _sync(head=True):
+    from . import history, traders as tr
+    subnets = history.sync(head=head)
+    accounts = tr.sync(head=False)   # one tip read is enough for both
+    accounts['head_block'] = subnets.get('head_block')
+    if accounts['head_block'] and accounts.get('block'):
+        accounts['blocks_behind'] = accounts['head_block'] - accounts['block']
+        accounts['blocks_behind_exact'] = True
+    blocks = [b for b in (subnets.get('block'), accounts.get('block')) if b]
+    return {'network': DEFAULT_NETWORK,
+            'block': min(blocks) if blocks else None,   # the index is only as
+            'head_block': subnets.get('head_block'),    # synced as its laggard
+            'synced': bool(subnets.get('healthy')) and bool(accounts.get('healthy')),
+            'ts': int(time.time()),
+            'subnet_index': subnets, 'trader_index': accounts}
+
 def _validators(netuid, limit=15, network=DEFAULT_NETWORK):
     neurons = get_bt(network).neurons(netuid=netuid)
     rows = [{'uid': n.get('uid'), 'hotkey': n.get('hotkey'),
@@ -492,6 +508,9 @@ TOOLS: List[Tool] = [
          dict(ts={'type': 'integer', 'description': 'Unix timestamp (default: now)'}),
          _prices_at),
     # --- network
+    Tool('bt_sync', 'Indexer sync state: the chain block the local index is synced to, how far behind head it is, snapshot cadence and gaps, and whether every subnet and tracked trader is covered.', 'Network',
+         dict(head={'type': 'boolean', 'description': 'Also read the chain tip to report exact lag (costs one RPC)', 'default': True}),
+         _sync),
     Tool('bt_rpc_health', 'Health/latency stats for the RPC endpoint pool.', 'Network',
          dict(**_net_param()), _rpc_health),
     Tool('bt_best_rpc', 'The lowest-latency RPC endpoint right now.', 'Network',

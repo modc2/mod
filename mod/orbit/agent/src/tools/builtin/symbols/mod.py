@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 
-class Skill:
+class Tool:
     description = "Extract code symbols: functions, classes, imports, variables. AST parsing for Python, regex for other languages."
 
     # regex patterns for non-Python languages
@@ -132,5 +132,5 @@ class Skill:
     def test(self):
         r = self.forward(__file__)
         assert r["success"] and r["total"] > 0
-        assert any(s["name"] == "Skill" for s in r["symbols"])
+        assert any(s["name"] == "Tool" for s in r["symbols"])
         return True

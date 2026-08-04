@@ -1,17 +1,19 @@
 """
-skills - agent skill registry
+builtin - the tools that ship with this module
 
-Auto-discovers skill modules in this directory.
-Each skill is a directory with a mod.py containing a Skill class.
-Every Skill class has: description, forward(**kwargs), test()
+Auto-discovers tool modules in this directory. Each one is a directory with a
+mod.py containing a Tool class: description, forward(**kwargs), test().
+
+These are the deployed third of the registry. The other two live next door:
+custom/ (shell templates typed into the console) and mods/ (the fleet). All
+three are unioned by tools/mod.py, which is what the agent actually holds.
 
 Usage:
-    skills = Skills()
-    skills.ls()                          # list all skills
-    skills.get("bash")                   # get a skill instance
-    skills.run("bash", command="ls")     # run a skill
-    skills.schema()                      # get all schemas for LLM
-    skills.forward("bash", command="ls") # alias for run
+    builtin = Builtins()
+    builtin.ls()                          # list all tool names
+    builtin.get("bash")                   # get a tool instance
+    builtin.run("bash", command="ls")     # run one
+    builtin.schema()                      # schemas for the LLM
 """
 import inspect
 import importlib
@@ -19,55 +21,59 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 
-class Skills:
-    description = "Skill registry - discover, load, and run agent skills"
+class Builtins:
+    description = "Built-in tool registry - discover, load, and run the shipped tools"
 
     def __init__(self, **kwargs):
         self._dir = Path(__file__).parent
         self._cache = {}
 
     def ls(self) -> List[str]:
-        """List available skill names"""
+        """List available tool names"""
         return sorted([
             d.name for d in self._dir.iterdir()
             if d.is_dir() and not d.name.startswith("_") and (d / "mod.py").exists()
         ])
 
     def get(self, name: str):
-        """Get a skill instance by name"""
+        """Get a tool instance by name"""
         if name in self._cache:
             return self._cache[name]
         mod_path = self._dir / name / "mod.py"
         if not mod_path.exists():
-            raise KeyError(f"skill not found: {name}")
-        spec = importlib.util.spec_from_file_location(f"skills.{name}", str(mod_path))
+            raise KeyError(f"tool not found: {name}")
+        spec = importlib.util.spec_from_file_location(f"tools.builtin.{name}", str(mod_path))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        cls = getattr(mod, "Skill", None)
+        cls = getattr(mod, "Tool", None)
         if cls is None:
-            raise AttributeError(f"no Skill class in {name}/mod.py")
+            raise AttributeError(f"no Tool class in {name}/mod.py")
         instance = cls()
         self._cache[name] = instance
         return instance
 
     def run(self, name: str, **kwargs) -> Dict[str, Any]:
-        """Run a skill by name with kwargs"""
+        """Run a tool by name with kwargs"""
         return self.get(name).forward(**kwargs)
 
     def forward(self, name: str = None, **kwargs) -> Any:
-        """Run a skill (mod protocol entry point)"""
+        """Run a tool (mod protocol entry point)"""
         if name is None:
-            return {"skills": self.ls(), "total": len(self.ls())}
+            return {"tools": self.ls(), "total": len(self.ls())}
         return self.run(name, **kwargs)
 
     def schema(self, names: List[str] = None) -> Dict[str, Dict]:
-        """Get schemas for skills (for LLM tool descriptions)"""
-        names = names or self.ls()
+        """Get schemas for tools (for LLM tool descriptions).
+
+        None means every built-in; an empty list means none of them — a
+        loadout of nothing but fleet modules must not hand back all 23.
+        """
+        names = self.ls() if names is None else names
         out = {}
         for name in names:
             try:
-                skill = self.get(name)
-                sig = inspect.signature(skill.forward)
+                tool = self.get(name)
+                sig = inspect.signature(tool.forward)
                 params = {}
                 for pname, p in sig.parameters.items():
                     if pname in ("self", "kwargs"):
@@ -78,18 +84,18 @@ class Skills:
                     }
                     if p.default != inspect.Parameter.empty:
                         params[pname]["default"] = p.default
-                out[name] = {"description": skill.description, "params": params}
+                out[name] = {"description": tool.description, "params": params}
             except Exception as e:
                 out[name] = {"error": str(e)}
         return out
 
     def test(self) -> Dict[str, Any]:
-        """Test all skills"""
+        """Test all tools"""
         results = {}
         for name in self.ls():
             try:
-                skill = self.get(name)
-                results[name] = skill.test()
+                tool = self.get(name)
+                results[name] = tool.test()
             except Exception as e:
                 results[name] = {"error": str(e)}
         passed = sum(1 for v in results.values() if v is True or (isinstance(v, dict) and v.get("success")))

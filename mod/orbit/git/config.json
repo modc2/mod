@@ -1,7 +1,7 @@
 {
     "name": "git",
     "description": "Repo change tracker for the mod protocol: tracks ALL changes in the mod repo (status, per-file diffs, commits, ahead/behind) and any other local or GitHub repos you point it at. Push a commit without writing the message: the agent module reads the pending diff and proposes one, and this module finalizes it \u2014 stage, commit, push \u2014 behind its own ACL and over your GitHub account. Connect GitHub by OAuth (device or redirect flow) or a PAT \u2014 the account is attached to your mod key and stored off-chain in ~/.mod/git \u2014 to list/track/push private repos, and manage per-address write/admin access with signed auth-module tokens.",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "dependencies": [
         "agent"
     ],
@@ -58,5 +58,5 @@
         "stop_worker"
     ],
     "key": "git",
-    "schema": "QmemMvcZEzocrkKvfKrsDGpeXrStQ46WvdgzH7Ah6mosiW"
+    "schema": "QmR655go5horb7bYwamg1Z4r1eA5k9GrJE6Qw3ZKcJzfkw"
 }

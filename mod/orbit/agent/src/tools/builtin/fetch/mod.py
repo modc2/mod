@@ -32,7 +32,7 @@ class _TextExtractor(HTMLParser):
         return re.sub(r'\n{3,}', '\n\n', re.sub(r' {2,}', ' ', text)).strip()
 
 
-class Skill:
+class Tool:
     description = "Fetch URL content or make HTTP API requests. Returns text, JSON, or parsed HTML."
 
     def forward(self, url: str, method: str = "GET", headers: dict = None,

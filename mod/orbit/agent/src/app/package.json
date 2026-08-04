@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3117",
     "build": "next build",
+    "postbuild": "cp -r .next/static .next/standalone/.next/static && { [ -d public ] && cp -r public .next/standalone/public || true; }",
     "start": "next start -p 3117",
     "lint": "next lint"
   },

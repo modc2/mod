@@ -5,7 +5,7 @@ class Agent:
     name = "Reviewer"
     description = "Code review and quality analysis"
     icon = "◉"
-    skills = ["read", "grep", "symbols", "test", "lint", "diff", "think"]
+    tools = ["read", "grep", "symbols", "test", "lint", "diff", "think"]
     model = None
 
     goal = """You are an expert code reviewer. You find bugs, suggest improvements, and ensure code quality.

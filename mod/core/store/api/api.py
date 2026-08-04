@@ -44,6 +44,8 @@ Endpoints
     GET  /get?cid=…[&token=…]     retrieve by CID (read-gated for private)
     GET  /preview?cid=…           peek content (truncated text + size flag)
     GET  /object?cid=…            full info: stored when/by-whom + who has access
+    GET  /graph                   CID graph: objects + the CIDs their content embeds
+    POST /graph/scan              re-derive the graph from content (admin: scope=all)
     POST /publish                 (owner) flip object private⇄public
     POST /pin                     pin a CID
     GET  /pins                    list caller's pinned objects
@@ -105,6 +107,7 @@ Run (under pm2 — see ecosystem.config.js):
 """
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -596,19 +599,22 @@ def _truthy(v) -> bool:
     return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-def _detect_cid_refs(path: Path, exclude: set, cap: int = 1 << 16) -> list:
-    """Best-effort scan of a file's text content for embedded references to
-    other CIDs already known to the store — the signal that this object is a
-    manifest/bundle *mapped from* pre-existing objects. Binary or unreadable
-    content just yields no refs."""
+# CID-shaped tokens: v0 (Qm + 44 base58) and v1 base32 (b-prefixed, ≥59 chars).
+CID_RE = re.compile(r'Qm[1-9A-HJ-NP-Za-km-z]{44}|ba[a-z2-7]{57,}')
+
+
+def _detect_cid_refs(path: Path, exclude: set, cap: int = 1 << 18) -> list:
+    """Best-effort scan of a file's text content for embedded CIDs — the signal
+    that this object is a manifest/bundle *mapped from* other content. Matches
+    any CID-shaped token, not just ones already in this store: the store is
+    cid-agnostic, so a reference to content held elsewhere is still an edge.
+    Binary or unreadable content just yields no refs."""
     try:
         with open(path, 'rb') as f:
             text = f.read(cap).decode('utf-8')
     except (OSError, UnicodeDecodeError):
         return []
-    known = {o.get('cid') for o in store_mod.list(limit=100000) if o.get('cid')}
-    known -= exclude
-    return [c for c in known if c in text]
+    return sorted({c for c in CID_RE.findall(text) if c not in exclude})
 
 
 @app.post('/put')
@@ -822,6 +828,109 @@ def object_info(cid: str, authorization: Optional[str] = Header(default=None)):
     return info
 
 
+def _scan_refs(objs: list, max_size: int = 8 << 20) -> dict:
+    """Re-derive the CID graph for `objs` by reading each object's content and
+    recording the CIDs it embeds. Objects arrive already ACL-checked. Huge or
+    binary blobs are skipped (nothing to read a CID out of)."""
+    # Per-call scratch file: two callers scanning at once must not read each
+    # other's bytes and record the wrong refs.
+    scratch = Path(os.path.expanduser('~/.store-mod/scan')) / f'{os.getpid()}-{time.time_ns()}'
+    scratch.parent.mkdir(parents=True, exist_ok=True)
+    stat = {'scanned': 0, 'skipped': 0, 'with_refs': 0, 'edges': 0}
+    try:
+        for o in objs:
+            cid = o.get('cid')
+            if not cid or (o.get('size') or 0) > max_size:
+                stat['skipped'] += 1
+                continue
+            try:
+                got = store_mod.get(cid=cid, backend=o.get('backend'), out=str(scratch))
+            except Exception:
+                got = {'error': 'unreadable'}
+            if isinstance(got, dict) and 'error' in got:
+                stat['skipped'] += 1
+                continue
+            refs = _detect_cid_refs(scratch, exclude={cid})
+            ACCESS.set_refs(cid, refs)
+            stat['scanned'] += 1
+            if refs:
+                stat['with_refs'] += 1
+                stat['edges'] += len(refs)
+    finally:
+        scratch.unlink(missing_ok=True)
+    return stat
+
+
+@app.post('/graph/scan')
+def graph_scan(scope: str = 'mine', authorization: Optional[str] = Header(default=None)):
+    """Rebuild the CID graph from content. Refs are normally detected once, at
+    upload time; rescanning picks up objects stored before a reference existed
+    (and anything uploaded through another path). `scope=all` is admin-only."""
+    addr = require_session(authorization)
+    if scope == 'all':
+        if not is_admin(addr):
+            raise HTTPException(403, 'scope=all is admin only')
+        objs = store_mod.list(limit=100000)
+    else:
+        objs = store_mod.list(owner=addr, limit=100000)
+    t0 = time.time()
+    stat = _scan_refs(objs)
+    return {'scope': scope, 'objects': len(objs), **stat, 'seconds': round(time.time() - t0, 2)}
+
+
+@app.get('/graph')
+def graph(scope: str = 'mine', isolated: bool = False, limit: int = 2000,
+          authorization: Optional[str] = Header(default=None)):
+    """The CID graph the caller can see: nodes are objects, edges point from an
+    object to the CIDs its content embeds. Referenced CIDs the store doesn't
+    hold come back as `external` nodes — the store is cid-agnostic, so a link
+    out to content living elsewhere is still part of the graph. `isolated=true`
+    also returns objects with no links, so the view can show everything."""
+    addr = require_session(authorization)
+    nodes = {o['cid']: {**o, 'shared_via': None}
+             for o in _annotate(store_mod.list(owner=addr, limit=limit))}
+    if scope in ('shared', 'all'):
+        for o in _shared_objects(addr)['objects']:
+            nodes.setdefault(o['cid'], o)
+    mine = set(nodes)
+
+    index = None
+    edges = []
+    linked = set()
+    for e in ACCESS.all_refs():
+        src, dst = e['cid'], e['ref_cid']
+        if src not in mine and dst not in mine:
+            continue
+        # An edge is only visible if its source object is — otherwise the graph
+        # would leak the existence of someone else's private object.
+        if not ACCESS.can_read(addr, src):
+            continue
+        for c in (src, dst):
+            if c in nodes or c in linked:
+                continue
+            if not ACCESS.can_read(addr, c):
+                continue
+            if index is None:
+                index = {o.get('cid'): o for o in store_mod.list(limit=100000)}
+            row = index.get(c)
+            nodes[c] = _annotate([dict(row)])[0] if row else {
+                'cid': c, 'backend': None, 'owner': None, 'key': None,
+                'size': None, 'timestamp': None, 'external': True,
+                'visibility': ACCESS.visibility(c), 'scheme': infer_scheme(c),
+            }
+        if src in nodes and dst in nodes:
+            edges.append({'from': src, 'to': dst, 'created': e['created']})
+            linked.update((src, dst))
+
+    for n in nodes.values():
+        n.setdefault('external', False)
+    out = [n for n in nodes.values() if isolated or n['cid'] in linked]
+    out.sort(key=lambda n: n.get('timestamp') or 0, reverse=True)
+    return {'address': addr, 'scope': scope,
+            'nodes': out, 'edges': edges,
+            'total_objects': len(mine), 'linked': len(linked)}
+
+
 @app.post('/publish')
 def publish(body: PublishBody, authorization: Optional[str] = Header(default=None)):
     """Flip an object between private and public. Owner only."""
@@ -993,6 +1102,7 @@ def rm(cid: str, reason: Optional[str] = None,
     if not own and not is_admin(addr):
         raise HTTPException(403, 'not your object (only the module owner may remove others\' content)')
     r = store_mod.rm(cid)
+    ACCESS.set_refs(cid, [])   # a deleted object stops pointing at anything
     if not own:
         log_takedown(cid, by=addr, reason=reason)
         if isinstance(r, dict):

@@ -1,11 +1,11 @@
 """
-agent - autonomous coding agent with 21 skills
+agent - autonomous coding agent with a tool registry
 
 Usage:
     import mod as m
     agent = m.mod('agent')()
     agent.forward('run', query='fix the bug in main.py')
-    agent.forward('skills')
+    agent.forward('tools')
     agent.forward('serve')
     agent.forward('status')
 """
@@ -24,22 +24,23 @@ try:
 except ImportError:
     m = None
 
-from .skills.mod import Skills
 from .agents.mod import Agents
 from .memory.mod import Memory
 from .library.mod import Library
 from .toolbox.mod import Toolboxes
 from .tools.mod import Tools
 from .credits import Credits
+from .billing import Meter
 from .vaults.mod import Vaults
 from .discover.mod import Discover
 from .harness.mod import Harness, DEFAULT_TIMEOUT as HARNESS_TIMEOUT
+from .arena.mod import Arena, Scheduler
 from .identity import Identity
 
 
 # ── path sandboxing ────────────────────────────────────────────────
 
-WRITE_SKILLS = ('write', 'edit', 'patch')
+WRITE_TOOLS = ('write', 'edit', 'patch')
 
 # ── repeat-call guard ──────────────────────────────────────────────
 
@@ -59,7 +60,7 @@ def _call_sig(name: str, params: dict) -> str:
 def _step_failed(step: dict) -> bool:
     """True if a step didn't do what it was asked.
 
-    A skill can fail two ways: it raises (the loop records `error`), or it
+    A tool can fail two ways: it raises (the loop records `error`), or it
     returns a result that reports its own failure — `fetch` answering 403
     hands back {'success': False, ...} and never raises. Both are failures;
     only counting the first left the loop blind to a repeating dead end.
@@ -167,22 +168,23 @@ def _pop_string(out: list):
 
 class Agent:
     """
-    World-class coding agent. 21 skills for autonomous software engineering.
+    World-class coding agent. 23 built-in tools for autonomous software
+    engineering, plus custom shell tools and the whole fleet of mods.
 
-    Skills: bash, read, write, edit, glob, grep, search, task,
-            fetch, patch, think, git, test, lint, symbols, diff,
-            tree, todo, context, debug, refactor
+    Built-ins: bash, read, write, edit, glob, grep, search, task,
+               fetch, patch, think, git, test, lint, symbols, diff,
+               tree, todo, context, debug, refactor, websurf, claudecode
 
     Agent loop: query -> context gather -> LLM -> parse plan -> execute -> reflect -> repeat
 
-    Toolboxes snap on as bundles: agent.snap('code') limits the live skill
+    Toolboxes snap on as bundles: agent.snap('code') limits the live tool
     set (and the LLM tool schema) to the union of snapped boxes.
 
     Usage:
         agent = Agent()
         agent.forward("read main.py and fix the bug")
-        agent.skills.ls()
-        agent.skills.run("bash", command="ls")
+        agent.tools.ls()
+        agent.tools.run("bash", command="ls")
         agent.snap("explore"); agent.snap("code")   # snap toolboxes on
         agent.run("fix the bug", toolbox="core")    # per-run snap
     """
@@ -268,7 +270,7 @@ RULES:
         Respond with exactly ONE step per iteration inside anchors.
         The params must be valid JSON.
         <PLAN>
-        <STEP>{"tool": "<skill_name>", "params": {...}}</STEP>
+        <STEP>{"tool": "<tool_name>", "params": {...}}</STEP>
         </PLAN>
         When finished:
         <PLAN>
@@ -283,17 +285,16 @@ RULES:
                  provider: str = None,
                  memory: str = 'agent.memory',
                  goal: str = None,
-                 skills: list = None,
+                 tools: list = None,
                  **kwargs):
-        self.skills = Skills()
         self.agents = Agents()
         # images attached to the current run (data URLs or http urls)
         self._images: List[str] = []
-        # custom tools: shell-backed tools added from the console, callable
-        # alongside the shipped skills
-        self.tools = Tools(skills=self.skills)
-        # toolboxes: named skill bundles that snap onto this agent
-        self.toolboxes = Toolboxes(skills=self.skills, tools=self.tools)
+        # the whole tool surface in one registry: the tools shipped here, the
+        # shell tools added from the console, and every mod in the fleet
+        self.tools = Tools()
+        # toolboxes: named tool bundles that snap onto this agent
+        self.toolboxes = Toolboxes(tools=self.tools)
         self._snapped: List[str] = []
         self.memory = m.mod(memory)() if m else Memory()
         # session keys: provider shortname -> API key decrypted from the vault,
@@ -303,9 +304,12 @@ RULES:
         provider = provider or model
         self._provider = self.PROVIDERS.get(provider, provider)
         self.model = self._make_model()
+        # prices each model call from the provider's live catalog, so a guest's
+        # credits pay for the provider spend their run actually creates
+        self.meter = Meter()
         if goal:
             self.goal = goal
-        self._skill_names = skills  # optional filter
+        self._tool_names = tools  # optional filter
 
     def _provider_short(self, provider_path: str = None) -> str:
         """Map a provider module path back to its shortname ('model.openrouter' -> 'openrouter')."""
@@ -358,53 +362,47 @@ RULES:
         self.model = self._make_model()
         return {'provider': self._provider}
 
-    # ── skill interface ──────────────────────────────────────────────
+    # ── tool interface ───────────────────────────────────────────────
 
-    def skill(self, name: str):
-        """Get a skill instance"""
-        return self.skills.get(name)
+    def tool(self, name: str):
+        """Get a tool — the instance for a built-in, the entry for the rest."""
+        return self.tools.get(name)
 
-    def run_skill(self, name: str, **params):
-        """Run a tool by name — a shipped skill, else a custom tool."""
-        if name not in self.skills.ls() and self.tools.exists(name):
-            return self.tools.run(name, **params)
-        return self.skills.run(name, **params)
+    def run_tool(self, name: str, **params):
+        """Run a tool by name — built-in, custom shell tool, or fleet module."""
+        return self.tools.run(name, **params)
 
-    def all_tools(self) -> List[str]:
-        """Every callable name: shipped skills first, then custom tools."""
-        return self.skills.ls() + [t for t in self.tools.ls()
-                                   if t not in self.skills.ls()]
+    def all_tools(self, mods: bool = False) -> List[str]:
+        """Every callable name: built-ins, custom tools, and — asked for —
+        the fleet, which stays out of the default loadout."""
+        return self.tools.ls(mods=mods)
 
-    def skill_schema(self, names: List[str] = None) -> Dict[str, Dict]:
+    def tool_schema(self, names: List[str] = None) -> Dict[str, Dict]:
         """Get LLM-friendly schemas for the agent's tools.
 
-        Shipped skills and custom tools land in one schema — the LLM sees a
-        single tool list and can't tell which was deployed and which was
-        typed into the console.
+        Built-ins, custom tools and fleet modules land in one schema — the LLM
+        sees a single tool list and can't tell which was deployed, which was
+        typed into the console and which is another module.
 
-        Priority: explicit names > constructor skill filter > snapped
-        toolboxes > everything.
+        Priority: explicit names > constructor tool filter > snapped
+        toolboxes > every non-fleet tool.
         """
-        names = names or self.active_skills()
-        schema = self.skills.schema([n for n in names if n in self.skills.ls()]
-                                    if names else None)
-        schema.update(self.tools.schema(names))
-        return schema
+        return self.tools.schema(names or self.active_tools())
 
-    # ── skill aggregator (discover → library) ────────────────────────
+    # ── tool aggregator (discover → library) ─────────────────────────
 
-    def scan_skills(self, q: str = "", sources: List[str] = None,
-                    limit: int = 30, kind: str = None, fresh: bool = False) -> Dict:
-        """Scan every public registry at once for installable skills.
+    def scan_tools(self, q: str = "", sources: List[str] = None,
+                   limit: int = 30, kind: str = None, fresh: bool = False) -> Dict:
+        """Scan every public registry at once for installable tool documents.
 
-        One query fans out to GitHub, the official skill catalog, npm, the MCP
+        One query fans out to GitHub, the official skills catalog, npm, the MCP
         registry, Glama and curated lists; duplicates across platforms merge
         into one result. A dead registry yields an error, not a failed scan.
         """
         return self.discover.search(q, sources, limit, kind, fresh)
 
-    def skill_install(self, id: str, path: str = None, key=None) -> Dict:
-        """Install a scanned result into the library as an external skill.
+    def tool_install(self, id: str, path: str = None, key=None) -> Dict:
+        """Install a scanned result into the library as an external tool doc.
 
         The fetched document is instruction markdown, never executable code:
         it joins the library as a document the agent can be handed, so an
@@ -414,32 +412,32 @@ RULES:
         if not id:
             raise ValueError("id required — scan first, then install by result id")
         # refuse before the network fetch — an anonymous install can't be stored
-        self.identity.require_signed_in(key, f"install skill: {id}")
-        doc = self.discover.skill_doc(id, path)
-        return self.library.skill_add(
+        self.identity.require_signed_in(key, f"install tool: {id}")
+        doc = self.discover.tool_doc(id, path)
+        return self.library.tool_add(
             name=doc["name"], body=doc["body"], description=doc.get("description", ""),
             tags=doc.get("tags"), source=doc.get("source", ""), url=doc.get("url", ""),
             origin_id=doc.get("origin_id") or id, license=doc.get("license"), key=key)
 
-    # ── toolboxes (snap-on skill bundles) ────────────────────────────
+    # ── toolboxes (snap-on tool bundles) ─────────────────────────────
 
     def snap(self, name: str) -> Dict[str, Any]:
-        """Snap a toolbox onto the agent. Active skills become the union
+        """Snap a toolbox onto the agent. Active tools become the union
         of everything snapped on (order preserved, first-snap first)."""
         if not self.toolboxes.exists(name):
             raise KeyError(f"toolbox not found: {name}. Available: {self.toolboxes.ls()}")
         if name not in self._snapped:
             self._snapped.append(name)
-        self._skill_names = None   # a box is a fresh loadout, not a refinement
+        self._tool_names = None   # a box is a fresh loadout, not a refinement
         return self.snapped()
 
     def unsnap(self, name: str = None) -> Dict[str, Any]:
-        """Detach one toolbox, or all of them (back to the full skill set)."""
+        """Detach one toolbox, or all of them (back to the full tool set)."""
         if name is None:
             self._snapped = []
         elif name in self._snapped:
             self._snapped.remove(name)
-        self._skill_names = None
+        self._tool_names = None
         return self.snapped()
 
     def select(self, names: List[str] = None) -> Dict[str, Any]:
@@ -447,36 +445,37 @@ RULES:
 
         Toolboxes are the presets; this is the refinement — flip one tool on
         or off and the live set becomes exactly what's listed, regardless of
-        what's snapped. An empty list (or None) hands control back to the
-        snapped boxes, since an agent with no tools has nothing to run.
+        what's snapped. This is also how a fleet module joins a run: name
+        `mod.git` here and it's in the loadout. An empty list (or None) hands
+        control back to the snapped boxes, since an agent with no tools has
+        nothing to run.
         """
         if not names:
-            self._skill_names = None
+            self._tool_names = None
             return self.snapped()
-        known = set(self.all_tools())
-        unknown = [n for n in names if n not in known]
+        unknown = [n for n in names if not self.tools.exists(n)]
         if unknown:
             raise ValueError(f"unknown tools: {unknown}")
-        self._skill_names = list(dict.fromkeys(names))
+        self._tool_names = list(dict.fromkeys(names))
         return self.snapped()
 
     def snapped(self) -> Dict[str, Any]:
-        """Current snap state: which boxes are on and the resulting skill set."""
-        active = self.active_skills()
+        """Current snap state: which boxes are on and the resulting tool set."""
+        active = self.active_tools()
         return {
             'snapped': list(self._snapped),
-            'skills': active if active is not None else self.all_tools(),
+            'tools': active if active is not None else self.all_tools(),
             'filtered': active is not None,
             # what decided the set — the console labels the loadout with this
-            'source': 'selection' if self._skill_names else
+            'source': 'selection' if self._tool_names else
                       'toolboxes' if self._snapped else 'all',
         }
 
-    def active_skills(self) -> Optional[List[str]]:
-        """The agent's live skill filter: constructor filter, else the union
-        of snapped toolboxes, else None (= all skills)."""
-        if self._skill_names:
-            return self._skill_names
+    def active_tools(self) -> Optional[List[str]]:
+        """The agent's live tool filter: constructor filter, else the union of
+        snapped toolboxes, else None (= every tool but the fleet)."""
+        if self._tool_names:
+            return self._tool_names
         if self._snapped:
             return self.toolboxes.resolve(self._snapped)
         return None
@@ -504,7 +503,7 @@ RULES:
             # cap makes providers pre-reserve credits and 402 on low balances
             max_tokens: int = 8192,
             steps: int = 25,
-            skills: list = None,
+            tools: list = None,
             toolbox=None,
             mod: str = None,
             safety: bool = False,
@@ -514,20 +513,25 @@ RULES:
             free: bool = False,
             on_step=None,
             images: list = None,
+            budget=None,
             **kwargs) -> List[Dict[str, Any]]:
-        """Run the agent loop: query -> LLM -> parse step -> execute skill -> repeat.
+        """Run the agent loop: query -> LLM -> parse step -> execute tool -> repeat.
 
         Args:
             model: model name on the provider (e.g. 'anthropic/claude-opus-5' for openrouter,
                    'deepseek-v3.2' for venice). Defaults to provider's default model.
             provider: LLM provider — 'openrouter', 'venice', or any module path. Switches at runtime.
             toolbox: toolbox name (or list of names) to snap on for this run —
-                     the skill set becomes the union of those boxes. An explicit
-                     `skills` list wins over `toolbox`.
+                     the tool set becomes the union of those boxes. An explicit
+                     `tools` list wins over `toolbox`.
             allowed_paths: list of allowed write paths, or None for unrestricted (owner).
                            Non-owners are restricted to their portal directory.
             on_step: optional callable invoked with each executed step dict as the
                      loop progresses — used by the API to stream live progress.
+            budget: optional callable given the run's metered provider cost so far;
+                    returning False stops the loop. A paying guest's credits are
+                    finite, and a charge clamped to their balance would leave the
+                    module holding the overrun.
             images: image URLs (http or data:) the user attached to the query —
                     sent to the model as a leading multimodal turn.
         """
@@ -550,16 +554,16 @@ RULES:
         self._allowed_paths = allowed_paths
         query = query + ' ' + ' '.join(extra_text) if extra_text else query
         path = path or (m.dp(mod) if m and mod else os.getcwd())
-        # per-run toolbox snap: explicit skills list wins, then toolbox union
-        if not skills and toolbox:
-            skills = self.toolboxes.resolve(toolbox)
+        # per-run toolbox snap: explicit tools list wins, then toolbox union
+        if not tools and toolbox:
+            tools = self.toolboxes.resolve(toolbox)
         # semantic recall: durable facts from past runs ride into the prompt
         recalled = None
         if hasattr(self.memory, 'compile'):
             recalled = self.memory.compile(query) or None
         self.init_memory(
             query=query,
-            tools=self.skill_schema(skills),
+            tools=self.tool_schema(tools),
             path=path,
             steps=steps,
             **({'recalled': recalled} if recalled else {}),
@@ -572,6 +576,9 @@ RULES:
         # per-run tally of identical calls that failed, so the loop can stop
         # replaying a dead end (see MAX_IDENTICAL_FAILURES)
         self._failed_calls: Dict[str, Dict[str, Any]] = {}
+        # start this thread's cost tally — whoever bills the run reads it back
+        # with meter.take() once forward() returns
+        self.meter.open(provider=self._provider_short(), model=model)
         for step_i in range(steps):
             self.memory.update({'step': step_i, 'pwd': path})
             # inject recovery hint after repeated errors
@@ -579,14 +586,19 @@ RULES:
                 self.memory.add('hint', 'Multiple errors in a row. Use think to reflect on what is going wrong and try a different approach.')
                 consecutive_errors = 0
             try:
-                output = self.model.forward(
-                    str(self.memory.get()),
-                    stream=True,
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    free=free,
-                    **({'history': self._image_turn()} if self._images else {}),
+                context = str(self.memory.get())
+                output = self.meter.watch(
+                    self.model.forward(
+                        context,
+                        stream=True,
+                        model=model,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        free=free,
+                        **({'history': self._image_turn()} if self._images else {}),
+                    ),
+                    model_obj=self.model, provider=self._provider_short(),
+                    model=model, prompt=context,
                 )
                 plan = self.plan(output, safety=safety)
             except Exception as e:
@@ -605,6 +617,13 @@ RULES:
                 break
             if plan and plan[-1]['tool'].lower() == 'error':
                 print('Agent stopped: model error')
+                break
+            if budget and not budget(self.meter.peek()):
+                step = {'tool': 'error', 'params': {},
+                        'error': 'credit balance spent — top up to keep going'}
+                self._emit_step(step)
+                history.append([step])
+                print('Agent stopped: out of credits')
                 break
             # track consecutive errors for recovery
             if plan and any(_step_failed(s) for s in plan):
@@ -660,14 +679,19 @@ RULES:
                                 'above, write your final answer to the user now as '
                                 'plain text — answer what they asked. No tools, no anchors.')
         try:
-            out = self.model.forward(
-                str(self.memory.get()),
-                stream=True,
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                free=free,
-                **({'history': self._image_turn()} if self._images else {}),
+            context = str(self.memory.get())
+            out = self.meter.watch(
+                self.model.forward(
+                    context,
+                    stream=True,
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    free=free,
+                    **({'history': self._image_turn()} if self._images else {}),
+                ),
+                model_obj=self.model, provider=self._provider_short(),
+                model=model, prompt=context,
             )
             steps, raw = self.parse_steps(out)
             text = ''
@@ -883,7 +907,7 @@ RULES:
         return None
 
     def run_plan(self, plan: List[Dict[str, Any]], safety: bool = False) -> List[Dict[str, Any]]:
-        """Execute parsed steps using skills. Enforces path sandboxing via _allowed_paths."""
+        """Execute parsed steps using tools. Enforces path sandboxing via _allowed_paths."""
         if safety and plan:
             confirm = input("Execute plan? (y/n): ")
             if confirm.lower() != 'y':
@@ -918,31 +942,40 @@ RULES:
                 self._emit_step(plan[i])
                 continue
 
-            # ── path sandboxing for write-capable skills ──
+            # ── sandboxing: a portal run is not the host ──
             if allowed is not None:
-                if name in WRITE_SKILLS:
+                if self.tools.kind(name) not in ('builtin', 'custom'):
+                    # a fleet module runs host code against host state — the
+                    # same trust level as writing a custom tool, so host-only.
+                    # Bare module names fall in here too, prefix or not.
+                    plan[i]['error'] = (
+                        f"Permission denied: {name} calls another module on the host. "
+                        f"Fleet tools are host-only.")
+                    print(f"[{i+1}/{len(plan)}] {name} -> blocked (fleet)")
+                    self._emit_step(plan[i])
+                    continue
+                if name in WRITE_TOOLS:
                     fp = params.get('file_path', '')
                     if fp and not check_path_allowed(fp, allowed):
                         plan[i]['error'] = f"Permission denied: cannot write to {fp}. Restricted to {allowed}"
                         print(f"[{i+1}/{len(plan)}] {name} -> blocked (path)")
                         self._emit_step(plan[i])
                         continue
-                if name == 'bash' or self.tools.exists(name):
+                if self.tools.is_shell(name):
                     # custom tools are shell too — force cwd into the portal
                     params['cwd'] = allowed[0]
                 if name == 'git':
                     params['cwd'] = params.get('cwd') or allowed[0]
 
             try:
-                # shipped skill first, then a custom tool, then mod.tool
-                if name in self.skills.ls():
-                    result = self.run_skill(name, **params)
-                elif self.tools.exists(name):
+                # the registry knows all three kinds; a bare module name the
+                # model reached for without the prefix still resolves via m.tool
+                if self.tools.exists(name):
                     result = self.tools.run(name, **params)
                 elif m:
                     result = m.tool(name)(**params)
                 else:
-                    result = {"error": f"unknown skill: {name}"}
+                    result = {"error": f"unknown tool: {name}"}
                 plan[i]['result'] = result
                 print(f"[{i+1}/{len(plan)}] {name} -> done")
             except Exception as e:
@@ -960,7 +993,7 @@ Dev = Agent
 
 
 class Mod(Agent):
-    description = "Autonomous coding agent. 21 skills for software engineering."
+    description = "Autonomous coding agent. Built-in tools, custom shell tools, and the whole fleet."
 
     # the agent a run lands on when the caller named none — the Claude Code
     # CLI on this host. It's a harness agent, so it only holds for the owner
@@ -1024,6 +1057,8 @@ class Mod(Agent):
         # credits to run on the module's public provider key. Ledger state
         # is private, off-tree, next to the ACL.
         self.credits = Credits(self._acl_path.parent, deposit_address=self._owner)
+        # the ledger owns the pricing knobs; the meter just applies them
+        self.meter.multiplier = self.credits.cost_multiplier
 
         # ownership — the host (module owner) owns everything unowned, so
         # shipped agents and seeded prompts answer to them. Agents and the
@@ -1033,32 +1068,42 @@ class Mod(Agent):
                                  is_host=self.is_owner)
         self.agents.bind(self.identity)
 
-        # unified library (prompts / skills / memory / agent market)
+        # unified library (prompts / tool docs / memory / agent market)
         # user collections persist off-tree under ~/.mod/agent/library/
-        self.library = Library(skills=self.skills, agents=self.agents,
+        self.library = Library(tools=self.tools, agents=self.agents,
                                identity=self.identity)
 
         # per-address key-value vaults (public + private entries), persisted
         # through the mod store module under ~/.mod/agent/vaults/
         self.vaults = Vaults()
 
-        # internet-wide skill aggregator: scans GitHub, npm, the MCP
-        # registry, Glama and curated lists for installable skills
+        # internet-wide tool aggregator: scans GitHub, npm, the MCP
+        # registry, Glama and curated lists for installable tool documents
         self.discover = Discover()
 
         # external agent CLIs (claude code, codex) an agent can hand its run to
         self.harness = Harness()
 
-        self._public_actions = {'status', 'health', 'skills', 'schema',
+        # the arena: every agent on the same tasks, one ranked board. Its
+        # scheduler is started by the API (see arena/mod.py) — importing the
+        # module must never kick off runs on somebody's provider key.
+        self.arena = Arena(runner=self.arena_run, agents=self.agents)
+
+        self._public_actions = {'status', 'health', 'schema',
                                 'agents', 'agent', 'chains', 'harnesses', 'agent_cids',
                                 'agent_load', 'library', 'prompts', 'prompt_add',
                                 'prompt_rm', 'memory', 'memory_add', 'memory_rm',
                                 'upload', 'library_import', 'formats',
                                 'discover', 'discover_sources', 'discover_detail',
-                                'discover_doc', 'skill_install', 'installed_skills',
-                                'skill_import', 'skill_uninstall',
+                                'discover_doc', 'tool_install', 'installed_tools',
+                                'tool_import', 'tool_uninstall',
                                 'toolboxes', 'toolbox', 'snapped', 'tools', 'tool',
+                                'mods',
                                 'recall', 'episodes', 'facts', 'memory_state',
+                                # the board is public — a ranking nobody can
+                                # read is not a ranking
+                                'arena', 'arena_tasks', 'arena_matches',
+                                'arena_card', 'arena_status',
                                 'key_info', 'balance',
                                 'credits', 'credit_deposit',
                                 # vaults self-scope to the caller's verified
@@ -1066,14 +1111,18 @@ class Mod(Agent):
                                 'vaults', 'vaults_get', 'vaults_set',
                                 'vaults_add', 'vaults_rm', 'vaults_key_rm',
                                 'vaults_public'}
-        self._admin_actions = {'run', 'plan', 'skill', 'serve', 'kill',
+        self._admin_actions = {'run', 'plan', 'serve', 'kill',
                                'test', 'grant', 'revoke', 'acl',
                                'agent_save', 'agent_install', 'set_key',
                                'unlock', 'lock', 'vault_rm',
                                'toolbox_add', 'toolbox_rm', 'snap', 'unsnap', 'select',
                                'tool_add', 'tool_rm', 'tool_run',
                                'remember', 'forget', 'memory_serve', 'memory_kill',
-                               'credit_grant'}
+                               # a round spends real steps on a provider key
+                               'arena_run', 'arena_qualify', 'arena_config',
+                               'arena_scheduler',
+                               'credit_grant', 'treasury', 'credit_topup',
+                               'credit_withdraw', 'credit_config'}
 
     # ── permissions (Claude module interface) ────────────────────────────
 
@@ -1194,13 +1243,13 @@ class Mod(Agent):
 
         Args:
             address: address to grant access to
-            actions: list of actions to grant (default: ['run', 'skill'])
+            actions: list of actions to grant (default: ['run', 'tool_run'])
                      use ['*'] for full admin access
             key: caller key (must be owner)
         """
         self.require_owner(key, 'grant')
         addr = address.lower()
-        actions = actions or ['run', 'skill']
+        actions = actions or ['run', 'tool_run']
         self._acl[addr] = {
             'actions': actions,
             'granted_by': self._owner,
@@ -1245,6 +1294,73 @@ class Mod(Agent):
         self.require_owner(key, 'credit_grant')
         return self.credits.credit(address, amount, kind='grant',
                                    note=note or f'granted by {self._owner}')
+
+    def charge_run(self, address: str, usage: dict, note: str = '') -> dict:
+        """Bill a finished guest run from its metered cost.
+
+        A priced run is charged provider cost × (1 + fee_rate); a run the
+        meter couldn't price (unknown model, harness CLI) falls back to the
+        flat per-step price so nothing runs for free by accident.
+        """
+        usage = usage or {}
+        if usage.get('priced') and usage.get('calls'):
+            out = self.credits.charge_usage(address, usage.get('cost', 0.0), note=note,
+                                            model=usage.get('model'),
+                                            steps=usage.get('steps', 0))
+        else:
+            out = self.credits.charge_steps(address, usage.get('steps', 0),
+                                            note=note, model=usage.get('model'))
+        out['usage'] = {k: usage.get(k) for k in
+                        ('model', 'provider', 'calls', 'prompt_tokens',
+                         'completion_tokens', 'priced')}
+        return out
+
+    # ── treasury (guest deposits ↔ provider credits) ─────────────────
+
+    def provider_funding(self) -> dict:
+        """Live balance + lifetime usage on each provider key we bill against."""
+        out = {}
+        for name in ('openrouter', 'venice'):
+            try:
+                bal = self.balance(name)
+            except Exception as e:
+                out[name] = {'error': str(e)}
+                continue
+            out[name] = {'balance': bal.get('balance'),
+                         'usage': bal.get('total_usage'),
+                         'configured': bal.get('configured', False),
+                         'key_source': bal.get('source')}
+            if bal.get('error'):
+                out[name]['error'] = bal['error']
+        return out
+
+    def credits_treasury(self, key: str = None, live: bool = True) -> dict:
+        """The funding picture: deposits in, provider credits out, margin kept.
+
+        Owner only — it is the module's whole book. `live=False` skips the
+        provider balance calls when only the ledger side is wanted.
+        """
+        self.require_owner(key, 'credits_treasury')
+        return self.credits.treasury(self.provider_funding() if live else None)
+
+    def credit_topup(self, provider: str, amount: float, ref: str = '',
+                     note: str = '', key: str = None) -> dict:
+        """Record credits bought at a provider out of the deposit float. Owner only."""
+        self.require_owner(key, 'credit_topup')
+        return self.credits.record_topup(provider, amount, ref=ref, note=note)
+
+    def credit_withdraw(self, amount: float, note: str = '', key: str = None) -> dict:
+        """Take earned margin out of the float. Owner only."""
+        self.require_owner(key, 'credit_withdraw')
+        return self.credits.record_withdrawal(amount, note=note)
+
+    def credit_config(self, key: str = None, **kwargs) -> dict:
+        """Set the margin and pricing knobs (fee_rate, price_per_step,
+        cost_multiplier, deposit_address). Owner only."""
+        self.require_owner(key, 'credit_config')
+        cfg = self.credits.set_config(**kwargs)
+        self.meter.multiplier = self.credits.cost_multiplier
+        return cfg
 
     # ── provider api keys, encrypted vault & balance ─────────────────
 
@@ -1609,9 +1725,10 @@ class Mod(Agent):
 
         Actions:
           Public (anyone):
-            status, health, skills, schema, agents, agent, chains, harnesses,
-            toolboxes, toolbox, snapped, tools, tool,
-            recall, episodes, facts, memory_state
+            status, health, schema, agents, agent, chains, harnesses,
+            toolboxes, toolbox, snapped, tools, tool, mods,
+            recall, episodes, facts, memory_state,
+            arena, arena_tasks, arena_matches, arena_card, arena_status
 
           Signed-in (self-scoped to the caller's verified address):
             vaults      - List your key-value vaults
@@ -1636,8 +1753,12 @@ class Mod(Agent):
             forget      - Remove a fact (id=)
             memory_serve- Start the memory service as its own process (:50119)
             memory_kill - Stop the memory service
+            arena_run   - Play a match (agent=, task=) or a whole round
+            arena_qualify - Score a newcomer against the incumbents (agent=)
+            arena_config  - Set the board's knobs (enabled=, free=, period_hours=…)
+            arena_scheduler - Start/stop the background board process (on=)
             plan        - Parse and execute a single LLM output
-            skill       - Run a single skill
+            tool_run    - Run a single tool (built-in, custom, or mod.<module>)
             serve       - Start API + app
             kill        - Stop services
             test        - Run tests
@@ -1646,14 +1767,17 @@ class Mod(Agent):
             grant       - Grant access to an address (address=, actions=)
             revoke      - Revoke access from an address (address=)
             acl         - View current access control list
+            treasury    - Deposits in, provider credits out, margin kept (live=)
+            credit_topup- Record credits bought at a provider (provider=, amount=, ref=)
+            credit_withdraw - Take earned margin out of the float (amount=)
+            credit_config   - Set fee_rate / price_per_step / cost_multiplier
         """
         kwargs['key'] = key
         actions = {
             # public
             'status': lambda: self.status(),
             'health': lambda: self.health(),
-            'skills': lambda: self.skills.ls(),
-            'schema': lambda: self.skill_schema(kwargs.get('names')),
+            'schema': lambda: self.tool_schema(kwargs.get('names')),
             'agents': lambda: self.agents.forward(kwargs.get('name'), **kwargs),
             'agent': lambda: self.agents.forward(kwargs.get('name') or self.default_agent(key)),
             'chains': lambda: self.agents.chains(),
@@ -1674,30 +1798,40 @@ class Mod(Agent):
             'memory': lambda: {'memory': self.library.notes()},
             'memory_add': lambda: self.library.note_add(kwargs.get('name', ''), kwargs.get('content', ''), kwargs.get('tags'), kwargs.get('id'), key=key),
             'memory_rm': lambda: self.library.note_rm(kwargs.get('id', ''), key=key),
-            # skill aggregator: scan the internet, install what you find
+            # tool aggregator: scan the internet, install what you find
             'discover': lambda: self.discover.search(kwargs.get('q', ''), kwargs.get('sources'),
                                                      int(kwargs.get('limit', 30)),
                                                      kwargs.get('kind'), bool(kwargs.get('fresh'))),
             'discover_sources': lambda: {'sources': self.discover.sources(),
                                          'token': bool(self.discover.token())},
             'discover_detail': lambda: self.discover.detail(kwargs.get('id', '')),
-            'discover_doc': lambda: self.discover.skill_doc(kwargs.get('id', ''), kwargs.get('path')),
-            'skill_install': lambda: self.skill_install(kwargs.get('id', ''), kwargs.get('path'), key=key),
-            'installed_skills': lambda: {'skills': self.library.installed_skills()},
-            'skill_import': lambda: self.library.skill_import(kwargs.get('cid', ''), key=key),
-            'skill_uninstall': lambda: self.library.skill_rm(kwargs.get('id', ''), key=key),
-            # toolboxes (snap-on skill bundles)
+            'discover_doc': lambda: self.discover.tool_doc(kwargs.get('id', ''), kwargs.get('path')),
+            'tool_install': lambda: self.tool_install(kwargs.get('id', ''), kwargs.get('path'), key=key),
+            'installed_tools': lambda: {'tools': self.library.installed_tools()},
+            'tool_import': lambda: self.library.tool_import(kwargs.get('cid', ''), key=key),
+            'tool_uninstall': lambda: self.library.tool_rm(kwargs.get('id', ''), key=key),
+            # toolboxes (snap-on tool bundles)
             'toolboxes': lambda: {'toolboxes': self.toolboxes.items(), 'snapped': self._snapped},
             'toolbox': lambda: self.toolboxes.get(kwargs.get('name', '')).to_dict(),
             'snapped': lambda: self.snapped(),
-            # custom tools (shell-backed, added from the console)
-            'tools': lambda: {'tools': self.tools.items(), 'total': len(self.tools.ls())},
-            'tool': lambda: self.tools.get(kwargs.get('name', '')).to_dict(),
+            # the whole tool surface: built-ins, custom shell tools, the fleet
+            'tools': lambda: self.tools.forward(mods=kwargs.get('mods'), q=kwargs.get('q', '')),
+            'tool': lambda: self.tools.get(kwargs.get('name', '')),
+            'mods': lambda: self.tools.mods.forward(q=kwargs.get('q', ''),
+                                                    limit=kwargs.get('limit')),
             # memory subsystem (working/episodic/semantic layers, own process)
             'memory_state': lambda: self.memory.forward('status') if hasattr(self.memory, 'status') else self.memory.summary(),
             'recall': lambda: self.memory.recall(kwargs.get('query', kwargs.get('q', '')), kwargs.get('k', 5)),
             'episodes': lambda: self.memory.episodes(kwargs.get('n', 50), kwargs.get('session')),
             'facts': lambda: self.memory.facts(),
+            # arena: every agent on the same tasks, one ranked board
+            'arena': lambda: self.arena.forward(),
+            'arena_tasks': lambda: self.arena.forward('tasks'),
+            'arena_matches': lambda: self.arena.forward('matches', limit=kwargs.get('limit', 50),
+                                                        agent=kwargs.get('agent'),
+                                                        task=kwargs.get('task')),
+            'arena_card': lambda: self.arena.forward('card', agent=kwargs.get('agent', '')),
+            'arena_status': lambda: self.arena.forward('status'),
             'key_info': lambda: self.key_info(kwargs.get('provider', 'openrouter')),
             'balance': lambda: self.balance(kwargs.get('provider', 'openrouter')),
             # credits (prepaid public-key usage)
@@ -1707,6 +1841,19 @@ class Mod(Agent):
             'credit_grant': lambda: self.credit_grant(kwargs.get('address', ''),
                                                       kwargs.get('amount', 0),
                                                       kwargs.get('note', ''), key),
+            # treasury: guest deposits fund the provider keys, we keep the margin
+            'treasury': lambda: self.credits_treasury(key, live=kwargs.get('live', True)),
+            'credit_topup': lambda: self.credit_topup(kwargs.get('provider', ''),
+                                                      kwargs.get('amount', 0),
+                                                      kwargs.get('ref', ''),
+                                                      kwargs.get('note', ''), key),
+            'credit_withdraw': lambda: self.credit_withdraw(kwargs.get('amount', 0),
+                                                            kwargs.get('note', ''), key),
+            'credit_config': lambda: self.credit_config(
+                key,
+                **{k: kwargs[k] for k in ('fee_rate', 'price_per_step',
+                                          'cost_multiplier', 'deposit_address')
+                   if kwargs.get(k) is not None}),
             # vaults (per-address KV stores via the store module; self-scoped
             # to the caller's verified address — sign-in required)
             'vaults': lambda: {'vaults': self.vaults.ls(self._resolve_address(key))},
@@ -1739,7 +1886,6 @@ class Mod(Agent):
             'vault_rm': lambda: self.vault_rm(kwargs.get('provider', 'openrouter')),
             'run': lambda: self._run(**kwargs),
             'plan': lambda: super(Mod, self).plan(kwargs.get('output', ''), safety=kwargs.get('safety', False)),
-            'skill': lambda: self.run_skill(kwargs.get('name', ''), **{k: v for k, v in kwargs.items() if k not in ('name', 'key')}),
             'serve': lambda: self.serve(kwargs.get('api_port'), kwargs.get('app_port'), kwargs.get('dev', True)),
             'kill': lambda: self.kill(kwargs.get('service')),
             'test': lambda: self.test(),
@@ -1748,14 +1894,15 @@ class Mod(Agent):
             # toolbox management + snapping (admin)
             'toolbox_add': lambda: self.toolboxes.add(kwargs.get('name', ''), kwargs.get('tools', []), kwargs.get('description', '')),
             'toolbox_rm': lambda: self.toolboxes.rm(kwargs.get('name', '')),
-            # custom tools run shell, so writing one is admin — unlike library
-            # skills, which are documents and only need a sign-in
+            # custom tools run shell and fleet tools run other modules, so
+            # calling one is admin — unlike library tool documents, which are
+            # text and only need a sign-in
             'tool_add': lambda: self.tools.add(kwargs.get('name', ''), kwargs.get('command', ''),
                                                kwargs.get('description', ''), kwargs.get('params'),
                                                kwargs.get('cwd'), kwargs.get('timeout', 60),
                                                owner=self._resolve_address(key, verified=True) or None),
             'tool_rm': lambda: self.tools.rm(kwargs.get('name', '')),
-            'tool_run': lambda: self.tools.run(kwargs.get('name', ''), **(kwargs.get('params') or {})),
+            'tool_run': lambda: self.run_tool(kwargs.get('name', ''), **(kwargs.get('params') or {})),
             'snap': lambda: self.snap(kwargs.get('name', '')),
             'unsnap': lambda: self.unsnap(kwargs.get('name')),
             'select': lambda: self.select(kwargs.get('tools', kwargs.get('names'))),
@@ -1764,6 +1911,18 @@ class Mod(Agent):
             'forget': lambda: self.memory.forget(kwargs.get('id', '')),
             'memory_serve': lambda: self.memory.serve(kwargs.get('port'), kwargs.get('dev', False)),
             'memory_kill': lambda: self.memory.kill(kwargs.get('port')),
+            # arena rounds spend steps on the provider key, so playing is admin
+            'arena_run': lambda: self.arena.forward('run', agent=kwargs.get('agent'),
+                                                    task=kwargs.get('task'),
+                                                    agents=kwargs.get('agents'),
+                                                    tasks=kwargs.get('tasks'),
+                                                    model=kwargs.get('model'),
+                                                    steps=kwargs.get('steps'),
+                                                    free=kwargs.get('free'),
+                                                    reason=kwargs.get('reason', 'manual')),
+            'arena_qualify': lambda: self.arena.forward('qualify', agent=kwargs.get('agent', '')),
+            'arena_config': lambda: self.arena.forward('config', **kwargs),
+            'arena_scheduler': lambda: self.arena_scheduler(kwargs.get('on', True)),
             # owner only
             'grant': lambda: self.grant(kwargs.get('address', ''), kwargs.get('actions'), key),
             'revoke': lambda: self.revoke(kwargs.get('address', ''), key),
@@ -1788,16 +1947,18 @@ class Mod(Agent):
         """Run the agent loop (delegates to Agent.run).
 
         Resolves agent_type from the agents/ registry to apply
-        goal and skills overrides before running.
+        goal and tool overrides before running.
         """
         key = kwargs.get('key')
-        allowed_paths = self.allowed_paths_for(key)
+        # an explicit sandbox wins over key resolution: an arena match has no
+        # caller behind it, and it belongs in its own scratch dir either way
+        allowed_paths = kwargs.get('allowed_paths') or self.allowed_paths_for(key)
 
         # resolve agent type from registry — unnamed lands on the default agent
         agent_type = (kwargs.get('agent_type') or kwargs.get('agent')
                       or self.default_agent(key))
         agent_goal = None
-        agent_skills = kwargs.get('skills')
+        agent_tools = kwargs.get('tools')
         agent_model = kwargs.get('model')
         agent_provider = kwargs.get('provider')
         agent_harness = None
@@ -1806,8 +1967,11 @@ class Mod(Agent):
             agent_config = self.agents.get(agent_type)
             if agent_config.get('goal'):
                 agent_goal = agent_config['goal']
-            if agent_config.get('skills') and not kwargs.get('skills'):
-                agent_skills = agent_config['skills']
+            # `skills` is the pre-rename key — agent configs saved back then
+            # still carry it, so it's read as a fallback
+            saved_tools = agent_config.get('tools') or agent_config.get('skills')
+            if saved_tools and not kwargs.get('tools'):
+                agent_tools = saved_tools
             if agent_config.get('model'):
                 agent_model = agent_config['model']
             agent_harness = agent_config.get('harness')
@@ -1833,14 +1997,15 @@ class Mod(Agent):
                 extra['notes'] = '\n\n'.join(
                     f"[{n['name']}]\n{n.get('content', '')}" for n in picked)
 
-        # installed external skills ride along the same way — a SKILL.md is
-        # instructions, so handing it to the model IS the way it's used
-        skill_ids = kwargs.get('skill_ids') or []
-        if skill_ids:
-            docs = self.library.skill_docs(skill_ids)
+        # installed tool documents ride along the same way — a SKILL.md from
+        # the internet is instructions, so handing it to the model IS the way
+        # it's used
+        tool_ids = kwargs.get('tool_ids') or kwargs.get('skill_ids') or []
+        if tool_ids:
+            docs = self.library.tool_docs(tool_ids)
             if docs:
-                extra['skills_md'] = '\n\n'.join(
-                    f"[skill: {d['name']}]\n{d.get('body', '')}" for d in docs)
+                extra['tool_docs'] = '\n\n'.join(
+                    f"[tool: {d['name']}]\n{d.get('body', '')}" for d in docs)
 
         # swap goal temporarily if agent has a custom one
         original_goal = self.goal
@@ -1855,7 +2020,7 @@ class Mod(Agent):
                 temperature=kwargs.get('temperature', 0.0),
                 max_tokens=kwargs.get('max_tokens', 8192),
                 steps=kwargs.get('steps', 25),
-                skills=agent_skills,
+                tools=agent_tools,
                 toolbox=kwargs.get('toolbox') or kwargs.get('toolboxes'),
                 mod=kwargs.get('mod'),
                 safety=kwargs.get('safety', False),
@@ -1865,6 +2030,7 @@ class Mod(Agent):
                 free=kwargs.get('free', False),
                 on_step=kwargs.get('on_step'),
                 images=kwargs.get('images'),
+                budget=kwargs.get('budget'),
                 **extra,
             )
         finally:
@@ -1924,6 +2090,43 @@ class Mod(Agent):
             timeout=int(kwargs.get('timeout') or HARNESS_TIMEOUT),
             on_step=self._emit_step,
         )
+
+    # ── arena (one runner, every match) ──────────────────────────────
+
+    def arena_run(self, prompt: str, agent: str, model: str = None, steps: int = 8,
+                  free: bool = True, path: str = None):
+        """Run one arena match and hand back its trace and what it cost.
+
+        There is no caller behind a match — the board runs itself — so the run
+        is sandboxed to the match's scratch dir and billed to nobody. The cost
+        still has to be read off the meter: an unread tally would be handed to
+        whichever run lands on this thread next.
+        """
+        # every executed step, not just the last plan: run() hands back
+        # history[-1], so a run that wrote the file in step 2 and finished in
+        # step 5 would be scored on the finish alone
+        trace: List[Dict[str, Any]] = []
+        try:
+            last = self._run(query=prompt, agent_type=agent, model=model, steps=steps,
+                             free=free, path=path,
+                             allowed_paths=[path] if path else None, key=None,
+                             on_step=trace.append)
+        finally:
+            try:
+                usage = self.meter.take()
+            except Exception:
+                usage = {}
+        return (trace or last), usage
+
+    def arena_scheduler(self, on: bool = True, delay: float = 15.0):
+        """Start (or stop) the background process that keeps the board current.
+
+        The API calls this once at boot. It is idempotent — a second call on a
+        live scheduler just reports its status, so a reload can't end up with
+        two threads racing for the same round.
+        """
+        sched = self.arena.scheduler or Scheduler(self.arena)
+        return sched.start(delay=delay) if on else sched.stop()
 
     # ── serve ────────────────────────────────────────────────────────
 
@@ -2042,12 +2245,13 @@ class Mod(Agent):
                          else {'working_keys': self.memory.keys()})
         return {
             'module': 'agent',
-            'skills': self.skills.ls(),
-            'skill_count': len(self.skills.ls()),
+            'tools': self.tools.ls(),
+            'tool_count': len(self.tools.ls()),
             'agents': self.agents.ls(),
             'agent_count': len(self.agents.ls()),
             'toolboxes': self.toolboxes.ls(),
-            'custom_tools': self.tools.ls(),
+            'custom_tools': self.tools.custom.ls(),
+            'mod_tools': len(self.tools.mods.ls()),
             'snapped': list(self._snapped),
             'model': self.model is not None,
             'memory_keys': self.memory.keys(),
@@ -2063,35 +2267,45 @@ class Mod(Agent):
         """Test the agent module"""
         results = {'passed': 0, 'failed': 0, 'tests': []}
 
-        # test skills loaded
+        # test tools loaded
         try:
-            skills = self.skills.ls()
-            assert len(skills) > 0, "should have skills"
-            results['tests'].append({'name': 'skills_loaded', 'passed': True, 'count': len(skills)})
+            tools = self.tools.ls()
+            assert len(tools) > 0, "should have tools"
+            results['tests'].append({'name': 'tools_loaded', 'passed': True, 'count': len(tools)})
             results['passed'] += 1
         except Exception as e:
-            results['tests'].append({'name': 'skills_loaded', 'passed': False, 'error': str(e)})
+            results['tests'].append({'name': 'tools_loaded', 'passed': False, 'error': str(e)})
+            results['failed'] += 1
+
+        # test the fleet is reachable as tools
+        try:
+            fleet = self.tools.mods.ls()
+            assert all(n.startswith('mod.') for n in fleet), "fleet tools carry the mod. prefix"
+            results['tests'].append({'name': 'mod_tools', 'passed': True, 'count': len(fleet)})
+            results['passed'] += 1
+        except Exception as e:
+            results['tests'].append({'name': 'mod_tools', 'passed': False, 'error': str(e)})
             results['failed'] += 1
 
         # test schema generation
         try:
-            schema = self.skill_schema()
-            assert 'bash' in schema, "should have bash skill"
-            assert 'read' in schema, "should have read skill"
+            schema = self.tool_schema()
+            assert 'bash' in schema, "should have the bash tool"
+            assert 'read' in schema, "should have the read tool"
             results['tests'].append({'name': 'schema', 'passed': True, 'keys': list(schema.keys())})
             results['passed'] += 1
         except Exception as e:
             results['tests'].append({'name': 'schema', 'passed': False, 'error': str(e)})
             results['failed'] += 1
 
-        # test bash skill
+        # test the bash tool
         try:
-            r = self.run_skill('bash', command='echo hello')
+            r = self.run_tool('bash', command='echo hello')
             assert r['success'] and 'hello' in r['stdout']
-            results['tests'].append({'name': 'bash_skill', 'passed': True})
+            results['tests'].append({'name': 'bash_tool', 'passed': True})
             results['passed'] += 1
         except Exception as e:
-            results['tests'].append({'name': 'bash_skill', 'passed': False, 'error': str(e)})
+            results['tests'].append({'name': 'bash_tool', 'passed': False, 'error': str(e)})
             results['failed'] += 1
 
         # test forward dispatch
@@ -2105,7 +2319,7 @@ class Mod(Agent):
             results['tests'].append({'name': 'forward_dispatch', 'passed': False, 'error': str(e)})
             results['failed'] += 1
 
-        # test the skill aggregator (offline — no registry is contacted)
+        # test the tool aggregator (offline — no registry is contacted)
         try:
             assert self.discover.test() is True
             results['tests'].append({'name': 'discover', 'passed': True,

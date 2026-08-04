@@ -105,12 +105,22 @@ m git/token                          # mint a token (paste into the app's ACCESS
 m git/grant 0xADDR role=write        # track/untrack/pull/push + connect their own GitHub
 m git/grant 0xADDR role=admin        # + grant/revoke, the OAuth app, other keys' GitHub
 m git/revoke 0xADDR
-m git/access                         # owner + grants
+m git/access                         # owners + grants
 m git/set_owner 0xADDR               # CLI-only, not exposed over HTTP
+m git/set_owner 0xADDR host=1        # …or pin who owns this host, for git
 ```
 
 The owner (default: this box's key) is always admin. ACL lives off-chain in
 `~/.mod/git/access.json`. `GIT_ACCESS_OPEN=1` bypasses auth for local dev.
+
+**Own the host, own the module.** Whoever owns this mod host is an owner here
+too — no grant to give yourself. The address comes from `$GIT_OWNER`, else
+`~/.mod/git/owner.json`, else the host's owner of record
+(`~/.mod/claude/owner.json`), the same file every module on the box reads.
+Press **⬡ sign in with wallet** on the ACCESS tab and MetaMask signs a token for
+your own address (EIP-191 `personal_sign` over the compact `{"data":…,"time":…}`
+— exactly what `m git/token` signs with the box key), so you can commit and push
+your changes straight from the app. Tokens last an hour; sign again after that.
 
 ## API
 

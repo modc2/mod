@@ -13,7 +13,7 @@ import {
 } from './shared'
 import { Panel, Label, Btn, Input, Log, Empty, panelStyle } from './ui'
 import type { ChainWallet } from './WalletBar'
-import { isContract, type ProjectsApi } from './projects'
+import { isContract, uniqueName, type ProjectsApi } from './projects'
 
 interface Template { key: string; name: string; description: string; files: Record<string, string> }
 interface Artifact {
@@ -86,9 +86,7 @@ export function BuildTab({
   }, [project?.name])
 
   const fromTemplate = async (t: Template) => {
-    const taken = new Set(projects.list.map(p => p.name))
-    let name = t.key
-    for (let i = 2; taken.has(name); i++) name = `${t.key}-${i}`
+    const name = uniqueName(t.key, projects.list.map(p => p.name))
     try {
       await projects.create(name, t.files)
       toast.success(`Project ${name} created from ${t.name}`)

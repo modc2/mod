@@ -162,6 +162,11 @@ const SHARPE_WINDOW_DAYS: i64 = 30;
 /// positions feed within a minute; 10 minutes comfortably covers slow
 /// settles without leaving a genuinely-unfilled position unprotected forever.
 const EXIT_READOPT_COOLDOWN_MS: i64 = 10 * 60_000;
+/// Page size for the data-api positions feed. It is also the API's hard cap,
+/// so a response of exactly this many rows means the book may be TRUNCATED —
+/// `LeaderBook::complete` records that, and the leader-flat sweep sits out
+/// rather than read a missing row as "they sold it".
+const HELD_POSITIONS_LIMIT: usize = 500;
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
@@ -482,12 +487,23 @@ pub struct TradeFilters {
 /// `maxPrice`), BUYs default to the `DEFAULT_MIN_ENTRY_PRICE` favorites-only
 /// floor — likely-to-win entries only. An explicit band (even `minPrice: 0`)
 /// is the opt-out; SELLs are never floored (exits must always clear).
+/// Boolean form of the gate — the parity tests assert on it; the cycle loop
+/// wants the reason, so it calls `trade_filter_reject` directly.
+#[cfg(test)]
 fn trade_passes_filters(t: &ObservedTrade, filters: &Option<TradeFilters>) -> bool {
+    trade_filter_reject(t, filters).is_none()
+}
+
+/// Same gate as `trade_passes_filters`, but names the dimension that rejected
+/// the trade. A strat whose filters exclude 100% of its leaders' flow is
+/// indistinguishable from a broken engine unless the cycle can say WHY it
+/// mirrored nothing — this is what the heartbeat reports.
+fn trade_filter_reject(t: &ObservedTrade, filters: &Option<TradeFilters>) -> Option<&'static str> {
     let default_filters = TradeFilters::default();
     let f = filters.as_ref().unwrap_or(&default_filters);
     match f.sides.as_deref() {
-        Some("buy") if t.side != "BUY" => return false,
-        Some("sell") if t.side != "SELL" => return false,
+        Some("buy") if t.side != "BUY" => return Some("side"),
+        Some("sell") if t.side != "SELL" => return Some("side"),
         _ => {}
     }
     let no_price_band = f.min_price.is_none() && f.max_price.is_none();
@@ -495,26 +511,30 @@ fn trade_passes_filters(t: &ObservedTrade, filters: &Option<TradeFilters>) -> bo
         (no_price_band && t.side == "BUY").then_some(DEFAULT_MIN_ENTRY_PRICE)
     });
     if let Some(min) = effective_min {
-        if t.price < min { return false; }
+        if t.price < min {
+            // The implicit favorites-only floor is the single most common
+            // reason a copy strat never fires, so it names itself.
+            return Some(if f.min_price.is_some() { "price" } else { "price<60¢" });
+        }
     }
     if let Some(max) = f.max_price {
-        if t.price > max { return false; }
+        if t.price > max { return Some("price"); }
     }
     let notional = if t.notional > 0.0 { t.notional } else { t.price * t.size };
     if let Some(min) = f.min_notional {
-        if notional < min { return false; }
+        if notional < min { return Some("size"); }
     }
     if let Some(max) = f.max_notional {
-        if notional > max { return false; }
+        if notional > max { return Some("size"); }
     }
     if let Some(cats) = &f.categories {
         if !cats.is_empty()
             && !cats.iter().any(|c| crate::categories::title_in_category(&t.market, c))
         {
-            return false;
+            return Some("category");
         }
     }
-    true
+    None
 }
 
 /// Mirror of `TraderFilter` in app/lib/types.ts — the strat-level counterpart
@@ -684,6 +704,13 @@ pub struct OpenPosition {
     /// persisted before the ledger existed (surfaced as unassigned).
     #[serde(rename = "strategyId", default)]
     pub strategy_id: String,
+    /// Watched trader (lowercased) whose BUY we mirrored to open this. The
+    /// leader-flat sweep needs it to ask "do you still hold this?" — without
+    /// it a position whose exit signal was missed can never be swept. Empty
+    /// on momentum entries and on positions adopted from the chain, which
+    /// have no leader to follow out.
+    #[serde(default)]
+    pub leader: String,
 }
 
 /// Per-strat fill ledger. BUYs add volume; SELLs and redeems realize PnL
@@ -933,7 +960,10 @@ async fn fetch_held_positions(http: &reqwest::Client, wallet: &str) -> Option<Ve
     if wallet.is_empty() {
         return None;
     }
-    let url = format!("{}/positions?user={}&sizeThreshold=0.0&limit=500", DATA_API, wallet);
+    let url = format!(
+        "{}/positions?user={}&sizeThreshold=0.0&limit={}",
+        DATA_API, wallet, HELD_POSITIONS_LIMIT,
+    );
     let resp = match http.get(&url).send().await {
         Ok(r) => r,
         Err(e) => {
@@ -1024,6 +1054,10 @@ struct LeaderBook {
     bankroll: f64,
     /// token_id → shares still held, AFTER the trades we're reacting to.
     sizes: HashMap<String, f64>,
+    /// False when the positions feed came back at its row cap — the book may
+    /// be truncated, so an ABSENT token can't be read as "the leader went
+    /// flat". Only a complete book can drive the leader-flat sweep.
+    complete: bool,
 }
 
 /// Read a leader's bankroll and position book. Positions (and their mark
@@ -1047,6 +1081,7 @@ async fn fetch_leader_book(http: &reqwest::Client, address: &str) -> Option<Lead
         .unwrap_or(0.0);
     Some(LeaderBook {
         bankroll: positions_value + cash,
+        complete: held.len() < HELD_POSITIONS_LIMIT,
         sizes: held.into_iter().map(|p| (p.token_id, p.size)).collect(),
     })
 }
@@ -1070,6 +1105,80 @@ struct MirrorCandidate {
     /// `Some(0.0)` on a SELL means they went flat, so we go flat too.
     /// `None` = their book couldn't be read; exits fall back to ratio sizing.
     leader_remaining: Option<f64>,
+    /// True when this exit came from the leader-flat sweep rather than from a
+    /// SELL we actually observed — worth saying out loud in the log, since it
+    /// means the feed missed their exit and the book caught it.
+    swept: bool,
+}
+
+/// Synthesize an exit for every position whose leader has since gone flat.
+///
+/// The activity feed is the FAST path for exits, but it is not a complete
+/// one: the engine may have been stopped when the leader sold, the sell may
+/// have aged off their recent-activity page, or their address may have been
+/// unreachable for a cycle. Any of those leaves us holding a bag the leader
+/// already dropped. So each cycle we also ask the leader's own book the
+/// direct question — "do you still hold this?" — and treat "no" as the SELL
+/// we never saw.
+///
+/// A missing token only counts as an exit when the book can actually prove
+/// it: the snapshot must be COMPLETE (an unpaged book has no missing rows to
+/// misread) and must have been read AFTER we opened (a snapshot predating our
+/// own BUY has never seen the token, which is not the same as the leader
+/// dropping it). Tokens already queued for a mirror-sell this cycle, or sold
+/// within the exit cooldown, are left alone so we never double-sell.
+fn leader_flat_exits(
+    positions: &HashMap<String, OpenPosition>,
+    exited_recently: &HashMap<String, i64>,
+    leader_books: &HashMap<String, (i64, LeaderBook)>,
+    queued_sells: &HashSet<String>,
+    now: i64,
+) -> Vec<MirrorCandidate> {
+    let mut out: Vec<MirrorCandidate> = positions
+        .values()
+        .filter(|p| p.size > 0.0 && !p.leader.is_empty())
+        .filter(|p| !queued_sells.contains(&p.token_id))
+        // A just-placed exit lingers in the positions feed until it settles;
+        // the cooldown that stops the reconciler re-adopting it stops us
+        // re-selling it too.
+        .filter(|p| now - exited_recently.get(&p.token_id).copied().unwrap_or(0) >= EXIT_READOPT_COOLDOWN_MS)
+        .filter_map(|p| {
+            let (read_at, book) = leader_books.get(&p.leader)?;
+            if !book.complete || *read_at <= p.opened_at { return None; }
+            // A book old enough to have expired can't speak for the present:
+            // the leader may have re-entered since it was taken.
+            if now - *read_at > leader_book_ttl(&p.leader) { return None; }
+            if book.sizes.get(&p.token_id).copied().unwrap_or(0.0) > 0.0 { return None; }
+            Some(MirrorCandidate {
+                trade: ObservedTrade {
+                    // Keyed on the snapshot, so re-reading the same book can't
+                    // queue the exit twice, while a genuinely fresher read
+                    // retries an exit that failed to place.
+                    id: format!("flat-{}-{}", p.token_id, read_at),
+                    timestamp: *read_at,
+                    trader: p.leader.clone(),
+                    market: p.market.clone(),
+                    condition_id: p.condition_id.clone(),
+                    side: "SELL".into(),
+                    size: p.size,
+                    price: p.entry_price,
+                    notional: p.size * p.entry_price,
+                    token_id: p.token_id.clone(),
+                    outcome: String::new(),
+                    score: 0.0,
+                    success_prob: default_success_prob(),
+                },
+                copy_ratio: 1.0,
+                // They hold nothing, so we hold nothing: a full exit.
+                leader_remaining: Some(0.0),
+                swept: true,
+            })
+        })
+        .collect();
+    // `positions` is a HashMap — sort so the exits (and their log lines) come
+    // out in a stable order rather than a different one every cycle.
+    out.sort_by(|a, b| a.trade.token_id.cmp(&b.trade.token_id));
+    out
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -1301,6 +1410,7 @@ impl EngineRegistry {
                         entry_score: f64::MAX,
                         opened_at: now_ms,
                         strategy_id: String::new(),
+                        leader: String::new(),
                     });
                 }
             }
@@ -1360,12 +1470,16 @@ impl EngineRegistry {
     /// `spacing_ms` is slept AFTER a real fetch (never on a cache hit): the
     /// caller's next move is another data-api call for the same trader, and
     /// two back-to-back requests are what trips Cloudflare's per-second limit.
-    async fn leader_book_spaced(&self, address: &str, spacing_ms: u64) -> Option<LeaderBook> {
+    ///
+    /// Returns `(read_at_ms, book)`. The timestamp is the sweep's proof of
+    /// order: only a snapshot taken AFTER we opened a position can say the
+    /// leader has since exited it.
+    async fn leader_book_spaced(&self, address: &str, spacing_ms: u64) -> Option<(i64, LeaderBook)> {
         let key = address.to_lowercase();
         let now = chrono::Utc::now().timestamp_millis();
         if let Some(hit) = self.leader_books.get(&key) {
             if now - hit.0 < leader_book_ttl(&key) {
-                return Some(hit.1.clone());
+                return Some((hit.0, hit.1.clone()));
             }
         }
         let fetched = fetch_leader_book(&self.http, address).await;
@@ -1375,16 +1489,16 @@ impl EngineRegistry {
         match fetched {
             Some(book) => {
                 self.leader_books.insert(key, (now, book.clone()));
-                Some(book)
+                Some((now, book))
             }
             // Serve a stale entry rather than silently reverting a running
             // strat to the fallback sizing model on one bad fetch.
-            None => self.leader_books.get(&key).map(|hit| hit.1.clone()),
+            None => self.leader_books.get(&key).map(|hit| (hit.0, hit.1.clone())),
         }
     }
 
     async fn leader_book(&self, address: &str) -> Option<LeaderBook> {
-        self.leader_book_spaced(address, 0).await
+        self.leader_book_spaced(address, 0).await.map(|(_, b)| b)
     }
 
     fn path_for_config(&self, eoa: &str, strategy_id: &str) -> PathBuf {
@@ -2081,12 +2195,22 @@ impl EngineRegistry {
             // to the trader FILTER, which can only rank once the whole
             // watchlist has been scored.
             let mut cycle_trader_stats: Vec<(String, TraderRoiStats)> = Vec::new();
+            // Why newly-seen BUYs never became candidates, tallied by gate.
+            // Silently dropping them is what makes a strat whose filters
+            // exclude all of its leaders' flow look like a dead engine.
+            let mut gated: HashMap<&'static str, usize> = HashMap::new();
+            // Every leader book read this cycle, with the ms it was read at —
+            // the input to the leader-flat sweep below.
+            let mut leader_books: HashMap<String, (i64, LeaderBook)> = HashMap::new();
 
             // Snapshot cursors so we don't hold the RwLock across the HTTP fan-out.
-            let (cursors, enabled_traders): (HashMap<String, i64>, Vec<TraderEntry>) = {
+            // `held_tokens` rides along so an exit signal can be recognised as
+            // one for a token we actually hold without re-taking the lock.
+            let (cursors, enabled_traders, held_tokens): (HashMap<String, i64>, Vec<TraderEntry>, HashSet<String>) = {
                 let s = state.read();
                 let cursors = s.trader_cursors.clone();
-                (cursors, cfg.traders.iter().filter(|t| t.enabled).cloned().collect())
+                let held = s.positions.iter().filter(|(_, p)| p.size > 0.0).map(|(t, _)| t.clone()).collect();
+                (cursors, cfg.traders.iter().filter(|t| t.enabled).cloned().collect(), held)
             };
             // Re-derive the cadence against THIS cycle's roster — an
             // auto-watchlist refresh (or a mid-run enable/disable) can change
@@ -2118,9 +2242,16 @@ impl EngineRegistry {
                 // The leader's balance sheet (cached ~10m) — the denominator
                 // of proportional sizing and the reference for proportional
                 // exits. Spaced from the activity fetch below on a cache miss.
-                let book = self
+                let book = match self
                     .leader_book_spaced(&trader.address, cfg.inter_request_delay_ms)
-                    .await;
+                    .await
+                {
+                    Some((read_at, b)) => {
+                        leader_books.insert(key.clone(), (read_at, b.clone()));
+                        Some(b)
+                    }
+                    None => None,
+                };
                 match fetch_recent_activity(&self.http, &trader.address).await {
                     Ok(items) => {
                         trader_sync_updates.push((key.clone(), chrono::Utc::now().timestamp_millis()));
@@ -2205,9 +2336,26 @@ impl EngineRegistry {
                             // as the backtest, which keeps every leader SELL
                             // and only filters/ranks BUYs. An exit signal for
                             // a token we already hold is always honored.
+                            // A SELL in a token we HOLD is honored whatever the
+                            // topic query says: editing `marketQuery` mid-run
+                            // would otherwise strand every position opened
+                            // under the old one, with no signal left that can
+                            // ever close it.
                             let mirror_ok = match t.side.as_str() {
-                                "BUY" => market_ok && trade_passes_filters(&t, &cfg.trade_filters),
-                                "SELL" => market_ok,
+                                "BUY" => {
+                                    if !market_ok {
+                                        *gated.entry("market query").or_insert(0) += 1;
+                                        false
+                                    } else if let Some(why) =
+                                        trade_filter_reject(&t, &cfg.trade_filters)
+                                    {
+                                        *gated.entry(why).or_insert(0) += 1;
+                                        false
+                                    } else {
+                                        true
+                                    }
+                                }
+                                "SELL" => market_ok || held_tokens.contains(&t.token_id),
                                 _ => false,
                             };
                             if mirror_ok && !t.token_id.is_empty() {
@@ -2220,6 +2368,7 @@ impl EngineRegistry {
                                         .map(|b| b.sizes.get(&t.token_id).copied().unwrap_or(0.0)),
                                     trade: t.clone(),
                                     copy_ratio,
+                                    swept: false,
                                 });
                             }
                             new_observed.push(t);
@@ -2240,13 +2389,17 @@ impl EngineRegistry {
             // above has scored everyone, and it drops CANDIDATES rather than
             // skipping the fetch: a filtered-out trader stays observed (the
             // console still shows their flow, and their stats keep updating,
-            // which is how they climb back in).
+            // which is how they climb back in). It gates ENTRIES only: a
+            // trader can fall out of the top N while we still hold what we
+            // bought copying them, and dropping their exit would leave that
+            // position with nothing left to close it.
             let filter_note: Option<String> = cfg.filter.as_ref().map(|f| {
                 let ranked = select_top_traders(&cycle_trader_stats, f);
                 let kept: HashSet<String> =
                     ranked.iter().filter(|r| r.kept).map(|r| r.address.clone()).collect();
                 let before = mirror_candidates.len();
-                mirror_candidates.retain(|c| kept.contains(&c.trade.trader.to_lowercase()));
+                mirror_candidates
+                    .retain(|c| c.trade.side == "SELL" || kept.contains(&c.trade.trader.to_lowercase()));
                 let dropped = before - mirror_candidates.len();
                 let metric = f.metric.as_deref().unwrap_or("score");
                 let roster = ranked
@@ -2278,6 +2431,7 @@ impl EngineRegistry {
             {
                 let mut s = state.write();
                 // Merge observed trades, newest-first, capped at OBSERVED_CAP.
+                let new_trade_count = new_observed.len();
                 let mut combined: Vec<ObservedTrade> = new_observed;
                 combined.extend(s.observed_trades.drain(..));
                 combined.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
@@ -2292,11 +2446,17 @@ impl EngineRegistry {
                 }
 
                 // Log a heartbeat so quiet cycles still produce a signal.
+                // The count is the trades this cycle actually pulled past each
+                // trader's cursor — NOT observed trades stamped after the cycle
+                // started, which is what it used to compare: a leader trade is
+                // timestamped when THEY traded, always before we polled for it,
+                // so that filter read 0 on virtually every cycle and a working
+                // engine looked asleep.
                 let mut summary = if errors.is_empty() {
                     format!(
                         "polled {} traders · {} new trades observed",
                         enabled_traders.len(),
-                        s.observed_trades.iter().filter(|o| o.timestamp >= cycle_started_at).count(),
+                        new_trade_count,
                     )
                 } else {
                     format!(
@@ -2310,6 +2470,24 @@ impl EngineRegistry {
                 if cfg.momentum.is_some() {
                     let n = momentum_series.as_ref().map_or(0, |(_, s)| s.len());
                     summary.push_str(&format!(" · momentum over {} markets", n));
+                }
+                // Which gate ate this cycle's entries. A strat that observes
+                // flow every cycle and mirrors none of it is a filter
+                // decision, not a fault — say so instead of leaving the
+                // console to imply the engine is broken.
+                if !gated.is_empty() {
+                    let mut by_gate: Vec<(&&str, &usize)> = gated.iter().collect();
+                    by_gate.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+                    let total: usize = gated.values().sum();
+                    summary.push_str(&format!(
+                        " · {} BUY(s) gated ({})",
+                        total,
+                        by_gate
+                            .iter()
+                            .map(|(k, n)| format!("{} {}", n, k))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ));
                 }
                 // The trader ranking gets its own row: which traders are being
                 // copied right now is the single thing a FILTER strat's owner
@@ -2455,6 +2633,48 @@ impl EngineRegistry {
                             tracing::warn!(eoa = %cfg.eoa, error = %e, "auto-redeem pass failed");
                         }
                     }
+                }
+            }
+
+            // ── Leader-flat sweep ──
+            // Backstop for every exit the activity feed can miss (engine
+            // downtime, a sell aged off the recent page, an unreachable
+            // trader): if a leader's own book no longer shows a token we
+            // opened copying them, they are out and so are we. Runs after the
+            // FILTER so a swept exit can't be dropped by it, and before
+            // execution so it rides the same sell path as a seen SELL.
+            {
+                let flat = {
+                    let s = state.read();
+                    let queued: HashSet<String> = mirror_candidates
+                        .iter()
+                        .filter(|c| c.trade.side == "SELL")
+                        .map(|c| c.trade.token_id.clone())
+                        .collect();
+                    leader_flat_exits(
+                        &s.positions,
+                        &s.exited_recently,
+                        &leader_books,
+                        &queued,
+                        chrono::Utc::now().timestamp_millis(),
+                    )
+                };
+                if !flat.is_empty() {
+                    let markets = flat
+                        .iter()
+                        .map(|c| c.trade.market.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" · ");
+                    self.log_and_persist(&cfg, &state, mk_log(
+                        "INFO",
+                        &format!("flat-sweep-{}", cycle_started_at),
+                        format!(
+                            "LEADER_FLAT · {} held position(s) their leader no longer holds — exiting · {}",
+                            flat.len(), markets,
+                        ),
+                        None,
+                    ));
+                    mirror_candidates.extend(flat);
                 }
             }
 
@@ -2838,6 +3058,7 @@ impl EngineRegistry {
                             entry_score: trade.score,
                             opened_at,
                             strategy_id: cfg.strategy_id.clone(),
+                            leader: trade.trader.to_lowercase(),
                         });
                         let new_size = entry.size + size;
                         if new_size > 0.0 {
@@ -2850,6 +3071,13 @@ impl EngineRegistry {
                         // of the unassigned bucket.
                         if entry.strategy_id.is_empty() {
                             entry.strategy_id = cfg.strategy_id.clone();
+                        }
+                        // Same for an unattributed position (adopted from
+                        // chain, or opened before positions carried a leader):
+                        // topping it up by copying someone makes them the
+                        // leader to follow back out.
+                        if entry.leader.is_empty() {
+                            entry.leader = trade.trader.to_lowercase();
                         }
                         let stats = s
                             .strat_stats
@@ -3111,6 +3339,8 @@ impl EngineRegistry {
                             entry_score: 0.0,
                             opened_at: now,
                             strategy_id: cfg.strategy_id.clone(),
+                            // Origination, not copying — no leader to follow out.
+                            leader: String::new(),
                         });
                         let new_size = entry.size + size;
                         if new_size > 0.0 {
@@ -3180,9 +3410,10 @@ impl EngineRegistry {
         cancel: &Arc<AtomicBool>,
         candidates: Vec<MirrorCandidate>,
     ) {
-        for MirrorCandidate { trade, copy_ratio, leader_remaining } in candidates {
+        for MirrorCandidate { trade, copy_ratio, leader_remaining, swept } in candidates {
             if cancel.load(Ordering::Acquire) { break; }
             if state.read().copied_ids.contains(&trade.id) { continue; }
+            let why = if swept { "leader no longer holds it" } else { "leader exited" };
 
             let Some(pos) = state.read().positions.get(&trade.token_id).cloned() else { continue };
             if pos.size <= 0.0 { continue; }
@@ -3217,8 +3448,8 @@ impl EngineRegistry {
             // un-copied — mirrors the BUY-side dry-run contract.
             if !cfg.auto_execute {
                 let msg = format!(
-                    "DRY RUN · would SELL {:.0} of {:.0} held @ bid · leader exited · {} · token {}",
-                    size, pos.size, trade.market, short_token(&trade.token_id),
+                    "DRY RUN · would SELL {:.0} of {:.0} held @ bid · {} · {} · token {}",
+                    size, pos.size, why, trade.market, short_token(&trade.token_id),
                 );
                 tracing::info!(eoa = %cfg.eoa, market = %trade.market, size, "{}", msg);
                 self.log_and_persist(cfg, state, mk_log("DRY_RUN", &trade.id, msg, Some(&trade.trader)));
@@ -3284,8 +3515,8 @@ impl EngineRegistry {
                             "COPY_SELL",
                             &trade.id,
                             format!(
-                                "SELL {:.0} @ {:.0}¢ · leader exited · realized {:+.2} · {}",
-                                size, bid * 100.0, proceeds - cost_basis, trade.market
+                                "SELL {:.0} @ {:.0}¢ · {} · realized {:+.2} · {}",
+                                size, bid * 100.0, why, proceeds - cost_basis, trade.market
                             ),
                             Some(&trade.trader),
                         ));
@@ -5007,6 +5238,118 @@ mod tests {
         assert!(trade_passes_filters(&observed("BUY", 0.65, 10.0, "anything"), &empty_cats));
     }
 
+    /// A held position opened at `opened_at` by `leader`.
+    fn held(token: &str, leader: &str, opened_at: i64) -> OpenPosition {
+        OpenPosition {
+            token_id: token.into(),
+            condition_id: "0x1".into(),
+            market: format!("market {}", token),
+            size: 100.0,
+            entry_price: 0.40,
+            entry_score: 1.0,
+            opened_at,
+            strategy_id: "s1".into(),
+            leader: leader.into(),
+        }
+    }
+
+    /// A complete leader book read at `read_at` holding `sizes`.
+    fn book(read_at: i64, sizes: &[(&str, f64)]) -> (i64, LeaderBook) {
+        (read_at, LeaderBook {
+            bankroll: 1000.0,
+            sizes: sizes.iter().map(|(t, s)| (t.to_string(), *s)).collect(),
+            complete: true,
+        })
+    }
+
+    #[test]
+    fn leader_flat_sweep_exits_what_the_feed_missed() {
+        let now = 10_000_000i64;
+        let opened = now - 3_600_000; // an hour ago
+        let mut positions = HashMap::new();
+        positions.insert("gone".to_string(), held("gone", "0xlead", opened));
+        positions.insert("kept".to_string(), held("kept", "0xlead", opened));
+        // Book read AFTER we opened both, and it only shows one of them —
+        // the other was sold while we weren't looking.
+        let mut books = HashMap::new();
+        books.insert("0xlead".to_string(), book(now - 1000, &[("kept", 250.0)]));
+
+        let out = leader_flat_exits(&positions, &HashMap::new(), &books, &HashSet::new(), now);
+        assert_eq!(out.len(), 1, "only the token the leader dropped is swept");
+        let c = &out[0];
+        assert_eq!(c.trade.token_id, "gone");
+        assert_eq!(c.trade.side, "SELL");
+        assert_eq!(c.trade.trader, "0xlead");
+        assert!(c.swept);
+        // `Some(0.0)` remaining is what makes the sell path exit in full.
+        assert_eq!(c.leader_remaining, Some(0.0));
+    }
+
+    #[test]
+    fn leader_flat_sweep_never_sells_on_a_book_that_cant_prove_it() {
+        let now = 10_000_000i64;
+        let opened = now - 3_600_000;
+        let mut positions = HashMap::new();
+        positions.insert("gone".to_string(), held("gone", "0xlead", opened));
+        let none: HashMap<String, i64> = HashMap::new();
+
+        // 1. Snapshot predates our entry — it never saw the token, which is
+        //    not the same as the leader dropping it. (This is the guard that
+        //    stops a cached book selling a position the moment we open it.)
+        let mut stale = HashMap::new();
+        stale.insert("0xlead".to_string(), book(opened - 1, &[]));
+        assert!(leader_flat_exits(&positions, &none, &stale, &HashSet::new(), now).is_empty());
+
+        // 2. Truncated book — an absent row may just be off the end of the page.
+        let mut capped = HashMap::new();
+        let (at, mut b) = book(now - 1000, &[]);
+        b.complete = false;
+        capped.insert("0xlead".to_string(), (at, b));
+        assert!(leader_flat_exits(&positions, &none, &capped, &HashSet::new(), now).is_empty());
+
+        // 3. Expired snapshot can't speak for the present — they may have
+        //    re-entered since it was taken.
+        let mut expired = HashMap::new();
+        expired.insert("0xlead".to_string(), book(now - leader_book_ttl("0xlead") - 1, &[]));
+        assert!(leader_flat_exits(&positions, &none, &expired, &HashSet::new(), now).is_empty());
+
+        // 4. No book at all for that leader (unreachable this cycle).
+        assert!(leader_flat_exits(&positions, &none, &HashMap::new(), &HashSet::new(), now).is_empty());
+
+        // 5. No leader recorded (momentum entry / adopted from chain) — there
+        //    is nobody to follow out.
+        let mut orphan = HashMap::new();
+        orphan.insert("gone".to_string(), held("gone", "", opened));
+        let mut fresh = HashMap::new();
+        fresh.insert("0xlead".to_string(), book(now - 1000, &[]));
+        assert!(leader_flat_exits(&orphan, &none, &fresh, &HashSet::new(), now).is_empty());
+    }
+
+    #[test]
+    fn leader_flat_sweep_never_double_sells() {
+        let now = 10_000_000i64;
+        let opened = now - 3_600_000;
+        let mut positions = HashMap::new();
+        positions.insert("gone".to_string(), held("gone", "0xlead", opened));
+        let mut books = HashMap::new();
+        books.insert("0xlead".to_string(), book(now - 1000, &[]));
+
+        // Already queued from an observed SELL this cycle.
+        let queued: HashSet<String> = ["gone".to_string()].into_iter().collect();
+        assert!(leader_flat_exits(&positions, &HashMap::new(), &books, &queued, now).is_empty());
+
+        // Sold moments ago — the fill hasn't settled out of the feed yet.
+        let mut cooling = HashMap::new();
+        cooling.insert("gone".to_string(), now - 1000);
+        assert!(leader_flat_exits(&positions, &cooling, &books, &HashSet::new(), now).is_empty());
+
+        // Once the cooldown lapses it's fair game again (an exit that never
+        // filled must not be stranded forever).
+        let mut cold = HashMap::new();
+        cold.insert("gone".to_string(), now - EXIT_READOPT_COOLDOWN_MS - 1);
+        assert_eq!(leader_flat_exits(&positions, &cold, &books, &HashSet::new(), now).len(), 1);
+    }
+
     #[test]
     fn stop_loss_trigger() {
         // 0.5 stop on a 40¢ entry ⇒ trigger at ≤ 20¢, hold above.
@@ -5116,7 +5459,7 @@ mod tests {
         held.insert("tokNo".to_string(), OpenPosition {
             token_id: "tokNo".into(), condition_id: "0xc1".into(), market: "m".into(),
             size: 10.0, entry_price: 0.40, entry_score: 0.0, opened_at: now,
-            strategy_id: "s1".into(),
+            strategy_id: "s1".into(), leader: String::new(),
         });
         let no_exit = MomentumParams { exit_drop_cents: Some(20.0), ..mo.clone() };
         assert!(propose_momentum(&no_exit, &[s], &held, now, 5.0, f64::INFINITY, 5.0, 1000.0).is_empty());
@@ -5133,7 +5476,7 @@ mod tests {
         held.insert("tokYes".to_string(), OpenPosition {
             token_id: "tokYes".into(), condition_id: "0xc1".into(), market: "m".into(),
             size: 100.0, entry_price: 0.65, entry_score: 0.0, opened_at: now,
-            strategy_id: "s1".into(),
+            strategy_id: "s1".into(), leader: String::new(),
         });
         let mo = MomentumParams {
             query: None, lookback_minutes: None, min_rise_cents: None,

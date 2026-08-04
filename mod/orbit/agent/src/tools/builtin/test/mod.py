@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 
-class Skill:
+class Tool:
     description = "Detect test framework and run tests. Supports pytest, jest, mocha, cargo test, go test, and more."
 
     # framework detection: file pattern -> (command, name)

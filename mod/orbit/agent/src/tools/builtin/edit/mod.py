@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Dict, Any
 
-class Skill:
+class Tool:
     description = "Edit a file by replacing old text with new text"
 
     def forward(self, file_path: str, old_string: str, new_string: str, replace_all: bool = False, **kwargs) -> Dict[str, Any]:
@@ -23,7 +23,7 @@ class Skill:
 
     def test(self):
         import tempfile, os
-        p = os.path.join(tempfile.gettempdir(), "skill_edit_test.txt")
+        p = os.path.join(tempfile.gettempdir(), "tool_edit_test.txt")
         Path(p).write_text("hello world")
         r = self.forward(p, "hello", "hi")
         assert r["success"] and Path(p).read_text() == "hi world"

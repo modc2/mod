@@ -144,6 +144,37 @@ export interface CidLink {
   key: string | null;
 }
 
+/** A node in the store-wide CID graph — a stored object, or (external) a CID
+ *  someone's content references that this store doesn't hold. */
+export interface GraphNode extends StoredObject {
+  external: boolean;
+}
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+  created: number;
+}
+
+export interface CidGraphData {
+  address: string;
+  scope: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  total_objects: number;
+  linked: number;
+}
+
+export interface GraphScanResult {
+  scope: string;
+  objects: number;
+  scanned: number;
+  skipped: number;
+  with_refs: number;
+  edges: number;
+  seconds: number;
+}
+
 export interface ObjectInfo {
   cid: string;
   owner: string | null;
@@ -395,6 +426,21 @@ export const api = {
   async objectInfo(token: string, cid: string) {
     return json<ObjectInfo>(
       await fetch(`${BASE}/object?cid=${encodeURIComponent(cid)}`, { headers: authHeaders(token) })
+    );
+  },
+
+  // ── CID graph ──
+  async graph(token: string, opts: { scope?: string; isolated?: boolean } = {}) {
+    const qs = new URLSearchParams();
+    if (opts.scope) qs.set("scope", opts.scope);
+    if (opts.isolated) qs.set("isolated", "true");
+    return json<CidGraphData>(
+      await fetch(`${BASE}/graph?${qs.toString()}`, { headers: authHeaders(token) })
+    );
+  },
+  async graphScan(token: string, scope = "mine") {
+    return json<GraphScanResult>(
+      await fetch(`${BASE}/graph/scan?scope=${scope}`, { method: "POST", headers: authHeaders(token) })
     );
   },
 

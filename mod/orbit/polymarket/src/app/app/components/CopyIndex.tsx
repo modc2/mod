@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import nextDynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES } from "../lib/polymarket";
+import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES, TRADER_SYNC_MIN_MS } from "../lib/polymarket";
 import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats, TradeFilters, TraderFilter, TraderMetric } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
 import { Strat, clobMinNotional, statsFromReturns, stopLossTriggered, takeProfitTriggered, successProbability, copyRatioFor, rankTraders, DEFAULT_FILTER_TOP_N, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, REBALANCE_MARGIN_PCT, MIN_POLL_MINUTES } from "../lib/strats/strat";
@@ -14,12 +14,20 @@ import { useFilterParams, useFilters } from "../context/FiltersContext";
 import { useAuth } from "../context/AuthContext";
 import { useCopyEngine } from "../context/CopyEngineContext";
 import CopyTrading from "./CopyTrading";
-import EquityChart, { type EquitySnapshot, type EquityMarker } from "./EquityChart";
+import { type EquitySnapshot, type EquityMarker } from "./EquityChart";
+import PerfPanel, { type PerfPosition } from "./PerfPanel";
 import TraderFilterCard from "./TraderFilterCard";
 import CapitalPlanCard from "./CapitalPlanCard";
 import type { CapitalPlanInput } from "../lib/capitalPlan";
 import type { CurvePoint } from "./PnlChart";
 import { computeFifoTrades, buildPnlCurve, buildCombinedPnlCurve, aggregateToRebalanceWindows } from "../lib/pnlEngine";
+// The backtest engine itself lives in lib/backtest.ts — the STRAT HUB replays
+// every saved strat through the exact same functions, so a card and this tab
+// can never disagree about what a strat did.
+import {
+  runBacktest, keepInSample, TAKER_FEE_BPS, GAS_PER_TRADE_USD, DEFAULT_CAPITAL,
+  type LinkedTrade, type BacktestSim,
+} from "../lib/backtest";
 import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId, equalWeightTraders } from "../lib/indexStore";
 import { pushStrat } from "../lib/stratSync";
 import { fetchTraderBankrolls } from "../lib/liveSessions";
@@ -153,17 +161,6 @@ interface TraderBacktest {
   simulatedTrades: SimulatedTrade[];
 }
 
-// Polymarket costs — kept at LIVE-engine parity. The CLOB charges no
-// taker/maker fee on these markets (the engine places every order with
-// fee_rate_bps 0) and proxy-wallet trades are relayer-paid, i.e. gasless for
-// the user. The sim books the same zero costs so the backtest curve and a
-// live session measure the same thing; real friction (spread, unfilled GTC
-// limits) is unmodeled on BOTH sides. Bump these only if Polymarket starts
-// charging AND the live engine models the same charge.
-const TAKER_FEE_BPS = 0;
-const GAS_PER_TRADE_USD = 0;
-const DEFAULT_CAPITAL = 1000;
-
 // "12s" / "3m" / "1h4m" — terse relative-age formatter for lag chips.
 function formatAgoShort(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "—";
@@ -173,20 +170,6 @@ function formatAgoShort(ms: number): string {
   if (min < 60) return `${min}m`;
   const hr = Math.floor(min / 60);
   return `${hr}h${(min % 60).toString().padStart(2, "0")}m`;
-}
-
-// Deterministic per-trade sample filter. Same (samplePct, key) always returns
-// the same boolean — keeps the chart + feed in lockstep without re-sampling
-// every render. Uses FNV-1a so a one-char tweak to the key reshuffles cleanly.
-function keepInSample(samplePct: number, key: string): boolean {
-  if (samplePct >= 100) return true;
-  if (samplePct <= 0) return false;
-  let h = 2166136261;
-  for (let i = 0; i < key.length; i++) {
-    h ^= key.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return ((h >>> 0) % 100) < samplePct;
 }
 
 function computeBacktest(
@@ -683,9 +666,9 @@ function KeywordFilterDropdown({ query, onCommit, matched, total, onViewBacktest
             onClick={() => { onViewBacktest(); setOpen(false); }}
             disabled={!canBacktest}
             className="w-full text-[11px] font-bold tracking-[0.16em] px-3 py-1.5 rounded border border-green-400/50 text-green-400 bg-green-400/[0.06] hover:bg-green-400/[0.14] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            title="The backtest already re-ran with these keywords — jump to the charts"
+            title="The test already re-ran with these keywords — jump to the charts"
           >
-            VIEW BACKTEST →
+            VIEW TEST →
           </button>
         </div>
       )}
@@ -1436,22 +1419,23 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchlistKey, refreshKey]);
 
-  // Background refresh — re-poll every BACKTEST_REFRESH_MS so the curve's
+  // Background refresh — re-poll every TRADER_SYNC_MIN_MS so the curve's
   // right edge keeps catching new trades. Without this the chart looks
   // sparse near "now" because data was only pulled once on mount. Guards:
   //   • only runs when there's a watchlist (no point polling 0 addrs)
   //   • only when the user is on a tab that uses traderTrades (STRATS hides
-  //     the curve so polling is wasted; LIVE has its own copy engine on a
-  //     1-min cadence already)
+  //     the curve so polling is wasted)
+  // The tick rides the SAME 30s gate as the live engine (fetchWalletTrades-
+  // Incremental throttles per trader), so this loop and a running engine
+  // together still cost one /activity sync per selected trader per 30s.
   useEffect(() => {
     if (watchlist.length === 0) return;
     if (mode === "STRATS") return;
-    const BACKTEST_REFRESH_MS = 60_000;
     const t = setInterval(() => {
       // Re-fetch the whole watchlist silently. Reuses the same setTraderTrades
       // path so the curve + linked feed rebuild via their existing useMemos.
       fetchAll(watchlist, true);
-    }, BACKTEST_REFRESH_MS);
+    }, TRADER_SYNC_MIN_MS);
     return () => clearInterval(t);
   }, [watchlistKey, mode, fetchAll]);
 
@@ -1680,106 +1664,44 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     [maxPerCycle, marketQuery, tradeFilters, traderFilter],
   );
 
-  // ── Per-trader 30d ROI stats (drives top-N sampling) ──
-  // Computed from the same `traderTrades` cache the backtest already
-  // loaded — no extra fetches. The shape MUST match what the live engine
-  // builds in fetchTraderRoiStats so the strat's scoreCandidate behaves
-  // identically in live + backtest.
-  const traderStatsMap = useMemo(() => {
-    const out = new Map<string, TraderRoiStats>();
-    const sharpeCutoffMs = Date.now() - 30 * 86400_000;
-    for (const addr of watchlist) {
-      const trades = (traderTrades.get(addr) || [])
-        .filter((t) => marketMatchesQuery(t.market, marketQuery));
-      const positions = traderData.get(addr) || [];
-      const annotated = computeFifoTrades(trades, positions, sharpeCutoffMs);
-      const inWin = annotated.filter((t) => t.timestamp >= sharpeCutoffMs);
-      let cashDeployed = 0;
-      const returns: number[] = [];
-      for (const t of inWin) {
-        if (t.side === "BUY") cashDeployed += t.price * t.size;
-        if (t.side !== "SELL" || !t.hasBasis || !t.buyPrice) continue;
-        const entryNotional = t.buyPrice * t.size;
-        if (entryNotional <= 0) continue;
-        returns.push(t.realized / entryNotional);
-      }
-      out.set(addr, {
-        address: addr.toLowerCase(),
-        windowDays: 30,
-        ...statsFromReturns(returns),
-        cashDeployed,
-        syncedAt: Date.now(),
-      });
-    }
-    return out;
-  }, [watchlist, traderTrades, traderData, marketQuery]);
+  // ── The backtest ──
+  // One call into lib/backtest.ts runs the whole pipeline — 30d trader stats
+  // → proportional copy ratios → the StratHistory hooks see → the per-cycle
+  // top-N rank race → the simulated-wallet replay. The HUB replays every
+  // saved strat through this same function, so a card's number and this tab's
+  // number are produced by the same code, not by two copies of it.
+  const backtest = useMemo(() => runBacktest({
+    watchlist,
+    traderTrades,
+    traderPositions: traderData,
+    traderWeights,
+    traderBankrolls,
+    strat: backtestStrat,
+    days: backtestDays,
+    capital,
+    minTrade,
+    maxTrade,
+    maxOpenPositions,
+    stopLossPct,
+    takeProfitFrac,
+    marketQuery,
+    // The engine's LIVE cadence, not the backtest-only rebalance knob.
+    pollMinutes: activeIndex?.livePollMinutes ?? rebalanceMinutes ?? 1,
+    rebalancePeriod,
+    rebalanceHour,
+    samplePct,
+    showAllTrades,
+    loading,
+  }), [watchlist, traderTrades, traderData, traderWeights, traderBankrolls, backtestStrat,
+       backtestDays, capital, minTrade, maxTrade, maxOpenPositions, stopLossPct, takeProfitFrac,
+       marketQuery, activeIndex?.livePollMinutes, rebalanceMinutes, rebalancePeriod,
+       rebalanceHour, samplePct, showAllTrades, loading]);
 
-  // ── Per-trader copy ratio — the same `copyRatioFor` the live engine sizes
-  // with: the leader risked `notional / bankroll` of their net worth, so the
-  // strat risks that fraction of its capital, split by watchlist weight.
-  // Bankrolls come from the engine's own cache (`/live/bankroll`), so the
-  // preview and the live session divide by the same denominator; traders
-  // whose book can't be read fall back to the volume model.
-  //
-  // (This is also why copyRatio must never be 0 here: the backtest used to
-  // pass 0 into scoreCandidate, making every BUY score roi × notional × 0 = 0
-  // — and the top-N filter only keeps scores > 0, so NO buy ever survived and
-  // every backtest executed 0 trades.)
-  const traderCopyRatio = useMemo(() => {
-    const out = new Map<string, number>();
-    const cutoff = Date.now() - backtestDays * 86400_000;
-    for (const addr of watchlist) {
-      let buyVol = 0, sellVol = 0;
-      for (const t of traderTrades.get(addr) || []) {
-        if (t.timestamp < cutoff || !marketMatchesQuery(t.market, marketQuery)) continue;
-        const v = t.price * t.size;
-        if (t.side === "BUY") buyVol += v; else sellVol += v;
-      }
-      const wFrac = totalWeight > 0 ? (traderWeights[addr] || 0) / totalWeight : 1 / watchlist.length;
-      out.set(addr, copyRatioFor(
-        capital,
-        wFrac,
-        traderBankrolls.get(addr.toLowerCase()),
-        capital * wFrac,
-        Math.max(buyVol, sellVol),
-      ));
-    }
-    return out;
-  }, [watchlist, traderTrades, traderWeights, totalWeight, backtestDays, capital, marketQuery, traderBankrolls]);
-
-  // ── Backtest StratHistory — same shape the live engine hands hooks ──
-  // Every strat hook takes the full observed history, so history-aware
-  // strats score identically in backtest and live. Positions/balance are
-  // unknowable in a backtest preview — empty/null by contract.
-  const backtestHistory = useMemo((): StratHistory => {
-    const totalW = watchlist.reduce((s, a) => s + (traderWeights[a] || 0), 0) || 1;
-    const windowCutoffMs = Date.now() - backtestDays * 86400_000;
-    const trades: StratTraderTrade[] = [];
-    const stats: Record<string, TraderRoiStats> = {};
-    for (const addr of watchlist) {
-      const weight = traderWeights[addr] || 0;
-      const st = traderStatsMap.get(addr);
-      if (st) stats[addr.toLowerCase()] = st;
-      for (const t of traderTrades.get(addr) || []) {
-        if (t.timestamp < windowCutoffMs) continue;
-        trades.push({
-          ...t, trader: addr, weight, weightFraction: weight / totalW,
-          copyRatio: traderCopyRatio.get(addr) ?? 0, notional: t.price * t.size,
-        });
-      }
-    }
-    trades.sort((a, b) => b.timestamp - a.timestamp);
-    return {
-      trades,
-      traderStats: stats,
-      positions: [],
-      balance: null,
-      capital,
-      watchlist: watchlist.map((a) => ({ address: a, weight: traderWeights[a] || 0 })),
-      cycle: 0,
-      now: Date.now(),
-    };
-  }, [watchlist, traderTrades, traderStatsMap, traderWeights, backtestDays, capital, traderCopyRatio]);
+  const traderStatsMap = backtest.traderStats;
+  const traderCopyRatio = backtest.copyRatio;
+  const backtestHistory = backtest.history;
+  const keptBuyIds = backtest.keptBuyIds;
+  const backtestSim: BacktestSim = backtest.sim;
 
   // ── CAPITAL PLAN input — the flow this strat would actually copy ──
   // Same gate the engine applies (`shouldMirror`: market query + trade filter
@@ -1822,62 +1744,6 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     };
   }, [watchlist, traderTrades, traderWeights, traderCopyRatio, traderBankrolls, backtestStrat,
       backtestHistory, marketQuery, capital, minTrade, maxTrade, activeIndex?.maxUpscale, backtestDays]);
-
-  // ── Top-N sampling: which BUY IDs survive the strat's filter ──
-  // Goes through the SAME strat class the live engine uses (registry).
-  // Swapping the strat in registry.ts updates BOTH live behavior AND
-  // this backtest preview — no separate inline math to keep in sync.
-  const keptBuyIds = useMemo(() => {
-    if (watchlist.length === 0) return new Set<string>();
-    const strat = backtestStrat;
-    // One bucket = one live engine cycle. Prefer the strat's LIVE poll
-    // cadence (what the engine actually runs at) over the backtest-only
-    // rebalanceMinutes knob; both share the engine's 60s minIntervalMs
-    // floor, so a 5s UI setting still buckets at the 1-min clamp live
-    // enforces.
-    const pollMin = activeIndex?.livePollMinutes ?? rebalanceMinutes ?? 1;
-    const cycleBucketMs = Math.max(60_000, Math.round((pollMin || 1) * 60_000));
-    const windowCutoffMs = Date.now() - backtestDays * 86400_000;
-    const totalW = watchlist.reduce((s, a) => s + (traderWeights[a] || 0), 0) || 1;
-
-    type Cand = { id: string; ts: number; score: number };
-    const buys: Cand[] = [];
-    for (const addr of watchlist) {
-      const trades = traderTrades.get(addr) || [];
-      const stats = traderStatsMap.get(addr) ?? null;
-      const weight = traderWeights[addr] || 0;
-      const weightFraction = weight / totalW;
-      for (const t of trades) {
-        if (t.timestamp < windowCutoffMs) continue;
-        if (t.side !== "BUY") continue;
-        const stratTrade: StratTraderTrade = {
-          ...t, trader: addr, weight, weightFraction,
-          copyRatio: traderCopyRatio.get(addr) ?? 0, notional: t.price * t.size,
-        };
-        // Same pre-filter the live engine applies — a filtered BUY never
-        // enters the rank race, so it drops out of the backtest curve too.
-        if (!strat.shouldMirror(stratTrade, backtestHistory)) continue;
-        const score = strat.scoreCandidate(stratTrade, stats, backtestHistory);
-        buys.push({ id: t.id, ts: t.timestamp, score });
-      }
-    }
-    const buckets = new Map<number, Cand[]>();
-    for (const c of buys) {
-      const b = Math.floor(c.ts / cycleBucketMs);
-      let arr = buckets.get(b);
-      if (!arr) { arr = []; buckets.set(b, arr); }
-      arr.push(c);
-    }
-    const kept = new Set<string>();
-    const cap = strat.maxPerCycle();
-    for (const cands of buckets.values()) {
-      cands.sort((a, b) => b.score - a.score);
-      for (let i = 0; i < cands.length && i < cap; i++) {
-        if (cands[i].score > 0) kept.add(cands[i].id);
-      }
-    }
-    return kept;
-  }, [watchlist, traderTrades, traderStatsMap, rebalanceMinutes, activeIndex?.livePollMinutes, backtestDays, backtestStrat, backtestHistory, traderWeights, traderCopyRatio]);
 
   // ── Combined FIFO PnL curve (scaled to user's capital) ──
   const combinedCurveData = useMemo((): { combined: CurvePoint[]; perTrader: { address: string; points: CurvePoint[]; weight: number }[] } => {
@@ -1943,493 +1809,6 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     }
     return map;
   }, [combinedCurveData]);
-
-  // ── Linked trades: every trade with its running P&L impact ──
-  interface LinkedTrade {
-    ts: number;
-    market: string;
-    conditionId: string;
-    trader: string;
-    side: "BUY" | "SELL";
-    amount: number;       // executed notional at user scale ($)
-    price: number;        // trade price (0-1)
-    fee: number;          // trading fee ($)
-    realized: number;     // realized PnL on SELL vs avg entry (user scale)
-    runningPnl: number;   // simulated equity − starting capital (MTM, net of costs)
-    pnlDelta: number;     // equity change caused by this trade (mark move + costs)
-    cash: number;         // simulated free cash after this trade
-    pos: number;          // simulated open-position value after this trade
-    /** Sharpe-weighted EV score the live engine would have assigned this
-        candidate when it was eligible. Undefined for SELLs (always honored)
-        and for BUYs from traders without enough 30d closed trades. */
-    score?: number;
-    sharpe?: number;
-    /** P(success) the playbook priced this BUY at — the trader's smoothed
-        30d win rate (0.5 = coin-flip prior). Undefined on exits. */
-    successProb?: number;
-  }
-
-  // ── Backtest portfolio simulation — the ONE source of truth ──
-  // Replays the constrained trade set through a simulated wallet: cash starts
-  // at CAPITAL, BUYs must fit the remaining cash (the live engine can't spend
-  // money it doesn't have), SELLs can only close inventory the sim actually
-  // holds, fees + gas come out of cash. Every surface on the BACKTEST tab —
-  // trade feed, equity curve, P&L/ROI header, fee row — derives from this one
-  // replay, so the numbers can never disagree with each other again (the old
-  // header mixed three different trade sets and showed "-$3.64 P&L, 0 TXS,
-  // GROSS +$1.56"). The equity history is the same {t, liq, pos} snapshot
-  // shape the LIVE portfolio records, rendered through the same EquityChart.
-  interface BacktestSim {
-    rows: LinkedTrade[];
-    equityHistory: EquitySnapshot[];
-    markers: EquityMarker[];
-    /** Trades dropped by the MIN size gate, the cash budget, or missing
-        inventory — surfaced in the fee row so 0 TXS is explainable. */
-    skipped: number;
-    netPnl: number;    // final equity − capital (fees/gas already paid)
-    grossPnl: number;  // netPnl before fees/gas
-    fees: number;
-    gas: number;
-    volume: number;    // total executed notional
-  }
-
-  const backtestSim = useMemo((): BacktestSim => {
-    const empty: BacktestSim = {
-      rows: [], equityHistory: [], markers: [],
-      skipped: 0, netPnl: 0, grossPnl: 0, fees: 0, gas: 0, volume: 0,
-    };
-    if (watchlist.length === 0 || loading) return empty;
-    const cutoffMs = Date.now() - backtestDays * 86400_000;
-
-    // Build from raw trades directly (not curve points) to use conditionId for filtering
-    type RawEntry = {
-      ts: number; market: string; conditionId: string; trader: string;
-      side: "BUY" | "SELL"; size: number; price: number; realized: number;
-      /** Full strat-shaped trade — sizing goes through the SAME
-          sizeAndPrice hook the live engine calls, for both sides. */
-      stratTrade: StratTraderTrade;
-      score?: number; sharpe?: number; successProb?: number;
-    };
-    const allEntries: RawEntry[] = [];
-
-    for (const addr of watchlist) {
-      // Same market-topic gate as `backtests` / `combinedCurveData` — the
-      // feed must only ever show trades the strat would actually mirror.
-      const rawTrades = (traderTrades.get(addr) || [])
-        .filter((t) => marketMatchesQuery(t.market, marketQuery));
-      const positions = traderData.get(addr) || [];
-      if (rawTrades.length === 0) continue;
-
-      const replayTrades = rebalancePeriod > 0
-        ? aggregateToRebalanceWindows(rawTrades, rebalancePeriod, rebalanceHour)
-        : rawTrades;
-      // Strict-in-window FIFO: a copy-trader starting at cutoffMs has no
-      // pre-window inventory, so SELLs that would consume pre-window basis
-      // shouldn't appear in the feed (they're not actually replicable).
-      const inWindowAll = replayTrades.filter((t) => t.timestamp >= cutoffMs);
-      // Apply SAMPLE % so the feed matches the chart's sampled trade set.
-      const inWindowSampled = samplePct >= 100
-        ? inWindowAll
-        : inWindowAll.filter((t, i) =>
-            keepInSample(samplePct, `${addr}:${t.timestamp}:${i}`),
-          );
-      // Same top-N Sharpe filter the curve uses — keeps the feed in sync.
-      const inWindowTrades = rebalancePeriod > 0
-        ? inWindowSampled
-        : inWindowSampled.filter((t) =>
-            t.side === "SELL" || keptBuyIds.has(t.id),
-          );
-      if (inWindowTrades.length === 0) continue;
-      const annotated = computeFifoTrades(inWindowTrades, positions, cutoffMs);
-      const windowAnnotated = annotated.filter((t) => t.side === "BUY" || t.hasBasis);
-      if (windowAnnotated.length === 0) continue;
-
-      // Score via the SAME strat instance used live + by keptBuyIds — so
-      // dropping in a new strat changes BUY scores in the chart tooltip
-      // and feed without any extra wiring. copyRatio comes from the shared
-      // traderCopyRatio map — the same proportional ratio the live engine
-      // hands hooks — so sizing below scales exactly like a deployment.
-      const stats = traderStatsMap.get(addr) ?? null;
-      const sharpe = stats?.sharpe ?? 0;
-      const totalW = watchlist.reduce((s, a) => s + (traderWeights[a] || 0), 0) || 1;
-      const weight = traderWeights[addr] || 0;
-      const weightFraction = weight / totalW;
-      for (const t of windowAnnotated) {
-        const stratTrade: StratTraderTrade = {
-          ...t, trader: addr, weight, weightFraction,
-          copyRatio: traderCopyRatio.get(addr) ?? 0, notional: t.price * t.size,
-        };
-        let score: number | undefined;
-        if (t.side === "BUY") {
-          const s = backtestStrat.scoreCandidate(stratTrade, stats, backtestHistory);
-          if (s > 0) score = s;
-        }
-        allEntries.push({
-          ts: t.timestamp, market: t.market, conditionId: t.conditionId || t.market,
-          trader: addr, side: t.side, size: t.size, price: t.price,
-          realized: t.realized, stratTrade,
-          score,
-          sharpe: sharpe > 0 ? sharpe : undefined,
-          successProb: t.side === "BUY" ? successProbability(stats) : undefined,
-        });
-      }
-    }
-
-    allEntries.sort((a, b) => a.ts - b.ts);
-
-    // Last time ANY leader trade touched each market — sorted ascending, so
-    // the final write per key is its max. Drives the settlement pass below.
-    const lastSeen = new Map<string, number>();
-    for (const e of allEntries) lastSeen.set(e.conditionId, e.ts);
-
-    // Current market prices for the final mark-to-market point — same source
-    // the live portfolio uses (position currentPrice), falling back to the
-    // last traded price the replay observed.
-    const curPx = new Map<string, number>();
-    for (const addr of watchlist) {
-      for (const p of traderData.get(addr) || []) {
-        const key = p.conditionId || p.market;
-        if (key && p.currentPrice > 0) curPx.set(key, p.currentPrice);
-      }
-    }
-
-    // Replay through the simulated wallet. TRADE SIZE constraints match the
-    // live engine: amount < MIN → dust, not placed; amount > MAX → clamped;
-    // a SELL only closes shares the sim actually holds. A BUY that doesn't
-    // fit the remaining cash triggers the SAME capital-aware rebalance the
-    // live engine runs (live_engine.rs `free_capital_via_sells`): sell the
-    // weakest-score holds the candidate out-scores by the rebalance margin,
-    // then place — only skip when no eligible hold can free enough. New
-    // positions past `maxOpenPositions` are skipped exactly like live's
-    // MAX_POSITIONS gate. SHOW ALL lifts every gate to preview the
-    // unconstrained mirror.
-    const round2 = (v: number) => Math.round(v * 100) / 100;
-    // Live defaults (live_engine.rs): rebalancing ON, candidate must
-    // out-score a hold by the shared playbook margin before that hold is
-    // sold to fund it.
-    const REBALANCE_MARGIN = 1 + REBALANCE_MARGIN_PCT;
-    let cash = capital;
-    const book = new Map<string, { shares: number; avgPx: number; entryScore: number; market: string }>();
-    const lastPx = new Map<string, number>();
-    const rows: LinkedTrade[] = [];
-    const equityHistory: EquitySnapshot[] = [];
-    const markers: EquityMarker[] = [];
-    let skipped = 0;
-    let fees = 0;
-    let volume = 0;
-
-    const posValue = (marks: Map<string, number>) => {
-      let v = 0;
-      for (const [k, b] of book) {
-        if (b.shares > 1e-9) v += b.shares * (marks.get(k) ?? lastPx.get(k) ?? b.avgPx);
-      }
-      return v;
-    };
-    const openCount = () => {
-      let n = 0;
-      for (const b of book.values()) if (b.shares > 1e-9) n++;
-      return n;
-    };
-
-    // Seed: all cash at the window start, so the curve starts at CAPITAL
-    // exactly like a fresh live deployment.
-    equityHistory.push({ t: Math.min(cutoffMs, allEntries[0]?.ts ?? cutoffMs), liq: capital, pos: 0 });
-
-    // Mark-to-market snapshots BETWEEN executed trades. Every observed leader
-    // trade moves a mark whether or not we act on it — without recording
-    // those moves the curve froze at the last fill and drew a dead-straight
-    // horizontal line from there to "now" (the sim kept skipping once cash
-    // ran out, so hours of real mark movement rendered as one flat segment).
-    // Bucketed so a 30d window doesn't emit tens of thousands of points.
-    const SNAP_MS = Math.max(15 * 60_000, (backtestDays * 86400_000) / 400);
-    let lastSnapT = equityHistory[0].t;
-    const snapshotMark = (ts: number) => {
-      if (ts - lastSnapT < SNAP_MS) return;
-      lastSnapT = ts;
-      equityHistory.push({ t: ts, liq: cash, pos: posValue(lastPx) });
-    };
-
-    // ── Settlement pass — the live engine's auto-redeem, simulated ──
-    // Short-lived markets (5-min "Bitcoin Up or Down", hourly, daily) RESOLVE
-    // mid-window. Live, the engine's 5-min auto-redeem pass converts those
-    // positions to cash; the sim had no such model, so the book filled up with
-    // dead resolved markets held at their last traded price FOREVER. Capital
-    // never came back, `maxOpenPositions` was permanently saturated, and every
-    // later BUY skipped — a 3d run on HFT leaders executed 42 trades in the
-    // first 20 minutes then drew a flat line with "1032 SKIPPED".
-    //
-    // A held market settles at its LAST OBSERVED price once (a) its leader
-    // feed has been quiet for the debounce window and (b) it has no live
-    // current price (leaders hold none of it today) — i.e. it resolved, or
-    // every leader exited and a copier would have exited with them. Settling
-    // at the last mark is expectation-neutral (the position was already
-    // valued there); what it fixes is freeing the cash and the position slot
-    // so the replay keeps trading like a live deployment. Gas is charged like
-    // any redeem; no taker fee (redeems aren't CLOB fills). Rendered as the
-    // same amber REDEEM markers the LIVE chart uses — not as feed rows.
-    const STALE_SETTLE_MS = 30 * 60_000;
-    let settles = 0;
-    const settleDead = (now: number) => {
-      for (const [k, b] of [...book]) {
-        if (b.shares <= 1e-9) { book.delete(k); continue; }
-        if (curPx.has(k)) continue; // market is alive today — keep marking
-        if (now - (lastSeen.get(k) ?? 0) < STALE_SETTLE_MS) continue;
-        const px = lastPx.get(k) ?? b.avgPx;
-        const proceeds = b.shares * px;
-        cash += proceeds - GAS_PER_TRADE_USD;
-        settles++;
-        book.delete(k);
-        markers.push({ t: now, side: "REDEEM", label: `SETTLE · ${b.market}`, usd: proceeds });
-        equityHistory.push({ t: now, liq: cash, pos: posValue(lastPx) });
-        lastSnapT = now;
-      }
-    };
-
-    for (const t of allEntries) {
-      settleDead(t.ts);
-      const key = t.conditionId;
-      const prevEquity = cash + posValue(lastPx);
-      // Observed price is real market information whether or not we trade on
-      // it — the mark moves either way (that's what MTM means).
-      lastPx.set(key, t.price);
-      // Live stop-loss parity: the engine sells a hold once its price decays
-      // to ≤ entry × stopLoss (whole position, at the mark — same shape as
-      // its bid-priced exit), via the SAME `stopLossTriggered` helper the
-      // playbook exports (mirror of live_engine.rs `stop_loss_hit`). Checked
-      // on every mark move of a held market so the backtest fires at the
-      // same decay point live would. The tick that tripped the stop is then
-      // consumed — live never re-enters a market in the same cycle it just
-      // stopped out of.
-      // Live take-profit parity: the engine liquidates a hold once its bid
-      // runs to ≥ takeProfit (0.99 default — the market ran to ~100%, it's
-      // decided), via the SAME `takeProfitTriggered` helper the playbook
-      // exports (mirror of live_engine.rs `take_profit_hit`). Checked before
-      // the stop so the labels match live's precedence.
-      if (!showAllTrades && takeProfitFrac > 0) {
-        const topped = book.get(key);
-        if (topped && topped.shares > 1e-9 && takeProfitTriggered(t.price, takeProfitFrac)) {
-          const proceeds = topped.shares * t.price;
-          const sellFee = topped.shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
-          const tpRealized = (t.price - topped.avgPx) * topped.shares;
-          cash += proceeds - sellFee - GAS_PER_TRADE_USD;
-          fees += sellFee;
-          volume += proceeds;
-          book.delete(key);
-          const pos = posValue(lastPx);
-          const equity = cash + pos;
-          rows.push({
-            ts: t.ts,
-            market: topped.market,
-            conditionId: key,
-            trader: t.trader,
-            side: "SELL",
-            amount: proceeds,
-            price: t.price,
-            fee: round2(sellFee),
-            realized: round2(tpRealized),
-            runningPnl: round2(equity - capital),
-            pnlDelta: round2(equity - prevEquity),
-            cash: round2(cash),
-            pos: round2(pos),
-          });
-          equityHistory.push({ t: t.ts, liq: cash, pos });
-          lastSnapT = t.ts;
-          markers.push({ t: t.ts, side: "SELL", label: `TAKE PROFIT · ${topped.market}`, usd: proceeds });
-          skipped++;
-          continue;
-        }
-      }
-      if (!showAllTrades && stopLossPct > 0) {
-        const stopped = book.get(key);
-        if (stopped && stopped.shares > 1e-9 && stopLossTriggered(stopped.avgPx, t.price, (100 - stopLossPct) / 100)) {
-          const proceeds = stopped.shares * t.price;
-          const sellFee = stopped.shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
-          const stopRealized = (t.price - stopped.avgPx) * stopped.shares;
-          cash += proceeds - sellFee - GAS_PER_TRADE_USD;
-          fees += sellFee;
-          volume += proceeds;
-          book.delete(key);
-          const pos = posValue(lastPx);
-          const equity = cash + pos;
-          rows.push({
-            ts: t.ts,
-            market: stopped.market,
-            conditionId: key,
-            trader: t.trader,
-            side: "SELL",
-            amount: proceeds,
-            price: t.price,
-            fee: round2(sellFee),
-            realized: round2(stopRealized),
-            runningPnl: round2(equity - capital),
-            pnlDelta: round2(equity - prevEquity),
-            cash: round2(cash),
-            pos: round2(pos),
-          });
-          equityHistory.push({ t: t.ts, liq: cash, pos });
-          lastSnapT = t.ts;
-          markers.push({ t: t.ts, side: "SELL", label: `STOP LOSS · ${stopped.market}`, usd: proceeds });
-          skipped++;
-          continue;
-        }
-      }
-      // Size EXACTLY like the live engine: through the strat's sizeAndPrice
-      // hook, which clamps proportional dust UP to max(MIN, CLOB floor) and
-      // only skips true leader dust / no-legal-size cases. The old inline
-      // gate here (`rawAmount < minTrade → skip`) silently killed EVERY
-      // trade at small SIM funds — $100 spread over high-volume traders
-      // mirrors to pennies, so 100% of the replay was "N SKIPPED · 0 TXS"
-      // while a live deployment with identical params would have traded.
-      // SHOW ALL still previews the unconstrained proportional mirror.
-      const rawAmount = t.stratTrade.notional * t.stratTrade.copyRatio;
-      let gatedAmount: number;
-      if (showAllTrades) {
-        gatedAmount = rawAmount;
-      } else {
-        const decision = backtestStrat.sizeAndPrice(t.stratTrade, {
-          userFloor: minTrade,
-          userCeiling: maxTrade,
-          clobFloor: clobMinNotional(t.price),
-          capital,
-        }, backtestHistory);
-        if (decision.mirrorNotional <= 0) { skipped++; snapshotMark(t.ts); continue; }
-        gatedAmount = decision.mirrorNotional;
-      }
-
-      let amount: number;
-      let fee: number;
-      let realized = 0;
-      if (t.side === "BUY") {
-        amount = gatedAmount;
-        const shares = t.price > 0 ? amount / t.price : 0;
-        fee = shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
-        const cost = amount + fee + GAS_PER_TRADE_USD;
-        // Live MAX_POSITIONS gate: opening a NEW market past the cap is
-        // skipped; topping up an already-held one always passes.
-        const held = book.get(key);
-        if (!showAllTrades && !(held && held.shares > 1e-9) && openCount() >= maxOpenPositions) {
-          skipped++; snapshotMark(t.ts); continue;
-        }
-        // Live capital-aware rebalance (free_capital_via_sells): when the BUY
-        // doesn't fit the remaining cash, sell the weakest-score holds this
-        // candidate out-scores by ≥ the margin — weakest first, full position
-        // at its current mark — until the shortfall is covered. Without this
-        // the sim froze the moment cash ran out while a live deployment kept
-        // rotating capital into better-scoring trades.
-        if (!showAllTrades && cost > cash) {
-          const candScore = t.score ?? 0;
-          const sellable = [...book.entries()]
-            .filter(([k, b]) => k !== key && b.shares > 1e-9 && candScore >= b.entryScore * REBALANCE_MARGIN)
-            .sort((a, b) => a[1].entryScore - b[1].entryScore);
-          for (const [k, b] of sellable) {
-            if (cost <= cash) break;
-            const mark = lastPx.get(k) ?? b.avgPx;
-            const proceeds = b.shares * mark;
-            const sellFee = b.shares * Math.min(mark, 1 - mark) * (TAKER_FEE_BPS / 10_000);
-            cash += proceeds - sellFee - GAS_PER_TRADE_USD;
-            fees += sellFee;
-            volume += proceeds;
-            book.delete(k);
-            const pos = posValue(lastPx);
-            const equity = cash + pos;
-            rows.push({
-              ts: t.ts,
-              market: b.market,
-              conditionId: k,
-              trader: t.trader,
-              side: "SELL",
-              amount: proceeds,
-              price: mark,
-              fee: round2(sellFee),
-              realized: round2((mark - b.avgPx) * b.shares),
-              runningPnl: round2(equity - capital),
-              pnlDelta: round2(equity - prevEquity),
-              cash: round2(cash),
-              pos: round2(pos),
-            });
-            equityHistory.push({ t: t.ts, liq: cash, pos });
-            markers.push({ t: t.ts, side: "SELL", label: `REBALANCE · ${b.market}`, usd: proceeds });
-          }
-          if (cost > cash) { skipped++; snapshotMark(t.ts); continue; } // nothing left to rotate out
-        }
-        cash -= cost;
-        const b = book.get(key) ?? { shares: 0, avgPx: 0, entryScore: 0, market: t.market };
-        const newShares = b.shares + shares;
-        b.avgPx = newShares > 0 ? (b.avgPx * b.shares + t.price * shares) / newShares : 0;
-        b.shares = newShares;
-        // Freeze the strongest score seen at entry — the bar a future
-        // candidate must clear (× margin) to rotate this hold out.
-        b.entryScore = Math.max(b.entryScore, t.score ?? 0);
-        book.set(key, b);
-      } else {
-        const b = book.get(key);
-        const held = b?.shares ?? 0;
-        if (!b || held <= 1e-9) { skipped++; snapshotMark(t.ts); continue; } // nothing to close at our scale
-        const shares = Math.min(t.price > 0 ? gatedAmount / t.price : 0, held);
-        amount = shares * t.price;
-        fee = shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
-        cash += amount - fee - GAS_PER_TRADE_USD;
-        realized = (t.price - b.avgPx) * shares;
-        b.shares -= shares;
-        if (b.shares <= 1e-9) book.delete(key);
-      }
-
-      fees += fee;
-      volume += amount;
-      const pos = posValue(lastPx);
-      const equity = cash + pos;
-      rows.push({
-        ts: t.ts,
-        market: t.market,
-        conditionId: key,
-        trader: t.trader,
-        side: t.side,
-        amount,
-        price: t.price,
-        fee: round2(fee),
-        realized: round2(realized),
-        runningPnl: round2(equity - capital),
-        pnlDelta: round2(equity - prevEquity),
-        cash: round2(cash),
-        pos: round2(pos),
-        score: t.score,
-        sharpe: t.sharpe,
-        successProb: t.successProb,
-      });
-      equityHistory.push({ t: t.ts, liq: cash, pos });
-      lastSnapT = t.ts; // fills reset the mark-snapshot bucket
-      markers.push({
-        t: t.ts,
-        side: t.side,
-        usd: round2(amount),
-        label: `${t.market}${t.stratTrade.outcome ? ` · ${t.stratTrade.outcome}` : ""} @ ${Math.round(t.price * 100)}¢`,
-      });
-    }
-
-    // Final settlement sweep — anything still held in a dead market settles
-    // before the NOW mark, so resolved inventory shows as cash (what a live
-    // deployment would actually be holding today), not as phantom positions.
-    settleDead(Date.now());
-
-    // Final NOW point — open inventory re-marked at current market prices so
-    // the curve ends where a live deployment's portfolio would sit today.
-    const nowPos = posValue(curPx);
-    equityHistory.push({ t: Date.now(), liq: cash, pos: nowPos });
-
-    const gas = (rows.length + settles) * GAS_PER_TRADE_USD;
-    const netPnl = round2(cash + nowPos - capital);
-    return {
-      rows,
-      equityHistory,
-      markers,
-      skipped,
-      netPnl,
-      grossPnl: round2(netPnl + fees + gas),
-      fees: round2(fees),
-      gas: round2(gas),
-      volume: round2(volume),
-    };
-  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, minTrade, maxTrade, maxOpenPositions, stopLossPct, takeProfitFrac, showAllTrades, keptBuyIds, traderStatsMap, backtestStrat, backtestHistory, marketQuery, traderCopyRatio]);
 
   const linkedTrades = backtestSim.rows;
   const backtestRoi = capital > 0 ? (backtestSim.netPnl / capital) * 100 : 0;
@@ -2638,7 +2017,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               // WALLET is no longer a main tab — it's the $ subtab under
               // LIVE (SUBTABS above), next to the engine it funds.
               { id: "STRATS", label: "STRAT", disabled: false },
-              { id: "BACKTEST", label: "BACKTEST", disabled: false },
+              // Label is TEST, id stays BACKTEST — the id keys the accent
+              // maps, the localStorage subtab keys and every mode check.
+              { id: "BACKTEST", label: "TEST", disabled: false },
               { id: "LIVE", label: "LIVE", disabled: false },
             ] as { id: MainTab; label: string; disabled: boolean }[]
           ).map((t) => {
@@ -3594,7 +2975,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               </button>
               {mode === "BACKTEST" && (
                 <div className="text-[11px] text-pixel-gray tracking-wider">
-                  BACKTESTS RUN ON SIMULATED FUNDS — NO WALLET OR DEPOSIT NEEDED.
+                  TESTS RUN ON SIMULATED FUNDS — NO WALLET OR DEPOSIT NEEDED.
                 </div>
               )}
             </div>
@@ -3605,22 +2986,19 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               BACKTEST tab; LIVE has its own <LivePanel /> rendered
               elsewhere with real-time engine state. Splitting this out
               of the STRAT panel above keeps the param row scannable. */}
-          {watchlist.length > 0 && mode === "BACKTEST" && backtestSub === "results" && (
-            <div className="pixel-panel px-3 py-2.5 space-y-3">
-              {activeIndex?.momentum && (
-                <div className="text-[11px] font-mono tracking-[0.1em] px-2 py-1.5 border border-amber-400/50 text-amber-400/90 bg-amber-400/5">
-                  ⚠ MOMENTUM ORIGINATION IS NOT SIMULATED — this backtest replays
-                  only the copy-mirror side of the strat. Live, the engine also
-                  originates its own entries from rising prices, so live results
-                  will diverge from this curve. Judge momentum params in a DRY
-                  RUN live session instead.
-                </div>
-              )}
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <span className="text-[14px] text-pixel-white tracking-[0.2em]">
-                    BACKTEST
-                  </span>
+          {watchlist.length > 0 && mode === "BACKTEST" && backtestSub === "results" && (() => {
+            // Same panel the LIVE tab renders — see PerfPanel. Everything
+            // mode-specific (RUN / DAYS / FUNDS, the momentum caveat, the
+            // fee-drag warning) comes in as slots; the layout does not fork.
+            const { fees, gas, volume, grossPnl, skipped, netPnl } = backtestSim;
+            const costTotal = fees + gas;
+            const costWarning = costTotal > 5 && (grossPnl <= 0 || costTotal > grossPnl * 0.5);
+            return (
+            <PerfPanel
+              label="TEST"
+              chartRef={chartPanelRef}
+              loading={loading}
+              controls={<>
                   <button
                     onClick={() => {
                       const v = parseInt(backtestDaysInput, 10);
@@ -3628,13 +3006,13 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                       setRefreshKey((k) => k + 1);
                     }}
                     className="inline-flex items-center gap-1.5 text-[12px] font-mono tracking-[0.15em] px-3 h-[24px] border border-green-400 text-green-400 hover:bg-green-400/10 active:bg-green-400/20 transition-colors"
-                    title="Run backtest with current settings"
+                    title="Run the test with current settings"
                   >
                     ▶ RUN
                   </button>
                   <div
                     className="inline-flex items-center gap-1 text-[12px] font-mono h-[24px] px-2 border border-pixel-border/60 text-pixel-gray"
-                    title="Backtest window (days back from now)"
+                    title="Test window (days back from now)"
                   >
                     <span className="tracking-[0.15em]">DAYS</span>
                     <input
@@ -3766,124 +3144,62 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                       WALLET{walletBalance != null && walletBalance > 0 ? ` $${Math.floor(walletBalance)}` : ""}
                     </button>
                   </div>
-                </div>
-                <div className="flex items-center gap-4 text-[13px] font-mono">
-                  <div
-                    className="flex items-baseline gap-1.5"
-                    title="Final simulated equity minus starting capital — fees and gas already paid out of cash. Same accounting as the LIVE portfolio curve."
-                  >
-                    <span className="text-[12px] text-pixel-gray tracking-[0.15em]">P&L</span>
-                    <span className={backtestSim.netPnl >= 0 ? "text-green-400" : "text-red-400"}>
-                      {formatPnl(backtestSim.netPnl)}
-                    </span>
+              </>}
+              notices={<>
+                {activeIndex?.momentum && (
+                  <div className="text-[11px] font-mono tracking-[0.1em] px-2 py-1.5 border border-amber-400/50 text-amber-400/90 bg-amber-400/5">
+                    ⚠ MOMENTUM ORIGINATION IS NOT SIMULATED — this backtest replays
+                    only the copy-mirror side of the strat. Live, the engine also
+                    originates its own entries from rising prices, so live results
+                    will diverge from this curve. Judge momentum params in a DRY
+                    RUN live session instead.
                   </div>
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-[12px] text-pixel-gray tracking-[0.15em]">ROI</span>
-                    <span className={backtestRoi >= 0 ? "text-green-400" : "text-red-400"}>
-                      {backtestRoi >= 0 ? "+" : ""}{backtestRoi.toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Fee/gas cost summary — same simulated-wallet replay as the
-                  P&L header, the curve, and the feed, so the numbers agree. */}
-              {(() => {
-                const { fees: feedFees, gas: feedGas, volume: feedVolume, grossPnl, skipped } = backtestSim;
-                const feedCosts = feedFees + feedGas;
-                const costWarning = feedCosts > 5 && (grossPnl <= 0 || feedCosts > grossPnl * 0.5);
-                return (
-                  <>
-                    <div className="flex items-center justify-between flex-wrap gap-3 text-[13px] font-mono border-t border-pixel-border/40 pt-2">
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-baseline gap-1.5" title="Total notional traded across the backtest window (sum of BUY/SELL amounts)">
-                          <span className="text-[12px] text-pixel-gray tracking-[0.15em]">AMOUNT</span>
-                          <span className="text-pixel-white">${feedVolume.toFixed(2)}</span>
-                        </div>
-                        <span className="text-pixel-border/60">·</span>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-[12px] text-pixel-gray tracking-[0.15em]">FEES</span>
-                          <span className="text-amber-400">${feedFees.toFixed(2)}</span>
-                        </div>
-                        <span className="text-pixel-border/60">·</span>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-[12px] text-pixel-gray tracking-[0.15em]">GAS</span>
-                          <span className="text-amber-400">${feedGas.toFixed(2)}</span>
-                        </div>
-                        <span className="text-pixel-border/60">·</span>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-[12px] text-pixel-gray tracking-[0.15em]">TOTAL</span>
-                          <span className="text-amber-400">${feedCosts.toFixed(2)}</span>
-                          <span className="text-[12px] text-pixel-gray/70">({linkedTrades.length} TXS)</span>
-                        </div>
-                        {skipped > 0 && (
-                          <>
-                            <span className="text-pixel-border/60">·</span>
-                            <span
-                              className="text-[12px] text-pixel-gray/70 tracking-wider"
-                              title={`Trades the simulated wallet could NOT place: below the $${minTrade} MIN size, more than the remaining cash, or selling a position it never opened. Raise CAPITAL or lower MIN to execute more — SHOW ALL in the feed previews them.`}
-                            >
-                              {skipped} SKIPPED
-                            </span>
-                          </>
-                        )}
-                      </div>
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-[12px] text-pixel-gray tracking-[0.15em]">GROSS</span>
-                        <span className={grossPnl >= 0 ? "text-green-400/70" : "text-red-400/70"}>
-                          {formatPnl(grossPnl)}
-                        </span>
-                      </div>
+                )}
+                {costWarning && !loading && (
+                  <div className="px-3 py-2 border border-amber-400/40 bg-amber-400/5">
+                    <div className="text-[13px] text-amber-400 font-mono">
+                      {costTotal > grossPnl && grossPnl > 0
+                        ? `FEES ($${costTotal.toFixed(0)}) EXCEED GROSS P&L (${formatPnl(grossPnl)}) — COPYING ${watchlist.length} TRADERS AT ${linkedTrades.length} TXS IS UNPROFITABLE AFTER COSTS`
+                        : grossPnl <= 0
+                          ? `STRAT IS NEGATIVE AND INCURS $${costTotal.toFixed(0)} IN FEES/GAS ACROSS ${linkedTrades.length} TXS`
+                          : `FEES CONSUME ${Math.round((costTotal / grossPnl) * 100)}% OF GROSS PROFIT — CONSIDER FEWER TRADERS OR HIGHER-CONVICTION PICKS`
+                      }
                     </div>
-
-                    {costWarning && !loading && (
-                      <div className="px-3 py-2 border border-amber-400/40 bg-amber-400/5">
-                        <div className="text-[13px] text-amber-400 font-mono">
-                          {feedCosts > grossPnl && grossPnl > 0
-                            ? `FEES ($${feedCosts.toFixed(0)}) EXCEED GROSS P&L (${formatPnl(grossPnl)}) — COPYING ${watchlist.length} TRADERS AT ${linkedTrades.length} TXS IS UNPROFITABLE AFTER COSTS`
-                            : grossPnl <= 0
-                              ? `STRAT IS NEGATIVE AND INCURS $${feedCosts.toFixed(0)} IN FEES/GAS ACROSS ${linkedTrades.length} TXS`
-                              : `FEES CONSUME ${Math.round((feedCosts / grossPnl) * 100)}% OF GROSS PROFIT — CONSIDER FEWER TRADERS OR HIGHER-CONVICTION PICKS`
-                          }
-                        </div>
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-
-              {/* BACKTEST equity chart — the simulated wallet's cash +
-                  positions over time, rendered through the SAME EquityChart
-                  the LIVE portfolio uses, so backtest and live plot the same
-                  quantity the same way. Markers are the replay's executed
-                  trades, hover-linked to the feed below. */}
-              <div ref={chartPanelRef}>
-              {loading ? (
-                <div className="p-6 text-center">
-                  <span className="text-[13px] text-pixel-gray animate-pulse">LOADING...</span>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-[12px] text-pixel-gray tracking-[0.15em]">
-                      {backtestDays}D SIMULATED EQUITY · CASH + POSITIONS (MTM) — SAME CURVE AS LIVE
-                    </span>
-                    <span className={`text-[13px] font-mono ${backtestSim.netPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                      {formatPnl(backtestSim.netPnl)}
-                    </span>
                   </div>
-                  <EquityChart
-                    history={backtestSim.equityHistory}
-                    markers={backtestSim.markers}
-                    highlightT={chartHighlightT}
-                    onHoverMarker={handleChartHover}
-                    emptyHint="NOT ENOUGH TRADE DATA FOR THE EQUITY CURVE — ADD TRADERS OR WIDEN THE WINDOW."
-                  />
-                </div>
-              )}
-              </div>
-            </div>
-          )}
+                )}
+              </>}
+              stats={{
+                equity: backtestSim.cash + backtestSim.posValue,
+                cash: backtestSim.cash,
+                positions: backtestSim.posValue,
+                unrealized: backtestSim.unrealized,
+                unrealizedPct: backtestSim.costBasis > 0
+                  ? (backtestSim.unrealized / backtestSim.costBasis) * 100
+                  : null,
+                pnl: netPnl,
+                roiPct: capital > 0 ? backtestRoi : null,
+                pnlTitle: "Final simulated equity minus starting capital — fees and gas already paid out of cash. Same accounting as the LIVE portfolio curve.",
+              }}
+              costs={{
+                amount: volume,
+                fees,
+                gas,
+                txs: linkedTrades.length,
+                gross: grossPnl,
+                skipped,
+                skippedTitle: `Trades the simulated wallet could NOT place: below the $${minTrade} MIN size, more than the remaining cash, or selling a position it never opened. Raise CAPITAL or lower MIN to execute more — SHOW ALL in the feed previews them.`,
+              }}
+              caption={`${backtestDays}D SIMULATED EQUITY`}
+              history={backtestSim.equityHistory}
+              markers={backtestSim.markers}
+              highlightT={chartHighlightT}
+              onHoverMarker={handleChartHover}
+              emptyHint="NOT ENOUGH TRADE DATA FOR THE EQUITY CURVE — ADD TRADERS OR WIDEN THE WINDOW."
+              positions={backtestSim.open}
+              positionsNote="simulated holds · worst first"
+            />
+            );
+          })()}
 
           {/* ── BACKTEST → TRADES subtab — every trade with its P&L impact ── */}
           {mode === "BACKTEST" && backtestSub === "trades" && (() => {

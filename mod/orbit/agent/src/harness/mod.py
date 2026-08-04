@@ -1,7 +1,7 @@
 """
 harness - hand a whole run to another module's coding agent.
 
-Most agents here are a persona over our own loop: a goal, a skill set, a model.
+Most agents here are a persona over our own loop: a goal, a tool set, a model.
 A harness agent is different — the run goes to a module that already owns an
 agent of its own, with its own tools, sandbox and models:
 

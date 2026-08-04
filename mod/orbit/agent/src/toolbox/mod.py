@@ -1,13 +1,14 @@
 """
-toolbox - named bundles of skills that snap onto the agent
+toolbox - named bundles of tools that snap onto the agent
 
-A Toolbox is a curated set of tools (skills). Toolboxes snap onto an Agent:
-the agent's active skill set — and the tool schema shown to the LLM —
-becomes the union of everything snapped on. Built-in presets cover the
-common loadouts; custom boxes persist off-tree in ~/.mod/agent/toolboxes.json.
+A Toolbox is a curated set of tools. Toolboxes snap onto an Agent: the agent's
+active tool set — and the tool schema shown to the LLM — becomes the union of
+everything snapped on. Built-in presets cover the common loadouts; custom
+boxes persist off-tree in ~/.mod/agent/toolboxes.json. A box can bundle any
+kind of tool, so `["read", "mod.git"]` is a valid loadout.
 
 Usage:
-    boxes = Toolboxes(skills=Skills())
+    boxes = Toolboxes(tools=Tools())
     boxes.ls()                            # all box names
     boxes.get("code")                     # a Toolbox instance
     boxes.resolve(["explore", "code"])    # ordered union of tool names
@@ -48,23 +49,23 @@ class Toolbox:
         self.builtin = builtin
         self.cid = cid
 
-    def resolve(self, skills=None) -> Dict[str, List[str]]:
+    def resolve(self, known=None) -> Dict[str, List[str]]:
         """Split tools into those the registry knows and those missing.
 
-        `skills` is either a registry with .ls() or a plain list of names —
-        the latter lets a caller pass shipped skills + custom tools as one set.
+        `known` is either a registry with .ls() or a plain list of names — the
+        latter lets a caller pass the whole tool surface as one set.
         """
-        if skills is None:
+        if known is None:
             return {'tools': self.tools, 'missing': []}
-        available = set(skills if isinstance(skills, (list, tuple, set)) else skills.ls())
+        available = set(known if isinstance(known, (list, tuple, set)) else known.ls())
         return {
             'tools': [t for t in self.tools if t in available],
             'missing': [t for t in self.tools if t not in available],
         }
 
-    def schema(self, skills) -> Dict[str, Dict]:
+    def schema(self, registry) -> Dict[str, Dict]:
         """LLM tool schemas for just this box's tools."""
-        return skills.schema(self.resolve(skills)['tools'])
+        return registry.schema(self.resolve(registry)['tools'])
 
     def to_dict(self) -> Dict[str, Any]:
         return {'name': self.name, 'description': self.description,
@@ -77,11 +78,10 @@ class Toolboxes:
     Custom boxes are private local state and live under ~/.mod/agent/
     (never in the committed module dir), same as the ACL and vault.
     """
-    description = "Toolbox registry - named skill bundles that snap onto the agent"
+    description = "Toolbox registry - named tool bundles that snap onto the agent"
 
-    def __init__(self, skills=None, tools=None, path: str = None, **kwargs):
-        self.skills = skills
-        self.tools = tools  # custom tool registry — boxes can bundle those too
+    def __init__(self, tools=None, path: str = None, **kwargs):
+        self.tools = tools  # the tool registry a box's names are checked against
         if path is None:
             state_dir = Path.home() / '.mod' / 'agent'
             try:
@@ -110,11 +110,9 @@ class Toolboxes:
         return list(BUILTINS.keys()) + sorted(self._custom.keys())
 
     def known(self) -> List[str]:
-        """Every tool a box may reference: shipped skills + custom tools."""
-        names = list(self.skills.ls()) if self.skills is not None else []
-        if self.tools is not None:
-            names += [t for t in self.tools.ls() if t not in names]
-        return names
+        """Every tool a box may reference — the fleet included, since a box is
+        exactly how you keep a handful of modules on tap."""
+        return list(self.tools.ls(mods=True)) if self.tools is not None else []
 
     def exists(self, name: str) -> bool:
         return name in BUILTINS or name in self._custom
@@ -136,11 +134,10 @@ class Toolboxes:
             raise PermissionError(f"cannot overwrite built-in toolbox: {name}")
         if not tools:
             raise ValueError("a toolbox needs at least one tool")
-        if self.skills is not None:
-            available = self.known()
-            unknown = [t for t in tools if t not in available]
+        if self.tools is not None:
+            unknown = [t for t in tools if not self.tools.exists(t)]
             if unknown:
-                raise ValueError(f"unknown tools: {unknown}. Available: {available}")
+                raise ValueError(f"unknown tools: {unknown}")
         entry = {'tools': list(dict.fromkeys(tools)), 'description': description}
         entry['cid'] = self._pin(name, entry)
         self._custom[name] = entry
@@ -178,13 +175,9 @@ class Toolboxes:
 
     def schema(self, names) -> Dict[str, Dict]:
         """LLM tool schemas for the union of the given boxes."""
-        if self.skills is None:
-            raise RuntimeError("no skill registry attached")
-        picked = self.resolve(names)
-        schema = self.skills.schema([t for t in picked if t in self.skills.ls()])
-        if self.tools is not None:
-            schema.update(self.tools.schema(picked))
-        return schema
+        if self.tools is None:
+            raise RuntimeError("no tool registry attached")
+        return self.tools.schema(self.resolve(names))
 
     def items(self) -> List[Dict[str, Any]]:
         return [self.get(n).to_dict() for n in self.ls()]

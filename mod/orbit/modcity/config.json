@@ -1,7 +1,7 @@
 {
     "name": "modcity",
-    "description": "Modular housing & cities \u2014 assemble prefab buildings like LEGO, in any architecture style",
-    "version": "1.0.0",
+    "description": "Modular housing & cities \u2014 describe a house in plain English and get a placed, priced, code-checked prefab building back; edit it by instruction. Agent-drivable end to end (see agent_spec).",
+    "version": "1.1.0",
     "port": 50140,
     "app_port": 50141,
     "urls": {
@@ -10,6 +10,12 @@
     },
     "fns": [
         "forward",
+        "agent_spec",
+        "build",
+        "edit",
+        "edit_design",
+        "parse_brief",
+        "parse_instruction",
         "health",
         "status",
         "catalog",
@@ -47,6 +53,7 @@
         "city",
         "delete_city",
         "seed_examples",
+        "test",
         "source",
         "serve",
         "kill",
@@ -58,5 +65,5 @@
         "deregister"
     ],
     "gateway_port": 50141,
-    "schema": "QmSE1gvd5c2ahocEZait62KVCdL4rA4k2SgNEp1nSNtoCC"
+    "schema": "QmWYL5qYCktJmm1MMy9LP5tswBKj2F3hvmaPXwmY3cDJUY"
 }

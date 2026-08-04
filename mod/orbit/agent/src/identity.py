@@ -2,7 +2,7 @@
 identity - who owns what
 
 One rule, shared by every collection that can be owned (agents, prompts,
-memory notes, installed skills):
+memory notes, installed tool docs):
 
     an item's owner is the address that created it; an item with no
     recorded owner belongs to the HOST — the module owner.

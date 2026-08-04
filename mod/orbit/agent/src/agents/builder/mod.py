@@ -5,7 +5,7 @@ class Agent:
     name = "Builder"
     description = "Rapid implementation and feature building"
     icon = "◆"
-    skills = None  # all skills
+    tools = None  # every tool
     model = None
 
     goal = """You are a rapid builder. You ship features fast with production quality.

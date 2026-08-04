@@ -222,7 +222,7 @@ function TradersInner() {
                     : "border-pixel-border text-pixel-gray hover:text-pixel-white"
                 }`}
               >
-                {showBacktest ? "HIDE BACKTEST" : "SHOW BACKTEST"} ({selectedAddresses.length} TRADERS)
+                {showBacktest ? "HIDE TEST" : "SHOW TEST"} ({selectedAddresses.length} TRADERS)
               </button>
             </div>
 
@@ -275,7 +275,7 @@ function TradersInner() {
                 {!isStrategyTab && currentTraderData && (
                   <div className="pixel-panel p-3">
                     <div className="flex items-center justify-between">
-                      <div className="text-[15px] text-pixel-gray-light tracking-wider">TRADER BACKTEST</div>
+                      <div className="text-[15px] text-pixel-gray-light tracking-wider">TRADER TEST</div>
                       <div className="flex items-center gap-3 text-[14px]">
                         <span className="font-mono text-pixel-white">{activeTab.slice(0, 6)}...{activeTab.slice(-4)}</span>
                         <span className="text-pixel-gray">WEIGHT {(currentTraderData.weight * 100).toFixed(0)}%</span>

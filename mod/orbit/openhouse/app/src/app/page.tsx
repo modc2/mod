@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import dynamic from 'next/dynamic'
 import { toast } from 'react-toastify'
 import {
-  MANIFESTO, ABSTRACT, SECTIONS, TOKENOMICS, ROADMAP, TICKER,
+  MANIFESTO, ABSTRACT, SECTIONS, TOKENOMICS, ROADMAP, TICKER, LAUNCH, BENCHMARKS,
 } from '../lib/whitepaper'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/openhouse/api'
@@ -23,6 +23,21 @@ interface Shareholder {
 interface PropertyData {
   deployed: boolean; description: string; total_shares: number; share_price: string
   available_shares: number; is_active: boolean; status: string; contract: string
+}
+interface ModelPreset {
+  id: string; name: string; credit_pct: number; option_fee_pct: number
+  headline: string; detail: string
+}
+interface TermsData {
+  model: string; model_name: string; fee_pct: number; credit_pct: number; option_fee_pct: number
+  home_price: number; monthly_rent: number; owner: string; updated: number; custom: boolean
+  equity_pct_of_rent: number; owner_pct_of_rent: number; to_property_pct: number
+  fee_band: { min_pct: number; max_pct: number }
+}
+interface RentStats {
+  payments: number; renters: number; gross_rent: number; protocol_fees: number
+  renter_equity: number; owner_income: number; to_property_pct: number; take_pct: number
+  owned_pct: number; home_price: number
 }
 interface DividendRecord { timestamp: number; total_amount: number; per_share: number; recipients: number }
 interface SourceFile { name: string; language: string; description: string; lines: number; bytes: number; content: string }
@@ -188,6 +203,436 @@ function CodeViewer({ files }: { files: SourceFile[] }) {
   )
 }
 
+/* ── One payment, cut three ways ─────────────────────────── */
+function SplitBar({ amount, fee, credit, owner, className = '', big = false }: {
+  amount: number; fee: number; credit: number; owner: number; className?: string; big?: boolean
+}) {
+  const pct = (n: number) => (amount > 0 ? (n / amount) * 100 : 0)
+  const legs = [
+    { k: 'Your equity', v: credit, c: 'linear-gradient(90deg,#f5d9a8,#e8c07d)', t: 'text-[#e8c07d]' },
+    { k: 'Owner income', v: owner, c: 'linear-gradient(90deg,#34d399,#059669)', t: 'text-emerald-400' },
+    { k: 'Protocol fee', v: fee, c: 'linear-gradient(90deg,#ff3d81,#b91c5c)', t: 'text-[#ff3d81]' },
+  ]
+  return (
+    <div className={className}>
+      <div className={`flex rounded-full overflow-hidden bg-white/[0.06] ${big ? 'h-6' : 'h-4'}`}>
+        {legs.map(l => (
+          <div key={l.k} className="transition-all duration-500" title={`${l.k}: ${pct(l.v).toFixed(1)}%`}
+            style={{ width: `${pct(l.v)}%`, background: l.c }} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-6 gap-y-1 mt-2.5">
+        {legs.map(l => (
+          <div key={l.k} className="flex items-baseline gap-2">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: l.c }} />
+            <span className={`text-[11px] font-bold tabular-nums ${l.t}`}>{pct(l.v).toFixed(1)}%</span>
+            <span className="text-[10px] uppercase tracking-widest text-white/35">{l.k}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ── What everyone else takes off the top ────────────────── */
+function TakeComparison({ ourTake }: { ourTake: number }) {
+  const rows = BENCHMARKS.map(b => (b.ours ? { ...b, take: ourTake } : b))
+  const max = Math.max(...rows.map(r => r.take), 1)
+  return (
+    <div className="space-y-3">
+      {rows.map(r => (
+        <div key={r.name} className="grid grid-cols-[8.5rem_1fr_3.5rem] items-center gap-3">
+          <span className={`text-xs truncate ${r.ours ? 'text-[#e8c07d] font-bold' : 'text-white/50'}`} title={r.note}>{r.name}</span>
+          <div className="h-2.5 rounded-full bg-white/[0.05] overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-700"
+              style={{
+                width: `${Math.max((r.take / max) * 100, 1.5)}%`,
+                background: r.ours ? 'linear-gradient(90deg,#f5d9a8,#e8c07d)' : 'rgba(255,61,129,0.45)',
+              }} />
+          </div>
+          <span className={`text-xs font-bold tabular-nums text-right ${r.ours ? 'text-[#e8c07d]' : 'text-white/40'}`}>
+            {r.take % 1 === 0 ? r.take : r.take.toFixed(1)}%
+          </span>
+        </div>
+      ))}
+      <p className="text-[10px] text-white/25 leading-relaxed pt-1">
+        Published headline rates for comparison. Only the OpenHouse number is enforced by this contract —
+        and only inside the 1–5% band written into it.
+      </p>
+    </div>
+  )
+}
+
+/* ── The landscape — every other on-chain housing project ── */
+
+interface Peer {
+  id: string; name: string; chain: string; category: string; category_label: string
+  thesis: string; wrapper: string | null; min_ticket: string | null
+  occupant_equity: boolean; equity_to: string; take: string | null
+  status: string; status_note: string | null; url: string; sources: string[]
+  token?: { symbol: string; price_usd: number; market_cap_usd: number; ath_change_pct: number }
+  live?: { tokens: number; retired_tokens?: number; min_token_price?: number; median_token_price?: number }
+}
+interface CompareData {
+  openhouse: Peer
+  peers: Peer[]
+  headline: { total: number; occupant_side: number; occupant_side_onchain: number; claim: string }
+  behind: string[]
+  evidence: { claim: string; detail: string; source: string }[]
+  fetched: number; cached: boolean
+}
+
+const STATUS_STYLE: Record<string, string> = {
+  live: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10',
+  testnet: 'text-[#e8c07d] border-[#e8c07d]/30 bg-[#e8c07d]/10',
+  liquidating: 'text-[#ff3d81] border-[#ff3d81]/30 bg-[#ff3d81]/10',
+  acquired: 'text-[#ff3d81] border-[#ff3d81]/30 bg-[#ff3d81]/10',
+  quiet: 'text-white/40 border-white/15 bg-white/[0.03]',
+}
+
+function PeerCard({ p, ours = false }: { p: Peer; ours?: boolean }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className={`rounded-2xl border p-5 transition-colors ${ours
+      ? 'border-[#e8c07d]/40 bg-gradient-to-br from-[#e8c07d]/[0.09] to-transparent'
+      : 'border-white/[0.07] bg-white/[0.02] hover:border-white/15'}`}>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h4 className={`font-display font-extrabold text-lg truncate ${ours ? 'text-[#e8c07d]' : 'text-white'}`}>{p.name}</h4>
+            {p.occupant_equity && (
+              <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.14em] text-emerald-400" title="The person living there accrues ownership">⌂ resident</span>
+            )}
+          </div>
+          <div className="text-[10px] uppercase tracking-[0.16em] text-white/30 font-bold mt-1">{p.chain} · {p.category_label}</div>
+        </div>
+        <span className={`shrink-0 text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded-full border ${STATUS_STYLE[p.status] || STATUS_STYLE.quiet}`}>{p.status}</span>
+      </div>
+
+      <p className="text-white/55 text-[13px] leading-relaxed">{p.thesis}</p>
+
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 mt-4 text-[11px]">
+        {[
+          { k: 'Equity goes to', v: p.equity_to },
+          { k: 'Minimum', v: p.min_ticket },
+          { k: 'Wrapper', v: p.wrapper },
+          { k: 'The take', v: p.take },
+        ].map(f => (
+          <div key={f.k}>
+            <dt className="text-white/25 uppercase tracking-[0.14em] font-bold text-[9px]">{f.k}</dt>
+            <dd className="text-white/60 leading-snug mt-0.5">{f.v || '—'}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {/* Live rails: only the projects that publish openly have anything here. */}
+      {(p.token || p.live) && (
+        <div className="flex flex-wrap gap-2 mt-4">
+          {p.live?.tokens != null && (
+            <span className="text-[10px] px-2 py-1 rounded-md bg-white/[0.04] border border-white/[0.07] text-white/50 tabular-nums">
+              {formatNum(p.live.tokens)} property tokens
+              {p.live.median_token_price != null && ` · $${p.live.median_token_price} median`}
+            </span>
+          )}
+          {p.token && (
+            <span className="text-[10px] px-2 py-1 rounded-md bg-white/[0.04] border border-white/[0.07] text-white/50 tabular-nums">
+              {p.token.symbol} ${p.token.price_usd < 0.01 ? p.token.price_usd.toFixed(6) : p.token.price_usd.toFixed(4)}
+              <span className={p.token.ath_change_pct < -80 ? 'text-[#ff3d81]/70' : 'text-white/35'}> · {p.token.ath_change_pct.toFixed(0)}% from ATH</span>
+            </span>
+          )}
+        </div>
+      )}
+
+      {p.status_note && (
+        <>
+          <button onClick={() => setOpen(o => !o)}
+            className="mt-4 text-[10px] font-bold uppercase tracking-widest text-white/35 hover:text-[#e8c07d] transition-colors">
+            {open ? '− What happened' : '+ What happened'}
+          </button>
+          {open && (
+            <div className="mt-3 pt-3 border-t border-white/[0.07]">
+              <p className="text-white/50 text-[12px] leading-relaxed">{p.status_note}</p>
+              {p.sources.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {p.sources.map((s, i) => (
+                    <a key={s} href={s} target="_blank" rel="noopener noreferrer"
+                      className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-white/35 hover:text-[#e8c07d] hover:border-[#e8c07d]/30 transition-colors">
+                      source {i + 1} ↗
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function Landscape({ data, loading, onRefresh }: {
+  data: CompareData | null; loading: boolean; onRefresh: () => void
+}) {
+  const [onlyResident, setOnlyResident] = useState(false)
+
+  if (!data) {
+    return <p className="text-white/30 text-sm">{loading ? 'Reading the landscape…' : 'Comparison unavailable — the API is not responding.'}</p>
+  }
+
+  // Us first, then the field: resident-side projects lead, then by category.
+  const shown = data.peers.filter(p => !onlyResident || p.occupant_equity)
+  const order = ['occupant-equity', 'offchain-rto', 'investor-fractional', 'homeowner-liquidity', 'title', 'infrastructure', 'synthetic']
+  const sorted = [...shown].sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category))
+
+  return (
+    <>
+      <Reveal>
+        <div className="glass rounded-3xl p-7 md:p-9 mb-8">
+          <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.25em] mb-4">The finding</div>
+          <p className="font-serif-ed text-3xl md:text-4xl text-white leading-tight">
+            {data.headline.occupant_side} of {data.headline.total} comparable projects give the resident equity —
+            <span className="text-gold-grad"> and none of those are on-chain.</span>
+          </p>
+          <p className="text-white/45 text-sm leading-relaxed mt-5 max-w-3xl">
+            Everyone else tokenized the landlord. Investor-side platforms sell slices of a rental to
+            people who will never live in it, and the tenant is the yield. The two projects that do
+            credit the resident — Divvy and Landis — hold that credit on a company balance sheet.
+            OpenHouse is the same promise, written into a contract instead.
+          </p>
+        </div>
+      </Reveal>
+
+      <Reveal delay={60}>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-6">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setOnlyResident(o => !o)}
+              className={`px-3 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-widest transition-colors ${onlyResident
+                ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
+                : 'border-white/12 text-white/45 hover:text-white hover:border-white/30'}`}>
+              ⌂ Resident gets equity {onlyResident ? '· on' : '· off'}
+            </button>
+            <span className="text-[10px] text-white/25 tabular-nums">{sorted.length} of {data.peers.length} peers</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {data.fetched > 0 && (
+              <span className="text-[10px] text-white/25">
+                live data {timeAgo(data.fetched)}{data.cached ? ' · cached' : ''}
+              </span>
+            )}
+            <button onClick={onRefresh} disabled={loading}
+              className="px-4 py-2 rounded-full border border-white/12 text-[11px] font-bold uppercase tracking-widest text-white/50 hover:text-white hover:border-white/30 disabled:opacity-30 transition-colors">
+              {loading ? 'Syncing…' : '↻ Refresh'}
+            </button>
+          </div>
+        </div>
+      </Reveal>
+
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Reveal delay={100}><PeerCard p={data.openhouse} ours /></Reveal>
+        {sorted.map((p, i) => (
+          <Reveal key={p.id} delay={140 + i * 40}><PeerCard p={p} /></Reveal>
+        ))}
+      </div>
+
+      {/* The receipts for the model — and the receipts against us. */}
+      <div className="grid lg:grid-cols-2 gap-6 mt-10">
+        <Reveal>
+          <div className="glass rounded-3xl p-7 h-full">
+            <div className="text-[#ff3d81] text-[11px] font-bold uppercase tracking-[0.25em] mb-5">What the field has already proved</div>
+            <div className="space-y-6">
+              {data.evidence.map(e => (
+                <div key={e.claim}>
+                  <p className="text-white font-display font-bold text-[15px] leading-snug">{e.claim}</p>
+                  <p className="text-white/45 text-[13px] leading-relaxed mt-2">{e.detail}</p>
+                  <a href={e.source} target="_blank" rel="noopener noreferrer"
+                    className="inline-block mt-2 text-[10px] font-bold uppercase tracking-widest text-white/30 hover:text-[#e8c07d] transition-colors">source ↗</a>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+        <Reveal delay={80}>
+          <div className="glass rounded-3xl p-7 h-full">
+            <div className="text-white/50 text-[11px] font-bold uppercase tracking-[0.25em] mb-2">Where they're ahead of us</div>
+            <p className="text-white/35 text-xs leading-relaxed mb-5">
+              A better model on testnet loses to a worse model with a deed. Here's the honest gap.
+            </p>
+            <ul className="space-y-3">
+              {data.behind.map(b => (
+                <li key={b} className="flex gap-3 text-[13px] text-white/55 leading-relaxed">
+                  <span className="text-[#ff3d81]/60 shrink-0 mt-0.5">✕</span>{b}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Reveal>
+      </div>
+    </>
+  )
+}
+
+/* ── Owner's terms desk — the dial, live ─────────────────── */
+function TermsDesk({ terms, models, onSaved }: {
+  terms: TermsData | null; models: ModelPreset[]; onSaved: () => void
+}) {
+  const band = terms?.fee_band ?? { min_pct: 1, max_pct: 5 }
+  const [model, setModel] = useState('full_credit')
+  const [feePct, setFeePct] = useState(2.5)
+  const [creditPct, setCreditPct] = useState(100)
+  const [rent, setRent] = useState('')
+  const [price, setPrice] = useState('')
+  const [ownerAddr, setOwnerAddr] = useState('')
+  const [saving, setSaving] = useState(false)
+  const loaded = useRef(false)
+
+  // Seed the desk from the live deal once it lands, then leave the owner alone.
+  useEffect(() => {
+    if (!terms || loaded.current) return
+    loaded.current = true
+    setModel(terms.model); setFeePct(terms.fee_pct); setCreditPct(terms.credit_pct)
+    setRent(terms.monthly_rent ? String(terms.monthly_rent) : '')
+    setPrice(terms.home_price ? String(terms.home_price) : '')
+    setOwnerAddr(terms.owner || '')
+  }, [terms])
+
+  const pickModel = (m: ModelPreset) => { setModel(m.id); setCreditPct(m.credit_pct) }
+
+  const monthly = parseFloat(rent) || 1
+  const fee = monthly * (feePct / 100)
+  const credit = (monthly - fee) * (creditPct / 100)
+  const ownerCut = monthly - fee - credit
+  const preset = models.find(m => m.id === model)
+  const isCustom = !!preset && Math.abs(preset.credit_pct - creditPct) > 1e-9
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const body: any = { model, fee_pct: feePct, credit_pct: creditPct }
+      if (rent.trim()) body.monthly_rent = parseFloat(rent)
+      if (price.trim()) body.home_price = parseFloat(price)
+      if (ownerAddr.trim()) body.owner = ownerAddr.trim()
+      await api('terms', { method: 'POST', body })
+      toast.success(`Terms live — protocol takes ${feePct}%, ${(100 - feePct).toFixed(1)}% stays with the home`)
+      onSaved()
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not set terms')
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div className="grid lg:grid-cols-2 gap-6">
+      {/* ── The dial ── */}
+      <div className="glass rounded-3xl p-6 md:p-8 border-[#e8c07d]/15">
+        <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#e8c07d] mb-2">Owner console</div>
+        <h3 className="font-serif-ed text-2xl text-white mb-6">Set the deal.</h3>
+
+        <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 block">Rent-to-own model</label>
+        <div className="grid sm:grid-cols-2 gap-2.5 mb-7">
+          {models.map(m => (
+            <button key={m.id} onClick={() => pickModel(m)}
+              className={`text-left rounded-2xl border p-3.5 transition-colors ${model === m.id ? 'border-[#e8c07d]/50 bg-[#e8c07d]/[0.07]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/20'}`}>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className={`text-sm font-bold ${model === m.id ? 'text-[#e8c07d]' : 'text-white/80'}`}>{m.name}</span>
+                <span className="text-[11px] font-mono text-white/40 tabular-nums">{m.credit_pct}%</span>
+              </div>
+              <p className="text-[11px] text-white/40 mt-1 leading-snug">{m.headline}</p>
+            </button>
+          ))}
+        </div>
+
+        {/* Protocol fee — bounded by the contract, not by us */}
+        <div className="flex items-baseline justify-between mb-1.5">
+          <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Protocol fee</label>
+          <span className="text-[#ff3d81] font-bold tabular-nums text-sm">{feePct.toFixed(1)}%</span>
+        </div>
+        <input type="range" min={band.min_pct} max={band.max_pct} step={0.1} value={feePct}
+          onChange={e => setFeePct(parseFloat(e.target.value))}
+          className="w-full accent-[#ff3d81] cursor-pointer" />
+        <div className="flex justify-between text-[10px] text-white/25 font-mono mb-6">
+          <span>{band.min_pct}% floor</span>
+          <span className="text-white/40">Airbnb takes ~15%</span>
+          <span>{band.max_pct}% ceiling — hard-capped in the contract</span>
+        </div>
+
+        {/* Rent credit — the model dial */}
+        <div className="flex items-baseline justify-between mb-1.5">
+          <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Rent credit → equity</label>
+          <span className="text-[#e8c07d] font-bold tabular-nums text-sm">
+            {creditPct.toFixed(0)}%{isCustom && <span className="text-white/30 font-normal"> · custom</span>}
+          </span>
+        </div>
+        <input type="range" min={0} max={100} step={1} value={creditPct}
+          onChange={e => setCreditPct(parseFloat(e.target.value))}
+          className="w-full accent-[#e8c07d] cursor-pointer" />
+        <div className="flex justify-between text-[10px] text-white/25 font-mono mb-6">
+          <span>0% — plain lease</span>
+          <span>100% — every net dollar buys the house</span>
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-3 mb-5">
+          <div>
+            <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5 block">Monthly payment</label>
+            <input type="number" min="0" step="0.1" placeholder="2.0" value={rent} onChange={e => setRent(e.target.value)}
+              className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#e8c07d]/50 font-mono transition-colors" />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5 block">Home price</label>
+            <input type="number" min="0" step="1" placeholder="120" value={price} onChange={e => setPrice(e.target.value)}
+              className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#e8c07d]/50 font-mono transition-colors" />
+          </div>
+        </div>
+
+        <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5 block">
+          Owner address {terms?.owner && <span className="text-white/25 normal-case tracking-normal">· claimed</span>}
+        </label>
+        <input type="text" placeholder="0x…" value={ownerAddr} onChange={e => setOwnerAddr(e.target.value)}
+          className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#e8c07d]/50 font-mono transition-colors mb-5" />
+
+        <button onClick={save} disabled={saving}
+          className="btn-shine w-full py-4 rounded-xl bg-gradient-to-r from-[#f5d9a8] to-[#e8c07d] text-[#0a0a0a] font-bold uppercase tracking-widest text-sm hover:shadow-xl hover:shadow-[#e8c07d]/30 disabled:opacity-30 transition-all">
+          {saving ? 'Setting…' : 'Set the terms →'}
+        </button>
+        <p className="text-[10px] text-white/25 text-center mt-3 leading-relaxed">
+          Once an owner address is recorded, only that address can change these terms — the same rule
+          <code className="text-white/40"> onlyOwner </code> enforces on-chain.
+        </p>
+      </div>
+
+      {/* ── The consequence ── */}
+      <div className="space-y-6">
+        <div className="glass rounded-3xl p-6 md:p-8">
+          <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-white/40 mb-5">
+            Every {rent.trim() ? `${monthly} Ξ` : '1 Ξ'} paid
+          </div>
+          <SplitBar amount={monthly} fee={fee} credit={credit} owner={ownerCut} big className="mb-6" />
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { k: 'Your equity', v: credit, c: 'text-[#e8c07d]' },
+              { k: 'Owner income', v: ownerCut, c: 'text-emerald-400' },
+              { k: 'Protocol fee', v: fee, c: 'text-[#ff3d81]' },
+            ].map(s => (
+              <div key={s.k} className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-4">
+                <div className={`text-xl font-display font-extrabold tabular-nums ${s.c}`}>{s.v.toFixed(3)}</div>
+                <div className="text-[10px] uppercase tracking-widest text-white/35 mt-1 font-bold">{s.k}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-6 pt-5 border-t border-white/[0.07] flex items-baseline justify-between">
+            <span className="text-[11px] uppercase tracking-widest text-white/40 font-bold">Stays with the property</span>
+            <span className="headline text-3xl text-gold-grad tabular-nums">{(100 - feePct).toFixed(1)}%</span>
+          </div>
+        </div>
+
+        <div className="glass rounded-3xl p-6 md:p-8">
+          <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-white/40 mb-5">Skimmed off the top</div>
+          <TakeComparison ourTake={feePct} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Interactive rent-to-own equity simulator ───────────── */
 function SimField({ label, value, set, min, max, step, unit }: {
   label: string; value: number; set: (n: number) => void; min: number; max: number; step: number; unit: string
@@ -205,11 +650,22 @@ function SimField({ label, value, set, min, max, step, unit }: {
   )
 }
 
-function EquitySimulator() {
+function EquitySimulator({ feePct: feeInit = 2.5, creditPct: creditInit = 100 }: { feePct?: number; creditPct?: number }) {
   const [price, setPrice] = useState(120)     // home price, Ξ
   const [monthly, setMonthly] = useState(2)   // monthly payment, Ξ
   const [apy, setApy] = useState(5)           // lowfi APY, %
-  const monthsToOwn = Math.max(1, Math.ceil(price / monthly))
+  const [feePct, setFeePct] = useState(feeInit)       // protocol take, 1–5%
+  const [creditPct, setCreditPct] = useState(creditInit) // of the net payment → principal
+  // Follow the live deal until someone drags a slider of their own.
+  const touched = useRef(false)
+  useEffect(() => { if (!touched.current) { setFeePct(feeInit); setCreditPct(creditInit) } }, [feeInit, creditInit])
+
+  // One month of rent, split the way the contract splits it.
+  const perMonthFee = monthly * (feePct / 100)
+  const perMonthCredit = (monthly - perMonthFee) * (creditPct / 100)
+  const canOwn = perMonthCredit > 0
+  // A plain lease never pays it off — cap the timeline at 50 years so the scrubber still works.
+  const monthsToOwn = canOwn ? Math.max(1, Math.ceil(price / perMonthCredit)) : 600
   const [month, setMonth] = useState(18)
   const [full, setFull] = useState(false)
 
@@ -223,15 +679,18 @@ function EquitySimulator() {
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev }
   }, [full])
 
-  const principalPaid = Math.min(month * monthly, price)
+  const principalPaid = Math.min(month * perMonthCredit, price)
   const ownPct = price > 0 ? (principalPaid / price) * 100 : 0
   const remaining = Math.max(price - principalPaid, 0)
+  const grossPaid = month * monthly
+  const feesPaid = month * perMonthFee
+  const ownerIncome = Math.max(grossPaid - feesPaid - principalPaid, 0)
 
-  // Owner's lowfi yield: each month's deposit compounds at the APY while it sits.
+  // Owner's lowfi yield: credited principal compounds at the APY while it sits.
   let bal = 0, yieldEarned = 0
   const r = apy / 100 / 12
   for (let i = 0; i < month; i++) {
-    if (i * monthly < price) bal += Math.min(monthly, price - i * monthly)
+    if (i * perMonthCredit < price) bal += Math.min(perMonthCredit, price - i * perMonthCredit)
     const interest = bal * r
     yieldEarned += interest
     bal += interest
@@ -241,19 +700,27 @@ function EquitySimulator() {
   const owned = ownPct >= 100
 
   const stats = [
-    { v: `${principalPaid.toFixed(1)} Ξ`, c: 'text-white', k: 'principal paid' },
+    { v: `${principalPaid.toFixed(1)} Ξ`, c: 'text-white', k: 'your equity' },
     { v: `${remaining.toFixed(1)} Ξ`, c: 'text-emerald-400', k: 'left to own' },
-    { v: `${monthsToOwn} mo`, c: 'text-[#e8c07d]', k: 'to own outright' },
+    { v: canOwn ? `${monthsToOwn} mo` : 'never', c: 'text-[#e8c07d]', k: 'to own outright' },
+    { v: `${ownerIncome.toFixed(2)} Ξ`, c: 'text-white/70', k: "owner's rent income" },
+    { v: `${feesPaid.toFixed(2)} Ξ`, c: 'text-[#ff3d81]', k: `protocol fee · ${feePct}%` },
     { v: `${yieldEarned.toFixed(2)} Ξ`, c: 'text-[#ff3d81]', k: "owner's lowfi yield" },
   ]
 
   const panel = (big: boolean) => (
     <>
-      <div className="flex flex-wrap items-end gap-4 mb-7">
+      <div className="flex flex-wrap items-end gap-4 mb-5">
         <SimField label="Home price" value={price} set={setPrice} min={1} max={100000} step={1} unit="Ξ" />
         <SimField label="Monthly payment" value={monthly} set={setMonthly} min={0.01} max={10000} step={0.1} unit="Ξ" />
         <SimField label="lowfi APY" value={apy} set={setApy} min={0} max={50} step={0.5} unit="%" />
+        <SimField label="Protocol fee" value={feePct} set={n => { touched.current = true; setFeePct(n) }} min={1} max={5} step={0.1} unit="%" />
+        <SimField label="Rent credit" value={creditPct} set={n => { touched.current = true; setCreditPct(n) }} min={0} max={100} step={1} unit="%" />
       </div>
+
+      {/* One month of rent, cut three ways */}
+      <SplitBar amount={monthly} fee={perMonthFee} credit={perMonthCredit}
+        owner={monthly - perMonthFee - perMonthCredit} className="mb-7" />
 
       <div className={`grid gap-7 items-center ${big ? 'lg:grid-cols-[1.6fr_1fr]' : 'md:grid-cols-[1.3fr_1fr]'}`}>
         {/* Brick wall */}
@@ -334,7 +801,8 @@ function EquitySimulator() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   )
@@ -342,8 +810,10 @@ function EquitySimulator() {
 
 const NAV = [
   { id: 'manifesto', label: 'Manifesto' },
+  { id: 'split', label: 'The Split' },
   { id: 'invest', label: 'Invest' },
   { id: 'whitepaper', label: 'Whitepaper' },
+  { id: 'landscape', label: 'Landscape' },
   { id: 'code', label: 'Code' },
   { id: 'captable', label: 'Cap Table' },
 ]
@@ -354,6 +824,11 @@ function OpenHousePageInner() {
   const [shareholders, setShareholders] = useState<Shareholder[]>([])
   const [dividends, setDividends] = useState<DividendRecord[]>([])
   const [sources, setSources] = useState<SourceFile[]>([])
+  const [terms, setTerms] = useState<TermsData | null>(null)
+  const [models, setModels] = useState<ModelPreset[]>([])
+  const [rentStats, setRentStats] = useState<RentStats | null>(null)
+  const [compare, setCompare] = useState<CompareData | null>(null)
+  const [comparing, setComparing] = useState(false)
   const [loading, setLoading] = useState(false)
   const [buyAddr, setBuyAddr] = useState('')
   const [buyShares, setBuyShares] = useState('')
@@ -366,21 +841,35 @@ function OpenHousePageInner() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [s, p, sh, d] = await Promise.all([
+      const [s, p, sh, d, t, rs] = await Promise.all([
         api('status').catch(() => null),
         api('property').catch(() => null),
         api('shareholders').catch(() => []),
         api('dividends').catch(() => []),
+        api('terms').catch(() => null),
+        api('rent_stats').catch(() => null),
       ])
       if (s) setStatus(s)
       if (p) setProperty(p)
       setShareholders(Array.isArray(sh) ? sh : [])
       setDividends(Array.isArray(d) ? d : [])
+      if (t) setTerms(t)
+      if (rs) setRentStats(rs)
     } catch {}
     setLoading(false)
   }, [])
 
+  // The landscape reaches other people's APIs — keep it off the main refresh
+  // path so the dashboard never waits on RealT or CoinGecko.
+  const fetchCompare = useCallback(async (refresh = false) => {
+    setComparing(true)
+    try { setCompare(await api(`compare${refresh ? '?refresh=true' : ''}`)) } catch {}
+    setComparing(false)
+  }, [])
+
   useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => { fetchCompare() }, [fetchCompare])
+  useEffect(() => { api('models').then(r => setModels(r?.models ?? [])).catch(() => {}) }, [])
   useEffect(() => { api('source').then(s => setSources(Array.isArray(s) ? s : [])).catch(() => {}) }, [])
   useEffect(() => {
     const onScroll = () => {
@@ -420,32 +909,59 @@ function OpenHousePageInner() {
   const price = deployed && property ? parseFloat(property.share_price || '0') : 0
   const cost = buyShares ? parseInt(buyShares || '0') * price : 0
 
+  // Before a property is on-chain the live counters are all zero — a wall of goose
+  // eggs reads as broken. Show what's actually true about the stage instead.
+  const heroStats: { k: string; v: ReactNode; c: string; small?: boolean }[] = deployed ? [
+    { k: 'Shareholders', v: <Counter value={status!.shareholders} />, c: 'text-white' },
+    { k: 'Shares Sold', v: <Counter value={status!.shares_sold} />, c: 'text-[#e8c07d]' },
+    { k: 'Contributed', v: <Counter value={status!.total_contributed} decimals={2} suffix=" Ξ" />, c: 'text-emerald-400' },
+    { k: 'Dividends Paid', v: <Counter value={status!.total_dividends_distributed} decimals={2} suffix=" Ξ" />, c: 'text-[#ff3d81]' },
+  ] : [
+    { k: 'Stage', v: 'Testnet', c: 'text-[#e8c07d]', small: true },
+    { k: 'Network', v: LAUNCH.chain, c: 'text-white', small: true },
+    { k: 'Mainnet launch', v: 'TBA', c: 'text-[#ff3d81]', small: true },
+    { k: 'Cost to try', v: 'Test ETH', c: 'text-emerald-400', small: true },
+  ]
+
   return (
     <div className="relative grain vignette min-h-screen">
       <div className="aurora" />
       <div className="scrollbar-prog" style={{ width: `${progress}%` }} />
 
-      {/* ── Nav ─────────────────────────────────────────── */}
-      <nav className={`fixed top-0 inset-x-0 z-50 transition-all duration-500 ${scrolled ? 'bg-[#050507]/80 backdrop-blur-xl border-b border-white/[0.07]' : 'bg-transparent'}`}>
-        <div className="max-w-6xl mx-auto px-5 md:px-8 h-16 flex items-center justify-between">
-          <a href="#top" className="flex items-center gap-2.5">
-            <span className="w-8 h-8 rounded-md bg-gradient-to-br from-[#e8c07d] to-[#b8893f] flex items-center justify-center text-[#0a0a0a] font-black text-sm shadow-lg shadow-[#e8c07d]/20">⌂</span>
-            <span className="font-display font-extrabold tracking-tight text-[15px] text-white">OpenHouse</span>
-          </a>
-          <div className="hidden md:flex items-center gap-7 text-[12px] font-semibold uppercase tracking-widest text-white/45">
-            {NAV.map(n => <a key={n.id} href={`#${n.id}`} className="hover:text-[#e8c07d] transition-colors">{n.label}</a>)}
-          </div>
-          <div className="flex items-center gap-3">
-            {status?.deployed && status.available_shares > 0 && (
-              <span className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold text-white/50">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                {formatNum(status.available_shares)} left
-              </span>
-            )}
-            <a href="#invest" className="btn-shine px-4 py-2 rounded-full bg-white text-[#0a0a0a] text-[11px] font-bold uppercase tracking-widest hover:bg-[#e8c07d] transition-colors">Buy In</a>
+      {/* ── Testnet banner + nav ────────────────────────── */}
+      <div className="fixed top-0 inset-x-0 z-50">
+        <div className="bg-[#e8c07d]/[0.09] border-b border-[#e8c07d]/20 backdrop-blur-xl">
+          <div className="max-w-6xl mx-auto px-5 md:px-8 min-h-[2.25rem] py-1.5 flex items-center justify-center gap-2.5 text-center">
+            <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.18em] text-[#0a0a0a] bg-[#e8c07d] rounded px-1.5 py-0.5">{LAUNCH.stage}</span>
+            <p className="text-[11px] leading-tight text-[#e8c07d]/90">
+              Running on {LAUNCH.chain} — test ETH only, nothing here is real money or a real deed.
+              <span className="text-white/50"> Mainnet launch: {LAUNCH.date.toLowerCase()}.</span>
+            </p>
           </div>
         </div>
-      </nav>
+        <nav className={`transition-all duration-500 ${scrolled ? 'bg-[#050507]/80 backdrop-blur-xl border-b border-white/[0.07]' : 'bg-transparent'}`}>
+          <div className="max-w-6xl mx-auto px-5 md:px-8 h-16 flex items-center justify-between">
+            <a href="#top" className="flex items-center gap-2.5">
+              <span className="w-8 h-8 rounded-md bg-gradient-to-br from-[#e8c07d] to-[#b8893f] flex items-center justify-center text-[#0a0a0a] font-black text-sm shadow-lg shadow-[#e8c07d]/20">⌂</span>
+              <span className="font-display font-extrabold tracking-tight text-[15px] text-white">OpenHouse</span>
+            </a>
+            <div className="hidden md:flex items-center gap-7 text-[12px] font-semibold uppercase tracking-widest text-white/45">
+              {NAV.map(n => <a key={n.id} href={`#${n.id}`} className="hover:text-[#e8c07d] transition-colors">{n.label}</a>)}
+            </div>
+            <div className="flex items-center gap-3">
+              {deployed && status!.available_shares > 0 && (
+                <span className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold text-white/50">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  {formatNum(status!.available_shares)} left
+                </span>
+              )}
+              <a href="#invest" className="btn-shine px-4 py-2 rounded-full bg-white text-[#0a0a0a] text-[11px] font-bold uppercase tracking-widest hover:bg-[#e8c07d] transition-colors">
+                {deployed ? 'Buy In' : 'Try Testnet'}
+              </a>
+            </div>
+          </div>
+        </nav>
+      </div>
 
       <div id="top" className="relative z-10">
 
@@ -455,11 +971,12 @@ function OpenHousePageInner() {
           <div className="spotlight" />
           <div className="absolute inset-x-0 bottom-0 h-[46vh] bg-gradient-to-t from-[#050507] via-[#050507]/60 to-transparent z-[1]" />
 
-          <div className="relative z-10 px-5 md:px-8 pt-24 pb-16 max-w-6xl mx-auto w-full">
+          <div className="relative z-10 px-5 md:px-8 pt-32 pb-16 max-w-6xl mx-auto w-full">
             <Reveal>
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full glass text-[11px] font-bold uppercase tracking-[0.2em] text-[#e8c07d] mb-8">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Live on Base · Collective Ownership Protocol
+              <div className="inline-flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-full glass text-[11px] font-bold uppercase tracking-[0.2em] text-[#e8c07d] mb-8">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#e8c07d] animate-pulse" />
+                {LAUNCH.stage} on {LAUNCH.chain}
+                <span className="text-white/50">Launch {LAUNCH.date.toLowerCase()}</span>
               </div>
             </Reveal>
             <Reveal delay={80}>
@@ -476,20 +993,24 @@ function OpenHousePageInner() {
             </Reveal>
             <Reveal delay={280}>
               <div className="flex flex-wrap items-center gap-4 mt-10">
-                <a href="#invest" className="btn-shine px-7 py-3.5 rounded-full bg-gradient-to-r from-[#f5d9a8] to-[#e8c07d] text-[#0a0a0a] font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-[#e8c07d]/40 transition-shadow">Start owning →</a>
+                <a href="#invest" className="btn-shine px-7 py-3.5 rounded-full bg-gradient-to-r from-[#f5d9a8] to-[#e8c07d] text-[#0a0a0a] font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-[#e8c07d]/40 transition-shadow">
+                  {deployed ? 'Start owning →' : 'Try it on testnet →'}
+                </a>
                 <a href="#whitepaper" className="px-7 py-3.5 rounded-full border border-white/15 text-white/80 font-bold uppercase tracking-widest text-sm hover:border-[#e8c07d]/50 hover:text-white transition-colors">Read the whitepaper</a>
               </div>
+              {!deployed && (
+                /* sits over the skyline art — needs its own backdrop to stay readable */
+                <p className="glass rounded-xl px-4 py-2.5 text-white/45 text-xs mt-5 max-w-md leading-relaxed">
+                  Testnet preview — the contract, the math, and the cap table are all real code on {LAUNCH.chain}.
+                  The money isn't. Mainnet launch date {LAUNCH.date.toLowerCase()}.
+                </p>
+              )}
             </Reveal>
             <Reveal delay={400}>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-px mt-16 rounded-2xl overflow-hidden glass">
-                {[
-                  { k: 'Shareholders', v: <Counter value={status?.shareholders ?? 0} />, c: 'text-white' },
-                  { k: 'Shares Sold', v: <Counter value={status?.shares_sold ?? 0} />, c: 'text-[#e8c07d]' },
-                  { k: 'Contributed', v: <Counter value={status?.total_contributed ?? 0} decimals={2} suffix=" Ξ" />, c: 'text-emerald-400' },
-                  { k: 'Dividends Paid', v: <Counter value={status?.total_dividends_distributed ?? 0} decimals={2} suffix=" Ξ" />, c: 'text-[#ff3d81]' },
-                ].map((s, i) => (
+                {heroStats.map((s, i) => (
                   <div key={i} className="p-5 md:p-6 bg-white/[0.015]">
-                    <div className={`headline text-3xl md:text-4xl ${s.c} tabular-nums`}>{s.v}</div>
+                    <div className={`headline ${s.small ? 'text-2xl md:text-3xl' : 'text-3xl md:text-4xl'} ${s.c} tabular-nums`}>{s.v}</div>
                     <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35 mt-2">{s.k}</div>
                   </div>
                 ))}
@@ -525,6 +1046,79 @@ function OpenHousePageInner() {
           </Reveal>
         </section>
 
+        {/* ── The split — fee band + owner's dial ────────── */}
+        <section id="split" className="max-w-6xl mx-auto px-5 md:px-8 py-20 md:py-28">
+          <Reveal>
+            <div className="text-center mb-14">
+              <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.3em] mb-4">Where the rent goes</div>
+              <h2 className="headline text-5xl md:text-7xl text-white leading-[0.95]">
+                THEY TAKE 15%.<br /><span className="text-gold-grad">WE TAKE {terms ? terms.fee_pct : '1–5'}%.</span>
+              </h2>
+              <p className="font-serif-ed text-xl text-white/50 max-w-2xl mx-auto mt-7">
+                {terms ? `${terms.to_property_pct}%` : '95–99%'} of every payment stays with the property —
+                split between the renter's equity and the owner's income by whichever rent-to-own model the owner picked.
+                The 1–5% band is a constant in the contract, not a promise on a pricing page.
+              </p>
+            </div>
+          </Reveal>
+
+          {/* Live deal summary — only once someone has actually set terms */}
+          {terms && terms.updated > 0 && (
+            <Reveal delay={60}>
+              <div className="glass rounded-3xl p-6 md:p-7 mb-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {[
+                  { k: 'Live model', v: terms.custom ? `${terms.model_name} · tuned` : terms.model_name, c: 'text-white' },
+                  { k: 'Protocol take', v: `${terms.fee_pct}%`, c: 'text-[#ff3d81]' },
+                  { k: 'To renter equity', v: `${terms.equity_pct_of_rent}%`, c: 'text-[#e8c07d]' },
+                  { k: 'To owner income', v: `${terms.owner_pct_of_rent}%`, c: 'text-emerald-400' },
+                ].map(s => (
+                  <div key={s.k}>
+                    <div className={`text-2xl font-display font-extrabold tabular-nums ${s.c}`}>{s.v}</div>
+                    <div className="text-[10px] uppercase tracking-widest text-white/35 mt-1 font-bold">{s.k}</div>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+          )}
+
+          <Reveal delay={100}>
+            <TermsDesk terms={terms} models={models} onSaved={fetchAll} />
+          </Reveal>
+
+          {/* What has actually been paid, if anything has */}
+          {rentStats && rentStats.payments > 0 && (
+            <Reveal delay={140}>
+              <div className="glass rounded-3xl p-6 md:p-8 mt-8">
+                <div className="flex items-baseline justify-between flex-wrap gap-3 mb-6">
+                  <h3 className="font-display font-bold text-white uppercase tracking-wider text-sm">Rent recorded so far</h3>
+                  <span className="text-[11px] text-white/35">
+                    {rentStats.payments} payment{rentStats.payments === 1 ? '' : 's'} · {rentStats.renters} renter{rentStats.renters === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <SplitBar amount={rentStats.gross_rent} fee={rentStats.protocol_fees}
+                  credit={rentStats.renter_equity} owner={rentStats.owner_income} big className="mb-6" />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {[
+                    { k: 'Gross rent', v: `${formatNum(rentStats.gross_rent, 3)} Ξ`, c: 'text-white' },
+                    { k: 'Renter equity', v: `${formatNum(rentStats.renter_equity, 3)} Ξ`, c: 'text-[#e8c07d]' },
+                    { k: 'Owner income', v: `${formatNum(rentStats.owner_income, 3)} Ξ`, c: 'text-emerald-400' },
+                    { k: 'Protocol fees', v: `${formatNum(rentStats.protocol_fees, 3)} Ξ`, c: 'text-[#ff3d81]' },
+                  ].map(s => (
+                    <div key={s.k} className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-4">
+                      <div className={`text-lg font-display font-extrabold tabular-nums ${s.c}`}>{s.v}</div>
+                      <div className="text-[10px] uppercase tracking-widest text-white/35 mt-1 font-bold">{s.k}</div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[11px] text-white/30 mt-5">
+                  {rentStats.to_property_pct}% of everything paid stayed with the property.
+                  An Airbnb-rate platform would have taken {formatNum(rentStats.gross_rent * 0.15, 3)} Ξ instead of {formatNum(rentStats.protocol_fees, 3)} Ξ.
+                </p>
+              </div>
+            </Reveal>
+          )}
+        </section>
+
         {/* ── Invest / live dashboard ────────────────────── */}
         <section id="invest" className="max-w-6xl mx-auto px-5 md:px-8 py-20 md:py-28">
           <Reveal>
@@ -549,7 +1143,7 @@ function OpenHousePageInner() {
                       <p className="text-white/40 text-sm">{deployed ? (property!.contract || 'On-chain') : 'Deploy a property to open the float'}</p>
                     </div>
                     <span className={`text-[11px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${deployed && property!.is_active ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-white/40 border-white/15'}`}>
-                      {deployed ? (property!.is_active ? '● Active' : 'Paused') : 'Not deployed'}
+                      {deployed ? (property!.is_active ? '● Active' : 'Paused') : `${LAUNCH.stage} · not deployed`}
                     </span>
                   </div>
                   {deployed ? (
@@ -587,6 +1181,10 @@ function OpenHousePageInner() {
                         No building has been fractionalized on this contract yet. Once a property is deployed,
                         its float, share price, and live ownership show up here — straight from chain, no placeholders.
                       </p>
+                      <p className="text-white/35 text-xs leading-relaxed max-w-sm mx-auto mt-3">
+                        On {LAUNCH.chain} you can deploy one yourself and drive the whole loop with test ETH.
+                        The first real home lands with the mainnet launch — date {LAUNCH.date.toLowerCase()}.
+                      </p>
                       <code className="inline-block mt-4 text-[11px] font-mono text-[#e8c07d]/80 bg-[#e8c07d]/5 border border-[#e8c07d]/15 rounded-lg px-3 py-1.5">openhouse deploy property_details=… total_shares=… share_price=…</code>
                     </div>
                   )}
@@ -596,8 +1194,16 @@ function OpenHousePageInner() {
 
             <Reveal className="lg:col-span-2" delay={140}>
               <div className="glass rounded-3xl p-7 md:p-9 h-full flex flex-col border-[#e8c07d]/20">
-                <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#e8c07d] mb-2">Take a position</div>
-                <h3 className="font-serif-ed text-2xl text-white mb-6">Mint your shares</h3>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#e8c07d]">Take a position</div>
+                  <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.15em] text-[#0a0a0a] bg-[#e8c07d] rounded px-1.5 py-0.5">{LAUNCH.stage}</span>
+                </div>
+                <h3 className="font-serif-ed text-2xl text-white mb-2">Mint your shares</h3>
+                <p className="text-[11px] text-white/40 leading-relaxed mb-6">
+                  {deployed
+                    ? `Settles on ${LAUNCH.chain} with test ETH — the mainnet sale opens at launch, date ${LAUNCH.date.toLowerCase()}.`
+                    : `The mainnet sale hasn't opened. Launch date: ${LAUNCH.date.toLowerCase()}.`}
+                </p>
                 <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5 block">Your wallet</label>
                 <input type="text" placeholder="0x…" value={buyAddr} onChange={e => setBuyAddr(e.target.value)} className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#e8c07d]/50 font-mono transition-colors mb-4" />
                 <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5 block">Shares</label>
@@ -607,9 +1213,13 @@ function OpenHousePageInner() {
                   <span className="headline text-3xl text-[#e8c07d] tabular-nums">{deployed ? (cost ? cost.toFixed(4) : '0.00') : '—'} {deployed && <span className="text-lg">Ξ</span>}</span>
                 </div>
                 <button onClick={handlePurchase} disabled={!deployed || purchasing || !buyAddr.trim() || !buyShares.trim()} className="btn-shine w-full py-4 rounded-xl bg-gradient-to-r from-[#f5d9a8] to-[#e8c07d] text-[#0a0a0a] font-bold uppercase tracking-widest text-sm hover:shadow-xl hover:shadow-[#e8c07d]/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all mt-auto">
-                  {!deployed ? 'Sale not open yet' : purchasing ? 'Minting…' : 'Own it →'}
+                  {!deployed ? 'Sale not open · launch TBA' : purchasing ? 'Minting…' : 'Own it (testnet) →'}
                 </button>
-                <p className="text-[10px] text-white/25 text-center mt-3 leading-relaxed">{deployed ? 'Shares are pro-rata claims on the wrapped entity. Dividends settle on Base.' : 'The primary sale opens once a property is deployed to the contract.'}</p>
+                <p className="text-[10px] text-white/25 text-center mt-3 leading-relaxed">
+                  {deployed
+                    ? `Shares are pro-rata claims on the wrapped entity. On ${LAUNCH.chain} they settle in test ETH and carry no real-world claim.`
+                    : 'The primary sale opens once a property is deployed to the contract — on testnet today, on mainnet at launch.'}
+                </p>
               </div>
             </Reveal>
           </div>
@@ -653,14 +1263,14 @@ function OpenHousePageInner() {
                   <h3 className="headline text-4xl md:text-5xl text-white">Watch your equity fill up.</h3>
                   <p className="font-serif-ed text-lg text-white/50 max-w-xl mx-auto mt-4">Every payment lays a brick. Scrub through the months and watch the house become yours — while the owner's idle funds earn lowfi yield.</p>
                 </div>
-                <EquitySimulator />
+                <EquitySimulator feePct={terms?.fee_pct ?? 2.5} creditPct={terms?.credit_pct ?? 100} />
               </div>
             </Reveal>
 
             <Reveal>
               <div className="mt-28">
-                <h3 className="headline text-3xl text-white mb-8 text-center">The mechanics, in four numbers</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <h3 className="headline text-3xl text-white mb-8 text-center">The mechanics, in five numbers</h3>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                   {TOKENOMICS.map((t, i) => (
                     <Tilt key={i} max={10}>
                       <div className="glass glass-hover rounded-2xl p-6 text-center h-full">
@@ -676,7 +1286,11 @@ function OpenHousePageInner() {
 
             <Reveal>
               <div className="mt-24">
-                <h3 className="headline text-3xl text-white mb-10 text-center">The road to a city you can own</h3>
+                <h3 className="headline text-3xl text-white mb-3 text-center">The road to a city you can own</h3>
+                <p className="text-white/40 text-sm text-center max-w-lg mx-auto mb-10">
+                  Where we actually are today: {LAUNCH.stage.toLowerCase()} on {LAUNCH.chain}.
+                  Mainnet launch date — {LAUNCH.date.toLowerCase()}.
+                </p>
                 <div className="space-y-3">
                   {ROADMAP.map((r, i) => (
                     <div key={i} className={`flex items-start gap-5 rounded-2xl p-5 border ${r.done ? 'border-emerald-500/25 bg-emerald-500/[0.04]' : 'border-white/[0.07] bg-white/[0.015]'}`}>
@@ -696,6 +1310,22 @@ function OpenHousePageInner() {
           </div>
         </section>
 
+        {/* ── The landscape — everyone else, honestly ────── */}
+        <section id="landscape" className="max-w-6xl mx-auto px-5 md:px-8 py-24 md:py-32">
+          <Reveal>
+            <div className="mb-12">
+              <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.25em] mb-3">The Landscape</div>
+              <h2 className="headline text-5xl md:text-7xl text-white">Everyone else<br />tokenized the <span className="text-gold-grad">landlord.</span></h2>
+              <p className="text-white/45 text-base md:text-lg max-w-2xl mt-6 leading-relaxed">
+                Twelve projects that put housing on a chain, sorted by the only question that
+                matters: who ends up owning the house. Live numbers pulled from public endpoints;
+                every editorial claim carries its source.
+              </p>
+            </div>
+          </Reveal>
+          <Landscape data={compare} loading={comparing} onRefresh={() => fetchCompare(true)} />
+        </section>
+
         {/* ── Code & contracts ───────────────────────────── */}
         <section id="code" className="max-w-6xl mx-auto px-5 md:px-8 py-24 md:py-32">
           <Reveal>
@@ -711,9 +1341,9 @@ function OpenHousePageInner() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
               {[
                 { k: 'Contract', v: 'OpenHouse.sol' },
-                { k: 'Network', v: 'Base Sepolia · 84532' },
+                { k: 'Network', v: `${LAUNCH.chain} · ${LAUNCH.chainId}` },
+                { k: 'Stage', v: `${LAUNCH.stage} · launch TBA` },
                 { k: 'License', v: 'MIT' },
-                { k: 'Files shown', v: `${sources.length}` },
               ].map((s, i) => (
                 <div key={i} className="glass rounded-xl p-4">
                   <div className="text-[10px] uppercase tracking-widest text-white/35 font-bold mb-1">{s.k}</div>
@@ -786,19 +1416,30 @@ function OpenHousePageInner() {
           <Reveal>
             <h2 className="headline text-6xl md:text-9xl text-white leading-[0.9] glow-gold">THE DOOR<br />IS <span className="text-gold-grad">OPEN.</span></h2>
             <p className="font-serif-ed text-xl text-white/50 max-w-lg mx-auto mt-8">Stop renting the dream. Own the building it lives in.</p>
-            <a href="#invest" className="btn-shine inline-block mt-10 px-10 py-4 rounded-full bg-gradient-to-r from-[#f5d9a8] to-[#e8c07d] text-[#0a0a0a] font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-[#e8c07d]/40 transition-shadow">Start owning →</a>
+            <a href="#invest" className="btn-shine inline-block mt-10 px-10 py-4 rounded-full bg-gradient-to-r from-[#f5d9a8] to-[#e8c07d] text-[#0a0a0a] font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-[#e8c07d]/40 transition-shadow">
+              {deployed ? 'Start owning →' : 'Open the testnet →'}
+            </a>
+            <p className="text-white/35 text-xs uppercase tracking-[0.2em] font-bold mt-6">
+              {LAUNCH.stage} today on {LAUNCH.chain} · Mainnet launch {LAUNCH.date.toLowerCase()}
+            </p>
           </Reveal>
         </section>
 
         {/* ── Footer ─────────────────────────────────────── */}
         <footer className="border-t border-white/[0.07]">
-          <div className="max-w-6xl mx-auto px-5 md:px-8 py-10 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="max-w-6xl mx-auto px-5 md:px-8 pt-10 pb-6 flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2.5">
               <span className="w-7 h-7 rounded-md bg-gradient-to-br from-[#e8c07d] to-[#b8893f] flex items-center justify-center text-[#0a0a0a] font-black text-xs">⌂</span>
               <span className="font-display font-extrabold text-white text-sm">OpenHouse</span>
             </div>
-            <p className="text-white/30 text-xs text-center">Collective asset ownership · Fractional property via smart contracts · Base</p>
+            <p className="text-white/30 text-xs text-center">Rent-to-own on-chain · Fractional property via smart contracts · Base</p>
             <p className="text-white/20 text-[11px] uppercase tracking-widest">Equity for everybody</p>
+          </div>
+          <div className="max-w-6xl mx-auto px-5 md:px-8 pb-10">
+            <p className="text-white/30 text-[11px] leading-relaxed text-center max-w-2xl mx-auto border-t border-white/[0.05] pt-6">
+              <span className="text-[#e8c07d] font-bold uppercase tracking-widest">{LAUNCH.stage} — </span>
+              {LAUNCH.notice} Nothing on this page is an offer to sell securities or financial advice.
+            </p>
           </div>
         </footer>
       </div>

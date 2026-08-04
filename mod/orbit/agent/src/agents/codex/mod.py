@@ -5,7 +5,7 @@ class Agent:
     name = "Codex"
     description = "OpenAI's Codex CLI — its own tools, sandbox and models"
     icon = "◇"
-    skills = None
+    tools = None
     model = None
     # not a persona over our loop: the whole run goes to the `codex` binary
     harness = "codex"

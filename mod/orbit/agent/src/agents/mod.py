@@ -52,7 +52,7 @@ class Agent:
     name = "{label}"
     description = "{description}"
     icon = "{icon}"
-    skills = {skills}
+    tools = {tools}
     model = {model}
     harness = {harness}
     owner = {owner}
@@ -104,7 +104,9 @@ class Agents:
             "description": getattr(cls, "description", ""),
             "goal": getattr(cls, "goal", None),
             "icon": getattr(cls, "icon", ">_"),
-            "skills": getattr(cls, "skills", None),
+            # `skills` is the pre-rename attribute — agents written then
+            # still declare it, so it stands in when `tools` is absent
+            "tools": getattr(cls, "tools", None) or getattr(cls, "skills", None),
             "model": getattr(cls, "model", None),
             # set -> the run is handed to an external CLI (see harness/mod.py)
             # instead of this module's own loop
@@ -155,7 +157,7 @@ class Agents:
         return harness
 
     def create(self, name: str, description: str = "", goal: str = "",
-               icon: str = ">_", skills: list = None, model: str = None,
+               icon: str = ">_", tools: list = None, model: str = None,
                harness: str = None, key: str = None) -> Dict[str, Any]:
         """Create a new agent locally in agents/ directory.
 
@@ -167,7 +169,7 @@ class Agents:
             description: what this agent does
             goal: system prompt / goal for the agent
             icon: display icon
-            skills: optional list of skill names to restrict to
+            tools: optional list of tool names to restrict to
             model: optional model override
             harness: external CLI to hand the run to ('claude', 'codex'), or
                      None to run on this module's own loop
@@ -188,7 +190,7 @@ class Agents:
             label=label,
             description=description or f"{label} agent",
             icon=icon,
-            skills=repr(skills) if skills else "None",
+            tools=repr(tools) if tools else "None",
             model=repr(model) if model else "None",
             harness=repr(harness) if harness else "None",
             owner=repr(owner) if owner else "None",
@@ -202,14 +204,14 @@ class Agents:
         return {**self.get(name), **({"cid": cid} if cid else {})}
 
     def update(self, name: str, description: str = None, goal: str = None,
-               icon: str = None, skills: list = ..., model: str = ...,
+               icon: str = None, tools: list = ..., model: str = ...,
                harness: str = ..., key: str = None) -> Dict[str, Any]:
         """Update an agent in place. The owner or the host may edit it —
         for everyone else built-ins are read-only, so clone them instead.
 
         Only the fields passed are changed; the rest keep their current value.
-        skills/model/harness use `...` as the not-passed sentinel so an explicit
-        None can clear them (None = all skills / default model / own loop).
+        tools/model/harness use `...` as the not-passed sentinel so an explicit
+        None can clear them (None = every tool / default model / own loop).
         """
         name = name.lower().replace(" ", "-").replace("_", "-")
         agent_dir = self._dir / name
@@ -218,7 +220,7 @@ class Agents:
         self._require_manage(name, key, "edit")
 
         current = self.get(name)
-        new_skills = current.get("skills") if skills is ... else skills
+        new_tools = current.get("tools") if tools is ... else tools
         new_model = current.get("model") if model is ... else model
         new_harness = current.get("harness") if harness is ... else self._check_harness(harness)
         label = name.replace("-", " ").title()
@@ -227,7 +229,7 @@ class Agents:
             label=label,
             description=description if description is not None else current.get("description", ""),
             icon=icon if icon is not None else current.get("icon", ">_"),
-            skills=repr(new_skills) if new_skills else "None",
+            tools=repr(new_tools) if new_tools else "None",
             model=repr(new_model) if new_model else "None",
             harness=repr(new_harness) if new_harness else "None",
             # an edit never transfers ownership
@@ -253,7 +255,7 @@ class Agents:
     # ── CID storage (save/load as content-addressed JSON) ──────────
 
     def _build_config(self, name: str = None, description: str = None,
-                      goal: str = None, icon: str = ">_", skills: list = None,
+                      goal: str = None, icon: str = ">_", tools: list = None,
                       model: str = None, memory: str = None,
                       harness: str = None) -> Dict[str, Any]:
         """Build an agent config dict from name/overrides."""
@@ -267,8 +269,8 @@ class Agents:
             config["description"] = description
         if goal is not None:
             config["goal"] = goal
-        if skills is not None:
-            config["skills"] = skills
+        if tools is not None:
+            config["tools"] = tools
         if model is not None:
             config["model"] = model
         if icon != ">_" or "icon" not in config:
@@ -285,7 +287,7 @@ class Agents:
         return config
 
     def save(self, name: str = None, description: str = None, goal: str = None,
-             icon: str = ">_", skills: list = None, model: str = None,
+             icon: str = ">_", tools: list = None, model: str = None,
              memory: str = None, harness: str = None, private: bool = False,
              provider_key: str = None, client_key: str = None,
              key: str = None) -> Dict[str, Any]:
@@ -300,7 +302,7 @@ class Agents:
             description: agent description (override or new)
             goal: system prompt / goal (override or new)
             icon: display icon
-            skills: list of skill names to bundle
+            tools: list of tool names to bundle
             model: model override
             memory: memory module path (e.g. 'agent.memory')
             private: if True, encrypt with 2-of-2 secret sharing
@@ -318,7 +320,7 @@ class Agents:
             raise RuntimeError("mod framework required for CID storage")
 
         config = self._build_config(name, description, goal, icon,
-                                    skills, model, memory, harness)
+                                    tools, model, memory, harness)
 
         if private:
             return self._save_private(config, provider_key, client_key)
@@ -396,7 +398,7 @@ class Agents:
             shares: list of 2 Shamir shares (required for private agents)
 
         Returns:
-            Agent config dict with name, goal, skills, model, memory, etc.
+            Agent config dict with name, goal, tools, model, memory, etc.
         """
         if not m:
             raise RuntimeError("mod framework required for CID storage")
@@ -445,7 +447,7 @@ class Agents:
             description=data.get("description", ""),
             goal=data.get("goal", ""),
             icon=data.get("icon", ">_"),
-            skills=data.get("skills"),
+            tools=data.get("tools") or data.get("skills"),
             model=data.get("model"),
             harness=data.get("harness"),
             key=key,
@@ -540,7 +542,7 @@ class Agents:
                 description=kwargs.get("description", ""),
                 goal=kwargs.get("goal", ""),
                 icon=kwargs.get("icon", ">_"),
-                skills=kwargs.get("skills"),
+                tools=kwargs.get("tools", kwargs.get("skills")),
                 model=kwargs.get("model"),
                 harness=kwargs.get("harness"),
                 key=kwargs.get("key"),
@@ -551,7 +553,7 @@ class Agents:
                 description=kwargs.get("description"),
                 goal=kwargs.get("goal"),
                 icon=kwargs.get("icon"),
-                skills=kwargs.get("skills", ...),
+                tools=kwargs.get("tools", kwargs.get("skills", ...)),
                 model=kwargs.get("model", ...),
                 harness=kwargs.get("harness", ...),
                 key=kwargs.get("key"),
@@ -564,7 +566,7 @@ class Agents:
                 description=kwargs.get("description"),
                 goal=kwargs.get("goal"),
                 icon=kwargs.get("icon", ">_"),
-                skills=kwargs.get("skills"),
+                tools=kwargs.get("tools", kwargs.get("skills")),
                 model=kwargs.get("model"),
                 memory=kwargs.get("memory"),
                 harness=kwargs.get("harness"),

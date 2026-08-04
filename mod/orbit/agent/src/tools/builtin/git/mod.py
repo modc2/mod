@@ -4,7 +4,7 @@ import os
 from typing import Dict, Any, Optional
 
 
-class Skill:
+class Tool:
     description = "Git operations: status, diff, log, commit, branch, stash, blame, show. Safe read-only by default."
 
     def forward(self, command: str, cwd: str = None, **kwargs) -> Dict[str, Any]:
@@ -32,7 +32,7 @@ class Skill:
         dangerous = ["push --force", "reset --hard", "clean -f", "branch -D"]
         for d in dangerous:
             if d in cmd:
-                return {"success": False, "error": f"blocked dangerous command: git {d}. Use bash skill if you really need this."}
+                return {"success": False, "error": f"blocked dangerous command: git {d}. Use the bash tool if you really need this."}
 
         full_cmd = f"git {cmd}"
         try:

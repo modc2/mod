@@ -21,6 +21,7 @@ import {
 } from "../../lib/api";
 import type { PricePoint, SubnetDetail } from "../../lib/types";
 import { useCurrency, fmtAlphaPrice } from "../../context/CurrencyContext";
+import { useSidebar } from "../../context/SidebarContext";
 import ChangeChip from "../../components/ChangeChip";
 import SubnetLogo from "../../components/SubnetLogo";
 
@@ -35,6 +36,7 @@ export default function SubnetDetailPage() {
   const skin = useThemeColors();
   const { netuid } = useParams<{ netuid: string }>();
   const { currency, usdPerTao } = useCurrency();
+  const { openStrat } = useSidebar();
   const [d, setD] = useState<SubnetDetail | null>(null);
   const [series, setSeries] = useState<PricePoint[]>([]);
   const [hours, setHours] = useState(168);
@@ -277,8 +279,23 @@ export default function SubnetDetailPage() {
           <span className="text-[11px] text-pixel-gray font-mono">
             {d.validators.length ? `${d.validators.length} of ${d.neurons}` : ""}
           </span>
+          {d.validators.length > 1 && (
+            <button
+              onClick={() =>
+                openStrat(...d.validators.slice(0, 10).map((v) => v.coldkey))
+              }
+              title="Open the strat maker with this subnet's top validators"
+              className="pixel-btn text-[10px] px-2 py-0.5 text-green-400 border-green-400/40 ml-auto"
+            >
+              + INDEX TOP {Math.min(10, d.validators.length)}
+            </button>
+          )}
           {d.owner_coldkey && (
-            <span className="text-[10px] text-pixel-gray font-mono ml-auto">
+            <span
+              className={`text-[10px] text-pixel-gray font-mono ${
+                d.validators.length > 1 ? "" : "ml-auto"
+              }`}
+            >
               owner {shortSs58(d.owner_coldkey)}
             </span>
           )}
@@ -339,12 +356,13 @@ export default function SubnetDetailPage() {
                         {(v.dividends * 100).toFixed(2)}%
                       </td>
                       <td>
-                        <Link
-                          href={`/strats?target=${v.coldkey}`}
-                          className="pixel-btn text-[10px] px-2 py-0.5 text-green-400 border-green-400/40 no-underline"
+                        <button
+                          onClick={() => openStrat(v.coldkey)}
+                          title="Add to the strat maker's basket"
+                          className="pixel-btn text-[10px] px-2 py-0.5 text-green-400 border-green-400/40"
                         >
                           COPY
-                        </Link>
+                        </button>
                       </td>
                     </tr>
                   );

@@ -2,11 +2,11 @@
 tests for the agent framework
 
 covers:
-    - skills registry (discovery, loading, caching, schema, errors)
-    - individual skills (bash, read, write, edit, glob, grep, search, task, websurf, claudecode)
+    - tool registry (discovery, loading, caching, schema, errors, the fleet)
+    - individual tools (bash, read, write, edit, glob, grep, search, task, websurf, claudecode)
     - agents registry (discovery, create, remove, schema)
     - memory
-    - agent (parse_steps, _extract_step, run_plan, init_memory, skill wiring)
+    - agent (parse_steps, _extract_step, run_plan, init_memory, tool wiring)
     - mod class (test, status, forward, gate/acl)
     - api endpoints
 
@@ -25,11 +25,12 @@ from pathlib import Path
 # make sure imports resolve from the agent root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.skills.mod import Skills
+from src.tools.builtin.mod import Builtins
+from src.tools.mod import Tools
 from src.agents.mod import Agents
 from src.memory.memory import Memory
 
-SKILL_COUNT = 23
+BUILTIN_COUNT = 23
 # shipped agents. Custom agents live in the same directory, so counts are
 # lower bounds — a host with their own agents installed still passes.
 AGENT_COUNT = 9
@@ -43,8 +44,12 @@ TOOLS_PATH = "/tmp/agent_test_tools.json"
 # ═══════════════════════════════════════════════════════════════════════
 
 @pytest.fixture
-def skills():
-    return Skills()
+def builtin():
+    return Builtins()
+
+@pytest.fixture
+def tools(tmpdir):
+    return Tools(path=os.path.join(tmpdir, "tools.json"))
 
 @pytest.fixture
 def agents():
@@ -70,61 +75,61 @@ def tmpfile(tmpdir):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SKILLS REGISTRY
+#  BUILT-IN TOOL REGISTRY
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestSkillsRegistry:
-    def test_ls_returns_all_skills(self, skills):
-        names = skills.ls()
-        assert len(names) == SKILL_COUNT
+class TestBuiltinRegistry:
+    def test_ls_returns_all_tools(self, builtin):
+        names = builtin.ls()
+        assert len(names) == BUILTIN_COUNT
         for expected in ["bash", "read", "write", "edit", "glob", "grep",
                          "search", "task", "websurf", "claudecode"]:
             assert expected in names
 
-    def test_get_returns_instance(self, skills):
-        bash = skills.get("bash")
+    def test_get_returns_instance(self, builtin):
+        bash = builtin.get("bash")
         assert hasattr(bash, "forward")
         assert hasattr(bash, "description")
 
-    def test_get_caches_instances(self, skills):
-        a = skills.get("bash")
-        b = skills.get("bash")
+    def test_get_caches_instances(self, builtin):
+        a = builtin.get("bash")
+        b = builtin.get("bash")
         assert a is b
 
-    def test_get_unknown_skill_raises(self, skills):
-        with pytest.raises(KeyError, match="skill not found"):
-            skills.get("nonexistent_skill_xyz")
+    def test_get_unknown_tool_raises(self, builtin):
+        with pytest.raises(KeyError, match="tool not found"):
+            builtin.get("nonexistent_tool_xyz")
 
-    def test_run_delegates_to_forward(self, skills):
-        r = skills.run("bash", command="echo registry_test")
+    def test_run_delegates_to_forward(self, builtin):
+        r = builtin.run("bash", command="echo registry_test")
         assert r["success"]
         assert "registry_test" in r["stdout"]
 
-    def test_forward_no_name_returns_list(self, skills):
-        r = skills.forward()
-        assert "skills" in r
+    def test_forward_no_name_returns_list(self, builtin):
+        r = builtin.forward()
+        assert "tools" in r
         assert "total" in r
-        assert r["total"] == SKILL_COUNT
+        assert r["total"] == BUILTIN_COUNT
 
-    def test_forward_with_name_runs_skill(self, skills):
-        r = skills.forward("bash", command="echo forward_test")
+    def test_forward_with_name_runs_tool(self, builtin):
+        r = builtin.forward("bash", command="echo forward_test")
         assert r["success"]
 
-    def test_schema_returns_all(self, skills):
-        schema = skills.schema()
-        assert len(schema) == SKILL_COUNT
+    def test_schema_returns_all(self, builtin):
+        schema = builtin.schema()
+        assert len(schema) == BUILTIN_COUNT
         for name, info in schema.items():
             assert "description" in info, f"{name} schema missing description"
             assert "params" in info, f"{name} schema missing params"
 
-    def test_schema_filtered(self, skills):
-        schema = skills.schema(["bash", "read"])
+    def test_schema_filtered(self, builtin):
+        schema = builtin.schema(["bash", "read"])
         assert len(schema) == 2
         assert "bash" in schema
         assert "read" in schema
 
-    def test_schema_params_have_types(self, skills):
-        schema = skills.schema(["bash"])
+    def test_schema_params_have_types(self, builtin):
+        schema = builtin.schema(["bash"])
         params = schema["bash"]["params"]
         assert "command" in params
         assert params["command"]["required"] is True
@@ -133,262 +138,262 @@ class TestSkillsRegistry:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SKILL: BASH
+#  TOOL: BASH
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestBashSkill:
-    def test_echo(self, skills):
-        r = skills.run("bash", command="echo hello")
+class TestBashTool:
+    def test_echo(self, builtin):
+        r = builtin.run("bash", command="echo hello")
         assert r["success"]
         assert r["stdout"].strip() == "hello"
         assert r["code"] == 0
 
-    def test_failing_command(self, skills):
-        r = skills.run("bash", command="exit 1")
+    def test_failing_command(self, builtin):
+        r = builtin.run("bash", command="exit 1")
         assert not r["success"]
         assert r["code"] == 1
 
-    def test_stderr(self, skills):
-        r = skills.run("bash", command="echo err >&2")
+    def test_stderr(self, builtin):
+        r = builtin.run("bash", command="echo err >&2")
         assert "err" in r["stderr"]
 
-    def test_cwd(self, skills, tmpdir):
-        r = skills.run("bash", command="pwd", cwd=tmpdir)
+    def test_cwd(self, builtin, tmpdir):
+        r = builtin.run("bash", command="pwd", cwd=tmpdir)
         assert r["success"]
         assert tmpdir in r["stdout"] or os.path.realpath(tmpdir) in r["stdout"]
 
-    def test_timeout(self, skills):
-        r = skills.run("bash", command="sleep 10", timeout=1)
+    def test_timeout(self, builtin):
+        r = builtin.run("bash", command="sleep 10", timeout=1)
         assert not r["success"]
         assert "timeout" in r["stderr"]
 
-    def test_multiline_output(self, skills):
-        r = skills.run("bash", command="echo a; echo b; echo c")
+    def test_multiline_output(self, builtin):
+        r = builtin.run("bash", command="echo a; echo b; echo c")
         assert r["success"]
         lines = r["stdout"].strip().split("\n")
         assert lines == ["a", "b", "c"]
 
-    def test_pipe(self, skills):
-        r = skills.run("bash", command="echo 'hello world' | tr 'h' 'H'")
+    def test_pipe(self, builtin):
+        r = builtin.run("bash", command="echo 'hello world' | tr 'h' 'H'")
         assert r["success"]
         assert "Hello" in r["stdout"]
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SKILL: READ
+#  TOOL: READ
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestReadSkill:
-    def test_read_file(self, skills, tmpfile):
-        r = skills.run("read", file_path=tmpfile)
+class TestReadTool:
+    def test_read_file(self, builtin, tmpfile):
+        r = builtin.run("read", file_path=tmpfile)
         assert r["success"]
         assert "line one" in r["content"]
         assert r["total"] == 4
         assert r["lines"] == 4
 
-    def test_read_with_offset(self, skills, tmpfile):
-        r = skills.run("read", file_path=tmpfile, offset=1)
+    def test_read_with_offset(self, builtin, tmpfile):
+        r = builtin.run("read", file_path=tmpfile, offset=1)
         assert r["success"]
         assert "line two" in r["content"]
         assert "line one" not in r["content"]
 
-    def test_read_with_limit(self, skills, tmpfile):
-        r = skills.run("read", file_path=tmpfile, limit=2)
+    def test_read_with_limit(self, builtin, tmpfile):
+        r = builtin.run("read", file_path=tmpfile, limit=2)
         assert r["success"]
         assert r["lines"] == 2
 
-    def test_read_nonexistent(self, skills):
-        r = skills.run("read", file_path="/tmp/this_file_does_not_exist_xyz.txt")
+    def test_read_nonexistent(self, builtin):
+        r = builtin.run("read", file_path="/tmp/this_file_does_not_exist_xyz.txt")
         assert not r["success"]
         assert "not found" in r["error"]
 
-    def test_read_directory(self, skills, tmpdir):
-        r = skills.run("read", file_path=tmpdir)
+    def test_read_directory(self, builtin, tmpdir):
+        r = builtin.run("read", file_path=tmpdir)
         assert not r["success"]
         assert "not a file" in r["error"]
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SKILL: WRITE
+#  TOOL: WRITE
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestWriteSkill:
-    def test_write_new_file(self, skills, tmpdir):
+class TestWriteTool:
+    def test_write_new_file(self, builtin, tmpdir):
         p = os.path.join(tmpdir, "new.txt")
-        r = skills.run("write", file_path=p, content="hello")
+        r = builtin.run("write", file_path=p, content="hello")
         assert r["success"]
         assert Path(p).read_text() == "hello"
         assert r["bytes"] == 5
 
-    def test_write_creates_dirs(self, skills, tmpdir):
+    def test_write_creates_dirs(self, builtin, tmpdir):
         p = os.path.join(tmpdir, "a", "b", "c", "deep.txt")
-        r = skills.run("write", file_path=p, content="deep")
+        r = builtin.run("write", file_path=p, content="deep")
         assert r["success"]
         assert Path(p).read_text() == "deep"
 
-    def test_write_overwrites(self, skills, tmpfile):
-        r = skills.run("write", file_path=tmpfile, content="overwritten")
+    def test_write_overwrites(self, builtin, tmpfile):
+        r = builtin.run("write", file_path=tmpfile, content="overwritten")
         assert r["success"]
         assert Path(tmpfile).read_text() == "overwritten"
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SKILL: EDIT
+#  TOOL: EDIT
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestEditSkill:
-    def test_single_replace(self, skills, tmpfile):
-        r = skills.run("edit", file_path=tmpfile, old_string="line one", new_string="LINE ONE")
+class TestEditTool:
+    def test_single_replace(self, builtin, tmpfile):
+        r = builtin.run("edit", file_path=tmpfile, old_string="line one", new_string="LINE ONE")
         assert r["success"]
         assert r["replacements"] == 1
         content = Path(tmpfile).read_text()
         assert "LINE ONE" in content
         assert "line two" in content
 
-    def test_replace_all(self, skills, tmpdir):
+    def test_replace_all(self, builtin, tmpdir):
         p = os.path.join(tmpdir, "multi.txt")
         Path(p).write_text("aaa bbb aaa ccc aaa")
-        r = skills.run("edit", file_path=p, old_string="aaa", new_string="XXX", replace_all=True)
+        r = builtin.run("edit", file_path=p, old_string="aaa", new_string="XXX", replace_all=True)
         assert r["success"]
         assert r["replacements"] == 3
         assert Path(p).read_text() == "XXX bbb XXX ccc XXX"
 
-    def test_string_not_found(self, skills, tmpfile):
-        r = skills.run("edit", file_path=tmpfile, old_string="NONEXISTENT", new_string="X")
+    def test_string_not_found(self, builtin, tmpfile):
+        r = builtin.run("edit", file_path=tmpfile, old_string="NONEXISTENT", new_string="X")
         assert not r["success"]
         assert "not found" in r["error"]
 
-    def test_multiline_replace(self, skills, tmpfile):
-        r = skills.run("edit", file_path=tmpfile, old_string="line one\nline two", new_string="REPLACED")
+    def test_multiline_replace(self, builtin, tmpfile):
+        r = builtin.run("edit", file_path=tmpfile, old_string="line one\nline two", new_string="REPLACED")
         assert r["success"]
         assert "REPLACED" in Path(tmpfile).read_text()
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SKILL: GLOB
+#  TOOL: GLOB
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestGlobSkill:
-    def test_find_py_files(self, skills):
-        r = skills.run("glob", pattern="*.py", path=os.path.join(os.path.dirname(__file__), ".."))
+class TestGlobTool:
+    def test_find_py_files(self, builtin):
+        r = builtin.run("glob", pattern="*.py", path=os.path.join(os.path.dirname(__file__), ".."))
         assert r["success"]
         assert r["total"] > 0
 
-    def test_find_in_tmpdir(self, skills, tmpdir):
+    def test_find_in_tmpdir(self, builtin, tmpdir):
         Path(os.path.join(tmpdir, "a.py")).touch()
         Path(os.path.join(tmpdir, "b.py")).touch()
         Path(os.path.join(tmpdir, "c.txt")).touch()
-        r = skills.run("glob", pattern="*.py", path=tmpdir)
+        r = builtin.run("glob", pattern="*.py", path=tmpdir)
         assert r["success"]
         assert r["total"] == 2
 
-    def test_no_matches(self, skills, tmpdir):
-        r = skills.run("glob", pattern="*.xyz_nonexistent", path=tmpdir)
+    def test_no_matches(self, builtin, tmpdir):
+        r = builtin.run("glob", pattern="*.xyz_nonexistent", path=tmpdir)
         assert r["success"]
         assert r["total"] == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SKILL: GREP
+#  TOOL: GREP
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestGrepSkill:
-    def test_find_pattern(self, skills, tmpfile):
-        r = skills.run("grep", pattern="hello", path=tmpfile)
+class TestGrepTool:
+    def test_find_pattern(self, builtin, tmpfile):
+        r = builtin.run("grep", pattern="hello", path=tmpfile)
         assert r["success"]
         assert r["total"] == 1
         assert r["matches"][0]["text"] == "hello world"
         assert r["matches"][0]["line"] == 4
 
-    def test_regex(self, skills, tmpfile):
-        r = skills.run("grep", pattern="line (one|two)", path=tmpfile)
+    def test_regex(self, builtin, tmpfile):
+        r = builtin.run("grep", pattern="line (one|two)", path=tmpfile)
         assert r["success"]
         assert r["total"] == 2
 
-    def test_case_insensitive(self, skills, tmpdir):
+    def test_case_insensitive(self, builtin, tmpdir):
         p = os.path.join(tmpdir, "case.txt")
         Path(p).write_text("Hello\nhello\nHELLO\n")
-        r = skills.run("grep", pattern="hello", path=p, ignore_case=True)
+        r = builtin.run("grep", pattern="hello", path=p, ignore_case=True)
         assert r["success"]
         assert r["total"] == 3
 
-    def test_bad_regex(self, skills, tmpfile):
-        r = skills.run("grep", pattern="[invalid", path=tmpfile)
+    def test_bad_regex(self, builtin, tmpfile):
+        r = builtin.run("grep", pattern="[invalid", path=tmpfile)
         assert not r["success"]
         assert "bad regex" in r["error"]
 
-    def test_no_matches(self, skills, tmpfile):
-        r = skills.run("grep", pattern="ZZZNOTHERE", path=tmpfile)
+    def test_no_matches(self, builtin, tmpfile):
+        r = builtin.run("grep", pattern="ZZZNOTHERE", path=tmpfile)
         assert r["success"]
         assert r["total"] == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SKILL: SEARCH (web)
+#  TOOL: SEARCH (web)
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestSearchSkill:
-    def test_empty_query(self, skills):
-        r = skills.run("search", query="")
+class TestSearchTool:
+    def test_empty_query(self, builtin):
+        r = builtin.run("search", query="")
         assert not r["success"]
         assert "empty" in r["error"]
 
-    def test_search_returns_dict(self, skills):
-        r = skills.run("search", query="python")
+    def test_search_returns_dict(self, builtin):
+        r = builtin.run("search", query="python")
         assert isinstance(r, dict)
         assert "success" in r
         assert "results" in r
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SKILL: WEBSURF
+#  TOOL: WEBSURF
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestWebsurfSkill:
-    def test_empty_url(self, skills):
-        r = skills.run("websurf", url="")
+class TestWebsurfTool:
+    def test_empty_url(self, builtin):
+        r = builtin.run("websurf", url="")
         assert not r["success"]
         assert "empty" in r["error"]
 
-    def test_returns_dict(self, skills):
-        r = skills.run("websurf", url="https://httpbin.org/html")
+    def test_returns_dict(self, builtin):
+        r = builtin.run("websurf", url="https://httpbin.org/html")
         assert isinstance(r, dict)
         assert "success" in r
 
-    def test_bad_url(self, skills):
-        r = skills.run("websurf", url="https://this-domain-does-not-exist-xyz.invalid")
+    def test_bad_url(self, builtin):
+        r = builtin.run("websurf", url="https://this-domain-does-not-exist-xyz.invalid")
         assert not r["success"]
         assert "error" in r
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SKILL: CLAUDECODE
+#  TOOL: CLAUDECODE
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestClaudeCodeSkill:
-    def test_empty_prompt(self, skills):
-        r = skills.run("claudecode", prompt="")
+class TestClaudeCodeTool:
+    def test_empty_prompt(self, builtin):
+        r = builtin.run("claudecode", prompt="")
         assert not r["success"]
         assert "empty" in r["error"]
 
-    def test_skill_has_description(self, skills):
-        skill = skills.get("claudecode")
-        assert "claude" in skill.description.lower() or "code" in skill.description.lower()
+    def test_tool_has_description(self, builtin):
+        tool = builtin.get("claudecode")
+        assert "claude" in tool.description.lower() or "code" in tool.description.lower()
 
-    def test_schema_has_prompt_param(self, skills):
-        schema = skills.schema(["claudecode"])
+    def test_schema_has_prompt_param(self, builtin):
+        schema = builtin.schema(["claudecode"])
         assert "claudecode" in schema
         assert "prompt" in schema["claudecode"]["params"]
         assert schema["claudecode"]["params"]["prompt"]["required"] is True
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SKILL: TASK
+#  TOOL: TASK
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestTaskSkill:
-    def test_task_returns_dict(self, skills):
-        r = skills.run("task", prompt="test")
+class TestTaskTool:
+    def test_task_returns_dict(self, builtin):
+        r = builtin.run("task", prompt="test")
         assert isinstance(r, dict)
         assert "success" in r
 
@@ -413,13 +418,13 @@ class TestAgentsRegistry:
         assert "goal" in config
         assert config["goal"] is not None
         assert "icon" in config
-        assert isinstance(config["skills"], list)
+        assert isinstance(config["tools"], list)
 
     def test_get_default_agent(self, agents):
         config = agents.get("default")
         assert config["name"] == "Default"
         assert config["goal"] is None  # uses base goal
-        assert config["skills"] is None  # all skills
+        assert config["tools"] is None  # every tool
 
     def test_get_unknown_raises(self, agents):
         with pytest.raises(KeyError, match="agent not found"):
@@ -443,11 +448,11 @@ class TestAgentsRegistry:
         assert r["name"] == "Safety"
         assert "goal" in r
 
-    def test_safety_agent_has_skills(self, agents):
+    def test_safety_agent_has_tools(self, agents):
         config = agents.get("safety")
-        assert "read" in config["skills"]
-        assert "think" in config["skills"]
-        assert "grep" in config["skills"]
+        assert "read" in config["tools"]
+        assert "think" in config["tools"]
+        assert "grep" in config["tools"]
 
     def test_chains(self, agents):
         chains = agents.chains()
@@ -629,54 +634,68 @@ class TestAgent:
     def _make_agent(self):
         from src.mod import Agent
         agent = Agent.__new__(Agent)
-        agent.skills = Skills()
         agent.agents = Agents()
         agent.memory = Memory()
         agent.memory.clear()
         agent.model = None
-        agent._skill_names = None
+        agent._tool_names = None
         agent._session_keys = {}
         agent._snapped = []
         from src.toolbox.mod import Toolboxes
-        from src.tools.mod import Tools
-        agent.tools = Tools(skills=agent.skills, path=TOOLS_PATH)
-        agent.toolboxes = Toolboxes(skills=agent.skills, tools=agent.tools)
+        agent.tools = Tools(path=TOOLS_PATH)
+        agent.toolboxes = Toolboxes(tools=agent.tools)
         agent.goal = Agent.goal
         agent.output_format = Agent.output_format
         agent.anchors = Agent.anchors
+        from src.billing import Meter
+        agent.meter = Meter()
+        agent._provider = Agent.PROVIDERS['openrouter']
         return agent
 
-    # ── skill wiring ──
+    # ── tool wiring ──
 
-    def test_skill_ls(self):
+    def test_tool_ls(self):
         agent = self._make_agent()
-        assert "bash" in agent.skills.ls()
-        assert len(agent.skills.ls()) == SKILL_COUNT
+        assert "bash" in agent.tools.ls()
+        assert len(agent.tools.ls()) == BUILTIN_COUNT
 
-    def test_skill_get(self):
+    def test_tool_get(self):
         agent = self._make_agent()
-        bash = agent.skill("bash")
+        bash = agent.tool("bash")
         assert hasattr(bash, "forward")
 
-    def test_run_skill(self):
+    def test_run_tool(self):
         agent = self._make_agent()
-        r = agent.run_skill("bash", command="echo agent_test")
+        r = agent.run_tool("bash", command="echo agent_test")
         assert r["success"]
         assert "agent_test" in r["stdout"]
 
-    def test_skill_schema(self):
+    def test_tool_schema(self):
         agent = self._make_agent()
-        schema = agent.skill_schema()
-        assert len(schema) == SKILL_COUNT
+        schema = agent.tool_schema()
+        assert len(schema) == BUILTIN_COUNT
         assert "bash" in schema
         assert "claudecode" in schema
         assert "websurf" in schema
 
-    def test_skill_schema_filtered(self):
+    def test_tool_schema_filtered(self):
         agent = self._make_agent()
-        agent._skill_names = ["bash", "read"]
-        schema = agent.skill_schema()
+        agent._tool_names = ["bash", "read"]
+        schema = agent.tool_schema()
         assert len(schema) == 2
+
+    def test_the_fleet_is_reachable_but_not_loaded(self):
+        """Every mod is a potential tool: in the registry, out of the prompt
+        until it is asked for by name."""
+        agent = self._make_agent()
+        fleet = agent.tools.mods.ls()
+        if not fleet:
+            pytest.skip("no mod protocol on this host")
+        assert all(n.startswith("mod.") for n in fleet)
+        assert fleet[0] not in agent.tools.ls()           # not in the default set
+        assert fleet[0] in agent.all_tools(mods=True)     # but it is a tool
+        assert fleet[0] not in agent.tool_schema()        # not in the prompt
+        assert fleet[0] in agent.tool_schema([fleet[0]])  # unless you ask
 
     # ── agents wiring ──
 
@@ -860,7 +879,7 @@ class TestAgent:
 
     # ── run_plan ──
 
-    def test_run_plan_executes_skills(self):
+    def test_run_plan_executes_tools(self):
         agent = self._make_agent()
         plan = [
             {"tool": "bash", "params": {"command": "echo plan_test"}},
@@ -879,9 +898,9 @@ class TestAgent:
         result = agent.run_plan(plan, safety=False)
         assert "result" not in result[1]
 
-    def test_run_plan_unknown_skill(self):
+    def test_run_plan_unknown_tool(self):
         agent = self._make_agent()
-        plan = [{"tool": "nonexistent_skill_xyz", "params": {}}]
+        plan = [{"tool": "nonexistent_tool_xyz", "params": {}}]
         result = agent.run_plan(plan, safety=False)
         assert "result" in result[0] or "error" in result[0]
 
@@ -938,7 +957,7 @@ class TestAgent:
 
     def test_init_memory(self):
         agent = self._make_agent()
-        tools = agent.skill_schema()
+        tools = agent.tool_schema()
         agent.init_memory(query="test query", path="/tmp", tools=tools)
         mem = agent.memory.get()
         assert mem["query"] == "test query"
@@ -1007,27 +1026,27 @@ class TestAgent:
 #  INTEGRATION: write -> edit -> read -> grep pipeline
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestSkillPipeline:
-    def test_full_pipeline(self, skills, tmpdir):
+class TestToolPipeline:
+    def test_full_pipeline(self, builtin, tmpdir):
         p = os.path.join(tmpdir, "pipeline.py")
-        skills.run("write", file_path=p, content="def hello():\n    return 'world'\n")
-        r = skills.run("glob", pattern="*.py", path=tmpdir)
+        builtin.run("write", file_path=p, content="def hello():\n    return 'world'\n")
+        r = builtin.run("glob", pattern="*.py", path=tmpdir)
         assert r["total"] == 1
-        r = skills.run("grep", pattern="def hello", path=tmpdir)
+        r = builtin.run("grep", pattern="def hello", path=tmpdir)
         assert r["total"] == 1
-        r = skills.run("read", file_path=p)
+        r = builtin.run("read", file_path=p)
         assert "hello" in r["content"]
-        r = skills.run("edit", file_path=p, old_string="'world'", new_string="'earth'")
+        r = builtin.run("edit", file_path=p, old_string="'world'", new_string="'earth'")
         assert r["success"]
-        r = skills.run("read", file_path=p)
+        r = builtin.run("read", file_path=p)
         assert "'earth'" in r["content"]
 
-    def test_multi_file_grep(self, skills, tmpdir):
+    def test_multi_file_grep(self, builtin, tmpdir):
         for i in range(5):
             p = os.path.join(tmpdir, f"file{i}.py")
             content = f"TARGET_{i} = True\n" if i % 2 == 0 else f"other = False\n"
-            skills.run("write", file_path=p, content=content)
-        r = skills.run("grep", pattern="TARGET", path=tmpdir, file_pattern="*.py")
+            builtin.run("write", file_path=p, content=content)
+        r = builtin.run("grep", pattern="TARGET", path=tmpdir, file_pattern="*.py")
         assert r["success"]
         assert r["total"] == 3
 
@@ -1039,7 +1058,7 @@ class TestSkillPipeline:
 class TestCustomTools:
     def _tools(self, tmpdir):
         from src.tools.mod import Tools
-        return Tools(skills=Skills(), path=os.path.join(tmpdir, "tools.json"))
+        return Tools(path=os.path.join(tmpdir, "tools.json")).custom
 
     def test_add_infers_params_from_template(self, tmpdir):
         t = self._tools(tmpdir)
@@ -1048,7 +1067,7 @@ class TestCustomTools:
         assert tool["kind"] == "custom"
         assert t.ls() == ["loc"]
 
-    def test_schema_matches_skill_shape(self, tmpdir):
+    def test_schema_matches_builtin_shape(self, tmpdir):
         t = self._tools(tmpdir)
         t.add("loc", "wc -l {path}", description="Count lines")
         s = t.schema()["loc"]
@@ -1127,17 +1146,15 @@ class TestMod:
     def _make_mod(self):
         from src.mod import Mod, Agent
         mod = Mod.__new__(Mod)
-        mod.skills = Skills()
         mod.agents = Agents()
         from src.toolbox.mod import Toolboxes
-        from src.tools.mod import Tools
-        mod.tools = Tools(skills=mod.skills, path=TOOLS_PATH)
-        mod.toolboxes = Toolboxes(skills=mod.skills, tools=mod.tools)
+        mod.tools = Tools(path=TOOLS_PATH)
+        mod.toolboxes = Toolboxes(tools=mod.tools)
         mod._snapped = []
         mod.memory = Memory()
         mod.memory.clear()
         mod.model = None
-        mod._skill_names = None
+        mod._tool_names = None
         mod.api_port = 50117
         mod.app_port = 3117
         mod.src_dir = Path(os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -1146,9 +1163,9 @@ class TestMod:
         mod._portal_root = "/tmp/agent_test_portal"
         mod._acl_path = Path("/tmp/agent_test_acl.json")
         mod._acl = {}
-        mod._public_actions = {'status', 'health', 'skills', 'schema',
+        mod._public_actions = {'status', 'health', 'tools', 'schema',
                                'agents', 'agent', 'chains'}
-        mod._admin_actions = {'run', 'plan', 'skill', 'serve', 'kill',
+        mod._admin_actions = {'run', 'plan', 'tool_run', 'serve', 'kill',
                               'test', 'grant', 'revoke', 'acl'}
         mod.key = None
         mod.auth = None
@@ -1163,8 +1180,8 @@ class TestMod:
         assert s["module"] == "agent"
         assert s["ports"]["api"] == 50117
         assert s["ports"]["app"] == 3117
-        assert "skills" in s
-        assert len(s["skills"]) == SKILL_COUNT
+        assert "tools" in s
+        assert len(s["tools"]) == BUILTIN_COUNT
         assert "agents" in s
         assert len(s["agents"]) >= AGENT_COUNT
 
@@ -1174,8 +1191,8 @@ class TestMod:
         assert hasattr(mod, "plan")
         assert hasattr(mod, "parse_steps")
         assert hasattr(mod, "run_plan")
-        assert hasattr(mod, "run_skill")
-        assert hasattr(mod, "skill_schema")
+        assert hasattr(mod, "run_tool")
+        assert hasattr(mod, "tool_schema")
 
     def test_mod_forward_no_action(self):
         mod = self._make_mod()
@@ -1202,7 +1219,7 @@ class TestMod:
 
 
 class TestCustomToolsOnAgent:
-    """To the agent loop a custom tool is just another skill."""
+    """To the agent loop a custom tool is just another built-in."""
 
     def _mod(self):
         mod = TestMod()._make_mod()
@@ -1213,7 +1230,7 @@ class TestCustomToolsOnAgent:
         mod = self._mod()
         mod.tools.add("t_loc", "wc -l {path}", description="lines")
         try:
-            schema = mod.skill_schema()
+            schema = mod.tool_schema()
             assert "t_loc" in schema and "bash" in schema
             assert schema["t_loc"]["custom"] is True
         finally:
@@ -1225,7 +1242,7 @@ class TestCustomToolsOnAgent:
         try:
             mod.toolboxes.add("t_box", ["read", "t_loc"], "custom + shipped")
             mod.snap("t_box")
-            assert set(mod.skill_schema()) == {"read", "t_loc"}
+            assert set(mod.tool_schema()) == {"read", "t_loc"}
         finally:
             mod.unsnap()
             mod.toolboxes.rm("t_box")
@@ -1257,17 +1274,15 @@ class TestGate:
     def _make_mod_with_owner(self, owner="0xowner"):
         from src.mod import Mod, Agent
         mod = Mod.__new__(Mod)
-        mod.skills = Skills()
         mod.agents = Agents()
         from src.toolbox.mod import Toolboxes
-        from src.tools.mod import Tools
-        mod.tools = Tools(skills=mod.skills, path=TOOLS_PATH)
-        mod.toolboxes = Toolboxes(skills=mod.skills, tools=mod.tools)
+        mod.tools = Tools(path=TOOLS_PATH)
+        mod.toolboxes = Toolboxes(tools=mod.tools)
         mod._snapped = []
         mod.memory = Memory()
         mod.memory.clear()
         mod.model = None
-        mod._skill_names = None
+        mod._tool_names = None
         mod.api_port = 50117
         mod.app_port = 3117
         mod.src_dir = Path(os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -1276,9 +1291,9 @@ class TestGate:
         mod._portal_root = "/tmp/agent_test_portal"
         mod._acl_path = Path(tempfile.mktemp(suffix=".json"))
         mod._acl = {}
-        mod._public_actions = {'status', 'health', 'skills', 'schema',
+        mod._public_actions = {'status', 'health', 'tools', 'schema',
                                'agents', 'agent', 'chains'}
-        mod._admin_actions = {'run', 'plan', 'skill', 'serve', 'kill',
+        mod._admin_actions = {'run', 'plan', 'tool_run', 'serve', 'kill',
                               'test', 'grant', 'revoke', 'acl'}
         mod.key = None
         mod.auth = None
@@ -1297,14 +1312,14 @@ class TestGate:
         mod = self._make_mod_with_owner("0xowner")
         assert mod.is_allowed("0xrandom", "status")
         assert mod.is_allowed("0xrandom", "health")
-        assert mod.is_allowed("0xrandom", "skills")
+        assert mod.is_allowed("0xrandom", "tools")
         assert mod.is_allowed("0xrandom", "schema")
         assert mod.is_allowed("0xrandom", "agents")
 
     def test_admin_actions_blocked_for_non_owner(self):
         mod = self._make_mod_with_owner("0xowner")
         assert not mod.is_allowed("0xrandom", "run")
-        assert not mod.is_allowed("0xrandom", "skill")
+        assert not mod.is_allowed("0xrandom", "tool_run")
         assert not mod.is_allowed("0xrandom", "grant")
 
     def test_forward_blocks_unauthorized_run(self):
@@ -1321,12 +1336,12 @@ class TestGate:
     def test_grant_access(self):
         mod = self._make_mod_with_owner("0xowner")
         # owner grants access
-        r = mod.forward("grant", key="0xowner", address="0xuser1", actions=["run", "skill"])
+        r = mod.forward("grant", key="0xowner", address="0xuser1", actions=["run", "tool_run"])
         assert r["granted"] == "0xuser1"
-        assert r["actions"] == ["run", "skill"]
+        assert r["actions"] == ["run", "tool_run"]
         # user1 can now run
         assert mod.is_allowed("0xuser1", "run")
-        assert mod.is_allowed("0xuser1", "skill")
+        assert mod.is_allowed("0xuser1", "tool_run")
         # but not grant
         assert not mod.is_allowed("0xuser1", "grant")
 
@@ -1369,7 +1384,7 @@ class TestGate:
 
     def test_acl_persists_to_disk(self):
         mod = self._make_mod_with_owner("0xowner")
-        mod.forward("grant", key="0xowner", address="0xuser1", actions=["run", "skill"])
+        mod.forward("grant", key="0xowner", address="0xuser1", actions=["run", "tool_run"])
         # reload from disk
         mod._acl = mod._load_acl()
         assert "0xuser1" in mod._acl
@@ -1380,8 +1395,8 @@ class TestGate:
     def test_default_grant_actions(self):
         mod = self._make_mod_with_owner("0xowner")
         r = mod.forward("grant", key="0xowner", address="0xuser2")
-        # default is ['run', 'skill']
-        assert r["actions"] == ["run", "skill"]
+        # default is ['run', 'tool_run']
+        assert r["actions"] == ["run", "tool_run"]
 
     def test_revoke_nonexistent_is_safe(self):
         mod = self._make_mod_with_owner("0xowner")
@@ -1466,7 +1481,7 @@ class TestImageAttachments:
         a.model = object()
         a._provider = 'venice'
         a._images = ['stale']
-        a.skill_schema = lambda *_a, **_k: {}
+        a.tool_schema = lambda *_a, **_k: {}
         a.memory = type('M', (), {'compile': lambda self, q: None})()
         # the loop never starts: init_memory bails, so this exercises exactly
         # the normalization + the note the model is told about
@@ -1502,17 +1517,35 @@ class TestApi:
         assert data["status"] == "ok"
         assert data["module"] == "agent"
 
-    def test_skills(self):
+    def test_tools(self):
         client = self._get_app()
-        r = client.get("/skills")
+        r = client.get("/tools")
         assert r.status_code == 200
         data = r.json()
-        assert "skills" in data
-        assert "schemas" in data
-        assert len(data["skills"]) == SKILL_COUNT
-        assert "bash" in data["skills"]
-        assert "claudecode" in data["skills"]
-        assert "websurf" in data["skills"]
+        names = [t["name"] for t in data["tools"]]
+        assert len(names) >= BUILTIN_COUNT
+        assert {"bash", "claudecode", "websurf"} <= set(names)
+        # the fleet is not in the default listing, but its size is reported
+        assert not any(n.startswith("mod.") for n in names)
+        assert isinstance(data["fleet"], int)
+
+    def test_tools_with_the_fleet(self):
+        client = self._get_app()
+        r = client.get("/tools", params={"mods": "true", "q": "git", "limit": 10})
+        assert r.status_code == 200
+        mods = [t for t in r.json()["tools"] if t["kind"] == "mod"]
+        if not mods:
+            pytest.skip("no mod protocol on this host")
+        assert all(t["name"].startswith("mod.") for t in mods)
+        assert set(mods[0]["params"]) == {"fn", "params"}
+
+    def test_mod_tools_route(self):
+        client = self._get_app()
+        r = client.get("/tools/mods", params={"q": "chain", "limit": 5})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] <= 5
+        assert all(e["kind"] == "mod" for e in data["mods"])
 
     def test_schema(self):
         client = self._get_app()
@@ -1523,18 +1556,20 @@ class TestApi:
         assert "claudecode" in data
         assert "params" in data["bash"]
 
-    def test_skill_run(self):
+    def test_tool_run(self):
         client = self._get_app()
-        r = client.post("/skills/run", json={"name": "bash", "params": {"command": "echo api_test"}})
+        r = client.post("/tools/bash/run", json={"name": "bash",
+                                                 "params": {"command": "echo api_test"}})
         assert r.status_code == 200
         data = r.json()
-        assert data["skill"] == "bash"
+        assert data["tool"] == "bash"
         assert data["result"]["success"]
         assert "api_test" in data["result"]["stdout"]
 
-    def test_skill_run_unknown(self):
+    def test_tool_run_unknown(self):
         client = self._get_app()
-        r = client.post("/skills/run", json={"name": "nonexistent_xyz", "params": {}})
+        r = client.post("/tools/nonexistent_xyz/run", json={"name": "nonexistent_xyz",
+                                                            "params": {}})
         assert r.status_code == 200
         assert "error" in r.json()
 
@@ -1543,8 +1578,8 @@ class TestApi:
         r = client.get("/status")
         assert r.status_code == 200
         data = r.json()
-        assert "skills" in data
-        assert len(data["skills"]) == SKILL_COUNT
+        assert "tools" in data
+        assert len(data["tools"]) == BUILTIN_COUNT
 
     def test_agents_list(self):
         client = self._get_app()
@@ -1580,19 +1615,19 @@ class TestApi:
         data = r.json()
         assert "items" in data and "facets" in data
         kinds = data["facets"]["kinds"]
-        # lower bound: skills installed from the aggregator index here too
-        assert kinds.get("skill", 0) >= SKILL_COUNT
+        # lower bound: tool docs installed from the aggregator index here too
+        assert kinds.get("tool", 0) >= BUILTIN_COUNT
         assert kinds.get("agent", 0) >= AGENT_COUNT
         assert kinds.get("prompt", 0) >= 1  # seeded defaults
 
     def test_library_kind_filter(self):
         client = self._get_app()
-        r = client.get("/library", params={"kind": "skill"})
+        r = client.get("/library", params={"kind": "tool"})
         data = r.json()
-        assert data["total"] >= SKILL_COUNT
-        assert all(i["kind"] == "skill" for i in data["items"])
+        assert data["total"] >= BUILTIN_COUNT
+        assert all(i["kind"] == "tool" for i in data["items"])
         builtin = [i for i in data["items"] if i.get("builtin")]
-        assert len(builtin) == SKILL_COUNT
+        assert len(builtin) == BUILTIN_COUNT
 
     def _as_host(self):
         """The live library, rebound so this test acts as the host."""
@@ -1666,7 +1701,7 @@ class TestApi:
         """The console's upload panel renders docs/uploads.md from here."""
         client = self._get_app()
         d = client.get("/library/formats").json()
-        assert set(d["kinds"]) == {"prompt", "skill", "memory", "agent"}
+        assert set(d["kinds"]) == {"prompt", "tool", "memory", "agent"}
         assert d["doc"].startswith("# Upload your own")
 
     def test_upload_rejects_unusable_files(self):
@@ -1686,14 +1721,14 @@ class TestApi:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  LIBRARY (unified prompts / skills / memory / agents index)
+#  LIBRARY (unified prompts / tool docs / memory / agents index)
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestLibrary:
     def _lib(self, tmpdir, registries=False):
         from src.library.mod import Library
         if registries:
-            return Library(skills=Skills(), agents=Agents(), dir=tmpdir)
+            return Library(tools=Tools(path=TOOLS_PATH), agents=Agents(), dir=tmpdir)
         return Library(dir=tmpdir)
 
     def test_prompts_seeded_once(self, tmpdir):
@@ -1739,7 +1774,7 @@ class TestLibrary:
         lib.note_add("k", "v")
         out = lib.items()
         kinds = out["facets"]["kinds"]
-        assert kinds["skill"] == SKILL_COUNT
+        assert kinds["tool"] == BUILTIN_COUNT
         assert kinds["agent"] >= AGENT_COUNT
         assert kinds["prompt"] >= 1
         assert kinds["memory"] == 1
@@ -1760,7 +1795,7 @@ class TestLibrary:
         assert out["total"] == 0
         # kind facet counts survive the kind filter (for pill counts)
         out = lib.items(kind="memory")
-        assert out["facets"]["kinds"]["skill"] == SKILL_COUNT
+        assert out["facets"]["kinds"]["tool"] == BUILTIN_COUNT
 
     def test_forward_protocol(self, tmpdir):
         lib = self._lib(tmpdir)
@@ -1778,7 +1813,7 @@ class TestLibrary:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  UPLOADS  (bring your own prompt / skill / memory note / agent)
+#  UPLOADS  (bring your own prompt / tool doc / memory note / agent)
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestUploadFormats:
@@ -1796,21 +1831,21 @@ class TestUploadFormats:
 
     def test_mini_yaml_without_pyyaml(self):
         from src.library.formats import _mini_yaml
-        meta = _mini_yaml('name: x\ndescription: "quoted, comma"\nskills:\n  - bash\n  - git')
+        meta = _mini_yaml('name: x\ndescription: "quoted, comma"\ntools:\n  - bash\n  - git')
         assert meta["name"] == "x"
         assert meta["description"] == "quoted, comma"
-        assert meta["skills"] == ["bash", "git"]
+        assert meta["tools"] == ["bash", "git"]
 
     def test_agent_from_markdown(self):
         item = self._parse(
             "---\ntype: agent\nname: Release Captain\ndescription: cuts releases\n"
-            "icon: X\nskills: [bash, git]\nmodel: anthropic/claude-sonnet-4.5\n---\n"
+            "icon: X\ntools: [bash, git]\nmodel: anthropic/claude-sonnet-4.5\n---\n"
             "You cut releases.", "whatever.md")
         assert item["kind"] == "agent"
         assert item["name"] == "release-captain"      # slugged for the registry
         assert item["label"] == "Release Captain"
         assert item["body"] == "You cut releases."
-        assert item["skills"] == ["bash", "git"]
+        assert item["tools"] == ["bash", "git"]
         assert item["icon"] == "X" and item["model"] == "anthropic/claude-sonnet-4.5"
 
     def test_agent_from_json(self):
@@ -1818,13 +1853,13 @@ class TestUploadFormats:
         assert item["kind"] == "agent" and item["body"] == "be brief"
 
     def test_kind_from_filename(self):
-        assert self._parse("# pdf\ninstructions", "skills/pdf/SKILL.md")["kind"] == "skill"
+        assert self._parse("# pdf\ninstructions", "skills/pdf/SKILL.md")["kind"] == "tool"
         assert self._parse("body", "notes/x.memory.md")["kind"] == "memory"
         assert self._parse("body", "x.agent.md")["kind"] == "agent"
 
     def test_kind_from_shape(self):
         assert self._parse("---\nname: a\ngoal: g\n---\n")["kind"] == "agent"
-        assert self._parse("---\nname: a\nlicense: MIT\n---\nbody")["kind"] == "skill"
+        assert self._parse("---\nname: a\nlicense: MIT\n---\nbody")["kind"] == "tool"
 
     def test_explicit_kind_wins(self):
         item = self._parse("---\ntype: agent\nname: a\n---\nbody", "a.agent.md",
@@ -1869,23 +1904,23 @@ class TestUpload:
         assert out["kind"] == "memory"
         assert lib.notes()[0]["content"] == "run tests"
 
-    def test_upload_skill(self, tmpdir):
+    def test_upload_tool_doc(self, tmpdir):
         lib = self._lib(tmpdir)
         out = lib.upload("---\nname: pdf\ndescription: PDFs\n---\n# PDF\nuse pdftk",
                          "skills/pdf/SKILL.md")
-        assert out["kind"] == "skill"
-        skill = lib.installed_skills()[0]
-        assert skill["source"] == "upload" and skill["body"].startswith("# PDF")
+        assert out["kind"] == "tool"
+        doc = lib.installed_tools()[0]
+        assert doc["source"] == "upload" and doc["body"].startswith("# PDF")
 
     def test_upload_agent_installs_and_updates(self, tmpdir):
         lib = self._lib(tmpdir, agents=True)
         name = "upload-test-agent"
         md = (f"---\ntype: agent\nname: {name}\ndescription: a test\n"
-              "skills: [bash]\n---\nBe brief.")
+              "tools: [bash]\n---\nBe brief.")
         try:
             out = lib.upload(md, "x.md")
             assert out["kind"] == "agent" and out["name"] == name
-            assert out["item"]["skills"] == ["bash"]
+            assert out["item"]["tools"] == ["bash"]
             # re-uploading your own agent updates it in place
             again = lib.upload(md.replace("Be brief.", "Be terse."), "x.md")
             assert again["item"]["goal"] == "Be terse."
@@ -2139,25 +2174,25 @@ class TestVaultRemember:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  TOOLBOXES (snap-on skill bundles)
+#  TOOLBOXES (snap-on tool bundles)
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestToolboxes:
     @pytest.fixture
-    def boxes(self, skills, tmpdir):
+    def boxes(self, builtin, tmpdir):
         from src.toolbox.mod import Toolboxes
-        return Toolboxes(skills=skills, path=os.path.join(tmpdir, "toolboxes.json"))
+        return Toolboxes(tools=tools, path=os.path.join(tmpdir, "toolboxes.json"))
 
     def test_builtins_present(self, boxes):
         for name in ("core", "explore", "code", "verify", "vcs", "web", "meta"):
             assert name in boxes.ls()
             assert boxes.get(name).builtin
 
-    def test_builtin_tools_all_exist(self, boxes, skills):
-        available = set(skills.ls())
+    def test_builtin_tools_all_exist(self, boxes, builtin):
+        available = set(builtin.ls())
         for name in boxes.ls():
             box = boxes.get(name)
-            assert set(box.tools) <= available, f"{name} references missing skills"
+            assert set(box.tools) <= available, f"{name} references missing tools"
 
     def test_resolve_union_dedupes(self, boxes):
         union = boxes.resolve(["core", "code"])
@@ -2166,17 +2201,17 @@ class TestToolboxes:
         # order preserved: core's tools come first
         assert union.index("bash") < union.index("patch")
 
-    def test_custom_box_persists(self, boxes, skills, tmpdir):
+    def test_custom_box_persists(self, boxes, builtin, tmpdir):
         boxes.add("mybox", ["bash", "git"], "my custom loadout")
         assert "mybox" in boxes.ls()
         from src.toolbox.mod import Toolboxes
-        reloaded = Toolboxes(skills=skills, path=os.path.join(tmpdir, "toolboxes.json"))
+        reloaded = Toolboxes(tools=tools, path=os.path.join(tmpdir, "toolboxes.json"))
         assert reloaded.get("mybox").tools == ["bash", "git"]
         assert reloaded.rm("mybox")["existed"]
 
     def test_custom_box_validates_tools(self, boxes):
         with pytest.raises(ValueError):
-            boxes.add("bad", ["not-a-skill"])
+            boxes.add("bad", ["not-a-tool"])
 
     def test_builtins_protected(self, boxes):
         with pytest.raises(PermissionError):
@@ -2198,7 +2233,7 @@ class TestToolboxes:
 
 
 class TestAgentSnap:
-    """Toolboxes snap onto the agent and scope its live skill set."""
+    """Toolboxes snap onto the agent and scope its live tool set."""
 
     @pytest.fixture
     def agent(self):
@@ -2206,20 +2241,20 @@ class TestAgentSnap:
         return Agent()
 
     def test_default_unfiltered(self, agent):
-        assert agent.active_skills() is None
-        assert len(agent.skill_schema()) == SKILL_COUNT
+        assert agent.active_tools() is None
+        assert len(agent.tool_schema()) == BUILTIN_COUNT
 
     def test_snap_scopes_schema(self, agent):
         agent.snap("vcs")
         state = agent.snapped()
         assert state["snapped"] == ["vcs"]
         assert state["filtered"]
-        assert set(agent.skill_schema().keys()) == {"git", "diff"}
+        assert set(agent.tool_schema().keys()) == {"git", "diff"}
 
     def test_snap_union(self, agent):
         agent.snap("vcs")
         agent.snap("web")
-        assert set(agent.active_skills()) == {"git", "diff", "fetch", "websurf"}
+        assert set(agent.active_tools()) == {"git", "diff", "fetch", "websurf"}
 
     def test_unsnap(self, agent):
         agent.snap("vcs")
@@ -2227,17 +2262,17 @@ class TestAgentSnap:
         agent.unsnap("vcs")
         assert agent.snapped()["snapped"] == ["web"]
         agent.unsnap()
-        assert agent.active_skills() is None
-        assert len(agent.skill_schema()) == SKILL_COUNT
+        assert agent.active_tools() is None
+        assert len(agent.tool_schema()) == BUILTIN_COUNT
 
     def test_snap_unknown_raises(self, agent):
         with pytest.raises(KeyError):
             agent.snap("no-such-box")
 
-    def test_explicit_skills_beat_snap(self, agent):
+    def test_explicit_tools_beat_snap(self, agent):
         agent.snap("vcs")
-        agent._skill_names = ["bash"]
-        assert agent.active_skills() == ["bash"]
+        agent._tool_names = ["bash"]
+        assert agent.active_tools() == ["bash"]
 
 
 class TestAgentSelect:
@@ -2251,14 +2286,14 @@ class TestAgentSelect:
     def test_select_pins_exact_list(self, agent):
         state = agent.select(["bash", "read"])
         assert state["source"] == "selection" and state["filtered"]
-        assert agent.active_skills() == ["bash", "read"]
-        assert set(agent.skill_schema().keys()) == {"bash", "read"}
+        assert agent.active_tools() == ["bash", "read"]
+        assert set(agent.tool_schema().keys()) == {"bash", "read"}
 
     def test_select_refines_a_snapped_box(self, agent):
         agent.snap("vcs")
         agent.select(["git"])
         state = agent.snapped()
-        assert agent.active_skills() == ["git"]     # the pick wins…
+        assert agent.active_tools() == ["git"]     # the pick wins…
         assert state["snapped"] == ["vcs"]          # …but the box stays visible
 
     def test_select_none_hands_back_to_the_box(self, agent):
@@ -2266,36 +2301,36 @@ class TestAgentSelect:
         agent.select(["git"])
         state = agent.select(None)
         assert state["source"] == "toolboxes"
-        assert set(agent.active_skills()) == {"git", "diff"}
+        assert set(agent.active_tools()) == {"git", "diff"}
 
     def test_empty_selection_is_a_reset(self, agent):
         agent.select(["bash"])
         assert agent.select([])["source"] == "all"
-        assert agent.active_skills() is None
+        assert agent.active_tools() is None
 
     def test_select_rejects_unknown_tools(self, agent):
         with pytest.raises(ValueError):
             agent.select(["bash", "not-a-tool"])
 
     def test_select_dedupes(self, agent):
-        assert agent.select(["bash", "bash", "read"])["skills"] == ["bash", "read"]
+        assert agent.select(["bash", "bash", "read"])["tools"] == ["bash", "read"]
 
     def test_snapping_a_box_clears_the_selection(self, agent):
         agent.select(["bash"])
         agent.snap("vcs")
-        assert set(agent.active_skills()) == {"git", "diff"}
+        assert set(agent.active_tools()) == {"git", "diff"}
 
     def test_unsnap_all_clears_everything(self, agent):
         agent.snap("vcs")
         agent.select(["git"])
         state = agent.unsnap()
         assert state["source"] == "all" and not state["filtered"]
-        assert agent.active_skills() is None
+        assert agent.active_tools() is None
 
     def test_unfiltered_set_counts_custom_tools_too(self, agent):
         agent.tools.add("t_sel", "echo {x}")
         try:
-            assert "t_sel" in agent.snapped()["skills"]
+            assert "t_sel" in agent.snapped()["tools"]
         finally:
             agent.tools.rm("t_sel")
 
@@ -2303,7 +2338,7 @@ class TestAgentSelect:
         agent.tools.add("t_sel", "echo {x}")
         try:
             agent.select(["bash", "t_sel"])
-            assert set(agent.skill_schema().keys()) == {"bash", "t_sel"}
+            assert set(agent.tool_schema().keys()) == {"bash", "t_sel"}
         finally:
             agent.tools.rm("t_sel")
 
@@ -2452,7 +2487,7 @@ class TestToolboxMemoryApi:
 
     # ── /tools: one registry the console can render ──
 
-    def test_list_tools_includes_shipped_skills(self):
+    def test_list_tools_includes_the_built_ins(self):
         client = self._client()
         r = client.get("/tools")
         assert r.status_code == 200
@@ -2460,7 +2495,7 @@ class TestToolboxMemoryApi:
         names = [t["name"] for t in data["tools"]]
         assert "bash" in names
         bash = next(t for t in data["tools"] if t["name"] == "bash")
-        assert bash["kind"] == "skill" and bash["builtin"] and bash["active"]
+        assert bash["kind"] == "builtin" and bash["builtin"] and bash["active"]
         assert bash["description"] and "command" in bash["params"]
         assert "snapped" in data and "toolboxes" in data
 
@@ -2478,7 +2513,7 @@ class TestToolboxMemoryApi:
         assert "hey" in run["result"]["stdout"]
         assert client.delete("/tools/t_api").json()["existed"]
 
-    def test_tool_cannot_shadow_a_shipped_skill(self):
+    def test_tool_cannot_shadow_a_built_in(self):
         client = self._client()
         r = client.post("/tools", json={"name": "bash", "command": "echo no"}).json()
         assert "error" in r
@@ -2489,7 +2524,7 @@ class TestToolboxMemoryApi:
         client = self._client()
         try:
             state = client.post("/tools/select", json={"tools": ["bash", "read"]}).json()
-            assert state["skills"] == ["bash", "read"] and state["source"] == "selection"
+            assert state["tools"] == ["bash", "read"] and state["source"] == "selection"
             listed = client.get("/tools").json()["tools"]
             assert next(t for t in listed if t["name"] == "bash")["active"]
             assert not next(t for t in listed if t["name"] == "git")["active"]
@@ -2505,20 +2540,25 @@ class TestToolboxMemoryApi:
         client = self._client()
         try:
             state = client.post("/toolboxes/vcs/snap").json()
-            assert state["snapped"] == ["vcs"] and set(state["skills"]) == {"git", "diff"}
+            assert state["snapped"] == ["vcs"] and set(state["tools"]) == {"git", "diff"}
         finally:
             state = client.post("/toolboxes/unsnap").json()
         assert state["snapped"] == [] and state["source"] == "all"
 
-    def test_custom_tool_refused_on_the_open_skill_route(self):
+    def test_a_fleet_tool_can_join_the_loadout(self):
         client = self._client()
-        client.post("/tools", json={"name": "t_api", "command": "echo {msg}"})
+        fleet = client.get("/tools/mods", params={"limit": 1}).json()["mods"]
+        if not fleet:
+            pytest.skip("no mod protocol on this host")
+        name = fleet[0]["name"]
         try:
-            r = client.post("/skills/run", json={"name": "t_api",
-                                                 "params": {"msg": "x"}}).json()
-            assert r.get("code") == 403 and "/tools/t_api/run" in r["error"]
+            state = client.post("/tools/select", json={"tools": ["bash", name]}).json()
+            assert state["tools"] == ["bash", name]
+            # and it stays in the registry listing even with nothing matching it
+            listed = client.get("/tools").json()["tools"]
+            assert next(t for t in listed if t["name"] == name)["active"]
         finally:
-            client.delete("/tools/t_api")
+            client.post("/tools/select", json={"tools": None})
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2616,7 +2656,238 @@ class TestCredits:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  DISCOVER — the internet-wide skill aggregator
+#  BILLING — metered provider cost, margin, and the treasury books
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestMeter:
+    """The meter prices a call from the provider's own catalog — both
+    catalog shapes, and both call shapes (a string and a stream)."""
+
+    class FakeModel:
+        """Stands in for a provider module: just the catalog we price from."""
+        def __init__(self, catalog):
+            self._catalog = catalog
+
+        def model2info(self):
+            return self._catalog
+
+    OPENROUTER = {"anthropic/claude-opus-5": {
+        "pricing": {"prompt": "0.000005", "completion": "0.000025"}}}
+    VENICE = {"deepseek-v3.2": {
+        "model_spec": {"pricing": {"input": {"usd": 2.0}, "output": {"usd": 10.0}}}}}
+
+    def _meter(self):
+        from src.billing import Meter
+        return Meter()
+
+    def test_openrouter_rates_are_per_token(self):
+        meter = self._meter()
+        model = self.FakeModel(self.OPENROUTER)
+        # 4000 chars -> 1000 tokens in, 400 chars -> 100 tokens out
+        cost = meter.price(model, "openrouter", "anthropic/claude-opus-5", 1000, 100)
+        assert cost == round(1000 * 5e-6 + 100 * 25e-6, 8)
+
+    def test_venice_rates_are_per_million_tokens(self):
+        meter = self._meter()
+        model = self.FakeModel(self.VENICE)
+        cost = meter.price(model, "venice", "deepseek-v3.2", 1_000_000, 1_000_000)
+        assert cost == 12.0
+
+    def test_unknown_model_is_unpriced(self):
+        meter = self._meter()
+        assert meter.price(self.FakeModel({}), "openrouter", "who/knows", 10, 10) is None
+
+    def test_stream_is_counted_as_it_passes(self):
+        meter = self._meter()
+        model = self.FakeModel(self.OPENROUTER)
+        meter.open(provider="openrouter", model="anthropic/claude-opus-5")
+        chunks = ["a" * 100, "b" * 300]     # 400 chars out = 100 tokens
+        out = meter.watch(iter(chunks), model_obj=model, provider="openrouter",
+                          model="anthropic/claude-opus-5", prompt="x" * 4000)
+        assert list(out) == chunks          # the stream itself is untouched
+        usage = meter.take()
+        assert usage["calls"] == 1 and usage["priced"] is True
+        assert usage["prompt_tokens"] == 1000 and usage["completion_tokens"] == 100
+        assert usage["cost"] == round(1000 * 5e-6 + 100 * 25e-6, 8)
+
+    def test_multiplier_scales_the_estimate(self):
+        from src.billing import Meter
+        meter = Meter(multiplier=2.0)
+        model = self.FakeModel(self.OPENROUTER)
+        assert meter.price(model, "openrouter", "anthropic/claude-opus-5", 1000, 0) \
+            == round(2 * 1000 * 5e-6, 8)
+
+    def test_tally_accumulates_across_calls_then_clears(self):
+        meter = self._meter()
+        model = self.FakeModel(self.OPENROUTER)
+        meter.open(provider="openrouter", model="anthropic/claude-opus-5")
+        for _ in range(3):
+            # open() again mid-run (a chain stage) must not reset the total
+            meter.open(provider="openrouter", model="anthropic/claude-opus-5")
+            meter.watch("z" * 400, model_obj=model, provider="openrouter",
+                        model="anthropic/claude-opus-5", prompt="")
+        usage = meter.take()
+        assert usage["calls"] == 3 and usage["completion_tokens"] == 300
+        assert meter.take()["calls"] == 0          # taking clears the thread
+
+    def test_tallies_are_per_thread(self):
+        import threading
+        meter = self._meter()
+        model = self.FakeModel(self.OPENROUTER)
+        seen = {}
+
+        def run(name, chars):
+            meter.open(provider="openrouter", model="anthropic/claude-opus-5")
+            meter.watch("z" * chars, model_obj=model, provider="openrouter",
+                        model="anthropic/claude-opus-5", prompt="")
+            seen[name] = meter.take()
+
+        threads = [threading.Thread(target=run, args=(n, c))
+                   for n, c in (("a", 400), ("b", 4000))]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        assert seen["a"]["completion_tokens"] == 100
+        assert seen["b"]["completion_tokens"] == 1000
+
+
+class TestTreasury:
+    """Deposits fund the provider keys; the margin is what we keep."""
+
+    ADDR = "0xAbC0000000000000000000000000000000000aBc"
+    OWNER = "0x7d7c323496eD80E16d47b036607c586fB33dd123"
+
+    @pytest.fixture
+    def credits(self, tmpdir):
+        from src.credits import Credits
+        c = Credits(str(tmpdir), deposit_address=self.OWNER)
+        c.set_config(fee_rate=0.05)
+        return c
+
+    def test_quote_adds_the_margin(self, credits):
+        q = credits.quote(1.0)
+        assert q == {"cost": 1.0, "fee": 0.05, "total": 1.05}
+
+    def test_usage_charge_splits_cost_and_fee(self, credits):
+        credits.credit(self.ADDR, 10, kind="grant")
+        out = credits.charge_usage(self.ADDR, 2.0, model="anthropic/claude-opus-5")
+        assert out["charged"] == 2.1 and out["cost"] == 2.0 and out["fee"] == 0.1
+        assert credits.balance(self.ADDR) == 7.9
+        book = credits.treasury()
+        assert book["provider_cost"] == 2.0 and book["fees"] == 0.1
+        assert book["revenue"] == 2.1
+
+    def test_fee_rate_is_tunable(self, credits):
+        credits.set_config(fee_rate=0.2)
+        credits.credit(self.ADDR, 10, kind="grant")
+        out = credits.charge_usage(self.ADDR, 1.0)
+        assert out["charged"] == 1.2 and out["fee"] == 0.2
+        assert credits.set_config(fee_rate=0)["fee_rate"] == 0
+        assert credits.charge_usage(self.ADDR, 1.0)["fee"] == 0.0
+
+    def test_fee_rate_is_bounded(self, credits):
+        with pytest.raises(ValueError):
+            credits.set_config(fee_rate=-1)
+
+    def test_clamped_charge_still_splits(self, credits):
+        credits.credit(self.ADDR, 0.21, kind="grant")
+        out = credits.charge_usage(self.ADDR, 10.0)      # quoted 10.50, only 0.21 there
+        assert out["charged"] == 0.21 and out["quoted"] == 10.5
+        assert round(out["cost"] + out["fee"], 6) == 0.21
+        assert credits.balance(self.ADDR) == 0.0
+
+    def test_step_fallback_is_booked_the_same_way(self, credits):
+        credits.credit(self.ADDR, 5, kind="grant")
+        out = credits.charge_steps(self.ADDR, 10)
+        assert out["basis"] == "steps" and out["charged"] == round(10 * credits.price_per_step, 6)
+        assert round(out["cost"] * (1 + credits.fee_rate), 6) == out["charged"]
+
+    def test_deposits_and_grants_book_separately(self, credits):
+        credits.credit(self.ADDR, 3, kind="deposit")
+        credits.credit(self.ADDR, 2, kind="grant")
+        book = credits.treasury()
+        assert book["deposits"] == 3.0 and book["grants"] == 2.0
+
+    def test_topup_needed_is_credits_at_cost_minus_provider_balance(self, credits):
+        credits.credit(self.ADDR, 10.5, kind="deposit")
+        book = credits.treasury({"openrouter": {"balance": 4.0},
+                                 "venice": {"balance": 1.0}})
+        assert book["user_credits"] == 10.5
+        assert book["funding_required"] == 10.0        # 10.50 / 1.05
+        assert book["provider_balance"] == 5.0
+        assert book["topup_needed"] == 5.0
+
+    def test_topup_is_recorded_and_funds_the_float(self, credits):
+        credits.credit(self.ADDR, 10, kind="deposit")
+        credits.record_topup("openrouter", 6, ref="inv-1")
+        book = credits.treasury()
+        assert book["topups"]["openrouter"] == 6.0 and book["topups_total"] == 6.0
+        assert book["float"] == 4.0
+        assert book["ledger"][0]["type"] == "topup" and book["ledger"][0]["ref"] == "inv-1"
+
+    def test_topup_rejects_unknown_provider(self, credits):
+        with pytest.raises(ValueError, match="unknown provider"):
+            credits.record_topup("anthropic", 5)
+
+    def test_withdrawal_is_capped_at_earned_margin(self, credits):
+        credits.credit(self.ADDR, 10, kind="grant")
+        credits.charge_usage(self.ADDR, 2.0)             # earns 0.10
+        with pytest.raises(ValueError, match="margin"):
+            credits.record_withdrawal(1.0)
+        assert credits.record_withdrawal(0.1)["fees_available"] == 0.0
+
+    def test_drift_baselines_on_first_live_read(self, credits):
+        credits.credit(self.ADDR, 10, kind="grant")
+        credits.treasury({"openrouter": {"balance": 5.0, "usage": 100.0}})
+        credits.charge_usage(self.ADDR, 1.0)             # we billed 1.00 of cost
+        book = credits.treasury({"openrouter": {"balance": 4.0, "usage": 101.5}})
+        metered = book["providers"]["openrouter"]["metered"]
+        assert metered["actual"] == 1.5 and metered["billed"] == 1.0
+        assert metered["ratio"] == 1.5                   # the estimate under-billed
+
+    def test_budget_stops_a_run_that_outspends_its_credits(self):
+        """A charge is clamped to the balance, so the loop has to stop itself —
+        otherwise a dust account could burn an Opus run on the module's key."""
+        from src.mod import Agent
+        from src.billing import Meter
+        from src.memory.mod import Memory
+        from src.tools.mod import Tools
+        from src.toolbox.mod import Toolboxes
+        from src.agents.mod import Agents
+
+        agent = Agent.__new__(Agent)
+        agent.agents, agent.memory = Agents(), Memory()
+        agent.memory.clear()
+        agent.tools = Tools()
+        agent.toolboxes = Toolboxes(tools=agent.tools)
+        agent._tool_names, agent._snapped, agent._session_keys = None, [], {}
+        agent.goal, agent.output_format = Agent.goal, Agent.output_format
+        agent.anchors = Agent.anchors
+        agent._provider = Agent.PROVIDERS['openrouter']
+        agent.meter = Meter()
+        # a model that keeps calling a tool — only the budget can end this run
+        agent.model = type('M', (), {'forward': staticmethod(
+            lambda *a, **k: '<STEP>{"tool": "think", "params": {"thought": "hm"}}</STEP>')})()
+        seen = []
+        def budget(cost):
+            seen.append(cost)
+            return len(seen) < 3        # affordable for two steps, then not
+
+        steps = agent.run(query='burn credits', steps=10, model='x', budget=budget)
+        assert len(seen) == 3           # consulted after every executed step
+        assert steps[-1]['tool'] == 'error' and 'top up' in steps[-1]['error']
+
+    def test_books_persist(self, credits, tmpdir):
+        from src.credits import Credits
+        credits.credit(self.ADDR, 10, kind="deposit")
+        credits.charge_usage(self.ADDR, 1.0)
+        credits.record_topup("venice", 2)
+        book = Credits(str(tmpdir), deposit_address=self.OWNER).treasury()
+        assert book["deposits"] == 10.0 and book["fees"] == 0.05
+        assert book["topups"]["venice"] == 2.0
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  DISCOVER — the internet-wide tool aggregator
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestDiscover:
@@ -2650,10 +2921,10 @@ class TestDiscover:
     def test_scan_merges_and_ranks(self, tmpdir):
         d = self._d(tmpdir)
         d.src_github = lambda q, l: [
-            {"id": "gh:a/pdf-skill", "source": "github", "kind": "skill",
+            {"id": "gh:a/pdf-skill", "source": "github", "kind": "tool",
              "name": "pdf-skill", "description": "PDF things",
              "repo": "https://github.com/a/pdf-skill", "stars": 120, "tags": []},
-            {"id": "gh:b/unrelated", "source": "github", "kind": "skill",
+            {"id": "gh:b/unrelated", "source": "github", "kind": "tool",
              "name": "unrelated", "description": "nothing to do with it",
              "repo": "https://github.com/b/unrelated", "stars": 90000, "tags": []},
         ]
@@ -2669,14 +2940,14 @@ class TestDiscover:
         assert out["items"][0]["name"] == "pdf-skill"
         assert "npm" in (out["items"][0].get("also") or [])
         # the merged card keeps the winner's kind — the npm duplicate is gone
-        assert out["facets"]["kinds"] == {"skill": 2}
+        assert out["facets"]["kinds"] == {"tool": 2}
 
     def test_kind_filter(self, tmpdir):
         d = self._d(tmpdir)
         d.src_mcp = lambda q, l: [
             {"id": "mcp:x", "source": "mcp", "kind": "mcp", "name": "x",
              "description": "", "repo": "", "tags": []}]
-        assert d.search("", sources=["mcp"], kind="skill")["total"] == 0
+        assert d.search("", sources=["mcp"], kind="tool")["total"] == 0
         assert d.search("", sources=["mcp"], kind="mcp")["total"] == 1
 
     def test_dead_source_degrades_to_partial_results(self, tmpdir):
@@ -2720,7 +2991,7 @@ class TestDiscover:
         assert d.recall("mcp:io.example/thing")["name"] == "thing"
         # install resolves from the index without hitting the registry again
         d.search = lambda *a, **k: (_ for _ in ()).throw(AssertionError("re-searched"))
-        doc = d.skill_doc("mcp:io.example/thing")
+        doc = d.tool_doc("mcp:io.example/thing")
         assert doc["name"] == "thing"
         assert "https://example.com/mcp" in doc["body"]
 
@@ -2742,7 +3013,7 @@ class TestDiscover:
             if env is not None:
                 os.environ["GITHUB_TOKEN"] = env
 
-    def test_skill_doc_from_mcp_record(self, tmpdir):
+    def test_tool_doc_from_mcp_record(self, tmpdir):
         """Non-SKILL.md sources still yield an installable reference card."""
         d = self._d(tmpdir)
         d.detail = lambda i: {
@@ -2751,71 +3022,71 @@ class TestDiscover:
             "url": "https://example.com", "repo": "", "tags": ["mcp"],
             "install": {"remote": "https://example.com/mcp", "tools": ["query"]},
         }
-        doc = d.skill_doc("mcp:io.example/postgres")
+        doc = d.tool_doc("mcp:io.example/postgres")
         assert doc["name"] == "postgres" and doc["kind"] == "mcp"
         assert "https://example.com/mcp" in doc["body"]
         assert "query" in doc["body"]
 
 
-class TestInstalledSkills:
+class TestInstalledToolDocs:
     """Installing a scanned result adds a document to the library —
     never an executable — and it stays addressable by CID."""
 
     def _lib(self, tmpdir):
         from src.library.mod import Library
-        return Library(skills=Skills(), dir=str(tmpdir))
+        return Library(tools=Tools(path=TOOLS_PATH), dir=str(tmpdir))
 
     def test_install_upsert_and_index(self, tmpdir):
         lib = self._lib(tmpdir)
-        assert lib.installed_skills() == []
-        s = lib.skill_add("pdf", "# PDF\nsteps", "Handle PDFs", tags=["docs"],
+        assert lib.installed_tools() == []
+        s = lib.tool_add("pdf", "# PDF\nsteps", "Handle PDFs", tags=["docs"],
                           source="github", url="https://github.com/a/b/SKILL.md",
                           origin_id="gh:a/b")
         # re-installing the same origin refreshes in place
-        s2 = lib.skill_add("pdf", "# PDF\nnewer steps", origin_id="gh:a/b")
-        assert s2["id"] == s["id"] and len(lib.installed_skills()) == 1
+        s2 = lib.tool_add("pdf", "# PDF\nnewer steps", origin_id="gh:a/b")
+        assert s2["id"] == s["id"] and len(lib.installed_tools()) == 1
         assert s2["url"] == s["url"]                   # provenance survives a refresh
-        item = [i for i in lib.items(kind="skill")["items"] if i["id"] == s["id"]][0]
+        item = [i for i in lib.items(kind="tool")["items"] if i["id"] == s["id"]][0]
         assert item["external"] is True
         assert item["tags"].count("github") == 1       # source tag isn't duplicated
         assert "installed" in item["tags"]
 
-    def test_builtin_skills_are_untouched(self, tmpdir):
-        """External installs never shadow or replace the code skill registry."""
+    def test_builtin_tools_are_untouched(self, tmpdir):
+        """External installs never shadow or replace the code tool registry."""
         lib = self._lib(tmpdir)
-        builtin = {i["name"] for i in lib.items(kind="skill")["items"] if i.get("builtin")}
-        lib.skill_add("bash", "# not the real bash skill", origin_id="gh:evil/bash")
-        after = lib.items(kind="skill")["items"]
+        builtin = {i["name"] for i in lib.items(kind="tool")["items"] if i.get("builtin")}
+        lib.tool_add("bash", "# not the real bash tool", origin_id="gh:evil/bash")
+        after = lib.items(kind="tool")["items"]
         assert {i["name"] for i in after if i.get("builtin")} == builtin
-        assert Skills().get("bash").description                # still the real one
+        assert Builtins().get("bash").description              # still the real one
 
     def test_uninstall(self, tmpdir):
         lib = self._lib(tmpdir)
-        s = lib.skill_add("x", "body")
-        lib.skill_rm(s["id"])
-        assert lib.installed_skills() == []
+        s = lib.tool_add("x", "body")
+        lib.tool_rm(s["id"])
+        assert lib.installed_tools() == []
         with pytest.raises(KeyError):
-            lib.skill_rm(s["id"])
+            lib.tool_rm(s["id"])
 
     def test_requires_name_and_body(self, tmpdir):
         lib = self._lib(tmpdir)
         with pytest.raises(ValueError):
-            lib.skill_add("", "body")
+            lib.tool_add("", "body")
         with pytest.raises(ValueError):
-            lib.skill_add("name", "")
+            lib.tool_add("name", "")
 
-    def test_skill_docs_selects_for_run_context(self, tmpdir):
+    def test_tool_docs_selects_for_run_context(self, tmpdir):
         lib = self._lib(tmpdir)
-        a = lib.skill_add("a", "body a")
-        lib.skill_add("b", "body b")
-        assert [d["name"] for d in lib.skill_docs([a["id"]])] == ["a"]
-        assert lib.skill_docs([]) == []
-        assert lib.skill_docs(["nope"]) == []
+        a = lib.tool_add("a", "body a")
+        lib.tool_add("b", "body b")
+        assert [d["name"] for d in lib.tool_docs([a["id"]])] == ["a"]
+        assert lib.tool_docs([]) == []
+        assert lib.tool_docs(["nope"]) == []
 
     def test_body_is_clipped(self, tmpdir):
         lib = self._lib(tmpdir)
-        s = lib.skill_add("big", "x" * 400_000)
-        assert len(s["body"]) == lib.MAX_SKILL_CHARS
+        s = lib.tool_add("big", "x" * 400_000)
+        assert len(s["body"]) == lib.MAX_TOOL_CHARS
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -3015,7 +3286,7 @@ class TestHarnessAgents:
 
     def test_library_tags_harness_agents(self, tmpdir):
         from src.library.mod import Library
-        lib = Library(skills=Skills(), agents=Agents(), dir=tmpdir)
+        lib = Library(tools=Tools(path=TOOLS_PATH), agents=Agents(), dir=tmpdir)
         item = next(i for i in lib.items(kind="agent")["items"]
                     if i["name"] == "claude-code")
         assert item["harness"] == "claude"

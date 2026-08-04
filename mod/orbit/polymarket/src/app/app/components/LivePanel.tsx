@@ -1,13 +1,9 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect, useRef, type ReactNode } from "react";
-import { Contract, JsonRpcProvider, formatUnits } from "ethers";
 import { useAuth } from "../context/AuthContext";
 import { useCopyEngine } from "../context/CopyEngineContext";
 import { loadIndexes, getActiveIndexId, updateIndex } from "../lib/indexStore";
-import { getProxyAddress } from "../lib/polymarketProxy";
-import { USDC_E } from "../lib/polymarketContracts";
-import { networkById, withRpcFallback } from "../lib/networks";
 import type { SavedIndex, PolymarketTrade } from "../lib/types";
 import type { ExecutionLogEntry, ObservedTrade } from "../lib/copyEngine";
 import { fetchWalletTradesUntil } from "../lib/polymarket";
@@ -16,10 +12,6 @@ import { startLiveSession } from "../lib/liveSessions";
 import { DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES } from "../lib/strats/strat";
 import PortfolioPanel from "./PortfolioPanel";
 import PositionsHistoryPanel from "./PositionsHistoryPanel";
-
-const ERC20_BAL_ABI = [
-  "function balanceOf(address) view returns (uint256)",
-];
 
 // A run of consecutive MY-FILLS rows (same market/outcome/side/price) merged
 // into one display row. `size`/`price*size` are the batched totals, `count`
@@ -174,12 +166,12 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, backendTraderSync, backendIntervalMs, autoExecute, setAutoExecute, catchUp } = useCopyEngine();
   // confirm-start flow removed — user wants direct start/stop.
   const [liveCapital, setLiveCapital] = useState(100);
-  // Proxy USDC.e balance — this is the on-chain "BALANCE" the engine should
-  // size mirrors against. Polled every 15s while the LIVE tab is mounted.
-  const [proxyBalance, setProxyBalance] = useState<number | null>(null);
+  // Trading-wallet USDC balance — the on-chain "BALANCE" the engine sizes
+  // mirrors against. Polled every 15s while the LIVE tab is mounted.
+  const [tradingBalance, setTradingBalance] = useState<number | null>(null);
   // Catch-up status — "running" disables the button, "result" surfaces
   // the placed/failed count after the one-shot scan completes. Declared
-  // after proxyBalance so the useCallback dep array doesn't hit a TDZ
+  // after tradingBalance so the useCallback dep array doesn't hit a TDZ
   // ReferenceError on first render (const isn't hoisted).
   const [catchUpStatus, setCatchUpStatus] = useState<string | null>(null);
   const [catchingUp, setCatchingUp] = useState(false);
@@ -246,7 +238,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   }, [catchUpMinNotional]);
   // Resolve the actual threshold passed to the engine — auto uses proxy
   // balance; explicit value uses what the user typed.
-  const effectiveMinNotional = catchUpMinNotional ?? Math.max(1, proxyBalance ?? 1);
+  const effectiveMinNotional = catchUpMinNotional ?? Math.max(1, tradingBalance ?? 1);
   const handleCatchUp = useCallback(async () => {
     if (catchingUp || !isLive) return;
     setCatchingUp(true);
@@ -365,26 +357,38 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     return () => clearInterval(t);
   }, []);
 
-  // Poll the proxy's on-chain USDC.e balance every 15s. This is the number
-  // used to auto-sync CAPITAL — keeps the engine's mirror sizing aligned
-  // with the actual funds available on the proxy rather than an arbitrary
-  // CAPITAL CAP picker default.
+  // Poll the TRADING wallet's balance every 15s. This is the number used to
+  // auto-sync CAPITAL — keeps the engine's mirror sizing aligned with the
+  // funds actually available rather than an arbitrary CAPITAL CAP default.
+  //
+  // The wallet is the deposit wallet the engine trades from (see
+  // `resolveTradingWallet` in copyEngine.ts / order_place.rs), read through
+  // the same endpoint as WalletPanel's TRADING tile — NOT the legacy V1 Safe
+  // proxy, which holds none of the bot's funds and reads $0 no matter how
+  // well funded the session is.
   useEffect(() => {
     if (!auth.address) {
-      setProxyBalance(null);
+      setTradingBalance(null);
       return;
     }
     let cancelled = false;
     const fetchBal = async () => {
       try {
-        const proxy = await getProxyAddress(auth.address!);
-        const polygon = networkById("polygon")!;
-        const raw: bigint = await withRpcFallback(polygon, async (url) => {
-          const provider = new JsonRpcProvider(url);
-          const c = new Contract(USDC_E, ERC20_BAL_ABI, provider);
-          return c.balanceOf(proxy);
-        });
-        if (!cancelled) setProxyBalance(Number(formatUnits(raw, 6)));
+        const res = await fetch(
+          `/api/polymarket/deposit-wallet/info?eoa=${auth.address}`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) return;
+        const info = await res.json() as {
+          usdcBalance?: string | null;
+          balanceUnavailable?: boolean;
+        };
+        // usdcBalance is RAW 6-decimal token units. `null` / balanceUnavailable
+        // = the on-chain read failed, which is NOT a confirmed $0 — keep the
+        // last known value instead of reporting a funded wallet as empty.
+        if (info.balanceUnavailable || info.usdcBalance == null) return;
+        const bal = Number(info.usdcBalance) / 1_000_000;
+        if (!cancelled && Number.isFinite(bal)) setTradingBalance(bal);
       } catch { /* keep last known on RPC hiccup */ }
     };
     void fetchBal();
@@ -392,17 +396,17 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     return () => { cancelled = true; clearInterval(t); };
   }, [auth.address]);
 
-  // Auto-sync CAPITAL → proxy balance unless the user has explicitly capped.
+  // Auto-sync CAPITAL → trading balance unless the user has explicitly capped.
   // Without this, CAPITAL stays at the $100 default while BALANCE shows the
   // real on-chain amount ($302+), and the engine mirrors against the wrong
   // budget. User can override via the CAPITAL CAP picker (sets the ref);
   // they can re-enable auto-tracking by hitting the MAX preset in that picker.
   useEffect(() => {
-    if (proxyBalance === null) return;
+    if (tradingBalance === null) return;
     if (userOverrodeCapitalRef.current) return;
-    const rounded = Math.floor(proxyBalance);
+    const rounded = Math.floor(tradingBalance);
     if (rounded > 0 && rounded !== liveCapital) setLiveCapital(rounded);
-  }, [proxyBalance, liveCapital]);
+  }, [tradingBalance, liveCapital]);
 
   // Wrap setLiveCapital so the CAPITAL CAP picker (in the sidebar's
   // WalletFundingPanel) flips the override ref — any manual pick disables
@@ -1042,12 +1046,12 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                 i.e. the user has manually capped below the proxy balance.
                 When auto-tracking, CAPITAL == BALANCE makes a separate card
                 pure noise (the user's complaint). */}
-            {userOverrodeCapitalRef.current && proxyBalance !== null && liveCapital < proxyBalance && (
+            {userOverrodeCapitalRef.current && tradingBalance !== null && liveCapital < tradingBalance && (
               <StatCard
                 label="CAP"
                 value={`$${liveCapital.toLocaleString()}`}
                 tone="amber"
-                title={`You capped at $${liveCapital} below the full proxy balance ($${proxyBalance.toFixed(2)}). Hit MAX in the CAPITAL CAP picker to clear and use the full balance.`}
+                title={`You capped at $${liveCapital} below the full trading balance ($${tradingBalance.toFixed(2)}). Hit MAX in the CAPITAL CAP picker to clear and use the full balance.`}
               />
             )}
             <StatCard

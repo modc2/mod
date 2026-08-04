@@ -5,12 +5,72 @@
 @tailwind utilities;
 
 /* ── Theme tokens ─────────────────────────────────────────────────────────
-   Space-separated RGB triplets so Tailwind can apply <alpha-value>.
-   Dark is the default (matches the pre-theme look exactly); html.light
-   swaps every token. `--c-glass-hi/lo` back the Tailwind `white`/`black`
-   names: "high/low contrast vs the surface", not literal white/black. */
-:root, html.dark {
+   Two attributes on <html> drive everything: `data-theme` picks the palette,
+   `data-base` says whether that palette is dark or light. Colors are
+   space-separated RGB triplets so Tailwind can apply <alpha-value>.
+
+   Only the 13 `--c-*` palette tokens differ per theme — every shadow,
+   gradient, bloom and chart color below is derived from them, so a new
+   palette is one block of colors and nothing else. `--c-glass-hi/lo` back
+   the Tailwind `white`/`black` names: "high/low contrast vs the surface",
+   not literal white/black, which is what flips the glasswork for free. */
+:root {
+  --shadow-glow: 0 0 0 1px rgb(var(--c-accent) / 0.18), 0 0 22px -6px rgb(var(--c-accent) / 0.45);
+  --shadow-glow-lg: 0 0 0 1px rgb(var(--c-accent) / 0.22), 0 0 48px -8px rgb(var(--c-accent) / 0.55);
+  --accent-grad: linear-gradient(135deg, rgb(var(--c-accent)) 0%, rgb(var(--c-accent2)) 100%);
+  --text-grad: linear-gradient(120deg, rgb(var(--c-ink)) 0%, rgb(var(--c-accent)) 55%, rgb(var(--c-accent2)) 100%);
+
+  --chart-line: rgb(var(--c-accent2));
+  --chart-grid: rgb(var(--c-glass-hi) / 0.07);
+  --chart-zero: rgb(var(--c-glass-hi) / 0.18);
+  --chart-cross: rgb(var(--c-glass-hi) / 0.22);
+  --chart-surface: rgb(var(--c-bg));
+
+  /* Ambient blooms take the theme's own accents, so the backdrop glow
+     re-tints with the palette instead of staying mint. */
+  --bloom-a: rgb(var(--c-accent) / 0.10);
+  --bloom-b: rgb(var(--c-accent2) / 0.08);
+  --bloom-c: rgb(var(--c-accent) / 0.06);
+  --sel-bg: rgb(var(--c-accent) / 0.25);
+  --sel-ink: rgb(var(--c-ink));
+  --scroll-thumb: rgb(var(--c-accent) / 0.20);
+  --scroll-thumb-hover: rgb(var(--c-accent) / 0.40);
+}
+
+/* Base-level (dark vs light) treatment: glass polarity, the lit-from-above
+   panel sheen and drop shadows. Declared before the palettes so a theme can
+   still override any of it. */
+html[data-base="dark"] {
   color-scheme: dark;
+  --c-glass-hi: 255 255 255;
+  --c-glass-lo: 0 0 0;
+  --shadow-panel: 0 1px 0 rgba(255,255,255,0.04) inset, 0 18px 40px -22px rgba(0,0,0,0.9);
+  --shadow-lift: 0 20px 50px -24px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.04);
+  --panel-grad: linear-gradient(160deg, rgba(255,255,255,0.045), rgba(255,255,255,0.01) 38%, rgba(0,0,0,0.18));
+  --grid-line: rgb(var(--c-glass-hi) / 0.018);
+}
+
+html[data-base="light"] {
+  color-scheme: light;
+  --c-glass-hi: 15 26 43;
+  --c-glass-lo: 255 255 255;
+  --shadow-glow: 0 0 0 1px rgb(var(--c-accent) / 0.25), 0 6px 18px -8px rgb(var(--c-accent) / 0.35);
+  --shadow-glow-lg: 0 0 0 1px rgb(var(--c-accent) / 0.30), 0 10px 32px -10px rgb(var(--c-accent) / 0.40);
+  --shadow-panel: 0 1px 0 rgba(255,255,255,0.85) inset, 0 14px 34px -22px rgba(23,43,77,0.30);
+  --shadow-lift: 0 18px 44px -24px rgba(23,43,77,0.25), 0 0 0 1px rgba(15,26,43,0.05);
+  --panel-grad: linear-gradient(160deg, rgba(255,255,255,0.92), rgba(255,255,255,0.72) 38%, rgb(var(--c-bg2) / 0.62));
+  --grid-line: rgb(var(--c-glass-hi) / 0.030);
+  --scroll-thumb: rgb(var(--c-accent) / 0.30);
+  --scroll-thumb-hover: rgb(var(--c-accent) / 0.50);
+}
+
+/* ── Palettes ─────────────────────────────────────────────────────────────
+   Every id here needs a matching entry in lib/themes.ts (the picker renders
+   that list and the boot script validates against it). `dark`/`light` keep
+   their ids so saved preferences survive.
+
+   MIDNIGHT — the house look: near-black glass, Hyperliquid mint + cyan. */
+:root, html[data-theme="dark"] {
   --c-bg: 4 6 10;
   --c-bg2: 7 10 16;
   --c-panel: 11 15 22;
@@ -24,37 +84,11 @@
   --c-warn: 255 204 77;
   --c-loss: 255 93 115;
   --c-win: 60 224 200;
-  --c-glass-hi: 255 255 255;
-  --c-glass-lo: 0 0 0;
-
-  --shadow-glow: 0 0 0 1px rgb(var(--c-accent) / 0.18), 0 0 22px -6px rgb(var(--c-accent) / 0.45);
-  --shadow-glow-lg: 0 0 0 1px rgb(var(--c-accent) / 0.22), 0 0 48px -8px rgb(var(--c-accent) / 0.55);
-  --shadow-panel: 0 1px 0 rgba(255,255,255,0.04) inset, 0 18px 40px -22px rgba(0,0,0,0.9);
-  --shadow-lift: 0 20px 50px -24px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.04);
-  --panel-grad: linear-gradient(160deg, rgba(255,255,255,0.045), rgba(255,255,255,0.01) 38%, rgba(0,0,0,0.18));
-  --accent-grad: linear-gradient(135deg, #3ce0c8 0%, #5cc8ff 100%);
-  --text-grad: linear-gradient(120deg, #eef4fb 0%, #3ce0c8 55%, #5cc8ff 100%);
-
-  --chart-line: #2f9de4;           /* validated against the dark surface */
-  --chart-grid: rgba(255,255,255,0.06);
-  --chart-zero: rgba(255,255,255,0.16);
-  --chart-cross: rgba(255,255,255,0.2);
-  --chart-surface: #04060a;
-
-  --bloom-a: rgba(60,224,200,0.10);
-  --bloom-b: rgba(92,200,255,0.08);
-  --bloom-c: rgba(60,224,200,0.06);
-  --grid-line: rgba(255,255,255,0.018);
-  --sel-bg: rgba(60,224,200,0.25);
-  --sel-ink: #ffffff;
-  --scroll-thumb: rgb(var(--c-accent) / 0.18);
-  --scroll-thumb-hover: rgb(var(--c-accent) / 0.35);
 }
 
-/* Cool paper-white with the same mint identity — accents darken for
-   contrast, glass hairlines invert to ink-tinted, panels go frosted. */
-html.light {
-  color-scheme: light;
+/* DAYLIGHT — cool paper-white, same mint identity, accents darkened for
+   contrast against a light surface. */
+html[data-theme="light"] {
   --c-bg: 243 246 250;
   --c-bg2: 235 240 246;
   --c-panel: 255 255 255;
@@ -68,31 +102,143 @@ html.light {
   --c-warn: 176 98 5;
   --c-loss: 208 41 67;
   --c-win: 10 143 128;
-  --c-glass-hi: 15 26 43;
-  --c-glass-lo: 255 255 255;
+}
 
-  --shadow-glow: 0 0 0 1px rgb(var(--c-accent) / 0.25), 0 6px 18px -8px rgb(var(--c-accent) / 0.35);
-  --shadow-glow-lg: 0 0 0 1px rgb(var(--c-accent) / 0.30), 0 10px 32px -10px rgb(var(--c-accent) / 0.40);
-  --shadow-panel: 0 1px 0 rgba(255,255,255,0.85) inset, 0 14px 34px -22px rgba(23,43,77,0.30);
-  --shadow-lift: 0 18px 44px -24px rgba(23,43,77,0.25), 0 0 0 1px rgba(15,26,43,0.05);
-  --panel-grad: linear-gradient(160deg, rgba(255,255,255,0.92), rgba(255,255,255,0.72) 38%, rgba(240,246,251,0.62));
-  --accent-grad: linear-gradient(135deg, #0da893 0%, #0a8fd6 100%);
-  --text-grad: linear-gradient(120deg, #0b1524 0%, #0a8f80 55%, #0476be 100%);
+/* ABYSS — deep-ocean navy, azure over teal. */
+html[data-theme="abyss"] {
+  --c-bg: 2 8 20;
+  --c-bg2: 4 12 26;
+  --c-panel: 7 17 33;
+  --c-panel2: 11 24 44;
+  --c-border: 20 40 66;
+  --c-ink: 226 240 252;
+  --c-muted: 130 156 184;
+  --c-dim: 90 116 145;
+  --c-accent: 56 189 248;
+  --c-accent2: 45 212 191;
+  --c-warn: 250 204 21;
+  --c-loss: 251 113 133;
+  --c-win: 45 212 191;
+}
 
-  --chart-line: #1673b9;
-  --chart-grid: rgba(15,26,43,0.08);
-  --chart-zero: rgba(15,26,43,0.28);
-  --chart-cross: rgba(15,26,43,0.32);
-  --chart-surface: #ffffff;
+/* MATRIX — black terminal, phosphor green. */
+html[data-theme="matrix"] {
+  --c-bg: 1 5 2;
+  --c-bg2: 2 9 4;
+  --c-panel: 4 14 8;
+  --c-panel2: 6 20 11;
+  --c-border: 14 46 26;
+  --c-ink: 209 255 224;
+  --c-muted: 92 176 124;
+  --c-dim: 58 122 84;
+  --c-accent: 0 255 127;
+  --c-accent2: 77 239 201;
+  --c-warn: 214 255 92;
+  --c-loss: 255 92 92;
+  --c-win: 0 255 127;
+}
 
-  --bloom-a: rgba(13,168,147,0.10);
-  --bloom-b: rgba(10,143,214,0.08);
-  --bloom-c: rgba(13,168,147,0.06);
-  --grid-line: rgba(15,26,43,0.030);
-  --sel-bg: rgba(10,143,128,0.22);
-  --sel-ink: #0b1524;
-  --scroll-thumb: rgb(var(--c-accent) / 0.30);
-  --scroll-thumb-hover: rgb(var(--c-accent) / 0.50);
+/* NEON — synthwave: violet-black glass, hot magenta over cyan. */
+html[data-theme="neon"] {
+  --c-bg: 10 4 22;
+  --c-bg2: 15 6 31;
+  --c-panel: 21 9 42;
+  --c-panel2: 29 13 56;
+  --c-border: 56 24 92;
+  --c-ink: 245 231 255;
+  --c-muted: 176 145 210;
+  --c-dim: 126 100 158;
+  --c-accent: 255 45 160;
+  --c-accent2: 15 240 212;
+  --c-warn: 255 214 92;
+  --c-loss: 255 71 110;
+  --c-win: 15 240 212;
+}
+
+/* EMBER — charcoal and orange heat; wins stay green so PnL still reads. */
+html[data-theme="ember"] {
+  --c-bg: 12 6 3;
+  --c-bg2: 18 9 5;
+  --c-panel: 26 14 8;
+  --c-panel2: 35 19 11;
+  --c-border: 66 36 20;
+  --c-ink: 255 238 224;
+  --c-muted: 194 155 128;
+  --c-dim: 140 106 84;
+  --c-accent: 255 158 44;
+  --c-accent2: 255 215 94;
+  --c-warn: 255 215 94;
+  --c-loss: 255 99 92;
+  --c-win: 120 220 140;
+}
+
+/* NEBULA — deep violet with a pink second. */
+html[data-theme="nebula"] {
+  --c-bg: 8 6 20;
+  --c-bg2: 12 9 29;
+  --c-panel: 18 14 40;
+  --c-panel2: 25 19 54;
+  --c-border: 48 38 88;
+  --c-ink: 236 232 255;
+  --c-muted: 163 155 205;
+  --c-dim: 116 109 156;
+  --c-accent: 167 139 250;
+  --c-accent2: 244 114 182;
+  --c-warn: 251 191 36;
+  --c-loss: 251 113 133;
+  --c-win: 52 211 153;
+}
+
+/* BULLION — black tie: warm gold on soot, ice-blue second. */
+html[data-theme="bullion"] {
+  --c-bg: 8 7 4;
+  --c-bg2: 13 11 6;
+  --c-panel: 20 17 10;
+  --c-panel2: 28 24 14;
+  --c-border: 60 50 26;
+  --c-ink: 250 244 226;
+  --c-muted: 186 172 134;
+  --c-dim: 134 122 92;
+  --c-accent: 232 187 74;
+  --c-accent2: 138 190 255;
+  --c-warn: 232 187 74;
+  --c-loss: 233 90 90;
+  --c-win: 116 205 140;
+}
+
+/* PAPER — warm sepia print; hairlines warm with it. */
+html[data-theme="paper"] {
+  --c-bg: 246 241 232;
+  --c-bg2: 240 233 221;
+  --c-panel: 255 252 246;
+  --c-panel2: 248 243 234;
+  --c-border: 223 213 196;
+  --c-ink: 40 33 24;
+  --c-muted: 108 96 80;
+  --c-dim: 148 134 114;
+  --c-accent: 154 91 44;
+  --c-accent2: 22 101 52;
+  --c-warn: 161 98 7;
+  --c-loss: 185 28 28;
+  --c-win: 21 128 61;
+  --c-glass-hi: 47 38 27;
+}
+
+/* ARCTIC — bright ice, indigo over cyan. */
+html[data-theme="arctic"] {
+  --c-bg: 240 245 251;
+  --c-bg2: 231 239 249;
+  --c-panel: 255 255 255;
+  --c-panel2: 243 248 254;
+  --c-border: 209 224 241;
+  --c-ink: 12 24 42;
+  --c-muted: 82 100 126;
+  --c-dim: 126 142 166;
+  --c-accent: 37 99 235;
+  --c-accent2: 8 145 178;
+  --c-warn: 180 83 9;
+  --c-loss: 220 38 38;
+  --c-win: 15 132 96;
 }
 
 html, body {

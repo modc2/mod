@@ -3,8 +3,8 @@ formats - what an uploaded library file looks like
 
 One parser behind every upload path (the console's drop zone, POST
 /library/upload, forward(action="upload")). It turns a file's text into a
-normalized library item, so a prompt, a skill, a memory note and a whole agent
-can all be dragged into the same box.
+normalized library item, so a prompt, a tool document, a memory note and a
+whole agent can all be dragged into the same box.
 
 Two carriers, both plain text:
     JSON      {"type": "agent", "name": "...", "goal": "..."}
@@ -14,7 +14,7 @@ Kind resolution — first hit wins:
     1. the kind the caller picked (UI selector / `kind` argument)
     2. `type:` in the JSON body or the front matter
     3. the filename (SKILL.md, *.agent.md, *.memory.md, *.prompt.md, or a
-       prompts/ skills/ memory/ agents/ path)
+       prompts/ skills/ tools/ memory/ agents/ path)
     4. the shape (goal/harness ⇒ agent, text ⇒ prompt, content ⇒ memory)
     5. prompt — the plainest thing a markdown file can be
 
@@ -26,7 +26,10 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-KINDS = ("prompt", "skill", "memory", "agent")
+KINDS = ("prompt", "tool", "memory", "agent")
+# `skill` is what a tool document was called before the rename — files in the
+# wild still say it, and the whole point of this parser is to take them
+ALIASES = {"skill": "tool"}
 
 MAX_UPLOAD_CHARS = 200_000
 
@@ -34,7 +37,8 @@ DOC_PATH = Path(__file__).resolve().parents[2] / "docs" / "uploads.md"
 
 # filename → kind, checked in order against the lowercased path
 NAME_HINTS: List[Tuple[str, str]] = [
-    ("skill.md", "skill"), (".skill.md", "skill"), ("/skills/", "skill"),
+    ("skill.md", "tool"), (".skill.md", "tool"), ("/skills/", "tool"),
+    ("tool.md", "tool"), (".tool.md", "tool"), ("/tools/", "tool"),
     (".agent.md", "agent"), ("agent.md", "agent"), ("/agents/", "agent"),
     (".memory.md", "memory"), ("memory.md", "memory"), ("/memory/", "memory"),
     (".note.md", "memory"), ("notes.md", "memory"),
@@ -44,7 +48,7 @@ NAME_HINTS: List[Tuple[str, str]] = [
 # front-matter keys that only one kind ever carries
 SHAPE_HINTS: List[Tuple[Tuple[str, ...], str]] = [
     (("goal", "harness", "icon", "system_prompt"), "agent"),
-    (("allowed-tools", "allowed_tools", "when_to_use", "license"), "skill"),
+    (("allowed-tools", "allowed_tools", "when_to_use", "license"), "tool"),
 ]
 
 
@@ -143,9 +147,9 @@ def _stem(filename: Optional[str]) -> str:
     path = Path(str(filename))
     stem = path.stem
     # SKILL.md / AGENT.md carry the name in the folder, not the file
-    if stem.lower() in ("skill", "agent", "index", "readme", "prompt", "memory"):
+    if stem.lower() in ("skill", "tool", "agent", "index", "readme", "prompt", "memory"):
         stem = path.parent.name or stem
-    for suffix in (".agent", ".skill", ".prompt", ".memory", ".note"):
+    for suffix in (".agent", ".skill", ".tool", ".prompt", ".memory", ".note"):
         if stem.lower().endswith(suffix):
             stem = stem[: -len(suffix)]
     return stem.replace("_", " ").replace("-", " ").strip() or path.stem
@@ -157,11 +161,13 @@ def detect(meta: Dict[str, Any], filename: Optional[str] = None,
            kind: Optional[str] = None) -> str:
     """Resolve the kind of an upload. See the module docstring for the order."""
     if kind and kind != "auto":
+        kind = ALIASES.get(kind, kind)
         if kind not in KINDS:
             raise ValueError(f"unknown kind: {kind} (have: {', '.join(KINDS)})")
         return kind
 
     declared = _text(meta.get("type") or meta.get("kind")).lower()
+    declared = ALIASES.get(declared, declared)
     if declared in KINDS:
         return declared
 
@@ -187,7 +193,7 @@ def parse(text: str, filename: Optional[str] = None,
     """Normalize one uploaded file into a library item.
 
     Returns a dict with `kind` plus the fields that kind needs — the caller
-    hands them to prompt_add / note_add / skill_add / agents.create.
+    hands them to prompt_add / note_add / tool_add / agents.create.
     """
     if not (text or "").strip():
         raise ValueError("nothing to upload — the file is empty")
@@ -233,10 +239,10 @@ def parse(text: str, filename: Optional[str] = None,
         return {"kind": "memory", "name": name, "description": description,
                 "body": body, "tags": tags}
 
-    if resolved == "skill":
+    if resolved == "tool":
         if not body:
-            raise ValueError("a skill needs its instructions")
-        return {"kind": "skill", "name": name, "description": description,
+            raise ValueError("a tool document needs its instructions")
+        return {"kind": "tool", "name": name, "description": description,
                 "body": body, "tags": tags,
                 "source": _text(meta.get("source")) or "upload",
                 "url": _text(meta.get("url") or meta.get("homepage")),
@@ -249,7 +255,7 @@ def parse(text: str, filename: Optional[str] = None,
     return {"kind": "agent", "name": slug(name), "label": name,
             "description": description, "body": goal,
             "icon": _text(meta.get("icon")) or ">_",
-            "skills": _list(meta.get("skills") or meta.get("tools")),
+            "tools": _list(meta.get("tools") or meta.get("skills")),
             "model": _text(meta.get("model")) or None,
             "harness": _text(meta.get("harness")) or None,
             "tags": tags}

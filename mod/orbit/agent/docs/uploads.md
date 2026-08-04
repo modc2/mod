@@ -1,7 +1,7 @@
 # Upload your own
 
 Everything in the library can come from a file you wrote: a **prompt**, a
-**skill**, a **memory note**, or a whole **agent**. Drop the file on the
+**tool document**, a **memory note**, or a whole **agent**. Drop the file on the
 market rail's upload panel (the `+` in its header → `upload`), or POST it.
 
 Two carriers, both plain text:
@@ -26,7 +26,7 @@ name: release-captain
 description: Cuts releases and writes the changelog
 icon: '>>'
 model: anthropic/claude-sonnet-4.5
-skills: [bash, read, edit, git, test]
+tools: [bash, read, edit, git, test]
 ---
 You cut releases for this repo.
 
@@ -40,7 +40,7 @@ from the commit log, tag it. Never push without a green test run.
 | `description` | the one-liner shown in the market |
 | `icon` | glyph beside the name (default `>_`) |
 | `model` | model override, else the console's pick is used |
-| `skills` | restrict it to these tools; omit for the full loadout |
+| `tools` | restrict it to these tools; omit for the full loadout. A fleet module counts — `mod.git` is a tool name like any other |
 | `harness` | `claude` or `codex` — hand the run to that CLI instead of this module's loop (host owner only, and only if that CLI is installed here) |
 | body | the goal / system prompt |
 
@@ -51,7 +51,7 @@ JSON works the same:
   "type": "agent",
   "name": "release-captain",
   "description": "Cuts releases and writes the changelog",
-  "skills": ["bash", "git", "test"],
+  "tools": ["bash", "git", "test"],
   "goal": "You cut releases for this repo. Tests green before any tag."
 }
 ```
@@ -75,14 +75,16 @@ explain the cause, then apply a minimal fix and verify it.
 A bare `.md` or `.txt` file with no front matter uploads as a prompt named
 after the file.
 
-## Upload a skill
+## Upload a tool document
 
-A skill is instructions, not code — an uploaded `SKILL.md` becomes a document
-the agent is handed as context. Nothing in it is ever executed.
+A tool document is instructions, not code — an uploaded `SKILL.md` becomes a
+document the agent is handed as context. Nothing in it is ever executed. (The
+tools the agent actually *calls* live in the TOOLS tab: the ones shipped here,
+the shell tools you define there, and the fleet.)
 
 ```markdown
 ---
-type: skill
+type: tool
 name: pdf
 description: Fill, split and merge PDF files
 tags: [docs]
@@ -113,16 +115,20 @@ First hit wins:
 
 1. the kind you picked in the upload panel (or `kind=` on the API call)
 2. `type:` in the front matter or the JSON object
-3. the filename — `SKILL.md`, `*.agent.md`, `*.memory.md`, `*.prompt.md`, or a
-   `skills/ agents/ memory/ prompts/` path
+3. the filename — `SKILL.md`, `*.tool.md`, `*.agent.md`, `*.memory.md`,
+   `*.prompt.md`, or a `tools/ skills/ agents/ memory/ prompts/` path
 4. the shape — `goal`/`harness`/`icon` ⇒ agent, `allowed-tools`/`license` ⇒
-   skill, `text` ⇒ prompt, `content` ⇒ memory
+   tool document, `text` ⇒ prompt, `content` ⇒ memory
 5. prompt
 
 So `release-captain.agent.md` needs no `type:` line, and picking a kind in the
 panel overrides everything.
 
-Limits: 200,000 characters per file; a skill body is clipped at 120,000.
+`type: skill` still works everywhere `type: tool` does — that is what these
+documents were called before, and files in the wild say it.
+
+Limits: 200,000 characters per file; a tool document's body is clipped at
+120,000.
 
 ---
 

@@ -1,11 +1,11 @@
-"""claudecode - run Claude Code CLI as an agent skill"""
+"""claudecode - run Claude Code CLI as an agent tool"""
 import subprocess
 import os
 import json
 from typing import Dict, Any, Optional
 
 
-class Skill:
+class Tool:
     description = "Run Claude Code CLI to perform coding tasks via claude-code"
 
     def forward(self, prompt: str, path: str = None, model: str = None,
@@ -53,7 +53,7 @@ class Skill:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                env={**os.environ, "CLAUDE_CODE_ENTRYPOINT": "agent-skill"},
+                env={**os.environ, "CLAUDE_CODE_ENTRYPOINT": "agent-tool"},
             )
 
             output = result.stdout

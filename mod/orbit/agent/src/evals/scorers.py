@@ -25,13 +25,27 @@ def _flatten(trace: List[Any]) -> List[Dict[str, Any]]:
     return out
 
 
+def steps_of(trace) -> List[Dict[str, Any]]:
+    """The flattened step list — what the arena counts against a step budget."""
+    return _flatten(trace)
+
+
 def _tools_used(trace) -> List[str]:
     return [s.get('tool', '') for s in _flatten(trace) if s.get('tool')]
+
+
+# the loop breaks on these without running a tool, so they never carry a
+# `result` — the agent's actual answer is in their params
+TERMINAL_TOOLS = ('finish', 'review', 'response')
 
 
 def _result_text(trace) -> str:
     parts = []
     for s in _flatten(trace):
+        if s.get('tool') in TERMINAL_TOOLS:
+            params = s.get('params') or {}
+            parts.extend(str(params[f]) for f in ('summary', 'text', 'answer', 'content')
+                         if isinstance(params.get(f), str))
         r = s.get('result')
         if r is None:
             continue
@@ -46,22 +60,22 @@ def _result_text(trace) -> str:
 
 # ── individual scorers ───────────────────────────────────────────────
 
-def skill_used(trace, spec) -> Dict[str, Any]:
-    """Pass if any step used the named skill."""
-    name = spec.get('skill', '')
+def tool_used(trace, spec) -> Dict[str, Any]:
+    """Pass if any step used the named tool."""
+    name = spec.get('tool', spec.get('skill', ''))
     used = _tools_used(trace)
     ok = name in used
     return {'passed': ok, 'score': 1.0 if ok else 0.0,
-            'reason': f"skill {name!r} {'used' if ok else 'not used'} (used: {used})"}
+            'reason': f"tool {name!r} {'used' if ok else 'not used'} (used: {used})"}
 
 
-def skill_not_used(trace, spec) -> Dict[str, Any]:
-    """Pass if the named skill was NOT used."""
-    name = spec.get('skill', '')
+def tool_not_used(trace, spec) -> Dict[str, Any]:
+    """Pass if the named tool was NOT used."""
+    name = spec.get('tool', spec.get('skill', ''))
     used = _tools_used(trace)
     ok = name not in used
     return {'passed': ok, 'score': 1.0 if ok else 0.0,
-            'reason': f"skill {name!r} {'absent' if ok else 'present'} (used: {used})"}
+            'reason': f"tool {name!r} {'absent' if ok else 'present'} (used: {used})"}
 
 
 def no_errors(trace, spec) -> Dict[str, Any]:
@@ -127,6 +141,21 @@ def file_contains(trace, spec) -> Dict[str, Any]:
             'reason': f"file substring {needle!r} {'found' if ok else 'missing'}"}
 
 
+def file_regex(trace, spec) -> Dict[str, Any]:
+    """Pass if the file exists and its contents match the regex.
+
+    The substring check breaks on whitespace an agent is free to choose —
+    `a + b` vs `a+b` is the same fix — so a written file is matched by pattern.
+    """
+    p = Path(spec.get('path', '')).expanduser()
+    pattern = spec.get('pattern', '')
+    if not p.exists():
+        return {'passed': False, 'score': 0.0, 'reason': f"{p} missing"}
+    ok = bool(re.search(pattern, p.read_text(errors='replace')))
+    return {'passed': ok, 'score': 1.0 if ok else 0.0,
+            'reason': f"file pattern {pattern!r} {'matched' if ok else 'unmatched'}"}
+
+
 def step_count_at_least(trace, spec) -> Dict[str, Any]:
     """Pass if at least spec['n'] steps were taken (sanity check)."""
     n = int(spec.get('n', 1))
@@ -137,8 +166,11 @@ def step_count_at_least(trace, spec) -> Dict[str, Any]:
 
 
 SCORERS = {
-    'skill_used': skill_used,
-    'skill_not_used': skill_not_used,
+    'tool_used': tool_used,
+    'tool_not_used': tool_not_used,
+    # pre-rename names, kept so existing eval specs keep scoring
+    'skill_used': tool_used,
+    'skill_not_used': tool_not_used,
     'no_errors': no_errors,
     'finished': finished,
     'max_steps': max_steps,
@@ -146,6 +178,7 @@ SCORERS = {
     'regex': regex,
     'file_exists': file_exists,
     'file_contains': file_contains,
+    'file_regex': file_regex,
     'step_count_at_least': step_count_at_least,
 }
 

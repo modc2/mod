@@ -2,7 +2,7 @@
 from typing import Dict, Any, List, Optional
 
 
-class Skill:
+class Tool:
     description = "Track tasks during a session. Add, complete, list, and manage a task list to stay organized."
 
     _tasks = []

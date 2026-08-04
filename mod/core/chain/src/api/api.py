@@ -4,7 +4,7 @@ import json
 import os
 import re
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -457,20 +457,18 @@ async def cid_get(cid: str):
 # ── Module Proxy ──────────────────────────────────────────────────────────
 
 class ModCallReq(BaseModel):
-    mod: str
     method: str
     args: Optional[list] = None
     network: str = "testnet"
 
 @app.post("/call")
 async def mod_call(req: ModCallReq):
-    """Call a method on a contract module."""
+    """Call a method on the chain orchestrator (stake, credit, whitelist_token, …)."""
     chain = get_chain(req.network)
     try:
-        mod_instance = chain.mod(req.mod)
-        method = getattr(mod_instance, req.method, None)
-        if not method:
-            raise HTTPException(status_code=404, detail=f"Method {req.method} not found on {req.mod}")
+        method = getattr(chain, req.method, None)
+        if not method or req.method.startswith("_"):
+            raise HTTPException(status_code=404, detail=f"Method {req.method} not found")
         result = method(*(req.args or []))
         if hasattr(result, 'transactionHash'):
             return {"result": {
@@ -1516,6 +1514,128 @@ async def build_project_delete(name: str, address: Optional[str] = None):
     return {"ok": True}
 
 
+# ── Shared projects ─────────────────────────────────────────────────────────
+#
+# A gallery: publish a project you built, anyone can fork it into their own
+# sidebar. Entries are keyed "<author>/<name>". The fleet's own contracts ship
+# as read-only entries, so the gallery is never empty and BlocTime is one click
+# away from a working editor.
+
+# Paths are chain-module-relative and read fresh on every request, so editing a
+# fleet contract updates its gallery entry without a republish.
+BUILTIN_SHARED = [{
+    "id": "fleet/bloctime",
+    "name": "bloctime",
+    "author": "fleet",
+    "description": "Stake an ERC20 for a block duration, mint blocTime on a multiplier curve.",
+    "sources": {
+        "contracts/BlocTime.sol": "src/contracts/bloctime/BlocTime.sol",
+        "contracts/Token.sol": "src/build/shared/bloctime/Token.sol",
+        "test/BlocTime.test.js": "src/contracts/bloctime/test/BlocTime.test.js",
+    },
+}]
+
+
+def _builtin_files(entry: dict) -> dict:
+    """Read a shipped entry's files off disk, skipping any that have moved."""
+    base = _module_dir("chain") or ""
+    files = {}
+    for path, rel in entry["sources"].items():
+        try:
+            with open(os.path.join(base, rel)) as f:
+                files[path] = f.read()
+        except OSError:
+            continue
+    return files
+
+
+def _shared_store() -> dict:
+    return _build_store("shared.json")
+
+
+def _shared_id(author: str, name: str) -> str:
+    return f"{author}/{_safe_rel(name)}"
+
+
+class ShareReq(BaseModel):
+    address: str
+    name: str
+    description: str = ""
+    files: dict = {}
+
+
+@app.get("/build/shared")
+async def build_shared_list():
+    """Everything in the gallery — shipped entries first, then newest published."""
+    rows = [{
+        "id": e["id"], "name": e["name"], "author": e["author"],
+        "description": e["description"], "files": sorted(_builtin_files(e)),
+        "updated": 0, "builtin": True,
+    } for e in BUILTIN_SHARED]
+    published = [{
+        "id": eid,
+        "name": e.get("name", eid.split("/")[-1]),
+        "author": e.get("author", "anon"),
+        "description": e.get("description", ""),
+        "files": sorted((e.get("files") or {}).keys()),
+        "updated": e.get("updated", 0),
+        "builtin": False,
+    } for eid, e in _shared_store().items()]
+    published.sort(key=lambda e: e["updated"], reverse=True)
+    return {"shared": rows + published}
+
+
+@app.get("/build/shared/{entry_id:path}")
+async def build_shared_get(entry_id: str):
+    """One gallery entry, files and all — what a fork copies."""
+    for e in BUILTIN_SHARED:
+        if e["id"] == entry_id:
+            return {**{k: v for k, v in e.items() if k != "sources"},
+                    "files": _builtin_files(e), "builtin": True}
+    entry = _shared_store().get(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"no shared project {entry_id}")
+    return {"id": entry_id, "builtin": False, **entry}
+
+
+@app.post("/build/shared")
+async def build_shared_publish(req: ShareReq):
+    """Publish a project under the caller's address. Republishing overwrites."""
+    import time
+    author = _who(req.address)
+    if author == "anon":
+        raise HTTPException(status_code=400, detail="sign in with a wallet to share a project")
+    if not req.name.strip():
+        raise HTTPException(status_code=400, detail="project needs a name")
+    if not req.files:
+        raise HTTPException(status_code=400, detail="nothing to share — the project has no files")
+    entry_id = _shared_id(author, req.name.strip())
+    store = _shared_store()
+    store[entry_id] = {
+        "name": req.name.strip(),
+        "author": author,
+        "description": req.description.strip()[:280],
+        "files": {_safe_rel(p): s for p, s in req.files.items()},
+        "updated": time.time(),
+    }
+    _build_save("shared.json", store)
+    return {"ok": True, "id": entry_id}
+
+
+@app.delete("/build/shared")
+async def build_shared_unpublish(id: str, address: Optional[str] = None):
+    """Pull your own entry back out of the gallery."""
+    store = _shared_store()
+    entry = store.get(id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"no shared project {id}")
+    if entry.get("author") != _who(address):
+        raise HTTPException(status_code=403, detail="only the author can unshare this")
+    store.pop(id)
+    _build_save("shared.json", store)
+    return {"ok": True}
+
+
 # ── Test runner ─────────────────────────────────────────────────────────────
 #
 # Each user gets one sandbox under ~/.mod/chain/build/run/<who>/ holding the
@@ -1673,6 +1793,203 @@ async def build_deployments(address: Optional[str] = None, network: Optional[str
     return {"deployments": rows, "count": len(rows)}
 
 
+# ── Host readout (owner-only) ────────────────────────────────────────────────
+#
+# CPU / memory / disk / process / network stats describe the machine the
+# protocol runs on: raw cmdlines can carry secrets and traffic shape is
+# operational intel, so this is the one part of the API that is not public.
+# Access is proven by a wallet signature from an owner address, exchanged for
+# a short-lived HMAC token. Owners and the signing secret live off-tree in
+# ~/.mod/chain/ — never in the committed config.
+
+CHAIN_HOME = Path.home() / ".mod" / "chain"
+OWNERS_PATH = CHAIN_HOME / "owners.json"
+SECRET_PATH = CHAIN_HOME / "server.secret"
+TOKEN_TTL = 12 * 3600   # one signature buys half a day of access
+NONCE_TTL = 300         # a challenge must be signed within five minutes
+
+_nonces = {}            # nonce -> (address, expires_at)
+_secret = None
+
+
+def _owner_addresses() -> set:
+    """Addresses allowed to see the host.
+
+    ~/.mod/chain/owners.json is the ACL. On a fresh install it is seeded from
+    the deployer addresses in config.json — whoever deployed the protocol owns
+    the box it runs on — and can then be edited by hand. $CHAIN_OWNERS (comma
+    separated) overrides the file entirely.
+    """
+    env = os.environ.get("CHAIN_OWNERS", "").strip()
+    if env:
+        return {a.strip().lower() for a in env.split(",") if a.strip()}
+    try:
+        owners = {str(a).lower() for a in json.loads(OWNERS_PATH.read_text()).get("owners", []) if a}
+        if owners:
+            return owners
+    except Exception:
+        pass
+    seeded = set()
+    base = _module_dir("chain")
+    try:
+        with open(os.path.join(base, "config.json")) as f:
+            for deployment in (json.load(f).get("deployments") or {}).values():
+                # Local chains deploy from a well-known test key whose private
+                # key ships with hardhat — never an owner.
+                if str(deployment.get("chainId")) in ("1337", "31337"):
+                    continue
+                if deployment.get("deployer"):
+                    seeded.add(deployment["deployer"].lower())
+    except Exception:
+        pass
+    try:
+        CHAIN_HOME.mkdir(parents=True, exist_ok=True)
+        OWNERS_PATH.write_text(json.dumps({"owners": sorted(seeded)}, indent=2))
+        os.chmod(OWNERS_PATH, 0o600)
+    except Exception:
+        pass
+    return seeded
+
+
+def _server_secret() -> bytes:
+    """HMAC key for host-access tokens, persisted 0600 so a restart doesn't
+    invalidate every signed-in owner."""
+    global _secret
+    if _secret is None:
+        try:
+            _secret = SECRET_PATH.read_bytes()
+        except Exception:
+            import secrets as _s
+            _secret = _s.token_bytes(32)
+            try:
+                CHAIN_HOME.mkdir(parents=True, exist_ok=True)
+                SECRET_PATH.write_bytes(_secret)
+                os.chmod(SECRET_PATH, 0o600)
+            except Exception:
+                pass
+    return _secret
+
+
+def _sign_token(address: str, expires: int) -> str:
+    import hmac, hashlib
+    body = f"{address}.{expires}"
+    mac = hmac.new(_server_secret(), body.encode(), hashlib.sha256).hexdigest()
+    return f"{body}.{mac}"
+
+
+def _token_address(authorization: Optional[str]) -> Optional[str]:
+    """The owner address a Bearer token proves, or None if it proves nothing."""
+    import hmac, hashlib, time as _t
+    raw = (authorization or "").strip()
+    if raw.lower().startswith("bearer "):
+        raw = raw[7:].strip()
+    parts = raw.split(".")
+    if len(parts) != 3:
+        return None
+    address, expires, mac = parts
+    try:
+        if int(expires) < _t.time():
+            return None
+    except ValueError:
+        return None
+    body = f"{address}.{expires}"
+    want = hmac.new(_server_secret(), body.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(want, mac):
+        return None
+    return address if address in _owner_addresses() else None
+
+
+def _require_owner(authorization: Optional[str]) -> str:
+    address = _token_address(authorization)
+    if not address:
+        raise HTTPException(status_code=403, detail="owner only")
+    return address
+
+
+def _host_module():
+    """The /proc reader that lives next to this file."""
+    import sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import host
+    return host
+
+
+@app.get("/system/access")
+async def system_access(address: Optional[str] = None,
+                        authorization: Optional[str] = Header(None)):
+    """Whether an address may see the host readout, and whether this session
+    already can. The console hides the panel outright for everyone else."""
+    authed = _token_address(authorization)
+    addr = (address or "").strip().lower() or (authed or "")
+    return {
+        "address": addr or None,
+        "is_owner": bool(addr) and addr in _owner_addresses(),
+        "authed": authed is not None,
+    }
+
+
+@app.get("/system/challenge")
+async def system_challenge(address: str):
+    """A single-use message for an owner wallet to sign."""
+    import secrets as _s, time as _t
+    addr = (address or "").strip().lower()
+    if not addr or addr not in _owner_addresses():
+        raise HTTPException(status_code=403, detail="owner only")
+    now = _t.time()
+    for stale in [n for n, (_, exp) in _nonces.items() if exp < now]:
+        _nonces.pop(stale, None)
+    nonce = _s.token_hex(16)
+    _nonces[nonce] = (addr, now + NONCE_TTL)
+    return {
+        "nonce": nonce,
+        "message": ("chain — owner console\n\n"
+                    "Sign in to view this host's stats.\n"
+                    f"address: {addr}\n"
+                    f"nonce: {nonce}"),
+        "expires": int(now + NONCE_TTL),
+    }
+
+
+class HostLoginReq(BaseModel):
+    address: str
+    signature: str
+    nonce: str
+
+
+@app.post("/system/login")
+async def system_login(req: HostLoginReq):
+    """Trade a signed challenge for a host-access token."""
+    import time as _t
+    addr = (req.address or "").strip().lower()
+    entry = _nonces.pop(req.nonce, None)   # single use, win or lose
+    if not entry or entry[1] < _t.time() or entry[0] != addr:
+        raise HTTPException(status_code=400, detail="challenge expired — request a new one")
+    message = ("chain — owner console\n\n"
+               "Sign in to view this host's stats.\n"
+               f"address: {addr}\n"
+               f"nonce: {req.nonce}")
+    try:
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+        signer = Account.recover_message(encode_defunct(text=message), signature=req.signature)
+    except Exception:
+        raise HTTPException(status_code=400, detail="bad signature")
+    if signer.lower() != addr or addr not in _owner_addresses():
+        raise HTTPException(status_code=403, detail="owner only")
+    expires = int(_t.time()) + TOKEN_TTL
+    return {"token": _sign_token(addr, expires), "address": addr, "expires": expires}
+
+
+@app.get("/system/stats")
+async def system_stats(top: int = 30, authorization: Optional[str] = Header(None)):
+    """Live host readout: per-core CPU, memory, disk, processes and per-
+    interface network traffic. Owner-only."""
+    _require_owner(authorization)
+    return await _host_module().collect(top=max(1, min(top, 100)))
+
+
 @app.get("/info")
 async def info():
     """API info."""
@@ -1695,5 +2012,7 @@ async def info():
             "control/status", "control/verify", "control/deploy-script",
             "build/compile", "build/templates", "build/test",
             "build/projects", "build/projects/{name}", "build/deployments",
+            "build/shared", "build/shared/{id}",
+            "system/access", "system/challenge", "system/login", "system/stats",
         ],
     }

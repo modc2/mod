@@ -21,6 +21,8 @@ const ENDPOINTS: Ep[] = [
   { method: "GET", path: "/get", auth: "optional", docs: "Retrieve by CID. Private objects need ?token= or a Bearer header (owner / grant / pool)." },
   { method: "GET", path: "/preview", auth: "optional", docs: "Peek at content: up to max_bytes (text decoded when possible) + size + truncated flag." },
   { method: "GET", path: "/object", auth: "optional", docs: "Full object profile: stored when/by whom, backends, visibility, semhash, links graph, access roster." },
+  { method: "GET", path: "/graph", auth: "token", docs: "The whole CID graph: nodes (objects + upload time) and edges (one object's content embeds another CID). ?scope=all adds shared objects, ?isolated=true adds unlinked ones." },
+  { method: "POST", path: "/graph/scan", auth: "token", docs: "Re-derive the graph by re-reading your objects' content (?scope=all = every object, owner only)." },
   { method: "GET", path: "/list", auth: "token", docs: "List your objects (+ visibility / scheme / external url)." },
   { method: "GET", path: "/search", auth: "token", docs: "Substring q or semantic_q search; scope mine | shared | all." },
   { method: "GET", path: "/shared", auth: "token", docs: "Objects shared with you via grants or pool membership." },
@@ -48,6 +50,7 @@ const MCP_TOOLS: [string, string, boolean][] = [
   ["store_search", "substring + semantic search over your objects", false],
   ["store_get", "preview an object's content by CID (public CIDs work unauthenticated)", true],
   ["store_object_info", "full object profile incl. the CID links graph", true],
+  ["store_graph", "the whole CID graph: nodes + edges (scope, isolated)", false],
   ["store_put_text", "store a text/JSON payload (name, backend, public, pool)", false],
   ["store_share", "create a timed read grant for an address", false],
   ["store_pin", "pin a CID", false],
@@ -107,7 +110,7 @@ export default function DocsPage() {
           <li><strong>Private by default</strong> — only you can read what you store, until you share, pool, publish, or list it.</li>
           <li><strong>Gated writes</strong> — storing needs the owner's whitelist or on-chain <strong>BlocTime</strong> holdings, a signed terms-of-service acceptance, and quota headroom.</li>
           <li><strong>CID-agnostic</strong> — data living elsewhere (Arweave, another IPFS pin, S3) can be registered by reference and becomes a first-class object.</li>
-          <li><strong>JSON link graph</strong> — CID strings embedded in stored JSON are auto-detected, so objects form a navigable graph.</li>
+          <li><strong>JSON link graph</strong> — CID strings embedded in stored content are auto-detected, so objects form a navigable graph. The <strong>🕸 Graph</strong> tab draws the whole thing; CIDs held elsewhere show up as external nodes.</li>
         </ul>
       </section>
 

@@ -9,11 +9,12 @@ import Builder from './components/Builder'
 import CreditsSidebar, { CreditsInfo } from './components/Credits'
 import Select from './components/Select'
 import Tools from './components/Tools'
+import Arena from './components/Arena'
 import MemoryPanel from './components/Memory'
 import { ThemePicker, useTheme } from './components/Theme'
 import { loadLocalIdentity, getOrCreateLocalIdentity, clearLocalIdentity, localSign } from './lib/localWallet'
 
-type Skill = { description: string; params: Record<string, any> }
+type ToolSchema = { description: string; params: Record<string, any> }
 // images: what the user pasted, as data URLs. thumbs are the tiny copies that
 // survive persistence — localStorage is shared across modc2 modules, so the
 // full-size data never goes in it.
@@ -168,7 +169,7 @@ type LibPrompt = Owned & { id: string; name: string; description: string; body?:
 // ── Personas: agents and library prompts, one list ──────────────────
 // Both answer the same question — "what prompt does this run use?" — so the
 // console treats them as one selectable thing. An agent is a persona with its
-// own skills/model; a library prompt is a persona that overrides the goal.
+// own tools/model; a library prompt is a persona that overrides the goal.
 type Persona = Owned & {
   key: string                 // 'agent:dev' | 'prompt:p-1f2e'
   kind: 'agent' | 'prompt'
@@ -194,12 +195,13 @@ type KeyBalance = {
 }
 
 export default function Home() {
-  // top-level view: the agent console, the visual agent builder, the library market, or the tasks page
-  const [view, setView] = useState<'console' | 'builder' | 'library' | 'tasks'>('console')
+  // top-level view: the agent console, the visual agent builder, the arena
+  // board, the library market, or the tasks page
+  const [view, setView] = useState<'console' | 'builder' | 'arena' | 'library' | 'tasks'>('console')
   // the look: palette + skin, persisted and applied to <html>
   const [theme, setTheme] = useTheme()
   const [query, setQuery] = useState('')
-  const [skills, setSkills] = useState<Record<string, Skill>>({})
+  const [toolSchemas, setToolSchemas] = useState<Record<string, ToolSchema>>({})
   const [loading, setLoading] = useState(false)
   const [tasks, setTasks] = useState<TaskEntry[]>([])
   const [selectedTask, setSelectedTask] = useState<number | null>(null)
@@ -241,8 +243,8 @@ export default function Home() {
   const [memNotes, setMemNotes] = useState<MemNote[]>([])
   const [promptSel, setPromptSel] = useState<LibPrompt | null>(null)
   const [memSel, setMemSel] = useState<string[]>([])
-  // external skills installed from Discover, attached to the run as instructions
-  const [skillSel, setSkillSel] = useState<string[]>([])
+  // tool documents installed from Discover, attached to the run as instructions
+  const [toolSel, setToolSel] = useState<string[]>([])
   const [showPicker, setShowPicker] = useState(false)
   const [pickerTab, setPickerTab] = useState<'prompts' | 'memory'>('prompts')
   const [pickerSearch, setPickerSearch] = useState('')
@@ -933,19 +935,32 @@ export default function Home() {
     return () => clearInterval(iv)
   }, [fetchServerTasks])
 
-  useEffect(() => {
-    fetch(`${API_URL}/skills`, { signal: AbortSignal.timeout(5000) })
-      .then(r => r.json())
-      .then(d => { setSkills(d.schemas || {}); setApiStatus('ok') })
-      .catch(() => setApiStatus('down'))
-    // tool counts up front so the TOOLS tab is labelled before it's opened
+  // the registry is also the API heartbeat — one call for the tool schemas,
+  // the tab counts and the online light
+  const loadTools = useCallback(() => {
     fetch(`${API_URL}/tools`, { signal: AbortSignal.timeout(5000) })
       .then(r => r.json())
-      .then(d => setToolCounts({
-        total: (d.tools || []).length,
-        custom: (d.tools || []).filter((t: any) => t.kind === 'custom').length,
-      }))
-      .catch(() => {})
+      .then(d => {
+        const list: any[] = d.tools || []
+        setToolSchemas(Object.fromEntries(list.map(t => [t.name, t])))
+        setToolCounts({ total: list.length,
+                        custom: list.filter(t => t.kind === 'custom').length })
+        setApiStatus('ok')
+      })
+      .catch(() => setApiStatus('down'))
+  }, [])
+
+  // an API that went down usually comes back — a pm2 restart is a few seconds.
+  // Keep beating while it's out so the light and the Run button recover on
+  // their own; before this, a bounce during page load meant a hard reload.
+  useEffect(() => {
+    if (apiStatus !== 'down') return
+    const iv = setInterval(loadTools, 10000)
+    return () => clearInterval(iv)
+  }, [apiStatus, loadTools])
+
+  useEffect(() => {
+    loadTools()
     // providers + models for the selector
     fetch(`${API_URL}/providers`, { signal: AbortSignal.timeout(5000) })
       .then(r => r.json())
@@ -1225,13 +1240,18 @@ export default function Home() {
     }
 
     try {
-      // check API is reachable before long-running request
-      try {
-        const ping = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(3000) })
-        if (!ping.ok) throw new Error()
-      } catch {
-        throw new Error(`API not reachable at ${API_URL}. Start with: m agent/serve`)
+      // check API is reachable before long-running request. One failed ping
+      // isn't proof it's gone — a restart bounces the socket for a couple of
+      // seconds, and telling someone to `m agent/serve` a server that is
+      // already coming back up sends them the wrong way. Beat twice.
+      let alive = false
+      for (let attempt = 0; attempt < 2 && !alive; attempt++) {
+        if (attempt) await new Promise(res => setTimeout(res, 2000))
+        try {
+          alive = (await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(3000) })).ok
+        } catch {}
       }
+      if (!alive) throw new Error(`API not reachable at ${API_URL}. Start with: m agent/serve`)
 
       const body: any = { query: q }
       if (shots.length) {
@@ -1250,7 +1270,7 @@ export default function Home() {
         if (bodyText) body.prompt = bodyText
       }
       if (memSel.length) body.memory_ids = memSel
-      if (skillSel.length) body.skill_ids = skillSel
+      if (toolSel.length) body.tool_ids = toolSel
       // guests pick how runs are powered: spend credits on the module's
       // public key, or stay on free models (never charged)
       if (auth && !auth.isOwner && !spendCredits) body.free = true
@@ -1288,6 +1308,9 @@ export default function Home() {
           })
         } else if (ev.type === 'done') {
           finishSingle(liveSteps.length ? liveSteps : (ev.result || []))
+          // a billed run just moved the balance — the run cost what it cost
+          // on the module's key plus the margin, so re-read it
+          if (ev.charged?.charged) fetchCredits()
         } else if (ev.type === 'error') {
           finishSingle(liveSteps, ev.error || 'Unknown error')
         }
@@ -1961,11 +1984,11 @@ export default function Home() {
             +{memSel.length}
           </span>
         )}
-        {skillSel.length > 0 && (
+        {toolSel.length > 0 && (
           <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/25 text-emerald-300 shrink-0 font-mono"
-            title={`${skillSel.length} installed skill${skillSel.length !== 1 ? 's' : ''} in context`}
-            onClick={e => { e.stopPropagation(); setSkillSel([]) }}>
-            ⌘{skillSel.length}
+            title={`${toolSel.length} installed tool doc${toolSel.length !== 1 ? 's' : ''} in context`}
+            onClick={e => { e.stopPropagation(); setToolSel([]) }}>
+            ⌘{toolSel.length}
           </span>
         )}
         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
@@ -2050,7 +2073,7 @@ export default function Home() {
                   ? personaErr
                   : pickerTab === 'memory'
                   ? 'selected notes ride along as run context'
-                  : 'agents bring skills + a model, prompts just set the goal'}
+                  : 'agents bring tools + a model, prompts just set the goal'}
               </span>
               <div className="ml-auto flex items-center gap-2">
                 {pickerTab === 'memory' && memSel.length > 0 && (
@@ -2524,7 +2547,7 @@ export default function Home() {
         </div>
         <div className="text-[10px] text-gray-600 truncate flex items-center gap-1.5">
           <button onClick={openToolRegistry} className="hover:text-emerald-300 transition" title="Open the tool registry">
-            {toolCounts?.total ?? Object.keys(skills).length} tools
+            {toolCounts?.total ?? Object.keys(toolSchemas).length} tools
           </button>
           {tasks.some(t => t.synced) && (
             <span className="text-emerald-400/60" title="conversations pinned to localfs">
@@ -2565,7 +2588,7 @@ export default function Home() {
           if (shown.length === 0) {
             return <div className="text-center text-xs text-gray-500 py-10 px-3">Nothing matches</div>
           }
-          // agents bring skills and a model; prompts only set the goal — keep
+          // agents bring tools and a model; prompts only set the goal — keep
           // the two apart so the distinction stays visible
           return (['agent', 'prompt'] as const).map(kind => {
             const rows = shown.filter(p => p.kind === kind)
@@ -3035,7 +3058,7 @@ export default function Home() {
   )
 
   // the market rail — the library docked on the far side of the workspace,
-  // so a run can be dressed with a prompt, a note or a skill without leaving
+  // so a run can be dressed with a prompt, a note or a tool without leaving
   // the console. Collapses to a strip like the chats rail.
   const marketPanel = (
     <div
@@ -3058,7 +3081,7 @@ export default function Home() {
             activeAgent={agentType}
             activePromptId={promptSel?.id ?? null}
             memSel={memSel}
-            skillSel={skillSel}
+            toolSel={toolSel}
             refreshKey={libVersion}
             onSelectAgent={(name) => { selectAgent(name); fetchAgents(auth?.token) }}
             onSelectPrompt={(item: LibItem) => selectPrompt({
@@ -3067,7 +3090,7 @@ export default function Home() {
               owner: item.owner ?? null, owner_source: (item.owner_source ?? null) as OwnerSource,
             })}
             onToggleMemory={toggleNote}
-            onToggleSkill={(id) => setSkillSel(prev =>
+            onToggleTool={(id) => setToolSel(prev =>
               prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])}
             onOpenLibrary={() => setView('library')}
             onClose={() => setMarketOpenPersist(false)}
@@ -3087,7 +3110,7 @@ export default function Home() {
             </button>
             <button
               onClick={() => setMarketOpenPersist(true)}
-              title="Market — prompts, skills, memory and agents"
+              title="Market — prompts, tools, memory and agents"
               className="[writing-mode:vertical-rl] text-[10px] uppercase tracking-widest text-gray-600 hover:text-emerald-300 transition py-2"
             >
               market
@@ -3122,7 +3145,7 @@ export default function Home() {
         </div>
 
         <nav className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
-          {(['console', 'builder', 'library', 'tasks'] as const).map(v => (
+          {(['console', 'builder', 'arena', 'library', 'tasks'] as const).map(v => (
             <button key={v}
               onClick={() => { if (v === 'tasks' && view !== 'tasks') fetchServerTasks(); setView(v) }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium uppercase tracking-wider transition ${
@@ -3158,6 +3181,13 @@ export default function Home() {
       <div className="flex-1 flex min-h-0">
         {/* background tasks — full page */}
         {view === 'tasks' && tasksPage}
+
+        {/* arena — every agent on the same tasks, one ranked board */}
+        {view === 'arena' && (
+          <div className="flex-1 min-h-0 flex">
+            <Arena token={auth?.token} isHost={isHost} />
+          </div>
+        )}
 
         {/* visual agent builder */}
         {view === 'builder' && (
@@ -3215,8 +3245,8 @@ export default function Home() {
                 if (dock === 'min') setDockPersist('normal')
                 setTimeout(() => inputRef.current?.focus(), 60)
               }}
-              onUseSkill={(id) => {
-                setSkillSel(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])
+              onUseTool={(id) => {
+                setToolSel(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])
                 setView('console')
                 if (dock === 'min') setDockPersist('normal')
                 setTimeout(() => inputRef.current?.focus(), 60)

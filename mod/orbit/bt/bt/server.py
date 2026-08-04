@@ -50,6 +50,7 @@ def _info():
         'version': SERVER_INFO['version'],
         'network': tools.DEFAULT_NETWORK,
         'tools': len(tools.TOOLS),
+        'block': history.stats().get('block'),   # what the index is synced to
         'traders': traders.stats(),
         'agent': {'ready': agent.status()['ready'], 'model': agent.MODEL},
         'mcp': {'http': '/bt/mcp', 'stdio': 'python3 -m bt.mcp_server'},

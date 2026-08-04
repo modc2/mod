@@ -90,7 +90,7 @@ def test_tools_list_shape(client):
     expected = {"store_status", "store_market_browse", "store_terms", "store_me",
                 "store_list", "store_search", "store_get", "store_object_info",
                 "store_put_text", "store_share", "store_pin", "store_pins",
-                "store_pools"}
+                "store_pools", "store_graph"}
     assert expected <= set(tools)
     for t in tools.values():
         assert t["description"]
@@ -133,6 +133,23 @@ def test_share_grants_read_access(client):
     structured(call(client, "store_share",
                     {"grantee": BOB, "cid": cid, "ttl_seconds": 600}, addr=ALICE))
     assert structured(call(client, "store_get", {"cid": cid}, addr=BOB))["text"] == "secret"
+
+
+def test_graph_tool_walks_cid_references(client):
+    """An agent can pull the whole graph in one call: the manifest it stored
+    points at the part, and the part points back."""
+    client.post("/terms/accept", headers=H(ALICE))
+    part = structured(call(client, "store_put_text",
+                           {"name": "part.txt", "text": "raw"}, addr=ALICE))
+    part_cid = part["results"]["localfs"]["cid"]
+    bundle = structured(call(client, "store_put_text",
+                             {"name": "bundle.json", "text": '{"parts": ["%s"]}' % part_cid},
+                             addr=ALICE))
+    bundle_cid = bundle["results"]["localfs"]["cid"]
+
+    g = structured(call(client, "store_graph", {}, addr=ALICE))
+    assert [(e["from"], e["to"]) for e in g["edges"]] == [(bundle_cid, part_cid)]
+    assert {n["cid"] for n in g["nodes"]} == {bundle_cid, part_cid}
 
 
 def test_authed_tool_without_token_is_tool_error(client):

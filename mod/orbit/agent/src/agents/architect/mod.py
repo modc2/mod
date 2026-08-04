@@ -5,7 +5,7 @@ class Agent:
     name = "Architect"
     description = "System design and architecture planning"
     icon = "△"
-    skills = ["think", "read", "tree", "context", "symbols", "grep", "glob"]
+    tools = ["think", "read", "tree", "context", "symbols", "grep", "glob"]
     model = None
 
     goal = """You are a senior software architect. You design systems, plan implementations, and reason about tradeoffs.

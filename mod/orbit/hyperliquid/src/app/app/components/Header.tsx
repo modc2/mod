@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { shortAddr } from "../lib/api";
 import { useWallet } from "../lib/wallet";
-import ThemeToggle from "./ThemeToggle";
+import ThemePicker from "./ThemePicker";
 
 const NAV = [
   { href: "/", label: "Traders" },
@@ -69,7 +69,7 @@ export default function Header() {
           })}
         </nav>
         <div className="ml-auto flex items-center gap-2 shrink-0">
-          <ThemeToggle />
+          <ThemePicker />
           {editing ? (
             <>
               <input

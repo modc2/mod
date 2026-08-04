@@ -32,7 +32,7 @@ class TextExtractor(HTMLParser):
         return "\n".join(self.text)
 
 
-class Skill:
+class Tool:
     description = "Fetch a web page and extract its text content"
 
     def forward(self, url: str, max_chars: int = 10000,

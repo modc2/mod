@@ -12,6 +12,7 @@ import {
 } from "../lib/api";
 import type { AccountWatch, CopyConfig, TrackedTrader } from "../lib/types";
 import { useCurrency, fmtValue } from "../context/CurrencyContext";
+import { useSidebar } from "../context/SidebarContext";
 import ChangeChip from "./ChangeChip";
 import Identicon from "./Identicon";
 import Sparkline from "./Sparkline";
@@ -35,8 +36,9 @@ const PAGE = 40;
 
 const looksLikeSs58 = (s: string) => s.startsWith("5") && s.length >= 40;
 
-export default function WatchlistDrawer({ onClose }: { onClose: () => void }) {
+export default function WatchlistDrawer() {
   const { currency, usdPerTao } = useCurrency();
+  const { openStrat } = useSidebar();
   const [accounts, setAccounts] = useState<AccountWatch[]>([]);
   const [index, setIndex] = useState<Map<string, TrackedTrader>>(new Map());
   const [copying, setCopying] = useState<Set<string>>(new Set());
@@ -176,13 +178,19 @@ export default function WatchlistDrawer({ onClose }: { onClose: () => void }) {
           >
             ↻
           </button>
-          <button
-            onClick={onClose}
-            className="pixel-btn text-[10px] px-2 py-0.5"
-            title="Close drawer"
-          >
-            ✕
-          </button>
+          {rows.length > 0 && (
+            <button
+              onClick={() => openStrat(...rows.map((r) => r.ss58))}
+              className="pixel-btn text-[10px] px-2 py-0.5 text-green-400 border-green-400/40"
+              title={
+                rows.length === accounts.length
+                  ? "Build an index from the whole watchlist"
+                  : `Build an index from the ${rows.length} rows shown`
+              }
+            >
+              COPY ALL
+            </button>
+          )}
         </div>
       </div>
 
@@ -332,12 +340,13 @@ export default function WatchlistDrawer({ onClose }: { onClose: () => void }) {
                     ●COPYING
                   </span>
                 ) : (
-                  <Link
-                    href={`/strats?target=${r.ss58}`}
-                    className="text-[9px] font-mono text-pixel-gray hover:text-green-400 shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 no-underline"
+                  <button
+                    onClick={() => openStrat(r.ss58)}
+                    title="Add to the strat maker's basket"
+                    className="text-[9px] font-mono text-pixel-gray hover:text-green-400 shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
                   >
                     COPY
-                  </Link>
+                  </button>
                 )}
                 <button
                   onClick={() => remove(r.ss58)}

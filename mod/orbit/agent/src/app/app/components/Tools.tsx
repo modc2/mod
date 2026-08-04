@@ -3,22 +3,27 @@
 // Tools — the console's TOOLS tab.
 //
 // Two things live here. TRACE is what the selected run actually called, step
-// by step. REGISTRY is what it *could* call: every shipped skill plus the
-// custom tools added right here. A custom tool is a described, parameterised
-// shell command — the agent sees it in its tool list exactly like a built-in.
+// by step. REGISTRY is what it *could* call. Three kinds share that one list:
+// the tools shipped in this module, the custom shell tools added right here,
+// and FLEET — every mod-protocol module on the host, callable as `mod.<name>`.
+//
+// The fleet is opt-in. There are hundreds of modules, so they are searched on
+// the server and only reach the model once switched on; the shipped and custom
+// tools are the default loadout.
 //
 // The registry is also where the loadout is set — which of those tools the
 // model actually gets. A toolbox chip snaps a whole bundle on; the per-tool
 // switch refines from there into an exact list; "save as box" turns whatever
 // you landed on into a named bundle you can snap back later.
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
 
 export type ToolParam = { type?: string; required?: boolean; default?: any; hint?: string }
+export type ToolKind = 'builtin' | 'custom' | 'mod'
 export type ToolEntry = {
   name: string
-  kind: 'skill' | 'custom'
+  kind: ToolKind
   builtin: boolean
   active: boolean
   description: string
@@ -28,8 +33,16 @@ export type ToolEntry = {
   timeout?: number
   owner?: string | null
   cid?: string | null
+  mod?: string          // fleet only: the module behind the tool
+  fns?: string[]        // fleet only: the functions it declares
 }
-type Snapped = { snapped: string[]; skills: string[]; filtered: boolean; source?: 'all' | 'toolboxes' | 'selection' }
+type Snapped = {
+  snapped: string[]
+  tools?: string[]
+  skills?: string[]     // pre-rename field name, still accepted
+  filtered: boolean
+  source?: 'all' | 'toolboxes' | 'selection'
+}
 type Box = { name: string; description: string; tools: string[]; builtin: boolean }
 
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
@@ -49,36 +62,57 @@ export default function Tools({ token, isHost, onCount }: {
   const [tools, setTools] = useState<ToolEntry[]>([])
   const [boxes, setBoxes] = useState<Box[]>([])
   const [snapped, setSnapped] = useState<Snapped | null>(null)
+  const [fleetSize, setFleetSize] = useState(0)
   const [loaded, setLoaded] = useState(false)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'skill' | 'custom' | 'active'>('all')
+  const [filter, setFilter] = useState<'all' | 'builtin' | 'custom' | 'mod' | 'active'>('all')
   const [open, setOpen] = useState<string | null>(null)
   const [editing, setEditing] = useState<ToolEntry | 'new' | null>(null)
   const [saveBox, setSaveBox] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  // the fleet is searched on the server: 300 modules don't belong in the
+  // browser, and a query only reaches the API once typing stops
+  const wantFleet = filter === 'mod' || filter === 'all'
+  const [query, setQuery] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), 250)
+    return () => clearTimeout(t)
+  }, [search])
+
   const load = useCallback(() => {
-    fetch(`${API_URL}/tools`, { signal: AbortSignal.timeout(8000) })
+    const qs = new URLSearchParams()
+    if (wantFleet && query) { qs.set('mods', 'true'); qs.set('q', query); qs.set('limit', '40') }
+    else if (filter === 'mod') { qs.set('mods', 'true'); qs.set('limit', '40') }
+    fetch(`${API_URL}/tools${qs.toString() ? `?${qs}` : ''}`, { signal: AbortSignal.timeout(12000) })
       .then(r => r.json())
       .then(d => {
         const list: ToolEntry[] = d.tools || []
         setTools(list)
         setBoxes(d.toolboxes || [])
         setSnapped(d.snapped || null)
+        setFleetSize(d.fleet || 0)
         setLoaded(true)
-        onCount?.({ total: list.length, custom: list.filter(t => t.kind === 'custom').length })
+        onCount?.({ total: list.filter(t => t.kind !== 'mod').length,
+                    custom: list.filter(t => t.kind === 'custom').length })
       })
       .catch(() => setLoaded(true))
-  }, [onCount])
+  }, [onCount, query, filter, wantFleet])
 
   useEffect(() => { load() }, [load])
+
+  // the live loadout, whatever is rendered — a hand-picked list can hold fleet
+  // tools that this page of search results never showed
+  const loadout = useMemo(
+    () => snapped?.tools ?? snapped?.skills ?? null, [snapped])
 
   // snap/unsnap/select all answer with the new loadout — apply it in place so
   // the switches flip without a round trip through the registry
   const applyState = (s: any) => {
     if (s?.error) { setErr(s.error); return }
-    if (!Array.isArray(s?.skills)) { load(); return }
-    const on = new Set<string>(s.skills)
+    const names: string[] | undefined = s?.tools ?? s?.skills
+    if (!Array.isArray(names)) { load(); return }
+    const on = new Set<string>(names)
     setErr(null)
     setSnapped(s)
     setTools(ts => ts.map(t => ({ ...t, active: on.has(t.name) })))
@@ -110,8 +144,13 @@ export default function Tools({ token, isHost, onCount }: {
     } catch (e: any) { setErr(e?.message || 'reset failed') }
   }
 
+  // switching one tool means selecting the whole loadout again. Base it on the
+  // server's list, not the rendered rows — otherwise attaching `mod.git` from a
+  // search result would silently drop every tool the search filtered out.
   const toggleTool = (t: ToolEntry) => {
-    const next = tools.filter(x => (x.name === t.name ? !x.active : x.active)).map(x => x.name)
+    const current = loadout ?? tools.filter(x => x.kind !== 'mod').map(x => x.name)
+    const next = t.active ? current.filter(n => n !== t.name)
+                          : [...current.filter(n => n !== t.name), t.name]
     if (next.length === 0) { setErr('a loadout needs at least one tool'); return }
     select(next)
   }
@@ -138,17 +177,22 @@ export default function Tools({ token, isHost, onCount }: {
   }
 
   const custom = tools.filter(t => t.kind === 'custom')
+  const shipped = tools.filter(t => t.kind === 'builtin')
   const shown = tools.filter(t => {
-    if (filter === 'skill' && t.kind !== 'skill') return false
+    if (filter === 'builtin' && t.kind !== 'builtin') return false
     if (filter === 'custom' && t.kind !== 'custom') return false
+    if (filter === 'mod' && t.kind !== 'mod') return false
     if (filter === 'active' && !t.active) return false
-    if (!search.trim()) return true
+    // the fleet arrives already matched by the server; the rest narrows here so
+    // typing stays instant
+    if (!search.trim() || t.kind === 'mod') return true
     const q = search.toLowerCase()
     return t.name.includes(q) || (t.description || '').toLowerCase().includes(q) ||
       (t.command || '').toLowerCase().includes(q)
   })
 
-  const activeNames = tools.filter(t => t.active).map(t => t.name)
+  const activeNames = loadout ?? tools.filter(t => t.active).map(t => t.name)
+  const attachedMods = activeNames.filter(n => n.startsWith('mod.'))
 
   if (editing) return (
     <ToolForm tool={editing === 'new' ? null : editing} token={token} boxes={boxes}
@@ -170,9 +214,12 @@ export default function Tools({ token, isHost, onCount }: {
           <span className="text-[10px] uppercase tracking-wider text-gray-600">Loadout</span>
           <span className="text-[10px] text-gray-500">
             {snapped?.filtered
-              ? <><span className="text-emerald-400">{snapped.skills.length}</span> of {tools.length} reach the model
+              ? <><span className="text-emerald-400">{activeNames.length}</span> tools reach the model
                   {snapped.source === 'selection' && <span className="text-gray-600"> · hand-picked</span>}</>
-              : <>all {tools.length} tools reach the model</>}
+              : <>all {activeNames.length} tools reach the model</>}
+            {attachedMods.length > 0 && (
+              <span className="text-violet-300/80"> · {attachedMods.length} from the fleet</span>
+            )}
           </span>
           <button onClick={() => setSaveBox(true)} disabled={!activeNames.length}
             title="Save the current loadout as a toolbox"
@@ -210,15 +257,17 @@ export default function Tools({ token, isHost, onCount }: {
 
       {/* what's on, and how to add more */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tools…"
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder={`Search tools + ${fleetSize || 'the'} fleet modules…`}
           className="flex-1 min-w-[140px] bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-gray-200 outline-none placeholder:text-gray-600 focus:border-emerald-500/40 transition" />
-        {(['all', 'skill', 'custom', 'active'] as const).map(f => (
+        {(['all', 'builtin', 'custom', 'mod', 'active'] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
+            title={f === 'mod' ? 'The fleet — every module on the host, callable as mod.<name>' : undefined}
             className={`px-2.5 py-1.5 rounded-lg text-[10px] uppercase tracking-wider transition border ${
               filter === f ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
                            : 'bg-white/[0.03] border-white/[0.06] text-gray-600 hover:text-gray-300'
             }`}>
-            {f === 'skill' ? 'shipped' : f}
+            {f === 'builtin' ? 'shipped' : f === 'mod' ? 'fleet' : f}
           </button>
         ))}
         <button onClick={() => { setErr(null); setEditing('new') }}
@@ -229,9 +278,14 @@ export default function Tools({ token, isHost, onCount }: {
       </div>
 
       <div className="flex items-center gap-2 text-[10px] text-gray-600">
-        <span>{tools.length - custom.length} shipped</span>
+        <span>{shipped.length} shipped</span>
         <span className="text-gray-800">·</span>
         <span className={custom.length ? 'text-emerald-400/70' : ''}>{custom.length} custom</span>
+        <span className="text-gray-800">·</span>
+        <button onClick={() => setFilter('mod')}
+          className={`transition hover:text-violet-300 ${filter === 'mod' ? 'text-violet-300' : 'text-violet-400/50'}`}>
+          {fleetSize} fleet modules
+        </button>
         {!!snapped?.snapped?.length && (
           <>
             <span className="text-gray-800">·</span>
@@ -274,19 +328,34 @@ function ToolRow({ tool, token, open, onToggle, onToggleActive, onEdit, onDelete
   onDelete: () => void
 }) {
   const [args, setArgs] = useState<Record<string, string>>({})
+  const [fn, setFn] = useState('')
+  const [fnArgs, setFnArgs] = useState('')
   const [result, setResult] = useState<any>(null)
   const [running, setRunning] = useState(false)
 
   const names = Object.keys(tool.params || {})
   const isCustom = tool.kind === 'custom'
+  const isMod = tool.kind === 'mod'
+
+  // a fleet call is {fn, params}; the params box is JSON, so say so before the
+  // round trip instead of letting the server reject it
+  const fnArgsError = (() => {
+    if (!isMod || !fnArgs.trim()) return null
+    try { const v = JSON.parse(fnArgs); return typeof v === 'object' && v ? null : 'params must be a JSON object' }
+    catch { return 'not valid JSON' }
+  })()
 
   const tryIt = async () => {
+    if (fnArgsError) return
     setRunning(true)
     setResult(null)
+    const params = isMod
+      ? { fn: fn.trim() || 'forward', params: fnArgs.trim() ? JSON.parse(fnArgs) : {} }
+      : args
     try {
       const r = await fetch(`${API_URL}/tools/${encodeURIComponent(tool.name)}/run`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ params: args, key: token }),
+        body: JSON.stringify({ params, key: token }),
       }).then(x => x.json())
       setResult(r.error ? { stderr: r.error, success: false } : r.result)
     } catch (e: any) {
@@ -298,7 +367,8 @@ function ToolRow({ tool, token, open, onToggle, onToggleActive, onEdit, onDelete
   return (
     <div className={`text-xs rounded-md border transition ${
       isCustom ? 'bg-emerald-500/[0.03] border-emerald-500/15 hover:border-emerald-500/25'
-               : 'bg-white/[0.02] border-white/[0.05] hover:border-white/[0.1]'
+      : isMod ? 'bg-violet-500/[0.03] border-violet-500/15 hover:border-violet-500/25'
+              : 'bg-white/[0.02] border-white/[0.05] hover:border-white/[0.1]'
     } ${tool.active ? '' : 'opacity-60'}`}>
       <div className="flex items-center gap-2 px-2.5 py-2">
         {/* the switch is the loadout: off means the model never sees this tool */}
@@ -312,8 +382,11 @@ function ToolRow({ tool, token, open, onToggle, onToggleActive, onEdit, onDelete
         </button>
         <button className="flex-1 min-w-0 text-left flex items-center gap-2" onClick={onToggle}>
           <span className="text-gray-600 shrink-0">{open ? '▼' : '▶'}</span>
-          <span className={`font-mono shrink-0 ${isCustom ? 'text-emerald-300' : 'text-sky-300'}`}>{tool.name}</span>
+          <span className={`font-mono shrink-0 ${
+            isCustom ? 'text-emerald-300' : isMod ? 'text-violet-300' : 'text-sky-300'
+          }`}>{tool.name}</span>
           {isCustom && <span className="text-[9px] uppercase tracking-wider text-emerald-500/70 shrink-0">custom</span>}
+          {isMod && <span className="text-[9px] uppercase tracking-wider text-violet-400/70 shrink-0">fleet</span>}
           <span className="text-gray-600 truncate">{tool.description}</span>
           {names.length > 0 && (
             <span className="ml-auto text-[10px] text-gray-700 font-mono shrink-0">{names.length}p</span>
@@ -344,6 +417,46 @@ function ToolRow({ tool, token, open, onToggle, onToggleActive, onEdit, onDelete
                   </div>
                 )
               })}
+            </div>
+          )}
+
+          {isMod && (
+            <div className="pt-1.5 border-t border-white/[0.06] space-y-1.5">
+              {!!tool.fns?.length && (
+                <div className="flex gap-1 flex-wrap">
+                  {tool.fns.map(f => (
+                    <button key={f} onClick={() => setFn(f)}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono border transition ${
+                        fn === f ? 'bg-violet-500/15 border-violet-500/30 text-violet-200'
+                                 : 'bg-white/[0.03] border-white/[0.06] text-gray-500 hover:text-violet-300'
+                      }`}>{f}</button>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-1.5">
+                <input value={fn} onChange={e => setFn(e.target.value)} placeholder="forward"
+                  className="w-36 bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1 text-[11px] font-mono text-gray-200 outline-none placeholder:text-gray-700 focus:border-violet-500/40 transition" />
+                <input value={fnArgs} onChange={e => setFnArgs(e.target.value)} placeholder='{"path": "."}'
+                  className={`flex-1 min-w-0 bg-white/[0.04] border rounded px-2 py-1 text-[11px] font-mono text-gray-200 outline-none placeholder:text-gray-700 transition ${
+                    fnArgsError ? 'border-red-500/40' : 'border-white/[0.08] focus:border-violet-500/40'
+                  }`} />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button onClick={tryIt} disabled={running || !!fnArgsError}
+                  className="px-2.5 py-1 rounded text-[10px] uppercase tracking-wider bg-violet-600/80 hover:bg-violet-500 disabled:bg-white/5 disabled:text-gray-600 text-white transition">
+                  {running ? 'calling…' : 'call it'}
+                </button>
+                <span className="text-[10px] text-gray-600 font-mono truncate">
+                  {fnArgsError ? <span className="text-red-400">params: {fnArgsError}</span>
+                               : `${tool.mod || tool.name}/${fn.trim() || 'forward'}`}
+                </span>
+                <span className="ml-auto text-[10px] text-gray-700 shrink-0">host only</span>
+              </div>
+              {result !== null && (
+                <pre className="text-[11px] overflow-x-auto max-h-52 leading-relaxed border-l pl-2 text-gray-400 border-violet-500/20">
+                  {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
+                </pre>
+              )}
             </div>
           )}
 

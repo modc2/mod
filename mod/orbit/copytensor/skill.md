@@ -180,6 +180,31 @@ a 2px grid and emits an axis-aligned staircase, and the Recharts areas use
 `type="stepAfter"` to match. A smooth interpolation is the fastest way to break the
 spell, so if a new chart lands, step it.
 
+### The drawer, docked and popped out
+
+The right-hand drawer (`SidebarShell.tsx` + `context/SidebarContext.tsx`) holds the
+two things you do with a trader — `WatchlistDrawer` (keep an eye on it) and
+`StratPicker` (put it in a basket) — and has two housings. Docked, it's a column
+bolted to the right edge with a drag gutter (`.drawer-grip`) between it and the
+board. **POP OUT** tears it off into a floating window (`.drawer-win`): drag it by
+the title bar, resize from any of the eight edges, **ROLL** it up into its bar,
+**MAX** it to the screen, **DOCK** it back. Position and size persist
+(`ct_sidebar_mode`, `ct_sidebar_rect`) and are clamped back on screen on every load
+and viewport resize; dragging within 20px of an edge snaps flush to it.
+
+Two things that are load-bearing:
+
+- **Dock and float are the same `<aside>`**, restyled — not two components. Moving it
+  in the tree would remount both panels, so every pop-out would throw away a
+  half-filled basket. For the same reason both panels stay mounted and the inactive
+  one is `hidden`, rather than being swapped in and out.
+- **The window's title bar is a separate rail from the tabs.** They shared one row
+  first, which left about a caption's width of bar to grab at 420px and made every
+  near-miss hit a button. Drag is suppressed over anything inside a `<button>`.
+
+`compact` (the builder's one-column layout) keys on the drawer's *actual* width in
+either housing, not on the EXPAND state.
+
 ### Skins
 
 There are nine, and every one is a real cabinet rather than an inverted dark mode:

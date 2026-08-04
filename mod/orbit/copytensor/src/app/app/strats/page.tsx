@@ -8,14 +8,15 @@ import {
   fetchCopies, pauseCopy, resumeCopy, deleteCopy, syncCopy, shortSs58,
 } from "../lib/api";
 import CopyForm from "../components/CopyForm";
-import StratPicker from "../components/StratPicker";
 import PageHeader from "../components/PageHeader";
+import { useSidebar } from "../context/SidebarContext";
 
 type Mode = "index" | "single";
 
 function StratsBody() {
   const params = useSearchParams();
   const target = params.get("target") || "";
+  const { openStrat } = useSidebar();
   const [mode, setMode] = useState<Mode>("index");
   const [copies, setCopies] = useState<CopyConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +30,13 @@ function StratsBody() {
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
+
+  // Old ?target= links (and anything else that deep-links a trader) now open
+  // the drawer's builder with that address already in the basket.
+  useEffect(() => {
+    if (target) openStrat(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
 
   const runOp = async (id: string, op: () => Promise<unknown>) => {
     setBusyId(id);
@@ -65,7 +73,29 @@ function StratsBody() {
         copy. Set safety limits, pause/resume, or force-sync at any time.
       </PageHeader>
 
-      {mode === "index" && <StratPicker seedTarget={target} />}
+      {mode === "index" && (
+        // The builder lives in the drawer so it stays open next to the board
+        // you're picking from — this is the way in from the menu.
+        <section className="pixel-panel p-4 flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="font-display text-base font-bold mb-1">
+              Strat maker
+            </h2>
+            <p className="arcade-prose arcade-prose-sm">
+              The index builder is docked on the right. Tick any set of traders
+              — the whole leaderboard, your watchlist, a subnet’s validators or
+              a list of pasted addresses — weight them, and start one copy per
+              trader.
+            </p>
+          </div>
+          <button
+            onClick={() => openStrat()}
+            className="pixel-btn border-green-400 text-green-400 shrink-0"
+          >
+            OPEN STRAT MAKER →
+          </button>
+        </section>
+      )}
 
       <section>
         <h2 className="font-display text-lg font-bold mb-3">Active copies</h2>

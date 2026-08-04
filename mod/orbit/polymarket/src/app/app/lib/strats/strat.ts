@@ -287,10 +287,19 @@ export class Strat {
   //   2. market-topic query (`params.marketQuery`)
   //   3. semantic trade filters (`params.tradeFilters`)
   //   4. trader FILTER (`params.filter`) — is this trader still top-ranked?
+  //
+  // Gates 3 and 4 pick which trades are worth ENTERING, so they only apply
+  // to BUYs. A leader unwinding a position we copied is not a candidate to
+  // judge — it's the only signal that closes what we already bought, and a
+  // strat that filtered it out would enter positions it can never exit (the
+  // trader drifting out of the top N between our BUY and their SELL is
+  // enough to do it). Mirrors live_engine.rs, whose cycle gates BUYs on
+  // `trade_passes_filters` + the FILTER and lets every SELL through.
   shouldMirror(trade: TraderTrade, history: StratHistory): boolean {
     if (this.params.mirror === false) return false;
+    if (!marketMatchesQuery(trade.market, this.params.marketQuery ?? "")) return false;
+    if (trade.side === "SELL") return true;
     return (
-      marketMatchesQuery(trade.market, this.params.marketQuery ?? "") &&
       tradeMatchesFilters(trade, this.params.tradeFilters ?? {}) &&
       this.traderPassesFilter(trade.trader, history)
     );
@@ -304,6 +313,7 @@ export class Strat {
     if (!marketMatchesQuery(trade.market, this.params.marketQuery ?? "")) {
       return `market "${trade.market}" doesn't match "${this.params.marketQuery}"`;
     }
+    if (trade.side === "SELL") return "";
     if (!tradeMatchesFilters(trade, this.params.tradeFilters ?? {})) {
       const desc = describeTradeFilters(this.params.tradeFilters) || "favorites-only default (≥60¢ BUYs)";
       return `trade filter · ${desc}`;

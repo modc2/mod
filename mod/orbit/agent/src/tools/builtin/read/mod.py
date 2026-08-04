@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-class Skill:
+class Tool:
     description = "Read file contents with optional line range"
 
     def forward(self, file_path: str, offset: int = 0, limit: int = None, **kwargs) -> Dict[str, Any]:
@@ -24,5 +24,5 @@ class Skill:
 
     def test(self):
         r = self.forward(__file__)
-        assert r["success"] and "Skill" in r["content"]
+        assert r["success"] and "Tool" in r["content"]
         return True

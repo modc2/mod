@@ -15,8 +15,11 @@ node.
 
 Store: ~/.mod/bt/traders.db  (override dir with BT_DATA_DIR)
   traders(ss58, label, network, added_ts, last_ts)
-  trader_snaps(ss58, ts, free_tao, staked_tao, total_tao, positions)
-  trader_flows(ts, ss58, netuid, side, alpha, price, tao_value)
+  trader_snaps(ss58, ts, free_tao, staked_tao, total_tao, positions, block)
+  trader_flows(ts, ss58, netuid, side, alpha, price, tao_value, block)
+
+Each snapshot and each inferred flow carries the block it was read at, so
+a trade tape can be lined up against the chain (`sync()` reports the lag).
 
 The refresher runs on its OWN Bt connection (the substrate websocket is
 not thread-safe), so API calls never wait behind a snapshot.
@@ -61,7 +64,18 @@ def _db() -> sqlite3.Connection:
         side TEXT, alpha REAL, price REAL, tao_value REAL,
         PRIMARY KEY (ss58, ts, netuid))''')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_flows_ts ON trader_flows(ts)')
+    # columns added after the first release — widen in place
+    for table in ('trader_snaps', 'trader_flows'):
+        have = {r[1] for r in conn.execute(f'PRAGMA table_info({table})')}
+        if 'block' not in have:
+            conn.execute(f'ALTER TABLE {table} ADD COLUMN block INTEGER')
     return conn
+
+
+SNAP_COLS = ('ss58', 'ts', 'free_tao', 'staked_tao', 'total_tao', 'positions',
+             'block')
+FLOW_COLS = ('ts', 'ss58', 'netuid', 'side', 'alpha', 'price', 'tao_value',
+             'block')
 
 
 def _valid_ss58(address: str) -> bool:
@@ -180,7 +194,8 @@ def _by_netuid(positions: List[Dict]) -> Dict[int, Dict]:
     return out
 
 
-def _record(address: str, ts: int, state: Dict) -> List[Dict]:
+def _record(address: str, ts: int, state: Dict,
+            block: Optional[int] = None) -> List[Dict]:
     """Persist a snapshot and derive the flows since the previous one."""
     with _db_lock:
         conn = _db()
@@ -189,16 +204,18 @@ def _record(address: str, ts: int, state: Dict) -> List[Dict]:
                 'SELECT ts, positions FROM trader_snaps WHERE ss58 = ? '
                 'ORDER BY ts DESC LIMIT 1', (address,)).fetchone()
             conn.execute(
-                'INSERT OR REPLACE INTO trader_snaps VALUES (?,?,?,?,?,?)',
+                f'INSERT OR REPLACE INTO trader_snaps ({",".join(SNAP_COLS)}) '
+                f'VALUES ({",".join("?" * len(SNAP_COLS))})',
                 (address, ts, state['free_tao'], state['staked_tao'],
-                 state['total_tao'], json.dumps(state['positions'])))
+                 state['total_tao'], json.dumps(state['positions']), block))
             flows = _diff(json.loads(prev[1]) if prev else None,
                           state['positions']) if prev else []
             if flows:
                 conn.executemany(
-                    'INSERT OR REPLACE INTO trader_flows VALUES (?,?,?,?,?,?,?)',
+                    f'INSERT OR REPLACE INTO trader_flows ({",".join(FLOW_COLS)}) '
+                    f'VALUES ({",".join("?" * len(FLOW_COLS))})',
                     [(ts, address, f['netuid'], f['side'], f['alpha'],
-                      f['price'], f['tao_value']) for f in flows])
+                      f['price'], f['tao_value'], block) for f in flows])
             conn.execute('UPDATE traders SET last_ts = ? WHERE ss58 = ?',
                          (ts, address))
             conn.commit()
@@ -229,29 +246,37 @@ def _diff(before: Optional[List[Dict]], after: List[Dict]) -> List[Dict]:
     return flows
 
 
-def snapshot(address: str, bt=None) -> Dict:
+def snapshot(address: str, bt=None, block: Optional[int] = None) -> Dict:
     """Snapshot one account now (chain read), persist, return the state."""
     if bt is None:
         from .tools import get_bt
         bt = get_bt()
     ts = int(time.time())
+    if block is None:
+        block = history.head_block(bt)
     state = _read_positions(bt, address, _prices_now())
-    flows = _record(address, ts, state)
-    return {'ss58': address, 'ts': ts, **state, 'flows': flows}
+    flows = _record(address, ts, state, block)
+    return {'ss58': address, 'ts': ts, 'block': block, **state, 'flows': flows}
 
 
 def snapshot_all(bt=None) -> Dict:
-    """Snapshot every tracked account. Errors are per-account, not fatal."""
+    """Snapshot every tracked account. Errors are per-account, not fatal.
+
+    The block is read once for the round, not once per account: a full pass
+    over the watchlist takes minutes, and one honest stamp for the round
+    beats 370 stamps that each drift a few blocks apart.
+    """
     ok, errors = [], {}
+    block = history.head_block(bt)
     for t in watchlist():
         try:
-            snap = snapshot(t['ss58'], bt=bt)
+            snap = snapshot(t['ss58'], bt=bt, block=block)
             ok.append({'ss58': t['ss58'], 'total_tao': snap['total_tao'],
                        'flows': len(snap['flows'])})
         except Exception as e:
             errors[t['ss58']] = f'{type(e).__name__}: {e}'
     return {'snapped': len(ok), 'accounts': ok, 'errors': errors,
-            'ts': int(time.time())}
+            'block': block, 'ts': int(time.time())}
 
 
 # ------------------------------------------------------------- queries
@@ -260,14 +285,16 @@ def _snap_at(conn, address: str, ts: int, tolerance: float = 0.5,
              horizon: Optional[int] = None) -> Optional[Dict]:
     """The stored snapshot closest to ts, or None if none is close enough."""
     row = conn.execute(
-        'SELECT ts, free_tao, staked_tao, total_tao, positions FROM trader_snaps '
-        'WHERE ss58 = ? ORDER BY ABS(ts - ?) LIMIT 1', (address, ts)).fetchone()
+        'SELECT ts, free_tao, staked_tao, total_tao, positions, block '
+        'FROM trader_snaps WHERE ss58 = ? ORDER BY ABS(ts - ?) LIMIT 1',
+        (address, ts)).fetchone()
     if not row:
         return None
     if horizon and abs(row[0] - ts) > tolerance * horizon:
         return None
     return {'ts': row[0], 'free_tao': row[1], 'staked_tao': row[2],
-            'total_tao': row[3], 'positions': json.loads(row[4])}
+            'total_tao': row[3], 'positions': json.loads(row[4]),
+            'block': row[5]}
 
 
 def positions_at(address: str, ts: Optional[int] = None,
@@ -555,7 +582,8 @@ def trader(address: str, hours: int = 168, flows_limit: int = 50) -> Dict:
             for p in positions:
                 p['pct_of_total'] = (p['value_tao'] / total * 100.0) if total else 0.0
             out.update({
-                'snapshot_ts': snap['ts'], 'free_tao': snap['free_tao'],
+                'snapshot_ts': snap['ts'], 'snapshot_block': snap['block'],
+                'free_tao': snap['free_tao'],
                 'staked_tao': staked, 'total_tao': total,
                 'subnets': len(positions), 'positions': positions,
                 'series': _series(conn, address, hours),
@@ -597,18 +625,19 @@ def _flows(conn, address: Optional[str], hours: int, limit: int) -> List[Dict]:
     since = int(time.time()) - hours * 3600
     if address:
         rows = conn.execute(
-            'SELECT ts, ss58, netuid, side, alpha, price, tao_value FROM trader_flows '
-            'WHERE ss58 = ? AND ts >= ? ORDER BY ts DESC LIMIT ?',
+            'SELECT ts, ss58, netuid, side, alpha, price, tao_value, block '
+            'FROM trader_flows WHERE ss58 = ? AND ts >= ? ORDER BY ts DESC LIMIT ?',
             (address, since, limit)).fetchall()
     else:
         rows = conn.execute(
-            'SELECT ts, ss58, netuid, side, alpha, price, tao_value FROM trader_flows '
-            'WHERE ts >= ? ORDER BY ts DESC LIMIT ?', (since, limit)).fetchall()
+            'SELECT ts, ss58, netuid, side, alpha, price, tao_value, block '
+            'FROM trader_flows WHERE ts >= ? ORDER BY ts DESC LIMIT ?',
+            (since, limit)).fetchall()
     labels = dict(conn.execute('SELECT ss58, label FROM traders').fetchall())
     return [{'ts': t, 'ss58': s, 'label': labels.get(s), 'netuid': u,
              'side': side, 'alpha': a, 'price': p, 'tao_value': v,
-             'inferred': True}
-            for t, s, u, side, a, p, v in rows]
+             'block': blk, 'inferred': True}
+            for t, s, u, side, a, p, v, blk in rows]
 
 
 def flows(address: Optional[str] = None, hours: int = 168,
@@ -641,10 +670,68 @@ def stats() -> Dict:
             snaps = conn.execute('SELECT COUNT(*) FROM trader_snaps').fetchone()[0]
             fl = conn.execute('SELECT COUNT(*) FROM trader_flows').fetchone()[0]
             last = conn.execute('SELECT MAX(ts) FROM trader_snaps').fetchone()[0]
+            block = conn.execute(
+                'SELECT block FROM trader_snaps WHERE ts = ? AND block IS NOT NULL '
+                'LIMIT 1', (last,)).fetchone() if last else None
         finally:
             conn.close()
     return {'tracked': n, 'snapshots': snaps, 'flows': fl,
-            'last_snapshot_ts': last, 'refresh_sec': REFRESH_SEC}
+            'last_snapshot_ts': last, 'block': block[0] if block else None,
+            'refresh_sec': REFRESH_SEC}
+
+
+def sync(head: bool = True) -> Dict:
+    """Where the trader index stands: block, lag, and who is covered."""
+    now = int(time.time())
+    with _db_lock:
+        conn = _db()
+        try:
+            tracked = conn.execute('SELECT COUNT(*) FROM traders').fetchone()[0]
+            last = conn.execute('SELECT MAX(ts) FROM trader_snaps').fetchone()[0]
+            if last is None:
+                return {'warming': True, 'block': None, 'tracked': tracked,
+                        'snapshots': 0, 'note': 'no trader snapshot yet'}
+            block = conn.execute(
+                'SELECT MAX(block) FROM trader_snaps WHERE ts >= ?',
+                (last - 600,)).fetchone()[0]
+            # a round covers the watchlist; anyone not in the last round is
+            # a hole in the index, so name them rather than average them away
+            round_n = conn.execute(
+                'SELECT COUNT(*) FROM traders WHERE last_ts >= ?',
+                (last - REFRESH_SEC,)).fetchone()[0]
+            stale = [r[0] for r in conn.execute(
+                'SELECT ss58 FROM traders WHERE last_ts IS NULL OR last_ts < ?',
+                (now - 3 * REFRESH_SEC,))]
+            # addresses with stored history that nobody refreshes any more —
+            # untracked without purge. Their curves silently stop.
+            orphans = conn.execute(
+                'SELECT COUNT(DISTINCT ss58) FROM trader_snaps WHERE ss58 NOT IN '
+                '(SELECT ss58 FROM traders)').fetchone()[0]
+            snaps, first_ts = conn.execute(
+                'SELECT COUNT(*), MIN(ts) FROM trader_snaps').fetchone()
+            flows_n, flows_last = conn.execute(
+                'SELECT COUNT(*), MAX(ts) FROM trader_flows').fetchone()
+        finally:
+            conn.close()
+    tip = history.head_block() if head else None
+    age = now - last
+    return {
+        'block': block,
+        'block_ts': last,
+        'age_sec': age,
+        'head_block': tip,
+        'blocks_behind': (tip - block) if (tip and block)
+                         else int(age / history.BLOCK_SEC),
+        'blocks_behind_exact': bool(tip and block),
+        'healthy': age < 3 * REFRESH_SEC and not stale,
+        'refresh_sec': REFRESH_SEC,
+        'traders': {'tracked': tracked, 'in_last_round': round_n,
+                    'stale': stale, 'complete': not stale,
+                    'untracked_with_history': orphans},
+        'snapshots': {'count': snaps, 'first_ts': first_ts, 'last_ts': last,
+                      'span_hours': round((last - first_ts) / 3600, 1)},
+        'flows': {'count': flows_n, 'last_ts': flows_last},
+    }
 
 
 # ------------------------------------------------------------- refresher
@@ -659,8 +746,9 @@ def _loop() -> None:
                     from .tools import DEFAULT_NETWORK
                     bt = Bt(network=DEFAULT_NETWORK)
                 out = snapshot_all(bt=bt)
-                print(f"[bt.traders] snapshot: {out['snapped']} traders, "
-                      f"{len(out['errors'])} errors", flush=True)
+                print(f"[bt.traders] snapshot: {out['snapped']} traders "
+                      f"@ block {out['block']}, {len(out['errors'])} errors",
+                      flush=True)
                 if out['errors']:
                     bt = None  # a dead socket shows up as per-account errors
         except Exception as e:

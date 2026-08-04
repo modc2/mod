@@ -2,7 +2,7 @@
 import requests
 from typing import Dict, Any, Optional
 
-class Skill:
+class Tool:
     description = "Search the web via DuckDuckGo"
 
     def forward(self, query: str, max_results: int = 5, **kwargs) -> Dict[str, Any]:

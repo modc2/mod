@@ -6,8 +6,13 @@ import { useEffect, useState } from "react";
 import SkinPicker from "./SkinPicker";
 import RpcPoolChip from "./RpcPoolChip";
 import CurrencyToggle from "./CurrencyToggle";
-import { useSidebar } from "../context/SidebarContext";
+import { useSidebar, type SidebarPanel } from "../context/SidebarContext";
 import { useFilters } from "../context/FiltersContext";
+
+const DRAWER: { id: SidebarPanel; label: string; title: string }[] = [
+  { id: "watch", label: "WATCH", title: "Watchlist drawer" },
+  { id: "strat", label: "STRAT", title: "Strat maker — build an index of traders" },
+];
 
 const NAV = [
   { href: "/leaderboard", label: "LEADERBOARD" },
@@ -20,7 +25,7 @@ const NAV = [
 export default function TopBar() {
   const path = usePathname() || "";
   const router = useRouter();
-  const { docked, toggleDocked } = useSidebar();
+  const { docked, panel, setDocked, setPanel } = useSidebar();
   const { search, setSearch } = useFilters();
   const [q, setQ] = useState("");
 
@@ -62,19 +67,31 @@ export default function TopBar() {
             <RpcPoolChip />
             <CurrencyToggle />
             <SkinPicker />
-            <button
-              onClick={toggleDocked}
-              className={`pixel-btn topbar-ctl px-3 ${
-                docked ? "border-green-400 text-green-400" : ""
-              }`}
-              title="Toggle watchlist drawer"
-              aria-pressed={docked}
-            >
-              {/* Spelled out, not "⌘" — Silkscreen has no glyph for it, so
-                  it was falling back to a symbol font and rendering as a
-                  blot. */}
-              WATCH
-            </button>
+            {/* Two doors into the one drawer: the list you watch, and the
+                basket you build out of it. Clicking the tab you're already
+                on closes the drawer. Spelled out, not "⌘" — Silkscreen has
+                no glyph for it, so it fell back to a symbol font and
+                rendered as a blot. */}
+            {DRAWER.map((d) => {
+              const on = docked && panel === d.id;
+              return (
+                <button
+                  key={d.id}
+                  onClick={() => {
+                    if (on) return setDocked(false);
+                    setPanel(d.id);
+                    setDocked(true);
+                  }}
+                  className={`pixel-btn topbar-ctl px-3 ${
+                    on ? "border-green-400 text-green-400" : ""
+                  }`}
+                  title={d.title}
+                  aria-pressed={on}
+                >
+                  {d.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 

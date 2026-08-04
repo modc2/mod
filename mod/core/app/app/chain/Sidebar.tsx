@@ -1,16 +1,26 @@
 "use client"
 
 // Sidebar — your projects and the files inside the open one. Contracts on top,
-// tests under them; clicking a file opens it in the editor to the right.
+// tests under them; clicking a file opens it in the editor to the right. You
+// can start a project from scratch, or upload one off your machine.
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { toast } from 'react-toastify'
 import { TERM_FONT, ACCENT, READ } from './shared'
 import { Btn, Input, panelStyle } from './ui'
-import { isContract, isTest, newProjectFiles, STARTER_CONTRACT, STARTER_TEST, stem } from './projects'
+import {
+  isContract, isTest, newProjectFiles, uniqueName, STARTER_CONTRACT, STARTER_TEST, stem,
+} from './projects'
 import type { ProjectsApi } from './projects'
 
 const slug = (s: string) => s.trim().replace(/[^A-Za-z0-9_. -]/g, '').replace(/\s+/g, '-')
+
+/** Same, but keeps the directories — for paths coming off an upload. */
+const slugPath = (s: string) => s.split('/').map(slug).filter(p => p && p !== '.').join('/')
+
+const UPLOAD_EXT = /\.(sol|js|ts|json|md|txt)$/i
+const UPLOAD_SKIP = /(^|\/)(node_modules|artifacts|cache|\.git)(\/|$)/
+const UPLOAD_MAX = 512 * 1024
 
 function Row({
   label, active, muted, onClick, onDelete, title, indent,
@@ -55,7 +65,7 @@ function Row({
   )
 }
 
-function Heading({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
+export function Heading({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -71,7 +81,8 @@ function Heading({ children, action }: { children: React.ReactNode; action?: Rea
 export function Sidebar({ projects, address }: { projects: ProjectsApi; address: string }) {
   const [newProject, setNewProject] = useState('')
   const [newFile, setNewFile] = useState('')
-  const [adding, setAdding] = useState<'project' | 'file' | null>(null)
+  const [adding, setAdding] = useState<'project' | 'file' | 'upload' | null>(null)
+  const uploadRef = useRef<HTMLInputElement>(null)
 
   const proj = projects.project
   const files = Object.keys(proj?.files || {}).sort()
@@ -89,6 +100,59 @@ export function Sidebar({ projects, address }: { projects: ProjectsApi; address:
     } catch (e: any) {
       toast.error(e?.message || 'could not create project')
     }
+  }
+
+  /**
+   * Upload a project off your machine. Picking a folder keeps its layout minus
+   * the top directory (which names the project); loose files get sorted into
+   * contracts/ and test/ the way the test runner expects them.
+   */
+  const upload = async (picked: File[]) => {
+    const files: Record<string, string> = {}
+    let root = ''
+    let skipped = 0
+
+    for (const f of picked) {
+      const rel = slugPath((f as any).webkitRelativePath || '')
+      const raw = rel || slug(f.name)
+      if (!raw || !UPLOAD_EXT.test(raw) || UPLOAD_SKIP.test(raw) || f.size > UPLOAD_MAX) {
+        skipped++
+        continue
+      }
+      const parts = raw.split('/')
+      if (parts.length > 1) {
+        // a folder pick: drop the top directory, keep everything under it
+        root = root || parts[0]
+        files[parts.slice(1).join('/')] = await f.text()
+      } else {
+        files[`${isTest(raw) ? 'test' : isContract(raw) ? 'contracts' : 'files'}/${raw}`] = await f.text()
+      }
+    }
+
+    if (!Object.keys(files).length) {
+      toast.error('nothing to upload — .sol/.js/.ts/.json/.md files under 512KB only')
+      return
+    }
+
+    const sorted = Object.keys(files).sort()
+    const base = slug(root || stem(sorted.find(isContract) || sorted[0])) || 'upload'
+    const name = uniqueName(base, projects.list.map(p => p.name))
+    try {
+      await projects.create(name, files)
+      toast.success(`Uploaded ${sorted.length} file${sorted.length === 1 ? '' : 's'} → ${name}`
+        + (skipped ? ` · ${skipped} skipped` : ''))
+    } catch (e: any) {
+      toast.error(e?.message || 'upload failed')
+    }
+  }
+
+  /** One hidden input serves both pickers — the directory flag is set per click. */
+  const pick = (directory: boolean) => {
+    const input = uploadRef.current
+    if (!input) return
+    if (directory) input.setAttribute('webkitdirectory', '')
+    else input.removeAttribute('webkitdirectory')
+    input.click()
   }
 
   const createFile = () => {
@@ -124,21 +188,30 @@ export function Sidebar({ projects, address }: { projects: ProjectsApi; address:
   )
 
   return (
-    <div style={{
-      ...panelStyle, width: '232px', flexShrink: 0, alignSelf: 'flex-start',
-      position: 'sticky', top: '16px', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto',
-    }}>
+    <div style={{ ...panelStyle }}>
       <Heading action={
-        <button
-          onClick={() => setAdding(a => (a === 'project' ? null : 'project'))}
-          title="new project"
-          style={{
-            fontFamily: TERM_FONT, fontSize: '13px', border: 'none', background: 'transparent',
-            color: ACCENT, cursor: 'pointer', padding: 0, lineHeight: 1,
-          }}
-        >
-          +
-        </button>
+        <span style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button
+            onClick={() => setAdding(a => (a === 'upload' ? null : 'upload'))}
+            title="upload a project from your machine"
+            style={{
+              fontFamily: TERM_FONT, fontSize: '13px', border: 'none', background: 'transparent',
+              color: ACCENT, cursor: 'pointer', padding: 0, lineHeight: 1,
+            }}
+          >
+            ↑
+          </button>
+          <button
+            onClick={() => setAdding(a => (a === 'project' ? null : 'project'))}
+            title="new project"
+            style={{
+              fontFamily: TERM_FONT, fontSize: '13px', border: 'none', background: 'transparent',
+              color: ACCENT, cursor: 'pointer', padding: 0, lineHeight: 1,
+            }}
+          >
+            +
+          </button>
+        </span>
       }>
         PROJECTS
       </Heading>
@@ -153,13 +226,44 @@ export function Sidebar({ projects, address }: { projects: ProjectsApi; address:
         </div>
       )}
 
+      {adding === 'upload' && (
+        <div style={{ padding: '0 8px 8px' }}>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <Btn size="sm" onClick={() => pick(false)}>FILES</Btn>
+            <Btn size="sm" onClick={() => pick(true)}>FOLDER</Btn>
+            <Btn size="sm" active={false} onClick={() => setAdding(null)}>✕</Btn>
+          </div>
+          <div style={{
+            fontFamily: TERM_FONT, fontSize: '10px', color: 'var(--text-tertiary)',
+            marginTop: '6px', lineHeight: 1.5,
+          }}>
+            .sol / .js / .ts / .json / .md
+          </div>
+        </div>
+      )}
+
+      <input
+        ref={uploadRef}
+        type="file"
+        multiple
+        accept=".sol,.js,.ts,.json,.md,.txt"
+        style={{ display: 'none' }}
+        onChange={e => {
+          const picked = Array.from(e.target.files || [])
+          e.target.value = ''
+          setAdding(null)
+          if (picked.length) upload(picked)
+        }}
+      />
+
       {projects.loading && projects.list.length === 0 ? (
         <div style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)', padding: '4px 10px' }}>
           loading…
         </div>
       ) : projects.list.length === 0 ? (
         <div style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)', padding: '4px 10px 10px', lineHeight: 1.5 }}>
-          No projects yet. Hit <span style={{ color: ACCENT }}>+</span> to start one, or load a template in BUILD.
+          No projects yet. Hit <span style={{ color: ACCENT }}>+</span> to start one,
+          {' '}<span style={{ color: ACCENT }}>↑</span> to upload one, or fork one from SHARED below.
         </div>
       ) : projects.list.map(p => (
         <Row
