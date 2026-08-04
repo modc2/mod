@@ -87,6 +87,59 @@ def test_commits_and_track_untrack(g, tmp_path):
     assert g.untrack('r2')['untracked'] == 'r2'
 
 
+def test_commits_paging_and_filtering(g, tmp_path):
+    repo = make_repo(str(tmp_path / 'r3'))
+    for msg in ('second: add b', 'third: fix b'):
+        open(os.path.join(repo, 'b.txt'), 'a').write(msg + '\n')
+        subprocess.run(['git', 'add', '-A'], cwd=repo, capture_output=True, check=True)
+        subprocess.run(['git', 'commit', '-m', msg], cwd=repo, capture_output=True, check=True)
+    g.track(repo, name='r3')
+    assert [c['message'] for c in g.commits('r3')] == ['third: fix b', 'second: add b', 'init']
+    assert [c['message'] for c in g.commits('r3', skip=2)] == ['init']
+    assert [c['message'] for c in g.commits('r3', search='FIX')] == ['third: fix b']
+    assert g.commits('r3', author='nobody') == []
+    # the fast path drops the diffstat, nothing else
+    fast = g.commits('r3', stat=False)
+    assert [c['hash'] for c in fast] == [c['hash'] for c in g.commits('r3')]
+    assert fast[0]['additions'] == 0 and g.commits('r3')[0]['additions'] == 1
+
+
+def test_search_github_for_any_repo(g, monkeypatch):
+    seen = {}
+
+    def _api(self, path, token=None, params=None, address=None, login=None):
+        seen.update(path=path, params=params)
+        return {'items': [{'full_name': 'modelcontextprotocol/servers', 'html_url': 'u',
+                           'stargazers_count': 40000, 'language': 'Python',
+                           'owner': {'login': 'modelcontextprotocol'}}]}, {}
+    import mod.orbit.git.mod as gitmod
+    monkeypatch.setattr(gitmod.Mod, '_gh_api', _api)
+    rows = g.search('mcp server', language='python', user='anthropics', sort='stars')
+    assert seen['path'] == '/search/repositories'
+    assert seen['params']['q'] == 'mcp server language:python user:anthropics'
+    assert seen['params']['sort'] == 'stars'
+    assert rows[0]['repo'] == 'modelcontextprotocol/servers' and rows[0]['stars'] == 40000
+    assert rows[0]['tracked'] is False
+    with pytest.raises(ValueError):
+        g.search('')
+    with pytest.raises(ValueError):
+        g.search('x', sort='popularity')
+
+
+def test_github_errors_carry_githubs_own_message(g):
+    class R:
+        status_code, headers = 403, {'X-RateLimit-Remaining': '0'}
+        text = '{}'
+
+        def json(self):
+            return {'message': 'API rate limit exceeded'}
+    assert 'connect a GitHub account' in str(g._gh_error(R(), authed=False))
+    assert 'wait a minute' in str(g._gh_error(R(), authed=True))
+    R.headers = {}
+    assert isinstance(g._gh_error(R()), PermissionError)
+    assert 'API rate limit exceeded' in str(g._gh_error(R()))
+
+
 def test_track_rejects_garbage(g):
     with pytest.raises(ValueError):
         g.track('definitely not a repo ///')

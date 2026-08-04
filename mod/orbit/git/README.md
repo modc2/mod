@@ -20,9 +20,26 @@ m git                 # info: what's tracked, github status, owner, grants
 m git/changes         # ALL changes in the mod repo
 m git/changes repo=agent diff=1
 m git/commits n=20
+m git/search "mcp server" sort=stars   # any repo on github → track or fork it
 m git/push            # agent writes the message, git commits + pushes
 m git/serve           # app+api on :50330 (m git/worker for pm2)
 ```
+
+The app opens on **Changes** with the commit log already in the left rail —
+filter it, click a commit for its diff, click the count to load more.
+
+## The log
+
+```bash
+m git/commits n=40                   # newest 40, with per-commit +/−
+m git/commits stat=0                 # …without: instant, see below
+m git/commits search=polymarket      # grep the messages
+m git/commits author=alice skip=40   # page further back
+```
+
+`--shortstat` makes git diff every commit it prints — on this repo that is five
+seconds versus twenty milliseconds. The sidebar asks for `stat=0` first, paints,
+then re-asks with the counts, so the list is never a blank column.
 
 ## Commits the agent writes
 
@@ -61,6 +78,24 @@ m git/repos                          # per-repo change summary
 ```
 
 The mod repo is always tracked and cannot be untracked.
+
+## Search GitHub
+
+Find repos you don't own yet — the **Search** tab (and `m git/search`) queries
+GitHub's search API, then every hit is one click from being tracked here or
+forked to your account.
+
+```bash
+m git/search "mcp server" sort=stars      # sort: stars | forks | updated
+m git/search agent language=rust n=50
+m git/search "" user=anthropics           # everything an org publishes
+m git/search "topic:mcp stars:>500 pushed:>2026-01-01"
+```
+
+GitHub's own qualifiers work inside the query. Searching works signed-out and
+without a GitHub account — anonymously GitHub allows 10 searches a minute, 30
+with an account connected (which also searches your private repos). When you
+do hit the limit the API says so in one line instead of leaking a stack trace.
 
 ## GitHub — OAuth, attached to a key
 
@@ -126,11 +161,15 @@ your changes straight from the app. Tokens last an hour; sign again after that.
 
 | method | endpoint | auth |
 |---|---|---|
-| GET | `/api/info` `/api/changes` `/api/diff` `/api/commits` `/api/repos` `/api/branches` `/api/github` `/api/github/repos` `/api/oauth` `/api/access` `/api/whoami` | open |
+| GET | `/api/info` `/api/changes` `/api/diff` `/api/commits` `/api/show` `/api/repos` `/api/branches` `/api/search` `/api/github` `/api/github/repos` `/api/oauth` `/api/access` `/api/whoami` | open |
 | GET | `/api/oauth/callback?code&state` | state |
 | POST | `/api/track` `/api/untrack` `/api/pull` `/api/message` `/api/commit` `/api/push` `/api/connect` `/api/disconnect` `/api/oauth/start` `/api/oauth/poll` `/api/oauth/url` | write |
 | POST | `/api/oauth/app` `/api/grant` `/api/revoke` | admin |
 
-Reads (`/api/github`, `/api/github/repos`) resolve against the caller's own key
+`/api/commits` takes `n`, `skip`, `stat=0`, `search`, `author`, `branch`, `repo`;
+`/api/search` takes `q`, `n`, `sort`, `language`, `user`. Bad arguments answer
+400 with the reason, GitHub's errors come back as GitHub worded them.
+
+Reads (`/api/github`, `/api/github/repos`, `/api/search`) resolve against the caller's own key
 when a Bearer token is attached, or `?key=0x…`. Write calls act as the caller's
 key; only an admin may pass `address` to act as another.

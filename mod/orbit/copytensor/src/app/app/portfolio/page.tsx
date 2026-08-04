@@ -35,7 +35,53 @@ export default function PortfolioPage() {
           </p>
         </div>
       ) : (
-        <div className="pixel-panel overflow-hidden">
+        <>
+        {/* Eight columns of tape. On a phone each fill becomes a card —
+            what happened, to which subnet, for how much — with the copy id
+            and block number demoted to the footnote they are. */}
+        <div className="lg:hidden space-y-2">
+          {trades.map((t) => (
+            <div key={t.id} className="row-card">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`pixel-badge ${
+                    t.action === "stake"
+                      ? "border-green-400/40 text-green-400"
+                      : "border-red-400/40 text-red-400"
+                  }`}
+                >
+                  {t.action}
+                </span>
+                <span className="font-mono text-pixel-white">SN{t.netuid}</span>
+                <span className="font-mono text-pixel-white ml-auto tabular-nums">
+                  {fmtValue(t.amount_tao, currency, usdPerTao)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-pixel-white/10">
+                <span
+                  className={`pixel-badge ${
+                    t.status === "confirmed"
+                      ? "border-green-400/40 text-green-400"
+                      : t.status === "pending"
+                        ? "border-amber-400/40 text-amber-400"
+                        : "border-red-400/40 text-red-400"
+                  }`}
+                >
+                  {t.status}
+                </span>
+                <span className="text-[11px] text-pixel-gray">{ago(t.timestamp)}</span>
+                <span className="text-[11px] text-pixel-gray font-mono ml-auto truncate">
+                  {t.copy_id.slice(0, 8)}… {t.block ? `· #${t.block}` : ""}
+                </span>
+              </div>
+              {t.error && (
+                <p className="text-[11px] text-red-400 mt-2 break-words">{t.error}</p>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="pixel-panel overflow-hidden hidden lg:block">
           <table className="pixel-table">
             <thead className="sticky">
               <tr>
@@ -91,6 +137,7 @@ export default function PortfolioPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

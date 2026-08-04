@@ -556,6 +556,14 @@ export async function fetchTradersPage(opts: {
   return res.json() as Promise<PagedTradersResult>;
 }
 
+/** The candidate pool the server's hourly warmup aggregates under
+    (`warmup_cycle` in pipeline.rs). A paged request for ANY other pool is a
+    different cache key, and a cold paged key returns `{cold:true, traders:[]}`
+    rather than computing — so asking for the default 1000 got an empty
+    leaderboard every time, which is why forking a template used to seed zero
+    traders. Every leaderboard read in the console asks for this pool. */
+export const WARMED_CANDIDATE_POOL = 2000;
+
 // Top-N trader addresses for the currently active filters, sorted by P&L.
 // Used to seed a new/empty strat with a sensible default instead of leaving
 // it at 0 traders — swallows errors and returns [] so callers can no-op.
@@ -567,6 +575,7 @@ export async function fetchTopTraderAddresses(
     const res = await fetchTradersPage({
       days: opts.days,
       minPerDay: opts.minPerDay,
+      pool: WARMED_CANDIDATE_POOL,
       category: opts.category || undefined,
       marketQuery: opts.marketQuery || undefined,
       sort: "pnl",

@@ -75,17 +75,17 @@ export default function SubnetTicker() {
       aria-label="live subnet alpha prices"
     >
       <div className="absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-pixel-black to-transparent pointer-events-none" />
-      <div className="absolute left-0 top-0 z-10 h-full w-[100px] px-3 flex items-center bg-pixel-black border-r-2 border-pixel-border">
-        <span className="text-[13px] tracking-[3px] text-pixel-white uppercase font-mono flex items-center">
+      <div className="absolute left-0 top-0 z-10 h-full w-[64px] sm:w-[100px] px-2 sm:px-3 flex items-center bg-pixel-black border-r-2 border-pixel-border">
+        <span className="text-[13px] tracking-[2px] sm:tracking-[3px] text-pixel-white uppercase font-mono flex items-center">
           <span
-            className="inline-block w-1.5 h-1.5 mr-2 bg-green-400"
+            className="inline-block w-1.5 h-1.5 mr-1.5 sm:mr-2 bg-green-400"
             style={{ animation: "ticker-pulse 1.4s infinite" }}
           />
           dTAO
         </span>
       </div>
       <div
-        className="flex items-center h-full whitespace-nowrap pl-[112px] will-change-transform group-hover:[animation-play-state:paused]"
+        className="flex items-center h-full whitespace-nowrap pl-[76px] sm:pl-[112px] will-change-transform group-hover:[animation-play-state:paused]"
         style={{ animation: "ticker-marquee 90s linear infinite" }}
       >
         {loop.map((s, idx) => (
@@ -142,11 +142,16 @@ function TickerChip({
     // whitespace between them the chips ran together into one long word.
     <button
       onClick={onClick}
-      className="flex items-center gap-2 h-full shrink-0 cursor-pointer px-4 border-r border-pixel-border hover:bg-pixel-white/10 transition-colors"
+      className="flex items-center gap-1.5 sm:gap-2 h-full shrink-0 cursor-pointer px-2.5 sm:px-4 border-r border-pixel-border hover:bg-pixel-white/10 transition-colors"
       title={`${subnet.name} — ${fmtAlphaPrice(price, currency, usdPerTao)} per α`}
     >
       <span className="text-[13px] text-pixel-gray font-mono">SN{subnet.netuid}</span>
-      <span className="text-[10px] text-pixel-gray-light max-w-[120px] truncate">{subnet.name}</span>
+      {/* The subnet's name is the first thing to go on a phone: a tape you
+          can read three chips of beats one you can read a chip and a half
+          of, and the netuid already names the row. */}
+      <span className="hidden sm:inline text-[10px] text-pixel-gray-light max-w-[120px] truncate">
+        {subnet.name}
+      </span>
       <span
         className="text-[15px] font-mono tabular-nums transition-colors duration-500"
         style={{ color: priceColor }}

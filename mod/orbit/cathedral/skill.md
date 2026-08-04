@@ -34,9 +34,11 @@ out loud before running: `estimate` and `prices` exist for exactly that.
 - `custom.v1` persistent sealed worker (`rent`) — hourly, optional hybrid-GPU preview
 - `cc_gpu` confidential GPU execution (`gpu`) — $3.00, refused unless every catalog gate PASSes
 - Worker lifecycle (`workers`, `worker`, `wait`, `stop`) and signed receipts (`receipt`)
+- Offline ed25519 receipt verification against Cathedral's pinned published keys
+  (`verify`, `trusted_keys`) — no API key needed
 - Local per-key spend ledger (`ledger`)
 - A web console (`app/`, port 50391) over the same API — catalog and gates, spend quoted before
-  submit, jobs, workers, receipts, credits
+  submit, jobs, workers, receipts and their verification, credits
 
 ## Usage
 
@@ -51,6 +53,7 @@ m cathedral/run image=python:3.12-slim command='print(6*7)' wait=1
 m cathedral/rent image=nginx:1.27-alpine minutes=60 max_spend_usd=1 yes=1
 m cathedral/gpu command='["python3","-c","print(1)"]' yes=1
 m cathedral/receipt wrk_... save=~/receipt.json
+m cathedral/verify rcpt_...                   # check that signature offline
 m cathedral/ledger
 ```
 
@@ -72,6 +75,9 @@ curl localhost:50390/me   -H "Authorization: Bearer cat_sk_..."
 curl localhost:50390/run  -H "Authorization: Bearer cat_sk_..." \
      -H 'Content-Type: application/json' \
      -d '{"image":"python:3.12-slim","command":["python","-c","print(6*7)"]}'
+curl localhost:50390/receipts/trusted-keys                   # public
+curl -X POST localhost:50390/receipts/verify -d @receipt.json  # public — no key needed
+curl localhost:50390/receipts/rcpt_.../verify -H "Authorization: Bearer cat_sk_..."
 ```
 
 ### Console (port 50391, published at `{host}/cathedral`)
@@ -100,6 +106,11 @@ than silently approved.
   and hybrid GPU is provider-trusted with plaintext inputs at the GPU host. Don't describe
   either as fully confidential.
 - `/v1/keys` management needs the human website session and is not wrapped here by design.
+- Cathedral publishes the receipt signing algorithm but not the byte encoding the assertions
+  are canonicalized to. `verify` tries the standard encodings and names the one that matched;
+  a receipt matching none is `unverified` (inconclusive), never `verified` and never "forged".
+- Trusted keys are pinned on first fetch. A changed public key for a known key id is reported
+  as a conflict and the pinned copy wins — confirm any rotation before editing the pin by hand.
 - The gateway keeps the `/cathedral` prefix for the app and strips `/api/cathedral` for the API;
   `app/serve.py` strips its own prefix and must never redirect the bare form, or the published
   URL loops against the gateway's 308.

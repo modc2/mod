@@ -1,6 +1,6 @@
 {
     "name": "cathedral",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Rent confidential compute from cathedral.computer \u2014 attested Intel TDX CPU jobs, sealed persistent workers, and confidential GPU executions, each returning a signed receipt binding evidence, workload, result, charge and teardown. BYOK: every run is billed to the caller's own prepaid Cathedral credits, never a shared house key.",
     "anchor": "mod.py",
     "icon": "\u26ea",
@@ -114,6 +114,18 @@
         "/receipts/:id": {
             "method": "GET",
             "docs": "Signed cathedral_customer_receipt_v1 (425 while pending)"
+        },
+        "/receipts/:id/verify": {
+            "method": "GET",
+            "docs": "Fetch the receipt with the caller's key, then verify its signature offline"
+        },
+        "/receipts/verify": {
+            "method": "POST",
+            "docs": "Verify a receipt you already hold against the pinned trusted keys (public \u2014 no key needed)"
+        },
+        "/receipts/trusted-keys": {
+            "method": "GET",
+            "docs": "Cathedral's published ed25519 receipt-signing keys as pinned here (public)"
         }
     },
     "app": {
@@ -121,7 +133,7 @@
         "port": 50391,
         "route": "/cathedral",
         "api_alias": "/cathedral/_api",
-        "serves": "zero-dependency console: catalog + gates, quoted spend guard, jobs, workers, receipts, credits",
+        "serves": "zero-dependency console: catalog + gates, quoted spend guard, jobs, workers, receipts, offline receipt verification, credits",
         "keys": "held in the browser tab (sessionStorage) and sent as Authorization; never stored, logged, or proxied elsewhere"
     },
     "fns": [
@@ -148,6 +160,8 @@
         "wait",
         "stop",
         "receipt",
+        "trusted_keys",
+        "verify",
         "ledger",
         "app",
         "serve",
@@ -158,8 +172,9 @@
     "env": {
         "CATHEDRAL_API_KEY": "cat_sk_* key for the default CLI account (optional \u2014 the API gateway never uses it for callers)",
         "CATHEDRAL_BASE": "override the upstream base URL (default https://cathedral.computer/v1)",
-        "CATHEDRAL_UPSTREAM": "where app/serve.py forwards /_api (default http://127.0.0.1:50390)"
+        "CATHEDRAL_UPSTREAM": "where app/serve.py forwards /_api (default http://127.0.0.1:50390)",
+        "CATHEDRAL_TRUSTED_KEYS": "where the API gateway pins Cathedral's receipt-signing keys (default ~/.mod/cathedral/trusted-keys.json)"
     },
     "key": "cathedral",
-    "schema": "QmciGP15UXR81XTo4CzxZTJuogZkz2cZpSot97FRSiQS32"
+    "schema": "QmaXYe4WYkcU7NNzbB9KzwFHC8atXZrcXBXGEZ8cXjcyqg"
 }

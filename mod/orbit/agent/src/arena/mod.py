@@ -330,6 +330,12 @@ class Arena:
         total = W_CORRECT * correct + W_RELIABLE * reliable + W_EFFICIENT * efficient
         return {
             "score": round(total, 4),
+            # the loop emits a bare `error` step only when the model call itself
+            # failed — a rate-limited free endpoint is not an agent that can't
+            # code, so the match is void rather than lost. A tool that errored
+            # is a real step and still counts against reliability.
+            "void_reason": next((str(s.get("error"))[:200] for s in steps_of(trace)
+                                 if s.get("tool") == "error"), None),
             "correct": round(correct, 4),
             "reliable": round(reliable, 4),
             "efficient": round(efficient, 4),
@@ -401,8 +407,35 @@ class Arena:
 
     def run_match(self, agent: str, task: str, model: str = None, steps: int = None,
                   free: bool = None, reason: str = "manual") -> Dict[str, Any]:
-        """Run one agent on one task and score it. Records the match."""
+        """Run one agent on one task and score it. Records the match.
+
+        A match the provider voided (rate limit, endpoint down, no key) is
+        replayed up to `retries` times. If it is still void, it is recorded as
+        void: kept on the log so the failure is visible, kept out of the rating
+        so a free endpoint's bad afternoon doesn't read as an agent regression.
+        """
         spec = self.task(task) if isinstance(task, str) else task
+        cfg = self.config()
+        attempts = max(1, int(cfg.get("retries", 1)) + 1)
+        for attempt in range(attempts):
+            match = self._play(agent, spec, model=model, steps=steps, free=free,
+                               reason=reason, attempt=attempt)
+            if not match["void"] or attempt + 1 >= attempts:
+                break
+            time.sleep(RETRY_PAUSE)
+        self._append_match(match)
+        if not match["void"]:
+            self._record(agent, match)
+        else:
+            self._mark_seen(agent)   # it showed up, even if it couldn't play
+            self._rating(agent)["voids"] = self._rating(agent).get("voids", 0) + 1
+            self._save_state()
+        return match
+
+    def _play(self, agent: str, spec: Dict[str, Any], model: str = None,
+              steps: int = None, free: bool = None, reason: str = "manual",
+              attempt: int = 0) -> Dict[str, Any]:
+        """One attempt at a match: fresh scratch dir, run, score, clean up."""
         cfg = self.config()
         model = model if model is not None else cfg.get("model")
         free = cfg.get("free", True) if free is None else free
@@ -443,18 +476,18 @@ class Arena:
             "cost": round(float((usage or {}).get("cost", 0.0) or 0.0), 6),
             "error": error,
             "budget": limit,
+            "attempt": attempt,
             **{k: scored[k] for k in ("score", "correct", "reliable", "efficient",
                                       "passed", "steps")},
             "checks": [{"type": c.get("type"), "passed": c.get("passed"),
                         "reason": c.get("reason")} for c in scored["checks"]],
         }
-        # a run that never reached the model scored 0 on everything — that is a
-        # forfeit, not a loss, so say so rather than pretending it competed
-        if error:
+        # a run that never reached the model competed in name only
+        match["void_reason"] = error or scored["void_reason"]
+        match["void"] = bool(match["void_reason"])
+        if match["void"]:
             match["score"] = 0.0
         self._running = None
-        self._append_match(match)
-        self._record(agent, match)
         # the scratch dir has done its job once the scorers have read it
         shutil.rmtree(workdir, ignore_errors=True)
         return match
@@ -545,7 +578,8 @@ class Arena:
                         break
                     match = self.run_match(agent, spec, reason=reason)
                     played.append(match)
-                    results.setdefault(spec["key"], []).append((agent, match["score"]))
+                    if not match["void"]:
+                        results.setdefault(spec["key"], []).append((agent, match["score"]))
             for key, entries in results.items():
                 self._rate(key, entries)
 
@@ -588,6 +622,8 @@ class Arena:
                     continue
                 match = self.run_match(agent, spec, reason=reason or f"qualifier:{agent}")
                 played.append(match)
+                if match["void"]:
+                    continue
                 entries = [(agent, match["score"])]
                 for other, r in self._state["ratings"].items():
                     if other == agent:
@@ -626,6 +662,9 @@ class Arena:
                 "avg_seconds": round(r.get("seconds_sum", 0.0) / n, 2),
                 "cost": round(r.get("cost_sum", 0.0), 6),
                 "tasks": len(r.get("per_task", {})),
+                # matches the provider voided — not losses, but worth seeing:
+                # a field full of them means the free endpoint is the problem
+                "voids": r.get("voids", 0),
                 "last": r.get("last", 0),
             })
         rows.sort(key=lambda x: (-x["elo"], -x["avg_score"], x["agent"]))
@@ -778,7 +817,11 @@ class Scheduler:
             return {"skipped": "disabled"}
 
         done = []
-        for agent in self.arena.newcomers():
+        # on a board with no history, the first round already plays the whole
+        # field — qualifying each agent against nobody first would run every
+        # match twice for no comparison
+        seeding = self.arena.due() and not self.arena._state.get("ratings")
+        for agent in ([] if seeding else self.arena.newcomers()):
             self.last_action = f"qualifying {agent}"
             out = self.arena.qualify(agent)
             done.append(out)

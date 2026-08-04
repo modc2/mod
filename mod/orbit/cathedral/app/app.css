@@ -109,13 +109,14 @@ label { display: block; margin: 10px 0; color: var(--dim); font-size: 11px;
   letter-spacing: .08em; text-transform: uppercase; }
 label.inline { display: inline-flex; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; }
 label.sm { flex: 0 1 auto; }
-input, select {
+input, select, textarea {
   display: block; width: 100%; margin-top: 5px; padding: 8px 10px;
   background: #100f18; border: 1px solid var(--edge); border-radius: 7px;
   color: var(--ink); font: 13px var(--mono);
 }
+textarea { resize: vertical; line-height: 1.5; }
 input[type=checkbox] { width: auto; display: inline-block; margin: 0; accent-color: var(--accent); }
-input:focus, select:focus { outline: none; border-color: var(--accent); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
 .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .row.between { justify-content: space-between; align-items: center; }
 .row > input { flex: 1 1 240px; }

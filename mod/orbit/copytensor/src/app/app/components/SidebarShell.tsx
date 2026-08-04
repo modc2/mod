@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import {
   useSidebar, SIDEBAR_DEFAULT, type SidebarPanel, type ResizeEdge,
 } from "../context/SidebarContext";
@@ -24,6 +24,9 @@ const EDGES: { edge: ResizeEdge; className: string }[] = [
   { edge: "se", className: "right-0 bottom-0 w-4 h-4 cursor-se-resize" },
 ];
 
+/** Below this the drawer stops being a column beside the board. */
+const SHEET_MAX = 1023;
+
 export default function SidebarShell({ children }: { children: ReactNode }) {
   const {
     docked, width, hydrated, panel, expanded, mode, rect, rolled,
@@ -31,14 +34,95 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
     startDrag, startMove, startResize,
   } = useSidebar();
 
+  // A 420px column bolted to a 390px screen leaves nothing for the board it
+  // exists to pick things off. On a handheld the drawer is a sheet over the
+  // page instead — same two panels, same state, different housing.
+  const [sheet, setSheet] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${SHEET_MAX}px)`);
+    const sync = () => setSheet(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  // The sheet covers the board, so the board must not scroll behind it.
+  useEffect(() => {
+    if (!sheet || !docked) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [sheet, docked]);
+
+  // Escape closes the sheet — a full-screen panel with no keyboard way out
+  // is a trap.
+  useEffect(() => {
+    if (!sheet || !docked) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setDocked(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [sheet, docked, setDocked]);
+
   if (!hydrated) return <>{children}</>;
   if (!docked) return <>{children}</>;
 
-  const floating = mode === "float";
+  const floating = mode === "float" && !sheet;
   const resetWidth = () => setWidth(SIDEBAR_DEFAULT);
   // The builder's table only earns its second column past ~620px, whichever
   // shape the drawer is in.
-  const compact = (floating ? rect.w : width) < 620;
+  const compact = (sheet ? window.innerWidth : floating ? rect.w : width) < 620;
+
+  const tabs = (
+    <>
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => setPanel(t.id)}
+          aria-pressed={panel === t.id}
+          className={`pixel-btn text-[10px] px-2 py-1 ${
+            panel === t.id ? "nav-active" : "text-pixel-gray"
+          }`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </>
+  );
+
+  // Both panels stay mounted in every housing: switching to the watchlist
+  // mid-build must not throw away a half-filled basket.
+  const panels = (
+    <>
+      <div className={`p-2 ${panel === "watch" ? "" : "hidden"}`}>
+        <WatchlistDrawer />
+      </div>
+      <div className={`p-2 ${panel === "strat" ? "" : "hidden"}`}>
+        <StratPicker compact={compact} />
+      </div>
+    </>
+  );
+
+  if (sheet) {
+    return (
+      <>
+        {children}
+        <aside className="drawer-sheet" role="dialog" aria-label="Drawer">
+          <div className="drawer-bar">
+            {tabs}
+            <button
+              onClick={() => setDocked(false)}
+              className="pixel-btn text-[10px] px-3 py-1 ml-auto"
+              title="Close drawer"
+              aria-label="Close drawer"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto">{panels}</div>
+        </aside>
+      </>
+    );
+  }
 
   // Drag the window by its bar, but never by the caps sitting on it.
   const onBarDown = (e: React.MouseEvent) => {
@@ -126,18 +210,7 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
         <div
           className={`drawer-bar ${floating ? "drawer-bar-sub" : "sticky top-0 z-10"}`}
         >
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setPanel(t.id)}
-              aria-pressed={panel === t.id}
-              className={`pixel-btn text-[10px] px-2 py-1 ${
-                panel === t.id ? "nav-active" : "text-pixel-gray"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+          {tabs}
           {!floating && (
             <div className="ml-auto flex items-center gap-1">
               <button
@@ -167,15 +240,8 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
             </div>
           )}
         </div>
-        {/* Both panels stay mounted: switching to the watchlist mid-build must
-            not throw away a half-filled basket. */}
         <div className={floating ? `flex-1 min-h-0 overflow-y-auto ${rolled ? "hidden" : ""}` : ""}>
-          <div className={`p-2 ${panel === "watch" ? "" : "hidden"}`}>
-            <WatchlistDrawer />
-          </div>
-          <div className={`p-2 ${panel === "strat" ? "" : "hidden"}`}>
-            <StratPicker compact={compact} />
-          </div>
+          {panels}
         </div>
         {floating && !rolled && EDGES.map((g) => (
           <div

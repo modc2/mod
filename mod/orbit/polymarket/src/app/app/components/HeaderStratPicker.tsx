@@ -22,37 +22,23 @@
 // it. Below that width there isn't room for a column, so it falls back to a
 // modal overlay drawer.
 //
-// The [+] beside the name creates a new strat, and a DEFAULT STRATS gallery
-// at the bottom forks curated templates (lib/defaultStrats.ts) into
-// user-owned strats. This is THE strat manager — indexStore localStorage
-// store, `strat-updated` window event, best-effort server sync — so
-// CopyIndex, the LIVE checklist and this picker can never disagree about
-// which strat is active.
+// The [+] beside the name creates a new strat, a DEFAULT STRATS gallery at the
+// bottom forks curated templates (lib/defaultStrats.ts) into user-owned
+// strats, and ▦ opens the STRAT HUB (/strats), where every strat is a card
+// showing its 1-day backtest. Every mutation goes through useStratManager
+// (lib/stratManager.ts) — indexStore localStorage store, `strat-updated`
+// window event, best-effort server sync — so the hub, CopyIndex, the LIVE
+// checklist and this picker can never disagree about which strat is active.
 
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  loadIndexes,
-  saveIndex,
-  updateIndex,
-  deleteIndex,
-  forkIndex,
-  getActiveIndexId,
-  setActiveIndexId,
-  equalWeightTraders,
-} from "../lib/indexStore";
-import { pushStrat, deleteServerStrat, syncStrats } from "../lib/stratSync";
-import { useAuth } from "../context/AuthContext";
-import { useFilters } from "../context/FiltersContext";
-import { fetchTopTraderAddresses } from "../lib/polymarket";
 import { useEmbedded } from "../lib/embedded";
-import { DEFAULT_STRATS, forkDefaultStrat, type StratTemplate } from "../lib/defaultStrats";
+import { DEFAULT_STRATS, type StratTemplate } from "../lib/defaultStrats";
 import { useStratStats, fmtUsd } from "../lib/stratStats";
+import { useStratManager } from "../lib/stratManager";
 import { describeTraderFilter } from "../lib/strats/strat";
-import { stopLiveSession } from "../lib/liveSessions";
-import StratCardsBrowser from "./StratCardsBrowser";
-import type { SavedIndex } from "../lib/types";
+import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
 
 // Wide enough for a real column beside the console; below this the sidebar
 // falls back to a modal overlay. Matches the media query in globals.css that
@@ -68,58 +54,22 @@ const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayout
 
 export default function HeaderStratPicker() {
   const embedded = useEmbedded();
-  const { localToken, auth } = useAuth();
-  const { category, marketQuery, daysAgo, minPerDay } = useFilters();
-  const [indexes, setIndexes] = useState<SavedIndex[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  // The store, the mutations and the server sync all live in the shared strat
+  // manager — the HUB drives the exact same hook.
+  const {
+    indexes, activeId, select: selectStrat, create: createStrat, fork: forkStrat,
+    forkDefault: forkDefaultInto, rename, requestDelete, pendingDelete,
+    confirmDelete, cancelDelete, stopStrat: stopStratSession,
+  } = useStratManager();
   const [open, setOpen] = useState(false);
   const [docked, setDocked] = useState(false);
-  const [browserOpen, setBrowserOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  // In-app delete confirmation (replaces the native window.confirm popup so
-  // the "Delete strat?" prompt renders inside the console, styled like the
-  // rest of the UI, instead of an ugly modc2.com-says browser dialog).
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
-  const [initialSynced, setInitialSynced] = useState(false);
   // Per-strat live PnL from the backend engine's tagged fills + the deposit
-  // wallet's USDC cash — rendered as a second line on each dropdown row and
-  // on the cards.
+  // wallet's USDC cash — rendered as a second line on each dropdown row.
   const { stats: stratStats, cash, running: liveStratIds } = useStratStats();
   const router = useRouter();
   const pathname = usePathname();
-
-  const reload = useCallback(() => {
-    setIndexes(loadIndexes());
-    setActiveId(getActiveIndexId());
-  }, []);
-
-  // Poll localStorage so edits made anywhere (leaderboard toggles,
-  // backtest writes) show up here.
-  useEffect(() => {
-    reload();
-    const t = setInterval(reload, 2000);
-    window.addEventListener("strat-updated", reload);
-    return () => {
-      clearInterval(t);
-      window.removeEventListener("strat-updated", reload);
-    };
-  }, [reload]);
-
-  // Initial local↔server strat merge (lived in the old strats-page sidebar;
-  // the picker renders on every page, so a fresh browser pulls server strats
-  // down no matter where the user lands).
-  useEffect(() => {
-    if (!localToken || initialSynced) return;
-    setInitialSynced(true);
-    const local = loadIndexes();
-    syncStrats(local, localToken.token).then((merged) => {
-      for (const s of merged) {
-        if (!local.find((l) => l.id === s.id)) saveIndex(s);
-      }
-      reload();
-    });
-  }, [localToken, initialSynced, reload]);
 
   // Pick dock vs overlay, and re-open a docked sidebar the user left open.
   // Both before paint — see useIsoLayoutEffect.
@@ -175,129 +125,47 @@ export default function HeaderStratPicker() {
     };
   }, [open, docked, setDrawer]);
 
-  const broadcast = useCallback(() => {
-    reload();
-    window.dispatchEvent(new Event("strat-updated"));
-  }, [reload]);
-
+  /** Switch the active strat. On /strats that also means opening its
+      workspace — the hub and the workspace are the same route, keyed by ?id. */
   const select = (id: string) => {
-    setActiveIndexId(id);
-    setActiveId(id);
+    selectStrat(id);
     // A docked sidebar stays put — switching strats is something you do a few
     // times in a row, and the column isn't covering anything.
     if (!docked) setDrawer(false);
-    broadcast();
-  };
-
-  // Card-browser select: switch strat AND land in the strat editor — the
-  // browser is reachable from every page, so picking a card should end on
-  // /strats where the choice is actionable.
-  const selectFromBrowser = (id: string) => {
-    setActiveIndexId(id);
-    setActiveId(id);
-    setBrowserOpen(false);
-    broadcast();
-    if (!pathname?.startsWith("/strats")) router.push("/strats");
-  };
-
-  // Ask first — opens the in-app confirm modal instead of window.confirm.
-  const remove = (id: string) => setPendingDelete(id);
-
-  // Actually delete, once the modal is confirmed.
-  const confirmRemove = () => {
-    const id = pendingDelete;
-    if (!id) return;
-    setPendingDelete(null);
-    deleteIndex(id);
-    const remaining = loadIndexes();
-    if (activeId === id) setActiveIndexId(remaining[0]?.id ?? null);
-    broadcast();
-    if (localToken) deleteServerStrat(id, localToken.token);
+    if (pathname?.startsWith("/strats")) router.push(`/strats?id=${id}`);
   };
 
   // Everything the wallet has at work, across every strat's open positions.
   const totalInPlay = Object.values(stratStats).reduce((s, m) => s + m.openValue, 0);
 
-  /** Take one strat's session down without touching the wallet's others. */
-  const stopStrat = async (id: string) => {
-    updateIndex(id, { liveEnabled: false, updatedAt: Date.now() });
-    broadcast();
-    if (auth.address) await stopLiveSession(auth.address, id);
-  };
+  const stopStrat = (id: string) => stopStratSession(id);
 
-  /** Fork a saved strat: an independent copy of the strategy (watchlist,
-      weights, every param), stopped and un-funded, named "<NAME> COPY" —
-      then drop straight into rename mode, because the first thing you do
-      with a fork is say what makes it different. The original keeps running
-      untouched; the engine is keyed per strat id. */
+  /** Fork a saved strat, then drop straight into rename mode — the first
+      thing you do with a fork is say what makes it different. */
   const fork = (id: string) => {
-    const copy = forkIndex(id);
+    const copy = forkStrat(id);
     if (!copy) return;
-    setActiveIndexId(copy.id);
-    setActiveId(copy.id);
     setRenamingId(copy.id);
     setRenameValue(copy.name);
-    broadcast();
-    if (localToken) pushStrat(copy, localToken.token);
   };
 
   const commitRename = () => {
     if (!renamingId) return;
-    updateIndex(renamingId, { name: renameValue.trim() || "Untitled", updatedAt: Date.now() });
-    const updated = loadIndexes().find((i) => i.id === renamingId);
-    if (updated && localToken) pushStrat(updated, localToken.token);
+    rename(renamingId, renameValue);
     setRenamingId(null);
     setRenameValue("");
-    broadcast();
   };
 
   const create = () => {
-    const existing = loadIndexes();
-    const now = Date.now();
-    const idx: SavedIndex = {
-      id: now.toString(36),
-      name: `Strat ${existing.length + 1}`,
-      traders: [],
-      backtestDays: 7,
-      rebalanceMinutes: 0.5,
-      livePollMinutes: 0.5,
-      capital: 1000,
-      minTrade: 1,
-      maxTrade: 100,
-      maxPerCycle: 3,
-      createdAt: now,
-      updatedAt: now,
-    };
-    saveIndex(idx);
-    setActiveIndexId(idx.id);
+    const idx = createStrat();
     if (!docked) setDrawer(false);
-    broadcast();
-    if (localToken) pushStrat(idx, localToken.token);
-
-    // Seed with the top 10 traders matching the current leaderboard filters
-    // (same behavior as the sidebar's + NEW STRAT).
-    fetchTopTraderAddresses(
-      { days: Number(daysAgo) || undefined, minPerDay: Number(minPerDay) || undefined, category, marketQuery },
-      10,
-    ).then((addrs) => {
-      if (addrs.length === 0) return;
-      const traders = equalWeightTraders(addrs);
-      updateIndex(idx.id, { traders, updatedAt: Date.now() });
-      broadcast();
-      if (localToken) pushStrat({ ...idx, traders }, localToken.token);
-    });
+    if (pathname?.startsWith("/strats")) router.push(`/strats?id=${idx.id}`);
   };
 
-  // Fork a built-in template into a user-owned strat: instant strat with
-  // the recipe's params, traders seeded async from the live leaderboard.
   const forkDefault = (t: StratTemplate) => {
-    const idx = forkDefaultStrat(t, (seeded) => {
-      broadcast();
-      if (localToken) pushStrat(seeded, localToken.token);
-    });
+    const idx = forkDefaultInto(t);
     if (!docked) setDrawer(false);
-    broadcast();
-    if (localToken) pushStrat(idx, localToken.token);
+    if (pathname?.startsWith("/strats")) router.push(`/strats?id=${idx.id}`);
   };
 
   // Embedded split-screen panes stay lightweight, same as NavMenu.
@@ -363,8 +231,8 @@ export default function HeaderStratPicker() {
         +
       </button>
       <button
-        onClick={() => { if (!docked) setDrawer(false); setBrowserOpen(true); }}
-        title="Browse strats as cards"
+        onClick={() => { if (!docked) setDrawer(false); router.push("/strats"); }}
+        title="Open the STRAT HUB — every strat as a card with its 1-day backtest"
         className="hidden min-[480px]:grid place-items-center w-[22px] h-[22px] rounded-[var(--radius-sm)] border border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors text-[11px] leading-none shrink-0"
       >
         ▦
@@ -547,7 +415,7 @@ export default function HeaderStratPicker() {
                   </button>
                 )}
                 <button
-                  onClick={(e) => { e.stopPropagation(); remove(idx.id); }}
+                  onClick={(e) => { e.stopPropagation(); requestDelete(idx.id); }}
                   className="text-[13px] text-pixel-gray hover:text-red-400 shrink-0"
                   title="Delete"
                 >
@@ -563,10 +431,10 @@ export default function HeaderStratPicker() {
             + NEW STRAT
           </button>
           <button
-            onClick={() => { if (!docked) setDrawer(false); setBrowserOpen(true); }}
+            onClick={() => { if (!docked) setDrawer(false); router.push("/strats"); }}
             className="rounded-[var(--radius-sm)] px-3 py-2 text-left text-[11px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 hover:bg-pixel-white/[0.06] transition-colors"
           >
-            ▦ BROWSE CARDS
+            ▦ STRAT HUB
           </button>
 
           {/* Curated starting points — forking one materializes a fresh
@@ -627,94 +495,11 @@ export default function HeaderStratPicker() {
           document.body,
         )}
 
-      <StratCardsBrowser
-        open={browserOpen}
-        indexes={indexes}
-        stats={stratStats}
-        activeId={activeId}
-        onClose={() => setBrowserOpen(false)}
-        onSelect={selectFromBrowser}
-        onDelete={remove}
-        onForkSaved={(id) => {
-          fork(id);
-          // Land in the editor: the fork exists to be changed, and its name
-          // input is already focused there.
-          setBrowserOpen(false);
-          if (!pathname?.startsWith("/strats")) router.push("/strats");
-        }}
-        onCreate={() => {
-          create();
-          setBrowserOpen(false);
-          if (!pathname?.startsWith("/strats")) router.push("/strats");
-        }}
-        onFork={(t) => {
-          forkDefault(t);
-          setBrowserOpen(false);
-          if (!pathname?.startsWith("/strats")) router.push("/strats");
-        }}
+      <ConfirmDeleteStrat
+        name={pendingDelete === null ? null : indexes.find((i) => i.id === pendingDelete)?.name ?? pendingDelete}
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
       />
-
-      {/* In-app delete confirmation — portal to <body> so it floats above the
-          drawer and the card browser, both of which route delete through
-          remove(). Replaces the native window.confirm() browser popup. */}
-      {pendingDelete !== null &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[70] grid place-items-center p-4"
-            onClick={() => setPendingDelete(null)}
-          >
-            <div className="absolute inset-0" style={{ background: "rgb(var(--pixel-black-rgb)/0.6)" }} />
-            <div
-              role="alertdialog"
-              aria-modal="true"
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setPendingDelete(null);
-                if (e.key === "Enter") confirmRemove();
-              }}
-              tabIndex={-1}
-              ref={(el) => el?.focus()}
-              className="relative w-full max-w-[360px] rounded-[var(--radius)] backdrop-blur-md p-4 outline-none"
-              style={{
-                background:
-                  "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.98), rgb(var(--pixel-bg-rgb)/0.96))",
-                border: "1px solid var(--border)",
-                boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
-                animation: "drawer-in-left 0.14s ease-out",
-              }}
-            >
-              <div className="text-[11px] font-mono font-bold tracking-[0.16em] text-red-400/90">
-                DELETE STRAT
-              </div>
-              <div className="mt-2 text-[12.5px] font-mono text-pixel-white leading-relaxed">
-                Delete strat{" "}
-                <span className="text-green-400 font-semibold">
-                  “{indexes.find((i) => i.id === pendingDelete)?.name ?? pendingDelete}”
-                </span>
-                ?
-              </div>
-              <div className="mt-1 text-[10.5px] font-mono text-pixel-gray">
-                This removes the strat and its file from disk. This can’t be undone.
-              </div>
-              <div className="mt-4 flex justify-end gap-2">
-                <button
-                  onClick={() => setPendingDelete(null)}
-                  className="rounded-[var(--radius-sm)] border border-pixel-border px-3 py-1.5 text-[11px] font-mono font-semibold tracking-[0.06em] text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40 transition-colors"
-                >
-                  CANCEL
-                </button>
-                <button
-                  onClick={confirmRemove}
-                  autoFocus
-                  className="rounded-[var(--radius-sm)] border border-red-400/50 bg-red-400/10 px-3 py-1.5 text-[11px] font-mono font-semibold tracking-[0.06em] text-red-400 hover:bg-red-400/20 hover:border-red-400 transition-colors"
-                >
-                  DELETE
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
     </div>
   );
 }

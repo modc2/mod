@@ -201,20 +201,60 @@ export const DEFAULT_STRATS: StratTemplate[] = [
   },
 ];
 
-/// Fork a template into a real, user-owned strat and make it active.
-/// Returns the new strat immediately (empty trader list); trader seeding
-/// runs async and reports back through `onSeeded` so callers can re-render
-/// and push the seeded version to the server.
-export function forkDefaultStrat(
-  t: StratTemplate,
-  onSeeded?: (seeded: SavedIndex) => void,
-): SavedIndex {
-  const now = Date.now();
-  const idx: SavedIndex = {
+/// Leaderboard rosters are cached briefly: the strat browser resolves one per
+/// template to backtest it, and a fork made moments later must get the SAME
+/// traders — otherwise the card's number describes a strat you didn't get.
+const ROSTER_PREFIX = "poly_tpl_roster_";
+const ROSTER_TTL_MS = 3 * 3600_000;
+
+/// The traders a template would seed itself with right now.
+export async function templateRoster(t: StratTemplate): Promise<string[]> {
+  const count = t.seed.count ?? 10;
+  if (count === 0) return [];
+  const key = ROSTER_PREFIX + t.slug;
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const c = JSON.parse(raw) as { addrs: string[]; ts: number };
+        if (Date.now() - c.ts < ROSTER_TTL_MS && c.addrs?.length > 0) return c.addrs;
+      }
+    } catch {
+      // Unreadable entry — fall through and re-query.
+    }
+  }
+  const addrs = await fetchTopTraderAddresses(
+    {
+      days: t.seed.days,
+      minPerDay: t.seed.minPerDay,
+      category: t.seed.category,
+      marketQuery: t.seed.marketQuery,
+    },
+    count,
+  );
+  if (typeof window !== "undefined" && addrs.length > 0) {
+    try {
+      localStorage.setItem(key, JSON.stringify({ addrs, ts: Date.now() }));
+    } catch {
+      // Quota — a re-query is cheap enough.
+    }
+  }
+  return addrs;
+}
+
+/// A template as the SavedIndex forking it produces — the recipe's params
+/// layered over the blank-strat defaults, with a resolved watchlist.
+///
+/// Both callers go through here: `forkDefaultStrat` (which then persists it)
+/// and the strat browser's backtest (`lib/stratScan.ts`, which never persists
+/// anything). That's deliberate — a template's card has to describe the strat
+/// you'd actually get, so the two can't be allowed to define it differently.
+export function templateIndex(t: StratTemplate, addrs: string[] = [], now = Date.now()): SavedIndex {
+  return {
     id: now.toString(36),
     name: uniqueIndexName(t.name),
     forkedFrom: t.slug,
-    traders: [],
+    traders: addrs.length > 0 ? equalWeightTraders(addrs) : [],
     backtestDays: 7,
     rebalanceMinutes: 0.5,
     livePollMinutes: 0.5,
@@ -226,6 +266,17 @@ export function forkDefaultStrat(
     createdAt: now,
     updatedAt: now,
   };
+}
+
+/// Fork a template into a real, user-owned strat and make it active.
+/// Returns the new strat immediately (empty trader list); trader seeding
+/// runs async and reports back through `onSeeded` so callers can re-render
+/// and push the seeded version to the server.
+export function forkDefaultStrat(
+  t: StratTemplate,
+  onSeeded?: (seeded: SavedIndex) => void,
+): SavedIndex {
+  const idx = templateIndex(t);
   saveIndex(idx);
   setActiveIndexId(idx.id);
 
@@ -233,15 +284,7 @@ export function forkDefaultStrat(
   // deliberately start with an empty watchlist — nothing to seed.
   if ((t.seed.count ?? 10) === 0) return idx;
 
-  fetchTopTraderAddresses(
-    {
-      days: t.seed.days,
-      minPerDay: t.seed.minPerDay,
-      category: t.seed.category,
-      marketQuery: t.seed.marketQuery,
-    },
-    t.seed.count ?? 10,
-  ).then((addrs) => {
+  templateRoster(t).then((addrs) => {
     if (addrs.length === 0) return;
     const traders = equalWeightTraders(addrs);
     updateIndex(idx.id, { traders, updatedAt: Date.now() });

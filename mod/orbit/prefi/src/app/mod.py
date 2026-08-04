@@ -1,9 +1,12 @@
 import os
 import mod as m
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
 class Mod:
-    description = """PreFi - Docker Deployment Guide"""
-    path = r'/Users/broski/mod/mod/orbit/prefi/app'
+    description = """PreFi web app — Next.js console for the prefi trading protocol"""
+    path = HERE
 
     def forward(self, **kwargs):
         """Default entry point."""
@@ -29,9 +32,11 @@ class Mod:
     def install(self):
         """Install project dependencies."""
         import subprocess
-        return subprocess.run(['npm', 'install'], cwd=r'/Users/broski/mod/mod/orbit/prefi/app', capture_output=True, text=True).stdout
+        return subprocess.run(['npm', 'install'], cwd=HERE,
+                              capture_output=True, text=True).stdout
 
     def build(self):
         """Build the project."""
         import subprocess
-        return subprocess.run(['npm', 'run', 'build'], cwd=r'/Users/broski/mod/mod/orbit/prefi/app', capture_output=True, text=True).stdout
+        return subprocess.run(['npm', 'run', 'build'], cwd=HERE,
+                              capture_output=True, text=True).stdout

@@ -14,7 +14,9 @@ function ProvidersInner({ children }: { children: React.ReactNode }) {
     async function init() {
       const { WagmiConfig, createConfig, configureChains } = await import('wagmi')
       const { publicProvider } = await import('wagmi/providers/public')
-      const { RainbowKitProvider, getDefaultWallets } = await import('@rainbow-me/rainbowkit')
+      const { RainbowKitProvider, connectorsForWallets } = await import('@rainbow-me/rainbowkit')
+      const { injectedWallet, coinbaseWallet, metaMaskWallet, walletConnectWallet } =
+        await import('@rainbow-me/rainbowkit/wallets')
 
       const ganache = {
         id: 1337,
@@ -62,11 +64,17 @@ function ProvidersInner({ children }: { children: React.ReactNode }) {
         [publicProvider()]
       )
 
-      const { connectors } = getDefaultWallets({
-        appName: 'PreFi Prediction Market',
-        projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || 'prefi_local_dev',
-        chains,
-      })
+      // WalletConnect needs a real project id — a placeholder makes its relay
+      // reject the connection and takes the whole wallet list down with it.
+      // Without one we ship browser wallets only, which is all a local mod needs.
+      const appName = 'PreFi'
+      const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+      const wallets = [injectedWallet({ chains }), coinbaseWallet({ appName, chains })]
+      if (projectId) {
+        wallets.push(metaMaskWallet({ chains, projectId }))
+        wallets.push(walletConnectWallet({ chains, projectId }))
+      }
+      const connectors = connectorsForWallets([{ groupName: 'Wallets', wallets }])
 
       const wagmiConfig = createConfig({
         autoConnect: true,

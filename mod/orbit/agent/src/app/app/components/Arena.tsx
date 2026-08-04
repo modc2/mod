@@ -17,13 +17,15 @@ type Row = {
   rank: number; agent: string; icon: string; active: boolean
   elo: number; matches: number; wins: number; losses: number; draws: number
   win_rate: number; avg_score: number; avg_seconds: number; cost: number
-  tasks: number; last: number
+  tasks: number; voids: number; last: number
 }
 type Match = {
   id: string; ts: number; agent: string; task: string; suite: string; title: string
   score: number; correct: number; reliable: number; efficient: number
   passed: boolean; steps: number; budget: number; seconds: number; cost: number
   model?: string | null; error?: string | null; reason?: string
+  // the provider failed, not the agent — kept on the record, out of the rating
+  void?: boolean; void_reason?: string | null; attempt?: number
   checks?: { type: string; passed: boolean; reason: string }[]
 }
 type Task = { key: string; suite: string; title: string; prompt: string; steps?: number | null }
@@ -241,8 +243,12 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
                 className={`border-t border-white/[0.04] cursor-pointer transition ${
                   picked === r.agent ? 'bg-emerald-500/10' : 'hover:bg-white/[0.03]'
                 } ${r.active ? '' : 'opacity-45'}`}>
-                <td className="py-1.5 px-2 text-right tabular-nums text-gray-500">
-                  {r.rank <= 3 ? ['🥇', '🥈', '🥉'][r.rank - 1] : r.rank}
+                {/* the podium is colour, not emoji — the pixel skin's font has
+                    no medals and renders them as tofu */}
+                <td className={`py-1.5 px-2 text-right tabular-nums ${
+                  r.rank === 1 ? 'text-emerald-300' : r.rank <= 3 ? 'text-gray-300' : 'text-gray-600'
+                }`}>
+                  {r.rank}
                 </td>
                 <td className="py-1.5 px-2">
                   <span className="text-gray-500 mr-1.5">{r.icon}</span>
@@ -259,7 +265,11 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
                 <td className="py-1.5 px-2 text-right tabular-nums text-gray-500">
                   {r.wins}–{r.losses}–{r.draws}
                 </td>
-                <td className="py-1.5 px-2 text-right tabular-nums text-gray-500">{r.matches}</td>
+                <td className="py-1.5 px-2 text-right tabular-nums text-gray-500"
+                  title={r.voids ? `${r.voids} match(es) the provider voided — not rated` : undefined}>
+                  {r.matches}
+                  {r.voids > 0 && <span className="text-amber-400/70 text-[9px] ml-1">+{r.voids}</span>}
+                </td>
                 <td className="py-1.5 px-2 text-right tabular-nums text-gray-600">{r.avg_seconds.toFixed(1)}</td>
                 <td className="py-1.5 px-2 text-right tabular-nums text-gray-600">
                   {r.cost ? `$${r.cost.toFixed(4)}` : '—'}
@@ -331,17 +341,19 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
               <div className="flex items-baseline gap-2">
                 <span className="text-[11px] text-gray-200">{m.agent}</span>
                 <span className="text-[10px] text-gray-600 truncate flex-1">{m.title}</span>
-                <span className={`text-[11px] tabular-nums ${m.error ? 'text-red-400' : m.passed ? 'text-emerald-300' : 'text-gray-400'}`}>
-                  {m.error ? 'forfeit' : pct(m.score)}
+                <span className={`text-[11px] tabular-nums ${m.void ? 'text-amber-400' : m.passed ? 'text-emerald-300' : 'text-gray-400'}`}>
+                  {m.void ? 'void' : pct(m.score)}
                 </span>
               </div>
-              <div className="flex gap-1.5">
-                {BARS.map(b => (
-                  <div key={b.key} className="flex-1" title={`${b.label} ${pct(m[b.key])}`}>
-                    <ScoreBar value={m[b.key]} tint={b.tint} />
-                  </div>
-                ))}
-              </div>
+              {!m.void && (
+                <div className="flex gap-1.5">
+                  {BARS.map(b => (
+                    <div key={b.key} className="flex-1" title={`${b.label} ${pct(m[b.key])}`}>
+                      <ScoreBar value={m[b.key]} tint={b.tint} />
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex items-center gap-2 text-[9px] text-gray-600">
                 <span>{m.suite}</span>
                 <span>{m.steps}/{m.budget} steps</span>
@@ -350,7 +362,12 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
                 <span className="ml-auto">{m.reason?.startsWith('qualifier') ? 'qualifier' : m.reason}</span>
                 <span>{ago(m.ts)}</span>
               </div>
-              {m.error && <div className="text-[9px] text-red-400/80 truncate">{m.error}</div>}
+              {m.void && (
+                <div className="text-[9px] text-amber-400/80 truncate"
+                  title={m.void_reason || ''}>
+                  provider failed{m.attempt ? ` after ${m.attempt + 1} tries` : ''} — not rated: {m.void_reason}
+                </div>
+              )}
             </div>
           ))}
 

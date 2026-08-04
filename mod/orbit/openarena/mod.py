@@ -253,10 +253,15 @@ class Mod:
             return {'status': 'build_failed', 'stderr': r.stderr[-3000:]}
         return {'status': 'built', 'binary': self.binary}
 
-    def serve(self, port=None, **kwargs):
-        """Run the arena under pm2 as openarena-api (API, MCP and console)."""
+    def serve(self, port=None, build=True, **kwargs):
+        """Run the arena under pm2 as openarena-api (API, MCP and console).
+
+        Builds first by default — cargo is incremental, so an unchanged tree
+        costs a moment, and skipping it is how you deploy a stale binary and
+        spend an hour wondering why your edit did nothing. build=0 to skip.
+        """
         port = int(port or self.port)
-        if not os.path.exists(self.binary):
+        if build or not os.path.exists(self.binary):
             built = self.build()
             if built.get('status') != 'built':
                 return built

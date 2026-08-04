@@ -9,26 +9,26 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "next": "14.0.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "ethers": "^6.9.0",
-    "wagmi": "^1.4.7",
-    "viem": "^1.19.9",
     "@rainbow-me/rainbowkit": "^1.3.0",
     "@tanstack/react-query": "^5.12.2",
     "@uniswap/sdk-core": "^4.2.1",
     "@uniswap/v3-sdk": "^3.11.2",
+    "ethers": "^6.9.0",
+    "framer-motion": "^10.16.16",
+    "next": "^14.2.35",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "react-toastify": "^9.1.3",
-    "framer-motion": "^10.16.16"
+    "viem": "^1.19.9",
+    "wagmi": "^1.4.7"
   },
   "devDependencies": {
-    "typescript": "^5.3.3",
     "@types/node": "^20.10.5",
     "@types/react": "^18.2.45",
     "@types/react-dom": "^18.2.18",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.32",
-    "tailwindcss": "^3.3.6"
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.3.3"
   }
 }

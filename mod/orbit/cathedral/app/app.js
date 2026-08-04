@@ -88,6 +88,7 @@ document.querySelectorAll('.rail .tab').forEach((b) => b.addEventListener('click
   document.querySelectorAll('.rail .tab').forEach((x) => x.classList.toggle('on', x === b));
   document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.id === b.dataset.tab));
   if (b.dataset.tab === 'workers') loadWorkers();
+  if (b.dataset.tab === 'evidence') loadTrustedKeys();
 }));
 
 // ── the key ────────────────────────────────────────────────────────────
@@ -449,15 +450,80 @@ async function refreshBalance() {
   try { renderBalance(await api('GET', '/credits')); } catch (e) { /* the balance is a courtesy, not the job */ }
 }
 
+// ── evidence ───────────────────────────────────────────────────────────
+
+/* Verification needs no key: the receipt is the whole input. That is the point
+   of keeping one — it stays checkable after the worker, the key, and the
+   credits are gone. */
+async function verifyReceipt(doc, into) {
+  const el = $(into);
+  el.innerHTML = '<p class="fine">verifying…</p>';
+  try {
+    const out = await api('POST', '/receipts/verify', doc);
+    const ok = !!out.verified;
+    const rows = (out.structure?.checks || []).map((c) =>
+      `<tr><td>${esc(c.check)}</td><td>${esc(c.detail ?? '')}</td>
+       <td><span class="pill ${c.ok ? 'pass' : 'fail'}">${c.ok ? 'PASS' : 'FAIL'}</span></td></tr>`).join('');
+    el.innerHTML = `
+      <div class="blocked ${ok ? 'ok' : ''}">${ok
+        ? `signature valid — signed by ${esc(out.signed_by)}`
+        : esc(out.error || 'not verified') }</div>
+      ${rows ? `<table><tr><th>check</th><th>value</th><th></th></tr>${rows}</table>` : ''}
+      ${(out.structure?.notes || []).map((n) => `<p class="fine">${esc(n)}</p>`).join('')}
+      ${out.proves ? `<p class="fine">Proves: ${esc(out.proves)}</p>` : ''}`;
+    toast(ok ? 'signature valid' : (out.error || 'not verified'), ok ? 'ok' : 'bad');
+  } catch (e) {
+    el.innerHTML = `<p class="fine" style="color:var(--fail)">${esc(e.message)}</p>`;
+    toast(e.message, 'bad');
+  }
+}
+
+$('do-verify').addEventListener('click', () => {
+  const text = $('verify-receipt').value.trim();
+  if (!text) { toast('paste a receipt first', 'bad'); return; }
+  let doc;
+  try { doc = JSON.parse(text); } catch (e) { toast('that is not valid JSON', 'bad'); return; }
+  verifyReceipt(doc, 'verify-result');
+});
+
+async function loadTrustedKeys() {
+  try {
+    const out = await api('GET', '/receipts/trusted-keys');
+    const keys = out.keys || {};
+    $('trusted-keys').innerHTML = '<table><tr><th>key id</th><th>alg</th><th>status</th>'
+      + '<th>valid until</th></tr>' + Object.entries(keys).map(([id, k]) => `
+        <tr><td><code>${esc(id)}</code></td><td>${esc(k.algorithm)}</td>
+          <td><span class="pill ${k.status === 'active' ? 'pass' : 'fail'}">${esc(k.status)}</span></td>
+          <td>${esc(k.valid_until || '—')}</td></tr>`).join('') + '</table>';
+  } catch (e) {
+    $('trusted-keys').textContent = e.message;
+  }
+}
+
 // ── modal ──────────────────────────────────────────────────────────────
 
 let SHOWN = null;
+
+/* Only offer Verify on something shaped like a signed receipt — a teardown
+   acknowledgement has nothing to check. */
+const verifiable = (p) => !!(p && typeof p === 'object'
+  && (p.signature || String(p.schema || p.receipt_schema || '').startsWith('cathedral_customer_receipt')));
+
 function show(title, payload) {
   SHOWN = { title, payload };
   $('modal-title').textContent = title;
   $('modal-body').textContent = JSON.stringify(payload, null, 2);
+  $('modal-verify').hidden = !verifiable(payload);
   $('modal').hidden = false;
 }
+
+$('modal-verify').addEventListener('click', () => {
+  if (!SHOWN) return;
+  $('verify-receipt').value = JSON.stringify(SHOWN.payload, null, 2);
+  $('modal').hidden = true;
+  document.querySelector('.rail .tab[data-tab="evidence"]').click();
+  verifyReceipt(SHOWN.payload, 'verify-result');
+});
 $('modal-close').addEventListener('click', () => { $('modal').hidden = true; });
 $('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') $('modal').hidden = true; });
 $('modal-save').addEventListener('click', () => {
@@ -474,4 +540,5 @@ $('modal-save').addEventListener('click', () => {
 
 loadCatalog();
 loadPacks();
+loadTrustedKeys();
 if (KEY) { $('key').value = KEY; useKey(KEY); }

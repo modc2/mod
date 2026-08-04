@@ -40,6 +40,7 @@ CLI:
     m cathedral/workers                          # your workers
     m cathedral/stop wrk_...                     # tear one down
     m cathedral/receipt rcpt_...                 # the signed evidence
+    m cathedral/verify rcpt_...                  # check that signature offline
     m cathedral/ledger                           # what this key has spent here
     m cathedral/serve                            # api on /api/cathedral, console on /cathedral
     m cathedral/app                              # where the console lives
@@ -61,6 +62,22 @@ from typing import Optional
 import requests
 
 DIR = Path(__file__).resolve().parent
+
+
+def _sibling(name: str):
+    """Load a sibling file without putting this directory on sys.path.
+
+    This directory contains `mod.py`, so adding it to sys.path would shadow the
+    protocol's own `mod` module for everything downstream. Load by path instead.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(f'cathedral_{name}', DIR / f'{name}.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+rcpt = _sibling('receipts')
 BASE = 'https://cathedral.computer/v1'
 # The protocol's two halves: {host}/api/cathedral → PORT, {host}/cathedral → APP_PORT.
 PORT = 50390
@@ -69,6 +86,8 @@ STORE = Path(os.path.expanduser('~/.mod/cathedral'))
 # Off-tree, 0600, never committed: {"<account>": {"key": "cat_sk_...", ...}}
 KEYS_PATH = STORE / 'keys.json'
 LEDGER_PATH = STORE / 'ledger.json'
+# Cathedral's published receipt-signing keys, pinned on first fetch.
+TRUSTED_KEYS_PATH = STORE / 'trusted-keys.json'
 
 # Spend above this needs an explicit yes= — same line Cathedral's own agent
 # contract draws ("ask first if the run will cost more than $0.20").
@@ -106,7 +125,7 @@ class Mod:
         'profiles', 'gpu_ready',
         'free_test', 'run', 'rent', 'gpu',
         'workers', 'worker', 'wait', 'stop',
-        'receipt', 'ledger',
+        'receipt', 'trusted_keys', 'verify', 'ledger',
         'app', 'serve', 'serve_api', 'serve_app', 'kill',
     ]
 
@@ -497,9 +516,7 @@ class Mod:
         """The signed receipt (cathedral_customer_receipt_v1).
 
         HTTP 425 means execution or cleanup is still pending — try again.
-        Verify offline with the published trusted-keys file:
-            curl https://cathedral.computer/customer-receipt-trusted-keys.json -o keys.json
-            cathedral customer-receipt verify --receipt r.json --trusted-keys keys.json
+        Check the signature with `m cathedral/verify <receipt_id>`.
         """
         out = self._call('GET', f'/receipts/{worker_id_or_receipt_id}')
         if out.get('status') == 425:
@@ -509,6 +526,98 @@ class Mod:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps(out, indent=2))
             out['saved'] = str(p)
+        return out
+
+    def trusted_keys(self, refresh: bool = False, url: str = None):
+        """Cathedral's published ed25519 receipt-signing keys, pinned on this box.
+
+        Cathedral's own advice is to pin this file through a channel you trust
+        before relying on it, so the first fetch is written to
+        ~/.mod/cathedral/trusted-keys.json and later fetches may only *add* key
+        ids. A key id whose public key changed is reported as a conflict and the
+        pinned value is kept — that is either a rotation Cathedral should have
+        published under a new id, or somebody swapping the key you verify
+        against, and neither should pass in silence.
+        """
+        try:
+            pinned = rcpt.parse_trusted_keys(json.loads(TRUSTED_KEYS_PATH.read_text()))
+        except Exception:
+            pinned = {}
+        out = {'pinned_at': str(TRUSTED_KEYS_PATH), 'source': url or rcpt.TRUSTED_KEYS_URL}
+        if pinned and not refresh:
+            return {**out, 'keys': _public(pinned), 'fetched': False}
+
+        try:
+            r = requests.get(url or rcpt.TRUSTED_KEYS_URL, timeout=30)
+            fetched = rcpt.parse_trusted_keys(r.json())
+        except Exception as e:
+            if pinned:
+                return {**out, 'keys': _public(pinned), 'fetched': False,
+                        'warning': f'could not refresh: {e} — using the pinned copy'}
+            return {**out, 'error': 'could not fetch trusted keys', 'detail': str(e)}
+
+        merged = rcpt.merge_pinned(pinned, fetched)
+        TRUSTED_KEYS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        TRUSTED_KEYS_PATH.write_text(json.dumps(
+            {'schema': rcpt.TRUSTED_KEYS_SCHEMA, 'keys': merged['keys']}, indent=2))
+        out.update({'keys': _public(merged['keys']), 'fetched': True,
+                    'first_pin': not pinned, 'added': merged['added']})
+        if merged['conflicts']:
+            out['conflicts'] = merged['conflicts']
+            out['warning'] = ('the published public key CHANGED for these key ids; the pinned '
+                              'copy was kept. Confirm the rotation with Cathedral before trusting '
+                              f'receipts signed by them, then edit {TRUSTED_KEYS_PATH} by hand')
+        return out
+
+    def verify(self, receipt: str = None, path: str = None, refresh: bool = False):
+        """Verify a signed receipt offline against the pinned trusted keys.
+
+        Takes a receipt id (fetched with your key), a path to a saved receipt
+        JSON, or raw JSON. Proves that a Cathedral key you trust signed exactly
+        these assertions — not that Intel/NVIDIA evidence replays, that billing
+        is right, or that teardown happened.
+
+            m cathedral/verify rcpt_...
+            m cathedral/verify path=~/receipt.json
+        """
+        doc, source = None, None
+        if path:
+            p = Path(os.path.expanduser(path))
+            try:
+                doc, source = json.loads(p.read_text()), str(p)
+            except Exception as e:
+                return {'error': f'could not read {p}', 'detail': str(e)}
+        elif isinstance(receipt, dict):
+            doc, source = receipt, 'inline'
+        elif receipt:
+            text = str(receipt).strip()
+            if text.startswith('{'):
+                try:
+                    doc, source = json.loads(text), 'inline'
+                except ValueError:
+                    return {'error': 'receipt looks like JSON but does not parse'}
+            else:
+                fetched = self.receipt(text)
+                if 'error' in fetched:
+                    return fetched
+                # `status` is our own annotation from _call — not signed content.
+                doc = {k: v for k, v in fetched.items() if k != 'status'}
+                source = f'{self.base}/receipts/{text}'
+        if doc is None:
+            return {'error': 'nothing to verify — pass a receipt id, path=…, or raw JSON'}
+
+        keys = self.trusted_keys(refresh=refresh)
+        if 'error' in keys:
+            return keys
+        try:
+            pinned = rcpt.parse_trusted_keys(json.loads(TRUSTED_KEYS_PATH.read_text()))
+        except Exception as e:
+            return {'error': 'no pinned trusted keys', 'detail': str(e)}
+        out = rcpt.verify(doc, pinned)
+        out['source'] = source
+        out['trusted_keys'] = keys.get('pinned_at')
+        if keys.get('warning'):
+            out['trusted_keys_warning'] = keys['warning']
         return out
 
     # ── local spend ledger (fingerprints only, never keys) ───────────────
@@ -770,6 +879,12 @@ def _worker_id(response: dict):
     if isinstance(worker, dict):
         return worker.get('worker_id') or worker.get('id')
     return None
+
+
+def _public(keys: dict) -> dict:
+    """Trusted keys are public by definition, but print them as a summary."""
+    return {kid: {k: v for k, v in entry.items() if k != 'public_key_base64'}
+            for kid, entry in keys.items()}
 
 
 def _read_ledger() -> list:

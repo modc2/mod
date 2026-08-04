@@ -7,6 +7,9 @@ import { API_BASE_URL } from '@/lib/contracts'
 import { toast } from 'react-toastify'
 
 const API = API_BASE_URL
+// Optional: live pool prices from the uniswap module. Off unless pointed at a
+// reachable one — a hardcoded localhost port is mixed content over https.
+const UNISWAP_API = process.env.NEXT_PUBLIC_UNISWAP_API
 
 const fmt = (n: number, d = 2) => n?.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }) ?? '—'
 const fmtUsd = (n: number, d = 2) => `$${fmt(n, d)}`
@@ -63,8 +66,9 @@ export default function Home() {
 
   // Fetch Uniswap pool prices from the uniswap module
   const fetchPoolPrices = useCallback(async () => {
+    if (!UNISWAP_API) return
     try {
-      const r = await fetch('http://localhost:50088/tokens?chain=base&limit=20')
+      const r = await fetch(`${UNISWAP_API}/tokens?chain=base&limit=20`)
       if (r.ok) setPoolPrices(await r.json())
     } catch {}
   }, [])
@@ -233,7 +237,7 @@ function Dashboard({ status, markets, treasury, poolPrices }: any) {
           </div>
         ) : (
           <div className="px-4 py-8 text-center text-xs text-zinc-500">
-            Pool data unavailable — start the uniswap module to see live prices
+            Pool data off — point NEXT_PUBLIC_UNISWAP_API at a running uniswap module
           </div>
         )}
       </Section>

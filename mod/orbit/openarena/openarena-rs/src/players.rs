@@ -91,9 +91,9 @@ pub fn brief(task: &Task) -> String {
     s
 }
 
-/// Pull the program out of a reply. Agents narrate, then show the code — the
-/// last fenced block is the one they landed on.
-pub fn extract_code(text: &str) -> (String, String) {
+/// The last fenced block in a reply — the one an agent landed on after
+/// narrating its way there.
+fn fenced(text: &str) -> Option<(String, String)> {
     let mut best: Option<(String, String)> = None;
     let mut lang = String::new();
     let mut buf: Vec<&str> = Vec::new();
@@ -121,21 +121,46 @@ pub fn extract_code(text: &str) -> (String, String) {
         best = Some((buf.join("\n"), lang.clone()));
     }
 
-    match best {
-        Some((code, lang)) => (code.trim_matches('\n').to_string(), lang),
-        // No fence at all: take the reply as-is when it reads like code.
-        None => {
-            let t = text.trim();
-            let codey = ["def ", "import ", "function ", "const ", "print(", "console.log", "#!/"]
-                .iter()
-                .any(|m| t.contains(m));
-            if codey {
-                (t.to_string(), String::new())
-            } else {
-                (String::new(), String::new())
-            }
-        }
+    best.map(|(code, lang)| (code.trim_matches('\n').to_string(), lang))
+}
+
+/// Does this read as a program on its own, rather than prose about one?
+fn looks_like_code(text: &str) -> bool {
+    let t = text.trim();
+    !t.is_empty()
+        && ["def ", "import ", "function ", "const ", "let ", "print(", "console.log", "#!/", "class "]
+            .iter()
+            .any(|m| t.contains(m))
+}
+
+/// Pull the program out of a single reply: the fenced block if there is one,
+/// otherwise the whole thing when it is plainly code.
+pub fn extract_code(text: &str) -> (String, String) {
+    match fenced(text) {
+        Some(hit) => hit,
+        None if looks_like_code(text) => (text.trim().to_string(), String::new()),
+        None => (String::new(), String::new()),
     }
+}
+
+/// Pull the program out of a run that produced many strings. Newest first, and
+/// a fence anywhere beats a bare blob — so an agent that both wrote a file and
+/// showed its work is taken at its word, and one that only wrote the file is
+/// still read. Never concatenates: splicing prose into a submission would fail
+/// it at the judge for a reason the entrant never caused.
+fn pick_code(parts: &[String]) -> (String, String) {
+    parts
+        .iter()
+        .rev()
+        .find_map(|p| fenced(p))
+        .or_else(|| {
+            parts
+                .iter()
+                .rev()
+                .find(|p| looks_like_code(p))
+                .map(|p| (p.trim().to_string(), String::new()))
+        })
+        .unwrap_or_default()
 }
 
 /// A language hint from a fence (```python) is only worth taking when the
@@ -176,9 +201,14 @@ fn fixed(agent: &Agent, task: &Task) -> Result<Play, String> {
     })
 }
 
-/// Every string a run produced, in order — summaries, responses, and the
-/// contents an agent wrote to a file (which is often the program itself).
-fn steps_text(resp: &Value) -> String {
+/// Every string a run produced, in order — summaries, responses, and the code
+/// an agent put into a file instead of saying out loud.
+///
+/// A tool-using agent often answers a coding brief by writing or editing a
+/// file rather than replying with a block, so `content` (write) and
+/// `new_string` (edit) are mined alongside the prose. Missing those scores a
+/// working program zero for the wrong reason.
+fn steps_text(resp: &Value) -> Vec<String> {
     let mut parts: Vec<String> = Vec::new();
     let mut take = |v: Option<&Value>| {
         if let Some(s) = v.and_then(|v| v.as_str()) {
@@ -190,14 +220,14 @@ fn steps_text(resp: &Value) -> String {
     if let Some(steps) = resp.get("result").and_then(|v| v.as_array()) {
         for step in steps {
             let p = step.get("params");
-            for key in ["content", "code", "text", "message", "summary"] {
+            for key in ["content", "new_string", "code", "text", "message", "summary"] {
                 take(p.and_then(|p| p.get(key)));
             }
             take(step.get("result"));
         }
     }
     take(resp.get("summary"));
-    parts.join("\n\n")
+    parts
 }
 
 /// A competitor that is an agent in this fleet's `agent` module.
@@ -238,10 +268,27 @@ async fn agent_mod(agent: &Agent, task: &Task) -> Result<Play, String> {
         return Err(format!("agent module: {err}"));
     }
 
-    let text = steps_text(&out);
-    let (code, hint) = extract_code(&text);
+    let parts = steps_text(&out);
+    let (code, hint) = pick_code(&parts);
     if code.trim().is_empty() {
-        return Err("the agent returned no code block".into());
+        // Name the steps it did take. "went off and ran bash" and "we could not
+        // read your reply" are different failures and the owner of the entrant
+        // is the only one who can fix either.
+        let trail = out
+            .get("result")
+            .and_then(|v| v.as_array())
+            .map(|steps| {
+                steps
+                    .iter()
+                    .filter_map(|s| s.get("tool").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(" → ")
+            })
+            .unwrap_or_default();
+        return Err(format!(
+            "the agent returned no program (steps: {})",
+            if trail.is_empty() { "none".into() } else { trail }
+        ));
     }
     Ok(Play {
         language: pick_language(&hint, task),
@@ -412,4 +459,84 @@ async fn agent_protocol(agent: &Agent, task: &Task) -> Result<Play, String> {
         code,
         meta: json!({ "driver": "ap", "base": base, "ap_task_id": ap_id, "steps": steps_run }),
     })
+}
+
+/// Reading the answer out of a reply is where an arena is unfair without
+/// noticing: every miss here scores a working program zero.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn takes_the_fenced_block_not_the_prose() {
+        let (code, lang) = extract_code("Here's my approach.\n\n```python\nprint(1)\n```\n\nThat's it.");
+        assert_eq!(code, "print(1)");
+        assert_eq!(lang, "python");
+    }
+
+    #[test]
+    fn takes_the_last_block_an_agent_landed_on() {
+        let (code, _) = extract_code("first try\n```\nprint(1)\n```\nwait, better:\n```\nprint(2)\n```");
+        assert_eq!(code, "print(2)");
+    }
+
+    #[test]
+    fn reads_a_bare_program_with_no_fence() {
+        let (code, _) = extract_code("import sys\nprint(sys.stdin.read())");
+        assert!(code.starts_with("import sys"));
+    }
+
+    #[test]
+    fn refuses_prose_that_holds_no_program() {
+        let (code, _) = extract_code("I'm not sure how to solve this one, sorry.");
+        assert!(code.is_empty());
+    }
+
+    #[test]
+    fn survives_an_unterminated_fence() {
+        let (code, _) = extract_code("here:\n```python\nprint(1)");
+        assert_eq!(code, "print(1)");
+    }
+
+    #[test]
+    fn mines_the_file_an_agent_wrote_instead_of_speaking() {
+        // An agent that answers by calling edit/write, never saying the code.
+        let parts = vec!["solution.py".to_string(), "def solve():\n    print(1)".to_string()];
+        let (code, _) = pick_code(&parts);
+        assert_eq!(code, "def solve():\n    print(1)");
+    }
+
+    #[test]
+    fn never_splices_prose_into_a_submission() {
+        let parts = vec![
+            "I'll write the file now.".to_string(),
+            "print(1)\nimport sys".to_string(),
+        ];
+        let (code, _) = pick_code(&parts);
+        assert!(!code.contains("I'll write"), "prose leaked into the program: {code:?}");
+    }
+
+    #[test]
+    fn a_fence_anywhere_beats_a_bare_blob() {
+        let parts = vec![
+            "import sys\nprint('draft')".to_string(),
+            "final answer:\n```python\nprint('final')\n```".to_string(),
+        ];
+        let (code, lang) = pick_code(&parts);
+        assert_eq!(code, "print('final')");
+        assert_eq!(lang, "python");
+    }
+
+    #[test]
+    fn a_language_hint_is_only_taken_when_the_judge_can_run_it() {
+        let task = Task {
+            id: "t1".into(), slug: "s".into(), title: "T".into(), kind: "coding".into(),
+            statement: String::new(), language: "any".into(), starter: String::new(),
+            mode: "io".into(), tests: vec![], timeout_ms: 1000, author: String::new(),
+            tags: vec![], created: 0,
+        };
+        assert_eq!(pick_language("python", &task), "python");
+        assert_eq!(pick_language("rust", &task), "python", "unrunnable hint falls back");
+        assert_eq!(pick_language("", &task), "python");
+    }
 }

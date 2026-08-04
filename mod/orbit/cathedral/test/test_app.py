@@ -6,6 +6,7 @@ invents nothing — is checked rather than asserted in a comment.
 """
 import importlib.util
 import json
+import re
 import socket
 import threading
 import urllib.error
@@ -112,6 +113,23 @@ def test_serves_the_bare_port_too(console):
     assert get(console + '/')[0] == 200
     assert get(console + '/app.js')[0] == 200
     assert get(console + '/cathedral/app.css')[0] == 200
+
+
+def test_assets_resolve_from_the_published_bare_prefix(console):
+    """The published link is `{host}/cathedral`, with no trailing slash.
+
+    A relative <base> resolves that against the SITE ROOT, so the browser asked
+    the gateway for /app.css and /app.js — which belong to no module — and the
+    console came up unstyled and inert with no error anywhere. The base must be
+    pinned to the mount prefix, and that prefix must serve the assets.
+    """
+    body = get(console + '/cathedral')[1]
+    base = re.search(r'<base\s+href="([^"]+)"', body)
+    assert base, 'the console needs a <base> to resolve its assets'
+    assert base.group(1) == '/cathedral/', (
+        'a relative base breaks the bare /cathedral link on the gateway')
+    for asset in re.findall(r'(?:src|href)="((?!http|data:|/)[^"]+\.(?:js|css))"', body):
+        assert get(console + '/cathedral/' + asset)[0] == 200, asset
 
 
 def test_health(console):

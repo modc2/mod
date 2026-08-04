@@ -8,13 +8,15 @@ import {
   fetchAccount,
   fetchCurve,
   fetchPnl,
+  fmtPct,
   shortSs58,
   watchAccount,
 } from "../../lib/api";
 import PnlBadge from "../../components/PnlBadge";
 import PnlCurve from "../../components/PnlCurve";
+import StatTile from "../../components/StatTile";
 import SubnetPositions from "../../components/SubnetPositions";
-import { useCurrency, fmtValue } from "../../context/CurrencyContext";
+import { useCurrency, fmtValue, fmtPnlValue } from "../../context/CurrencyContext";
 import { useSidebar } from "../../context/SidebarContext";
 
 const WINDOWS = [1, 3, 7, 14, 30];
@@ -74,8 +76,8 @@ export default function TraderPage() {
         ← leaderboard
       </Link>
 
-      <header className="pixel-panel p-6 flex items-start justify-between flex-wrap gap-4">
-        <div>
+      <header className="pixel-panel p-4 sm:p-6 flex items-start justify-between flex-wrap gap-4">
+        <div className="min-w-0">
           <h1 className="font-display text-2xl font-bold text-pixel-white">
             {shortSs58(ss58)}
           </h1>
@@ -83,9 +85,9 @@ export default function TraderPage() {
             {ss58}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full sm:w-auto">
           <button
-            className="pixel-btn text-[11px]"
+            className="pixel-btn text-[11px] flex-1 sm:flex-none"
             onClick={async () => {
               await watchAccount(ss58);
               setWatched(true);
@@ -97,30 +99,33 @@ export default function TraderPage() {
           <button
             onClick={() => openStrat(ss58)}
             title="Add to the strat maker's basket"
-            className="pixel-btn text-[11px] border-green-400 text-green-400"
+            className="pixel-btn text-[11px] flex-1 sm:flex-none border-green-400 text-green-400"
           >
             COPY
           </button>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Stat label="total stake" value={fmtValue(account.total_stake_tao, currency, usdPerTao)} />
-        <div className="pixel-panel p-4">
-          <p className="text-[10px] tracking-[2px] uppercase text-pixel-gray mb-1">
-            {days}d PnL
-          </p>
-          <PnlBadge tao={account.pnl_tao} pct={account.pnl_pct} size="lg" />
-        </div>
-        <Stat label="subnets" value={String(account.allocations.length)} />
+      {/* The same scoreboard cluster the board uses — three hand-rolled
+          panels here meant the PnL ran off the plate on a narrow screen and
+          sat on a different baseline from every other readout in the app. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <StatTile label="total stake" value={fmtValue(account.total_stake_tao, currency, usdPerTao)} />
+        <StatTile
+          label={`${days}d pnl`}
+          value={fmtPnlValue(account.pnl_tao, currency, usdPerTao)}
+          sub={fmtPct(account.pnl_pct)}
+          tone={account.pnl_tao >= 0 ? "up" : "down"}
+        />
+        <StatTile label="subnets" value={String(account.allocations.length)} />
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="rail no-scrollbar">
         {WINDOWS.map((w) => (
           <button
             key={w}
             onClick={() => setDays(w)}
-            className={`pixel-btn text-[11px] px-2 py-1 ${
+            className={`pixel-btn text-[11px] px-3 py-1 ${
               days === w ? "border-green-400 text-green-400" : "text-pixel-gray-light"
             }`}
           >
@@ -147,8 +152,11 @@ export default function TraderPage() {
           <h2 className="font-display text-lg font-bold mb-3">
             PnL by subnet ({days}d)
           </h2>
-          <div className="pixel-panel overflow-hidden">
-            <table className="pixel-table">
+          {/* Six numeric columns don't fit a phone at any type size worth
+              reading — the plate scrolls sideways rather than crushing every
+              price into an ellipsis. */}
+          <div className="pixel-panel overflow-x-auto">
+            <table className="pixel-table" style={{ minWidth: 660 }}>
               <thead className="sticky">
                 <tr>
                   <th>Subnet</th>
@@ -185,17 +193,6 @@ export default function TraderPage() {
           </div>
         </section>
       )}
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="pixel-panel p-4">
-      <p className="text-[10px] tracking-[2px] uppercase text-pixel-gray mb-1">
-        {label}
-      </p>
-      <p className="font-mono text-lg text-pixel-white tabular-nums">{value}</p>
     </div>
   );
 }

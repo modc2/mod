@@ -50,20 +50,20 @@ function StratsBody() {
         right={
           <>
             <button
-              className={`pixel-btn text-[11px] px-3 py-1 ${
+              className={`pixel-btn text-[11px] px-3 py-1 flex-1 md:flex-none ${
                 mode === "index" ? "border-green-400 text-green-400" : ""
               }`}
               onClick={() => setMode("index")}
             >
-              INDEX OF TRADERS
+              INDEX<span className="hidden sm:inline"> OF TRADERS</span>
             </button>
             <button
-              className={`pixel-btn text-[11px] px-3 py-1 ${
+              className={`pixel-btn text-[11px] px-3 py-1 flex-1 md:flex-none ${
                 mode === "single" ? "border-green-400 text-green-400" : ""
               }`}
               onClick={() => setMode("single")}
             >
-              SINGLE TARGET
+              SINGLE<span className="hidden sm:inline"> TARGET</span>
             </button>
           </>
         }
@@ -75,22 +75,23 @@ function StratsBody() {
 
       {mode === "index" && (
         // The builder lives in the drawer so it stays open next to the board
-        // you're picking from — this is the way in from the menu.
-        <section className="pixel-panel p-4 flex flex-wrap items-center gap-3">
-          <div className="min-w-0 flex-1">
+        // you're picking from — this is the way in from the menu. The blurb
+        // stacks above the button under md: beside a 280px cap on a phone it
+        // came out one word per line.
+        <section className="pixel-panel p-4 flex flex-col md:flex-row md:flex-wrap md:items-center gap-3">
+          <div className="min-w-0 md:flex-1">
             <h2 className="font-display text-base font-bold mb-1">
               Strat maker
             </h2>
             <p className="arcade-prose arcade-prose-sm">
-              The index builder is docked on the right. Tick any set of traders
-              — the whole leaderboard, your watchlist, a subnet’s validators or
-              a list of pasted addresses — weight them, and start one copy per
-              trader.
+              Tick any set of traders — the whole leaderboard, your watchlist, a
+              subnet’s validators or a list of pasted addresses — weight them,
+              and start one copy per trader.
             </p>
           </div>
           <button
             onClick={() => openStrat()}
-            className="pixel-btn border-green-400 text-green-400 shrink-0"
+            className="pixel-btn border-green-400 text-green-400 shrink-0 w-full md:w-auto"
           >
             OPEN STRAT MAKER →
           </button>
@@ -106,7 +107,77 @@ function StratsBody() {
             <p className="arcade-prose">No copies yet. Start one below.</p>
           </div>
         ) : (
-          <div className="pixel-panel overflow-hidden">
+          <>
+          {/* On a phone a copy is a card: who it mirrors, whether it's live,
+              and the three things you can do to it — with the limits it runs
+              under as a footnote. */}
+          <div className="lg:hidden space-y-2">
+            {copies.map((c) => (
+              <div key={c.id} className="row-card">
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/traders/${c.target_ss58}`}
+                    className="font-mono text-pixel-white hover:text-green-400 no-underline truncate min-w-0"
+                  >
+                    {c.label || shortSs58(c.target_ss58)}
+                  </Link>
+                  <span
+                    className={`pixel-badge shrink-0 ml-auto ${
+                      c.status === "active"
+                        ? "border-green-400/40 text-green-400"
+                        : c.status === "paused"
+                          ? "border-amber-400/40 text-amber-400"
+                          : "border-red-400/40 text-red-400"
+                    }`}
+                  >
+                    {c.status}
+                  </span>
+                </div>
+                <p className="text-[11px] text-pixel-gray font-mono mt-1">
+                  {c.id.slice(0, 8)}… · max {c.config?.max_tao_per_tx}τ/tx ·{" "}
+                  {c.config?.daily_limit_tao}τ daily ·{" "}
+                  {c.last_sync_block ? `synced #${c.last_sync_block}` : "never synced"}
+                </p>
+                <div className="flex gap-2 mt-2.5 pt-2.5 border-t border-pixel-white/10">
+                  {c.status === "active" ? (
+                    <button
+                      className="pixel-btn text-[11px] px-3 py-1 flex-1"
+                      onClick={() => runOp(c.id, () => pauseCopy(c.id))}
+                      disabled={busyId === c.id}
+                    >
+                      PAUSE
+                    </button>
+                  ) : c.status === "paused" ? (
+                    <button
+                      className="pixel-btn text-[11px] px-3 py-1 flex-1 border-green-400 text-green-400"
+                      onClick={() => runOp(c.id, () => resumeCopy(c.id))}
+                      disabled={busyId === c.id}
+                    >
+                      RESUME
+                    </button>
+                  ) : null}
+                  <button
+                    className="pixel-btn text-[11px] px-3 py-1 flex-1"
+                    onClick={() => runOp(c.id, () => syncCopy(c.id))}
+                    disabled={busyId === c.id}
+                  >
+                    SYNC
+                  </button>
+                  <button
+                    className="pixel-btn text-[11px] px-3 py-1 flex-1 border-red-400/50 text-red-400"
+                    onClick={() => {
+                      if (confirm("Delete this copy?")) runOp(c.id, () => deleteCopy(c.id));
+                    }}
+                    disabled={busyId === c.id}
+                  >
+                    DEL
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="pixel-panel overflow-hidden hidden lg:block">
             <table className="pixel-table">
               <thead className="sticky">
                 <tr>
@@ -194,6 +265,7 @@ function StratsBody() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
 

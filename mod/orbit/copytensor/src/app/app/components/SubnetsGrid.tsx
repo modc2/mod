@@ -104,12 +104,32 @@ export default function SubnetsGrid() {
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] tracking-[2px] uppercase text-pixel-gray mr-1">
-          {filtered.length} of {subnets.length}
-        </span>
+      {/* `md:contents` dissolves the mobile grouping so the desktop row is
+          exactly what it always was: count · sorts · layout switch on the
+          right. On a phone the count and the switch share the top line and
+          the seven sort keys get a rail of their own. */}
+      <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-2">
+        <div className="flex items-center gap-2 md:contents">
+          <span className="text-[11px] tracking-[2px] uppercase text-pixel-gray md:mr-1">
+            {filtered.length} of {subnets.length}
+          </span>
+          <div className="flex gap-1 ml-auto md:order-3">
+            {(["cards", "table"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => chooseView(v)}
+                className={`pixel-btn text-[10px] px-2 py-1 ${
+                  view === v ? "border-green-400 text-green-400" : "text-pixel-gray-light"
+                }`}
+                aria-pressed={view === v}
+              >
+                {v === "cards" ? "▦ CARDS" : "☰ TABLE"}
+              </button>
+            ))}
+          </div>
+        </div>
 
-        <div className="flex flex-wrap gap-1">
+        <div className="rail no-scrollbar -mx-3 px-3 md:mx-0 md:px-0 md:order-2 md:flex-wrap md:min-w-0">
           {SORTS.map((s) => (
             <button
               key={s.id}
@@ -121,21 +141,6 @@ export default function SubnetsGrid() {
             >
               {s.label}
               {sortId === s.id && <span className="ml-1">{asc ? "▲" : "▼"}</span>}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex gap-1 ml-auto">
-          {(["cards", "table"] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => chooseView(v)}
-              className={`pixel-btn text-[10px] px-2 py-1 ${
-                view === v ? "border-green-400 text-green-400" : "text-pixel-gray-light"
-              }`}
-              aria-pressed={view === v}
-            >
-              {v === "cards" ? "▦ CARDS" : "☰ TABLE"}
             </button>
           ))}
         </div>
@@ -263,11 +268,14 @@ function SubnetTable({
 
   return (
     <div className="pixel-panel overflow-x-auto">
-      <table className="pixel-table" style={{ minWidth: 860 }}>
+      {/* `table-layout: fixed` splits whatever width the table has evenly, so
+          the floor has to be wide enough for the widest cell in EVERY column —
+          at 860 the name column landed on ~30px and every subnet read "R…". */}
+      <table className="pixel-table" style={{ minWidth: 980 }}>
         <thead className="sticky">
           <tr>
             <th style={{ width: 56 }}>#</th>
-            <th>Subnet</th>
+            <th style={{ width: 220 }}>Subnet</th>
             <th className="num">Price</th>
             <th className="num">1h</th>
             <th className="num">24h</th>

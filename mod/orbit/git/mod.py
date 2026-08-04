@@ -226,12 +226,26 @@ class Mod:
         return {'repo': name, 'file': file, 'truncated': truncated,
                 'diff': text[:MAX_DIFF]}
 
-    def commits(self, repo=None, n=20, branch=None) -> list:
-        """Recent commits as [{hash, author, date, message, additions, deletions}]."""
+    def commits(self, repo=None, n=20, branch=None, stat=True, skip=0,
+                search=None, author=None) -> list:
+        """Recent commits as [{hash, author, date, message, additions, deletions}].
+
+        `stat=False` drops the per-commit diffstat: git has to diff every commit
+        to produce it, which on this repo is 5 seconds versus instant — the app
+        paints the list without it, then fills the +/− in. `search` greps the
+        messages, `author` the authors, `skip` pages further back."""
         name, path = self._repo(repo)
         sep = '\x1f'
         fmt = sep.join(['%H', '%an', '%aI', '%s'])
-        args = ['git', 'log', f'--pretty=format:{fmt}', '--shortstat', '-n', str(int(n))]
+        args = ['git', 'log', f'--pretty=format:{fmt}', '-n', str(int(n))]
+        if stat:
+            args.append('--shortstat')
+        if int(skip or 0):
+            args += ['--skip', str(int(skip))]
+        if search:
+            args += ['--regexp-ignore-case', '--grep', str(search)]
+        if author:
+            args += ['--regexp-ignore-case', '--author', str(author)]
         if branch:
             args.insert(2, branch)
         out = self._run(args, cwd=path)
@@ -653,8 +667,26 @@ diff:
             headers['Authorization'] = f'Bearer {tok}'
         r = requests.get(f'https://api.github.com{path}', headers=headers,
                          params=params or {}, timeout=15)
-        r.raise_for_status()
+        if r.status_code >= 400:
+            raise self._gh_error(r, authed=bool(tok))
         return r.json(), r.headers
+
+    @staticmethod
+    def _gh_error(r, authed=True):
+        """GitHub's own message beats requests' "401 Client Error for url:…" —
+        and a rate-limited anonymous read has one obvious fix, so say it."""
+        try:
+            msg = r.json().get('message') or r.text[:200]
+        except Exception:
+            msg = r.text[:200]
+        if r.headers.get('X-RateLimit-Remaining') == '0':
+            msg = (f'github rate limit reached — ' +
+                   ('wait a minute and try again' if authed else
+                    'connect a GitHub account on the GitHub tab to raise it'))
+            return RuntimeError(msg)
+        if r.status_code in (401, 403):
+            return PermissionError(f'github {r.status_code}: {msg}')
+        return RuntimeError(f'github {r.status_code}: {msg}')
 
     def _gh_post(self, path, body=None, address=None, login=None):
         import requests
@@ -667,11 +699,7 @@ diff:
                                    'Authorization': f'Bearer {tok}'},
                           json=body or {}, timeout=30)
         if r.status_code >= 400:
-            try:
-                msg = r.json().get('message') or r.text[:200]
-            except Exception:
-                msg = r.text[:200]
-            raise RuntimeError(f'github {r.status_code}: {msg}')
+            raise self._gh_error(r)
         return r.json()
 
     def _attach(self, token: str, address=None, via: str = 'pat') -> dict:
@@ -945,14 +973,49 @@ diff:
                                address=address, login=login)
         st = self._load()
         tracked_urls = {(v.get('url') or '') for v in st['repos'].values()}
-        rows = [{'repo': r['full_name'], 'private': r['private'], 'fork': r.get('fork'),
-                 'default_branch': r.get('default_branch'), 'pushed_at': r.get('pushed_at'),
-                 'url': r.get('html_url'), 'tracked': r.get('html_url') in tracked_urls,
-                 'description': (r.get('description') or '')[:140]} for r in data]
+        rows = [self._row(r, tracked_urls) for r in data]
         if search:
             s = search.lower()
             rows = [r for r in rows if s in r['repo'].lower() or s in r['description'].lower()]
         return rows
+
+    def _row(self, r: dict, tracked_urls=()) -> dict:
+        """One repo, the way this module talks about repos."""
+        return {'repo': r.get('full_name'), 'owner': (r.get('owner') or {}).get('login'),
+                'description': (r.get('description') or '')[:220],
+                'private': r.get('private'), 'fork': r.get('fork'),
+                'stars': r.get('stargazers_count'), 'forks': r.get('forks_count'),
+                'language': r.get('language'), 'topics': (r.get('topics') or [])[:6],
+                'default_branch': r.get('default_branch'), 'pushed_at': r.get('pushed_at'),
+                'updated_at': r.get('updated_at'), 'url': r.get('html_url'),
+                'tracked': r.get('html_url') in tracked_urls}
+
+    SORTS = ('stars', 'forks', 'updated', 'help-wanted-issues')
+
+    def github_search(self, query: str, n=30, sort: str = None, language: str = None,
+                      user: str = None, address: str = None, login: str = None) -> list:
+        """Search ALL of GitHub for repos — not just yours — through the search
+        API, then track or fork any hit. `sort` is one of stars/forks/updated
+        (best match by default); `language` and `user` narrow the query, and
+        GitHub's own qualifiers (`topic:mcp`, `stars:>500`, `pushed:>2026-01-01`)
+        work inside `query`. Anonymous searches are allowed but capped at 10 a
+        minute — connect an account and it is 30."""
+        q = ' '.join(filter(None, [str(query or '').strip(),
+                                   f'language:{language}' if language else '',
+                                   f'user:{user}' if user else '']))
+        if not q:
+            raise ValueError('search what? pass a query (e.g. m git/search "mcp server")')
+        if sort and str(sort) not in self.SORTS:
+            raise ValueError(f'sort must be one of {self.SORTS}')
+        params = {'q': q, 'per_page': max(1, min(int(n), 100))}
+        if sort:
+            params['sort'] = str(sort)
+        data, _ = self._gh_api('/search/repositories', params=params,
+                               address=address, login=login)
+        tracked_urls = {(v.get('url') or '') for v in self._load()['repos'].values()}
+        return [self._row(r, tracked_urls) for r in (data.get('items') or [])]
+
+    search = github_search
 
     # --- access management --------------------------------------------------
 
@@ -1332,7 +1395,11 @@ diff:
                     if path == '/api/commits':
                         return self._send(200, git.commits(repo=q.get('repo'),
                                                            n=int(q.get('n', 20)),
-                                                           branch=q.get('branch')))
+                                                           branch=q.get('branch'),
+                                                           stat=q.get('stat') != '0',
+                                                           skip=int(q.get('skip', 0)),
+                                                           search=q.get('search'),
+                                                           author=q.get('author')))
                     if path == '/api/show':
                         return self._send(200, git.show(repo=q.get('repo'),
                                                         hash=q.get('hash', 'HEAD'),
@@ -1352,6 +1419,11 @@ diff:
                                                                 search=q.get('search'),
                                                                 address=self._key(q),
                                                                 login=q.get('login')))
+                    if path == '/api/search':
+                        return self._send(200, git.github_search(
+                            query=q.get('q') or q.get('query'), n=int(q.get('n', 30)),
+                            sort=q.get('sort') or None, language=q.get('language') or None,
+                            user=q.get('user') or None, address=self._key(q)))
                     if path == '/api/oauth':
                         return self._send(200, git.oauth_status())
                     if path == '/api/oauth/callback':
@@ -1363,6 +1435,8 @@ diff:
                     return self._send(404, {'error': f'not found: {path}'})
                 except PermissionError as e:
                     return self._send(403, {'error': str(e)})
+                except (TypeError, ValueError, KeyError) as e:
+                    return self._send(400, {'error': str(e)})
                 except Exception as e:
                     return self._send(500, {'error': str(e)})
 
@@ -1475,6 +1549,10 @@ INDEX_HTML = r"""<!doctype html>
   body.noside aside{display:none}
   aside h3{margin:0 0 8px;padding:0 6px;font-size:11px;letter-spacing:.6px;color:var(--muted);
     text-transform:uppercase;display:flex;gap:8px;align-items:center}
+  /* the head stays put while the log scrolls under it */
+  .sidehead{position:sticky;top:-14px;z-index:1;padding:14px 0 8px;margin-top:-14px;
+    background:rgba(10,12,16,.94);backdrop-filter:blur(8px)}
+  .sidehead input{width:100%;font-size:12.5px;padding:5px 10px}
   .citem{padding:8px 9px;border-radius:9px;cursor:pointer;border:1px solid transparent}
   .citem:hover{background:rgba(255,255,255,.03)}
   .citem.on{background:rgba(240,136,62,.12);border-color:rgba(240,136,62,.45)}
@@ -1545,6 +1623,7 @@ INDEX_HTML = r"""<!doctype html>
     <div class="seg">
       <button id="t-changes" class="on" onclick="setView('changes')">Changes</button>
       <button id="t-repos" onclick="setView('repos')">Repos</button>
+      <button id="t-search" onclick="setView('search')">Search</button>
       <button id="t-github" onclick="setView('github')">GitHub</button>
       <button id="t-access" onclick="setView('access')">Access</button>
     </div>
@@ -1562,6 +1641,7 @@ INDEX_HTML = r"""<!doctype html>
   <div class="view on" id="v-changes"></div>
   <div class="view" id="v-commit"></div>
   <div class="view" id="v-repos"></div>
+  <div class="view" id="v-search"></div>
   <div class="view" id="v-github"></div>
   <div class="view" id="v-access"></div>
 </main>
@@ -1571,13 +1651,14 @@ INDEX_HTML = r"""<!doctype html>
 const $=s=>document.querySelector(s);
 const BASE=location.pathname.replace(/\/+$/,'').replace(/\/index\.html$/,'');
 const api=p=>BASE+p;
-const TABS=['changes','repos','github','access'];
+const TABS=['changes','repos','search','github','access'];
 let VIEW='changes', REPO=null, REPOS={}, TOKEN='', ME=null, WALLET='';
-let SHA=null, SIDE_N=30, SIDE=true;     // selected commit, how many to list, sidebar open
+let SHA=null, SIDE_N=40, SIDE=true, CQ='';  // commit, how many to list, sidebar open, filter
 const narrow=()=>matchMedia('(max-width:820px)').matches;
-// on a phone the sidebar is a drawer over the content — start it closed unless asked for
+// the log is open by default on anything wide enough to hold it; on a phone it is a
+// drawer over the content, so there it starts closed unless you asked for it
 try{ TOKEN=localStorage.getItem('git.token')||''; WALLET=localStorage.getItem('git.wallet')||'';
-     SIDE=narrow()?localStorage.getItem('git.side')==='1':localStorage.getItem('git.side')!=='0'; }catch(e){}
+     SIDE=narrow()?localStorage.getItem('git.commits')==='1':localStorage.getItem('git.commits')!=='0'; }catch(e){}
 document.body.classList.toggle('noside',!SIDE);
 // the header wraps at narrow widths — measure it so the sidebar always hangs off its real bottom
 function fitHeader(){document.documentElement.style.setProperty('--hh',$('header').offsetHeight+'px')}
@@ -1602,28 +1683,48 @@ function setView(v){VIEW=v;
 // --- commit sidebar ----------------------------------------------------------
 function toggleSide(){SIDE=!SIDE;document.body.classList.toggle('noside',!SIDE);
   $('#sidebtn').classList.toggle('active',SIDE);
-  try{localStorage.setItem('git.side',SIDE?'1':'0');}catch(e){}
+  try{localStorage.setItem('git.commits',SIDE?'1':'0');}catch(e){}
   if(SIDE)loadSide();}
-let LOG=[], WORK=null, LOADING=false;
+let LOG=[], WORK=null, LOADING=false, SEQ=0, CQT=null;
+// The log paints twice: `git log` alone comes back instantly, `--shortstat` has to
+// diff every commit (~5s on the mod repo) — so show the commits first and let the
+// +/− counts land a moment later. SEQ drops whichever answer is no longer current.
 async function loadSide(){
-  if(!SIDE)return;
-  LOADING=true;paintSide();       // git log --shortstat takes seconds on a big repo
-  try{LOG=await GET('/api/commits?n='+SIDE_N+'&repo='+encodeURIComponent(REPO||''));}
-  catch(e){LOG=[];LOADING=false;$('#side').innerHTML=`<div class="err">${esc(e.message)}</div>`;return}
-  LOADING=false;paintSide();}
+  const seq=++SEQ, url=s=>'/api/commits?stat='+s+'&n='+SIDE_N
+    +'&repo='+encodeURIComponent(REPO||'')+(CQ?'&search='+encodeURIComponent(CQ):'');
+  LOADING=true;paintSide();
+  try{
+    LOG=await GET(url(0));if(seq!==SEQ)return;
+    LOADING=false;paintSide();
+    if(!SIDE)return;                       // hidden: the count is enough, skip the stats
+    const full=await GET(url(1));if(seq!==SEQ)return;
+    LOG=full;paintSide();
+  }catch(e){if(seq!==SEQ)return;LOG=[];LOADING=false;paintSide();
+    $('#sidelist').innerHTML=`<div class="err" style="padding:14px 8px">${esc(e.message)}</div>`;}}
+function mountSide(){
+  $('#side').innerHTML=`<div class="sidehead">
+      <h3>commits <span class="sub" id="siderepo"></span><span class="grow"></span>
+        <span class="pill" id="sidecount" title="load more" onclick="moreSide()">…</span></h3>
+      <input id="cq" placeholder="filter commits…" value="${esc(CQ)}" oninput="qSide(this.value)"/>
+    </div><div id="sidelist"></div>`;}
+function qSide(v){CQ=v.trim();clearTimeout(CQT);CQT=setTimeout(loadSide,250);}
+function moreSide(){SIDE_N=SIDE_N>=400?40:SIDE_N*2;loadSide();}
 function paintSide(){
+  if(!$('#sidelist'))mountSide();
   const w=WORK;
-  $('#side').innerHTML=`<h3>commits <span class="sub">${esc(REPO||'')}</span><span class="grow"></span>
-      <span class="pill" onclick="SIDE_N=SIDE_N>=200?30:SIDE_N+70;loadSide()">${LOG.length}</span></h3>
-    ${w?`<div class="citem work ${VIEW==='changes'?'on':''}" onclick="setView('changes')">
+  $('#siderepo').textContent=REPO||'';
+  $('#sidecount').textContent=LOADING?'…':LOG.length+(LOG.length>=SIDE_N?'+':'');
+  $('#sidebtn').innerHTML='☰ commits'+(LOG.length?` <span class="n">${LOG.length}</span>`:'');
+  $('#sidelist').innerHTML=`${w&&!CQ?`<div class="citem work ${VIEW==='changes'?'on':''}" onclick="setView('changes')">
       <div class="msg">${w.clean?'✓ working tree clean':'● '+w.total+' uncommitted'}</div>
       <div class="meta"><span>⎇ ${esc(w.branch)}</span>${w.clean?'':`<span class="add">+${w.additions}</span><span class="del">−${w.deletions}</span>`}
         ${w.ahead?`<span>↑${w.ahead}</span>`:''}</div></div>`:''}
     ${LOG.map(c=>`<div class="citem ${SHA===c.full_hash?'on':''}" onclick="openCommit('${esc(c.full_hash)}')">
       <div class="msg">${esc(c.message)}</div>
       <div class="meta"><span class="sha">${esc(c.hash)}</span><span>${esc(c.author)}</span><span>${ago(c.date)}</span>
-        <span class="add">+${c.additions}</span><span class="del">−${c.deletions}</span></div></div>`).join('')
-      ||`<div class="sub" style="padding:8px">${LOADING?'reading the log…':'no commits'}</div>`}`;}
+        ${c.additions||c.deletions?`<span class="add">+${fmtn(c.additions)}</span><span class="del">−${fmtn(c.deletions)}</span>`:''}</div>
+      </div>`).join('')
+      ||`<div class="sub" style="padding:8px">${LOADING?'reading the log…':(CQ?'no commit matches “'+esc(CQ)+'”':'no commits')}</div>`}`;}
 function openCommit(sha){SHA=sha;if(narrow()&&SIDE)toggleSide();setView('commit');}
 
 async function loadPills(){
@@ -1729,21 +1830,35 @@ async function load(v){
             ${n!=='mod'?`<button class="btn danger" onclick="doUntrack('${esc(n)}')">untrack</button>`:''}</td>
         </tr>`).join('')}</table></div>`;
     }
+    if(v==='search'){
+      el.innerHTML=`<div class="card"><h3>search github</h3>
+        <div class="row">
+          <input id="sq" placeholder="anything — name, description, topic…" style="flex:1;min-width:220px"
+            value="${esc(SQ)}" onkeydown="if(event.key==='Enter')doSearch()"/>
+          <input id="slang" placeholder="language" style="width:120px" value="${esc(SLANG)}"/>
+          <input id="suser" placeholder="owner / org" style="width:140px" value="${esc(SUSER)}"/>
+          <select id="ssort">${[['','best match'],['stars','most stars'],['updated','recently updated'],['forks','most forks']]
+            .map(([v2,l])=>`<option value="${v2}">${l}</option>`).join('')}</select>
+          <button class="btn primary" onclick="doSearch()">search</button></div>
+        <div class="row" style="margin-top:8px"><span class="sub">try</span>
+          ${['topic:mcp','language:python stars:>5000','agent framework','pushed:>2026-06-01 stars:>100']
+            .map(q=>`<span class="pill" onclick="sChip('${esc(q)}')">${esc(q)}</span>`).join('')}</div>
+        <div class="sub" style="margin-top:8px">Every public repo on GitHub, through its search API — then
+          <b>track</b> one to clone it here and follow its changes, or <b>⑂ fork</b> it to your account.
+          GitHub's qualifiers work inside the query (<span class="mono">topic:</span>,
+          <span class="mono">stars:&gt;500</span>, <span class="mono">pushed:&gt;2026-01-01</span>,
+          <span class="mono">org:</span>). Anonymous searches are capped at 10 a minute; connecting a
+          GitHub account raises that and searches your private repos too.</div></div>
+      <div id="sres"></div>`;
+      $('#ssort').value=SSORT;
+      paintSearch();
+    }
     if(v==='github'){
       const [g,o]=await Promise.all([GET('/api/github'),GET('/api/oauth')]);
       let repos='';
       if(g.connected){try{
         const rs=await GET('/api/github/repos?n=100');
-        repos=`<div class="card"><h3>your repos (${rs.length})</h3><table>
-          <tr><th>repo</th><th></th><th>pushed</th><th></th></tr>
-          ${rs.map(r=>`<tr><td><a href="${esc(r.url)}" target="_blank">${esc(r.repo)}</a>
-            <div class="sub">${esc(r.description)}</div></td>
-            <td>${r.private?'<span class="badge private">PRIVATE</span>':''}</td>
-            <td class="sub">${ago(r.pushed_at)}</td>
-            <td class="row" style="gap:6px;justify-content:flex-end">
-              ${ME&&ME.ok?`<button class="btn" onclick="doFork('${esc(r.repo)}')">⑂</button>`:''}
-              ${r.tracked?'<span class="ok">tracked</span>':`<button class="btn" onclick="trackGh('${esc(r.repo)}')">track</button>`}</td>
-          </tr>`).join('')}</table></div>`;
+        repos=repoCard(`your repos (${rs.length})`,rs);
       }catch(e){repos=`<div class="card err">${esc(e.message)}</div>`}}
       const signedIn=!!(ME&&ME.ok), admin=signedIn&&(ME.role==='admin'||ME.role==='owner');
       const accts=g.accounts||[];
@@ -1898,7 +2013,47 @@ async function showCommitDiff(file){
     el.innerHTML=diffHtml(c.diff)||'(no diff — binary?)';
   }catch(e){el.innerHTML=`<span class="d">${esc(e.message)}</span>`}}
 function doTrack(){act(async()=>{await POST('/api/track',{repo:$('#trk').value.trim(),branch:$('#trkb').value.trim()||null});loadPills();load('repos')})}
-function trackGh(r){act(async()=>{await POST('/api/track',{repo:r});loadPills();load('github')})}
+function trackGh(r){toast('cloning '+r+'…');
+  act(async()=>{await POST('/api/track',{repo:r});
+    const hit=(SRES||[]).find(x=>x.repo===r);if(hit)hit.tracked=true;   // don't re-search to grey a button
+    loadPills();load(VIEW);toast('tracking '+r)})}
+
+// --- searching github --------------------------------------------------------
+// One table for every list of GitHub repos — yours on the GitHub tab, and
+// anyone's from the search API. Track clones it here; fork copies it to your account.
+let SQ='', SLANG='', SUSER='', SSORT='', SRES=null, SERR=null, SBUSY=false;
+const fmtn=n=>n==null?'':(n>=1000?(n/1000).toFixed(n>=10000?0:1)+'k':''+n);
+function repoCard(title,rows){return `<div class="card"><h3>${title}</h3>
+  ${ME&&ME.ok?'':'<div class="sub" style="margin-bottom:8px">sign in on the <b>Access</b> tab to track or fork any of these</div>'}
+  <table><tr><th>repo</th><th>about</th><th>pushed</th><th></th></tr>
+  ${rows.map(r=>`<tr>
+    <td><a href="${esc(r.url)}" target="_blank">${esc(r.repo)}</a>
+      ${r.private?' <span class="badge private">PRIVATE</span>':''}
+      <div class="sub">${r.stars?'★ '+fmtn(r.stars)+' · ':''}${r.language?esc(r.language)+' · ':''}${r.fork?'fork · ':''}${fmtn(r.forks||0)} forks</div></td>
+    <td class="sub">${esc(r.description||'')}</td>
+    <td class="sub">${ago(r.pushed_at||r.updated_at)}</td>
+    <td class="row" style="gap:6px;justify-content:flex-end">
+      ${ME&&ME.ok?`<button class="btn" title="fork to your github account" onclick="doFork('${esc(r.repo)}')">⑂</button>`:''}
+      ${r.tracked?'<span class="ok">tracked</span>'
+        :(ME&&ME.ok?`<button class="btn" onclick="trackGh('${esc(r.repo)}')">track</button>`:'')}</td>
+  </tr>`).join('')}</table></div>`;}
+function sChip(q){SQ=q;const i=$('#sq');if(i)i.value=q;doSearch()}
+function doSearch(){
+  SQ=val('#sq')||'';SLANG=val('#slang')||'';SUSER=val('#suser')||'';SSORT=$('#ssort').value;
+  if(!SQ&&!SLANG&&!SUSER)return toast('search for what? a name, a topic, an org…',true);
+  SBUSY=true;SERR=null;paintSearch();
+  (async()=>{try{
+      SRES=await GET('/api/search?n=50&q='+encodeURIComponent(SQ)
+        +(SLANG?'&language='+encodeURIComponent(SLANG):'')
+        +(SUSER?'&user='+encodeURIComponent(SUSER):'')+(SSORT?'&sort='+SSORT:''));
+    }catch(e){SRES=null;SERR=e.message;}
+    SBUSY=false;paintSearch();})();}
+function paintSearch(){const el=$('#sres');if(!el)return;
+  el.innerHTML=SBUSY?'<div class="empty">searching github…</div>'
+    :SERR?`<div class="card"><div class="err">${esc(SERR)}</div></div>`
+    :!SRES?'<div class="empty">nothing searched yet</div>'
+    :(SRES.length?repoCard(`results (${SRES.length})`,SRES)
+      :'<div class="empty">no repo matched — fewer words, or drop a qualifier</div>');}
 function val(id){const e=$(id);return e&&e.value.trim()?e.value.trim():null}
 function doFork(pre){const repo=pre||val('#frk');if(!repo)return toast('what should I fork?',true);
   toast('⑂ forking '+repo+' — github builds it, this takes a few seconds…');

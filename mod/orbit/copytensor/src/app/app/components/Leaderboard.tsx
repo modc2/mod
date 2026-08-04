@@ -29,6 +29,8 @@ export default function Leaderboard() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Pool size + subnet floor, folded away on a handheld (always open on lg).
+  const [knobs, setKnobs] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -152,87 +154,118 @@ export default function Leaderboard() {
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="font-display text-lg font-bold">
-          Top performers
-          <span className="text-pixel-gray text-xs ml-2 font-mono">
-            ({filtered.length}/{entries.length}
-            {universe?.board?.indexed
-              ? " indexed"
-              : universe?.known
-                ? ` of ${fmtCompact(universe.known)} on-chain`
-                : ""})
-          </span>
-          {universe?.status === "discovering" && (
-            <span className="text-[10px] ml-2 font-mono text-green-400 animate-pulse">
-              adding traders… {universe.watched}/{universe.target}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h2 className="font-display text-lg font-bold min-w-0">
+            Top performers
+            <span className="text-pixel-gray text-xs ml-2 font-mono">
+              ({filtered.length}/{entries.length}
+              {/* Where the pool came from is desktop detail — on a phone it
+                  wrapped the heading onto a third line to say it. */}
+              <span className="hidden lg:inline">
+                {universe?.board?.indexed
+                  ? " indexed"
+                  : universe?.known
+                    ? ` of ${fmtCompact(universe.known)} on-chain`
+                    : ""}
+              </span>)
             </span>
-          )}
-          {universe?.status === "error" && (
-            <span className="text-[10px] ml-2 font-mono text-red-400">
-              pool: {universe.error}
-            </span>
-          )}
-        </h2>
+            {universe?.status === "discovering" && (
+              <span className="text-[10px] ml-2 font-mono text-green-400 animate-pulse">
+                adding traders… {universe.watched}/{universe.target}
+              </span>
+            )}
+            {universe?.status === "error" && (
+              <span className="text-[10px] ml-2 font-mono text-red-400">
+                pool: {universe.error}
+              </span>
+            )}
+          </h2>
 
-        {/* A basket is the point of the board — take the slice you're looking
-            at straight into the builder instead of clicking COPY ten times. */}
-        {filtered.length > 1 && (
-          <button
-            onClick={() => openStrat(...filtered.slice(0, 10).map((e) => e.ss58))}
-            title="Open the strat maker with the top 10 rows shown"
-            className="pixel-btn text-[11px] px-2 py-1 text-green-400 border-green-400/40"
+          {/* A basket is the point of the board — take the slice you're looking
+              at straight into the builder instead of clicking COPY ten times. */}
+          {filtered.length > 1 && (
+            <button
+              onClick={() => openStrat(...filtered.slice(0, 10).map((e) => e.ss58))}
+              title="Open the strat maker with the top 10 rows shown"
+              className="pixel-btn text-[11px] px-2 py-1 text-green-400 border-green-400/40"
+            >
+              + INDEX TOP {Math.min(10, filtered.length)}
+            </button>
+          )}
+        </div>
+
+        {/* Controls, in the order you actually reach for them: the horizon
+            first, on a rail you can thumb; the pool and the subnet floor are
+            set-once knobs and fold behind ⚙ on a phone rather than filling
+            three rows of the screen with pills. */}
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            {/* Bleeds off the left edge only — the ⚙ has to stay pinned where
+                a thumb can find it, and inside a scrolling rail it scrolls
+                away with everything else. */}
+            <div className="rail no-scrollbar -ml-3 pl-3 lg:ml-0 lg:pl-0 min-w-0">
+              {WINDOWS.map((w) => (
+                <button
+                  key={w}
+                  onClick={() => setDays(w)}
+                  className={`pixel-btn text-[11px] px-3 py-1 ${
+                    days === w ? "border-green-400 text-green-400" : "text-pixel-gray-light"
+                  }`}
+                >
+                  {w}d
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setKnobs((k) => !k)}
+              aria-expanded={knobs}
+              title="Pool size and subnet floor"
+              className={`pixel-btn text-[11px] px-3 py-1 shrink-0 lg:hidden ${
+                knobs ? "nav-active" : "text-pixel-gray-light"
+              }`}
+            >
+              ⚙
+            </button>
+          </div>
+
+          <div
+            className={`${knobs ? "flex" : "hidden"} lg:flex flex-wrap items-center gap-x-3 gap-y-2 lg:ml-auto`}
           >
-            + INDEX TOP {Math.min(10, filtered.length)}
-          </button>
-        )}
+            {/* How many traders we rank. The board can only show accounts we
+                watch, so this is the control that answers "why so few?". */}
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-pixel-gray-light mr-1">pool</span>
+              {POOL_SIZES.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => grow(n)}
+                  disabled={busy || universe?.status === "discovering"}
+                  title={`Watch the top ${n} coldkeys by stake`}
+                  className={`pixel-btn text-[11px] px-2 py-1 disabled:opacity-40 ${
+                    (universe?.pool_size ?? 0) === n
+                      ? "border-green-400 text-green-400"
+                      : "text-pixel-gray-light"
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
 
-        <div className="flex gap-1">
-          {WINDOWS.map((w) => (
-            <button
-              key={w}
-              onClick={() => setDays(w)}
-              className={`pixel-btn text-[11px] px-2 py-1 ${
-                days === w ? "border-green-400 text-green-400" : "text-pixel-gray-light"
-              }`}
-            >
-              {w}d
-            </button>
-          ))}
+            <label className="text-[11px] text-pixel-gray-light flex items-center gap-2">
+              min subnets
+              <input
+                type="number"
+                min={0}
+                max={64}
+                value={minSubnets}
+                onChange={(e) => setMinSubnets(Number(e.target.value) || 0)}
+                className="pixel-input-sm w-16 text-right font-mono"
+              />
+            </label>
+          </div>
         </div>
-
-        {/* How many traders we rank. The board can only show accounts we
-            watch, so this is the control that answers "why so few?". */}
-        <div className="flex items-center gap-1 ml-auto">
-          <span className="text-[11px] text-pixel-gray-light">pool</span>
-          {POOL_SIZES.map((n) => (
-            <button
-              key={n}
-              onClick={() => grow(n)}
-              disabled={busy || universe?.status === "discovering"}
-              title={`Watch the top ${n} coldkeys by stake`}
-              className={`pixel-btn text-[11px] px-2 py-1 disabled:opacity-40 ${
-                (universe?.pool_size ?? 0) === n
-                  ? "border-green-400 text-green-400"
-                  : "text-pixel-gray-light"
-              }`}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
-
-        <label className="text-[11px] text-pixel-gray-light flex items-center gap-2">
-          min subnets
-          <input
-            type="number"
-            min={0}
-            max={64}
-            value={minSubnets}
-            onChange={(e) => setMinSubnets(Number(e.target.value) || 0)}
-            className="pixel-input-sm w-16 text-right font-mono"
-          />
-        </label>
       </div>
 
       {error && (
@@ -241,7 +274,37 @@ export default function Leaderboard() {
         </div>
       )}
 
-      <div className="pixel-panel overflow-x-auto">
+      {/* Under lg the nine-column board becomes one card per trader. A 900px
+          table on a 390px screen is either a sideways scroll nobody finds or
+          a column of ellipses — and the ranking is the whole product, so it's
+          the one surface that gets its own handheld layout rather than a
+          scrollbar. */}
+      <div className="lg:hidden space-y-2">
+        {loading && entries.length === 0 ? (
+          <p className="text-pixel-gray text-sm py-4 text-center">loading leaderboard…</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-pixel-gray text-sm py-4 text-center px-4">
+            {universe && (universe.board?.building || []).includes(days)
+              ? `pricing ${universe.watched} traders over ${days}d — first pass takes a couple of minutes, rows appear here`
+              : universe?.status === "discovering"
+                ? "adding traders to the pool…"
+                : "No matches. Widen the filters, or grow the pool above."}
+          </p>
+        ) : (
+          filtered.map((e, i) => (
+            <TraderCard
+              key={e.ss58}
+              e={e}
+              i={i}
+              days={days}
+              sn={e.top_subnet != null ? subnets.get(e.top_subnet) : undefined}
+              onCopy={() => openStrat(e.ss58)}
+            />
+          ))
+        )}
+      </div>
+
+      <div className="pixel-panel overflow-x-auto hidden lg:block">
         <table className="pixel-table" style={{ minWidth: 900 }}>
           <thead className="sticky">
             <tr>
@@ -404,6 +467,127 @@ export default function Leaderboard() {
         </table>
       </div>
     </section>
+  );
+}
+
+/**
+ * One row of the board, on a phone. The same numbers as the table — stake,
+ * PnL, the market-only PnL and the subnet the book is concentrated in —
+ * stacked as labelled cells instead of columns, with the two things you do
+ * with a trader (open it, copy it) on the top line where a thumb lands.
+ */
+function TraderCard({
+  e, i, days, sn, onCopy,
+}: {
+  e: LeaderboardEntry;
+  i: number;
+  days: number;
+  sn?: SubnetInfo;
+  onCopy: () => void;
+}) {
+  const { currency, usdPerTao } = useCurrency();
+  const warming = e.baseline === false;
+
+  return (
+    <div className="row-card">
+      <div className="flex items-center gap-2.5">
+        <Rank i={i} />
+        <Link
+          href={`/traders/${e.ss58}`}
+          className="flex items-center gap-2 min-w-0 flex-1 no-underline"
+          title={e.ss58}
+        >
+          <Identicon ss58={e.ss58} />
+          <span className="min-w-0">
+            <span className="block text-pixel-white truncate">
+              {e.label || shortSs58(e.ss58)}
+            </span>
+            {/* The address only earns the second line when the first one is
+                a label — otherwise it's the same string printed twice. */}
+            <span className="block text-[10px] text-pixel-gray font-mono truncate">
+              {e.label ? `${shortSs58(e.ss58)} · ` : ""}
+              {e.num_subnets} subnet{e.num_subnets === 1 ? "" : "s"}
+            </span>
+          </span>
+        </Link>
+        <button
+          onClick={onCopy}
+          title="Add to the strat maker's basket"
+          className="pixel-btn text-[10px] px-3 py-1 shrink-0 text-green-400 border-green-400/40"
+        >
+          COPY
+        </button>
+      </div>
+
+      <div className="row-card-grid mt-2.5 pt-2.5 border-t border-pixel-white/10">
+        <div>
+          <p className="row-card-k">stake</p>
+          <p className="row-card-v">{fmtValue(e.total_stake_tao, currency, usdPerTao)}</p>
+        </div>
+        <div>
+          <p className="row-card-k">{days}d pnl</p>
+          <p className="row-card-v">
+            {warming ? (
+              <span className="text-pixel-gray">— warming</span>
+            ) : (
+              <PnlBadge tao={e.pnl_tao} pct={e.pnl_pct} size="sm" />
+            )}
+          </p>
+        </div>
+        {!warming && (
+          <>
+            <div>
+              <p className="row-card-k">{days}d %</p>
+              <p className={`row-card-v ${e.pnl_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {e.pnl_pct >= 0 ? "+" : ""}{e.pnl_pct.toFixed(2)}%
+                {e.window_days > 0 && e.window_days < days * 0.9 && (
+                  <span className="text-pixel-gray text-[11px] ml-1">({e.window_days}d only)</span>
+                )}
+              </p>
+            </div>
+            <div>
+              {/* What the book earned on price, with deposits and withdrawals
+                  taken out — the number that says whether copying is worth it. */}
+              <p className="row-card-k">market %</p>
+              <p className="row-card-v">
+                {e.market_pct == null ? (
+                  <span className="text-pixel-gray">—</span>
+                ) : (
+                  <span className={e.market_pct >= 0 ? "text-green-400" : "text-red-400"}>
+                    {e.market_pct >= 0 ? "+" : ""}{e.market_pct.toFixed(2)}%
+                  </span>
+                )}
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+
+      {e.top_subnet != null && (
+        <Link
+          href={`/subnets/${e.top_subnet}`}
+          className="flex items-center gap-1.5 no-underline mt-2.5 text-pixel-gray-light"
+        >
+          <SubnetLogo
+            netuid={e.top_subnet}
+            name={sn?.name}
+            symbol={sn?.symbol}
+            logo={sn?.logo}
+            size={16}
+          />
+          <span className="text-[11px] truncate">{sn?.name || `SN${e.top_subnet}`}</span>
+          {e.top_subnet_pnl !== 0 && (
+            <span
+              className={`text-[11px] font-mono ml-auto ${
+                e.top_subnet_pnl >= 0 ? "text-green-400" : "text-red-400"
+              }`}
+            >
+              {e.top_subnet_pnl >= 0 ? "+" : ""}{fmtCompact(e.top_subnet_pnl)}
+            </span>
+          )}
+        </Link>
+      )}
+    </div>
   );
 }
 

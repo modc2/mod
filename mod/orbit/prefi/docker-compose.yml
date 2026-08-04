@@ -8,10 +8,10 @@ services:
     build: .
     container_name: prefi
     ports:
-      - "${GATEWAY_PORT:-8831}:${GATEWAY_PORT:-8831}"
+      - "${GATEWAY_PORT:-50411}:${GATEWAY_PORT:-50411}"
     restart: unless-stopped
     environment:
-      - GATEWAY_PORT=${GATEWAY_PORT:-8831}
+      - GATEWAY_PORT=${GATEWAY_PORT:-50411}
     volumes:
       - prefi-data:/app/data
 

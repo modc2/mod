@@ -22,9 +22,16 @@ class Mod:
     Lock PREFI for staketime → claim weekly treasury earnings."""
 
     def __init__(self, config=None):
-        self.config = config or {}
         self.module_dir = Path(__file__).parent.parent
-        self.store_dir = Path(os.path.expanduser('~/.prefi'))
+        # Callers that hand us nothing (the `m` CLI does) still get the real
+        # ports and network — config.json is the module's own source of truth.
+        if not config:
+            try:
+                config = json.loads((self.module_dir / 'config.json').read_text())
+            except Exception:
+                config = {}
+        self.config = config
+        self.store_dir = Path(os.environ.get('PREFI_DIR', os.path.expanduser('~/.mod/prefi')))
         self.store_dir.mkdir(parents=True, exist_ok=True)
 
         # Storage paths
@@ -38,8 +45,8 @@ class Mod:
         self.contracts = self.config.get('contracts', {})
 
         # Ports
-        self.api_port = self.config.get('api_port', 8830)
-        self.app_port = self.config.get('app_port', 8831)
+        self.api_port = self.config.get('port', self.config.get('api_port', 50410))
+        self.app_port = self.config.get('app_port', 50411)
         urls = self.config.get('urls', {})
         if urls.get('api'):
             try:
@@ -117,6 +124,23 @@ class Mod:
         self._save_json(self.markets_path, markets)
         return {'status': 'added', 'market': market}
 
+    # Canonical Base assets with a Uniswap V3 pool against USDC. Without at
+    # least one market open_position() has nothing to trade, so a fresh install
+    # starts here.
+    DEFAULT_MARKETS = [
+        ('0x4200000000000000000000000000000000000006', 'WETH', 500),
+        ('0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf', 'cbBTC', 3000),
+        ('0x940181a94A35A4569E4529A3CDfB74e38FD98631', 'AERO', 3000),
+    ]
+
+    def seed(self) -> Dict:
+        """List the default Base markets (idempotent)"""
+        added = [self.add_market(t, s, f) for t, s, f in self.DEFAULT_MARKETS]
+        return {
+            'added': [r['market']['symbol'] for r in added if r.get('status') == 'added'],
+            'existing': [r['market']['symbol'] for r in added if r.get('error')],
+        }
+
     def list_markets(self) -> List[Dict]:
         """Get all supported asset markets with prices and stats"""
         markets = self._load_json(self.markets_path, [])
@@ -128,22 +152,24 @@ class Mod:
             m['win_rate'] = round(m.get('win_count', 0) / total * 100, 1) if total > 0 else 0
         return markets
 
+    # Symbols that share a CoinGecko id share a cache entry — pricing WETH
+    # prices ETH too, which keeps the free tier out of rate-limit territory.
+    CG_IDS = {
+        'WETH': 'ethereum', 'ETH': 'ethereum', 'BTC': 'bitcoin',
+        'CBBTC': 'bitcoin', 'USDC': 'usd-coin', 'LINK': 'chainlink',
+        'UNI': 'uniswap', 'AAVE': 'aave', 'SOL': 'solana',
+        'ARB': 'arbitrum', 'OP': 'optimism', 'AERO': 'aerodrome-finance',
+    }
+
     def _get_token_price(self, symbol: str) -> Optional[float]:
         """Get current USD price from CoinGecko (cached 5 min)"""
-        key = symbol.upper()
-        cached = self._price_cache.get(key)
-        if cached and (time.time() - cached['ts']) < self._price_cache_ttl:
-            return cached['price']
-
-        ids = {
-            'WETH': 'ethereum', 'ETH': 'ethereum', 'BTC': 'bitcoin',
-            'cbBTC': 'bitcoin', 'USDC': 'usd-coin', 'LINK': 'chainlink',
-            'UNI': 'uniswap', 'AAVE': 'aave', 'SOL': 'solana',
-            'ARB': 'arbitrum', 'OP': 'optimism',
-        }
-        cg_id = ids.get(key)
+        cg_id = self.CG_IDS.get(symbol.upper())
         if not cg_id:
             return None
+
+        cached = self._price_cache.get(cg_id)
+        if cached and (time.time() - cached['ts']) < self._price_cache_ttl:
+            return cached['price']
         try:
             resp = requests.get(
                 'https://api.coingecko.com/api/v3/simple/price',
@@ -153,7 +179,7 @@ class Mod:
             resp.raise_for_status()
             price = resp.json().get(cg_id, {}).get('usd')
             if price:
-                self._price_cache[key] = {'price': price, 'ts': time.time()}
+                self._price_cache[cg_id] = {'price': price, 'ts': time.time()}
             return price
         except Exception:
             return cached['price'] if cached else None
@@ -675,7 +701,11 @@ class Mod:
     # ── Prices ───────────────────────────────────────────────────────
 
     def get_prices(self) -> Dict:
-        """Get current prices from CoinGecko"""
+        """Get current prices from CoinGecko (cached — the dashboard polls every
+        15s and the free tier rate-limits well before that)"""
+        cached = self._price_cache.get('_quotes')
+        if cached and (time.time() - cached['ts']) < self._price_cache_ttl:
+            return cached['quotes']
         try:
             resp = requests.get(
                 'https://api.coingecko.com/api/v3/simple/price',
@@ -688,7 +718,7 @@ class Mod:
             )
             resp.raise_for_status()
             data = resp.json()
-            return {
+            quotes = {
                 'ETH': {'price': data.get('ethereum', {}).get('usd', 0),
                          'change_24h': data.get('ethereum', {}).get('usd_24h_change', 0)},
                 'BTC': {'price': data.get('bitcoin', {}).get('usd', 0),
@@ -697,8 +727,29 @@ class Mod:
                           'change_24h': data.get('usd-coin', {}).get('usd_24h_change', 0)},
                 'timestamp': datetime.now().isoformat(),
             }
+            now = time.time()
+            self._price_cache['_quotes'] = {'quotes': quotes, 'ts': now}
+            # One call warms the per-symbol cache the market list reads from.
+            for cg_id in ('ethereum', 'bitcoin', 'usd-coin'):
+                usd = data.get(cg_id, {}).get('usd')
+                if usd:
+                    self._price_cache[cg_id] = {'price': usd, 'ts': now}
+            return quotes
         except Exception as e:
-            return {'error': str(e)}
+            # Rate limited or offline — last good quotes beat an error banner.
+            if cached:
+                return cached['quotes']
+            # Nothing cached for the ticker yet: fall back to the per-symbol
+            # cache the market list already fills (no 24h change there).
+            fallback = {sym: {'price': p, 'change_24h': None}
+                        for sym, p in ((s, self._get_token_price(s))
+                                       for s in ('ETH', 'BTC', 'USDC'))
+                        if p is not None}
+            if not fallback:
+                return {'error': str(e)}
+            fallback['timestamp'] = datetime.now().isoformat()
+            self._price_cache['_quotes'] = {'quotes': fallback, 'ts': time.time()}
+            return fallback
 
     def get_asset_price(self, asset: str) -> Dict:
         """Get price for a specific asset"""
@@ -731,43 +782,51 @@ class Mod:
 
     # ── Service management ───────────────────────────────────────────
 
-    def serve(self, api_port=None, app_port=None, dev=True):
-        """Start the FastAPI server and Next.js app"""
-        api_port = api_port or self.api_port
-        app_port = app_port or self.app_port
-        results = {}
-        log_dir = Path('/tmp/prefi')
-        log_dir.mkdir(parents=True, exist_ok=True)
+    LOG_DIR = Path('/tmp/prefi')
 
-        self.kill()
-
+    def serve_api(self, port=None, dev=False):
+        """Start the FastAPI server"""
+        port = port or self.api_port
         api_dir = self.module_dir / 'src' / 'api'
-        api_path = api_dir / 'api.py'
-        if api_path.exists():
-            env = os.environ.copy()
-            env['PORT'] = str(api_port)
-            env['PYTHONPATH'] = str(self.module_dir.parent.parent.parent)
-            api_log = open(log_dir / 'api.log', 'w')
-            cmd = ['python3', '-m', 'uvicorn', 'api:app', '--host', '0.0.0.0',
-                   '--port', str(api_port)]
-            if dev:
-                cmd.append('--reload')
-            subprocess.Popen(cmd, cwd=str(api_dir), env=env,
-                             stdout=api_log, stderr=subprocess.STDOUT)
-            results['api'] = f'http://localhost:{api_port}'
+        if not (api_dir / 'api.py').exists():
+            return {'error': 'src/api/api.py missing'}
 
+        self.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        env = os.environ.copy()
+        env['PORT'] = str(port)
+        cmd = ['python3', '-m', 'uvicorn', 'api:app', '--host', '0.0.0.0',
+               '--port', str(port)]
+        if dev:
+            cmd.append('--reload')
+        log = open(self.LOG_DIR / 'api.log', 'w')
+        subprocess.Popen(cmd, cwd=str(api_dir), env=env,
+                         stdout=log, stderr=subprocess.STDOUT)
+        return {'api': f'http://localhost:{port}', 'log': str(self.LOG_DIR / 'api.log')}
+
+    def serve_app(self, port=None, dev=False):
+        """Start the Next.js app (production build unless dev=True)"""
+        port = port or self.app_port
         app_dir = self.module_dir / 'src' / 'app'
-        if app_dir.exists():
-            env = os.environ.copy()
-            env['NEXT_PUBLIC_API_URL'] = f'http://localhost:{api_port}'
-            env['PORT'] = str(app_port)
-            app_log = open(log_dir / 'app.log', 'w')
-            cmd = ['npx', 'next', 'dev' if dev else 'start', '-p', str(app_port)]
-            subprocess.Popen(cmd, cwd=str(app_dir), env=env,
-                             stdout=app_log, stderr=subprocess.STDOUT)
-            results['app'] = f'http://localhost:{app_port}'
+        if not app_dir.exists():
+            return {'error': 'src/app missing'}
+        if not dev and not (app_dir / '.next').exists():
+            return {'error': 'no build — run `npx next build` in src/app first'}
 
-        results['logs'] = str(log_dir)
+        self.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        env = os.environ.copy()
+        env['PORT'] = str(port)
+        cmd = ['npx', 'next', 'dev' if dev else 'start', '-p', str(port)]
+        log = open(self.LOG_DIR / 'app.log', 'w')
+        subprocess.Popen(cmd, cwd=str(app_dir), env=env,
+                         stdout=log, stderr=subprocess.STDOUT)
+        return {'app': f'http://localhost:{port}/prefi', 'log': str(self.LOG_DIR / 'app.log')}
+
+    def serve(self, api_port=None, app_port=None, dev=False):
+        """Start the FastAPI server and Next.js app"""
+        self.kill()
+        results = self.serve_api(api_port, dev)
+        results.update(self.serve_app(app_port, dev))
+        results['logs'] = str(self.LOG_DIR)
         return results
 
     def kill(self):
@@ -785,20 +844,27 @@ class Mod:
                 pass
         return {'killed': killed}
 
+    def _port_open(self, port: int) -> bool:
+        """True if something is listening on the port. A socket probe, not an
+        HTTP call — /health is served by this process, so an HTTP self-check
+        would block on its own single worker and always report down."""
+        import socket
+        with socket.socket() as s:
+            s.settimeout(1)
+            return s.connect_ex(('127.0.0.1', port)) == 0
+
     def health(self):
         """Check service health"""
-        status = {
+        return {
             'service': 'prefi',
             'network': self.network,
             'contracts': self.contracts,
+            'api': {'status': 'up' if self._port_open(self.api_port) else 'down',
+                    'port': self.api_port},
+            'app': {'status': 'up' if self._port_open(self.app_port) else 'down',
+                    'port': self.app_port},
             'timestamp': datetime.now().isoformat(),
         }
-        try:
-            r = requests.get(f'http://localhost:{self.api_port}/health', timeout=2)
-            status['api'] = {'status': 'up', 'port': self.api_port}
-        except Exception:
-            status['api'] = {'status': 'down', 'port': self.api_port}
-        return status
 
     def status(self) -> Dict:
         """Get overall protocol status"""

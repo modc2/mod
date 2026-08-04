@@ -24,9 +24,11 @@ execution needs prepaid credits on that same account.
 """
 
 import hashlib
+import importlib.util
 import json
 import os
 import uuid
+from pathlib import Path
 from typing import Any, Optional
 
 import requests
@@ -34,7 +36,25 @@ from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+
+def _sibling(name: str):
+    """Load ../{name}.py without putting the module root on sys.path — it holds
+    a `mod.py` that would shadow the protocol's own `mod` import."""
+    spec = importlib.util.spec_from_file_location(
+        f"cathedral_{name}", Path(__file__).resolve().parent.parent / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+rcpt = _sibling("receipts")
+
 UPSTREAM = os.environ.get("CATHEDRAL_BASE", "https://cathedral.computer/v1").rstrip("/")
+# The gateway pins the published receipt-signing keys the same way the CLI does,
+# so a verification here is checked against a key set that was fetched once and
+# reviewed on change — not against whatever the network hands back today.
+TRUSTED_KEYS_PATH = Path(os.path.expanduser(
+    os.environ.get("CATHEDRAL_TRUSTED_KEYS", "~/.mod/cathedral/trusted-keys.json")))
 CC_GPU_PROFILE = "gcp-g4-rtx-pro-6000-sev-v1"
 # The catalog says "live_testing" for shipping profiles and "available" in the
 # docs' prose; either counts as live. The evidence gates do the real
@@ -189,6 +209,9 @@ def info():
             "GET /workers/{id}": "one worker",
             "DELETE /workers/{id}": "tear down",
             "GET /receipts/{id}": "the signed receipt (425 while pending)",
+            "GET /receipts/{id}/verify": "fetch it, then check the signature offline",
+            "POST /receipts/verify": "verify a receipt you already hold (public)",
+            "GET /receipts/trusted-keys": "Cathedral's pinned receipt-signing keys (public)",
         },
         "docs": "https://cathedral.computer/docs/",
     }
@@ -490,11 +513,65 @@ def stop(worker_id: str, key: str = Depends(caller_key)):
     return upstream("DELETE", f"/workers/{worker_id}", key)
 
 
+def pinned_keys(refresh: bool = False) -> dict:
+    """The trusted key set, fetched once and pinned to disk thereafter.
+
+    Cathedral's advice is to pin this file before relying on it, so a key_id
+    whose public key changed never silently replaces the pinned one — see
+    receipts.merge_pinned.
+    """
+    try:
+        pinned = rcpt.parse_trusted_keys(json.loads(TRUSTED_KEYS_PATH.read_text()))
+    except Exception:
+        pinned = {}
+    if pinned and not refresh:
+        return pinned
+    try:
+        r = requests.get(rcpt.TRUSTED_KEYS_URL, timeout=30)
+        fetched = rcpt.parse_trusted_keys(r.json())
+    except Exception as e:
+        if pinned:
+            return pinned
+        raise HTTPException(502, detail={"error": "could not fetch Cathedral's trusted keys",
+                                         "message": str(e)})
+    merged = rcpt.merge_pinned(pinned, fetched)
+    TRUSTED_KEYS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    TRUSTED_KEYS_PATH.write_text(json.dumps(
+        {"schema": rcpt.TRUSTED_KEYS_SCHEMA, "keys": merged["keys"]}, indent=2))
+    return merged["keys"]
+
+
+# Declared before /receipts/{receipt_id} so the literal path wins the match.
+@app.get("/receipts/trusted-keys")
+def trusted_keys(refresh: bool = Query(False)):
+    """Cathedral's published ed25519 receipt-signing keys, as pinned here. Public."""
+    keys = pinned_keys(refresh=refresh)
+    return {"schema": rcpt.TRUSTED_KEYS_SCHEMA, "keys": keys,
+            "source": rcpt.TRUSTED_KEYS_URL,
+            "pinned": ("fetched once and pinned; a changed public key for a known key_id is "
+                       "reported rather than accepted")}
+
+
+@app.post("/receipts/verify")
+def verify_receipt(receipt: dict = Body(...)):
+    """Verify a signed receipt offline. Public — the receipt is the whole input.
+
+    No key is needed: verification is a statement about bytes you already hold,
+    which is exactly what makes a receipt worth keeping.
+    """
+    return rcpt.verify(receipt, pinned_keys())
+
+
 @app.get("/receipts/{receipt_id}")
 def receipt(receipt_id: str, key: str = Depends(caller_key)):
-    """The signed cathedral_customer_receipt_v1 bytes. 425 while still pending.
-
-    Verify offline against https://cathedral.computer/customer-receipt-trusted-keys.json
-    — pin that key file through an independent channel first.
-    """
+    """The signed cathedral_customer_receipt_v1 bytes. 425 while still pending."""
     return upstream("GET", f"/receipts/{receipt_id}", key)
+
+
+@app.get("/receipts/{receipt_id}/verify")
+def fetch_and_verify(receipt_id: str, key: str = Depends(caller_key)):
+    """Fetch this receipt with your key, then check its signature offline."""
+    doc = upstream("GET", f"/receipts/{receipt_id}", key)
+    out = rcpt.verify(doc, pinned_keys())
+    out["receipt"] = doc
+    return out

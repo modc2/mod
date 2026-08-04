@@ -51,6 +51,10 @@ def add_market(
 ):
     return get_mod().add_market(token, symbol, fee_tier)
 
+@app.post("/markets/seed")
+def seed_markets():
+    return get_mod().seed()
+
 
 # ── Positions ────────────────────────────────────────────────────
 

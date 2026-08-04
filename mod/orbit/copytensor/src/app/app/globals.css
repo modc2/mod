@@ -743,6 +743,10 @@ body::after {
 .page-head-band {
   display: flex;
   align-items: center;
+  /* The band carries a title, a "?" cap and whatever controls the page
+     parks on it — on a narrow board those get a second line rather than
+     squeezing the marquee. */
+  flex-wrap: wrap;
   gap: 12px;
   padding: 14px 18px;
   border-bottom: 2px solid var(--border-strong);
@@ -1085,6 +1089,20 @@ button, input, select, textarea {
 }
 [data-base="light"] .drawer-win {
   box-shadow: 8px 8px 0 var(--shadow-hard);
+}
+
+/* The third housing: on a handheld the drawer is a sheet over the board.
+   Full-bleed on purpose — the dock's "leave a strip of the page visible"
+   rule buys nothing at 390px, and a 40px sliver of table behind a panel is
+   noise, not context. */
+.drawer-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-top: 2px solid var(--border-strong);
 }
 
 /* Title bar / tab rail. Lit band, same marquee treatment as .page-head

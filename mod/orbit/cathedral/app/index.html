@@ -4,9 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cathedral — confidential compute</title>
-<!-- The gateway serves this at /cathedral (prefix kept), the bare app port at
-     /. A pinned <base> is what keeps relative assets resolving in both. -->
-<base href="./">
+<!-- Assets are pinned to the mount prefix, not to "./".
+     The published link is the bare /cathedral, with no trailing slash, and a
+     relative base resolves *that* against the site root — so app.css and app.js
+     were being fetched from https://host/app.css and never arrived. The bare
+     port serves this prefix too (serve.py strips it), so one absolute base is
+     correct at /cathedral, /cathedral/, the bare port, and its root alike.
+     Root-relative fetches in app.js are unaffected by <base>. -->
+<base href="/cathedral/">
 <link rel="stylesheet" href="app.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 28'><path d='M4 27V13C4 7 8 3 12 1c4 2 8 6 8 12v14z' fill='none' stroke='%237c6cff' stroke-width='2'/><circle cx='12' cy='12' r='2.6' fill='none' stroke='%237c6cff' stroke-width='2'/></svg>">
 </head>
@@ -34,6 +39,7 @@
     <button class="tab" data-tab="catalog">Catalog</button>
     <button class="tab" data-tab="run">Run</button>
     <button class="tab" data-tab="workers">Workers</button>
+    <button class="tab" data-tab="evidence">Evidence</button>
     <button class="tab" data-tab="credits">Credits</button>
     <div class="rail-foot">
       <a href="https://cathedral.computer/docs/" target="_blank" rel="noreferrer">docs&nbsp;&#8599;</a>
@@ -188,6 +194,42 @@
       </div>
     </section>
 
+    <!-- ── EVIDENCE ──────────────────────────────────────────────── -->
+    <section id="evidence" class="pane">
+      <h1>Evidence</h1>
+      <p class="lede">A receipt is only evidence if the signature checks out. This does that
+        offline, against Cathedral's published ed25519 keys — no API key needed, because
+        verification is a statement about bytes you already hold.</p>
+
+      <div class="card">
+        <h2>Verify a receipt</h2>
+        <p class="fine">Paste a receipt, or open one from the Workers tab and hit Verify there.</p>
+        <textarea id="verify-receipt" rows="6" placeholder='{"schema":"cathedral_customer_receipt_v1", …}'></textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="go" id="do-verify">Verify signature</button>
+        </div>
+        <div id="verify-result"></div>
+      </div>
+
+      <div class="card">
+        <h2>Trusted keys</h2>
+        <p class="fine">Fetched once from
+          <code>cathedral.computer/customer-receipt-trusted-keys.json</code> and pinned. If the
+          public key for a known id ever changes, the pinned copy is kept and the change is
+          reported — confirm any rotation through a channel you trust before accepting it.</p>
+        <div id="trusted-keys" class="empty">loading…</div>
+      </div>
+
+      <div class="card">
+        <h2>What a pass proves</h2>
+        <p class="fine">That a Cathedral key you trust signed exactly these assertions, and that
+          the document is internally consistent. It does <b>not</b> replay Intel or NVIDIA
+          evidence, inspect billing, contact the provider, confirm teardown, or prove AMD SEV
+          host attestation. On the G4 path <code>report_data_match</code> and
+          <code>intel_verified</code> are null by design.</p>
+      </div>
+    </section>
+
     <!-- ── CREDITS ───────────────────────────────────────────────── -->
     <section id="credits" class="pane">
       <h1>Credits</h1>
@@ -219,6 +261,7 @@
     <div class="row between">
       <h2 id="modal-title">Receipt</h2>
       <div>
+        <button class="ghost" id="modal-verify" hidden>Verify</button>
         <button class="ghost" id="modal-save">Download</button>
         <button class="ghost" id="modal-close">Close</button>
       </div>

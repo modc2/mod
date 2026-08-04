@@ -4,18 +4,17 @@ import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } fro
 import nextDynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES, TRADER_SYNC_MIN_MS } from "../lib/polymarket";
-import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats, TradeFilters, TraderFilter, TraderMetric } from "../lib/types";
+import { PolymarketPosition, PolymarketTrade, SavedIndex, TradeFilters, TraderFilter, TraderMetric } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
-import { Strat, clobMinNotional, statsFromReturns, stopLossTriggered, takeProfitTriggered, successProbability, copyRatioFor, rankTraders, DEFAULT_FILTER_TOP_N, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, REBALANCE_MARGIN_PCT, MIN_POLL_MINUTES } from "../lib/strats/strat";
-import type { TraderTrade as StratTraderTrade, StratHistory } from "../lib/strats/strat";
+import { Strat, rankTraders, DEFAULT_FILTER_TOP_N, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES } from "../lib/strats/strat";
+import type { TraderTrade as StratTraderTrade } from "../lib/strats/strat";
 import { marketMatchesQuery } from "../lib/marketQuery";
 import { shortAddress } from "@/lib/auth";
 import { useFilterParams, useFilters } from "../context/FiltersContext";
 import { useAuth } from "../context/AuthContext";
 import { useCopyEngine } from "../context/CopyEngineContext";
 import CopyTrading from "./CopyTrading";
-import { type EquitySnapshot, type EquityMarker } from "./EquityChart";
-import PerfPanel, { type PerfPosition } from "./PerfPanel";
+import PerfPanel from "./PerfPanel";
 import TraderFilterCard from "./TraderFilterCard";
 import CapitalPlanCard from "./CapitalPlanCard";
 import type { CapitalPlanInput } from "../lib/capitalPlan";
@@ -26,7 +25,7 @@ import { computeFifoTrades, buildPnlCurve, buildCombinedPnlCurve, aggregateToReb
 // can never disagree about what a strat did.
 import {
   runBacktest, keepInSample, TAKER_FEE_BPS, GAS_PER_TRADE_USD, DEFAULT_CAPITAL,
-  type LinkedTrade, type BacktestSim,
+  type BacktestSim,
 } from "../lib/backtest";
 import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId, equalWeightTraders } from "../lib/indexStore";
 import { pushStrat } from "../lib/stratSync";

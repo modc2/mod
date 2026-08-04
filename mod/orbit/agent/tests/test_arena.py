@@ -250,17 +250,22 @@ class TestMatches:
         arena.run_match('alpha', 'agentic/files#0')
         assert list(arena.work.iterdir()) == []
 
-    def test_a_runner_blowup_is_a_forfeit_not_a_crash(self, tmpdir):
+    def test_a_runner_blowup_voids_the_match_instead_of_crashing(self, tmpdir):
         def boom(**kwargs):
             raise RuntimeError('no api key')
 
         a = Arena(runner=boom, agents=FakeAgents(), root=os.path.join(tmpdir, 'arena'))
+        a.set_config(retries=0)
         m = a.run_match('alpha', 'agentic/files#0')
-        assert m['score'] == 0.0
+        assert m['void'] and m['score'] == 0.0
         assert 'no api key' in m['error']
+        assert a._rating('alpha')['matches'] == 0     # it never competed
+        assert a._rating('alpha')['voids'] == 1
+        assert a.matches()[0]['id'] == m['id']        # but it is on the record
 
     def test_no_runner_is_reported_per_match(self, tmpdir):
         a = Arena(agents=FakeAgents(), root=os.path.join(tmpdir, 'arena'))
+        a.set_config(retries=0)
         assert 'runner' in a.run_match('alpha', 'agentic/files#0')['error']
 
     def test_match_stats_land_on_the_rating(self, arena):
@@ -276,6 +281,69 @@ class TestMatches:
         arena.run_match('beta', 'agentic/files#0')
         assert [m['agent'] for m in arena.matches(agent='beta')] == ['beta']
         assert len(arena.matches(task='agentic/files')) == 2   # suite name works too
+
+
+class TestVoids:
+    """A rate-limited free endpoint is not an agent that can't code."""
+
+    def _flaky(self, tmpdir, fail_first=1):
+        state = {'n': 0}
+
+        def behaviour(agent, path, prompt):
+            state['n'] += 1
+            if state['n'] <= fail_first:
+                return [{'tool': 'error', 'params': {},
+                         'error': 'Upstream error: ResourceExhausted'}]
+            Path(path, 'count.txt').write_text('7')
+            return [finish('wrote it')]
+
+        a = Arena(runner=make_runner(behaviour), agents=FakeAgents(),
+                  root=os.path.join(tmpdir, 'arena'))
+        return a, state
+
+    def test_a_model_error_step_voids_the_match(self, tmpdir):
+        a, _ = self._flaky(tmpdir, fail_first=99)
+        a.set_config(retries=0)
+        m = a.run_match('alpha', 'agentic/files#0')
+        assert m['void'] and 'ResourceExhausted' in m['void_reason']
+        assert a._rating('alpha')['matches'] == 0
+
+    def test_a_voided_match_is_replayed(self, tmpdir, monkeypatch):
+        monkeypatch.setattr('src.arena.mod.RETRY_PAUSE', 0)
+        a, state = self._flaky(tmpdir, fail_first=1)
+        m = a.run_match('alpha', 'agentic/files#0')
+        assert state['n'] == 2 and m['attempt'] == 1
+        assert not m['void'] and m['score'] > 0.9
+        assert a._rating('alpha')['matches'] == 1
+
+    def test_a_tool_error_still_counts_against_the_agent(self, tmpdir):
+        def behaviour(agent, path, prompt):
+            return [{'tool': 'bash', 'params': {}, 'error': 'command not found'},
+                    finish('gave up')]
+
+        a = Arena(runner=make_runner(behaviour), agents=FakeAgents(),
+                  root=os.path.join(tmpdir, 'arena'))
+        m = a.run_match('alpha', 'agentic/files#0')
+        assert not m['void']                 # the model answered; the tool failed
+        assert m['reliable'] == 0.5
+        assert a._rating('alpha')['matches'] == 1
+
+    def test_a_void_is_left_out_of_the_rating(self, tmpdir, monkeypatch):
+        monkeypatch.setattr('src.arena.mod.RETRY_PAUSE', 0)
+
+        def behaviour(agent, path, prompt):
+            if agent == 'gamma':
+                return [{'tool': 'error', 'params': {}, 'error': 'rate limited'}]
+            Path(path, 'count.txt').write_text('7')
+            return [finish('done')]
+
+        a = Arena(runner=make_runner(behaviour), agents=FakeAgents(),
+                  root=os.path.join(tmpdir, 'arena'))
+        a.set_config(tasks_per_round=1)
+        a.run_round()
+        assert a._rating('gamma')['elo'] == ELO_START
+        assert a._rating('gamma')['voids'] == 1
+        assert {r['agent'] for r in a.leaderboard() if r['matches']} == {'alpha', 'beta'}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -419,6 +487,12 @@ class TestScheduler:
         assert out['actions'] == 1
         assert out['results'][0]['agent'] == 'delta'
         assert 'delta' not in arena.newcomers()
+
+    def test_a_fresh_board_seeds_with_one_round_not_a_qualifier_each(self, arena):
+        out = Scheduler(arena).tick()
+        assert out['actions'] == 1                    # the round, no qualifiers
+        assert out['results'][0]['reason'] == 'daily'
+        assert arena.newcomers() == []                # the round marked them seen
 
     def test_a_tick_runs_the_round_when_the_period_has_passed(self, arena):
         arena._state['seen'] = arena.subjects()

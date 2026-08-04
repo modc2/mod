@@ -142,14 +142,38 @@ not included unless quoted.
 - **Attestation-gated secret release** is planned upstream and not enabled during live testing.
 - The offline verifier proves a trusted Cathedral key signed the exact assertions and that the
   document is internally consistent. It does not replay Intel or NVIDIA evidence, inspect
-  billing, contact the provider, or confirm teardown. Pin the trusted-keys file through an
-  independent channel:
+  billing, contact the provider, or confirm teardown.
+
+## Verifying a receipt
+
+A receipt is only evidence once the signature checks out, so verification ships here rather
+than being left to a CLI you have to install. It needs no API key — the receipt is the whole
+input, which is what makes it worth keeping after the worker, the key and the credits are gone.
 
 ```bash
-curl https://cathedral.computer/receipts/$RECEIPT_ID -o receipt.json
-curl https://cathedral.computer/customer-receipt-trusted-keys.json -o trusted-keys.json
-cathedral customer-receipt verify --receipt receipt.json --trusted-keys trusted-keys.json
+m cathedral/verify rcpt_...              # fetch with your key, then check the signature
+m cathedral/verify path=~/receipt.json   # check one you already saved
+m cathedral/trusted_keys                 # the pinned ed25519 signing keys
 ```
+
+```bash
+curl -X POST http://localhost:50390/receipts/verify -d @receipt.json   # public, no key
+curl http://localhost:50390/receipts/trusted-keys
+```
+
+Cathedral's published keys live at `/customer-receipt-trusted-keys.json`, and their advice is
+to pin that file through a channel you trust before relying on it. The first fetch is written
+to `~/.mod/cathedral/trusted-keys.json` and later fetches may only *add* key ids: if the public
+key for an id you already pinned ever changes, the pinned copy is kept and the change is
+reported. That is either a rotation Cathedral should have published under a new id, or somebody
+swapping the key you verify against — neither should pass in silence.
+
+Cathedral documents the algorithm (ed25519) and what is covered ("every top-level assertion
+except the signature object") but not the byte encoding those assertions are serialized to
+before signing. Rather than guess one and report a false negative as tampering, the verifier
+tries the standard encodings and names the one that matched. A receipt matching none comes back
+`signature: "unverified"` with the list of what was tried — never `verified`, and never
+"forged".
 
 ## Errors
 

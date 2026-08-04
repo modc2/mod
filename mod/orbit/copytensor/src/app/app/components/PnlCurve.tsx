@@ -190,10 +190,12 @@ export default function PnlCurve({
   return (
     <section className="space-y-3">
       <div className="flex items-end justify-between flex-wrap gap-3">
-        <div>
+        <div className="min-w-0">
           <h2 className="font-display text-lg font-bold">
             PnL curve{" "}
-            <span className="text-pixel-gray font-normal text-sm">
+            {/* The coverage caveat takes its own line on a phone — inline it
+                wrapped a 20px display heading across three. */}
+            <span className="block sm:inline text-pixel-gray font-normal text-[11px] sm:text-sm">
               ({curve.coverage.actual_days.toFixed(1)}d of snapshots
               {curve.coverage.actual_days < days - 0.5 && ` · ${days}d requested`})
             </span>
@@ -204,13 +206,13 @@ export default function PnlCurve({
             real block
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="rail no-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0 w-full sm:w-auto">
           {MODES.map((m) => (
             <button
               key={m.key}
               title={m.hint}
               onClick={() => setMode(m.key)}
-              className={`pixel-btn text-[11px] px-2 py-1 ${
+              className={`pixel-btn text-[11px] px-3 py-1 ${
                 mode === m.key ? "border-green-400 text-green-400" : "text-pixel-gray-light"
               }`}
             >
@@ -219,7 +221,7 @@ export default function PnlCurve({
           ))}
           <button
             onClick={() => setShowTrades((s) => !s)}
-            className={`pixel-btn text-[11px] px-2 py-1 ${
+            className={`pixel-btn text-[11px] px-3 py-1 ${
               showTrades ? "text-pixel-white" : "text-pixel-gray"
             }`}
           >
@@ -243,10 +245,16 @@ export default function PnlCurve({
           <p className="text-[10px] tracking-[2px] uppercase text-pixel-gray mb-1">
             traded volume
           </p>
+          {/* Bought over sold, stacked in a narrow tile — side by side the
+              pair wrapped mid-number. */}
           <p className="font-mono text-[13px] tabular-nums">
-            <span style={{ color: BUY }}>▲ {fmtValue(t.buy_tao, currency, usdPerTao)}</span>
-            <span className="text-pixel-gray mx-1">/</span>
-            <span style={{ color: SELL }}>▼ {fmtValue(t.sell_tao, currency, usdPerTao)}</span>
+            <span className="block sm:inline" style={{ color: BUY }}>
+              ▲ {fmtValue(t.buy_tao, currency, usdPerTao)}
+            </span>
+            <span className="text-pixel-gray mx-1 hidden sm:inline">/</span>
+            <span className="block sm:inline" style={{ color: SELL }}>
+              ▼ {fmtValue(t.sell_tao, currency, usdPerTao)}
+            </span>
           </p>
         </div>
       </div>
@@ -371,21 +379,21 @@ export default function PnlCurve({
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-        <div className="flex items-center gap-4 px-2 pt-1 text-[10px] text-pixel-gray font-mono">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2 pt-1 text-[10px] text-pixel-gray font-mono">
           <span>
             <span style={{ color: LINE }}>━</span>{" "}
             {mode === "value" ? "portfolio value" : mode === "market" ? "price-move PnL" : "cumulative PnL"}
           </span>
           <span><span style={{ color: BUY }}>▲</span> buy / stake added</span>
           <span><span style={{ color: SELL }}>▼</span> sell / unstaked</span>
-          <span className="ml-auto">marker size = TAO moved</span>
+          <span className="hidden sm:inline sm:ml-auto">marker size = TAO moved</span>
         </div>
       </div>
 
       {showTrades && curve.trades.length > 0 && (
         <div className="pixel-panel overflow-hidden">
-          <div ref={tapeRef} className="max-h-[320px] overflow-y-auto">
-            <table className="pixel-table">
+          <div ref={tapeRef} className="max-h-[320px] overflow-auto">
+            <table className="pixel-table" style={{ minWidth: 700 }}>
               <thead className="sticky">
                 <tr>
                   <th>Time</th>

@@ -149,11 +149,8 @@ async fn health() -> Json<Value> {
     Json(info())
 }
 
-pub async fn serve(port: u16) {
-    let app = Router::new()
-        .route("/", get(root))
-        .route("/openarena", get(console))
-        .route("/openarena/", get(console))
+fn api_routes() -> Router {
+    Router::new()
         .route("/info", get(health))
         .route("/health", get(health))
         .route(
@@ -175,6 +172,19 @@ pub async fn serve(port: u16) {
         .route("/leaderboard", get(leaderboard))
         .route("/forward", post(forward))
         .route("/tools", get(tools))
+}
+
+pub async fn serve(port: u16) {
+    let app = Router::new()
+        .route("/", get(root))
+        .route("/openarena", get(console))
+        .route("/openarena/", get(console))
+        .merge(api_routes())
+        // The console is served at /openarena in both worlds, so it always
+        // calls /api/openarena. Behind the fleet router caddy strips that
+        // prefix; standalone on this port nothing does, so the same routes
+        // answer there too and one console works in both places.
+        .nest("/api/openarena", api_routes())
         .layer(CorsLayer::permissive());
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));

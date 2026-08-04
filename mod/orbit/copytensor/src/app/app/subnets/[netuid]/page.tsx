@@ -152,11 +152,14 @@ export default function SubnetDetailPage() {
             )}
           </div>
 
-          <div className="text-right">
-            <p className="font-mono text-3xl font-bold text-pixel-white tabular-nums leading-none">
+          {/* The price is the headline: on a phone it takes its own full-width
+              line under the name rather than being squeezed into a column
+              beside it. */}
+          <div className="w-full sm:w-auto sm:text-right">
+            <p className="font-mono text-2xl sm:text-3xl font-bold text-pixel-white tabular-nums leading-none">
               {fmtAlphaPrice(s.alpha_price_tao, currency, usdPerTao)}
             </p>
-            <div className="flex items-center justify-end gap-2 mt-2">
+            <div className="flex items-center sm:justify-end gap-2 mt-2">
               <span className="text-[10px] uppercase tracking-[1.5px] text-pixel-gray">1h</span>
               <ChangeChip pct={s.change_1h} size="xs" />
               <span className="text-[10px] uppercase tracking-[1.5px] text-pixel-gray">24h</span>

@@ -143,12 +143,24 @@ Config knobs: `enabled`, `free`, `model`, `steps`, `period_hours`,
 
 ## CLI
 
+The registry is reachable as an attribute, so the CLI walks straight into it:
+
 ```bash
-m agent/arena                          # the board
-m agent/arena_tasks
-m agent/arena_run agent=builder task=agentic/files#0
-m agent/arena_run                      # a whole round
-m agent/arena_qualify agent=mynewagent
-m agent/arena_config period_hours=6
-m agent/arena_scheduler on=false
+m agent/arena/leaderboard                        # the board
+m agent/arena/status                             # what the scheduler is doing
+m agent/arena/tasks
+m agent/arena/run_match agent=builder task=agentic/files#0
+m agent/arena/run_round                          # the whole field
+m agent/arena/qualify agent=mynewagent
+m agent/arena/set_config period_hours=6
+m agent/arena/matches limit=10
+```
+
+Through `forward()` (what the API and other modules call):
+
+```bash
+m agent/forward action=arena
+m agent/forward action=arena_run agent=builder task=agentic/files#0   # admin
+m agent/forward action=arena_config period_hours=6                    # admin
+m agent/forward action=arena_scheduler on=false                       # admin
 ```
