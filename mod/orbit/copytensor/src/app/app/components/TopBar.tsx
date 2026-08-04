@@ -106,9 +106,9 @@ export default function TopBar() {
               34px rail (`.topbar-ctl`) — they used to arrive at four
               different heights, each padded by hand. */}
           <div className="flex items-center gap-2 ml-auto shrink-0">
-            <span className="hidden lg:flex items-center gap-2">
+            <div className="hidden lg:flex items-center gap-2">
               <RpcPoolChip />
-            </span>
+            </div>
             <CurrencyToggle />
             <span className="hidden lg:flex items-center gap-2">
               <SkinPicker />
@@ -192,9 +192,9 @@ export default function TopBar() {
             </div>
             <div className="flex items-center gap-2">
               <SkinPicker />
-              <span className="min-w-0 flex-1 flex justify-end">
+              <div className="min-w-0 flex-1 flex justify-end">
                 <RpcPoolChip />
-              </span>
+              </div>
             </div>
           </div>
         )}

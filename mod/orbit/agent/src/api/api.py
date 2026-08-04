@@ -414,11 +414,13 @@ def _task_model(req: "RunRequest") -> str:
 
     A FREE MODE run ignores req.model and resolves a zero-cost one, so the
     requested model would be a lie in the ledger and in the console's trace.
+    Resolved on the request's own provider — a free id from another catalog
+    would be a lie too.
     """
     if not req.free:
         return req.model
     try:
-        return get_mod().free_model() or req.model
+        return get_mod().free_model(req.provider) or req.model
     except Exception:
         return req.model
 
@@ -1702,7 +1704,7 @@ def run_agent(req: RunRequest):
     mod = get_mod()
     resolved_agent = req.agent_type or req.agent or mod.default_agent(req.key)
     # a harness agent runs on its own CLI, so it needs no provider key here
-    if mod.model is None and not mod.harness_for(resolved_agent):
+    if not mod.has_model(req.provider) and not mod.harness_for(resolved_agent):
         return {"error": "No API key configured for the selected provider — add or unlock a key in the Builder (model node)."}
 
     # chain execution
@@ -1777,7 +1779,7 @@ def run_agent_stream(req: RunRequest):
 
     def worker():
         try:
-            if mod.model is None and not mod.harness_for(resolved_agent):
+            if not mod.has_model(req.provider) and not mod.harness_for(resolved_agent):
                 _task_finish(task, 'error', 'No API key configured')
                 emit({"type": "error", "error": "No API key configured for the selected provider — add or unlock a key in the Builder (model node)."})
                 return

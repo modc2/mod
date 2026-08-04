@@ -445,6 +445,17 @@ export default function StratHub({
         <span className="text-[12px] font-mono text-pixel-gray">
           {recommended.length} recipes · backtested over the last {windowLabel} with today&apos;s leaderboard · click to fork
         </span>
+        {/* Say the quiet part. These rosters are picked BY trailing P&L over
+            the window they're then scored on, so the number is survivorship-
+            biased by construction — an upper bound on what the recipe can do,
+            not a forecast. A saved strat's card has no such bias: its traders
+            were chosen before the window it's measured over. */}
+        <span
+          className="text-[11px] font-mono text-amber-400/80"
+          title="Each recipe seeds itself with the traders who ALREADY topped the leaderboard for this window, then replays that window. Copying them from the start was not possible — read these as an upper bound."
+        >
+          ⚠ leaderboard-seeded — upper bound, not a forecast
+        </span>
       </div>
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
         {recommended.map((t) => {

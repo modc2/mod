@@ -13,6 +13,7 @@ const CONFIRM_USD = 0.20;   // the API enforces this too; the UI just tells the 
 let KEY = sessionStorage.getItem(KEY_STORE) || '';
 let PRICES = null;          // {per_execution_usd, hourly_keep_alive_usd, source}
 let GATES = null;           // {ready, gates, runtime_image}
+let FLEET = null;           // {classes, totals} — every hardware class, flattened
 let PAYER = '';             // cat:… fingerprint of whoever is paying
 let POLL = null;
 
@@ -158,10 +159,17 @@ async function loadCatalog() {
   try {
     const profiles = await api('GET', '/profiles');
     $('profiles-raw').textContent = JSON.stringify(profiles, null, 2);
-    const ids = (profiles.profiles || []).map((p) => p.id || p.profile_id).filter(Boolean);
-    chip('chip-upstream', ids.length ? 'upstream ok · ' + ids.join(' ') : 'upstream ok', 'ok');
   } catch (e) {
     $('profiles-raw').textContent = e.message;
+  }
+  try {
+    FLEET = await api('GET', '/inventory');
+    renderFleet();
+    const t = FLEET.totals || {};
+    chip('chip-upstream', `upstream ok · ${t.hardware_classes} classes · ${t.shapes} shapes`, 'ok');
+  } catch (e) {
+    $('fleet').innerHTML = `<div class="card"><span class="empty">${esc(e.message)}</span></div>`;
+    $('fleet-sum').textContent = e.message;
     chip('chip-upstream', 'upstream unreachable', 'bad');
   }
   try {
@@ -173,6 +181,96 @@ async function loadCatalog() {
   }
   quotes();
 }
+
+/* One card per hardware class, one row per orderable shape. The catalog hides
+   both GPUs and the four worker sizes inside profiles; this is the whole list,
+   with the gate that shuts a class printed next to it rather than left implied. */
+function renderFleet() {
+  const t = FLEET.totals || {};
+  const range = (t.cheapest_usd != null)
+    ? ` · ${usd(t.cheapest_usd)}–${usd(t.dearest_usd)}` : '';
+  $('fleet-sum').innerHTML =
+    `<b>${t.hardware_classes}</b> hardware classes · <b>${t.shapes}</b> shapes ·
+     <b>${t.orderable_shapes}</b> orderable${range}
+     <span class="dots">${['live', 'preview', 'unavailable']
+       .filter((s) => t[s]).map((s) => `<span class="pill ${pillOf(s)}">${t[s]} ${s}</span>`).join('')}</span>`;
+
+  $('fleet').innerHTML = (FLEET.classes || []).map(rig).join('');
+}
+
+const pillOf = (status) => status === 'live' ? 'pass' : (status === 'preview' ? 'warn' : 'fail');
+
+function rig(c) {
+  const hw = c.hardware || {};
+  const ev = c.evidence || {};
+  const cpus = c.shapes.map((s) => s.cpu).filter(Boolean);
+  const mems = c.shapes.map((s) => s.memory_gib).filter(Boolean);
+  const specs = [
+    cpus.length ? `${Math.min(...cpus)}–${Math.max(...cpus)} vCPU` : null,
+    mems.length ? `${Math.min(...mems)}–${Math.max(...mems)} GiB` : null,
+    hw.gpu_type ? `${hw.gpu_count || 1}× ${hw.gpu_type.replace(/_/g, ' ')}` : null,
+    hw.gpu_memory_gib ? `${hw.gpu_memory_gib} GiB VRAM` : null,
+    hw.cpu_tee, hw.machine_type, hw.provider,
+    (hw.provisioning || []).join('/') || null,
+    hw.network_egress ? `egress ${hw.network_egress}` : null,
+    hw.capacity, ev.attests,
+  ].filter(Boolean);
+
+  return `<div class="card rig">
+    <div class="row between rig-head">
+      <div><span class="rig-name">${esc(c.name)}</span>
+        <code>${esc(c.execution_class)}</code>
+        <span class="fine inline-fine">via ${esc((c.profiles || []).join(', ') || '—')}</span></div>
+      <span class="pill ${pillOf(c.status)}">${esc(c.status)}</span>
+    </div>
+    <p class="fine">${esc(c.what || '')}</p>
+    <div class="specs">${specs.map((s) => `<span>${esc(s)}</span>`).join('')}</div>
+    <table><tr><th>shape</th><th>size</th><th>lifetime</th><th class="num">price</th><th></th></tr>
+      ${c.shapes.map((s) => shapeRow(c, s)).join('')}</table>
+    ${(c.blockers || []).length
+      ? `<div class="blocked">shut upstream: ${c.blockers.map(esc).join(' · ')}</div>` : ''}
+    ${(c.notes || []).map((n) => `<p class="fine">⚠ ${esc(n)}</p>`).join('')}
+    ${ev.checks && Object.keys(ev.checks).length ? `<p class="fine">evidence
+      <span class="pill pass">${ev.pass.length} PASS</span>
+      ${ev.unproven.length ? `<span class="pill fail">${ev.unproven.length} not proven</span>
+        — ${ev.unproven.map((k) => esc(k.replace(/_evidence_status|_status/, ''))).join(', ')}` : ''}</p>` : ''}
+    ${hw.runtime_image ? `<p class="fine">runtime <code>${esc(hw.runtime_image)}</code></p>` : ''}
+    ${hw.requires_scope ? `<p class="fine">key must carry <code>${esc(hw.requires_scope)}</code></p>` : ''}
+  </div>`;
+}
+
+function shapeRow(c, s) {
+  const size = [s.cpu ? `${s.cpu} vCPU` : null, s.memory_gib ? `${s.memory_gib} GiB` : null,
+    s.gpu ? `gpu ${s.gpu}` : null].filter(Boolean).join(' · ')
+    || (c.hardware.machine_type || '—');
+  const price = s.price_usd == null
+    ? (s.quoted ? 'quoted before reservation' : '—')
+    : `${usd(s.price_usd)} / ${esc(s.unit || 'execution')}`;
+  const included = s.minutes_included ? `<div class="unit">${s.minutes_included} min included</div>` : '';
+  return `<tr><td>${esc(s.name)}<div class="unit">${esc(s.profile || '')}</div></td>
+    <td>${esc(size)}</td><td>${esc((s.lifetimes || []).join(', ') || '—')}</td>
+    <td class="num">${price}${included}</td>
+    <td><button class="ghost" data-order="${esc(s.order || '')}"
+      data-shape="${s.cpu && s.memory_gib ? esc(s.cpu + 'x' + s.memory_gib) : ''}"
+      ${s.orderable && s.order ? '' : 'disabled'}>order</button></td></tr>`;
+}
+
+/* "Order" is a jump, never a submission: it opens the Run tab on the right card
+   with the shape selected, and the payer still authorizes the spend there. */
+$('fleet').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-order]');
+  if (!btn) return;
+  const { order, shape } = btn.dataset;
+  if (shape && order === 'rent') {
+    const sel = $('rent-shape');
+    if ([...sel.options].some((o) => o.value === shape)) sel.value = shape;
+  }
+  document.querySelector('.rail .tab[data-tab="run"]').click();
+  quotes();
+  const card = { run: 'cpu-image', rent: 'rent-name', gpu: 'gpu-command' }[order];
+  const el = card && $(card);
+  if (el) { el.closest('.card').scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); }
+});
 
 function renderPrices() {
   const per = PRICES.per_execution_usd || {};

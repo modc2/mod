@@ -286,7 +286,8 @@ class Mod:
         return self.web_dir
 
     def test(self):
-        """Smoke test: the game file exists and is non-trivial."""
+        """Smoke test: the game file exists, is non-trivial, and still renders
+        through the pixel pipeline (low-res buffer + nearest upscale + dither)."""
         idx = os.path.join(self.web_dir, "index.html")
         assert os.path.exists(idx), f"missing {idx}"
         size = os.path.getsize(idx)
@@ -294,8 +295,12 @@ class Mod:
         with open(idx) as f:
             head = f.read()
         assert "three" in head and "importmap" in head, "expected a three.js WebGL game"
-        print(f"ok — {size} bytes, WebGL/three.js game present")
-        return {"ok": True, "bytes": size}
+        # the look is the feature — catch anyone quietly reverting it
+        for marker in ("image-rendering: pixelated", "setSize(lowW(), lowH(), false)",
+                       "bayer4", "NearestFilter"):
+            assert marker in head, f"pixel pipeline missing: {marker!r}"
+        print(f"ok — {size} bytes, WebGL/three.js game present, pixel pipeline intact")
+        return {"ok": True, "bytes": size, "pixelated": True}
 
 
 if __name__ == "__main__":

@@ -599,7 +599,7 @@ function Rank({ i }: { i: number }) {
   if (!medal) return <span className="text-pixel-gray font-mono">{i + 1}</span>;
   return (
     <span
-      className="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold"
+      className="medal-plate inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold"
       style={{ background: medal, color: "#05030a", boxShadow: "2px 2px 0 var(--shadow-hard)" }}
     >
       {i + 1}

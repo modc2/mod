@@ -30,7 +30,7 @@ export default function SubnetLogo({
 
   return (
     <span
-      className="shrink-0 inline-flex items-center justify-center overflow-hidden"
+      className="subnet-logo shrink-0 inline-flex items-center justify-center overflow-hidden"
       style={{
         width: size,
         height: size,

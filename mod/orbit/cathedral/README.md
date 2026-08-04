@@ -64,6 +64,7 @@ m cathedral/verify_payment cs_...             # settle the redirect race after p
 
 m cathedral/prices                            # the published price sheet
 m cathedral/estimate profile=custom.v1 shape=8x32 minutes=90
+m cathedral/inventory                         # every hardware class and shape you can order
 m cathedral/profiles                          # live catalog — these fields are runtime gates
 m cathedral/gpu_ready                         # are the confidential-GPU gates PASS right now
 
@@ -108,8 +109,25 @@ curl localhost:50390/run      -H "Authorization: Bearer $CATHEDRAL_API_KEY" \
      -d '{"image":"python:3.12-slim","command":["python","-c","print(6*7)"]}'
 ```
 
-Public, no key: `/`, `/health`, `/prices`, `/profiles`, `/gpu/ready`, `/credits/packs`.
-Everything else requires the caller's own key.
+Public, no key: `/`, `/health`, `/prices`, `/profiles`, `/inventory`, `/gpu/ready`,
+`/credits/packs`. Everything else requires the caller's own key.
+
+## What compute is there
+
+`/profiles` answers "what profiles exist" and buries the hardware inside them: the confidential
+GPU is a hardware class rather than a profile, the hybrid preview sits beside it, and the four
+sealed-worker sizes are down in `custom.v1.resources`. Read literally, it shows two things and
+hides a 96 GiB GPU and five buyable shapes.
+
+`inventory` (CLI) / `GET /inventory` (HTTP) flattens the same catalog into one row per hardware
+class — its shapes, prices, the endpoint that orders each, and, where a class is shut, the
+gate holding it shut. Nothing is invented: what the catalog does not state comes back `null`.
+The console's Catalog tab is this list, and it is the tab it opens on.
+
+```
+$ m cathedral/inventory
+3 hardware classes · 7 shapes · 6 orderable · $0.20–$4.40 · 1 live, 1 preview, 1 unavailable
+```
 
 ## Profiles
 

@@ -97,6 +97,7 @@ class Mod:
         self.venues_path = self.store_dir / "venues.json"   # custom venues + hidden presets
         self.admin_path = self.store_dir / "admin.json"     # off-chain module-admin secret
         self.accounts_path = self.store_dir / "accounts.json"  # claimed name → key registry
+        self.agent_path = self.store_dir / "agent_requests.json"  # agent proposals awaiting you
 
         self.port = int(self.config.get("port", 50150))
         self.app_port = int(self.config.get("app_port", 50151))
@@ -156,6 +157,10 @@ class Mod:
             "by_sport": by_sport,
             "free_by_default": True,
             "chain": self.chain,
+            # just the count — the proposals themselves are the owner's business
+            "agent_requests_pending": sum(
+                1 for r in self._agent_store().values()
+                if r.get("status", "").startswith("pending")),
         }
 
     def sports(self):
@@ -668,13 +673,118 @@ class Mod:
         })
         return detail
 
+    # ━━ Conflicts ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Two games clash when they want the same patch of turf at the same time
+    # (blocking — someone shows up to a taken field), or when they'd split the
+    # same pool of players / double-book the same organizer (a warning: annoying,
+    # not impossible). Recurring games are compared occurrence by occurrence.
+    SAME_SPOT_M = 120     # different names, near-identical coords → same field
+    SAME_POOL_M = 700     # same sport a few blocks away → competing for players
+
+    @staticmethod
+    def _metres(lat1, lng1, lat2, lng2) -> Optional[float]:
+        if lat1 is None or lng1 is None or lat2 is None or lng2 is None:
+            return None
+        import math
+        p1, p2 = math.radians(float(lat1)), math.radians(float(lat2))
+        dp, dl = p2 - p1, math.radians(float(lng2) - float(lng1))
+        a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+        return 2 * 6371000.0 * math.asin(math.sqrt(a))
+
+    @staticmethod
+    def _overlap_min(a_ts, a_dur, b_ts, b_dur) -> int:
+        """Minutes two time windows share (0 = no overlap)."""
+        lo = max(int(a_ts), int(b_ts))
+        hi = min(int(a_ts) + int(a_dur) * 60, int(b_ts) + int(b_dur) * 60)
+        return max(0, (hi - lo) // 60)
+
+    def check_conflicts(self, sport: str, starts_at: int, duration_min: int = 60,
+                        venue: str = "", city: str = None, lat: float = None,
+                        lng: float = None, recurrence: dict = None, admin: str = "",
+                        ignore_game_id: str = None) -> Dict[str, Any]:
+        """Would this game clash with what's already on the board? Read-only.
+
+        Returns ``{ok, blocking:[…], warnings:[…]}``. ``ok`` is False only when
+        something blocking was found (same field, overlapping time)."""
+        sport = (sport or "").lower()
+        city = city or self.default_city
+        try:
+            starts_at, duration_min = int(starts_at), int(duration_min or 60)
+        except (TypeError, ValueError):
+            return {"error": "starts_at and duration_min must be numbers"}
+
+        probe = {"id": "__probe__", "starts_at": starts_at,
+                 "recurrence": self._normalize_recurrence(recurrence), "rsvps": {}}
+        if probe["recurrence"].get("error"):
+            return probe["recurrence"]
+        mine = self._occurrences(probe, max_occ=8)
+        if not mine:
+            mine = [starts_at]
+
+        vname = (venue or "").strip().lower()
+        blocking: List[Dict[str, Any]] = []
+        warnings: List[Dict[str, Any]] = []
+        seen = set()
+        games = self._load_games()
+        for gid, other in games.items():
+            if gid == ignore_game_id or other.get("status") == "cancelled":
+                continue
+            o_dur = int(other.get("duration_min", 60))
+            o_venue = (other.get("venue") or "").strip().lower()
+            dist = self._metres(lat, lng, other.get("lat"), other.get("lng"))
+            same_spot = (bool(vname) and vname == o_venue) or (dist is not None and dist <= self.SAME_SPOT_M)
+            same_city = other.get("city", self.default_city) == city
+            near_pool = same_city and other.get("sport") == sport and (
+                dist is not None and dist <= self.SAME_POOL_M)
+            same_admin = bool(admin) and other.get("admin", "").strip().lower() == admin.strip().lower()
+            if not (same_spot or near_pool or same_admin):
+                continue
+
+            for o_ts in self._occurrences(other, max_occ=14):
+                overlap = max((self._overlap_min(t, duration_min, o_ts, o_dur) for t in mine), default=0)
+                if not overlap:
+                    continue
+                if same_spot:
+                    kind, sev = "venue", "blocking"
+                    detail = (f"“{other.get('title')}” already has {other.get('venue') or 'this spot'} "
+                              f"on {self._occ_key(o_ts)} — {overlap} min overlap")
+                elif near_pool:
+                    kind, sev = "pool", "warning"
+                    detail = (f"another {sport} game (“{other.get('title')}”) is "
+                              f"{int(dist)} m away on {self._occ_key(o_ts)} — you'd split the players")
+                else:
+                    kind, sev = "organizer", "warning"
+                    detail = (f"{other.get('admin')} is already running “{other.get('title')}” "
+                              f"on {self._occ_key(o_ts)}")
+                key = (gid, kind)
+                if key in seen:
+                    break
+                seen.add(key)
+                entry = {"kind": kind, "severity": sev, "game_id": gid,
+                         "title": other.get("title", ""), "sport": other.get("sport", ""),
+                         "venue": other.get("venue", ""), "admin": other.get("admin", ""),
+                         "occ": self._occ_key(o_ts), "starts_at": int(o_ts),
+                         "overlap_min": overlap,
+                         "distance_m": None if dist is None else round(dist),
+                         "detail": detail}
+                (blocking if sev == "blocking" else warnings).append(entry)
+                break
+
+        blocking.sort(key=lambda c: c["starts_at"])
+        warnings.sort(key=lambda c: c["starts_at"])
+        return {"ok": not blocking, "blocking": blocking, "warnings": warnings,
+                "occurrences_checked": len(mine), "games_checked": len(games)}
+
     # ━━ Create / edit ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     def create_game(self, sport: str, title: str, starts_at: int, admin: str,
                     city: str = None, venue: str = "", neighborhood: str = "",
                     lat: float = None, lng: float = None, duration_min: int = 60,
                     capacity: int = 10, recurrence: dict = None, cost: dict = None,
-                    notes: str = "", admin_wallet: str = "", links: list = None) -> Dict[str, Any]:
-        """Create a game (one-off or recurring). Returns the game + a one-time admin_key."""
+                    notes: str = "", admin_wallet: str = "", links: list = None,
+                    force: bool = False) -> Dict[str, Any]:
+        """Create a game (one-off or recurring). Returns the game + a one-time admin_key.
+
+        Refuses a game that double-books a field unless ``force=True``."""
         sport = (sport or "").lower()
         if sport not in SPORTS:
             return {"error": f"unknown sport '{sport}'", "sports": list(SPORTS)}
@@ -696,6 +806,15 @@ class Mod:
         rec = self._normalize_recurrence(recurrence)
         if rec.get("error"):
             return rec
+
+        clash = self.check_conflicts(sport, starts_at, duration_min=duration_min, venue=venue,
+                                     city=city, lat=lat, lng=lng, recurrence=rec, admin=admin)
+        if clash.get("error"):
+            return clash
+        if clash["blocking"] and not force:
+            return {"error": "that spot is already booked: " + clash["blocking"][0]["detail"],
+                    "conflicts": clash["blocking"], "warnings": clash["warnings"],
+                    "hint": "pick another time or venue, or pass force=true to book it anyway"}
 
         games = self._load_games()
         gid = secrets.token_hex(5)
@@ -728,6 +847,8 @@ class Mod:
         self._save_games(games)
         detail = self.game(gid)
         detail["admin_key"] = admin_key  # surfaced once, to the creator only
+        if clash["warnings"]:
+            detail["warnings"] = clash["warnings"]
         return detail
 
     def _normalize_links(self, links) -> List[Dict[str, str]]:
@@ -1083,6 +1204,224 @@ class Mod:
         if not cost or float(cost.get("amount", 0)) <= 0:
             return {"free": True}
         return self._payment_requirements(game)
+
+    # ━━ Agents ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # An agent can read the board all it likes — finding you a game to join is
+    # free and needs no permission. Putting a game ON the board is different: it
+    # claims a real field, a real time slot, and your name as organizer. So an
+    # agent may only *propose* one. The proposal waits here until the module
+    # owner authorizes it, and the organizer admin_key goes to the owner, never
+    # to the agent.
+    AGENT_TTL = 7 * 86400
+
+    def agent_scope(self) -> Dict[str, Any]:
+        """What an agent may do on its own, and what needs your say-so."""
+        return {
+            "open": ["games", "game", "agent_find_games", "venues", "sports", "cities",
+                     "status", "messages", "check_conflicts", "payment_requirements"],
+            "needs_authorization": ["create_game"],
+            "how": ("Reads are free — call agent_find_games() to find a game to play. "
+                    "To put a NEW game on the board call agent_propose_game(); it returns a "
+                    "request_id in status 'pending_authorization'. The module owner runs "
+                    "agent_authorize(request_id, admin_secret) — only then does the game exist. "
+                    "Poll agent_request(request_id) for the verdict."),
+            "conflicts": ("Proposals that double-book a field are rejected outright; "
+                          "softer clashes ride along as warnings for the owner to weigh."),
+            "ttl_days": self.AGENT_TTL // 86400,
+        }
+
+    def _agent_store(self) -> Dict[str, Any]:
+        data = self._load_json(self.agent_path, {})
+        now = int(time.time())
+        dirty = False
+        for req in data.values():
+            if not req.get("status", "").startswith("pending"):
+                continue
+            if now > int(req.get("expires_at", 0)) or now > int(req["proposal"].get("starts_at", 0)):
+                req["status"] = "expired"
+                dirty = True
+        if dirty:
+            self._save_agent_store(data)
+        return data
+
+    def _save_agent_store(self, data):
+        self._save_json(self.agent_path, data)
+        try:
+            os.chmod(self.agent_path, 0o600)  # approved requests carry the admin_key
+        except OSError:
+            pass
+
+    @staticmethod
+    def _agent_view(req: Dict[str, Any]) -> Dict[str, Any]:
+        """What the requesting agent gets back — everything except the admin_key."""
+        out = {k: v for k, v in req.items() if k != "admin_key"}
+        if req.get("status") == "approved":
+            out["note"] = "authorized — the organizer admin_key went to the module owner"
+        return out
+
+    def agent_find_games(self, sport: str = None, city: str = None, on: str = None,
+                         within_days: int = 14, free_only: bool = False, min_spots: int = 1,
+                         query: str = "", near_lat: float = None, near_lng: float = None,
+                         radius_km: float = None, limit: int = 20) -> Dict[str, Any]:
+        """Find a game to play. Open to anyone — no authorization needed."""
+        now = int(time.time())
+        horizon = now + max(1, int(within_days)) * 86400
+        q = (query or "").strip().lower()
+        out: List[Dict[str, Any]] = []
+        for g in self.games(sport=sport, city=city):
+            if g["occ_ts"] > horizon:
+                break
+            if on and g["occ"] != on:
+                continue
+            if free_only and not g["free"]:
+                continue
+            spots = g["spots_left"]
+            if min_spots and spots is not None and spots < int(min_spots):
+                continue
+            if q and q not in " ".join(str(g.get(f, "")) for f in
+                                       ("title", "venue", "neighborhood", "notes", "sport")).lower():
+                continue
+            if near_lat is not None and near_lng is not None:
+                d = self._metres(near_lat, near_lng, g["lat"], g["lng"])
+                if d is None or (radius_km and d > float(radius_km) * 1000):
+                    continue
+                g = dict(g, distance_m=round(d))
+            out.append(g)
+            if len(out) >= max(1, int(limit)):
+                break
+        return {"count": len(out), "games": out,
+                "join": "POST /game/{game_id}/join {handle} — no authorization needed",
+                "none_found_hint": ("nothing matched — agent_propose_game() can ask the owner "
+                                    "to start one" if not out else None)}
+
+    def agent_propose_game(self, agent: str, sport: str, title: str, starts_at: int,
+                           admin: str, reason: str = "", **fields) -> Dict[str, Any]:
+        """Ask the owner to create a game. Never creates one — returns a request_id."""
+        if not (agent or "").strip():
+            return {"error": "agent name required (who is asking?)"}
+        sport = (sport or "").lower()
+        if sport not in SPORTS:
+            return {"error": f"unknown sport '{sport}'", "sports": list(SPORTS)}
+        if not title or not admin:
+            return {"error": "title and admin handle required"}
+        try:
+            starts_at = int(starts_at)
+        except (TypeError, ValueError):
+            return {"error": "starts_at must be a unix timestamp"}
+        if starts_at <= int(time.time()):
+            return {"error": "starts_at must be in the future"}
+
+        known = {"city", "venue", "neighborhood", "lat", "lng", "duration_min", "capacity",
+                 "recurrence", "cost", "notes", "admin_wallet", "links"}
+        unknown = set(fields) - known
+        if unknown:
+            return {"error": f"unknown field(s): {', '.join(sorted(unknown))}"}
+        cost = self._normalize_cost(fields.get("cost"), fields.get("admin_wallet", ""))
+        if isinstance(cost, dict) and cost.get("error"):
+            return cost
+
+        proposal = {"sport": sport, "title": title.strip(), "starts_at": starts_at,
+                    "admin": admin.strip(), **fields}
+        clash = self.check_conflicts(sport, starts_at,
+                                     duration_min=fields.get("duration_min", 60),
+                                     venue=fields.get("venue", ""), city=fields.get("city"),
+                                     lat=fields.get("lat"), lng=fields.get("lng"),
+                                     recurrence=fields.get("recurrence"), admin=admin)
+        if clash.get("error"):
+            return clash
+        if clash["blocking"]:
+            return {"error": "conflicts with a game already on the board: " + clash["blocking"][0]["detail"],
+                    "conflicts": clash["blocking"],
+                    "hint": "find a free slot with check_conflicts() and propose again"}
+
+        data = self._agent_store()
+        dup_key = (sport, starts_at, (fields.get("venue") or "").strip().lower(), title.strip().lower())
+        for req in data.values():
+            if req.get("status", "").startswith("pending"):
+                p = req["proposal"]
+                if (p["sport"], p["starts_at"], (p.get("venue") or "").strip().lower(),
+                        p["title"].strip().lower()) == dup_key:
+                    return {**self._agent_view(req), "already_pending": True}
+
+        rid = secrets.token_urlsafe(12)
+        req = {"request_id": rid, "status": "pending_authorization", "agent": agent.strip()[:64],
+               "reason": (reason or "").strip()[:400], "proposal": proposal,
+               "warnings": clash["warnings"], "created_at": int(time.time()),
+               "expires_at": min(int(time.time()) + self.AGENT_TTL, starts_at)}
+        data[rid] = req
+        self._save_agent_store(data)
+        return {**self._agent_view(req),
+                "next": "the module owner must run agent_authorize(request_id, admin_secret)"}
+
+    def agent_request(self, request_id: str) -> Dict[str, Any]:
+        """Poll one request. Open — the id is the capability."""
+        req = self._agent_store().get(request_id)
+        if not req:
+            return {"error": "request not found"}
+        return self._agent_view(req)
+
+    def agent_pending(self, admin_secret: str, status: str = "pending") -> Dict[str, Any]:
+        """Owner view: agent requests waiting on you, each re-checked for conflicts now."""
+        err = self._sudo_guard(admin_secret)
+        if err:
+            return err
+        out = []
+        for req in self._agent_store().values():
+            st = req.get("status", "")
+            if status and status != "all" and not st.startswith(status):
+                continue
+            item = dict(req)
+            if st.startswith("pending"):
+                p = req["proposal"]
+                item["conflicts_now"] = self.check_conflicts(
+                    p["sport"], p["starts_at"], duration_min=p.get("duration_min", 60),
+                    venue=p.get("venue", ""), city=p.get("city"), lat=p.get("lat"),
+                    lng=p.get("lng"), recurrence=p.get("recurrence"), admin=p.get("admin", ""))
+            out.append(item)
+        out.sort(key=lambda r: r.get("created_at", 0), reverse=True)
+        return {"count": len(out), "requests": out}
+
+    def agent_authorize(self, request_id: str, admin_secret: str, force: bool = False,
+                        **overrides) -> Dict[str, Any]:
+        """You authorizing an agent's game. This is the only path that creates it."""
+        err = self._sudo_guard(admin_secret)
+        if err:
+            return err
+        data = self._agent_store()
+        req = data.get(request_id)
+        if not req:
+            return {"error": "request not found"}
+        if not req.get("status", "").startswith("pending"):
+            return {"error": f"request is {req['status']}, nothing to authorize",
+                    "request": self._agent_view(req)}
+
+        proposal = {**req["proposal"], **{k: v for k, v in overrides.items() if v is not None}}
+        result = self.create_game(force=force, **proposal)
+        if result.get("error"):
+            return result  # conflicts (or bad fields) — request stays pending
+
+        req.update({"status": "approved", "decided_at": int(time.time()),
+                    "game_id": result["game_id"], "admin_key": result["admin_key"]})
+        self._save_agent_store(data)
+        return {"ok": True, "authorized": request_id, "agent": req["agent"],
+                "game": result, "admin_key": result["admin_key"],
+                "note": "admin_key is yours — the agent never sees it"}
+
+    def agent_deny(self, request_id: str, admin_secret: str, reason: str = "") -> Dict[str, Any]:
+        """Turn down an agent's proposal."""
+        err = self._sudo_guard(admin_secret)
+        if err:
+            return err
+        data = self._agent_store()
+        req = data.get(request_id)
+        if not req:
+            return {"error": "request not found"}
+        if not req.get("status", "").startswith("pending"):
+            return {"error": f"request is {req['status']}, nothing to deny"}
+        req.update({"status": "denied", "decided_at": int(time.time()),
+                    "denied_reason": (reason or "").strip()[:400]})
+        self._save_agent_store(data)
+        return {"ok": True, "denied": request_id, "reason": req["denied_reason"]}
 
     # ━━ Serve / register (mirrors openhouse) ━━━━━━━━━━━━━━━━━━━━━
     def serve(self, port=None, app_port=None, dev=True):

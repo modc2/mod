@@ -41,6 +41,7 @@ const K_ACCT = 'openplay.acct'
 const K_KEYS = 'openplay.adminkeys'
 const K_SUDO = 'openplay.sudo'
 const K_CITY = 'openplay.city'
+const K_GUEST = 'openplay.guest'
 
 // ── name normalisation (must match the server's _name_key / _valid_name) ──
 export function normName(name: string): string { return (name || '').trim().replace(/\s+/g, ' ') }
@@ -138,6 +139,37 @@ export function changePassword(acct: Account, newPassword: string): Promise<Acco
 // rotate to a brand-new random key (not tied to a password — back it up!)
 export function rotateFresh(acct: Account): Promise<Account> {
   return rotateTo(acct, Wallet.createRandom(), false)
+}
+
+// ── guest identity — play (and host) without an account ──────────
+// Anyone can create a game: you pick a name, it's kept on this device, and
+// the organizer key the server hands back is what actually proves you run
+// the game. A guest name is NOT claimed on the server, so we refuse any
+// name a key already owns — otherwise a guest could wear someone's handle.
+// Signing in later upgrades the same flow to a name that's provably yours.
+export function loadGuest(): string { return safeGet(K_GUEST) || '' }
+export function saveGuest(name: string): string {
+  const disp = normName(name)
+  safeSet(K_GUEST, disp)
+  return disp
+}
+export function clearGuest() { safeDel(K_GUEST) }
+
+// Validate a guest name and make sure it isn't a claimed account. Returns
+// the normalised name; throws a friendly Error otherwise.
+export async function useGuestName(name: string): Promise<string> {
+  const disp = normName(name)
+  const err = nameError(disp); if (err) throw new Error(err)
+  const info = await api(`account/${encodeURIComponent(disp)}`).catch(() => ({ exists: false }))
+  if (info.exists) throw new Error(`“${disp}” belongs to a signed-in player — pick another, or sign in with it.`)
+  return saveGuest(disp)
+}
+
+const GUEST_WORDS = ['striker', 'keeper', 'sweeper', 'winger', 'baller', 'hooper',
+                     'spiker', 'netminder', 'captain', 'sub', 'rookie', 'ringer']
+export function randomGuestName(): string {
+  const w = GUEST_WORDS[Math.floor(Math.random() * GUEST_WORDS.length)]
+  return `${w}_${Math.floor(Math.random() * 900 + 100)}`
 }
 
 // ── per-game organizer keys ──────────────────────────────────────

@@ -1,16 +1,56 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Archivo:wght@600;700;800;900&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,600&family=JetBrains+Mono:wght@400;500;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ── Palette ──────────────────────────────────────────────
+   Milan (Memphis: flat blocks, hard shadows, confetti) × Japan (washi paper,
+   seigaiha waves, a rising sun) × surf-shop pastels pitched loud, not quiet.
+   Every one of these is a Mario-smooth hue: coral-red, sky, coin-gold, pipe-mint.
+
+   Every colour is an `R G B` triplet so Tailwind can alpha it (`text-coral/60`)
+   and — the reason it's shaped this way — so DIGITAL mode can repaint the
+   entire page by swapping this one block. See the mode section at the bottom. */
 :root {
-  --ink: #050507;
-  --gold: #e8c07d;
-  --gold-2: #f5d9a8;
-  --emerald: #34d399;
-  --neon: #ff3d81;
-  --paper: #f4f1ea;
+  --paper-rgb: 255 246 236;
+  --ink-rgb: 43 35 80;
+  /* text that sits ON a bright accent fill (buttons, badges, the logo tile) —
+     the one colour that can't just follow --ink when the page inverts. */
+  --on-accent-rgb: 43 35 80;
+
+  --coral-rgb: 255 122 92;
+  --peach-rgb: 255 180 143;
+  --ember-rgb: 230 74 46;
+  --pink-rgb: 255 79 163;
+  --pink-deep-rgb: 200 31 116;
+  --mint-rgb: 46 211 183;
+  --sky-rgb: 99 199 255;
+  --sun-rgb: 255 216 77;
+  --lilac-rgb: 183 156 255;
+  /* the "owner income / done" green — Tailwind's emerald, re-cut as surf mint */
+  --em-300-rgb: 138 235 216;
+  --em-400-rgb: 46 211 183;
+  --em-500-rgb: 18 191 163;
+  --em-600-rgb: 14 161 137;
+
+  --paper: rgb(var(--paper-rgb));
+  --ink: rgb(var(--ink-rgb));
+  --coral: rgb(var(--coral-rgb));
+  --peach: rgb(var(--peach-rgb));
+  --ember: rgb(var(--ember-rgb));
+  --pink: rgb(var(--pink-rgb));
+  --pink-deep: rgb(var(--pink-deep-rgb));
+  --mint: rgb(var(--mint-rgb));
+  --sky: rgb(var(--sky-rgb));
+  --sun: rgb(var(--sun-rgb));
+  --lilac: rgb(var(--lilac-rgb));
+
+  --font-body: 'Outfit', 'SF Pro Display', -apple-system, system-ui, sans-serif;
+  --font-display: 'Baloo 2', 'Outfit', sans-serif;
+  --font-ed: 'Fraunces', Georgia, serif;
+  --headline-track: -0.015em;
+
   --mx: 50%;
   --my: 30%;
 }
@@ -19,72 +59,97 @@
 html { scroll-behavior: smooth; }
 
 body {
-  background: var(--ink);
-  color: #e9e6df;
-  font-family: 'Inter', 'SF Pro Display', -apple-system, system-ui, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
 }
 
-.font-display { font-family: 'Archivo', 'Inter', sans-serif; }
-.font-serif-ed { font-family: 'Fraunces', Georgia, serif; }
+.font-display { font-family: var(--font-display); }
+.font-serif-ed { font-family: var(--font-ed); }
 
 .headline {
-  font-family: 'Archivo', sans-serif;
-  font-weight: 900;
-  letter-spacing: -0.03em;
-  line-height: 0.92;
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: var(--headline-track);
+  line-height: 0.95;
+}
+
+/* Testnet strip — a solid gold band on paper, a dim amber console rail in
+   DIGITAL (light ink on solid gold is unreadable once the page inverts). */
+.banner-strip {
+  background: var(--sun);
+  border-bottom: 2px solid rgb(var(--ink-rgb) / 0.15);
 }
 
 /* ── Gradient + glow text ───────────────────────────────── */
-.text-gold-grad {
-  background: linear-gradient(110deg, #fff2d8 0%, #f5d9a8 25%, #e8c07d 50%, #b8893f 72%, #f5d9a8 100%);
-  background-size: 220% auto;
+.text-surf-grad {
+  /* the sun stop between mint and coral keeps the wrap-around from muddying into olive */
+  background: linear-gradient(100deg, var(--coral) 0%, var(--pink) 16%, var(--lilac) 32%, var(--sky) 48%, var(--mint) 64%, var(--sun) 80%, var(--coral) 100%);
+  background-size: 260% auto;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: shine 6s linear infinite;
+  animation: shine 9s linear infinite;
 }
-@keyframes shine { to { background-position: 220% center; } }
+@keyframes shine { to { background-position: 260% center; } }
 
-.glow-gold { text-shadow: 0 0 40px rgba(232,192,125,0.35); }
+.glow-warm { text-shadow: 4px 4px 0 rgba(255, 122, 92, 0.18); }
 
 /* ── Scroll reveal ──────────────────────────────────────── */
 .reveal { opacity: 0; transform: translateY(30px); transition: opacity 1s cubic-bezier(0.16,1,0.3,1), transform 1s cubic-bezier(0.16,1,0.3,1); }
 .reveal.in { opacity: 1; transform: translateY(0); }
 
-/* ── Aurora + hero spotlight ────────────────────────────── */
+/* ── Pastel wash + Memphis confetti + seigaiha paper ────── */
 .aurora {
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background:
-    radial-gradient(60% 50% at 18% 0%, rgba(232,192,125,0.16), transparent 60%),
-    radial-gradient(55% 50% at 85% 12%, rgba(255,61,129,0.10), transparent 60%),
-    radial-gradient(70% 60% at 50% 110%, rgba(52,211,153,0.10), transparent 60%);
+    radial-gradient(58% 46% at 14% 4%, rgba(255,122,92,0.20), transparent 62%),
+    radial-gradient(52% 46% at 88% 10%, rgba(99,199,255,0.22), transparent 62%),
+    radial-gradient(46% 40% at 70% 52%, rgba(255,79,163,0.13), transparent 62%),
+    radial-gradient(64% 56% at 30% 104%, rgba(46,211,183,0.18), transparent 62%);
 }
+/* seigaiha — Japanese wave scallops, printed faintly into the paper */
+.aurora::before {
+  content: ''; position: fixed; inset: 0; opacity: 0.30;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='40' viewBox='0 0 80 40'%3E%3Cg fill='none' stroke='%232b2350' stroke-opacity='0.16' stroke-width='1.4'%3E%3Cpath d='M0 40a20 20 0 0140 0M40 40a20 20 0 0140 0M-20 20a20 20 0 0140 0M20 20a20 20 0 0140 0M60 20a20 20 0 0140 0'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 80px 40px;
+}
+/* Memphis confetti — dot grid + a tossed square, Sottsass by way of the beach */
+.aurora::after {
+  content: ''; position: fixed; inset: 0; opacity: 0.5;
+  background-image:
+    radial-gradient(rgba(255,79,163,0.22) 1.6px, transparent 1.7px),
+    radial-gradient(rgba(99,199,255,0.20) 1.6px, transparent 1.7px);
+  background-size: 34px 34px, 34px 34px;
+  background-position: 0 0, 17px 17px;
+}
+
 .spotlight {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
-  background: radial-gradient(420px circle at var(--mx) var(--my), rgba(232,192,125,0.14), transparent 65%);
+  background: radial-gradient(460px circle at var(--mx) var(--my), rgba(255,216,77,0.22), transparent 65%);
   transition: background 0.18s ease;
 }
 
-/* grain */
+/* paper tooth */
 .grain::after {
-  content: ''; position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0.045;
+  content: ''; position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0.05;
+  mix-blend-mode: multiply;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
-/* vignette */
+/* warm edge instead of the old black vignette */
 .vignette::before {
   content: ''; position: fixed; inset: 0; z-index: 2; pointer-events: none;
-  box-shadow: inset 0 0 200px 60px rgba(0,0,0,0.7);
+  box-shadow: inset 0 0 180px 50px rgba(255, 180, 143, 0.28);
 }
 
 /* ── Scroll progress ────────────────────────────────────── */
 .scrollbar-prog {
-  position: fixed; top: 0; left: 0; height: 2.5px; z-index: 60;
-  background: linear-gradient(90deg, #b8893f, #e8c07d, #f5d9a8);
-  box-shadow: 0 0 12px rgba(232,192,125,0.6);
+  position: fixed; top: 0; left: 0; height: 4px; z-index: 60;
+  background: linear-gradient(90deg, var(--coral), var(--sun), var(--mint), var(--sky), var(--pink));
 }
 
 /* ── Marquee (both directions) ──────────────────────────── */
@@ -92,46 +157,203 @@ body {
 .marquee-rev { animation-direction: reverse; animation-duration: 44s; }
 @keyframes scroll-x { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
-/* ── Glass + tilt cards ─────────────────────────────────── */
-.glass { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(14px); }
+/* ── Cards: washi panel + Memphis hard shadow ───────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1.5px solid rgb(var(--ink-rgb) / 0.14);
+  backdrop-filter: blur(10px);
+  box-shadow: 6px 6px 0 rgb(var(--ink-rgb) / 0.07);
+}
 .glass-hover { transition: transform 0.4s cubic-bezier(0.16,1,0.3,1), border-color 0.4s, background 0.4s, box-shadow 0.4s; }
-.glass-hover:hover { transform: translateY(-5px); border-color: rgba(232,192,125,0.4); background: rgba(255,255,255,0.05); box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7); }
+.glass-hover:hover {
+  transform: translate(-3px, -5px);
+  border-color: rgb(var(--coral-rgb) / 0.6);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 10px 12px 0 rgb(var(--coral-rgb) / 0.22);
+}
 .tilt { transform-style: preserve-3d; transition: transform 0.25s cubic-bezier(0.16,1,0.3,1); will-change: transform; }
 .tilt-inner { transform: translateZ(40px); }
 
 /* ── Shimmer-sweep button ───────────────────────────────── */
-.btn-shine { position: relative; overflow: hidden; }
+.btn-shine { position: relative; overflow: hidden; box-shadow: 4px 4px 0 rgb(var(--ink-rgb) / 0.18); }
 .btn-shine::after {
   content: ''; position: absolute; top: 0; left: -120%; width: 60%; height: 100%;
-  background: linear-gradient(100deg, transparent, rgba(255,255,255,0.55), transparent);
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,0.75), transparent);
   transform: skewX(-18deg); transition: left 0.7s ease;
 }
 .btn-shine:hover::after { left: 140%; }
 
-/* ── NYC skyline ────────────────────────────────────────── */
-.skyline { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; justify-content: center; gap: 2px; height: 46vh; z-index: 1; pointer-events: none; padding: 0 1vw; }
-.bldg { position: relative; background: linear-gradient(180deg, #0c0c12 0%, #08080c 100%); border-top: 1px solid rgba(232,192,125,0.10); border-left: 1px solid rgba(255,255,255,0.02); display: grid; align-content: start; justify-content: center; gap: 6px 5px; padding: 7px 4px; border-radius: 2px 2px 0 0; }
-.win { width: 4px; height: 6px; border-radius: 0.5px; background: rgba(232,192,125,0.85); box-shadow: 0 0 5px rgba(232,192,125,0.6); animation: twinkle 5s ease-in-out infinite; }
-.win.dim { background: rgba(120,120,150,0.18); box-shadow: none; animation: none; }
-@keyframes twinkle { 0%,100% { opacity: 0.85; } 45% { opacity: 0.2; } 70% { opacity: 1; } }
+/* ── Daytime skyline: flat pastel blocks under a rising sun ─ */
+.skyline { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 46vh; z-index: 1; pointer-events: none; padding: 0 1vw; }
+.skyline::before {
+  content: ''; position: absolute; left: 50%; bottom: 26%; width: 44vmin; height: 44vmin;
+  transform: translateX(-50%); border-radius: 50%; z-index: -1; opacity: 0.55;
+  background: radial-gradient(circle, var(--sun) 38%, var(--peach) 70%, rgba(255,180,143,0) 72%);
+}
+.bldg {
+  position: relative; display: grid; align-content: start; justify-content: center;
+  gap: 6px 5px; padding: 8px 4px; border-radius: 4px 4px 0 0;
+  border: 1.5px solid rgb(var(--ink-rgb) / 0.22); border-bottom: none;
+  background: var(--b, var(--peach));
+}
+.bldg:nth-child(5n+1) { --b: #ffb9a3; }
+.bldg:nth-child(5n+2) { --b: #a9dcff; }
+.bldg:nth-child(5n+3) { --b: #ffe08a; }
+.bldg:nth-child(5n+4) { --b: #9fe8d6; }
+.bldg:nth-child(5n+5) { --b: #d3c2ff; }
+.win { width: 4px; height: 6px; border-radius: 1px; background: rgba(255,255,255,0.95); box-shadow: 0 0 0 1px rgb(var(--ink-rgb) / 0.14); animation: twinkle 6s ease-in-out infinite; }
+.win.dim { background: rgb(var(--ink-rgb) / 0.12); box-shadow: none; animation: none; }
+@keyframes twinkle { 0%,100% { opacity: 1; } 55% { opacity: 0.35; } }
 
 @keyframes float { 0%,100%{ transform: translateY(0);} 50%{ transform: translateY(-10px);} }
 .float { animation: float 7s ease-in-out infinite; }
 
-::selection { background: rgba(232,192,125,0.3); color: #fff; }
-::-webkit-scrollbar { width: 9px; }
-::-webkit-scrollbar-track { background: #050507; }
-::-webkit-scrollbar-thumb { background: rgba(232,192,125,0.25); border-radius: 9px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(232,192,125,0.45); }
+::selection { background: var(--sun); color: var(--ink); }
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: rgb(var(--ink-rgb) / 0.05); }
+::-webkit-scrollbar-thumb { background: var(--coral); border-radius: 9px; border: 2px solid var(--paper); }
+::-webkit-scrollbar-thumb:hover { background: var(--pink); }
 
+/* range sliders read as toys, not OS chrome */
+input[type='range'] { height: 22px; }
+
+/* ReactToastify.css loads after globals.css and re-points its own :root vars,
+   so surface, type and colour all have to be forced from here. */
 .Toastify__toast {
-  background: rgba(12,12,16,0.96) !important;
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(232,192,125,0.25);
-  color: #f4f1ea; font-family: 'Inter', sans-serif; font-size: 13px; border-radius: 12px;
+  background: #fffdf8 !important;
+  border: 1.5px solid rgb(var(--ink-rgb) / 0.16);
+  box-shadow: 5px 5px 0 rgb(var(--coral-rgb) / 0.25);
+  color: var(--ink) !important; font-family: var(--font-body) !important;
+  font-size: 13px; border-radius: 14px;
+}
+.Toastify__close-button { color: var(--ink); opacity: 0.5; }
+
+/* ════════════════════════════════════════════════════════════
+   DIGITAL mode — the same building, on a green screen.
+
+   `data-mode="digital"` on <html> (set before first paint in layout.tsx,
+   toggled by the chip in the nav). Almost all of it is the palette swap
+   below: the page is written in tokens, so re-pointing ten triplets
+   inverts paper→phosphor everywhere at once. What follows the palette is
+   only what a colour swap can't say — mono type, square corners, a CRT
+   grid and scanlines instead of washi and confetti.
+   ════════════════════════════════════════════════════════════ */
+[data-mode="digital"] {
+  --paper-rgb: 4 8 7;
+  --ink-rgb: 214 255 235;
+  --on-accent-rgb: 3 14 10;
+
+  --coral-rgb: 0 232 160;      /* the terminal's own green — the brand accent */
+  --peach-rgb: 125 255 208;
+  --ember-rgb: 0 181 124;
+  --pink-rgb: 255 47 135;      /* the fee, still the loud one */
+  --pink-deep-rgb: 176 20 92;
+  --mint-rgb: 53 240 192;
+  --sky-rgb: 41 182 255;
+  --sun-rgb: 255 214 61;
+  --lilac-rgb: 157 125 255;
+  --em-300-rgb: 154 255 216;
+  --em-400-rgb: 45 240 168;
+  --em-500-rgb: 20 209 142;
+  --em-600-rgb: 10 168 113;
+
+  --font-body: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-ed: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --headline-track: 0.01em;
+
+  color-scheme: dark;
+}
+
+/* Terminals don't have rounded corners. One line squares every pill, card and
+   dot on the page — the status dots become pixels, which is the point. */
+[data-mode="digital"] [class*="rounded"] { border-radius: 2px; }
+
+[data-mode="digital"] .headline { text-shadow: 0 0 22px rgb(var(--coral-rgb) / 0.35); }
+[data-mode="digital"] .glow-warm { text-shadow: 0 0 26px rgb(var(--coral-rgb) / 0.45); }
+[data-mode="digital"] .font-serif-ed { font-style: normal; }
+
+[data-mode="digital"] .banner-strip {
+  background: rgb(var(--sun-rgb) / 0.10);
+  border-bottom: 1px solid rgb(var(--sun-rgb) / 0.35);
+}
+
+/* Panels: no washi, no hard shadow — a hairline box with its own faint glow. */
+[data-mode="digital"] .glass {
+  background: rgb(var(--coral-rgb) / 0.035);
+  border: 1px solid rgb(var(--coral-rgb) / 0.22);
+  backdrop-filter: blur(3px);
+  box-shadow: inset 0 0 26px rgb(var(--coral-rgb) / 0.06);
+}
+[data-mode="digital"] .glass-hover:hover {
+  transform: none;
+  background: rgb(var(--coral-rgb) / 0.07);
+  border-color: rgb(var(--coral-rgb) / 0.55);
+  box-shadow: 0 0 24px rgb(var(--coral-rgb) / 0.18), inset 0 0 34px rgb(var(--coral-rgb) / 0.08);
+}
+[data-mode="digital"] .btn-shine { box-shadow: 0 0 18px rgb(var(--coral-rgb) / 0.30); }
+[data-mode="digital"] .btn-shine::after {
+  background: linear-gradient(100deg, transparent, rgb(var(--peach-rgb) / 0.45), transparent);
+}
+
+/* Backdrop: phosphor haze, engineering grid, scanlines. */
+[data-mode="digital"] .aurora {
+  background:
+    radial-gradient(58% 46% at 14% 4%, rgb(var(--coral-rgb) / 0.16), transparent 62%),
+    radial-gradient(52% 46% at 88% 10%, rgb(var(--sky-rgb) / 0.12), transparent 62%),
+    radial-gradient(46% 40% at 70% 52%, rgb(var(--pink-rgb) / 0.07), transparent 62%),
+    radial-gradient(64% 56% at 30% 104%, rgb(var(--mint-rgb) / 0.14), transparent 62%);
+}
+[data-mode="digital"] .aurora::before {
+  opacity: 0.55;
+  background-image:
+    linear-gradient(rgb(var(--coral-rgb) / 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--coral-rgb) / 0.10) 1px, transparent 1px);
+  background-size: 46px 46px, 46px 46px;
+}
+[data-mode="digital"] .aurora::after {
+  opacity: 0.55;
+  background-image: repeating-linear-gradient(0deg, rgba(0,0,0,0.55) 0 1px, transparent 1px 3px);
+  background-size: auto;
+  animation: crt-roll 9s linear infinite;
+}
+@keyframes crt-roll { to { background-position: 0 150px; } }
+
+[data-mode="digital"] .grain::after { opacity: 0.09; mix-blend-mode: screen; }
+[data-mode="digital"] .vignette::before { box-shadow: inset 0 0 220px 70px rgba(0,0,0,0.9); }
+[data-mode="digital"] .spotlight {
+  background: radial-gradient(460px circle at var(--mx) var(--my), rgb(var(--coral-rgb) / 0.10), transparent 65%);
+}
+
+/* The skyline stops being a pastel postcard and becomes a wireframe readout. */
+[data-mode="digital"] .skyline::before {
+  opacity: 0.45;
+  background: radial-gradient(circle, rgb(var(--coral-rgb) / 0.35) 32%, rgb(var(--sky-rgb) / 0.10) 62%, transparent 70%);
+}
+[data-mode="digital"] .bldg {
+  border-color: rgb(var(--coral-rgb) / 0.45);
+  box-shadow: 0 0 16px rgb(var(--coral-rgb) / 0.10);
+}
+[data-mode="digital"] .bldg:nth-child(5n+1) { --b: rgb(var(--coral-rgb) / 0.08); }
+[data-mode="digital"] .bldg:nth-child(5n+2) { --b: rgb(var(--sky-rgb) / 0.08); }
+[data-mode="digital"] .bldg:nth-child(5n+3) { --b: rgb(var(--mint-rgb) / 0.10); }
+[data-mode="digital"] .bldg:nth-child(5n+4) { --b: rgb(var(--coral-rgb) / 0.05); }
+[data-mode="digital"] .bldg:nth-child(5n+5) { --b: rgb(var(--lilac-rgb) / 0.08); }
+[data-mode="digital"] .win {
+  background: rgb(var(--coral-rgb));
+  box-shadow: 0 0 6px rgb(var(--coral-rgb) / 0.85);
+}
+[data-mode="digital"] .win.dim { background: rgb(var(--coral-rgb) / 0.14); box-shadow: none; }
+
+[data-mode="digital"] ::selection { background: rgb(var(--coral-rgb)); color: rgb(var(--on-accent-rgb)); }
+[data-mode="digital"] .Toastify__toast {
+  background: #030b08 !important;
+  border-color: rgb(var(--coral-rgb) / 0.35);
+  box-shadow: 0 0 20px rgb(var(--coral-rgb) / 0.18);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1 !important; transform: none !important; }
-  .win, .text-gold-grad, .float { animation: none !important; }
+  .win, .text-surf-grad, .float { animation: none !important; }
+  [data-mode="digital"] .aurora::after { animation: none !important; }
 }

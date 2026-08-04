@@ -17,12 +17,13 @@ type Row = {
   rank: number; agent: string; icon: string; active: boolean
   elo: number; matches: number; wins: number; losses: number; draws: number
   win_rate: number; avg_score: number; avg_seconds: number; cost: number
+  tokens: number; avg_tokens: number
   tasks: number; voids: number; last: number
 }
 type Match = {
   id: string; ts: number; agent: string; task: string; suite: string; title: string
   score: number; correct: number; reliable: number; efficient: number
-  passed: boolean; steps: number; budget: number; seconds: number; cost: number
+  passed: boolean; steps: number; budget: number; seconds: number; cost: number; tokens?: number
   model?: string | null; error?: string | null; reason?: string
   // the provider failed, not the agent — kept on the record, out of the rating
   void?: boolean; void_reason?: string | null; attempt?: number
@@ -57,6 +58,14 @@ const until = (ts?: number) => {
 }
 
 const pct = (n: number) => `${Math.round((n || 0) * 100)}%`
+
+// rounds run on free models by default, so cost is $0 and tokens are the only
+// honest answer to "what did ranking this field cost"
+const toks = (n?: number) => {
+  if (!n) return ''
+  if (n < 1000) return `${n}t`
+  return `${(n / 1000).toFixed(n < 10000 ? 1 : 0)}kt`
+}
 
 // the three parts of a score, in the order they're weighted
 const BARS: { key: 'correct' | 'reliable' | 'efficient'; label: string; tint: string }[] = [
@@ -271,8 +280,9 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
                   {r.voids > 0 && <span className="text-amber-400/70 text-[9px] ml-1">+{r.voids}</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right tabular-nums text-gray-600">{r.avg_seconds.toFixed(1)}</td>
-                <td className="py-1.5 px-2 text-right tabular-nums text-gray-600">
-                  {r.cost ? `$${r.cost.toFixed(4)}` : '—'}
+                <td className="py-1.5 px-2 text-right tabular-nums text-gray-600"
+                  title={r.avg_tokens ? `${r.avg_tokens.toLocaleString()} tokens per match` : undefined}>
+                  {r.cost ? `$${r.cost.toFixed(4)}` : toks(r.tokens) || '—'}
                 </td>
                 <td className="py-1.5 px-2 text-right text-gray-600">{ago(r.last)}</td>
               </tr>
@@ -358,7 +368,7 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
                 <span>{m.suite}</span>
                 <span>{m.steps}/{m.budget} steps</span>
                 <span>{m.seconds}s</span>
-                {m.cost > 0 && <span>${m.cost.toFixed(4)}</span>}
+                {m.cost > 0 ? <span>${m.cost.toFixed(4)}</span> : m.tokens ? <span>{toks(m.tokens)}</span> : null}
                 <span className="ml-auto">{m.reason?.startsWith('qualifier') ? 'qualifier' : m.reason}</span>
                 <span>{ago(m.ts)}</span>
               </div>

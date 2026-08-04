@@ -47,7 +47,15 @@
         "register_account",
         "rotate_account",
         "game",
+        "check_conflicts",
         "create_game",
+        "agent_scope",
+        "agent_find_games",
+        "agent_propose_game",
+        "agent_request",
+        "agent_pending",
+        "agent_authorize",
+        "agent_deny",
         "edit_game",
         "cancel_game",
         "set_cost",
@@ -74,5 +82,5 @@
         "deregister"
     ],
     "gateway_port": 50161,
-    "schema": "QmRG9ybiJWZYYeJ3ZJenPWHzxfu5y8xe3TM8diRqCVcmZ1"
+    "schema": "QmUJVWZBCJ1jnxSTfSzhoRBk9gtHu9SKKLG1rPMqybAGym"
 }

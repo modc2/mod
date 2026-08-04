@@ -142,7 +142,7 @@ function Skyline({ shift }: { shift: number }) {
     <div className="skyline" style={{ transform: `translateY(${shift}px)` }}>
       {buildings.map((b, i) => (
         <div key={i} className="bldg" style={{ width: b.w, height: b.h, gridTemplateColumns: `repeat(${b.cols}, 4px)` }}>
-          {b.spire && <span className="absolute -top-5 left-1/2 -translate-x-1/2 w-px h-5 bg-[#e8c07d]/40" />}
+          {b.spire && <span className="absolute -top-5 left-1/2 -translate-x-1/2 w-px h-5 bg-coral/40" />}
           {b.wins.map((win, j) => (
             <span key={j} className={`win ${win.lit ? '' : 'dim'}`} style={win.lit ? { animationDelay: `${win.d}s` } : undefined} />
           ))}
@@ -156,18 +156,18 @@ function Skyline({ shift }: { shift: number }) {
 function CodeViewer({ files }: { files: SourceFile[] }) {
   const [active, setActive] = useState(0)
   if (!files.length) {
-    return <div className="glass rounded-3xl py-20 text-center text-white/30 text-sm uppercase tracking-widest">Loading source…</div>
+    return <div className="glass rounded-3xl py-20 text-center text-white/55 text-sm uppercase tracking-widest">Loading source…</div>
   }
   const f = files[Math.min(active, files.length - 1)]
   const lines = f.content.replace(/\n$/, '').split('\n')
   const langLabel: Record<string, string> = { solidity: 'Solidity', python: 'Python', typescript: 'TypeScript' }
   return (
-    <div className="rounded-2xl overflow-hidden border border-white/10 bg-[#0b0b10] shadow-2xl shadow-black/50">
+    <div className="rounded-2xl overflow-hidden border border-white/10 bg-paper shadow-2xl shadow-black/50">
       {/* tab strip */}
       <div className="flex items-stretch overflow-x-auto border-b border-white/[0.07] bg-white/[0.02]">
         {files.map((file, i) => (
           <button key={file.name} onClick={() => setActive(i)}
-            className={`px-4 py-3 text-xs font-mono whitespace-nowrap border-r border-white/[0.05] transition-colors ${i === active ? 'bg-white/[0.06] text-[#e8c07d]' : 'text-white/40 hover:text-white/70'}`}>
+            className={`px-4 py-3 text-xs font-mono whitespace-nowrap border-r border-white/[0.05] transition-colors ${i === active ? 'bg-white/[0.06] text-coral' : 'text-white/60 hover:text-white/80'}`}>
             {file.name.split('/').pop()}
           </button>
         ))}
@@ -175,25 +175,25 @@ function CodeViewer({ files }: { files: SourceFile[] }) {
       {/* chrome bar */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.05] bg-white/[0.015]">
         <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" /><span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" /><span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
-          <span className="ml-3 text-[11px] font-mono text-white/45">{f.name}</span>
-          <span className="text-[10px] uppercase tracking-widest text-[#e8c07d] border border-[#e8c07d]/25 rounded px-1.5 py-0.5">{langLabel[f.language] || f.language}</span>
+          <span className="w-2.5 h-2.5 rounded-full bg-peach" /><span className="w-2.5 h-2.5 rounded-full bg-sun" /><span className="w-2.5 h-2.5 rounded-full bg-emerald-300" />
+          <span className="ml-3 text-[11px] font-mono text-white/65">{f.name}</span>
+          <span className="text-[10px] uppercase tracking-widest text-coral border border-coral/25 rounded px-1.5 py-0.5">{langLabel[f.language] || f.language}</span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-[10px] text-white/30 hidden sm:inline">{f.lines} lines · {(f.bytes / 1024).toFixed(1)} KB</span>
+          <span className="text-[10px] text-white/55 hidden sm:inline">{f.lines} lines · {(f.bytes / 1024).toFixed(1)} KB</span>
           <button onClick={() => { navigator.clipboard.writeText(f.content); toast.success(`${f.name} copied`) }}
-            className="text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-[#e8c07d] transition-colors">Copy</button>
+            className="text-[10px] font-bold uppercase tracking-widest text-white/60 hover:text-coral transition-colors">Copy</button>
         </div>
       </div>
-      <p className="px-4 py-2.5 text-xs text-white/40 border-b border-white/[0.05] bg-white/[0.01]">{f.description}</p>
+      <p className="px-4 py-2.5 text-xs text-white/60 border-b border-white/[0.05] bg-white/[0.01]">{f.description}</p>
       {/* code body */}
       <div className="overflow-auto max-h-[34rem] text-[12.5px] leading-[1.55] font-mono">
         <table className="w-full border-collapse">
           <tbody>
             {lines.map((ln, i) => (
               <tr key={i} className="hover:bg-white/[0.025]">
-                <td className="select-none text-right pr-4 pl-4 text-white/20 w-12 align-top tabular-nums sticky left-0 bg-[#0b0b10]">{i + 1}</td>
-                <td className="pr-6 text-white/75 whitespace-pre align-top">{ln || ' '}</td>
+                <td className="select-none text-right pr-4 pl-4 text-white/45 w-12 align-top tabular-nums sticky left-0 bg-paper">{i + 1}</td>
+                <td className="pr-6 text-white/85 whitespace-pre align-top">{ln || ' '}</td>
               </tr>
             ))}
           </tbody>
@@ -209,9 +209,9 @@ function SplitBar({ amount, fee, credit, owner, className = '', big = false }: {
 }) {
   const pct = (n: number) => (amount > 0 ? (n / amount) * 100 : 0)
   const legs = [
-    { k: 'Your equity', v: credit, c: 'linear-gradient(90deg,#f5d9a8,#e8c07d)', t: 'text-[#e8c07d]' },
-    { k: 'Owner income', v: owner, c: 'linear-gradient(90deg,#34d399,#059669)', t: 'text-emerald-400' },
-    { k: 'Protocol fee', v: fee, c: 'linear-gradient(90deg,#ff3d81,#b91c5c)', t: 'text-[#ff3d81]' },
+    { k: 'Your equity', v: credit, c: 'linear-gradient(90deg,var(--peach),var(--coral))', t: 'text-coral' },
+    { k: 'Owner income', v: owner, c: 'linear-gradient(90deg,var(--mint),rgb(var(--em-600-rgb)))', t: 'text-emerald-400' },
+    { k: 'Protocol fee', v: fee, c: 'linear-gradient(90deg,var(--pink),var(--pink-deep))', t: 'text-pink' },
   ]
   return (
     <div className={className}>
@@ -226,7 +226,7 @@ function SplitBar({ amount, fee, credit, owner, className = '', big = false }: {
           <div key={l.k} className="flex items-baseline gap-2">
             <span className="w-2 h-2 rounded-full shrink-0" style={{ background: l.c }} />
             <span className={`text-[11px] font-bold tabular-nums ${l.t}`}>{pct(l.v).toFixed(1)}%</span>
-            <span className="text-[10px] uppercase tracking-widest text-white/35">{l.k}</span>
+            <span className="text-[10px] uppercase tracking-widest text-white/58">{l.k}</span>
           </div>
         ))}
       </div>
@@ -242,20 +242,20 @@ function TakeComparison({ ourTake }: { ourTake: number }) {
     <div className="space-y-3">
       {rows.map(r => (
         <div key={r.name} className="grid grid-cols-[8.5rem_1fr_3.5rem] items-center gap-3">
-          <span className={`text-xs truncate ${r.ours ? 'text-[#e8c07d] font-bold' : 'text-white/50'}`} title={r.note}>{r.name}</span>
+          <span className={`text-xs truncate ${r.ours ? 'text-coral font-bold' : 'text-white/68'}`} title={r.note}>{r.name}</span>
           <div className="h-2.5 rounded-full bg-white/[0.05] overflow-hidden">
             <div className="h-full rounded-full transition-all duration-700"
               style={{
                 width: `${Math.max((r.take / max) * 100, 1.5)}%`,
-                background: r.ours ? 'linear-gradient(90deg,#f5d9a8,#e8c07d)' : 'rgba(255,61,129,0.45)',
+                background: r.ours ? 'linear-gradient(90deg,var(--peach),var(--coral))' : 'rgb(var(--pink-rgb) / 0.5)',
               }} />
           </div>
-          <span className={`text-xs font-bold tabular-nums text-right ${r.ours ? 'text-[#e8c07d]' : 'text-white/40'}`}>
+          <span className={`text-xs font-bold tabular-nums text-right ${r.ours ? 'text-coral' : 'text-white/60'}`}>
             {r.take % 1 === 0 ? r.take : r.take.toFixed(1)}%
           </span>
         </div>
       ))}
-      <p className="text-[10px] text-white/25 leading-relaxed pt-1">
+      <p className="text-[10px] text-white/50 leading-relaxed pt-1">
         Published headline rates for comparison. Only the OpenHouse number is enforced by this contract —
         and only inside the 1–5% band written into it.
       </p>
@@ -284,32 +284,32 @@ interface CompareData {
 
 const STATUS_STYLE: Record<string, string> = {
   live: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10',
-  testnet: 'text-[#e8c07d] border-[#e8c07d]/30 bg-[#e8c07d]/10',
-  liquidating: 'text-[#ff3d81] border-[#ff3d81]/30 bg-[#ff3d81]/10',
-  acquired: 'text-[#ff3d81] border-[#ff3d81]/30 bg-[#ff3d81]/10',
-  quiet: 'text-white/40 border-white/15 bg-white/[0.03]',
+  testnet: 'text-coral border-coral/30 bg-coral/10',
+  liquidating: 'text-pink border-pink/30 bg-pink/10',
+  acquired: 'text-pink border-pink/30 bg-pink/10',
+  quiet: 'text-white/60 border-white/15 bg-white/[0.03]',
 }
 
 function PeerCard({ p, ours = false }: { p: Peer; ours?: boolean }) {
   const [open, setOpen] = useState(false)
   return (
     <div className={`rounded-2xl border p-5 transition-colors ${ours
-      ? 'border-[#e8c07d]/40 bg-gradient-to-br from-[#e8c07d]/[0.09] to-transparent'
+      ? 'border-coral/40 bg-gradient-to-br from-coral/[0.09] to-transparent'
       : 'border-white/[0.07] bg-white/[0.02] hover:border-white/15'}`}>
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h4 className={`font-display font-extrabold text-lg truncate ${ours ? 'text-[#e8c07d]' : 'text-white'}`}>{p.name}</h4>
+            <h4 className={`font-display font-extrabold text-lg truncate ${ours ? 'text-coral' : 'text-white'}`}>{p.name}</h4>
             {p.occupant_equity && (
               <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.14em] text-emerald-400" title="The person living there accrues ownership">⌂ resident</span>
             )}
           </div>
-          <div className="text-[10px] uppercase tracking-[0.16em] text-white/30 font-bold mt-1">{p.chain} · {p.category_label}</div>
+          <div className="text-[10px] uppercase tracking-[0.16em] text-white/55 font-bold mt-1">{p.chain} · {p.category_label}</div>
         </div>
         <span className={`shrink-0 text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded-full border ${STATUS_STYLE[p.status] || STATUS_STYLE.quiet}`}>{p.status}</span>
       </div>
 
-      <p className="text-white/55 text-[13px] leading-relaxed">{p.thesis}</p>
+      <p className="text-white/72 text-[13px] leading-relaxed">{p.thesis}</p>
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 mt-4 text-[11px]">
         {[
@@ -319,8 +319,8 @@ function PeerCard({ p, ours = false }: { p: Peer; ours?: boolean }) {
           { k: 'The take', v: p.take },
         ].map(f => (
           <div key={f.k}>
-            <dt className="text-white/25 uppercase tracking-[0.14em] font-bold text-[9px]">{f.k}</dt>
-            <dd className="text-white/60 leading-snug mt-0.5">{f.v || '—'}</dd>
+            <dt className="text-white/50 uppercase tracking-[0.14em] font-bold text-[9px]">{f.k}</dt>
+            <dd className="text-white/75 leading-snug mt-0.5">{f.v || '—'}</dd>
           </div>
         ))}
       </dl>
@@ -329,15 +329,15 @@ function PeerCard({ p, ours = false }: { p: Peer; ours?: boolean }) {
       {(p.token || p.live) && (
         <div className="flex flex-wrap gap-2 mt-4">
           {p.live?.tokens != null && (
-            <span className="text-[10px] px-2 py-1 rounded-md bg-white/[0.04] border border-white/[0.07] text-white/50 tabular-nums">
+            <span className="text-[10px] px-2 py-1 rounded-md bg-white/[0.04] border border-white/[0.07] text-white/68 tabular-nums">
               {formatNum(p.live.tokens)} property tokens
               {p.live.median_token_price != null && ` · $${p.live.median_token_price} median`}
             </span>
           )}
           {p.token && (
-            <span className="text-[10px] px-2 py-1 rounded-md bg-white/[0.04] border border-white/[0.07] text-white/50 tabular-nums">
+            <span className="text-[10px] px-2 py-1 rounded-md bg-white/[0.04] border border-white/[0.07] text-white/68 tabular-nums">
               {p.token.symbol} ${p.token.price_usd < 0.01 ? p.token.price_usd.toFixed(6) : p.token.price_usd.toFixed(4)}
-              <span className={p.token.ath_change_pct < -80 ? 'text-[#ff3d81]/70' : 'text-white/35'}> · {p.token.ath_change_pct.toFixed(0)}% from ATH</span>
+              <span className={p.token.ath_change_pct < -80 ? 'text-pink/70' : 'text-white/58'}> · {p.token.ath_change_pct.toFixed(0)}% from ATH</span>
             </span>
           )}
         </div>
@@ -346,17 +346,17 @@ function PeerCard({ p, ours = false }: { p: Peer; ours?: boolean }) {
       {p.status_note && (
         <>
           <button onClick={() => setOpen(o => !o)}
-            className="mt-4 text-[10px] font-bold uppercase tracking-widest text-white/35 hover:text-[#e8c07d] transition-colors">
+            className="mt-4 text-[10px] font-bold uppercase tracking-widest text-white/58 hover:text-coral transition-colors">
             {open ? '− What happened' : '+ What happened'}
           </button>
           {open && (
             <div className="mt-3 pt-3 border-t border-white/[0.07]">
-              <p className="text-white/50 text-[12px] leading-relaxed">{p.status_note}</p>
+              <p className="text-white/68 text-[12px] leading-relaxed">{p.status_note}</p>
               {p.sources.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-3">
                   {p.sources.map((s, i) => (
                     <a key={s} href={s} target="_blank" rel="noopener noreferrer"
-                      className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-white/35 hover:text-[#e8c07d] hover:border-[#e8c07d]/30 transition-colors">
+                      className="text-[10px] px-2 py-0.5 rounded border border-white/10 text-white/58 hover:text-coral hover:border-coral/30 transition-colors">
                       source {i + 1} ↗
                     </a>
                   ))}
@@ -376,7 +376,7 @@ function Landscape({ data, loading, onRefresh }: {
   const [onlyResident, setOnlyResident] = useState(false)
 
   if (!data) {
-    return <p className="text-white/30 text-sm">{loading ? 'Reading the landscape…' : 'Comparison unavailable — the API is not responding.'}</p>
+    return <p className="text-white/55 text-sm">{loading ? 'Reading the landscape…' : 'Comparison unavailable — the API is not responding.'}</p>
   }
 
   // Us first, then the field: resident-side projects lead, then by category.
@@ -388,12 +388,12 @@ function Landscape({ data, loading, onRefresh }: {
     <>
       <Reveal>
         <div className="glass rounded-3xl p-7 md:p-9 mb-8">
-          <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.25em] mb-4">The finding</div>
+          <div className="text-coral text-[11px] font-bold uppercase tracking-[0.25em] mb-4">The finding</div>
           <p className="font-serif-ed text-3xl md:text-4xl text-white leading-tight">
             {data.headline.occupant_side} of {data.headline.total} comparable projects give the resident equity —
-            <span className="text-gold-grad"> and none of those are on-chain.</span>
+            <span className="text-surf-grad"> and none of those are on-chain.</span>
           </p>
-          <p className="text-white/45 text-sm leading-relaxed mt-5 max-w-3xl">
+          <p className="text-white/65 text-sm leading-relaxed mt-5 max-w-3xl">
             Everyone else tokenized the landlord. Investor-side platforms sell slices of a rental to
             people who will never live in it, and the tenant is the yield. The two projects that do
             credit the resident — Divvy and Landis — hold that credit on a company balance sheet.
@@ -408,19 +408,19 @@ function Landscape({ data, loading, onRefresh }: {
             <button onClick={() => setOnlyResident(o => !o)}
               className={`px-3 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-widest transition-colors ${onlyResident
                 ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10'
-                : 'border-white/12 text-white/45 hover:text-white hover:border-white/30'}`}>
+                : 'border-white/12 text-white/65 hover:text-white hover:border-white/30'}`}>
               ⌂ Resident gets equity {onlyResident ? '· on' : '· off'}
             </button>
-            <span className="text-[10px] text-white/25 tabular-nums">{sorted.length} of {data.peers.length} peers</span>
+            <span className="text-[10px] text-white/50 tabular-nums">{sorted.length} of {data.peers.length} peers</span>
           </div>
           <div className="flex items-center gap-3">
             {data.fetched > 0 && (
-              <span className="text-[10px] text-white/25">
+              <span className="text-[10px] text-white/50">
                 live data {timeAgo(data.fetched)}{data.cached ? ' · cached' : ''}
               </span>
             )}
             <button onClick={onRefresh} disabled={loading}
-              className="px-4 py-2 rounded-full border border-white/12 text-[11px] font-bold uppercase tracking-widest text-white/50 hover:text-white hover:border-white/30 disabled:opacity-30 transition-colors">
+              className="px-4 py-2 rounded-full border border-white/12 text-[11px] font-bold uppercase tracking-widest text-white/68 hover:text-white hover:border-white/30 disabled:opacity-30 transition-colors">
               {loading ? 'Syncing…' : '↻ Refresh'}
             </button>
           </div>
@@ -438,14 +438,14 @@ function Landscape({ data, loading, onRefresh }: {
       <div className="grid lg:grid-cols-2 gap-6 mt-10">
         <Reveal>
           <div className="glass rounded-3xl p-7 h-full">
-            <div className="text-[#ff3d81] text-[11px] font-bold uppercase tracking-[0.25em] mb-5">What the field has already proved</div>
+            <div className="text-pink text-[11px] font-bold uppercase tracking-[0.25em] mb-5">What the field has already proved</div>
             <div className="space-y-6">
               {data.evidence.map(e => (
                 <div key={e.claim}>
                   <p className="text-white font-display font-bold text-[15px] leading-snug">{e.claim}</p>
-                  <p className="text-white/45 text-[13px] leading-relaxed mt-2">{e.detail}</p>
+                  <p className="text-white/65 text-[13px] leading-relaxed mt-2">{e.detail}</p>
                   <a href={e.source} target="_blank" rel="noopener noreferrer"
-                    className="inline-block mt-2 text-[10px] font-bold uppercase tracking-widest text-white/30 hover:text-[#e8c07d] transition-colors">source ↗</a>
+                    className="inline-block mt-2 text-[10px] font-bold uppercase tracking-widest text-white/55 hover:text-coral transition-colors">source ↗</a>
                 </div>
               ))}
             </div>
@@ -453,14 +453,14 @@ function Landscape({ data, loading, onRefresh }: {
         </Reveal>
         <Reveal delay={80}>
           <div className="glass rounded-3xl p-7 h-full">
-            <div className="text-white/50 text-[11px] font-bold uppercase tracking-[0.25em] mb-2">Where they're ahead of us</div>
-            <p className="text-white/35 text-xs leading-relaxed mb-5">
+            <div className="text-white/68 text-[11px] font-bold uppercase tracking-[0.25em] mb-2">Where they're ahead of us</div>
+            <p className="text-white/58 text-xs leading-relaxed mb-5">
               A better model on testnet loses to a worse model with a deed. Here's the honest gap.
             </p>
             <ul className="space-y-3">
               {data.behind.map(b => (
-                <li key={b} className="flex gap-3 text-[13px] text-white/55 leading-relaxed">
-                  <span className="text-[#ff3d81]/60 shrink-0 mt-0.5">✕</span>{b}
+                <li key={b} className="flex gap-3 text-[13px] text-white/72 leading-relaxed">
+                  <span className="text-pink/60 shrink-0 mt-0.5">✕</span>{b}
                 </li>
               ))}
             </ul>
@@ -523,109 +523,109 @@ function TermsDesk({ terms, models, onSaved }: {
   return (
     <div className="grid lg:grid-cols-2 gap-6">
       {/* ── The dial ── */}
-      <div className="glass rounded-3xl p-6 md:p-8 border-[#e8c07d]/15">
-        <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#e8c07d] mb-2">Owner console</div>
+      <div className="glass rounded-3xl p-6 md:p-8 border-coral/15">
+        <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-coral mb-2">Owner console</div>
         <h3 className="font-serif-ed text-2xl text-white mb-6">Set the deal.</h3>
 
-        <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-2 block">Rent-to-own model</label>
+        <label className="text-[10px] uppercase tracking-widest text-white/60 font-bold mb-2 block">Rent-to-own model</label>
         <div className="grid sm:grid-cols-2 gap-2.5 mb-7">
           {models.map(m => (
             <button key={m.id} onClick={() => pickModel(m)}
-              className={`text-left rounded-2xl border p-3.5 transition-colors ${model === m.id ? 'border-[#e8c07d]/50 bg-[#e8c07d]/[0.07]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/20'}`}>
+              className={`text-left rounded-2xl border p-3.5 transition-colors ${model === m.id ? 'border-coral/50 bg-coral/[0.07]' : 'border-white/[0.08] bg-white/[0.02] hover:border-white/20'}`}>
               <div className="flex items-baseline justify-between gap-2">
-                <span className={`text-sm font-bold ${model === m.id ? 'text-[#e8c07d]' : 'text-white/80'}`}>{m.name}</span>
-                <span className="text-[11px] font-mono text-white/40 tabular-nums">{m.credit_pct}%</span>
+                <span className={`text-sm font-bold ${model === m.id ? 'text-coral' : 'text-white/80'}`}>{m.name}</span>
+                <span className="text-[11px] font-mono text-white/60 tabular-nums">{m.credit_pct}%</span>
               </div>
-              <p className="text-[11px] text-white/40 mt-1 leading-snug">{m.headline}</p>
+              <p className="text-[11px] text-white/60 mt-1 leading-snug">{m.headline}</p>
             </button>
           ))}
         </div>
 
         {/* Protocol fee — bounded by the contract, not by us */}
         <div className="flex items-baseline justify-between mb-1.5">
-          <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Protocol fee</label>
-          <span className="text-[#ff3d81] font-bold tabular-nums text-sm">{feePct.toFixed(1)}%</span>
+          <label className="text-[10px] uppercase tracking-widest text-white/60 font-bold">Protocol fee</label>
+          <span className="text-pink font-bold tabular-nums text-sm">{feePct.toFixed(1)}%</span>
         </div>
         <input type="range" min={band.min_pct} max={band.max_pct} step={0.1} value={feePct}
           onChange={e => setFeePct(parseFloat(e.target.value))}
-          className="w-full accent-[#ff3d81] cursor-pointer" />
-        <div className="flex justify-between text-[10px] text-white/25 font-mono mb-6">
+          className="w-full accent-pink cursor-pointer" />
+        <div className="flex justify-between text-[10px] text-white/50 font-mono mb-6">
           <span>{band.min_pct}% floor</span>
-          <span className="text-white/40">Airbnb takes ~15%</span>
+          <span className="text-white/60">Airbnb takes ~15%</span>
           <span>{band.max_pct}% ceiling — hard-capped in the contract</span>
         </div>
 
         {/* Rent credit — the model dial */}
         <div className="flex items-baseline justify-between mb-1.5">
-          <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Rent credit → equity</label>
-          <span className="text-[#e8c07d] font-bold tabular-nums text-sm">
-            {creditPct.toFixed(0)}%{isCustom && <span className="text-white/30 font-normal"> · custom</span>}
+          <label className="text-[10px] uppercase tracking-widest text-white/60 font-bold">Rent credit → equity</label>
+          <span className="text-coral font-bold tabular-nums text-sm">
+            {creditPct.toFixed(0)}%{isCustom && <span className="text-white/55 font-normal"> · custom</span>}
           </span>
         </div>
         <input type="range" min={0} max={100} step={1} value={creditPct}
           onChange={e => setCreditPct(parseFloat(e.target.value))}
-          className="w-full accent-[#e8c07d] cursor-pointer" />
-        <div className="flex justify-between text-[10px] text-white/25 font-mono mb-6">
+          className="w-full accent-coral cursor-pointer" />
+        <div className="flex justify-between text-[10px] text-white/50 font-mono mb-6">
           <span>0% — plain lease</span>
           <span>100% — every net dollar buys the house</span>
         </div>
 
         <div className="grid sm:grid-cols-2 gap-3 mb-5">
           <div>
-            <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5 block">Monthly payment</label>
+            <label className="text-[10px] uppercase tracking-widest text-white/60 font-bold mb-1.5 block">Monthly payment</label>
             <input type="number" min="0" step="0.1" placeholder="2.0" value={rent} onChange={e => setRent(e.target.value)}
-              className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#e8c07d]/50 font-mono transition-colors" />
+              className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/45 focus:outline-none focus:border-coral/50 font-mono transition-colors" />
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5 block">Home price</label>
+            <label className="text-[10px] uppercase tracking-widest text-white/60 font-bold mb-1.5 block">Home price</label>
             <input type="number" min="0" step="1" placeholder="120" value={price} onChange={e => setPrice(e.target.value)}
-              className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#e8c07d]/50 font-mono transition-colors" />
+              className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/45 focus:outline-none focus:border-coral/50 font-mono transition-colors" />
           </div>
         </div>
 
-        <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5 block">
-          Owner address {terms?.owner && <span className="text-white/25 normal-case tracking-normal">· claimed</span>}
+        <label className="text-[10px] uppercase tracking-widest text-white/60 font-bold mb-1.5 block">
+          Owner address {terms?.owner && <span className="text-white/50 normal-case tracking-normal">· claimed</span>}
         </label>
         <input type="text" placeholder="0x…" value={ownerAddr} onChange={e => setOwnerAddr(e.target.value)}
-          className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#e8c07d]/50 font-mono transition-colors mb-5" />
+          className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/45 focus:outline-none focus:border-coral/50 font-mono transition-colors mb-5" />
 
         <button onClick={save} disabled={saving}
-          className="btn-shine w-full py-4 rounded-xl bg-gradient-to-r from-[#f5d9a8] to-[#e8c07d] text-[#0a0a0a] font-bold uppercase tracking-widest text-sm hover:shadow-xl hover:shadow-[#e8c07d]/30 disabled:opacity-30 transition-all">
+          className="btn-shine w-full py-4 rounded-xl bg-gradient-to-r from-peach to-coral text-onaccent font-bold uppercase tracking-widest text-sm hover:shadow-xl hover:shadow-coral/30 disabled:opacity-30 transition-all">
           {saving ? 'Setting…' : 'Set the terms →'}
         </button>
-        <p className="text-[10px] text-white/25 text-center mt-3 leading-relaxed">
+        <p className="text-[10px] text-white/50 text-center mt-3 leading-relaxed">
           Once an owner address is recorded, only that address can change these terms — the same rule
-          <code className="text-white/40"> onlyOwner </code> enforces on-chain.
+          <code className="text-white/60"> onlyOwner </code> enforces on-chain.
         </p>
       </div>
 
       {/* ── The consequence ── */}
       <div className="space-y-6">
         <div className="glass rounded-3xl p-6 md:p-8">
-          <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-white/40 mb-5">
+          <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-white/60 mb-5">
             Every {rent.trim() ? `${monthly} Ξ` : '1 Ξ'} paid
           </div>
           <SplitBar amount={monthly} fee={fee} credit={credit} owner={ownerCut} big className="mb-6" />
           <div className="grid grid-cols-3 gap-3">
             {[
-              { k: 'Your equity', v: credit, c: 'text-[#e8c07d]' },
+              { k: 'Your equity', v: credit, c: 'text-coral' },
               { k: 'Owner income', v: ownerCut, c: 'text-emerald-400' },
-              { k: 'Protocol fee', v: fee, c: 'text-[#ff3d81]' },
+              { k: 'Protocol fee', v: fee, c: 'text-pink' },
             ].map(s => (
               <div key={s.k} className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-4">
                 <div className={`text-xl font-display font-extrabold tabular-nums ${s.c}`}>{s.v.toFixed(3)}</div>
-                <div className="text-[10px] uppercase tracking-widest text-white/35 mt-1 font-bold">{s.k}</div>
+                <div className="text-[10px] uppercase tracking-widest text-white/58 mt-1 font-bold">{s.k}</div>
               </div>
             ))}
           </div>
           <div className="mt-6 pt-5 border-t border-white/[0.07] flex items-baseline justify-between">
-            <span className="text-[11px] uppercase tracking-widest text-white/40 font-bold">Stays with the property</span>
-            <span className="headline text-3xl text-gold-grad tabular-nums">{(100 - feePct).toFixed(1)}%</span>
+            <span className="text-[11px] uppercase tracking-widest text-white/60 font-bold">Stays with the property</span>
+            <span className="headline text-3xl text-surf-grad tabular-nums">{(100 - feePct).toFixed(1)}%</span>
           </div>
         </div>
 
         <div className="glass rounded-3xl p-6 md:p-8">
-          <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-white/40 mb-5">Skimmed off the top</div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-white/60 mb-5">Skimmed off the top</div>
           <TakeComparison ourTake={feePct} />
         </div>
       </div>
@@ -639,12 +639,12 @@ function SimField({ label, value, set, min, max, step, unit }: {
 }) {
   return (
     <div className="flex-1 min-w-[120px]">
-      <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5 block">{label}</label>
-      <div className="flex items-center rounded-xl border border-white/10 bg-white/5 focus-within:border-[#e8c07d]/50 transition-colors">
+      <label className="text-[10px] uppercase tracking-widest text-white/60 font-bold mb-1.5 block">{label}</label>
+      <div className="flex items-center rounded-xl border border-white/10 bg-white/5 focus-within:border-coral/50 transition-colors">
         <input type="number" min={min} max={max} step={step} value={value}
           onChange={e => set(Math.max(min, Math.min(max, parseFloat(e.target.value) || 0)))}
           className="w-full bg-transparent text-white text-sm px-3 py-2.5 font-mono focus:outline-none" />
-        <span className="text-white/30 text-xs pr-3 font-mono">{unit}</span>
+        <span className="text-white/55 text-xs pr-3 font-mono">{unit}</span>
       </div>
     </div>
   )
@@ -702,10 +702,10 @@ function EquitySimulator({ feePct: feeInit = 2.5, creditPct: creditInit = 100 }:
   const stats = [
     { v: `${principalPaid.toFixed(1)} Ξ`, c: 'text-white', k: 'your equity' },
     { v: `${remaining.toFixed(1)} Ξ`, c: 'text-emerald-400', k: 'left to own' },
-    { v: canOwn ? `${monthsToOwn} mo` : 'never', c: 'text-[#e8c07d]', k: 'to own outright' },
-    { v: `${ownerIncome.toFixed(2)} Ξ`, c: 'text-white/70', k: "owner's rent income" },
-    { v: `${feesPaid.toFixed(2)} Ξ`, c: 'text-[#ff3d81]', k: `protocol fee · ${feePct}%` },
-    { v: `${yieldEarned.toFixed(2)} Ξ`, c: 'text-[#ff3d81]', k: "owner's lowfi yield" },
+    { v: canOwn ? `${monthsToOwn} mo` : 'never', c: 'text-coral', k: 'to own outright' },
+    { v: `${ownerIncome.toFixed(2)} Ξ`, c: 'text-white/80', k: "owner's rent income" },
+    { v: `${feesPaid.toFixed(2)} Ξ`, c: 'text-pink', k: `protocol fee · ${feePct}%` },
+    { v: `${yieldEarned.toFixed(2)} Ξ`, c: 'text-pink', k: "owner's lowfi yield" },
   ]
 
   const panel = (big: boolean) => (
@@ -729,18 +729,18 @@ function EquitySimulator({ feePct: feeInit = 2.5, creditPct: creditInit = 100 }:
             {Array.from({ length: 100 }, (_, i) => (
               <div key={i} className="aspect-[3/2] rounded-[3px] transition-all duration-300"
                 style={{
-                  background: i < filled ? 'linear-gradient(135deg,#f5d9a8,#e8c07d)' : 'rgba(255,255,255,0.05)',
-                  boxShadow: i < filled ? '0 0 8px rgba(232,192,125,0.45)' : 'none',
+                  background: i < filled ? 'linear-gradient(135deg,var(--peach),var(--coral))' : 'rgb(var(--ink-rgb) / 0.06)',
+                  boxShadow: i < filled ? '0 0 8px rgb(var(--coral-rgb) / 0.45)' : 'none',
                   transitionDelay: `${Math.min(i, 60) * 4}ms`,
                 }} />
             ))}
           </div>
           <input type="range" min={0} max={monthsToOwn} value={month}
             onChange={e => setMonth(parseInt(e.target.value))}
-            className="w-full accent-[#e8c07d] cursor-pointer" />
-          <div className="flex justify-between text-[11px] text-white/35 mt-1.5 font-mono">
+            className="w-full accent-coral cursor-pointer" />
+          <div className="flex justify-between text-[11px] text-white/58 mt-1.5 font-mono">
             <span>Move in</span>
-            <span className="text-[#e8c07d] font-bold">Month {month} · year {(month / 12).toFixed(1)}</span>
+            <span className="text-coral font-bold">Month {month} · year {(month / 12).toFixed(1)}</span>
             <span>Owned</span>
           </div>
         </div>
@@ -748,18 +748,18 @@ function EquitySimulator({ feePct: feeInit = 2.5, creditPct: creditInit = 100 }:
         {/* Live readout */}
         <div className="space-y-4">
           <div>
-            <div className={`headline text-gold-grad leading-none ${big ? 'text-7xl md:text-8xl' : 'text-6xl'}`}>{ownPct.toFixed(1)}<span className={big ? 'text-4xl' : 'text-3xl'}>%</span></div>
-            <div className="text-[11px] uppercase tracking-widest text-white/40 font-bold mt-1">{owned ? 'The house is yours' : 'of the home is yours'}</div>
+            <div className={`headline text-surf-grad leading-none ${big ? 'text-7xl md:text-8xl' : 'text-6xl'}`}>{ownPct.toFixed(1)}<span className={big ? 'text-4xl' : 'text-3xl'}>%</span></div>
+            <div className="text-[11px] uppercase tracking-widest text-white/60 font-bold mt-1">{owned ? 'The house is yours' : 'of the home is yours'}</div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {stats.map((s, i) => (
               <div key={i} className={`rounded-xl bg-white/[0.03] border border-white/[0.06] ${big ? 'p-4' : 'p-3'}`}>
                 <div className={`font-bold tabular-nums ${s.c} ${big ? 'text-xl' : 'text-sm'}`}>{s.v}</div>
-                <div className="text-[10px] uppercase tracking-widest text-white/35 mt-0.5">{s.k}</div>
+                <div className="text-[10px] uppercase tracking-widest text-white/58 mt-0.5">{s.k}</div>
               </div>
             ))}
           </div>
-          <p className="text-[10px] text-white/25 leading-relaxed">
+          <p className="text-[10px] text-white/50 leading-relaxed">
             Illustrative projection from your inputs — not live data or financial advice. Real stakes come straight from the contract.
           </p>
         </div>
@@ -769,32 +769,32 @@ function EquitySimulator({ feePct: feeInit = 2.5, creditPct: creditInit = 100 }:
 
   return (
     <>
-      <div className="glass rounded-3xl p-6 md:p-9 border-[#e8c07d]/15 relative">
+      <div className="glass rounded-3xl p-6 md:p-9 border-coral/15 relative">
         <button onClick={() => setFull(true)}
-          className="absolute top-4 right-4 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-white/15 bg-white/5 text-[10px] font-bold uppercase tracking-widest text-white/50 hover:text-[#e8c07d] hover:border-[#e8c07d]/40 transition-colors">
+          className="absolute top-4 right-4 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-white/15 bg-white/5 text-[10px] font-bold uppercase tracking-widest text-white/68 hover:text-coral hover:border-coral/40 transition-colors">
           ⤢ Expand
         </button>
         {panel(false)}
       </div>
 
       {full && createPortal(
-        <div className="fixed inset-0 z-[100] bg-[#050507]/95 backdrop-blur-2xl overflow-y-auto grain" onClick={() => setFull(false)}>
+        <div className="fixed inset-0 z-[100] bg-paper/95 backdrop-blur-2xl overflow-y-auto grain" onClick={() => setFull(false)}>
           <div className="aurora" />
           <div className="relative min-h-full flex flex-col">
-            <div className="flex items-center justify-between px-5 md:px-8 h-16 border-b border-white/10 sticky top-0 bg-[#050507]/70 backdrop-blur-xl z-10">
+            <div className="flex items-center justify-between px-5 md:px-8 h-16 border-b border-white/10 sticky top-0 bg-paper/70 backdrop-blur-xl z-10">
               <div className="flex items-center gap-2.5">
-                <span className="w-7 h-7 rounded-md bg-gradient-to-br from-[#e8c07d] to-[#b8893f] flex items-center justify-center text-[#0a0a0a] font-black text-xs">⌂</span>
+                <span className="w-7 h-7 rounded-md bg-gradient-to-br from-coral to-ember flex items-center justify-center text-onaccent font-black text-xs">⌂</span>
                 <span className="font-display font-extrabold text-white text-sm">Rent-to-own builder</span>
               </div>
               <button onClick={() => setFull(false)}
-                className="flex items-center gap-2 px-4 py-2 rounded-full border border-white/15 text-[11px] font-bold uppercase tracking-widest text-white/60 hover:text-white hover:border-white/30 transition-colors">
-                Close ✕ <span className="text-white/30 normal-case tracking-normal">Esc</span>
+                className="flex items-center gap-2 px-4 py-2 rounded-full border border-white/15 text-[11px] font-bold uppercase tracking-widest text-white/75 hover:text-white hover:border-white/30 transition-colors">
+                Close ✕ <span className="text-white/55 normal-case tracking-normal">Esc</span>
               </button>
             </div>
             <div className="flex-1 flex items-center justify-center p-5 md:p-12" onClick={e => e.stopPropagation()}>
               <div className="w-full max-w-6xl">
                 <div className="text-center mb-10">
-                  <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.3em] mb-3">Builder · Fullscreen</div>
+                  <div className="text-coral text-[11px] font-bold uppercase tracking-[0.3em] mb-3">Builder · Fullscreen</div>
                   <h3 className="headline text-4xl md:text-6xl text-white">Build your path to ownership.</h3>
                 </div>
                 {panel(true)}
@@ -806,6 +806,36 @@ function EquitySimulator({ feePct: feeInit = 2.5, creditPct: creditInit = 100 }:
       )}
     </>
   )
+}
+
+/* ── Skin ────────────────────────────────────────────────
+   Two modes, one page: PAPER (washi, Memphis pastels, a rising sun) and
+   DIGITAL (the same building on a green screen). Every colour, font and
+   texture on the page is a CSS token, so switching is nothing but an
+   attribute on <html> — see the DIGITAL block in globals.css. layout.tsx
+   applies the saved mode before first paint, so there's no flash of the
+   wrong skin; here we only read it back and flip it. */
+type Mode = 'paper' | 'digital'
+const MODE_KEY = 'openhouse_mode'
+const MODE_META: Record<Mode, { label: string; glyph: string; tip: string }> = {
+  paper: { label: 'Paper', glyph: '▤', tip: 'Switch to DIGITAL — same building, green screen' },
+  digital: { label: 'Digital', glyph: '⌁', tip: 'Switch back to PAPER' },
+}
+
+function useMode(): [Mode, () => void] {
+  const [mode, setMode] = useState<Mode>('paper')
+  useEffect(() => {
+    setMode(document.documentElement.getAttribute('data-mode') === 'digital' ? 'digital' : 'paper')
+  }, [])
+  const toggle = useCallback(() => {
+    setMode(m => {
+      const next: Mode = m === 'digital' ? 'paper' : 'digital'
+      document.documentElement.setAttribute('data-mode', next)
+      try { localStorage.setItem(MODE_KEY, next) } catch {}
+      return next
+    })
+  }, [])
+  return [mode, toggle]
 }
 
 const NAV = [
@@ -836,6 +866,7 @@ function OpenHousePageInner() {
   const [scrolled, setScrolled] = useState(false)
   const [progress, setProgress] = useState(0)
   const [scrollY, setScrollY] = useState(0)
+  const [mode, toggleMode] = useMode()
   const heroRef = useRef<HTMLElement>(null)
 
   const fetchAll = useCallback(async () => {
@@ -913,13 +944,13 @@ function OpenHousePageInner() {
   // eggs reads as broken. Show what's actually true about the stage instead.
   const heroStats: { k: string; v: ReactNode; c: string; small?: boolean }[] = deployed ? [
     { k: 'Shareholders', v: <Counter value={status!.shareholders} />, c: 'text-white' },
-    { k: 'Shares Sold', v: <Counter value={status!.shares_sold} />, c: 'text-[#e8c07d]' },
+    { k: 'Shares Sold', v: <Counter value={status!.shares_sold} />, c: 'text-coral' },
     { k: 'Contributed', v: <Counter value={status!.total_contributed} decimals={2} suffix=" Ξ" />, c: 'text-emerald-400' },
-    { k: 'Dividends Paid', v: <Counter value={status!.total_dividends_distributed} decimals={2} suffix=" Ξ" />, c: 'text-[#ff3d81]' },
+    { k: 'Dividends Paid', v: <Counter value={status!.total_dividends_distributed} decimals={2} suffix=" Ξ" />, c: 'text-pink' },
   ] : [
-    { k: 'Stage', v: 'Testnet', c: 'text-[#e8c07d]', small: true },
+    { k: 'Stage', v: 'Testnet', c: 'text-coral', small: true },
     { k: 'Network', v: LAUNCH.chain, c: 'text-white', small: true },
-    { k: 'Mainnet launch', v: 'TBA', c: 'text-[#ff3d81]', small: true },
+    { k: 'Mainnet launch', v: 'TBA', c: 'text-pink', small: true },
     { k: 'Cost to try', v: 'Test ETH', c: 'text-emerald-400', small: true },
   ]
 
@@ -930,32 +961,38 @@ function OpenHousePageInner() {
 
       {/* ── Testnet banner + nav ────────────────────────── */}
       <div className="fixed top-0 inset-x-0 z-50">
-        <div className="bg-[#e8c07d]/[0.09] border-b border-[#e8c07d]/20 backdrop-blur-xl">
+        <div className="banner-strip">
           <div className="max-w-6xl mx-auto px-5 md:px-8 min-h-[2.25rem] py-1.5 flex items-center justify-center gap-2.5 text-center">
-            <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.18em] text-[#0a0a0a] bg-[#e8c07d] rounded px-1.5 py-0.5">{LAUNCH.stage}</span>
-            <p className="text-[11px] leading-tight text-[#e8c07d]/90">
+            <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.18em] text-paper bg-ink rounded px-1.5 py-0.5">{LAUNCH.stage}</span>
+            <p className="text-[11px] leading-tight text-white/85">
               Running on {LAUNCH.chain} — test ETH only, nothing here is real money or a real deed.
-              <span className="text-white/50"> Mainnet launch: {LAUNCH.date.toLowerCase()}.</span>
+              <span className="text-white/68"> Mainnet launch: {LAUNCH.date.toLowerCase()}.</span>
             </p>
           </div>
         </div>
-        <nav className={`transition-all duration-500 ${scrolled ? 'bg-[#050507]/80 backdrop-blur-xl border-b border-white/[0.07]' : 'bg-transparent'}`}>
+        <nav className={`transition-all duration-500 ${scrolled ? 'bg-paper/80 backdrop-blur-xl border-b border-white/[0.07]' : 'bg-transparent'}`}>
           <div className="max-w-6xl mx-auto px-5 md:px-8 h-16 flex items-center justify-between">
             <a href="#top" className="flex items-center gap-2.5">
-              <span className="w-8 h-8 rounded-md bg-gradient-to-br from-[#e8c07d] to-[#b8893f] flex items-center justify-center text-[#0a0a0a] font-black text-sm shadow-lg shadow-[#e8c07d]/20">⌂</span>
+              <span className="w-8 h-8 rounded-md bg-gradient-to-br from-coral to-ember flex items-center justify-center text-onaccent font-black text-sm shadow-lg shadow-coral/20">⌂</span>
               <span className="font-display font-extrabold tracking-tight text-[15px] text-white">OpenHouse</span>
             </a>
-            <div className="hidden md:flex items-center gap-7 text-[12px] font-semibold uppercase tracking-widest text-white/45">
-              {NAV.map(n => <a key={n.id} href={`#${n.id}`} className="hover:text-[#e8c07d] transition-colors">{n.label}</a>)}
+            <div className="hidden md:flex items-center gap-7 text-[12px] font-semibold uppercase tracking-widest text-white/65">
+              {NAV.map(n => <a key={n.id} href={`#${n.id}`} className="hover:text-coral transition-colors">{n.label}</a>)}
             </div>
             <div className="flex items-center gap-3">
               {deployed && status!.available_shares > 0 && (
-                <span className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold text-white/50">
+                <span className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold text-white/68">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   {formatNum(status!.available_shares)} left
                 </span>
               )}
-              <a href="#invest" className="btn-shine px-4 py-2 rounded-full bg-white text-[#0a0a0a] text-[11px] font-bold uppercase tracking-widest hover:bg-[#e8c07d] transition-colors">
+              {/* PAPER ⟷ DIGITAL. Shows the mode you're in, not the one you'd get. */}
+              <button onClick={toggleMode} title={MODE_META[mode].tip} aria-label={MODE_META[mode].tip}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-white/12 text-[11px] font-bold uppercase tracking-widest text-white/68 hover:text-coral hover:border-coral/40 transition-colors">
+                <span aria-hidden className="text-[13px] leading-none">{MODE_META[mode].glyph}</span>
+                <span className="hidden sm:inline">{MODE_META[mode].label}</span>
+              </button>
+              <a href="#invest" className="btn-shine px-4 py-2 rounded-full bg-ink text-paper text-[11px] font-bold uppercase tracking-widest hover:bg-pink transition-colors">
                 {deployed ? 'Buy In' : 'Try Testnet'}
               </a>
             </div>
@@ -969,23 +1006,24 @@ function OpenHousePageInner() {
         <header ref={heroRef} onMouseMove={onHeroMove} className="relative min-h-screen flex flex-col justify-center overflow-hidden">
           <Skyline shift={scrollY * 0.25} />
           <div className="spotlight" />
-          <div className="absolute inset-x-0 bottom-0 h-[46vh] bg-gradient-to-t from-[#050507] via-[#050507]/60 to-transparent z-[1]" />
+          {/* let the pastel city keep its color — just enough haze to seat the type */}
+          <div className="absolute inset-x-0 bottom-0 h-[46vh] bg-gradient-to-t from-paper/80 via-paper/25 to-transparent z-[1]" />
 
           <div className="relative z-10 px-5 md:px-8 pt-32 pb-16 max-w-6xl mx-auto w-full">
             <Reveal>
-              <div className="inline-flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-full glass text-[11px] font-bold uppercase tracking-[0.2em] text-[#e8c07d] mb-8">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#e8c07d] animate-pulse" />
+              <div className="inline-flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-full glass text-[11px] font-bold uppercase tracking-[0.2em] text-coral mb-8">
+                <span className="w-1.5 h-1.5 rounded-full bg-coral animate-pulse" />
                 {LAUNCH.stage} on {LAUNCH.chain}
-                <span className="text-white/50">Launch {LAUNCH.date.toLowerCase()}</span>
+                <span className="text-white/68">Launch {LAUNCH.date.toLowerCase()}</span>
               </div>
             </Reveal>
             <Reveal delay={80}>
-              <h1 className="headline text-[16vw] md:text-[8.5rem] leading-[0.85] text-white glow-gold">
-                OWN THE<br /><span className="text-gold-grad">SKYLINE.</span>
+              <h1 className="headline text-[16vw] md:text-[8.5rem] leading-[0.85] text-white glow-warm">
+                OWN THE<br /><span className="text-surf-grad">SKYLINE.</span>
               </h1>
             </Reveal>
             <Reveal delay={180}>
-              <p className="font-serif-ed text-2xl md:text-3xl text-white/70 max-w-2xl mt-8 leading-snug">
+              <p className="font-serif-ed text-2xl md:text-3xl text-white/80 max-w-2xl mt-8 leading-snug">
                 You've paid someone else's mortgage long enough.
                 <span className="text-white"> OpenHouse is rent-to-own, on-chain</span> — every payment
                 becomes principal in the home, redistributed quarterly. Pay it off, own it.
@@ -993,14 +1031,14 @@ function OpenHousePageInner() {
             </Reveal>
             <Reveal delay={280}>
               <div className="flex flex-wrap items-center gap-4 mt-10">
-                <a href="#invest" className="btn-shine px-7 py-3.5 rounded-full bg-gradient-to-r from-[#f5d9a8] to-[#e8c07d] text-[#0a0a0a] font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-[#e8c07d]/40 transition-shadow">
+                <a href="#invest" className="btn-shine px-7 py-3.5 rounded-full bg-gradient-to-r from-peach to-coral text-onaccent font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-coral/40 transition-shadow">
                   {deployed ? 'Start owning →' : 'Try it on testnet →'}
                 </a>
-                <a href="#whitepaper" className="px-7 py-3.5 rounded-full border border-white/15 text-white/80 font-bold uppercase tracking-widest text-sm hover:border-[#e8c07d]/50 hover:text-white transition-colors">Read the whitepaper</a>
+                <a href="#whitepaper" className="px-7 py-3.5 rounded-full border border-white/15 text-white/80 font-bold uppercase tracking-widest text-sm hover:border-coral/50 hover:text-white transition-colors">Read the whitepaper</a>
               </div>
               {!deployed && (
                 /* sits over the skyline art — needs its own backdrop to stay readable */
-                <p className="glass rounded-xl px-4 py-2.5 text-white/45 text-xs mt-5 max-w-md leading-relaxed">
+                <p className="glass rounded-xl px-4 py-2.5 text-white/65 text-xs mt-5 max-w-md leading-relaxed">
                   Testnet preview — the contract, the math, and the cap table are all real code on {LAUNCH.chain}.
                   The money isn't. Mainnet launch date {LAUNCH.date.toLowerCase()}.
                 </p>
@@ -1011,25 +1049,25 @@ function OpenHousePageInner() {
                 {heroStats.map((s, i) => (
                   <div key={i} className="p-5 md:p-6 bg-white/[0.015]">
                     <div className={`headline ${s.small ? 'text-2xl md:text-3xl' : 'text-3xl md:text-4xl'} ${s.c} tabular-nums`}>{s.v}</div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/35 mt-2">{s.k}</div>
+                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/58 mt-2">{s.k}</div>
                   </div>
                 ))}
               </div>
             </Reveal>
           </div>
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 text-white/25 text-xs tracking-widest uppercase animate-bounce">scroll ↓</div>
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 text-white/50 text-xs tracking-widest uppercase animate-bounce">scroll ↓</div>
         </header>
 
         {/* ── Times-Square dual ticker ───────────────────── */}
         <div className="border-y border-white/10 bg-white/[0.02] py-5 overflow-hidden space-y-2">
           <div className="marquee">
             {[...TICKER, ...TICKER].map((t, i) => (
-              <span key={i} className="headline text-2xl md:text-3xl text-white/15 px-8 whitespace-nowrap flex items-center gap-8">{t} <span className="text-[#e8c07d]/40">✦</span></span>
+              <span key={i} className="headline text-2xl md:text-3xl text-white/26 px-8 whitespace-nowrap flex items-center gap-8">{t} <span className="text-coral/40">✦</span></span>
             ))}
           </div>
           <div className="marquee marquee-rev">
             {[...TICKER].reverse().concat([...TICKER].reverse()).map((t, i) => (
-              <span key={i} className="headline text-2xl md:text-3xl px-8 whitespace-nowrap flex items-center gap-8" style={{ WebkitTextStroke: '1px rgba(232,192,125,0.25)', color: 'transparent' }}>{t} <span className="text-[#ff3d81]/30">●</span></span>
+              <span key={i} className="headline text-2xl md:text-3xl px-8 whitespace-nowrap flex items-center gap-8" style={{ WebkitTextStroke: '1px rgb(var(--coral-rgb) / 0.55)', color: 'transparent' }}>{t} <span className="text-pink/30">●</span></span>
             ))}
           </div>
         </div>
@@ -1038,11 +1076,11 @@ function OpenHousePageInner() {
         <section id="manifesto" className="max-w-5xl mx-auto px-5 md:px-8 py-28 md:py-40">
           {MANIFESTO.map((line, i) => (
             <Reveal key={i} delay={i * 120}>
-              <p className={`font-serif-ed text-4xl md:text-6xl leading-[1.05] mb-3 ${i === MANIFESTO.length - 1 ? 'text-gold-grad font-black' : 'text-white/40'}`}>{line}</p>
+              <p className={`font-serif-ed text-4xl md:text-6xl leading-[1.05] mb-3 ${i === MANIFESTO.length - 1 ? 'text-surf-grad font-black' : 'text-white/60'}`}>{line}</p>
             </Reveal>
           ))}
           <Reveal delay={500}>
-            <p className="text-white/60 text-lg md:text-xl max-w-2xl mt-12 leading-relaxed border-l-2 border-[#e8c07d]/40 pl-6">{ABSTRACT}</p>
+            <p className="text-white/75 text-lg md:text-xl max-w-2xl mt-12 leading-relaxed border-l-2 border-coral/40 pl-6">{ABSTRACT}</p>
           </Reveal>
         </section>
 
@@ -1050,11 +1088,11 @@ function OpenHousePageInner() {
         <section id="split" className="max-w-6xl mx-auto px-5 md:px-8 py-20 md:py-28">
           <Reveal>
             <div className="text-center mb-14">
-              <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.3em] mb-4">Where the rent goes</div>
+              <div className="text-coral text-[11px] font-bold uppercase tracking-[0.3em] mb-4">Where the rent goes</div>
               <h2 className="headline text-5xl md:text-7xl text-white leading-[0.95]">
-                THEY TAKE 15%.<br /><span className="text-gold-grad">WE TAKE {terms ? terms.fee_pct : '1–5'}%.</span>
+                THEY TAKE 15%.<br /><span className="text-surf-grad">WE TAKE {terms ? terms.fee_pct : '1–5'}%.</span>
               </h2>
-              <p className="font-serif-ed text-xl text-white/50 max-w-2xl mx-auto mt-7">
+              <p className="font-serif-ed text-xl text-white/68 max-w-2xl mx-auto mt-7">
                 {terms ? `${terms.to_property_pct}%` : '95–99%'} of every payment stays with the property —
                 split between the renter's equity and the owner's income by whichever rent-to-own model the owner picked.
                 The 1–5% band is a constant in the contract, not a promise on a pricing page.
@@ -1068,13 +1106,13 @@ function OpenHousePageInner() {
               <div className="glass rounded-3xl p-6 md:p-7 mb-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
                 {[
                   { k: 'Live model', v: terms.custom ? `${terms.model_name} · tuned` : terms.model_name, c: 'text-white' },
-                  { k: 'Protocol take', v: `${terms.fee_pct}%`, c: 'text-[#ff3d81]' },
-                  { k: 'To renter equity', v: `${terms.equity_pct_of_rent}%`, c: 'text-[#e8c07d]' },
+                  { k: 'Protocol take', v: `${terms.fee_pct}%`, c: 'text-pink' },
+                  { k: 'To renter equity', v: `${terms.equity_pct_of_rent}%`, c: 'text-coral' },
                   { k: 'To owner income', v: `${terms.owner_pct_of_rent}%`, c: 'text-emerald-400' },
                 ].map(s => (
                   <div key={s.k}>
                     <div className={`text-2xl font-display font-extrabold tabular-nums ${s.c}`}>{s.v}</div>
-                    <div className="text-[10px] uppercase tracking-widest text-white/35 mt-1 font-bold">{s.k}</div>
+                    <div className="text-[10px] uppercase tracking-widest text-white/58 mt-1 font-bold">{s.k}</div>
                   </div>
                 ))}
               </div>
@@ -1091,7 +1129,7 @@ function OpenHousePageInner() {
               <div className="glass rounded-3xl p-6 md:p-8 mt-8">
                 <div className="flex items-baseline justify-between flex-wrap gap-3 mb-6">
                   <h3 className="font-display font-bold text-white uppercase tracking-wider text-sm">Rent recorded so far</h3>
-                  <span className="text-[11px] text-white/35">
+                  <span className="text-[11px] text-white/58">
                     {rentStats.payments} payment{rentStats.payments === 1 ? '' : 's'} · {rentStats.renters} renter{rentStats.renters === 1 ? '' : 's'}
                   </span>
                 </div>
@@ -1100,17 +1138,17 @@ function OpenHousePageInner() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
                     { k: 'Gross rent', v: `${formatNum(rentStats.gross_rent, 3)} Ξ`, c: 'text-white' },
-                    { k: 'Renter equity', v: `${formatNum(rentStats.renter_equity, 3)} Ξ`, c: 'text-[#e8c07d]' },
+                    { k: 'Renter equity', v: `${formatNum(rentStats.renter_equity, 3)} Ξ`, c: 'text-coral' },
                     { k: 'Owner income', v: `${formatNum(rentStats.owner_income, 3)} Ξ`, c: 'text-emerald-400' },
-                    { k: 'Protocol fees', v: `${formatNum(rentStats.protocol_fees, 3)} Ξ`, c: 'text-[#ff3d81]' },
+                    { k: 'Protocol fees', v: `${formatNum(rentStats.protocol_fees, 3)} Ξ`, c: 'text-pink' },
                   ].map(s => (
                     <div key={s.k} className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-4">
                       <div className={`text-lg font-display font-extrabold tabular-nums ${s.c}`}>{s.v}</div>
-                      <div className="text-[10px] uppercase tracking-widest text-white/35 mt-1 font-bold">{s.k}</div>
+                      <div className="text-[10px] uppercase tracking-widest text-white/58 mt-1 font-bold">{s.k}</div>
                     </div>
                   ))}
                 </div>
-                <p className="text-[11px] text-white/30 mt-5">
+                <p className="text-[11px] text-white/55 mt-5">
                   {rentStats.to_property_pct}% of everything paid stayed with the property.
                   An Airbnb-rate platform would have taken {formatNum(rentStats.gross_rent * 0.15, 3)} Ξ instead of {formatNum(rentStats.protocol_fees, 3)} Ξ.
                 </p>
@@ -1124,10 +1162,10 @@ function OpenHousePageInner() {
           <Reveal>
             <div className="flex items-end justify-between flex-wrap gap-4 mb-12">
               <div>
-                <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.25em] mb-3">The Building</div>
+                <div className="text-coral text-[11px] font-bold uppercase tracking-[0.25em] mb-3">The Building</div>
                 <h2 className="headline text-5xl md:text-7xl text-white">Rent toward ownership.</h2>
               </div>
-              <button onClick={fetchAll} disabled={loading} className="px-4 py-2 rounded-full border border-white/12 text-[11px] font-bold uppercase tracking-widest text-white/50 hover:text-white hover:border-white/30 disabled:opacity-30 transition-colors">
+              <button onClick={fetchAll} disabled={loading} className="px-4 py-2 rounded-full border border-white/12 text-[11px] font-bold uppercase tracking-widest text-white/68 hover:text-white hover:border-white/30 disabled:opacity-30 transition-colors">
                 {loading ? 'Syncing…' : '↻ Live data'}
               </button>
             </div>
@@ -1140,9 +1178,9 @@ function OpenHousePageInner() {
                   <div className="flex items-start justify-between mb-7">
                     <div>
                       <h3 className="font-serif-ed text-3xl text-white mb-1">{deployed ? property!.description : 'No property deployed yet'}</h3>
-                      <p className="text-white/40 text-sm">{deployed ? (property!.contract || 'On-chain') : 'Deploy a property to open the float'}</p>
+                      <p className="text-white/60 text-sm">{deployed ? (property!.contract || 'On-chain') : 'Deploy a property to open the float'}</p>
                     </div>
-                    <span className={`text-[11px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${deployed && property!.is_active ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-white/40 border-white/15'}`}>
+                    <span className={`text-[11px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full border ${deployed && property!.is_active ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : 'text-white/60 border-white/15'}`}>
                       {deployed ? (property!.is_active ? '● Active' : 'Paused') : `${LAUNCH.stage} · not deployed`}
                     </span>
                   </div>
@@ -1150,26 +1188,26 @@ function OpenHousePageInner() {
                     <>
                       <div className="mb-8">
                         <div className="flex justify-between text-xs mb-2">
-                          <span className="text-white/40 uppercase tracking-widest font-bold">Float sold</span>
-                          <span className="text-[#e8c07d] font-bold">{soldPct.toFixed(1)}%</span>
+                          <span className="text-white/60 uppercase tracking-widest font-bold">Float sold</span>
+                          <span className="text-coral font-bold">{soldPct.toFixed(1)}%</span>
                         </div>
                         <div className="h-3 rounded-full bg-white/[0.06] overflow-hidden">
-                          <div className="h-full rounded-full bg-gradient-to-r from-[#b8893f] via-[#e8c07d] to-[#f5d9a8] transition-all duration-1000" style={{ width: `${Math.max(soldPct, 1)}%` }} />
+                          <div className="h-full rounded-full bg-gradient-to-r from-ember via-coral to-peach transition-all duration-1000" style={{ width: `${Math.max(soldPct, 1)}%` }} />
                         </div>
-                        <div className="flex justify-between text-[11px] text-white/30 mt-2">
+                        <div className="flex justify-between text-[11px] text-white/55 mt-2">
                           <span>{formatNum(status!.shares_sold)} sold</span>
                           <span>{formatNum(status!.total_shares)} total supply</span>
                         </div>
                       </div>
                       <div className="grid grid-cols-3 gap-4">
                         {[
-                          { k: 'Share price', v: `${property!.share_price} Ξ`, c: 'text-[#e8c07d]' },
+                          { k: 'Share price', v: `${property!.share_price} Ξ`, c: 'text-coral' },
                           { k: 'Available', v: formatNum(status!.available_shares), c: 'text-emerald-400' },
                           { k: 'Owners', v: formatNum(status!.shareholders), c: 'text-white' },
                         ].map((s, i) => (
                           <div key={i} className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-4">
                             <div className={`text-2xl font-display font-extrabold ${s.c} tabular-nums`}>{s.v}</div>
-                            <div className="text-[10px] uppercase tracking-widest text-white/35 mt-1 font-bold">{s.k}</div>
+                            <div className="text-[10px] uppercase tracking-widest text-white/58 mt-1 font-bold">{s.k}</div>
                           </div>
                         ))}
                       </div>
@@ -1177,15 +1215,15 @@ function OpenHousePageInner() {
                   ) : (
                     <div className="rounded-2xl border border-dashed border-white/12 bg-white/[0.015] p-8 text-center">
                       <div className="text-4xl mb-3 float">⌂</div>
-                      <p className="text-white/55 text-sm leading-relaxed max-w-sm mx-auto">
+                      <p className="text-white/72 text-sm leading-relaxed max-w-sm mx-auto">
                         No building has been fractionalized on this contract yet. Once a property is deployed,
                         its float, share price, and live ownership show up here — straight from chain, no placeholders.
                       </p>
-                      <p className="text-white/35 text-xs leading-relaxed max-w-sm mx-auto mt-3">
+                      <p className="text-white/58 text-xs leading-relaxed max-w-sm mx-auto mt-3">
                         On {LAUNCH.chain} you can deploy one yourself and drive the whole loop with test ETH.
                         The first real home lands with the mainnet launch — date {LAUNCH.date.toLowerCase()}.
                       </p>
-                      <code className="inline-block mt-4 text-[11px] font-mono text-[#e8c07d]/80 bg-[#e8c07d]/5 border border-[#e8c07d]/15 rounded-lg px-3 py-1.5">openhouse deploy property_details=… total_shares=… share_price=…</code>
+                      <code className="inline-block mt-4 text-[11px] font-mono text-coral/80 bg-coral/5 border border-coral/15 rounded-lg px-3 py-1.5">openhouse deploy property_details=… total_shares=… share_price=…</code>
                     </div>
                   )}
                 </div>
@@ -1193,29 +1231,29 @@ function OpenHousePageInner() {
             </Reveal>
 
             <Reveal className="lg:col-span-2" delay={140}>
-              <div className="glass rounded-3xl p-7 md:p-9 h-full flex flex-col border-[#e8c07d]/20">
+              <div className="glass rounded-3xl p-7 md:p-9 h-full flex flex-col border-coral/20">
                 <div className="flex items-center justify-between gap-3 mb-2">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#e8c07d]">Take a position</div>
-                  <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.15em] text-[#0a0a0a] bg-[#e8c07d] rounded px-1.5 py-0.5">{LAUNCH.stage}</span>
+                  <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-coral">Take a position</div>
+                  <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.15em] text-onaccent bg-coral rounded px-1.5 py-0.5">{LAUNCH.stage}</span>
                 </div>
                 <h3 className="font-serif-ed text-2xl text-white mb-2">Mint your shares</h3>
-                <p className="text-[11px] text-white/40 leading-relaxed mb-6">
+                <p className="text-[11px] text-white/60 leading-relaxed mb-6">
                   {deployed
                     ? `Settles on ${LAUNCH.chain} with test ETH — the mainnet sale opens at launch, date ${LAUNCH.date.toLowerCase()}.`
                     : `The mainnet sale hasn't opened. Launch date: ${LAUNCH.date.toLowerCase()}.`}
                 </p>
-                <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5 block">Your wallet</label>
-                <input type="text" placeholder="0x…" value={buyAddr} onChange={e => setBuyAddr(e.target.value)} className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#e8c07d]/50 font-mono transition-colors mb-4" />
-                <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5 block">Shares</label>
-                <input type="number" min="1" placeholder="100" value={buyShares} onChange={e => setBuyShares(e.target.value)} className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/20 focus:outline-none focus:border-[#e8c07d]/50 font-mono transition-colors mb-5" />
+                <label className="text-[10px] uppercase tracking-widest text-white/60 font-bold mb-1.5 block">Your wallet</label>
+                <input type="text" placeholder="0x…" value={buyAddr} onChange={e => setBuyAddr(e.target.value)} className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/45 focus:outline-none focus:border-coral/50 font-mono transition-colors mb-4" />
+                <label className="text-[10px] uppercase tracking-widest text-white/60 font-bold mb-1.5 block">Shares</label>
+                <input type="number" min="1" placeholder="100" value={buyShares} onChange={e => setBuyShares(e.target.value)} className="w-full text-sm px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/45 focus:outline-none focus:border-coral/50 font-mono transition-colors mb-5" />
                 <div className="flex justify-between items-baseline mb-5 pb-5 border-b border-white/10">
-                  <span className="text-white/40 text-sm uppercase tracking-widest font-bold">Total</span>
-                  <span className="headline text-3xl text-[#e8c07d] tabular-nums">{deployed ? (cost ? cost.toFixed(4) : '0.00') : '—'} {deployed && <span className="text-lg">Ξ</span>}</span>
+                  <span className="text-white/60 text-sm uppercase tracking-widest font-bold">Total</span>
+                  <span className="headline text-3xl text-coral tabular-nums">{deployed ? (cost ? cost.toFixed(4) : '0.00') : '—'} {deployed && <span className="text-lg">Ξ</span>}</span>
                 </div>
-                <button onClick={handlePurchase} disabled={!deployed || purchasing || !buyAddr.trim() || !buyShares.trim()} className="btn-shine w-full py-4 rounded-xl bg-gradient-to-r from-[#f5d9a8] to-[#e8c07d] text-[#0a0a0a] font-bold uppercase tracking-widest text-sm hover:shadow-xl hover:shadow-[#e8c07d]/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all mt-auto">
+                <button onClick={handlePurchase} disabled={!deployed || purchasing || !buyAddr.trim() || !buyShares.trim()} className="btn-shine w-full py-4 rounded-xl bg-gradient-to-r from-peach to-coral text-onaccent font-bold uppercase tracking-widest text-sm hover:shadow-xl hover:shadow-coral/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all mt-auto">
                   {!deployed ? 'Sale not open · launch TBA' : purchasing ? 'Minting…' : 'Own it (testnet) →'}
                 </button>
-                <p className="text-[10px] text-white/25 text-center mt-3 leading-relaxed">
+                <p className="text-[10px] text-white/50 text-center mt-3 leading-relaxed">
                   {deployed
                     ? `Shares are pro-rata claims on the wrapped entity. On ${LAUNCH.chain} they settle in test ETH and carry no real-world claim.`
                     : 'The primary sale opens once a property is deployed to the contract — on testnet today, on mainnet at launch.'}
@@ -1230,9 +1268,9 @@ function OpenHousePageInner() {
           <div className="max-w-5xl mx-auto px-5 md:px-8">
             <Reveal>
               <div className="text-center mb-20">
-                <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.3em] mb-5">The Whitepaper</div>
-                <h2 className="headline text-6xl md:text-8xl text-white">RENT<br /><span className="text-gold-grad">→ OWN</span></h2>
-                <p className="font-serif-ed text-xl text-white/50 max-w-xl mx-auto mt-8">How every rent check stops paying a landlord — and starts buying you the house.</p>
+                <div className="text-coral text-[11px] font-bold uppercase tracking-[0.3em] mb-5">The Whitepaper</div>
+                <h2 className="headline text-6xl md:text-8xl text-white">RENT<br /><span className="text-surf-grad">→ OWN</span></h2>
+                <p className="font-serif-ed text-xl text-white/68 max-w-xl mx-auto mt-8">How every rent check stops paying a landlord — and starts buying you the house.</p>
               </div>
             </Reveal>
             <div className="space-y-20 md:space-y-28">
@@ -1240,15 +1278,15 @@ function OpenHousePageInner() {
                 <Reveal key={sec.no} delay={40}>
                   <div className="grid md:grid-cols-[auto_1fr] gap-6 md:gap-12">
                     <div className="md:text-right md:w-32">
-                      <div className="headline text-7xl md:text-8xl text-white/[0.08] leading-none">{sec.no}</div>
-                      <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.2em] mt-1">{sec.kicker}</div>
+                      <div className="headline text-7xl md:text-8xl text-white/[0.13] leading-none">{sec.no}</div>
+                      <div className="text-coral text-[11px] font-bold uppercase tracking-[0.2em] mt-1">{sec.kicker}</div>
                     </div>
                     <div>
                       <h3 className="font-serif-ed text-3xl md:text-4xl text-white leading-tight mb-6">{sec.title}</h3>
                       <div className="space-y-4">
-                        {sec.body.map((p, j) => <p key={j} className="text-white/55 text-base md:text-lg leading-relaxed">{p}</p>)}
+                        {sec.body.map((p, j) => <p key={j} className="text-white/72 text-base md:text-lg leading-relaxed">{p}</p>)}
                       </div>
-                      {sec.pull && <p className="font-serif-ed italic text-2xl md:text-3xl text-gold-grad mt-8 leading-snug">“{sec.pull}”</p>}
+                      {sec.pull && <p className="font-serif-ed italic text-2xl md:text-3xl text-surf-grad mt-8 leading-snug">“{sec.pull}”</p>}
                     </div>
                   </div>
                 </Reveal>
@@ -1259,9 +1297,9 @@ function OpenHousePageInner() {
             <Reveal>
               <div className="mt-28">
                 <div className="text-center mb-8">
-                  <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.3em] mb-3">Drag the timeline</div>
+                  <div className="text-coral text-[11px] font-bold uppercase tracking-[0.3em] mb-3">Drag the timeline</div>
                   <h3 className="headline text-4xl md:text-5xl text-white">Watch your equity fill up.</h3>
-                  <p className="font-serif-ed text-lg text-white/50 max-w-xl mx-auto mt-4">Every payment lays a brick. Scrub through the months and watch the house become yours — while the owner's idle funds earn lowfi yield.</p>
+                  <p className="font-serif-ed text-lg text-white/68 max-w-xl mx-auto mt-4">Every payment lays a brick. Scrub through the months and watch the house become yours — while the owner's idle funds earn lowfi yield.</p>
                 </div>
                 <EquitySimulator feePct={terms?.fee_pct ?? 2.5} creditPct={terms?.credit_pct ?? 100} />
               </div>
@@ -1274,9 +1312,9 @@ function OpenHousePageInner() {
                   {TOKENOMICS.map((t, i) => (
                     <Tilt key={i} max={10}>
                       <div className="glass glass-hover rounded-2xl p-6 text-center h-full">
-                        <div className="text-[10px] uppercase tracking-widest text-white/35 font-bold mb-2">{t.label}</div>
-                        <div className="font-display font-extrabold text-xl text-[#e8c07d] mb-1">{t.value}</div>
-                        <div className="text-[11px] text-white/30">{t.note}</div>
+                        <div className="text-[10px] uppercase tracking-widest text-white/58 font-bold mb-2">{t.label}</div>
+                        <div className="font-display font-extrabold text-xl text-coral mb-1">{t.value}</div>
+                        <div className="text-[11px] text-white/55">{t.note}</div>
                       </div>
                     </Tilt>
                   ))}
@@ -1287,20 +1325,20 @@ function OpenHousePageInner() {
             <Reveal>
               <div className="mt-24">
                 <h3 className="headline text-3xl text-white mb-3 text-center">The road to a city you can own</h3>
-                <p className="text-white/40 text-sm text-center max-w-lg mx-auto mb-10">
+                <p className="text-white/60 text-sm text-center max-w-lg mx-auto mb-10">
                   Where we actually are today: {LAUNCH.stage.toLowerCase()} on {LAUNCH.chain}.
                   Mainnet launch date — {LAUNCH.date.toLowerCase()}.
                 </p>
                 <div className="space-y-3">
                   {ROADMAP.map((r, i) => (
                     <div key={i} className={`flex items-start gap-5 rounded-2xl p-5 border ${r.done ? 'border-emerald-500/25 bg-emerald-500/[0.04]' : 'border-white/[0.07] bg-white/[0.015]'}`}>
-                      <div className={`mt-0.5 w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm font-black ${r.done ? 'bg-emerald-400 text-[#0a0a0a]' : 'bg-white/10 text-white/40'}`}>{r.done ? '✓' : i + 1}</div>
+                      <div className={`mt-0.5 w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-sm font-black ${r.done ? 'bg-emerald-400 text-onaccent' : 'bg-white/10 text-white/60'}`}>{r.done ? '✓' : i + 1}</div>
                       <div className="flex-1">
                         <div className="flex items-center gap-3 flex-wrap">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-[#e8c07d]">{r.phase}</span>
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-coral">{r.phase}</span>
                           <h4 className="font-display font-bold text-white">{r.title}</h4>
                         </div>
-                        <p className="text-white/45 text-sm mt-1">{r.detail}</p>
+                        <p className="text-white/65 text-sm mt-1">{r.detail}</p>
                       </div>
                     </div>
                   ))}
@@ -1314,9 +1352,9 @@ function OpenHousePageInner() {
         <section id="landscape" className="max-w-6xl mx-auto px-5 md:px-8 py-24 md:py-32">
           <Reveal>
             <div className="mb-12">
-              <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.25em] mb-3">The Landscape</div>
-              <h2 className="headline text-5xl md:text-7xl text-white">Everyone else<br />tokenized the <span className="text-gold-grad">landlord.</span></h2>
-              <p className="text-white/45 text-base md:text-lg max-w-2xl mt-6 leading-relaxed">
+              <div className="text-coral text-[11px] font-bold uppercase tracking-[0.25em] mb-3">The Landscape</div>
+              <h2 className="headline text-5xl md:text-7xl text-white">Everyone else<br />tokenized the <span className="text-surf-grad">landlord.</span></h2>
+              <p className="text-white/65 text-base md:text-lg max-w-2xl mt-6 leading-relaxed">
                 Twelve projects that put housing on a chain, sorted by the only question that
                 matters: who ends up owning the house. Live numbers pulled from public endpoints;
                 every editorial claim carries its source.
@@ -1330,9 +1368,9 @@ function OpenHousePageInner() {
         <section id="code" className="max-w-6xl mx-auto px-5 md:px-8 py-24 md:py-32">
           <Reveal>
             <div className="text-center mb-12">
-              <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.3em] mb-4">Open Source · No Black Box</div>
+              <div className="text-coral text-[11px] font-bold uppercase tracking-[0.3em] mb-4">Open Source · No Black Box</div>
               <h2 className="headline text-5xl md:text-7xl text-white">Read the contract.</h2>
-              <p className="font-serif-ed text-xl text-white/50 max-w-2xl mx-auto mt-6">
+              <p className="font-serif-ed text-xl text-white/68 max-w-2xl mx-auto mt-6">
                 The whole thing is right here — the Solidity that holds your shares, the logic that splits the rent, the API that serves it. No trust required. Verify.
               </p>
             </div>
@@ -1346,8 +1384,8 @@ function OpenHousePageInner() {
                 { k: 'License', v: 'MIT' },
               ].map((s, i) => (
                 <div key={i} className="glass rounded-xl p-4">
-                  <div className="text-[10px] uppercase tracking-widest text-white/35 font-bold mb-1">{s.k}</div>
-                  <div className="font-mono text-sm text-[#e8c07d] truncate">{s.v}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-white/58 font-bold mb-1">{s.k}</div>
+                  <div className="font-mono text-sm text-coral truncate">{s.v}</div>
                 </div>
               ))}
             </div>
@@ -1361,7 +1399,7 @@ function OpenHousePageInner() {
         <section id="captable" className="max-w-6xl mx-auto px-5 md:px-8 py-24 md:py-32">
           <Reveal>
             <div className="text-center mb-14">
-              <div className="text-[#e8c07d] text-[11px] font-bold uppercase tracking-[0.3em] mb-4">Radical Transparency</div>
+              <div className="text-coral text-[11px] font-bold uppercase tracking-[0.3em] mb-4">Radical Transparency</div>
               <h2 className="headline text-5xl md:text-7xl text-white">The cap table is public.</h2>
             </div>
           </Reveal>
@@ -1370,17 +1408,17 @@ function OpenHousePageInner() {
               <div className="glass rounded-3xl overflow-hidden h-full">
                 <div className="px-6 py-4 border-b border-white/[0.07] flex items-center justify-between">
                   <h3 className="font-display font-bold text-white uppercase tracking-wider text-sm">Owners</h3>
-                  <span className="text-[11px] text-white/35">{shareholders.length} on the cap table</span>
+                  <span className="text-[11px] text-white/58">{shareholders.length} on the cap table</span>
                 </div>
                 {shareholders.length === 0 ? (
-                  <div className="py-20 text-center text-white/25 text-sm uppercase tracking-widest">Be the first owner</div>
+                  <div className="py-20 text-center text-white/50 text-sm uppercase tracking-widest">Be the first owner</div>
                 ) : (
                   <div className="divide-y divide-white/[0.04] max-h-[28rem] overflow-y-auto">
                     {shareholders.map(sh => (
                       <button key={sh.address} onClick={() => { navigator.clipboard.writeText(sh.address); toast.success('Address copied') }} className="w-full grid grid-cols-[1fr_auto_auto] gap-4 items-center px-6 py-4 hover:bg-white/[0.03] transition-colors text-left">
-                        <span className="font-mono text-xs text-white/55 truncate" title={sh.address}>{sh.address}</span>
-                        <span className="text-xs text-[#e8c07d] font-bold tabular-nums">{formatNum(sh.shares, 0)} sh</span>
-                        <span className="text-xs text-white/40 tabular-nums w-14 text-right">{sh.ownership_pct}%</span>
+                        <span className="font-mono text-xs text-white/72 truncate" title={sh.address}>{sh.address}</span>
+                        <span className="text-xs text-coral font-bold tabular-nums">{formatNum(sh.shares, 0)} sh</span>
+                        <span className="text-xs text-white/60 tabular-nums w-14 text-right">{sh.ownership_pct}%</span>
                       </button>
                     ))}
                   </div>
@@ -1391,17 +1429,17 @@ function OpenHousePageInner() {
               <div className="glass rounded-3xl overflow-hidden h-full">
                 <div className="px-6 py-4 border-b border-white/[0.07] flex items-center justify-between">
                   <h3 className="font-display font-bold text-white uppercase tracking-wider text-sm">Distributions</h3>
-                  <span className="text-[11px] text-white/35">{formatNum(status?.total_dividends_distributed ?? 0)} Ξ paid</span>
+                  <span className="text-[11px] text-white/58">{formatNum(status?.total_dividends_distributed ?? 0)} Ξ paid</span>
                 </div>
                 {dividends.length === 0 ? (
-                  <div className="py-20 text-center text-white/25 text-sm uppercase tracking-widest">Rent flows here</div>
+                  <div className="py-20 text-center text-white/50 text-sm uppercase tracking-widest">Rent flows here</div>
                 ) : (
                   <div className="divide-y divide-white/[0.04] max-h-[28rem] overflow-y-auto">
                     {[...dividends].reverse().map((d, i) => (
                       <div key={i} className="grid grid-cols-[1fr_auto_auto] gap-4 items-center px-6 py-4">
-                        <span className="text-xs text-white/45">{timeAgo(d.timestamp)}</span>
+                        <span className="text-xs text-white/65">{timeAgo(d.timestamp)}</span>
                         <span className="text-xs text-emerald-400 font-bold tabular-nums">{formatNum(d.total_amount)} Ξ</span>
-                        <span className="text-[11px] text-white/35 w-20 text-right">{d.recipients} owners</span>
+                        <span className="text-[11px] text-white/58 w-20 text-right">{d.recipients} owners</span>
                       </div>
                     ))}
                   </div>
@@ -1414,12 +1452,12 @@ function OpenHousePageInner() {
         {/* ── Closing CTA ────────────────────────────────── */}
         <section className="max-w-5xl mx-auto px-5 md:px-8 pb-32 text-center">
           <Reveal>
-            <h2 className="headline text-6xl md:text-9xl text-white leading-[0.9] glow-gold">THE DOOR<br />IS <span className="text-gold-grad">OPEN.</span></h2>
-            <p className="font-serif-ed text-xl text-white/50 max-w-lg mx-auto mt-8">Stop renting the dream. Own the building it lives in.</p>
-            <a href="#invest" className="btn-shine inline-block mt-10 px-10 py-4 rounded-full bg-gradient-to-r from-[#f5d9a8] to-[#e8c07d] text-[#0a0a0a] font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-[#e8c07d]/40 transition-shadow">
+            <h2 className="headline text-6xl md:text-9xl text-white leading-[0.9] glow-warm">THE DOOR<br />IS <span className="text-surf-grad">OPEN.</span></h2>
+            <p className="font-serif-ed text-xl text-white/68 max-w-lg mx-auto mt-8">Stop renting the dream. Own the building it lives in.</p>
+            <a href="#invest" className="btn-shine inline-block mt-10 px-10 py-4 rounded-full bg-gradient-to-r from-peach to-coral text-onaccent font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-coral/40 transition-shadow">
               {deployed ? 'Start owning →' : 'Open the testnet →'}
             </a>
-            <p className="text-white/35 text-xs uppercase tracking-[0.2em] font-bold mt-6">
+            <p className="text-white/58 text-xs uppercase tracking-[0.2em] font-bold mt-6">
               {LAUNCH.stage} today on {LAUNCH.chain} · Mainnet launch {LAUNCH.date.toLowerCase()}
             </p>
           </Reveal>
@@ -1429,15 +1467,15 @@ function OpenHousePageInner() {
         <footer className="border-t border-white/[0.07]">
           <div className="max-w-6xl mx-auto px-5 md:px-8 pt-10 pb-6 flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2.5">
-              <span className="w-7 h-7 rounded-md bg-gradient-to-br from-[#e8c07d] to-[#b8893f] flex items-center justify-center text-[#0a0a0a] font-black text-xs">⌂</span>
+              <span className="w-7 h-7 rounded-md bg-gradient-to-br from-coral to-ember flex items-center justify-center text-onaccent font-black text-xs">⌂</span>
               <span className="font-display font-extrabold text-white text-sm">OpenHouse</span>
             </div>
-            <p className="text-white/30 text-xs text-center">Rent-to-own on-chain · Fractional property via smart contracts · Base</p>
-            <p className="text-white/20 text-[11px] uppercase tracking-widest">Equity for everybody</p>
+            <p className="text-white/55 text-xs text-center">Rent-to-own on-chain · Fractional property via smart contracts · Base</p>
+            <p className="text-white/45 text-[11px] uppercase tracking-widest">Equity for everybody</p>
           </div>
           <div className="max-w-6xl mx-auto px-5 md:px-8 pb-10">
-            <p className="text-white/30 text-[11px] leading-relaxed text-center max-w-2xl mx-auto border-t border-white/[0.05] pt-6">
-              <span className="text-[#e8c07d] font-bold uppercase tracking-widest">{LAUNCH.stage} — </span>
+            <p className="text-white/55 text-[11px] leading-relaxed text-center max-w-2xl mx-auto border-t border-white/[0.05] pt-6">
+              <span className="text-coral font-bold uppercase tracking-widest">{LAUNCH.stage} — </span>
               {LAUNCH.notice} Nothing on this page is an offer to sell securities or financial advice.
             </p>
           </div>

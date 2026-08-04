@@ -31,6 +31,9 @@ export const THEMES = [
   { id: "c64",      label: "C64",      base: "dark",  chips: ["#322a8e", "#aaffee", "#aaff66"] },
   { id: "miami",    label: "MIAMI",    base: "dark",  chips: ["#16030f", "#ff2d95", "#2bff9e"] },
   { id: "vector",   label: "VECTOR",   base: "dark",  chips: ["#000000", "#33ffff", "#33ff66"] },
+  // DINN has no third colour to sample — its chips are the whole palette:
+  // paper, ink, and the grey a 50% dither averages to.
+  { id: "dinn",     label: "DINN",     base: "light", chips: ["#ffffff", "#000000", "#7f7f7f"] },
 ] as const;
 
 export type Theme = (typeof THEMES)[number]["id"];

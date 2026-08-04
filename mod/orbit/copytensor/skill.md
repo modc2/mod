@@ -151,12 +151,12 @@ Two things worth knowing before editing:
 - **Type sizing.** Press Start 2P (`.font-display`, `.arcade-title`) is drawn on an
   8×8 pixel em, so it only renders cleanly at **multiples of 8** — anything else
   resamples every glyph and the result looks smeared rather than pixelated. The
-  heading scale is therefore 16/12/12px, set on `h1/h2/h3.font-display` in CSS
-  (overriding the `text-2xl`/`text-lg` classes in the pages), and page titles are
-  16px / 24px at `md`. The sprite shadow on `.arcade-title` is always exactly one
-  design pixel — `font-size / 8`, so 2px at 16 and 3px at 24. VT323 (`.font-mono`,
-  every number and address) sets small for its point size — table cells run 14px and
-  stat readouts 30px.
+  heading scale is therefore 24/16/16px, set on `h1/h2/h3.font-display` in CSS
+  (overriding the `text-2xl`/`text-lg` classes in the pages), and page titles run
+  16px on a phone / 24px / 32px at `md`. The sprite shadow on `.arcade-title` is
+  always exactly one design pixel — `font-size / 8`, so 2px at 16, 3px at 24, 4px at
+  32. VT323 (`.font-mono`, every number and address) sets small for its point size —
+  table cells run 17px and stat readouts 40px (30px on a phone).
 - **Silkscreen is chrome only.** It has no real lowercase (the glyphs are
   small-caps-shaped), so a sentence set in it reads as one long shouted block with no
   word silhouettes left to scan. Labels, buttons and table headers: Silkscreen.
@@ -170,27 +170,57 @@ controls on the right, standfirst below) and `StatTile.tsx` (a scoreboard readou
 `tone` paints the lit strip across its top and the value). Use them rather than
 hand-rolling another header or tile.
 
-The top bar is two rows that collapse into one at `xl`. The controls cluster is
-pinned right on both layouts and the nav is a horizontal scroll strip, because the
-old single non-wrapping row ran everything from the search box rightwards off the
-page below ~1200px.
+The top bar is two honest rows at every width — marquee + status on top, nav + search
+under it. It used to collapse onto one line on wide screens, but logo + 5 tabs +
+search + 4 controls only ever fitted by shrinking the tabs and the search field into
+each other. Under `lg` the status cluster (rpc, skin, both drawer doors, search)
+folds into a `☰` sheet and the nav becomes a scrolling rail that auto-centres the
+active tab.
 
 Charts are plotted on the pixel lattice, not drawn: `Sparkline.tsx` snaps vertices to
 a 2px grid and emits an axis-aligned staircase, and the Recharts areas use
 `type="stepAfter"` to match. A smooth interpolation is the fastest way to break the
 spell, so if a new chart lands, step it.
 
+### Handheld
+
+The console is the same cabinet on a phone, not a cut-down one. The rules are in the
+`── Handheld ──` block of `globals.css`; the one that matters most:
+
+- **Nothing may be wider than the glass.** A single 500px control rail in the header
+  used to push the layout viewport out to 659px, and the phone answered by zooming
+  the *whole board* to 59% — every number on screen rendered at half its designed
+  size. If the app ever "looks tiny" again, measure
+  `document.documentElement.scrollWidth` against `innerWidth` before touching a font
+  size; a page that overflows by one element shrinks everything.
+- **Chrome shrinks, content doesn't.** Under 768px the marquee, tiles and standfirst
+  step down a size; the numbers stay put. `PageHeader`'s standfirst folds behind a
+  `?` cap so it can't push the data below the fold on every visit.
+- **Rows of pills become rails.** `.rail` (a scroll strip that bleeds to the board
+  edge) replaces wrapping — window pickers, sort keys, chart modes, nav tabs.
+- **The two nine-column tables that ARE the product get a handheld layout, not a
+  scrollbar.** The leaderboard (and the portfolio tape, and the copies list) render
+  `.row-card` stacks under `lg` and the `<table>` above it. Detail tables keep the
+  table and scroll sideways — but note `.pixel-table` is `table-layout: fixed`, so a
+  `minWidth` has to be wide enough for the widest cell in *every* column or the name
+  column collapses to an ellipsis.
+- **Fingers get 40px.** `@media (pointer: coarse) and (max-width: 1023px)` floors
+  every `.pixel-btn`; the width clause keeps touch-capable desktops out of it.
+
 ### The drawer, docked and popped out
 
 The right-hand drawer (`SidebarShell.tsx` + `context/SidebarContext.tsx`) holds the
 two things you do with a trader — `WatchlistDrawer` (keep an eye on it) and
-`StratPicker` (put it in a basket) — and has two housings. Docked, it's a column
+`StratPicker` (put it in a basket) — and has three housings. Docked, it's a column
 bolted to the right edge with a drag gutter (`.drawer-grip`) between it and the
 board. **POP OUT** tears it off into a floating window (`.drawer-win`): drag it by
 the title bar, resize from any of the eight edges, **ROLL** it up into its bar,
 **MAX** it to the screen, **DOCK** it back. Position and size persist
 (`ct_sidebar_mode`, `ct_sidebar_rect`) and are clamped back on screen on every load
-and viewport resize; dragging within 20px of an edge snaps flush to it.
+and viewport resize; dragging within 20px of an edge snaps flush to it. Under 1024px
+it is neither: `.drawer-sheet` covers the board, the page behind it is scroll-locked
+and Escape closes it — a 420px column bolted to a 390px screen leaves nothing of the
+board it exists to pick things off.
 
 Two things that are load-bearing:
 
@@ -207,9 +237,10 @@ either housing, not on the EXPAND state.
 
 ### Skins
 
-There are nine, and every one is a real cabinet rather than an inverted dark mode:
+There are ten, and every one is a real cabinet rather than an inverted dark mode:
 ARCADE (default), FLYER (the daytime flyer), MANUAL (instruction booklet), GAMEBOY
-(DMG four-tone), PHOSPHOR (P1 green tube), AMBER (P3), C64, MIAMI, VECTOR. Each is
+(DMG four-tone), PHOSPHOR (P1 green tube), AMBER (P3), C64, MIAMI, VECTOR, DINN
+(Obra Dinn's 1-bit Macintosh). Each is
 one `[data-theme="<id>"]` block in `globals.css` restating the *same* token list in
 the same order — a block that drops a line silently inherits ARCADE's value for it,
 which is the only way the system breaks. The five hues are declared as `r g b`
@@ -220,12 +251,20 @@ tinted fills, glows and the horizon grid all follow a skin for free.
   field classification. Every generic light-field rule — grille, glow suppression,
   input bevel, weight bump — keys on `data-base`, never on one id, so a new light
   skin needs no CSS beyond its tokens.
-- Two invariants hold in all nine: lime = up / red = down (the monochrome tubes bend
-  and keep one green and one burnt-red, because a P&L sign that needs a legend is
-  broken), and the accent is never lime or red.
+- Two invariants hold: lime = up / red = down (the monochrome tubes bend and keep one
+  green and one burnt-red, because a P&L sign that needs a legend is broken), and the
+  accent is never lime or red. DINN is the one exemption on the first — a two-colour
+  screen has no second hue to spend, so gain and loss are both ink and the sign is
+  carried by the ▲/▼, the +/−, and a dithered tile strip against a solid one.
 - Registry is `context/ThemeContext.tsx` — id, label, base, and three chips sampled
   from the skin's own palette, which is what `SkinPicker.tsx` renders in the rail.
   Adding a skin = one entry there plus one token block.
+- DINN also carries a texture block, and it's the LAST thing in `globals.css` on
+  purpose: several of its rules override a `[data-base="light"]` rule at the same
+  specificity, so source order is what settles them. Anything appended below it
+  outranks the skin. It paints ordered dither (`--dither-06/12/25/50`, 4×4 SVG cells)
+  wherever the board would otherwise fade something, and drains `.medal-plate` /
+  `.subnet-logo` — the two surfaces whose colour is data, not a token — to greyscale.
 - Charts read colours through `useThemeColors()`, not `var()`: Recharts and our SVGs
   paint into `stroke`/`fill` *attributes*, where a `var()` isn't dependable. The hook
   resolves the tokens off `<html>` and re-resolves on every skin change.

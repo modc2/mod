@@ -31,12 +31,15 @@ CATALOG = {'profiles': [
           'runtime': {'image': 'pytorch/pytorch@sha256:beef'},
           'pricing': {'amount_usd': 3.0}},
      ]},
-    {'id': 'custom.v1', 'availability': 'live_testing', 'resources': [
-        {'cpu': 4, 'memory_gib': 16, 'price_usd_per_hour': 0.4},
-        {'cpu': 8, 'memory_gib': 32, 'price_usd_per_hour': 0.8},
-        {'cpu': 22, 'memory_gib': 88, 'price_usd_per_hour': 2.2},
-        {'cpu': 44, 'memory_gib': 176, 'price_usd_per_hour': 4.4},
-    ]},
+    {'id': 'custom.v1', 'availability': 'live_testing',
+     'hardware_classes': [{'id': 'tdx_cpu', 'execution_class': 'tdx_cpu',
+                           'availability': 'live_testing'}],
+     'resources': [
+         {'hardware_class': 'tdx_cpu', 'cpu': 4, 'memory_gib': 16, 'price_usd_per_hour': 0.4},
+         {'hardware_class': 'tdx_cpu', 'cpu': 8, 'memory_gib': 32, 'price_usd_per_hour': 0.8},
+         {'hardware_class': 'tdx_cpu', 'cpu': 22, 'memory_gib': 88, 'price_usd_per_hour': 2.2},
+         {'hardware_class': 'tdx_cpu', 'cpu': 44, 'memory_gib': 176, 'price_usd_per_hour': 4.4},
+     ]},
 ]}
 
 
@@ -219,6 +222,24 @@ def test_any_failed_gate_blocks_the_gpu(store, monkeypatch, field, bad):
     cat = cathedral.Mod(key='cat_sk_x')
     assert cat.gpu_ready()['ready'] is False
     assert 'not submittable' in cat.gpu(command=['python3', '-c', 'print(1)'], yes=True)['error']
+
+
+def test_inventory_lists_the_gpu_the_catalog_hides(store, monkeypatch):
+    """The fleet view must survive the same gate knock-out as `gpu`: nothing
+    disappears from the list, it just stops being orderable."""
+    monkeypatch.setattr(cathedral.Mod, 'profiles',
+                        lambda self: _catalog_with(customer_enabled=False))
+    fleet = cathedral.Mod(key='cat_sk_x').inventory()
+    gpu = next(c for c in fleet['classes'] if c['execution_class'] == 'cc_gpu')
+    assert gpu['status'] == 'unavailable' and 'customer_enabled=false' in gpu['blockers']
+    # four worker sizes + the gpu; this fixture's attest.v1 names no resources
+    assert fleet['totals']['shapes'] == 5
+    assert fleet['source'].endswith('/profiles')
+
+
+def test_inventory_reports_an_unreachable_catalog_rather_than_an_empty_fleet(store, monkeypatch):
+    monkeypatch.setattr(cathedral.Mod, 'profiles', lambda self: {'error': 'unreachable'})
+    assert cathedral.Mod(key='cat_sk_x').inventory()['error'] == 'unreachable'
 
 
 def test_gpu_is_blocked_when_the_catalog_has_no_cc_gpu(store, monkeypatch):

@@ -33,6 +33,7 @@ CLI:
     m cathedral/credits                          # your prepaid USD balance
     m cathedral/packs                            # credit packs
     m cathedral/topup pack_10                    # -> hosted Stripe URL (your card)
+    m cathedral/inventory                        # every hardware class + shape you can order
     m cathedral/profiles                         # live catalog + gates
     m cathedral/free_test                        # one free restricted minute
     m cathedral/run image=python:3.12-slim command='print(6*7)'
@@ -46,8 +47,9 @@ CLI:
     m cathedral/app                              # where the console lives
 
 CONSOLE
-    app/ is a zero-dependency web console for the same API — catalog and gates,
-    the spend guard quoted before you submit, workers, receipts, credits. It
+    app/ is a zero-dependency web console for the same API — the whole compute
+    inventory and its gates, the spend guard quoted before you submit, workers,
+    receipts, credits. It
     keeps the key in the browser tab and sends it to one place: /cathedral/_api,
     which this box forwards to the BYOK gateway. Nothing about the key is stored
     on the app server.
@@ -78,6 +80,7 @@ def _sibling(name: str):
 
 
 rcpt = _sibling('receipts')
+inv = _sibling('inventory')
 BASE = 'https://cathedral.computer/v1'
 # The protocol's two halves: {host}/api/cathedral → PORT, {host}/cathedral → APP_PORT.
 PORT = 50390
@@ -122,7 +125,7 @@ class Mod:
         'forward', 'info', 'prices', 'estimate',
         'login', 'logout', 'accounts', 'whoami',
         'credits', 'packs', 'topup', 'verify_payment',
-        'profiles', 'gpu_ready',
+        'profiles', 'inventory', 'gpu_ready',
         'free_test', 'run', 'rent', 'gpu',
         'workers', 'worker', 'wait', 'stop',
         'receipt', 'trusted_keys', 'verify', 'ledger',
@@ -329,29 +332,21 @@ class Mod:
         verifier_log_digest_evidence_status, carries a canonical
         live_evidence_digest, and exposes create/cancel/retry/receipt.
         """
+        return _gates(self.profiles())
+
+    def inventory(self):
+        """Everything Cathedral will sell you, flattened out of the catalog.
+
+        `profiles` answers "what profiles exist" and hides the rest inside them:
+        the confidential GPU is a hardware class, not a profile, and the four
+        sealed-worker sizes sit in custom.v1's resources. This lists one row per
+        hardware class with its shapes, prices, ordering endpoint, and — where a
+        class is shut — the gate holding it shut. Public.
+        """
         cat = self.profiles()
         if 'error' in cat:
             return cat
-        entry = _cc_gpu_entry(cat)
-        if not entry:
-            return {'ready': False, 'reason': f'{CC_GPU_PROFILE} not in catalog'}
-        ops = entry.get('operations') or {}
-        gates = {
-            'availability': entry.get('availability'),
-            'customer_enabled': entry.get('customer_enabled'),
-            'cathedral_evidence_status': entry.get('cathedral_evidence_status'),
-            'verifier_log_digest_evidence_status': entry.get('verifier_log_digest_evidence_status'),
-            'live_evidence_digest': entry.get('live_evidence_digest'),
-            'operations': {k: ops.get(k) for k in ('create', 'cancel', 'retry', 'receipt')},
-        }
-        ready = (gates['availability'] in LIVE_AVAILABILITY
-                 and gates['customer_enabled'] is True
-                 and gates['cathedral_evidence_status'] == 'PASS'
-                 and gates['verifier_log_digest_evidence_status'] == 'PASS'
-                 and bool(gates['live_evidence_digest'])
-                 and all(gates['operations'].values()))
-        return {'ready': ready, 'profile_id': entry.get('profile_id', CC_GPU_PROFILE),
-                'gates': gates, 'runtime_image': (entry.get('runtime') or {}).get('image')}
+        return inv.build(cat, _gates(cat), source=self.base + '/profiles')
 
     # ── running work ────────────────────────────────────────────────────
 
@@ -833,6 +828,38 @@ def _cc_gpu_entry(catalog: dict) -> Optional[dict]:
         if prof.get('profile_id') == CC_GPU_PROFILE or prof.get('id') == CC_GPU_PROFILE:
             return prof
     return None
+
+
+def _gates(catalog: dict) -> dict:
+    """Read the confidential-GPU gates out of one catalog fetch.
+
+    Cathedral's contract: submit no G4 job unless the profile is available,
+    customer-enabled, reports PASS for both the overall evidence gate and
+    verifier_log_digest_evidence_status, carries a canonical
+    live_evidence_digest, and exposes create/cancel/retry/receipt. Fails closed.
+    """
+    if 'error' in catalog:
+        return catalog
+    entry = _cc_gpu_entry(catalog)
+    if not entry:
+        return {'ready': False, 'reason': f'{CC_GPU_PROFILE} not in catalog'}
+    ops = entry.get('operations') or {}
+    gates = {
+        'availability': entry.get('availability'),
+        'customer_enabled': entry.get('customer_enabled'),
+        'cathedral_evidence_status': entry.get('cathedral_evidence_status'),
+        'verifier_log_digest_evidence_status': entry.get('verifier_log_digest_evidence_status'),
+        'live_evidence_digest': entry.get('live_evidence_digest'),
+        'operations': {k: ops.get(k) for k in ('create', 'cancel', 'retry', 'receipt')},
+    }
+    ready = (gates['availability'] in LIVE_AVAILABILITY
+             and gates['customer_enabled'] is True
+             and gates['cathedral_evidence_status'] == 'PASS'
+             and gates['verifier_log_digest_evidence_status'] == 'PASS'
+             and bool(gates['live_evidence_digest'])
+             and all(gates['operations'].values()))
+    return {'ready': ready, 'profile_id': entry.get('profile_id', CC_GPU_PROFILE),
+            'gates': gates, 'runtime_image': (entry.get('runtime') or {}).get('image')}
 
 
 def _shapes(profile: dict) -> dict:

@@ -28,6 +28,9 @@ out loud before running: `estimate` and `prices` exist for exactly that.
 ## Capabilities
 
 - Live catalog with runtime gates (`profiles`, `gpu_ready`)
+- The whole fleet in one list (`inventory`, `GET /inventory`) — every hardware class, every
+  buyable shape with its price and ordering endpoint, and the gate shutting anything that is
+  shut. The raw catalog hides both GPUs and the worker sizes inside profiles; this does not.
 - Credits: balance, packs, hosted checkout, post-payment verification
 - One free restricted minute per verified account (`free_test`)
 - `attest.v1` one-shot TDX CPU job (`run`) — $0.20 per completed execution

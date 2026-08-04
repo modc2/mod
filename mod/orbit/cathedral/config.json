@@ -59,6 +59,10 @@
             "method": "GET",
             "docs": "Live profile catalog and runtime gates (public)"
         },
+        "/inventory": {
+            "method": "GET",
+            "docs": "Every hardware class and buyable shape, flattened out of the catalog with its gate verdict (public)"
+        },
         "/gpu/ready": {
             "method": "GET",
             "docs": "Whether the confidential-GPU gates all PASS right now (public)"
@@ -133,7 +137,7 @@
         "port": 50391,
         "route": "/cathedral",
         "api_alias": "/cathedral/_api",
-        "serves": "zero-dependency console: catalog + gates, quoted spend guard, jobs, workers, receipts, offline receipt verification, credits",
+        "serves": "zero-dependency console: full compute inventory + gates, quoted spend guard, jobs, workers, receipts, offline receipt verification, credits",
         "keys": "held in the browser tab (sessionStorage) and sent as Authorization; never stored, logged, or proxied elsewhere"
     },
     "fns": [
@@ -150,6 +154,7 @@
         "topup",
         "verify_payment",
         "profiles",
+        "inventory",
         "gpu_ready",
         "free_test",
         "run",
@@ -176,5 +181,5 @@
         "CATHEDRAL_TRUSTED_KEYS": "where the API gateway pins Cathedral's receipt-signing keys (default ~/.mod/cathedral/trusted-keys.json)"
     },
     "key": "cathedral",
-    "schema": "QmaXYe4WYkcU7NNzbB9KzwFHC8atXZrcXBXGEZ8cXjcyqg"
+    "schema": "QmPwFQPLVtaaanNEJjyVCjYagLqe8SZAVCeV2usXYyK8kj"
 }

@@ -48,6 +48,7 @@ def _sibling(name: str):
 
 
 rcpt = _sibling("receipts")
+inv = _sibling("inventory")
 
 UPSTREAM = os.environ.get("CATHEDRAL_BASE", "https://cathedral.computer/v1").rstrip("/")
 # The gateway pins the published receipt-signing keys the same way the CLI does,
@@ -196,6 +197,7 @@ def info():
             "GET /health": "liveness",
             "GET /prices": "published price sheet (public)",
             "GET /profiles": "live catalog + runtime gates (public)",
+            "GET /inventory": "every hardware class and buyable shape, flattened (public)",
             "GET /gpu/ready": "are the confidential-GPU gates PASS right now (public)",
             "GET /credits": "your prepaid balance",
             "GET /credits/packs": "buyable packs (public)",
@@ -293,8 +295,8 @@ def _cc_gpu_entry(catalog: dict) -> Optional[dict]:
     return None
 
 
-def _cc_gpu_gates() -> dict:
-    entry = _cc_gpu_entry(profiles())
+def _cc_gpu_gates(catalog: Optional[dict] = None) -> dict:
+    entry = _cc_gpu_entry(catalog if catalog is not None else profiles())
     if not entry:
         return {"ready": False, "reason": f"{CC_GPU_PROFILE} not in catalog"}
     ops = entry.get("operations") or {}
@@ -319,6 +321,19 @@ def _cc_gpu_gates() -> dict:
 @app.get("/gpu/ready")
 def gpu_ready():
     return _cc_gpu_gates()
+
+
+@app.get("/inventory")
+def inventory():
+    """Every hardware class Cathedral sells, flattened out of the catalog.
+
+    `/profiles` answers "what profiles exist" and hides the GPUs and the worker
+    sizes inside them; this is the same data as the list of things you can
+    actually order, with the gate verdict attached to each. Public — one
+    upstream fetch, shared by the catalog and the gates.
+    """
+    catalog = profiles()
+    return inv.build(catalog, _cc_gpu_gates(catalog), source=UPSTREAM + "/profiles")
 
 
 # ── your account, your credits ───────────────────────────────────────────

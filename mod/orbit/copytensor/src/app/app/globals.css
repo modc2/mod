@@ -482,6 +482,75 @@
   --grid-alpha: 0.14;
 }
 
+/* DINN — Return of the Obra Dinn's 1-Bit Macintosh: black ink, white
+   paper, and nothing in between. The greys below are not chosen greys.
+   Each one is the value an ordered dither *averages* to at that density
+   (75% → #3f3f3f, 50% → #7f7f7f, 25% → #bfbfbf), which is the only kind
+   of grey a two-colour screen has ever been able to show you. The
+   patterns that produce them live in the texture block at the foot of
+   this file — this is the one skin whose look isn't finished by its
+   tokens.
+
+   Gain and loss both run pure ink here, and that's deliberate: a 1-bit
+   screen has no second hue to spend. The sign is carried the way the Mac
+   carried it — the ▲/▼ glyph, the +/−, and a dithered tile strip against
+   a solid one. */
+[data-theme="dinn"] {
+  --bg: #ffffff;
+  --bg-elev: #ffffff;
+  --fg: #000000;
+  --fg-muted: #3f3f3f;
+  --fg-dim: #7f7f7f;
+  --border: #000000;
+  --border-strong: #000000;
+  --panel-from: #ffffff;
+  --panel-to: #ffffff;
+  --shadow-hard: #000000;
+  --input-bg: #ffffff;
+  --input-bg-focus: #ffffff;
+  --btn-bg: #ffffff;
+  --btn-bg-hover: #dfdfdf;
+  --btn-bg-active: #bfbfbf;
+  --scroll-track: #ffffff;
+  --scroll-thumb: #000000;
+  --scroll-thumb-hover: #3f3f3f;
+  --table-stripe: #ffffff;
+  --table-hover: #dfdfdf;
+  --table-head: #ffffff;
+
+  /* The five hues collapse onto the tone ramp: everything that has to be
+     read at a glance is ink, and the two decorative slots take the
+     halftones so a four-hue identicon or a two-series chart still
+     separates by value when it can't separate by colour. */
+  --neon-lime-rgb:    0 0 0;
+  --neon-cyan-rgb:    0 0 0;
+  --neon-magenta-rgb: 127 127 127;
+  --neon-amber-rgb:   63 63 63;
+  --neon-red-rgb:     0 0 0;
+  --accent-rgb:       0 0 0;
+
+  --pixel-black-rgb: 255 255 255;
+  --pixel-bg-rgb: 255 255 255;
+  --pixel-panel-rgb: 255 255 255;
+  --pixel-border-rgb: 0 0 0;
+  --pixel-white-rgb: 0 0 0;
+  --pixel-gray-rgb: 127 127 127;
+  --pixel-gray-light-rgb: 63 63 63;
+
+  /* No grille and no horizon bloom: a Mac was a progressive-scan tube
+     with nothing behind the pixels. The texture below replaces both. */
+  --scan-alpha: 0;
+  --grid-alpha: 0;
+
+  /* The dither cells themselves — 4×4 ordered patterns, black on
+     nothing, drawn as whole pixels (`crispEdges`, so a HiDPI screen
+     doesn't blur the dot into the grey it stands for). */
+  --dither-06: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' viewBox='0 0 4 4' shape-rendering='crispEdges'%3E%3Crect width='1' height='1' x='0' y='0'/%3E%3C/svg%3E");
+  --dither-12: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' viewBox='0 0 4 4' shape-rendering='crispEdges'%3E%3Crect width='1' height='1' x='0' y='0'/%3E%3Crect width='1' height='1' x='2' y='2'/%3E%3C/svg%3E");
+  --dither-25: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' viewBox='0 0 4 4' shape-rendering='crispEdges'%3E%3Crect width='1' height='1' x='0' y='0'/%3E%3Crect width='1' height='1' x='2' y='0'/%3E%3Crect width='1' height='1' x='0' y='2'/%3E%3Crect width='1' height='1' x='2' y='2'/%3E%3C/svg%3E");
+  --dither-50: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2' viewBox='0 0 2 2' shape-rendering='crispEdges'%3E%3Crect width='1' height='1' x='0' y='0'/%3E%3Crect width='1' height='1' x='1' y='1'/%3E%3C/svg%3E");
+}
+
 /* ── Chunky square scrollbar — a slider on a cabinet, not a hairline ── */
 * {
   scrollbar-width: thin;
@@ -909,6 +978,81 @@ button, input, select, textarea {
   width: 10px;
   height: 10px;
   border: 1px solid var(--shadow-hard);
+}
+
+/* RPC pool panel — same hard-edged drop as the skin menu, but it's a
+   readout, not a menu: labelled rows on top, the node list below. Wider,
+   because a wss:// endpoint is the whole point of opening it. */
+.rpc-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: max-content;
+  min-width: 260px;
+  max-width: min(92vw, 380px);
+  padding: 6px;
+  background: var(--panel-from);
+  border: 2px solid var(--border-strong);
+  box-shadow: var(--panel-shadow);
+  text-align: left;
+}
+.rpc-menu__head,
+.rpc-menu__k {
+  font-family: 'Silkscreen', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.rpc-menu__head {
+  padding: 2px 4px 6px;
+  color: var(--accent);
+}
+.rpc-menu__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 4px;
+}
+/* Fixed key column so the values line up into one edge. */
+.rpc-menu__k { flex: none; width: 62px; }
+.rpc-menu__v {
+  font-family: 'VT323', monospace;
+  font-size: 15px;
+  line-height: 1.2;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.rpc-menu__sep {
+  margin: 6px 0 4px;
+  border-top: 2px solid var(--border-strong);
+}
+.rpc-menu__node {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  width: 100%;
+  padding: 3px 4px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  color: var(--fg-muted);
+}
+.rpc-menu__node:hover { background: var(--btn-bg-hover); color: var(--fg); }
+.rpc-menu__node[data-active="1"] { color: var(--accent); }
+.rpc-menu__node:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.rpc-menu__cursor { flex: none; width: 10px; font-size: 11px; }
+.rpc-menu__url {
+  font-family: 'VT323', monospace;
+  font-size: 15px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 /* The input is the inverse of the button: recessed, so the bevel runs
@@ -1625,6 +1769,7 @@ button, input, select, textarea {
   .pixel-btn.topbar-ctl { height: 40px; }
   .pixel-input-sm { padding: 10px; }
   .skin-menu__item { padding: 11px 8px; }
+  .rpc-menu__node { padding: 9px 4px; }
 }
 
 /* Pill rows that would wrap into three ragged lines — window pickers, sort
@@ -1685,3 +1830,107 @@ button, input, select, textarea {
 [data-base="light"] .text-blue-400,
 [data-base="light"] .text-purple-400,
 [data-base="light"] .text-pink-400 { font-weight: 700; }
+
+/* ── DINN, the 1-bit surface ─────────────────────────────────────────
+   Everywhere the board would fade something — the horizon bloom, a lit
+   marquee, a hover tint, a striped table — this skin paints an ordered
+   dither instead. Scoped to the id rather than to `data-base`, because
+   no other cabinet wants halftones.
+
+   Last block in the file on purpose: several of these override a
+   `[data-base="light"]` rule at the *same* specificity, so order is what
+   settles it. Anything added below this will outrank the skin. */
+[data-theme="dinn"] body::before {
+  background: var(--dither-12);
+  background-size: 4px 4px;
+  opacity: 0.55;
+}
+/* The horizon, redrawn: 50% dither at the foot of the screen thinning
+   upward. Same job as the synthwave grid it replaces — give the void a
+   floor — done the only way two colours can do it. */
+[data-theme="dinn"] body::after {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 55vh;
+  transform: none;
+  opacity: 0.5;
+  background: var(--dither-50);
+  background-size: 2px 2px;
+  mask-image: linear-gradient(to top, #000 0%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, transparent 100%);
+}
+
+/* The Mac title bar: hairline stripes with the name knocked out of them
+   on a patch of paper. The band is the one surface that already lit up
+   per skin, so it's where the idiom lands hardest. The h1 gives up its
+   `flex-1` — a full-width plate would knock the stripes out of the whole
+   row, which is the opposite of the effect — and takes an auto margin so
+   the page's controls stay on the right. */
+[data-theme="dinn"] .page-head-band,
+[data-theme="dinn"] .drawer-bar {
+  background: repeating-linear-gradient(180deg, #000 0 1px, #fff 1px 3px);
+}
+[data-theme="dinn"] .drawer-bar-sub { background: #fff; }
+[data-theme="dinn"] .page-head-band::before,
+[data-theme="dinn"] .drawer-bar::before { background: #000; }
+[data-theme="dinn"] .page-head .arcade-title {
+  flex: none;
+  max-width: 100%;
+  margin-right: auto;
+  background: #fff;
+  padding: 2px 10px;
+}
+[data-theme="dinn"] .drawer-title { background: #fff; }
+
+/* Hover is a halftone, press is an inversion — the two states a 1-bit
+   control has ever had. */
+[data-theme="dinn"] .pixel-btn:hover,
+[data-theme="dinn"] .skin-menu__item:hover {
+  background-image: var(--dither-12);
+  background-size: 4px 4px;
+}
+[data-theme="dinn"] .pixel-btn:active,
+[data-theme="dinn"] .pixel-btn[aria-pressed="true"]:active {
+  background: #000;
+  color: #fff;
+}
+
+/* Zebra stripe as a screen rather than a tint. The lightest cell in the
+   set and no heavier: at 12.5% the dots start competing with the dim
+   sub-labels sitting on top of them, and the row you can't read is worse
+   than the row you can't tell apart. */
+[data-theme="dinn"] .pixel-table tbody tr:nth-child(even) td {
+  background-image: var(--dither-06);
+  background-size: 4px 4px;
+}
+
+/* The scoreboard strip is where losing a second hue actually costs
+   something, so up/down/accent separate by density instead: solid, half,
+   quarter. */
+[data-theme="dinn"] .stat-tile-down::before {
+  background: var(--dither-50);
+  background-size: 2px 2px;
+}
+[data-theme="dinn"] .stat-tile-accent::before {
+  background: var(--dither-25);
+  background-size: 4px 4px;
+}
+
+/* The two things on the board that carry colour of their own rather than
+   a token — the medal plates and the subnet tiles, whose hue IS the
+   subnet's identity — are the only leaks a 1-bit screen can't absorb.
+   The display it's imitating had no channel to put them in, so neither
+   does this: drained to the ramp, team logos included. (A real 1-bit
+   screen would dither the photo; CSS can only average it.) */
+[data-theme="dinn"] .medal-plate,
+[data-theme="dinn"] .subnet-logo {
+  filter: grayscale(1) contrast(1.2);
+}
+
+/* The meter's notches are drawn dark everywhere else; on solid ink they
+   have to be knocked out in paper or the cells vanish. */
+[data-theme="dinn"] .pixel-bar-fill {
+  background-image: repeating-linear-gradient(90deg,
+    #fff 0 1px, transparent 1px 4px);
+}

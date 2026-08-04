@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>targon — Bittensor SN4 compute</title>
+<style>
+  :root { --bg:#07090c; --panel:#0e1218; --line:#1d2530; --fg:#dfe6f0; --dim:#7b8798;
+          --accent:#4ade80; --warn:#fbbf24; --danger:#f87171; }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace }
+  header { display:flex; gap:16px; align-items:baseline; padding:16px 20px; border-bottom:1px solid var(--line) }
+  h1 { margin:0; font-size:16px; letter-spacing:.14em; text-transform:uppercase }
+  .sub { color:var(--dim); font-size:12px }
+  main { padding:20px; max-width:1100px }
+  nav { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap }
+  button { background:var(--panel); color:var(--fg); border:1px solid var(--line); padding:6px 12px;
+           border-radius:4px; cursor:pointer; font:inherit }
+  button:hover { border-color:var(--accent) }
+  button.on { border-color:var(--accent); color:var(--accent) }
+  input { background:var(--panel); color:var(--fg); border:1px solid var(--line); padding:6px 10px;
+          border-radius:4px; font:inherit; min-width:280px }
+  table { width:100%; border-collapse:collapse; margin-top:12px }
+  th,td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); font-size:13px }
+  th { color:var(--dim); font-weight:400; text-transform:uppercase; font-size:11px; letter-spacing:.08em }
+  tr:hover td { background:var(--panel) }
+  .num { text-align:right; font-variant-numeric:tabular-nums }
+  .ok { color:var(--accent) } .none { color:var(--dim) } .err { color:var(--danger) }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:12px;
+        overflow:auto; max-height:60vh; font-size:12px }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+  .hint { color:var(--dim); font-size:12px; margin-top:10px }
+</style>
+</head>
+<body>
+<header>
+  <h1>targon</h1>
+  <span class="sub">Bittensor SN4 · GPU compute · MCP at <code>/mcp</code></span>
+  <span class="sub" id="ver"></span>
+</header>
+<main>
+  <nav>
+    <button data-tab="inventory" class="on">INVENTORY</button>
+    <button data-tab="workloads">WORKLOADS</button>
+    <button data-tab="tools">TOOLS</button>
+  </nav>
+
+  <section id="inventory">
+    <div class="row">
+      <button id="gpuOnly" class="on">GPU only</button>
+      <button id="availOnly" class="on">Available only</button>
+    </div>
+    <table><thead><tr>
+      <th>tier</th><th>kind</th><th>gpu</th><th class="num">gpus</th><th class="num">vcpu</th>
+      <th class="num">mem</th><th class="num">$/hr</th><th class="num">free</th>
+    </tr></thead><tbody id="invBody"></tbody></table>
+    <p class="hint">Pass a tier name as <code>resource_name</code> to <code>rent</code> or <code>create_workload</code>.</p>
+  </section>
+
+  <section id="workloads" hidden>
+    <div class="row">
+      <input id="key" type="password" placeholder="Targon API key (stays in this tab)">
+      <button id="load">LOAD</button>
+    </div>
+    <div id="acct" class="hint"></div>
+    <table><thead><tr>
+      <th>uid</th><th>name</th><th>type</th><th>tier</th><th>status</th><th class="num">$/hr</th>
+    </tr></thead><tbody id="wlBody"></tbody></table>
+    <p class="hint">The key is kept in sessionStorage only. The server reads its own key from
+      <code>TARGON_API_KEY</code> or <code>~/.mod/targon/api_key</code>.</p>
+  </section>
+
+  <section id="tools" hidden>
+    <pre id="toolList">loading…</pre>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const api = (p, o={}) => {
+  const key = sessionStorage.getItem('targon_key');
+  const h = Object.assign({}, o.headers, key ? { 'x-api-key': key } : {});
+  return fetch(p, Object.assign({}, o, { headers: h })).then(r => r.json());
+};
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  ['inventory','workloads','tools'].forEach(t => $('#' + t).hidden = t !== b.dataset.tab);
+});
+
+let inv = [];
+const gpuOnly = $('#gpuOnly'), availOnly = $('#availOnly');
+const toggle = b => { b.classList.toggle('on'); drawInv(); };
+gpuOnly.onclick = () => toggle(gpuOnly);
+availOnly.onclick = () => toggle(availOnly);
+
+function drawInv() {
+  const rows = inv
+    .filter(t => !gpuOnly.classList.contains('on') || t.gpu)
+    .filter(t => !availOnly.classList.contains('on') || t.available > 0)
+    .sort((a, b) => a.cost_per_hour - b.cost_per_hour)
+    .map(t => {
+      const s = t.spec || {};
+      // vcpu and memory come back in millicores and MB.
+      return `<tr><td>${t.name}</td><td class="none">${t.type || ''}</td>
+        <td>${s.gpu_type || '<span class="none">cpu</span>'}</td>
+        <td class="num">${s.gpu_count || ''}</td>
+        <td class="num">${s.vcpu ? (s.vcpu/1000).toFixed(0) : ''}</td>
+        <td class="num">${s.memory ? (s.memory/1000).toFixed(0) + 'G' : ''}</td>
+        <td class="num">$${(t.cost_per_hour ?? 0).toFixed(2)}</td>
+        <td class="num ${t.available > 0 ? 'ok' : 'none'}">${t.available ?? 0}</td></tr>`;
+    }).join('');
+  $('#invBody').innerHTML = rows || '<tr><td colspan="8" class="none">nothing matches</td></tr>';
+}
+
+api('/inventory').then(d => { inv = Array.isArray(d) ? d : []; drawInv(); })
+  .catch(e => $('#invBody').innerHTML = `<tr><td colspan="7" class="err">${e}</td></tr>`);
+
+api('/info').then(d => $('#ver').textContent = `v${d.version} · ${d.tools} tools`);
+
+api('/tools').then(d => $('#toolList').textContent =
+  d.tools.map(t => `${t.name.padEnd(20)} ${t.description}`).join('\n'));
+
+$('#key').value = sessionStorage.getItem('targon_key') || '';
+$('#load').onclick = async () => {
+  const k = $('#key').value.trim();
+  k ? sessionStorage.setItem('targon_key', k) : sessionStorage.removeItem('targon_key');
+  const [wl, cr] = await Promise.all([api('/workloads'), api('/credits')]);
+  $('#acct').innerHTML = cr.credits !== undefined
+    ? `credits: <span class="ok">${cr.credits} ${cr.currency || ''}</span>`
+    : `<span class="err">${cr.error || 'no account'}</span>`;
+  const items = wl.items || [];
+  $('#wlBody').innerHTML = items.length ? items.map(w => `<tr>
+      <td>${w.uid}</td><td>${w.name || ''}</td><td>${w.type || ''}</td>
+      <td>${(w.resource || {}).name || ''}</td>
+      <td class="${(w.state || {}).status === 'running' ? 'ok' : 'none'}">${(w.state || {}).status || ''}</td>
+      <td class="num">$${(w.cost_per_hour ?? 0).toFixed(2)}</td></tr>`).join('')
+    : `<tr><td colspan="6" class="none">${wl.error || 'no workloads'}</td></tr>`;
+};
+</script>
+</body>
+</html>

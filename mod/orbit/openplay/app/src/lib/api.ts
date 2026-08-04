@@ -8,8 +8,46 @@ export async function api(path: string, opts?: { method?: string; body?: any }) 
     cache: 'no-store',
   })
   const data = await res.json().catch(() => ({ detail: res.statusText }))
-  if (!res.ok) throw new Error(data?.detail || 'Request failed')
+  if (!res.ok) {
+    // A 400 can carry structure (which games you'd clash with) — keep it on
+    // the error so the caller can show more than a sentence.
+    const detail = data?.detail
+    const err = new Error((typeof detail === 'string' ? detail : detail?.error) || 'Request failed') as ApiError
+    err.status = res.status
+    err.body = typeof detail === 'object' && detail ? detail : data
+    throw err
+  }
   return data
+}
+
+export type ApiError = Error & { status?: number; body?: any }
+
+export type Conflict = {
+  kind: 'venue' | 'pool' | 'organizer'
+  severity: 'blocking' | 'warning'
+  game_id: string
+  title: string
+  sport: string
+  venue: string
+  admin: string
+  occ: string
+  starts_at: number
+  overlap_min: number
+  distance_m: number | null
+  detail: string
+}
+
+export type AgentRequest = {
+  request_id: string
+  status: string
+  agent: string
+  reason: string
+  proposal: Record<string, any>
+  warnings: Conflict[]
+  created_at: number
+  expires_at: number
+  game_id?: string
+  conflicts_now?: { ok: boolean; blocking: Conflict[]; warnings: Conflict[] }
 }
 
 export type Occurrence = {

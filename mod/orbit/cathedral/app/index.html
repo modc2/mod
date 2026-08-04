@@ -35,8 +35,10 @@
 
 <div class="shell">
   <nav class="rail">
-    <button class="tab on" data-tab="account">Account</button>
-    <button class="tab" data-tab="catalog">Catalog</button>
+    <!-- Catalog leads: the first question anyone opens this with is "what compute
+         is there", and that answer costs no key. -->
+    <button class="tab on" data-tab="catalog">Catalog</button>
+    <button class="tab" data-tab="account">Account</button>
     <button class="tab" data-tab="run">Run</button>
     <button class="tab" data-tab="workers">Workers</button>
     <button class="tab" data-tab="evidence">Evidence</button>
@@ -50,7 +52,7 @@
   <main>
 
     <!-- ── ACCOUNT ───────────────────────────────────────────────── -->
-    <section id="account" class="pane on">
+    <section id="account" class="pane">
       <h1>Your key, your credits</h1>
       <p class="lede">Every run on this console is billed to <em>your</em> Cathedral
         account. This module holds no house key and never rents compute on anyone
@@ -77,13 +79,20 @@
     </section>
 
     <!-- ── CATALOG ───────────────────────────────────────────────── -->
-    <section id="catalog" class="pane">
-      <h1>Catalog &amp; prices</h1>
-      <p class="lede">Public — no key, no charge. These fields are runtime gates,
-        not documentation: they are read before every submission.</p>
+    <section id="catalog" class="pane on">
+      <h1>All available compute</h1>
+      <p class="lede">Every hardware class Cathedral publishes and every shape you can
+        order on it — including the ones the raw catalog buries inside a profile.
+        Public: no key, no charge. These fields are runtime gates, not documentation,
+        and they are read again before every submission.</p>
+
+      <div id="fleet-sum" class="summary">counting…</div>
+      <div id="fleet"></div>
 
       <div class="card">
-        <h2>Per execution</h2>
+        <h2>Price sheet, per execution</h2>
+        <p class="fine">The flat sheet the spend guard quotes from — it also carries the
+          free minute, which the profile catalog above does not list.</p>
         <div id="prices" class="empty">loading…</div>
         <p class="fine" id="price-src"></p>
       </div>
@@ -95,12 +104,14 @@
           after provider cleanup. The rate is pinned at creation.</p>
       </div>
 
-      <div class="card">
-        <h2>Confidential GPU gates</h2>
+      <!-- The failing gates are already named on the GPU card above; this is the
+           full verdict, gate by gate, for whoever wants to read it. -->
+      <details class="card">
+        <summary>Confidential GPU gates, one by one</summary>
         <div id="gates" class="empty">loading…</div>
         <p class="fine">A GPU job is only submittable when every gate passes. When one
-          does not, the refusal below is upstream state, not a bug here.</p>
-      </div>
+          does not, the refusal is upstream state, not a bug here.</p>
+      </details>
 
       <details class="card">
         <summary>Raw profile catalog</summary>

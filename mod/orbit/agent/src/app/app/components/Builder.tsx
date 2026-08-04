@@ -1,17 +1,19 @@
 'use client'
 
 // Builder — n8n-style visual agent composer.
-// Drag Prompt / Model / Tool / Memory nodes from the palette onto the canvas,
+// Drag Prompt / Model / Toolbox / Memory nodes from the palette onto the canvas,
 // wire them into the AGENT node, then save — the graph compiles down to the
 // backend's agent config (goal / tools / model) via POST /agents.
-// A Tool node is any name in the registry: a built-in, a custom shell tool, or
-// a fleet module (`mod.<name>`), which the palette search fetches on demand.
+// Tools are never loose nodes: they all land as chips inside one Toolbox node,
+// mirroring the backend's snap-on bundles (src/toolbox/mod.py). A chip is any
+// name in the registry — a built-in, a custom shell tool, or a fleet module
+// (`mod.<name>`), which the palette search fetches on demand.
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { API_URL } from '../config'
 import Select from './Select'
 
-type NodeKind = 'agent' | 'prompt' | 'model' | 'tool' | 'memory'
+type NodeKind = 'agent' | 'prompt' | 'model' | 'toolbox' | 'memory'
 type BNode = { id: string; kind: NodeKind; x: number; y: number; data: Record<string, any> }
 type BEdge = { id: string; from: string; to: string }
 type Viewport = { x: number; y: number; k: number }
@@ -20,8 +22,11 @@ type LibPrompt = { id: string; name: string; description?: string; body?: string
 type MemNote = { id: string; name: string; content?: string }
 type ProviderInfo = { key: string; models: string[]; default_model: string; configured?: boolean; encrypted?: boolean; unlocked?: boolean }
 type AgentInfo = { value: string; label: string; icon: string; builtin?: boolean }
+type BoxPreset = { name: string; description?: string; tools: string[]; builtin?: boolean }
 
 const NODE_W = 228
+const TOOLBOX_W = 268
+const wOf = (n: BNode) => (n.kind === 'toolbox' ? TOOLBOX_W : NODE_W)
 // fallback only — the live list from /agents carries an authoritative builtin flag
 const BUILTINS = new Set(['default', 'architect', 'reviewer', 'debugger', 'builder', 'refactorer',
                           'safety', 'claude-code', 'codex'])
@@ -30,7 +35,7 @@ const GRAPHS_KEY = 'agent_builder_graphs_v1'
 const KIND_META: Record<Exclude<NodeKind, 'agent'>, { label: string; icon: string; accent: string; border: string; wire: string; hint: string }> = {
   prompt: { label: 'Prompt', icon: '¶', accent: 'text-amber-300', border: 'border-amber-400/30', wire: 'rgb(var(--w-400))', hint: 'system prompt' },
   model:  { label: 'Model',  icon: '⬢', accent: 'text-sky-300',   border: 'border-sky-400/30',   wire: 'rgb(var(--i-400))', hint: 'LLM override' },
-  tool:   { label: 'Tool',   icon: '◇', accent: 'text-emerald-300', border: 'border-emerald-400/30', wire: 'rgb(var(--a-400))', hint: 'tool the agent may use' },
+  toolbox:{ label: 'Toolbox', icon: '◇', accent: 'text-emerald-300', border: 'border-emerald-400/30', wire: 'rgb(var(--a-400))', hint: 'the tools the agent may use' },
   memory: { label: 'Memory', icon: '◈', accent: 'text-violet-300', border: 'border-violet-400/30', wire: 'rgb(var(--v-400))', hint: 'note injected as context' },
 }
 
@@ -38,6 +43,23 @@ let idSeq = 0
 const nid = () => `n${Date.now().toString(36)}${(idSeq++).toString(36)}`
 
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+
+// Graphs saved before tools were bundled hold one `tool` node per tool. Fold
+// them into a single toolbox so an old layout doesn't reopen as confetti.
+const foldToolNodes = (nodes: BNode[], edges: BEdge[]): { nodes: BNode[]; edges: BEdge[] } => {
+  const loose = nodes.filter(n => (n.kind as string) === 'tool')
+  if (!loose.length) return { nodes, edges }
+  const head = loose[0]
+  const box: BNode = {
+    ...head, kind: 'toolbox',
+    data: { names: Array.from(new Set(loose.map(n => n.data?.name).filter(Boolean))) },
+  }
+  const dropped = new Set(loose.slice(1).map(n => n.id))
+  return {
+    nodes: nodes.map(n => (n.id === head.id ? box : n)).filter(n => !dropped.has(n.id)),
+    edges: edges.filter(e => !dropped.has(e.from) && !dropped.has(e.to)),
+  }
+}
 
 type Props = {
   onUseAgent: (name: string, memoryIds: string[]) => void
@@ -76,6 +98,8 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   // fleet matches for the current palette search — fetched, not held: there are
   // hundreds of modules and only the ones you look for belong in the list
   const [fleet, setFleet] = useState<Record<string, { description?: string; kind?: string }>>({})
+  // the backend's snap-on bundles — a toolbox node can be filled from one
+  const [boxes, setBoxes] = useState<BoxPreset[]>([])
   const [prompts, setPrompts] = useState<LibPrompt[]>([])
   const [notes, setNotes] = useState<MemNote[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
@@ -129,6 +153,8 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
       .then(d => setTools(Object.fromEntries((d.tools || []).map((t: any) =>
         [t.name, { description: t.description, kind: t.kind }]))))
       .catch(() => {})
+    fetch(`${API_URL}/toolboxes`, { signal: AbortSignal.timeout(8000) })
+      .then(r => r.json()).then(d => setBoxes(d.toolboxes || [])).catch(() => {})
     fetch(`${API_URL}/library?kind=prompt`, { signal: AbortSignal.timeout(8000) })
       .then(r => r.json()).then(d => setPrompts((d.items || []).filter((i: any) => i.kind === 'prompt'))).catch(() => {})
     fetch(`${API_URL}/memory`, { signal: AbortSignal.timeout(8000) })
@@ -211,8 +237,9 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     // restored layout wins when we have one
     const saved = readGraphs()[name]
     if (saved?.nodes?.length) {
-      setNodes(saved.nodes)
-      setEdges(saved.edges || [])
+      const folded = foldToolNodes(saved.nodes, saved.edges || [])
+      setNodes(folded.nodes)
+      setEdges(folded.edges)
       setViewport(saved.viewport || { x: 0, y: 0, k: 1 })
       setLoadedName(name)
       setSelected(null)
@@ -238,11 +265,12 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
         ns.push({ id: mId, kind: 'model', x: 90, y: 330, data: { provider: prov, model: cfg.model } })
         es.push({ id: nid(), from: mId, to: agentId })
       }
-      ;((cfg.tools || cfg.skills) || []).forEach((s: string, i: number) => {
-        const sId = nid()
-        ns.push({ id: sId, kind: 'tool', x: 330 + (i % 2) * 40, y: 40 + i * 96, data: { name: s } })
-        es.push({ id: nid(), from: sId, to: agentId })
-      })
+      const toolNames: string[] = (cfg.tools || cfg.skills) || []
+      if (toolNames.length) {
+        const boxId = nid()
+        ns.push({ id: boxId, kind: 'toolbox', x: 90, y: 330, data: { names: Array.from(new Set(toolNames)) } })
+        es.push({ id: nid(), from: boxId, to: agentId })
+      }
       setNodes(ns)
       setEdges(es)
       setViewport({ x: 0, y: 0, k: 1 })

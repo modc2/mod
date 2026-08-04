@@ -226,7 +226,7 @@
         "gateway_api": "http://localhost:3001/api/copytensor",
         "gateway_app": "http://localhost:3001/copytensor"
     },
-    "version": "0.5.0",
+    "version": "0.6.0",
     "watched_accounts": [
         "5GsbTgfvgCH4xdqSkiPb7EaBBFLHjWH5vfEALhJaewSFpZX9",
         "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",

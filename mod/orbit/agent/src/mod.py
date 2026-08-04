@@ -303,7 +303,10 @@ RULES:
         # resolve provider: shorthand ('venice', 'openrouter') or full module path
         provider = provider or model
         self._provider = self.PROVIDERS.get(provider, provider)
-        self.model = self._make_model()
+        # one live client per provider path, built on demand — a run holds its
+        # own so concurrent runs never trade clients (see _client)
+        self._clients: Dict[str, Any] = {}
+        self.model = self._client()
         # prices each model call from the provider's live catalog, so a guest's
         # credits pay for the provider spend their run actually creates
         self.meter = Meter()
@@ -319,8 +322,8 @@ RULES:
                 return short
         return provider_path
 
-    def _make_model(self):
-        """Build the live model for the active provider.
+    def _make_model(self, provider: str = None):
+        """Build a live model client for one provider path.
 
         A vault-unlocked session key takes priority over the provider's own
         stored/env keys. Returns None instead of raising when no key is
@@ -329,24 +332,46 @@ RULES:
         """
         if not m:
             return None
-        session_key = self._session_keys.get(self._provider_short())
+        provider = provider or self._provider
+        session_key = self._session_keys.get(self._provider_short(provider))
         try:
             if session_key:
-                return m.mod(self._provider)(api_key=session_key)
-            return m.mod(self._provider)()
+                return m.mod(provider)(api_key=session_key)
+            return m.mod(provider)()
         except Exception as e:
-            print(f"Model init failed for {self._provider}: {e}")
+            print(f"Model init failed for {provider}: {e}")
             return None
 
-    def free_model(self) -> Optional[str]:
-        """The best zero-cost model the active provider offers, or None.
+    def _client(self, provider: str = None):
+        """The cached client for a provider — this is what a run must call.
+
+        Behind the API this module is one process-wide singleton, so a run that
+        reads `self.model` reads whatever provider the *last* request selected.
+        Two overlapping runs on different providers then swap clients mid-loop
+        and one provider gets the other's model id ("No model matching
+        'nvidia/...:free' found on Venice"). Resolving per run kills that race.
+        """
+        path = self.PROVIDERS.get(provider, provider) if provider else self._provider
+        if self._clients.get(path) is None:
+            self._clients[path] = self._make_model(path)
+        return self._clients[path]
+
+    def has_model(self, provider: str = None) -> bool:
+        """Can a run on this provider reach a model? Defaults to the module's
+        provider; callers with a request in hand should pass its own."""
+        return self._client(provider) is not None
+
+    def free_model(self, provider: str = None) -> Optional[str]:
+        """The best zero-cost model a provider offers, or None.
 
         Ranked by FREE_MODEL_PREFERENCE — the provider's own free list is in
         catalog order, and its first entry is regularly a tiny or endpointless
-        model that can't drive the loop.
+        model that can't drive the loop. Provider-scoped: a free id is only
+        valid on the catalog it came from.
         """
+        client = self._client(provider)
         try:
-            free = self.model.free_models() if hasattr(self.model, 'free_models') else []
+            free = client.free_models() if hasattr(client, 'free_models') else []
         except Exception as e:
             print(f"Free model lookup failed: {e}")
             return None
@@ -357,9 +382,11 @@ RULES:
         return free[0] if free else None
 
     def set_provider(self, provider: str):
-        """Switch LLM provider at runtime. Use 'openrouter', 'venice', or any module path."""
+        """Switch the module's default LLM provider. Use 'openrouter', 'venice',
+        or any module path. A run passes its provider to run() instead — that
+        one is per-run and leaves this default alone."""
         self._provider = self.PROVIDERS.get(provider, provider)
-        self.model = self._make_model()
+        self.model = self._client()
         return {'provider': self._provider}
 
     # ── tool interface ───────────────────────────────────────────────
@@ -535,22 +562,30 @@ RULES:
             images: image URLs (http or data:) the user attached to the query —
                     sent to the model as a leading multimodal turn.
         """
-        if provider:
-            self.set_provider(provider)
-        if self.model is None:
+        # everything provider-shaped is run-local: the module is shared by every
+        # concurrent run, so nothing here may read or write self.model
+        prov = self.PROVIDERS.get(provider, provider) if provider else self._provider
+        short = self._provider_short(prov)
+        client = self._client(prov)
+        if client is None:
             raise RuntimeError(
-                f"No API key available for provider '{self._provider_short()}'. "
+                f"No API key available for provider '{short}'. "
                 f"Add a key — or unlock your encrypted key — in the Builder (model node).")
         self._on_step = on_step
         self._images = [i for i in (images or []) if isinstance(i, str) and i.strip()][:8]
-        model = model or self.DEFAULT_MODELS.get(self._provider, 'anthropic/claude-opus-5')
+        model = model or self.DEFAULT_MODELS.get(prov, 'anthropic/claude-opus-5')
         # FREE MODE resolves the model here rather than letting the provider
         # grab whatever sorts first: the pick is a deliberate, capable one, and
         # the run ledger records the model that actually ran.
         if free:
-            picked = self.free_model()
-            if picked:
-                model, free = picked, False
+            picked = self.free_model(prov)
+            if not picked:
+                # the provider has no zero-cost catalog — running the requested
+                # paid model would bill the module for a run it never charges
+                raise RuntimeError(
+                    f"FREE MODE has no zero-cost models on '{short}'. "
+                    f"Switch provider, or turn FREE MODE off to run {model}.")
+            model, free = picked, False
         self._allowed_paths = allowed_paths
         query = query + ' ' + ' '.join(extra_text) if extra_text else query
         path = path or (m.dp(mod) if m and mod else os.getcwd())
@@ -578,7 +613,7 @@ RULES:
         self._failed_calls: Dict[str, Dict[str, Any]] = {}
         # start this thread's cost tally — whoever bills the run reads it back
         # with meter.take() once forward() returns
-        self.meter.open(provider=self._provider_short(), model=model)
+        self.meter.open(provider=short, model=model)
         for step_i in range(steps):
             self.memory.update({'step': step_i, 'pwd': path})
             # inject recovery hint after repeated errors
@@ -588,7 +623,7 @@ RULES:
             try:
                 context = str(self.memory.get())
                 output = self.meter.watch(
-                    self.model.forward(
+                    client.forward(
                         context,
                         stream=True,
                         model=model,
@@ -597,7 +632,7 @@ RULES:
                         free=free,
                         **({'history': self._image_turn()} if self._images else {}),
                     ),
-                    model_obj=self.model, provider=self._provider_short(),
+                    model_obj=client, provider=short,
                     model=model, prompt=context,
                 )
                 plan = self.plan(output, safety=safety)
@@ -607,7 +642,7 @@ RULES:
                 # providers raise their own missing-key errors at call time —
                 # point the user at the Builder, where keys are entered
                 if 'api key' in err.lower() or 'api_key' in err.lower():
-                    err = f"{err} — enter your {self._provider_short()} API key in the Builder (model node)."
+                    err = f"{err} — enter your {short} API key in the Builder (model node)."
                 plan = [{'tool': 'error', 'params': {}, 'error': err}]
                 self._emit_step(plan[-1])
             history.append(plan)
@@ -635,7 +670,8 @@ RULES:
         # came back empty), make one last tools-off call for the actual answer
         if history and not self._has_answer(history) \
                 and not any(s.get('tool') == 'error' for s in history[-1]):
-            answer = self._force_answer(model=model, max_tokens=max_tokens,
+            answer = self._force_answer(client=client, short=short, model=model,
+                                        max_tokens=max_tokens,
                                         temperature=temperature, free=free)
             if answer:
                 history[-1] = history[-1] + [answer]
@@ -672,16 +708,18 @@ RULES:
                     return True
         return False
 
-    def _force_answer(self, model, max_tokens, temperature, free) -> Optional[dict]:
+    def _force_answer(self, client, short, model, max_tokens, temperature, free) -> Optional[dict]:
         """One last tools-off model call that turns the run's history into the
-        answer the user reads. Returns a response step, or None if it fails."""
+        answer the user reads. Returns a response step, or None if it fails.
+
+        Takes the run's own client — see _client for why self.model is wrong here."""
         self.memory.add('hint', 'Tool use is over. Using everything in the history '
                                 'above, write your final answer to the user now as '
                                 'plain text — answer what they asked. No tools, no anchors.')
         try:
             context = str(self.memory.get())
             out = self.meter.watch(
-                self.model.forward(
+                client.forward(
                     context,
                     stream=True,
                     model=model,
@@ -690,7 +728,7 @@ RULES:
                     free=free,
                     **({'history': self._image_turn()} if self._images else {}),
                 ),
-                model_obj=self.model, provider=self._provider_short(),
+                model_obj=client, provider=short,
                 model=model, prompt=context,
             )
             steps, raw = self.parse_steps(out)
@@ -1461,9 +1499,12 @@ class Mod(Agent):
                 'configured': True, 'encrypted': False}
 
     def _refresh_model(self, provider: str):
-        """Rebuild the live model if the changed provider is the active one."""
-        if self.PROVIDERS.get(provider, provider) == self._provider:
-            self.model = self._make_model()
+        """Drop the cached client for a provider whose key just changed, so the
+        next run builds one with it."""
+        path = self.PROVIDERS.get(provider, provider)
+        self._clients.pop(path, None)
+        if path == self._provider:
+            self.model = self._client()
 
     # ── encrypted vault ──────────────────────────────────────────────
     #
@@ -1587,7 +1628,8 @@ class Mod(Agent):
             except Exception:
                 self._forget(provider)
         if self._session_keys:
-            self.model = self._make_model()
+            self._clients.clear()
+            self.model = self._client()
 
     def vault_save(self, provider: str, api_key: str, passphrase: str,
                    remember: bool = True) -> dict:

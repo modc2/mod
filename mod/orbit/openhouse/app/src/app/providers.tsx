@@ -13,7 +13,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         hideProgressBar={false}
         newestOnTop
         closeOnClick
-        theme="dark"
+        theme="light"
       />
     </>
   )

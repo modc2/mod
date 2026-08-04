@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lium — bittensor SN51 GPU marketplace</title>
+<style>
+:root{
+  --bg:#05070c; --panel:rgba(255,255,255,.035); --line:rgba(255,255,255,.09);
+  --text:#dde5f2; --dim:#7c8ba3; --acc:#4fd1c5; --acc2:#9d7bff; --warn:#f6c177; --err:#ff6b81; --ok:#3ddc97;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,'Inter',system-ui,sans-serif;min-height:100vh}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(760px 420px at 12% -8%,rgba(79,209,197,.13),transparent 60%),
+             radial-gradient(620px 400px at 96% 0%,rgba(157,123,255,.10),transparent 55%)}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 70px;position:relative}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font-size:21px;letter-spacing:.4px}
+h1 b{color:var(--acc)}
+.tag{font:11px var(--mono);color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:2px 10px}
+.tag.on{color:var(--ok);border-color:rgba(61,220,151,.35)}
+.tag.off{color:var(--err);border-color:rgba(255,107,129,.35)}
+.sub{color:var(--dim);margin:6px 0 18px;font-size:13px}
+.keyrow{display:flex;gap:8px;margin-left:auto;align-items:center}
+.keyrow input{width:250px}
+
+/* tab bar — hover tells you what each one is for */
+nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;position:relative}
+nav button{background:var(--panel);border:1px solid var(--line);color:var(--dim);border-radius:11px;
+  padding:9px 18px;font:600 12px/1 var(--mono);letter-spacing:1.5px;cursor:pointer;position:relative}
+nav button:hover{color:var(--text);border-color:rgba(79,209,197,.4)}
+nav button.on{color:#04121a;background:linear-gradient(135deg,var(--acc),#35b5ab);border-color:transparent}
+nav button[data-tip]:hover::after{content:attr(data-tip);position:absolute;top:calc(100% + 8px);left:0;white-space:nowrap;
+  background:#141a24;border:1px solid var(--line);border-radius:9px;padding:7px 12px;font:12px/1 -apple-system,system-ui,sans-serif;
+  letter-spacing:0;color:var(--text);z-index:9;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;backdrop-filter:blur(8px);margin-bottom:14px}
+.card h2{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.stat{border:1px solid var(--line);border-radius:11px;padding:10px 12px;background:rgba(0,0,0,.25)}
+.stat .v{font:600 19px var(--mono);color:var(--acc)}
+.stat .l{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-top:2px}
+
+table{width:100%;border-collapse:collapse;font:12px var(--mono)}
+th{text-align:left;color:var(--dim);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line);
+  text-transform:uppercase;letter-spacing:.8px;font-size:10.5px;white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px dashed rgba(255,255,255,.05);white-space:nowrap}
+tbody tr:hover{background:rgba(79,209,197,.05)}
+.scroll{overflow:auto;max-height:520px}
+.num{color:var(--acc)}
+.mut{color:var(--dim)}
+.pill{font-size:10.5px;border:1px solid var(--line);border-radius:99px;padding:1px 8px;color:var(--dim)}
+.pill.ok{color:var(--ok);border-color:rgba(61,220,151,.3)}
+.pill.warn{color:var(--warn);border-color:rgba(246,193,119,.3)}
+.pill.err{color:var(--err);border-color:rgba(255,107,129,.3)}
+
+input,select,textarea{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:9px;color:var(--text);
+  padding:8px 11px;font:12.5px var(--mono);outline:none;max-width:100%}
+input:focus,select:focus,textarea:focus{border-color:var(--acc)}
+textarea{width:100%;resize:vertical;min-height:80px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:1px}
+button.go{background:linear-gradient(135deg,var(--acc),#2fa89f);border:0;border-radius:9px;color:#04121a;padding:9px 18px;
+  font-weight:700;cursor:pointer;font-size:12.5px}
+button.go:hover{filter:brightness(1.1)}
+button.go:disabled{opacity:.5;cursor:wait}
+button.ghost{background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);border-radius:8px;
+  padding:5px 11px;font:11px var(--mono);cursor:pointer}
+button.ghost:hover{border-color:var(--acc);color:var(--acc)}
+button.danger:hover{border-color:var(--err);color:var(--err)}
+pre{background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:9px;padding:11px;font:11.5px var(--mono);
+  white-space:pre-wrap;word-break:break-word;max-height:380px;overflow:auto}
+.ok{color:var(--ok)} .bad{color:var(--err)}
+.hint{font-size:11.5px;color:var(--dim);font-family:var(--mono);margin-top:8px}
+.bw{display:flex;align-items:center;gap:7px}
+.bar{height:5px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;flex:1;min-width:60px}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2))}
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media(max-width:900px){.split{grid-template-columns:1fr}}
+.eplist{max-height:430px;overflow:auto;font:11.5px var(--mono)}
+.ep{display:flex;gap:8px;align-items:baseline;padding:5px 7px;border-radius:7px;cursor:pointer;overflow:hidden}
+.ep .p{white-space:nowrap;flex:none}
+.ep:hover{background:rgba(79,209,197,.08)}
+.ep .m{color:var(--acc2);width:52px;flex:none}
+.ep .s{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.log{font:11px var(--mono);max-height:220px;overflow:auto}
+.log div{padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.05);color:var(--dim)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:20;padding:20px}
+.modal.on{display:flex}
+.modal .card{max-width:520px;width:100%;margin:0;background:#0b1017}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>◈ lium <b>· rust mcp</b></h1>
+    <span class="tag" id="netuid">netuid 51</span>
+    <span class="tag" id="up">…</span>
+    <div class="keyrow">
+      <input id="key" type="password" placeholder="Lium API key (this tab only)">
+      <button class="ghost" id="savekey">use key</button>
+    </div>
+  </header>
+  <p class="sub">Rent GPUs from <b>Bittensor subnet 51</b> — every panel below is a JSON-RPC <span style="font-family:var(--mono)">tools/call</span> against this Rust MCP server, which speaks the Lium platform API upstream.</p>
+
+  <nav>
+    <button class="on" data-tab="market" data-tip="Marketplace — every node on the subnet, filter and rent">MARKET</button>
+    <button data-tab="pods" data-tip="Your pods — status, ssh, logs, reboot, stop">PODS</button>
+    <button data-tab="subnet" data-tip="Subnet 51 — supply, utilization, validator weights">SUBNET</button>
+    <button data-tab="api" data-tip="API explorer — endpoints, playground, logs">API</button>
+    <button data-tab="mcp" data-tip="MCP — tool registry, tools/call, client config">MCP</button>
+  </nav>
+
+  <!-- ── MARKET ─────────────────────────────────────────── -->
+  <section id="tab-market">
+    <div class="card">
+      <h2>Filter nodes</h2>
+      <div class="row">
+        <label class="f">gpu<input id="f_gpu" placeholder="H200, 4090…" size="10"></label>
+        <label class="f">max $/gpu-hr<input id="f_price" type="number" step="0.01" size="6" style="width:110px"></label>
+        <label class="f">min gpus<input id="f_min" type="number" size="4" style="width:90px"></label>
+        <label class="f">country<input id="f_country" placeholder="US" size="6" style="width:100px"></label>
+        <label class="f">sort<select id="f_sort">
+          <option value="price">price</option><option value="reliability">reliability</option>
+          <option value="gpu_count">gpu count</option><option value="vram">vram</option><option value="uptime">uptime</option>
+        </select></label>
+        <label class="f">limit<input id="f_limit" type="number" value="40" style="width:80px"></label>
+        <label class="f">free now<select id="f_avail"><option value="false">any</option><option value="true">available</option></select></label>
+        <button class="go" id="f_go" style="margin-top:14px">search</button>
+      </div>
+      <div id="m_count" class="hint">—</div>
+      <div class="scroll"><table id="m_table">
+        <thead><tr><th>gpu</th><th>n</th><th>free</th><th>$/gpu-hr</th><th>$/hr</th><th>vram</th><th>ram</th><th>tier</th><th>rel</th><th>location</th><th>provider</th><th></th></tr></thead>
+        <tbody><tr><td colspan="12" class="mut">loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ── PODS ───────────────────────────────────────────── -->
+  <section id="tab-pods" hidden>
+    <div class="card">
+      <h2>Your pods</h2>
+      <div class="row"><button class="go" id="p_refresh">refresh</button><span class="hint" id="p_note">needs an API key</span></div>
+      <div class="scroll"><table id="p_table">
+        <thead><tr><th>name</th><th>status</th><th>gpu</th><th>$/hr</th><th>ssh</th><th>created</th><th></th></tr></thead>
+        <tbody><tr><td colspan="7" class="mut">—</td></tr></tbody>
+      </table></div>
+      <pre id="p_out" style="margin-top:12px">—</pre>
+    </div>
+  </section>
+
+  <!-- ── SUBNET ─────────────────────────────────────────── -->
+  <section id="tab-subnet" hidden>
+    <div class="card">
+      <h2>Subnet 51 · supply</h2>
+      <div class="stats" id="s_stats"><div class="stat"><div class="v">…</div><div class="l">loading</div></div></div>
+    </div>
+    <div class="split">
+      <div class="card">
+        <h2>Utilization by GPU</h2>
+        <div class="scroll"><table id="s_util"><thead><tr><th>gpu</th><th>rented</th><th>total</th><th style="width:110px">util</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2>Validator weights · latest set</h2>
+        <div id="s_wmeta" class="hint">—</div>
+        <div class="scroll"><table id="s_weights"><thead><tr><th>uid</th><th>weight</th><th>share</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Open capacity · what providers can still bring online</h2>
+      <div class="scroll"><table id="s_cap"><thead><tr><th>model</th><th>bucket</th><th>unrented</th><th>max cap</th><th>$/hr</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- ── API EXPLORER ───────────────────────────────────── -->
+  <section id="tab-api" hidden>
+    <div class="split">
+      <div class="card">
+        <h2>Endpoints · live OpenAPI spec</h2>
+        <div class="row"><input id="e_q" placeholder="filter: pods, executors, volume…" style="flex:1"></div>
+        <div class="eplist" id="e_list">loading…</div>
+      </div>
+      <div class="card">
+        <h2>Playground · your key, upstream Lium</h2>
+        <div class="row">
+          <select id="a_method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select>
+          <input id="a_path" value="/executors/stats" style="flex:1;min-width:180px">
+          <button class="go" id="a_go">run</button>
+        </div>
+        <textarea id="a_body" placeholder='body JSON (POST/PUT/PATCH) — e.g. {"pod_name":"demo"}'></textarea>
+        <pre id="a_out" style="margin-top:10px">—</pre>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Call log</h2>
+      <div class="log" id="a_log"><div class="mut">no calls yet</div></div>
+    </div>
+  </section>
+
+  <!-- ── MCP ────────────────────────────────────────────── -->
+  <section id="tab-mcp" hidden>
+    <div class="split">
+      <div class="card">
+        <h2>Tool registry</h2>
+        <div class="eplist" id="t_list">loading…</div>
+      </div>
+      <div class="card">
+        <h2>tools/call</h2>
+        <div class="row"><select id="t_name" style="flex:1"></select><button class="go" id="t_go">call</button></div>
+        <textarea id="t_args">{}</textarea>
+        <pre id="t_out" style="margin-top:10px">—</pre>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Connect a client</h2>
+      <pre id="t_cfg">—</pre>
+    </div>
+  </section>
+</div>
+
+<!-- rent dialog -->
+<div class="modal" id="rent">
+  <div class="card">
+    <h2>Rent node</h2>
+    <div id="r_node" class="hint" style="margin-bottom:10px">—</div>
+    <div class="row">
+      <label class="f" style="flex:1">pod name<input id="r_name" value="mod-pod"></label>
+      <label class="f">gpus<input id="r_gpus" type="number" style="width:90px"></label>
+      <label class="f">hours<input id="r_hours" type="number" placeholder="∞" style="width:90px"></label>
+    </div>
+    <div class="row"><label class="f" style="flex:1">template<select id="r_tpl" style="width:100%"><option value="">auto — first verified image for this GPU</option></select></label></div>
+    <div class="row"><button class="go" id="r_go">rent — this spends credits</button><button class="ghost" id="r_close">cancel</button></div>
+    <pre id="r_out">—</pre>
+  </div>
+</div>
+
+<script>
+// Behind the fleet router the console lives at /lium and the API at /api/lium;
+// standalone on this port both answer here, so one base works in both worlds.
+const API = location.pathname.startsWith('/lium') ? '/api/lium' : '';
+const $ = (id) => document.getElementById(id);
+let KEY = sessionStorage.getItem('lium_key') || '';
+let rpcId = 0;
+
+function headers(){
+  const h = { 'Content-Type': 'application/json' };
+  if (KEY) h['x-api-key'] = KEY;
+  return h;
+}
+// Every call the console makes lands here, so the API tab's log is the whole
+// truth: playground requests, tool calls, failures and how long each took.
+function logCall(label, status, ms){
+  const el = $('a_log');
+  if (el.firstElementChild && el.firstElementChild.classList.contains('mut')) el.innerHTML = '';
+  const d = document.createElement('div');
+  d.innerHTML = `<span class="${status >= 400 ? 'bad' : 'ok'}">${status}</span> ${label} <span class="mut">${ms}ms</span>`;
+  el.prepend(d);
+}
+async function rpc(method, params){
+  const r = await fetch(API + '/mcp', {
+    method: 'POST', headers: headers(),
+    body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params }),
+  });
+  const m = await r.json();
+  if (m.error) throw new Error(m.error.message);
+  const res = m.result || {};
+  if (res.isError) throw new Error((res.content || [{}])[0].text || 'tool error');
+  return res;
+}
+async function tool(name, args = {}){
+  const t0 = performance.now();
+  // The passthrough tool is logged as the upstream call it really is.
+  const label = name === 'api' ? `${args.method || 'GET'} ${args.path}` : `tools/call ${name}`;
+  try {
+    const res = await rpc('tools/call', { name, arguments: args });
+    logCall(label, 200, Math.round(performance.now() - t0));
+    if (res.structuredContent !== undefined) return res.structuredContent;
+    try { return JSON.parse((res.content || [{}])[0].text); } catch { return res.content; }
+  } catch (e) {
+    logCall(label, 500, Math.round(performance.now() - t0));
+    throw e;
+  }
+}
+const short = (s, n = 10) => (s ? String(s).slice(0, n) + '…' : '—');
+const money = (n) => (n === null || n === undefined ? '—' : '$' + Number(n).toFixed(n < 1 ? 3 : 2));
+
+// ── tabs ───────────────────────────────────────────────
+const loaded = {};
+document.querySelectorAll('nav button').forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('on', x === b));
+    const tab = b.dataset.tab;
+    ['market', 'pods', 'subnet', 'api', 'mcp'].forEach((t) => { $('tab-' + t).hidden = t !== tab; });
+    if (!loaded[tab]) { loaded[tab] = true; ({ pods: loadPods, subnet: loadSubnet, api: loadEndpoints, mcp: loadTools }[tab] || (() => {}))(); }
+  };
+});
+
+// ── key ────────────────────────────────────────────────
+$('key').value = KEY;
+$('savekey').onclick = () => {
+  KEY = $('key').value.trim();
+  sessionStorage.setItem('lium_key', KEY);
+  $('p_note').textContent = KEY ? 'key set for this tab' : 'needs an API key';
+  if (KEY) loadPods();
+};
+
+// ── header status ──────────────────────────────────────
+(async () => {
+  try {
+    const i = await tool('lium_info');
+    $('up').textContent = i.upstream_up ? 'lium.io · up' : 'lium.io · unreachable';
+    $('up').className = 'tag ' + (i.upstream_up ? 'on' : 'off');
+    $('netuid').textContent = 'netuid ' + i.netuid + ' · ' + i.tools + ' tools';
+  } catch (e) {
+    $('up').textContent = 'backend down'; $('up').className = 'tag off';
+  }
+})();
+
+// ── MARKET ─────────────────────────────────────────────
+let TEMPLATES = [];
+async function loadMarket(){
+  const args = { sort: $('f_sort').value, limit: Number($('f_limit').value) || 40 };
+  if ($('f_gpu').value.trim()) args.gpu_type = $('f_gpu').value.trim();
+  if ($('f_price').value) args.max_price = Number($('f_price').value);
+  if ($('f_min').value) args.min_gpus = Number($('f_min').value);
+  if ($('f_country').value.trim()) args.country = $('f_country').value.trim();
+  if ($('f_avail').value === 'true') args.available_only = true;
+  const tb = $('m_table').querySelector('tbody');
+  tb.innerHTML = '<tr><td colspan="12" class="mut">searching…</td></tr>';
+  try {
+    const r = await tool('executors', args);
+    $('m_count').textContent = `${r.count} of ${r.listed} listed nodes`;
+    tb.innerHTML = r.executors.map((e) => `<tr>
+      <td>${e.gpu || '—'}</td><td class="num">${e.gpu_count}</td>
+      <td class="${e.available_gpu_count ? 'num' : 'mut'}">${e.available_gpu_count}</td>
+      <td class="num">${money(e.price_per_gpu_hr)}</td><td>${money(e.price_per_hr)}</td>
+      <td>${e.vram_gb_per_gpu || '—'}G</td><td class="mut">${e.ram_gb || '—'}G</td>
+      <td><span class="pill ${e.tier === 'secure' ? 'ok' : ''}">${e.tier || '—'}</span></td>
+      <td class="mut">${e.reliability ?? '—'}</td><td class="mut">${e.location || '—'}</td>
+      <td class="mut" title="${e.miner_hotkey || ''}">${short(e.miner_hotkey, 8)}</td>
+      <td><button class="ghost" data-rent="${e.id}">rent</button></td></tr>`).join('') ||
+      '<tr><td colspan="12" class="mut">no nodes match</td></tr>';
+    tb.querySelectorAll('[data-rent]').forEach((b) => {
+      b.onclick = () => openRent(r.executors.find((e) => e.id === b.dataset.rent));
+    });
+  } catch (e) {
+    tb.innerHTML = `<tr><td colspan="12" class="bad">${e.message}</td></tr>`;
+  }
+}
+$('f_go').onclick = loadMarket;
+$('f_gpu').onkeydown = (e) => { if (e.key === 'Enter') loadMarket(); };
+loadMarket();
+
+// ── rent dialog ────────────────────────────────────────
+let RENT_NODE = null;
+async function openRent(node){
+  RENT_NODE = node;
+  $('rent').classList.add('on');
+  $('r_out').textContent = KEY ? '—' : 'no API key set — add one in the header first';
+  $('r_node').innerHTML = `<b>${node.gpu}</b> ×${node.gpu_count} · ${money(node.price_per_gpu_hr)}/gpu-hr ·
+    ${money(node.price_per_hr)}/hr all-in · ${node.location} · <span class="mut">${node.id}</span>`;
+  $('r_gpus').value = node.available_gpu_count || node.gpu_count;
+  if (!TEMPLATES.length) {
+    try {
+      const t = await tool('templates', { gpu_model: node.gpu, driver_version: node.driver || '', limit: 40 });
+      TEMPLATES = t.templates || [];
+      $('r_tpl').innerHTML = '<option value="">auto — first verified image for this GPU</option>' +
+        TEMPLATES.map((x) => `<option value="${x.id}">${x.name} · ${x.image}</option>`).join('');
+    } catch (e) { /* auto-pick still works server-side */ }
+  }
+}
+$('r_close').onclick = () => $('rent').classList.remove('on');
+$('r_go').onclick = async () => {
+  const args = { executor_id: RENT_NODE.id, name: $('r_name').value.trim() || 'mod-pod' };
+  if ($('r_gpus').value) args.gpu_count = Number($('r_gpus').value);
+  if ($('r_hours').value) args.termination_hours = Number($('r_hours').value);
+  if ($('r_tpl').value) args.template_id = $('r_tpl').value;
+  $('r_out').textContent = 'renting…';
+  try {
+    const r = await tool('up', args);
+    $('r_out').innerHTML = '<span class="ok">rented</span>\n' + JSON.stringify(r.rented, null, 2);
+    loadPods();
+  } catch (e) { $('r_out').innerHTML = `<span class="bad">${e.message}</span>`; }
+};
+
+// ── PODS ───────────────────────────────────────────────
+async function loadPods(){
+  const tb = $('p_table').querySelector('tbody');
+  if (!KEY) { tb.innerHTML = '<tr><td colspan="7" class="mut">set an API key to see your pods</td></tr>'; return; }
+  tb.innerHTML = '<tr><td colspan="7" class="mut">loading…</td></tr>';
+  try {
+    const r = await tool('pods');
+    $('p_note').textContent = `${r.count} pod(s)`;
+    tb.innerHTML = r.pods.map((p) => `<tr>
+      <td>${p.name || '—'}</td>
+      <td><span class="pill ${/RUNNING/i.test(p.status) ? 'ok' : /FAIL|ERROR/i.test(p.status) ? 'err' : 'warn'}">${p.status || '—'}</span></td>
+      <td class="mut">${p.gpu || '—'} ×${p.gpu_count ?? '?'}</td><td class="num">${money(p.price_per_hr)}</td>
+      <td class="mut" title="${p.ssh || ''}">${p.ssh ? p.ssh.slice(0, 34) + '…' : '—'}</td>
+      <td class="mut">${(p.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+      <td>
+        <button class="ghost" data-logs="${p.id}">logs</button>
+        <button class="ghost" data-reboot="${p.id}">reboot</button>
+        <button class="ghost danger" data-down="${p.id}">stop</button>
+      </td></tr>`).join('') || '<tr><td colspan="7" class="mut">no pods running</td></tr>';
+    const act = async (name, args, verb) => {
+      $('p_out').textContent = verb + '…';
+      try { $('p_out').textContent = JSON.stringify(await tool(name, args), null, 2); loadPods(); }
+      catch (e) { $('p_out').innerHTML = `<span class="bad">${e.message}</span>`; }
+    };
+    tb.querySelectorAll('[data-logs]').forEach((b) => b.onclick = () => act('logs', { pod_id: b.dataset.logs, tail: 200 }, 'fetching logs'));
+    tb.querySelectorAll('[data-reboot]').forEach((b) => b.onclick = () => act('reboot', { pod_id: b.dataset.reboot }, 'rebooting'));
+    tb.querySelectorAll('[data-down]').forEach((b) => b.onclick = () => {
+      if (confirm('Stop this pod? The rental ends and the container is removed.')) act('down', { pod_id: b.dataset.down }, 'stopping');
+    });
+  } catch (e) {
+    tb.innerHTML = `<tr><td colspan="7" class="bad">${e.message}</td></tr>`;
+  }
+}
+$('p_refresh').onclick = loadPods;
+
+// ── SUBNET ─────────────────────────────────────────────
+async function loadSubnet(){
+  try {
+    const s = await tool('subnet');
+    const m = s.marketplace;
+    $('s_stats').innerHTML = [
+      ['nodes', m.nodes_total ?? m.nodes_listed], ['gpus', m.gpus], ['gpus free', m.gpus_available],
+      ['providers', m.providers], ['validators', m.validators], ['listed $/hr', money(m.listed_value_per_hr_usd)],
+    ].map(([l, v]) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+
+    $('s_util').querySelector('tbody').innerHTML = (s.utilization_by_gpu || [])
+      .sort((a, b) => b.all_count - a.all_count)
+      .map((u) => `<tr><td>${u.gpu_type}</td><td class="num">${u.rented_count}</td><td>${u.all_count}</td>
+        <td><div class="bw"><div class="bar"><i style="width:${u.percentage}%"></i></div><span class="mut">${u.percentage}%</span></div></td></tr>`).join('');
+
+    const w = s.weights || {};
+    $('s_wmeta').innerHTML = `validator <span class="mut">${short(w.validator_key, 12)}</span> ·
+      ${w.scored_uids} uids scored · version ${w.version_key ?? '—'}`;
+    $('s_weights').querySelector('tbody').innerHTML = (w.top_uids || [])
+      .map((u) => `<tr><td class="num">${u.uid}</td><td>${u.weight}</td>
+        <td><div class="bw"><div class="bar"><i style="width:${Math.min(100, u.share)}%"></i></div><span class="mut">${u.share}%</span></div></td></tr>`).join('');
+
+    const caps = [];
+    (s.capacity || []).forEach((c) => Object.entries(c.buckets || {}).forEach(([k, b]) =>
+      caps.push(`<tr><td>${c.base_model}</td><td class="mut">${k}×</td><td class="num">${b.unrented_count}</td>
+        <td>${b.max_cap}</td><td>${money(b.hourly_rate)}</td></tr>`)));
+    $('s_cap').querySelector('tbody').innerHTML = caps.join('');
+  } catch (e) {
+    $('s_stats').innerHTML = `<div class="bad">${e.message}</div>`;
+  }
+}
+
+// ── API EXPLORER ───────────────────────────────────────
+let EPS = [];
+function renderEndpoints(){
+  const q = $('e_q').value.toLowerCase();
+  const rows = EPS.filter((e) => !q || (e.path + e.summary + e.tag).toLowerCase().includes(q)).slice(0, 400);
+  $('e_list').innerHTML = rows.map((e, i) => `<div class="ep" data-i="${i}">
+      <span class="m">${e.method}</span><span class="p">${e.path}</span>
+      ${e.auth ? '<span class="pill">key</span>' : ''}
+      <span class="s">${e.summary}</span></div>`).join('') || '<div class="mut">no match</div>';
+  $('e_list').querySelectorAll('.ep').forEach((el) => el.onclick = () => {
+    const e = rows[Number(el.dataset.i)];
+    $('a_method').value = e.method;
+    $('a_path').value = e.path;
+  });
+}
+async function loadEndpoints(){
+  try {
+    const r = await tool('endpoints');
+    EPS = r.endpoints;
+    $('e_q').oninput = renderEndpoints;
+    renderEndpoints();
+    $('e_q').placeholder = `filter ${r.count} operations · Lium API ${r.version}`;
+  } catch (e) { $('e_list').innerHTML = `<div class="bad">${e.message}</div>`; }
+}
+$('a_go').onclick = async () => {
+  const args = { method: $('a_method').value, path: $('a_path').value.trim() };
+  const raw = $('a_body').value.trim();
+  if (raw) { try { args.body = JSON.parse(raw); } catch { $('a_out').innerHTML = '<span class="bad">body is not valid JSON</span>'; return; } }
+  $('a_out').textContent = 'calling…';
+  try { $('a_out').textContent = JSON.stringify(await tool('api', args), null, 2); }
+  catch (e) { $('a_out').innerHTML = `<span class="bad">${e.message}</span>`; }
+};
+
+// ── MCP ────────────────────────────────────────────────
+async function loadTools(){
+  try {
+    const r = await (await fetch(API + '/tools')).json();
+    const tools = r.tools || [];
+    $('t_list').innerHTML = tools.map((t) => `<div class="ep" data-n="${t.name}">
+      <span class="m" style="width:auto;color:var(--acc)">${t.name}</span>
+      <span class="s">${t.description}</span></div>`).join('');
+    $('t_name').innerHTML = tools.map((t) => `<option>${t.name}</option>`).join('');
+    const fill = (name) => {
+      $('t_name').value = name;
+      const t = tools.find((x) => x.name === name);
+      const props = (t.inputSchema || {}).properties || {};
+      const req = (t.inputSchema || {}).required || [];
+      const skel = {};
+      Object.entries(props).forEach(([k, v]) => { if (req.includes(k) || v.default !== undefined) skel[k] = v.default ?? ''; });
+      $('t_args').value = JSON.stringify(skel, null, 2);
+    };
+    $('t_list').querySelectorAll('.ep').forEach((el) => el.onclick = () => fill(el.dataset.n));
+    $('t_name').onchange = () => fill($('t_name').value);
+    fill(tools[0].name);
+    const origin = location.origin + (location.pathname.startsWith('/lium') ? '/lium/_api' : '');
+    $('t_cfg').textContent =
+      `# Streamable HTTP\n{"mcpServers":{"lium":{"url":"${origin}/mcp"}}}\n\n` +
+      `# stdio\nclaude mcp add lium -- /root/mod/mod/orbit/lium/lium-rs/target/release/lium-api --stdio\n\n` +
+      `# key: x-api-key header, LIUM_API_KEY, or ~/.mod/lium/api_key`;
+  } catch (e) { $('t_list').innerHTML = `<div class="bad">${e.message}</div>`; }
+}
+$('t_go').onclick = async () => {
+  let args = {};
+  try { args = JSON.parse($('t_args').value || '{}'); }
+  catch { $('t_out').innerHTML = '<span class="bad">arguments are not valid JSON</span>'; return; }
+  Object.keys(args).forEach((k) => { if (args[k] === '') delete args[k]; });
+  $('t_out').textContent = 'calling…';
+  try { $('t_out').textContent = JSON.stringify(await tool($('t_name').value, args), null, 2); }
+  catch (e) { $('t_out').innerHTML = `<span class="bad">${e.message}</span>`; }
+};
+</script>
+</body>
+</html>

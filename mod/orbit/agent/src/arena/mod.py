@@ -79,6 +79,11 @@ DEFAULTS = {
     "poll_seconds": 60,
     "tasks_per_round": 3,    # rotated through the pool, season by season
     "max_matches": 40,       # hard ceiling on one round
+    # a second ceiling in the unit that actually costs money: a round stops
+    # once its matches have burned this many tokens. 0 = no ceiling, which is
+    # the default because `free` already makes a round cost $0 — set it when
+    # ranking on paid models, where the bill is real
+    "max_tokens": 0,
     "harnesses": False,      # CLI-backed agents run the host's own shell — opt in
     "agents": None,          # None = every eligible agent
     "suites": None,          # None = every eval suite
@@ -94,6 +99,17 @@ MAX_MATCH_LINES = 5000
 
 def _now() -> float:
     return time.time()
+
+
+def _tokens_of(usage: Dict[str, Any]) -> int:
+    """Total tokens a run reported, both directions. Never raises."""
+    total = 0
+    for field in ("prompt_tokens", "completion_tokens"):
+        try:
+            total += int(float((usage or {}).get(field, 0) or 0))
+        except (TypeError, ValueError):
+            pass
+    return total
 
 
 class Arena:
@@ -174,7 +190,7 @@ class Arena:
         if r is None:
             r = {"elo": ELO_START, "matches": 0, "wins": 0, "losses": 0, "draws": 0,
                  "score_sum": 0.0, "seconds_sum": 0.0, "cost_sum": 0.0,
-                 "first_seen": _now(), "last": 0, "per_task": {}}
+                 "tokens_sum": 0, "first_seen": _now(), "last": 0, "per_task": {}}
             self._state["ratings"][agent] = r
         r.setdefault("per_task", {})
         return r
@@ -474,6 +490,9 @@ class Arena:
             "model": (usage or {}).get("model") or model,
             "seconds": seconds,
             "cost": round(float((usage or {}).get("cost", 0.0) or 0.0), 6),
+            # what the match actually burned. On free models cost is 0, so
+            # tokens are the only honest measure of what the board costs to run
+            "tokens": _tokens_of(usage),
             "error": error,
             "budget": limit,
             "attempt": attempt,
@@ -498,6 +517,7 @@ class Arena:
         r["score_sum"] = round(r.get("score_sum", 0.0) + match["score"], 4)
         r["seconds_sum"] = round(r.get("seconds_sum", 0.0) + match["seconds"], 2)
         r["cost_sum"] = round(r.get("cost_sum", 0.0) + match.get("cost", 0.0), 6)
+        r["tokens_sum"] = int(r.get("tokens_sum", 0)) + int(match.get("tokens", 0))
         r["last"] = match["ts"]
         per = r["per_task"].setdefault(match["task"], {"n": 0, "best": 0.0, "last": 0.0})
         per["n"] += 1
@@ -567,17 +587,27 @@ class Arena:
             pool = ([self.task(t) for t in tasks] if tasks else self.round_tasks())
             cfg = self.config()
             budget = int(cfg.get("max_matches", 40))
-            played, results = [], {}
+            token_cap = int(cfg.get("max_tokens", 0) or 0)
+            played, results, tokens, capped_by = [], {}, 0, None
             for spec in pool:
+                if capped_by:
+                    break
                 # an eval can name the subjects it applies to
                 allowed = self.evals.get(spec["suite"]).get("agents")
                 for agent in field:
                     if allowed and agent not in allowed:
                         continue
                     if len(played) >= budget:
+                        capped_by = "max_matches"
+                        break
+                    # checked before the match, not after: the cap is there to
+                    # stop the spend, and a match already run is already paid for
+                    if token_cap and tokens >= token_cap:
+                        capped_by = "max_tokens"
                         break
                     match = self.run_match(agent, spec, reason=reason)
                     played.append(match)
+                    tokens += int(match.get("tokens", 0))
                     if not match["void"]:
                         results.setdefault(spec["key"], []).append((agent, match["score"]))
             for key, entries in results.items():
@@ -592,7 +622,11 @@ class Arena:
                 "agents": field,
                 "tasks": [t["key"] for t in pool],
                 "matches": len(played),
+                "tokens": tokens,
                 "capped": len(played) >= budget,
+                # which ceiling ended the round early, if either did — a short
+                # round should say why rather than read as "everyone played"
+                "capped_by": capped_by,
             }
             rounds = self._state.setdefault("rounds", [])
             rounds.append(summary)
@@ -615,13 +649,19 @@ class Arena:
             return {"error": "a round is already running", "running": self._running}
         try:
             pool = self.qualifier_tasks(agent)
-            played = []
+            token_cap = int(self.config().get("max_tokens", 0) or 0)
+            played, tokens = [], 0
             for spec in pool:
                 allowed = self.evals.get(spec["suite"]).get("agents")
                 if allowed and agent not in allowed:
                     continue
+                # one newcomer can arrive at any hour, so the qualifier answers
+                # to the same ceiling a scheduled round does
+                if token_cap and tokens >= token_cap:
+                    break
                 match = self.run_match(agent, spec, reason=reason or f"qualifier:{agent}")
                 played.append(match)
+                tokens += int(match.get("tokens", 0))
                 if match["void"]:
                     continue
                 entries = [(agent, match["score"])]
@@ -634,8 +674,8 @@ class Arena:
                 self._rate(spec["key"], entries)
             self._mark_seen(agent)
             return {"agent": agent, "qualified": True, "matches": len(played),
-                    "tasks": [t["key"] for t in pool], "results": played,
-                    "elo": self._rating(agent)["elo"]}
+                    "tokens": tokens, "tasks": [t["key"] for t in pool],
+                    "results": played, "elo": self._rating(agent)["elo"]}
         finally:
             self._lock.release()
 
@@ -661,6 +701,9 @@ class Arena:
                 "avg_score": round(r.get("score_sum", 0.0) / n, 4),
                 "avg_seconds": round(r.get("seconds_sum", 0.0) / n, 2),
                 "cost": round(r.get("cost_sum", 0.0), 6),
+                # on free models cost stays 0 — tokens are what a rank cost
+                "tokens": int(r.get("tokens_sum", 0)),
+                "avg_tokens": int(r.get("tokens_sum", 0) / n),
                 "tasks": len(r.get("per_task", {})),
                 # matches the provider voided — not losses, but worth seeing:
                 # a field full of them means the free endpoint is the problem
@@ -716,6 +759,8 @@ class Arena:
             "rounds": (self._state.get("rounds") or [])[-5:],
             "matches": sum(r.get("matches", 0)
                            for r in self._state.get("ratings", {}).values()),
+            "tokens": sum(int(r.get("tokens_sum", 0))
+                          for r in self._state.get("ratings", {}).values()),
         }
 
     # ── mod protocol ───────────────────────────────────────────────

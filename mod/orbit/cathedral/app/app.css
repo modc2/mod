@@ -129,6 +129,8 @@ button.go:hover { filter: brightness(1.12); }
 button.go[disabled] { background: var(--stone-2); border-color: var(--edge); color: var(--dim); cursor: not-allowed; filter: none; }
 button.ghost { background: transparent; border: 1px solid var(--edge); color: var(--dim); }
 button.ghost:hover { color: var(--ink); border-color: var(--accent); }
+button.ghost[disabled] { opacity: .38; cursor: not-allowed; }
+button.ghost[disabled]:hover { color: var(--dim); border-color: var(--edge); }
 
 .authorize {
   margin: 12px 0; padding: 10px 12px; border-radius: 8px;
@@ -156,6 +158,31 @@ tr:last-child td { border-bottom: 0; }
 .pill { font-size: 10px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--edge); color: var(--dim); }
 .pill.pass { color: var(--pass); border-color: #1f4c3e; }
 .pill.fail { color: var(--fail); border-color: #4c1f22; }
+
+/* ── the compute inventory ──────────────────────────────────────── */
+
+.summary {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  color: var(--dim); font-size: 12px; margin-bottom: 14px;
+}
+.summary b { color: var(--ink); font-family: var(--serif); font-size: 16px; }
+.summary .dots { display: inline-flex; gap: 6px; margin-left: auto; }
+
+.rig-head { margin-bottom: 4px; }
+.rig-name { font-family: var(--serif); font-size: 18px; letter-spacing: .02em; }
+.rig-head code { margin-left: 8px; font-size: 12px; }
+.inline-fine { margin-left: 8px; }
+.rig .fine { max-width: 76ch; }
+.rig table { margin-top: 12px; }
+.rig .unit { color: var(--dim); font-size: 10px; }
+
+.specs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.specs span {
+  font-size: 11px; padding: 2px 8px; border-radius: 6px;
+  background: var(--stone-2); border: 1px solid var(--edge); color: var(--dim);
+}
+
+.pill.warn { color: var(--warn); border-color: #4c3d16; }
 
 .money { font-family: var(--serif); font-size: 30px; color: var(--ink); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }

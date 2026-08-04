@@ -14,7 +14,18 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    // data-mode carries the skin (see the DIGITAL block in globals.css). Paper
+    // is the default; the blocking script below upgrades it to the saved mode
+    // before the first paint, so a digital-mode visitor never sees a flash of
+    // pastel paper. The nav chip in page.tsx writes the same key.
+    <html lang="en" data-mode="paper" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: 'try{if(localStorage.getItem("openhouse_mode")==="digital")document.documentElement.setAttribute("data-mode","digital")}catch(e){}',
+          }}
+        />
+      </head>
       <body suppressHydrationWarning>
         <Providers>
           {children}

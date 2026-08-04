@@ -1,7 +1,7 @@
 {
     "name": "openhouse",
     "description": "Rent-to-own, on-chain \u2014 the protocol takes 1\u20135% (owner-set, capped in the contract) and 95\u201399% of every payment stays with the property as renter equity and owner income",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "port": 50130,
     "app_port": 50131,
     "urls": {

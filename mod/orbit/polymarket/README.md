@@ -286,6 +286,35 @@ m polymarket/sync now=true       # run one cycle now
 
 `POLYMARKET_SYNC_INTERVAL_SECS` seeds the cadence on a deployment that has never been configured; after the first owner change, `sync.json` wins.
 
+### Reading the live engine's heartbeat
+
+Every cycle logs one line, and it now says what actually happened:
+
+```
+polled 1 traders · 4 new trades observed · 4 BUY(s) gated (4 price<60¢)
+```
+
+- **`N new trades observed`** counts the trades this cycle pulled *past each trader's cursor*. It used to count observed trades stamped after the cycle began — but a leader trade is timestamped when *they* traded, always before we polled for it, so that read `0` on virtually every cycle and a perfectly healthy engine looked asleep.
+- **`N BUY(s) gated (…)`** names the gate that dropped this cycle's entries: `price<60¢` (the implicit favorites-only floor when a strat sets no price band), `price`, `side`, `size`, `category`, `market query`. A strat whose filters exclude 100% of its leaders' flow is a *filter decision*, not a fault — but silently dropping those candidates made it indistinguishable from a broken engine.
+
+Candidates that clear the gates and are then skipped downstream still log their own `SKIP` line (`TOO_SOON`, `SUB_SCALE`, `REBALANCE_SKIP`, …).
+
+### Warmed candidate pool (a trap)
+
+The background sync aggregates each window at **`pool=2000`**, and the pipeline cache is keyed `days:minPerDay:pool`. A *paged* request for any other pool is a different key, and a cold paged key returns `{"cold": true, "traders": []}` instead of computing — by design, so a page load can't block on a 10-minute sweep.
+
+So a leaderboard read that omits `pool` (server default 1000) gets an empty list **forever**, no matter how warm the cache is. That's what made forking a recommended strat seed zero traders. Every console read now asks for `WARMED_CANDIDATE_POOL` (`app/lib/polymarket.ts`); if you add another leaderboard call site, pass that constant.
+
+### The STRAT HUB (`/strats`)
+
+The front door to `/strats` is a card grid, and each card's headline is its **N-day backtest** — the same replay engine (`app/lib/backtest.ts`) the BACKTEST tab and the live engine share, run over the same window for every card, so the numbers are comparable. Cards used to print `lastPnl`, a leftover from whatever window that strat was last opened with.
+
+- **Window pills** (1D / 3D / 7D / 14D / 30D) re-measure the whole grid. Runs are cached per card *and* per window (`poly_hub_backtest_v1`, 5-minute TTL), so switching back is instant; `↻ RERUN` forces a fresh pass. 30 days is the ceiling — see `MAX_LOOKBACK_DAYS`.
+- **Search** filters saved strats and recommendations together, over names, descriptions and filter chips (`"sports"`, `"buys only"`, `"top 5"`). Every term must match.
+- **RECOMMENDED strats are backtested too.** A template is materialized into exactly the `SavedIndex` forking it would create — seeded from today's leaderboard via `templateIndex` / `templateRoster` in `app/lib/defaultStrats.ts` — and *that* is what gets replayed, from the same cached roster the fork will use. The number on the card is the strat you actually get.
+- Those rosters are picked *by* trailing P&L over the window they're then scored on, so a recommendation's number is survivorship-biased by construction. The section header says so: **upper bound, not a forecast**. A saved strat carries no such bias — its traders were chosen before the window it's measured over.
+- A strat with nothing to copy reports the reason (`no traders to copy`, `originates its own trades`, `every candidate was filtered out`) instead of a `$0` that reads as breaking even.
+
 ### URL Sync
 
 All filter state is serialized to URL params via `FiltersContext` so search results are shareable:
