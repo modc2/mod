@@ -1,6 +1,6 @@
 {
     "name": "prefi",
-    "description": "Trading protocol on Base \u2014 profit to treasury, earn PREFI, stake for weekly claims",
+    "description": "Trading protocol on Base \u2014 profit to treasury, earn PREFI, burn it to call tomorrow's price, stake for weekly claims",
     "anchor": "mod.py",
     "network": "baseSepolia",
     "port": 50410,
@@ -18,10 +18,21 @@
         "status",
         "seed",
         "add_market",
+        "add_hl_market",
+        "hl_assets",
         "list_markets",
         "open_position",
         "close_position",
         "get_positions",
+        "predict",
+        "resolve_predictions",
+        "get_predictions",
+        "prediction_board",
+        "prefi_balance",
+        "get_scoring",
+        "set_scoring",
+        "scoring_models",
+        "score_preview",
         "lock_prefi",
         "extend_lock",
         "unlock_prefi",
@@ -39,5 +50,5 @@
         "serve_app",
         "kill"
     ],
-    "schema": "QmPJsh7q6s54zKjsmp8mf7tVRGaJBAR9ykexN3JBTJeGsa"
+    "schema": "QmSurfPkEKCdFt9bV4E5fMBwKPptZ3XCWDQ9AB1o936vyY"
 }

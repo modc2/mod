@@ -262,8 +262,8 @@ export default function TraderProfile({
       if (categoryFilter && !matchMarketCategory(t.market, categoryFilter)) return false;
       // The FILTERS bar — side / entry price / size / keyword.
       if (!bar.matches(t)) return false;
-      // Same gate the copy engine applies — incl. the default 60¢ BUY floor
-      // when the strat has no explicit price band.
+      // The same gate the copy engine applies — the strat's own filters and
+      // nothing else.
       if (stratFilters && !tradeMatchesFilters(t, stratFilters)) return false;
       return true;
     });
@@ -666,10 +666,7 @@ export default function TraderProfile({
             STRAT FILTER{stratFilterName ? ` — ${stratFilterName.toUpperCase()}` : ""}
           </span>
           <span className="border-2 border-pixel-white px-2 py-1 text-[13px] font-mono text-pixel-white">
-            {describeTradeFilters(stratFilters) || "defaults"}
-            {stratFilters.minPrice == null && stratFilters.maxPrice == null
-              ? " · entries ≥60¢ (default)"
-              : ""}
+            {describeTradeFilters(stratFilters) || "no filters — every trade"}
           </span>
           <span className="text-[12px] text-pixel-gray tracking-wider">
             SHOWING ONLY TRADES THIS STRAT WOULD COPY

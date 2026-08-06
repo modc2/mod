@@ -155,7 +155,10 @@ bloctime/
 │   └── mod.py              # contracts module
 ├── api/api.py              # FastAPI backend (port 8851)
 ├── app/                    # Next.js frontend (port 8852)
-│   └── src/app/page.tsx    # Staking UI
+│   ├── src/app/page.tsx      # Staking UI
+│   ├── src/app/globals.css   # design tokens + the 11 skins
+│   ├── src/app/theme.tsx     # skin context, pre-paint boot, chart colours
+│   └── src/app/ThemePicker.tsx
 ├── scripts/deploy.js       # Hardhat deploy script
 ├── test/weekly.test.js     # Weekly pot schedule + payout tests (npx hardhat test)
 ├── hardhat.config.js       # Solidity compiler config
@@ -172,6 +175,12 @@ bloctime/
 - Position table with lock status, BLOC earned, unstake button
 - Deploy tab — deploy new contract + set multiplier curve points via MetaMask
 - Update banner — checks `/check_update` on load + every 5min, shows commits behind
+- **Skins** — 11 of them (MIDNIGHT default, plus SLATE, VAULT, TERMINAL, AMBER,
+  NEON, BLUEPRINT, PIXEL and the light PAPER / MINT / SOLAR), picked from the
+  header. Colours, radii, fonts and backdrop are all CSS vars, so a skin is one
+  `[data-theme="…"]` block in `globals.css` — no component ever names a hue.
+  Add one by copying a block, restating every token, and adding a row to
+  `THEMES` in `src/app/theme.tsx`.
 
 ## Env
 

@@ -1,141 +1,1418 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dmg">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>targon — Bittensor SN4 compute</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>targon — Bittensor SN4 GPU compute</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='2' fill='%23c9c5bd'/%3E%3Crect x='3' y='3' width='10' height='8' fill='%239bbc0f' stroke='%230f380f'/%3E%3Crect x='5' y='12' width='2' height='2' fill='%230f380f'/%3E%3Crect x='9' y='12' width='2' height='2' fill='%230f380f'/%3E%3C/svg%3E">
+<script>
+  // Stamp the saved theme before first paint so the shell never flashes green
+  // on its way to whatever the user actually picked.
+  try {
+    var t = localStorage.getItem('targon.theme');
+    if (t) document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+</script>
 <style>
-  :root { --bg:#07090c; --panel:#0e1218; --line:#1d2530; --fg:#dfe6f0; --dim:#7b8798;
-          --accent:#4ade80; --warn:#fbbf24; --danger:#f87171; }
-  * { box-sizing:border-box }
-  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace }
-  header { display:flex; gap:16px; align-items:baseline; padding:16px 20px; border-bottom:1px solid var(--line) }
-  h1 { margin:0; font-size:16px; letter-spacing:.14em; text-transform:uppercase }
-  .sub { color:var(--dim); font-size:12px }
-  main { padding:20px; max-width:1100px }
-  nav { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap }
-  button { background:var(--panel); color:var(--fg); border:1px solid var(--line); padding:6px 12px;
-           border-radius:4px; cursor:pointer; font:inherit }
-  button:hover { border-color:var(--accent) }
-  button.on { border-color:var(--accent); color:var(--accent) }
-  input { background:var(--panel); color:var(--fg); border:1px solid var(--line); padding:6px 10px;
-          border-radius:4px; font:inherit; min-width:280px }
-  table { width:100%; border-collapse:collapse; margin-top:12px }
-  th,td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); font-size:13px }
-  th { color:var(--dim); font-weight:400; text-transform:uppercase; font-size:11px; letter-spacing:.08em }
-  tr:hover td { background:var(--panel) }
-  .num { text-align:right; font-variant-numeric:tabular-nums }
-  .ok { color:var(--accent) } .none { color:var(--dim) } .err { color:var(--danger) }
-  pre { background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:12px;
-        overflow:auto; max-height:60vh; font-size:12px }
-  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap }
-  .hint { color:var(--dim); font-size:12px; margin-top:10px }
+/* ── Palettes ──────────────────────────────────────────────────────
+   Every theme is the same token set: the plastic shell (three shades of
+   it plus --plate, the ink that reads on it), the LCD field, the screen
+   ink, and the status inks. Nothing below this block names a colour, so
+   a new console skin is one more rule. */
+:root,
+:root[data-theme="dmg"] {                 /* DMG-01 — the original grey brick */
+  --shell:#c9c5bd; --shell-hi:#e8e4dc; --shell-lo:#8e8a83; --bezel:#3f4149;
+  --screen:#9bbc0f; --screen-lo:#8bac0f;
+  --ink:#0f380f; --dim:#306230; --line:#0f380f;
+  --acc:#0f380f; --ok:#265c26; --warn:#5a4a00; --err:#5c1010; --led:#e05252; --plate:#3f4149;
+}
+:root[data-theme="pocket"] {              /* Game Boy Pocket — true black on grey */
+  --shell:#2e3033; --shell-hi:#45484c; --shell-lo:#1a1c1f; --bezel:#0d0e10;
+  --screen:#c8cbc0; --screen-lo:#b4b8ac;
+  --ink:#16181a; --dim:#5a5f63; --line:#16181a;
+  --acc:#16181a; --ok:#1f4d2b; --warn:#5c4300; --err:#6b1414; --led:#e05252; --plate:#c8cbc0;
+}
+:root[data-theme="light"] {               /* Game Boy Light — backlit teal, gold shell */
+  --shell:#d3b061; --shell-hi:#eed896; --shell-lo:#9c7f38; --bezel:#2b2416;
+  --screen:#0a5c52; --screen-lo:#07463f;
+  --ink:#7ef7d8; --dim:#3fa892; --line:#12897a;
+  --acc:#a9ffe8; --ok:#7ef7d8; --warn:#ffd479; --err:#ff8f7a; --led:#ff5a3c; --plate:#2b2416;
+}
+:root[data-theme="vboy"] {                /* Virtual Boy — red LEDs in the dark */
+  --shell:#160404; --shell-hi:#2a0808; --shell-lo:#0a0202; --bezel:#000;
+  --screen:#0c0000; --screen-lo:#160202;
+  --ink:#ff3b19; --dim:#8e1f0c; --line:#7a1a09;
+  --acc:#ff6a4d; --ok:#ff3b19; --warn:#ffa07a; --err:#ff9d8a; --led:#ff3b19; --plate:#ff3b19;
+}
+:root[data-theme="sgb"] {                 /* Super Game Boy — SNES purple */
+  --shell:#5a4f9c; --shell-hi:#7a6dc4; --shell-lo:#3b3370; --bezel:#241f4a;
+  --screen:#d6d2f5; --screen-lo:#c2bde8;
+  --ink:#241f4a; --dim:#5f5891; --line:#3b3370;
+  --acc:#3b1f8f; --ok:#1f6b3d; --warn:#7a5200; --err:#8b1338; --led:#f04c78; --plate:#f0eeff;
+}
+:root[data-theme="micro"] {               /* Game Boy Micro — tiny screen, big contrast */
+  --shell:#121316; --shell-hi:#22242a; --shell-lo:#08090b; --bezel:#000;
+  --screen:#05070c; --screen-lo:#0b0f16;
+  --ink:#d8e4f2; --dim:#6d7c92; --line:#2a3444;
+  --acc:#4fd1c5; --ok:#3ddc97; --warn:#f6c177; --err:#ff6b81; --led:#4fd1c5; --plate:#d8e4f2;
+}
+:root[data-theme="crt"] {                 /* Amber terminal — the machine before the toy */
+  --shell:#17140d; --shell-hi:#2a251a; --shell-lo:#0b0906; --bezel:#000;
+  --screen:#0d0b06; --screen-lo:#141007;
+  --ink:#ffb000; --dim:#8a6000; --line:#4a3400;
+  --acc:#ffd166; --ok:#c6e000; --warn:#ffd166; --err:#ff6b3d; --led:#ffb000; --plate:#ffb000;
+}
+:root[data-theme="paper"] {               /* Instruction manual — printed, not lit */
+  --shell:#cfc7b4; --shell-hi:#e8e1d0; --shell-lo:#a89f8a; --bezel:#4a4234;
+  --screen:#f3ecdb; --screen-lo:#e6ddc7;
+  --ink:#2c2519; --dim:#7d7460; --line:#2c2519;
+  --acc:#b0511a; --ok:#1f6b3d; --warn:#8a6100; --err:#9b2226; --led:#b0511a; --plate:#4a4234;
+}
+
+* { box-sizing:border-box; margin:0 }
+html { -webkit-text-size-adjust:100% }
+body {
+  background:var(--shell); color:var(--ink); min-height:100vh; padding:18px 14px 60px;
+  font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  /* Moulded plastic: a fine speckle over the shell colour. */
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(255,255,255,.16) 1px, transparent 0),
+    radial-gradient(circle at 3px 4px, rgba(0,0,0,.07) 1px, transparent 0);
+  background-size:6px 6px, 6px 6px;
+}
+.shell { max-width:1200px; margin:0 auto }
+img, canvas { image-rendering:pixelated }
+
+/* ── The console shell ─────────────────────────────────────────── */
+.brand {
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:0 4px 12px; color:var(--plate);
+}
+.brand h1 { font-size:17px; letter-spacing:.22em; text-transform:uppercase; font-weight:800 }
+.brand .mark { font-size:19px }
+.brand .who { font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; opacity:.75 }
+/* Live-state chips on the plastic: what the console knows before you click. */
+.chip {
+  display:inline-flex; align-items:center; gap:5px; font-size:9.5px; letter-spacing:.13em;
+  text-transform:uppercase; border:2px solid var(--plate); border-radius:3px; padding:3px 7px;
+  color:var(--plate); background:var(--shell-hi);
+}
+.chip b { font-size:10.5px; letter-spacing:.06em }
+.chip.off { opacity:.5 }
+.led {
+  width:9px; height:9px; border-radius:50%; background:var(--led); flex:none;
+  box-shadow:0 0 7px var(--led), inset 0 0 2px rgba(0,0,0,.5);
+}
+.led.off { background:var(--shell-lo); box-shadow:none }
+.brand .right { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+
+/* The LCD window: bezel, the DMG's one big rounded corner, sunk into the shell. */
+.screen {
+  background:var(--screen); border:3px solid var(--bezel);
+  border-radius:9px 9px 34px 9px; padding:16px 16px 18px; position:relative; overflow:hidden;
+  box-shadow:0 3px 0 var(--shell-lo), 0 10px 24px rgba(0,0,0,.35), inset 0 0 0 2px var(--screen-lo);
+}
+/* Dot matrix — the pixel grid you can see when the backlight is off. */
+.screen::before {
+  content:''; position:absolute; inset:0; pointer-events:none; z-index:0;
+  background-image:linear-gradient(rgba(0,0,0,.05) 1px, transparent 1px),
+                   linear-gradient(90deg, rgba(0,0,0,.05) 1px, transparent 1px);
+  background-size:3px 3px;
+}
+.screen > * { position:relative; z-index:1 }
+
+/* ── Controls ──────────────────────────────────────────────────── */
+button {
+  font:700 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.12em;
+  text-transform:uppercase; cursor:pointer; color:var(--ink); background:var(--screen-lo);
+  border:2px solid var(--line); border-radius:4px; padding:7px 12px;
+  box-shadow:2px 2px 0 var(--line);
+}
+button:hover { background:var(--screen) }
+button:active { transform:translate(2px,2px); box-shadow:none }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline:2px dashed var(--acc); outline-offset:2px;
+}
+button.on { background:var(--ink); color:var(--screen) }
+button.sm { padding:4px 7px; font-size:10px; box-shadow:1px 1px 0 var(--line) }
+button.go { background:var(--ink); color:var(--screen) }
+button.go:hover { filter:brightness(1.25) }
+button:disabled { opacity:.45; cursor:not-allowed; box-shadow:none }
+input, select, textarea {
+  font:12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--ink);
+  background:var(--screen); border:2px solid var(--line); border-radius:4px;
+  padding:6px 8px; outline:none; max-width:100%;
+}
+input::placeholder { color:var(--dim) }
+input:focus, select:focus, textarea:focus { box-shadow:inset 0 0 0 2px var(--screen-lo) }
+textarea { width:100%; resize:vertical; min-height:74px; line-height:1.45 }
+label.f {
+  display:flex; flex-direction:column; gap:3px;
+  font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim);
+}
+label.f input, label.f select { min-width:0 }
+.row { display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end }
+.row + .row { margin-top:9px }
+
+/* Shell-mounted controls sit outside the LCD, on the plastic. */
+.brand input {
+  background:var(--shell-hi); color:var(--plate); border-color:var(--plate); width:230px;
+}
+.brand input::placeholder { color:var(--shell-lo) }
+.brand button {
+  background:var(--shell-hi); color:var(--plate); border-color:var(--plate);
+  box-shadow:2px 2px 0 var(--shell-lo);
+}
+.brand button:hover { background:var(--shell) }
+
+/* ── Tabs ──────────────────────────────────────────────────────── */
+nav {
+  display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;
+  padding-bottom:11px; border-bottom:2px solid var(--line);
+}
+nav button { position:relative }
+/* The active tab grows a nub into the panel below it. */
+nav button.on::after {
+  content:''; position:absolute; left:50%; bottom:-13px; width:8px; height:8px;
+  margin-left:-4px; background:var(--ink); clip-path:polygon(50% 100%, 0 0, 100% 0);
+}
+
+/* ── Cards, tables, status ─────────────────────────────────────── */
+.card { border:2px solid var(--line); border-radius:5px; padding:12px; margin-bottom:12px }
+.card > h2 {
+  font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--dim);
+  margin-bottom:9px; font-weight:700;
+}
+/* align-items:start so a short card beside a tall one keeps its own height. */
+.split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; align-items:start }
+@media (max-width:880px) { .split { grid-template-columns:1fr } }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:9px }
+.stat {
+  border:2px solid var(--line); border-left-width:6px; border-radius:4px; padding:7px 9px;
+  background:var(--screen-lo); min-width:0;
+}
+.stat .v { font-size:16px; font-weight:800; font-variant-numeric:tabular-nums; overflow-wrap:anywhere }
+.stat .l { font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin-top:1px }
+.stat.wide { grid-column:1/-1 }
+
+.scroll { overflow:auto; max-height:460px; border:2px solid var(--line); border-radius:4px }
+table { width:100%; border-collapse:collapse; font-size:11.5px }
+th {
+  text-align:left; padding:6px 8px; font-size:9px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--dim); border-bottom:2px solid var(--line); white-space:nowrap;
+  position:sticky; top:0; background:var(--screen-lo);
+}
+td { padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap }
+tbody tr:hover td { background:var(--screen-lo) }
+tr.pick { cursor:pointer }
+.num { text-align:right; font-variant-numeric:tabular-nums }
+.mut { color:var(--dim) }
+.ok { color:var(--ok); font-weight:700 }
+.err { color:var(--err); font-weight:700 }
+.warn { color:var(--warn); font-weight:700 }
+.tag {
+  display:inline-block; font-size:9.5px; letter-spacing:.12em; text-transform:uppercase;
+  border:2px solid currentColor; border-radius:3px; padding:2px 6px;
+}
+.hint { font-size:10.5px; color:var(--dim); margin-top:8px }
+.hint code, code { background:var(--screen-lo); padding:1px 4px; border-radius:3px }
+pre {
+  background:var(--screen-lo); border:2px solid var(--line); border-radius:4px; padding:9px;
+  font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap;
+  word-break:break-word; max-height:340px; overflow:auto;
+}
+.log { max-height:150px; overflow:auto; font-size:10.5px }
+.log div { padding:2px 0; border-bottom:1px dotted var(--line); color:var(--dim) }
+.bar { height:6px; background:var(--screen-lo); border:1px solid var(--line); border-radius:2px; overflow:hidden; min-width:44px }
+.bar i { display:block; height:100%; background:var(--ink) }
+
+/* ── Sortable columns ──────────────────────────────────────────── */
+th.sort { cursor:pointer; user-select:none }
+th.sort:hover { color:var(--ink) }
+th.sort::after { content:'　'; font-size:8px }
+th.sort[data-dir="asc"]::after { content:' ▲' }
+th.sort[data-dir="desc"]::after { content:' ▼' }
+
+/* A count and how full it is, in one cell. */
+.meter { display:flex; align-items:center; gap:5px; justify-content:flex-end }
+.meter .bar { width:34px; min-width:0 }
+
+/* Long hex and SS58 strings: readable, selectable, never widening a card. */
+.addr {
+  display:block; font-size:11px; overflow-wrap:anywhere; line-height:1.35;
+  background:var(--screen-lo); border:1px solid var(--line); border-radius:3px; padding:5px 6px;
+}
+
+/* ── Skeletons ─────────────────────────────────────────────────── */
+.skel { display:block; height:9px; border-radius:2px; background:var(--screen-lo); animation:pulse 1.1s ease-in-out infinite }
+@keyframes pulse { 0%,100% { opacity:.45 } 50% { opacity:.9 } }
+@media (prefers-reduced-motion:reduce) { .skel { animation:none } }
+
+/* ── Toasts ────────────────────────────────────────────────────── */
+#toasts {
+  position:fixed; right:14px; bottom:14px; z-index:60;
+  display:flex; flex-direction:column; gap:6px; max-width:min(360px,86vw);
+}
+#toasts div {
+  background:var(--screen); color:var(--ink); border:2px solid var(--line); border-radius:4px;
+  padding:8px 10px; font-size:11px; box-shadow:3px 3px 0 var(--bezel); overflow-wrap:anywhere;
+}
+#toasts div.bad { border-color:var(--err); color:var(--err) }
+#toasts div.good { border-color:var(--ok) }
+
+/* ── The control deck ──────────────────────────────────────────── */
+/* Mounted on the plastic under the LCD, and wired: the D-pad moves between
+   tabs and scrolls the list you are looking at, A runs the tab's main action. */
+.deck {
+  display:flex; align-items:center; justify-content:space-between; gap:16px;
+  padding:20px 10px 4px; flex-wrap:wrap;
+}
+.deck button {
+  background:var(--shell-hi); color:var(--plate); border:2px solid var(--plate);
+  box-shadow:2px 2px 0 var(--shell-lo); padding:0;
+}
+.deck button:hover { background:var(--shell) }
+.dpad { display:grid; grid-template-columns:repeat(3,26px); grid-template-rows:repeat(3,26px); flex:none }
+.dpad button { width:26px; height:26px; font-size:9px; border-radius:2px }
+.dpad .up { grid-area:1/2 } .dpad .left { grid-area:2/1 }
+.dpad .mid { grid-area:2/2; box-shadow:none; cursor:default; opacity:.6 }
+.dpad .right { grid-area:2/3 } .dpad .down { grid-area:3/2 }
+.pills { display:flex; gap:10px; transform:rotate(-8deg) }
+.pills button { border-radius:9px; padding:4px 11px; font-size:9px }
+.ab { display:flex; gap:11px; align-items:flex-end; transform:rotate(-14deg); flex:none }
+.ab button { width:34px; height:34px; border-radius:50%; font-size:12px }
+.ab .ab-a { margin-bottom:9px }
+@media (max-width:620px) { .deck { justify-content:center } .pills { order:3 } }
+
+/* ── Theme picker ──────────────────────────────────────────────── */
+.picker { position:relative }
+#themes {
+  display:none; position:absolute; right:0; top:calc(100% + 6px); z-index:30;
+  color:var(--plate); background:var(--shell-hi); border:3px solid var(--plate); border-radius:6px;
+  padding:7px; min-width:186px; box-shadow:0 8px 22px rgba(0,0,0,.45);
+}
+#themes.open { display:block }
+#themes button {
+  display:flex; width:100%; align-items:center; gap:8px; margin:0 0 4px;
+  justify-content:flex-start; box-shadow:none; border-width:2px;
+}
+#themes button:last-child { margin-bottom:0 }
+#themes button.on { background:var(--plate); color:var(--shell-hi) }
+.chips { display:flex; gap:0; flex:none; border:1px solid var(--bezel) }
+.chips i { width:9px; height:12px; display:block }
+
+/* The footnote sits on the plastic, so its code chips take the plate colours
+   rather than the LCD ones. */
+.plate-note { padding:10px 4px 0; color:var(--plate) }
+.plate-note code { background:var(--shell-hi); color:var(--plate) }
 </style>
 </head>
 <body>
-<header>
-  <h1>targon</h1>
-  <span class="sub">Bittensor SN4 · GPU compute · MCP at <code>/mcp</code></span>
-  <span class="sub" id="ver"></span>
-</header>
-<main>
-  <nav>
-    <button data-tab="inventory" class="on">INVENTORY</button>
-    <button data-tab="workloads">WORKLOADS</button>
-    <button data-tab="tools">TOOLS</button>
-  </nav>
+<div class="shell">
 
-  <section id="inventory">
-    <div class="row">
-      <button id="gpuOnly" class="on">GPU only</button>
-      <button id="availOnly" class="on">Available only</button>
+  <div class="brand">
+    <span class="mark">▣</span>
+    <h1>targon</h1>
+    <span class="who">bittensor sn4 · gpu compute</span>
+    <span class="led off" id="led" title="backend"></span>
+    <span class="who" id="ver">…</span>
+    <span class="chip off" id="chip_credits">credits <b>—</b></span>
+    <span class="chip off" id="chip_wallet">wallet <b>off</b></span>
+    <div class="right">
+      <input id="key" type="password" placeholder="Targon API key (this tab only)" autocomplete="off">
+      <button id="savekey">use key</button>
+      <span class="picker">
+        <button id="themebtn">theme ▾</button>
+        <div id="themes"></div>
+      </span>
     </div>
-    <table><thead><tr>
-      <th>tier</th><th>kind</th><th>gpu</th><th class="num">gpus</th><th class="num">vcpu</th>
-      <th class="num">mem</th><th class="num">$/hr</th><th class="num">free</th>
-    </tr></thead><tbody id="invBody"></tbody></table>
-    <p class="hint">Pass a tier name as <code>resource_name</code> to <code>rent</code> or <code>create_workload</code>.</p>
-  </section>
+  </div>
 
-  <section id="workloads" hidden>
-    <div class="row">
-      <input id="key" type="password" placeholder="Targon API key (stays in this tab)">
-      <button id="load">LOAD</button>
+  <div class="screen">
+    <nav>
+      <button class="on" data-tab="market">market</button>
+      <button data-tab="rent">rent</button>
+      <button data-tab="work">workloads</button>
+      <button data-tab="store">storage</button>
+      <button data-tab="keys">keys</button>
+      <button data-tab="wallet">wallet</button>
+      <button data-tab="mcp">mcp</button>
+    </nav>
+
+    <!-- ── MARKET ──────────────────────────────────────────────── -->
+    <section id="tab-market">
+      <div class="card">
+        <h2>network · live inventory</h2>
+        <div class="stats" id="m_stats"></div>
+      </div>
+      <div class="card">
+        <h2>tiers</h2>
+        <div class="row">
+          <label class="f">gpu type<input id="f_gpu" placeholder="H200, 4090…" style="width:130px"></label>
+          <label class="f">max $/hr<input id="f_price" type="number" step=".01" style="width:100px"></label>
+          <label class="f">min gpus<input id="f_min" type="number" style="width:90px"></label>
+          <label class="f">kind<select id="f_type">
+            <option value="">all</option><option value="rental">rental</option>
+            <option value="vm">vm</option><option value="storage">storage</option>
+          </select></label>
+          <button id="f_gpuonly" class="on">gpu only</button>
+          <button id="f_avail" class="on">available</button>
+          <button class="go" id="f_cheap">cheapest →</button>
+        </div>
+        <div class="hint" id="m_note">click a tier to load it into the rent form · click a column to sort.</div>
+        <div class="scroll" style="margin-top:9px"><table>
+          <thead><tr>
+            <th class="sort" data-k="name">tier</th>
+            <th class="sort" data-k="gpu">gpu</th>
+            <th class="sort num" data-k="n">n</th>
+            <th class="sort num" data-k="vcpu">vcpu</th>
+            <th class="sort num" data-k="mem">mem</th>
+            <th class="sort num" data-k="hr" data-dir="asc">$/hr</th>
+            <th class="sort num" data-k="gpuhr">$/gpu-hr</th>
+            <th class="sort num" data-k="free">free</th>
+            <th class="sort" data-k="kind">kind</th>
+          </tr></thead>
+          <tbody id="m_body"><tr><td colspan="9"><span class="skel"></span></td></tr></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- ── RENT ────────────────────────────────────────────────── -->
+    <section id="tab-rent" hidden>
+      <div class="split">
+        <div class="card">
+          <h2>rent a machine · register + deploy</h2>
+          <div class="row">
+            <label class="f" style="flex:1">name<input id="r_name" placeholder="my-trainer" style="width:100%"></label>
+            <label class="f">type<select id="r_type"><option>RENTAL</option><option>VM</option></select></label>
+          </div>
+          <div class="row">
+            <label class="f" style="flex:1">image<input id="r_image" placeholder="pytorch/pytorch:latest" style="width:100%"></label>
+          </div>
+          <div class="row">
+            <label class="f" style="flex:1">tier<input id="r_tier" placeholder="blank = cheapest match" style="width:100%"></label>
+            <label class="f">gpu type<input id="r_gpu" placeholder="H200" style="width:110px"></label>
+          </div>
+          <div class="row">
+            <label class="f" style="flex:1">ports<input id="r_ports" placeholder="8000, 22" style="width:100%"></label>
+            <label class="f" style="flex:1">env<input id="r_env" placeholder="KEY=value, OTHER=2" style="width:100%"></label>
+          </div>
+          <div class="row">
+            <label class="f" style="flex:1">ssh keys<select id="r_ssh" multiple size="3" style="width:100%"></select></label>
+          </div>
+          <div class="row">
+            <label class="f">vm password<input id="r_vmpass" type="password" placeholder="VM only" style="width:140px"></label>
+            <button id="r_deploy" class="on">deploy now</button>
+            <button class="go" id="r_go">rent</button>
+            <button id="r_dry">estimate</button>
+          </div>
+          <div class="hint">
+            <b>deploy now</b> off registers the config only — the workloads tab can deploy it later.
+            Renting spends credits.
+          </div>
+        </div>
+        <div class="card">
+          <h2>result</h2>
+          <pre id="r_out">—</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── WORKLOADS ───────────────────────────────────────────── -->
+    <section id="tab-work" hidden>
+      <div class="card">
+        <h2>your workloads</h2>
+        <div class="row">
+          <label class="f">status<select id="w_status">
+            <option value="">any</option><option>registered</option><option>provisioning</option>
+            <option>running</option><option>suspended</option><option>error</option>
+          </select></label>
+          <label class="f">type<select id="w_type"><option value="">any</option><option>RENTAL</option><option>VM</option></select></label>
+          <button id="w_refresh">refresh</button>
+          <span class="hint" id="w_note" style="margin:0 0 6px"></span>
+        </div>
+        <div class="scroll" style="margin-top:9px"><table>
+          <thead><tr>
+            <th>uid</th><th>name</th><th>type</th><th>tier</th><th>status</th>
+            <th class="num">$/hr</th><th>actions</th>
+          </tr></thead>
+          <tbody id="w_body"><tr><td colspan="7" class="mut">set an API key to see your workloads</td></tr></tbody>
+        </table></div>
+      </div>
+      <div class="split">
+        <div class="card">
+          <h2>detail · <span id="w_sel" class="mut">nothing selected</span></h2>
+          <div class="row">
+            <button class="sm" data-wl="get_workload">record</button>
+            <button class="sm" data-wl="workload_state">state</button>
+            <button class="sm" data-wl="workload_logs">logs</button>
+            <button class="sm" data-wl="workload_events">events</button>
+            <button class="sm" data-wl="deploy_workload">deploy</button>
+            <button class="sm" data-wl="suspend_workload">suspend</button>
+            <button class="sm" data-wl="reboot_workload">reboot</button>
+            <button class="sm" data-wl="delete_workload">delete</button>
+          </div>
+          <div class="row" style="margin-top:9px">
+            <label class="f" style="flex:1">exec<input id="w_cmd" placeholder="nvidia-smi" style="width:100%"></label>
+            <button class="sm go" id="w_exec">run</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>output</h2>
+          <pre id="w_out">—</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── STORAGE ─────────────────────────────────────────────── -->
+    <section id="tab-store" hidden>
+      <div class="split">
+        <div class="card">
+          <h2>volumes</h2>
+          <div class="row">
+            <label class="f">name<input id="v_name" placeholder="datasets" style="width:120px"></label>
+            <label class="f">size (MB)<input id="v_size" type="number" value="10240" style="width:100px"></label>
+            <label class="f">resource<input id="v_res" value="storage-rentals" style="width:140px"></label>
+            <button class="go" id="v_add">create</button>
+            <button id="v_refresh">refresh</button>
+          </div>
+          <div class="scroll" style="margin-top:9px;max-height:280px"><table>
+            <thead><tr><th>uid</th><th>name</th><th class="num">size</th><th>status</th><th></th></tr></thead>
+            <tbody id="v_body"><tr><td colspan="5" class="mut">—</td></tr></tbody>
+          </table></div>
+        </div>
+        <div class="card">
+          <h2>templates</h2>
+          <div class="row">
+            <label class="f">visibility<select id="t_vis">
+              <option value="">all</option><option value="public">public</option><option value="private">private</option>
+            </select></label>
+            <button id="t_refresh">refresh</button>
+          </div>
+          <div class="scroll" style="margin-top:9px;max-height:280px"><table>
+            <thead><tr><th>name</th><th>type</th><th>uid</th><th></th></tr></thead>
+            <tbody id="t_body"><tr><td colspan="4" class="mut">—</td></tr></tbody>
+          </table></div>
+        </div>
+      </div>
+      <div class="card"><h2>output</h2><pre id="s_out">—</pre></div>
+    </section>
+
+    <!-- ── KEYS ────────────────────────────────────────────────── -->
+    <section id="tab-keys" hidden>
+      <div class="split">
+        <div class="card">
+          <h2>ssh keys</h2>
+          <div class="row">
+            <label class="f">name<input id="k_name" placeholder="laptop" style="width:120px"></label>
+            <button class="go" id="k_add">add</button>
+            <button id="k_refresh">refresh</button>
+          </div>
+          <div class="row"><textarea id="k_pub" placeholder="ssh-ed25519 AAAA…"></textarea></div>
+          <div class="scroll" style="margin-top:9px;max-height:240px"><table>
+            <thead><tr><th>name</th><th>uid</th><th></th></tr></thead>
+            <tbody id="k_body"><tr><td colspan="3" class="mut">—</td></tr></tbody>
+          </table></div>
+        </div>
+        <div class="card">
+          <h2>targon api keys</h2>
+          <div class="row">
+            <label class="f">name<input id="a_name" placeholder="console" style="width:120px"></label>
+            <button class="go" id="a_add">create</button>
+            <button id="a_refresh">refresh</button>
+          </div>
+          <div class="scroll" style="margin-top:9px;max-height:240px"><table>
+            <thead><tr><th>name</th><th>uid</th><th></th></tr></thead>
+            <tbody id="a_body"><tr><td colspan="3" class="mut">—</td></tr></tbody>
+          </table></div>
+          <div class="hint">A new key's secret is shown once, below. The server reads its own key from
+            <code>TARGON_API_KEY</code> or <code>~/.mod/targon/api_key</code>.</div>
+        </div>
+      </div>
+      <div class="card"><h2>output</h2><pre id="k_out">—</pre></div>
+    </section>
+
+    <!-- ── WALLET ──────────────────────────────────────────────── -->
+    <section id="tab-wallet" hidden>
+      <div class="card">
+        <h2>browser wallet · bittensor coldkey</h2>
+        <div class="row">
+          <button class="go" id="wl_connect">connect wallet</button>
+          <label class="f">extension<select id="wl_ext" style="min-width:130px"></select></label>
+          <label class="f" style="flex:1">account<select id="wl_acct" style="width:100%"></select></label>
+          <button id="wl_refresh">refresh</button>
+        </div>
+        <div class="stats" id="wl_stats" style="margin-top:10px"></div>
+        <div class="hint" id="wl_hint">
+          Works with any polkadot-js compatible extension — Talisman, SubWallet, Polkadot{.js},
+          Bittensor Wallet. Your key never leaves it: this console asks the extension to sign,
+          and only the signature comes back.
+        </div>
+      </div>
+
+      <div class="split">
+        <div class="card">
+          <h2>targon account · where TAO becomes credits</h2>
+          <div class="stats" id="wl_acctstats"></div>
+          <div class="row" style="margin-top:10px">
+            <button class="sm" id="wl_copy">copy deposit address</button>
+            <button class="sm" id="wl_acctrefresh">refresh</button>
+          </div>
+          <code class="addr" id="wl_deposit" style="margin-top:9px">set an API key to see your deposit address</code>
+        </div>
+
+        <div class="card">
+          <h2>top up · send TAO</h2>
+          <div class="row">
+            <label class="f" style="flex:1">amount (TAO)
+              <input id="wl_amount" type="number" step="0.001" min="0" placeholder="0.5" style="width:100%"></label>
+            <button class="sm" data-tao=".1">0.1</button>
+            <button class="sm" data-tao=".5">0.5</button>
+            <button class="sm" data-tao="1">1</button>
+          </div>
+          <div class="row">
+            <button class="go" id="wl_send">sign &amp; send</button>
+            <button id="wl_dry">preview call</button>
+          </div>
+          <div class="hint">
+            <b>Balances.transfer_keep_alive</b> to your Targon deposit address, immortal era, no tip.
+            Real TAO on finney — your extension shows you the payload before it signs.
+          </div>
+        </div>
+      </div>
+
+      <div class="card"><h2>result</h2><pre id="wl_out">—</pre></div>
+    </section>
+
+    <!-- ── MCP ─────────────────────────────────────────────────── -->
+    <section id="tab-mcp" hidden>
+      <div class="split">
+        <div class="card">
+          <h2>tools · <span id="mc_count" class="mut">…</span></h2>
+          <div class="row"><input id="mc_q" placeholder="filter tools" style="width:100%"></div>
+          <div class="scroll" style="margin-top:9px"><table>
+            <thead><tr><th>tool</th><th>what it does</th></tr></thead>
+            <tbody id="mc_body"><tr><td colspan="2" class="mut">loading…</td></tr></tbody>
+          </table></div>
+        </div>
+        <div class="card">
+          <h2>playground · tools/call</h2>
+          <div class="row">
+            <label class="f" style="flex:1">tool<select id="mc_tool" style="width:100%"></select></label>
+            <button class="go" id="mc_go" style="margin-bottom:1px">call</button>
+          </div>
+          <div class="row"><textarea id="mc_args">{}</textarea></div>
+          <div class="hint" id="mc_schema">—</div>
+          <pre id="mc_out" style="margin-top:9px">—</pre>
+        </div>
+      </div>
+      <div class="split">
+        <div class="card">
+          <h2>client config</h2>
+          <pre id="mc_cfg">—</pre>
+        </div>
+        <div class="card">
+          <h2>request log</h2>
+          <div class="log" id="mc_log"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="deck">
+    <div class="dpad">
+      <button class="d up" data-pad="up" title="scroll up">▲</button>
+      <button class="d left" data-pad="left" title="previous tab">◀</button>
+      <button class="d mid" disabled aria-hidden="true"></button>
+      <button class="d right" data-pad="right" title="next tab">▶</button>
+      <button class="d down" data-pad="down" title="scroll down">▼</button>
     </div>
-    <div id="acct" class="hint"></div>
-    <table><thead><tr>
-      <th>uid</th><th>name</th><th>type</th><th>tier</th><th>status</th><th class="num">$/hr</th>
-    </tr></thead><tbody id="wlBody"></tbody></table>
-    <p class="hint">The key is kept in sessionStorage only. The server reads its own key from
-      <code>TARGON_API_KEY</code> or <code>~/.mod/targon/api_key</code>.</p>
-  </section>
+    <div class="pills">
+      <button class="pill" data-pad="select" title="next skin">select</button>
+      <button class="pill" data-pad="start" title="reload this tab">start</button>
+    </div>
+    <div class="ab">
+      <button class="ab-b" data-pad="b" title="back to market">b</button>
+      <button class="ab-a" data-pad="a" title="run this tab's main action">a</button>
+    </div>
+  </div>
 
-  <section id="tools" hidden>
-    <pre id="toolList">loading…</pre>
-  </section>
-</main>
+  <p class="hint plate-note">
+    REST mirrors every tool: <code>GET /inventory</code> <code>GET /workloads</code>
+    <code>POST /rent</code> <code>POST /forward {action,…}</code> · MCP at <code>/mcp</code> ·
+    chain at <code>GET /chain/account</code> <code>POST /chain/prepare|submit</code>.
+  </p>
+</div>
+<div id="toasts"></div>
+
 <script>
-const $ = s => document.querySelector(s);
-const api = (p, o={}) => {
-  const key = sessionStorage.getItem('targon_key');
-  const h = Object.assign({}, o.headers, key ? { 'x-api-key': key } : {});
-  return fetch(p, Object.assign({}, o, { headers: h })).then(r => r.json());
+// ── Theme ────────────────────────────────────────────────────────
+// id → the three colours you read before switching: shell, field, ink.
+const THEMES = [
+  ['dmg',    'game boy',   ['#c9c5bd', '#9bbc0f', '#0f380f']],
+  ['pocket', 'pocket',     ['#2e3033', '#c8cbc0', '#16181a']],
+  ['light',  'light',      ['#d3b061', '#0a5c52', '#7ef7d8']],
+  ['vboy',   'virtual boy',['#160404', '#0c0000', '#ff3b19']],
+  ['sgb',    'super gb',   ['#5a4f9c', '#d6d2f5', '#241f4a']],
+  ['micro',  'micro',      ['#121316', '#05070c', '#4fd1c5']],
+  ['crt',    'terminal',   ['#17140d', '#0d0b06', '#ffb000']],
+  ['paper',  'manual',     ['#cfc7b4', '#f3ecdb', '#2c2519']],
+];
+const $ = id => document.getElementById(id);
+
+function setTheme(id) {
+  document.documentElement.setAttribute('data-theme', id);
+  try { localStorage.setItem('targon.theme', id); } catch (e) {}
+  [...$('themes').children].forEach(b => b.classList.toggle('on', b.dataset.theme === id));
+}
+$('themes').innerHTML = THEMES.map(([id, label, chips]) =>
+  `<button data-theme="${id}"><span class="chips">${chips.map(c => `<i style="background:${c}"></i>`).join('')}</span>${label}</button>`
+).join('');
+$('themes').onclick = e => {
+  const b = e.target.closest('button');
+  if (b) { setTheme(b.dataset.theme); $('themes').classList.remove('open'); }
 };
+$('themebtn').onclick = e => { e.stopPropagation(); $('themes').classList.toggle('open'); };
+document.addEventListener('click', () => $('themes').classList.remove('open'));
+setTheme(document.documentElement.getAttribute('data-theme'));
 
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
-  ['inventory','workloads','tools'].forEach(t => $('#' + t).hidden = t !== b.dataset.tab);
-});
+// ── Wiring ───────────────────────────────────────────────────────
+// Behind the fleet router the console is at /targon and its API at
+// /targon/_api; served directly, both are at the root.
+const API = location.pathname.startsWith('/targon') ? '/targon/_api' : '';
+let KEY = sessionStorage.getItem('targon_key') || '';
+$('key').value = KEY;
 
-let inv = [];
-const gpuOnly = $('#gpuOnly'), availOnly = $('#availOnly');
-const toggle = b => { b.classList.toggle('on'); drawInv(); };
-gpuOnly.onclick = () => toggle(gpuOnly);
-availOnly.onclick = () => toggle(availOnly);
+const logLine = (what, ms, bad) =>
+  $('mc_log').insertAdjacentHTML('afterbegin',
+    `<div class="${bad ? 'err' : ''}">${new Date().toLocaleTimeString()} · ${esc(what)} · ${ms}ms${bad ? ' · failed' : ''}</div>`);
 
-function drawInv() {
-  const rows = inv
-    .filter(t => !gpuOnly.classList.contains('on') || t.gpu)
-    .filter(t => !availOnly.classList.contains('on') || t.available > 0)
-    .sort((a, b) => a.cost_per_hour - b.cost_per_hour)
-    .map(t => {
-      const s = t.spec || {};
-      // vcpu and memory come back in millicores and MB.
-      return `<tr><td>${t.name}</td><td class="none">${t.type || ''}</td>
-        <td>${s.gpu_type || '<span class="none">cpu</span>'}</td>
-        <td class="num">${s.gpu_count || ''}</td>
-        <td class="num">${s.vcpu ? (s.vcpu/1000).toFixed(0) : ''}</td>
-        <td class="num">${s.memory ? (s.memory/1000).toFixed(0) + 'G' : ''}</td>
-        <td class="num">$${(t.cost_per_hour ?? 0).toFixed(2)}</td>
-        <td class="num ${t.available > 0 ? 'ok' : 'none'}">${t.available ?? 0}</td></tr>`;
-    }).join('');
-  $('#invBody').innerHTML = rows || '<tr><td colspan="8" class="none">nothing matches</td></tr>';
+const esc = s => String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+const show = (el, v) => $(el).textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+const num = (v, d = 2) => (v ?? 0).toFixed(d);
+
+/** Short-lived note in the corner, for things that happen away from the pane
+ *  you are looking at. Errors stay up twice as long. */
+function toast(msg, kind = '') {
+  const el = document.createElement('div');
+  el.className = kind;
+  el.textContent = msg;
+  $('toasts').append(el);
+  setTimeout(() => el.remove(), kind === 'bad' ? 8000 : 4000);
 }
 
-api('/inventory').then(d => { inv = Array.isArray(d) ? d : []; drawInv(); })
-  .catch(e => $('#invBody').innerHTML = `<tr><td colspan="7" class="err">${e}</td></tr>`);
-
-api('/info').then(d => $('#ver').textContent = `v${d.version} · ${d.tools} tools`);
-
-api('/tools').then(d => $('#toolList').textContent =
-  d.tools.map(t => `${t.name.padEnd(20)} ${t.description}`).join('\n'));
-
-$('#key').value = sessionStorage.getItem('targon_key') || '';
-$('#load').onclick = async () => {
-  const k = $('#key').value.trim();
-  k ? sessionStorage.setItem('targon_key', k) : sessionStorage.removeItem('targon_key');
-  const [wl, cr] = await Promise.all([api('/workloads'), api('/credits')]);
-  $('#acct').innerHTML = cr.credits !== undefined
-    ? `credits: <span class="ok">${cr.credits} ${cr.currency || ''}</span>`
-    : `<span class="err">${cr.error || 'no account'}</span>`;
-  const items = wl.items || [];
-  $('#wlBody').innerHTML = items.length ? items.map(w => `<tr>
-      <td>${w.uid}</td><td>${w.name || ''}</td><td>${w.type || ''}</td>
-      <td>${(w.resource || {}).name || ''}</td>
-      <td class="${(w.state || {}).status === 'running' ? 'ok' : 'none'}">${(w.state || {}).status || ''}</td>
-      <td class="num">$${(w.cost_per_hour ?? 0).toFixed(2)}</td></tr>`).join('')
-    : `<tr><td colspan="6" class="none">${wl.error || 'no workloads'}</td></tr>`;
+const chip = (id, label, value, on) => {
+  $(id).innerHTML = `${label} <b>${esc(value)}</b>`;
+  $(id).classList.toggle('off', !on);
 };
+
+/** Every call the console makes goes through /forward, so one place owns
+ *  the key header, the timing log and error shape. */
+async function call(action, args = {}) {
+  const t0 = performance.now();
+  const headers = { 'Content-Type': 'application/json' };
+  if (KEY) headers['x-api-key'] = KEY;
+  let r, body;
+  try {
+    r = await fetch(API + '/forward', {
+      method: 'POST', headers, body: JSON.stringify(Object.assign({ action }, args)),
+    });
+    body = await r.json();
+  } catch (e) {
+    logLine(action, Math.round(performance.now() - t0), true);
+    throw new Error(String(e));
+  }
+  logLine(action, Math.round(performance.now() - t0), !r.ok);
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return body;
+}
+
+const get = p => fetch(API + p, { headers: KEY ? { 'x-api-key': KEY } : {} }).then(r => r.json());
+
+// Tabs
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section[id^=tab-]').forEach(s =>
+    s.hidden = s.id !== 'tab-' + b.dataset.tab);
+  reload(b.dataset.tab);
+});
+
+/** What a tab needs fetched when you arrive on it (and when you press START). */
+function reload(tab) {
+  if (tab === 'work') loadWorkloads();
+  if (tab === 'store') { loadVolumes(); loadTemplates(); }
+  if (tab === 'keys') { loadSshKeys(); loadApiKeys(); }
+  if (tab === 'wallet') { loadTargonAccount(); loadWalletBalance(); }
+  if (tab === 'market') loadInventory();
+}
+
+const activeTab = () => document.querySelector('nav button.on').dataset.tab;
+
+$('savekey').onclick = () => {
+  KEY = $('key').value.trim();
+  KEY ? sessionStorage.setItem('targon_key', KEY) : sessionStorage.removeItem('targon_key');
+  toast(KEY ? 'key set for this tab' : 'key cleared');
+  loadWorkloads(); loadSshKeys(); loadTargonAccount();
+};
+
+// ── MARKET ───────────────────────────────────────────────────────
+let INV = [];
+const toggles = ['f_gpuonly', 'f_avail'];
+toggles.forEach(id => $(id).onclick = () => { $(id).classList.toggle('on'); drawInv(); });
+['f_gpu', 'f_price', 'f_min'].forEach(id => $(id).oninput = drawInv);
+$('f_type').onchange = drawInv;
+
+const gpusOf = t => (t.spec || {}).gpu_count || 0;
+
+function matches(t) {
+  const s = t.spec || {}, q = $('f_gpu').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const price = parseFloat($('f_price').value), min = parseInt($('f_min').value, 10);
+  if ($('f_gpuonly').classList.contains('on') && !t.gpu) return false;
+  if ($('f_avail').classList.contains('on') && !(t.available > 0)) return false;
+  if ($('f_type').value && t.type !== $('f_type').value) return false;
+  if (!isNaN(price) && (t.cost_per_hour ?? 0) > price) return false;
+  if (!isNaN(min) && gpusOf(t) < min) return false;
+  if (q) {
+    const hay = ((s.gpu_type || '') + (t.name || '')).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!hay.includes(q)) return false;
+  }
+  return true;
+}
+
+/** One value per sortable column, so the header and the cells never disagree. */
+const COLS = {
+  name: t => (t.name || '').toLowerCase(),
+  gpu: t => ((t.spec || {}).gpu_type || '').toLowerCase(),
+  n: gpusOf,
+  vcpu: t => (t.spec || {}).vcpu || 0,
+  mem: t => (t.spec || {}).memory || 0,
+  hr: t => t.cost_per_hour ?? 0,
+  gpuhr: t => gpusOf(t) ? (t.cost_per_hour ?? 0) / gpusOf(t) : Infinity,
+  free: t => t.available ?? 0,
+  kind: t => (t.type || '').toLowerCase(),
+};
+let SORT = { key: 'hr', dir: 1 };
+
+document.querySelectorAll('th.sort').forEach(th => th.onclick = () => {
+  const k = th.dataset.k;
+  SORT = { key: k, dir: SORT.key === k ? -SORT.dir : 1 };
+  document.querySelectorAll('th.sort').forEach(x => x.removeAttribute('data-dir'));
+  th.dataset.dir = SORT.dir > 0 ? 'asc' : 'desc';
+  drawInv();
+});
+
+function drawInv() {
+  const pick = COLS[SORT.key] || COLS.hr;
+  const rows = INV.filter(matches).sort((a, b) => {
+    const x = pick(a), y = pick(b);
+    return (x < y ? -1 : x > y ? 1 : 0) * SORT.dir;
+  });
+  // The busiest tier in view sets the scale for the availability bars.
+  const most = Math.max(1, ...rows.map(t => t.available || 0));
+  $('m_body').innerHTML = rows.length ? rows.map(t => {
+    const s = t.spec || {}, n = gpusOf(t), free = t.available ?? 0;
+    return `<tr class="pick" data-tier="${esc(t.name)}" data-gpu="${esc(s.gpu_type || '')}">
+      <td><b>${esc(t.name)}</b></td>
+      <td>${esc(s.gpu_type || 'cpu')}</td>
+      <td class="num">${n || ''}</td>
+      <td class="num">${s.vcpu ? Math.round(s.vcpu / 1000) : ''}</td>
+      <td class="num">${s.memory ? Math.round(s.memory / 1000) + 'G' : ''}</td>
+      <td class="num mut">$${num(t.cost_per_hour)}</td>
+      <td class="num"><b>${n ? '$' + num((t.cost_per_hour ?? 0) / n) : '—'}</b></td>
+      <td class="num"><span class="meter">
+        <span class="bar"><i style="width:${free ? Math.max(8, 100 * free / most) : 0}%"></i></span>
+        <span class="${free > 0 ? 'ok' : 'mut'}">${free}</span></span></td>
+      <td class="mut">${esc(t.type || '')}</td></tr>`;
+  }).join('') : '<tr><td colspan="9" class="mut">nothing matches that filter</td></tr>';
+
+  const live = INV.filter(t => t.available > 0);
+  // Cheapest of what is showing — by price, whatever the table is sorted on.
+  const cheap = rows.filter(t => t.available > 0)
+    .sort((a, b) => (a.cost_per_hour ?? 0) - (b.cost_per_hour ?? 0))[0];
+  $('m_stats').innerHTML = [
+    ['tiers', INV.length], ['available now', live.length],
+    ['gpus free', live.reduce((n, t) => n + gpusOf(t) * (t.available || 0), 0)],
+    ['cheapest gpu', cheap ? '$' + num(cheap.cost_per_hour) : '—'],
+    ['showing', rows.length],
+  ].map(([l, v]) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+}
+
+$('m_body').onclick = e => {
+  const tr = e.target.closest('tr[data-tier]');
+  if (!tr) return;
+  $('r_tier').value = tr.dataset.tier;
+  $('r_gpu').value = '';
+  document.querySelector('nav button[data-tab="rent"]').click();
+  $('r_name').focus();
+};
+
+$('f_cheap').onclick = async () => {
+  const args = { gpu: $('f_gpuonly').classList.contains('on') };
+  if ($('f_gpu').value.trim()) args.gpu_type = $('f_gpu').value.trim();
+  if ($('f_price').value) args.max_cost_per_hour = parseFloat($('f_price').value);
+  if ($('f_min').value) args.min_gpus = parseInt($('f_min').value, 10);
+  if ($('f_type').value) args.type = $('f_type').value;
+  try {
+    const r = await call('cheapest', args);
+    $('m_note').innerHTML = `cheapest match: <b>${esc(r.resource_name)}</b> · $${num(r.cost_per_hour)}/hr ·
+      ${r.available} free — <span class="mut">loaded into the rent form</span>`;
+    $('r_tier').value = r.resource_name;
+  } catch (e) { $('m_note').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+};
+
+async function loadInventory() {
+  try {
+    INV = await get('/inventory');
+    if (!Array.isArray(INV)) INV = [];
+    drawInv();
+  } catch (e) {
+    $('m_body').innerHTML = `<tr><td colspan="9" class="err">${esc(e)}</td></tr>`;
+  }
+}
+
+// ── RENT ─────────────────────────────────────────────────────────
+$('r_deploy').onclick = () => $('r_deploy').classList.toggle('on');
+
+/** "8000, 22" → port mappings; "K=v, J=2" → env pairs. */
+const listOf = s => s.split(',').map(x => x.trim()).filter(Boolean);
+const portsOf = s => listOf(s).map(p => ({ port: parseInt(p, 10), protocol: 'TCP', routing: 'PROXIED' }));
+const envsOf = s => listOf(s).map(kv => {
+  const i = kv.indexOf('=');
+  return { name: kv.slice(0, i).trim(), value: kv.slice(i + 1).trim() };
+}).filter(e => e.name);
+
+function rentArgs() {
+  const a = { name: $('r_name').value.trim(), type: $('r_type').value };
+  if ($('r_image').value.trim()) a.image = $('r_image').value.trim();
+  if ($('r_tier').value.trim()) a.resource_name = $('r_tier').value.trim();
+  else if ($('r_gpu').value.trim()) a.gpu_type = $('r_gpu').value.trim();
+  if ($('r_ports').value.trim()) a.ports = portsOf($('r_ports').value);
+  if ($('r_env').value.trim()) a.envs = envsOf($('r_env').value);
+  const ssh = [...$('r_ssh').selectedOptions].map(o => o.value);
+  if (ssh.length) a.ssh_keys = ssh;
+  if ($('r_type').value === 'VM' && $('r_vmpass').value) a.vm_config = { password: $('r_vmpass').value };
+  a.deploy = $('r_deploy').classList.contains('on');
+  return a;
+}
+
+$('r_dry').onclick = () => show('r_out', { forward: Object.assign({ action: 'rent' }, rentArgs()) });
+
+$('r_go').onclick = async () => {
+  const a = rentArgs();
+  if (!a.name) return show('r_out', 'name is required (lowercase letters, digits and hyphens)');
+  if (!KEY) return show('r_out', 'no API key set — add one in the header first');
+  if (!confirm(`Rent ${a.resource_name || 'the cheapest matching tier'} as "${a.name}"? This spends credits.`)) return;
+  $('r_go').disabled = true;
+  show('r_out', 'renting…');
+  try { show('r_out', await call('rent', a)); loadWorkloads(); }
+  catch (e) { show('r_out', 'error: ' + e.message); }
+  finally { $('r_go').disabled = false; }
+};
+
+// ── WORKLOADS ────────────────────────────────────────────────────
+let SEL = null;
+
+function selectWorkload(uid) {
+  SEL = uid;
+  $('w_sel').textContent = uid || 'nothing selected';
+  $('w_sel').className = uid ? '' : 'mut';
+}
+
+async function loadWorkloads() {
+  if (!KEY) {
+    $('w_body').innerHTML = '<tr><td colspan="7" class="mut">set an API key to see your workloads</td></tr>';
+    return;
+  }
+  const args = {};
+  if ($('w_status').value) args.status = $('w_status').value;
+  if ($('w_type').value) args.type = $('w_type').value;
+  try {
+    const r = await call('list_workloads', args);
+    const items = r.items || [];
+    $('w_note').textContent = `${items.length} workload${items.length === 1 ? '' : 's'}`;
+    $('w_body').innerHTML = items.length ? items.map(w => {
+      const st = (w.state || {}).status || '';
+      const cls = st === 'running' ? 'ok' : st === 'error' ? 'err' : st ? 'warn' : 'mut';
+      return `<tr data-uid="${esc(w.uid)}">
+        <td><code>${esc(w.uid)}</code></td><td><b>${esc(w.name || '')}</b></td>
+        <td class="mut">${esc(w.type || '')}</td><td>${esc((w.resource || {}).name || '')}</td>
+        <td class="${cls}">${esc(st || '—')}</td>
+        <td class="num">$${num(w.cost_per_hour)}</td>
+        <td><button class="sm" data-pick="${esc(w.uid)}">select</button></td></tr>`;
+    }).join('') : '<tr><td colspan="7" class="mut">no workloads yet — rent one</td></tr>';
+  } catch (e) {
+    $('w_body').innerHTML = `<tr><td colspan="7" class="err">${esc(e.message)}</td></tr>`;
+  }
+}
+
+$('w_body').onclick = e => {
+  const tr = e.target.closest('tr[data-uid]');
+  if (tr) selectWorkload(tr.dataset.uid);
+};
+$('w_refresh').onclick = loadWorkloads;
+$('w_status').onchange = loadWorkloads;
+$('w_type').onchange = loadWorkloads;
+
+document.querySelectorAll('[data-wl]').forEach(b => b.onclick = async () => {
+  if (!SEL) return show('w_out', 'select a workload first');
+  const tool = b.dataset.wl;
+  if (tool === 'delete_workload' && !confirm(`Delete ${SEL}? Its runtime is torn down and billing stops.`)) return;
+  show('w_out', tool + '…');
+  const args = { workload_uid: SEL };
+  if (tool === 'workload_logs') args.tail = 300;
+  try {
+    const r = await call(tool, args);
+    show('w_out', r.output !== undefined ? r.output : r);
+    if (tool === 'delete_workload' || tool === 'deploy_workload' || tool === 'suspend_workload') loadWorkloads();
+  } catch (e) { show('w_out', 'error: ' + e.message); }
+});
+
+$('w_exec').onclick = async () => {
+  if (!SEL) return show('w_out', 'select a workload first');
+  const cmd = $('w_cmd').value.trim();
+  if (!cmd) return show('w_out', 'type a command');
+  show('w_out', 'running…');
+  try {
+    const r = await call('workload_exec', { workload_uid: SEL, command: cmd });
+    show('w_out', r.output !== undefined ? r.output : r);
+  } catch (e) { show('w_out', 'error: ' + e.message); }
+};
+
+// ── STORAGE ──────────────────────────────────────────────────────
+async function loadVolumes() {
+  if (!KEY) return void ($('v_body').innerHTML = '<tr><td colspan="5" class="mut">needs an API key</td></tr>');
+  try {
+    const items = (await call('list_volumes')).items || [];
+    $('v_body').innerHTML = items.length ? items.map(v => `<tr>
+      <td><code>${esc(v.uid)}</code></td><td><b>${esc(v.name || '')}</b></td>
+      <td class="num">${v.size_in_mb ? Math.round(v.size_in_mb / 1024) + 'G' : ''}</td>
+      <td class="mut">${esc((v.state || {}).status || '')}</td>
+      <td><button class="sm" data-vol="${esc(v.uid)}">delete</button></td></tr>`).join('')
+      : '<tr><td colspan="5" class="mut">no volumes</td></tr>';
+  } catch (e) { $('v_body').innerHTML = `<tr><td colspan="5" class="err">${esc(e.message)}</td></tr>`; }
+}
+
+$('v_refresh').onclick = loadVolumes;
+$('v_add').onclick = async () => {
+  try {
+    show('s_out', await call('create_volume', {
+      name: $('v_name').value.trim(),
+      size_in_mb: parseInt($('v_size').value, 10),
+      resource_name: $('v_res').value.trim(),
+    }));
+    loadVolumes();
+  } catch (e) { show('s_out', 'error: ' + e.message); }
+};
+$('v_body').onclick = async e => {
+  const b = e.target.closest('[data-vol]');
+  if (!b || !confirm(`Delete volume ${b.dataset.vol}?`)) return;
+  try { show('s_out', await call('delete_volume', { volume_uid: b.dataset.vol })); loadVolumes(); }
+  catch (err) { show('s_out', 'error: ' + err.message); }
+};
+
+async function loadTemplates() {
+  if (!KEY) return void ($('t_body').innerHTML = '<tr><td colspan="4" class="mut">needs an API key</td></tr>');
+  const args = $('t_vis').value ? { visibility: $('t_vis').value } : {};
+  try {
+    const items = (await call('list_templates', args)).items || [];
+    $('t_body').innerHTML = items.length ? items.map(t => `<tr>
+      <td><b>${esc(t.name || '')}</b></td><td class="mut">${esc(t.type || '')}</td>
+      <td><code>${esc(t.uid)}</code></td>
+      <td><button class="sm" data-tpl="${esc(t.uid)}">use</button></td></tr>`).join('')
+      : '<tr><td colspan="4" class="mut">no templates</td></tr>';
+  } catch (e) { $('t_body').innerHTML = `<tr><td colspan="4" class="err">${esc(e.message)}</td></tr>`; }
+}
+
+$('t_refresh').onclick = loadTemplates;
+$('t_vis').onchange = loadTemplates;
+$('t_body').onclick = async e => {
+  const b = e.target.closest('[data-tpl]');
+  if (!b) return;
+  try {
+    const t = await call('get_template', { template_uid: b.dataset.tpl });
+    show('s_out', t);
+    const man = t.manifest || {};
+    // A template is a create-workload body — pour it into the rent form.
+    if (man.image) $('r_image').value = man.image;
+    if (man.resource_name) $('r_tier').value = man.resource_name;
+    if (man.type) $('r_type').value = man.type;
+  } catch (err) { show('s_out', 'error: ' + err.message); }
+};
+
+// ── KEYS ─────────────────────────────────────────────────────────
+async function loadSshKeys() {
+  if (!KEY) return void ($('k_body').innerHTML = '<tr><td colspan="3" class="mut">needs an API key</td></tr>');
+  try {
+    const items = (await call('list_ssh_keys')).items || [];
+    $('k_body').innerHTML = items.length ? items.map(k => `<tr>
+      <td><b>${esc(k.name || '')}</b></td><td><code>${esc(k.uid)}</code></td>
+      <td><button class="sm" data-ssh="${esc(k.uid)}">delete</button></td></tr>`).join('')
+      : '<tr><td colspan="3" class="mut">no ssh keys</td></tr>';
+    $('r_ssh').innerHTML = items.map(k => `<option value="${esc(k.uid)}">${esc(k.name || k.uid)}</option>`).join('');
+  } catch (e) { $('k_body').innerHTML = `<tr><td colspan="3" class="err">${esc(e.message)}</td></tr>`; }
+}
+
+$('k_refresh').onclick = loadSshKeys;
+$('k_add').onclick = async () => {
+  try {
+    show('k_out', await call('create_ssh_key', { name: $('k_name').value.trim(), ssh_key: $('k_pub').value.trim() }));
+    loadSshKeys();
+  } catch (e) { show('k_out', 'error: ' + e.message); }
+};
+$('k_body').onclick = async e => {
+  const b = e.target.closest('[data-ssh]');
+  if (!b || !confirm(`Delete ssh key ${b.dataset.ssh}?`)) return;
+  try { show('k_out', await call('delete_ssh_key', { ssh_key_uid: b.dataset.ssh })); loadSshKeys(); }
+  catch (err) { show('k_out', 'error: ' + err.message); }
+};
+
+async function loadApiKeys() {
+  if (!KEY) return void ($('a_body').innerHTML = '<tr><td colspan="3" class="mut">needs an API key</td></tr>');
+  try {
+    const items = (await call('list_api_keys')).items || [];
+    $('a_body').innerHTML = items.length ? items.map(k => `<tr>
+      <td><b>${esc(k.name || '')}</b></td><td><code>${esc(k.uid)}</code></td>
+      <td><button class="sm" data-akey="${esc(k.uid)}">delete</button></td></tr>`).join('')
+      : '<tr><td colspan="3" class="mut">no api keys</td></tr>';
+  } catch (e) { $('a_body').innerHTML = `<tr><td colspan="3" class="err">${esc(e.message)}</td></tr>`; }
+}
+
+$('a_refresh').onclick = loadApiKeys;
+$('a_add').onclick = async () => {
+  try { show('k_out', await call('create_api_key', { name: $('a_name').value.trim() })); loadApiKeys(); }
+  catch (e) { show('k_out', 'error: ' + e.message); }
+};
+$('a_body').onclick = async e => {
+  const b = e.target.closest('[data-akey]');
+  if (!b || !confirm(`Delete api key ${b.dataset.akey}?`)) return;
+  try { show('k_out', await call('delete_api_key', { key_uid: b.dataset.akey })); loadApiKeys(); }
+  catch (err) { show('k_out', 'error: ' + err.message); }
+};
+
+// ── WALLET ───────────────────────────────────────────────────────
+// A Bittensor coldkey held by a browser extension. The console asks the
+// backend for a signer payload, the extension signs it, the backend relays the
+// signed bytes to finney. No key, seed or signature-capable material ever
+// reaches this page or the server.
+let INJECTOR = null;   // the enabled extension
+let ACCOUNTS = [];     // its accounts
+let DEPOSIT = null;    // the Targon SS58 address TAO gets sent to
+
+const statCell = (v, l, cls = '') =>
+  `<div class="stat"><div class="v ${cls}">${esc(v)}</div><div class="l">${l}</div></div>`;
+
+/** Extensions inject themselves after the page script runs, so give them a
+ *  moment before deciding nobody is home. */
+function findExtensions(waitMs = 1200) {
+  const t0 = performance.now();
+  return new Promise(resolve => {
+    const look = () => {
+      const names = Object.keys(window.injectedWeb3 || {});
+      if (names.length || performance.now() - t0 > waitMs) resolve(names);
+      else setTimeout(look, 150);
+    };
+    look();
+  });
+}
+
+async function connectWallet() {
+  const names = await findExtensions();
+  if (!names.length) {
+    $('wl_hint').innerHTML = '<span class="err">no wallet extension found</span> — install Talisman, ' +
+      'SubWallet or Polkadot{.js}, then reload. You can still top up by sending TAO to the ' +
+      'deposit address on the left from any wallet.';
+    return toast('no browser wallet extension found', 'bad');
+  }
+  $('wl_ext').innerHTML = names.map(n => `<option>${esc(n)}</option>`).join('');
+  const name = $('wl_ext').value || names[0];
+  try {
+    const ext = window.injectedWeb3[name];
+    INJECTOR = await ext.enable('targon console');
+    ACCOUNTS = await INJECTOR.accounts.get();
+  } catch (e) {
+    return toast('wallet refused the connection: ' + e.message, 'bad');
+  }
+  if (!ACCOUNTS.length) return toast(`${name} has no accounts to share`, 'bad');
+  $('wl_acct').innerHTML = ACCOUNTS.map(a =>
+    `<option value="${esc(a.address)}">${esc(a.name || 'account')} · ${esc(a.address.slice(0, 8))}…</option>`).join('');
+  toast(`${name} connected · ${ACCOUNTS.length} account${ACCOUNTS.length === 1 ? '' : 's'}`, 'good');
+  loadWalletBalance();
+}
+
+async function loadWalletBalance() {
+  const addr = $('wl_acct').value;
+  if (!addr) {
+    // Same tiles, empty — so connecting fills the row in rather than moving it.
+    $('wl_stats').innerHTML =
+      statCell('—', 'free', 'mut') + statCell('—', 'transferable', 'mut') +
+      statCell('—', 'nonce', 'mut') + statCell('not connected', 'coldkey', 'mut');
+    return chip('chip_wallet', 'wallet', 'off', false);
+  }
+  $('wl_stats').innerHTML = statCell('…', 'reading finney', 'mut');
+  try {
+    const a = await get('/chain/account?address=' + encodeURIComponent(addr));
+    if (a.error) throw new Error(a.error);
+    $('wl_stats').innerHTML =
+      statCell(num(a.free, 4) + ' τ', 'free', a.free > 0 ? 'ok' : 'mut') +
+      statCell(num(a.transferable, 4) + ' τ', 'transferable') +
+      statCell(a.nonce, 'nonce') +
+      `<div class="stat wide"><div class="v" style="font-size:11px">${esc(a.address)}</div>
+        <div class="l">coldkey</div></div>`;
+    chip('chip_wallet', 'wallet', num(a.free, 3) + ' tao', true);
+  } catch (e) {
+    $('wl_stats').innerHTML = statCell('error', 'balance', 'err');
+    toast('balance: ' + e.message, 'bad');
+  }
+}
+
+/** The Hub reports the deposit address under a few different names; take the
+ *  first thing that looks like an SS58 string. */
+function depositFrom(w) {
+  const seen = [];
+  const walk = v => {
+    if (typeof v === 'string' && /^5[1-9A-HJ-NP-Za-km-z]{46,49}$/.test(v)) seen.push(v);
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  walk(w);
+  return seen[0] || null;
+}
+
+async function loadTargonAccount() {
+  if (!KEY) {
+    $('wl_acctstats').innerHTML = statCell('—', 'credits', 'mut');
+    $('wl_deposit').textContent = 'set an API key in the header to see your deposit address';
+    return;
+  }
+  const out = [];
+  try {
+    const c = await call('credits');
+    const bal = c.credits ?? c.balance ?? '?';
+    out.push(statCell(bal, 'credits', 'ok'));
+    chip('chip_credits', 'credits', bal, true);
+  } catch (e) { out.push(statCell('error', 'credits', 'err')); }
+  try {
+    const w = await call('wallet');
+    DEPOSIT = depositFrom(w);
+    $('wl_deposit').textContent = DEPOSIT || JSON.stringify(w);
+    out.push(statCell(DEPOSIT ? DEPOSIT.slice(0, 8) + '…' : 'none', 'deposit address'));
+  } catch (e) {
+    $('wl_deposit').textContent = 'wallet: ' + e.message;
+    out.push(statCell('error', 'deposit address', 'err'));
+  }
+  $('wl_acctstats').innerHTML = out.join('');
+}
+
+function topUpArgs() {
+  const from = $('wl_acct').value;
+  const tao = parseFloat($('wl_amount').value);
+  if (!from) throw new Error('connect a wallet and pick an account first');
+  if (!DEPOSIT) throw new Error('no Targon deposit address yet — set an API key and refresh');
+  if (!(tao > 0)) throw new Error('enter an amount of TAO');
+  return { from, to: DEPOSIT, tao };
+}
+
+const postJSON = (path, body) =>
+  fetch(API + path, {
+    method: 'POST',
+    headers: Object.assign({ 'Content-Type': 'application/json' }, KEY ? { 'x-api-key': KEY } : {}),
+    body: JSON.stringify(body),
+  }).then(async r => {
+    const v = await r.json();
+    if (!r.ok) throw new Error(v.error || `HTTP ${r.status}`);
+    return v;
+  });
+
+$('wl_dry').onclick = async () => {
+  try { show('wl_out', await postJSON('/chain/prepare', topUpArgs())); }
+  catch (e) { show('wl_out', 'error: ' + e.message); }
+};
+
+$('wl_send').onclick = async () => {
+  let args;
+  try { args = topUpArgs(); } catch (e) { return show('wl_out', 'error: ' + e.message); }
+  if (!INJECTOR?.signer?.signPayload) return show('wl_out', 'this extension cannot sign payloads');
+  if (!confirm(`Send ${args.tao} TAO to your Targon deposit address?\n\n${args.to}\n\nThis is a real transfer on finney.`)) return;
+
+  $('wl_send').disabled = true;
+  try {
+    show('wl_out', 'building the extrinsic…');
+    const prep = await postJSON('/chain/prepare', args);
+    show('wl_out', 'waiting for your wallet to sign…');
+    const { signature } = await INJECTOR.signer.signPayload(prep.payload);
+    show('wl_out', 'submitting to finney…');
+    const sent = await postJSON('/chain/submit', { payload: prep.payload, signature });
+    show('wl_out', sent);
+    toast('sent · ' + String(sent.tx_hash).slice(0, 14) + '…', 'good');
+    watchCredits();
+  } catch (e) {
+    show('wl_out', 'error: ' + e.message);
+    toast(e.message, 'bad');
+  } finally { $('wl_send').disabled = false; }
+};
+
+/** Credits appear once Targon notices the deposit, which is not instant —
+ *  check for a couple of minutes rather than leaving a stale number up. */
+function watchCredits() {
+  let left = 10;
+  const tick = setInterval(() => {
+    if (--left < 0) return clearInterval(tick);
+    loadTargonAccount();
+  }, 12000);
+}
+
+$('wl_connect').onclick = connectWallet;
+$('wl_ext').onchange = connectWallet;
+$('wl_acct').onchange = loadWalletBalance;
+$('wl_refresh').onclick = loadWalletBalance;
+$('wl_acctrefresh').onclick = loadTargonAccount;
+document.querySelectorAll('[data-tao]').forEach(b => b.onclick = () => $('wl_amount').value = b.dataset.tao);
+$('wl_copy').onclick = async () => {
+  if (!DEPOSIT) return toast('no deposit address yet', 'bad');
+  try { await navigator.clipboard.writeText(DEPOSIT); toast('deposit address copied', 'good'); }
+  catch (e) { toast('clipboard blocked — select the address instead', 'bad'); }
+};
+
+// ── MCP ──────────────────────────────────────────────────────────
+let TOOLS = [];
+
+function drawTools() {
+  const q = $('mc_q').value.trim().toLowerCase();
+  const rows = TOOLS.filter(t => !q || t.name.includes(q) || t.description.toLowerCase().includes(q));
+  $('mc_body').innerHTML = rows.length ? rows.map(t => `<tr class="pick" data-tool="${esc(t.name)}">
+    <td><b>${esc(t.name)}</b></td>
+    <td class="mut" style="white-space:normal">${esc(t.description)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="mut">no tool matches</td></tr>';
+  $('mc_count').textContent = `${rows.length}/${TOOLS.length}`;
+}
+
+/** Seed the args box with every required field, so a call is one edit away. */
+function pickTool(name) {
+  const t = TOOLS.find(x => x.name === name);
+  if (!t) return;
+  $('mc_tool').value = name;
+  const props = (t.inputSchema || {}).properties || {}, req = (t.inputSchema || {}).required || [];
+  const seed = {};
+  req.forEach(k => {
+    const ty = (props[k] || {}).type;
+    seed[k] = ty === 'integer' || ty === 'number' ? 0 : ty === 'boolean' ? true : ty === 'array' ? [] : ty === 'object' ? {} : '';
+  });
+  $('mc_args').value = JSON.stringify(seed, null, 2);
+  $('mc_schema').innerHTML = `<b>${esc(t.name)}</b> — ${esc(t.description)}<br>` +
+    Object.entries(props).map(([k, v]) =>
+      `<code>${esc(k)}</code> <span class="mut">${esc(v.type || '')}${req.includes(k) ? ' *' : ''}</span>`).join(' · ');
+}
+
+$('mc_q').oninput = drawTools;
+$('mc_body').onclick = e => {
+  const tr = e.target.closest('[data-tool]');
+  if (tr) pickTool(tr.dataset.tool);
+};
+$('mc_tool').onchange = () => pickTool($('mc_tool').value);
+
+$('mc_go').onclick = async () => {
+  let args;
+  try { args = JSON.parse($('mc_args').value || '{}'); }
+  catch (e) { return show('mc_out', 'arguments must be JSON: ' + e.message); }
+  show('mc_out', 'calling…');
+  const t0 = performance.now();
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (KEY) headers['x-api-key'] = KEY;
+    const r = await fetch(API + '/mcp', {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: Date.now(), method: 'tools/call',
+        params: { name: $('mc_tool').value, arguments: args },
+      }),
+    });
+    const msg = await r.json();
+    logLine('mcp:' + $('mc_tool').value, Math.round(performance.now() - t0), !!msg.error);
+    const res = msg.result || msg;
+    show('mc_out', res.structuredContent || (res.content || [{}])[0].text || res);
+  } catch (e) { show('mc_out', 'error: ' + e); }
+};
+
+async function loadTools() {
+  try {
+    TOOLS = (await get('/tools')).tools || [];
+    $('mc_tool').innerHTML = TOOLS.map(t => `<option>${esc(t.name)}</option>`).join('');
+    drawTools();
+    pickTool('inventory');
+  } catch (e) { $('mc_body').innerHTML = `<tr><td colspan="2" class="err">${esc(e)}</td></tr>`; }
+}
+
+// ── The control deck ─────────────────────────────────────────────
+// The buttons on the plastic are wired to the same handlers as the LCD: the
+// D-pad walks the tabs and scrolls the list you are on, A runs whatever that
+// tab is for. Arrow keys and A/B do the same when you are not typing.
+const TABS = [...document.querySelectorAll('nav button')].map(b => b.dataset.tab);
+
+/** Each tab's A button — the one thing you came to that tab to do. */
+const PRIMARY = {
+  market: () => $('f_cheap').click(),
+  rent: () => $('r_go').click(),
+  work: () => (SEL ? $('w_exec').click() : $('w_refresh').click()),
+  store: () => $('v_add').click(),
+  keys: () => $('k_add').click(),
+  wallet: () => (INJECTOR ? $('wl_send').click() : $('wl_connect').click()),
+  mcp: () => $('mc_go').click(),
+};
+
+const goTab = name => document.querySelector(`nav button[data-tab="${name}"]`).click();
+
+/** The list the D-pad scrolls: the first scrollable panel on the visible tab. */
+const activeScroller = () =>
+  document.querySelector(`#tab-${activeTab()} .scroll, #tab-${activeTab()} pre`);
+
+function pad(key) {
+  const at = TABS.indexOf(activeTab());
+  if (key === 'left') return goTab(TABS[(at - 1 + TABS.length) % TABS.length]);
+  if (key === 'right') return goTab(TABS[(at + 1) % TABS.length]);
+  if (key === 'up' || key === 'down') {
+    const el = activeScroller();
+    if (el) el.scrollBy({ top: key === 'up' ? -110 : 110, behavior: 'smooth' });
+    return;
+  }
+  if (key === 'a') return (PRIMARY[activeTab()] || (() => {}))();
+  if (key === 'b') return goTab('market');
+  if (key === 'select') {
+    const i = THEMES.findIndex(t => t[0] === document.documentElement.getAttribute('data-theme'));
+    const next = THEMES[(i + 1) % THEMES.length];
+    setTheme(next[0]);
+    return toast('skin · ' + next[1]);
+  }
+  if (key === 'start') { reload(activeTab()); toast('reloading ' + activeTab()); }
+}
+
+document.querySelectorAll('[data-pad]').forEach(b => b.onclick = () => pad(b.dataset.pad));
+
+const KEYPAD = {
+  ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
+  a: 'a', b: 'b', Enter: 'a',
+};
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) return;
+  const k = KEYPAD[e.key];
+  if (!k) return;
+  e.preventDefault();
+  pad(k);
+});
+
+// ── Boot ─────────────────────────────────────────────────────────
+get('/info').then(d => {
+  $('ver').textContent = `v${d.version} · ${d.tools} tools · ${d.upstream.replace(/^https?:\/\//, '')}`;
+  $('led').classList.remove('off');
+  $('mc_cfg').textContent =
+    `# Streamable HTTP\n${location.origin}${API}/mcp\n\n` +
+    `# stdio (Claude Code)\nclaude mcp add targon -- targon-api --stdio\n\n` +
+    `# key: x-api-key header, TARGON_API_KEY, or ~/.mod/targon/api_key`;
+}).catch(() => $('ver').textContent = 'backend unreachable');
+
+loadInventory();
+loadTools();
+loadWalletBalance();
+if (KEY) loadTargonAccount();
 </script>
 </body>
 </html>

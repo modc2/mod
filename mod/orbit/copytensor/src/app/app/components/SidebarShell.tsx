@@ -63,10 +63,16 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [sheet, docked, setDocked]);
 
-  if (!hydrated) return <>{children}</>;
-  if (!docked) return <>{children}</>;
-
-  const floating = mode === "float" && !sheet;
+  // Every housing renders `children` from the SAME slot below. Returning it
+  // bare when the drawer is shut moved the page to a different place in the
+  // tree, so opening the drawer remounted it — throwing away a board's
+  // ticked rows and refetching the whole leaderboard on a dock toggle.
+  const open = hydrated && docked;
+  const floating = open && mode === "float" && !sheet;
+  const sheeted = open && sheet;
+  // The drawer only takes a column out of the page when it's docked to the
+  // edge; a sheet and a floating window both sit over it.
+  const column = open && !sheet && !floating;
   const resetWidth = () => setWidth(SIDEBAR_DEFAULT);
   // The builder's table only earns its second column past ~620px, whichever
   // shape the drawer is in.
@@ -102,28 +108,6 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
     </>
   );
 
-  if (sheet) {
-    return (
-      <>
-        {children}
-        <aside className="drawer-sheet" role="dialog" aria-label="Drawer">
-          <div className="drawer-bar">
-            {tabs}
-            <button
-              onClick={() => setDocked(false)}
-              className="pixel-btn text-[10px] px-3 py-1 ml-auto"
-              title="Close drawer"
-              aria-label="Close drawer"
-            >
-              ✕
-            </button>
-          </div>
-          <div className="flex-1 min-h-0 overflow-y-auto">{panels}</div>
-        </aside>
-      </>
-    );
-  }
-
   // Drag the window by its bar, but never by the caps sitting on it.
   const onBarDown = (e: React.MouseEvent) => {
     if (!floating) return;
@@ -132,29 +116,39 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="flex items-stretch min-h-[calc(100vh-3rem)]">
-      <main className="flex-1 min-w-0 overflow-x-hidden">{children}</main>
+    <div className={column ? "flex items-stretch min-h-[calc(100vh-3rem)]" : undefined}>
+      <div className={column ? "flex-1 min-w-0 overflow-x-hidden" : undefined}>
+        {children}
+      </div>
+      {open && (
+        <>
       <div
         onMouseDown={startDrag}
         onDoubleClick={resetWidth}
-        className={`drawer-grip shrink-0 ${floating ? "hidden" : ""}`}
+        className={`drawer-grip shrink-0 ${column ? "" : "hidden"}`}
         role="separator"
         aria-orientation="vertical"
         title="Drag to resize · Double-click to reset"
       />
-      {/* Dock and pop-out are the SAME element with different chrome — moving
-          it in the tree would remount both panels and throw away a half-built
-          basket every time you popped the drawer out. */}
+      {/* Dock, sheet and pop-out are the SAME element with different chrome —
+          moving it in the tree would remount both panels and throw away a
+          half-built basket every time you popped the drawer out. */}
       <aside
+        role={sheeted ? "dialog" : undefined}
+        aria-label="Drawer"
         style={
-          floating
-            ? { left: rect.x, top: rect.y, width: rect.w, height: rolled ? undefined : rect.h }
-            : { width }
+          sheeted
+            ? undefined
+            : floating
+              ? { left: rect.x, top: rect.y, width: rect.w, height: rolled ? undefined : rect.h }
+              : { width }
         }
         className={
-          floating
-            ? "drawer-win flex flex-col overflow-hidden"
-            : "shrink-0 border-l-2 border-pixel-border bg-pixel-black/60 overflow-y-auto"
+          sheeted
+            ? "drawer-sheet"
+            : floating
+              ? "drawer-win flex flex-col overflow-hidden"
+              : "shrink-0 border-l-2 border-pixel-border bg-pixel-black/60 overflow-y-auto"
         }
       >
         {/* Popped out, the window gets a title bar of its own. It's the drag
@@ -208,39 +202,54 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
         {/* One rail switches the drawer between the two things you do with a
             trader: keep an eye on it, or put it in a basket. */}
         <div
-          className={`drawer-bar ${floating ? "drawer-bar-sub" : "sticky top-0 z-10"}`}
+          className={`drawer-bar ${
+            floating ? "drawer-bar-sub" : sheeted ? "" : "sticky top-0 z-10"
+          }`}
         >
           {tabs}
           {!floating && (
             <div className="ml-auto flex items-center gap-1">
-              <button
-                onClick={() => setMode("float")}
-                className="pixel-btn text-[10px] px-2 py-1"
-                title="Tear the drawer off into a window"
-              >
-                POP OUT
-              </button>
-              <button
-                onClick={toggleExpanded}
-                aria-pressed={expanded}
-                className={`pixel-btn text-[10px] px-2 py-1 ${
-                  expanded ? "border-green-400 text-green-400" : ""
-                }`}
-                title={expanded ? "Shrink the drawer" : "Expand the drawer"}
-              >
-                {expanded ? "SHRINK" : "EXPAND"}
-              </button>
+              {/* A sheet already fills the screen and has nowhere to float
+                  to, so it gets the close cap and nothing else. */}
+              {!sheeted && (
+                <>
+                  <button
+                    onClick={() => setMode("float")}
+                    className="pixel-btn text-[10px] px-2 py-1"
+                    title="Tear the drawer off into a window"
+                  >
+                    POP OUT
+                  </button>
+                  <button
+                    onClick={toggleExpanded}
+                    aria-pressed={expanded}
+                    className={`pixel-btn text-[10px] px-2 py-1 ${
+                      expanded ? "border-green-400 text-green-400" : ""
+                    }`}
+                    title={expanded ? "Shrink the drawer" : "Expand the drawer"}
+                  >
+                    {expanded ? "SHRINK" : "EXPAND"}
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => setDocked(false)}
-                className="pixel-btn text-[10px] px-2 py-1"
+                className={`pixel-btn text-[10px] py-1 ${sheeted ? "px-3" : "px-2"}`}
                 title="Close drawer"
+                aria-label="Close drawer"
               >
                 ✕
               </button>
             </div>
           )}
         </div>
-        <div className={floating ? `flex-1 min-h-0 overflow-y-auto ${rolled ? "hidden" : ""}` : ""}>
+        <div
+          className={
+            floating || sheeted
+              ? `flex-1 min-h-0 overflow-y-auto ${rolled && floating ? "hidden" : ""}`
+              : ""
+          }
+        >
           {panels}
         </div>
         {floating && !rolled && EDGES.map((g) => (
@@ -251,6 +260,8 @@ export default function SidebarShell({ children }: { children: ReactNode }) {
           />
         ))}
       </aside>
+        </>
+      )}
     </div>
   );
 }

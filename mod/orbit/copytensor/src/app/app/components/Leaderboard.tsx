@@ -2,17 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { LeaderboardEntry, SubnetInfo, Universe } from "../lib/types";
-import { fetchLeaderboard, fetchSubnets, fetchUniverse, fmtCompact,
+import { useRouter } from "next/navigation";
+import type { LeaderboardEntry, Universe } from "../lib/types";
+import { fetchLeaderboard, fetchUniverse, fmtCompact,
          setPool, shortSs58 } from "../lib/api";
 import PnlBadge from "./PnlBadge";
 import Identicon from "./Identicon";
-import SubnetLogo from "./SubnetLogo";
 import StatTile from "./StatTile";
 import { useFilters, type SortKey } from "../context/FiltersContext";
 import { useCurrency, fmtValue } from "../context/CurrencyContext";
 import { useSidebar } from "../context/SidebarContext";
 
+// How far back PnL is measured. 7d is the default everywhere — long enough
+// that a single good day doesn't top the board, short enough that most of
+// bt's index has that much history.
 const WINDOWS = [1, 3, 7, 14, 30];
 // Trader-pool sizes. Every step is real coldkeys ranked by on-chain stake;
 // bigger pools take longer to price (one historical read per trader).
@@ -23,8 +26,11 @@ export default function Leaderboard() {
           setMinSubnets, reloadKey, reload } = useFilters();
   const { currency, usdPerTao } = useCurrency();
   const { openStrat } = useSidebar();
+  const router = useRouter();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
-  const [subnets, setSubnets] = useState<Map<number, SubnetInfo>>(new Map());
+  // Ticked rows. A basket is the point of the board — "copy these twelve"
+  // used to mean twelve trips through the drawer, one COPY click each.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [universe, setUniverse] = useState<Universe | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -42,14 +48,6 @@ export default function Leaderboard() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [days, reloadKey]);
-
-  // Names + logos for the "top SN" column — a bare "SN64" tells you nothing
-  // about which subnet a validator is actually concentrated in.
-  useEffect(() => {
-    fetchSubnets()
-      .then((all) => setSubnets(new Map(all.map((s) => [s.netuid, s]))))
-      .catch(() => {});
-  }, []);
 
   // Pool + board status. Discovery and the first pass over a horizon both
   // run server-side in the background, so poll while either is in flight
@@ -117,9 +115,37 @@ export default function Leaderboard() {
 
   const maxStake = Math.max(1, ...filtered.map((e) => e.total_stake_tao));
 
-  const Th = ({ k, label, num }: { k: SortKey; label: string; num?: boolean }) => (
+  // Only what's on screen counts as "all" — ticking rows the filter hides
+  // would send traders you never looked at into the basket.
+  const pickedVisible = useMemo(
+    () => filtered.filter((e) => picked.has(e.ss58)),
+    [filtered, picked],
+  );
+  const allPicked = filtered.length > 0 && pickedVisible.length === filtered.length;
+
+  const togglePick = (ss58: string) =>
+    setPicked((cur) => {
+      const next = new Set(cur);
+      next.has(ss58) ? next.delete(ss58) : next.add(ss58);
+      return next;
+    });
+
+  const pickMany = (rows: LeaderboardEntry[]) =>
+    setPicked((cur) => {
+      const next = new Set(cur);
+      for (const e of rows) next.add(e.ss58);
+      return next;
+    });
+
+  const open = (ss58: string) => router.push(`/traders/${ss58}`);
+
+  /** Stop a row click when the thing clicked does its own job. */
+  const own = (e: React.MouseEvent) => e.stopPropagation();
+
+  const Th = ({ k, label, num, width }: { k: SortKey; label: string; num?: boolean; width?: number }) => (
     <th
       onClick={() => toggleSort(k)}
+      style={width ? { width } : undefined}
       className={`sortable ${sortKey === k ? "sorted" : ""} ${num ? "num" : ""}`}
     >
       {label} {sortKey === k && (sortDir === "desc" ? "▼" : "▲")}
@@ -195,6 +221,45 @@ export default function Leaderboard() {
           )}
         </div>
 
+        {/* The tick bar. Only here once something is ticked — an always-on
+            row of disabled buttons above every board is noise. */}
+        {picked.size > 0 && (
+          <div className="pixel-panel flex flex-wrap items-center gap-2 px-3 py-2 border-green-400/40">
+            <span className="font-mono text-[12px] text-green-400 tabular-nums">
+              {picked.size} SELECTED
+            </span>
+            {pickedVisible.length !== picked.size && (
+              <span
+                className="font-mono text-[10px] text-pixel-gray"
+                title="Some ticked traders are hidden by the current filters — they're still in the selection"
+              >
+                ({pickedVisible.length} shown)
+              </span>
+            )}
+            <button
+              onClick={() => pickMany(filtered)}
+              disabled={allPicked}
+              title="Tick every row the filters are showing"
+              className="pixel-btn text-[10px] px-2 py-0.5 text-pixel-gray-light disabled:opacity-40"
+            >
+              ALL {filtered.length}
+            </button>
+            <button
+              onClick={() => setPicked(new Set())}
+              className="pixel-btn text-[10px] px-2 py-0.5 text-pixel-gray-light"
+            >
+              CLEAR
+            </button>
+            <button
+              onClick={() => openStrat(...Array.from(picked))}
+              title="Open the strat maker with every ticked trader"
+              className="pixel-btn text-[11px] px-2 py-1 ml-auto text-green-400 border-green-400"
+            >
+              + COPY {picked.size} SELECTED
+            </button>
+          </div>
+        )}
+
         {/* Controls, in the order you actually reach for them: the horizon
             first, on a rail you can thumb; the pool and the subnet floor are
             set-once knobs and fold behind ⚙ on a phone rather than filling
@@ -205,6 +270,9 @@ export default function Leaderboard() {
                 a thumb can find it, and inside a scrolling rail it scrolls
                 away with everything else. */}
             <div className="rail no-scrollbar -ml-3 pl-3 lg:ml-0 lg:pl-0 min-w-0">
+              {/* Unlabelled, a row of "1d 3d 7d" reads as a refresh rate.
+                  It's how much history every number on the board covers. */}
+              <span className="text-[11px] text-pixel-gray-light mr-1">history</span>
               {WINDOWS.map((w) => (
                 <button
                   key={w}
@@ -297,7 +365,8 @@ export default function Leaderboard() {
               e={e}
               i={i}
               days={days}
-              sn={e.top_subnet != null ? subnets.get(e.top_subnet) : undefined}
+              picked={picked.has(e.ss58)}
+              onPick={() => togglePick(e.ss58)}
               onCopy={() => openStrat(e.ss58)}
             />
           ))
@@ -305,17 +374,41 @@ export default function Leaderboard() {
       </div>
 
       <div className="pixel-panel overflow-x-auto hidden lg:block">
-        <table className="pixel-table" style={{ minWidth: 900 }}>
+        <table className="pixel-table" style={{ minWidth: 920 }}>
           <thead className="sticky">
             <tr>
+              <th className="tick" style={{ width: 34 }}>
+                <input
+                  type="checkbox"
+                  checked={allPicked}
+                  // Some-but-not-all reads as a dash, so one more click is
+                  // obviously "take the rest" rather than "start over".
+                  ref={(el) => {
+                    if (el) el.indeterminate = !allPicked && pickedVisible.length > 0;
+                  }}
+                  onChange={() =>
+                    allPicked
+                      ? setPicked(new Set())
+                      : pickMany(filtered)
+                  }
+                  disabled={!filtered.length}
+                  aria-label="select every trader shown"
+                  title="Select every trader shown"
+                />
+              </th>
               <th style={{ width: 56 }}>#</th>
-              <th style={{ width: "28%" }}>Trader</th>
-              <Th k="total_stake_tao" label={`Stake (${currency === "USD" ? "$" : "τ"})`} num />
-              <Th k="pnl_tao" label={`${days}d PnL`} num />
-              <Th k="pnl_pct" label={`${days}d %`} num />
-              <Th k="market_pct" label="Market %" num />
-              <Th k="num_subnets" label="SNs" num />
-              <th style={{ width: 190 }}>Top subnet</th>
+              {/* No width: with `table-layout: fixed` the one unsized column
+                  soaks up whatever the sized ones leave, so the name grows
+                  with the screen instead of the numbers doing it. */}
+              <th>Trader</th>
+              <Th k="total_stake_tao" label={`Stake (${currency === "USD" ? "$" : "τ"})`} num width={160} />
+              {/* The PnL pair is the widest thing on the row — "+229.5635 τ
+                  (+63.52%)" needs the room, and used to get 150px and an
+                  ellipsis right through the number you came to read. */}
+              <Th k="pnl_tao" label={`${days}d PnL`} num width={230} />
+              <Th k="pnl_pct" label={`${days}d %`} num width={120} />
+              <Th k="market_pct" label="Market %" num width={130} />
+              <Th k="num_subnets" label="SNs" num width={70} />
               <th style={{ width: 104 }}></th>
             </tr>
           </thead>
@@ -341,16 +434,31 @@ export default function Leaderboard() {
               </tr>
             ) : (
               filtered.map((e, i) => {
-                const sn = e.top_subnet != null ? subnets.get(e.top_subnet) : undefined;
                 const share = (e.total_stake_tao / maxStake) * 100;
+                const on = picked.has(e.ss58);
                 return (
-                  <tr key={e.ss58}>
+                  // The whole row opens the trader — the name was the only
+                  // hit target before, which is a 200px link in a 900px row.
+                  <tr
+                    key={e.ss58}
+                    onClick={() => open(e.ss58)}
+                    className={`cursor-pointer ${on ? "row-picked" : ""}`}
+                  >
+                    <td className="tick" onClick={own}>
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => togglePick(e.ss58)}
+                        aria-label={`select ${e.label || shortSs58(e.ss58)}`}
+                      />
+                    </td>
                     <td className="num">
                       <Rank i={i} />
                     </td>
                     <td className="stack">
                       <Link
                         href={`/traders/${e.ss58}`}
+                        onClick={own}
                         className="flex items-center gap-2 no-underline group"
                         title={e.ss58}
                       >
@@ -359,9 +467,14 @@ export default function Leaderboard() {
                           <span className="block text-pixel-white group-hover:text-green-400 truncate">
                             {e.label || shortSs58(e.ss58)}
                           </span>
-                          <span className="block text-[10px] text-pixel-gray font-mono truncate">
-                            {shortSs58(e.ss58)}
-                          </span>
+                          {/* The address is only worth a second line when the
+                              first one is a name — most coldkeys are unlabelled
+                              and it was printing the same string twice. */}
+                          {e.label && (
+                            <span className="block text-[10px] text-pixel-gray font-mono truncate">
+                              {shortSs58(e.ss58)}
+                            </span>
+                          )}
                         </span>
                       </Link>
                     </td>
@@ -424,33 +537,7 @@ export default function Leaderboard() {
                       </>
                     )}
                     <td className="num text-pixel-gray-light font-mono">{e.num_subnets}</td>
-                    <td>
-                      {e.top_subnet == null ? (
-                        <span className="text-pixel-gray">—</span>
-                      ) : (
-                        <Link
-                          href={`/subnets/${e.top_subnet}`}
-                          className="flex items-center gap-1.5 no-underline text-pixel-gray-light hover:text-green-400"
-                        >
-                          <SubnetLogo
-                            netuid={e.top_subnet}
-                            name={sn?.name}
-                            symbol={sn?.symbol}
-                            logo={sn?.logo}
-                            size={18}
-                          />
-                          <span className="truncate">{sn?.name || `SN${e.top_subnet}`}</span>
-                          {e.top_subnet_pnl !== 0 && (
-                            <span
-                              className={`text-[10px] font-mono ${e.top_subnet_pnl >= 0 ? "text-green-400" : "text-red-400"}`}
-                            >
-                              {e.top_subnet_pnl >= 0 ? "+" : ""}{fmtCompact(e.top_subnet_pnl)}
-                            </span>
-                          )}
-                        </Link>
-                      )}
-                    </td>
-                    <td>
+                    <td onClick={own}>
                       <button
                         onClick={() => openStrat(e.ss58)}
                         title="Add to the strat maker's basket"
@@ -472,25 +559,35 @@ export default function Leaderboard() {
 
 /**
  * One row of the board, on a phone. The same numbers as the table — stake,
- * PnL, the market-only PnL and the subnet the book is concentrated in —
- * stacked as labelled cells instead of columns, with the two things you do
- * with a trader (open it, copy it) on the top line where a thumb lands.
+ * PnL and the market-only PnL — stacked as labelled cells instead of
+ * columns, with the two things you do with a trader (open it, copy it) on
+ * the top line where a thumb lands.
  */
 function TraderCard({
-  e, i, days, sn, onCopy,
+  e, i, days, picked, onPick, onCopy,
 }: {
   e: LeaderboardEntry;
   i: number;
   days: number;
-  sn?: SubnetInfo;
+  picked: boolean;
+  onPick: () => void;
   onCopy: () => void;
 }) {
   const { currency, usdPerTao } = useCurrency();
   const warming = e.baseline === false;
 
   return (
-    <div className="row-card">
+    <div className={`row-card ${picked ? "row-picked" : ""}`}>
       <div className="flex items-center gap-2.5">
+        {/* The tick sits before the rank so a column of them lines up down
+            the left edge — the same place the table puts it. */}
+        <input
+          type="checkbox"
+          checked={picked}
+          onChange={onPick}
+          className="shrink-0"
+          aria-label={`select ${e.label || shortSs58(e.ss58)}`}
+        />
         <Rank i={i} />
         <Link
           href={`/traders/${e.ss58}`}
@@ -562,31 +659,6 @@ function TraderCard({
           </>
         )}
       </div>
-
-      {e.top_subnet != null && (
-        <Link
-          href={`/subnets/${e.top_subnet}`}
-          className="flex items-center gap-1.5 no-underline mt-2.5 text-pixel-gray-light"
-        >
-          <SubnetLogo
-            netuid={e.top_subnet}
-            name={sn?.name}
-            symbol={sn?.symbol}
-            logo={sn?.logo}
-            size={16}
-          />
-          <span className="text-[11px] truncate">{sn?.name || `SN${e.top_subnet}`}</span>
-          {e.top_subnet_pnl !== 0 && (
-            <span
-              className={`text-[11px] font-mono ml-auto ${
-                e.top_subnet_pnl >= 0 ? "text-green-400" : "text-red-400"
-              }`}
-            >
-              {e.top_subnet_pnl >= 0 ? "+" : ""}{fmtCompact(e.top_subnet_pnl)}
-            </span>
-          )}
-        </Link>
-      )}
     </div>
   );
 }

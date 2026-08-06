@@ -23,12 +23,17 @@ wallet, and those always go out over our own wallet + RPC pool.
 - **Market surface**: `/subnets` passes bt's screener through whole — symbol, market cap, 24h volume, 1h/24h change, a 48-point price sparkline and the on-chain subnet identity (logo, description, github/site/discord) — behind a 12 s cache, since the ticker, the grid and the header strip all poll it. `/market` adds network totals and the day's movers; `/subnets/{netuid}` adds validator rankings; `/subnets/{netuid}/history` is the detail chart's series. Enriched fields are `null` (never 0) when bt is down and the read falls back to the RPC walk, and the UI renders those as "—". The subnet grid has card and table views (`copytensor:subnets:view`), sorts by mcap / volume / change / price / pool / netuid, and links each row to the detail page.
 - **Round-robin RPC pool**: `entrypoint-finney.opentensor.ai`, `archive.chain.opentensor.ai`, `lite.chain.opentensor.ai`, `bittensor-finney.api.onfinality.io` — shuffles on init, auto-fails over on RPC errors.
 - **Copy engine**: replicate a target validator's subnet allocations onto your own hotkey with safety limits (per-tx cap, daily cap, rebalance threshold).
-- **Index of traders (polymarket-style)**: build a named, weighted basket of validators and "Start Index Live" — the frontend spawns one server-side copy per trader with capital split by weight. Pause / Resume / Sync / Stop act on the whole basket. Stored client-side in localStorage (`copytensor:indexes:v1`).
+- **Picking traders off the board** (v0.6.1): every row on `/traders` has a tick box and the whole row opens the profile — the name used to be the only hit target in a 900px row. Ticking anything raises a bar with `ALL <n>` / `CLEAR` / `+ COPY n SELECTED`, which seeds the strat maker's basket in one go; the header box selects everything the filters are showing (indeterminate when it's a subset), and a ticked row keeps the accent gutter hover paints. The `history` rail (1/3/7/14/30d, default **7d**) is the window every PnL column is measured over, lives in `FiltersContext` (persisted to `ct_filters_v1`) and is now shared with the trader profile, so clicking a row off a 7d board lands on a 7d profile. Selection survives opening, popping out and closing the drawer: `SidebarShell` renders `children` from one slot in all three housings, where it used to return them bare when shut and remount the whole page on a dock toggle.
+- **Index of traders (polymarket-style)**: build a named, weighted basket of validators and "Start Index Live" — the frontend spawns one server-side copy per trader with capital split by weight. Pause / Resume / Sync / Stop act on the whole basket.
+- **Strats live on the server, owned and shareable** (v0.8.0): a strat is a row in `strats` (SQLite), owned by the SHA-256 of the caller's `X-Owner-Key` — a random key each browser mints once (`src/app/app/lib/owner.ts`) and never sends anywhere else. There is no sign-up: the first 16 hex of that hash is your **fingerprint**, the id you hand someone who should read a private strat of yours. Visibility is `private` (the default), `whitelist` (you plus the fingerprints you list) or `public` (the HUB tab on `/strats`, where anyone can read it and CLONE it onto their own key, private and never live). Writes are owner-only; a non-owner gets 403 on write and 404 on anything they may not read. Anything still in the old localStorage list (`copytensor:indexes:v1`) is migrated up on first load and then deleted.
+- **Backtest on every edit** (v0.8.0): `POST /strats/backtest` replays the basket inline — no id, so an unsaved draft backtests too — and the picker re-runs it (debounced 500 ms) on every membership, weight, on/off, window or capital change. It's a *return* replay: each trader's indexed portfolio series becomes a return series, blended at the basket's normalized weights and rebalanced every step, which is what the copy engine's rebalance threshold approximates. What it does NOT model is execution lag, slippage and fees — a copied trade lands after the leader's, so live sits under the curve, and the panel says so. Legs with no indexed history are reported under `skipped` (their weight is redistributed, never counted as flat), a book under `DUST_TAO` (0.5τ) can't contribute a step (a wallet going 0.000001τ → 1τ is not a 100,000,000% return), a basket wider than `MAX_LEGS` (60) is truncated to the heaviest legs **out loud**, and per-trader contributions are attributed in money against the equity going into each step, so they sum exactly to the basket's PnL. `tests/test_backtest.py` pins all of it on fixtures.
+- **Our hotkey is prefilled, not asked for**: the copy engine stakes from *our* account, so a live run needs `our_hotkey` — but the module already knows it once a wallet is set, so the field fills itself from `/wallet/balance`. Saving and backtesting need nothing; only START asks, and when it's empty it says "no wallet set" instead of "our hotkey ss58 required".
+- **A strat agent you can talk to** (v0.7.0): the AGENT tab is a conversation with a Claude wired to this module's own boards, and its deliverable is a basket. See "The strat agent" below.
 - **The leaderboard is bt's** (v0.4.0): one call to bt's `bt_trader_board` ranks every coldkey bt indexes over the window, PnL already split into market move vs stake flow — **~260 ms for the whole board** against 211 s for the old per-account archive walk (measured on a 253-account pool). `src/engine/bt_board.py` only maps bt's rows onto the entry shape the API already served, so `/leaderboard` and the UI are unchanged. All five horizons warm in ~5 s at boot instead of ~7 min, and a cold horizon is priced **on the request thread** rather than returning `[]`. `build_leaderboard`'s chain walk is still there and takes over automatically when bt is down; `/universe` reports which engine priced each horizon (`board.source`) and how many coldkeys bt indexes (`board.indexed`). What this trades away: the board ranks what **bt indexes**, not the whole watchlist — see the mirror below.
 - **Mirroring the watchlist into bt**: bt only keeps history for coldkeys it tracks, so `bt_mirror_max` (120) is the real size of the visible board. Each tracked account costs bt one chain read per refresh pass (~1.75 s measured), so 120 accounts is ~3.5 min of every 15-min pass — raise it knowing that cost. The mirror pushes only accounts bt does not already have: `bt_track` snapshots on every call, so re-mirroring the same list each restart would spend minutes of chain reads to learn nothing.
 - **Trader pool (what the watchlist holds)**: the watchlist feeds the mirror, and with bt down it IS the ranked set. One `get_delegates()` walk (~35 s, cached 6 h) yields the whole on-chain universe — every delegate owner **and every nominator staking to them**: ~2.3 k + ~57 k real coldkeys on finney — ranked by stake. At boot the pool tops itself up to `leaderboard_pool_size` (250; `auto_discover: false` disables it); `POST /pool?size=N` resizes it live (background, poll `GET /universe`), `POST /discover?top=N&kind=validator|nominator|all` adds the top N synchronously. Ranking stake is `Σ` per-subnet alpha from the delegate set — a ranking heuristic for *which* coldkeys to watch, never shown as a τ value; every τ figure on the board comes from priced positions. Every ss58 entering the watchlist is checksum-validated.
 - **Honest PnL**: baselines come from local snapshots (30-min loop) or bt's trader index (`bt_trader_at`), which only counts a snapshot as a baseline if it actually sits near the block asked for — otherwise today's book would masquerade as last week's and PnL would read 0. The archive-node query is the fallback behind both (`archive_fallback: true`, `COPYTENSOR_ARCHIVE_FALLBACK=0/1` overrides): a pool of hundreds is only comparable if every trader is priced over the *same* window, and for a coldkey nobody has indexed only the archive can answer. Each row reports `window_days` — the history it actually covers — and the UI flags any row short of the horizon; if no baseline exists at all the row reports `baseline: false` and PnL 0 ("— warming"). Numbers are never invented.
-- **Scaling the fallback board** (bt down only): one build = one live read + one archive read per trader, so the pool is walked concurrently (`leaderboard_workers`, 8) over a pool of archive sockets (`archive_pool_size`, 4), with live positions cached briefly so all five horizons share one read per trader. That path stays off the request thread — a cold horizon returns `[]` with `board.building` set in `/universe` and rows appear on the next poll — and it stands aside while the delegate walk runs. Refresh is rate-limited to one rebuild per three build-times so a big pool can't rebuild forever. SQLite runs in WAL (concurrent snapshot writers).
+- **Scaling the fallback board** (bt down only): one build = one live read + one archive read per trader, so the pool is walked concurrently (`leaderboard_workers`, 8) over a pool of archive sockets (`archive_pool_size`, 4), with live positions cached briefly so all five horizons share one read per trader. That path stays off the request thread — a cold horizon returns `[]` with `board.building` set in `/universe` and rows appear on the next poll — and it stands aside while the delegate walk runs. It also runs alone, behind `_lb_build_gate`; the bt build deliberately sits *outside* that gate, because a walk that started while bt was down otherwise held its horizon empty for minutes after bt came back (`_leaderboard_cached` prices a cold horizon off bt even while a walk is marked refreshing). Refresh is rate-limited to one rebuild per three build-times so a big pool can't rebuild forever. SQLite runs in WAL (concurrent snapshot writers).
 - **Process supervision**: both services run under pm2 (`copytensor-api`, `copytensor-app`) and are in the pm2 dump, so a reboot restores them. `_pm2_spawn` passes `--interpreter none`: pm2 hands anything it doesn't recognise to node, so the python API crash-looped on `SyntaxError: Cannot use import statement outside a module` while `pm2 start` still exited 0 — the module reported "started", nothing was listening, and after a reboot the app served 500s against a dead backend for hours. `pm2 start` exiting 0 means the process was *accepted*, so the spawn now also waits for it to be online with a still restart counter before claiming success, and falls back to Popen otherwise.
 
 ## Usage
@@ -47,6 +52,10 @@ ct.source()                                   # reads served by bt or by RPC?
 ct.traders()                                  # tracked traders: value, PnL, allocation
 ct.trader_history("5CWzmvA17MAM...")          # equity curve from bt's index
 ct.flows(hours=24)                            # inferred buys/sells across traders
+ct.agent_status()                             # can the strat agent run?
+r = ct.ask("5-trader index, books over 1000 TAO, 200 TAO capital")
+r["strat"]["traders"]                         # the basket it picked, with a `why` each
+ct.ask("drop the bottom two", session_id=r["session_id"])   # keep talking
 ct.set_wallet(mnemonic="...")                 # only needed to actually stake
 ct.create_copy(target_ss58="...", our_hotkey="...")
 ```
@@ -60,6 +69,8 @@ m copytensor/rpc_pool
 m copytensor/source
 m copytensor/traders
 m copytensor/flows hours=24
+m copytensor/agent_status
+m copytensor/ask question="4-trader momentum index, books over 5000 TAO" stream=True
 m copytensor/create_copy target_ss58=... our_hotkey=...
 ```
 
@@ -90,11 +101,19 @@ m copytensor/create_copy target_ss58=... our_hotkey=...
 | GET | `/universe` | Pool status: traders ranked vs coldkeys on-chain, board build progress |
 | POST | `/pool?size=250` | Resize the trader pool; grows + re-prices in the background |
 | GET | `/tao_price` | TAO/USD (coingecko, 5-min server cache) |
+| GET | `/agent` | Strat-agent status: auth method, model, tool names |
+| POST | `/agent/ask` | Talk to the strat agent — SSE stream, `{question, session_id?}` |
 | POST | `/copy` | Create copy config |
 | GET | `/copies` | List active copies |
 | POST | `/copy/{id}/{pause,resume,sync}` | Manage copy |
 | POST | `/wallet/set` | Set mnemonic (only for staking) |
 | GET | `/wallet/balance` | Wallet TAO balance |
+| GET | `/whoami` | Your strat-owner fingerprint (from `X-Owner-Key`) |
+| POST | `/strats/backtest` | Replay a basket inline: equity curve, stats, per-trader contribution, skipped legs |
+| GET/POST | `/strats` | Your strats (+ public + whitelisted-to-you) / create one |
+| GET | `/strats/hub` | The public shelf |
+| GET/PUT/DELETE | `/strats/{id}` | Read / replace / delete (writes owner-only) |
+| POST | `/strats/{id}/clone` | Copy a readable strat onto your key, private and flat |
 
 ## Structure
 
@@ -105,6 +124,10 @@ mod/orbit/copytensor/
 ├── Dockerfile
 └── src/
     ├── mod.py                   # Mod orchestrator (Copytensor)
+    ├── agent/
+    │   ├── tools.py             # The strat agent's toolbox (trimmed reads + propose_strat)
+    │   ├── mcp_server.py        # Zero-dep MCP stdio server over that toolbox
+    │   └── agent.py             # Claude CLI driver: SSE events, session resume
     ├── api/
     │   ├── app.py               # FastAPI app
     │   └── models.py            # Pydantic response models
@@ -121,6 +144,55 @@ mod/orbit/copytensor/
     │   └── safety.py            # Safety limits
     ├── db.py                    # SQLite (snapshots, trades, copies, watches)
     └── app/                     # Next.js frontend (pixel theme, CRT shell)
+```
+
+## The strat agent
+
+A conversation whose output is a basket. `/agent` in the console, `ct.ask()` from
+Python, `m copytensor/ask` from a shell — all three drive the same run.
+
+**The shape.** `src/agent/agent.py` runs the Claude CLI headless
+(`claude -p --output-format stream-json`) with `src/agent/mcp_server.py` as its only
+toolbox, and translates the CLI's stream into console events:
+`start | text | tool | tool_done | strat | done | error`. `strat` is the event that
+matters — it carries the validated basket, which the UI renders as a card.
+
+**The toolbox reads this module's own API**, not the chain. `ct_traders` (the tracked
+board, and the pool a basket is picked from), `ct_trader`, `ct_trader_flows`,
+`ct_flows`, `ct_leaderboard`, `ct_subnets`, `ct_market`, `ct_copies`, `ct_status` —
+each one a trimmed call against `localhost:50150`. Trimming is the point: a raw
+`/traders` is 372 rows carrying sparklines and hotkey lists, which is a token bill and
+no more signal than the dozen fields a strat decision actually turns on. The agent
+therefore sees exactly the numbers the console shows, through the same cache, the same
+bt index and the same RPC fallback.
+
+**`propose_strat` is the deliverable**, and the only tool that isn't a read. It
+validates SS58s, drops duplicates, normalises weights into `share_pct` and re-prices
+every pick off the live board — so the card renders without a second round-trip, and
+the agent gets told what it actually picked (a coldkey with no index history comes
+back flagged `tracked: false` in `warning`).
+
+**It cannot trade.** There is no write tool in the registry at all, so no prompt can
+reach `/copy` or a wallet. A proposal lands in the console as a card; SAVE writes it
+into the same localStorage strat library the strat maker uses (`copytensor:indexes:v1`,
+with `thesis` alongside the weights), and OPEN IN STRAT MAKER saves then loads it into
+the drawer's builder for the hotkey and the ACTIVATE click. Going live stays exactly
+where it was.
+
+**Talking, not asking.** Every event carries the CLI's `session_id`; sending it back
+with the next question resumes that conversation (`--resume`), so "cut it to the best
+two and call it Duo" costs 2 turns and no new research. The console keeps the
+transcript and the session id in `copytensor:agent:v1` (capped at 60 rows — one origin
+is shared by every module on this host).
+
+**Auth** cascades `ANTHROPIC_API_KEY` → `~/.mod/copytensor/anthropic.key` (created
+empty at 0600 if nothing exists) → Claude CLI OAuth. `GET /agent` reports which one
+answered, and `m copytensor/test` fails the `agent` check when none do.
+
+The MCP server also stands alone, for any client:
+
+```bash
+claude mcp add copytensor -- python3 -m src.agent.mcp_server   # from the module dir
 ```
 
 ## UI — the 8-bit console
@@ -171,11 +243,16 @@ controls on the right, standfirst below) and `StatTile.tsx` (a scoreboard readou
 hand-rolling another header or tile.
 
 The top bar is two honest rows at every width — marquee + status on top, nav + search
-under it. It used to collapse onto one line on wide screens, but logo + 5 tabs +
+under it. It used to collapse onto one line on wide screens, but logo + tabs +
 search + 4 controls only ever fitted by shrinking the tabs and the search field into
-each other. Under `lg` the status cluster (rpc, skin, both drawer doors, search)
-folds into a `☰` sheet and the nav becomes a scrolling rail that auto-centres the
-active tab.
+each other. The nav is five doors — SUBNETS, TRADERS, STRATS, AGENT, PORTFOLIO — and
+`/` lands on SUBNETS. There was a sixth, LEADERBOARD, which rendered the *same*
+`Leaderboard.tsx` as TRADERS under a different standfirst; the tab is gone and
+`/leaderboard` redirects to `/traders` so old links still land. The board no longer
+carries a "top subnet" column either — and with it went the whole `/subnets` fetch
+the table did only to name that one cell. Under `lg` the status cluster (rpc, skin,
+both drawer doors, search) folds into a `☰` sheet and the nav becomes a scrolling
+rail that auto-centres the active tab.
 
 Charts are plotted on the pixel lattice, not drawn: `Sparkline.tsx` snaps vertices to
 a 2px grid and emits an axis-aligned staircase, and the Recharts areas use
@@ -281,6 +358,11 @@ Check at least one light skin and one dark before shipping a visual change.
 | `COPYTENSOR_BT` | `0` disables the bt path entirely — reads go straight to the RPC pool |
 | `COPYTENSOR_ARCHIVE_FALLBACK` | `1` re-enables deep archive-node queries when bt has no history |
 | `NEXT_PUBLIC_API_URL` | Frontend → API base (default same as above) |
+| `COPYTENSOR_AGENT_MODEL` | Strat-agent model (default `sonnet`) |
+| `COPYTENSOR_AGENT_MAX_TURNS` | Tool-use turns per question (default 16) |
+| `COPYTENSOR_AGENT_TIMEOUT` | Hard kill on a run, seconds (default 300) |
+| `COPYTENSOR_AGENT_BIN` | Claude CLI binary (default `claude`) |
+| `ANTHROPIC_API_KEY` | Agent auth; else `~/.mod/copytensor/anthropic.key`, else Claude CLI OAuth |
 
 ## Mod protocol
 

@@ -19,6 +19,8 @@ CLI:
     m supermario/play            # serve it and open a browser
     m supermario/serve           # run it under pm2, then register the route
     m supermario/boards          # which cartridge mappers work
+    m supermario/roms            # the free-licensed shelf, and what is on disk
+    m supermario/fetch_roms      # download that shelf so the app can serve it
     m supermario/test            # nestest diff + the PPU/APU test ROMs
     m supermario/fetch_test_roms # download the ROMs test() wants
     m supermario/kill            # stop it
@@ -44,6 +46,10 @@ if str(MODULE_DIR) not in sys.path:
 # code, so they live off-tree with the rest of this module's local state.
 ROM_DIR = Path.home() / '.mod' / 'supermario' / 'testroms'
 
+# Same rule for the games on the shelf: free-licensed, but somebody else's work.
+# The module links to them and fetches them on request; it never ships them.
+SHELF_DIR = Path.home() / '.mod' / 'supermario' / 'roms'
+
 
 class Mod:
     description = ('An NES emulator — 6502, 2C02 and 2A03 — that runs entirely '
@@ -52,7 +58,50 @@ class Mod:
     # What the HTTP API exposes. Every public method is a function of this
     # module, but the API answers from the public gateway, so it serves only the
     # ones that read: serve/kill/register and friends stay on the CLI.
-    API_FNS = ('info', 'health', 'readme', 'url', 'path', 'boards', 'files')
+    API_FNS = ('info', 'health', 'readme', 'url', 'path', 'boards', 'files',
+               'roms')
+
+    SHELF_DIR = SHELF_DIR
+
+    # Games you can legally have. Every one of these is published by its author
+    # under a free licence, so there is something to play on a console that
+    # ships no cartridges. Versions are pinned: a shelf that changes under you
+    # is not a shelf. Nintendo has never released Super Mario Bros. this way —
+    # for that one the legal routes are your own cartridge or Switch Online.
+    SHELF = [
+        {'file': 'nova.nes',
+         'title': 'Nova the Squirrel',
+         'author': 'NovaSquirrel',
+         'license': 'GPL-3.0',
+         'board': 'MMC1',
+         'about': 'An open-source platformer: run, jump, and take enemies\' '
+                  'abilities. The closest thing on this shelf to the game the '
+                  'module is named after.',
+         'source': 'https://github.com/NovaSquirrel/NovaTheSquirrel',
+         'url': 'https://github.com/NovaSquirrel/NovaTheSquirrel/releases/'
+                'download/v1.0.6a/nova.nes'},
+        {'file': 'thwaite.nes',
+         'title': 'Thwaite',
+         'author': 'Damian Yerrick',
+         'license': 'GPL-3.0',
+         'board': 'NROM',
+         'about': 'Missile Command with a two-button twist: shoot down the '
+                  'rockets before they land on your town.',
+         'source': 'https://github.com/pinobatch/thwaite-nes',
+         'url': 'https://github.com/pinobatch/thwaite-nes/releases/'
+                'download/v0.04/thwaite.nes'},
+        {'file': '240pee.nes',
+         'title': '240p Test Suite',
+         'author': "Artemio Urbina, ported by Damian Yerrick",
+         'license': 'GPL-2.0',
+         'board': 'UxROM',
+         'about': 'Not a game — the pattern generator CRT people use to line up '
+                  'a display. It leans on the PPU hard, so it is also the '
+                  'fastest way to see whether this build draws honestly.',
+         'source': 'https://github.com/pinobatch/240p-test-mini',
+         'url': 'https://github.com/pinobatch/240p-test-mini/releases/'
+                'download/v0.23/240pee.nes'},
+    ]
 
     # The cartridge boards, and the games that are the reason each one is here.
     BOARDS = [
@@ -165,7 +214,8 @@ class Mod:
                 'fast forward': 'tab',
                 'gamepad': 'any standard-layout controller',
             },
-            'roms': 'none included — load a dump of a cartridge you own',
+            'roms': ('none included — load a dump of a cartridge you own, or '
+                     'fetch_roms() for the free-licensed homebrew shelf'),
             'fns': self._fns(),
         }
 
@@ -196,6 +246,59 @@ class Mod:
     def boards(self) -> list:
         """The cartridge mappers this build supports."""
         return [{'mapper': i, 'board': n, 'games': g} for i, n, g in self.BOARDS]
+
+    def roms(self) -> list:
+        """The free-licensed games on the shelf, and which are downloaded.
+
+        The app reads this to build its picker; ``have`` is what decides
+        whether a title is playable from here or still just a link.
+        """
+        out = []
+        for rom in self.SHELF:
+            dest = self.SHELF_DIR / rom['file']
+            have = dest.exists()
+            out.append({**rom, 'download': rom['url'], 'have': have,
+                        'bytes': dest.stat().st_size if have else 0})
+            out[-1].pop('url')
+        return out
+
+    def fetch_roms(self, name=None, force=False) -> dict:
+        """Download the shelf from where its authors publish it.
+
+        ``name`` takes one title's file name (or its stem) instead of all of
+        them. Everything lands in ~/.mod/supermario/roms, which is where the
+        server reads them from — nothing enters the tree.
+        """
+        import urllib.request
+
+        wanted = [r for r in self.SHELF
+                  if name is None or str(name) in (r['file'],
+                                                   r['file'].rsplit('.', 1)[0])]
+        if not wanted:
+            return {'error': f'no ROM named {name!r}',
+                    'shelf': [r['file'] for r in self.SHELF]}
+
+        self.SHELF_DIR.mkdir(parents=True, exist_ok=True)
+        got, failed, present = [], {}, []
+        for rom in wanted:
+            dest = self.SHELF_DIR / rom['file']
+            if dest.exists() and not force:
+                present.append(rom['file'])
+                continue
+            try:
+                req = urllib.request.Request(
+                    rom['url'], headers={'User-Agent': 'mod-supermario'})
+                with urllib.request.urlopen(req, timeout=60) as r:
+                    data = r.read()
+                if data[:4] != b'NES\x1a':
+                    raise ValueError('not an iNES file — the link moved')
+                dest.write_bytes(data)
+                got.append(rom['file'])
+            except Exception as e:
+                failed[rom['file']] = str(e)
+
+        return {'dir': str(self.SHELF_DIR), 'fetched': got, 'present': present,
+                'failed': failed, 'ok': not failed}
 
     def files(self) -> dict:
         """Every file that makes up the emulator, with its size."""

@@ -145,11 +145,46 @@ class Handler(SimpleHTTPRequestHandler):
         self._strip()
         return self._call(self._route())
 
+    # ── the shelf ────────────────────────────────────────────────────────
+
+    def _shelf_rom(self, clean) -> bool:
+        """Serve ``/roms/<file>`` from the downloaded shelf.
+
+        Only names the module's own shelf lists are served, so this cannot be
+        walked out of ~/.mod/supermario/roms.
+        """
+        mod = module()
+        if mod is None:
+            self._json(503, {'error': f'module not loaded: {_mod_error}'})
+            return True
+        want = clean[len('/roms/'):]
+        shelf = {r['file'] for r in getattr(mod, 'SHELF', ())}
+        if want not in shelf:
+            self._json(404, {'error': f'not on the shelf: {want}',
+                             'shelf': sorted(shelf)})
+            return True
+        path = os.path.join(str(mod.SHELF_DIR), want)
+        if not os.path.exists(path):
+            self._json(404, {'error': f'{want} is not downloaded',
+                             'fix': 'm supermario/fetch_roms'})
+            return True
+        with open(path, 'rb') as fh:
+            body = fh.read()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/octet-stream')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(body)
+        return True
+
     def do_GET(self):
         self._strip()
         clean = self.path.split('?')[0].rstrip('/')
         if clean in ('/health', '/healthz'):
             return self._json(200, {'ok': True, 'module': NAME})
+        if clean.startswith('/roms/'):
+            return self._shelf_rom(clean)
         # GET is not the protocol's call verb, but a browser pointed at a
         # function should still get its answer rather than a directory listing.
         # '/' stays the emulator — that path is the app half of the route.
@@ -159,6 +194,9 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_HEAD(self):
         self._strip()
+        clean = self.path.split('?')[0].rstrip('/')
+        if clean.startswith('/roms/'):
+            return self._shelf_rom(clean)
         return super().do_HEAD()
 
     def end_headers(self):

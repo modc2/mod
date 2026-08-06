@@ -36,9 +36,8 @@ export interface TradeFilterBarState {
   /** How many dimensions are on — for the FILTERS button badge. */
   count: number;
   clear: () => void;
-  /** The gate itself. Only applies the strat filter when a dimension is set —
-      an all-defaults TradeFilters would still impose the 60¢ BUY floor and
-      silently hide half the tape. */
+  /** The gate itself. Only applies the strat filter when a dimension is set,
+      so an all-defaults TradeFilters shows the tape whole. */
   matches: (t: { side: "BUY" | "SELL"; price: number; size: number; market: string; outcome?: string }) => boolean;
   /** Keyword-only match — for rows that aren't fills (positions have no
       side/price/size to gate on). */

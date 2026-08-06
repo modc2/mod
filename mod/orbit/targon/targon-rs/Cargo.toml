@@ -1,6 +1,6 @@
 [package]
 name = "targon-rs"
-version = "1.0.0"
+version = "1.2.0"
 edition = "2021"
 description = "Targon (Bittensor SN4) compute MCP server — Rust backend for the targon mod"
 
@@ -10,6 +10,9 @@ path = "src/main.rs"
 
 [dependencies]
 axum = "0.7"
+# Chain-side wallet: SS58 decoding and the one storage-key hash we need.
+blake2 = "0.10"
+bs58 = "0.5"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }

@@ -174,8 +174,8 @@ export function Balances({ wallet, network }: { wallet: ChainWallet; network: st
           ))}
 
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '10px', flexWrap: 'wrap' }}>
-            <div style={{ width: '340px' }}>
-              <Input value={adding} onChange={setAdding} placeholder="track a token by address — 0x…" />
+            <div style={{ width: '100%', maxWidth: '340px' }}>
+              <Input value={adding} onChange={setAdding} placeholder="track a token by address — 0x…" onEnter={add} />
             </div>
             <Btn size="sm" onClick={add}>TRACK</Btn>
             <Btn size="sm" active={hideZero} onClick={() => setHideZero(z => !z)}>

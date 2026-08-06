@@ -6,7 +6,7 @@
 
 import { useState, useRef } from 'react'
 import { toast } from 'react-toastify'
-import { TERM_FONT, ACCENT, READ } from './shared'
+import { TERM_FONT, ACCENT, READ, useIsMobile } from './shared'
 import { Btn, Input, panelStyle } from './ui'
 import {
   isContract, isTest, newProjectFiles, uniqueName, STARTER_CONTRACT, STARTER_TEST, stem,
@@ -23,7 +23,7 @@ const UPLOAD_SKIP = /(^|\/)(node_modules|artifacts|cache|\.git)(\/|$)/
 const UPLOAD_MAX = 512 * 1024
 
 function Row({
-  label, active, muted, onClick, onDelete, title, indent,
+  label, active, muted, onClick, onDelete, title, indent, tall,
 }: {
   label: string
   active?: boolean
@@ -32,15 +32,18 @@ function Row({
   onDelete?: () => void
   title?: string
   indent?: boolean
+  /** taller rows for touch */
+  tall?: boolean
 }) {
+  const pad = tall ? '11px' : indent ? '4px' : '5px'
   return (
     <div style={{ display: 'flex', alignItems: 'stretch' }}>
       <button
         onClick={onClick}
         title={title || label}
         style={{
-          flex: 1, textAlign: 'left', fontFamily: TERM_FONT, fontSize: '12px',
-          padding: indent ? '4px 8px 4px 18px' : '5px 8px',
+          flex: 1, textAlign: 'left', fontFamily: TERM_FONT, fontSize: tall ? '13px' : '12px',
+          padding: `${pad} 8px ${pad} ${indent ? '18px' : '8px'}`,
           border: 'none', borderLeft: `2px solid ${active ? ACCENT : 'transparent'}`,
           background: active ? `${ACCENT}14` : 'transparent',
           color: active ? ACCENT : muted ? 'var(--text-tertiary)' : 'var(--text-secondary)',
@@ -54,7 +57,7 @@ function Row({
           onClick={onDelete}
           title="delete"
           style={{
-            fontFamily: TERM_FONT, fontSize: '11px', padding: '0 8px', border: 'none',
+            fontFamily: TERM_FONT, fontSize: '11px', padding: tall ? '0 14px' : '0 8px', border: 'none',
             background: 'transparent', color: 'var(--text-tertiary)', cursor: 'pointer', opacity: 0.7,
           }}
         >
@@ -78,11 +81,17 @@ export function Heading({ children, action }: { children: React.ReactNode; actio
   )
 }
 
-export function Sidebar({ projects, address }: { projects: ProjectsApi; address: string }) {
+export function Sidebar({ projects, address, onNavigate }: {
+  projects: ProjectsApi
+  address: string
+  /** called when a pick has landed — the mobile drawer closes on it */
+  onNavigate?: () => void
+}) {
   const [newProject, setNewProject] = useState('')
   const [newFile, setNewFile] = useState('')
   const [adding, setAdding] = useState<'project' | 'file' | 'upload' | null>(null)
   const uploadRef = useRef<HTMLInputElement>(null)
+  const mobile = useIsMobile()
 
   const proj = projects.project
   const files = Object.keys(proj?.files || {}).sort()
@@ -97,6 +106,7 @@ export function Sidebar({ projects, address }: { projects: ProjectsApi; address:
       await projects.create(name, newProjectFiles(name.replace(/[^A-Za-z0-9_]/g, '') || 'Contract'))
       setNewProject(''); setAdding(null)
       toast.success(`Project ${name} created`)
+      onNavigate?.()
     } catch (e: any) {
       toast.error(e?.message || 'could not create project')
     }
@@ -141,6 +151,7 @@ export function Sidebar({ projects, address }: { projects: ProjectsApi; address:
       await projects.create(name, files)
       toast.success(`Uploaded ${sorted.length} file${sorted.length === 1 ? '' : 's'} → ${name}`
         + (skipped ? ` · ${skipped} skipped` : ''))
+      onNavigate?.()
     } catch (e: any) {
       toast.error(e?.message || 'upload failed')
     }
@@ -163,6 +174,7 @@ export function Sidebar({ projects, address }: { projects: ProjectsApi; address:
     const name = stem(path).replace(/[^A-Za-z0-9_]/g, '') || 'Contract'
     projects.addFile(path, isTest(path) ? STARTER_TEST(name) : isContract(path) ? STARTER_CONTRACT(name) : '')
     setNewFile(''); setAdding(null)
+    onNavigate?.()
   }
 
   const fileRows = (label: string, list: string[], color: string) => list.length > 0 && (
@@ -177,10 +189,11 @@ export function Sidebar({ projects, address }: { projects: ProjectsApi; address:
         <Row
           key={path}
           indent
+          tall={mobile}
           label={path.split('/').pop() || path}
           title={path}
           active={projects.activeFile === path}
-          onClick={() => projects.setActiveFile(path)}
+          onClick={() => { projects.setActiveFile(path); onNavigate?.() }}
           onDelete={files.length > 1 ? () => projects.deleteFile(path) : undefined}
         />
       ))}
@@ -268,9 +281,12 @@ export function Sidebar({ projects, address }: { projects: ProjectsApi; address:
       ) : projects.list.map(p => (
         <Row
           key={p.name}
+          tall={mobile}
           label={p.name}
           active={proj?.name === p.name}
-          onClick={() => projects.open(p.name).catch(e => toast.error(e?.message || 'open failed'))}
+          onClick={() => projects.open(p.name)
+            .then(() => onNavigate?.())
+            .catch(e => toast.error(e?.message || 'open failed'))}
           onDelete={() => {
             if (confirm(`Delete project "${p.name}"? This cannot be undone.`)) {
               projects.remove(p.name).catch(e => toast.error(e?.message || 'delete failed'))

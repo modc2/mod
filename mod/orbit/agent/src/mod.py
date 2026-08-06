@@ -31,6 +31,7 @@ from .toolbox.mod import Toolboxes
 from .tools.mod import Tools
 from .credits import Credits
 from .billing import Meter
+from .liquid import BROWSER, CATALOG, BrowserModel, LiquidModel
 from .vaults.mod import Vaults
 from .discover.mod import Discover
 from .harness.mod import Harness, DEFAULT_TIMEOUT as HARNESS_TIMEOUT
@@ -221,12 +222,42 @@ RULES:
     PROVIDERS = {
         'openrouter': 'model.openrouter',
         'venice': 'venice',
+        # LFM providers — the liquidai module's three runtimes (see liquid.py).
+        # They map to themselves because they are built here, not fetched as
+        # a model module: one runs weights on this box, one relays to Liquid's
+        # cloud, one waits on the console's tab.
+        'liquidai': 'liquidai',
+        'liquidai-cloud': 'liquidai-cloud',
+        'browser': 'browser',
+    }
+
+    # providers built in this module rather than resolved through m.mod()
+    LOCAL_PROVIDERS = {
+        'liquidai': lambda: LiquidModel(runtime='server'),
+        'liquidai-cloud': lambda: LiquidModel(runtime='cloud'),
+        'browser': BrowserModel,
+    }
+
+    # which liquidai runtime each local provider's model list comes from
+    LOCAL_RUNTIMES = {'liquidai': 'server', 'liquidai-cloud': 'cloud',
+                      'browser': 'browser'}
+
+    # one line each for a UI that has to explain a provider with no key field.
+    # 'no key' is not the same claim for all three: the cloud runtime does take
+    # a key, it just isn't ours to hold.
+    LOCAL_HINTS = {
+        'liquidai': 'runs on this box — no key, never billed',
+        'liquidai-cloud': "Liquid's cloud, on the key set in the liquidai module",
+        'browser': 'runs in your own tab — no key, never billed',
     }
 
     DEFAULT_MODELS = {
         'model.openrouter': 'anthropic/claude-opus-5',
         'openrouter': 'anthropic/claude-opus-5',
         'venice': 'deepseek-v3.2',
+        'liquidai': 'LiquidAI/LFM2.5-1.2B-Instruct',
+        'liquidai-cloud': 'lfm-2.5-8b-a1b',
+        'browser': 'LiquidAI/LFM2.5-350M-ONNX',
     }
 
     # curated model choices per provider for the UI selector (free-text still allowed)
@@ -252,6 +283,28 @@ RULES:
             'deepseek-v3.2',
             'venice-uncensored-1-2',
             'llama-3.3-70b',
+        ],
+        # LFM repos, in case liquidai isn't serving its catalog — provider_models()
+        # replaces these with the live list whenever it can reach the module.
+        # These are repo ids, not the catalog's bare model ids: a repo is what
+        # the server loads and what a tab downloads.
+        'liquidai': [
+            'LiquidAI/LFM2.5-1.2B-Instruct',
+            'LiquidAI/LFM2.5-1.2B-Thinking',
+            'LiquidAI/LFM2.5-350M',
+            'LiquidAI/LFM2.5-230M',
+            'LiquidAI/LFM2.5-VL-1.6B',
+        ],
+        'liquidai-cloud': [
+            'lfm-2.5-8b-a1b',
+            'lfm-2.5-1.2b',
+        ],
+        'browser': [
+            'LiquidAI/LFM2.5-350M-ONNX',
+            'LiquidAI/LFM2.5-230M-ONNX',
+            'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+            'LiquidAI/LFM2.5-1.2B-Thinking-ONNX',
+            'LiquidAI/LFM2.5-VL-450M-ONNX',
         ],
     }
 
@@ -306,6 +359,8 @@ RULES:
         # one live client per provider path, built on demand — a run holds its
         # own so concurrent runs never trade clients (see _client)
         self._clients: Dict[str, Any] = {}
+        # why a provider has no client, when it isn't a missing key (see run)
+        self._client_why: Dict[str, str] = {}
         self.model = self._client()
         # prices each model call from the provider's live catalog, so a guest's
         # credits pay for the provider spend their run actually creates
@@ -330,17 +385,36 @@ RULES:
         configured yet — runs then fail with a clear 'no model' error rather
         than the whole module failing to construct.
         """
+        provider = provider or self._provider
+        # LFM providers are built here and need no key at all: the weights run
+        # on this box, in the visitor's tab, or on Liquid's own cloud key
+        local = self.LOCAL_PROVIDERS.get(provider)
+        if local:
+            return local()
         if not m:
             return None
-        provider = provider or self._provider
         session_key = self._session_keys.get(self._provider_short(provider))
         try:
-            if session_key:
-                return m.mod(provider)(api_key=session_key)
-            return m.mod(provider)()
+            client = m.mod(provider)(api_key=session_key) if session_key \
+                else m.mod(provider)()
         except Exception as e:
             print(f"Model init failed for {provider}: {e}")
             return None
+        # A provider is any module path, so it is easy to name one that isn't a
+        # model module. Its forward() is then the mod-protocol dispatcher, which
+        # reads the run's context as a function name and answers
+        # "unknown fn: {'query': …, 'tools': …}" — a wall of text that names
+        # neither the provider nor the mistake. Model clients price their own
+        # calls for the meter; nothing else has model2info.
+        if not hasattr(client, 'model2info'):
+            self._client_why[provider] = (
+                f"'{provider}' is not a model provider — it's a module with no "
+                f"model2info(), so it has no models to run. Pick openrouter, "
+                f"venice, or an LFM provider in the Builder (model node).")
+            print(f"[agent] {self._client_why[provider]}")
+            return None
+        self._client_why.pop(provider, None)
+        return client
 
     def _client(self, provider: str = None):
         """The cached client for a provider — this is what a run must call.
@@ -380,6 +454,67 @@ RULES:
                 if pref in mid:
                     return mid
         return free[0] if free else None
+
+    def is_free_provider(self, provider: str = None) -> bool:
+        """True when a run on this provider can't cost the module anything.
+
+        The LFM providers burn this box's CPU, the visitor's own GPU, or the
+        operator's Liquid key — never the OpenRouter/Venice credit a guest's
+        deposit funds. So they skip the credit ceiling and the bill, and a
+        guest with an empty balance can still run one.
+        """
+        return bool(getattr(self._client(provider), 'is_free', False))
+
+    def _model_for(self, provider: str, model: str = None) -> str:
+        """The model a run should actually use on `provider`.
+
+        Switching an agent's provider leaves its saved model behind, and a
+        model id from the provider you left means nothing to the one you
+        arrived at — a venice slug reaching the liquidai runtime dies inside
+        HuggingFace's loader ("not a valid model identifier … hf auth login"),
+        which reads like a broken module rather than a stale setting.
+
+        So: a model that demonstrably belongs to *another* provider is treated
+        as leftover state and replaced by this provider's default. Anything
+        unrecognised is still passed through untouched — every provider here
+        takes free-text model ids, and guessing against a curated list would
+        block the model that shipped this morning.
+        """
+        # MODELS is keyed by shortname; `provider` arrives as a module path
+        # ('model.openrouter'). Looking it up unmapped made every openrouter
+        # model look like it belonged to somebody else — so each one but the
+        # default was silently swapped out for claude-opus-5.
+        short = self._provider_short(provider)
+        if not model:
+            return self.DEFAULT_MODELS.get(short, 'anthropic/claude-opus-5')
+        if model in set(self.MODELS.get(short, [])):
+            return model
+        elsewhere = {name for prov, names in self.MODELS.items()
+                     if prov != short for name in names}
+        if model in elsewhere:
+            swapped = self.DEFAULT_MODELS.get(short, model)
+            print(f"[agent] {model!r} is not a {short} model — running {swapped!r}")
+            return swapped
+        return model
+
+    def provider_models(self, provider: str) -> List[str]:
+        """The models a provider offers the console, live where there is one.
+
+        The LFM providers read their list off the liquidai catalog so a model
+        Liquid shipped this morning is selectable this afternoon; everything
+        else is the curated MODELS list.
+        """
+        runtime = self.LOCAL_RUNTIMES.get(provider)
+        if runtime:
+            try:
+                live = CATALOG.cloud_models() if runtime == 'cloud' \
+                    else CATALOG.repos(runtime)
+            except Exception as e:
+                print(f"Model list lookup failed for {provider}: {e}")
+                live = []
+            if live:
+                return live
+        return self.MODELS.get(provider, [])
 
     def set_provider(self, provider: str):
         """Switch the module's default LLM provider. Use 'openrouter', 'venice',
@@ -568,15 +703,18 @@ RULES:
         short = self._provider_short(prov)
         client = self._client(prov)
         if client is None:
-            raise RuntimeError(
+            raise RuntimeError(self._client_why.get(prov) or (
                 f"No API key available for provider '{short}'. "
-                f"Add a key — or unlock your encrypted key — in the Builder (model node).")
+                f"Add a key — or unlock your encrypted key — in the Builder (model node)."))
         self._on_step = on_step
         self._images = [i for i in (images or []) if isinstance(i, str) and i.strip()][:8]
-        model = model or self.DEFAULT_MODELS.get(prov, 'anthropic/claude-opus-5')
+        model = self._model_for(prov, model)
         # FREE MODE resolves the model here rather than letting the provider
         # grab whatever sorts first: the pick is a deliberate, capable one, and
-        # the run ledger records the model that actually ran.
+        # the run ledger records the model that actually ran. A provider that
+        # can't cost anything is already free, so it keeps the model asked for.
+        if free and getattr(client, 'is_free', False):
+            free = False
         if free:
             picked = self.free_model(prov)
             if not picked:
@@ -637,7 +775,7 @@ RULES:
                 )
                 plan = self.plan(output, safety=safety)
             except Exception as e:
-                print(f"Model error: {e}")
+                print(f"Model error [{short}/{model}]: {e}")
                 err = str(e)
                 # providers raise their own missing-key errors at call time —
                 # point the user at the Builder, where keys are entered
@@ -1440,6 +1578,14 @@ class Mod(Agent):
 
     def key_info(self, provider: str = 'openrouter') -> dict:
         """Masked view of the active API key + encrypted-vault state for a provider."""
+        if provider in self.LOCAL_PROVIDERS:
+            # nothing to hold a key for: 'configured' means "a run can start",
+            # and on these it always can (a cloud key lives in liquidai's own
+            # vault, which is that module's business, not ours)
+            return {'provider': provider, 'configured': True, 'key': None,
+                    'supported': False, 'keyless': True, 'encrypted': False,
+                    'unlocked': False, 'hint': None, 'source': 'liquidai',
+                    'remembered': False, 'remember_expires': None}
         keys = self._provider_keys(provider)
         vault = self._vault_read(provider)
         unlocked = provider in self._session_keys
@@ -1728,8 +1874,12 @@ class Mod(Agent):
 
     def balance(self, provider: str = 'openrouter') -> dict:
         """Remaining credit on the active API key (openrouter /credits, venice rate_limits)."""
-        keys = self._provider_keys(provider)
         info = self.key_info(provider)
+        if info.get('keyless'):
+            return {**info, 'balance': None,
+                    'note': 'no key, no bill — this provider runs on local or '
+                            'browser compute'}
+        keys = self._provider_keys(provider)
         if not keys:
             return {**info, 'error': 'no API key configured'}
         try:

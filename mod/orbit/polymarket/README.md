@@ -309,11 +309,87 @@ So a leaderboard read that omits `pool` (server default 1000) gets an empty list
 
 The front door to `/strats` is a card grid, and each card's headline is its **N-day backtest** — the same replay engine (`app/lib/backtest.ts`) the BACKTEST tab and the live engine share, run over the same window for every card, so the numbers are comparable. Cards used to print `lastPnl`, a leftover from whatever window that strat was last opened with.
 
-- **Window pills** (1D / 3D / 7D / 14D / 30D) re-measure the whole grid. Runs are cached per card *and* per window (`poly_hub_backtest_v1`, 5-minute TTL), so switching back is instant; `↻ RERUN` forces a fresh pass. 30 days is the ceiling — see `MAX_LOOKBACK_DAYS`.
+- **The card face IS the equity curve.** Each card renders its replay's equity path full-bleed behind the numbers, so a wall of strats reads as a wall of shapes first: which one ran up, which one bled, which one never traded. While a replay is in flight the face is a shimmer instead — "computing" and "did nothing" must never look the same.
+- **Window pills** (1D / 3D / 7D / 14D / 30D) re-measure the whole grid. Runs are cached per card *and* per window (`poly_hub_backtest_v1`), so switching back is instant; `↻ RERUN` forces a fresh pass in the browser *and* kicks the background worker. 30 days is the ceiling — see `MAX_LOOKBACK_DAYS`.
+- **Every card carries its funnel**: `144/2630 entries copied · 2003× MAX/CYCLE cap (3)`. That one line is the answer to "why is this strat so quiet?" — see [Where the flow went](#where-the-flow-went-the-entry-funnel).
 - **Search** filters saved strats and recommendations together, over names, descriptions and filter chips (`"sports"`, `"buys only"`, `"top 5"`). Every term must match.
 - **RECOMMENDED strats are backtested too.** A template is materialized into exactly the `SavedIndex` forking it would create — seeded from today's leaderboard via `templateIndex` / `templateRoster` in `app/lib/defaultStrats.ts` — and *that* is what gets replayed, from the same cached roster the fork will use. The number on the card is the strat you actually get.
 - Those rosters are picked *by* trailing P&L over the window they're then scored on, so a recommendation's number is survivorship-biased by construction. The section header says so: **upper bound, not a forecast**. A saved strat carries no such bias — its traders were chosen before the window it's measured over.
-- A strat with nothing to copy reports the reason (`no traders to copy`, `originates its own trades`, `every candidate was filtered out`) instead of a `$0` that reads as breaking even.
+- A strat with nothing to copy reports the reason (`no traders to copy`, `originates its own trades`, `all 1279 entries blocked · time-to-close`) instead of a `$0` that reads as breaking even.
+
+### The background backtest worker
+
+Backtests are **cached, and refreshed on a 2-hour cadence by a worker that runs whether or not the console is open** (`app/lib/server/hubWorker.ts`, started from `app/instrumentation.ts` when the Next server boots). Opening `/strats` then paints real numbers on the first frame instead of firing a dozen paginated `/activity` walks and watching cards trickle in.
+
+```
+console ──POST /polymarket/api/hub {strats}──► manifest.json   (which strats to replay)
+worker  ──every 2h──► hubReplay → backtest → backtests.json    (~/.mod/polymarket/hub/)
+console ──GET  /polymarket/api/hub?days=1───► paints instantly
+```
+
+- **The worker runs the app's own engine.** `hubReplay.ts` → `backtest.ts` → `strats/strat.ts` — the exact modules the console and the BACKTEST tab run. That's why it lives inside the Next server rather than as a separate service: a second build of the engine is how backtest and live drifted apart last time (`strats/parity.fixture.json`).
+- **It authenticates as the owner.** Every API route is behind the access gate, so the worker mints the same `pma1.…` token the console's sign-in issues, from `~/.mod/polymarket/server.secret` (`app/lib/server/ownerToken.ts`). No gate, no worker — it fails closed and records why.
+- **The window is 1 day** (`HUB_BACKTEST_DAYS`), which is what "which of these is working *right now*" wants. Other windows are replayed in the browser on demand.
+- The browser still fills gaps: a strat edited since the last pass, or a window the worker doesn't cover, is replayed locally and merged newest-wins.
+- `POLYMARKET_HUB_WORKER=0` disables it. `PUT /polymarket/api/hub` runs a pass synchronously (what the MCP tool uses); `POST …?run=1` queues one.
+
+### Where the flow went (the entry funnel)
+
+Every backtest now reports an **`EntryFunnel`**: each in-window leader BUY lands in exactly one bucket, so a quiet strat can always say *which* gate it was quiet because of.
+
+```
+observed → gated (strat filters) → outranked (per-cycle race) → skipped (unplaceable) → executed
+```
+
+with a per-reason tally: `time-to-close`, `trade filters`, `keyword filter`, `trader FILTER`, `MAX/CYCLE cap (N)`, `MAX POS cap (N)`, `SUB_SCALE`, `LEADER_DUST`, `out of cash`, `no scoreable edge`. It's on every hub card, in the tooltip in full, and over MCP as `pm_backtests`.
+
+Measured examples from this deployment (1-day window):
+
+| strat | observed | copied | dominant blocker |
+|---|---|---|---|
+| BTC 5-min candle bot, $100 | 1279 | 0 | `time-to-close` 1279 |
+| same, gate off | 1287 | 0 | `SUB_SCALE` 1005 — $100 can't copy that leader in proportion |
+| same, gate off, $1000 | 1287 | 271 | `MAX/CYCLE cap (3)` 346 |
+| top-7d leaderboard roster, $1000 | 2630 | 144 | `MAX/CYCLE cap (3)` 2003 |
+
+The last row is the useful lesson: raising `MAX/CYCLE` from 3 → 25 moved executions only 144 → 150, because the freed candidates immediately hit `SUB_SCALE`. Account size, not the cap, is the binding constraint.
+
+### The time-to-close gate
+
+The live engine refuses to mirror a BUY in a market resolving within **`minMinutesToClose`** (default **60**), because sub-hour Up/Down candles resolve before a poller can react — mirroring them late realized **−$253 across 1064 copies** on this console.
+
+- It is now **a per-strat setting** (`MIN CLOSE` in the strat params, `0` = off), and the LIVE gate warning that reports it offers `15M / 5M / OFF` inline — the warning used to name a setting the console had no field for.
+- **The backtest models it too.** `Strat.shouldMirror` dates the market from the trade itself: candle slugs (`btc-updown-5m-<start>`) give an exact end, an intraday title window (`… 5:45PM-5:50PM ET`) gives one to the minute, anything else is undatable and — exactly like live's unknown-end-date case — allowed through. Before this, hub cards happily counted fills a live session would refuse one-for-one.
+
+## MCP server
+
+The module speaks **Model Context Protocol**, so any MCP client (Claude Code / Desktop, an agent, another module) can read it:
+
+```bash
+python3 src/mcp.py                      # stdio
+python3 src/mcp.py --http --port 50092  # Streamable HTTP: POST /mcp
+m polymarket/mcp                        # same, via the module fn
+```
+
+| tool | what it answers |
+|---|---|
+| `pm_health` | is the module up, when did the worker last run |
+| `pm_markets` | busiest open markets, or a text search |
+| `pm_top_traders` | the leaderboard strats seed watchlists from |
+| `pm_trader` | one leader's flow + **what share of it is sub-hour candle games** |
+| `pm_strats` | the strategies this console runs, with every gate |
+| `pm_backtests` | the worker's cached backtests **with the funnel** |
+| `pm_backtest_run` | replay every strat now |
+| `pm_live_sessions` | what the engine is running, executing vs dry |
+| `pm_live_gates` | **why the engine isn't copying** — the per-gate tally |
+
+**Read-only by design.** There is deliberately no order-placing tool: the console signs real money through the deposit wallet and a mis-prompted agent must not reach it. The one tool with a side effect (`pm_backtest_run`) spends CPU and data-api calls, nothing else. Auth is the owner token minted from `server.secret` — the server works exactly when the local owner's console works, and never accepts a caller-supplied token.
+
+Register it with Claude Code:
+
+```bash
+claude mcp add polymarket -- python3 /root/mod/mod/orbit/polymarket/src/mcp.py
+```
 
 ### URL Sync
 

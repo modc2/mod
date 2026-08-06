@@ -12,7 +12,7 @@ import { toast } from 'react-toastify'
 import {
   TERM_FONT, ACCENT, WalletKind, chainName, ensureChain, getSigner, hasInjected, netInfo,
   localAddress, localKeyIsAccount, localPrivateKey, readProvider,
-  savedWalletKind, saveWalletKind, signedOut, setSignedOut, short, explorerUrl,
+  savedWalletKind, saveWalletKind, signedOut, setSignedOut, short, explorerUrl, useIsMobile,
 } from './shared'
 import { Btn, panelStyle } from './ui'
 import { NetworkPicker } from './NetworkPicker'
@@ -145,10 +145,16 @@ export function WalletBar({
   setNetwork: (key: string) => void
 }) {
   const [showKey, setShowKey] = useState(false)
+  const [showMore, setShowMore] = useState(false)
+  const mobile = useIsMobile()
   const net = netInfo(network)
   const wrongChain = wallet.kind === 'browser'
     && wallet.injectedChainId !== null
     && wallet.injectedChainId !== net.chainId
+
+  // On a phone the strip keeps only what you need to read — who you are and
+  // whether you're on the right chain. The rest lives one tap away.
+  const more = !mobile || showMore
 
   const copy = (text: string, what: string) => {
     navigator.clipboard.writeText(text)
@@ -222,7 +228,7 @@ export function WalletBar({
             </Btn>
           )}
 
-          {wallet.kind === 'local' && !localKeyIsAccount() && (
+          {more && wallet.kind === 'local' && !localKeyIsAccount() && (
             <Btn size="sm" active={false} onClick={() => {
               if (showKey) { copy(localPrivateKey(), 'Private key'); setShowKey(false) }
               else setShowKey(true)
@@ -231,18 +237,26 @@ export function WalletBar({
             </Btn>
           )}
 
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-            {wallet.kind === 'local' && wallet.injected && (
+          <div style={{
+            marginLeft: mobile ? 0 : 'auto', display: 'flex', gap: '8px',
+            flexWrap: 'wrap', width: mobile ? '100%' : undefined,
+          }}>
+            {mobile && (
+              <Btn size="sm" active={showMore} onClick={() => setShowMore(s => !s)}>
+                {showMore ? 'LESS' : 'WALLET ⋯'}
+              </Btn>
+            )}
+            {more && wallet.kind === 'local' && wallet.injected && (
               <Btn size="sm" active={false} color="#f59e0b" onClick={connectBrowser}>
                 USE METAMASK
               </Btn>
             )}
-            {wallet.kind === 'browser' && (
+            {more && wallet.kind === 'browser' && (
               <Btn size="sm" active={false} onClick={() => wallet.connect('local')}>
                 USE LOCAL
               </Btn>
             )}
-            <Btn size="sm" active={false} onClick={wallet.disconnect}>SIGN OUT</Btn>
+            {more && <Btn size="sm" active={false} onClick={wallet.disconnect}>SIGN OUT</Btn>}
           </div>
         </>
       )}

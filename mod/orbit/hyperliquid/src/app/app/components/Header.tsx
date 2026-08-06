@@ -9,6 +9,7 @@ import ThemePicker from "./ThemePicker";
 
 const NAV = [
   { href: "/", label: "Traders" },
+  { href: "/ask", label: "Ask" },
   { href: "/vaults", label: "Vaults" },
   { href: "/strats", label: "Strats" },
   { href: "/follows", label: "Follows" },

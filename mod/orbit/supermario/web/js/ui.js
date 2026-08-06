@@ -216,6 +216,7 @@
     this.resize();
     this.draw();
     this.restoreLast();
+    this.loadShelf();
   }
 
   /* Blow the 256x240 framebuffer up to fill the stage. Whole-number scales
@@ -289,6 +290,53 @@
         self.toast('resumed ' + rec.name + ' — press PAUSE to play');
       }
     }).catch(noop);
+  };
+
+  /* The shelf: free-licensed homebrew the module fetched for us. The server
+   * answers /roms with the list and /roms/<file> with the bytes; a title that
+   * has not been downloaded is still shown, greyed, with the command that
+   * gets it — a shelf with a gap in it is more honest than a shorter one. */
+  App.prototype.loadShelf = function () {
+    var self = this;
+    fetch('roms').then(function (r) {
+      return r.ok ? r.json() : Promise.reject(r.status);
+    }).then(function (body) {
+      var list = body && body.result ? body.result : body;
+      if (!list || !list.length) return;
+      $('shelf').hidden = false;
+      $('shelf-list').innerHTML = list.map(function (rom) {
+        return '<button class="rom" data-rom="' + escapeHTML(rom.file) + '"' +
+          (rom.have ? '' : ' disabled') +
+          ' title="' + escapeHTML(rom.about + ' — ' + rom.source) + '">' +
+          '<b>' + escapeHTML(rom.title) + '</b>' +
+          '<span class="meta">' + escapeHTML(rom.license) + ' · ' +
+          escapeHTML(rom.board) + (rom.have ? '' : ' · not downloaded') +
+          '</span></button>';
+      }).join('');
+      var missing = list.filter(function (rom) { return !rom.have; }).length;
+      $('shelf-note').innerHTML = missing
+        ? 'Greyed titles are not on this server yet — run ' +
+          '<code>m supermario/fetch_roms</code> to pull them from their authors.'
+        : '';
+      Array.prototype.forEach.call(
+        $('shelf-list').querySelectorAll('.rom'), function (btn) {
+          btn.addEventListener('click', function () {
+            self.loadShelfROM(btn.getAttribute('data-rom'));
+          });
+        });
+    }).catch(noop);
+  };
+
+  App.prototype.loadShelfROM = function (file) {
+    var self = this;
+    this.toast('loading ' + file + '…');
+    fetch('roms/' + encodeURIComponent(file)).then(function (r) {
+      return r.ok ? r.arrayBuffer() : Promise.reject(r.status);
+    }).then(function (bytes) {
+      self.loadROM(bytes, file);
+    }).catch(function () {
+      self.toast('could not load ' + file, true);
+    });
   };
 
   App.prototype.readFile = function (file) {

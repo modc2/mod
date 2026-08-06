@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { toast } from 'react-toastify'
 import {
   MANIFESTO, ABSTRACT, SECTIONS, TOKENOMICS, ROADMAP, TICKER, LAUNCH, BENCHMARKS,
@@ -808,34 +809,127 @@ function EquitySimulator({ feePct: feeInit = 2.5, creditPct: creditInit = 100 }:
   )
 }
 
-/* ── Skin ────────────────────────────────────────────────
-   Two modes, one page: PAPER (washi, Memphis pastels, a rising sun) and
-   DIGITAL (the same building on a green screen). Every colour, font and
-   texture on the page is a CSS token, so switching is nothing but an
-   attribute on <html> — see the DIGITAL block in globals.css. layout.tsx
-   applies the saved mode before first paint, so there's no flash of the
-   wrong skin; here we only read it back and flip it. */
+/* ── Vibes ───────────────────────────────────────────────
+   One page, eight cabinets. Every colour, font and texture on the page is
+   a CSS token, so a vibe is nothing but three attributes on <html>:
+
+     mode  the field      paper (washi, daylight) | digital (a CRT)
+     skin  the treatment  soft (curves, blur) | pixel (8-bit, hard shadows)
+     id    the palette    ten triplets and nothing else
+
+   That split is the reason this table is ten lines and not eight
+   stylesheets: MARIO and GAMEBOY differ by colour alone, and both ride
+   the same paper·pixel structure. See the VIBES section of globals.css.
+   `chips` are three colours lifted from the cabinet's own palette (field,
+   accent, gain) — the swatch you read before you switch, and the only
+   identity a row needs. (A glyph column was tried and cut: the pixel
+   skins' faces have no box-drawing glyphs, so every row rendered tofu.)
+
+   layout.tsx applies the saved vibe before first paint, so nothing
+   flashes; here we only read it back and rewrite it. */
 type Mode = 'paper' | 'digital'
-const MODE_KEY = 'openhouse_mode'
-const MODE_META: Record<Mode, { label: string; glyph: string; tip: string }> = {
-  paper: { label: 'Paper', glyph: '▤', tip: 'Switch to DIGITAL — same building, green screen' },
-  digital: { label: 'Digital', glyph: '⌁', tip: 'Switch back to PAPER' },
+type Skin = 'soft' | 'pixel'
+const VIBE_KEY = 'openhouse_vibe'
+
+const VIBES = [
+  { id: 'sunday',   label: 'Sunday',   mode: 'paper',   skin: 'soft',  note: 'washi paper, Memphis pastels',     chips: ['#fff6ec', '#ff7a5c', '#2ed3b7'] },
+  { id: 'mario',    label: 'Mario',    mode: 'paper',   skin: 'pixel', note: 'world 1-1: brick, coin, pipe',     chips: ['#5c94fc', '#e43434', '#fcd83c'] },
+  { id: 'gameboy',  label: 'Game Boy', mode: 'paper',   skin: 'pixel', note: 'DMG — four greens, no fifth',      chips: ['#9bbc0f', '#306230', '#0f380f'] },
+  { id: 'terminal', label: 'Terminal', mode: 'digital', skin: 'soft',  note: 'the building on a green screen',   chips: ['#040807', '#00e8a0', '#ff2f87'] },
+  { id: 'amber',    label: 'Amber',    mode: 'digital', skin: 'soft',  note: 'single-gun CRT, one hue burnt in', chips: ['#0d0700', '#ffb028', '#ffe896'] },
+  { id: 'arcade',   label: 'Arcade',   mode: 'digital', skin: 'pixel', note: 'NES black under cabinet neon',     chips: ['#0a0614', '#22f0ff', '#2bff88'] },
+  { id: 'c64',      label: 'C64',      mode: 'digital', skin: 'pixel', note: '64K BASIC, light blue on blue',    chips: ['#30288a', '#aaffee', '#aaff66'] },
+  { id: 'vapor',    label: 'Vapor',    mode: 'digital', skin: 'pixel', note: 'Miami at 2am, horizon grid',       chips: ['#160328', '#ff2d95', '#2bffce'] },
+] as const satisfies readonly { id: string; label: string; mode: Mode; skin: Skin; note: string; chips: readonly string[] }[]
+
+type VibeId = (typeof VIBES)[number]['id']
+const DEFAULT_VIBE: VibeId = 'sunday'
+
+function useVibe(): [(typeof VIBES)[number], (id: VibeId) => void] {
+  const [id, setId] = useState<VibeId>(DEFAULT_VIBE)
+  // The boot script already stamped <html>; read it back rather than
+  // re-reading localStorage, so the two can never disagree.
+  useEffect(() => {
+    const stamped = document.documentElement.getAttribute('data-vibe')
+    if (stamped && VIBES.some(v => v.id === stamped)) setId(stamped as VibeId)
+  }, [])
+  const pick = useCallback((next: VibeId) => {
+    const v = VIBES.find(x => x.id === next)
+    if (!v) return
+    const d = document.documentElement
+    d.setAttribute('data-vibe', v.id)
+    d.setAttribute('data-mode', v.mode)
+    d.setAttribute('data-skin', v.skin)
+    try { localStorage.setItem(VIBE_KEY, v.id) } catch {}
+    setId(v.id)
+  }, [])
+  return [VIBES.find(v => v.id === id) ?? VIBES[0], pick]
 }
 
-function useMode(): [Mode, () => void] {
-  const [mode, setMode] = useState<Mode>('paper')
+/* The DIP-switch panel. The cap on the nav wears the current cabinet's
+   three chips; pressing it drops the whole set, each row wearing its own.
+   No preview and no animation — you flip the switch and the page is a
+   different machine. */
+function VibePicker() {
+  const [vibe, pick] = useVibe()
+  const [open, setOpen] = useState(false)
+  const wrap = useRef<HTMLDivElement>(null)
+
+  // Click-away and Escape both close it. A menu you can only leave by
+  // choosing something is a modal, and this isn't one.
   useEffect(() => {
-    setMode(document.documentElement.getAttribute('data-mode') === 'digital' ? 'digital' : 'paper')
-  }, [])
-  const toggle = useCallback(() => {
-    setMode(m => {
-      const next: Mode = m === 'digital' ? 'paper' : 'digital'
-      document.documentElement.setAttribute('data-mode', next)
-      try { localStorage.setItem(MODE_KEY, next) } catch {}
-      return next
-    })
-  }, [])
-  return [mode, toggle]
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div ref={wrap} className="relative shrink-0">
+      <button onClick={() => setOpen(o => !o)} aria-haspopup="menu" aria-expanded={open}
+        title={`Vibe: ${vibe.label} — ${vibe.note}`}
+        className="flex items-center gap-2 px-3 py-2 rounded-full border border-white/12 text-[11px] font-bold uppercase tracking-widest text-white/68 hover:text-coral hover:border-coral/40 transition-colors">
+        <Chips chips={vibe.chips} />
+        {/* On a phone the chips already say which cabinet you're in, and
+            the nav is out of room. */}
+        <span className="hidden sm:inline">{vibe.label}</span>
+      </button>
+
+      {open && (
+        <div role="menu" aria-label="Vibe"
+          className="absolute right-0 mt-2 w-[17.5rem] p-1.5 glass rounded-2xl shadow-xl z-50">
+          {VIBES.map(v => (
+            <button key={v.id} role="menuitemradio" aria-checked={v.id === vibe.id}
+              onClick={() => { pick(v.id); setOpen(false) }}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left transition-colors ${
+                v.id === vibe.id ? 'bg-coral/[0.12] text-coral' : 'text-white/75 hover:bg-white/[0.06]'}`}>
+              <span aria-hidden className="w-3 text-[11px] leading-none">{v.id === vibe.id ? '▸' : ''}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12px] font-bold">{v.label}</span>
+                <span className="block text-[10px] text-white/45 truncate">{v.note}</span>
+              </span>
+              <Chips chips={v.chips} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Chips({ chips }: { chips: readonly string[] }) {
+  return (
+    <span aria-hidden className="flex shrink-0 rounded-[3px] overflow-hidden border border-white/15">
+      {chips.map(c => <span key={c} className="w-2 h-3.5" style={{ background: c }} />)}
+    </span>
+  )
 }
 
 const NAV = [
@@ -866,7 +960,6 @@ function OpenHousePageInner() {
   const [scrolled, setScrolled] = useState(false)
   const [progress, setProgress] = useState(0)
   const [scrollY, setScrollY] = useState(0)
-  const [mode, toggleMode] = useMode()
   const heroRef = useRef<HTMLElement>(null)
 
   const fetchAll = useCallback(async () => {
@@ -986,12 +1079,7 @@ function OpenHousePageInner() {
                   {formatNum(status!.available_shares)} left
                 </span>
               )}
-              {/* PAPER ⟷ DIGITAL. Shows the mode you're in, not the one you'd get. */}
-              <button onClick={toggleMode} title={MODE_META[mode].tip} aria-label={MODE_META[mode].tip}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-full border border-white/12 text-[11px] font-bold uppercase tracking-widest text-white/68 hover:text-coral hover:border-coral/40 transition-colors">
-                <span aria-hidden className="text-[13px] leading-none">{MODE_META[mode].glyph}</span>
-                <span className="hidden sm:inline">{MODE_META[mode].label}</span>
-              </button>
+              <VibePicker />
               <a href="#invest" className="btn-shine px-4 py-2 rounded-full bg-ink text-paper text-[11px] font-bold uppercase tracking-widest hover:bg-pink transition-colors">
                 {deployed ? 'Buy In' : 'Try Testnet'}
               </a>
@@ -1271,6 +1359,10 @@ function OpenHousePageInner() {
                 <div className="text-coral text-[11px] font-bold uppercase tracking-[0.3em] mb-5">The Whitepaper</div>
                 <h2 className="headline text-6xl md:text-8xl text-white">RENT<br /><span className="text-surf-grad">→ OWN</span></h2>
                 <p className="font-serif-ed text-xl text-white/68 max-w-xl mx-auto mt-8">How every rent check stops paying a landlord — and starts buying you the house.</p>
+                {/* the same six sections, one page each — linkable, and readable without the scroll */}
+                <Link href="/paper" className="inline-block mt-7 px-5 py-2.5 rounded-full border border-white/15 text-white/70 text-[11px] font-bold uppercase tracking-widest hover:border-coral/50 hover:text-coral transition-colors">
+                  Read it section by section →
+                </Link>
               </div>
             </Reveal>
             <div className="space-y-20 md:space-y-28">
@@ -1278,8 +1370,11 @@ function OpenHousePageInner() {
                 <Reveal key={sec.no} delay={40}>
                   <div className="grid md:grid-cols-[auto_1fr] gap-6 md:gap-12">
                     <div className="md:text-right md:w-32">
-                      <div className="headline text-7xl md:text-8xl text-white/[0.13] leading-none">{sec.no}</div>
-                      <div className="text-coral text-[11px] font-bold uppercase tracking-[0.2em] mt-1">{sec.kicker}</div>
+                      <Link href={`/paper/${sec.slug}`} className="block group">
+                        <div className="headline text-7xl md:text-8xl text-white/[0.13] leading-none group-hover:text-coral/30 transition-colors">{sec.no}</div>
+                        <div className="text-coral text-[11px] font-bold uppercase tracking-[0.2em] mt-1">{sec.kicker}</div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-white/35 group-hover:text-coral transition-colors mt-2">Permalink →</div>
+                      </Link>
                     </div>
                     <div>
                       <h3 className="font-serif-ed text-3xl md:text-4xl text-white leading-tight mb-6">{sec.title}</h3>

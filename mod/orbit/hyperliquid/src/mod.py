@@ -36,6 +36,22 @@ API_DIR = os.path.join(SRC_DIR, "api")
 APP_DIR = os.path.join(SRC_DIR, "app")
 
 
+_AGENT = None
+
+
+def _agent():
+    """Load src/agent.py by path and cache it — `src/` is not reliably on
+    sys.path when the framework imports this file."""
+    global _AGENT
+    if _AGENT is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "hyperliquid_agent", os.path.join(SRC_DIR, "agent.py"))
+        _AGENT = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_AGENT)
+    return _AGENT
+
+
 def _has_docker() -> bool:
     """Check if docker compose is available."""
     try:
@@ -60,6 +76,8 @@ class Hyperliquid(m.Mod):
         "build_cid", "publish_build", "build_onchain",
         # MCP tool server (the same fn surface, spoken as JSON-RPC)
         "mcp", "mcp_tools", "mcp_call", "mcp_config",
+        # agent — answers questions / runs tasks through that MCP server
+        "ask", "ask_status",
         # strategies (modular Python classes)
         "strat", "list_strats", "run_strat",
         # data passthroughs
@@ -713,6 +731,22 @@ class Hyperliquid(m.Mod):
             "gateway": {"type": "http", "url": "/api/hyperliquid/mcp"},
             "add_cmd": f"claude mcp add hyperliquid -- {binary} --stdio",
         }
+
+    # ── Agent (see agent.py) — asks/acts through the MCP server above ──
+
+    def ask(self, question: str, act: bool = False) -> Dict[str, Any]:
+        """Ask the module's agent. It answers only from MCP tool calls.
+
+        `act=False` (default) is read-only: the write tools are denied, so a
+        question can't place an order. `act=True` unlocks them and needs a
+        token — the MCP server carries it to the same auth gate the browser
+        hits, so the agent can never do more than the caller could."""
+        return _agent().answer(question, api_url=self.api_url,
+                               token=self.token, act=act)
+
+    def ask_status(self) -> Dict[str, Any]:
+        """Agent readiness: model auth method, tool counts, hints."""
+        return _agent().status(self.api_url)
 
     # ── Modular strategies (see strat.py) ──
 

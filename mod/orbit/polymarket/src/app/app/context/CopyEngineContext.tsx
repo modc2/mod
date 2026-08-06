@@ -25,6 +25,12 @@ interface CopyEngineContextValue {
       backend session is running. Differs from the strat's requested interval
       whenever the engine's floor or fan-out widening kicked in. */
   backendIntervalMs: number | null;
+  /** Why the leader flow the backend engine DID see never became orders,
+      keyed by gate ("price", "market query", "resolves too soon", …) over
+      the last 30 minutes. Kept OUT of `engineState`: the browser engine
+      republishes its own state object every cycle and would wipe a field it
+      knows nothing about. Empty when nothing is being filtered. */
+  backendGates: Record<string, { count: number; lastAt: number }>;
   /** Whether the backend engine places REAL orders (false = dry-run: mirrors
       are logged but nothing is sent to the CLOB). */
   autoExecute: boolean;
@@ -181,6 +187,9 @@ interface BackendStatus {
     error: string | null;
     traderCursors: Record<string, number>;
     traderLastSync: Record<string, number>;
+    /** Per-gate tally of entries the strat's own filters blocked (live_engine.rs
+        `gated_recently`). */
+    gatedRecently?: Record<string, { count: number; lastAt: number }>;
     /** Cadence the backend loop is ACTUALLY running at — the strat's request
         after the engine's rate-limit floor and fan-out widening. */
     effectiveIntervalMs?: number;
@@ -211,6 +220,7 @@ const CopyEngineContext = createContext<CopyEngineContextValue>({
   backendRunning: false,
   backendTraderSync: {},
   backendIntervalMs: null,
+  backendGates: {},
   autoExecute: false,
   setAutoExecute: async () => false,
   startLive: () => {},
@@ -233,6 +243,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
   const [backendRunning, setBackendRunning] = useState(false);
   const [backendTraderSync, setBackendTraderSync] = useState<Record<string, number>>({});
   const [backendIntervalMs, setBackendIntervalMs] = useState<number | null>(null);
+  const [backendGates, setBackendGates] = useState<Record<string, { count: number; lastAt: number }>>({});
   const [autoExecute, setAutoExecuteState] = useState(false);
   // EOA + strat used for backend polling — set on start, cleared on stop.
   // The strat id scopes every backend call to THIS session, so stopping or
@@ -384,6 +395,10 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
         // I picked being polled?" even with no browser engine attached.
         setBackendTraderSync(status.state?.traderLastSync ?? {});
         setBackendIntervalMs(status.state?.effectiveIntervalMs || null);
+        // Why the flow it saw wasn't copied. A strat whose filters exclude
+        // every entry its leaders make is the #1 "live trading is broken"
+        // report — the LIVE panel turns this into a banner naming the gate.
+        setBackendGates(status.state?.gatedRecently ?? {});
         // Account value is measured by the BACKEND only (it reads the
         // deposit wallet's cash and marks its own positions each cycle), and
         // it's what every proportional mirror is sized against — so surface
@@ -430,6 +445,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
       } else {
         setBackendRunning(false);
         setBackendIntervalMs(null);
+        setBackendGates({});
       }
     };
 
@@ -470,7 +486,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
   return (
     <CopyEngineContext.Provider value={{
       engineState, isLive, activeStrategyId, backendRunning,
-      backendTraderSync, backendIntervalMs,
+      backendTraderSync, backendIntervalMs, backendGates,
       autoExecute, setAutoExecute,
       startLive, stopLive, pauseLive, resumeLive, clearLog, catchUp,
     }}>

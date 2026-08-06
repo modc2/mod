@@ -1,3 +1,4 @@
+mod agent;
 mod auth;
 mod deposit;
 mod hl;

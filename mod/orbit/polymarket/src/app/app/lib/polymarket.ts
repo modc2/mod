@@ -67,10 +67,30 @@ export function timeAgo(ts: number): string {
 
 // ── API helpers ─────────────────────────────────────────────────
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+// In the browser this is the same-origin proxy path the gateway rewrites. On
+// the SERVER (the background backtest worker) a relative path has nothing to
+// resolve against, so calls go straight to the Rust API — which is also one
+// less hop for a process that lives on the same box.
+const API_URL =
+  typeof window === "undefined"
+    ? process.env.POLYMARKET_API_URL || "http://127.0.0.1:50091"
+    : process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
 /** Base URL of the module API — for callers that need non-proxy routes
  *  (deposit-wallet info, live engine status) without hardcoding the path. */
 export const API_BASE = API_URL;
+
+// The API is owner-gated. In the browser access.ts patches `fetch` once and
+// stamps every API-bound request with the session's Bearer token; there is no
+// such patch in Node, so the worker hands its minted owner token to this
+// module and the fetch helpers below attach it. Unset (the browser case) ⇒ no
+// header, and the patch does its job.
+let serverToken: string | null = null;
+export function setServerAuthToken(token: string | null): void {
+  serverToken = token;
+}
+export function serverAuthHeaders(): Record<string, string> {
+  return serverToken ? { Authorization: `Bearer ${serverToken}` } : {};
+}
 
 // Bare `fetch` surfaces any momentary blip — a wifi hiccup, a laptop wake, a
 // Caddy graceful-reload — as a thrown "Failed to fetch". The live engine polls
@@ -89,7 +109,10 @@ async function polyApi(endpoint: string, params: Record<string, string> = {}): P
   let lastErr: unknown;
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+      const res = await fetch(url, {
+        headers: serverAuthHeaders(),
+        signal: AbortSignal.timeout(20_000),
+      });
       // 5xx is the gateway/backend briefly unhappy — worth retrying. 429 is
       // the upstream data-api rate-limiting us — also transient, but needs a
       // LONGER pause than a blip. Any other 4xx is a real client error (bad
@@ -551,7 +574,7 @@ export async function fetchTradersPage(opts: {
   if (opts.minBuyVolume && opts.minBuyVolume > 0) params.set("minBuyVolume", String(opts.minBuyVolume));
   if (opts.minSellVolume && opts.minSellVolume > 0) params.set("minSellVolume", String(opts.minSellVolume));
 
-  const res = await fetch(`${API_URL}/active-traders?${params.toString()}`);
+  const res = await fetch(`${API_URL}/active-traders?${params.toString()}`, { headers: serverAuthHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json() as Promise<PagedTradersResult>;
 }
@@ -632,7 +655,7 @@ export async function fetchTopTradersStream(
   // cancel the prior in-flight stream and start fresh. Without this an
   // HMR-dropped stream leaves inFlightRef stuck true on the caller and
   // every subsequent click silently no-ops.
-  const res = await fetch(`${API_URL}/active-traders?${qs}`, { signal });
+  const res = await fetch(`${API_URL}/active-traders?${qs}`, { headers: serverAuthHeaders(), signal });
   if (!res.ok || !res.body) throw new Error(`active-traders ${res.status}`);
 
   const reader = res.body.getReader();
@@ -701,7 +724,7 @@ export async function fetchTopTraders(
     minPerDay: String(minTradesPerDay),
     pool: String(candidatePool),
   });
-  const res = await fetch(`${API_URL}/active-traders?${qs}`);
+  const res = await fetch(`${API_URL}/active-traders?${qs}`, { headers: serverAuthHeaders() });
   if (!res.ok) throw new Error(`active-traders ${res.status}`);
   const data = await res.json();
   const traders = Array.isArray(data?.traders) ? data.traders : [];
@@ -822,6 +845,7 @@ export async function fetchWalletTradesUntil(
       out.push({
         id: String(t.transactionHash || ""),
         market: String(t.title || t.slug || ""),
+        slug: t.slug ? String(t.slug) : undefined,
         conditionId: String(t.conditionId || t.asset || ""),
         side,
         price,
@@ -878,6 +902,7 @@ function parseActivityTrade(t: Record<string, unknown>): PolymarketTrade | null 
   return {
     id: String(t.transactionHash || ""),
     market: String(t.title || t.slug || ""),
+    slug: t.slug ? String(t.slug) : undefined,
     conditionId: String(t.conditionId || t.asset || ""),
     side,
     price,
@@ -1047,6 +1072,7 @@ export async function fetchWalletTrades(address: string, limit: number = 200): P
       return {
         id: String(t.transactionHash || ""),
         market: String(t.title || t.slug || ""),
+        slug: t.slug ? String(t.slug) : undefined,
         conditionId: String(t.conditionId || t.asset || ""),
         side,
         price,

@@ -1,3 +1,4 @@
+mod chain;
 mod http;
 mod mcp;
 mod targon;

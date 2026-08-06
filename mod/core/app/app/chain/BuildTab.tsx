@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { ethers } from 'ethers'
 import { toast } from 'react-toastify'
 import {
-  TERM_FONT, ACCENT, DANGER, chainApi, coerceArgs, short, explorerUrl, txUrl,
+  TERM_FONT, ACCENT, DANGER, READ, chainApi, coerceArgs, short, explorerUrl, txUrl, useIsMobile,
 } from './shared'
 import { Panel, Label, Btn, Input, Log, Empty, panelStyle } from './ui'
 import type { ChainWallet } from './WalletBar'
@@ -32,6 +32,9 @@ interface Built {
   address: string
   tx_hash?: string
   abi: any[]
+  /** where the store mod holds this build's ABI / source */
+  abi_cid?: string
+  src_cid?: string
   created: number
 }
 
@@ -41,7 +44,7 @@ export function BuildTab({
   wallet: ChainWallet
   network: string
   projects: ProjectsApi
-  onInteract: (target: { name: string; address: string; abi: any[] }) => void
+  onInteract: (target: { name: string; address: string; abi: any[]; abiCid?: string }) => void
 }) {
   const [templates, setTemplates] = useState<Template[]>([])
   const [builds, setBuilds] = useState<Built[]>([])
@@ -57,9 +60,11 @@ export function BuildTab({
   const [value, setValue] = useState('')
   const [deploying, setDeploying] = useState(false)
   const [log, setLog] = useState<string[]>([])
-  const [deployed, setDeployed] = useState<{ address: string; tx: string } | null>(null)
+  const [deployed, setDeployed] = useState<
+    { address: string; tx: string; abiCid?: string } | null>(null)
 
   const gutterRef = useRef<HTMLDivElement>(null)
+  const mobile = useIsMobile()
   const say = (line: string) => setLog(prev => [...prev, line])
 
   const project = projects.project
@@ -154,13 +159,20 @@ export function BuildTab({
       setDeployed({ address, tx: tx?.hash || '' })
       toast.success(`${artifact.name} deployed`)
 
-      await chainApi('/build/deployments', {
+      // Recording the build also writes its ABI + source into the store mod;
+      // the CID that comes back is what makes it loadable from anywhere.
+      const rec = await chainApi('/build/deployments', {
         body: {
           address: from, network, name: artifact.name, contract_address: address,
           tx_hash: tx?.hash, abi: artifact.abi,
           source: project?.files[artifact.file] ?? '',
         },
-      }).catch(() => {})
+      }).catch(() => null)
+      const abiCid = rec?.deployment?.abi_cid
+      if (abiCid) {
+        say(`> ABI stored — ${abiCid}`)
+        setDeployed({ address, tx: tx?.hash || '', abiCid })
+      }
       loadBuilds()
       wallet.refresh()
     } catch (e: any) {
@@ -174,20 +186,48 @@ export function BuildTab({
 
   const lineCount = source.split('\n').length
 
+  // A template card says what it is — the old row of one-word buttons only did
+  // on hover, which a phone never gets.
+  const templateCards = (
+    <div style={{
+      display: 'grid', gap: '8px',
+      gridTemplateColumns: mobile ? '1fr' : 'repeat(auto-fill, minmax(210px, 1fr))',
+    }}>
+      {templates.map(t => (
+        <button
+          key={t.key}
+          onClick={() => fromTemplate(t)}
+          style={{
+            ...panelStyle, textAlign: 'left', padding: '12px 14px', cursor: 'pointer',
+            fontFamily: TERM_FONT, color: 'var(--text-secondary)',
+          }}
+        >
+          <div style={{ fontSize: '13px', color: ACCENT, letterSpacing: '0.08em', marginBottom: '4px' }}>
+            {t.name.toUpperCase()}
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+            {t.description || 'contract + tests, ready to run'}
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+
   if (!project) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <Empty>No project open. Start one from the sidebar, or pick a template below.</Empty>
+        <Panel>
+          <Label style={{ color: ACCENT }}>START HERE</Label>
+          <div style={{ fontFamily: TERM_FONT, fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+            1 · pick a template below, start an empty project from{' '}
+            <span style={{ color: ACCENT }}>{mobile ? '☰' : 'PROJECTS +'}</span>, or upload one
+            you already have ({mobile ? '☰ → ↑' : 'PROJECTS ↑'} takes a folder).<br />
+            2 · COMPILE PROJECT · 3 · DEPLOY with your wallet · 4 · INTERACT with it.
+          </div>
+        </Panel>
         <div>
           <Label>TEMPLATES — contract + tests, ready to run</Label>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-            {templates.map(t => (
-              <Btn key={t.key} size="sm" active={false} title={t.description}
-                onClick={() => fromTemplate(t)}>
-                {t.name.toUpperCase()}
-              </Btn>
-            ))}
-          </div>
+          {templateCards}
         </div>
       </div>
     )
@@ -195,19 +235,6 @@ export function BuildTab({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-      {/* ── Templates ── */}
-      <div>
-        <Label>NEW PROJECT FROM TEMPLATE</Label>
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-          {templates.map(t => (
-            <Btn key={t.key} size="sm" active={false} title={t.description}
-              onClick={() => fromTemplate(t)}>
-              {t.name.toUpperCase()}
-            </Btn>
-          ))}
-        </div>
-      </div>
 
       {/* ── Editor ── */}
       <div style={{ ...panelStyle }}>
@@ -232,27 +259,34 @@ export function BuildTab({
           </div>
         </div>
 
-        <div style={{ display: 'flex', maxHeight: '460px' }}>
-          <div
-            ref={gutterRef}
-            style={{
-              fontFamily: TERM_FONT, fontSize: '12.5px', lineHeight: '20px',
-              padding: '12px 8px 12px 12px', textAlign: 'right', userSelect: 'none',
-              color: 'var(--text-tertiary)', opacity: 0.5, overflow: 'hidden',
-              borderRight: '1px solid var(--border-color)', minWidth: '46px',
-            }}
-          >
-            {Array.from({ length: lineCount }, (_, i) => <div key={i}>{i + 1}</div>)}
-          </div>
+        <div style={{ display: 'flex', maxHeight: mobile ? '56vh' : '460px' }}>
+          {/* the gutter costs a phone a tenth of its width — drop it there */}
+          {!mobile && (
+            <div
+              ref={gutterRef}
+              style={{
+                fontFamily: TERM_FONT, fontSize: '12.5px', lineHeight: '20px',
+                padding: '12px 8px 12px 12px', textAlign: 'right', userSelect: 'none',
+                color: 'var(--text-tertiary)', opacity: 0.5, overflow: 'hidden',
+                borderRight: '1px solid var(--border-color)', minWidth: '46px',
+              }}
+            >
+              {Array.from({ length: lineCount }, (_, i) => <div key={i}>{i + 1}</div>)}
+            </div>
+          )}
           <textarea
             value={source}
             onChange={e => projects.writeFile(path, e.target.value)}
             onScroll={e => { if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop }}
             spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
             disabled={!path}
             style={{
-              flex: 1, minHeight: '340px', maxHeight: '460px',
-              fontFamily: TERM_FONT, fontSize: '12.5px', lineHeight: '20px',
+              flex: 1, minHeight: mobile ? '46vh' : '340px', maxHeight: mobile ? '56vh' : '460px',
+              fontFamily: TERM_FONT,
+              // 16px or iOS zooms the whole console the moment you tap in
+              fontSize: mobile ? '16px' : '12.5px', lineHeight: mobile ? '22px' : '20px',
               padding: '12px', border: 'none', background: 'transparent',
               color: 'var(--text-primary)', outline: 'none', resize: 'vertical',
               whiteSpace: 'pre', overflow: 'auto',
@@ -263,11 +297,12 @@ export function BuildTab({
 
       {/* ── Compile ── */}
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <Btn onClick={compile} disabled={compiling}>
+        <Btn onClick={compile} disabled={compiling} full>
           {compiling ? 'COMPILING…' : '▶ COMPILE PROJECT'}
         </Btn>
-        <span style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)' }}>
-          solc 0.8.26 · imports resolve from @openzeppelin/contracts · ./Other.sol resolves inside the project
+        <span style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+          solc 0.8.26 · @openzeppelin/contracts, @chainlink and hardhat/console.sol are installed ·
+          {' '}foundry lib/ imports and ./Other.sol resolve inside the project
         </span>
       </div>
 
@@ -324,7 +359,7 @@ export function BuildTab({
           )}
 
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <Btn onClick={deploy} disabled={deploying || !wallet.kind}>
+            <Btn onClick={deploy} disabled={deploying || !wallet.kind} full>
               {deploying ? 'DEPLOYING…' : `▲ DEPLOY${wallet.kind ? ` [${wallet.kind.toUpperCase()}]` : ''}`}
             </Btn>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -355,13 +390,31 @@ export function BuildTab({
           <div style={{ fontFamily: TERM_FONT, fontSize: '12px', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
             {deployed.address}
           </div>
+          {deployed.abiCid && (
+            <div style={{
+              fontFamily: TERM_FONT, fontSize: '11px', color: READ, marginTop: '8px',
+              wordBreak: 'break-all', lineHeight: 1.5,
+            }}>
+              ABI in the store — {deployed.abiCid}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
             <Btn size="sm" active={false} onClick={() => {
               navigator.clipboard.writeText(deployed.address); toast.success('Address copied')
             }}>
               COPY
             </Btn>
-            <Btn size="sm" onClick={() => onInteract({ name: artifact.name, address: deployed.address, abi: artifact.abi })}>
+            {deployed.abiCid && (
+              <Btn size="sm" active={false} color={READ} title="load this ABI anywhere by CID"
+                onClick={() => {
+                  navigator.clipboard.writeText(deployed.abiCid!); toast.success('ABI CID copied')
+                }}>
+                COPY ABI CID
+              </Btn>
+            )}
+            <Btn size="sm" onClick={() => onInteract({
+              name: artifact.name, address: deployed.address, abi: artifact.abi, abiCid: deployed.abiCid,
+            })}>
               → INTERACT
             </Btn>
             {explorerUrl(network, deployed.address) && (
@@ -396,15 +449,29 @@ export function BuildTab({
             ...panelStyle, padding: '10px 14px', marginBottom: '6px',
             display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
           }}>
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-primary)' }}>{b.name}</div>
               <div style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)' }}>
                 {short(b.address, 10, 8)}
               </div>
+              {b.abi_cid && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(b.abi_cid!); toast.success('ABI CID copied')
+                  }}
+                  title="copy this build's ABI CID"
+                  style={{
+                    fontFamily: TERM_FONT, fontSize: '10px', color: READ, background: 'none',
+                    border: 'none', padding: '2px 0 0', cursor: 'pointer', textAlign: 'left',
+                  }}
+                >
+                  abi {short(b.abi_cid, 8, 6)} ⧉
+                </button>
+              )}
             </div>
             <div style={{ display: 'flex', gap: '6px' }}>
               <Btn size="sm" active={false}
-                onClick={() => onInteract({ name: b.name, address: b.address, abi: b.abi })}>
+                onClick={() => onInteract({ name: b.name, address: b.address, abi: b.abi, abiCid: b.abi_cid })}>
                 INTERACT
               </Btn>
               {explorerUrl(network, b.address) && (
@@ -419,6 +486,12 @@ export function BuildTab({
             </div>
           </div>
         ))}
+      </div>
+
+      {/* ── Start another one ── */}
+      <div>
+        <Label>NEW PROJECT FROM TEMPLATE</Label>
+        {templateCards}
       </div>
     </div>
   )

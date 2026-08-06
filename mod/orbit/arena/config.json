@@ -1,6 +1,122 @@
 {
     "name": "arena",
-    "description": "arena",
-    "version": "0.1.0",
+    "version": "1.0.0",
+    "description": "A wasm storage and execution layer, and an arena built on it. Store any WebAssembly module — the id is the SHA-256 of its bytes, and the registry reads the binary rather than trusting the uploader: imports, exports, signatures, memory. Execute it in the browser, in a Worker with no filesystem and no network, on a seeded clock and a seeded PRNG; the node runner uses the same code, so a match played in a tab and one played from the CLI are the same computation. A module whose exports match the game ABI is a game, one exporting `play` is a player, so making a game is uploading a module and there is nothing to register. Agents and models are assessed by playing them: Elo per game and overall, win rate, mean score, illegal-move rate, timeouts and time to move. The whole surface is one MCP tool layer (Streamable HTTP at /mcp plus stdio), so an agent can store a module, enter itself, play and read the leaderboard without a human in the loop.",
+    "icon": "🧬",
+    "anchor": "src/mod.py",
+    "protocol": "arena/1.0",
+    "port": 50470,
+    "app_port": 50470,
+    "gateway_port": 50470,
+    "base_path": "/arena",
+    "route": true,
+    "urls": {
+        "api": "http://localhost:50470",
+        "app": "http://localhost:50470/arena",
+        "mcp": "http://localhost:50470/mcp"
+    },
+    "backend": "src/arena-rs (Rust: axum, MCP JSON-RPC 2.0 over Streamable HTTP + stdio)",
+    "runtime": "src/runtime (the execution layer — one implementation, imported by the browser console and the node runner)",
+    "state": "~/.mod/arena/ (blobs/, registry.json, keys.json)",
+    "executes_in": [
+        "browser",
+        "node"
+    ],
+    "roles": [
+        "game",
+        "player",
+        "command",
+        "wasm"
+    ],
+    "player_kinds": [
+        "wasm",
+        "model",
+        "agent_mod",
+        "http",
+        "human"
+    ],
+    "abi": {
+        "strings": "the module exports alloc(i32)->i32; anything it returns is one i64 packed as (ptr << 32) | len",
+        "game": [
+            "game_init",
+            "game_view",
+            "game_step",
+            "game_done",
+            "game_result"
+        ],
+        "game_optional": [
+            "game_info",
+            "game_turn"
+        ],
+        "player": [
+            "play"
+        ]
+    },
+    "endpoints": {
+        "mcp": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
+        "modules": "GET /modules | POST /modules | GET /modules/:id | DELETE /modules/:id",
+        "blob": "GET /blob/:id",
+        "inspect": "POST /inspect {bytes}",
+        "players": "GET /players | POST /players | GET /players/:id | DELETE /players/:id",
+        "play": "POST /play {player, view, seat}",
+        "matches": "GET /matches | POST /matches | GET /matches/:id",
+        "run": "POST /run {game, players[]}",
+        "leaderboard": "GET /leaderboard?game=",
+        "abi": "GET /abi?role=game",
+        "runtime": "GET /runtime/host.mjs",
+        "forward": "POST /forward {action, ...args}",
+        "tools": "GET /tools",
+        "console": "GET /arena (browser)"
+    },
+    "tools": [
+        "arena_info",
+        "game_abi",
+        "list_modules",
+        "get_module",
+        "put_module",
+        "inspect_module",
+        "delete_module",
+        "list_players",
+        "get_player",
+        "enter_player",
+        "remove_player",
+        "run_match",
+        "play_move",
+        "record_match",
+        "list_matches",
+        "get_match",
+        "leaderboard",
+        "plant_examples"
+    ],
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "abi",
+        "modules",
+        "module",
+        "put",
+        "inspect",
+        "rm",
+        "examples",
+        "players",
+        "player",
+        "enter",
+        "withdraw",
+        "probe",
+        "play",
+        "run",
+        "matches",
+        "match",
+        "leaderboard",
+        "tools",
+        "mcp_call",
+        "mcp_config",
+        "build",
+        "serve",
+        "kill",
+        "test"
+    ],
     "schema": "QmYboewBGMDaa3re8XyfhuCMeK4b4sDBNJdGfvgk2yy6ZJ"
 }

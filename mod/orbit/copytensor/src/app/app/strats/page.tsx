@@ -3,15 +3,16 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import type { CopyConfig } from "../lib/types";
+import type { CopyConfig, ServerStrat } from "../lib/types";
 import {
   fetchCopies, pauseCopy, resumeCopy, deleteCopy, syncCopy, shortSs58,
+  fetchHubStrats, cloneStrat,
 } from "../lib/api";
 import CopyForm from "../components/CopyForm";
 import PageHeader from "../components/PageHeader";
 import { useSidebar } from "../context/SidebarContext";
 
-type Mode = "index" | "single";
+type Mode = "index" | "single" | "hub";
 
 function StratsBody() {
   const params = useSearchParams();
@@ -55,7 +56,10 @@ function StratsBody() {
               }`}
               onClick={() => setMode("index")}
             >
-              INDEX<span className="hidden sm:inline"> OF TRADERS</span>
+              {/* nbsp, not a space: `.pixel-btn` is a flex box, and flex
+                  strips whitespace between items — a plain space here
+                  rendered as "INDEXOF TRADERS". */}
+              INDEX<span className="hidden sm:inline">&nbsp;OF TRADERS</span>
             </button>
             <button
               className={`pixel-btn text-[11px] px-3 py-1 flex-1 md:flex-none ${
@@ -63,14 +67,27 @@ function StratsBody() {
               }`}
               onClick={() => setMode("single")}
             >
-              SINGLE<span className="hidden sm:inline"> TARGET</span>
+              SINGLE<span className="hidden sm:inline">&nbsp;TARGET</span>
+            </button>
+            <button
+              className={`pixel-btn text-[11px] px-3 py-1 flex-1 md:flex-none ${
+                mode === "hub" ? "border-green-400 text-green-400" : ""
+              }`}
+              onClick={() => setMode("hub")}
+              title="Strats other people published"
+            >
+              HUB
             </button>
           </>
         }
       >
-        Build an <span className="text-green-400">index of traders</span> to
-        mirror a weighted basket (polymarket-style), or run a single-target
-        copy. Set safety limits, pause/resume, or force-sync at any time.
+        Mirror a weighted basket of traders, or run a single-target copy —
+        with safety limits, pause/resume and force-sync. Don&rsquo;t know who
+        to pick?{" "}
+        <Link href="/agent" className="text-cyan-400">
+          ask the agent
+        </Link>{" "}
+        to build one.
       </PageHeader>
 
       {mode === "index" && (
@@ -84,7 +101,7 @@ function StratsBody() {
               Strat maker
             </h2>
             <p className="arcade-prose arcade-prose-sm">
-              Tick any set of traders — the whole leaderboard, your watchlist, a
+              Tick any set of traders — the whole board, your watchlist, a
               subnet’s validators or a list of pasted addresses — weight them,
               and start one copy per trader.
             </p>
@@ -97,6 +114,8 @@ function StratsBody() {
           </button>
         </section>
       )}
+
+      {mode === "hub" && <HubStrats />}
 
       <section>
         <h2 className="font-display text-lg font-bold mb-3">Active copies</h2>
@@ -276,6 +295,86 @@ function StratsBody() {
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * HubStrats — the public shelf. A strat is private until its owner
+ * publishes it; these are the ones they did. CLONE drops a private copy
+ * onto your own key, flat (never live), so you can edit and backtest it
+ * without touching theirs.
+ */
+function HubStrats() {
+  const { openIndex } = useSidebar();
+  const [rows, setRows] = useState<ServerStrat[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+
+  const load = () => {
+    setLoading(true);
+    fetchHubStrats()
+      .then((r) => setRows(r.strats))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+  useEffect(load, []);
+
+  return (
+    <section className="pixel-panel p-4 space-y-3">
+      <h2 className="font-display text-base font-bold">Published strats</h2>
+      {loading ? (
+        <p className="text-pixel-gray text-sm">loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="arcade-prose arcade-prose-sm">
+          Nothing published yet. Build a basket in the strat maker, set it to
+          PUBLIC, and it shows up here for everyone.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((s) => (
+            <li key={s.id} className="border-t-2 border-pixel-border pt-2 first:border-t-0 first:pt-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-[13px] text-pixel-white truncate min-w-0 flex-1">
+                  {s.name}
+                  <span className="text-pixel-gray"> · {(s.traders || []).length} traders</span>
+                </span>
+                {s.mine && <span className="pixel-badge text-pixel-gray">yours</span>}
+                <span className="pixel-badge text-pixel-gray" title="owner id">
+                  {s.owner_fingerprint?.slice(0, 8)}
+                </span>
+                <button
+                  className="pixel-btn text-[10px] px-2 py-0.5 border-green-400 text-green-400"
+                  disabled={busyId === s.id}
+                  onClick={async () => {
+                    setBusyId(s.id);
+                    try {
+                      const copy = await cloneStrat(s.id);
+                      setNote(`cloned as "${copy.name}" — private, on your key`);
+                      openIndex(copy.id);
+                    } catch (e) {
+                      setNote(e instanceof Error ? e.message : String(e));
+                    } finally {
+                      setBusyId(null);
+                    }
+                  }}
+                >
+                  CLONE
+                </button>
+              </div>
+              {s.thesis && (
+                <p className="arcade-prose arcade-prose-sm mt-1">{s.thesis}</p>
+              )}
+              <p className="text-[10px] font-mono text-pixel-gray mt-1">
+                {(s.traders || []).slice(0, 5).map((t) => t.label || shortSs58(t.ss58)).join(", ")}
+                {(s.traders || []).length > 5 ? " …" : ""}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+      {note && <p className="text-[11px] font-mono text-green-400">{note}</p>}
+    </section>
   );
 }
 

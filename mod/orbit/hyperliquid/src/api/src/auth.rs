@@ -153,6 +153,9 @@ pub fn is_public(method: &Method, path: &str) -> bool {
         | "/wallet/config" | "/indexes" | "/vaults" | "/market/meta"
         // MCP discovery: the tool schema is the module's public fn surface.
         | "/mcp/schema"
+        // Agent readiness (is a model key configured, how many tools). Asking
+        // — POST /ask — spends model credits and stays token-gated.
+        | "/ask/status"
         // deposit GETs are on-chain-public data (chain registry, balances,
         // bridge status) — watch-mode users see them without signing in.
         | "/deposit/chains" | "/deposit/balances" | "/deposit/status")

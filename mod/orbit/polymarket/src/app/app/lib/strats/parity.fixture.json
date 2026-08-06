@@ -512,6 +512,72 @@
       "capitalAlloc": 500,
       "traderVol": 0,
       "expected": 500.0
+    },
+    {
+      "name": "flowIgnoresBankroll",
+      "why": "flow sizing divides by deployed capital even when the balance sheet IS readable",
+      "accountValue": 1000,
+      "weightFraction": 1.0,
+      "leaderBankroll": 100000,
+      "capitalAlloc": 500,
+      "traderVol": 250000,
+      "sizing": "flow",
+      "expected": 0.002
+    },
+    {
+      "name": "smallAccountBankroll",
+      "why": "$223 copying a $200k leader: ratio so small a $500 trade mirrors at $0.56 and SUB_SCALE skips it",
+      "accountValue": 223,
+      "weightFraction": 1.0,
+      "leaderBankroll": 200000,
+      "capitalAlloc": 223,
+      "traderVol": 8000,
+      "expected": 0.001115
+    },
+    {
+      "name": "smallAccountFlow",
+      "why": "same account against the $8k the leader actually deployed: the $500 trade mirrors at $13.94, clear of the floor",
+      "accountValue": 223,
+      "weightFraction": 1.0,
+      "leaderBankroll": 200000,
+      "capitalAlloc": 223,
+      "traderVol": 8000,
+      "sizing": "flow",
+      "expected": 0.027875
+    },
+    {
+      "name": "flowTurnover",
+      "why": "turnover 2 redeploys the allocation twice across one window of flow",
+      "accountValue": 223,
+      "weightFraction": 1.0,
+      "leaderBankroll": 200000,
+      "capitalAlloc": 223,
+      "traderVol": 8000,
+      "sizing": "flow",
+      "turnover": 2.0,
+      "expected": 0.05575
+    },
+    {
+      "name": "flowHalfWeight",
+      "why": "weight is already in capitalAlloc, so half the watchlist weight halves the ratio",
+      "accountValue": 1000,
+      "weightFraction": 0.5,
+      "leaderBankroll": null,
+      "capitalAlloc": 250,
+      "traderVol": 250000,
+      "sizing": "flow",
+      "expected": 0.001
+    },
+    {
+      "name": "flowVolumeFloor",
+      "why": "a trader who deployed nothing this window can't divide by zero either",
+      "accountValue": 1000,
+      "weightFraction": 1.0,
+      "leaderBankroll": 100000,
+      "capitalAlloc": 500,
+      "traderVol": 0,
+      "sizing": "flow",
+      "expected": 500.0
     }
   ],
   "traderFilterTraders": [

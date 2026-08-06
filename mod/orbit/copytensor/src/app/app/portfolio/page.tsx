@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import type { Trade } from "../lib/types";
 import { fetchTrades, ago } from "../lib/api";
 import { useCurrency, fmtValue } from "../context/CurrencyContext";
@@ -30,7 +31,9 @@ export default function PortfolioPage() {
         <div className="pixel-panel p-6">
           <p className="arcade-prose">
             No trades executed yet. Activate a copy from the
-            <a href="/strats" className="text-green-400 mx-1">strats</a>
+            {/* <Link>, not <a>: a raw href skips the /copytensor basePath
+                and lands on the gateway root. */}
+            <Link href="/strats" className="text-green-400 mx-1">strats</Link>
             tab to start mirroring a validator.
           </p>
         </div>

@@ -50,6 +50,10 @@ class Copytensor(m.Mod):
     tracked trader. When bt is down, reads fall back to a rotating pool of
     public Bittensor RPC endpoints. Only stake/unstake operations require a
     wallet (set via `set_wallet`).
+
+    `ask` talks to the strat agent — a Claude wired to those same reads that
+    picks a weighted basket of traders and says why each one is in it. It is
+    read-only too: a proposal is a basket you activate yourself.
     """
 
     name = "copytensor"
@@ -67,6 +71,8 @@ class Copytensor(m.Mod):
         "traders", "trader_history", "flows",
         # watchlist + the trader pool the leaderboard ranks
         "watch", "unwatch", "watches", "discover", "universe", "set_pool",
+        # the strat agent — talk to it, get a basket back
+        "ask", "agent_status",
         # copy management (needs wallet)
         "create_copy", "list_copies", "pause_copy", "resume_copy",
         "delete_copy", "sync_copy",
@@ -700,6 +706,54 @@ class Copytensor(m.Mod):
     def sync_copy(self, copy_id: str) -> Any:
         return self._post(f"/copy/{copy_id}/sync")
 
+    # the strat agent
+    def agent_status(self) -> Any:
+        """Whether the strat agent can run, and which tools it can reach."""
+        return self._get("/agent")
+
+    def ask(self, question: str, session_id: Optional[str] = None,
+            stream: bool = False) -> Dict[str, Any]:
+        """Ask the strat agent for a basket of traders to mirror.
+
+        Returns {answer, strat, tools, session_id}. Pass `session_id` back to
+        keep talking about the same basket; `stream=True` prints each tool
+        call as it happens instead of waiting in the dark.
+
+        The proposal is not live and not saved — `strat` is a basket you feed
+        to `create_copy` (or the console's strat maker) yourself.
+        """
+        out: Dict[str, Any] = {"answer": "", "strat": None, "tools": [],
+                               "session_id": session_id}
+        r = requests.post(
+            f"{self.api_url}/agent/ask",
+            json={"question": question, "session_id": session_id},
+            stream=True, timeout=(10, 420),
+        )
+        r.raise_for_status()
+        for line in r.iter_lines(decode_unicode=True):
+            if not line or not line.startswith("data: "):
+                continue
+            try:
+                ev = json.loads(line[6:])
+            except json.JSONDecodeError:
+                continue
+            kind = ev.get("type")
+            if kind == "tool":
+                out["tools"].append(ev["name"])
+                if stream:
+                    print(f"  ▸ {ev['name']} {ev.get('args') or ''}")
+            elif kind == "text" and stream:
+                print(ev["text"])
+            elif kind == "strat":
+                out["strat"] = ev["strat"]
+            elif kind in ("start", "done"):
+                out["session_id"] = ev.get("session_id") or out["session_id"]
+                if kind == "done":
+                    out["answer"] = ev.get("answer") or ""
+            elif kind == "error":
+                out["error"] = ev.get("error")
+        return out
+
     # wallet
     def set_wallet(self, mnemonic: Optional[str] = None,
                    seed_hex: Optional[str] = None) -> Any:
@@ -711,6 +765,12 @@ class Copytensor(m.Mod):
 
     # ── test ──────────────────────────────────────────────────────
 
+    def _check_agent(self) -> Dict[str, Any]:
+        st = self._get("/agent")
+        if not st.get("ready"):
+            raise RuntimeError(st.get("hint") or "strat agent has no auth")
+        return {"model": st.get("model"), "tools": len(st.get("tools") or [])}
+
     def test(self) -> Dict[str, Any]:
         """Hit every public read endpoint + show the RPC pool."""
         results: Dict[str, Any] = {}
@@ -720,6 +780,8 @@ class Copytensor(m.Mod):
             ("leaderboard", lambda: self._get("/leaderboard", days="7", top="10")),
             ("status", lambda: self._get("/status")),
             ("curve", lambda: self.account_curve(self._first_watched(), days=7)),
+            # Not a conversation — just that the agent has auth and a toolbox.
+            ("agent", self._check_agent),
         ]:
             try:
                 data = fn()

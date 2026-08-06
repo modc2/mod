@@ -1,17 +1,8 @@
-import Leaderboard from "../components/Leaderboard";
-import PageHeader from "../components/PageHeader";
+import { redirect } from "next/navigation";
 
+// The board used to have a tab of its own. It rendered the same ranking
+// TRADERS does, so the tab is gone and the old route just forwards —
+// bookmarks and shared links into /leaderboard still land somewhere real.
 export default function LeaderboardPage() {
-  return (
-    <div className="space-y-5">
-      <PageHeader title="BITTENSOR COPY-TRADING">
-        Mirror subnet allocations of top performers based on N-day alpha PnL,
-        ranked out of the bt module&rsquo;s local index — PnL split into what
-        the book earned on price and what was staked in or out, so a deposit
-        never outranks a trade. Open data, no third-party APIs, no wallet
-        required.
-      </PageHeader>
-      <Leaderboard />
-    </div>
-  );
+  redirect("/traders");
 }

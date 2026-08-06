@@ -10,6 +10,7 @@ attach volumes and SSH keys, read logs and run commands inside the box.
   the same tool layer, so there is one implementation, not two
 - **Upstream:** `https://api.targon.com/tha/v2`
 - **Port:** 50440 (API + console on one port)
+- **Console:** `/targon` — a Game Boy of a control panel, eight swappable skins
 
 ## Quick start
 
@@ -20,7 +21,36 @@ m targon/inventory gpu=True    # what the network has, priced, right now
 m targon/cheapest gpu_type=H200
 ```
 
-Console (inventory, workloads, tool list): <http://localhost:50440/>
+### Console
+
+<http://localhost:50440/targon> (or `/targon` behind the fleet gateway) — a
+zero-dep page styled as a handheld: the plastic shell holds the key field and
+the skin picker, the LCD holds the app.
+
+| tab | what it does |
+| --- | --- |
+| MARKET | live inventory, priced per GPU-hour, filtered; `cheapest` picker; click a tier to load it |
+| RENT | name + image + tier → `rent` (register **and** deploy), or estimate the call first |
+| WORKLOADS | your machines: state, logs, events, deploy, suspend, reboot, delete, `exec` |
+| STORAGE | volumes (create/delete) and templates — a template pours into the rent form |
+| KEYS | SSH keys and Targon API keys |
+| WALLET | connect a browser wallet, read your TAO, top up credits on-chain |
+| MCP | all 49 tools with schemas, a `tools/call` playground, client config, request log |
+
+The plastic under the LCD is wired, not decoration: the **D-pad** walks the tabs
+(◀ ▶) and scrolls the list you are on (▲ ▼), **A** runs the tab's main action,
+**B** goes back to MARKET, **SELECT** cycles the skin and **START** reloads the
+tab. Arrow keys and `a`/`b` do the same when you aren't typing in a field.
+
+Eight skins — DMG, Pocket, Light, Virtual Boy, Super GB, Micro, Terminal,
+Manual — picked from **THEME** in the header, cycled with SELECT, and remembered
+in `localStorage`. Each is one CSS block of tokens (`--shell` / `--plate` /
+`--screen` / `--ink` and the status inks); nothing else in the stylesheet names a
+colour, so a new skin is one more rule in `console.html`.
+
+The key you paste in the header stays in `sessionStorage` for that tab and rides
+along as `x-api-key`; the server still reads its own key from `TARGON_API_KEY`
+or `~/.mod/targon/api_key`.
 
 ### As an MCP server
 
@@ -42,6 +72,33 @@ API key, resolved in this order:
 
 ```bash
 m targon/set_api_key api_key=tgn_...      # writes ~/.mod/targon/api_key
+```
+
+## Paying: TAO in, credits out
+
+Deploys spend credits, and credits are bought by sending TAO to the SS58 address
+`GET /wallet` hands you. The console's **WALLET** tab does that round trip in the
+browser: connect a polkadot-js compatible extension (Talisman, SubWallet,
+Polkadot{.js}, Bittensor Wallet), pick a coldkey, and send.
+
+Custody stays where it belongs — **the extension holds the key and does the
+signing**. This server only encodes and relays:
+
+```
+GET  /chain/account?address=…   free / reserved / transferable TAO and the nonce
+POST /chain/prepare  {from, to, tao}        → the call and a signer payload
+POST /chain/submit   {payload, signature}   → author_submitExtrinsic, tx hash
+```
+
+`Balances.transfer_keep_alive`, immortal era, no tip — keep-alive so a top-up can
+never reap the coldkey. All the SCALE encoding lives in `chain.rs` where the
+tests pin it: `cargo test` checks the assembled extrinsic byte-for-byte against
+one built by py-substrate-interface on finney, and the `AccountInfo` decode
+against a real storage entry (subtensor's `Balance` is a `u64`, not the `u128`
+most Substrate chains use). Point `BITTENSOR_RPC` elsewhere for a local node.
+
+```bash
+m targon/chain_account address=5F…        # any coldkey, no Targon key needed
 ```
 
 ## Renting a machine
@@ -76,7 +133,12 @@ three composed tools. Adding an endpoint is adding a row.
 | images | `build_image` (Heim build service) |
 | composed | `cheapest` (price/availability picker) `rent` (create + deploy) `workload_exec` |
 
-`GET /tools` lists them with schemas.
+`GET /tools` lists them with schemas. REST mirrors the table —
+`GET /inventory` `GET|POST /workloads` `POST /workloads/:uid/{deploy,suspend,reboot,exec}`
+`GET|POST /volumes` `GET|POST /ssh-keys` `GET|POST /templates` `GET|POST /api-keys`
+`GET /credits` `GET /wallet` — and `POST /forward {action, …}` reaches any tool
+by name. The `/chain/*` routes are not tools: they talk to Bittensor, not to the
+Hub API.
 
 ## Layout
 
@@ -88,8 +150,10 @@ targon-rs/src/
   tools.rs            the tool table + schema generation + dispatch
   targon.rs           upstream HTTP client, key resolution
   mcp.rs              JSON-RPC 2.0 core, stdio transport
-  http.rs             axum routes (/mcp, REST adapters, console)
-  console.html        zero-dep browser console
+  chain.rs            Bittensor: SS58, balances, the top-up extrinsic
+  http.rs             axum routes (/mcp, REST adapters, /chain, console) — the
+                      API is served at the root, at /api/targon and /targon/_api
+  console.html        zero-dep browser console + the eight skins
 ```
 
 ## Notes
@@ -101,3 +165,5 @@ targon-rs/src/
   MCP tool results are unary. `workload_logs` takes `tail`/`since` instead, and
   `workload_exec` returns the command's collected output.
 - Workload revisions return 501 upstream, so there are no tools for them.
+- The wallet tab needs an extension that implements `window.injectedWeb3`. With
+  none installed it still shows the deposit address to send TAO to by hand.

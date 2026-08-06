@@ -10,7 +10,8 @@ MCP server over the Targon Hub API (`https://api.targon.com/tha/v2`). Targon is 
 subnet 4: miners supply the GPUs, the Hub rents them out as workloads. 49 tools, served at
 `POST /mcp` (JSON-RPC 2.0, Streamable HTTP) and over stdio (`targon-api --stdio`).
 
-Port **50440** — API, MCP and console share it.
+Port **50440** — API, MCP and console share it. Browser console at `/targon`
+(`/targon/_api` and `/api/targon` are the same API behind the fleet gateway).
 
 ## Money rule
 
@@ -39,6 +40,23 @@ Key resolution: per-call `api_key` / `x-api-key` header → `TARGON_API_KEY` →
 - **Templates** — reusable workload manifests, public or private
 - **Account** — `credits`, `wallet` (your Bittensor SS58 address), API key CRUD + rotate
 - **Images** — `build_image` proxies the Heim build service
+- **Chain** (not MCP tools — these talk to Bittensor, not the Hub): `GET /chain/account?address=`
+  reads free/reserved/transferable TAO and the nonce off finney; `POST /chain/prepare
+  {from,to,tao}` builds a `Balances.transfer_keep_alive` call plus a signer payload, and
+  `POST /chain/submit {payload,signature}` relays the signed bytes. Also `m targon/chain_account
+  address=5F…`. `BITTENSOR_RPC` overrides the endpoint.
+- **Console** — `/targon` drives all of the above from a browser: market, rent, workloads,
+  storage, keys, wallet and an MCP playground, in eight Game Boy skins (picker in the header,
+  SELECT cycles them, remembered per browser). Its key lives in `sessionStorage`, never on
+  disk. The D-pad walks tabs and scrolls; A runs the tab's main action.
+
+## Topping up credits
+
+Credits are bought with TAO sent to the address `wallet` returns. The console's WALLET tab
+does it in-browser: a polkadot-js compatible extension (Talisman, SubWallet, Polkadot{.js},
+Bittensor Wallet) holds the key and signs; the server only encodes and relays, and never sees
+a key. Nothing here can move TAO on its own — every transfer needs a human approving it in
+the extension.
 
 ## The trap: register ≠ deploy
 
@@ -58,6 +76,7 @@ m targon/rent name=my-box gpu_type=H200 image=pytorch/pytorch:latest
 m targon/state workload_uid=<uid>
 m targon/exec workload_uid=<uid> command="nvidia-smi"
 m targon/delete_workload workload_uid=<uid>
+m targon/chain_account address=5F…           # TAO balance of any coldkey
 ```
 
 MCP clients: `claude mcp add targon -- <module>/targon-rs/target/release/targon-api --stdio`,

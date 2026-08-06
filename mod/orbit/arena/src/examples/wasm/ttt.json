@@ -1,0 +1,9 @@
+{
+  "name": "ttt",
+  "description": "Tic-tac-toe. Solved, so a perfect opponent exists and a loss is a mistake rather than bad luck.",
+  "author": "arena",
+  "tags": [
+    "example",
+    "game"
+  ]
+}

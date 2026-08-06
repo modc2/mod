@@ -318,20 +318,132 @@ async def contract_source(file: Optional[str] = None, mod: str = "chain",
     return {"contracts": contracts, "count": len(contracts), "module": mod}
 
 
-# ── Contract ABIs + sources, stored in localfs by CID ────────────────────────
+# ── Contract ABIs + sources, stored in the store mod ─────────────────────────
 #
-# ABIs and Solidity sources are pinned into the content-addressable localfs
-# store; their CIDs are recorded per-contract in config.json ("abi" / "src"),
-# same pattern the deploy pipeline already uses. Serving prefers the pinned
-# CID; hardhat artifacts are only read to pin content the first time.
+# Every ABI this module knows about — the fleet's own contracts and anything a
+# wallet deploys from the builder — is written into the **store module**
+# (m.mod('dstore')) as a content-addressed object owned by the address that
+# deployed it. What gets recorded is the CID: "abi" / "src" per contract in
+# config.json, abi_cid / src_cid on a build row. So an ABI is fetchable by CID
+# from anywhere in the fleet instead of living only in this box's artifacts/.
+# The store's localfs backend is the same content store earlier versions pinned
+# into, so CIDs recorded before this all still resolve.
+
+ABI_KEY = "chain/abi"          # store key prefix — what marks an object an ABI
+SRC_KEY = "chain/src"
 
 _artifact_cache = {}
+_store_mod = None
+
+
+def _store():
+    """The store module's storage layer, or None when it isn't installed."""
+    global _store_mod
+    if _store_mod is None:
+        try:
+            import mod as m
+            _store_mod = m.mod('dstore')()
+        except Exception:
+            _store_mod = False
+    return _store_mod or None
+
 
 def _localfs():
     try:
         import mod as m
         return m.mod('localfs')()
     except Exception:
+        return None
+
+
+def _store_put(data, owner: str = "fleet", key: Optional[str] = None,
+               suffix: str = ".json") -> Optional[str]:
+    """Pin JSON (or text) into the store mod. Returns the CID, or None if the
+    store is unavailable — pinning is a bonus, never a reason to fail a deploy."""
+    st = _store()
+    if st is None:
+        return None
+    text = data if isinstance(data, str) else json.dumps(data)
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        r = st.put(path=path, backend="localfs", owner=_who(owner), key=key)
+        return ((r.get("results") or {}).get("localfs") or {}).get("cid")
+    except Exception:
+        return None
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _store_index(cid: str, owner: str, key: str, size: int = 0):
+    """Index a CID the store already holds the bytes for. Content pinned before
+    this module used the store (or by anyone else) is real content — registering
+    it makes it a first-class store object without re-uploading."""
+    st = _store()
+    if st is None:
+        return
+    try:
+        st.register(cid=cid, backend="localfs", owner=_who(owner), key=key,
+                    size=size, scheme="ipfs")
+    except Exception:
+        pass
+
+
+def _store_known(owner: str, limit: int = 2000) -> set:
+    """CIDs the store index already lists for an owner."""
+    st = _store()
+    if st is None:
+        return set()
+    try:
+        return {o.get("cid") for o in st.list(owner=_who(owner), limit=limit)}
+    except Exception:
+        return set()
+
+
+def _store_get(cid: str) -> Optional[str]:
+    """Read a CID back out of the store as text, or None if it isn't there."""
+    st = _store()
+    if st is not None:
+        import tempfile
+        fd, path = tempfile.mkstemp()
+        os.close(fd)
+        try:
+            if "error" not in st.get(cid=cid, out=path):
+                with open(path) as f:
+                    return f.read()
+        except Exception:
+            pass
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+    # Pre-store installs pinned straight into localfs — still readable.
+    lf = _localfs()
+    if lf is None:
+        return None
+    try:
+        data = lf.get(cid)
+        if isinstance(data, bytes):
+            return data.decode("utf-8")
+        return data if isinstance(data, str) else json.dumps(data)
+    except Exception:
+        return None
+
+
+def _store_get_json(cid: str):
+    """A stored CID parsed as JSON, or None when it's missing or isn't JSON."""
+    text = _store_get(cid)
+    if text is None:
+        return None
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
         return None
 
 
@@ -356,20 +468,9 @@ def _load_artifact(contract_type: str):
     return artifact
 
 
-def _lf_get_json(lf, cid):
-    """localfs.get that tolerates bytes payloads; returns parsed JSON or None."""
-    try:
-        data = lf.get(cid)
-        if isinstance(data, bytes):
-            data = json.loads(data.decode("utf-8"))
-        return data
-    except Exception:
-        return None
-
-
 @app.get("/contracts/abis")
 async def contract_abis(network: str = "testnet"):
-    """Deployed contracts with addresses + ABIs (localfs-pinned), for wallet-side calls."""
+    """Deployed contracts with addresses + ABIs (store-pinned), for wallet-side calls."""
     base = _module_dir("chain")
     cfg_path = os.path.join(base, "config.json") if base else None
     try:
@@ -380,8 +481,8 @@ async def contract_abis(network: str = "testnet"):
 
     deployment = cfg.get("deployments", {}).get(network, {})
     contracts = deployment.get("contracts") or {}
-    lf = _localfs()
     out, dirty = [], False
+    known = _store_known("fleet")
 
     for name, info in contracts.items():
         if not isinstance(info, dict) or not info.get("address"):
@@ -389,34 +490,37 @@ async def contract_abis(network: str = "testnet"):
         ctype = info.get("contract") or name
         abi, abi_cid, src_cid = None, info.get("abi"), info.get("src")
 
-        # 1) pinned ABI CID from config
-        if lf and abi_cid:
-            abi = _lf_get_json(lf, abi_cid)
+        # 1) pinned ABI CID from the store
+        if abi_cid:
+            abi = _store_get_json(abi_cid)
+            # CIDs pinned before this module used the store aren't in its index
+            if abi is not None and abi_cid not in known:
+                _store_index(abi_cid, "fleet", f"{ABI_KEY}/{network}/{name}.json",
+                             len(json.dumps(abi)))
+        if src_cid and src_cid not in known:
+            _store_index(src_cid, "fleet", f"{SRC_KEY}/{network}/{ctype}.sol")
 
-        # 2) fall back to the hardhat artifact — and pin it for next time
+        # 2) fall back to the hardhat artifact — and store it for next time
         if abi is None:
             artifact = _load_artifact(ctype)
             abi = (artifact or {}).get("abi")
-            if lf and abi:
-                try:
-                    abi_cid = lf.put(abi)
-                    info["abi"] = abi_cid
+            if abi:
+                cid = _store_put(abi, owner="fleet", key=f"{ABI_KEY}/{network}/{name}.json")
+                if cid:
+                    abi_cid = info["abi"] = cid
                     dirty = True
-                except Exception:
-                    pass
 
-        # pin the Solidity source alongside (once)
-        if lf and not src_cid:
+        # store the Solidity source alongside (once)
+        if not src_cid:
             artifact = _load_artifact(ctype)
             src_path = os.path.join(base, (artifact or {}).get("sourceName", "")) if base else ""
             if src_path and os.path.isfile(src_path):
-                try:
-                    with open(src_path) as f:
-                        src_cid = lf.put(f.read())
-                    info["src"] = src_cid
+                with open(src_path) as f:
+                    cid = _store_put(f.read(), owner="fleet",
+                                     key=f"{SRC_KEY}/{network}/{ctype}.sol", suffix=".sol")
+                if cid:
+                    src_cid = info["src"] = cid
                     dirty = True
-                except Exception:
-                    pass
 
         if not abi:
             continue
@@ -438,19 +542,10 @@ async def contract_abis(network: str = "testnet"):
 
 @app.get("/cid/{cid}")
 async def cid_get(cid: str):
-    """Fetch pinned content (ABI JSON / Solidity source) from localfs by CID."""
-    lf = _localfs()
-    if not lf:
-        raise HTTPException(status_code=503, detail="localfs unavailable")
-    try:
-        data = lf.get(cid)
-    except Exception as e:
+    """Fetch stored content (ABI JSON / Solidity source) from the store by CID."""
+    data = _store_get(cid)
+    if data is None:
         raise HTTPException(status_code=404, detail=f"CID not found: {cid}")
-    if isinstance(data, bytes):
-        try:
-            data = data.decode("utf-8")
-        except Exception:
-            raise HTTPException(status_code=415, detail="Binary content")
     return {"cid": cid, "content": data}
 
 
@@ -1767,14 +1862,12 @@ async def build_record(req: BuiltReq):
     store = _build_store("deployments.json")
     rows = store.setdefault(_who(req.address), [])
 
-    abi_cid = src_cid = None
-    lf = _localfs()
-    if lf:  # pin ABI + source so a build is shareable by CID, like fleet contracts
-        try:
-            abi_cid = lf.put(req.abi) if req.abi else None
-            src_cid = lf.put(req.source) if req.source else None
-        except Exception:
-            pass
+    # Store the ABI + source so the build is fetchable by CID from anywhere,
+    # exactly like a fleet contract. The deployer owns the objects.
+    abi_cid = _store_put(req.abi, owner=req.address,
+                         key=f"{ABI_KEY}/{req.network}/{req.name}.json") if req.abi else None
+    src_cid = _store_put(req.source, owner=req.address, suffix=".sol",
+                         key=f"{SRC_KEY}/{req.network}/{req.name}.sol") if req.source else None
 
     row = {"name": req.name, "network": req.network, "address": req.contract_address,
            "tx_hash": req.tx_hash, "abi": req.abi, "abi_cid": abi_cid,
@@ -1791,6 +1884,69 @@ async def build_deployments(address: Optional[str] = None, network: Optional[str
     if network:
         rows = [r for r in rows if r.get("network") == network]
     return {"deployments": rows, "count": len(rows)}
+
+
+# ── ABIs in the store ───────────────────────────────────────────────────────
+#
+# Deploying writes the ABI to the store automatically, but a contract deployed
+# somewhere else is just as welcome: POST one here and it becomes a CID like any
+# other. The console loads a contract straight from a CID, so an ABI travels
+# between projects (and between people) without being pasted around.
+
+
+class AbiReq(BaseModel):
+    address: Optional[str] = None      # owner of the stored object
+    name: str = "abi"
+    network: str = "testnet"
+    abi: list = []
+    source: Optional[str] = None
+
+
+@app.post("/build/abi")
+async def build_abi_put(req: AbiReq):
+    """Store an ABI (and optionally its source) — returns the CIDs."""
+    if not req.abi:
+        raise HTTPException(status_code=400, detail="abi is empty")
+    name = _safe_rel(req.name).replace("/", "_")
+    abi_cid = _store_put(req.abi, owner=req.address,
+                         key=f"{ABI_KEY}/{req.network}/{name}.json")
+    if not abi_cid:
+        raise HTTPException(status_code=503, detail="store unavailable")
+    src_cid = _store_put(req.source, owner=req.address, suffix=".sol",
+                         key=f"{SRC_KEY}/{req.network}/{name}.sol") if req.source else None
+    return {"ok": True, "cid": abi_cid, "abi_cid": abi_cid, "src_cid": src_cid}
+
+
+@app.get("/build/abi/{cid}")
+async def build_abi_get(cid: str):
+    """One ABI by CID, parsed — what INTERACT loads a contract from."""
+    abi = _store_get_json(cid)
+    if not isinstance(abi, list):
+        raise HTTPException(status_code=404,
+                            detail=f"no ABI at {cid}" if abi is None
+                            else f"{cid} is not an ABI (expected a JSON array)")
+    return {"cid": cid, "abi": abi}
+
+
+@app.get("/build/abis")
+async def build_abis(address: Optional[str] = None, limit: int = 100):
+    """ABIs an address has in the store, newest first."""
+    st = _store()
+    if st is None:
+        return {"abis": [], "count": 0}
+    rows = []
+    for o in st.list(owner=_who(address), limit=max(1, min(limit, 1000)) * 4):
+        key = o.get("key") or ""
+        if not key.startswith(ABI_KEY + "/"):
+            continue
+        parts = key.split("/")
+        rows.append({"cid": o.get("cid"), "key": key, "size": o.get("size"),
+                     "stored": o.get("timestamp"),
+                     "network": parts[2] if len(parts) > 3 else None,
+                     "name": parts[-1].removesuffix(".json")})
+        if len(rows) >= limit:
+            break
+    return {"abis": rows, "count": len(rows)}
 
 
 # ── Host readout (owner-only) ────────────────────────────────────────────────
@@ -2013,6 +2169,7 @@ async def info():
             "build/compile", "build/templates", "build/test",
             "build/projects", "build/projects/{name}", "build/deployments",
             "build/shared", "build/shared/{id}",
+            "build/abi", "build/abi/{cid}", "build/abis",
             "system/access", "system/challenge", "system/login", "system/stats",
         ],
     }

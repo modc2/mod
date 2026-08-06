@@ -324,6 +324,74 @@ export const liveStop = (eoa: string) =>
 export const liveStatus = (eoa: string) =>
   j<{ eoa: string; config: any; state: any }>(`/live/status?eoa=${encodeURIComponent(eoa)}`);
 
+// ── agent (`/ask`) ──
+// The agent answers only out of MCP tool calls against this same API, so it
+// sees exactly what the signed-in wallet sees. `act` unlocks the write tools.
+export type AskStatus = {
+  ready: boolean;
+  auth?: string | null;
+  hint?: string | null;
+  model?: string;
+  max_turns?: number;
+  read_tools?: number;
+  write_tools?: number;
+};
+export const askStatus = () => j<AskStatus>(`/ask/status`);
+
+export type AskEvent =
+  | { type: "ready"; tools: number; act: boolean; signed_in: boolean }
+  | { type: "start"; model: string; tools: number }
+  | { type: "text"; text: string }
+  | { type: "tool"; name: string; args: Record<string, any> }
+  | { type: "tool_done"; error: boolean }
+  | { type: "done"; answer: string; turns?: number; ms?: number; cost_usd?: number }
+  | { type: "error"; error: string };
+
+/** POST /ask and dispatch its SSE events as they arrive. */
+export async function askStream(
+  body: { question: string; act?: boolean },
+  onEvent: (ev: AskEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const token = authToken();
+  const r = await fetch(`${BASE}/ask`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (r.status === 401 && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("hl:unauthorized"));
+  }
+  if (!r.ok || !r.body) {
+    const detail = await r.text().catch(() => "");
+    throw new Error(`ask ${r.status} ${detail}`);
+  }
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    // SSE frames are separated by a blank line; each carries one JSON event.
+    const frames = buf.split("\n\n");
+    buf = frames.pop() ?? "";
+    for (const frame of frames) {
+      const data = frame
+        .split("\n")
+        .filter((l) => l.startsWith("data:"))
+        .map((l) => l.slice(5).trim())
+        .join("");
+      if (!data) continue;
+      try { onEvent(JSON.parse(data) as AskEvent); } catch { /* keep-alive */ }
+    }
+  }
+}
+
 // ── formatting helpers ──
 export const fmtUsd = (n: number) => {
   const a = Math.abs(n);

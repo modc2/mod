@@ -25,12 +25,14 @@
         "path",
         "boards",
         "files",
+        "roms",
         "play",
         "stop",
         "serve",
         "serve_app",
         "serve_api",
         "test",
+        "fetch_roms",
         "fetch_test_roms",
         "kill",
         "register",
@@ -41,7 +43,9 @@
         "serve": "Run the emulator under pm2 and register the gateway route",
         "boards": "The cartridge mappers this build supports",
         "test": "Run the 6502 conformance diff and the PPU/APU test ROMs",
-        "fetch_test_roms": "Download the public NES test ROMs used by test()"
+        "fetch_test_roms": "Download the public NES test ROMs used by test()",
+        "roms": "The free-licensed homebrew shelf, and what is downloaded",
+        "fetch_roms": "Download that shelf from where its authors publish it"
     },
     "api_fns": [
         "info",
@@ -50,8 +54,9 @@
         "url",
         "path",
         "boards",
-        "files"
+        "files",
+        "roms"
     ],
     "key": "supermario",
-    "schema": "QmRWdejTp66zKdcfVnpccDQ7M8VLeGRgGZAmgTCUKTno5K"
+    "schema": "QmSAy9hu7NTmHCtAxWVHcx7oTke9rChS3DSiJzcPxqh4ZW"
 }

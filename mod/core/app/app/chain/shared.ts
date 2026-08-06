@@ -1,6 +1,9 @@
+"use client"
+
 // Shared bits for the chain console: styling tokens, the chain-API client,
 // and the wallet layer (a browser-local key or an injected browser wallet).
 
+import { useState, useEffect } from 'react'
 import { ethers } from 'ethers'
 import { blake2AsHex } from '@polkadot/util-crypto'
 
@@ -95,6 +98,26 @@ export const txUrl = (network: string, hash: string) => {
 
 export const short = (s: string, head = 6, tail = 4) =>
   s && s.length > head + tail + 2 ? `${s.slice(0, head)}…${s.slice(-tail)}` : (s || '')
+
+// ── viewport ────────────────────────────────────────────────────────────────
+
+export const MOBILE_MAX = 760
+
+/**
+ * True on a phone-width viewport. Starts false so the server and the first
+ * client render agree; the real answer lands on mount, before paint.
+ */
+export function useIsMobile(max = MOBILE_MAX): boolean {
+  const [mobile, setMobile] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${max}px)`)
+    const sync = () => setMobile(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [max])
+  return mobile
+}
 
 // ── chain API ───────────────────────────────────────────────────────────────
 // /api/chain/* is proxied to the chain module's API by app/api/chain/[...path].

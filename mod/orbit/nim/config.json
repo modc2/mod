@@ -1,0 +1,45 @@
+{
+    "name": "nim",
+    "description": "Take the last stone.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "wasm",
+    "anchor": "mod.py",
+    "artifact": "ae6a1fe139f7fe548f979b2deeb0980ce1168c98d39844cc4fe118053cc95afa",
+    "blob": "blobs/ae6a1fe139f7fe548f979b2deeb0980ce1168c98d39844cc4fe118053cc95afa",
+    "cid": "QmZxhJUgAmfAz8253dzpeCU78xdZJCK9SbyZveuM2FrZzX",
+    "bytes": 55618,
+    "author": "0xalice",
+    "tags": [
+        "game"
+    ],
+    "abi": {
+        "required": [
+            "game_init",
+            "game_view",
+            "game_step",
+            "game_done",
+            "game_result"
+        ],
+        "optional": [
+            "game_info"
+        ],
+        "strings": "alloc(i32)->i32; returns are one i64 packed as (ptr << 32) | len"
+    },
+    "exports": [
+        "memory",
+        "alloc",
+        "game_done",
+        "game_info",
+        "game_init",
+        "game_result",
+        "game_step",
+        "game_view",
+        "__data_end",
+        "__heap_base"
+    ],
+    "plays_in": "arena",
+    "stored_in": "store",
+    "schema": "QmT9fvDNG4TCM6HVmesMGy2bYNgYEcKM9Jki9mWs8fyyoF"
+}

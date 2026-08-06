@@ -18,9 +18,9 @@ import { PolymarketPosition, PolymarketTrade, SavedIndex, TraderRoiStats } from 
 import {
   Strat, clobMinNotional, statsFromReturns, stopLossTriggered, takeProfitTriggered,
   successProbability, copyRatioFor, REBALANCE_MARGIN_PCT, MIN_POLL_MINUTES,
-  DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT,
+  DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, DEFAULT_MIN_MINUTES_TO_CLOSE,
 } from "./strats/strat";
-import type { TraderTrade as StratTraderTrade, StratHistory } from "./strats/strat";
+import type { TraderTrade as StratTraderTrade, StratHistory, SizingModel } from "./strats/strat";
 import { marketMatchesQuery } from "./marketQuery";
 import { computeFifoTrades, aggregateToRebalanceWindows } from "./pnlEngine";
 // Type-only: the sim reports its wallet in the same row shapes the LIVE panel
@@ -77,6 +77,48 @@ export interface LinkedTrade {
   successProb?: number;
 }
 
+/** Where the leader flow actually went. Every in-window BUY lands in exactly
+    one terminal bucket (`gated` + `outranked` + `executed` + `skipped`), so
+    "this strat only traded 4 times" always has a named answer instead of a
+    bare `skipped` count. `reasons` is keyed by the same short labels the LIVE
+    panel's gate warning uses, so both surfaces read the same vocabulary. */
+export interface EntryFunnel {
+  /** In-window leader BUYs across the watchlist, before any strat gate. */
+  observed: number;
+  /** Dropped by `strat.shouldMirror` — keyword, trade filters, time-to-close,
+      trader FILTER. These never reach scoring. */
+  gated: number;
+  /** Passed the gates but lost the per-cycle top-N race (or scored ≤ 0, i.e.
+      the strat could not price an edge for them). */
+  outranked: number;
+  /** BUYs the sim actually filled. */
+  executed: number;
+  /** Reached the wallet but couldn't be placed — sizing floor, cash, position
+      cap. Counted in `BacktestSim.skipped` too (which also counts SELLs). */
+  skipped: number;
+  /** label → count, e.g. {"time-to-close": 225, "SUB_SCALE": 12}. */
+  reasons: Record<string, number>;
+}
+
+export function emptyFunnel(): EntryFunnel {
+  return { observed: 0, gated: 0, outranked: 0, executed: 0, skipped: 0, reasons: {} };
+}
+
+function tally(f: EntryFunnel, reason: string, n = 1): void {
+  f.reasons[reason] = (f.reasons[reason] ?? 0) + n;
+}
+
+/** The gate label for a `skipReason` string, collapsed to the short
+    vocabulary the funnel + the LIVE gate warning share. */
+function gateLabel(reason: string): string {
+  if (reason.startsWith("TOO_SOON")) return "time-to-close";
+  if (reason.startsWith("FILTER")) return "trader FILTER";
+  if (reason.startsWith("trade filter")) return "trade filters";
+  if (reason.startsWith("market ")) return "keyword filter";
+  if (reason.startsWith("origination-only")) return "mirror off";
+  return reason.split(" ")[0] || "filtered";
+}
+
 export interface BacktestSim {
   rows: LinkedTrade[];
   equityHistory: EquitySnapshot[];
@@ -84,6 +126,9 @@ export interface BacktestSim {
   /** Trades dropped by the MIN size gate, the cash budget, or missing
       inventory — surfaced in the fee row so 0 TXS is explainable. */
   skipped: number;
+  /** The full entry funnel — see `EntryFunnel`. `skipped` above is the same
+      count plus the SELL-side drops. */
+  funnel: EntryFunnel;
   netPnl: number;    // final equity − capital (fees/gas already paid)
   grossPnl: number;  // netPnl before fees/gas
   fees: number;
@@ -134,6 +179,11 @@ export interface BacktestInput {
   showAllTrades?: boolean;
   /** True while trader data is still loading — the sim returns empty. */
   loading?: boolean;
+  /** Sizing model + flow turnover — the preview must divide by the same
+      denominator the live engine will (`copyRatioFor`). Undefined ⇒ the
+      bankroll model, exactly as before. */
+  sizing?: SizingModel;
+  turnover?: number;
 }
 
 export interface BacktestResult {
@@ -218,6 +268,8 @@ export function computeCopyRatios(input: BacktestInput): Map<string, number> {
       traderBankrolls.get(addr.toLowerCase()),
       capital * wFrac,
       Math.max(buyVol, sellVol),
+      input.sizing,
+      input.turnover,
     ));
   }
   return out;
@@ -271,9 +323,10 @@ export function computeKeptBuyIds(
   traderStats: Map<string, TraderRoiStats>,
   copyRatio: Map<string, number>,
   history: StratHistory,
-): Set<string> {
+): { kept: Set<string>; funnel: EntryFunnel } {
   const { watchlist, traderTrades, traderWeights, strat, days, pollMinutes } = input;
-  if (watchlist.length === 0) return new Set<string>();
+  const funnel = emptyFunnel();
+  if (watchlist.length === 0) return { kept: new Set<string>(), funnel };
   // One bucket = one live engine cycle. Uses the strat's LIVE poll cadence
   // (what the engine actually runs at), which shares the engine's 60s
   // minIntervalMs floor — so a 5s UI setting still buckets at the 1-min clamp
@@ -296,9 +349,14 @@ export function computeKeptBuyIds(
         ...t, trader: addr, weight, weightFraction,
         copyRatio: copyRatio.get(addr) ?? 0, notional: t.price * t.size,
       };
+      funnel.observed++;
       // Same pre-filter the live engine applies — a filtered BUY never
       // enters the rank race, so it drops out of the backtest curve too.
-      if (!strat.shouldMirror(stratTrade, history)) continue;
+      if (!strat.shouldMirror(stratTrade, history)) {
+        funnel.gated++;
+        tally(funnel, gateLabel(strat.skipReason(stratTrade, history)));
+        continue;
+      }
       const score = strat.scoreCandidate(stratTrade, stats, history);
       buys.push({ id: t.id, ts: t.timestamp, score });
     }
@@ -318,7 +376,13 @@ export function computeKeptBuyIds(
       if (cands[i].score > 0) kept.add(cands[i].id);
     }
   }
-  return kept;
+  // Everything that cleared the gates and still didn't make it lost the
+  // per-cycle race or priced at zero edge — two different sentences.
+  funnel.outranked = buys.length - kept.size;
+  const zeroEdge = buys.filter((c) => c.score <= 0).length;
+  if (zeroEdge > 0) tally(funnel, "no scoreable edge", zeroEdge);
+  if (funnel.outranked > zeroEdge) tally(funnel, `MAX/CYCLE cap (${cap})`, funnel.outranked - zeroEdge);
+  return { kept, funnel };
 }
 
 // ── Backtest portfolio simulation — the ONE source of truth ──
@@ -337,6 +401,7 @@ export function runBacktestSim(
   copyRatio: Map<string, number>,
   history: StratHistory,
   keptBuyIds: Set<string>,
+  funnel: EntryFunnel = emptyFunnel(),
 ): BacktestSim {
   const {
     watchlist, traderTrades, traderPositions, traderWeights, strat, days, capital,
@@ -346,7 +411,7 @@ export function runBacktestSim(
 
   const empty: BacktestSim = {
     rows: [], equityHistory: [], markers: [],
-    skipped: 0, netPnl: 0, grossPnl: 0, fees: 0, gas: 0, volume: 0,
+    skipped: 0, funnel, netPnl: 0, grossPnl: 0, fees: 0, gas: 0, volume: 0,
     cash: capital, posValue: 0, unrealized: 0, costBasis: 0, open: [],
   };
   if (watchlist.length === 0 || loading) return empty;
@@ -643,7 +708,13 @@ export function runBacktestSim(
         clobFloor: clobMinNotional(t.price),
         capital,
       }, history);
-      if (decision.mirrorNotional <= 0) { skipped++; snapshotMark(t.ts); continue; }
+      if (decision.mirrorNotional <= 0) {
+        skipped++;
+        if (t.side === "BUY") funnel.skipped++;
+        tally(funnel, (decision.reason ?? "unsized").split(" ")[0]);
+        snapshotMark(t.ts);
+        continue;
+      }
       gatedAmount = decision.mirrorNotional;
     }
 
@@ -659,7 +730,9 @@ export function runBacktestSim(
       // skipped; topping up an already-held one always passes.
       const held = book.get(key);
       if (!showAllTrades && !(held && held.shares > 1e-9) && openCount() >= maxOpenPositions) {
-        skipped++; snapshotMark(t.ts); continue;
+        skipped++; funnel.skipped++;
+        tally(funnel, `MAX POS cap (${maxOpenPositions})`);
+        snapshotMark(t.ts); continue;
       }
       // Live capital-aware rebalance (free_capital_via_sells): when the BUY
       // doesn't fit the remaining cash, sell the weakest-score holds this
@@ -701,7 +774,11 @@ export function runBacktestSim(
           equityHistory.push({ t: t.ts, liq: cash, pos });
           markers.push({ t: t.ts, side: "SELL", label: `REBALANCE · ${b.market}`, usd: proceeds });
         }
-        if (cost > cash) { skipped++; snapshotMark(t.ts); continue; } // nothing left to rotate out
+        if (cost > cash) { // nothing left to rotate out
+          skipped++; funnel.skipped++;
+          tally(funnel, "out of cash");
+          snapshotMark(t.ts); continue;
+        }
       }
       cash -= cost;
       const b = book.get(key) ?? { shares: 0, avgPx: 0, entryScore: 0, market: t.market };
@@ -715,7 +792,11 @@ export function runBacktestSim(
     } else {
       const b = book.get(key);
       const held = b?.shares ?? 0;
-      if (!b || held <= 1e-9) { skipped++; snapshotMark(t.ts); continue; } // nothing to close at our scale
+      if (!b || held <= 1e-9) { // nothing to close at our scale
+        skipped++;
+        tally(funnel, "exit with nothing held");
+        snapshotMark(t.ts); continue;
+      }
       const shares = Math.min(t.price > 0 ? gatedAmount / t.price : 0, held);
       amount = shares * t.price;
       fee = shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
@@ -800,11 +881,14 @@ export function runBacktestSim(
   // the engine sells to free cash.
   open.sort((a, b2) => a.pnlUsd - b2.pnlUsd);
 
+  funnel.executed = rows.filter((r) => r.side === "BUY").length;
+
   return {
     rows,
     equityHistory,
     markers,
     skipped,
+    funnel,
     netPnl,
     grossPnl: round2(netPnl + fees + gas),
     fees: round2(fees),
@@ -826,9 +910,28 @@ export function runBacktest(input: BacktestInput): BacktestResult {
   );
   const copyRatio = computeCopyRatios(input);
   const history = buildStratHistory(input, traderStats, copyRatio);
-  const keptBuyIds = computeKeptBuyIds(input, traderStats, copyRatio, history);
-  const sim = runBacktestSim(input, traderStats, copyRatio, history, keptBuyIds);
+  const { kept: keptBuyIds, funnel } = computeKeptBuyIds(input, traderStats, copyRatio, history);
+  const sim = runBacktestSim(input, traderStats, copyRatio, history, keptBuyIds, funnel);
   return { traderStats, copyRatio, history, keptBuyIds, sim };
+}
+
+/** The runnable Strat a SavedIndex means. ONE place where a saved strat
+    becomes gates, so the hub card, the BACKTEST tab and the live session can't
+    quietly disagree about which flow the strat is allowed to copy — the hub
+    used to build its Strat with four of these fields and drop the rest. */
+export function stratFromIndex(idx: SavedIndex): Strat {
+  return new Strat({
+    name: idx.name,
+    maxPerCycle: idx.maxPerCycle ?? 3,
+    marketQuery: idx.marketQuery ?? "",
+    tradeFilters: idx.tradeFilters ?? {},
+    filter: idx.filter ?? undefined,
+    minMinutesToClose: idx.minMinutesToClose ?? DEFAULT_MIN_MINUTES_TO_CLOSE,
+    ...(idx.maxUpscale !== undefined && { maxUpscale: idx.maxUpscale }),
+    ...(idx.sizing !== undefined && { sizing: idx.sizing }),
+    ...(idx.turnover !== undefined && { turnover: idx.turnover }),
+    ...(idx.momentum && { momentum: idx.momentum }),
+  });
 }
 
 /** Every backtest knob a SavedIndex carries, resolved to the same defaults the
@@ -838,6 +941,7 @@ export function runBacktest(input: BacktestInput): BacktestResult {
 export function stratBacktestParams(idx: SavedIndex): {
   capital: number; minTrade: number; maxTrade: number; maxOpenPositions: number;
   stopLossPct: number; takeProfitFrac: number; marketQuery: string; pollMinutes: number;
+  minMinutesToClose: number;
 } {
   const stopFrac = idx.stopLoss ?? DEFAULT_STOP_LOSS;
   return {
@@ -851,6 +955,9 @@ export function stratBacktestParams(idx: SavedIndex): {
     stopLossPct: stopFrac > 0 && stopFrac < 1 ? Math.round((1 - stopFrac) * 100) : 0,
     takeProfitFrac: idx.takeProfit ?? DEFAULT_TAKE_PROFIT,
     marketQuery: idx.marketQuery ?? "",
+    // The live engine's own default when the strat doesn't set one (60m), so a
+    // hub card can't count entries a live session would refuse as TOO_SOON.
+    minMinutesToClose: idx.minMinutesToClose ?? DEFAULT_MIN_MINUTES_TO_CLOSE,
     // Same clamp the console applies: the legacy 1-minute default reads as
     // "unset", and sub-floor values from the old 5s era run at the floor.
     pollMinutes: idx.livePollMinutes

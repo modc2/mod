@@ -1,0 +1,150 @@
+{
+    "anchor": "src/mod.py",
+    "app_port": 50461,
+    "description": "Interface to every Liquid AI (LFM) model \u2014 one catalog folded by weights instead of repo, runnable in the visitor's browser (transformers.js/WebGPU), on this box (transformers), or in Liquid's cloud on your own key. Sign in with a browser key, MetaMask or a Bittensor wallet; text, vision, speech and embedding models each get their own surface; OpenAI-compatible /v1 so anything that takes a base_url can use it as a provider.",
+    "endpoints": {
+        "/arena/games": {
+            "docs": "Games models compete at \u2014 read all, or write your own",
+            "method": "GET|POST"
+        },
+        "/arena/games/{id}/fork": {
+            "docs": "Copy a game into your own list",
+            "method": "POST"
+        },
+        "/arena/leaderboard": {
+            "docs": "Best run per model per game",
+            "method": "GET"
+        },
+        "/arena/match": {
+            "docs": "Run up to 4 models through a game, scored per round",
+            "method": "POST"
+        },
+        "/arena/result": {
+            "docs": "Score a transcript the browser ran",
+            "method": "POST"
+        },
+        "/auth/me": {
+            "docs": "Who this bearer is",
+            "method": "GET"
+        },
+        "/auth/nonce": {
+            "docs": "Mint the sentence a wallet has to sign (kind=browser|evm|bittensor)",
+            "method": "POST"
+        },
+        "/auth/owner": {
+            "docs": "Who claimed this box \u2014 first sign-in wins",
+            "method": "GET"
+        },
+        "/auth/verify": {
+            "docs": "Trade a signed nonce for a 7-day session token",
+            "method": "POST"
+        },
+        "/chat": {
+            "docs": "Stream a completion (SSE: start|token|done|error). runtime=server|cloud",
+            "method": "POST"
+        },
+        "/cloud/models": {
+            "docs": "Models your Liquid Cloud key can reach",
+            "method": "GET"
+        },
+        "/embed": {
+            "docs": "Sentence vectors + the cosine matrix between them",
+            "method": "POST"
+        },
+        "/health": {
+            "docs": "Uptime, catalog freshness, whether the server runtime is usable, resident model",
+            "method": "GET"
+        },
+        "/keys": {
+            "docs": "BYOK vault status (masked) / store a key in ~/.mod/liquidai/keys.json",
+            "method": "GET|POST"
+        },
+        "/local/load": {
+            "docs": "Make a repo the resident server-side model (evicts the last)",
+            "method": "POST"
+        },
+        "/local/models": {
+            "docs": "LFM weights already on this disk",
+            "method": "GET"
+        },
+        "/local/pull": {
+            "docs": "Download a LiquidAI/* repo's weights in the background",
+            "method": "POST"
+        },
+        "/local/pulls": {
+            "docs": "Download progress",
+            "method": "GET"
+        },
+        "/local/unload": {
+            "docs": "Free the resident model",
+            "method": "POST"
+        },
+        "/models": {
+            "docs": "The LFM catalog (?runtime=browser|server|edge&kind=text|vision|audio|embed&family=&q=&refresh=)",
+            "method": "GET"
+        },
+        "/models/{id}": {
+            "docs": "One model: every format (torch/gguf/onnx/mlx), quants, and what's local",
+            "method": "GET"
+        },
+        "/runtimes": {
+            "docs": "What browser / this box / the cloud can each run right now",
+            "method": "GET"
+        },
+        "/transcribe": {
+            "docs": "Speech \u2192 text (multipart upload)",
+            "method": "POST"
+        },
+        "/v1/chat/completions": {
+            "docs": "OpenAI chat completions \u2014 bearer is a liquidai session token",
+            "method": "POST"
+        },
+        "/v1/embeddings": {
+            "docs": "OpenAI embeddings",
+            "method": "POST"
+        },
+        "/v1/models": {
+            "docs": "OpenAI-shaped model list (?runtime=)",
+            "method": "GET"
+        }
+    },
+    "fns": [
+        "serve",
+        "kill",
+        "status",
+        "logs",
+        "test",
+        "gateway",
+        "models",
+        "model",
+        "families",
+        "runtimes",
+        "local",
+        "pull",
+        "pulls",
+        "load",
+        "unload",
+        "chat",
+        "embed",
+        "games",
+        "play",
+        "board",
+        "keys",
+        "set_key",
+        "auth",
+        "disown",
+        "forward"
+    ],
+    "gateway_port": 3001,
+    "name": "liquidai",
+    "port": 50460,
+    "route": true,
+    "schema": "QmYzJHziyqr1a2jEKaNa9GAzeTjArpvRrVgGkFcwGtzSXU",
+    "urls": {
+        "api": "http://localhost:50460",
+        "app": "http://localhost:50461/liquidai",
+        "gateway_api": "http://localhost:3001/api/liquidai",
+        "gateway_app": "http://localhost:3001/liquidai"
+    },
+    "version": "0.2.0"
+}

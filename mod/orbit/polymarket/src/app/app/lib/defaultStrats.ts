@@ -19,10 +19,10 @@
 // point is that the strat picks the roster itself, every scan, from the
 // traders' own realized returns — see `TraderFilter`.
 //
-// Templates WITHOUT an explicit price band (sports/politics/weather) inherit
-// the engine-wide likely-to-win default: BUYs below DEFAULT_MIN_ENTRY_PRICE
-// (60¢) are not mirrored. LONGSHOT HUNTER's explicit 2–20¢ band is the
-// deliberate opt-out for users who want that exposure.
+// Templates WITHOUT an explicit price band copy their leaders' flow whole:
+// there is no implicit floor any more (it silently blocked most entries, which
+// read as a dead engine). A band is a choice a template states — TOP 10
+// ALL-STARS asks for ≥60¢, LONGSHOT HUNTER for 2–20¢.
 
 import { SavedIndex } from "./types";
 import {
@@ -83,8 +83,8 @@ export const DEFAULT_STRATS: StratTemplate[] = [
     // Favorite-side floor: never copy a sub-60¢ longshot buy. This is the
     // single most damaging leak on an unfiltered "all markets" strat — the
     // leader's 7–38¢ 5-min "Up or Down" bot buys, mirrored late, decay
-    // straight to -100% (see the movoaev8 postmortem). Matches the engine's
-    // DEFAULT_MIN_ENTRY_PRICE, kept explicit here so the picker shows it.
+    // straight to -100% (see the movoaev8 postmortem). Stated here rather
+    // than imposed engine-wide, so the picker shows what it's doing.
     params: {
       tradeFilters: { sides: "buy", minPrice: 0.6 },
     },

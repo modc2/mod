@@ -990,7 +990,7 @@ button, input, select, textarea {
   z-index: 60;
   width: max-content;
   min-width: 260px;
-  max-width: min(92vw, 380px);
+  max-width: min(92vw, 420px);
   padding: 6px;
   background: var(--panel-from);
   border: 2px solid var(--border-strong);
@@ -1384,6 +1384,30 @@ button, input, select, textarea {
 .pixel-table td.stack {
   white-space: normal;
   overflow: visible;
+}
+
+/* The tick gutter. A checkbox plus the cell's 12px of side padding is wider
+   than the column, and an overflowing cell draws the table's ellipsis — so
+   this one holds the box and nothing else. */
+.pixel-table th.tick,
+.pixel-table td.tick {
+  padding-left: 10px;
+  padding-right: 0;
+  text-overflow: clip;
+}
+.pixel-table .tick input { cursor: pointer; }
+
+/* A ticked row. The accent gutter is the same mark hover paints, held down
+   — so a selection reads as "the cursor stayed here", and it survives the
+   zebra stripe, which a background tint alone did not. */
+.pixel-table tbody tr.row-picked td {
+  background: var(--table-hover);
+}
+.pixel-table tbody tr.row-picked td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.row-card.row-picked {
+  border-color: var(--accent);
 }
 
 /* ── Badges ──────────────────────────────────────────────────────────

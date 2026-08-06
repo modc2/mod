@@ -259,6 +259,8 @@ node_modules/
 # Build outputs
 dist/
 build/
+# …except the chain module's contract builder, which is source, not output
+!mod/core/chain/src/build/
 .next/
 .nuxt/
 .vercel/

@@ -43,7 +43,7 @@ class Polymarket(m.Mod):
     fns = [
         "serve", "kill", "status", "build", "logs", "test",
         "search", "markets", "trending", "events",
-        "active_traders", "sync", "forward",
+        "active_traders", "sync", "forward", "backtests", "mcp",
         "build_cid", "publish_build", "build_onchain",
     ]
 
@@ -551,6 +551,59 @@ class Polymarket(m.Mod):
             return {"ok": False, **r.json()}
         r.raise_for_status()
         return r.json()
+
+    # ── backtest worker ───────────────────────────────────────────
+
+    @staticmethod
+    def _mcp_module():
+        """Load src/mcp.py BY PATH. A plain `import mcp` only works when the
+        module is run from its own directory — the framework loads mod.py with
+        src/ off sys.path (and rightly so: src/ is not a package)."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "polymarket_mcp", os.path.join(SRC_DIR, "mcp.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def backtests(self, days: int = 1, run: bool = False) -> Any:
+        """The background worker's cached strat backtests (refreshed every 2h).
+
+        m polymarket/backtests              → every strat's cached 1d replay
+        m polymarket/backtests run=true     → force a pass now (minutes)
+
+        Each row carries the entry FUNNEL — how many of the leaders' entries
+        the strat actually copied, and which gate blocked the rest. That is
+        the answer to "why isn't this strat trading?", so it's printed here
+        rather than buried in the console.
+        """
+        _mcp = self._mcp_module()  # same owner-token minting + hub client
+        if run:
+            return _mcp._t_backtest_run({})
+        return _mcp._t_backtests({"days": days})
+
+    # ── mcp ───────────────────────────────────────────────────────
+
+    def mcp(self, http: bool = False, port: int = 50092) -> Any:
+        """Run the MCP server (see src/mcp.py).
+
+        m polymarket/mcp                 → stdio (for an MCP client to spawn)
+        m polymarket/mcp http=true       → Streamable HTTP on :50092, POST /mcp
+
+        Read-only tools: markets, leaderboard, trader flow, strats, cached
+        backtests + funnels, live sessions and the live gate tally. No tool
+        can place an order.
+        """
+        script = os.path.join(SRC_DIR, "mcp.py")
+        argv = ["python3", script] + (["--http", "--port", str(port)] if http else [])
+        if not http:
+            return {"stdio": " ".join(argv),
+                    "claude_code": f"claude mcp add polymarket -- python3 {script}",
+                    "tools": ["pm_health", "pm_markets", "pm_top_traders", "pm_trader",
+                              "pm_strats", "pm_backtests", "pm_backtest_run",
+                              "pm_live_sessions", "pm_live_gates"]}
+        subprocess.run(argv, check=False)
+        return {"ok": True}
 
     # ── test ──────────────────────────────────────────────────────
 

@@ -17,6 +17,7 @@ import PnlCurve from "../../components/PnlCurve";
 import StatTile from "../../components/StatTile";
 import SubnetPositions from "../../components/SubnetPositions";
 import { useCurrency, fmtValue, fmtPnlValue } from "../../context/CurrencyContext";
+import { useFilters } from "../../context/FiltersContext";
 import { useSidebar } from "../../context/SidebarContext";
 
 const WINDOWS = [1, 3, 7, 14, 30];
@@ -25,7 +26,9 @@ export default function TraderPage() {
   const { ss58 } = useParams<{ ss58: string }>();
   const { currency, usdPerTao } = useCurrency();
   const { openStrat } = useSidebar();
-  const [days, setDays] = useState(7);
+  // The board's window, not a private one — clicking a row off a 7d board
+  // and landing on a profile measured over something else is a silent lie.
+  const { days, setDays } = useFilters();
   const [account, setAccount] = useState<AccountData | null>(null);
   const [pnl, setPnl] = useState<PnlData | null>(null);
   const [curve, setCurve] = useState<CurveData | null>(null);
@@ -72,8 +75,8 @@ export default function TraderPage() {
 
   return (
     <div className="space-y-6">
-      <Link href="/leaderboard" className="text-pixel-gray hover:text-pixel-white text-sm no-underline">
-        ← leaderboard
+      <Link href="/traders" className="text-pixel-gray hover:text-pixel-white text-sm no-underline">
+        ← traders
       </Link>
 
       <header className="pixel-panel p-4 sm:p-6 flex items-start justify-between flex-wrap gap-4">
@@ -121,6 +124,7 @@ export default function TraderPage() {
       </div>
 
       <div className="rail no-scrollbar">
+        <span className="text-[11px] text-pixel-gray-light mr-1">history</span>
         {WINDOWS.map((w) => (
           <button
             key={w}

@@ -72,6 +72,8 @@ Endpoints:
     POST /forward      - mod protocol entry point
     POST /run          - run the full agent loop
     POST /run/stream   - run the agent loop, streaming steps live (SSE)
+    GET  /browser/models - LFM repos a runtime can load (liquidai catalog)
+    POST /browser/completion - a tab answering a `browser` run's model request
 
 Usage:
     uvicorn api:app --host 0.0.0.0 --port 50117 --reload
@@ -107,6 +109,8 @@ try:
 except Exception:
     VERSION = '0.0.0'
 
+from src.liquid import BROWSER   # the mailbox a browser-model run waits on
+
 app = FastAPI(title="Agent API", version=VERSION, description="Autonomous coding agent API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -137,6 +141,7 @@ class RunRequest(BaseModel):
     tool_ids: Optional[List[str]] = None    # installed tool-doc ids injected as context
     images: Optional[List[str]] = None      # pasted images (data: URLs) — needs a vision model
     thumbs: Optional[List[str]] = None      # tiny copies of the same images, for the task registry
+    browser_session: Optional[str] = None   # tab id a `browser` run generates in
     key: Optional[str] = None
 
 class ToolRunRequest(BaseModel):
@@ -333,6 +338,12 @@ class ArenaConfigRequest(BaseModel):
     scheduler: Optional[bool] = None       # start/stop the background process
     key: Optional[str] = None
 
+class BrowserCompletionRequest(BaseModel):
+    """A tab answering the generation request a `browser` run is blocked on."""
+    id: str                            # the request id from the model_request event
+    text: Optional[str] = None
+    error: Optional[str] = None
+
 class VaultCreateRequest(BaseModel):
     name: str
     key: Optional[str] = None
@@ -515,7 +526,9 @@ def _run_budget(req: "RunRequest", t: dict):
         return None
     mod = get_mod()
     try:
-        if mod.is_owner(req.key):
+        # a provider that can't cost us anything gets no ceiling: an LFM in
+        # the caller's own tab shouldn't stop on an empty credit balance
+        if mod.is_free_provider(req.provider) or mod.is_owner(req.key):
             return None
         balance = mod.credits.balance(t["user"])
     except Exception:
@@ -549,7 +562,7 @@ def _charge_run(req: "RunRequest", t: dict) -> Optional[dict]:
     if req.free or not t.get("user"):
         return None
     try:
-        if mod.is_owner(req.key):
+        if mod.is_free_provider(req.provider) or mod.is_owner(req.key):
             return None
         usage = dict(usage or {}, steps=t["steps"])
         charge = mod.charge_run(t["user"], usage, note=t["query"][:80])
@@ -608,12 +621,17 @@ def list_providers():
         info = mod.key_info(key)
         providers.append({
             "key": key,
-            "models": mod.MODELS.get(key, []),
+            "models": mod.provider_models(key),
             "default_model": default_model,
             "configured": info.get("configured", False),
             "encrypted": info.get("encrypted", False),
             "unlocked": info.get("unlocked", False),
             "remembered": info.get("remembered", False),
+            "keyless": info.get("keyless", False),
+            # where the compute is: the hosted providers bill, these three don't
+            "runtime": mod.LOCAL_RUNTIMES.get(key),
+            "hint": mod.LOCAL_HINTS.get(key),
+            "free": key in mod.LOCAL_PROVIDERS,
         })
     return {"providers": providers, "default": "openrouter"}
 
@@ -639,10 +657,11 @@ def run_params(key: Optional[str] = None):
     providers, models_by, default_by = [], {}, {}
     for key in mod.PROVIDERS:
         info = mod.key_info(key)
-        state = ("ready" if info.get("configured") else
+        state = (mod.LOCAL_HINTS.get(key, "no key needed") if info.get("keyless") else
+                 "ready" if info.get("configured") else
                  "locked" if info.get("encrypted") and not info.get("unlocked") else "no key")
         providers.append({"value": key, "label": key, "hint": state})
-        models_by[key] = mod.MODELS.get(key, [])
+        models_by[key] = mod.provider_models(key)
         default_by[key] = mod.DEFAULT_MODELS.get(key) or mod.DEFAULT_MODELS.get(mod.PROVIDERS.get(key, ''), '')
     try:
         toolboxes = [{"value": t.get('name'), "label": t.get('name'),
@@ -876,6 +895,43 @@ def get_task(task_id: str):
             return {"error": f"unknown task: {task_id}"}
         return {**{k: v for k, v in t.items() if k != "thumbs"},
                 "images": len(t.get("thumbs") or [])}
+
+@app.delete("/tasks")
+def clear_tasks(status: str = "finished"):
+    """Drop task rows from the registry: 'error', 'done', 'finished' or 'all'.
+
+    A run that failed for a reason you've already dealt with is just noise in
+    everyone's list, and the registry is in-memory anyway — dismissing is the
+    same act as letting it age out, done on purpose. Running tasks are never
+    dropped: the row is how you watch them.
+    """
+    keep = {"running"}
+    wanted = {"error": {"error"}, "done": {"done"},
+              "finished": {"done", "error"},
+              "all": {"done", "error", "cancelled"}}.get(status)
+    if wanted is None:
+        return {"error": f"unknown status {status!r}",
+                "options": ["error", "done", "finished", "all"]}
+    with TASKS_LOCK:
+        gone = [tid for tid, t in TASKS.items()
+                if t.get("status") in wanted and t.get("status") not in keep]
+        for tid in gone:
+            TASKS.pop(tid, None)
+        left = len(TASKS)
+    return {"cleared": len(gone), "remaining": left, "status": status}
+
+@app.delete("/tasks/{task_id}")
+def delete_task(task_id: str):
+    """Dismiss one task row. A running task is left alone — cancel it first."""
+    with TASKS_LOCK:
+        t = TASKS.get(task_id)
+        if not t:
+            return {"error": f"unknown task: {task_id}"}
+        if t.get("status") == "running":
+            return {"error": "task is still running — cancel it before dismissing it",
+                    "code": 409}
+        TASKS.pop(task_id, None)
+        return {"deleted": task_id, "remaining": len(TASKS)}
 
 @app.get("/tasks/{task_id}/images")
 def get_task_images(task_id: str):
@@ -1703,6 +1759,12 @@ def run_agent(req: RunRequest):
     """Run the agent loop. Agent resolution happens in Mod._run()."""
     mod = get_mod()
     resolved_agent = req.agent_type or req.agent or mod.default_agent(req.key)
+    if req.provider == 'browser':
+        # nothing to talk to a tab with on this path — the bridge rides the
+        # SSE stream, so a blocking call would just sit there until it timed out
+        return {"query": req.query,
+                "error": "browser models only run on /run/stream — the model "
+                         "lives in your tab and answers over that stream"}
     # a harness agent runs on its own CLI, so it needs no provider key here
     if not mod.has_model(req.provider) and not mod.harness_for(resolved_agent):
         return {"error": "No API key configured for the selected provider — add or unlock a key in the Builder (model node)."}
@@ -1753,6 +1815,29 @@ def run_agent(req: RunRequest):
         return {"query": req.query, "error": str(e)}
 
 
+@app.post("/browser/completion")
+def browser_completion(req: BrowserCompletionRequest):
+    """A tab handing back the text it generated for a waiting run.
+
+    Open by design: the id is a one-shot secret handed out on the run's own
+    stream, and delivering to it can only ever unblock the run that asked.
+    """
+    return BROWSER.deliver(req.id, text=req.text, error=req.error)
+
+
+@app.get("/browser/models")
+def browser_models(runtime: str = "browser"):
+    """LFM repos a runtime can load, live from the liquidai catalog."""
+    mod = get_mod()
+    provider = next((p for p, rt in mod.LOCAL_RUNTIMES.items() if rt == runtime), None)
+    if not provider:
+        return {"runtime": runtime, "models": [], "error": f"unknown runtime {runtime!r}"}
+    return {"runtime": runtime, "provider": provider,
+            "models": mod.provider_models(provider),
+            "default": mod.DEFAULT_MODELS.get(provider),
+            "sessions": len(BROWSER.sessions())}
+
+
 @app.post("/run/stream")
 def run_agent_stream(req: RunRequest):
     """Run the agent loop, streaming each executed step live as SSE events.
@@ -1760,6 +1845,9 @@ def run_agent_stream(req: RunRequest):
     Events (one JSON object per `data:` line):
         {"type": "step",       "step": {...}}                 — a tool step just executed
         {"type": "chain_step", "index": i, "agent": "name"}  — a chain stage is starting
+        {"type": "model_request", "id", "model", "messages", …}  — provider
+            'browser': generate this in the tab and POST the text to
+            /browser/completion; the run is blocked until you do
         {"type": "done",       "result": [...]}               — single-agent run finished
         {"type": "done",       "chain": true, "results": []}  — chain finished
         {"type": "error",      "error": "..."}                — run failed
@@ -1777,7 +1865,15 @@ def run_agent_stream(req: RunRequest):
         _task_step(task, s)
         emit({"type": "step", "step": s})
 
+    # a browser run generates in the tab that started it: the session is bound
+    # to this worker thread, so the model client parks its requests on this
+    # stream and blocks until the tab POSTs the text back
+    session = req.browser_session if req.provider == 'browser' else None
+    if session:
+        BROWSER.open(session, emit)
+
     def worker():
+        BROWSER.bind(session)
         try:
             if not mod.has_model(req.provider) and not mod.harness_for(resolved_agent):
                 _task_finish(task, 'error', 'No API key configured')
@@ -1827,20 +1923,28 @@ def run_agent_stream(req: RunRequest):
             _task_finish(task, 'error', str(e))
             emit({"type": "error", "error": str(e)})
         finally:
+            BROWSER.bind(None)
             events.put(None)  # sentinel: stream over
 
     threading.Thread(target=worker, daemon=True).start()
 
     def gen():
-        while True:
-            try:
-                ev = events.get(timeout=15)
-            except queue.Empty:
-                yield ": ping\n\n"  # keepalive comment so proxies don't cut the stream
-                continue
-            if ev is None:
-                break
-            yield f"data: {json.dumps(ev, default=str)}\n\n"
+        try:
+            while True:
+                try:
+                    ev = events.get(timeout=15)
+                except queue.Empty:
+                    yield ": ping\n\n"  # keepalive comment so proxies don't cut the stream
+                    continue
+                if ev is None:
+                    break
+                yield f"data: {json.dumps(ev, default=str)}\n\n"
+        finally:
+            # the tab is gone (finished, navigated away, hit stop) — release
+            # anything the run is still waiting on it for, rather than leaving
+            # a worker thread parked until the bridge times out
+            if session:
+                BROWSER.close(session)
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

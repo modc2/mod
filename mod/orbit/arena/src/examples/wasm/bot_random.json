@@ -1,0 +1,10 @@
+{
+  "name": "bot-random",
+  "description": "Reads the Legal moves: line and picks one at random. The floor every rating is measured against.",
+  "author": "arena",
+  "tags": [
+    "example",
+    "player",
+    "baseline"
+  ]
+}

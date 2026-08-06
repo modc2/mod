@@ -20,7 +20,7 @@ type Viewport = { x: number; y: number; k: number }
 
 type LibPrompt = { id: string; name: string; description?: string; body?: string }
 type MemNote = { id: string; name: string; content?: string }
-type ProviderInfo = { key: string; models: string[]; default_model: string; configured?: boolean; encrypted?: boolean; unlocked?: boolean }
+type ProviderInfo = { key: string; models: string[]; default_model: string; configured?: boolean; encrypted?: boolean; unlocked?: boolean; keyless?: boolean; runtime?: string | null; hint?: string | null }
 type AgentInfo = { value: string; label: string; icon: string; builtin?: boolean }
 type BoxPreset = { name: string; description?: string; tools: string[]; builtin?: boolean }
 
@@ -306,7 +306,6 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
       const p = providers[0]
       data = { provider: p?.key || 'openrouter', model: p?.default_model || '' }
     }
-    if (kind === 'tool') data = { name: arg || Object.keys(tools)[0] || 'bash' }
     if (kind === 'memory') data = { noteId: arg || notes[0]?.id || '' }
     const node: BNode = { id: nid(), kind, x: wx - NODE_W / 2, y: wy - 20, data }
     setNodes(ns => [...ns, node])
@@ -432,7 +431,11 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     const srcIds = edges.filter(e => e.to === agent.id).map(e => e.from)
     const srcs = nodes.filter(n => srcIds.includes(n.id))
     const goal = srcs.filter(n => n.kind === 'prompt').map(n => String(n.data.text || '').trim()).filter(Boolean).join('\n\n')
-    const toolNames = Array.from(new Set(srcs.filter(n => n.kind === 'tool').map(n => n.data.name).filter(Boolean)))
+    // tools arrive as one TOOLBOX node holding a list — the per-tool node kind
+    // was folded into it (see foldToolNodes), and reading the old kind here
+    // left every saved agent with an empty tool list
+    const toolNames = Array.from(new Set(srcs.filter(n => n.kind === 'toolbox')
+      .flatMap(n => (n.data.names as string[]) || []).filter(Boolean)))
     const model = srcs.find(n => n.kind === 'model')?.data.model || null
     const memoryIds = srcs.filter(n => n.kind === 'memory').map(n => n.data.noteId).filter(Boolean)
     const slug = slugify(agent.data.name || '')
@@ -616,7 +619,14 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
             value={n.data.model || ''}
             onChange={v => patchNode(n.id, { model: v })}
             options={(n.data.model && !models.includes(n.data.model) ? [n.data.model, ...models] : models).map(mn => ({ value: mn, label: mn }))} />
-          {/* API key for this provider — entered here in the Builder, not the console */}
+          {/* the LFM providers have no key to manage — say where they run instead */}
+          {pinfo?.keyless ? (
+            <div className="w-full px-1.5 py-1 rounded-md text-[10px] font-medium border bg-emerald-500/[0.06] border-emerald-500/25 text-emerald-300"
+                 title={pinfo.hint || ''}>
+              ⌁ {pinfo.hint || 'no key needed'}
+            </div>
+          ) : (
+          /* API key for this provider — entered here in the Builder, not the console */
           <button
             onClick={() => onManageKey?.(pkey)}
             className={`w-full flex items-center gap-1.5 px-1.5 py-1 rounded-md text-[10px] font-medium border transition ${
@@ -635,26 +645,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
             </svg>
             {keyOk ? 'key set — manage' : keyLocked ? 'key locked — unlock' : 'enter API key'}
           </button>
-        </div>
-      )
-    }
-    if (n.kind === 'tool') {
-      return (
-        <div className="p-2.5 space-y-1" onPointerDown={e => e.stopPropagation()}>
-          <Select
-            size="sm" accent="emerald" className="w-full" placeholder="pick a tool…"
-            value={n.data.name || ''}
-            onChange={v => patchNode(n.id, { name: v })}
-            // a node dropped from a fleet search keeps its name even though the
-            // fleet isn't in the default list — carry it into the options
-            options={Array.from(new Set([...Object.keys(tools), ...Object.keys(fleet),
-                                         ...(n.data.name ? [n.data.name] : [])]))
-              .map(s => ({ value: s, label: s, icon: '◇',
-                           hint: (tools[s] || fleet[s])?.description }))} />
-          <div className="text-[10px] text-gray-600 leading-snug line-clamp-2">
-            {(tools[n.data.name] || fleet[n.data.name])?.description ||
-              (String(n.data.name || '').startsWith('mod.') ? 'fleet module' : '')}
-          </div>
+          )}
         </div>
       )
     }

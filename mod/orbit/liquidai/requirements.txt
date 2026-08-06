@@ -1,0 +1,23 @@
+# API
+fastapi>=0.110
+uvicorn>=0.27
+pydantic>=2
+requests>=2.31
+
+# SERVER runtime — optional. Without these the catalog, the cloud runtime and
+# the browser runtime all still work; only /chat?runtime=server goes 503.
+torch>=2.2
+transformers>=4.54          # LFM2 architecture landed here
+accelerate>=0.30
+huggingface-hub>=0.24
+torchvision>=0.17           # the VL image processors import it directly
+pillow>=10                  # decoding the images a vision turn carries
+numpy>=1.24                 # audio resampling, embedding pooling
+
+# SIGN IN — one library per key kind. All three are small and pure-python
+# except sr25519; without one, that door 500s and the other two still work.
+eth-account>=0.11           # MetaMask personal_sign recovery
+py-sr25519-bindings>=0.2    # Bittensor / Polkadot extensions
+base58>=2.1                 # SS58 decoding
+cryptography>=42            # the browser's own P-256 key
+python-multipart>=0.0.9     # /transcribe is a file upload

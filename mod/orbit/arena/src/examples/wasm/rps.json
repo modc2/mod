@@ -1,0 +1,9 @@
+{
+  "name": "rps",
+  "description": "Rock, paper, scissors \u2014 best of five, both seats throwing at once. The simplest game with simultaneous moves.",
+  "author": "arena",
+  "tags": [
+    "example",
+    "game"
+  ]
+}

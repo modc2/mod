@@ -13,6 +13,7 @@ import Arena from './components/Arena'
 import MemoryPanel from './components/Memory'
 import { ThemePicker, useTheme } from './components/Theme'
 import { loadLocalIdentity, getOrCreateLocalIdentity, clearLocalIdentity, localSign } from './lib/localWallet'
+import { BrowserModel, serveModelRequest, type BrowserState } from './lib/browserModel'
 
 type ToolSchema = { description: string; params: Record<string, any> }
 // images: what the user pasted, as data URLs. thumbs are the tiny copies that
@@ -190,7 +191,8 @@ type KeyBalance = {
   provider: string; configured: boolean; key: string | null; supported?: boolean
   encrypted?: boolean; unlocked?: boolean; hint?: string | null; source?: string | null
   remembered?: boolean; remember_expires?: number | null
-  balance?: number; total_credits?: number; total_usage?: number
+  keyless?: boolean          // LFM providers: local/browser compute, no key, no bill
+  balance?: number | null; total_credits?: number; total_usage?: number
   balances?: Record<string, number>; error?: string
 }
 
@@ -259,10 +261,23 @@ export default function Home() {
   const [keyVersion, setKeyVersion] = useState(0)
 
   // provider + model selection
-  type ProviderInfo = { key: string; models: string[]; default_model: string; configured?: boolean; encrypted?: boolean; unlocked?: boolean }
+  type ProviderInfo = { key: string; models: string[]; default_model: string; configured?: boolean; encrypted?: boolean; unlocked?: boolean; keyless?: boolean; runtime?: string | null; hint?: string | null; free?: boolean }
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [provider, setProvider] = useState<string>('openrouter')
   const [model, setModel] = useState<string>('')
+
+  // the `browser` provider: the model runs in this tab, so the console owns
+  // one worker and answers the run's generation requests from it
+  const browserRef = useRef<BrowserModel | null>(null)
+  const [browserState, setBrowserState] = useState<BrowserState>({ phase: 'idle' })
+  const browserModel = () => {
+    if (!browserRef.current) {
+      const bm = new BrowserModel()
+      bm.onState = setBrowserState
+      browserRef.current = bm
+    }
+    return browserRef.current
+  }
   // the host — the module owner. null until the API answers ('' = no owner
   // configured, which makes every visitor the host)
   const [owner, setOwner] = useState<string | null>(null)
@@ -292,6 +307,12 @@ export default function Home() {
   const onProviderChange = (p: string) => {
     setProvider(p)
     localStorage.setItem('agent_provider', p)
+    if (p !== 'browser' && browserRef.current) {
+      // a resident LFM is hundreds of MB of tab memory — don't keep it warm
+      // for a provider that isn't going to ask it anything
+      browserRef.current.dispose()
+      setBrowserState({ phase: 'idle' })
+    }
     const def = providers.find(x => x.key === p)?.default_model || ''
     setModel(def)
     localStorage.setItem('agent_model', def)
@@ -935,6 +956,21 @@ export default function Home() {
     return () => clearInterval(iv)
   }, [fetchServerTasks])
 
+  // Dismissing a finished run. The row goes immediately rather than waiting
+  // for the next poll — a list you can't clear is a list you stop reading.
+  const dismissServerTask = useCallback((id: string) => {
+    setServerTasks(ts => ts.filter(t => t.id !== id))
+    fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' })
+      .catch(() => {}).finally(fetchServerTasks)
+  }, [fetchServerTasks])
+
+  const clearServerTasks = useCallback((status: 'error' | 'done' | 'finished') => {
+    setServerTasks(ts => ts.filter(t => t.status === 'running'
+      || (status !== 'finished' && t.status !== status)))
+    fetch(`${API_URL}/tasks?status=${status}`, { method: 'DELETE' })
+      .catch(() => {}).finally(fetchServerTasks)
+  }, [fetchServerTasks])
+
   // the registry is also the API heartbeat — one call for the tool schemas,
   // the tab counts and the online light
   const loadTools = useCallback(() => {
@@ -1264,6 +1300,9 @@ export default function Home() {
       if (agentType) body.agent_type = agentType
       if (provider) body.provider = provider
       if (model) body.model = model
+      // a browser run generates in this tab: the id ties the run's stream to
+      // the worker below, so the server knows where to send each step
+      if (provider === 'browser') body.browser_session = genUid()
       if (promptSel) {
         // prefer the freshly-fetched body — the persisted copy may be clipped
         const bodyText = libPrompts.find(p => p.id === promptSel.id)?.body || promptSel.body
@@ -1306,6 +1345,11 @@ export default function Home() {
             }
             return { ...tk, messages: msgs }
           })
+        } else if (ev.type === 'model_request') {
+          // the run is blocked on this tab — generate and hand the text back.
+          // Deliberately not awaited: the stream reader has to keep draining
+          // while the worker runs, or the next event would queue behind it.
+          serveModelRequest(browserModel(), ev, API_URL)
         } else if (ev.type === 'done') {
           finishSingle(liveSteps.length ? liveSteps : (ev.result || []))
           // a billed run just moved the balance — the run cost what it cost
@@ -1551,6 +1595,30 @@ export default function Home() {
     return map[action] || { bg: 'bg-gray-500/15 border-gray-500/25', text: 'text-gray-400' }
   }
 
+  // where the weights are, for the `browser` provider — a run can't start
+  // until they're in the tab, and a 300 MB download deserves a real bar
+  const browserPill = provider !== 'browser' ? null : (() => {
+    const s = browserState
+    const tone = s.phase === 'error' ? 'border-red-500/30 text-red-300'
+      : s.phase === 'ready' || s.phase === 'generating' ? 'border-emerald-500/25 text-emerald-300'
+      : 'border-white/10 text-gray-400'
+    const label = s.phase === 'loading' ? `loading ${s.pct ?? 0}%`
+      : s.phase === 'generating' ? `${s.tokens ?? 0} tok`
+      : s.phase === 'ready' ? (s.device || 'ready')
+      : s.phase === 'error' ? 'failed'
+      : 'not loaded'
+    const title = s.phase === 'error' ? s.error
+      : s.phase === 'idle' ? `click to download ${model} into this tab (${BrowserModel.device})`
+      : `${s.repo || model} — ${s.device || BrowserModel.device}${s.dtype ? ` · ${s.dtype}` : ''}`
+    return (
+      <button
+        onClick={() => model && browserModel().load(model).catch(() => {})}
+        title={title}
+        className={`shrink-0 px-2 py-1.5 rounded-md text-[10px] font-mono border transition hover:border-white/25 ${tone}`}
+      >⌁ {label}</button>
+    )
+  })()
+
   // provider + model selectors (used in both sidebar and fullscreen bars)
   const modelControls = (
     <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -1568,6 +1636,7 @@ export default function Home() {
             ? [{ value: '', label: 'default' }]
             : (model && !providerModels.includes(model) ? [model, ...providerModels] : providerModels).map(mn => ({ value: mn, label: mn }))
         } />
+      {browserPill}
     </div>
   )
 
@@ -1575,6 +1644,7 @@ export default function Home() {
   const vaultLocked = !!balance && !!balance.encrypted && !balance.unlocked && !balance.configured
   const fmtBalance = (b: KeyBalance | null) => {
     if (!b) return '···'
+    if (b.keyless) return 'free'    // nothing to bill: local or browser compute
     if (vaultLocked) return 'locked'
     if (!b.configured) return 'no key'
     if (typeof b.balance !== 'number') return b.error ? '$ ?' : '···'
@@ -1587,14 +1657,18 @@ export default function Home() {
     </svg>
   )
   // one colour scheme for the key, wherever it shows up
-  const keyTone = vaultLocked
+  const keyTone = balance?.keyless
+    ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300 hover:bg-emerald-500/20'
+    : vaultLocked
     ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20 pill-locked'
     : balance && typeof balance.balance === 'number' && balance.balance > 0
     ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300 hover:bg-emerald-500/20'
     : balance && (!balance.configured || (typeof balance.balance === 'number' && balance.balance <= 0))
     ? 'bg-amber-500/10 border-amber-500/25 text-amber-300 hover:bg-amber-500/20'
     : 'border-white/10 text-gray-500 hover:text-gray-300 hover:border-white/20'
-  const keyTitle = vaultLocked
+  const keyTitle = balance?.keyless
+    ? `${balance.provider}: ${providers.find(p => p.key === balance.provider)?.hint || 'no key needed'} — runs on it are never billed`
+    : vaultLocked
     ? `${balance?.provider} key is encrypted — click to unlock it with your passphrase`
     : balance?.key
     ? `${balance.provider} key ${balance.key}${balance.unlocked ? ' (encrypted, unlocked)' : ''} — click to manage`
@@ -1602,7 +1676,12 @@ export default function Home() {
 
   // Open the key vault modal focused on a given provider (from anywhere).
   // It's an overlay, so it opens over whatever you were doing.
-  const openKeyPanel = (p: string) => { setKeyPanelProvider(p); setShowKeyPanel(true) }
+  const openKeyPanel = (p: string) => {
+    // the LFM providers have no key to enter — the panel has no tab for them,
+    // and the pill's tooltip already says why
+    if (!PROVIDER_META[p]) return
+    setKeyPanelProvider(p); setShowKeyPanel(true)
+  }
 
   // the tool registry lives in the console's TOOLS tab — open it from anywhere
   const openToolRegistry = () => {
@@ -1735,6 +1814,14 @@ export default function Home() {
               <span className="font-mono text-[10px] opacity-70">{taskCounts[f]}</span>
             </button>
           ))}
+          {(taskCounts.done + taskCounts.error) > 0 && (
+            <button
+              onClick={() => clearServerTasks(taskFilter === 'error' || taskFilter === 'done' ? taskFilter : 'finished')}
+              title="Drop finished rows from the registry — running tasks stay"
+              className="px-2.5 py-1 rounded-full text-[11px] font-medium border border-white/[0.07] text-gray-500 hover:text-red-300 hover:border-red-500/30 transition">
+              clear {taskFilter === 'error' || taskFilter === 'done' ? taskFilter : 'finished'}
+            </button>
+          )}
           <input
             value={taskSearch}
             onChange={e => setTaskSearch(e.target.value)}
@@ -1755,11 +1842,17 @@ export default function Home() {
             return (
               <div key={t.id}
                 onClick={() => { setExpandedServerTasks(s => ({ ...s, [t.id]: !s[t.id] })); if (!expanded) loadTaskImages(t) }}
-                className={`px-4 py-3 rounded-lg border cursor-pointer transition ${
+                className={`group relative px-4 py-3 rounded-lg border cursor-pointer transition ${
                   t.status === 'running'
                     ? 'bg-emerald-500/[0.05] border-emerald-500/15'
                     : expanded ? 'bg-white/[0.04] border-white/10' : 'bg-white/[0.015] border-white/[0.05] hover:bg-white/[0.04] hover:border-white/10'
                 }`}>
+                {t.status !== 'running' && (
+                  <button
+                    onClick={e => { e.stopPropagation(); dismissServerTask(t.id) }}
+                    title="Dismiss this run"
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-black/80 border border-white/15 text-[10px] text-gray-500 hover:text-red-400 hover:border-red-500/40 opacity-0 group-hover:opacity-100 transition">✕</button>
+                )}
                 <div className="flex items-center gap-3">
                   <span className={`text-sm shrink-0 ${statusIcon(t.status)}`}>{statusDot(t.status)}</span>
                   <span className="text-xs shrink-0 font-mono text-gray-500" title={t.agent_type}>

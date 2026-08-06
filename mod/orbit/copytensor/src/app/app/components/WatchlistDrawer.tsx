@@ -271,8 +271,8 @@ export default function WatchlistDrawer() {
         <p className="text-pixel-gray text-xs leading-relaxed">
           Nothing watched yet. Paste a coldkey above, or open a trader from
           the{" "}
-          <Link href="/leaderboard" className="text-green-400">
-            leaderboard
+          <Link href="/traders" className="text-green-400">
+            traders board
           </Link>{" "}
           and hit + WATCH.
         </p>

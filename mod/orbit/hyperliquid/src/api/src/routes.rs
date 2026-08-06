@@ -124,6 +124,10 @@ pub fn router() -> Router<AppState> {
         .route("/mcp", post(mcp_post).get(mcp_get))
         .route("/mcp/schema", get(mcp_schema))
 
+        // ── agent: answers questions / runs tasks through that MCP server ──
+        .route("/ask", post(crate::agent::ask))
+        .route("/ask/status", get(crate::agent::ask_status))
+
         // ── generic mod-protocol passthrough ──
         .route("/forward", post(forward))
 }

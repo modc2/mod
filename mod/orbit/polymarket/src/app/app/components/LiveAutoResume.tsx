@@ -56,6 +56,7 @@ export default function LiveAutoResume() {
       tradeFilters: strat.tradeFilters,
       filter: strat.filter,
       momentum: strat.momentum,
+      ...(strat.maxUpscale !== undefined && { maxUpscale: strat.maxUpscale }),
     });
   }, [auth.connected, auth.address, auth.clobCreds, isLive, startLive]);
 

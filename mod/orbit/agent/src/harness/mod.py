@@ -10,6 +10,9 @@ agent of its own, with its own tools, sandbox and models:
     claudemod  -> orbit/claude       that module's job server: the same CLI,
                                      plus per-caller sandboxing, snapshot CIDs
                                      and a public task ledger
+    buildmod   -> orbit/build        the build console's job server — the same
+                                     contract, against that module's own
+                                     sandbox, ledger and system prompt
 
 Every runner module answers the same two calls:
 
@@ -45,6 +48,7 @@ RUNNERS = {
     "claude": "claudecode",
     "codex": "codexcli",
     "claudemod": "claude",
+    "buildmod": "build",
 }
 
 
@@ -105,7 +109,7 @@ class Harness:
         """Hand the run to a runner module and return its steps.
 
         Args:
-            name: harness name ('claude', 'codex', 'claudemod')
+            name: harness name ('claude', 'codex', 'claudemod', 'buildmod')
             query: the task, handed on as the prompt
             path: working directory for the run (default: cwd)
             goal: system prompt for the run

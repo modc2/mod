@@ -14,9 +14,24 @@
 // and reports the capital level at which most of that flow becomes copyable,
 // what the current allocation actually covers, and what the strat would
 // deploy per day at that size. One click adopts the recommendation.
+//
+// More capital is one of TWO answers, and it's the one you can't always give.
+// The other is UPSCALE: the skip only happens because a floor-clamped mirror
+// is capped at `maxUpscale`× the proportional size. Turn that cap off and
+// every filtered trade is placed at the floor instead — the strat trades at
+// the size it has rather than the size proportionality wants. That's a real
+// trade-off (a conviction bet and a punt land on the same $2.55), so the card
+// offers it as an explicit second button, not a silent default.
+//
+// The headline is capped at the deposit wallet's balance. Copying whales in
+// proportion asks for six figures, and "RUN IT WITH $200k" is a number nobody
+// can act on — so the card leads with what the money on hand actually buys,
+// keeps the full-proportionality figure as the thing to deposit toward, and
+// says plainly when the balance is under the floor where nothing trades.
 
 import { useEffect } from "react";
 import { planCapital, type CapitalPlan, type CapitalPlanInput } from "../lib/capitalPlan";
+import { DEFAULT_MAX_UPSCALE } from "../lib/strats/strat";
 
 const money = (n: number): string =>
   n >= 1000 ? `$${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : `$${n < 10 ? n.toFixed(2) : Math.round(n)}`;
@@ -24,11 +39,16 @@ const money = (n: number): string =>
 export default function CapitalPlanCard({
   input,
   onUse,
+  onCopyAll,
   onPlan,
 }: {
   input: CapitalPlanInput;
   /** Adopt the recommendation as the strat's CAPITAL. */
   onUse: (capital: number) => void;
+  /** Turn the proportional-fidelity cap OFF (UPSCALE ∞) so nothing is skipped
+      for being small — the answer for an account that can't buy its way to
+      proportionality. */
+  onCopyAll?: () => void;
   /** Fires when the recommendation changes, so the strat can remember it and
       other surfaces (cards, sidebar) can answer "how much" without the
       trade history loaded. */
@@ -55,8 +75,19 @@ export default function CapitalPlanCard({
 
   const coveragePct = Math.round(plan.coverage * 100);
   const recPct = Math.round(plan.recommendedCoverage * 100);
-  const underfunded = input.capital < plan.recommendedCapital;
+  const feasPct = Math.round(plan.feasibleCoverage * 100);
+  const capped = plan.cappedByAvailable;
+  // Balance under the cheapest mirror in the flow: no capital-sized version of
+  // this strat exists — it needs different traders or a lower floor.
+  const dead = capped && plan.feasibleCapital < plan.minCapital;
+  const underfunded = input.capital < plan.feasibleCapital;
   const saturated = plan.saturationCapital > 0 && input.capital > plan.saturationCapital;
+  // Is anything being skipped for SIZE at all? With UPSCALE off, sub-floor
+  // mirrors are rounded up rather than refused, so coverage is already 100%
+  // and offering COPY ALL would be offering a no-op.
+  const upscale = input.maxUpscale === undefined ? DEFAULT_MAX_UPSCALE : input.maxUpscale;
+  const upscaleOff = !upscale || upscale <= 0;
+  const upscaleCaps = !upscaleOff && coveragePct < 100;
 
   return (
     <div className="w-full space-y-2">
@@ -64,19 +95,40 @@ export default function CapitalPlanCard({
         <div>
           <div className="text-[9px] text-pixel-gray font-semibold tracking-[0.16em]">RUN IT WITH</div>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-[22px] leading-none font-mono font-bold text-green-400">
-              {money(plan.recommendedCapital)}
+            <span className={`text-[22px] leading-none font-mono font-bold ${dead ? "text-red-400" : "text-green-400"}`}>
+              {money(plan.feasibleCapital)}
             </span>
-            <span className="text-[10px] font-mono text-pixel-gray">→ {recPct}% of flow</span>
+            <span className="text-[10px] font-mono text-pixel-gray">→ {feasPct}% of flow</span>
           </div>
+          {capped && (
+            <div className="text-[9px] font-mono text-amber-300/90 mt-0.5">
+              your balance — full proportionality wants {money(plan.recommendedCapital)} ({recPct}%)
+            </div>
+          )}
         </div>
         <button
-          onClick={() => onUse(plan.recommendedCapital)}
-          title={`Set this strat's CAPITAL to ${money(plan.recommendedCapital)} — the level at which ${recPct}% of the leader trades it just filtered become copyable in proportion.`}
+          onClick={() => onUse(plan.feasibleCapital)}
+          title={
+            capped
+              ? `Set this strat's CAPITAL to ${money(plan.feasibleCapital)} — everything the deposit wallet holds, which copies ${feasPct}% of the flow it just filtered. Full proportionality would take ${money(plan.recommendedCapital)}.`
+              : `Set this strat's CAPITAL to ${money(plan.feasibleCapital)} — the level at which ${feasPct}% of the leader trades it just filtered become copyable in proportion.`
+          }
           className="text-[10px] px-2 py-1 rounded border font-mono font-bold tracking-[0.08em] border-green-400/60 text-green-400 bg-green-400/10 hover:bg-green-400/20 transition-colors"
         >
           USE
         </button>
+        {/* The other answer, for when depositing the recommendation isn't on
+            the table: stop refusing small mirrors. Same button row as USE
+            because they solve the same complaint. */}
+        {onCopyAll && upscaleCaps && (
+          <button
+            onClick={onCopyAll}
+            title={`Set UPSCALE to ∞: place EVERY trade this strat filters, rounding the sub-floor ones up to the ${money(plan.medianFloor)} order floor instead of skipping them as SUB_SCALE. Proportionality goes with it — a conviction bet and a throwaway punt both land on the floor — and at ${money(input.capital)} the capital is spent that much faster.`}
+            className="text-[10px] px-2 py-1 rounded border font-mono font-bold tracking-[0.08em] border-amber-300/60 text-amber-300 bg-amber-300/10 hover:bg-amber-300/20 transition-colors"
+          >
+            COPY ALL
+          </button>
+        )}
         <div className="flex-1 min-w-[120px]">
           {/* What the CURRENT allocation buys — the honest counterweight to
               the headline number. */}
@@ -125,7 +177,24 @@ export default function CapitalPlanCard({
       </div>
 
       <div className="text-[10px] font-mono leading-snug text-pixel-gray">
-        {underfunded ? (
+        {dead ? (
+          <>
+            <span className="text-red-400">Nothing is copyable at {money(plan.feasibleCapital)}.</span>{" "}
+            The cheapest mirror in this flow needs {money(plan.minCapital)} — below
+            that every proportional size lands under the {money(plan.medianFloor)}{" "}
+            order floor and is skipped as SUB_SCALE. Copy traders with smaller
+            books, raise UPSCALE, or deposit more.
+          </>
+        ) : capped ? (
+          <>
+            {money(plan.feasibleCapital)} is what the deposit wallet holds, so
+            the strat copies the{" "}
+            <span className="text-green-400">{feasPct}%</span> of this flow whose
+            proportional mirror still clears the {money(plan.medianFloor)} order
+            floor — the rest is skipped as SUB_SCALE, not traded small. Deposit
+            toward {money(plan.recommendedCapital)} to copy {recPct}% of it.
+          </>
+        ) : underfunded ? (
           <>
             At {money(input.capital)} this strat skips{" "}
             <span className="text-amber-300">{100 - coveragePct}%</span> of the
@@ -138,10 +207,27 @@ export default function CapitalPlanCard({
             already clears the TRADE SIZE max on most trades, so extra capital
             sits idle instead of buying bigger mirrors.
           </>
+        ) : upscaleOff ? (
+          <>
+            UPSCALE is <span className="text-amber-300">∞</span> — nothing is
+            skipped for size, so all {coveragePct}% of the filtered flow trades
+            and capital only decides how long it lasts: about{" "}
+            {money(plan.deployPerDay)}/day at {money(plan.medianFloor)} an
+            order, most of it at the floor rather than in proportion.
+          </>
         ) : (
           <>
             Sized right — {coveragePct}% of the filtered flow is copyable in
             proportion, and mirrors still fit under the TRADE SIZE max.
+          </>
+        )}
+        {upscaleCaps && !dead && (
+          <>
+            {" "}They&apos;re skipped, not traded small: a mirror may be rounded
+            up to at most {upscale}× its proportional size.{" "}
+            <span className="text-amber-300">COPY ALL</span> lifts that and
+            places every one at {money(plan.medianFloor)} — same trades, no
+            proportionality.
           </>
         )}
         {plan.ceilingBinds && (

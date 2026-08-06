@@ -160,11 +160,11 @@
     border: none; cursor: pointer; font-family: inherit;
     font-size: 15px; line-height: 1; padding: 6px 10px;
     border-radius: 980px; background: transparent; color: var(--ink2);
-    transition: transform .2s, background .2s;
+    transition: transform .2s, background .2s; margin-left: auto; flex: none;
   }
   #themeBtn:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); transform: rotate(-12deg) scale(1.1); }
 
-  /* ---------- nav ---------- */
+  /* ---------- top bar · logo + wallet ---------- */
   nav {
     position: sticky; top: 0; z-index: 50;
     backdrop-filter: saturate(180%) blur(20px);
@@ -174,13 +174,10 @@
   }
   .nav-inner {
     max-width: 1120px; margin: 0 auto; padding: 0 22px;
-    height: 48px; display: flex; align-items: center; gap: 26px;
+    height: 56px; display: flex; align-items: center; gap: 12px;
   }
-  .nav-logo { font-weight: 400; font-size: 12px; color: var(--ink); }
+  .nav-logo { font-weight: 400; font-size: 12px; color: var(--ink); flex: none; margin-right: 8px; }
   .nav-logo span { color: var(--ink2); font-weight: 400; }
-  .nav-links { display: flex; gap: 20px; margin-left: auto; overflow-x: auto; }
-  .nav-links a { font-size: 12.5px; color: var(--ink2); transition: color .2s; white-space: nowrap; }
-  .nav-links a:hover, .nav-links a.active { color: var(--ink); }
   #netdot {
     width: 7px; height: 7px; border-radius: 50%;
     background: var(--ink2); display: inline-block; margin-right: 6px;
@@ -188,6 +185,102 @@
   }
   #netdot.on { background: var(--good); }
   #netdot.off { background: var(--bad); }
+
+  /* ---------- wallet bar (lives in the top bar) ---------- */
+  .wbar { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+  .wbar-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+  .wchip {
+    display: inline-flex; align-items: center; gap: 8px; flex: none;
+    height: 34px; padding: 0 15px; border-radius: 999px;
+    border: 2px solid color-mix(in srgb, var(--ink) 26%, transparent);
+    background: transparent; color: var(--ink); cursor: pointer;
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: .01em;
+    transition: border-color .2s, background .2s, transform .15s;
+  }
+  .wchip:hover { border-color: var(--accent); background: color-mix(in srgb, var(--ink) 6%, transparent); }
+  .wchip:active { transform: scale(.97); }
+  .wchip.badge { width: 34px; padding: 0; justify-content: center; font-size: 15px; }
+  .wchip .sub { color: var(--ink3); }
+  .wchip .cp { color: var(--ink3); font-size: 12px; }
+  .wchip.val { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+  .wchip.val.zero { color: var(--ink2); border-color: color-mix(in srgb, var(--ink) 26%, transparent); }
+  .iconbtn {
+    border: none; background: transparent; cursor: pointer; color: var(--ink3);
+    font-family: inherit; font-size: 15px; line-height: 1; padding: 7px 9px;
+    border-radius: 999px; transition: color .2s, background .2s, transform .3s;
+  }
+  .iconbtn:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+  .iconbtn.spin { animation: wspin .7s linear infinite; }
+  @keyframes wspin { to { transform: rotate(-360deg); } }
+  .wpop {
+    position: absolute; top: 60px; left: 22px; z-index: 60; width: min(340px, calc(100vw - 44px));
+    background: var(--card); border: 3px solid var(--block); border-radius: 12px;
+    box-shadow: 0 6px 0 var(--shadow), 0 20px 60px rgba(0,0,0,.28); padding: 16px;
+  }
+  .wpop .wlocal { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .wpop .wlocal button {
+    font-family: var(--mono); font-size: 12px; padding: 6px 12px; border-radius: 999px;
+    border: 2px solid var(--line); background: transparent; color: var(--ink); cursor: pointer;
+  }
+  .wpop .wlocal button:hover { border-color: var(--accent); }
+
+  /* ---------- rail (the sidebar) ---------- */
+  .rail {
+    position: fixed; left: 0; top: 0; bottom: 0; width: 208px; z-index: 55;
+    display: flex; flex-direction: column; gap: 2px; padding: 16px 12px;
+    background: var(--glass); border-right: 1px solid var(--line);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    overflow-y: auto;
+  }
+  .rail a {
+    display: flex; align-items: center; gap: 11px; white-space: nowrap;
+    padding: 9px 12px; border-radius: 10px; font-size: 13.5px; color: var(--ink2);
+    border: 2px solid transparent; transition: color .18s, background .18s;
+  }
+  /* each tab gets its own little block; the active one turns into a coin */
+  .rail a i {
+    width: 11px; height: 11px; flex: none; border-radius: 3px;
+    background: var(--dot, var(--ink3)); opacity: .85;
+    box-shadow: inset -2px -2px 0 rgba(0,0,0,.2);
+    transition: transform .18s, border-radius .18s;
+  }
+  .rail a:nth-child(1) { --dot: #fbd000; }
+  .rail a:nth-child(2) { --dot: #049cd8; }
+  .rail a:nth-child(3) { --dot: #e52521; }
+  .rail a:nth-child(4) { --dot: #8f7bff; }
+  .rail a:nth-child(5) { --dot: #43b047; }
+  .rail a:nth-child(6) { --dot: #ff8c1a; }
+  .rail a:nth-child(7) { --dot: #64d2ff; }
+  .rail a:nth-child(8) { --dot: #b07a3c; }
+  .rail a:nth-child(9) { --dot: #ff5a9e; }
+  .rail a:nth-child(10) { --dot: #9aa3e8; }
+  .rail a:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+  .rail a:hover i { transform: translateY(-2px); }
+  .rail a.active {
+    color: #5b4200; background: var(--star); border-color: var(--block);
+    box-shadow: 0 3px 0 var(--shadow);
+  }
+  .rail a.active i { border-radius: 50%; background: #fff6dd; opacity: 1; }
+  .rail .rail-foot {
+    margin-top: auto; padding: 12px 12px 4px; font-size: 11px; color: var(--ink3);
+    font-family: var(--mono); display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  }
+  .rail .rail-foot button {
+    border: none; background: transparent; color: var(--ink3); cursor: pointer;
+    font: inherit; padding: 2px 0; text-decoration: underline;
+  }
+  .rail .rail-foot button:hover { color: var(--ink); }
+  @media (min-width: 900px) { body { padding-left: 208px; } }
+  @media (max-width: 899px) {
+    .rail {
+      position: sticky; top: 56px; inset: auto; width: auto;
+      flex-direction: row; gap: 4px; overflow-x: auto; padding: 8px 12px;
+      border-right: none; border-bottom: 1px solid var(--line);
+    }
+    .rail .rail-foot { display: none; }
+    .nav-logo { display: none; }
+  }
 
   /* ---------- hero ---------- */
   .hero { text-align: center; padding: 84px 22px 52px; }
@@ -467,22 +560,45 @@
 
 <nav>
   <div class="nav-inner">
-    <a class="nav-logo" href="#top">τ bt <span>· Bittensor</span></a>
-    <div class="nav-links">
-      <a href="#markets">Markets</a>
-      <a href="#ask">Ask</a>
-      <a href="#traders">Traders</a>
-      <a href="#account">Account</a>
-      <a href="#wallet">Wallet</a>
-      <a href="#trade">Trade</a>
-      <a href="#console">Console</a>
-      <a href="#docs">Docs</a>
-      <a href="#open">Open</a>
-      <a href="#mcp"><span id="netdot"></span>MCP</a>
+    <a class="nav-logo" href="#top">τ bt</a>
+    <div class="wbar" id="wbar">
+      <button class="wchip badge" id="w-badge" onclick="toggleWpop()" title="Wallet">τ</button>
+      <button class="wchip" id="w-addr" onclick="onAddrChip()">Connect a wallet</button>
+      <button class="wchip val zero" id="w-val" onclick="openWalletAccount()" title="See the full account">τ —</button>
+      <div class="wbar-actions">
+        <button class="iconbtn" id="w-refresh" onclick="refreshWallet()" title="Refresh balance" aria-label="Refresh balance">↺</button>
+        <button class="iconbtn" onclick="hideWbar()" title="Hide wallet bar" aria-label="Hide wallet bar">✕</button>
+      </div>
     </div>
     <button id="themeBtn" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">🌙</button>
   </div>
+  <div class="wpop" id="wpop" hidden>
+    <label style="margin-top:0">Watch any ss58 address</label>
+    <input id="wpop-addr" placeholder="5Grw…" spellcheck="false" onkeydown="if(event.key==='Enter')watchFromInput()">
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="pill primary" onclick="watchFromInput()">Watch</button>
+      <button class="iconbtn" onclick="closeWpop()">Cancel</button>
+    </div>
+    <div class="wlocal" id="wpop-local"></div>
+  </div>
 </nav>
+
+<aside class="rail">
+  <a href="#markets"><i></i>Markets</a>
+  <a href="#ask"><i></i>Ask</a>
+  <a href="#traders"><i></i>Traders</a>
+  <a href="#account"><i></i>Account</a>
+  <a href="#wallet"><i></i>Wallet</a>
+  <a href="#trade"><i></i>Trade</a>
+  <a href="#console"><i></i>Console</a>
+  <a href="#docs"><i></i>Docs</a>
+  <a href="#open"><i></i>Open</a>
+  <a href="#mcp"><i></i>MCP</a>
+  <div class="rail-foot">
+    <span id="netdot"></span><span id="rail-net">finney</span>
+    <button id="wshow" onclick="showWbar()" hidden>show wallet</button>
+  </div>
+</aside>
 
 <div class="hero page" id="top">
   <span class="world">WORLD τ-1 &nbsp;·&nbsp; <span class="coin">🪙</span>×<span id="hud-coins">∞</span> &nbsp;·&nbsp; 1UP</span>
@@ -829,6 +945,7 @@ function sparkSVG(pts, dir, w=110, h=30) {
   try {
     const info = await (await fetch(api(''))).json();
     document.getElementById('foot-net').textContent = info.network;
+    document.getElementById('rail-net').textContent = info.network;
     document.getElementById('netdot').className = 'on';
   } catch (e) { document.getElementById('netdot').className = 'off'; }
   try {
@@ -837,6 +954,7 @@ function sparkSVG(pts, dir, w=110, h=30) {
     sel.innerHTML = TOOLS.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
     renderToolForm();
   } catch (e) {}
+  initWbar();
   loadAgent();
   loadDocs();
   loadWallets();
@@ -1466,6 +1584,109 @@ async function trackFromAccount(addr) {
   await trackTrader();
 }
 
+/* ---------- wallet bar ----------
+   One address in the chrome at all times: a local coldkey if there is one,
+   otherwise any address you paste. Value is the account total (free + staked),
+   cached so the bar paints before the chain answers. */
+const WKEY = 'bt.wallet', WBAR_KEY = 'bt.wbar';
+let WALLET = null;   // {addr, name, local, tao}
+
+function saveWallet() {
+  try { WALLET ? localStorage.setItem(WKEY, JSON.stringify(WALLET)) : localStorage.removeItem(WKEY); } catch (e) {}
+}
+function renderWbar() {
+  const badge = document.getElementById('w-badge');
+  const addr = document.getElementById('w-addr');
+  const val = document.getElementById('w-val');
+  if (!WALLET) {
+    badge.textContent = 'τ'; badge.title = 'Pick a wallet';
+    addr.textContent = 'Connect a wallet';
+    val.textContent = 'τ —'; val.className = 'wchip val zero';
+    return;
+  }
+  badge.textContent = WALLET.local ? '👑' : '👁';
+  badge.title = WALLET.local ? `Local wallet · ${WALLET.name}` : 'Watch-only';
+  addr.innerHTML = `${WALLET.local ? `<span class="sub">${esc(WALLET.name)}</span>` : ''}${esc(short(WALLET.addr))} <span class="cp">⧉</span>`;
+  addr.title = WALLET.addr + ' — click to copy';
+  val.textContent = WALLET.tao == null ? 'τ —' : `τ ${fmt(WALLET.tao, 3)}`;
+  val.className = 'wchip val' + (WALLET.tao ? '' : ' zero');
+}
+function connectWallet(addr, name, local) {
+  WALLET = {addr, name: name || null, local: !!local, tao: null};
+  saveWallet(); renderWbar(); closeWpop(); refreshWallet();
+}
+async function refreshWallet() {
+  if (!WALLET) { toggleWpop(); return; }
+  const btn = document.getElementById('w-refresh');
+  btn.classList.add('spin');
+  try {
+    const j = await call('bt_account', {address: WALLET.addr});
+    WALLET.tao = j.result.total_value_tao ?? j.result.free_tao ?? null;
+    saveWallet();
+  } catch (e) { /* keep the cached number rather than blanking the bar */ }
+  btn.classList.remove('spin');
+  renderWbar();
+}
+function onAddrChip() {
+  if (!WALLET) return toggleWpop();
+  navigator.clipboard.writeText(WALLET.addr).then(() => {
+    const el = document.getElementById('w-addr'), was = el.innerHTML;
+    el.textContent = 'Copied ✓';
+    setTimeout(() => { el.innerHTML = was; }, 1000);
+  });
+}
+function openWalletAccount() {
+  if (!WALLET) return toggleWpop();
+  document.getElementById('acct-addr').value = WALLET.addr;
+  location.hash = '#account';
+  loadAccount();
+}
+async function toggleWpop() {
+  const pop = document.getElementById('wpop');
+  if (!pop.hidden) return closeWpop();
+  pop.hidden = false;
+  document.getElementById('wpop-addr').value = WALLET ? WALLET.addr : '';
+  document.getElementById('wpop-addr').focus();
+  const box = document.getElementById('wpop-local');
+  box.innerHTML = '';
+  try {
+    const ws = (await call('bt_wallets', {})).result || [];
+    box.innerHTML = ws.filter(w => w.coldkey).map(w =>
+      `<button onclick="connectWallet('${esc(w.coldkey)}', '${esc(w.name)}', true)">👑 ${esc(w.name)}</button>`).join('');
+  } catch (e) {}
+}
+function closeWpop() { document.getElementById('wpop').hidden = true; }
+function watchFromInput() {
+  const a = document.getElementById('wpop-addr').value.trim();
+  if (a) connectWallet(a, null, false);
+}
+function hideWbar() {
+  document.getElementById('wbar').style.display = 'none';
+  document.getElementById('wshow').hidden = false;
+  closeWpop();
+  try { localStorage.setItem(WBAR_KEY, 'off'); } catch (e) {}
+}
+function showWbar() {
+  document.getElementById('wbar').style.display = '';
+  document.getElementById('wshow').hidden = true;
+  try { localStorage.removeItem(WBAR_KEY); } catch (e) {}
+}
+async function initWbar() {
+  try { if (localStorage.getItem(WBAR_KEY) === 'off') hideWbar(); } catch (e) {}
+  try { WALLET = JSON.parse(localStorage.getItem(WKEY) || 'null'); } catch (e) {}
+  renderWbar();
+  if (WALLET) return refreshWallet();
+  /* no pick yet — adopt the first local coldkey if the node has one */
+  try {
+    const w = ((await call('bt_wallets', {})).result || []).find(x => x.coldkey);
+    if (w) connectWallet(w.coldkey, w.name, true);
+  } catch (e) {}
+}
+addEventListener('click', e => {
+  const pop = document.getElementById('wpop');
+  if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('#w-badge, #w-addr, #w-val')) closeWpop();
+});
+
 /* ---------- wallet ---------- */
 async function loadWallets() {
   const el = document.getElementById('wallets-out');
@@ -1696,7 +1917,7 @@ function copyBlock(btn) {
   });
 }
 /* ---------- router: one page per tab ---------- */
-const links = [...document.querySelectorAll('.nav-links a')];
+const links = [...document.querySelectorAll('.rail a')];
 function route() {
   let id = (location.hash || '#top').slice(1);
   const target = document.getElementById(id);

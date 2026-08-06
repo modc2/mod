@@ -1,0 +1,9 @@
+{
+  "name": "nim",
+  "description": "Nim with twenty-one stones, take one to three. A game whose move is a number and whose rule is arithmetic.",
+  "author": "arena",
+  "tags": [
+    "example",
+    "game"
+  ]
+}

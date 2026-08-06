@@ -25,6 +25,7 @@ import { useMemo, useState } from "react";
 import { DEFAULT_STRATS, type StratTemplate } from "../lib/defaultStrats";
 import { fmtUsd, type StratMoney } from "../lib/stratStats";
 import { HUB_WINDOWS, templateBacktestKey, type HubBacktest } from "../lib/hubBacktest";
+import { triggerHubWorker, type WorkerStatus } from "../lib/hubCache";
 import { describeTraderFilter } from "../lib/strats/strat";
 import type { SavedIndex } from "../lib/types";
 
@@ -37,6 +38,11 @@ interface Props {
   backtests?: Record<string, HubBacktest>;
   /** Card keys whose replay is still running. */
   backtestPending?: Set<string>;
+  /** True while the worker's cache is still being read — every card is
+      "loading", not "empty". */
+  backtestLoading?: boolean;
+  /** The background worker's schedule, for the header status line. */
+  worker?: WorkerStatus | null;
   /** The window every card is measured over, and the setter behind the pills. */
   days: number;
   onDaysChange: (days: number) => void;
@@ -61,6 +67,16 @@ function timeAgo(ts?: number): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
+}
+
+/** "in 1h 12m" / "any moment" — the worker's next pass. */
+function countdown(ts?: number): string {
+  if (!ts) return "soon";
+  const ms = ts - Date.now();
+  if (ms <= 0) return "any moment";
+  const m = Math.round(ms / 60_000);
+  if (m < 60) return `in ${m}m`;
+  return `in ${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
 /// Compact human summary of the per-trade filters, one chip per active
@@ -92,24 +108,64 @@ function filterChips(idx: Pick<SavedIndex, "marketQuery" | "tradeFilters" | "fil
   return chips;
 }
 
-/// The 24h equity path as a 2-line sparkline: the shape says whether the P&L
-/// came from one lucky fill or from a run. Baseline = starting capital, so
-/// anything under the dashed line is a drawdown.
-function Sparkline({ curve, up }: { curve: number[]; up: boolean }) {
+/// THE CARD FACE — the strat's equity path, full-bleed behind everything else.
+/// A wall of strats is a wall of shapes first and numbers second: you can see
+/// which one ran up, which one bled, and which one did nothing at all without
+/// reading a single figure. Baseline = starting capital, so any fill under the
+/// dashed line is a drawdown. Purely decorative markup (aria-hidden) — every
+/// number it encodes is also printed on the card.
+function CurveFace({ curve, up }: { curve: number[]; up: boolean }) {
   if (curve.length < 2) return null;
-  const W = 100, H = 28;
+  const W = 100, H = 40;
   const min = Math.min(...curve), max = Math.max(...curve);
   const span = max - min || 1;
   const x = (i: number) => (i / (curve.length - 1)) * W;
   const y = (v: number) => H - ((v - min) / span) * H;
-  const d = curve.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
+  const pts = curve.map((v, i) => `${x(i).toFixed(2)} ${y(v).toFixed(2)}`);
+  const line = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p}`).join(" ");
+  const area = `${line} L${W} ${H} L0 ${H} Z`;
   const base = y(curve[0]);
   const stroke = up ? "rgb(var(--up-rgb))" : "var(--danger)";
+  const gid = `curveface-${up ? "up" : "dn"}`;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-7 overflow-visible">
-      <line x1="0" y1={base} x2={W} y2={base} stroke="currentColor" strokeWidth="0.5" strokeDasharray="2 2" className="text-pixel-gray/40" />
-      <path d={d} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    <svg
+      aria-hidden
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      className="absolute inset-x-0 bottom-0 h-[52%] w-full pointer-events-none -z-10"
+    >
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={stroke} stopOpacity="0.16" />
+          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <line
+        x1="0" y1={base} x2={W} y2={base}
+        stroke="currentColor" strokeWidth="0.4" strokeDasharray="2 2"
+        className="text-pixel-gray/20"
+      />
+      <path d={area} fill={`url(#${gid})`} />
+      <path
+        d={line} fill="none" stroke={stroke} strokeWidth="1.25"
+        strokeLinejoin="round" vectorEffect="non-scaling-stroke" opacity="0.5"
+      />
     </svg>
+  );
+}
+
+/// The card face while the number is still being computed — a drifting
+/// shimmer where the curve will be, so "we're working on it" and "this strat
+/// traded nothing" never look the same.
+function LoadingFace() {
+  return (
+    <div
+      aria-hidden
+      className="absolute inset-x-0 bottom-0 h-[52%] pointer-events-none overflow-hidden -z-10"
+    >
+      <div className="absolute inset-0 bg-gradient-to-t from-pixel-gray/[0.07] to-transparent" />
+      <div className="absolute inset-y-0 -inset-x-1/3 w-1/3 bg-gradient-to-r from-transparent via-pixel-gray/10 to-transparent animate-[hubshimmer_1.6s_ease-in-out_infinite]" />
+    </div>
   );
 }
 
@@ -132,46 +188,82 @@ function BacktestBlock({
   const up = (bt?.pnl ?? 0) >= 0;
   const window = days === 1 ? "1D" : `${days}D`;
   return (
-    <div className="rounded-[var(--radius-sm)] bg-[var(--input-bg)] border border-[var(--border)] px-2.5 py-2 mb-2.5">
+    <div className="mb-2.5">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[9px] text-pixel-gray font-semibold tracking-[0.14em] shrink-0">
           {window} BACKTEST
         </span>
-        {bt && !bt.note && (
+        {/* Where this number came from and how old it is. A card fed by the
+            2-hourly worker says so — otherwise "replayed 40m ago" reads as a
+            stall rather than as a cache doing its job. */}
+        {bt && (
           <span
             className="text-[9.5px] font-mono text-pixel-gray shrink-0"
-            title={`Replayed ${timeAgo(bt.at)} on $${bt.capital} of paper capital across ${bt.traders} trader(s)`}
+            title={
+              `Replayed ${timeAgo(bt.at)} on $${bt.capital} of paper capital across ${bt.traders} trader(s)` +
+              (bt.by === "worker" ? " by the background worker (runs every 2h)" : " in this browser")
+            }
           >
-            {bt.trades} TR
+            {bt.note ? "" : `${bt.trades} TR · `}{bt.by === "worker" ? "⟳ " : ""}{timeAgo(bt.at)}
           </span>
         )}
       </div>
-      {bt && bt.note ? (
+      {running && !bt ? (
+        // Say it's working. An empty card and a card mid-replay used to be
+        // the same two words in the same grey.
+        <div className="mt-1 flex items-center gap-1.5 text-[12px] font-mono text-pixel-gray">
+          <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          replaying {days === 1 ? "24h" : `${days}d`} of leader flow…
+        </div>
+      ) : bt && bt.note ? (
         // A structural empty is an answer, not a zero.
         <div className="mt-1 text-[12px] font-mono text-pixel-gray leading-snug">{bt.note}</div>
       ) : bt ? (
-        <>
-          <div className="flex items-baseline gap-2 mt-0.5">
-            <span
-              className={`text-[22px] leading-none font-mono font-semibold ${up ? "text-green-400" : "text-red-400"}`}
-              title={`Net P&L of a $${bt.capital} deployment of this strat over the last ${days === 1 ? "24h" : `${days} days`}${bt.skipped ? ` · ${bt.skipped} candidate trades skipped` : ""}`}
-            >
-              {up ? "+" : "−"}${Math.abs(bt.pnl).toFixed(2)}
-            </span>
-            <span className={`text-[12px] font-mono ${up ? "text-green-400/80" : "text-red-400/80"}`}>
-              {bt.roi >= 0 ? "+" : ""}{bt.roi.toFixed(2)}%
-            </span>
-            {running && <span className="text-[10px] font-mono text-pixel-gray animate-pulse">↻</span>}
-          </div>
-          <div className="mt-1 -mb-0.5">
-            <Sparkline curve={bt.curve} up={up} />
-          </div>
-        </>
-      ) : (
-        <div className="mt-1 text-[12px] font-mono text-pixel-gray">
-          {running ? "replaying…" : emptyLabel}
+        <div className="flex items-baseline gap-2 mt-0.5">
+          <span
+            className={`text-[26px] leading-none font-mono font-semibold ${up ? "text-green-400" : "text-red-400"}`}
+            title={`Net P&L of a $${bt.capital} deployment of this strat over the last ${days === 1 ? "24h" : `${days} days`}${bt.skipped ? ` · ${bt.skipped} candidate trades skipped` : ""}`}
+          >
+            {up ? "+" : "−"}${Math.abs(bt.pnl).toFixed(2)}
+          </span>
+          <span className={`text-[12px] font-mono ${up ? "text-green-400/80" : "text-red-400/80"}`}>
+            {bt.roi >= 0 ? "+" : ""}{bt.roi.toFixed(2)}%
+          </span>
+          {running && <span className="text-[10px] font-mono text-amber-400 animate-pulse">↻</span>}
         </div>
+      ) : (
+        <div className="mt-1 text-[12px] font-mono text-pixel-gray">{emptyLabel}</div>
       )}
+      {/* The funnel, one line: how much of the observed flow this strat
+          actually traded. "8/225 entries" with the dominant gate named is the
+          difference between a strat that's selective and one that's mute. */}
+      {bt?.funnel && bt.funnel.observed > 0 && <FunnelLine funnel={bt.funnel} />}
+    </div>
+  );
+}
+
+/// "12/225 ENTRIES · 213 blocked by time-to-close" — the one line that makes
+/// over-filtering visible instead of leaving a suspiciously quiet card.
+function FunnelLine({ funnel }: { funnel: NonNullable<HubBacktest["funnel"]> }) {
+  const reasons = Object.entries(funnel.reasons).sort((a, b) => b[1] - a[1]);
+  const [topReason, topCount] = reasons[0] ?? ["", 0];
+  const blocked = funnel.observed - funnel.executed;
+  const share = funnel.observed > 0 ? funnel.executed / funnel.observed : 0;
+  // Under a tenth of the flow copied is worth flagging — that's the "why is
+  // nothing happening?" state, and it should look different from selectivity.
+  const thin = share < 0.1;
+  return (
+    <div
+      className={`mt-1 text-[10px] font-mono truncate ${thin ? "text-amber-400/90" : "text-pixel-gray"}`}
+      title={
+        `${funnel.observed} leader entries seen · ${funnel.executed} copied · ` +
+        `${funnel.gated} blocked by strat filters · ${funnel.outranked} outranked · ` +
+        `${funnel.skipped} unplaceable\n` +
+        reasons.map(([r, n]) => `${n}× ${r}`).join("\n")
+      }
+    >
+      {funnel.executed}/{funnel.observed} entries copied
+      {blocked > 0 && topReason ? ` · ${topCount}× ${topReason}` : ""}
     </div>
   );
 }
@@ -191,6 +283,8 @@ export default function StratHub({
   stats,
   backtests,
   backtestPending,
+  backtestLoading,
+  worker,
   days,
   onDaysChange,
   activeId,
@@ -236,6 +330,31 @@ export default function StratHub({
           <span className="text-[12px] font-mono text-pixel-gray truncate">
             {indexes.length} saved · every card backtested over the last {windowLabel}
           </span>
+          {/* The worker's heartbeat. Cards are cached, not live — saying so
+              (and when the next pass lands) is the difference between "these
+              numbers are stale" and "these numbers are 40 minutes old, by
+              design". */}
+          {backtestLoading ? (
+            <span className="text-[11px] font-mono text-amber-400 shrink-0 flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              LOADING CACHE
+            </span>
+          ) : worker ? (
+            <span
+              className="text-[11px] font-mono text-pixel-gray/80 shrink-0"
+              title={
+                worker.error
+                  ? `Background worker last failed: ${worker.error}`
+                  : `A worker inside the app replays every strat over the last ${windowLabel} on a 2-hour cadence, so the hub has numbers before you open it. Last pass covered ${worker.strats} strat(s).`
+              }
+            >
+              {worker.running
+                ? "⟳ worker running…"
+                : worker.error
+                  ? "⚠ worker error"
+                  : `⟳ cached ${timeAgo(worker.at)} · next ${countdown(worker.nextAt)}`}
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {/* Search — one box over both shelves, so "find me a sports strat"
@@ -279,7 +398,13 @@ export default function StratHub({
           </div>
           {onRefresh && (
             <button
-              onClick={onRefresh}
+              onClick={() => {
+                // Kick BOTH: the worker refreshes the disk cache for every
+                // strat (including ones this browser isn't showing), the local
+                // pass repaints these cards without waiting for it.
+                void triggerHubWorker();
+                onRefresh();
+              }}
               title={`Re-run every strat's ${windowLabel} backtest now${oldest ? ` — oldest is ${timeAgo(oldest)}` : ""}`}
               className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-[var(--radius-sm)] border border-pixel-border text-[11px] font-mono text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors"
             >
@@ -298,7 +423,7 @@ export default function StratHub({
           const chips = filterChips(idx);
           // The card's headline: this strat replayed over the last 24h.
           const bt = backtests?.[idx.id];
-          const running = backtestPending?.has(idx.id) ?? false;
+          const running = (backtestPending?.has(idx.id) ?? false) || (backtestLoading && !backtests?.[idx.id]);
           // Always render the viewer's live money row — an untraded strat
           // reads $0 rather than hiding it, so cards compare at a glance.
           const money = stats?.[idx.id];
@@ -307,8 +432,14 @@ export default function StratHub({
             <div
               key={idx.id}
               onClick={() => onSelect(idx.id)}
-              className={`market-card group cursor-pointer flex flex-col ${isActive ? "market-card-selected" : ""}`}
+              className={`market-card group cursor-pointer flex flex-col relative overflow-hidden isolate ${isActive ? "market-card-selected" : ""}`}
             >
+              {/* The card IS the curve — everything below sits on top of it. */}
+              {bt && bt.curve.length > 1 ? (
+                <CurveFace curve={bt.curve} up={bt.pnl >= 0} />
+              ) : running ? (
+                <LoadingFace />
+              ) : null}
               {/* Top: status + updated */}
               <div className="flex items-center justify-between mb-2.5">
                 <span className="flex items-center gap-1.5 text-[10.5px] tracking-[0.16em] uppercase font-semibold">
@@ -462,13 +593,18 @@ export default function StratHub({
           const chips = filterChips(t.params);
           const key = templateBacktestKey(t.slug);
           const bt = backtests?.[key];
-          const running = backtestPending?.has(key) ?? false;
+          const running = (backtestPending?.has(key) ?? false) || (backtestLoading && !bt);
           return (
             <div
               key={t.slug}
               onClick={() => onFork(t)}
-              className="market-card group cursor-pointer flex flex-col"
+              className="market-card group cursor-pointer flex flex-col relative overflow-hidden isolate"
             >
+              {bt && bt.curve.length > 1 ? (
+                <CurveFace curve={bt.curve} up={bt.pnl >= 0} />
+              ) : running ? (
+                <LoadingFace />
+              ) : null}
               <div className="flex items-center justify-between mb-2.5">
                 <span className="text-[10.5px] tracking-[0.16em] uppercase font-semibold text-cyan-400">
                   TEMPLATE

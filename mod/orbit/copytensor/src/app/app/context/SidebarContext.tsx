@@ -29,11 +29,12 @@ export type SidebarMode = "dock" | "float";
 export type Rect = { x: number; y: number; w: number; h: number };
 
 /**
- * A request to seed the strat builder with traders. The nonce makes a repeat
- * of the same address a fresh event — hitting COPY twice on one row should
- * still re-open the builder.
+ * A request to seed the strat builder — with loose traders, or with a whole
+ * saved index to load for edit (what the agent's card hands over). The nonce
+ * makes a repeat of the same address a fresh event: hitting COPY twice on one
+ * row should still re-open the builder.
  */
-export type StratSeed = { ss58: string[]; nonce: number };
+export type StratSeed = { ss58: string[]; indexId?: string; nonce: number };
 
 interface SidebarContextValue {
   docked: boolean;
@@ -51,6 +52,8 @@ interface SidebarContextValue {
   setPanel: (p: SidebarPanel) => void;
   /// Dock the drawer on the strat builder, optionally pre-loading traders.
   openStrat: (...ss58: string[]) => void;
+  /// Dock the drawer on the strat builder with a saved index loaded for edit.
+  openIndex: (id: string) => void;
   /// Widen the drawer / maximise the window, and back again.
   toggleExpanded: () => void;
   /// Tear the drawer off the edge into a floating window, or put it back.
@@ -188,6 +191,12 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
     if (ss58.length) setStratSeed((s) => ({ ss58, nonce: (s?.nonce || 0) + 1 }));
   }, [setDocked, setPanel]);
 
+  const openIndex = useCallback((indexId: string) => {
+    setDocked(true);
+    setPanel("strat");
+    setStratSeed((s) => ({ ss58: [], indexId, nonce: (s?.nonce || 0) + 1 }));
+  }, [setDocked, setPanel]);
+
   const toggleRolled = useCallback(() => setRolled((v) => !v), []);
 
   const toggleExpanded = useCallback(() => {
@@ -315,8 +324,8 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
     <SidebarContext.Provider
       value={{
         docked, width, hydrated, panel, expanded, mode, rect, rolled, stratSeed,
-        toggleDocked, setDocked, setWidth, setPanel, openStrat, toggleExpanded,
-        setMode, toggleRolled, startDrag, startMove, startResize,
+        toggleDocked, setDocked, setWidth, setPanel, openStrat, openIndex,
+        toggleExpanded, setMode, toggleRolled, startDrag, startMove, startResize,
       }}
     >
       {children}

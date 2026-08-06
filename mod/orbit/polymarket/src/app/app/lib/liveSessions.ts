@@ -13,9 +13,12 @@
 // take the user's other funded strats down with it.
 
 import { DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES } from "./strats/strat";
+import { API_BASE, serverAuthHeaders } from "./polymarket";
 import type { SavedIndex } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+// Same base the rest of the app uses — relative in the browser, absolute (and
+// Bearer-stamped) in the background worker. See polymarket.ts.
+const API_URL = API_BASE;
 
 /** Open position the engine tracks, tagged with the strat that bought it. */
 export interface SessionPosition {
@@ -79,7 +82,9 @@ export async function fetchTraderBankrolls(addresses: string[]): Promise<Map<str
   if (list.length === 0) return out;
   try {
     const qs = encodeURIComponent(list.join(","));
-    const res = await fetch(`${API_URL}/live/bankroll?addresses=${qs}`);
+    const res = await fetch(`${API_URL}/live/bankroll?addresses=${qs}`, {
+      headers: serverAuthHeaders(),
+    });
     if (!res.ok) return out;
     const j = (await res.json()) as { bankrolls?: Record<string, number> };
     for (const [addr, v] of Object.entries(j.bankrolls || {})) {
@@ -178,6 +183,8 @@ export async function startLiveSession(
     // when the strat sets them — the engine's own defaults (2×, 60m, 300s)
     // are the source of truth otherwise.
     ...(strat.maxUpscale !== undefined && { maxUpscale: strat.maxUpscale }),
+    ...(strat.sizing !== undefined && { sizing: strat.sizing }),
+    ...(strat.turnover !== undefined && { turnover: strat.turnover }),
     ...(strat.minMinutesToClose !== undefined && { minMinutesToClose: strat.minMinutesToClose }),
     ...(strat.maxTradeAgeSec !== undefined && { maxTradeAgeSec: strat.maxTradeAgeSec }),
     ...(strat.marketQuery && { marketQuery: strat.marketQuery }),

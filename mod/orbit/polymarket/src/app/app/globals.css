@@ -1041,6 +1041,17 @@ input[type="radio"] {
   .text-gradient { animation: none; }
 }
 
+/* STRAT HUB card face while its backtest is still being replayed — a band
+   drifting across where the equity curve will be, so "computing" never looks
+   like "this strat did nothing". */
+@keyframes hubshimmer {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(400%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[hubshimmer_1\.6s_ease-in-out_infinite\] { animation: none; }
+}
+
 /* Subtab rail swap (CopyIndex header) — re-fires via key={mode}. */
 @keyframes subtab-in {
   from { opacity: 0; transform: translateY(-4px); }
@@ -1051,8 +1062,8 @@ input[type="radio"] {
   .subtab-rail { animation: none; }
 }
 
-/* Drawer entrances. `drawer-in-left` is kept for the centered modals that
-   borrowed it as a generic fade-in; the strat sidebar docks RIGHT. */
+/* Drawer entrances. The strat sidebar docks LEFT; `drawer-in-right` is kept
+   for the panels that slide in from the other edge. */
 @keyframes drawer-in-left {
   from { transform: translateX(-100%); }
   to { transform: translateX(0); }
@@ -1065,17 +1076,23 @@ input[type="radio"] {
   [style*="drawer-in-left"], [style*="drawer-in-right"] { animation: none !important; }
 }
 
-/* Strat sidebar dock. On a wide viewport the strat manager is a real right
+/* Strat sidebar dock. On a wide viewport the strat manager is a real left
    column — the page insets by its width (--strat-dock) instead of being
-   covered, so you can edit a strat while the list, allocations and FUND bar
-   stay on screen. Narrow viewports keep the modal overlay drawer, so the
-   inset stays 0 there. HeaderStratPicker owns the html[data-strat-dock]
-   attribute. */
+   covered, so you can work on a strat while the list and its money stay on
+   screen. Narrow viewports fall back to the modal overlay drawer, so the
+   inset stays 0 there. StratSidebar owns the html[data-strat-dock]
+   attribute, and reads --strat-dock back as the column's own width. */
 :root { --strat-dock: 0px; }
 @media (min-width: 1024px) {
   html[data-strat-dock="open"] { --strat-dock: 340px; }
 }
-.dock-inset { transition: padding-right 0.18s ease-out; }
+.dock-inset { transition: padding-left 0.18s ease-out; }
+/* The header lives INSIDE the inset, so the nav tabs have 340px less room
+   than their own media query thinks. Drop their labels to icons until the
+   viewport can spare the column plus the 900px the labelled row needs. */
+@media (max-width: 1239px) {
+  html[data-strat-dock="open"] .nav-tab-label { display: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .dock-inset { transition: none; }
 }

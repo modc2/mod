@@ -105,8 +105,10 @@ class JobTrace:
             kind = "version" if stripped.startswith("[VERSION]") else "task"
             cid = stripped.rsplit(" ", 1)[-1]
             self.cids[kind] = cid
-            return self.flush() + [{"tool": "snapshot", "params": {"kind": kind},
-                                    "result": cid}]
+            # a trailer the server appends after the run — it must not flush the
+            # held message, which is the agent's answer and belongs in finish
+            return self._close_tool() + [{"tool": "snapshot", "params": {"kind": kind},
+                                          "result": cid}]
         if stripped.startswith("[ERROR]"):
             return self.flush() + [{"tool": "error", "params": {},
                                     "error": stripped[7:].strip()}]

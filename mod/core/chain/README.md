@@ -16,10 +16,11 @@ concern, composed into a single protocol and operated from one console.
 - **Python orchestrator** (`src/mod.py`): the full-power surface — deploys,
   forks, staking, registry, pool, yield, admin.
 - **Contract builder** (`src/build`): write Solidity in the browser, compile it
-  here with solc 0.8.26 (`@openzeppelin/contracts` imports resolve), then deploy
-  it from your own wallet. Starter templates in `src/build/templates/`; upload
-  your own project or fork one out of the shared gallery (BlocTime ships in it);
-  the console for it is the app's `/chain` page.
+  here with solc 0.8.26, then deploy it from your own wallet. Starter templates
+  in `src/build/templates/`; upload your own project (hardhat *or* foundry
+  layouts — `lib/openzeppelin-contracts/…` imports are remapped onto the
+  installed packages) or fork one out of the shared gallery (BlocTime ships in
+  it); the console for it is the app's `/chain` page, and it works on a phone.
 - **Wallets**: MetaMask (automatic chain switch/add on send) or a
   browser-local keypair — reads never need a wallet.
 
@@ -39,10 +40,29 @@ m chain/deploy network=testnet
 Deploy order (parallel within a group, sequential across):
 `[token oracle registry perms] → [tokengate bloctime] → [treasury] → [market] → [debit]`
 
-Per-network deployments (addresses + pinned ABI/source CIDs) live in
-`config.json`. Contract sources are under `src/contracts/<module>/`, each with
-its own README. Builder drafts and wallet-signed builds are per-user state, so
-they live off-tree in `~/.mod/chain/build/`.
+Per-network deployments (addresses + ABI/source CIDs) live in `config.json`.
+Contract sources are under `src/contracts/<module>/`, each with its own README.
+Builder projects and wallet-signed builds are per-user state, so they live
+off-tree in `~/.mod/chain/build/`.
+
+## ABIs live in the store
+
+Every ABI this module knows about is written into the **store module** as a
+content-addressed object owned by the address that deployed it — the fleet's
+own contracts under `chain/abi/<network>/<name>.json`, and every wallet-signed
+build alongside them. What's recorded anywhere else is just the CID, so an ABI
+is fetchable from any project instead of being copy-pasted between them.
+
+```
+GET  /build/abi/{cid}          → { cid, abi }        # parsed, ready for ethers
+POST /build/abi                  {address, name, network, abi, source?} → { cid }
+GET  /build/abis?address=0x…   → ABIs that address has stored
+GET  /cid/{cid}                → raw stored content (ABI JSON or .sol source)
+```
+
+Deploying from the console does the POST for you and shows the CID; INTERACT
+takes an address + a CID and drives the contract from there. Contracts deployed
+somewhere else are just as welcome — POST the ABI and they get a CID too.
 
 ## Host readout (owner-only)
 

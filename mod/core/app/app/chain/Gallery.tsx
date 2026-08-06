@@ -21,7 +21,12 @@ export interface SharedEntry {
   builtin: boolean
 }
 
-export function Gallery({ projects, address }: { projects: ProjectsApi; address: string }) {
+export function Gallery({ projects, address, onNavigate }: {
+  projects: ProjectsApi
+  address: string
+  /** called once a fork has landed — the mobile drawer closes on it */
+  onNavigate?: () => void
+}) {
   const [entries, setEntries] = useState<SharedEntry[]>([])
   const [publishing, setPublishing] = useState(false)
   const [description, setDescription] = useState('')
@@ -43,6 +48,7 @@ export function Gallery({ projects, address }: { projects: ProjectsApi; address:
       const name = uniqueName(entry.name, projects.list.map(p => p.name))
       await projects.create(name, d.files || {})
       toast.success(`Forked ${entry.name} → ${name}`)
+      onNavigate?.()
     } catch (e: any) {
       toast.error(e?.message || 'could not fork that project')
     } finally {

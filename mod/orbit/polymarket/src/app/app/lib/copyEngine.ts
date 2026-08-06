@@ -17,6 +17,8 @@ import {
   POLYMARKET_MIN_USD,
   POLYMARKET_MIN_SHARES,
   successProbability,
+  copyRatioFor,
+  type SizingModel,
 } from "./strats/strat";
 import { marketMatchesQuery } from "./marketQuery";
 import { tradeMatchesFilters } from "./tradeFilters";
@@ -113,6 +115,12 @@ export interface CopyEngineState {
       breakdown next to each trader and observed trade. Keyed by lowercased
       address. Refreshed every ROI_REFRESH_MS (30min) in the background. */
   traderRoiStats: Record<string, TraderRoiStats>;
+  /** Why the leader flow the engine DID see never became orders, keyed by
+      gate ("price", "market query", "resolves too soon", …) over the last
+      30 minutes. Backend-only (live_engine.rs `gated_recently`); the
+      in-browser engine leaves it unset. LivePanel turns it into the
+      "nothing is being copied because…" banner. */
+  gatedRecently?: Record<string, { count: number; lastAt: number }>;
 }
 
 export interface CopyEngineConfig {
@@ -134,6 +142,18 @@ export interface CopyEngineConfig {
       so the live engine's sizing matches what the backtest preview shows.
       Defaults to 3 (the backtest default) when not provided. */
   backtestDays?: number;
+  /** What mirrors are sized proportionally to — see `copyRatioFor`.
+      "flow" divides by the capital the leader deployed in that window
+      instead of their net worth, which is what keeps a small account's
+      mirrors above the order floor. Undefined ⇒ "bankroll". */
+  sizing?: SizingModel;
+  /** "flow" only — allocation redeployments per window. Undefined ⇒ 1. */
+  turnover?: number;
+  /** Proportional-fidelity limit — how far a sub-floor mirror may be rounded
+      UP before it's refused as SUB_SCALE instead. Undefined ⇒ 2; 0/null ⇒ off
+      (place everything at the floor). Must reach the Strat or the SIZING →
+      UPSCALE field is a lie in this engine. */
+  maxUpscale?: number | null;
   /** Top-N sampling cap: per cycle, score every observed BUY candidate as
       `score = trader_sharpe_30d * trade_notional` and copy only the top N.
       The single most important fee-control knob — without it the engine
@@ -373,6 +393,7 @@ export class CopyEngine {
       tradeFilters: config.tradeFilters,
       filter: config.filter,
       momentum: config.momentum,
+      ...(config.maxUpscale !== undefined && { maxUpscale: config.maxUpscale }),
     });
     this.state = {
       status: "stopped",
@@ -1329,8 +1350,21 @@ export class CopyEngine {
             .filter((t) => t.side === "SELL")
             .reduce((s, t) => s + t.price * t.size, 0);
           const traderVol = Math.max(buyVol, sellVol, 1);
-          const capitalAlloc = this.config.capital * (trader.weight / totalWeight);
-          const copyRatio = capitalAlloc / traderVol;
+          const weightFraction = trader.weight / totalWeight;
+          const capitalAlloc = this.config.capital * weightFraction;
+          // Through `copyRatioFor` so this engine, the Rust one and the
+          // backtest all size off one function. No bankroll is cached here,
+          // so "bankroll" mode lands on its volume fallback — the ratio this
+          // line always computed — and "flow" adds the turnover multiplier.
+          const copyRatio = copyRatioFor(
+            this.config.capital,
+            weightFraction,
+            undefined,
+            capitalAlloc,
+            traderVol,
+            this.config.sizing,
+            this.config.turnover,
+          );
 
           // Feed this trader's full lookback window into the shared
           // history BEFORE any hook runs on their fills — strats can

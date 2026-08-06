@@ -25,6 +25,7 @@ import {
   DEFAULT_STOP_LOSS,
   DEFAULT_TAKE_PROFIT,
   DEFAULT_MAX_UPSCALE,
+  DEFAULT_TURNOVER,
   REBALANCE_MARGIN_PCT,
 } from "./strat";
 import type { TraderRoiStats, PolymarketPosition } from "../types";
@@ -156,15 +157,16 @@ console.log("\n── sizeAndPrice — happy path + slippage widening ──");
 console.log("\n── shouldMirror + propose defaults ──");
 {
   const s = new Strat();
-  // No explicit price band ⇒ BUYs face the likely-to-win default floor
-  // (DEFAULT_MIN_ENTRY_PRICE, 60¢); SELLs (exits) always pass.
-  check("default passes ≥60¢ BUY", s.shouldMirror(buildTrade({ price: 0.65 }), H) === true);
-  check("default blocks sub-60¢ BUY", s.shouldMirror(buildTrade(), H) === false); // 50¢
-  check("default never floors SELL", s.shouldMirror(buildTrade({ side: "SELL", price: 0.05 }), H) === true);
-  const optOut = new Strat({ tradeFilters: { minPrice: 0 } });
-  check("explicit minPrice:0 opts out of floor", optOut.shouldMirror(buildTrade(), H) === true);
+  // No price band ⇒ no price gate. There is no implicit floor in either
+  // language — a strat that sets nothing filters nothing.
+  check("no band passes a 65¢ BUY", s.shouldMirror(buildTrade({ price: 0.65 }), H) === true);
+  check("no band passes a 50¢ BUY", s.shouldMirror(buildTrade(), H) === true);
+  check("no band passes a SELL", s.shouldMirror(buildTrade({ side: "SELL", price: 0.05 }), H) === true);
+  const floored = new Strat({ tradeFilters: { minPrice: 0.6 } });
+  check("explicit minPrice floors below it", floored.shouldMirror(buildTrade(), H) === false);
+  check("explicit minPrice passes above it", floored.shouldMirror(buildTrade({ price: 0.65 }), H) === true);
   const longshots = new Strat({ tradeFilters: { maxPrice: 0.2 } });
-  check("explicit maxPrice band skips floor", longshots.shouldMirror(buildTrade({ price: 0.1 }), H) === true);
+  check("explicit maxPrice band passes cheap entries", longshots.shouldMirror(buildTrade({ price: 0.1 }), H) === true);
   check("pure mirror strat proposes nothing", s.propose(H, {} as SizeConstraints).length === 0);
   check("pure mirror strat: proposes() false", s.proposes() === false);
   const noMirror = new Strat({ mirror: false });
@@ -554,7 +556,10 @@ console.log("\n── Cross-language playbook parity (parity.fixture.json) ─�
   // languages agreeing on it IS the guarantee that a backtest predicts the
   // position sizes the live engine will actually take.
   for (const c of fx.copyRatioCases) {
-    const got = copyRatioFor(c.accountValue, c.weightFraction, c.leaderBankroll, c.capitalAlloc, c.traderVol);
+    const got = copyRatioFor(
+      c.accountValue, c.weightFraction, c.leaderBankroll, c.capitalAlloc, c.traderVol,
+      c.sizing ?? "bankroll", c.turnover ?? DEFAULT_TURNOVER,
+    );
     check(
       `copyRatio[${c.name}] — ${c.why}`,
       close(got, c.expected),

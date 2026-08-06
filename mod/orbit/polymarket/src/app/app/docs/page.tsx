@@ -529,6 +529,8 @@ export default function DocsPage() {
                     that distortion — default 2×. A mirror that would need more is skipped as
                     <span className="font-mono"> SUB_SCALE</span> rather than placed. Without it every sub-floor intent
                     becomes the same flat minimum, and a conviction bet and a throwaway punt copy identically.
+                    Set it in STRATS → SIZING → <span className="font-mono">UPSCALE</span>; ∞ (0) turns the cap off so
+                    every filtered trade is placed at the floor — the trade a small account makes to trade at all.
                   </td>
                 </tr>
                 <tr>

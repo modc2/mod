@@ -91,6 +91,26 @@ def main():
         page.wait_for_function('window.__nes !== undefined', timeout=10000)
         check('emulator loaded', True, page.evaluate('__nes.version'))
 
+        # The free-ROM shelf, if it has been fetched: the picker must list it
+        # and a click must actually boot the cartridge, not just light up.
+        shelf = page.evaluate("""
+            fetch('roms').then(r => r.json()).then(b => b.result || b)
+        """)
+        playable = [r for r in (shelf or []) if r.get('have')]
+        if not playable:
+            print(f'skip shelf: nothing downloaded — run m supermario/fetch_roms')
+        else:
+            page.wait_for_selector('#shelf-list .rom:not([disabled])', timeout=5000)
+            page.click('#shelf-list .rom:not([disabled])')
+            page.wait_for_function('__nes.info() !== null', timeout=10000)
+            shelf_info = page.evaluate('__nes.info()')
+            check('shelf ROM boots', shelf_info is not None,
+                  f'{playable[0]["title"]} → {shelf_info["board"]} '
+                  f'#{shelf_info["mapper"]}')
+            page.wait_for_timeout(800)
+            check('shelf ROM draws', page.evaluate('__nes.colors()') > 1,
+                  f'{page.evaluate("__nes.colors()")} distinct colours')
+
         # Load through the real file input, so the drop/pick path is what runs.
         page.set_input_files('#file', str(rom))
         page.wait_for_function('__nes.info() !== null', timeout=10000)

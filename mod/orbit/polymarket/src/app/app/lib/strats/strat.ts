@@ -41,7 +41,7 @@
 // → execute) for users who author strats in Python.
 
 import { PolymarketTrade, PolymarketPosition, TraderRoiStats, IndexTrader } from "../types";
-import type { TradeFilters, MomentumParams, TraderFilter, TraderMetric } from "../types";
+import type { TradeFilters, MomentumParams, TraderFilter, TraderMetric, SizingModel } from "../types";
 import { marketMatchesQuery } from "../marketQuery";
 import { tradeMatchesFilters, describeTradeFilters } from "../tradeFilters";
 
@@ -216,6 +216,11 @@ export interface StratParams {
       AND-ed with the two filters above. Absent ⇒ every watched trader is
       copied. See `TraderFilter` (types.ts) and `topTraders` below. */
   filter?: TraderFilter;
+  /** Don't mirror a BUY in a market resolving sooner than this many minutes.
+      Mirror of `EngineConfig::min_minutes_to_close` — the live engine dates
+      the market from gamma, the backtest from the trade itself (see
+      `minutesToCloseFromTrade`). Undefined ⇒ 60; explicit 0 ⇒ off. */
+  minMinutesToClose?: number;
   /** false = never mirror individual upstream trades (origination only).
       Default true. */
   mirror?: boolean;
@@ -230,6 +235,18 @@ export interface StratParams {
       0 / null ⇒ legacy clamp-to-floor with no limit (how the strat used to
       turn every $0.20 intent into an identical $5 order). */
   maxUpscale?: number | null;
+  /** What mirrors are sized proportionally to — see `copyRatioFor`.
+      "bankroll" (default) copies the leader's RISK: the fraction of net worth
+      they staked. "flow" copies their CONVICTION: our allocation split across
+      the capital they deployed this window, which is what keeps a small
+      account's mirrors above the order floor instead of SUB_SCALE-skipped. */
+  sizing?: SizingModel;
+  /** `sizing: "flow"` only — how many times our allocation may be deployed
+      across one lookback window of leader flow. 1 (default) ⇒ the window's
+      mirrors sum to roughly the allocation; 2 ⇒ twice that, for strats whose
+      filters keep only a slice of the flow and would otherwise leave most of
+      the capital idle. */
+  turnover?: number;
   /** Opt-in flow-momentum origination — see FlowParams. Absent = pure
       mirror strat, `propose` returns []. */
   flow?: FlowParams;
@@ -301,8 +318,20 @@ export class Strat {
     if (trade.side === "SELL") return true;
     return (
       tradeMatchesFilters(trade, this.params.tradeFilters ?? {}) &&
+      this.resolvesLateEnough(trade) &&
       this.traderPassesFilter(trade.trader, history)
     );
+  }
+
+  /** The time-to-resolution gate (hook 2, gate 5) — the backtest half of
+      live_engine.rs's TOO_SOON skip. Without this a hub card happily counts
+      trades in 5-minute Up/Down candles that a live session then refuses
+      one-for-one, which is how a strat can backtest busy and trade nothing. */
+  private resolvesLateEnough(trade: TraderTrade): boolean {
+    const min = this.params.minMinutesToClose ?? DEFAULT_MIN_MINUTES_TO_CLOSE;
+    if (!(min > 0)) return true;
+    const left = minutesToCloseFromTrade(trade);
+    return left === null || left >= min; // undatable ⇒ allow, exactly like live
   }
 
   /** Why `shouldMirror` said no — logging only, so a skipped trade explains
@@ -315,8 +344,13 @@ export class Strat {
     }
     if (trade.side === "SELL") return "";
     if (!tradeMatchesFilters(trade, this.params.tradeFilters ?? {})) {
-      const desc = describeTradeFilters(this.params.tradeFilters) || "favorites-only default (≥60¢ BUYs)";
+      const desc = describeTradeFilters(this.params.tradeFilters) || "no filters — every trade";
       return `trade filter · ${desc}`;
+    }
+    if (!this.resolvesLateEnough(trade)) {
+      const left = minutesToCloseFromTrade(trade) ?? 0;
+      const min = this.params.minMinutesToClose ?? DEFAULT_MIN_MINUTES_TO_CLOSE;
+      return `TOO_SOON · resolves in ${left.toFixed(0)}m (min ${min}m) — short-dated flow is HFT turf`;
     }
     if (!this.traderPassesFilter(trade.trader, history)) {
       const row = this.ranking(history).find((r) => r.address === trade.trader.toLowerCase());
@@ -554,7 +588,7 @@ export class Strat {
     const exitDrop = (mo.exitDropCents ?? mo.minRiseCents ?? 5) / 100;
     // Entry floor defaults to the favorite side (≥50¢): momentum rides a
     // leader crossing toward resolution, not sub-50¢ longshots — same
-    // likely-to-win bias as the copy path's DEFAULT_MIN_ENTRY_PRICE. An
+    // likely-to-win bias, stated here as this strategy's own default. An
     // explicit `mo.minPrice` (e.g. 0.15) opts back into cheaper entries.
     const minPrice = mo.minPrice ?? 0.5;
     const maxPrice = mo.maxPrice ?? 0.85;
@@ -748,6 +782,69 @@ export function candleSlug(prefix: string, periodMinutes: number, nowMs: number)
   return `${prefix}-${Math.floor(nowMs / 1000 / period) * period}`;
 }
 
+/** Default time-to-resolution floor for MIRRORS, in minutes. Mirror of
+    live_engine.rs `default_copy_min_minutes_to_close` — 60 excludes the
+    5m/15m/hourly candle games and keeps every ordinary market. */
+export const DEFAULT_MIN_MINUTES_TO_CLOSE = 60;
+
+/** How long a trade's market had left to run when it was placed, in minutes
+    — or null when the trade carries nothing to date it by.
+
+    The live engine reads the exact end date from gamma (`resolve_market_meta`).
+    A backtest has only the leader's activity row, so this reads the two things
+    that row DOES carry:
+
+      1. the candle slug — `<prefix>-<period>m-<start unix>`, whose end is
+         `start + period` to the second. EXACT, and it covers the entire lane
+         the gate exists for (BTC/ETH Up-or-Down candles).
+      2. the title's intraday window — "… August 5, 5:45PM-5:50PM ET". Also a
+         candle, just one whose slug we didn't recognize; dated to the minute
+         from the closing bound.
+
+    Anything else returns null = "not datable" and, like the live engine's
+    unknown-end-date case, is never blocked on. Deliberately conservative:
+    this may only ever identify a market as SHORT-dated, never as long. */
+export function minutesToCloseFromTrade(
+  trade: Pick<PolymarketTrade, "market" | "slug" | "timestamp">,
+): number | null {
+  const endMs = candleEndMs(trade.slug, trade.market, trade.timestamp);
+  if (endMs === null) return null;
+  return (endMs - trade.timestamp) / 60_000;
+}
+
+/** End of the recurring candle a slug/title names (ms epoch), or null. */
+function candleEndMs(slug: string | undefined, title: string, atMs: number): number | null {
+  // "btc-updown-5m-1785966300" → 5-minute candle starting at that epoch.
+  const m = slug?.match(/-(\d+)m-(\d{9,10})$/);
+  if (m) {
+    const periodMin = Number(m[1]);
+    const startSec = Number(m[2]);
+    if (periodMin > 0 && startSec > 0) return (startSec + periodMin * 60) * 1000;
+  }
+  // "… - August 5, 5:45PM-5:50PM ET" → dated by the closing bound. Only the
+  // TIME is parsed; the date comes from the trade itself, which is inside the
+  // candle by construction (you can't trade a market that already resolved).
+  const t = title.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*[-–—]\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*ET/i);
+  if (!t) return null;
+  const hour12 = Number(t[4]);
+  const min = Number(t[5] ?? 0);
+  const pm = t[6].toUpperCase() === "PM";
+  const hour24 = (hour12 % 12) + (pm ? 12 : 0);
+  // ET is UTC−4 (EDT) / UTC−5 (EST). Using EDT year-round moves the boundary
+  // by at most an hour, which cannot flip a sub-hour candle into a long-dated
+  // market — the only distinction this function is allowed to make.
+  const at = new Date(atMs);
+  const end = Date.UTC(
+    at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate(),
+    hour24 + 4, min, 0, 0,
+  );
+  // The window may straddle midnight UTC either way — pick the reading that
+  // puts the close AFTER the trade, within a day.
+  if (end < atMs) return end + 86400_000;
+  if (end - atMs > 86400_000) return end - 86400_000;
+  return end;
+}
+
 /** CLOB hard floors. The matcher rejects any order below either:
     - $1 notional ("Invalid order payload" generic), or
     - 5 shares ("Size (N) lower than the minimum: 5").
@@ -809,14 +906,35 @@ export function statsFromReturns(returns: number[]): {
     `leaderBankroll` = their positions' mark value + free USDC. Unknown (or
     under $1, which is noise rather than a denominator) falls back to the
     volume model — a rough ratio beats not copying, and `sizeAndPrice`'s
-    SUB_SCALE gate still stops it from placing wildly out-of-scale orders. */
+    SUB_SCALE gate still stops it from placing wildly out-of-scale orders.
+
+    `sizing: "flow"` swaps the denominator from the leader's NET WORTH to the
+    capital they actually deployed in the window (`traderVol`), so our capital
+    is split across their flow in proportion to what each trade was worth to
+    THEM. The bankroll model is the honest risk mirror, but it is unusable on a
+    small account: a $223 strat copying a $200k leader gets a ratio near 1e-4,
+    every proportional mirror lands cents under the $3.45 CLOB floor, and
+    SUB_SCALE skips the trades the FILTER just worked to select. The flow model
+    divides by the few thousand dollars the leader moved this window instead of
+    their whole balance sheet, which is 1–2 orders of magnitude smaller — the
+    same relative ordering (a $10k conviction entry still copies 100× a $100
+    punt), sized so it clears the floor. `turnover` is how many times over the
+    window we're willing to redeploy: 1 ⇒ the mirrors sum to roughly our
+    allocation. The trade-off is explicit — in flow mode we no longer risk the
+    same FRACTION of net worth the leader did, we track their relative
+    conviction, which is the only thing a small account can actually express. */
 export function copyRatioFor(
   accountValue: number,
   weightFraction: number,
   leaderBankroll: number | null | undefined,
   capitalAlloc: number,
   traderVol: number,
+  sizing: SizingModel = "bankroll",
+  turnover: number = DEFAULT_TURNOVER,
 ): number {
+  if (sizing === "flow") {
+    return (capitalAlloc * Math.max(turnover, 0)) / Math.max(traderVol, 1);
+  }
   if (typeof leaderBankroll === "number" && leaderBankroll >= 1 && accountValue > 0) {
     return (accountValue * weightFraction) / leaderBankroll;
   }
@@ -957,6 +1075,10 @@ function fmtScore(v: number): string {
     nothing. See `StratParams.maxUpscale`. */
 export const DEFAULT_MAX_UPSCALE = 2;
 
+/** Default `flow` turnover (live_engine.rs `default_turnover`): our capital
+    is deployed across one window's worth of leader flow. */
+export const DEFAULT_TURNOVER = 1;
+
 /** Probability-of-success for a candidate copied from this trader. Missing
     or pre-upgrade cached stats (no `successProb` field) read as the neutral
     0.5 prior rather than 0 — a trade must never be zeroed out by a stale
@@ -1013,6 +1135,6 @@ export const REBALANCE_MARGIN_PCT = 0.2;
 
 // Re-exports so a strat consumer only has to `import from "./strat"`.
 export type { PolymarketTrade, PolymarketPosition, TraderRoiStats, IndexTrader };
-export type { TradeFilters, MomentumParams, TraderFilter, TraderMetric } from "../types";
+export type { TradeFilters, MomentumParams, TraderFilter, TraderMetric, SizingModel } from "../types";
 export { marketMatchesQuery } from "../marketQuery";
 export { tradeMatchesFilters, tradeFiltersActive, describeTradeFilters } from "../tradeFilters";

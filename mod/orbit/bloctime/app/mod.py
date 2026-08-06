@@ -1,9 +1,11 @@
 """
 BlocTime App — the Next.js console for BlocTime time-weighted staking.
 
-Represents the frontend shown at http://localhost:8852: dark mono terminal-style
-UI with a STAKE / REWARDS tab bar, wallet connect, stake form with live
-multiplier preview, position table, delegation, and reward claim/distribute.
+Represents the frontend shown at http://localhost:8852: a skinnable console —
+STAKE / REWARDS / MARKET / DEPLOY / BRIDGE / CONTRACTS — with wallet connect, a
+stake form with live multiplier preview, position table, delegation, and reward
+claim/distribute. Eleven skins ship in src/app/globals.css; the header SKIN
+picker swaps [data-theme] on <html> and nothing else.
 
 Usage:
   m.fn('bloctime/app')()            # info: identity, urls, running state
@@ -77,7 +79,7 @@ class Mod:
                 'tailwindcss': pkg.get('devDependencies', {}).get('tailwindcss'),
             },
             'pages': ['/'],
-            'tabs': ['stake', 'rewards'],
+            'tabs': ['stake', 'rewards', 'market', 'deploy', 'bridge', 'contracts'],
             'source': str(DIR / 'src' / 'app' / 'page.tsx'),
         }
 
@@ -85,23 +87,36 @@ class Mod:
         """Declarative map of the app's UI, mirroring src/app/page.tsx."""
         return {
             'theme': {
-                'background': '#0a0a0f',
-                'font': 'monospace',
-                'style': 'dark terminal panels — white/10 borders, uppercase tracking-wider labels',
-                'accents': {'cyan': 'bloctime/actions', 'amber': 'staked/inflation',
-                            'emerald': 'rewards/unlocked', 'violet': 'network/voting'},
+                'system': 'role tokens in src/app/globals.css — every colour is a '
+                          '`r g b` CSS var consumed by tailwind.config.ts, so a '
+                          '[data-theme] block repaints the console with no JSX edits',
+                'roles': {'accent': 'bloctime/actions', 'gold': 'staked/inflation',
+                          'up': 'rewards/unlocked', 'iris': 'network/voting',
+                          'down': 'errors/undelegate'},
+                'type_steps': ['ink', 'ink2', 'mute', 'faint'],
+                'skins': ['midnight (default)', 'slate', 'vault', 'terminal', 'amber',
+                          'neon', 'blueprint', 'pixel', 'paper', 'mint', 'solar'],
+                'picker': 'header SKIN menu (src/app/ThemePicker.tsx); choice persists '
+                          'in localStorage["bloctime_theme"] and is replayed before '
+                          'first paint by ThemeBoot',
             },
             'header': {
                 'title': 'BLOCTIME',
                 'subtitle': 'TIME-WEIGHTED STAKING',
                 'icon': 'clock',
-                'actions': ['connect (MetaMask via ethers BrowserProvider)', 'refresh'],
+                'sticky': True,
+                'actions': ['network picker', 'connect (MetaMask via ethers BrowserProvider)',
+                            'refresh', 'skin picker'],
             },
             'tabs': {
                 'stake': {
-                    'multiplier_curve': 'bar chart of lock-blocks → multiplier (GET /points)',
+                    'multiplier_curve': 'SVG area chart of lock-blocks → multiplier '
+                                        '(GET /points, sampled via POST /get_multiplier '
+                                        'when the deployed contract predates getPoints), '
+                                        'marked at the current lock length',
                     'stake_form': {
-                        'inputs': ['amount (NTV)', 'lock blocks (default 10000)'],
+                        'inputs': ['amount (NTV)', 'lock blocks (default 10000)',
+                                   'quick-pick buttons per curve point'],
                         'preview': 'interpolated multiplier (e.g. 1.00x) + projected BT',
                         'action': 'POST /stake',
                     },
@@ -113,10 +128,19 @@ class Mod:
                 },
                 'rewards': {
                     'epoch_stats': ['current epoch', 'epoch reward', 'your pending', 'total distributed'],
+                    'weekly_pot': 'in the pot / next payout countdown / your share, '
+                                  'fund + distribute (POST /fund_pot, /distribute_rewards)',
                     'inflation_curve': 'SVG chart w/ halving markers + current-epoch line (GET /get_inflation_curve)',
                     'delegation': {'inputs': ['delegate address'], 'actions': ['POST /delegate', 'POST /undelegate']},
                     'claim': {'actions': ['POST /claim_rewards', 'POST /distribute_rewards']},
                 },
+                'market': 'registry of deployed BlocTime instances — USE one to point '
+                          'the whole console at it (reads via its RPC, writes via wallet)',
+                'deploy': 'deploy your own NativeToken + BlocTime pair from your wallet, '
+                          'fork the module, or compile and deploy any Solidity source',
+                'bridge': 'check + claim a snapshot allocation on the bridge module',
+                'contracts': 'ABI playground — read/write every function on the module '
+                             'contracts and anything deployed from here',
             },
             'stats_bars': {
                 'global': ['total stakes', 'total bloctime', 'bt supply', 'network'],

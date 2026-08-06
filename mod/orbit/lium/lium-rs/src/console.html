@@ -6,105 +6,155 @@
 <title>lium — bittensor SN51 GPU marketplace</title>
 <style>
 :root{
-  --bg:#05070c; --panel:rgba(255,255,255,.035); --line:rgba(255,255,255,.09);
-  --text:#dde5f2; --dim:#7c8ba3; --acc:#4fd1c5; --acc2:#9d7bff; --warn:#f6c177; --err:#ff6b81; --ok:#3ddc97;
+  --bg:#070a10; --panel:rgba(255,255,255,.035); --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.05);
+  --text:#e6edf7; --dim:#8494ad; --acc:#5eead4; --acc2:#a78bfa; --warn:#f6c177; --err:#ff6b81; --ok:#3ddc97;
   --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --ink:#04140f;
 }
 *{box-sizing:border-box;margin:0}
-body{background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,'Inter',system-ui,sans-serif;min-height:100vh}
+body{background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,'Inter',system-ui,sans-serif;min-height:100vh;
+  -webkit-font-smoothing:antialiased}
 body::before{content:'';position:fixed;inset:0;pointer-events:none;
-  background:radial-gradient(760px 420px at 12% -8%,rgba(79,209,197,.13),transparent 60%),
-             radial-gradient(620px 400px at 96% 0%,rgba(157,123,255,.10),transparent 55%)}
-.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 70px;position:relative}
-header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-h1{font-size:21px;letter-spacing:.4px}
-h1 b{color:var(--acc)}
-.tag{font:11px var(--mono);color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:2px 10px}
-.tag.on{color:var(--ok);border-color:rgba(61,220,151,.35)}
-.tag.off{color:var(--err);border-color:rgba(255,107,129,.35)}
-.sub{color:var(--dim);margin:6px 0 18px;font-size:13px}
-.keyrow{display:flex;gap:8px;margin-left:auto;align-items:center}
-.keyrow input{width:250px}
+  background:radial-gradient(900px 480px at 10% -12%,rgba(94,234,212,.11),transparent 62%),
+             radial-gradient(700px 440px at 98% -4%,rgba(167,139,250,.09),transparent 58%)}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:99px}
+::-webkit-scrollbar-thumb:hover{background:rgba(94,234,212,.35)}
+::selection{background:rgba(94,234,212,.25)}
+.wrap{max-width:1200px;margin:0 auto;padding:0 22px 80px;position:relative}
 
-/* tab bar — hover tells you what each one is for */
-nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;position:relative}
-nav button{background:var(--panel);border:1px solid var(--line);color:var(--dim);border-radius:11px;
-  padding:9px 18px;font:600 12px/1 var(--mono);letter-spacing:1.5px;cursor:pointer;position:relative}
-nav button:hover{color:var(--text);border-color:rgba(79,209,197,.4)}
-nav button.on{color:#04121a;background:linear-gradient(135deg,var(--acc),#35b5ab);border-color:transparent}
-nav button[data-tip]:hover::after{content:attr(data-tip);position:absolute;top:calc(100% + 8px);left:0;white-space:nowrap;
-  background:#141a24;border:1px solid var(--line);border-radius:9px;padding:7px 12px;font:12px/1 -apple-system,system-ui,sans-serif;
-  letter-spacing:0;color:var(--text);z-index:9;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+/* top bar — brand and status on one line, key controls pinned right */
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:20px 0 18px;margin-bottom:22px;
+  border-bottom:1px solid var(--line)}
+h1{font-size:20px;letter-spacing:.2px;font-weight:650;display:flex;align-items:center;gap:9px;white-space:nowrap}
+h1 .mark{color:var(--acc);font-size:17px;opacity:.9}
+h1 b{color:var(--acc);font-weight:650}
+h1 .sep{color:var(--line);font-weight:300}
+.tags{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.tag{font:11px/1.6 var(--mono);color:var(--dim);background:rgba(255,255,255,.03);border:1px solid var(--line);
+  border-radius:99px;padding:2px 11px;white-space:nowrap}
+.tag.on{color:var(--ok);border-color:rgba(61,220,151,.3);background:rgba(61,220,151,.07)}
+.tag.off{color:var(--err);border-color:rgba(255,107,129,.3);background:rgba(255,107,129,.07)}
+.keyrow{display:flex;gap:7px;margin-left:auto;align-items:center}
+.keyrow input{width:232px}
+.lede{color:var(--dim);margin:-4px 0 20px;font-size:13.5px;max-width:74ch}
+.lede b{color:var(--text);font-weight:600}
+.lede code{font:12.5px var(--mono);color:var(--acc)}
 
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;backdrop-filter:blur(8px);margin-bottom:14px}
-.card h2{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);margin-bottom:12px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
-.stat{border:1px solid var(--line);border-radius:11px;padding:10px 12px;background:rgba(0,0,0,.25)}
-.stat .v{font:600 19px var(--mono);color:var(--acc)}
-.stat .l{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-top:2px}
+/* tab bar — one segmented control; hover tells you what each one is for */
+nav{display:inline-flex;gap:3px;flex-wrap:wrap;margin-bottom:18px;padding:4px;
+  background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:13px}
+nav button{background:transparent;border:0;color:var(--dim);border-radius:9px;
+  padding:8px 17px;font:600 11.5px/1 var(--mono);letter-spacing:1.4px;cursor:pointer;position:relative;
+  transition:color .12s,background .12s}
+nav button:hover{color:var(--text);background:rgba(255,255,255,.05)}
+nav button.on{color:var(--ink);background:linear-gradient(135deg,var(--acc),#2dd4bf);box-shadow:0 2px 12px rgba(94,234,212,.22)}
+nav button[data-tip]:hover::after{content:attr(data-tip);position:absolute;top:calc(100% + 10px);left:0;white-space:nowrap;
+  background:#111823;border:1px solid var(--line);border-radius:9px;padding:7px 12px;font:12px/1 -apple-system,system-ui,sans-serif;
+  letter-spacing:0;color:var(--text);z-index:9;box-shadow:0 10px 28px rgba(0,0,0,.55)}
 
-table{width:100%;border-collapse:collapse;font:12px var(--mono)}
-th{text-align:left;color:var(--dim);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line);
-  text-transform:uppercase;letter-spacing:.8px;font-size:10.5px;white-space:nowrap}
-td{padding:7px 8px;border-bottom:1px dashed rgba(255,255,255,.05);white-space:nowrap}
-tbody tr:hover{background:rgba(79,209,197,.05)}
-.scroll{overflow:auto;max-height:520px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:17px 19px;backdrop-filter:blur(8px);
+  margin-bottom:14px;box-shadow:0 1px 0 rgba(255,255,255,.03) inset}
+.ch{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:13px;flex-wrap:wrap}
+.ch .hint{margin:0}
+.card h2{font-size:10.5px;text-transform:uppercase;letter-spacing:1.6px;color:var(--dim);font-weight:600;margin-bottom:13px}
+.ch h2{margin:0}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stat{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:rgba(0,0,0,.22)}
+.stat .v{font:600 20px/1.2 var(--mono);color:var(--acc);font-variant-numeric:tabular-nums}
+.stat .l{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:1.1px;margin-top:4px}
+
+table{width:100%;border-collapse:collapse;font:12px var(--mono);font-variant-numeric:tabular-nums}
+th{text-align:left;color:var(--dim);font-weight:500;padding:0 10px 8px;border-bottom:1px solid var(--line);
+  text-transform:uppercase;letter-spacing:.9px;font-size:10px;white-space:nowrap;
+  position:sticky;top:0;background:#0b0f16;z-index:1}
+td{padding:8px 10px;border-bottom:1px solid var(--line2);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:rgba(94,234,212,.045)}
+/* market: counts and prices read as a column of numbers */
+#m_table th:nth-child(n+2):nth-child(-n+7),#m_table td:nth-child(n+2):nth-child(-n+7),
+#m_table th:nth-child(9),#m_table td:nth-child(9),
+#s_util th:nth-child(n+2):nth-child(-n+3),#s_util td:nth-child(n+2):nth-child(-n+3),
+#s_cap th:nth-child(n+3),#s_cap td:nth-child(n+3),
+#s_weights th:nth-child(-n+2),#s_weights td:nth-child(-n+2){text-align:right}
+#m_table td:last-child:not([colspan]),#p_table td:last-child:not([colspan]){text-align:right}
+/* long GPU names must not starve the columns that carry the numbers */
+#m_table td:first-child,#s_util td:first-child,#s_cap td:first-child{max-width:250px;overflow:hidden;text-overflow:ellipsis}
+#s_util th:last-child,#s_util td:last-child{width:150px}
+td[colspan]{text-align:center;color:var(--dim);padding:26px 10px}
+.scroll{overflow:auto;max-height:520px;margin:0 -4px;padding:0 4px}
 .num{color:var(--acc)}
 .mut{color:var(--dim)}
-.pill{font-size:10.5px;border:1px solid var(--line);border-radius:99px;padding:1px 8px;color:var(--dim)}
-.pill.ok{color:var(--ok);border-color:rgba(61,220,151,.3)}
-.pill.warn{color:var(--warn);border-color:rgba(246,193,119,.3)}
-.pill.err{color:var(--err);border-color:rgba(255,107,129,.3)}
+.pill{font:10.5px/1.7 var(--mono);border:1px solid var(--line);border-radius:99px;padding:1px 9px;color:var(--dim);
+  display:inline-block}
+.pill.ok{color:var(--ok);border-color:rgba(61,220,151,.28);background:rgba(61,220,151,.07)}
+.pill.warn{color:var(--warn);border-color:rgba(246,193,119,.28);background:rgba(246,193,119,.07)}
+.pill.err{color:var(--err);border-color:rgba(255,107,129,.28);background:rgba(255,107,129,.07)}
 
-input,select,textarea{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:9px;color:var(--text);
-  padding:8px 11px;font:12.5px var(--mono);outline:none;max-width:100%}
-input:focus,select:focus,textarea:focus{border-color:var(--acc)}
-textarea{width:100%;resize:vertical;min-height:80px}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
-label.f{display:flex;flex-direction:column;gap:4px;font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:1px}
-button.go{background:linear-gradient(135deg,var(--acc),#2fa89f);border:0;border-radius:9px;color:#04121a;padding:9px 18px;
-  font-weight:700;cursor:pointer;font-size:12.5px}
-button.go:hover{filter:brightness(1.1)}
+input,select,textarea{background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:9px;color:var(--text);
+  padding:8px 11px;font:12.5px var(--mono);outline:none;max-width:100%;width:100%;transition:border-color .12s,box-shadow .12s}
+input:hover,select:hover{border-color:rgba(255,255,255,.16)}
+input:focus,select:focus,textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(94,234,212,.1)}
+input::placeholder{color:#5c6a80}
+select{appearance:none;padding-right:28px;cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);
+  background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+textarea{resize:vertical;min-height:82px}
+.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:11px}
+.row>input,.row>select{width:auto}
+/* filter grid — every field the same height, on the same baseline */
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:11px 12px;align-items:end}
+.filters .go{height:35px;align-self:end}
+label.f{display:flex;flex-direction:column;gap:5px;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.1px;
+  min-width:0}
+button.go{background:linear-gradient(135deg,var(--acc),#2dd4bf);border:0;border-radius:9px;color:var(--ink);padding:9px 20px;
+  font-weight:700;cursor:pointer;font-size:12.5px;white-space:nowrap;transition:filter .12s,transform .06s}
+button.go:hover{filter:brightness(1.08)}
+button.go:active{transform:translateY(1px)}
 button.go:disabled{opacity:.5;cursor:wait}
-button.ghost{background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);border-radius:8px;
-  padding:5px 11px;font:11px var(--mono);cursor:pointer}
-button.ghost:hover{border-color:var(--acc);color:var(--acc)}
-button.danger:hover{border-color:var(--err);color:var(--err)}
-pre{background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:9px;padding:11px;font:11.5px var(--mono);
-  white-space:pre-wrap;word-break:break-word;max-height:380px;overflow:auto}
+button.ghost{background:rgba(255,255,255,.055);border:1px solid var(--line);color:var(--text);border-radius:8px;
+  padding:5px 11px;font:11px var(--mono);cursor:pointer;transition:border-color .12s,color .12s,background .12s}
+button.ghost:hover{border-color:var(--acc);color:var(--acc);background:rgba(94,234,212,.08)}
+button.danger:hover{border-color:var(--err);color:var(--err);background:rgba(255,107,129,.08)}
+td .ghost+.ghost{margin-left:5px}
+pre{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:10px;padding:12px;font:11.5px/1.6 var(--mono);
+  white-space:pre-wrap;word-break:break-word;max-height:380px;overflow:auto;color:var(--dim)}
 .ok{color:var(--ok)} .bad{color:var(--err)}
 .hint{font-size:11.5px;color:var(--dim);font-family:var(--mono);margin-top:8px}
-.bw{display:flex;align-items:center;gap:7px}
-.bar{height:5px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;flex:1;min-width:60px}
-.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2))}
-.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
-@media(max-width:900px){.split{grid-template-columns:1fr}}
-.eplist{max-height:430px;overflow:auto;font:11.5px var(--mono)}
-.ep{display:flex;gap:8px;align-items:baseline;padding:5px 7px;border-radius:7px;cursor:pointer;overflow:hidden}
+.bw{display:flex;align-items:center;gap:8px}
+.bar{height:5px;background:rgba(255,255,255,.07);border-radius:99px;overflow:hidden;flex:1;min-width:60px}
+.bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--acc),var(--acc2))}
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+@media(max-width:900px){.split{grid-template-columns:1fr}.keyrow{margin-left:0;width:100%}.keyrow input{flex:1;width:auto}}
+.eplist{max-height:430px;overflow:auto;font:11.5px var(--mono);margin:0 -6px}
+.ep{display:flex;gap:9px;align-items:baseline;padding:6px 8px;border-radius:8px;cursor:pointer;overflow:hidden}
 .ep .p{white-space:nowrap;flex:none}
-.ep:hover{background:rgba(79,209,197,.08)}
+.ep:hover{background:rgba(94,234,212,.07)}
 .ep .m{color:var(--acc2);width:52px;flex:none}
 .ep .s{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .log{font:11px var(--mono);max-height:220px;overflow:auto}
-.log div{padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.05);color:var(--dim)}
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:20;padding:20px}
+.log div{padding:4px 2px;border-bottom:1px solid var(--line2);color:var(--dim)}
+.log div:last-child{border-bottom:0}
+.modal{position:fixed;inset:0;background:rgba(4,6,10,.72);backdrop-filter:blur(3px);display:none;align-items:center;
+  justify-content:center;z-index:20;padding:20px}
 .modal.on{display:flex}
-.modal .card{max-width:520px;width:100%;margin:0;background:#0b1017}
+.modal .card{max-width:540px;width:100%;margin:0;background:#0c1119;box-shadow:0 24px 70px rgba(0,0,0,.6)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>◈ lium <b>· rust mcp</b></h1>
-    <span class="tag" id="netuid">netuid 51</span>
-    <span class="tag" id="up">…</span>
+    <h1><span class="mark">◈</span> lium <span class="sep">/</span> <b>rust mcp</b></h1>
+    <div class="tags">
+      <span class="tag" id="netuid">netuid 51</span>
+      <span class="tag" id="up">…</span>
+    </div>
     <div class="keyrow">
-      <input id="key" type="password" placeholder="Lium API key (this tab only)">
+      <input id="key" type="password" placeholder="Lium API key — this tab only">
       <button class="ghost" id="savekey">use key</button>
     </div>
   </header>
-  <p class="sub">Rent GPUs from <b>Bittensor subnet 51</b> — every panel below is a JSON-RPC <span style="font-family:var(--mono)">tools/call</span> against this Rust MCP server, which speaks the Lium platform API upstream.</p>
+  <p class="lede">Rent GPUs from <b>Bittensor subnet 51</b>. Every panel below is a JSON-RPC <code>tools/call</code> against this Rust MCP server, which speaks the Lium platform API upstream.</p>
 
   <nav>
     <button class="on" data-tab="market" data-tip="Marketplace — every node on the subnet, filter and rent">MARKET</button>
@@ -117,22 +167,21 @@ pre{background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:9px;pa
   <!-- ── MARKET ─────────────────────────────────────────── -->
   <section id="tab-market">
     <div class="card">
-      <h2>Filter nodes</h2>
-      <div class="row">
-        <label class="f">gpu<input id="f_gpu" placeholder="H200, 4090…" size="10"></label>
-        <label class="f">max $/gpu-hr<input id="f_price" type="number" step="0.01" size="6" style="width:110px"></label>
-        <label class="f">min gpus<input id="f_min" type="number" size="4" style="width:90px"></label>
-        <label class="f">country<input id="f_country" placeholder="US" size="6" style="width:100px"></label>
+      <div class="ch"><h2>Filter nodes</h2><span id="m_count" class="hint">—</span></div>
+      <div class="filters">
+        <label class="f">gpu<input id="f_gpu" placeholder="H200, 4090…"></label>
+        <label class="f">max $/gpu-hr<input id="f_price" type="number" step="0.01" placeholder="any"></label>
+        <label class="f">min gpus<input id="f_min" type="number" placeholder="any"></label>
+        <label class="f">country<input id="f_country" placeholder="US"></label>
         <label class="f">sort<select id="f_sort">
           <option value="price">price</option><option value="reliability">reliability</option>
           <option value="gpu_count">gpu count</option><option value="vram">vram</option><option value="uptime">uptime</option>
         </select></label>
-        <label class="f">limit<input id="f_limit" type="number" value="40" style="width:80px"></label>
         <label class="f">free now<select id="f_avail"><option value="false">any</option><option value="true">available</option></select></label>
-        <button class="go" id="f_go" style="margin-top:14px">search</button>
+        <label class="f">limit<input id="f_limit" type="number" value="40"></label>
+        <button class="go" id="f_go">search</button>
       </div>
-      <div id="m_count" class="hint">—</div>
-      <div class="scroll"><table id="m_table">
+      <div class="scroll" style="margin-top:15px"><table id="m_table">
         <thead><tr><th>gpu</th><th>n</th><th>free</th><th>$/gpu-hr</th><th>$/hr</th><th>vram</th><th>ram</th><th>tier</th><th>rel</th><th>location</th><th>provider</th><th></th></tr></thead>
         <tbody><tr><td colspan="12" class="mut">loading…</td></tr></tbody>
       </table></div>
@@ -142,8 +191,11 @@ pre{background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:9px;pa
   <!-- ── PODS ───────────────────────────────────────────── -->
   <section id="tab-pods" hidden>
     <div class="card">
-      <h2>Your pods</h2>
-      <div class="row"><button class="go" id="p_refresh">refresh</button><span class="hint" id="p_note">needs an API key</span></div>
+      <div class="ch">
+        <h2>Your pods</h2>
+        <div class="row" style="margin:0"><span class="hint" id="p_note" style="margin:0">needs an API key</span>
+          <button class="ghost" id="p_refresh">refresh</button></div>
+      </div>
       <div class="scroll"><table id="p_table">
         <thead><tr><th>name</th><th>status</th><th>gpu</th><th>$/hr</th><th>ssh</th><th>created</th><th></th></tr></thead>
         <tbody><tr><td colspan="7" class="mut">—</td></tr></tbody>
@@ -285,6 +337,9 @@ async function tool(name, args = {}){
   }
 }
 const short = (s, n = 10) => (s ? String(s).slice(0, n) + '…' : '—');
+// Upstream every card is "NVIDIA GeForce RTX 4090" — the vendor is never what
+// you scan a column for, so tables show the model and keep the rest in a title.
+const gpuName = (s) => (s ? String(s).replace(/^NVIDIA\s+/i, '').replace(/^GeForce\s+/i, '') : '—');
 const money = (n) => (n === null || n === undefined ? '—' : '$' + Number(n).toFixed(n < 1 ? 3 : 2));
 
 // ── tabs ───────────────────────────────────────────────
@@ -334,7 +389,7 @@ async function loadMarket(){
     const r = await tool('executors', args);
     $('m_count').textContent = `${r.count} of ${r.listed} listed nodes`;
     tb.innerHTML = r.executors.map((e) => `<tr>
-      <td>${e.gpu || '—'}</td><td class="num">${e.gpu_count}</td>
+      <td title="${e.gpu || ''}">${gpuName(e.gpu)}</td><td class="num">${e.gpu_count}</td>
       <td class="${e.available_gpu_count ? 'num' : 'mut'}">${e.available_gpu_count}</td>
       <td class="num">${money(e.price_per_gpu_hr)}</td><td>${money(e.price_per_hr)}</td>
       <td>${e.vram_gb_per_gpu || '—'}G</td><td class="mut">${e.ram_gb || '—'}G</td>
@@ -360,7 +415,7 @@ async function openRent(node){
   RENT_NODE = node;
   $('rent').classList.add('on');
   $('r_out').textContent = KEY ? '—' : 'no API key set — add one in the header first';
-  $('r_node').innerHTML = `<b>${node.gpu}</b> ×${node.gpu_count} · ${money(node.price_per_gpu_hr)}/gpu-hr ·
+  $('r_node').innerHTML = `<b>${gpuName(node.gpu)}</b> ×${node.gpu_count} · ${money(node.price_per_gpu_hr)}/gpu-hr ·
     ${money(node.price_per_hr)}/hr all-in · ${node.location} · <span class="mut">${node.id}</span>`;
   $('r_gpus').value = node.available_gpu_count || node.gpu_count;
   if (!TEMPLATES.length) {
@@ -397,7 +452,7 @@ async function loadPods(){
     tb.innerHTML = r.pods.map((p) => `<tr>
       <td>${p.name || '—'}</td>
       <td><span class="pill ${/RUNNING/i.test(p.status) ? 'ok' : /FAIL|ERROR/i.test(p.status) ? 'err' : 'warn'}">${p.status || '—'}</span></td>
-      <td class="mut">${p.gpu || '—'} ×${p.gpu_count ?? '?'}</td><td class="num">${money(p.price_per_hr)}</td>
+      <td class="mut" title="${p.gpu || ''}">${gpuName(p.gpu)} ×${p.gpu_count ?? '?'}</td><td class="num">${money(p.price_per_hr)}</td>
       <td class="mut" title="${p.ssh || ''}">${p.ssh ? p.ssh.slice(0, 34) + '…' : '—'}</td>
       <td class="mut">${(p.created_at || '').slice(0, 16).replace('T', ' ')}</td>
       <td>
@@ -433,19 +488,21 @@ async function loadSubnet(){
 
     $('s_util').querySelector('tbody').innerHTML = (s.utilization_by_gpu || [])
       .sort((a, b) => b.all_count - a.all_count)
-      .map((u) => `<tr><td>${u.gpu_type}</td><td class="num">${u.rented_count}</td><td>${u.all_count}</td>
-        <td><div class="bw"><div class="bar"><i style="width:${u.percentage}%"></i></div><span class="mut">${u.percentage}%</span></div></td></tr>`).join('');
+      .map((u) => `<tr><td title="${u.gpu_type}">${gpuName(u.gpu_type)}</td><td class="num">${u.rented_count}</td><td>${u.all_count}</td>
+        <td><div class="bw"><div class="bar"><i style="width:${u.percentage}%"></i></div>
+          <span class="mut" title="${u.percentage}%">${Math.round(u.percentage)}%</span></div></td></tr>`).join('');
 
     const w = s.weights || {};
     $('s_wmeta').innerHTML = `validator <span class="mut">${short(w.validator_key, 12)}</span> ·
       ${w.scored_uids} uids scored · version ${w.version_key ?? '—'}`;
     $('s_weights').querySelector('tbody').innerHTML = (w.top_uids || [])
       .map((u) => `<tr><td class="num">${u.uid}</td><td>${u.weight}</td>
-        <td><div class="bw"><div class="bar"><i style="width:${Math.min(100, u.share)}%"></i></div><span class="mut">${u.share}%</span></div></td></tr>`).join('');
+        <td><div class="bw"><div class="bar"><i style="width:${Math.min(100, u.share)}%"></i></div>
+          <span class="mut" title="${u.share}%">${Number(u.share).toFixed(1)}%</span></div></td></tr>`).join('');
 
     const caps = [];
     (s.capacity || []).forEach((c) => Object.entries(c.buckets || {}).forEach(([k, b]) =>
-      caps.push(`<tr><td>${c.base_model}</td><td class="mut">${k}×</td><td class="num">${b.unrented_count}</td>
+      caps.push(`<tr><td title="${c.base_model}">${gpuName(c.base_model)}</td><td class="mut">${k}×</td><td class="num">${b.unrented_count}</td>
         <td>${b.max_cap}</td><td>${money(b.hourly_rate)}</td></tr>`)));
     $('s_cap').querySelector('tbody').innerHTML = caps.join('');
   } catch (e) {

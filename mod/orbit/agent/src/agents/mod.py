@@ -43,7 +43,7 @@ except ImportError:  # running the registry standalone
 
 # shipped agents — host-owned; anyone else must clone them into a custom agent
 BUILTINS = {"default", "architect", "reviewer", "debugger", "builder", "refactorer",
-            "safety", "claude-code", "codex", "claude-mod"}
+            "safety", "claude-code", "codex", "claude-mod", "build-mod"}
 
 AGENT_TEMPLATE = '''"""{name} agent - {description}"""
 

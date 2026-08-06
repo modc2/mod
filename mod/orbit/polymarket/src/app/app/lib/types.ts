@@ -1,5 +1,11 @@
 // Polymarket 8-bit types
 
+/** What a mirror is sized proportionally TO — see `copyRatioFor` (strat.ts).
+    "bankroll" = the leader's net worth (risk fidelity, needs capital in their
+    league); "flow" = the capital they deployed in the window (conviction
+    fidelity, placeable on a small account). */
+export type SizingModel = "bankroll" | "flow";
+
 export interface PolymarketMarket {
   id: string;
   conditionId: string;
@@ -20,6 +26,11 @@ export interface PolymarketMarket {
 export interface PolymarketTrade {
   id: string;
   market: string;
+  /// Market slug from the activity row ("btc-updown-5m-1785966300"). Recurring
+  /// candle series encode their period + start here, which is the only thing
+  /// in a trade that dates the market it was placed in — see
+  /// `minutesToCloseFromTrade`. Absent on rows the data-api didn't slug.
+  slug?: string;
   conditionId: string;
   side: "BUY" | "SELL";
   price: number;
@@ -120,9 +131,8 @@ export interface TradeFilters {
   sides?: "buy" | "sell" | "both";
   /** Leader fill-price band (0–1 probability). e.g.
       {minPrice:0.01,maxPrice:0.2} = longshots only; {minPrice:0.8} =
-      favorites only. When BOTH ends are undefined, BUYs default to the
-      likely-to-win floor (`DEFAULT_MIN_ENTRY_PRICE`, 60¢) — set an explicit
-      band (even minPrice:0) to opt out. SELLs are never floored. */
+      favorites only. Undefined ends mean no gate on that end — there is no
+      implicit floor, so a strat that sets nothing copies the flow whole. */
   minPrice?: number;
   maxPrice?: number;
   /** Leader trade USD notional band (price × size). A conviction filter:
@@ -199,7 +209,7 @@ export interface MomentumParams {
   exitDropCents?: number;
   /** Entry price band — don't chase near-resolved (or dead) markets.
       Defaults 0.5 / 0.85: entries stick to the likely-to-win side by
-      default (same bias as DEFAULT_MIN_ENTRY_PRICE on the copy path);
+      default (momentum rides the favorite side; the copy path has no floor);
       set an explicit minPrice (e.g. 0.15) to allow cheaper entries. */
   minPrice?: number;
   maxPrice?: number;
@@ -296,6 +306,16 @@ export interface SavedIndex {
   // instead of all being placed at the same minimum. undefined ⇒ 2; explicit
   // 0/null ⇒ legacy unbounded clamp-to-floor.
   maxUpscale?: number | null;
+  // What mirrors are sized proportionally TO (see copyRatioFor).
+  // "bankroll" (default) copies the leader's RISK — the fraction of net worth
+  // they staked — and needs capital in their league to clear the order floor.
+  // "flow" copies their CONVICTION: our allocation split across the capital
+  // they deployed that window, so a $223 strat still places real orders on
+  // the trades its FILTER selected instead of SUB_SCALE-skipping them.
+  sizing?: SizingModel;
+  // "flow" only — how many times the allocation may be deployed across one
+  // window of leader flow. undefined ⇒ 1.
+  turnover?: number;
   // Don't mirror a leader BUY in a market resolving sooner than this many
   // minutes — sub-hour Up/Down candles resolve before a poller can react.
   // undefined ⇒ 60; explicit 0 ⇒ off.

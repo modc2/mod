@@ -9,7 +9,7 @@ import type { ExecutionLogEntry, ObservedTrade } from "../lib/copyEngine";
 import { fetchWalletTradesUntil } from "../lib/polymarket";
 import { getOwnerAddress } from "../lib/access";
 import { startLiveSession } from "../lib/liveSessions";
-import { DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES } from "../lib/strats/strat";
+import { DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES, DEFAULT_MIN_MINUTES_TO_CLOSE } from "../lib/strats/strat";
 import PortfolioPanel from "./PortfolioPanel";
 import PositionsHistoryPanel from "./PositionsHistoryPanel";
 
@@ -42,6 +42,28 @@ const LIVE_POLL_OPTIONS: { minutes: number; label: string }[] = [
 // BEFORE the engine silently widens the period.
 const INTER_REQUEST_DELAY_MS = 400;
 const TRADER_FETCH_ALLOWANCE_MS = 600;
+
+// Plain-language reading of each gate the engine can block an entry with,
+// plus what to change to unblock it. Keys are the reason strings
+// `trade_filter_reject` and the copy loop's skips emit — keep them in sync.
+const GATE_LABELS: Record<string, { name: string; fix: string }> = {
+  price: { name: "price band", fix: "these entries fall outside the MIN/MAX PRICE your strat set — clear it to copy the flow whole." },
+  size: { name: "size band", fix: "the leader's stake falls outside your MIN/MAX NOTIONAL." },
+  side: { name: "side filter", fix: "your strat only mirrors one side of the book." },
+  category: { name: "category filter", fix: "the market isn't in any category you selected." },
+  "market query": {
+    name: "keyword filter",
+    fix: "the market title doesn't match your KEYWORDS — widen or clear them.",
+  },
+  "resolves too soon": {
+    name: "time-to-close gate",
+    fix: "the market resolves inside your MIN TIME TO CLOSE window; short-dated Up/Down candles are HFT turf and cost this console $253 the last time they were copied.",
+  },
+  stale: {
+    name: "trade age gate",
+    fix: "the leader traded longer ago than MAX TRADE AGE, so the price has already moved.",
+  },
+};
 
 // The cadence the engine will actually run at for `traderCount` traders —
 // same rule as `effective_interval_for` in the Rust engine. A watchlist whose
@@ -163,7 +185,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   onTabChange?: (t: LiveTab) => void;
 } = {}) {
   const { auth, authenticate, loading: authLoading } = useAuth();
-  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, backendTraderSync, backendIntervalMs, autoExecute, setAutoExecute, catchUp } = useCopyEngine();
+  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, backendTraderSync, backendIntervalMs, backendGates, autoExecute, setAutoExecute, catchUp } = useCopyEngine();
   // confirm-start flow removed — user wants direct start/stop.
   const [liveCapital, setLiveCapital] = useState(100);
   // Trading-wallet USDC balance — the on-chain "BALANCE" the engine sizes
@@ -475,6 +497,20 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   // When only the BACKEND session is running (the normal state after a reload
   // without CLOB creds in hand), that effect can't fire — so re-post the
   // config directly. `inheritExecution` keeps a deliberate DRY RUN dry.
+  // Relax (or restore) the time-to-close gate from the gate warning itself.
+  // Same write-through shape as updateSyncMinutes: persist on the strat, and
+  // re-post the config so a session that's already running picks it up without
+  // a STOP/GO LIVE round trip.
+  const updateMinMinutesToClose = useCallback((minutes: number) => {
+    if (!activeStrat) return;
+    const patched = { ...activeStrat, minMinutesToClose: minutes };
+    updateIndex(activeStrat.id, { minMinutesToClose: minutes, updatedAt: Date.now() });
+    setStratTick((n) => n + 1);
+    if (auth.address && (backendRunning || isLive)) {
+      void startLiveSession(auth.address, patched, effectiveCapital, { inheritExecution: true });
+    }
+  }, [activeStrat, backendRunning, isLive, auth.address, effectiveCapital]);
+
   const updateSyncMinutes = useCallback((minutes: number) => {
     if (!activeStrat) return;
     const patched = { ...activeStrat, rebalanceMinutes: minutes, livePollMinutes: minutes };
@@ -513,6 +549,9 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       // causing every dust mirror to skip with BELOW_MIN_SIZE even when the
       // user had set MIN TRADE to 0.1 in BACKTEST. Falls back to $5.
       minOrderSize: activeStrat.minTrade ?? 5,
+      // SIZING → UPSCALE. Only sent when the strat sets it, so the Strat's own
+      // 2× default stays the source of truth otherwise.
+      ...(activeStrat.maxUpscale !== undefined && { maxUpscale: activeStrat.maxUpscale }),
       // Concurrent open-positions cap — the engine skips a BUY that would
       // open a NEW token while this many are already held.
       maxOpenPositions: activeStrat.maxOpenPositions ?? 10,
@@ -588,6 +627,9 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     marketQuery: activeStrat?.marketQuery ?? "",
     tradeFilters: activeStrat?.tradeFilters ?? {},
     filter: activeStrat?.filter ?? null,
+    // UPSCALE decides how much of the filtered flow reaches the book, so a
+    // mid-run edit has to hot-restart like the filters do.
+    maxUpscale: activeStrat?.maxUpscale === undefined ? "default" : activeStrat.maxUpscale,
   });
   const lastAppliedSigRef = useRef<string | null>(null);
   useEffect(() => {
@@ -612,6 +654,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       creds: auth.clobCreds,
       address: auth.address,
       minOrderSize: activeStrat.minTrade ?? 5,
+      ...(activeStrat.maxUpscale !== undefined && { maxUpscale: activeStrat.maxUpscale }),
       maxOpenPositions: activeStrat.maxOpenPositions ?? 10,
       stopLoss: activeStrat.stopLoss ?? DEFAULT_STOP_LOSS,
       takeProfit: activeStrat.takeProfit ?? DEFAULT_TAKE_PROFIT,
@@ -624,6 +667,23 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       momentum: activeStrat.momentum,
     });
   }, [configSig, livePollMin, isLive, status, activeStrat, auth.clobCreds, auth.address, effectiveCapital, startLive, stopLive]);
+
+  // Same write-through for a BACKEND-only session (the normal state after a
+  // reload without CLOB creds in hand): the effect above can't hot-restart an
+  // engine it isn't attached to, so re-post the config instead. Without this a
+  // sizing/filter edit silently applied to the backtest only, and the running
+  // engine kept its start-time config until STOP/GO LIVE.
+  const lastPostedSigRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isLive || !backendRunning || !auth.address || !activeStrat) return;
+    if (lastPostedSigRef.current === null) {
+      lastPostedSigRef.current = configSig;
+      return;
+    }
+    if (lastPostedSigRef.current === configSig) return;
+    lastPostedSigRef.current = configSig;
+    void startLiveSession(auth.address, activeStrat, effectiveCapital, { inheritExecution: true });
+  }, [configSig, isLive, backendRunning, auth.address, activeStrat, effectiveCapital]);
 
   return (
     <div className="space-y-1">
@@ -974,6 +1034,87 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
           {engineState.error}
         </div>
       )}
+
+      {/* ── Everything gated ──
+          The engine can be perfectly healthy, polling on schedule, seeing
+          leader flow every cycle, and still place zero orders because the
+          strat's own filters exclude 100% of that flow. That is the single
+          most common "live trading is broken" report, and until now the only
+          evidence was a sentence in a scrolling cycle log. Say it standing
+          still, name the gate, and say what to change. The engine clears the
+          tally the moment an entry does land, so this only ever shows while
+          NOTHING is getting through — a strat that trades some flow and
+          filters the rest is working as designed and stays quiet. */}
+      {(isLive || backendRunning) && (() => {
+        const gates = Object.entries(backendGates)
+          .filter(([, t]) => t.count > 0)
+          .sort((a, b) => b[1].count - a[1].count);
+        if (!gates.length) return null;
+        const total = gates.reduce((n, [, t]) => n + t.count, 0);
+        return (
+          <div className="pixel-panel border-2 border-amber-400/70 bg-amber-400/10 p-3 flex items-start gap-3 flex-wrap">
+            <span className="text-amber-400 text-xl leading-none mt-0.5">⚠</span>
+            <div className="flex-1 min-w-[240px]">
+              <div className="text-sm font-bold text-amber-400">
+                {total} leader {total === 1 ? "entry" : "entries"} seen, none copied — your
+                filters blocked {total === 1 ? "it" : "them all"}
+              </div>
+              <div className="mt-1 space-y-0.5">
+                {gates.map(([gate, t]) => (
+                  <div key={gate} className="text-xs text-pixel-muted font-mono">
+                    <span className="text-amber-300">{t.count}×</span>{" "}
+                    <span className="text-pixel-white">{GATE_LABELS[gate]?.name ?? gate}</span>
+                    {" — "}
+                    {GATE_LABELS[gate]?.fix ?? "check this filter in the strat's settings."}
+                  </div>
+                ))}
+              </div>
+              <div className="text-[11px] text-pixel-muted/80 mt-1">
+                Counted over the last 30 minutes. The engine is running normally — this is a
+                filter decision, not a fault.
+              </div>
+              {/* Answer the gate where it's reported. A warning that names a
+                  setting the console has no field for is a dead end, and the
+                  time-to-close gate is the one that blocks whole watchlists at
+                  once — a leader who only trades 5-minute candles has 100% of
+                  their flow refused, every cycle, forever. */}
+              {backendGates["resolves too soon"]?.count > 0 && activeStrat && (
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-mono text-pixel-muted">
+                    MIN TIME TO CLOSE is{" "}
+                    <span className="text-pixel-white">
+                      {activeStrat.minMinutesToClose ?? DEFAULT_MIN_MINUTES_TO_CLOSE}m
+                    </span>
+                    {" — copy shorter-dated flow:"}
+                  </span>
+                  {[
+                    { m: 15, label: "15M" },
+                    { m: 5, label: "5M" },
+                    { m: 0, label: "OFF" },
+                  ].map(({ m, label }) => (
+                    <button
+                      key={m}
+                      onClick={() => updateMinMinutesToClose(m)}
+                      title={
+                        m === 0
+                          ? "Copy every market regardless of how soon it resolves — including the sub-hour Up/Down candles. Those are HFT turf: mirrored one poll late they realized −$253 across 1064 copies on this console. Your call."
+                          : `Only refuse markets resolving within ${m} minutes.`
+                      }
+                      className="px-2 py-0.5 rounded border border-amber-400/50 text-amber-300 hover:bg-amber-400/15 text-[11px] font-mono tracking-[0.1em]"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <span className="text-[10.5px] font-mono text-pixel-muted/70">
+                    (the leaders you copy may simply not trade anything longer-dated — check
+                    their flow before turning it off)
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Section tabs ──
           One strip for everything below the alerts. The right side echoes

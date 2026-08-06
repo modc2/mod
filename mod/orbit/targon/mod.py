@@ -267,6 +267,17 @@ class Mod:
         """Targon Hub API version (no key needed)."""
         return self._call('version')
 
+    def chain_account(self, address: str):
+        """Free/reserved TAO and the nonce for any Bittensor coldkey.
+
+        Reads finney directly through the backend — this is the chain side of
+        billing (TAO in, credits out), not a Hub API call, so it needs the
+        server running and no Targon key.
+        """
+        r = requests.get(f'{self.server_url}/chain/account',
+                         params={'address': address}, timeout=40)
+        return r.json()
+
     # ── build / serve / kill ─────────────────────────────────────
 
     @property
@@ -300,7 +311,8 @@ class Mod:
         return {
             'api': f'http://localhost:{port}',
             'mcp': f'http://localhost:{port}/mcp',
-            'console': f'http://localhost:{port}/ (browser)',
+            'console': f'http://localhost:{port}/targon',
+            'gateway': '/targon (console) · /api/targon and /targon/_api (API)',
             'processes': ['targon-api'],
         }
 

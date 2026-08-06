@@ -1,6 +1,6 @@
 {
     "name": "polymarket",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "description": "Polymarket prediction market \u2014 Rust API + Next.js frontend",
     "port": 50091,
     "app_port": 3091,
@@ -21,7 +21,9 @@
         "events",
         "active_traders",
         "sync",
-        "forward"
+        "forward",
+        "backtests",
+        "mcp"
     ],
     "endpoints": {
         "/health": {
@@ -87,8 +89,30 @@
         "/user-strats/import": {
             "method": "POST",
             "docs": "Import a strat by CID as a private copy you own"
+        },
+        "/polymarket/api/hub": {
+            "method": "GET|POST|PUT",
+            "docs": "Background backtest worker (served by the Next app, owner-gated): GET ?days=N returns the cached per-strat backtests + funnels and the worker's schedule; POST {days,strats} publishes the roster to keep warm (POST ?run=1 queues a pass); PUT runs a pass synchronously"
         }
     },
-    "schema": "QmTu2XxuDfgqCCAQbTuH5bTxrHmbdoaVsA1Qj3D3LBgfTo",
-    "gateway_port": 3091
+    "schema": "QmRLHMGctwQuS4RpPBWU6znAWVm8F7sbLnZ6g4GGMxWxKg",
+    "gateway_port": 3091,
+    "mcp": {
+        "stdio": "python3 src/mcp.py",
+        "http": "python3 src/mcp.py --http --port 50092",
+        "port": 50092,
+        "path": "/mcp",
+        "tools": [
+            "pm_health",
+            "pm_markets",
+            "pm_top_traders",
+            "pm_trader",
+            "pm_strats",
+            "pm_backtests",
+            "pm_backtest_run",
+            "pm_live_sessions",
+            "pm_live_gates"
+        ],
+        "docs": "Read-only MCP server over the console: markets, leaderboard, one leader's flow (incl. its sub-hour candle share), the strats this deployment runs, the worker's cached backtests WITH the entry funnel, live sessions, and the live gate tally. No order-placing tool by design."
+    }
 }

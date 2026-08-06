@@ -25,6 +25,16 @@ class CopyRequest(BaseModel):
     poll_interval_sec: Optional[int] = None
 
 
+class AskRequest(BaseModel):
+    """A turn of the strat-agent conversation.
+
+    `session_id` comes back on every event; sending it with the next question
+    resumes the same conversation, so a follow-up knows what it just built.
+    """
+    question: str
+    session_id: Optional[str] = None
+
+
 class WalletSetRequest(BaseModel):
     name: str = "copytensor"
     hotkey: str = "default"
@@ -215,3 +225,36 @@ class TradeResponse(BaseModel):
     tx_hash: Optional[str]
     status: str
     error: Optional[str]
+
+
+# ── strats (saved baskets) ───────────────────────────────────────
+
+class StratTrader(BaseModel):
+    ss58: str
+    label: Optional[str] = None
+    weight: float = 1.0
+    enabled: bool = True
+
+
+class BacktestRequest(BaseModel):
+    """Replay a basket. Sent on every edit in the picker, so it carries the
+    basket itself rather than an id — an unsaved draft backtests too."""
+    traders: List[StratTrader]
+    days: int = 7
+    capital_tao: float = 100.0
+
+
+class StratWrite(BaseModel):
+    """Create/replace a strat. Everything past `name`/`traders` is the
+    picker's own settings, carried through untouched."""
+    name: str
+    traders: List[StratTrader] = []
+    visibility: Optional[str] = None          # private | public | whitelist
+    whitelist: Optional[List[str]] = None     # viewer fingerprints
+    our_hotkey: Optional[str] = None
+    max_tao_per_tx: Optional[float] = None
+    daily_limit_tao: Optional[float] = None
+    rebalance_threshold_pct: Optional[float] = None
+    poll_interval_sec: Optional[int] = None
+    thesis: Optional[str] = None
+    live_copy_ids: Optional[List[str]] = None

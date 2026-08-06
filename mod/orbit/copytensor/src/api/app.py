@@ -3,6 +3,7 @@ FastAPI application — all REST endpoints for copytensor.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -14,13 +15,16 @@ from typing import Any, Dict, List, Optional
 
 import bittensor as bt
 import requests
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
+from ..agent import agent as strat_agent
 from ..chain.bt_source import BtSource, BtUnavailable, make_client
 from ..chain.client import SubtensorClient, TraderCandidate, is_valid_ss58
 from ..chain.snapshot import SnapshotManager
 from ..db import Database
+from ..engine.backtest import backtest_basket
 from ..engine.bt_board import build_bt_leaderboard
 from ..engine.copier import CopyConfig, CopyEngine
 from ..engine.curve import FLOW_MIN_FRACTION, FLOW_MIN_TAO, build_curve
@@ -30,6 +34,8 @@ from ..engine.safety import SafetyManager
 from .models import (
     AccountResponse,
     AllocationResponse,
+    AskRequest,
+    BacktestRequest,
     ConfigSetRequest,
     CopyRequest,
     CopyResponse,
@@ -40,6 +46,7 @@ from .models import (
     SubnetDetailResponse,
     SubnetPnlResponse,
     SubnetResponse,
+    StratWrite,
     SubnetValidator,
     TargetTraderInfo,
     TradeResponse,
@@ -814,23 +821,24 @@ def _build_lb(days: int, allow_rpc: bool = True):
     workers = int(_config.get("leaderboard_workers", 8))
     source = "bt"
     try:
-        # One horizon at a time. Every build is bottlenecked on the same
-        # handful of archive sockets, so running two concurrently doesn't
-        # finish either sooner — it just delays both.
-        with _lb_build_gate:
-            # bt's index prices the whole board from local SQLite in about a
-            # second; the archive walk over the full watchlist is minutes and
-            # only exists for when bt is down.
-            try:
-                if not _bt:
-                    raise BtUnavailable("no bt source configured")
-                entries = build_bt_leaderboard(_bt, days=days, top=2000)
-            except BtUnavailable as e:
-                if not allow_rpc:
-                    raise
-                log.warning("leaderboard %dd from bt failed (%s) — walking the "
-                            "chain instead", days, e)
-                source = "rpc"
+        # bt's index prices the whole board from local SQLite in about a
+        # second and shares nothing with the archive pool, so it runs outside
+        # the gate — queueing it behind a chain walk is why a board stayed
+        # empty for minutes after bt came back up mid-walk.
+        try:
+            if not _bt:
+                raise BtUnavailable("no bt source configured")
+            entries = build_bt_leaderboard(_bt, days=days, top=2000)
+        except BtUnavailable as e:
+            if not allow_rpc:
+                raise
+            log.warning("leaderboard %dd from bt failed (%s) — walking the "
+                        "chain instead", days, e)
+            source = "rpc"
+            # One horizon at a time down here. Every walk is bottlenecked on
+            # the same handful of archive sockets, so running two
+            # concurrently doesn't finish either sooner — it delays both.
+            with _lb_build_gate:
                 entries = build_leaderboard(_client, _db, days=days, top=2000,
                                             workers=workers)
     except Exception:
@@ -874,6 +882,12 @@ def _leaderboard_cached(days: int):
         cached = _lb_cache.get(days)
         stale = cached and time.time() - cached[0] >= _lb_ttl(days)
         kick = (cached is None or stale) and days not in _lb_refreshing
+        # A chain walk started while bt was down holds its horizon for
+        # minutes, and until it lands the board is empty. Once bt answers
+        # again there is nothing to wait for — price the cold horizon off the
+        # index now and let the walk overwrite it whenever it finishes.
+        if cached is None and bt_ready:
+            kick = True
         # Not while the pool is being discovered. The delegate walk decodes
         # tens of thousands of entries in-process; racing a board build
         # against it just makes both slow.
@@ -1297,6 +1311,198 @@ def list_trades(copy_id: Optional[str] = None,
                 limit: int = Query(50, ge=1, le=500)):
     trades = _db.get_trades(copy_id=copy_id, limit=limit)
     return [TradeResponse(**t) for t in trades]
+
+
+# ── strats: backtest, store, sharing ─────────────────────────────
+#
+# A strat is a basket of traders you'd mirror. Two things it needs that a
+# localStorage list can't give it: an honest replay of what the basket would
+# have done, and an owner — so several strats can coexist, stay private by
+# default, and be published or handed to named people on purpose.
+#
+# Identity is an owner KEY the browser generates and keeps (X-Owner-Key).
+# The server only ever stores its SHA-256, and the first 16 hex of that hash
+# is your public FINGERPRINT — the thing you hand someone so they can put
+# you on a strat's whitelist. No account, no password, no wallet needed;
+# lose the key and you lose write access to your strats, which is the honest
+# trade for having no sign-up.
+
+VISIBILITIES = ("private", "public", "whitelist")
+
+
+def _owner_hash(key: Optional[str]) -> Optional[str]:
+    if not key or not key.strip():
+        return None
+    return hashlib.sha256(key.strip().encode()).hexdigest()
+
+
+def _fingerprint(owner_hash: Optional[str]) -> Optional[str]:
+    return owner_hash[:16] if owner_hash else None
+
+
+def _strat_out(s: Dict, owner_hash: Optional[str]) -> Dict:
+    """Public shape of a strat row: the owner's hash never leaves, only
+    whether it's yours and the fingerprint others would whitelist."""
+    out = {k: v for k, v in s.items() if k != "owner_hash"}
+    out["mine"] = bool(owner_hash) and s.get("owner_hash") == owner_hash
+    out["owner_fingerprint"] = _fingerprint(s.get("owner_hash"))
+    return out
+
+
+def _require_strat(strat_id: str, owner_hash: Optional[str],
+                   write: bool = False) -> Dict:
+    s = _db.get_strat(strat_id)
+    if not s:
+        raise HTTPException(404, "no such strat")
+    mine = bool(owner_hash) and s["owner_hash"] == owner_hash
+    if write and not mine:
+        raise HTTPException(403, "only the owner of this strat can change it")
+    listed = bool(owner_hash) and _fingerprint(owner_hash) in (s.get("whitelist") or [])
+    if not (mine or listed or s["visibility"] == "public"):
+        raise HTTPException(404, "no such strat")
+    return s
+
+
+def _strat_payload(req: StratWrite) -> Dict:
+    return {
+        "traders": [t.model_dump() for t in req.traders],
+        "our_hotkey": req.our_hotkey,
+        "max_tao_per_tx": req.max_tao_per_tx,
+        "daily_limit_tao": req.daily_limit_tao,
+        "rebalance_threshold_pct": req.rebalance_threshold_pct,
+        "poll_interval_sec": req.poll_interval_sec,
+        "thesis": req.thesis,
+        "live_copy_ids": req.live_copy_ids or [],
+    }
+
+
+@app.get("/whoami")
+def whoami(x_owner_key: Optional[str] = Header(None)):
+    """Your fingerprint — the id someone else puts on a whitelist to let you
+    in. Anonymous callers get null and see public strats only."""
+    oh = _owner_hash(x_owner_key)
+    return {"fingerprint": _fingerprint(oh), "anonymous": oh is None}
+
+
+@app.post("/strats/backtest")
+def backtest_strat(req: BacktestRequest):
+    """Replay a basket over the last `days`. Takes the basket inline so the
+    picker can re-run it on every edit, saved or not."""
+    hours = max(1, min(int(req.days), 365)) * 24
+    return backtest_basket(
+        [t.model_dump() for t in req.traders],
+        hours=hours,
+        fetch_history=lambda ss58, h: _require_bt().trader_history(ss58, hours=h),
+        capital_tao=req.capital_tao,
+    )
+
+
+@app.get("/strats")
+def list_strats(x_owner_key: Optional[str] = Header(None)):
+    """Yours, plus every public one, plus anything whitelisting you."""
+    oh = _owner_hash(x_owner_key)
+    rows = _db.list_strats(owner_hash=oh, fingerprint=_fingerprint(oh))
+    return {
+        "fingerprint": _fingerprint(oh),
+        "strats": [_strat_out(s, oh) for s in rows],
+    }
+
+
+@app.get("/strats/hub")
+def hub_strats(x_owner_key: Optional[str] = Header(None)):
+    """The public shelf — what anyone can read and clone."""
+    oh = _owner_hash(x_owner_key)
+    return {"strats": [_strat_out(s, oh) for s in _db.list_public_strats()]}
+
+
+@app.post("/strats")
+def create_strat(req: StratWrite, x_owner_key: Optional[str] = Header(None)):
+    oh = _owner_hash(x_owner_key)
+    if not oh:
+        raise HTTPException(401, "send an X-Owner-Key header — it's the only "
+                                 "thing that says this strat is yours")
+    vis = req.visibility or "private"
+    if vis not in VISIBILITIES:
+        raise HTTPException(400, f"visibility must be one of {VISIBILITIES}")
+    s = _db.create_strat(oh, req.name.strip() or "Untitled", _strat_payload(req),
+                         visibility=vis, whitelist=req.whitelist or [])
+    return _strat_out(s, oh)
+
+
+@app.get("/strats/{strat_id}")
+def get_strat(strat_id: str, x_owner_key: Optional[str] = Header(None)):
+    oh = _owner_hash(x_owner_key)
+    return _strat_out(_require_strat(strat_id, oh), oh)
+
+
+@app.put("/strats/{strat_id}")
+def update_strat(strat_id: str, req: StratWrite,
+                 x_owner_key: Optional[str] = Header(None)):
+    oh = _owner_hash(x_owner_key)
+    _require_strat(strat_id, oh, write=True)
+    if req.visibility and req.visibility not in VISIBILITIES:
+        raise HTTPException(400, f"visibility must be one of {VISIBILITIES}")
+    s = _db.update_strat(
+        strat_id,
+        name=req.name.strip() or "Untitled",
+        payload=_strat_payload(req),
+        visibility=req.visibility,
+        whitelist=req.whitelist,
+    )
+    return _strat_out(s, oh)
+
+
+@app.delete("/strats/{strat_id}")
+def delete_strat(strat_id: str, x_owner_key: Optional[str] = Header(None)):
+    oh = _owner_hash(x_owner_key)
+    _require_strat(strat_id, oh, write=True)
+    _db.delete_strat(strat_id)
+    return {"deleted": strat_id}
+
+
+@app.post("/strats/{strat_id}/clone")
+def clone_strat(strat_id: str, x_owner_key: Optional[str] = Header(None)):
+    """Copy someone's public strat onto your own shelf, private."""
+    oh = _owner_hash(x_owner_key)
+    if not oh:
+        raise HTTPException(401, "send an X-Owner-Key header to own the copy")
+    src = _require_strat(strat_id, oh)
+    payload = {k: v for k, v in src.items()
+               if k not in ("id", "owner_hash", "name", "visibility",
+                            "whitelist", "created_at", "updated_at")}
+    payload["live_copy_ids"] = []          # a clone starts flat, never live
+    payload["cloned_from"] = strat_id
+    s = _db.create_strat(oh, f"{src['name']} (copy)", payload)
+    return _strat_out(s, oh)
+
+
+# ── strat agent ──────────────────────────────────────────────────
+
+@app.get("/agent")
+def agent_status():
+    """Whether the strat agent can run, and what it can reach."""
+    return strat_agent.status()
+
+
+@app.post("/agent/ask")
+def agent_ask(req: AskRequest):
+    """Talk to the strat agent. Streams the run as SSE.
+
+    Events: start | text | tool | tool_done | strat | done | error. `strat`
+    carries a validated basket — the console renders it as a card. Nothing
+    the agent does can stake; activating is still a human click.
+    """
+    question = (req.question or "").strip()
+    if not question:
+        raise HTTPException(400, "question required")
+
+    def gen():
+        for ev in strat_agent.ask(question, req.session_id):
+            yield "data: " + json.dumps(ev, default=str) + "\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"cache-control": "no-cache",
+                                      "x-accel-buffering": "no"})
 
 
 # ── wallet ───────────────────────────────────────────────────────

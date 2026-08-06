@@ -99,6 +99,25 @@
     padding-top: 12px; max-width: 52ch;
   }
 
+  /* the free-ROM shelf inside the empty state */
+  #shelf { width: 100%; max-width: 52ch; }
+  #shelf-head, .shelf-head {
+    font-size: 10px; letter-spacing: 1px; color: var(--pipe);
+    margin-bottom: 8px;
+  }
+  #shelf-list { display: flex; flex-direction: column; gap: 6px; }
+  .rom {
+    display: flex; align-items: baseline; gap: 8px; text-align: left;
+    width: 100%; padding: 7px 10px;
+  }
+  .rom b { color: var(--text); font-weight: 600; }
+  .rom .meta { margin-left: auto; font-size: 9px; color: var(--dim); }
+  .rom:disabled { opacity: .45; }
+  #shelf-note {
+    font-size: 9px; color: #6a6a7c; margin-top: 8px; line-height: 1.6;
+  }
+  #shelf-note code { color: var(--coin); }
+
   button, label.btn {
     font: inherit; font-size: 11px;
     color: var(--text); background: #1c1c28;
@@ -174,10 +193,19 @@
       </p>
       <label class="btn primary" for="file">CHOOSE A ROM</label>
       <input type="file" id="file" accept=".nes,.zip,application/octet-stream">
+
+      <div id="shelf" hidden>
+        <div class="shelf-head">FREE ROMS — homebrew you can legally have</div>
+        <div id="shelf-list"></div>
+        <div id="shelf-note"></div>
+      </div>
+
       <p class="note">
         This is the console, not the cartridge. Super Mario Bros. and the rest
         of the library are still under copyright, so no game data ships with
-        this module — supply a dump of a cartridge you own.
+        this module — supply a dump of a cartridge you own. The shelf above is
+        different: those are free-licensed homebrew, fetched from where their
+        authors publish them.
       </p>
     </div>
 

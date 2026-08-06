@@ -31,6 +31,9 @@ export const LAUNCH = {
 
 export interface PaperSection {
   no: string
+  /** its own page at /openhouse/paper/<slug> — permalinks, so don't rename one
+   *  after it's been shared. The home page renders the same list inline. */
+  slug: string
   kicker: string
   title: string
   body: string[]
@@ -40,6 +43,7 @@ export interface PaperSection {
 export const SECTIONS: PaperSection[] = [
   {
     no: "01",
+    slug: "the-problem",
     kicker: "The Problem",
     title: "Rent is extraction.",
     body: [
@@ -53,6 +57,7 @@ export const SECTIONS: PaperSection[] = [
   },
   {
     no: "02",
+    slug: "rent-to-own",
     kicker: "The Model",
     title: "Rent that turns into ownership.",
     body: [
@@ -65,6 +70,7 @@ export const SECTIONS: PaperSection[] = [
   },
   {
     no: "03",
+    slug: "the-take",
     kicker: "The Take",
     title: "One to five percent. Written into the contract.",
     body: [
@@ -83,6 +89,7 @@ export const SECTIONS: PaperSection[] = [
   },
   {
     no: "04",
+    slug: "the-models",
     kicker: "The Models",
     title: "The owner sets the dial.",
     body: [
@@ -100,6 +107,7 @@ export const SECTIONS: PaperSection[] = [
   },
   {
     no: "05",
+    slug: "redistribution",
     kicker: "Redistribution",
     title: "Ownership, recomputed every quarter.",
     body: [
@@ -113,6 +121,7 @@ export const SECTIONS: PaperSection[] = [
   },
   {
     no: "06",
+    slug: "the-yield",
     kicker: "The Yield",
     title: "The owner's money works too.",
     body: [
@@ -127,6 +136,13 @@ export const SECTIONS: PaperSection[] = [
     pull: "Renters earn walls. Owners earn yield. Markets do the redistributing.",
   },
 ]
+
+/** One section plus the two either side of it — everything a section page needs. */
+export function paperSection(slug: string) {
+  const i = SECTIONS.findIndex(s => s.slug === slug)
+  if (i === -1) return null
+  return { section: SECTIONS[i], prev: SECTIONS[i - 1] ?? null, next: SECTIONS[i + 1] ?? null }
+}
 
 export const TOKENOMICS = [
   { label: "Protocol take", value: "1–5%", note: "owner-set, capped in code" },

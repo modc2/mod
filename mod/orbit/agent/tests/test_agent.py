@@ -17,6 +17,7 @@ import os
 import sys
 import json
 import time
+import threading
 import tempfile
 import shutil
 import pytest
@@ -3101,10 +3102,15 @@ class TestHarnessRegistry:
 
     def test_ls_lists_runners(self, harness):
         names = [h["name"] for h in harness.ls()]
-        assert names == ["claude", "codex"]
+        assert names == ["claude", "codex", "claudemod", "buildmod"]
         for h in harness.ls():
             assert isinstance(h["available"], bool)   # depends on the host
             assert h["install"]
+
+    def test_console_runners_name_their_module(self, harness):
+        # the two job-server harnesses are whole modules, not a local binary
+        assert harness.info("claudemod")["module"] == "claude"
+        assert harness.info("buildmod")["module"] == "build"
 
     def test_get_unknown_raises(self, harness):
         with pytest.raises(KeyError, match="unknown harness"):
@@ -3116,8 +3122,8 @@ class TestHarnessRegistry:
 
     def test_forward_lists(self, harness):
         r = harness.forward()
-        assert len(r["harnesses"]) == 2
-        assert set(r["available"]) <= {"claude", "codex"}
+        assert len(r["harnesses"]) == 4
+        assert set(r["available"]) <= {"claude", "codex", "claudemod", "buildmod"}
 
     def test_claude_command(self, harness):
         cmd = harness.get("claude").command("fix it", goal="be nice", model="opus")
@@ -3144,7 +3150,10 @@ class TestHarnessRegistry:
 
 
 class TestHarnessTranslation:
-    """CLI events in, the console's step dicts out."""
+    """CLI events in, the console's step dicts out.
+
+    The translation lives in the runner modules (orbit/claudecode,
+    orbit/codexcli) — one session per run, reached through the registry."""
 
     def _steps(self, runner, events):
         out = []
@@ -3152,13 +3161,15 @@ class TestHarnessTranslation:
             out += runner.steps(e)
         return out
 
+    def _session(self, name):
+        from src.harness.mod import Harness
+        return Harness().get(name).session()
+
     def _claude(self):
-        from src.harness.mod import ClaudeCode
-        return ClaudeCode()
+        return self._session("claude")
 
     def _codex(self):
-        from src.harness.mod import Codex
-        return Codex()
+        return self._session("codex")
 
     def test_claude_tool_step_carries_its_result(self):
         r = self._claude()
@@ -3262,6 +3273,8 @@ class TestHarnessAgents:
     def test_shipped_harness_agents(self, agents):
         assert agents.get("claude-code")["harness"] == "claude"
         assert agents.get("codex")["harness"] == "codex"
+        assert agents.get("claude-mod")["harness"] == "claudemod"
+        assert agents.get("build-mod")["harness"] == "buildmod"
         assert agents.get("default")["harness"] is None
 
     def test_create_with_harness_round_trips(self, agents):
@@ -3341,8 +3354,8 @@ class TestDefaultAgent:
         return TestHarnessGate()._mod(is_owner)
 
     def _no_cli(self, mod, monkeypatch):
-        from src.harness.mod import ClaudeCode
-        monkeypatch.setattr(ClaudeCode, "path", lambda self: None)
+        runner = mod.harness.get("claude")
+        monkeypatch.setattr(type(runner), "path", lambda self: None)
 
     def test_host_gets_claude_code(self):
         mod = self._mod(True)
@@ -3376,6 +3389,100 @@ class TestDefaultAgent:
         mod.goal = "base"
         mod._run(agent_type="architect", query="hi", key="0xowner")
         assert called["query"] == "hi"       # native loop, not the CLI
+
+
+class TestLfmProviders:
+    """The three LFM providers: no key, no bill, and a live model list."""
+
+    def _mod(self):
+        from src.mod import Mod
+        return Mod()
+
+    @pytest.mark.parametrize("provider", ["liquidai", "liquidai-cloud", "browser"])
+    def test_a_client_exists_without_any_key(self, provider):
+        mod = self._mod()
+        assert mod.has_model(provider)
+        info = mod.key_info(provider)
+        assert info["keyless"] and info["configured"] and info["key"] is None
+
+    @pytest.mark.parametrize("provider", ["liquidai", "liquidai-cloud", "browser"])
+    def test_runs_on_them_cost_nothing(self, provider):
+        mod = self._mod()
+        assert mod.is_free_provider(provider)
+        # every model prices at zero, including one typed in by hand
+        client = mod._client(provider)
+        assert mod.meter.price(client, provider, "LiquidAI/anything", 1e6, 1e6) == 0.0
+
+    def test_paid_providers_are_untouched(self):
+        mod = self._mod()
+        assert not mod.is_free_provider("openrouter")
+        assert not mod.key_info("openrouter").get("keyless")
+
+    def test_model_list_falls_back_when_liquidai_is_down(self, monkeypatch):
+        from src import liquid
+        mod = self._mod()
+        monkeypatch.setattr(liquid.CATALOG, "repos", lambda *a, **k: [])
+        monkeypatch.setattr(liquid.CATALOG, "cloud_models", lambda *a, **k: [])
+        # the curated list keeps the console selectable with the module offline
+        assert mod.provider_models("browser") == mod.MODELS["browser"]
+
+    def test_balance_reports_free_rather_than_an_error(self):
+        assert self._mod().balance("browser")["balance"] is None
+
+
+class TestBrowserBridge:
+    """A run parks a request, the tab answers it — or doesn't."""
+
+    def _bridge(self):
+        from src.liquid import Bridge
+        return Bridge()
+
+    def _ask(self, bridge, session, out):
+        def run():
+            bridge.bind(session)
+            try:
+                out["text"] = bridge.ask({"model": "m", "messages": []}, timeout=5)
+            except Exception as e:
+                out["error"] = str(e)
+        t = threading.Thread(target=run)
+        t.start()
+        return t
+
+    def test_request_goes_out_and_the_answer_comes_back(self):
+        bridge, events, out = self._bridge(), [], {}
+        bridge.open("s", events.append)
+        t = self._ask(bridge, "s", out)
+        time.sleep(0.2)
+        assert events[0]["type"] == "model_request" and events[0]["model"] == "m"
+        bridge.deliver(events[0]["id"], text="hello")
+        t.join(5)
+        assert out["text"] == "hello"
+
+    def test_no_open_tab_fails_immediately(self):
+        bridge, out = self._bridge(), {}
+        self._ask(bridge, "nobody", out).join(5)
+        assert "console" in out["error"]
+
+    def test_a_closed_tab_releases_the_run(self):
+        bridge, out = self._bridge(), {}
+        bridge.open("s", lambda ev: None)
+        t = self._ask(bridge, "s", out)
+        time.sleep(0.2)
+        bridge.close("s")
+        t.join(5)
+        assert "went away" in out["error"]
+
+    def test_an_error_from_the_tab_reaches_the_run(self):
+        bridge, events, out = self._bridge(), [], {}
+        bridge.open("s", events.append)
+        t = self._ask(bridge, "s", out)
+        time.sleep(0.2)
+        bridge.deliver(events[0]["id"], error="WebGPU said no")
+        t.join(5)
+        assert out["error"] == "WebGPU said no"
+
+    def test_delivering_to_nobody_says_so(self):
+        assert self._bridge().deliver("gone", text="x")["delivered"] is False
 
 
 if __name__ == "__main__":

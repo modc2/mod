@@ -74,8 +74,9 @@ export function NetworkPicker({
         onClick={() => setOpen(o => !o)}
         style={{
           fontFamily: TERM_FONT, fontSize: '12px', letterSpacing: '0.06em',
-          padding: '6px 12px', border: `2px solid ${ACCENT}`, background: `${ACCENT}14`,
+          padding: '8px 12px', minHeight: '40px', border: `2px solid ${ACCENT}`, background: `${ACCENT}14`,
           color: ACCENT, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
+          maxWidth: '100%',
         }}
       >
         <span style={{ opacity: 0.7 }}>NET</span>
@@ -87,7 +88,8 @@ export function NetworkPicker({
       {open && (
         <div style={{
           ...panelStyle, position: 'absolute', zIndex: 40, top: 'calc(100% + 4px)', left: 0,
-          width: '300px', maxHeight: '440px', overflowY: 'auto',
+          // never wider than the phone it's dropping down on
+          width: 'min(300px, calc(100vw - 40px))', maxHeight: '440px', overflowY: 'auto',
           boxShadow: `3px 3px 0px 0px ${ACCENT}55`,
         }}>
           {GROUPS.map(group => {
@@ -107,7 +109,7 @@ export function NetworkPicker({
                       onClick={() => { setNetwork(n.key); setOpen(false) }}
                       style={{
                         flex: 1, textAlign: 'left', fontFamily: TERM_FONT, fontSize: '12px',
-                        padding: '6px 10px', border: 'none',
+                        padding: '10px', minHeight: '40px', border: 'none',
                         borderLeft: `2px solid ${n.key === network ? ACCENT : 'transparent'}`,
                         background: n.key === network ? `${ACCENT}14` : 'transparent',
                         color: n.key === network ? ACCENT : 'var(--text-secondary)', cursor: 'pointer',

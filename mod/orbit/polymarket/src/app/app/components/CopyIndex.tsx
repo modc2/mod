@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES, TRADER_SYNC_MIN_MS } from "../lib/polymarket";
 import { PolymarketPosition, PolymarketTrade, SavedIndex, TradeFilters, TraderFilter, TraderMetric } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
-import { Strat, rankTraders, DEFAULT_FILTER_TOP_N, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES } from "../lib/strats/strat";
+import { Strat, rankTraders, DEFAULT_FILTER_TOP_N, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES, DEFAULT_MIN_MINUTES_TO_CLOSE, DEFAULT_MAX_UPSCALE } from "../lib/strats/strat";
 import type { TraderTrade as StratTraderTrade } from "../lib/strats/strat";
 import { marketMatchesQuery } from "../lib/marketQuery";
 import { shortAddress } from "@/lib/auth";
@@ -720,9 +720,21 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [minTrade, setMinTrade] = useState(5);
   const [maxTrade, setMaxTrade] = useState(100);
+  // Proportional-copy fidelity: how far a mirror may be upsized past what
+  // proportionality asked for when that amount lands under the order floor.
+  // 2 = "never place more than 2× the proportional size", everything smaller
+  // is skipped as SUB_SCALE. 0 = OFF (∞): every filtered trade is clamped up
+  // to the floor and placed, which is what a small account needs to trade at
+  // all — at the cost of sizing a conviction bet and a punt identically.
+  const [maxUpscale, setMaxUpscale] = useState<number>(DEFAULT_MAX_UPSCALE);
   // Max concurrent open positions — the live engine skips a mirror BUY that
   // would open a NEW token while this many are already held.
   const [maxOpenPositions, setMaxOpenPositions] = useState(10);
+  // Minutes a market must still have left to run before a leader's BUY in it
+  // is copyable. 60 (the engine's own default) excludes the 5m/15m/hourly
+  // Up-or-Down candles — copying those late is a measured, structural loss.
+  // 0 = off, and copying them is then a deliberate choice.
+  const [minMinutesToClose, setMinMinutesToClose] = useState(DEFAULT_MIN_MINUTES_TO_CLOSE);
   // Per-position stop-loss, held as the integer PERCENT LOSS from entry that
   // triggers the exit (10 = sell once the position is down 10%). Persisted on
   // the strat as the DEFENDED 0–1 fraction of entry (`stopLoss` = 1 − loss%),
@@ -998,8 +1010,14 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     setFundsMode(activeIndex.fundsMode === "WALLET" ? "WALLET" : "SIM");
     setMinTrade(activeIndex.minTrade ?? 5);
     setMaxTrade(activeIndex.maxTrade ?? 100);
+    // undefined ⇒ the 2× default; null (legacy unbounded) and 0 both mean
+    // OFF, and the field shows ∞ for either.
+    setMaxUpscale(
+      activeIndex.maxUpscale === undefined ? DEFAULT_MAX_UPSCALE : activeIndex.maxUpscale ?? 0,
+    );
     setMaxPerCycle(activeIndex.maxPerCycle ?? 3);
     setMaxOpenPositions(activeIndex.maxOpenPositions ?? 10);
+    setMinMinutesToClose(activeIndex.minMinutesToClose ?? DEFAULT_MIN_MINUTES_TO_CLOSE);
     setStopLossPct(stopLossFracToLossPct(activeIndex.stopLoss));
     setMarketQuery(activeIndex.marketQuery ?? "");
     setMarketQueryInput(activeIndex.marketQuery ?? "");
@@ -1254,11 +1272,33 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     }
   };
 
+  // Proportional-fidelity limit. 0 is a real value (place EVERY filtered
+  // trade, clamped up to the order floor) so it persists as an explicit 0 —
+  // dropping the field would silently re-arm the engine's 2× default.
+  const updateMaxUpscale = (n: number) => {
+    const clamped = n <= 0 ? 0 : Math.min(1000, Math.round(n));
+    setMaxUpscale(clamped);
+    if (activeIndex) {
+      updateIndex(activeIndex.id, { maxUpscale: clamped, updatedAt: Date.now() });
+    }
+  };
+
   const updateMaxOpenPositions = (n: number) => {
     const clamped = Math.max(1, n);
     setMaxOpenPositions(clamped);
     if (activeIndex) {
       updateIndex(activeIndex.id, { maxOpenPositions: clamped, updatedAt: Date.now() });
+    }
+  };
+
+  // Time-to-resolution gate. 0 is a real value (copy short-dated flow too), so
+  // it persists as an explicit 0 rather than being dropped — dropping it would
+  // silently re-arm the engine's 60m default on the next load.
+  const updateMinMinutesToClose = (mins: number) => {
+    const clamped = Math.max(0, Math.min(1440, Math.round(mins)));
+    setMinMinutesToClose(clamped);
+    if (activeIndex) {
+      updateIndex(activeIndex.id, { minMinutesToClose: clamped, updatedAt: Date.now() });
     }
   };
 
@@ -1452,6 +1492,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         setCapital(found.capital && found.capital > 0 ? found.capital : DEFAULT_CAPITAL);
         setMinTrade(found.minTrade ?? 5);
         setMaxTrade(found.maxTrade ?? 100);
+        setMaxUpscale(found.maxUpscale === undefined ? DEFAULT_MAX_UPSCALE : found.maxUpscale ?? 0);
         setMaxPerCycle(found.maxPerCycle ?? 3);
         setMaxOpenPositions(found.maxOpenPositions ?? 10);
         setStopLossPct(stopLossFracToLossPct(found.stopLoss));
@@ -1659,8 +1700,20 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // construct the SAME standard Strat class (src/app/app/lib/strats/
   // strat.ts) with the same params — what you backtest is what trades.
   const backtestStrat = useMemo(
-    () => new Strat({ maxPerCycle, marketQuery, tradeFilters, filter: traderFilter ?? undefined }),
-    [maxPerCycle, marketQuery, tradeFilters, traderFilter],
+    () => new Strat({
+      maxPerCycle, marketQuery, tradeFilters, filter: traderFilter ?? undefined,
+      // The live engine refuses BUYs in markets resolving inside this window
+      // (live_engine.rs TOO_SOON). Without it here, the tab happily counted
+      // 5-minute Up/Down fills that a deployment would never place.
+      minMinutesToClose,
+      // Edited live in SIZING → UPSCALE, so it reads the field state (not the
+      // persisted strat) and the backtest re-runs on the keystroke.
+      maxUpscale,
+      ...(activeIndex?.sizing !== undefined && { sizing: activeIndex.sizing }),
+      ...(activeIndex?.turnover !== undefined && { turnover: activeIndex.turnover }),
+    }),
+    [maxPerCycle, marketQuery, tradeFilters, traderFilter, minMinutesToClose,
+     maxUpscale, activeIndex?.sizing, activeIndex?.turnover],
   );
 
   // ── The backtest ──
@@ -1691,10 +1744,14 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     samplePct,
     showAllTrades,
     loading,
+    // Size the preview off the same denominator the live session will.
+    sizing: activeIndex?.sizing,
+    turnover: activeIndex?.turnover,
   }), [watchlist, traderTrades, traderData, traderWeights, traderBankrolls, backtestStrat,
        backtestDays, capital, minTrade, maxTrade, maxOpenPositions, stopLossPct, takeProfitFrac,
        marketQuery, activeIndex?.livePollMinutes, rebalanceMinutes, rebalancePeriod,
-       rebalanceHour, samplePct, showAllTrades, loading]);
+       rebalanceHour, samplePct, showAllTrades, loading, activeIndex?.sizing,
+       activeIndex?.turnover]);
 
   const traderStatsMap = backtest.traderStats;
   const traderCopyRatio = backtest.copyRatio;
@@ -1738,11 +1795,17 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     return {
       trades, weightFraction, bankrolls: traderBankrolls, traderVolume,
       capital, minTrade, maxTrade,
-      maxUpscale: activeIndex?.maxUpscale,
+      // Cap the advice at the deposit wallet's real USDC — a recommendation
+      // of "$200k" for a wallet holding $150 is not a plan.
+      available: walletBalance,
+      maxUpscale,
+      sizing: activeIndex?.sizing,
+      turnover: activeIndex?.turnover,
       days: backtestDays,
     };
   }, [watchlist, traderTrades, traderWeights, traderCopyRatio, traderBankrolls, backtestStrat,
-      backtestHistory, marketQuery, capital, minTrade, maxTrade, activeIndex?.maxUpscale, backtestDays]);
+      backtestHistory, marketQuery, capital, minTrade, maxTrade, walletBalance,
+      maxUpscale, activeIndex?.sizing, activeIndex?.turnover, backtestDays]);
 
   // ── Combined FIFO PnL curve (scaled to user's capital) ──
   const combinedCurveData = useMemo((): { combined: CurvePoint[]; perTrader: { address: string; points: CurvePoint[]; weight: number }[] } => {
@@ -2578,6 +2641,28 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                   />
                 </Field>
 
+                {/* The knob that decides how much of the filtered flow ever
+                    reaches the book. A small account copying big leaders
+                    mirrors at cents; every one of those is skipped as
+                    SUB_SCALE unless it's allowed to round up to the floor.
+                    0 = ∞ = round them ALL up and place them. */}
+                <Field label="UPSCALE" suffix="×">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={maxUpscale === 0 ? "∞" : maxUpscale}
+                    onChange={(e) => {
+                      const raw = e.target.value.trim();
+                      if (raw === "∞" || raw === "") return updateMaxUpscale(0);
+                      const v = parseInt(raw.replace(/[^0-9]/g, ""), 10);
+                      updateMaxUpscale(isNaN(v) ? 0 : v);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    title="How far a mirror may be rounded UP past its proportional size to clear the order floor. 2 = a mirror may be at most 2× what proportionality asked for; anything smaller is skipped (SUB_SCALE) so a conviction bet and a throwaway punt never get copied at the same size. 0 (∞) = never skip for size — every filtered trade is placed at the floor, which is how a small account copies large leaders at all."
+                    className="bg-transparent w-10 text-right font-mono text-[14px] text-pixel-white outline-none"
+                  />
+                </Field>
+
                 <Field label="SAMPLE" suffix="%">
                   <input
                     type="text"
@@ -2630,6 +2715,25 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                     enforced by the live engine OR the backtest, so it silently
                     lied about behavior. Rate control is MAX/CYCLE × poll
                     cadence, which both sides actually honor. */}
+                {/* The gate that blocks the most flow, and the only one that
+                    used to be invisible: a session could report "225 entries
+                    seen, none copied" with no knob anywhere in the console to
+                    answer it with. 60 = the engine's default. */}
+                <Field label="MIN CLOSE" suffix="MIN">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={minMinutesToClose}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value.replace(/[^0-9]/g, ""), 10);
+                      updateMinMinutesToClose(isNaN(v) ? 0 : v);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    title="Minimum minutes a market must still have left before a leader's BUY in it can be copied. 60 (default) excludes the 5m/15m/hourly Up-or-Down candles — mirroring those one poll late is a measured loss (−$253 across 1064 such copies). 0 turns the gate off and copies short-dated flow too. Enforced live and replayed identically in the backtest."
+                    className="bg-transparent w-9 text-right font-mono text-[14px] text-pixel-white outline-none"
+                  />
+                </Field>
+
                 <Field label="MAX/CYCLE">
                   <input
                     type="text"
@@ -2884,6 +2988,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 <CapitalPlanCard
                   input={capitalPlanInput}
                   onUse={updateCapital}
+                  onCopyAll={() => updateMaxUpscale(0)}
                   onPlan={(plan) => {
                     if (!activeIndex) return;
                     updateIndex(activeIndex.id, {
@@ -2898,7 +3003,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         </div>
       )}
 
-      {/* Strat list + "+ New" live in the TopBar strat picker (HeaderStratPicker). */}
+      {/* Strat list + "+ New" live in the strat sidebar (StratSidebar). */}
 
       {/* ── STRAT → SOURCE subtab — the strat's code ──
           Read-only for built-in TS strats; editable for user-uploaded

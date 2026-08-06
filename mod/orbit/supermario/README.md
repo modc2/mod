@@ -5,16 +5,37 @@ An NES emulator that runs in a browser tab. 🍄
 This is the **console, not the cartridge**. Super Mario Bros. and the rest of
 the library are still under copyright, so no game data ships with this module.
 Load a dump of a cartridge you own — it is read in the page and never uploaded.
+If you have no cartridge to hand, `fetch_roms` fills a small shelf of
+free-licensed homebrew instead.
 
 ```
 m supermario                 # what this is
 m supermario/play            # serve it and open a browser
 m supermario/serve           # run it under pm2 and register the gateway route
 m supermario/boards          # which cartridge boards work
+m supermario/fetch_roms      # download the free-licensed shelf
 m supermario/test            # the whole test suite
 ```
 
-Then drop a `.nes` file on the window.
+Then drop a `.nes` file on the window — or pick one off the shelf.
+
+## The shelf
+
+There is no legal free download of Super Mario Bros.: Nintendo has never
+released it that way, so the routes are your own cartridge or Switch Online.
+Homebrew authors *have* released their games freely, and `fetch_roms` pulls
+three of them from where they publish, into `~/.mod/supermario/roms` — off-tree,
+because they are somebody else's work even when the licence is free. The app
+serves what is on disk at `/roms/<file>` and lists it at `/roms`; a title that
+has not been fetched is shown greyed rather than hidden.
+
+| game | author | licence | board |
+| --- | --- | --- | --- |
+| Nova the Squirrel | NovaSquirrel | GPL-3.0 | MMC1 |
+| Thwaite | Damian Yerrick | GPL-3.0 | NROM |
+| 240p Test Suite | Artemio Urbina, ported by Damian Yerrick | GPL-2.0 | UxROM |
+
+Versions are pinned in `Mod.SHELF`, so the shelf does not change under you.
 
 ## What is in here
 

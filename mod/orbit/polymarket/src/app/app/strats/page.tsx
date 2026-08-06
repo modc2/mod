@@ -82,7 +82,7 @@ function Hub({ onOpen }: { onOpen: (id: string) => void }) {
       // Shared-origin quota — the window just won't persist.
     }
   };
-  const { results, pending, refresh } = useHubBacktests(indexes, days);
+  const { results, pending, loading, worker, refresh } = useHubBacktests(indexes, days);
 
   const open = (id: string) => { select(id); onOpen(id); };
 
@@ -93,6 +93,8 @@ function Hub({ onOpen }: { onOpen: (id: string) => void }) {
         stats={stats}
         backtests={results}
         backtestPending={pending}
+        backtestLoading={loading}
+        worker={worker}
         days={days}
         onDaysChange={changeDays}
         activeId={activeId}

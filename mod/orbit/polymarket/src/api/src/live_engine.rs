@@ -110,12 +110,28 @@ fn effective_interval_for(cfg: &EngineConfig, enabled_traders: usize) -> u64 {
     let fanout_ms = enabled_traders as u64 * (cfg.inter_request_delay_ms + TRADER_FETCH_ALLOWANCE_MS);
     cfg.interval_ms.max(cfg.min_interval_ms).max(fanout_ms)
 }
-/// Default entry-probability floor: a BUY mirror below this price (= implied
-/// probability) is skipped when the strat expresses NO explicit price band.
-/// "Likely to win" by default — sub-60¢ longshot flow (the movoaev8 leak) is
-/// only copied when a strat opts in with its own `minPrice`/`maxPrice`.
-/// Mirror of DEFAULT_MIN_ENTRY_PRICE in app/lib/tradeFilters.ts.
-const DEFAULT_MIN_ENTRY_PRICE: f64 = 0.60;
+// There is deliberately no implicit entry-price floor. A 60¢ "likely to win"
+// default used to apply to BUYs whenever a strat set no price band, and it was
+// the single largest source of "the engine sees 57 leader entries and copies
+// none": a filter nobody chose, silently rejecting most of the flow. A price
+// band is now exactly what the strat says it is — set `minPrice` to get one.
+// Mirror of app/lib/tradeFilters.ts, which carries the same note.
+/// What a mirror is sized proportionally to — see `copy_ratio_for`. Mirrors
+/// the TS `SizingModel`; serialized as the same lowercase strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Sizing {
+    /// Proportional to the leader's net worth: risk fidelity.
+    #[default]
+    Bankroll,
+    /// Proportional to the capital the leader deployed this window:
+    /// conviction fidelity, placeable on a small account.
+    Flow,
+}
+
+/// Default `Sizing::Flow` turnover — one window of leader flow per allocation.
+fn default_turnover() -> f64 { 1.0 }
+
 /// Default proportional-fidelity limit — see `EngineConfig::max_upscale`.
 /// 2× is the most distortion a floor-clamped mirror may carry before the
 /// engine would rather place nothing.
@@ -244,8 +260,8 @@ pub struct MomentumParams {
     #[serde(rename = "exitDropCents", default)]
     pub exit_drop_cents: Option<f64>,
     /// Entry price band — don't chase near-resolved (or dead) markets.
-    /// Defaults 0.5 / 0.85 (likely-to-win side, same bias as the copy path's
-    /// DEFAULT_MIN_ENTRY_PRICE); explicit `minPrice` opts into cheaper entries.
+    /// Defaults 0.5 / 0.85 — momentum rides a leader crossing toward
+    /// resolution. This one IS a default; the copy path has none.
     #[serde(rename = "minPrice", default)]
     pub min_price: Option<f64>,
     #[serde(rename = "maxPrice", default)]
@@ -442,6 +458,17 @@ pub struct EngineConfig {
     /// `None`/0 ⇒ legacy clamp-to-floor with no fidelity limit.
     #[serde(rename = "maxUpscale", default = "default_max_upscale")]
     pub max_upscale: Option<f64>,
+    /// What mirrors are sized proportionally TO — see `copy_ratio_for`.
+    /// `bankroll` (default) copies the leader's RISK, `flow` copies their
+    /// CONVICTION and is what keeps a small account's mirrors above the order
+    /// floor instead of `SUB_SCALE`-skipped.
+    #[serde(rename = "sizing", default)]
+    pub sizing: Sizing,
+    /// `Sizing::Flow` only — how many times the allocation may be deployed
+    /// across one lookback window of leader flow. 1.0 ⇒ the window's mirrors
+    /// sum to roughly the allocation.
+    #[serde(rename = "turnover", default = "default_turnover")]
+    pub turnover: f64,
     /// Don't mirror a leader BUY in a market resolving sooner than this many
     /// minutes. Sub-hour Up/Down candles are HFT turf: by the time a 30s
     /// poller sees the fill the candle has already moved, so copying them is
@@ -483,10 +510,8 @@ pub struct TradeFilters {
 /// Apply the semantic per-trade gate — mirror of `tradeMatchesFilters` in
 /// app/lib/tradeFilters.ts. Returns true ⇒ this trade may be mirrored.
 ///
-/// When the strat sets NO explicit price band (neither `minPrice` nor
-/// `maxPrice`), BUYs default to the `DEFAULT_MIN_ENTRY_PRICE` favorites-only
-/// floor — likely-to-win entries only. An explicit band (even `minPrice: 0`)
-/// is the opt-out; SELLs are never floored (exits must always clear).
+/// Only the strat's own filters gate anything: no price band set means no
+/// price gate. Nothing is imposed that the strat didn't ask for.
 /// Boolean form of the gate — the parity tests assert on it; the cycle loop
 /// wants the reason, so it calls `trade_filter_reject` directly.
 #[cfg(test)]
@@ -506,16 +531,9 @@ fn trade_filter_reject(t: &ObservedTrade, filters: &Option<TradeFilters>) -> Opt
         Some("sell") if t.side != "SELL" => return Some("side"),
         _ => {}
     }
-    let no_price_band = f.min_price.is_none() && f.max_price.is_none();
-    let effective_min = f.min_price.or_else(|| {
-        (no_price_band && t.side == "BUY").then_some(DEFAULT_MIN_ENTRY_PRICE)
-    });
-    if let Some(min) = effective_min {
-        if t.price < min {
-            // The implicit favorites-only floor is the single most common
-            // reason a copy strat never fires, so it names itself.
-            return Some(if f.min_price.is_some() { "price" } else { "price<60¢" });
-        }
+    // Price band, and only the one the strat actually set.
+    if let Some(min) = f.min_price {
+        if t.price < min { return Some("price"); }
     }
     if let Some(max) = f.max_price {
         if t.price > max { return Some("price"); }
@@ -779,6 +797,32 @@ pub struct LogEntry {
     pub trades_seen: Option<usize>,
 }
 
+/// One gate's recent damage: how many leader entries it blocked inside the
+/// current `GATE_WINDOW_MS` window, and when it last fired.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GateTally {
+    pub count: u64,
+    #[serde(rename = "lastAt")]
+    pub last_at: i64,
+}
+
+/// How far back `gated_recently` looks. Long enough that a slow leader still
+/// registers, short enough that fixing your filters clears the console's
+/// warning within a couple of cycles rather than at next restart.
+const GATE_WINDOW_MS: i64 = 30 * 60_000;
+
+/// Record `n` entries blocked by `reason`. Counts restart when the gate has
+/// been quiet for a whole window, so the number always means "in the last
+/// half hour" rather than "since this session was armed".
+fn tally_gate(map: &mut HashMap<String, GateTally>, reason: &str, n: u64, now: i64) {
+    let e = map.entry(reason.to_string()).or_default();
+    if now - e.last_at > GATE_WINDOW_MS {
+        e.count = 0;
+    }
+    e.count += n;
+    e.last_at = now;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineState {
     pub status: EngineStatus,
@@ -859,6 +903,14 @@ pub struct EngineState {
     /// skips tokens exited within EXIT_READOPT_COOLDOWN_MS.
     #[serde(rename = "exitedRecently", default)]
     pub exited_recently: HashMap<String, i64>,
+    /// Why the leader flow this session DID see never became orders, keyed by
+    /// gate ("price", "market query", "resolves too soon", "stale", …)
+    /// over the last `GATE_WINDOW_MS`. The cycle heartbeat already says this
+    /// in prose, but a strat whose filters exclude 100% of its leaders' flow
+    /// reads as a broken engine unless the console can state the reason
+    /// standing still — one line of text scrolling past in a log is not that.
+    #[serde(rename = "gatedRecently", default)]
+    pub gated_recently: HashMap<String, GateTally>,
 }
 
 impl EngineState {
@@ -885,6 +937,7 @@ impl EngineState {
             realized_events: Vec::new(),
             proposed_recently: HashMap::new(),
             exited_recently: HashMap::new(),
+            gated_recently: HashMap::new(),
         }
     }
 }
@@ -2295,6 +2348,8 @@ impl EngineRegistry {
                             book.as_ref().map(|b| b.bankroll),
                             capital_alloc,
                             trader_vol,
+                            cfg.sizing,
+                            cfg.turnover,
                         );
 
                         // Sharpe/ROI over the fixed 30d window — the basis for
@@ -2475,6 +2530,13 @@ impl EngineRegistry {
                 // flow every cycle and mirrors none of it is a filter
                 // decision, not a fault — say so instead of leaving the
                 // console to imply the engine is broken.
+                // Same tally, kept as structured state so the LIVE panel can
+                // show it standing still instead of only in this one log line.
+                for (why, n) in &gated {
+                    tally_gate(&mut s.gated_recently, why, *n as u64, cycle_ended_at);
+                }
+                s.gated_recently
+                    .retain(|_, t| cycle_ended_at - t.last_at <= GATE_WINDOW_MS);
                 if !gated.is_empty() {
                     let mut by_gate: Vec<(&&str, &usize)> = gated.iter().collect();
                     by_gate.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
@@ -2880,6 +2942,8 @@ impl EngineRegistry {
                 if age_sec > max_age {
                     let mut s = state.write();
                     insert_copied_id(&mut s.copied_ids, trade.id.clone());
+                    let now_ms = chrono::Utc::now().timestamp_millis();
+                    tally_gate(&mut s.gated_recently, "stale", 1, now_ms);
                     push_log(&mut s.log, mk_log(
                         "SKIP",
                         &trade.id,
@@ -2906,6 +2970,8 @@ impl EngineRegistry {
                     if mins_left < min_close {
                         let mut s = state.write();
                         insert_copied_id(&mut s.copied_ids, trade.id.clone());
+                        let now_ms = chrono::Utc::now().timestamp_millis();
+                        tally_gate(&mut s.gated_recently, "resolves too soon", 1, now_ms);
                         push_log(&mut s.log, mk_log(
                             "SKIP",
                             &trade.id,
@@ -3044,6 +3110,11 @@ impl EngineRegistry {
                         let mut s = state.write();
                         s.total_orders_placed += 1;
                         s.total_volume_mirrored += notional;
+                        // An entry landed, so this strat IS copying — drop the
+                        // gate tally. Non-empty `gated_recently` then means
+                        // "gates fired and nothing has been mirrored since",
+                        // which is the only version of it worth warning about.
+                        s.gated_recently.clear();
                         insert_copied_id(&mut s.copied_ids, trade.id.clone());
                         // Record / accumulate the open position with its FROZEN
                         // entry score (size-weighted avg entry price; keep the
@@ -3327,6 +3398,7 @@ impl EngineRegistry {
                         let mut s = state.write();
                         s.total_orders_placed += 1;
                         s.total_volume_mirrored += notional;
+                        s.gated_recently.clear();
                         let entry = s.positions.entry(p.token_id.clone()).or_insert_with(|| OpenPosition {
                             token_id: p.token_id.clone(),
                             condition_id: p.condition_id.clone(),
@@ -3871,13 +3943,29 @@ fn widen_limit_price(price: f64, side: &str, slippage_bps: u32) -> f64 {
 /// sheet can't be read (data-api outage, brand-new wallet): a bad ratio is
 /// better than no copying, and the `SUB_SCALE` gate in `plan_mirror` still
 /// stops it from placing wildly out-of-scale orders.
+///
+/// `Sizing::Flow` swaps the denominator from the leader's NET WORTH to the
+/// capital they actually deployed in the window, so our allocation is split
+/// across their flow in proportion to what each trade was worth to THEM. The
+/// bankroll model is the honest risk mirror, but it is unusable on a small
+/// account: a $223 strat copying a $200k leader gets a ratio near 1e-4, every
+/// proportional mirror lands cents under the $3.45 CLOB floor, and `SUB_SCALE`
+/// skips the very trades the FILTER just selected. Dividing by the few thousand
+/// dollars the leader moved this window keeps the relative ordering (a $10k
+/// conviction entry still copies 100× a $100 punt) at a size that clears the
+/// floor. `turnover` is how many times over the window we'll redeploy.
 fn copy_ratio_for(
     account_value: f64,
     weight_fraction: f64,
     leader_bankroll: Option<f64>,
     capital_alloc: f64,
     trader_vol: f64,
+    sizing: Sizing,
+    turnover: f64,
 ) -> f64 {
+    if sizing == Sizing::Flow {
+        return (capital_alloc * turnover.max(0.0)) / trader_vol.max(1.0);
+    }
     // Bankrolls under $1 are noise (a wallet mid-withdrawal, a parse of an
     // empty book) and would blow the ratio up by orders of magnitude.
     match leader_bankroll {
@@ -5005,12 +5093,18 @@ mod tests {
         // that a backtest predicts live position sizes.
         for case in fx["copyRatioCases"].as_array().expect("copyRatioCases") {
             let name = case["name"].as_str().unwrap_or("?");
+            let sizing = match case["sizing"].as_str() {
+                Some("flow") => Sizing::Flow,
+                _ => Sizing::Bankroll,
+            };
             let got = copy_ratio_for(
                 case["accountValue"].as_f64().unwrap(),
                 case["weightFraction"].as_f64().unwrap(),
                 case["leaderBankroll"].as_f64(),
                 case["capitalAlloc"].as_f64().unwrap(),
                 case["traderVol"].as_f64().unwrap(),
+                sizing,
+                case["turnover"].as_f64().unwrap_or_else(default_turnover),
             );
             let want = case["expected"].as_f64().unwrap();
             assert!(close(got, want), "copyRatio[{name}]: got {got}, want {want}");
@@ -5190,19 +5284,19 @@ mod tests {
 
     #[test]
     fn trade_filters_gate_matches_frontend() {
-        // No explicit price band ⇒ BUYs get the favorites-only default floor
-        // (mirror of tradeMatchesFilters): ≥60¢ passes, below is skipped.
+        // No price band ⇒ nothing is gated on price. There is no implicit
+        // floor in either language; a strat that says nothing filters nothing.
         let fav = observed("BUY", 0.65, 100.0, "Bitcoin above $100k?");
         let long = observed("BUY", 0.50, 100.0, "Bitcoin above $100k?");
         assert!(trade_passes_filters(&fav, &None));
         assert!(trade_passes_filters(&fav, &Some(TradeFilters::default())));
-        assert!(!trade_passes_filters(&long, &None));
-        assert!(!trade_passes_filters(&long, &Some(TradeFilters::default())));
-        // SELLs (exits) are never floored by the default.
+        assert!(trade_passes_filters(&long, &None));
+        assert!(trade_passes_filters(&long, &Some(TradeFilters::default())));
         assert!(trade_passes_filters(&observed("SELL", 0.05, 10.0, "x"), &None));
-        // Explicit minPrice: 0 opts out of the default floor entirely.
-        let opt_out = Some(TradeFilters { min_price: Some(0.0), ..Default::default() });
-        assert!(trade_passes_filters(&long, &opt_out));
+        // An explicit floor is still a floor.
+        let floored = Some(TradeFilters { min_price: Some(0.6), ..Default::default() });
+        assert!(trade_passes_filters(&fav, &floored));
+        assert!(!trade_passes_filters(&long, &floored));
 
         // Side gate.
         let buys_only = Some(TradeFilters { sides: Some("buy".into()), ..Default::default() });

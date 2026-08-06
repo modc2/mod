@@ -100,6 +100,39 @@ the auth gate treats MCP exactly like browser traffic, and MCP grants no
 authority of its own. A unit test asserts every tool's `fn` is declared in
 `config.json`, so the two schemas cannot drift.
 
+## Ask — the agent that drives that MCP server
+
+`src/agent.py` runs a Claude agent whose *only* toolbox is the MCP server
+above, so it answers from live tool calls instead of memory. UI: `/ask`.
+
+```python
+hl.ask('who are the top 5 traders by 7-day ROI, and what do they hold?')
+# → {answer, tools: [{name, args}, …], turns, ms, cost_usd}
+hl.ask('close my BTC position', act=True)   # write tools, needs a token
+hl.ask_status()                             # model auth, tool counts, hints
+```
+
+```bash
+curl -N /api/hyperliquid/ask -H "Authorization: Bearer $TOKEN" \
+     -d '{"question":"best APR vault over $1M TVL?"}'   # SSE event stream
+```
+
+Two guarantees hold it in place:
+
+* **No new authority.** The caller's token rides to the stdio MCP server as
+  `HYPERLIQUID_TOKEN`, every tool re-enters this API over its REST routes,
+  and `auth.rs` gates it. The agent can never read or do more than the
+  caller could by hand. `POST /ask` itself needs a token (it spends model
+  credits); `GET /ask/status` is public.
+* **A question cannot trade.** The allow/deny lists come from
+  `GET /mcp/schema`: GET-backed tools are reads, everything else is a write.
+  Reads-only is the default; writes need `act=true` *and* a token. Local
+  host tools (Bash/Read/Write/…) are denied in both modes.
+
+Model auth resolves ANTHROPIC_API_KEY → `~/.mod/hyperliquid/anthropic.key`
+(created 0600 on first run) → Claude CLI OAuth. Knobs: `HL_AGENT_MODEL`
+(sonnet), `HL_AGENT_MAX_TURNS` (16), `HL_AGENT_TIMEOUT` (300s).
+
 ## Backend agent wallet
 
 The Rust API generates an encrypted-at-rest ECDSA key per master EOA. The

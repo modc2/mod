@@ -305,6 +305,144 @@ export type SavedIndex = {
   rebalance_threshold_pct?: number;
   poll_interval_sec?: number;
   liveCopyIds?: string[]; // server copy_ids when running
+  thesis?: string; // set when the strat agent wrote it
   createdAt: number;
   updatedAt: number;
+};
+
+// ── Strat agent ──────────────────────────────────────────────────
+
+export type AgentStatus = {
+  ready: boolean;
+  method: string | null;
+  hint: string | null;
+  model: string;
+  max_turns: number;
+  timeout_sec: number;
+  tools: string[];
+  api: string;
+};
+
+/** One pick in a proposed basket, already priced off the tracked board. */
+export type ProposedTrader = {
+  ss58: string;
+  label?: string | null;
+  weight: number;
+  share_pct: number;
+  why?: string | null;
+  tracked: boolean;
+  total_tao?: number | null;
+  change_7d?: number | null;
+  pnl_7d?: number | null;
+  subnets?: number | null;
+};
+
+/** The agent's deliverable — a basket, not yet saved and never live. */
+export type StratProposal = {
+  name: string;
+  thesis: string;
+  traders: ProposedTrader[];
+  capital_tao: number;
+  max_tao_per_tx: number;
+  rebalance_threshold_pct: number;
+  poll_interval_sec: number;
+  warning?: string;
+};
+
+/** Server-sent events from POST /agent/ask. */
+export type AgentEvent =
+  | { type: "start"; model: string; session_id: string; tools: number }
+  | { type: "text"; text: string }
+  | { type: "tool"; name: string; args: Record<string, unknown> }
+  | { type: "tool_done"; name: string; error: boolean }
+  | { type: "strat"; strat: StratProposal }
+  | {
+      type: "done";
+      answer: string;
+      session_id: string;
+      turns: number;
+      ms: number;
+      cost_usd: number | null;
+    }
+  | { type: "error"; error: string };
+
+// ── strats on the server (owned, shareable) ──────────────────────
+
+export type StratVisibility = "private" | "public" | "whitelist";
+
+/** A strat as the API returns it: the basket plus who may see it. */
+export type ServerStrat = {
+  id: string;
+  name: string;
+  visibility: StratVisibility;
+  whitelist: string[];
+  /** True when this browser's owner key created it. */
+  mine: boolean;
+  owner_fingerprint: string | null;
+  traders: IndexTrader[];
+  our_hotkey?: string | null;
+  max_tao_per_tx?: number | null;
+  daily_limit_tao?: number | null;
+  rebalance_threshold_pct?: number | null;
+  poll_interval_sec?: number | null;
+  thesis?: string | null;
+  live_copy_ids?: string[];
+  cloned_from?: string;
+  created_at: number;
+  updated_at: number;
+};
+
+/** What create/update send. Same shape, minus the server's own fields. */
+export type StratWrite = {
+  name: string;
+  traders: IndexTrader[];
+  visibility?: StratVisibility;
+  whitelist?: string[];
+  our_hotkey?: string | null;
+  max_tao_per_tx?: number | null;
+  daily_limit_tao?: number | null;
+  rebalance_threshold_pct?: number | null;
+  poll_interval_sec?: number | null;
+  thesis?: string | null;
+  live_copy_ids?: string[];
+};
+
+/** Replay of a basket over a past window (POST /strats/backtest). */
+export type Backtest = {
+  ok: boolean;
+  note: string | null;
+  capital_tao: number;
+  requested_hours: number;
+  covered_hours: number;
+  from_ts: number | null;
+  to_ts: number | null;
+  step_sec: number;
+  points: number;
+  /** Too few points for the stats to mean much — say so, don't hide it. */
+  thin: boolean;
+  curve: Array<{ t: number; equity_tao: number }>;
+  stats: {
+    total_return_pct?: number;
+    end_tao?: number;
+    pnl_tao?: number;
+    max_drawdown_pct?: number;
+    apy_pct?: number | null;
+    sharpe?: number | null;
+    best_step_pct?: number;
+    worst_step_pct?: number;
+  };
+  per_trader: Array<{
+    ss58: string;
+    label?: string | null;
+    weight: number;
+    /** This leg's own return over the window. */
+    return_pct: number;
+    /** Its share of the basket's PnL. These sum to the basket's return. */
+    contribution_tao: number;
+    contribution_pct: number;
+  }>;
+  skipped: Array<{ ss58: string; reason: string }>;
+  /** Set when the basket was too wide to replay whole — never silent. */
+  truncated: { kept: number; dropped: number } | null;
+  assumptions: string[];
 };

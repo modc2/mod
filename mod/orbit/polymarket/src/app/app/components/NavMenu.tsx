@@ -1,24 +1,29 @@
 "use client";
 
-// Global nav in the top header — replaces the old LeftNav rail. On wide
-// viewports every destination (STRAT / TRADERS / MARKETS / DOCS) is laid out
-// inline as tabs to the RIGHT of the strat picker; below COLLAPSE_BP the row
-// folds into the square-mark dropdown so it never fights the search box.
+// Global nav in the top header — replaces the old LeftNav rail. Every
+// destination (STRAT / TRADERS / MARKETS / DOCS) is laid out inline as tabs
+// along the header, to the RIGHT of the active-strat readout. There is no
+// dropdown fallback: when the header runs out of room the labels drop and the
+// tabs become icons, which still fit on a phone and still show you where you
+// are — a menu you have to open to learn what page you're on is worse.
 // The global fills tape (/trades) is no longer a nav destination — fills live
 // in the STRAT page's TRADES tab. Wallet + trading-wallet chrome is NOT here
 // either — it's a WALLET tab inside the STRAT page.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { useEmbedded } from "../lib/embedded";
 
 const ICON = "w-[16px] h-[16px] shrink-0";
 
-// Below this viewport width the inline tab row collapses into the dropdown.
-// Tailwind needs the variants as static strings: keep these two in sync.
-const INLINE = "hidden min-[1100px]:flex"; // inline tab row
-const FOLDED = "min-[1100px]:hidden"; // dropdown fallback
+// Below this width the tab labels drop and the row is icons only — enough for
+// four destinations plus the strat readout on a phone. `nav-tab-label` lets
+// globals.css drop them earlier when the strat sidebar is docked: a media
+// query measures the VIEWPORT, and a docked column eats 340px of the header
+// it can't see (at 1024px that left 684px and the tabs ran under the wallet
+// chip).
+const LABEL = "nav-tab-label hidden min-[900px]:inline";
 
 interface NavItem {
   href: string;
@@ -76,133 +81,47 @@ const NAV: NavItem[] = [
 export default function NavMenu() {
   const pathname = usePathname() || "";
   const embedded = useEmbedded();
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  // Close on outside click / Escape.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
 
   // Split-screen iframe panes stay lightweight — no global nav.
   if (embedded) return null;
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
-  const current = NAV.find((t) => isActive(t.href));
-
-  const mark = (
-    <span
-      className="grid place-items-center w-[22px] h-[22px] rounded-[6px] bg-green-400 shrink-0"
-      style={{ boxShadow: "0 0 12px rgba(74,222,128,0.55), inset 0 1px 0 rgba(255,255,255,0.4)" }}
-    >
-      <span className="w-[7px] h-[7px] rounded-[2px] bg-pixel-black" />
-    </span>
-  );
 
   return (
-    <>
-      {/* ── Wide viewports: every destination inline along the top ── */}
-      <nav className={`${INLINE} items-center gap-0.5`}>
-        <span className="px-1.5">{mark}</span>
-        {NAV.map((t) => {
-          const active = isActive(t.href);
-          return (
-            <Link
-              key={t.href}
-              href={t.href}
-              className={`relative flex items-center gap-2 px-2.5 py-1.5 rounded-[var(--radius-sm)] transition-colors ${
-                active
-                  ? "text-green-400 bg-green-400/10"
-                  : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.06]"
-              }`}
-            >
-              <span className={active ? "glow-green" : ""}>{t.icon}</span>
-              <span className="text-[12px] font-semibold tracking-[0.14em] whitespace-nowrap">
-                {t.label}
-              </span>
-              <span
-                className={`absolute left-2.5 right-2.5 -bottom-[1px] h-[2px] rounded-full bg-green-400 transition-opacity duration-200 ${
-                  active ? "opacity-100 shadow-[0_0_10px_rgba(74,222,128,0.7)]" : "opacity-0"
-                }`}
-              />
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* ── Limited space: fold into the square-mark dropdown ── */}
-      <div ref={rootRef} className={`relative ${FOLDED}`}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        title="Navigate"
-        aria-expanded={open}
-        className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] transition-colors ${
-          open ? "bg-pixel-white/[0.06]" : "hover:bg-pixel-white/[0.06]"
-        }`}
+    <nav className="flex items-center gap-0.5 min-w-0">
+      {/* The mark is the console's badge, not a button — it opened the nav
+          menu back when there was one. */}
+      <span
+        className="hidden min-[480px]:grid place-items-center w-[22px] h-[22px] rounded-[6px] bg-green-400 shrink-0 mx-1.5"
+        style={{ boxShadow: "0 0 12px rgba(74,222,128,0.55), inset 0 1px 0 rgba(255,255,255,0.4)" }}
       >
-        {mark}
-        {/* On tiny screens the mark + caret alone identify the menu — the
-            page label would shove the wallet chip off the bar. */}
-        <span className="hidden min-[480px]:inline text-[12.5px] font-semibold tracking-[0.14em] text-pixel-white whitespace-nowrap">
-          {current?.label ?? "MENU"}
-        </span>
-        <span
-          className={`text-[10px] text-pixel-gray transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-        >
-          ▾
-        </span>
-      </button>
-
-      {open && (
-        <nav
-          className="absolute left-0 top-full mt-1.5 z-50 min-w-[190px] rounded-[var(--radius-sm)] backdrop-blur-md p-1.5 flex flex-col gap-0.5"
-          style={{
-            background:
-              "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.96), rgb(var(--pixel-bg-rgb)/0.94))",
-            border: "1px solid var(--border)",
-            boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
-          }}
-        >
-          {NAV.map((t) => {
-            const active = isActive(t.href);
-            return (
-              <Link
-                key={t.href}
-                href={t.href}
-                onClick={() => setOpen(false)}
-                className={`relative flex items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2 transition-colors ${
-                  active
-                    ? "text-green-400 bg-green-400/10"
-                    : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.06]"
-                }`}
-              >
-                <span
-                  className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-full bg-green-400 transition-all duration-200 ${
-                    active ? "h-5 opacity-100 shadow-[0_0_10px_rgba(74,222,128,0.7)]" : "h-0 opacity-0"
-                  }`}
-                />
-                <span className={active ? "glow-green" : ""}>{t.icon}</span>
-                <span className="text-[12px] font-semibold tracking-[0.14em] whitespace-nowrap">
-                  {t.label}
-                </span>
-              </Link>
-            );
-          })}
-        </nav>
-      )}
-      </div>
-    </>
+        <span className="w-[7px] h-[7px] rounded-[2px] bg-pixel-black" />
+      </span>
+      {NAV.map((t) => {
+        const active = isActive(t.href);
+        return (
+          <Link
+            key={t.href}
+            href={t.href}
+            title={t.label}
+            className={`relative flex items-center gap-2 px-2.5 py-1.5 rounded-[var(--radius-sm)] transition-colors ${
+              active
+                ? "text-green-400 bg-green-400/10"
+                : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.06]"
+            }`}
+          >
+            <span className={active ? "glow-green" : ""}>{t.icon}</span>
+            <span className={`${LABEL} text-[12px] font-semibold tracking-[0.14em] whitespace-nowrap`}>
+              {t.label}
+            </span>
+            <span
+              className={`absolute left-2.5 right-2.5 -bottom-[1px] h-[2px] rounded-full bg-green-400 transition-opacity duration-200 ${
+                active ? "opacity-100 shadow-[0_0_10px_rgba(74,222,128,0.7)]" : "opacity-0"
+              }`}
+            />
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

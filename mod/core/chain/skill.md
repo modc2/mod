@@ -34,12 +34,21 @@ console — Hub / Interact / Contracts / Control / Protocol / Owner / Docs).
   owner-only setters, transfer all ownership (e.g. to the Safe), export calls
   as a Safe multisig batch. Contract verification + deploy scripts via hardhat.
 - **Contract builder**: compile arbitrary Solidity with solc 0.8.26 in a
-  subprocess (`src/build/compile.js`); imports resolve against the module's
-  `node_modules`, so `@openzeppelin/contracts` works. The API returns ABI +
-  bytecode — deployment is signed in the browser, so no user key ever reaches
-  the server. Starter templates (`Counter`, `Token`, `NFT`, `Vault`,
-  `Splitter`) live in `src/build/templates/`; drafts and recorded builds go to
-  `~/.mod/chain/build/{drafts,deployments}.json`, keyed by deployer address.
+  subprocess (`src/build/compile.js`). Imports resolve three ways — against the
+  project's own files (whatever layout it was uploaded in), against the module's
+  `node_modules` (`@openzeppelin/contracts`, `@chainlink`, `hardhat/console.sol`),
+  and through remappings that point foundry's `lib/openzeppelin-contracts/…` at
+  the installed packages. The API returns ABI + bytecode — deployment is signed
+  in the browser, so no user key ever reaches the server. Starter templates
+  (`Counter`, `Token`, `NFT`, `Vault`, `Splitter`) live in
+  `src/build/templates/`; projects and recorded builds go to
+  `~/.mod/chain/build/{projects,deployments}.json`, keyed by deployer address.
+- **ABIs in the store module**: every ABI — fleet contracts and user builds
+  alike — is written into `m.mod('dstore')` as a content-addressed object owned
+  by the deploying address (`chain/abi/<network>/<name>.json`), and only the CID
+  is recorded elsewhere (`config.json` "abi"/"src", `abi_cid`/`src_cid` on a
+  build row). `GET /build/abi/{cid}` hands back the parsed ABI, so a contract
+  deployed by one project can be driven from another with nothing but a CID.
 - **Project gallery**: upload a project off your machine, or publish one you
   built so anybody can fork it (`~/.mod/chain/build/shared.json`, keyed
   `<author>/<name>`). BlocTime ships in the gallery read-only — fork it and its
@@ -125,7 +134,11 @@ curl -X POST localhost:8800/call -H 'Content-Type: application/json' \
 | GET/POST/DELETE | `/build/projects` — GET `/build/projects/{name}` | Per-address projects (a named bag of files) |
 | GET/POST/DELETE | `/build/shared` — GET `/build/shared/{id}` | Shared project gallery; publish yours, fork anyone's. Ships `fleet/bloctime` read-only |
 | GET/POST/DELETE | `/build/drafts` | Per-address source drafts |
-| GET/POST | `/build/deployments` | Per-address record of wallet-signed builds |
+| GET/POST | `/build/deployments` | Per-address record of wallet-signed builds; POST stores the ABI + source and returns their CIDs |
+| GET | `/build/abi/{cid}` | One ABI out of the store, parsed |
+| POST | `/build/abi` | `{address, name, network, abi, source?}` → `{cid}` — store an ABI for a contract deployed anywhere |
+| GET | `/build/abis?address=` | ABIs that address has in the store |
+| GET | `/cid/{cid}` | Raw stored content (ABI JSON or `.sol` source) |
 | GET | `/system/access` · `/system/challenge` — POST `/system/login` | Owner sign-in for the host readout (wallet signature → 12h Bearer token) |
 | GET | `/system/stats` | **Owner-only.** CPU per core, memory, disk, network traffic per interface, sockets, top processes |
 

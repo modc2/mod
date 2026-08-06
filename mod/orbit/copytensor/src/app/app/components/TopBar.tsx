@@ -17,10 +17,10 @@ const DRAWER: { id: SidebarPanel; label: string; long: string; title: string }[]
 ];
 
 const NAV = [
-  { href: "/leaderboard", label: "LEADERBOARD" },
   { href: "/subnets", label: "SUBNETS" },
   { href: "/traders", label: "TRADERS" },
   { href: "/strats", label: "STRATS" },
+  { href: "/agent", label: "AGENT" },
   { href: "/portfolio", label: "PORTFOLIO" },
 ];
 
@@ -84,7 +84,7 @@ export default function TopBar() {
     <header className="border-b-2 border-pixel-border bg-pixel-black sticky top-0 z-30">
       {/* Two rows at every width: marquee + status on top, menu + coin slot
           under it. It used to collapse onto one line on wide screens, but
-          logo + 5 tabs + search + 4 controls only ever fitted by shrinking
+          logo + tabs + search + 4 controls only ever fitted by shrinking
           the tabs and the search field into each other — at 1800px the
           PORTFOLIO tab was still being clipped. Two honest rows are wider
           apart and never truncate.
@@ -96,7 +96,7 @@ export default function TopBar() {
       <div className="max-w-[1600px] mx-auto px-3 py-2 flex flex-col gap-2 min-w-0">
         <div className="flex items-center gap-x-3 gap-y-2 min-w-0">
           <Link
-            href="/leaderboard"
+            href="/subnets"
             className="arcade-title text-pixel-white no-underline whitespace-nowrap sprite-coin min-w-0 truncate"
           >
             <span className="text-green-400">COPY</span>TENSOR
@@ -133,7 +133,7 @@ export default function TopBar() {
           </div>
         </div>
 
-        {/* Five tabs never fit across a phone. Rather than wrap them into two
+        {/* The tabs never fit across a phone. Rather than wrap them into two
             ragged rows, the rail scrolls sideways and the active tab is
             scrolled into view — a cabinet menu you thumb along. */}
         <div className="flex flex-wrap items-center gap-2 lg:gap-3 min-w-0">

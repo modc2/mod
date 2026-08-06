@@ -80,11 +80,11 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <Btn onClick={run} disabled={running || testFiles.length === 0}>
+        <Btn onClick={run} disabled={running || testFiles.length === 0} full>
           {running ? 'RUNNING…' : '▶ RUN TESTS'}
         </Btn>
-        <div style={{ width: '220px' }}>
-          <Input value={grep} onChange={setGrep} placeholder="only tests matching…" />
+        <div style={{ width: '100%', maxWidth: '220px' }}>
+          <Input value={grep} onChange={setGrep} placeholder="only tests matching…" onEnter={run} />
         </div>
         <span style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)' }}>
           {testFiles.length
