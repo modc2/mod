@@ -1275,6 +1275,69 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
             })()}
           </div>
 
+          {/* ── Blocked-strat banner ──
+              LAST FETCH says "N new trades observed" and the fill count
+              stays 0 — the engine IS working, every candidate is just
+              getting vetoed by a gate. The evidence was there all along
+              (one SKIP row per trade, reason first) but buried under
+              hundreds of cycle heartbeats, so it read as a dead engine.
+              Aggregate it: name the dominant gate and say what to change.
+              Only fires when the session has seen real flow and mirrored
+              none of it — a strat that is trading needs no explanation. */}
+          {(() => {
+            const skips = engineState.log.filter((e) => e.type === "SKIP" && e.reason);
+            const fills = engineState.log.filter(
+              (e) => e.type === "COPY_BUY" || e.type === "COPY_SELL",
+            ).length;
+            if (fills > 0 || skips.length < 5) return null;
+            const byCode = new Map<string, number>();
+            for (const e of skips) {
+              const code = e.reason!.split("·")[0].trim();
+              byCode.set(code, (byCode.get(code) ?? 0) + 1);
+            }
+            const ranked = [...byCode.entries()].sort((a, b) => b[1] - a[1]);
+            // What to actually DO about the gate that is blocking most flow.
+            // Keyed on the engine's own skip codes (live_engine.rs).
+            const FIX: Record<string, string> = {
+              TOO_SOON:
+                "your leaders trade markets that close sooner than MIN MINUTES TO CLOSE. That gate exists because mirroring 5-min bots with a lag is a structural loss — so the fix is usually new leaders, not a lower gate.",
+              STALE:
+                "trades are older than MAX TRADE AGE by the time we see them. Poll faster or raise the age limit.",
+              LEADER_DUST:
+                "your leaders' own trades are under Polymarket's order floor — there is nothing big enough to mirror.",
+              SUB_SCALE:
+                "your capital makes each mirror smaller than the $1 CLOB floor. Raise capital or raise MAX UPSCALE.",
+              FILTER:
+                "your trade filters (side / price band / notional) reject this flow. Widen them in RISK.",
+              NO_CASH: "the trading wallet is empty — fund it on the WALLET tab.",
+              NO_EDGE: "the scorer found no positive edge on these trades.",
+              LEADER_FLAT: "your leaders opened and closed before we could mirror them.",
+              MAX_POSITIONS:
+                "every position slot is full. Raise MAX OPEN POSITIONS or wait for some to resolve.",
+              CEILING_BELOW_FLOOR:
+                "MAX ORDER SIZE is below Polymarket's $1 floor — no legal order size exists.",
+            };
+            const [topCode, topCount] = ranked[0];
+            return (
+              <div className="mt-2 px-3 py-2 border border-amber-400/40 bg-amber-400/5 rounded">
+                <div className="text-[12px] text-amber-400 font-mono mb-1">
+                  NOTHING IS GETTING THROUGH — {skips.length} observed trades, 0 mirrored
+                </div>
+                <div className="text-[11px] text-pixel-gray font-mono">
+                  {ranked
+                    .slice(0, 3)
+                    .map(([code, n]) => `${code} ×${n}`)
+                    .join(" · ")}
+                </div>
+                <div className="mt-1 text-[11px] text-pixel-white font-mono">
+                  {Math.round((100 * topCount) / skips.length)}% blocked by{" "}
+                  <span className="text-amber-400">{topCode}</span> —{" "}
+                  {FIX[topCode] ?? "see the LOG tab for the full reason text."}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ── Recommended-capital hint ──
               No longer a "drop the floor" prompt — the engine now clamps
               dust mirrors UP to Polymarket's $1 floor instead of skipping
