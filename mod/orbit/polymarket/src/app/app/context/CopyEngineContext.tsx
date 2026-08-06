@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useRef, useCallback, useEffect, ReactNode } from "react";
-import { CopyEngine, CopyEngineState, CopyEngineConfig } from "../lib/copyEngine";
+import { CopyEngine, CopyEngineState, CopyEngineConfig, GateTally } from "../lib/copyEngine";
 import { getOwnerAddress } from "../lib/access";
 import { stopLiveSession } from "../lib/liveSessions";
 
@@ -30,10 +30,14 @@ interface CopyEngineContextValue {
       the last 30 minutes. Kept OUT of `engineState`: the browser engine
       republishes its own state object every cycle and would wipe a field it
       knows nothing about. Empty when nothing is being filtered. */
-  backendGates: Record<string, { count: number; lastAt: number }>;
+  backendGates: Record<string, GateTally>;
   /** Whether the backend engine places REAL orders (false = dry-run: mirrors
       are logged but nothing is sent to the CLOB). */
   autoExecute: boolean;
+  /** Scope every backend read (execution mode, gate tally, sync ages) to one
+      strat's session. Call it whenever the console switches strats — the
+      panel shows one strat at a time and must not report another's numbers. */
+  attachStrategy: (strategyId: string | null) => void;
   /** Flip real order placement on/off for the backend session. Resolves true
       when the backend acknowledged the change. */
   setAutoExecute: (on: boolean) => Promise<boolean>;
@@ -189,7 +193,7 @@ interface BackendStatus {
     traderLastSync: Record<string, number>;
     /** Per-gate tally of entries the strat's own filters blocked (live_engine.rs
         `gated_recently`). */
-    gatedRecently?: Record<string, { count: number; lastAt: number }>;
+    gatedRecently?: Record<string, GateTally>;
     /** Cadence the backend loop is ACTUALLY running at — the strat's request
         after the engine's rate-limit floor and fan-out widening. */
     effectiveIntervalMs?: number;
@@ -223,6 +227,7 @@ const CopyEngineContext = createContext<CopyEngineContextValue>({
   backendGates: {},
   autoExecute: false,
   setAutoExecute: async () => false,
+  attachStrategy: () => {},
   startLive: () => {},
   stopLive: () => {},
   pauseLive: () => {},
@@ -243,7 +248,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
   const [backendRunning, setBackendRunning] = useState(false);
   const [backendTraderSync, setBackendTraderSync] = useState<Record<string, number>>({});
   const [backendIntervalMs, setBackendIntervalMs] = useState<number | null>(null);
-  const [backendGates, setBackendGates] = useState<Record<string, { count: number; lastAt: number }>>({});
+  const [backendGates, setBackendGates] = useState<Record<string, GateTally>>({});
   const [autoExecute, setAutoExecuteState] = useState(false);
   // EOA + strat used for backend polling — set on start, cleared on stop.
   // The strat id scopes every backend call to THIS session, so stopping or
@@ -251,6 +256,22 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
   // strats running (see lib/liveSessions.ts).
   const backendEoaRef = useRef<string | null>(null);
   const backendStrategyRef = useRef<string | null>(null);
+
+  // Point the backend poll at the strat the console is SHOWING. Without this
+  // the ref only ever tracks the strat this browser last started — and an
+  // unscoped probe answers with whatever session the wallet happens to have
+  // running. The LIVE panel then renders one session's execution mode, gate
+  // tally and sync ages under a different strat's name: "EXECUTING · 41×
+  // time-to-close" over a strat that is actually parked in dry run.
+  const attachStrategy = useCallback((strategyId: string | null) => {
+    if (backendStrategyRef.current === strategyId) return;
+    backendStrategyRef.current = strategyId;
+    // Per-session state — blank it rather than show the previous strat's
+    // numbers for the ≤5s until the next poll refills them.
+    setBackendGates({});
+    setBackendTraderSync({});
+    setBackendIntervalMs(null);
+  }, []);
 
   // Flip real order placement for the backend session via /live/execution.
   // The backend persists the flag with the session config, and /live/start
@@ -467,7 +488,12 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
     // Re-attach to the strat this browser last drove. Without a persisted
     // session we probe unscoped — "is anything running for this wallet?".
     backendStrategyRef.current = persisted?.strategyId ?? null;
-    void backendStatus(addr, backendStrategyRef.current).then((status) => {
+    const probed = backendStrategyRef.current;
+    void backendStatus(addr, probed).then((status) => {
+      // The panel may have pinned a different strat while this was in flight —
+      // an unscoped probe answers for an arbitrary session, and applying it
+      // late would flash that session's execution mode under the pinned strat.
+      if (backendStrategyRef.current !== probed) return;
       if (status?.config) {
         setAutoExecuteState(!!(status.config as { autoExecute?: boolean }).autoExecute);
       }
@@ -487,7 +513,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
     <CopyEngineContext.Provider value={{
       engineState, isLive, activeStrategyId, backendRunning,
       backendTraderSync, backendIntervalMs, backendGates,
-      autoExecute, setAutoExecute,
+      autoExecute, setAutoExecute, attachStrategy,
       startLive, stopLive, pauseLive, resumeLive, clearLog, catchUp,
     }}>
       {children}

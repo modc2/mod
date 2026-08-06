@@ -120,7 +120,18 @@ export interface CopyEngineState {
       30 minutes. Backend-only (live_engine.rs `gated_recently`); the
       in-browser engine leaves it unset. LivePanel turns it into the
       "nothing is being copied because…" banner. */
-  gatedRecently?: Record<string, { count: number; lastAt: number }>;
+  gatedRecently?: Record<string, GateTally>;
+}
+
+/** One gate's recent damage: how many leader entries it blocked in the last
+    30 minutes, when it last fired, and which leaders those entries came from.
+    The leader list is the actionable half — a bot that only trades 5-minute
+    candles has 100% of its flow refused forever, and the fix is to drop that
+    leader, not to lower a gate that is saving money. */
+export interface GateTally {
+  count: number;
+  lastAt: number;
+  traders?: string[];
 }
 
 export interface CopyEngineConfig {

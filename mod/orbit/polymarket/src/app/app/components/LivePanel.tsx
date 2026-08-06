@@ -61,7 +61,7 @@ const GATE_LABELS: Record<string, { name: string; fix: string }> = {
   },
   stale: {
     name: "trade age gate",
-    fix: "the leader traded longer ago than MAX TRADE AGE, so the price has already moved.",
+    fix: "this strat sets MAX TRADE AGE and the leader traded longer ago than that. The gate is off by default — clear maxTradeAgeSec on the strat to copy the flow whole.",
   },
 };
 
@@ -185,7 +185,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   onTabChange?: (t: LiveTab) => void;
 } = {}) {
   const { auth, authenticate, loading: authLoading } = useAuth();
-  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, backendTraderSync, backendIntervalMs, backendGates, autoExecute, setAutoExecute, catchUp } = useCopyEngine();
+  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, backendTraderSync, backendIntervalMs, backendGates, autoExecute, setAutoExecute, attachStrategy, catchUp } = useCopyEngine();
   // confirm-start flow removed — user wants direct start/stop.
   const [liveCapital, setLiveCapital] = useState(100);
   // Trading-wallet USDC balance — the on-chain "BALANCE" the engine sizes
@@ -445,6 +445,15 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stratTick]);
 
+  // Everything this panel reads off the backend — EXECUTING/DRY RUN, the gate
+  // tally, per-trader sync ages — belongs to ONE session. Pin the poll to the
+  // strat on screen: without this it answers for whatever session the wallet
+  // last started, and the panel reports another strat's numbers under this
+  // strat's name.
+  useEffect(() => {
+    attachStrategy(activeStrat?.id ?? null);
+  }, [activeStrat?.id, attachStrategy]);
+
   // Single source of truth for poll cadence: the strat's `rebalanceMinutes`
   // (written by the SYNC panel below and the STRAT panel's POLL EVERY field).
   // Falls back to livePollMinutes (legacy) and then the 30s default. Strats
@@ -505,6 +514,24 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     if (!activeStrat) return;
     const patched = { ...activeStrat, minMinutesToClose: minutes };
     updateIndex(activeStrat.id, { minMinutesToClose: minutes, updatedAt: Date.now() });
+    setStratTick((n) => n + 1);
+    if (auth.address && (backendRunning || isLive)) {
+      void startLiveSession(auth.address, patched, effectiveCapital, { inheritExecution: true });
+    }
+  }, [activeStrat, backendRunning, isLive, auth.address, effectiveCapital]);
+
+  // Mute a leader straight from the gate warning. A bot whose entire flow one
+  // gate refuses is dead weight — it costs a fetch every cycle and copies
+  // nothing. Dropping it is the fix that KEEPS the gate; same write-through
+  // shape as the cadence/gate edits above, and reversible from the TRADERS
+  // list (it only flips `enabled`).
+  const dropLeader = useCallback((address: string) => {
+    if (!activeStrat) return;
+    const traders = activeStrat.traders.map((t) =>
+      t.address.toLowerCase() === address.toLowerCase() ? { ...t, enabled: false } : t,
+    );
+    const patched = { ...activeStrat, traders };
+    updateIndex(activeStrat.id, { traders, updatedAt: Date.now() });
     setStratTick((n) => n + 1);
     if (auth.address && (backendRunning || isLive)) {
       void startLiveSession(auth.address, patched, effectiveCapital, { inheritExecution: true });
@@ -1066,6 +1093,25 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                     <span className="text-pixel-white">{GATE_LABELS[gate]?.name ?? gate}</span>
                     {" — "}
                     {GATE_LABELS[gate]?.fix ?? "check this filter in the strat's settings."}
+                    {/* Name the leaders the gate refused. Loosening a gate
+                        that pays for itself is the wrong lever when the flow
+                        hitting it comes from two bots you could just mute. */}
+                    {!!t.traders?.length && (
+                      <span className="ml-1 inline-flex items-center gap-1 flex-wrap align-middle">
+                        <span className="text-pixel-muted/70">from</span>
+                        {t.traders!.map((addr) => (
+                          <button
+                            key={addr}
+                            onClick={() => dropLeader(addr)}
+                            title={`${addr} — every entry of theirs this gate refused. Click to mute this leader on the strat (reversible from the TRADERS list).`}
+                            className="px-1.5 py-0.5 rounded border border-amber-400/40 text-amber-300 hover:bg-amber-400/15"
+                          >
+                            {addr.slice(0, 6)}…{addr.slice(-4)}
+                            <span className="ml-1 opacity-60">DROP</span>
+                          </button>
+                        ))}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1302,7 +1348,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
               TOO_SOON:
                 "your leaders trade markets that close sooner than MIN MINUTES TO CLOSE. That gate exists because mirroring 5-min bots with a lag is a structural loss — so the fix is usually new leaders, not a lower gate.",
               STALE:
-                "trades are older than MAX TRADE AGE by the time we see them. Poll faster or raise the age limit.",
+                "this strat sets MAX TRADE AGE and trades are older than that by the time we see them. The gate ships off — clear it, or poll faster.",
               LEADER_DUST:
                 "your leaders' own trades are under Polymarket's order floor — there is nothing big enough to mirror.",
               SUB_SCALE:

@@ -141,9 +141,12 @@ fn default_max_upscale() -> Option<f64> { Some(2.0) }
 /// candle games while keeping every ordinary market.
 fn default_copy_min_minutes_to_close() -> Option<f64> { Some(60.0) }
 /// Default staleness cutoff for MIRRORS (seconds) — see
-/// `EngineConfig::max_trade_age_sec`. 5 minutes covers a couple of missed
-/// cycles without letting a backlog replay hours-old prices.
-fn default_max_trade_age_sec() -> Option<f64> { Some(300.0) }
+/// `EngineConfig::max_trade_age_sec`. OFF by default: a 5-minute cutoff
+/// refused 85% of observed flow (mostly the history backlog a fresh session
+/// pulls on its first cycle) and the console went days without a fill. The
+/// gate still exists — set `maxTradeAgeSec` on the strat to re-arm it — but
+/// a strat that says nothing about age filters nothing on age.
+fn default_max_trade_age_sec() -> Option<f64> { None }
 /// How long a leader's bankroll + position book is reused before refetching.
 /// Bankrolls move slowly relative to a 30s poll, and each refresh costs one
 /// data-api call plus one Polygon read per trader.
@@ -798,12 +801,41 @@ pub struct LogEntry {
 }
 
 /// One gate's recent damage: how many leader entries it blocked inside the
-/// current `GATE_WINDOW_MS` window, and when it last fired.
+/// current `GATE_WINDOW_MS` window, when it last fired, and which leaders the
+/// blocked entries came from. The leader list is what turns "your filters
+/// blocked 41 entries" into something actionable: a bot that only trades
+/// 5-minute candles has 100% of its flow refused forever, and the fix is to
+/// drop that leader, not to lower the gate that is saving you money.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GateTally {
     pub count: u64,
     #[serde(rename = "lastAt")]
     pub last_at: i64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub traders: Vec<String>,
+}
+
+/// How many distinct leaders a gate names before the console just says "…".
+const GATE_TRADERS_MAX: usize = 8;
+
+/// Per-cycle gate hits: how many entries, and whose. Collected per cycle and
+/// folded into the windowed `gated_recently` tally at CYCLE_END.
+#[derive(Default)]
+struct GateHits {
+    count: usize,
+    traders: Vec<String>,
+}
+
+impl GateHits {
+    fn hit(&mut self, trader: &str) {
+        self.count += 1;
+        if !trader.is_empty()
+            && self.traders.len() < GATE_TRADERS_MAX
+            && !self.traders.iter().any(|t| t == trader)
+        {
+            self.traders.push(trader.to_string());
+        }
+    }
 }
 
 /// How far back `gated_recently` looks. Long enough that a slow leader still
@@ -814,12 +846,21 @@ const GATE_WINDOW_MS: i64 = 30 * 60_000;
 /// Record `n` entries blocked by `reason`. Counts restart when the gate has
 /// been quiet for a whole window, so the number always means "in the last
 /// half hour" rather than "since this session was armed".
-fn tally_gate(map: &mut HashMap<String, GateTally>, reason: &str, n: u64, now: i64) {
+fn tally_gate(map: &mut HashMap<String, GateTally>, reason: &str, n: u64, traders: &[String], now: i64) {
     let e = map.entry(reason.to_string()).or_default();
     if now - e.last_at > GATE_WINDOW_MS {
         e.count = 0;
+        e.traders.clear();
     }
     e.count += n;
+    for t in traders {
+        if e.traders.len() >= GATE_TRADERS_MAX {
+            break;
+        }
+        if !e.traders.iter().any(|x| x == t) {
+            e.traders.push(t.clone());
+        }
+    }
     e.last_at = now;
 }
 
@@ -2251,7 +2292,7 @@ impl EngineRegistry {
             // Why newly-seen BUYs never became candidates, tallied by gate.
             // Silently dropping them is what makes a strat whose filters
             // exclude all of its leaders' flow look like a dead engine.
-            let mut gated: HashMap<&'static str, usize> = HashMap::new();
+            let mut gated: HashMap<&'static str, GateHits> = HashMap::new();
             // Every leader book read this cycle, with the ms it was read at —
             // the input to the leader-flat sweep below.
             let mut leader_books: HashMap<String, (i64, LeaderBook)> = HashMap::new();
@@ -2399,12 +2440,12 @@ impl EngineRegistry {
                             let mirror_ok = match t.side.as_str() {
                                 "BUY" => {
                                     if !market_ok {
-                                        *gated.entry("market query").or_insert(0) += 1;
+                                        gated.entry("market query").or_default().hit(&t.trader);
                                         false
                                     } else if let Some(why) =
                                         trade_filter_reject(&t, &cfg.trade_filters)
                                     {
-                                        *gated.entry(why).or_insert(0) += 1;
+                                        gated.entry(why).or_default().hit(&t.trader);
                                         false
                                     } else {
                                         true
@@ -2532,21 +2573,21 @@ impl EngineRegistry {
                 // console to imply the engine is broken.
                 // Same tally, kept as structured state so the LIVE panel can
                 // show it standing still instead of only in this one log line.
-                for (why, n) in &gated {
-                    tally_gate(&mut s.gated_recently, why, *n as u64, cycle_ended_at);
+                for (why, hits) in &gated {
+                    tally_gate(&mut s.gated_recently, why, hits.count as u64, &hits.traders, cycle_ended_at);
                 }
                 s.gated_recently
                     .retain(|_, t| cycle_ended_at - t.last_at <= GATE_WINDOW_MS);
                 if !gated.is_empty() {
-                    let mut by_gate: Vec<(&&str, &usize)> = gated.iter().collect();
-                    by_gate.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
-                    let total: usize = gated.values().sum();
+                    let mut by_gate: Vec<(&&str, &GateHits)> = gated.iter().collect();
+                    by_gate.sort_by(|a, b| b.1.count.cmp(&a.1.count).then(a.0.cmp(b.0)));
+                    let total: usize = gated.values().map(|h| h.count).sum();
                     summary.push_str(&format!(
                         " · {} BUY(s) gated ({})",
                         total,
                         by_gate
                             .iter()
-                            .map(|(k, n)| format!("{} {}", n, k))
+                            .map(|(k, h)| format!("{} {}", h.count, k))
                             .collect::<Vec<_>>()
                             .join(", "),
                     ));
@@ -2943,7 +2984,7 @@ impl EngineRegistry {
                     let mut s = state.write();
                     insert_copied_id(&mut s.copied_ids, trade.id.clone());
                     let now_ms = chrono::Utc::now().timestamp_millis();
-                    tally_gate(&mut s.gated_recently, "stale", 1, now_ms);
+                    tally_gate(&mut s.gated_recently, "stale", 1, std::slice::from_ref(&trade.trader), now_ms);
                     push_log(&mut s.log, mk_log(
                         "SKIP",
                         &trade.id,
@@ -2971,7 +3012,7 @@ impl EngineRegistry {
                         let mut s = state.write();
                         insert_copied_id(&mut s.copied_ids, trade.id.clone());
                         let now_ms = chrono::Utc::now().timestamp_millis();
-                        tally_gate(&mut s.gated_recently, "resolves too soon", 1, now_ms);
+                        tally_gate(&mut s.gated_recently, "resolves too soon", 1, std::slice::from_ref(&trade.trader), now_ms);
                         push_log(&mut s.log, mk_log(
                             "SKIP",
                             &trade.id,
@@ -2997,6 +3038,11 @@ impl EngineRegistry {
             // DRY RUN: surface intent, place nothing, leave the trade un-copied
             // so it isn't retroactively filled when auto_execute is later enabled.
             if !cfg.auto_execute {
+                // This entry cleared every gate — only DRY RUN kept it
+                // un-copied. Drop the gate tally exactly as a placed order
+                // does, so the console can't tell the owner "your filters
+                // blocked them all" about flow the filters just let through.
+                state.write().gated_recently.clear();
                 let msg = format!(
                     "DRY RUN · would BUY {:.0} @ {:.0}¢ (${:.2}) · score {:.3} · {} · token {}",
                     size, price * 100.0, notional, trade.score, trade.market, short_token(&trade.token_id),
