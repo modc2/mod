@@ -121,6 +121,12 @@ export interface CopyEngineState {
       in-browser engine leaves it unset. LivePanel turns it into the
       "nothing is being copied because…" banner. */
   gatedRecently?: Record<string, GateTally>;
+  /** Mirrors that cleared every gate and were suppressed by dry run alone,
+      over the same 30-minute window. Backend-only (live_engine.rs
+      `dry_run_recently`). Deliberately NOT folded into `gatedRecently`: these
+      entries passed the filters, so blaming the filters for them would send
+      the owner to loosen settings that are working. */
+  dryRunRecently?: GateTally;
 }
 
 /** One gate's recent damage: how many leader entries it blocked in the last

@@ -46,22 +46,46 @@ const TRADER_FETCH_ALLOWANCE_MS = 600;
 // Plain-language reading of each gate the engine can block an entry with,
 // plus what to change to unblock it. Keys are the reason strings
 // `trade_filter_reject` and the copy loop's skips emit — keep them in sync.
-const GATE_LABELS: Record<string, { name: string; fix: string }> = {
-  price: { name: "price band", fix: "these entries fall outside the MIN/MAX PRICE your strat set — clear it to copy the flow whole." },
-  size: { name: "size band", fix: "the leader's stake falls outside your MIN/MAX NOTIONAL." },
-  side: { name: "side filter", fix: "your strat only mirrors one side of the book." },
-  category: { name: "category filter", fix: "the market isn't in any category you selected." },
+// Every gate the engine can report, with the label, the explanation, and the
+// wording of the button that turns it OFF. `off` is non-optional on purpose:
+// each gate must be clearable from the warning that names it. A console that
+// can say "this filter blocked all 511 of your mirrors" but offers no way to
+// act on it just relocates the dead end.
+const GATE_LABELS: Record<string, { name: string; fix: string; off: string }> = {
+  price: {
+    name: "price band",
+    fix: "these entries fall outside the MIN/MAX PRICE your strat set — clear it to copy the flow whole.",
+    off: "CLEAR PRICE BAND",
+  },
+  size: {
+    name: "size band",
+    fix: "the leader's stake falls outside your MIN/MAX NOTIONAL.",
+    off: "CLEAR SIZE BAND",
+  },
+  side: {
+    name: "side filter",
+    fix: "your strat only mirrors one side of the book.",
+    off: "COPY BOTH SIDES",
+  },
+  category: {
+    name: "category filter",
+    fix: "the market isn't in any category you selected.",
+    off: "ALL CATEGORIES",
+  },
   "market query": {
     name: "keyword filter",
     fix: "the market title doesn't match your KEYWORDS — widen or clear them.",
+    off: "CLEAR KEYWORDS",
   },
   "resolves too soon": {
     name: "time-to-close gate",
     fix: "the market resolves inside your MIN TIME TO CLOSE window; short-dated Up/Down candles are HFT turf and cost this console $253 the last time they were copied.",
+    off: "GATE OFF",
   },
   stale: {
     name: "trade age gate",
     fix: "this strat sets MAX TRADE AGE and the leader traded longer ago than that. The gate is off by default — clear maxTradeAgeSec on the strat to copy the flow whole.",
+    off: "GATE OFF",
   },
 };
 
@@ -185,7 +209,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   onTabChange?: (t: LiveTab) => void;
 } = {}) {
   const { auth, authenticate, loading: authLoading } = useAuth();
-  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, backendTraderSync, backendIntervalMs, backendGates, autoExecute, setAutoExecute, attachStrategy, catchUp } = useCopyEngine();
+  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, backendTraderSync, backendIntervalMs, backendGates, backendDryRuns, autoExecute, setAutoExecute, attachStrategy, catchUp } = useCopyEngine();
   // confirm-start flow removed — user wants direct start/stop.
   const [liveCapital, setLiveCapital] = useState(100);
   // Trading-wallet USDC balance — the on-chain "BALANCE" the engine sizes
@@ -506,19 +530,61 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   // When only the BACKEND session is running (the normal state after a reload
   // without CLOB creds in hand), that effect can't fire — so re-post the
   // config directly. `inheritExecution` keeps a deliberate DRY RUN dry.
-  // Relax (or restore) the time-to-close gate from the gate warning itself.
-  // Same write-through shape as updateSyncMinutes: persist on the strat, and
-  // re-post the config so a session that's already running picks it up without
-  // a STOP/GO LIVE round trip.
-  const updateMinMinutesToClose = useCallback((minutes: number) => {
+  // Edit the live strat from wherever the problem is reported: persist the
+  // patch, then re-post the config so a session that's ALREADY running picks
+  // it up without a STOP/GO LIVE round trip. `inheritExecution` keeps a
+  // deliberate DRY RUN dry.
+  const patchStrat = useCallback((patch: Partial<SavedIndex>) => {
     if (!activeStrat) return;
-    const patched = { ...activeStrat, minMinutesToClose: minutes };
-    updateIndex(activeStrat.id, { minMinutesToClose: minutes, updatedAt: Date.now() });
+    const patched = { ...activeStrat, ...patch };
+    updateIndex(activeStrat.id, { ...patch, updatedAt: Date.now() });
     setStratTick((n) => n + 1);
     if (auth.address && (backendRunning || isLive)) {
       void startLiveSession(auth.address, patched, effectiveCapital, { inheritExecution: true });
     }
   }, [activeStrat, backendRunning, isLive, auth.address, effectiveCapital]);
+
+  // Relax (or restore) the time-to-close gate from the gate warning itself.
+  const updateMinMinutesToClose = useCallback(
+    (minutes: number) => patchStrat({ minMinutesToClose: minutes }),
+    [patchStrat],
+  );
+
+  // Turn OFF whichever gate is blocking everything, from the warning that
+  // names it. Every gate the engine can report has an entry here — a gate the
+  // console can name but not clear is a dead end, and that dead end is how a
+  // filter nobody remembered setting silently held a session at zero trades.
+  // Each patch is the gate's documented "off" value (see lib/types.ts), so
+  // clearing is always reversible from the STRAT panel's own fields.
+  const clearGate = useCallback((gate: string) => {
+    if (!activeStrat) return;
+    const tf = activeStrat.tradeFilters ?? {};
+    switch (gate) {
+      case "price":
+        patchStrat({ tradeFilters: { ...tf, minPrice: undefined, maxPrice: undefined } });
+        break;
+      case "size":
+        patchStrat({ tradeFilters: { ...tf, minNotional: undefined, maxNotional: undefined } });
+        break;
+      case "side":
+        patchStrat({ tradeFilters: { ...tf, sides: "both" } });
+        break;
+      case "category":
+        patchStrat({ tradeFilters: { ...tf, categories: undefined } });
+        break;
+      case "market query":
+        patchStrat({ marketQuery: "" });
+        break;
+      case "resolves too soon":
+        patchStrat({ minMinutesToClose: 0 });
+        break;
+      case "stale":
+        patchStrat({ maxTradeAgeSec: 0 });
+        break;
+      default:
+        break;
+    }
+  }, [activeStrat, patchStrat]);
 
   // Mute a leader straight from the gate warning. A bot whose entire flow one
   // gate refuses is dead weight — it costs a fetch every cycle and copies
@@ -1062,6 +1128,45 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
         </div>
       )}
 
+      {/* ── Dry run is eating every mirror ──
+          The counterpart to the gate warning below, and the failure it can
+          never catch: these mirrors cleared EVERY filter and were thrown away
+          because the session isn't armed. There was no standing signal for
+          this — only the DRY RUN pill in the header, one tab away — and a
+          session sat like that from 2026-08-01 to 08-08 logging hundreds of
+          "would BUY" lines a day and placing nothing. Red, not amber: unlike a
+          gate (a decision the strat made on purpose), this is almost always
+          someone forgetting to arm the session. */}
+      {(isLive || backendRunning) && !autoExecute && (backendDryRuns?.count ?? 0) > 0 && (
+        <div className="pixel-panel border-2 border-red-400/70 bg-red-400/10 p-3 flex items-start gap-3 flex-wrap">
+          <span className="text-red-400 text-xl leading-none mt-0.5">⚠</span>
+          <div className="flex-1 min-w-[240px]">
+            <div className="text-sm font-bold text-red-400">
+              DRY RUN — {backendDryRuns!.count} mirror
+              {backendDryRuns!.count === 1 ? "" : "s"} passed every filter and{" "}
+              {backendDryRuns!.count === 1 ? "was" : "were"} NOT placed. You are not trading.
+            </div>
+            <div className="text-xs text-pixel-muted mt-1">
+              Your filters are fine — the session simply isn&apos;t armed, so the engine logs
+              what it would have done instead of sending it to the CLOB. Nothing is queued:
+              these mirrors are gone, not deferred.
+            </div>
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => { void setAutoExecute(true); }}
+                title="Arm this session: mirrors start being sent to the CLOB as real orders against your wallet's USDC."
+                className="px-2.5 py-1 rounded border border-red-400/70 bg-red-400/15 text-red-300 hover:bg-red-400/25 text-[11px] font-mono tracking-[0.14em]"
+              >
+                ENABLE EXECUTION →
+              </button>
+              <span className="text-[10.5px] font-mono text-pixel-muted/70">
+                (real orders, real USDC — the header pill flips it back to DRY RUN any time)
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Everything gated ──
           The engine can be perfectly healthy, polling on schedule, seeing
           leader flow every cycle, and still place zero orders because the
@@ -1093,6 +1198,17 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                     <span className="text-pixel-white">{GATE_LABELS[gate]?.name ?? gate}</span>
                     {" — "}
                     {GATE_LABELS[gate]?.fix ?? "check this filter in the strat's settings."}
+                    {/* One click turns THIS gate off. Every gate gets one —
+                        see GATE_LABELS.off. */}
+                    {GATE_LABELS[gate] && activeStrat && (
+                      <button
+                        onClick={() => clearGate(gate)}
+                        title={`Turn the ${GATE_LABELS[gate].name} off for this strat and re-post the running session. Reversible from the STRAT panel.`}
+                        className="ml-1.5 px-1.5 py-0.5 rounded border border-amber-400/50 text-amber-300 hover:bg-amber-400/15 align-middle"
+                      >
+                        {GATE_LABELS[gate].off}
+                      </button>
+                    )}
                     {/* Name the leaders the gate refused. Loosening a gate
                         that pays for itself is the wrong lever when the flow
                         hitting it comes from two bots you could just mute. */}

@@ -864,6 +864,23 @@ fn tally_gate(map: &mut HashMap<String, GateTally>, reason: &str, n: u64, trader
     e.last_at = now;
 }
 
+/// Record one mirror that cleared every filter and was suppressed only by dry
+/// run. Same windowing as `tally_gate` so the console's two "nothing is being
+/// placed" warnings age out identically.
+fn tally_dry_run(t: &mut GateTally, trader: Option<&str>, now: i64) {
+    if now - t.last_at > GATE_WINDOW_MS {
+        t.count = 0;
+        t.traders.clear();
+    }
+    t.count += 1;
+    if let Some(a) = trader.filter(|a| !a.is_empty()) {
+        if t.traders.len() < GATE_TRADERS_MAX && !t.traders.iter().any(|x| x == a) {
+            t.traders.push(a.to_string());
+        }
+    }
+    t.last_at = now;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineState {
     pub status: EngineStatus,
@@ -952,6 +969,19 @@ pub struct EngineState {
     /// standing still — one line of text scrolling past in a log is not that.
     #[serde(rename = "gatedRecently", default)]
     pub gated_recently: HashMap<String, GateTally>,
+    /// Mirrors that cleared EVERY filter and were still not placed, because
+    /// the session is in dry run — counted over the same `GATE_WINDOW_MS`.
+    ///
+    /// The gate tally deliberately cannot report this: the DRY RUN path
+    /// *clears* it, because saying "your filters blocked them all" about flow
+    /// the filters just passed is a lie. That left the most expensive failure
+    /// mode on this console completely silent — a session polling on schedule,
+    /// logging "would BUY" hundreds of times an hour, and placing nothing,
+    /// with a small pill in one tab as the only tell. It cost a week of no
+    /// trading (2026-08-01 → 08-08) before anyone noticed. Count it here so
+    /// the console can say it standing still, next to the gate warning.
+    #[serde(rename = "dryRunRecently", default)]
+    pub dry_run_recently: GateTally,
 }
 
 impl EngineState {
@@ -979,6 +1009,7 @@ impl EngineState {
             proposed_recently: HashMap::new(),
             exited_recently: HashMap::new(),
             gated_recently: HashMap::new(),
+            dry_run_recently: GateTally::default(),
         }
     }
 }
@@ -1372,6 +1403,17 @@ impl EngineRegistry {
     ) -> Option<bool> {
         let mut cfg = self.config_of(eoa, strategy_id)?;
         cfg.auto_execute = on;
+        // The dry-run warning is answered the moment execution is armed —
+        // don't leave it up for a whole window telling the owner they aren't
+        // trading after they just fixed it.
+        if on {
+            if let Some(h) = self
+                .resolve_key(eoa, strategy_id)
+                .and_then(|k| self.engines.get(&k))
+            {
+                h.state.write().dry_run_recently = GateTally::default();
+            }
+        }
         self.start(cfg);
         Some(on)
     }
@@ -3042,7 +3084,13 @@ impl EngineRegistry {
                 // un-copied. Drop the gate tally exactly as a placed order
                 // does, so the console can't tell the owner "your filters
                 // blocked them all" about flow the filters just let through.
-                state.write().gated_recently.clear();
+                {
+                    let mut s = state.write();
+                    s.gated_recently.clear();
+                    // …and say the thing the gate tally can't: this one was
+                    // ready to go and only dry run stopped it.
+                    tally_dry_run(&mut s.dry_run_recently, Some(&trade.trader), chrono::Utc::now().timestamp_millis());
+                }
                 let msg = format!(
                     "DRY RUN · would BUY {:.0} @ {:.0}¢ (${:.2}) · score {:.3} · {} · token {}",
                     size, price * 100.0, notional, trade.score, trade.market, short_token(&trade.token_id),
@@ -3161,6 +3209,7 @@ impl EngineRegistry {
                         // "gates fired and nothing has been mirrored since",
                         // which is the only version of it worth warning about.
                         s.gated_recently.clear();
+                        s.dry_run_recently = GateTally::default();
                         insert_copied_id(&mut s.copied_ids, trade.id.clone());
                         // Record / accumulate the open position with its FROZEN
                         // entry score (size-weighted avg entry price; keep the
@@ -3314,6 +3363,7 @@ impl EngineRegistry {
                         size, limit_price * 100.0, size * limit_price, p.reason, p.market
                     );
                     tracing::info!(eoa = %cfg.eoa, market = %p.market, "{}", msg);
+                    tally_dry_run(&mut state.write().dry_run_recently, None, now);
                     self.log_and_persist(cfg, state, mk_log("DRY_RUN", &log_id, msg, None));
                     mark_proposed(self);
                     continue;
@@ -3403,6 +3453,7 @@ impl EngineRegistry {
                         size, limit_price * 100.0, notional, p.reason, p.market
                     );
                     tracing::info!(eoa = %cfg.eoa, market = %p.market, "{}", msg);
+                    tally_dry_run(&mut state.write().dry_run_recently, None, now);
                     self.log_and_persist(cfg, state, mk_log("DRY_RUN", &log_id, msg, None));
                     mark_proposed(self);
                     continue;
@@ -3445,6 +3496,7 @@ impl EngineRegistry {
                         s.total_orders_placed += 1;
                         s.total_volume_mirrored += notional;
                         s.gated_recently.clear();
+                        s.dry_run_recently = GateTally::default();
                         let entry = s.positions.entry(p.token_id.clone()).or_insert_with(|| OpenPosition {
                             token_id: p.token_id.clone(),
                             condition_id: p.condition_id.clone(),
@@ -3570,6 +3622,11 @@ impl EngineRegistry {
                     size, pos.size, why, trade.market, short_token(&trade.token_id),
                 );
                 tracing::info!(eoa = %cfg.eoa, market = %trade.market, size, "{}", msg);
+                tally_dry_run(
+                    &mut state.write().dry_run_recently,
+                    Some(&trade.trader),
+                    chrono::Utc::now().timestamp_millis(),
+                );
                 self.log_and_persist(cfg, state, mk_log("DRY_RUN", &trade.id, msg, Some(&trade.trader)));
                 continue;
             }
