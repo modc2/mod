@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/0xprof/">
+<title>0xprof — proofs, checked several ways</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <span class="glyph">0x</span>
+    <span class="name">prof</span>
+    <span class="tag">a market for proofs, and five ways to check one</span>
+  </div>
+  <div class="who">
+    <span id="methodPips" class="pips" title="verification methods available now"></span>
+    <button id="signin" class="ghost">sign in</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="market" class="on">MARKET<span class="count" id="countProofs"></span></button>
+  <button data-tab="verify">VERIFY</button>
+  <button data-tab="prove">PROVE</button>
+  <button data-tab="bounties">BOUNTIES<span class="count" id="countBounties"></span></button>
+  <button data-tab="methods">METHODS</button>
+  <button data-tab="wallet">WALLET</button>
+  <button data-tab="info">INFO</button>
+</nav>
+
+<main>
+  <!-- MARKET ─────────────────────────────────────────────────── -->
+  <section id="tab-market" class="tab on">
+    <div class="filters">
+      <input id="q" placeholder="search title, tag, id">
+      <select id="fSystem"><option value="">every system</option></select>
+      <select id="fStatus">
+        <option value="">every status</option>
+        <option value="verified">verified</option>
+        <option value="claimed">claimed</option>
+        <option value="disputed">disputed</option>
+        <option value="invalid">invalid</option>
+      </select>
+      <label class="check"><input type="checkbox" id="fSale"> for sale only</label>
+      <button id="refresh" class="ghost">refresh</button>
+      <button id="publishOpen">publish a proof</button>
+    </div>
+    <div id="marketStats" class="stats"></div>
+    <div id="verifierBoard" class="panel prose board"></div>
+    <div id="proofList" class="cards"></div>
+  </section>
+
+  <!-- VERIFY ─────────────────────────────────────────────────── -->
+  <section id="tab-verify" class="tab">
+    <p class="lede">Paste or drop a proof. Every method that can check it will,
+      each one on its own, and you get every answer — not a summary.
+      Nothing is stored and no account is needed.</p>
+    <div class="grid3">
+      <label class="drop">proof.json
+        <textarea id="vProof" spellcheck="false" placeholder='{"pi_a":[...],"pi_b":[...],"pi_c":[...]}'></textarea>
+        <input type="file" data-into="vProof" accept=".json">
+      </label>
+      <label class="drop">verification_key.json <span class="hint">(the statement)</span>
+        <textarea id="vKey" spellcheck="false" placeholder='{"protocol":"groth16","IC":[...]}'></textarea>
+        <input type="file" data-into="vKey" accept=".json">
+      </label>
+      <label class="drop">public.json <span class="hint">(public signals)</span>
+        <textarea id="vPublic" spellcheck="false" placeholder='["1000"]'></textarea>
+        <input type="file" data-into="vPublic" accept=".json">
+      </label>
+    </div>
+    <div class="row">
+      <select id="vSystem"><option value="">detect the system</option></select>
+      <button id="vRun">verify</button>
+      <button id="vBrowser" class="ghost">verify in this browser</button>
+      <button id="vSample" class="ghost">load a sample</button>
+      <button id="vPublish" class="ghost" disabled>publish this to the market</button>
+    </div>
+    <div id="vOut" class="verdicts"></div>
+  </section>
+
+  <!-- PROVE ──────────────────────────────────────────────────── -->
+  <section id="tab-prove" class="tab">
+    <p class="lede">A market needs supply. These three are cheap enough to prove
+      right here — the secret never leaves the request, and the proof is checked
+      by two independent verifiers before you see it.</p>
+    <div class="grid2">
+      <div class="panel">
+        <h3>Schnorr — I hold this key</h3>
+        <label>secret (a number)<input id="pSecret" value="424242"></label>
+        <label>context (bound into the challenge)<input id="pContext" value="0xprof demo"></label>
+        <button data-prove="schnorr">prove it</button>
+      </div>
+      <div class="panel">
+        <h3>Merkle — this leaf is in that set</h3>
+        <label>leaves (one per line)<textarea id="pLeaves" rows="4">alice
+bob
+carol
+dave</textarea></label>
+        <label>index<input id="pIndex" value="2" type="number" min="0"></label>
+        <button data-prove="merkle">prove it</button>
+      </div>
+    </div>
+    <div id="pOut" class="verdicts"></div>
+  </section>
+
+  <!-- BOUNTIES ───────────────────────────────────────────────── -->
+  <section id="tab-bounties" class="tab">
+    <p class="lede">Pay for a proof that does not exist yet. The reward sits in
+      escrow from the moment you post, and the spec is mechanical — a
+      verification key plus constraints on the public signals — so whether a
+      submission qualifies is decided by arithmetic and not by argument.</p>
+    <div class="row">
+      <button id="bountyOpen">post a bounty</button>
+      <button id="bountySweep" class="ghost">return expired escrow</button>
+    </div>
+    <div id="bountyList" class="cards"></div>
+  </section>
+
+  <!-- METHODS ────────────────────────────────────────────────── -->
+  <section id="tab-methods" class="tab">
+    <p class="lede">Five verifiers, written by five sets of people, three of
+      which are not on this box at all. Agreement between them is the product.</p>
+    <div id="methodList" class="cards"></div>
+    <h3 class="section">What each system is, and who can check it here</h3>
+    <div id="systemList" class="cards"></div>
+  </section>
+
+  <!-- WALLET ─────────────────────────────────────────────────── -->
+  <section id="tab-wallet" class="tab">
+    <div id="wallet" class="panel"></div>
+  </section>
+
+  <!-- INFO ───────────────────────────────────────────────────── -->
+  <section id="tab-info" class="tab">
+    <div class="panel prose" id="info"></div>
+  </section>
+</main>
+
+<!-- publish / bounty dialogs -->
+<dialog id="publishDlg">
+  <form method="dialog" class="panel">
+    <h3>Publish a proof</h3>
+    <p class="hint">The statement and every verdict stay public. A price gates the
+      proof bytes only — buyers see what they are buying before they pay.</p>
+    <label>title<input id="pubTitle" placeholder="I am over the line"></label>
+    <label>description<textarea id="pubDesc" rows="2"></textarea></label>
+    <label>tags (comma separated)<input id="pubTags" placeholder="threshold,solvency"></label>
+    <label>price in credits (0 = free)<input id="pubPrice" type="number" value="0" min="0" step="0.5"></label>
+    <menu>
+      <button value="cancel" class="ghost">cancel</button>
+      <button id="pubGo" value="ok">publish</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="bountyDlg">
+  <form method="dialog" class="panel">
+    <h3>Post a bounty</h3>
+    <label>title<input id="bTitle" placeholder="prove your balance clears 1000"></label>
+    <label>system<select id="bSystem"></select></label>
+    <label>reward in credits<input id="bReward" type="number" value="10" min="0.1" step="0.5"></label>
+    <label>verification key — pins the circuit, and with it the statement
+      <textarea id="bVkey" rows="4" spellcheck="false" placeholder="paste verification_key.json"></textarea></label>
+    <label>required public signals, one rule per line: <code>index equals value</code>,
+      <code>index min value</code>, <code>index max value</code>
+      <textarea id="bRequire" rows="3" spellcheck="false" placeholder="1 min 1000"></textarea></label>
+    <menu>
+      <button value="cancel" class="ghost">cancel</button>
+      <button id="bGo" value="ok">post and fund</button>
+    </menu>
+  </form>
+</dialog>
+
+<div id="toast" class="toast"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
