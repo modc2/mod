@@ -173,15 +173,20 @@ export async function startLiveSession(
     minOrderSize: strat.minTrade ?? 5,
     maxSlippageBps: 300,
     maxOpenPositions: strat.maxOpenPositions ?? 10,
-    maxPerCycle: strat.maxPerCycle ?? 3,
+    // The engine's field is `maxOrdersPerCycle`; the strat calls it
+    // `maxPerCycle`. Posting the strat's spelling meant serde ignored it and
+    // every session started from here silently ran the engine default of 3,
+    // however many the backtest's rank gate had kept. Same mapping
+    // CopyEngineContext's backendStart does.
+    maxOrdersPerCycle: strat.maxPerCycle ?? 3,
     stopLoss: strat.stopLoss ?? DEFAULT_STOP_LOSS,
     takeProfit: strat.takeProfit ?? DEFAULT_TAKE_PROFIT,
     backtestDays: strat.backtestDays ?? 3,
     ...(opts?.inheritExecution ? {} : { autoExecute: capital > 0 }),
     ...(strat.maxTrade !== undefined && { maxOrderSize: strat.maxTrade }),
     // Proportional-copy fidelity + short-dated/stale mirror gates. Only sent
-    // when the strat sets them — the engine's own defaults (2×, 60m, 300s)
-    // are the source of truth otherwise.
+    // when the strat sets them — the engine's own defaults (2×, 60m, no age
+    // gate) are the source of truth otherwise.
     ...(strat.maxUpscale !== undefined && { maxUpscale: strat.maxUpscale }),
     ...(strat.sizing !== undefined && { sizing: strat.sizing }),
     ...(strat.turnover !== undefined && { turnover: strat.turnover }),

@@ -134,6 +134,18 @@ function formatAgo(ms: number): string {
   return `${hr}h ${min % 60}m ago`;
 }
 
+// Terse duration, no "ago" suffix — for the copy-lag chip on my own fills
+// ("how long after the leader did I get in"), where the row already reads as
+// a delta. Sub-second lags round to 0s rather than "just now".
+function formatAgoShort(ms: number): string {
+  if (!Number.isFinite(ms)) return "—";
+  const sec = Math.max(0, Math.round(ms / 1000));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  return `${Math.floor(min / 60)}h${min % 60}m`;
+}
+
 // Compact rounded stat card — used in the LIVE stats grid. The `tone` knob
 // recolors the value (white default, green for "good", amber for "watching",
 // red for "warning"). Label stays muted so the number reads first.
@@ -173,17 +185,25 @@ function StatCard({
 // (checklist, CLOB, funding, engine error) stay OUTSIDE the tabs so nothing
 // critical can hide, and the strip echoes free cash + next-cycle countdown
 // so the key numbers stay visible from any tab.
-export type LiveTab = "portfolio" | "stats" | "trades" | "help";
+// PORTFOLIO / STATS / TRADES were three tabs over ONE story — "is the engine
+// alive, what is it doing, and did any of it reach my wallet". Splitting that
+// across tabs meant the answer was never on screen at once: you'd read a flat
+// equity curve on one tab and have to go hunting on another for the reason.
+// They're now a single DESK: curve → engine vitals → trades, top to bottom.
+export type LiveTab = "desk" | "help";
 const LIVE_TABS: { id: LiveTab; label: string; title: string }[] = [
-  { id: "portfolio", label: "PORTFOLIO", title: "Equity + performance curve over time" },
-  { id: "stats", label: "STATS", title: "Engine stats — free cash, orders, volume, cycles, last sync/fetch" },
-  // POSITIONS folded into TRADES — same on-chain record, just position- vs
-  // fill-level. One tab, toggle between the two views (plus copied-trader feed
-  // + engine log).
-  { id: "trades", label: "TRADES", title: "My positions · my fills · copied-trader feed · engine log" },
+  { id: "desk", label: "DESK", title: "Equity + engine vitals + every trade — mine vs the traders I copy, copied vs filtered out" },
   { id: "help", label: "HELP", title: "Which wallet do I use?" },
 ];
 const LIVE_TAB_KEY = "polyLiveTab";
+// Old persisted subtab ids all folded into DESK — migrate instead of falling
+// back to the default, so a returning user lands where they left off.
+const DESK_ALIASES = ["portfolio", "stats", "trades", "positions"];
+export function normalizeLiveTab(raw: string | null | undefined): LiveTab {
+  if (raw === "help") return "help";
+  if (raw === "desk" || DESK_ALIASES.includes(raw ?? "")) return "desk";
+  return "desk";
+}
 
 function LogIcon({ type }: { type: ExecutionLogEntry["type"] }) {
   switch (type) {
@@ -322,24 +342,33 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   // Paginated trade view (under the EXECUTION LOG). Toggle filter shows
   // only actual trade events (COPY_BUY / COPY_SELL / SKIP) instead of the
   // CYCLE_START/END heartbeat noise that dominates a healthy log.
-  const [tradesPage, setTradesPage] = useState(0);
-  // Four-way view toggle inside the TRADES tab. POSITIONS = my holdings
-  // (open + closed) with per-position P&L — folded in from the old standalone
-  // POSITIONS tab since it's the same on-chain record at a coarser grain.
-  // MY TRADES = my actual on-chain fills (ground truth). COPIED TRADERS = the
-  // raw feed of what the watched traders are doing (with the ✓/⊘/✗ mirror
-  // outcome inline). LOG stays as a small pill for debugging only. POSITIONS
-  // leads and is the default — it's the "how am I doing" glance.
-  const [tradesFilter, setTradesFilter] = useState<"positions" | "upstream" | "all" | "fills">("positions");
+  // Pagination is per COLUMN — the leader feed runs hundreds of rows deep
+  // while my own fills are a handful, so one shared page index would have
+  // paged an empty column.
+  const [leaderPage, setLeaderPage] = useState(0);
+  const [minePage, setMinePage] = useState(0);
+  // TRADES body view. FEED is the two-column "them vs me" board and the
+  // default; HISTORY is closed-position P&L; LOG is the raw engine feed kept
+  // for debugging only.
+  const [tradesView, setTradesView] = useState<"feed" | "history" | "log">("feed");
+  const [logPage, setLogPage] = useState(0);
+  // Which slice of the leader feed the left column shows. "in" = the engine
+  // mirrored it, "out" = a gate rejected it (or the order failed). The whole
+  // point of the split: "why am I not trading" is answered by the rejects.
+  const [leaderFilter, setLeaderFilter] = useState<"all" | "in" | "out">("all");
   const TRADES_PAGE_SIZE = 25;
+  // Attribute one of my fills to the leader trade it mirrored: same market,
+  // same side, closest in time within this window. Fills come from the
+  // data-api and carry no leader tag, so this join is the only link — keep
+  // it tight enough that an unrelated re-entry hours later can't claim it.
+  const FILL_MATCH_MS = 30 * 60_000;
 
   // Active section tab — persisted so the console reopens on the view the
   // user actually works from. Inactive tabs are NOT mounted: each panel runs
   // its own poller, so CSS-hiding would double data-api traffic for nothing.
   const [internalTab, setInternalTab] = useState<LiveTab>(() => {
-    if (typeof window === "undefined") return "portfolio";
-    const saved = window.localStorage.getItem(LIVE_TAB_KEY);
-    return LIVE_TABS.some((t) => t.id === saved) ? (saved as LiveTab) : "portfolio";
+    if (typeof window === "undefined") return "desk";
+    return normalizeLiveTab(window.localStorage.getItem(LIVE_TAB_KEY));
   });
   const liveTab = tab ?? internalTab;
   const pickTab = useCallback((t: LiveTab) => {
@@ -387,15 +416,15 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     }
   }, [auth.address]);
 
-  // Fetch on-chain fills while the FILLS filter is selected; refresh every
-  // 60s. Skipped on the other filters (they read engine state and need no
-  // data-api call).
+  // Fetch on-chain fills whenever the DESK's trade board is showing; refresh
+  // every 60s. My fills are now a permanent column of that board (not a tab
+  // you opt into), so the poll follows the FEED view rather than a filter.
   useEffect(() => {
-    if (tradesFilter !== "fills" || liveTab !== "trades") return;
+    if (liveTab !== "desk" || tradesView !== "feed") return;
     void loadFills();
     const t = setInterval(() => void loadFills(), 60_000);
     return () => clearInterval(t);
-  }, [tradesFilter, liveTab, loadFills]);
+  }, [tradesView, liveTab, loadFills]);
 
   // Tick for countdown
   useEffect(() => {
@@ -1315,8 +1344,8 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       </div>
       )}
 
-      {/* ── PORTFOLIO tab — equity + performance curve ── */}
-      {liveTab === "portfolio" && auth.connected && <PortfolioPanel strategyId={activeStrat?.id} />}
+      {/* ── DESK ▸ equity + performance curve ── */}
+      {liveTab === "desk" && auth.connected && <PortfolioPanel strategyId={activeStrat?.id} />}
 
       {/* BackendSignerPanel removed — the V1 Safe-co-owner flow that
           panel managed isn't needed for V2 trading. The V2 deposit
@@ -1325,10 +1354,10 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
           authorized signer — no separate "TURN ON AUTO-TRADING" step
           to flip. Auto-trading is on by construction. */}
 
-      {/* ── STATS tab (when live) ──
+      {/* ── DESK ▸ engine vitals (when live) ──
           Card grid; LAST SYNC tracks the most recent successful Polymarket
           data-api pull, LAST FETCH surfaces the CYCLE_END summary. */}
-      {liveTab === "stats" && isLive && engineState && (
+      {liveTab === "desk" && isLive && engineState && (
         <div className="pixel-panel border-2 border-pixel-border p-2">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
             <StatCard
@@ -1553,452 +1582,563 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
         </div>
       )}
 
-      {/* ── Trades (MY TRADES ⇄ COPIED TRADERS toggle + paginated) ──
-          ONE trades panel with a plain two-sided toggle: MY TRADES (your
-          executed on-chain fills) vs COPIED TRADERS (what the traders you
-          copy are doing, mirror outcome inline). LOG keeps the raw engine
-          feed for debugging. Pagination keeps the panel a fixed height
-          instead of growing across the page. */}
-      {liveTab === "trades" && auth.connected && (() => {
-        const isPositions = tradesFilter === "positions";
-        const isUpstream = tradesFilter === "upstream";
-        const isFills = tradesFilter === "fills";
-        // POSITIONS + MY TRADES are on-chain ground truth (viewable even when
-        // the engine is stopped); COPIED TRADERS + LOG are engine-only feeds.
+      {/* Engine vitals only exist while the engine runs. On the merged DESK
+          that's one slim line between the curve and the trades — not a
+          full-height "nothing here" panel, since the rest of the desk (curve,
+          my fills, position history) is real whether or not the engine is up. */}
+      {liveTab === "desk" && !(isLive && engineState) && (
+        <div className="pixel-panel border-2 border-pixel-border px-3 py-1.5 text-center">
+          <span className="text-[12px] text-pixel-gray tracking-wider">
+            ENGINE STOPPED — GO LIVE for engine vitals + the copied-trader feed
+          </span>
+        </div>
+      )}
+
+      {/* ── DESK ▸ TRADES — them vs me, in vs out ──
+          ONE board, two columns. LEFT: every trade the traders you copy made,
+          each tagged with what the engine did about it — ✓ COPIED, ⊘ FILTERED
+          OUT (the gate's own reason on the row) or ✗ FAILED. RIGHT: what
+          actually landed in YOUR wallet — on-chain fills from the data-api,
+          ground truth that survives restarts and dry-run mode, each attributed
+          back to the leader trade it mirrored.
+          Reading across the two answers the only question this page exists to
+          answer: of everything they did, what did I get — and what stopped the
+          rest? HISTORY (closed-position P&L) and LOG (raw engine feed) hang off
+          the header toggle. */}
+      {liveTab === "desk" && auth.connected && (() => {
         const engineReady = isLive && !!engineState;
 
-        // View toggle — shared header across every view. POSITIONS leads (the
-        // "how am I doing" glance), then my fills, then the engine feeds.
-        const FILTERS: { id: typeof tradesFilter; label: string; title: string }[] = [
-          { id: "positions", label: "POSITIONS", title: "My holdings — open AND closed, with per-position P&L (open/closed sub-filter inside)" },
-          { id: "fills", label: "MY TRADES", title: "Your ACTUAL executed trades (on-chain fills from Polymarket — ground truth, survives restarts)" },
-          { id: "upstream", label: "COPIED TRADERS", title: "Live feed of what the traders you copy are doing — each row shows whether the engine copied (✓), skipped (⊘) or failed (✗) it" },
-          { id: "all", label: "LOG", title: "Raw engine log: every decision, cycle heartbeats, errors (debugging)" },
-        ];
-        const ToggleHeader = ({ right }: { right?: ReactNode }) => (
-          <div className="px-3 py-1.5 border-b border-pixel-border flex items-center gap-2 flex-wrap">
-            <span className="text-[14px] text-pixel-white tracking-wider shrink-0">TRADES</span>
-            <div className="flex items-center rounded-md border border-pixel-border/70 bg-pixel-black/40 p-0.5 shrink-0">
-              {FILTERS.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => { setTradesFilter(f.id); setTradesPage(0); }}
-                  className={`px-2.5 py-0.5 text-[11px] font-mono tracking-[0.14em] rounded transition-colors ${
-                    tradesFilter === f.id
-                      ? "bg-green-400/15 text-green-400 border border-green-400/50"
-                      : "border border-transparent text-pixel-gray hover:text-pixel-white"
-                  }`}
-                  title={f.title}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            {right && <span className="ml-auto shrink-0">{right}</span>}
-          </div>
-        );
-
-        // POSITIONS view — the folded-in positions history (own header/filters).
-        if (isPositions) {
-          return (
-            <div className="pixel-panel border-2 border-pixel-border">
-              <ToggleHeader />
-              <PositionsHistoryPanel />
-            </div>
-          );
-        }
-
-        // Engine-only feeds with no running engine — say so instead of blank.
-        if ((isUpstream || tradesFilter === "all") && !engineReady) {
-          return (
-            <div className="pixel-panel border-2 border-pixel-border">
-              <ToggleHeader />
-              <div className="px-3 py-4 text-center text-[13px] text-pixel-gray tracking-wider">
-                ENGINE STOPPED — GO LIVE to see the {isUpstream ? "copied-trader feed" : "engine log"}
-              </div>
-            </div>
-          );
-        }
-
-        // MY TRADES pulls ground-truth on-chain fills; COPIED TRADERS pulls
-        // from the engine's observed-trades ring buffer (what the watched
-        // traders are doing, with the mirror outcome joined in below); LOG
-        // is the raw engine log incl. cycle heartbeats.
-        const items = isFills
-          ? fills
-          : isUpstream
-          ? engineState!.observedTrades
-          : engineState!.log;
-
-        // Index every trade-tagged log entry by its upstreamTradeId so each
-        // UPSTREAM row can render its mirror outcome inline (✓ copied, ⊘
-        // skipped, ✗ failed) with the exact reason. Previously the user
-        // could see a trader's trade in the upstream feed but had to dig
-        // through the MIRROR / ALL tabs to find out why it didn't fire —
-        // and even then the join was implicit (trader + market + timestamp).
+        // Index every trade-tagged log entry by upstreamTradeId so each leader
+        // row carries its mirror outcome inline. Keep the LATEST entry per id —
+        // the engine can emit a SKIP and then a later retry.
         const outcomeById = new Map<string, ExecutionLogEntry>();
         for (const entry of engineState?.log ?? []) {
           if (entry.upstreamTradeId) {
-            // Keep the LATEST entry per upstream id (engine may emit both
-            // a SKIP and a later retry; we want the final state).
             const prev = outcomeById.get(entry.upstreamTradeId);
             if (!prev || entry.timestamp > prev.timestamp) {
               outcomeById.set(entry.upstreamTradeId, entry);
             }
           }
         }
-        // Join MY FILLS back to the EP score the engine ranked the copy by.
-        // Raw on-chain fills don't carry a score, so we index every observed
-        // BUY by market (conditionId) WITH its timestamp, then match each fill
-        // to the observed trade closest in time for that market — so a fill
-        // gets ITS score even when the same market was traded several times at
-        // different scores. "—" when no observed trade for that market remains
-        // in the live buffer.
-        const scoresByMarket = new Map<string, { ts: number; score: number }[]>();
-        for (const ot of engineState?.observedTrades ?? []) {
-          if (ot.side !== "BUY") continue;
-          const k = ot.conditionId?.toLowerCase();
-          if (!k) continue;
-          const arr = scoresByMarket.get(k);
-          if (arr) arr.push({ ts: ot.timestamp, score: ot.score });
-          else scoresByMarket.set(k, [{ ts: ot.timestamp, score: ot.score }]);
+        type Tag = "in" | "out" | "failed" | "pending";
+        const tagOf = (o?: ExecutionLogEntry): Tag => {
+          if (!o) return "pending";
+          if (o.type === "COPY_BUY" || o.type === "COPY_SELL") return "in";
+          if (o.type === "SKIP") return "out";
+          if (o.type === "ERROR") return "failed";
+          return "pending";
+        };
+        const tagged = [...(engineState?.observedTrades ?? [])]
+          .sort((a, b) => b.timestamp - a.timestamp)
+          .map((t) => {
+            const outcome = outcomeById.get(t.id);
+            return { t, outcome, tag: tagOf(outcome) };
+          });
+        const counts = { all: tagged.length, in: 0, out: 0, failed: 0, pending: 0 };
+        for (const r of tagged) counts[r.tag] += 1;
+        // ⊘ and ✗ share the OUT slice: both mean "they traded, I didn't".
+        const leaderRows = tagged.filter((r) =>
+          leaderFilter === "all"
+            ? true
+            : leaderFilter === "in"
+              ? r.tag === "in"
+              : r.tag === "out" || r.tag === "failed",
+        );
+
+        // Why the OUT pile looks the way it does — the dominant gate, named.
+        const skipCodes = new Map<string, number>();
+        for (const r of tagged) {
+          if (r.tag !== "out" || !r.outcome?.reason) continue;
+          const code = r.outcome.reason.split("·")[0].trim();
+          skipCodes.set(code, (skipCodes.get(code) ?? 0) + 1);
         }
-        const scoreForFill = (conditionId: string, ts: number): number | undefined => {
-          const arr = scoresByMarket.get((conditionId || "").toLowerCase());
-          if (!arr || arr.length === 0) return undefined;
-          let best = arr[0];
-          let bestDelta = Math.abs(arr[0].ts - ts);
-          for (const e of arr) {
-            const d = Math.abs(e.ts - ts);
-            if (d < bestDelta) { best = e; bestDelta = d; }
+        const topSkip = [...skipCodes.entries()].sort((a, b) => b[1] - a[1])[0];
+
+        // ── My fills ──────────────────────────────────────────────
+        // Attribute each fill to the leader trade it mirrored: same market,
+        // same side, closest in time within FILL_MATCH_MS. Fills carry no
+        // leader tag and no EP score, so this join is the only link back.
+        const observedByMarket = new Map<string, ObservedTrade[]>();
+        for (const ot of engineState?.observedTrades ?? []) {
+          const k = (ot.conditionId || "").toLowerCase();
+          if (!k) continue;
+          const arr = observedByMarket.get(k);
+          if (arr) arr.push(ot);
+          else observedByMarket.set(k, [ot]);
+        }
+        const leaderForFill = (
+          conditionId: string,
+          side: "BUY" | "SELL",
+          ts: number,
+        ): ObservedTrade | undefined => {
+          const arr = observedByMarket.get((conditionId || "").toLowerCase());
+          if (!arr) return undefined;
+          let best: ObservedTrade | undefined;
+          let bestDelta = FILL_MATCH_MS;
+          for (const ot of arr) {
+            if (ot.side !== side) continue;
+            const d = Math.abs(ot.timestamp - ts);
+            if (d <= bestDelta) { best = ot; bestDelta = d; }
           }
-          return best.score;
+          return best;
         };
 
-        const sorted = [...items].sort((a, b) => b.timestamp - a.timestamp);
+        // A single copy often fills in many tiny pieces (and the same mirror
+        // can be re-placed), flooding the column with identical rows. Collapse
+        // consecutive fills sharing market / outcome / side / price into ×N.
+        const sortedFills = [...fills].sort((a, b) => b.timestamp - a.timestamp);
+        const myRows: BatchedFill[] = [];
+        for (const r of sortedFills) {
+          const prev = myRows[myRows.length - 1];
+          if (
+            prev &&
+            prev.side === r.side &&
+            prev.price === r.price &&
+            (prev.conditionId || prev.market) === (r.conditionId || r.market) &&
+            prev.outcome === r.outcome
+          ) {
+            prev.size += r.size;        // sorted desc → group keeps the newest ts
+            prev.count += 1;
+            prev.firstTs = r.timestamp; // r is older; track the span start
+          } else {
+            myRows.push({ ...r, count: 1, firstTs: r.timestamp });
+          }
+        }
+        const myBuyUsd = sortedFills
+          .filter((f) => f.side === "BUY")
+          .reduce((s, f) => s + f.price * f.size, 0);
 
-        // Batch MY FILLS: a single copy often fills in many tiny pieces (and
-        // the same mirror can be placed repeatedly), flooding the list with
-        // identical rows. Collapse consecutive fills that share market /
-        // outcome / side / price into one ×N row.
-        const displayItems = isFills
-          ? (() => {
-              const groups: BatchedFill[] = [];
-              for (const r of sorted as PolymarketTrade[]) {
-                const prev = groups[groups.length - 1];
-                if (
-                  prev &&
-                  prev.side === r.side &&
-                  prev.price === r.price &&
-                  (prev.conditionId || prev.market) === (r.conditionId || r.market) &&
-                  prev.outcome === r.outcome
-                ) {
-                  prev.size += r.size;        // sorted desc → keep newest ts on the group
-                  prev.count += 1;
-                  prev.firstTs = r.timestamp; // r is older; track span start
-                } else {
-                  groups.push({ ...r, count: 1, firstTs: r.timestamp });
-                }
-              }
-              return groups;
-            })()
-          : sorted;
+        // Per-column pagination — the leader feed runs hundreds of rows deep
+        // while my fills are a handful; one shared index would page an empty
+        // column.
+        const page = <T,>(rows: T[], p: number) => {
+          const totalPages = Math.max(1, Math.ceil(rows.length / TRADES_PAGE_SIZE));
+          const safe = Math.min(p, totalPages - 1);
+          const start = safe * TRADES_PAGE_SIZE;
+          return { totalPages, safe, start, slice: rows.slice(start, start + TRADES_PAGE_SIZE) };
+        };
+        const L = page(leaderRows, leaderPage);
+        const M = page(myRows, minePage);
 
-        const totalPages = Math.max(1, Math.ceil(displayItems.length / TRADES_PAGE_SIZE));
-        const safePage = Math.min(tradesPage, totalPages - 1);
-        const start = safePage * TRADES_PAGE_SIZE;
-        const pageEntries = displayItems.slice(start, start + TRADES_PAGE_SIZE);
-        const countLabel =
-          tradesFilter === "upstream" ? "from copied traders" :
-          tradesFilter === "fills" ? "my trades" : "log entries";
+        // A plain function, NOT a component: declaring a component inside the
+        // render body gives it a fresh identity every render, so React would
+        // unmount/remount the pager on each tick and PREV/NEXT would lose
+        // keyboard focus mid-click. Called inline, the element types stay
+        // stable.
+        const pager = (
+          total: number, totalPages: number, safe: number, start: number,
+          onPage: (fn: (p: number) => number) => void,
+        ) =>
+          totalPages > 1 ? (
+            <div className="px-3 py-1.5 border-t border-pixel-border/40 flex items-center justify-between">
+              <span className="text-[11px] text-pixel-gray font-mono">
+                {start + 1}-{Math.min(start + TRADES_PAGE_SIZE, total)} of {total}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => onPage((p) => Math.max(0, p - 1))}
+                  disabled={safe === 0}
+                  className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white disabled:opacity-20 disabled:cursor-not-allowed"
+                >
+                  PREV
+                </button>
+                <span className="text-[11px] text-pixel-gray font-mono px-1">{safe + 1} / {totalPages}</span>
+                <button
+                  onClick={() => onPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={safe >= totalPages - 1}
+                  className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white disabled:opacity-20 disabled:cursor-not-allowed"
+                >
+                  NEXT
+                </button>
+              </div>
+            </div>
+          ) : null;
+
+        // Header: view toggle + the one-line "them → me" scoreboard.
+        const VIEWS: { id: typeof tradesView; label: string; title: string }[] = [
+          { id: "feed", label: "FEED", title: "Two columns — what the traders you copy did, and what you actually filled" },
+          { id: "history", label: "HISTORY", title: "My positions — open AND closed, with per-position P&L" },
+          { id: "log", label: "LOG", title: "Raw engine log: every decision, cycle heartbeats, errors (debugging)" },
+        ];
+
         return (
           <div className="pixel-panel border-2 border-pixel-border">
-            <ToggleHeader
-              right={
-                <span className="text-[12px] text-pixel-gray font-mono">
-                  {isFills && displayItems.length !== sorted.length
-                    ? `${displayItems.length} trades · ${sorted.length} fills batched`
-                    : `${sorted.length} ${countLabel}`}
+            <div className="px-3 py-1.5 border-b border-pixel-border flex items-center gap-2 flex-wrap">
+              <span className="text-[14px] text-pixel-white tracking-wider shrink-0">TRADES</span>
+              <div className="flex items-center rounded-md border border-pixel-border/70 bg-pixel-black/40 p-0.5 shrink-0">
+                {VIEWS.map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => setTradesView(v.id)}
+                    className={`px-2.5 py-0.5 text-[11px] font-mono tracking-[0.14em] rounded transition-colors ${
+                      tradesView === v.id
+                        ? "bg-green-400/15 text-green-400 border border-green-400/50"
+                        : "border border-transparent text-pixel-gray hover:text-pixel-white"
+                    }`}
+                    title={v.title}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+              {/* The scoreboard — their flow on the left of the arrow, mine on
+                  the right, so the funnel reads in one glance from any view. */}
+              <span className="ml-auto text-[12px] font-mono text-pixel-gray shrink-0 flex items-center gap-1.5">
+                <span title="Trades observed from the traders you copy (this session)">
+                  THEM <span className="text-pixel-white">{counts.all}</span>
                 </span>
-              }
-            />
-            <div className="max-h-[300px] overflow-y-auto">
-              {/* UPSTREAM rows look like the BACKTEST trade feed — trader,
-                  side, market, notional. MIRROR/ALL rows use the existing
-                  engine-log shape (with icons + reason text). */}
-              {isFills
-                ? (pageEntries as BatchedFill[]).map((t) => (
-                    <div
-                      key={t.id}
-                      className="px-3 py-1 border-b border-pixel-border/20 text-[13px] font-mono hover:bg-pixel-white/5"
-                    >
-                      <div className="flex items-start gap-2">
-                        <span
-                          className="text-pixel-gray shrink-0 w-[68px] tabular-nums"
-                          title={t.count > 1 ? `${t.count} fills batched · ${formatTime(t.firstTs)}–${formatTime(t.timestamp)}` : `traded at ${formatTime(t.timestamp)} UTC`}
-                        >
-                          {formatTime(t.timestamp)}
-                        </span>
-                        <span className={`shrink-0 w-[36px] text-[11px] font-bold ${t.side === "BUY" ? "text-green-400" : "text-red-400"}`}>
-                          {t.side}
-                        </span>
-                        <span className="text-pixel-white truncate flex-1 min-w-0" title={t.market}>
-                          {t.market}
-                          {t.outcome ? <span className="text-pixel-gray-light"> · {t.outcome}</span> : null}
-                          {t.count > 1 && (
-                            <span
-                              className="ml-1.5 text-[10px] text-amber-400 font-bold"
-                              title={`${t.count} fills batched into one row`}
-                            >
-                              ×{t.count}
+                <span className="text-green-400" title="Filtered IN — the engine mirrored these">✓{counts.in}</span>
+                <span className="text-amber-400" title="Filtered OUT — a gate rejected these">⊘{counts.out}</span>
+                {counts.failed > 0 && (
+                  <span className="text-red-400" title="Order failed at the exchange">✗{counts.failed}</span>
+                )}
+                <span className="text-pixel-border">→</span>
+                <span title="My actual on-chain fills (batched) and total BUY notional">
+                  ME <span className="text-pixel-white">{myRows.length}</span>
+                  {myBuyUsd > 0 && <span className="text-pixel-gray-light"> · ${myBuyUsd.toFixed(0)}</span>}
+                </span>
+              </span>
+            </div>
+
+            {tradesView === "history" && <PositionsHistoryPanel />}
+
+            {tradesView === "log" && (!engineReady ? (
+              <div className="px-3 py-4 text-center text-[13px] text-pixel-gray tracking-wider">
+                ENGINE STOPPED — GO LIVE to see the engine log
+              </div>
+            ) : (() => {
+              const rows = [...engineState!.log].sort((a, b) => b.timestamp - a.timestamp);
+              const P = page(rows, logPage);
+              return (
+                <>
+                  <div className="max-h-[300px] overflow-y-auto">
+                    {(P.slice as ExecutionLogEntry[]).map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="px-3 py-1 border-b border-pixel-border/20 flex items-start gap-2 text-[14px] font-mono hover:bg-pixel-white/5"
+                      >
+                        <span className="text-pixel-gray shrink-0 w-[52px]">{formatTime(entry.timestamp)}</span>
+                        <span className="shrink-0 w-[28px]"><LogIcon type={entry.type} /></span>
+                        <div className="min-w-0 flex-1">
+                          {entry.market && (
+                            <span className="text-pixel-white truncate block">{entry.market}</span>
+                          )}
+                          {entry.mirrorNotional !== undefined && entry.mirrorNotional > 0 && (
+                            <span className={entry.side === "BUY" ? "text-red-400" : "text-green-400"}>
+                              {entry.side === "BUY" ? "-" : "+"}${entry.mirrorNotional.toFixed(2)}
                             </span>
                           )}
-                        </span>
-                        <span className="text-pixel-gray-light shrink-0 text-right tabular-nums" title="fill price">
-                          @{(t.price * 100).toFixed(0)}¢
-                        </span>
-                        <span className="text-pixel-gray-light shrink-0 w-[56px] text-right tabular-nums" title="shares">
-                          {t.size.toFixed(0)} sh
-                        </span>
-                        <span className="text-pixel-white shrink-0 w-[60px] text-right tabular-nums" title="notional (price × shares)">
-                          ${(t.price * t.size).toFixed(2)}
-                        </span>
-                        {/* EP score the engine ranked this copy by, joined
-                            from the observed-trades buffer by market. SELLs and
-                            aged-out trades read "—". */}
-                        {(() => {
-                          const score = t.side === "SELL"
-                            ? undefined
-                            : scoreForFill(t.conditionId, t.timestamp);
-                          return (
+                          {entry.score !== undefined && entry.side !== "SELL" && (
                             <span
-                              className={`shrink-0 w-[60px] text-right tabular-nums text-[12px] ${
-                                score === undefined
-                                  ? "text-pixel-gray"
-                                  : score > 5
-                                    ? "text-green-400"
-                                    : score > 1
-                                      ? "text-yellow-400"
-                                      : score > 0
-                                        ? "text-pixel-gray-light"
-                                        : "text-red-400/70"
-                              }`}
-                              title={
-                                t.side === "SELL"
-                                  ? "SELL — EP N/A (closes a position)"
-                                  : score === undefined
-                                    ? "Score N/A — originating trade aged out of the live buffer"
-                                    : `Expected profit $${score.toFixed(2)} = trader ROI × mirror notional`
-                              }
-                            >
-                              {score === undefined ? "—" : `$${score.toFixed(2)}`}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  ))
-                : isUpstream
-                ? (pageEntries as ObservedTrade[]).map((t) => {
-                    const outcome = outcomeById.get(t.id);
-                    // Map outcome → visible badge + color + error reason.
-                    // No outcome yet = pending (the cycle hasn't processed
-                    // this trade — usually because it landed mid-cycle and
-                    // will be picked up next).
-                    let badge = "·";
-                    let badgeCls = "text-pixel-gray";
-                    let badgeTitle = "Awaiting next cycle";
-                    let reasonText: string | null = null;
-                    if (outcome) {
-                      if (outcome.type === "COPY_BUY" || outcome.type === "COPY_SELL") {
-                        badge = "✓";
-                        badgeCls = "text-green-400";
-                        badgeTitle = `Copied · order ${outcome.orderResult?.orderID ?? "(no id)"} · ${outcome.orderResult?.status ?? "matched"}`;
-                      } else if (outcome.type === "SKIP") {
-                        badge = "⊘";
-                        badgeCls = "text-pixel-gray";
-                        badgeTitle = "Skipped — see reason below";
-                        reasonText = outcome.reason ?? "SKIPPED";
-                      } else if (outcome.type === "ERROR") {
-                        badge = "✗";
-                        badgeCls = "text-red-400";
-                        badgeTitle = "Failed — see reason below";
-                        reasonText =
-                          outcome.orderResult?.errorMsg ??
-                          outcome.reason ??
-                          "FAILED";
-                      }
-                    }
-                    return (
-                      <div
-                        key={t.id}
-                        className="px-3 py-1 border-b border-pixel-border/20 text-[13px] font-mono hover:bg-pixel-white/5"
-                      >
-                        <div className="flex items-start gap-2">
-                          <span className="text-pixel-gray shrink-0 w-[52px]">{formatTime(t.timestamp)}</span>
-                          <span
-                            className={`shrink-0 w-[16px] text-[14px] font-bold ${badgeCls}`}
-                            title={badgeTitle}
-                          >
-                            {badge}
-                          </span>
-                          <span className={`shrink-0 w-[36px] text-[11px] font-bold ${t.side === "BUY" ? "text-green-400" : "text-red-400"}`}>
-                            {t.side}
-                          </span>
-                          <span className="text-pixel-gray-light shrink-0 w-[88px] truncate" title={t.trader}>
-                            {t.trader.slice(0, 6)}…{t.trader.slice(-4)}
-                          </span>
-                          <span className="text-pixel-white truncate flex-1 min-w-0" title={t.market}>
-                            {t.market}
-                          </span>
-                          <span className="text-pixel-gray-light shrink-0 text-right tabular-nums">
-                            @{(t.price * 100).toFixed(0)}¢
-                          </span>
-                          <span className="text-pixel-white shrink-0 text-right tabular-nums">
-                            ${t.notional < 1 ? t.notional.toFixed(2) : t.notional < 10_000 ? t.notional.toFixed(0) : `${(t.notional / 1000).toFixed(1)}k`}
-                          </span>
-                          {/* P(success) the playbook priced this candidate at —
-                              the trader's smoothed 30d win rate. SELLs read "—"
-                              (always honored, not ranked). */}
-                          <span
-                            className={`shrink-0 w-[44px] text-right tabular-nums text-[12px] ${
-                              t.side === "SELL" || t.successProb === undefined
-                                ? "text-pixel-gray"
-                                : t.successProb >= 0.6
+                              className={`ml-2 ${
+                                entry.score > 5
                                   ? "text-green-400"
-                                  : t.successProb >= 0.5
-                                    ? "text-pixel-gray-light"
-                                    : "text-red-400/70"
-                            }`}
-                            title={
-                              t.side === "SELL"
-                                ? "SELL — always honored to close positions, not ranked"
-                                : t.successProb === undefined
-                                  ? "P(success) pending — engine hasn't stamped this trade yet"
-                                  : `P(success) ${(t.successProb * 100).toFixed(0)}% — trader's Laplace-smoothed 30d win rate`
-                            }
-                          >
-                            {t.side === "SELL" || t.successProb === undefined
-                              ? "—"
-                              : `${Math.round(t.successProb * 100)}%`}
-                          </span>
-                          {/* Rank score (P × ROI × mirror$) the engine sorts
-                              candidates by. Color-coded so the user can spot
-                              high-edge trades at a glance. SELLs read "—"
-                              (always honored); buys with no loaded stats read
-                              "—" (pending). */}
-                          <span
-                            className={`shrink-0 w-[68px] text-right tabular-nums text-[12px] ${
-                              t.side === "SELL"
-                                ? "text-pixel-gray"
-                                : t.score > 5
-                                  ? "text-green-400"
-                                  : t.score > 1
+                                  : entry.score > 1
                                     ? "text-yellow-400"
-                                    : t.score > 0
+                                    : entry.score > 0
                                       ? "text-pixel-gray-light"
                                       : "text-red-400/70"
-                            }`}
-                            title={
-                              t.side === "SELL"
-                                ? "SELL — score N/A (always honored to close positions)"
-                                : t.score > 0
-                                  ? `Rank score $${t.score.toFixed(2)} = P(success) × ROI × mirror notional`
-                                  : t.sharpe === 0 && t.score === 0
-                                    ? "ROI not loaded yet — pending stats"
-                                    : `No positive expected edge (score $${t.score.toFixed(2)}) — live engine skips these (NO_EDGE), same as the backtest`
-                            }
-                          >
-                            {t.side === "SELL" ? "—" : `$${t.score.toFixed(2)}`}
-                          </span>
+                              }`}
+                              title="Expected profit the engine ranked this copy by (trader ROI × mirror notional)"
+                            >
+                              EP ${entry.score.toFixed(2)}
+                            </span>
+                          )}
+                          {entry.reason && <span className="text-pixel-gray"> {entry.reason}</span>}
+                          {entry.orderResult && !entry.orderResult.success && entry.orderResult.errorMsg && (
+                            <span className="text-red-400/70 block truncate">{entry.orderResult.errorMsg}</span>
+                          )}
                         </div>
-                        {reasonText && (
-                          <div className="pl-[72px] pr-2 text-[11px] text-red-400/80 break-words leading-snug">
-                            {reasonText}
-                          </div>
-                        )}
                       </div>
-                    );
-                  })
-                : (pageEntries as ExecutionLogEntry[]).map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="px-3 py-1 border-b border-pixel-border/20 flex items-start gap-2 text-[14px] font-mono hover:bg-pixel-white/5"
+                    ))}
+                    {P.slice.length === 0 && (
+                      <div className="px-3 py-3 text-center text-[12px] text-pixel-gray">No log entries yet.</div>
+                    )}
+                  </div>
+                  {pager(rows.length, P.totalPages, P.safe, P.start, setLogPage)}
+                </>
+              );
+            })())}
+
+            {tradesView === "feed" && (
+              <div className="grid xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-pixel-border/60">
+                {/* ── LEFT: the traders I copy ── */}
+                <div className="min-w-0">
+                  <div className="px-3 py-1.5 border-b border-pixel-border/40 flex items-center gap-2 flex-wrap bg-pixel-black/20">
+                    <span
+                      className="text-[11px] font-mono tracking-[0.14em] text-pixel-gray-light shrink-0"
+                      title="Every trade the traders in this strat made while the engine was watching"
                     >
-                      <span className="text-pixel-gray shrink-0 w-[52px]">{formatTime(entry.timestamp)}</span>
-                      <span className="shrink-0 w-[28px]"><LogIcon type={entry.type} /></span>
-                      <div className="min-w-0 flex-1">
-                        {entry.market && (
-                          <span className="text-pixel-white truncate block">{entry.market}</span>
-                        )}
-                        {entry.mirrorNotional !== undefined && entry.mirrorNotional > 0 && (
-                          <span className={entry.side === "BUY" ? "text-red-400" : "text-green-400"}>
-                            {entry.side === "BUY" ? "-" : "+"}${entry.mirrorNotional.toFixed(2)}
-                          </span>
-                        )}
-                        {/* EP score the engine ranked this copy by. */}
-                        {entry.score !== undefined && entry.side !== "SELL" && (
-                          <span
-                            className={`ml-2 ${
-                              entry.score > 5
-                                ? "text-green-400"
-                                : entry.score > 1
-                                  ? "text-yellow-400"
-                                  : entry.score > 0
-                                    ? "text-pixel-gray-light"
-                                    : "text-red-400/70"
-                            }`}
-                            title="Expected profit the engine ranked this copy by (trader ROI × mirror notional)"
-                          >
-                            EP ${entry.score.toFixed(2)}
-                          </span>
-                        )}
-                        {entry.reason && (
-                          <span className="text-pixel-gray"> {entry.reason}</span>
-                        )}
-                        {entry.orderResult && !entry.orderResult.success && entry.orderResult.errorMsg && (
-                          <span className="text-red-400/70 block truncate">{entry.orderResult.errorMsg}</span>
-                        )}
-                      </div>
+                      THE TRADERS I COPY
+                    </span>
+                    <div className="flex items-center rounded-md border border-pixel-border/70 bg-pixel-black/40 p-0.5 shrink-0">
+                      {([
+                        { id: "all" as const, label: `ALL ${counts.all}`, cls: "text-pixel-white border-pixel-white/50 bg-pixel-white/10", title: `Everything they did while the engine watched${counts.pending > 0 ? ` · ${counts.pending} still awaiting a ruling (·)` : ""}` },
+                        { id: "in" as const, label: `✓ COPIED ${counts.in}`, cls: "text-green-400 border-green-400/50 bg-green-400/15", title: "FILTERED IN — the engine mirrored these into my wallet" },
+                        { id: "out" as const, label: `⊘ FILTERED OUT ${counts.out + counts.failed}`, cls: "text-amber-400 border-amber-400/50 bg-amber-400/15", title: "FILTERED OUT — a gate rejected these (or the order failed). The reason is on each row." },
+                      ]).map((f) => (
+                        <button
+                          key={f.id}
+                          onClick={() => { setLeaderFilter(f.id); setLeaderPage(0); }}
+                          className={`px-2 py-0.5 text-[10px] font-mono tracking-[0.1em] rounded border transition-colors ${
+                            leaderFilter === f.id ? f.cls : "border-transparent text-pixel-gray hover:text-pixel-white"
+                          }`}
+                          title={f.title}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
                     </div>
-                  ))}
-              {pageEntries.length === 0 && (
-                <div className="px-3 py-3 text-center text-[12px] text-pixel-gray">
-                  {isFills
-                    ? fillsLoading
-                      ? "Loading on-chain fills…"
-                      : fillsError
-                        ? `Couldn't load fills: ${fillsError}`
-                        : "No on-chain fills yet."
-                    : tradesFilter === "upstream"
-                      ? "Waiting for the next sync cycle to observe trades…"
-                      : `No ${countLabel} yet.`}
+                  </div>
+
+                  {/* Why the OUT pile exists, in one line — named gate, not a
+                      hunt through the log. */}
+                  {leaderFilter === "out" && topSkip && (
+                    <div className="px-3 py-1 border-b border-pixel-border/30 text-[11px] font-mono text-pixel-gray">
+                      mostly <span className="text-amber-400">{topSkip[0]}</span> ×{topSkip[1]}
+                      {counts.out > 0 && ` · ${Math.round((100 * topSkip[1]) / counts.out)}% of rejects`}
+                      {" — loosen it in the STRAT panel (RISK) or copy different traders"}
+                    </div>
+                  )}
+
+                  <div className="max-h-[340px] overflow-y-auto">
+                    {!engineReady ? (
+                      <div className="px-3 py-4 text-center text-[13px] text-pixel-gray tracking-wider">
+                        ENGINE STOPPED — GO LIVE to watch the traders you copy
+                      </div>
+                    ) : L.slice.length === 0 ? (
+                      <div className="px-3 py-3 text-center text-[12px] text-pixel-gray">
+                        {counts.all === 0
+                          ? "Waiting for the next sync cycle to observe trades…"
+                          : leaderFilter === "in"
+                            ? "Nothing copied yet — check the ⊘ FILTERED OUT pile for why."
+                            : leaderFilter === "out"
+                              ? "Nothing filtered out — every observed trade got through."
+                              : "No trades in this slice."}
+                      </div>
+                    ) : (
+                      L.slice.map(({ t, outcome, tag }) => {
+                        const badge = tag === "in" ? "✓" : tag === "out" ? "⊘" : tag === "failed" ? "✗" : "·";
+                        const badgeCls =
+                          tag === "in" ? "text-green-400"
+                            : tag === "out" ? "text-amber-400"
+                              : tag === "failed" ? "text-red-400"
+                                : "text-pixel-gray";
+                        const edgeCls =
+                          tag === "in" ? "border-l-green-400/60"
+                            : tag === "out" ? "border-l-amber-400/50"
+                              : tag === "failed" ? "border-l-red-400/60"
+                                : "border-l-transparent";
+                        const badgeTitle =
+                          tag === "in"
+                            ? `FILTERED IN — copied · order ${outcome?.orderResult?.orderID ?? "(no id)"} · ${outcome?.orderResult?.status ?? "matched"}`
+                            : tag === "out"
+                              ? "FILTERED OUT — a strat gate rejected this trade (reason below)"
+                              : tag === "failed"
+                                ? "FAILED — the engine tried to copy this and the order bounced (reason below)"
+                                : "Awaiting next cycle — the engine hasn't ruled on this trade yet";
+                        const reasonText =
+                          tag === "out"
+                            ? outcome?.reason ?? "SKIPPED"
+                            : tag === "failed"
+                              ? outcome?.orderResult?.errorMsg ?? outcome?.reason ?? "FAILED"
+                              : null;
+                        return (
+                          <div
+                            key={t.id}
+                            className={`px-3 py-1 border-b border-pixel-border/20 border-l-2 ${edgeCls} text-[13px] font-mono hover:bg-pixel-white/5 ${tag === "out" ? "opacity-80" : ""}`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <span className="text-pixel-gray shrink-0 w-[66px] tabular-nums">{formatTime(t.timestamp)}</span>
+                              <span className={`shrink-0 w-[16px] text-[14px] font-bold ${badgeCls}`} title={badgeTitle}>
+                                {badge}
+                              </span>
+                              <span className={`shrink-0 w-[34px] text-[11px] font-bold ${t.side === "BUY" ? "text-green-400" : "text-red-400"}`}>
+                                {t.side}
+                              </span>
+                              <span className="text-pixel-gray-light shrink-0 w-[78px] truncate" title={`leader ${t.trader}`}>
+                                {t.trader.slice(0, 6)}…{t.trader.slice(-4)}
+                              </span>
+                              <span className="text-pixel-white truncate flex-1 min-w-0" title={t.market}>
+                                {t.market}
+                              </span>
+                              <span className="text-pixel-gray-light shrink-0 text-right tabular-nums" title="leader's fill price">
+                                @{(t.price * 100).toFixed(0)}¢
+                              </span>
+                              <span className="text-pixel-white shrink-0 w-[52px] text-right tabular-nums" title="leader's notional — what THEY put in, not what I mirrored">
+                                ${t.notional < 1 ? t.notional.toFixed(2) : t.notional < 10_000 ? t.notional.toFixed(0) : `${(t.notional / 1000).toFixed(1)}k`}
+                              </span>
+                              {/* Rank score (P × ROI × mirror$) the engine sorts
+                                  candidates by; SELLs are always honored. */}
+                              <span
+                                className={`shrink-0 w-[56px] text-right tabular-nums text-[12px] ${
+                                  t.side === "SELL"
+                                    ? "text-pixel-gray"
+                                    : t.score > 5
+                                      ? "text-green-400"
+                                      : t.score > 1
+                                        ? "text-yellow-400"
+                                        : t.score > 0
+                                          ? "text-pixel-gray-light"
+                                          : "text-red-400/70"
+                                }`}
+                                title={
+                                  t.side === "SELL"
+                                    ? "SELL — score N/A (always honored to close positions)"
+                                    : t.score > 0
+                                      ? `Rank score $${t.score.toFixed(2)} = P(success) ${t.successProb !== undefined ? `${Math.round(t.successProb * 100)}%` : "—"} × ROI × mirror notional`
+                                      : t.sharpe === 0 && t.score === 0
+                                        ? "ROI not loaded yet — pending stats"
+                                        : `No positive expected edge (score $${t.score.toFixed(2)}) — the engine filters these out (NO_EDGE), same as the backtest`
+                                }
+                              >
+                                {t.side === "SELL" ? "—" : `$${t.score.toFixed(2)}`}
+                              </span>
+                            </div>
+                            {reasonText && (
+                              <div className={`pl-[84px] pr-2 text-[11px] break-words leading-snug ${tag === "failed" ? "text-red-400/80" : "text-amber-400/80"}`}>
+                                {reasonText}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  {pager(leaderRows.length, L.totalPages, L.safe, L.start, setLeaderPage)}
                 </div>
-              )}
-            </div>
-            {totalPages > 1 && (
-              <div className="px-3 py-1.5 border-t border-pixel-border/40 flex items-center justify-between">
-                <span className="text-[11px] text-pixel-gray font-mono">
-                  {start + 1}-{Math.min(start + TRADES_PAGE_SIZE, displayItems.length)} of {displayItems.length}
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setTradesPage((p) => Math.max(0, p - 1))}
-                    disabled={safePage === 0}
-                    className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white disabled:opacity-20 disabled:cursor-not-allowed"
-                  >
-                    PREV
-                  </button>
-                  <span className="text-[11px] text-pixel-gray font-mono px-1">
-                    {safePage + 1} / {totalPages}
-                  </span>
-                  <button
-                    onClick={() => setTradesPage((p) => Math.min(totalPages - 1, p + 1))}
-                    disabled={safePage >= totalPages - 1}
-                    className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white disabled:opacity-20 disabled:cursor-not-allowed"
-                  >
-                    NEXT
-                  </button>
+
+                {/* ── RIGHT: my own fills ── */}
+                <div className="min-w-0">
+                  <div className="px-3 py-1.5 border-b border-pixel-border/40 flex items-center gap-2 flex-wrap bg-pixel-black/20">
+                    <span
+                      className="text-[11px] font-mono tracking-[0.14em] text-cyan-300 shrink-0"
+                      title="My ACTUAL executed trades — on-chain fills pulled from Polymarket for the wallet the engine trades through. Ground truth: survives restarts, and stays empty in dry-run mode no matter how busy the left column looks."
+                    >
+                      THE TRADES I MADE
+                    </span>
+                    <span className="text-[10px] font-mono text-pixel-gray truncate" title={fillsWallet ?? undefined}>
+                      {fillsWallet ? `${fillsWallet.slice(0, 6)}…${fillsWallet.slice(-4)}` : "resolving wallet…"}
+                    </span>
+                    <span className="ml-auto text-[11px] font-mono text-pixel-gray shrink-0">
+                      {myRows.length !== sortedFills.length
+                        ? `${myRows.length} trades · ${sortedFills.length} fills batched`
+                        : `${sortedFills.length} fills`}
+                      {fillsLoading && <span className="text-amber-400"> · loading…</span>}
+                    </span>
+                  </div>
+
+                  {/* Dry run is the #1 reason this column is empty while the
+                      left one scrolls — say it here, where it's noticed. */}
+                  {!autoExecute && (
+                    <div
+                      className="px-3 py-1 border-b border-pixel-border/30 text-[11px] font-mono text-amber-400"
+                      title="AUTO-EXECUTE is off — the engine ranks and logs copies but never sends an order, so no fills can appear here."
+                    >
+                      DRY RUN — copies are simulated, so this column stays empty
+                    </div>
+                  )}
+
+                  <div className="max-h-[340px] overflow-y-auto">
+                    {M.slice.length === 0 ? (
+                      <div className="px-3 py-3 text-center text-[12px] text-pixel-gray">
+                        {fillsLoading
+                          ? "Loading on-chain fills…"
+                          : fillsError
+                            ? `Couldn't load fills: ${fillsError}`
+                            : "No on-chain fills yet."}
+                      </div>
+                    ) : (
+                      (M.slice as BatchedFill[]).map((t) => {
+                        const lead = leaderForFill(t.conditionId, t.side, t.timestamp);
+                        return (
+                          <div
+                            key={t.id}
+                            className="px-3 py-1 border-b border-pixel-border/20 border-l-2 border-l-cyan-400/50 text-[13px] font-mono hover:bg-pixel-white/5"
+                          >
+                            <div className="flex items-start gap-2">
+                              <span
+                                className="text-pixel-gray shrink-0 w-[66px] tabular-nums"
+                                title={t.count > 1 ? `${t.count} fills batched · ${formatTime(t.firstTs)}–${formatTime(t.timestamp)}` : `filled at ${formatTime(t.timestamp)} UTC`}
+                              >
+                                {formatTime(t.timestamp)}
+                              </span>
+                              <span className={`shrink-0 w-[34px] text-[11px] font-bold ${t.side === "BUY" ? "text-green-400" : "text-red-400"}`}>
+                                {t.side}
+                              </span>
+                              <span className="text-pixel-white truncate flex-1 min-w-0" title={`${t.market}${t.outcome ? ` · ${t.outcome}` : ""} · ${t.size.toFixed(2)} shares`}>
+                                {t.market}
+                                {t.outcome ? <span className="text-pixel-gray-light"> · {t.outcome}</span> : null}
+                                {t.count > 1 && (
+                                  <span className="ml-1.5 text-[10px] text-amber-400 font-bold" title={`${t.count} fills batched into one row`}>
+                                    ×{t.count}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="text-pixel-gray-light shrink-0 text-right tabular-nums" title="my fill price">
+                                @{(t.price * 100).toFixed(0)}¢
+                              </span>
+                              <span className="text-pixel-white shrink-0 w-[56px] text-right tabular-nums" title={`my notional (price × ${t.size.toFixed(2)} shares)`}>
+                                ${(t.price * t.size).toFixed(2)}
+                              </span>
+                              {/* EP score, joined from the leader trade this
+                                  fill mirrored. SELLs and aged-out trades: "—". */}
+                              <span
+                                className={`shrink-0 w-[56px] text-right tabular-nums text-[12px] ${
+                                  t.side === "SELL" || !lead
+                                    ? "text-pixel-gray"
+                                    : lead.score > 5
+                                      ? "text-green-400"
+                                      : lead.score > 1
+                                        ? "text-yellow-400"
+                                        : lead.score > 0
+                                          ? "text-pixel-gray-light"
+                                          : "text-red-400/70"
+                                }`}
+                                title={
+                                  t.side === "SELL"
+                                    ? "SELL — EP N/A (closes a position)"
+                                    : !lead
+                                      ? "Score N/A — the originating leader trade aged out of the live buffer"
+                                      : `Expected profit $${lead.score.toFixed(2)} = trader ROI × mirror notional`
+                                }
+                              >
+                                {t.side === "SELL" || !lead ? "—" : `$${lead.score.toFixed(2)}`}
+                              </span>
+                            </div>
+                            {/* Which leader trade this mirrored, and how much
+                                of theirs I actually took on. With an empty
+                                observed buffer (engine stopped / just started)
+                                NOTHING can match, so the "no match" note would
+                                be one line of noise per row — say nothing then;
+                                it only means something once the feed is live. */}
+                            {(lead || counts.all > 0) && (
+                            <div className="pl-[66px] pr-2 text-[11px] leading-snug">
+                              {lead ? (
+                                <span
+                                  className="text-pixel-gray"
+                                  title={`Matched to ${lead.trader} — same market, same side, ${Math.round(Math.abs(lead.timestamp - t.timestamp) / 1000)}s apart. Attribution is by market+side+time (fills carry no leader tag), so a manual trade in a copied market can match too.`}
+                                >
+                                  ↳ copied <span className="text-pixel-gray-light">{lead.trader.slice(0, 6)}…{lead.trader.slice(-4)}</span>
+                                  {" · their "}${lead.notional < 1 ? lead.notional.toFixed(2) : lead.notional.toFixed(0)}
+                                  {lead.notional > 0 && (
+                                    <span className="text-pixel-gray"> ({((t.price * t.size * 100) / lead.notional).toFixed(1)}% of theirs)</span>
+                                  )}
+                                  {" · lag "}{formatAgoShort(t.timestamp - lead.timestamp)}
+                                </span>
+                              ) : (
+                                <span className="text-pixel-gray/70" title="No leader trade in the live buffer matches this fill (same market + side within 30 min). Either it aged out, or this was a manual / redeem / rotation trade rather than a copy.">
+                                  ↳ no matching leader trade in the buffer
+                                </span>
+                              )}
+                            </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  {pager(myRows.length, M.totalPages, M.safe, M.start, setMinePage)}
                 </div>
               </div>
             )}
@@ -2006,17 +2146,6 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
         );
       })()}
 
-      {/* STATS only exists while the engine runs — say so instead of an
-          unexplained blank tab. (TRADES renders POSITIONS/MY TRADES even when
-          stopped, and shows its own per-view "engine stopped" note for the
-          engine-only feeds.) */}
-      {liveTab === "stats" && !(isLive && engineState) && (
-        <div className="pixel-panel border-2 border-pixel-border px-3 py-4 text-center">
-          <span className="text-[13px] text-pixel-gray tracking-wider">
-            ENGINE STOPPED — GO LIVE to see engine stats
-          </span>
-        </div>
-      )}
 
       {/* ══ CONFIG ══
           Custom strats and wallet admin moved BELOW the plots + trades so

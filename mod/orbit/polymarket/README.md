@@ -317,21 +317,90 @@ The front door to `/strats` is a card grid, and each card's headline is its **N-
 - Those rosters are picked *by* trailing P&L over the window they're then scored on, so a recommendation's number is survivorship-biased by construction. The section header says so: **upper bound, not a forecast**. A saved strat carries no such bias — its traders were chosen before the window it's measured over.
 - A strat with nothing to copy reports the reason (`no traders to copy`, `originates its own trades`, `all 1279 entries blocked · time-to-close`) instead of a `$0` that reads as breaking even.
 
+### Is it still profitable? — the walk-forward badge
+
+A backtest over one window answers the wrong question. Over *any* single window some strat printed a great number, and a wall of cards sorted by P&L sorts exactly those to the top. So **every card is backtested twice**: once over its own window, and once over the equal-length window immediately before it — then the two are put side by side.
+
+```
+1D BACKTEST                    12 TR · ⟳ 1m ago
++$133.29  +13.33%
+↗ TURNED UP  prior day −$15.79 → +$133.29
+7/2022 entries copied · 1945× trade filters
+```
+
+The prior window is replayed with the clock wound back. `BacktestInput.asOf` (`app/lib/backtest.ts`) moves the window end, and **everything** derives from it: the flow the sim copies, the 30-day trader stats it scores that flow with, the `StratHistory.now` its gates date markets against. A trade one second after `asOf` is invisible to it. The `asOf: the wound-back replay cannot score on future results` case in `app/lib/__test__.ts` pins that — a leader whose only closed round trip happens *after* the window executes nothing, with `no scoreable edge` as the stated reason.
+
+The one thing that *is* taken from today is how the markets **resolved**. Those value the past window's inventory; they don't inform its decisions — which is the point of a walk-forward: yesterday's choices, scored by what actually happened.
+
+Seven verdicts, one pass (`forwardVerdict` in `app/lib/hubReplay.ts`):
+
+| verdict | prior window | this window | reading |
+|---|---|---|---|
+| `held` ✓ | profit | profit | the only pass — the headline survived out of sample |
+| `faded` ✗ | profit | loss | **the expensive one** — what a strat fitted to one good window looks like |
+| `recovered` ↗ | loss | profit | one good window after a bad one; needs a second confirmation |
+| `no-edge` ✗ | loss | loss | nothing to deploy |
+| `stalled` ⏸ | profit | no trades | didn't lose — went quiet. Read the funnel line, it's a gate |
+| `untested` ? | no trades | any | no edge to confirm; this card rests on one window |
+| `idle` · | no trades | no trades | nothing to judge yet |
+
+- **`✓ HELD ONLY`** (next to the window pills) hides every card that isn't `held`. A card with no walk-forward yet does *not* pass the filter — "we haven't checked" must never render as "confirmed".
+- The header tallies the shelf: `✓ 1/9 HELD`. It is usually a small number. That is the finding, not a bug — copying a leader at a lag is structurally hard, and this is the first surface in the console that makes it impossible to miss.
+- The second replay costs **CPU only** — both windows read the same already-fetched 30-day feed, and one resolution lookup covers both. `POLYMARKET_HUB_FORWARD=0` turns it off in the worker.
+- Over MCP, `pm_backtests` returns `forward: {verdict, confirmed, prior_pnl, prior_roi, prior_trades, prior_window}` on every row. Ranking by `pnl` alone ranks by a single window.
+
 ### The background backtest worker
 
-Backtests are **cached, and refreshed on a 2-hour cadence by a worker that runs whether or not the console is open** (`app/lib/server/hubWorker.ts`, started from `app/instrumentation.ts` when the Next server boots). Opening `/strats` then paints real numbers on the first frame instead of firing a dozen paginated `/activity` walks and watching cards trickle in.
+Backtests are **cached, and refreshed by a worker that runs whether or not the console is open** (`app/lib/server/hubWorker.ts`, started from `app/instrumentation.ts` when the Next server boots). Opening `/strats` then paints real numbers on the first frame instead of firing a dozen paginated `/activity` walks and watching cards trickle in.
+
+It is **two loops, and the split is the whole point**: replaying is cheap and local, fetching is expensive and rate-limited, so they run on different clocks.
 
 ```
-console ──POST /polymarket/api/hub {strats}──► manifest.json   (which strats to replay)
-worker  ──every 2h──► hubReplay → backtest → backtests.json    (~/.mod/polymarket/hub/)
-console ──GET  /polymarket/api/hub?days=1───► paints instantly
+console ──POST /polymarket/api/hub {strats}──► manifest.json     (which strats to replay)
+
+FETCH  loop ──every 10m──► stalest traders only, 1 page each ──► feeds/<addr>.json
+REPLAY loop ──every 30m──► hubReplay → backtest, over those ──► backtests.json
+                                                        (~/.mod/polymarket/hub/)
+console ──GET  /polymarket/api/hub?days=1─────────────────────► paints instantly
 ```
 
+- **The replay never fetches.** It reads `~/.mod/polymarket/feeds/<addr>.json` — the same 30-day trade window the browser keeps in localStorage, but on disk and surviving restarts (`app/lib/server/feedStore.ts`). In the steady state a full pass costs **zero** upstream requests, which is why it can run every 30 minutes instead of every 2 hours.
+- **The fetch loop is the only thing that talks to data-api** (`app/lib/server/feedFetcher.ts`). It syncs the *stalest* traders first, at most 40 per cycle, ≤2 concurrent with a 400ms gap, and incrementally: `fetchWalletTradesIncremental` pages `/activity` until it hits a trade already in the store — one page per trader per cycle, not the sixty a cold 30-day walk takes. Failures back off 1m → 4m → 16m → 1h.
+- **This is what fixed the 429s.** The old single loop fetched *and* replayed every 2 hours, and it missed every cache by construction: the Rust proxy holds `/activity` for one hour (`api/src/cache.rs`), and `app/lib/cache.ts` is localStorage — a no-op in Node. So every pass re-walked a paginated 30-day feed for every trader of every strat.
+- **A half-warm cache says so.** A card replayed while some of its traders had no cached history carries `warming: N` and a `partial — N/M traders still warming` note, and the hub header shows `⧗ warming 12/40`. A number derived from data we never fetched is a floor, and it must not be printed as a flat result.
 - **The worker runs the app's own engine.** `hubReplay.ts` → `backtest.ts` → `strats/strat.ts` — the exact modules the console and the BACKTEST tab run. That's why it lives inside the Next server rather than as a separate service: a second build of the engine is how backtest and live drifted apart last time (`strats/parity.fixture.json`).
 - **It authenticates as the owner.** Every API route is behind the access gate, so the worker mints the same `pma1.…` token the console's sign-in issues, from `~/.mod/polymarket/server.secret` (`app/lib/server/ownerToken.ts`). No gate, no worker — it fails closed and records why.
-- **The window is 1 day** (`HUB_BACKTEST_DAYS`), which is what "which of these is working *right now*" wants. Other windows are replayed in the browser on demand.
+- **The window is 1 day** (`HUB_BACKTEST_DAYS`), which is what "which of these is working *right now*" wants. Other windows are replayed in the browser on demand — and cost nothing extra upstream, because the store already holds 30 days.
+- Template rosters are cached to `hub/rosters.json` for 3h; feeds for traders that leave every roster are deleted after a week of not being read.
 - The browser still fills gaps: a strat edited since the last pass, or a window the worker doesn't cover, is replayed locally and merged newest-wins.
-- `POLYMARKET_HUB_WORKER=0` disables it. `PUT /polymarket/api/hub` runs a pass synchronously (what the MCP tool uses); `POST …?run=1` queues one.
+- `POLYMARKET_HUB_WORKER=0` disables both loops. `POLYMARKET_HUB_BACKTEST_MINUTES` / `POLYMARKET_HUB_REFRESH_MINUTES` retune the cadences. `PUT /polymarket/api/hub` runs a replay synchronously (what the MCP tool uses); `POST …?run=1` queues one; `POST …?refresh=1` queues a fetch cycle — the only one of the three that spends upstream budget.
+
+### What the replay is allowed to claim (legs + settlement)
+
+Two things decided how much a backtest was worth believing, and both of them were wrong.
+
+**1. A market is two tokens, not one.** `conditionId` names a market; the tradable assets are its outcome tokens (Yes / No), which have separate books and opposite payoffs. The live engine has always keyed `EngineState.positions` by `token_id`. The backtest and the FIFO P&L engine keyed their books by `conditionId`, so both legs collapsed into one position: a 6¢ No hold got marked at the 94¢ the Yes leg last printed, and a Yes exit closed No shares and booked the difference as profit. **19% of the markets in the cached leader feeds have both legs traded.** Everything that books inventory now keys on `legKey(conditionId, outcome)` (`app/lib/leg.ts`).
+
+**2. A position nobody sold has to be valued — and the last observed price is a biased guess.** A copy replay only sees the leaders' fills. Leaders trade their winners on the way up and simply *let their losers expire*, so a loser's last print is its entry price: mark inventory there and every winner books while no loser ever does. This is the backtest twin of the live bug where the ledger read +$96 against a wallet holding $0.70.
+
+`app/lib/server/resolutionStore.ts` fixes it with ground truth — gamma's resolved `outcomePrices`, cached forever (a resolution is immutable), refreshed on a backoff for anything still open, and never written as a negative when a lookup merely *failed*. The sim settles a dead leg at what it actually paid ($1 or $0) and reports the split:
+
+```
+settlement: { resolved, resolvedUsd, marked, markedUsd }
+```
+
+`marked` is the part it had to guess. The BACKTEST tab shows `39/39 SETTLED`, amber when anything is unverified; `pm_backtests` returns `unverified_usd`; the hub card carries it on every result. **A P&L with a large `markedUsd` is a hypothesis, not a measurement.**
+
+What this changed on this deployment, replaying the same 3-day window over the same cached feeds:
+
+| strat | before | after | settlement |
+|---|---|---|---|
+| `mrjg86gf` (live) | **+$3,762 · +1,687%** | **−$222 · −100%** | 39 resolved / 0 marked |
+| `tpl:weather-edge` | +$9,363 · +936% | +$22 · +2% | 0 / 8 ($25 unverified) |
+| `tpl:top-allstars` | +$1,009 · +101% | −$230 · −23% | 39 / 0 |
+| `tpl:crypto-majors` | $0 | −$743 · −74% | 13 / 0 |
+
+The corrected `mrjg86gf` figure is the interesting one: $223 of capital, 257 buys totalling $2,234 of exposure over three days, $1,381 back from sells, $630 from redemptions, **24 positions expired worthless**, ending cash $0.56. That matches what actually happened to the real wallet — the old number did not.
 
 ### Where the flow went (the entry funnel)
 

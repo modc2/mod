@@ -143,7 +143,7 @@ export const DEFAULT_STRATS: StratTemplate[] = [
     slug: "btc-momentum",
     name: "BTC MOMENTUM",
     description:
-      "No copying — watches Bitcoin markets' own odds and buys the side that's rising (50¢→60¢ = ride it), sells when the move flips. Skips sub-90-min markets.",
+      "No copying — watches Bitcoin markets' own odds and buys the side that's rising (50¢→60¢ = ride it), sells when the move flips or the position is down 20%. Skips sub-90-min markets.",
     // Origination-only: no watchlist to seed. The strat trades straight
     // from CLOB price history, so it runs with zero traders enrolled.
     seed: { count: 0 },
@@ -151,6 +151,9 @@ export const DEFAULT_STRATS: StratTemplate[] = [
       marketQuery: "bitcoin",
       maxPerCycle: 2,
       maxTrade: 25,
+      // Same −20% floor as BTC 5-MIN DELTA: momentum entries are bought while
+      // the odds are already high, so the downside leg is the long one.
+      stopLoss: 0.8,
       momentum: {
         lookbackMinutes: 60,
         minRiseCents: 5,
@@ -162,7 +165,7 @@ export const DEFAULT_STRATS: StratTemplate[] = [
     slug: "btc-5min-delta",
     name: "BTC 5-MIN DELTA",
     description:
-      "Watches the LIVE Bitcoin 5-minute Up/Down candle: buys the ≥60¢ side while its odds are still climbing (+5¢ over 2m), sells the moment the delta flips −5¢, winners auto-redeem. Tiny fixed sizes — this lane is HFT turf.",
+      "Watches the LIVE Bitcoin 5-minute Up/Down candle: buys the ≥60¢ side while its odds are still climbing (+5¢ over 2m), sells the moment the delta flips −5¢ or the position is down 20%, winners auto-redeem. Tiny fixed sizes — this lane is HFT turf.",
     // Origination-only: trades the candle's own price tape, zero traders.
     seed: { count: 0 },
     params: {
@@ -170,6 +173,14 @@ export const DEFAULT_STRATS: StratTemplate[] = [
       maxPerCycle: 1,
       minTrade: 1,
       maxTrade: 10,
+      // Hard stop at −20% of entry (defend 80% of the buy-in), tighter than
+      // the 25% house default. A 5-minute candle that turns against a ≥60¢
+      // entry does not come back inside the candle — the delta-flip exit only
+      // fires when the tape is still printing, and a gap straight down would
+      // otherwise ride the position to 0 at resolution. Enforced live every
+      // scan (live_engine `check_stop_losses`, against the book bid) and
+      // replayed by the backtest sim.
+      stopLoss: 0.8,
       // Wants 15s cycles — a 5-minute candle only lives ~20 of them and the
       // exit flip has to be seen with time left to act on it. The engine's
       // 30s rate-limit floor (MIN_POLL_MINUTES) clamps it up, so this strat

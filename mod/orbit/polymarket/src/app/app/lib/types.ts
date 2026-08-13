@@ -321,12 +321,24 @@ export interface SavedIndex {
   // undefined ⇒ 60; explicit 0 ⇒ off.
   minMinutesToClose?: number;
   // Don't mirror a leader BUY older than this many seconds — a backlog after
-  // a fetch outage enters at prices the leader never paid. undefined ⇒ 300;
-  // explicit 0 ⇒ off.
+  // a fetch outage enters at prices the leader never paid. OPT-IN:
+  // undefined ⇒ off (no age gate at all), explicit 0 ⇒ off.
   maxTradeAgeSec?: number;
   // Strat this one was forked from (id of a SavedIndex, or the slug of a
   // built-in template). Lineage only — a fork is a full, independent copy.
   forkedFrom?: string;
+  // IDENTITY strat: this strat mirrors exactly ONE leader — the address here.
+  // The watchlist is that single trader at weight 1; the field marks the
+  // strat's class so the UI can badge it and keep the roster single-trader.
+  identity?: string;
+  // Sharing class. Absent/"private" = only this account sees it (the
+  // default for every strat); "public" = also published, PLAINTEXT, to the
+  // server's community gallery where anyone can view and fork it. Forks and
+  // imports always come back private.
+  visibility?: "private" | "public";
+  // EOA that published this strat — gallery attribution, set at publish
+  // time. Meaningless (and stripped) on private strats.
+  owner?: string;
   // Capital the CAPITAL PLAN last recommended for this strat (USD) and when
   // it was computed. Written by the strat editor, which is the only place
   // with the watchlist's trade history loaded; read by the funding sidebar so

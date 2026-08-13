@@ -221,6 +221,21 @@ export interface StratParams {
       the market from gamma, the backtest from the trade itself (see
       `minutesToCloseFromTrade`). Undefined ⇒ 60; explicit 0 ⇒ off. */
   minMinutesToClose?: number;
+  /** Don't mirror a BUY the poller found more than this many seconds after
+      the leader placed it — the price has already moved. Mirror of
+      `EngineConfig::max_trade_age_sec`. Undefined / 0 ⇒ off (the engine's
+      default), which is why this gate is invisible on most strats.
+
+      Live measures the age against the wall clock at the moment of discovery.
+      A backtest replays trades that are all days old, so measuring the same
+      way would reject 100% of them. It instead models the age the LIVE poller
+      would have incurred for that trade: the wait from the leader's fill to
+      the end of the poll bucket it lands in (see `pollIntervalMs`) — the
+      identical quantity live computes, evaluated against the identical limit. */
+  maxTradeAgeSec?: number;
+  /** Live poll cadence in ms — only used to model discovery lag for the
+      `maxTradeAgeSec` gate. Defaults to the engine's 60s floor. */
+  pollIntervalMs?: number;
   /** false = never mirror individual upstream trades (origination only).
       Default true. */
   mirror?: boolean;
@@ -299,13 +314,16 @@ export class Strat {
 
   // ── Hook 2: pre-filter ──
   // Return false to skip an observed trade entirely (before scoring,
-  // sizing, or any side-effects). Default applies four generic gates:
+  // sizing, or any side-effects). Default applies six generic gates, in the
+  // order live_engine.rs applies them:
   //   1. `params.mirror === false` → never mirror (origination-only strat)
   //   2. market-topic query (`params.marketQuery`)
   //   3. semantic trade filters (`params.tradeFilters`)
   //   4. trader FILTER (`params.filter`) — is this trader still top-ranked?
+  //   5. staleness (`params.maxTradeAgeSec`) — STALE
+  //   6. time-to-resolution (`params.minMinutesToClose`) — TOO_SOON
   //
-  // Gates 3 and 4 pick which trades are worth ENTERING, so they only apply
+  // Gates 3–6 pick which trades are worth ENTERING, so they only apply
   // to BUYs. A leader unwinding a position we copied is not a candidate to
   // judge — it's the only signal that closes what we already bought, and a
   // strat that filtered it out would enter positions it can never exit (the
@@ -316,11 +334,41 @@ export class Strat {
     if (this.params.mirror === false) return false;
     if (!marketMatchesQuery(trade.market, this.params.marketQuery ?? "")) return false;
     if (trade.side === "SELL") return true;
+    // Gate ORDER matches live_engine.rs's cycle — market query, trade
+    // filters, trader FILTER, staleness, time-to-close. Every gate is AND-ed,
+    // so order can't change WHICH trades pass; it decides which gate gets the
+    // credit for a rejection, and the funnel and the LIVE panel's gate tally
+    // are the same explanation of "why did this strat trade nothing".
     return (
       tradeMatchesFilters(trade, this.params.tradeFilters ?? {}) &&
-      this.resolvesLateEnough(trade) &&
-      this.traderPassesFilter(trade.trader, history)
+      this.traderPassesFilter(trade.trader, history) &&
+      this.freshEnough(trade) &&
+      this.resolvesLateEnough(trade)
     );
+  }
+
+  /** The staleness gate (hook 2, gate 6) — the backtest half of
+      live_engine.rs's STALE skip. Live compares the wall clock at discovery
+      against the leader's fill; a replay has no wall clock that means
+      anything, so it models the discovery lag the poller WOULD have taken:
+      the gap from the fill to the end of the poll bucket it falls in. A
+      leader trade at t is invisible until the next poll fires, so that gap is
+      exactly the age live would have measured.
+
+      Without this a strat with MAX TRADE AGE set backtests as if the gate
+      didn't exist and then refuses the same flow live — the identical
+      "backtests busy, trades nothing" failure `resolvesLateEnough` was added
+      to close. */
+  private freshEnough(trade: TraderTrade): boolean {
+    const max = this.params.maxTradeAgeSec ?? 0;
+    if (!(max > 0)) return true; // unset ⇒ off, exactly like live
+    return this.modeledAgeSec(trade) <= max;
+  }
+
+  private modeledAgeSec(trade: TraderTrade): number {
+    const interval = Math.max(1, this.params.pollIntervalMs ?? MIN_POLL_MINUTES * 60_000);
+    const discoveredAt = Math.ceil(trade.timestamp / interval) * interval;
+    return (discoveredAt - trade.timestamp) / 1000;
   }
 
   /** The time-to-resolution gate (hook 2, gate 5) — the backtest half of
@@ -347,14 +395,19 @@ export class Strat {
       const desc = describeTradeFilters(this.params.tradeFilters) || "no filters — every trade";
       return `trade filter · ${desc}`;
     }
+    if (!this.traderPassesFilter(trade.trader, history)) {
+      const row = this.ranking(history).find((r) => r.address === trade.trader.toLowerCase());
+      return `FILTER · ${row?.reason ?? "trader not ranked"}`;
+    }
+    if (!this.freshEnough(trade)) {
+      const age = this.modeledAgeSec(trade);
+      const max = this.params.maxTradeAgeSec ?? 0;
+      return `STALE · leader traded ${(age / 60).toFixed(0)}m ago (limit ${(max / 60).toFixed(0)}m) — the price has moved`;
+    }
     if (!this.resolvesLateEnough(trade)) {
       const left = minutesToCloseFromTrade(trade) ?? 0;
       const min = this.params.minMinutesToClose ?? DEFAULT_MIN_MINUTES_TO_CLOSE;
       return `TOO_SOON · resolves in ${left.toFixed(0)}m (min ${min}m) — short-dated flow is HFT turf`;
-    }
-    if (!this.traderPassesFilter(trade.trader, history)) {
-      const row = this.ranking(history).find((r) => r.address === trade.trader.toLowerCase());
-      return `FILTER · ${row?.reason ?? "trader not ranked"}`;
     }
     return "";
   }

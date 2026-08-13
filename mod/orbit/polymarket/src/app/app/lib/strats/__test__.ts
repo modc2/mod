@@ -183,6 +183,42 @@ console.log("\n── shouldMirror + propose defaults ──");
     btc.shouldMirror(buildTrade({ side: "SELL", market: "Presidential debate?" }), H) === false);
 }
 
+console.log("\n── STALE — maxTradeAgeSec, the backtest half of live's staleness gate ──");
+{
+  // A backtest replays trades that are all days old, so the gate can't read
+  // the wall clock. It models the discovery lag live WOULD have taken: from
+  // the leader's fill to the end of the poll bucket it lands in.
+  const interval = 60_000; // 1-minute poll
+  // Fill 15s into a bucket ⇒ live finds it 45s later.
+  const at15s = 3_000 * interval + 15_000;
+  // Fill 50s into a bucket ⇒ live finds it 10s later.
+  const at50s = 3_000 * interval + 50_000;
+
+  const off = new Strat({ pollIntervalMs: interval });
+  check("unset maxTradeAgeSec ⇒ gate off (engine default)",
+    off.shouldMirror(buildTrade({ timestamp: at15s }), H) === true);
+  check("explicit 0 ⇒ gate off",
+    new Strat({ maxTradeAgeSec: 0, pollIntervalMs: interval })
+      .shouldMirror(buildTrade({ timestamp: at15s }), H) === true);
+
+  const strict = new Strat({ maxTradeAgeSec: 30, pollIntervalMs: interval });
+  check("modeled age 45s > 30s limit ⇒ STALE",
+    strict.shouldMirror(buildTrade({ timestamp: at15s }), H) === false);
+  check("modeled age 10s ≤ 30s limit ⇒ passes",
+    strict.shouldMirror(buildTrade({ timestamp: at50s }), H) === true);
+  check("skipReason names STALE",
+    strict.skipReason(buildTrade({ timestamp: at15s }), H).startsWith("STALE ·"),
+    `got: ${strict.skipReason(buildTrade({ timestamp: at15s }), H)}`);
+  // Exits are never gated — same contract as every other entry filter.
+  check("STALE never gates a SELL",
+    strict.shouldMirror(buildTrade({ timestamp: at15s, side: "SELL" }), H) === true);
+  // A slower poll makes every trade older by the time we see it — which is
+  // exactly why the live engine rejects flow a fast-polling backtest kept.
+  const slow = new Strat({ maxTradeAgeSec: 30, pollIntervalMs: 10 * 60_000 });
+  check("slower poll ⇒ same trade goes stale",
+    slow.shouldMirror(buildTrade({ timestamp: at50s }), H) === false);
+}
+
 console.log("\n── FILTER — only the top-ranked traders get copied ──");
 {
   // Three watched traders, wildly different quality. The strat keeps the top 2

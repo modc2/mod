@@ -20,6 +20,8 @@ import CapitalPlanCard from "./CapitalPlanCard";
 import type { CapitalPlanInput } from "../lib/capitalPlan";
 import type { CurvePoint } from "./PnlChart";
 import { computeFifoTrades, buildPnlCurve, buildCombinedPnlCurve, aggregateToRebalanceWindows } from "../lib/pnlEngine";
+import { legKey } from "../lib/leg";
+import { fetchResolvedLegs } from "../lib/hubCache";
 // The backtest engine itself lives in lib/backtest.ts — the STRAT HUB replays
 // every saved strat through the exact same functions, so a card and this tab
 // can never disagree about what a strat did.
@@ -30,7 +32,7 @@ import {
 import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId, equalWeightTraders } from "../lib/indexStore";
 import { pushStrat } from "../lib/stratSync";
 import { fetchTraderBankrolls } from "../lib/liveSessions";
-import LivePanel, { type LiveTab } from "./LivePanel";
+import LivePanel, { type LiveTab, normalizeLiveTab } from "./LivePanel";
 // Client-only: the `?raw` source imports resolve to different strings in the
 // server and client bundles (server sees a shorter transform), so SSR-ing the
 // viewer text-mismatches on hydration (React #425). No SEO value in strat
@@ -43,32 +45,37 @@ import PolymarketAccountPanel from "./PolymarketAccountPanel";
 import UserStratsPanel from "./UserStratsPanel";
 
 // ══════════════════════════════════════════
-// ── Subtab rail — second-level nav under the main STRAT / BACKTEST / LIVE
-//    tabs. WALLET lives HERE (under LIVE) instead of eating a main tab: it
-//    funds the engine, so it sits next to the engine. Each main tab gets its
-//    own accent so the rail reads as a mode switch, not just more buttons.
+// ── Subtab rail — second-level nav under the main TEST / LIVE tabs. WALLET
+//    lives HERE (under LIVE) instead of eating a main tab: it funds the
+//    engine, so it sits next to the engine. Each main tab gets its own accent
+//    so the rail reads as a mode switch, not just more buttons.
+//
+//    The STRAT editor is NOT a tab — it's the collapsible panel above these,
+//    because what you copy and how you size it applies to the test AND the
+//    live engine at once. Its own three views ride STRAT_SUBTABS.
 // ══════════════════════════════════════════
-type MainTab = "STRATS" | "BACKTEST" | "LIVE";
+type MainTab = "BACKTEST" | "LIVE";
 type StratSub = "build" | "source" | "market";
 type BacktestSub = "results" | "trades";
 type LiveSub = LiveTab | "wallet";
 
+const STRAT_SUBTABS: { id: StratSub; glyph: string; label: string; title: string }[] = [
+  { id: "build", glyph: "◈", label: "BUILD", title: "Traders + params — who you copy and every tuning knob" },
+  { id: "source", glyph: "</>", label: "SOURCE", title: "The strat's code — read-only built-ins, editable uploads" },
+  { id: "market", glyph: "▤", label: "MARKET", title: "Strat market — publish yours, browse and fork other traders', import by CID" },
+];
+const STRAT_ACCENT = "border-green-400/60 text-green-400 bg-green-400/[0.08] shadow-[0_0_16px_rgba(74,222,128,0.25)]";
+
 const SUBTABS: Record<MainTab, { id: string; glyph: string; label: string; title: string }[]> = {
-  STRATS: [
-    { id: "build", glyph: "◈", label: "BUILD", title: "Traders + params — who you copy and every tuning knob" },
-    { id: "source", glyph: "</>", label: "SOURCE", title: "The strat's code — read-only built-ins, editable uploads" },
-    { id: "market", glyph: "▤", label: "MARKET", title: "Strat market — publish yours, browse and fork other traders', import by CID" },
-  ],
   BACKTEST: [
     { id: "results", glyph: "◔", label: "RESULTS", title: "Run the sim — P&L, fees, simulated equity curve" },
     { id: "trades", glyph: "⇄", label: "TRADES", title: "Every simulated trade with its P&L impact" },
   ],
   LIVE: [
-    { id: "portfolio", glyph: "◔", label: "PORTFOLIO", title: "Equity + performance curve over time" },
-    { id: "stats", glyph: "σ", label: "STATS", title: "Engine stats — free cash, orders, volume, cycles, last sync" },
-    // POSITIONS folded into TRADES — one tab toggles positions ⇄ my fills ⇄
-    // copied-trader feed ⇄ engine log (same on-chain record at different grain).
-    { id: "trades", glyph: "⇄", label: "TRADES", title: "My positions · my fills · copied-trader feed · engine log" },
+    // PORTFOLIO + STATS + TRADES folded into ONE desk — they were three views
+    // of a single question ("is it working, and did anything reach my
+    // wallet?") that could never be on screen together. See LivePanel.
+    { id: "desk", glyph: "◔", label: "DESK", title: "Equity curve · engine vitals · every trade — mine vs the traders I copy, copied vs filtered out" },
     { id: "wallet", glyph: "$", label: "WALLET", title: "Deposit / withdraw / bridge — the wallet the engine trades through" },
     { id: "help", glyph: "?", label: "HELP", title: "Which wallet do I use?" },
   ],
@@ -77,27 +84,25 @@ const SUBTABS: Record<MainTab, { id: string; glyph: string; label: string; title
 // Active-pill accents (static strings — Tailwind can't see computed classes).
 // WALLET always glows amber ($$$) no matter which mode owns it.
 const SUB_ACCENT: Record<MainTab, string> = {
-  STRATS: "border-green-400/60 text-green-400 bg-green-400/[0.08] shadow-[0_0_16px_rgba(74,222,128,0.25)]",
   BACKTEST: "border-amber-400/60 text-amber-400 bg-amber-400/[0.08] shadow-[0_0_16px_rgba(251,191,36,0.25)]",
   LIVE: "border-cyan-400/60 text-cyan-300 bg-cyan-400/[0.08] shadow-[0_0_16px_rgba(34,211,238,0.25)]",
 };
 const WALLET_ACCENT = "border-amber-400/60 text-amber-400 bg-amber-400/[0.08] shadow-[0_0_16px_rgba(251,191,36,0.25)]";
 
-// Main-tab accents mirror the subtab rail's per-mode tones so STRAT / BACKTEST
-// / LIVE read as three distinct modes from the top row alone.
+// Main-tab accents mirror the subtab rail's per-mode tones so TEST and LIVE
+// read as two distinct modes from the top row alone.
 const MAIN_ACTIVE: Record<MainTab, string> = {
-  STRATS: "text-green-400 bg-green-400/[0.08]",
   BACKTEST: "text-amber-400 bg-amber-400/[0.08]",
   LIVE: "text-cyan-300 bg-cyan-400/[0.08]",
 };
 const MAIN_BAR: Record<MainTab, string> = {
-  STRATS: "bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.7)]",
   BACKTEST: "bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.7)]",
   LIVE: "bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.7)]",
 };
 
+const STRAT_SUB_KEY = "polymarket.sub.strat";
+const STRAT_OPEN_KEY = "polymarket.strat.open";
 const SUB_KEYS: Record<MainTab, string> = {
-  STRATS: "polymarket.sub.strat",
   BACKTEST: "polymarket.sub.backtest",
   LIVE: "polyLiveTab", // shared with LivePanel's uncontrolled fallback
 };
@@ -188,10 +193,12 @@ function computeBacktest(
     .filter((t) => t.timestamp >= cutoff)
     .sort((a, b) => a.timestamp - b.timestamp);
 
-  // Filter out SELLs without a prior BUY in the window (copy-trader wouldn't hold those)
+  // Filter out SELLs without a prior BUY in the window (copy-trader wouldn't
+  // hold those). Per OUTCOME TOKEN, like every other book in the app — a Yes
+  // exit is not covered by a No entry (lib/leg.ts).
   const windowInv = new Map<string, number>();
   const windowTrades = allWindowTrades.filter((t) => {
-    const key = t.conditionId || t.market;
+    const key = legKey(t.conditionId || t.market, t.outcome);
     if (t.side === "BUY") {
       windowInv.set(key, (windowInv.get(key) || 0) + t.size);
       return true;
@@ -486,195 +493,6 @@ function ParamGroup({
   );
 }
 
-/* ── Header keyword-filter dropdown ──
-   The strat's market-topic filter, surfaced in the header as editable chips.
-   Comma/pipe groups OR, tokens within a group AND (lib/marketQuery.ts) — the
-   exact query the backtest AND live engine already gate on. Every add /
-   remove / edit commits immediately, which flips `marketQuery`, which every
-   backtest useMemo depends on → the backtest re-runs on the spot and the
-   MATCHES counter shows the new slice instantly. */
-function KeywordFilterDropdown({ query, onCommit, matched, total, onViewBacktest, canBacktest }: {
-  query: string;
-  onCommit: (q: string) => void;
-  matched: number;
-  total: number;
-  onViewBacktest: () => void;
-  canBacktest: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [input, setInput] = useState("");
-  const boxRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const groups = query.split(/[,|]/).map((s) => s.trim()).filter(Boolean);
-  const commitGroups = (gs: string[]) => onCommit(gs.map((g) => g.trim()).filter(Boolean).join(", "));
-  const addFromInput = () => {
-    const g = input.trim();
-    if (!g) return;
-    commitGroups([...groups, g]);
-    setInput("");
-  };
-  // Click a chip to edit it: pull it out of the query and into the input.
-  const editChip = (i: number) => {
-    setInput(groups[i]);
-    commitGroups(groups.filter((_, j) => j !== i));
-    inputRef.current?.focus();
-  };
-
-  const active = groups.length > 0;
-  const pct = total > 0 ? Math.round((matched / total) * 100) : 0;
-
-  const PRESETS: readonly [string, string][] = [
-    ["Bitcoin", "bitcoin, btc"],
-    ["Ethereum", "ethereum, eth"],
-    ["Solana", "solana, sol"],
-    ["Crypto", "bitcoin, btc, ethereum, eth, solana, sol, crypto, xrp, dogecoin"],
-  ];
-
-  return (
-    <div ref={boxRef} className="relative ml-auto">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        title={active
-          ? `Copying only markets matching: ${query} — ${matched}/${total} trades pass. Click to edit; the backtest re-runs on every change.`
-          : "Filter the selected traders' trades by market keywords — the backtest re-runs on every edit."}
-        style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.14em" }}
-        className={`flex items-center gap-2 text-[11.5px] font-bold px-3 py-1.5 rounded-[var(--radius-sm)] border uppercase transition-all duration-150 ${
-          active
-            ? "border-amber-400/60 text-amber-300 bg-amber-400/[0.08] shadow-[0_0_14px_-6px_rgba(251,191,36,0.6)]"
-            : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40"
-        }`}
-      >
-        <span className="text-[13px] leading-none">⌕</span>
-        KEYWORDS
-        {active && (
-          <span className="text-[9.5px] px-1.5 py-0.5 rounded-full border border-amber-400/50 bg-amber-400/10 font-mono tracking-normal">
-            {groups.length}
-          </span>
-        )}
-        <span className={`text-[9px] transition-transform duration-150 ${open ? "rotate-180" : ""}`}>▾</span>
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-full mt-2 w-[360px] max-w-[92vw] z-50 border border-pixel-border bg-pixel-black/95 backdrop-blur-md rounded-[var(--radius-sm)] shadow-[0_18px_50px_-12px_rgba(0,0,0,0.9)] p-3 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-pixel-gray tracking-[0.2em]">TRADE KEYWORD FILTER</span>
-            <span
-              className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
-                !active ? "border-pixel-border text-pixel-gray"
-                : matched > 0 ? "border-green-400/50 text-green-400 bg-green-400/[0.06]"
-                : "border-red-400/50 text-red-400 bg-red-400/[0.06]"
-              }`}
-              title="Trades from the selected traders (inside the backtest window) that pass this filter — recomputed live as you edit."
-            >
-              {active ? `${matched}/${total} trades · ${pct}%` : `${total} trades · all`}
-            </span>
-          </div>
-
-          {/* Chips — click to edit, ✕ to drop. Both commit instantly. */}
-          <div className="flex items-center gap-1.5 flex-wrap min-h-[24px]">
-            {groups.length === 0 && (
-              <span className="text-[11px] text-pixel-gray/60 font-mono">no keywords — copying every market the traders touch</span>
-            )}
-            {groups.map((g, i) => (
-              <span key={`${g}-${i}`} className="group inline-flex items-center gap-1 text-[11px] font-mono pl-2 pr-1 py-0.5 rounded border border-amber-400/50 bg-amber-400/[0.08] text-amber-300">
-                <button onClick={() => editChip(i)} title="Edit this keyword group" className="hover:text-amber-100">
-                  {g}
-                </button>
-                <button
-                  onClick={() => commitGroups(groups.filter((_, j) => j !== i))}
-                  title="Remove — backtest re-runs immediately"
-                  className="px-0.5 text-amber-400/60 hover:text-red-400"
-                >
-                  ✕
-                </button>
-              </span>
-            ))}
-          </div>
-
-          {/* Add / edit input — Enter commits a group, backtest re-runs. */}
-          <div className="flex items-center gap-1.5 h-[30px] px-2 border border-pixel-border bg-pixel-black/60 focus-within:border-amber-400/60 transition-colors">
-            <span className="text-[12px] text-pixel-gray">⌕</span>
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") addFromInput(); }}
-              placeholder='add keywords… e.g. "price bitcoin"'
-              className="bg-transparent flex-1 font-mono text-[12.5px] text-pixel-white outline-none placeholder:text-pixel-gray/40"
-            />
-            <button
-              onClick={addFromInput}
-              disabled={!input.trim()}
-              title="Add keyword group (Enter) — backtest re-runs immediately"
-              className="text-[11px] font-bold px-2 py-0.5 rounded border border-green-400/50 text-green-400 bg-green-400/[0.06] hover:bg-green-400/[0.14] disabled:opacity-30 transition-colors"
-            >
-              + ADD
-            </button>
-          </div>
-          <p className="text-[9.5px] text-pixel-gray/60 leading-relaxed font-mono">
-            space = AND within a group · each chip ORs · applies to backtest + live
-          </p>
-
-          {/* Presets + clear */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {PRESETS.map(([label, q]) => {
-              const presetActive = query.trim().toLowerCase() === q;
-              return (
-                <button
-                  key={label}
-                  onClick={() => onCommit(presetActive ? "" : q)}
-                  title={`Only copy markets matching: ${q}`}
-                  className={`text-[10px] px-2 py-0.5 rounded border font-bold transition-colors ${
-                    presetActive
-                      ? "border-amber-400/70 bg-amber-500/20 text-amber-300"
-                      : "border-pixel-border bg-pixel-black/60 text-pixel-gray-light hover:border-pixel-white/40"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-            {active && (
-              <button
-                onClick={() => onCommit("")}
-                title="Clear every keyword — copy all markets again"
-                className="text-[10px] px-2 py-0.5 rounded border border-pixel-border bg-pixel-black/60 text-pixel-gray hover:text-red-400 hover:border-red-400/50 transition-colors"
-              >
-                ✕ CLEAR
-              </button>
-            )}
-          </div>
-
-          <button
-            onClick={() => { onViewBacktest(); setOpen(false); }}
-            disabled={!canBacktest}
-            className="w-full text-[11px] font-bold tracking-[0.16em] px-3 py-1.5 rounded border border-green-400/50 text-green-400 bg-green-400/[0.06] hover:bg-green-400/[0.14] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            title="The test already re-ran with these keywords — jump to the charts"
-          >
-            VIEW TEST →
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   const router = useRouter();
   const filterQs = useFilterParams({ excludeSearch: true });
@@ -803,44 +621,61 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // ── Weights (local state, persisted on change) ──
   const [traderWeights, setTraderWeights] = useState<Record<string, number>>({});
 
-  // ── Mode toggle (STRATS = manage, BACKTEST = test, LIVE = copy) ──
-  // Default to LIVE so a returning user lands directly on their copy engine
-  // rather than the strategy-management screen. The LIVE tab is itself
-  // disabled until a watchlist exists, so first-time-no-strat users still
-  // see STRATS through the disabled-tab fallback in the tabs render block.
-  // Land on STRATS — it always has content (build/browse a strat), unlike LIVE
-  // which is blank until a wallet's connected and an engine is running. The
-  // LIVE tab badges itself RUNNING so a live session is still obvious at a
-  // glance from here.
-  const [mode, setMode] = useState<MainTab>("STRATS");
+  // ── Mode toggle (BACKTEST = test, LIVE = copy) ──
+  // Land on TEST: it always has content (a strat + a window is enough),
+  // unlike LIVE which is blank until a wallet's connected and an engine is
+  // running. The LIVE tab badges itself RUNNING so a live session is still
+  // obvious at a glance from here. The strat itself isn't a mode any more —
+  // it's the panel above, open or collapsed over both tabs.
+  const [mode, setMode] = useState<MainTab>("BACKTEST");
 
   // ── Subtabs — one remembered position per main tab, so flipping
-  // STRAT → LIVE → STRAT lands back where you were. Read after mount
+  // TEST → LIVE → TEST lands back where you were. Read after mount
   // (not in the initializer) to dodge a hydration mismatch; writes are
   // quota-safe — modc2.com modules share one localStorage origin.
   const [stratSub, setStratSub] = useState<StratSub>("build");
+  // The strat panel sits above both tabs and starts COLLAPSED on every load.
+  // Editing is bursty (open it, turn knobs, collapse it and watch the
+  // result) but READING is the common case: the console should open on the
+  // numbers, not on a full-height editor you have to scroll past. The
+  // open/closed choice is intentionally session-only — a panel left open
+  // once should not make every future load start expanded.
+  const [stratOpen, setStratOpen] = useState(false);
   const [backtestSub, setBacktestSub] = useState<BacktestSub>("results");
-  const [liveSub, setLiveSub] = useState<LiveSub>("portfolio");
+  const [liveSub, setLiveSub] = useState<LiveSub>("desk");
   useEffect(() => {
     try {
-      const ss = localStorage.getItem(SUB_KEYS.STRATS);
-      if (ss === "build" || ss === "source") setStratSub(ss);
+      const ss = localStorage.getItem(STRAT_SUB_KEY);
+      if (ss === "build" || ss === "source" || ss === "market") setStratSub(ss);
+      // STRAT_OPEN_KEY is deliberately NOT restored — see `stratOpen`. The
+      // key is still cleared so an old persisted "true" can't linger.
+      localStorage.removeItem(STRAT_OPEN_KEY);
       const bs = localStorage.getItem(SUB_KEYS.BACKTEST);
       if (bs === "results" || bs === "trades") setBacktestSub(bs);
       const ls = localStorage.getItem(SUB_KEYS.LIVE);
-      // "positions" was folded into the TRADES tab — migrate any persisted
-      // value so an old localStorage entry doesn't select a dead subtab.
-      const lsMapped = ls === "positions" ? "trades" : ls;
-      if (lsMapped && ["portfolio", "stats", "trades", "wallet", "help"].includes(lsMapped)) setLiveSub(lsMapped as LiveSub);
+      // portfolio / stats / trades / positions all folded into DESK — migrate
+      // any persisted value so an old entry doesn't select a dead subtab.
+      // WALLET and HELP are unaffected.
+      const lsMapped = ls === "wallet" || ls === "help" ? ls : normalizeLiveTab(ls);
+      if (ls) setLiveSub(lsMapped as LiveSub);
     } catch { /* storage unavailable — keep defaults */ }
   }, []);
   const pickSub = useCallback((m: MainTab, id: string) => {
-    if (m === "STRATS") setStratSub(id as StratSub);
-    else if (m === "BACKTEST") setBacktestSub(id as BacktestSub);
+    if (m === "BACKTEST") setBacktestSub(id as BacktestSub);
     else setLiveSub(id as LiveSub);
     try { localStorage.setItem(SUB_KEYS[m], id); } catch { /* quota full — non-fatal */ }
   }, []);
-  const activeSub = mode === "STRATS" ? stratSub : mode === "BACKTEST" ? backtestSub : liveSub;
+  const activeSub = mode === "BACKTEST" ? backtestSub : liveSub;
+  // The strat panel's own rail — opening a view opens the panel with it, so
+  // clicking SOURCE while collapsed shows the code instead of nothing.
+  const pickStratSub = useCallback((id: StratSub) => {
+    setStratSub(id);
+    setStratOpen(true);
+    // Which VIEW you were last on is remembered; whether the panel was open
+    // is not (it re-collapses on the next load).
+    try { localStorage.setItem(STRAT_SUB_KEY, id); } catch { /* quota full — non-fatal */ }
+  }, []);
+  const toggleStrat = useCallback(() => setStratOpen((o) => !o), []);
 
   // 1s tick for the rail's next-cycle countdown — only while the LIVE tab is
   // showing a running engine (the echo replaces LivePanel's old strip, which
@@ -853,26 +688,22 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     return () => clearInterval(iv);
   }, [mode, isLive]);
 
-  // ── Embedded top-traders leaderboard (STRATS mode) ──
+  // ── Embedded top-traders leaderboard (STRAT panel) ──
   // The standalone /traders page was folded into strat management: discovering
   // who to copy and assembling a strat now live in one place. The leaderboard
   // reads the shared TopBar filters (category / window / market topic), and
   // selecting a trader toggles them in/out of the active strat.
-  // The add-trader bar lives inside this collapsible too, so remember the
-  // expand/contract choice across reloads. Read after mount (not in the
-  // useState initializer) to avoid a hydration mismatch, and keep writes
-  // quota-safe — modc2.com modules share one localStorage origin.
+  // The add-trader bar lives inside this collapsible too. It starts CLOSED on
+  // every load and the choice is NOT persisted: mounting it mounts the
+  // leaderboard, which fans out live trader queries nobody asked for, and
+  // half the strats here (momentum/candle origination) copy no one at all.
+  // Browsing traders is a thing you go and do, not the state you land in.
   const [browseOpen, setBrowseOpen] = useState(false);
   useEffect(() => {
-    try {
-      if (localStorage.getItem("polymarket.stratTradersOpen") === "1") setBrowseOpen(true);
-    } catch { /* storage unavailable — stay collapsed */ }
+    // Drop the old persisted flag so a previously-open browser doesn't keep
+    // reopening itself for users who already have it set.
+    try { localStorage.removeItem("polymarket.stratTradersOpen"); } catch { /* non-fatal */ }
   }, []);
-  useEffect(() => {
-    try {
-      localStorage.setItem("polymarket.stratTradersOpen", browseOpen ? "1" : "0");
-    } catch { /* quota full — non-fatal, just don't persist */ }
-  }, [browseOpen]);
   const {
     category: browseCategory,
     daysAgo: browseDaysAgo,
@@ -902,6 +733,12 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     [activeIndex],
   );
   const watchlistKey = watchlist.join(",");
+  // Origination strats (momentum, incl. candle mode) buy from the market's own
+  // price tape and need no watchlist at all — the live engine says as much
+  // (`LivePanel`: the TRADERS precondition only applies to copy strats). Every
+  // "add traders first" gate below has to exempt them, or picking BTC 5-MIN
+  // DELTA hides its own backtest and LIVE panel behind a browse-traders nag.
+  const originates = !!activeIndex?.momentum;
 
   // Bankrolls for the current watchlist, refreshed when it changes. Cached
   // server-side (~10m), so this is one cheap call per roster edit.
@@ -1462,14 +1299,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // right edge keeps catching new trades. Without this the chart looks
   // sparse near "now" because data was only pulled once on mount. Guards:
   //   • only runs when there's a watchlist (no point polling 0 addrs)
-  //   • only when the user is on a tab that uses traderTrades (STRATS hides
-  //     the curve so polling is wasted)
   // The tick rides the SAME 30s gate as the live engine (fetchWalletTrades-
   // Incremental throttles per trader), so this loop and a running engine
   // together still cost one /activity sync per selected trader per 30s.
   useEffect(() => {
     if (watchlist.length === 0) return;
-    if (mode === "STRATS") return;
     const t = setInterval(() => {
       // Re-fetch the whole watchlist silently. Reuses the same setTraderTrades
       // path so the curve + linked feed rebuild via their existing useMemos.
@@ -1716,6 +1550,36 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
      maxUpscale, activeIndex?.sizing, activeIndex?.turnover],
   );
 
+  // ── What the window's markets actually paid out ──
+  // The replay has to value whatever it's still holding when the leaders go
+  // quiet. Marking it at the last observed price flatters the result — leaders
+  // trade winners on the way up and let losers expire, so a loser's last print
+  // is its entry price and the loss never books. The server's resolution store
+  // knows how the closed ones settled; ask it (store-only, no upstream calls)
+  // and hand the answers to the sim. Anything it doesn't know yet is marked,
+  // and the panel says how much of the number that is.
+  const [resolvedLegs, setResolvedLegs] = useState<Map<string, number>>(new Map());
+  const windowConditionIds = useMemo(() => {
+    const cutoff = Date.now() - backtestDays * 86400_000;
+    const ids = new Set<string>();
+    for (const addr of watchlist) {
+      for (const t of traderTrades.get(addr) || []) {
+        if (t.timestamp >= cutoff && t.conditionId) ids.add(t.conditionId);
+      }
+    }
+    return [...ids].sort();
+  }, [watchlist, traderTrades, backtestDays]);
+  useEffect(() => {
+    if (windowConditionIds.length === 0) { setResolvedLegs(new Map()); return; }
+    let live = true;
+    void fetchResolvedLegs(windowConditionIds).then((legs) => {
+      if (live) setResolvedLegs(legs);
+    });
+    return () => { live = false; };
+    // Keyed by the id SET, not the array identity — the 60s refresh rebuilds
+    // the array every poll and would otherwise re-ask on every tick.
+  }, [windowConditionIds.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── The backtest ──
   // One call into lib/backtest.ts runs the whole pipeline — 30d trader stats
   // → proportional copy ratios → the StratHistory hooks see → the per-cycle
@@ -1747,11 +1611,12 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     // Size the preview off the same denominator the live session will.
     sizing: activeIndex?.sizing,
     turnover: activeIndex?.turnover,
+    resolved: resolvedLegs,
   }), [watchlist, traderTrades, traderData, traderWeights, traderBankrolls, backtestStrat,
        backtestDays, capital, minTrade, maxTrade, maxOpenPositions, stopLossPct, takeProfitFrac,
        marketQuery, activeIndex?.livePollMinutes, rebalanceMinutes, rebalancePeriod,
        rebalanceHour, samplePct, showAllTrades, loading, activeIndex?.sizing,
-       activeIndex?.turnover]);
+       activeIndex?.turnover, resolvedLegs]);
 
   const traderStatsMap = backtest.traderStats;
   const traderCopyRatio = backtest.copyRatio;
@@ -2015,8 +1880,8 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
 
 
   // How many of the selected traders' in-window trades pass the keyword
-  // filter — the header dropdown's live "does my filter bite" readout.
-  // Recomputes on every keyword edit, same dependency the backtest keys on.
+  // filter — the "does my filter bite" readout under MARKETS. Recomputes on
+  // every keyword edit, same dependency the backtest keys on.
   const keywordStats = useMemo(() => {
     const cutoff = Date.now() - backtestDays * 24 * 60 * 60 * 1000;
     let total = 0;
@@ -2063,170 +1928,29 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
 
   return (
     <div className="min-w-0 space-y-2">
-      {/* ── Header: main tabs + subtab rail ──
-          Two-level nav: STRAT / BACKTEST / LIVE on top, a contextual
-          subtab rail below. Wallet/token/QR + trading wallet + funding
-          live under LIVE → WALLET ($ pill). */}
-      <div className="pixel-panel px-3 py-2 space-y-2">
-        {/* Tabs */}
-        <div className="flex items-center gap-2">
-          {(
-            [
-              // BACKTEST/LIVE are always reachable — backtests run on
-              // simulated funds (no wallet, no deposit), and an empty
-              // watchlist renders an add-traders empty state instead of a
-              // dead grey tab (which read as "needs a funded wallet").
-              // WALLET is no longer a main tab — it's the $ subtab under
-              // LIVE (SUBTABS above), next to the engine it funds.
-              { id: "STRATS", label: "STRAT", disabled: false },
-              // Label is TEST, id stays BACKTEST — the id keys the accent
-              // maps, the localStorage subtab keys and every mode check.
-              { id: "BACKTEST", label: "TEST", disabled: false },
-              { id: "LIVE", label: "LIVE", disabled: false },
-            ] as { id: MainTab; label: string; disabled: boolean }[]
-          ).map((t) => {
-            const active = mode === t.id;
-            // Show a RUNNING chip on the LIVE tab while the engine is
-            // actively trading — so the user can tell at a glance there's
-            // a "task" firing in the background even from STRATS/BACKTEST.
-            const showRunning = t.id === "LIVE" && isLive;
-            const runningTone = engineState?.status === "paused"
-              ? "border-amber-400/60 text-amber-400 bg-amber-400/10"
-              : engineState?.status === "error"
-                ? "border-red-400/60 text-red-400 bg-red-400/10"
-                : "border-green-400/60 text-green-400 bg-green-400/10";
-            return (
-              <button
-                key={t.id}
-                onClick={() => setMode(t.id)}
-                disabled={t.disabled}
-                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.16em" }}
-                className={`relative text-[12.5px] font-bold px-4 py-2 rounded-[var(--radius-sm)] transition-all duration-150 uppercase flex items-center gap-2 ${
-                  active
-                    ? MAIN_ACTIVE[t.id]
-                    : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.04]"
-                } disabled:opacity-30 disabled:cursor-not-allowed`}
-              >
-                {t.label}
-                {showRunning && (
-                  <span
-                    className={`text-[9px] px-1.5 py-0.5 border tracking-[0.1em] rounded-full font-semibold ${runningTone}`}
-                    title={`Live engine ${engineState?.status ?? "running"}`}
-                  >
-                    {engineState?.status === "paused" ? "PAUSED" :
-                     engineState?.status === "error" ? "ERROR" : "RUNNING"}
-                  </span>
-                )}
-                <span
-                  className={`absolute left-3 right-3 -bottom-px h-[2px] rounded-full transition-all duration-200 ${
-                    active ? `${MAIN_BAR[t.id]} opacity-100` : "opacity-0"
-                  }`}
-                />
-              </button>
-            );
-          })}
-
-          {/* Keyword filter on the selected traders' trades — every edit
-              commits to the strat, the backtest recomputes immediately, and
-              the LIVE engine copies the same filtered slice. */}
-          <KeywordFilterDropdown
-            query={marketQuery}
-            onCommit={(q) => { setMarketQueryInput(q); updateMarketQuery(q); }}
-            matched={keywordStats.matched}
-            total={keywordStats.total}
-            onViewBacktest={() => setMode("BACKTEST")}
-            canBacktest={watchlist.length > 0}
-          />
-        </div>
-
-        {/* ── Subtab rail — contextual second row, re-animates on mode swap
-            (key={mode}). Pills carry the mode's accent; WALLET is always
-            amber. Right side echoes free cash + next-cycle countdown while
-            the engine runs, so no subtab ever hides the numbers that
-            matter minute-to-minute. */}
-        <div className="h-px -mx-1 bg-gradient-to-r from-transparent via-pixel-border/80 to-transparent" />
-        <div key={mode} className="subtab-rail flex items-center gap-1.5 flex-wrap">
-          {SUBTABS[mode].map((s) => {
-            const active = activeSub === s.id;
-            const accent = s.id === "wallet" ? WALLET_ACCENT : SUB_ACCENT[mode];
-            return (
-              <button
-                key={s.id}
-                onClick={() => pickSub(mode, s.id)}
-                title={s.title}
-                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.14em" }}
-                className={`group inline-flex items-center gap-1.5 px-3 py-1 text-[11px] font-bold uppercase rounded-full border transition-all duration-200 ${
-                  active
-                    ? accent
-                    : "border-pixel-border/50 text-pixel-gray hover:text-pixel-white hover:border-pixel-border hover:bg-pixel-white/[0.04]"
-                }`}
-              >
-                <span className={`font-mono normal-case tracking-normal text-[10px] transition-opacity ${active ? "opacity-90" : "opacity-50 group-hover:opacity-80"}`}>
-                  {s.glyph}
-                </span>
-                {s.label}
-              </button>
-            );
-          })}
-          {mode === "LIVE" && isLive && engineState && (
-            <span
-              className="ml-auto text-[12px] font-mono text-pixel-gray shrink-0"
-              title="Free cash · time to next poll cycle — full breakdown in STATS"
-            >
-              <span className="text-pixel-white">
-                {engineState.balance !== null ? `$${engineState.balance.toFixed(2)}` : "$—"}
-              </span>
-              {" · "}
-              <span className="text-green-400">
-                {formatCountdown((engineState.nextCycleAt ?? 0) - railNow)}
-              </span>
-            </span>
-          )}
-        </div>
-
-      </div>
-
-      {/* ── LIVE → WALLET subtab ──
-          The MONEY panel (one flow for deposit / withdraw / send) is the
-          hero, full width at the top — LIVE's FUND NOW banner jumps here
-          via onFundNow. Session pairing, cross-chain bridging and the
-          legacy V1 Safe are secondary and sit in a grid below it.
-          Renders regardless of watchlist — you can fund before you copy. */}
-      {mode === "LIVE" && liveSub === "wallet" && (
-        <div className="space-y-2 max-w-[1100px]">
-          {/* ONE money panel: both balances, one amount, one button. */}
-          <div id="sidebar-wallet-panel">
-            <WalletPanel />
-          </div>
-          <div className="grid md:grid-cols-2 gap-2 items-start">
-            <div className="space-y-2 min-w-0">
-              {/* Full wallet + token + sign-in-QR pairing panel. */}
-              <WalletTokenPanel />
-            </div>
-            <div className="space-y-2 min-w-0">
-              {/* Bridge / send funds into Polygon USDC from any chain. */}
-              <WalletFundingPanel />
-              {/* Legacy V1 Safe — only renders once there's a leftover balance. */}
-              <PolymarketAccountPanel />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── TRADERS + PARAMS (STRAT tab) ──
-          One header for the whole strat editor: who you copy (add bar,
-          leaderboard browser, watchlist rows) and every tuning knob
-          (window / capital / trade band / throttle / top-N / sample /
-          poll cadence / market focus / per-trade filters) in the same
-          panel. The FILT column on each trader row shows live how many
-          of that trader's in-window trades the current params keep.
-          The strat's SOURCE code renders directly below this panel.
-          The status row keeps the strat picker + data-freshness chips
-          so a stalled poll loop is still diagnosable from here. */}
-      {mode === "STRATS" && stratSub === "build" && activeIndex && (
+      {/* ── STRAT — the whole editor, above TEST and LIVE ──
+          Not a tab: who you copy (add bar, leaderboard browser, watchlist
+          rows) and every tuning knob (window / capital / trade band /
+          throttle / top-N / sample / poll cadence / market keywords /
+          per-trade filters) feed the test AND the live engine, so they sit
+          above both instead of behind a mode switch you have to leave to see
+          the result. Collapse it (▾) once it's tuned and the charts move up.
+          The FILT column on each trader row shows live how many of that
+          trader's in-window trades the current params keep. The status row
+          keeps the data-freshness chips so a stalled poll loop is still
+          diagnosable from here. */}
+      {activeIndex && (
         <div className="pixel-panel px-3 py-2.5 space-y-2.5">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[14px] text-pixel-white tracking-[0.2em] shrink-0">TRADERS + PARAMS</span>
+            <button
+              onClick={toggleStrat}
+              className="shrink-0 flex items-center gap-2 group/st"
+              title={stratOpen ? "Collapse the strat editor" : "Expand the strat editor — traders, params, source, market"}
+              aria-expanded={stratOpen}
+            >
+              <span className={`text-pixel-gray text-[12px] transition-transform duration-200 ${stratOpen ? "rotate-90" : ""}`}>▸</span>
+              <span className="text-[14px] text-pixel-white tracking-[0.2em] group-hover/st:text-green-400 transition-colors">STRAT</span>
+            </button>
             <div className="w-2 h-2 bg-green-400 shrink-0" />
             {/* Name doubles as the strat switcher; ✎ (or a double-click on
                 the name) turns it into an inline rename field. */}
@@ -2313,6 +2037,47 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               </>
             )}
           </div>
+
+          {/* The strat's own rail — BUILD / SOURCE / MARKET. Clicking one
+              opens the panel, so a collapsed strat is still one click from
+              its code. Collapsed, the rail is replaced by the one-line
+              summary of what the strat currently does. */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {STRAT_SUBTABS.map((t) => {
+              const on = stratOpen && stratSub === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => pickStratSub(t.id)}
+                  title={t.title}
+                  style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.14em" }}
+                  className={`group inline-flex items-center gap-1.5 px-3 py-1 text-[11px] font-bold uppercase rounded-full border transition-all duration-200 ${
+                    on ? STRAT_ACCENT
+                      : "border-pixel-border/50 text-pixel-gray hover:text-pixel-white hover:border-pixel-border hover:bg-pixel-white/[0.04]"
+                  }`}
+                >
+                  <span className={`font-mono normal-case tracking-normal text-[10px] transition-opacity ${on ? "opacity-90" : "opacity-50 group-hover:opacity-80"}`}>
+                    {t.glyph}
+                  </span>
+                  {t.label}
+                </button>
+              );
+            })}
+            {!stratOpen && (
+              <span className="ml-auto text-[11px] font-mono text-pixel-gray truncate" title="Traders copied · market keywords · window — expand to edit">
+                {watchlist.length} trader{watchlist.length === 1 ? "" : "s"}
+                {" · "}
+                <span className={marketQuery.trim() ? "text-amber-300" : ""}>
+                  {marketQuery.trim() || "all markets"}
+                </span>
+                {" · "}
+                {backtestDays}d
+              </span>
+            )}
+          </div>
+
+          {stratOpen && stratSub === "build" && (
+          <>
           {/* ── TRADERS — browse/add bar + watchlist rows ── */}
           <div className="border-t border-pixel-border/40 pt-2.5 space-y-2">
             {/* Browse Traders — one collapsible unit: the toggle is the
@@ -2864,6 +2629,22 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                     </button>
                   )}
                 </div>
+
+                {/* Does the query bite? Live count of the watched traders'
+                    in-window trades it keeps — the one number the old header
+                    dropdown existed for, next to the field that sets it. */}
+                {keywordStats.total > 0 && (
+                  <div className="w-full flex items-center gap-1.5 pt-0.5 text-[10px] font-mono">
+                    <span className="text-pixel-gray tracking-[0.18em] leading-none">MATCHES</span>
+                    <span className={marketQuery.trim() && keywordStats.matched === 0 ? "text-red-400" : "text-pixel-white"}>
+                      {keywordStats.matched}
+                    </span>
+                    <span className="text-pixel-gray/60">/ {keywordStats.total} trades · {backtestDays}d</span>
+                    {marketQuery.trim() && keywordStats.matched === 0 && (
+                      <span className="text-red-400/80">nothing to copy — loosen it</span>
+                    )}
+                  </div>
+                )}
               </ParamGroup>
 
               {/* Per-trade filter — orthogonal to MARKET: gates on the
@@ -3000,6 +2781,8 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               </ParamGroup>
             </div>
           </div>
+          </>
+          )}
         </div>
       )}
 
@@ -3008,17 +2791,160 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       {/* ── STRAT → SOURCE subtab — the strat's code ──
           Read-only for built-in TS strats; editable for user-uploaded
           mod.py / mod.rs files (persisted via /api/polymarket/user-strats). */}
-      {mode === "STRATS" && stratSub === "source" && <StratSourceViewer />}
+      {stratOpen && stratSub === "source" && <StratSourceViewer />}
 
       {/* ── STRAT → MARKET subtab — the strat market ──
           Publish your uploaded strats (public, or by CID), browse every
           public strat other traders shipped, fork one into your own list.
           Keyed on the signed-in wallet so YOURS is distinguishable from
           theirs (UserStratsPanel). */}
-      {mode === "STRATS" && stratSub === "market" && <UserStratsPanel eoa={auth.address ?? undefined} />}
+      {stratOpen && stratSub === "market" && <UserStratsPanel eoa={auth.address ?? undefined} />}
 
-      {/* ── Add trader bar (BACKTEST — on STRAT it lives inside TRADERS + PARAMS) ── */}
-      {mode === "BACKTEST" && (
+      {/* ── Header: main tabs + subtab rail ──
+          Two-level nav: TEST / LIVE on top, a contextual subtab rail below
+          (the strat is the panel above, not a tab). Wallet/token/QR +
+          trading wallet + funding live under LIVE → WALLET ($ pill). */}
+      <div className="pixel-panel px-3 py-2 space-y-2">
+        {/* Tabs */}
+        <div className="flex items-center gap-2">
+          {(
+            [
+              // BACKTEST/LIVE are always reachable — backtests run on
+              // simulated funds (no wallet, no deposit), and an empty
+              // watchlist renders an add-traders empty state instead of a
+              // dead grey tab (which read as "needs a funded wallet").
+              // WALLET is no longer a main tab — it's the $ subtab under
+              // LIVE (SUBTABS above), next to the engine it funds. Neither is
+              // STRAT: it's the panel above these two, since a strat feeds
+              // both of them.
+              // Label is TEST, id stays BACKTEST — the id keys the accent
+              // maps, the localStorage subtab keys and every mode check.
+              { id: "BACKTEST", label: "TEST", disabled: false },
+              { id: "LIVE", label: "LIVE", disabled: false },
+            ] as { id: MainTab; label: string; disabled: boolean }[]
+          ).map((t) => {
+            const active = mode === t.id;
+            // Show a RUNNING chip on the LIVE tab while the engine is
+            // actively trading — so the user can tell at a glance there's
+            // a "task" firing in the background even from TEST.
+            const showRunning = t.id === "LIVE" && isLive;
+            const runningTone = engineState?.status === "paused"
+              ? "border-amber-400/60 text-amber-400 bg-amber-400/10"
+              : engineState?.status === "error"
+                ? "border-red-400/60 text-red-400 bg-red-400/10"
+                : "border-green-400/60 text-green-400 bg-green-400/10";
+            return (
+              <button
+                key={t.id}
+                onClick={() => setMode(t.id)}
+                disabled={t.disabled}
+                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.16em" }}
+                className={`relative text-[12.5px] font-bold px-4 py-2 rounded-[var(--radius-sm)] transition-all duration-150 uppercase flex items-center gap-2 ${
+                  active
+                    ? MAIN_ACTIVE[t.id]
+                    : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.04]"
+                } disabled:opacity-30 disabled:cursor-not-allowed`}
+              >
+                {t.label}
+                {showRunning && (
+                  <span
+                    className={`text-[9px] px-1.5 py-0.5 border tracking-[0.1em] rounded-full font-semibold ${runningTone}`}
+                    title={`Live engine ${engineState?.status ?? "running"}`}
+                  >
+                    {engineState?.status === "paused" ? "PAUSED" :
+                     engineState?.status === "error" ? "ERROR" : "RUNNING"}
+                  </span>
+                )}
+                <span
+                  className={`absolute left-3 right-3 -bottom-px h-[2px] rounded-full transition-all duration-200 ${
+                    active ? `${MAIN_BAR[t.id]} opacity-100` : "opacity-0"
+                  }`}
+                />
+              </button>
+            );
+          })}
+
+        </div>
+
+        {/* ── Subtab rail — contextual second row, re-animates on mode swap
+            (key={mode}). Pills carry the mode's accent; WALLET is always
+            amber. Right side echoes free cash + next-cycle countdown while
+            the engine runs, so no subtab ever hides the numbers that
+            matter minute-to-minute. */}
+        <div className="h-px -mx-1 bg-gradient-to-r from-transparent via-pixel-border/80 to-transparent" />
+        <div key={mode} className="subtab-rail flex items-center gap-1.5 flex-wrap">
+          {SUBTABS[mode].map((s) => {
+            const active = activeSub === s.id;
+            const accent = s.id === "wallet" ? WALLET_ACCENT : SUB_ACCENT[mode];
+            return (
+              <button
+                key={s.id}
+                onClick={() => pickSub(mode, s.id)}
+                title={s.title}
+                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.14em" }}
+                className={`group inline-flex items-center gap-1.5 px-3 py-1 text-[11px] font-bold uppercase rounded-full border transition-all duration-200 ${
+                  active
+                    ? accent
+                    : "border-pixel-border/50 text-pixel-gray hover:text-pixel-white hover:border-pixel-border hover:bg-pixel-white/[0.04]"
+                }`}
+              >
+                <span className={`font-mono normal-case tracking-normal text-[10px] transition-opacity ${active ? "opacity-90" : "opacity-50 group-hover:opacity-80"}`}>
+                  {s.glyph}
+                </span>
+                {s.label}
+              </button>
+            );
+          })}
+          {mode === "LIVE" && isLive && engineState && (
+            <span
+              className="ml-auto text-[12px] font-mono text-pixel-gray shrink-0"
+              title="Free cash · time to next poll cycle — full breakdown on the DESK"
+            >
+              <span className="text-pixel-white">
+                {engineState.balance !== null ? `$${engineState.balance.toFixed(2)}` : "$—"}
+              </span>
+              {" · "}
+              <span className="text-green-400">
+                {formatCountdown((engineState.nextCycleAt ?? 0) - railNow)}
+              </span>
+            </span>
+          )}
+        </div>
+
+      </div>
+
+      {/* ── LIVE → WALLET subtab ──
+          The MONEY panel (one flow for deposit / withdraw / send) is the
+          hero, full width at the top — LIVE's FUND NOW banner jumps here
+          via onFundNow. Session pairing, cross-chain bridging and the
+          legacy V1 Safe are secondary and sit in a grid below it.
+          Renders regardless of watchlist — you can fund before you copy. */}
+      {mode === "LIVE" && liveSub === "wallet" && (
+        <div className="space-y-2 max-w-[1100px]">
+          {/* ONE money panel: both balances, one amount, one button. */}
+          <div id="sidebar-wallet-panel">
+            <WalletPanel />
+          </div>
+          <div className="grid md:grid-cols-2 gap-2 items-start">
+            <div className="space-y-2 min-w-0">
+              {/* Full wallet + token + sign-in-QR pairing panel. */}
+              <WalletTokenPanel />
+            </div>
+            <div className="space-y-2 min-w-0">
+              {/* Bridge / send funds into Polygon USDC from any chain. */}
+              <WalletFundingPanel />
+              {/* Legacy V1 Safe — only renders once there's a leftover balance. */}
+              <PolymarketAccountPanel />
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* ── Add trader bar (TEST — the strat panel above has its own) ──
+          Hidden for origination strats: they copy nobody, so a permanent
+          "search traders to add" bar is an invitation to break the strat. */}
+      {mode === "BACKTEST" && !originates && (
         <div className="pixel-panel px-3 py-1.5">
           <div className="flex items-center gap-2">
             <div className="flex-1">
@@ -3038,12 +2964,13 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       {/* ── Active view ── */}
       {activeIndex && (
         <>
-          {/* Empty trader state — suppressed under STRAT → MARKET (and LIVE →
+          {/* Empty trader state — suppressed for ORIGINATION strats (they are
+              complete with zero traders), and under STRAT → MARKET (and LIVE →
               WALLET): the market is about OTHER people's strats, so a "no
               traders yet" nag under it is noise. */}
-          {watchlist.length === 0 &&
+          {watchlist.length === 0 && !originates &&
             !(mode === "LIVE" && liveSub === "wallet") &&
-            !(mode === "STRATS" && stratSub === "market") && (
+            !(stratOpen && stratSub === "market") && (
             // Real empty state, not a nag line: the panel is the CTA. The old
             // copy pointed at a breadcrumb ("ADD TRADERS FROM PARAMS →
             // TRADERS + PARAMS") that named the panel it was sitting under,
@@ -3067,7 +2994,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 backtest and live engine start following their fills.
               </div>
               <button
-                onClick={() => { setMode("STRATS"); pickSub("STRATS", "build"); setBrowseOpen(true); }}
+                onClick={() => { pickStratSub("build"); setBrowseOpen(true); }}
                 className="mt-1 rounded-[var(--radius)] px-4 py-2 text-[12px] font-bold tracking-[0.1em] transition-all hover:brightness-110 hover:-translate-y-px active:translate-y-0"
                 style={{
                   color: "#06130c",
@@ -3090,7 +3017,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               BACKTEST tab; LIVE has its own <LivePanel /> rendered
               elsewhere with real-time engine state. Splitting this out
               of the STRAT panel above keeps the param row scannable. */}
-          {watchlist.length > 0 && mode === "BACKTEST" && backtestSub === "results" && (() => {
+          {(watchlist.length > 0 || originates) && mode === "BACKTEST" && backtestSub === "results" && (() => {
             // Same panel the LIVE tab renders — see PerfPanel. Everything
             // mode-specific (RUN / DAYS / FUNDS, the momentum caveat, the
             // fee-drag warning) comes in as slots; the layout does not fork.
@@ -3252,11 +3179,18 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               notices={<>
                 {activeIndex?.momentum && (
                   <div className="text-[11px] font-mono tracking-[0.1em] px-2 py-1.5 border border-amber-400/50 text-amber-400/90 bg-amber-400/5">
-                    ⚠ MOMENTUM ORIGINATION IS NOT SIMULATED — this backtest replays
-                    only the copy-mirror side of the strat. Live, the engine also
-                    originates its own entries from rising prices, so live results
-                    will diverge from this curve. Judge momentum params in a DRY
-                    RUN live session instead.
+                    {watchlist.length === 0 ? (
+                      <>⚠ ORIGINATION-ONLY STRAT — it copies nobody, so there is no
+                      mirror flow to replay and this curve stays flat. That is
+                      expected, not a broken test: judge these params in a DRY RUN
+                      live session, where the engine trades the price tape itself.</>
+                    ) : (
+                      <>⚠ MOMENTUM ORIGINATION IS NOT SIMULATED — this backtest replays
+                      only the copy-mirror side of the strat. Live, the engine also
+                      originates its own entries from rising prices, so live results
+                      will diverge from this curve. Judge momentum params in a DRY
+                      RUN live session instead.</>
+                    )}
                   </div>
                 )}
                 {costWarning && !loading && (
@@ -3292,13 +3226,20 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 gross: grossPnl,
                 skipped,
                 skippedTitle: `Trades the simulated wallet could NOT place: below the $${minTrade} MIN size, more than the remaining cash, or selling a position it never opened. Raise CAPITAL or lower MIN to execute more — SHOW ALL in the feed previews them.`,
+                settled: {
+                  resolved: backtestSim.settlement.resolved,
+                  marked: backtestSim.settlement.marked,
+                  markedUsd: backtestSim.settlement.markedUsd,
+                },
               }}
               caption={`${backtestDays}D SIMULATED EQUITY`}
               history={backtestSim.equityHistory}
               markers={backtestSim.markers}
               highlightT={chartHighlightT}
               onHoverMarker={handleChartHover}
-              emptyHint="NOT ENOUGH TRADE DATA FOR THE EQUITY CURVE — ADD TRADERS OR WIDEN THE WINDOW."
+              emptyHint={originates && watchlist.length === 0
+                ? "NOTHING TO REPLAY — THIS STRAT ORIGINATES ITS OWN ENTRIES LIVE. RUN IT IN A DRY-RUN LIVE SESSION TO SEE A CURVE."
+                : "NOT ENOUGH TRADE DATA FOR THE EQUITY CURVE — ADD TRADERS OR WIDEN THE WINDOW."}
               positions={backtestSim.open}
               positionsNote="simulated holds · worst first"
             />
@@ -3576,7 +3517,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
 
           {/* ── Live Panel — controlled by the header's subtab rail; the
               WALLET subtab renders its own panels above instead. ── */}
-          {mode === "LIVE" && liveSub !== "wallet" && watchlist.length > 0 && (
+          {mode === "LIVE" && liveSub !== "wallet" && (watchlist.length > 0 || originates) && (
             <LivePanel
               tab={liveSub}
               onTabChange={(t) => pickSub("LIVE", t)}

@@ -30,12 +30,13 @@ import { SavedIndex } from "./types";
 import { DEFAULT_STRATS } from "./defaultStrats";
 import {
   HUB_BACKTEST_DAYS, HUB_WINDOWS, TTL_MS, templateBacktestKey, signature,
-  backtestOne, backtestTemplate, type HubBacktest, type TraderFeed,
+  backtestOne, backtestTemplate, forwardVerdict,
+  type ForwardCheck, type ForwardVerdict, type HubBacktest, type TraderFeed,
 } from "./hubReplay";
 import { fetchWorkerBacktests, publishHubManifest, type WorkerStatus } from "./hubCache";
 
-export { HUB_BACKTEST_DAYS, HUB_WINDOWS, templateBacktestKey };
-export type { HubBacktest };
+export { HUB_BACKTEST_DAYS, HUB_WINDOWS, templateBacktestKey, forwardVerdict };
+export type { HubBacktest, ForwardCheck, ForwardVerdict };
 
 const SNAPSHOT_KEY = "poly_hub_backtest_v1";
 

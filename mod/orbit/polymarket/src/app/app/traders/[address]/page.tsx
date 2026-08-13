@@ -9,6 +9,7 @@ import { PolymarketTrade, PolymarketPosition, TradeFilters } from "../../lib/typ
 import TraderProfile from "../../components/TraderProfile";
 import TopBar from "../../components/TopBar";
 import { useFilters, useUrlSync } from "../../context/FiltersContext";
+import { useStratManager } from "../../lib/stratManager";
 
 interface FetchProgress {
   pages: number;
@@ -35,6 +36,8 @@ function TraderPageInner() {
   const params = useParams();
   const router = useRouter();
   const { daysAgo, setSearch, category, setCategory, reloadKey } = useFilters();
+  // ⑂ IDENTITY — one click from a trader's page to a strat that copies them.
+  const { createIdentity } = useStratManager();
   const globalDays = Math.min(
     Number(daysAgo) > 0 ? Number(daysAgo) : 7,
     MAX_LOOKBACK_DAYS,
@@ -291,6 +294,10 @@ function TraderPageInner() {
           onClearStratFilters={() => {
             setStratFilters(null);
             setStratFilterName("");
+          }}
+          onCopyIdentity={() => {
+            const idx = createIdentity(address);
+            router.push(`/strats?id=${idx.id}`);
           }}
         />
       </div>

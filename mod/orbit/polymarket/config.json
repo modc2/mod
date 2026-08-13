@@ -92,10 +92,10 @@
         },
         "/polymarket/api/hub": {
             "method": "GET|POST|PUT",
-            "docs": "Background backtest worker (served by the Next app, owner-gated): GET ?days=N returns the cached per-strat backtests + funnels and the worker's schedule; POST {days,strats} publishes the roster to keep warm (POST ?run=1 queues a pass); PUT runs a pass synchronously"
+            "docs": "Background backtest worker (served by the Next app, owner-gated): GET ?days=N returns the cached per-strat backtests + funnels + the walk-forward verdict (each strat replayed over the PREVIOUS window too, then judged held/faded/recovered/no-edge/stalled/untested/idle) and the worker's schedule; POST {days,strats} publishes the roster to keep warm (POST ?run=1 queues a pass); PUT runs a pass synchronously"
         }
     },
-    "schema": "QmRLHMGctwQuS4RpPBWU6znAWVm8F7sbLnZ6g4GGMxWxKg",
+    "schema": "QmamiN4g39A4vEky54CXUvWbq566eTyBUEgV2268XQHK43",
     "gateway_port": 3091,
     "mcp": {
         "stdio": "python3 src/mcp.py",

@@ -22,6 +22,7 @@ import {
 } from "./strats/strat";
 import type { TraderTrade as StratTraderTrade, StratHistory, SizingModel } from "./strats/strat";
 import { marketMatchesQuery } from "./marketQuery";
+import { legKey, legOutcome } from "./leg";
 import { computeFifoTrades, aggregateToRebalanceWindows } from "./pnlEngine";
 // Type-only: the sim reports its wallet in the same row shapes the LIVE panel
 // renders, so one component draws both (never fork the markup).
@@ -112,6 +113,7 @@ function tally(f: EntryFunnel, reason: string, n = 1): void {
     vocabulary the funnel + the LIVE gate warning share. */
 function gateLabel(reason: string): string {
   if (reason.startsWith("TOO_SOON")) return "time-to-close";
+  if (reason.startsWith("STALE")) return "stale";
   if (reason.startsWith("FILTER")) return "trader FILTER";
   if (reason.startsWith("trade filter")) return "trade filters";
   if (reason.startsWith("market ")) return "keyword filter";
@@ -142,6 +144,44 @@ export interface BacktestSim {
   unrealized: number;  // open sim positions marked vs avg entry
   costBasis: number;   // basis behind `unrealized`
   open: PerfPosition[];
+  /** How much of the replay's exit value is FACT vs guess — see `Settlement`. */
+  settlement: Settlement;
+}
+
+/** Where the money the replay says it ended with actually came from.
+ *
+ *  A copy-trading replay only sees the leaders' fills, so a position the sim
+ *  still holds when its market goes quiet has to be valued somehow. Two very
+ *  different things can happen there:
+ *
+ *    RESOLVED  the market settled and we looked the answer up — the leg was
+ *              worth exactly $1 or exactly $0. Fact.
+ *    MARKED    nobody we follow has traded it since, and it isn't in anyone's
+ *              open positions, so the sim falls back to the last price it
+ *              observed. Guess — and a biased one: leaders trade winners on
+ *              the way up and simply let losers expire, so the last price a
+ *              loser printed is its ENTRY price and the loss never books.
+ *
+ *  The counts ride along with the result so a card can say how much of its
+ *  P&L it actually knows. A replay that is mostly MARKED is a hypothesis. */
+export interface Settlement {
+  /** Legs closed at a looked-up resolution, and their $ value. */
+  resolved: number;
+  resolvedUsd: number;
+  /** Legs closed at the last observed price, and their $ value. */
+  marked: number;
+  markedUsd: number;
+}
+
+export function emptySettlement(): Settlement {
+  return { resolved: 0, resolvedUsd: 0, marked: 0, markedUsd: 0 };
+}
+
+/** Share of settled value that came from a real resolution (0–1). 1 = every
+    exit is fact; 0 = the whole tail is the last-observed-price guess. */
+export function settlementConfidence(s: Settlement): number {
+  const total = s.resolvedUsd + s.markedUsd;
+  return total > 0 ? s.resolvedUsd / total : 1;
 }
 
 export interface BacktestInput {
@@ -179,11 +219,34 @@ export interface BacktestInput {
   showAllTrades?: boolean;
   /** True while trader data is still loading — the sim returns empty. */
   loading?: boolean;
+  /** Leg key (see lib/leg.ts) → the price that leg RESOLVED at, 1 or 0.
+      Ground truth for every position the replay still holds when its market
+      dies: without it the sim settles at the last price a leader printed,
+      which books winners and quietly forgives losers (a leg that expired
+      worthless is carried at the entry price forever). The background worker
+      supplies this from its resolution store; anything missing falls back to
+      the last observed mark and is counted as such in `Settlement`. */
+  resolved?: Map<string, number>;
   /** Sizing model + flow turnover — the preview must divide by the same
       denominator the live engine will (`copyRatioFor`). Undefined ⇒ the
       bankroll model, exactly as before. */
   sizing?: SizingModel;
   turnover?: number;
+  /** When the window ENDS (ms epoch). Defaults to now, which is every replay
+      the console shows you. Set it back and the engine replays a window that
+      already closed: the window is [asOf − days, asOf], and NOTHING a leader
+      did after `asOf` reaches the sim — not the flow it copies, not the stats
+      it scores with, not the history its hooks see.
+   *
+   *  That is what makes a walk-forward check possible (lib/hubReplay.ts): run
+   *  the day BEFORE last with no knowledge of the day after it, then ask
+   *  whether the strat that looked good then actually made money since.
+   *
+   *  One thing deliberately does come from today: how the markets RESOLVED
+   *  (`resolved`, plus leaders' current marks). Those value the past window's
+   *  inventory, they don't inform its decisions — which is exactly what you
+   *  want from a walk-forward: yesterday's choices, scored by what happened. */
+  asOf?: number;
 }
 
 export interface BacktestResult {
@@ -199,6 +262,13 @@ function sumWeights(watchlist: string[], traderWeights: Record<string, number>):
   return watchlist.reduce((s, a) => s + (traderWeights[a] || 0), 0);
 }
 
+/** The instant the replay treats as "now". Every window bound, every stats
+    cutoff and every as-of filter in this file derives from this one call, so a
+    historical replay can't half-honor its own clock. */
+function windowEnd(input: Pick<BacktestInput, "asOf">): number {
+  return input.asOf && input.asOf > 0 ? input.asOf : Date.now();
+}
+
 // ── Per-trader 30d ROI stats (drives top-N sampling) ──
 // Computed from the same trade cache the backtest already loaded — no extra
 // fetches. The shape MUST match what the live engine builds in
@@ -209,12 +279,17 @@ export function computeTraderStats(
   traderTrades: Map<string, PolymarketTrade[]>,
   traderPositions: Map<string, PolymarketPosition[]>,
   marketQuery: string,
+  /** Treat this instant as "now" — the 30d stats window ends here and nothing
+      after it is visible. A walk-forward replay MUST pass its own window end,
+      or it would score the past with a track record that includes the days it
+      is trying to predict. */
+  asOf: number = Date.now(),
 ): Map<string, TraderRoiStats> {
   const out = new Map<string, TraderRoiStats>();
-  const sharpeCutoffMs = Date.now() - 30 * 86400_000;
+  const sharpeCutoffMs = asOf - 30 * 86400_000;
   for (const addr of watchlist) {
     const trades = (traderTrades.get(addr) || [])
-      .filter((t) => marketMatchesQuery(t.market, marketQuery));
+      .filter((t) => t.timestamp <= asOf && marketMatchesQuery(t.market, marketQuery));
     const positions = traderPositions.get(addr) || [];
     const annotated = computeFifoTrades(trades, positions, sharpeCutoffMs);
     const inWin = annotated.filter((t) => t.timestamp >= sharpeCutoffMs);
@@ -232,7 +307,7 @@ export function computeTraderStats(
       windowDays: 30,
       ...statsFromReturns(returns),
       cashDeployed,
-      syncedAt: Date.now(),
+      syncedAt: asOf,
     });
   }
   return out;
@@ -253,11 +328,13 @@ export function computeCopyRatios(input: BacktestInput): Map<string, number> {
   const { watchlist, traderTrades, traderWeights, traderBankrolls, days, capital, marketQuery } = input;
   const totalWeight = sumWeights(watchlist, traderWeights);
   const out = new Map<string, number>();
-  const cutoff = Date.now() - days * 86400_000;
+  const end = windowEnd(input);
+  const cutoff = end - days * 86400_000;
   for (const addr of watchlist) {
     let buyVol = 0, sellVol = 0;
     for (const t of traderTrades.get(addr) || []) {
-      if (t.timestamp < cutoff || !marketMatchesQuery(t.market, marketQuery)) continue;
+      if (t.timestamp < cutoff || t.timestamp > end) continue;
+      if (!marketMatchesQuery(t.market, marketQuery)) continue;
       const v = t.price * t.size;
       if (t.side === "BUY") buyVol += v; else sellVol += v;
     }
@@ -286,7 +363,8 @@ export function buildStratHistory(
 ): StratHistory {
   const { watchlist, traderTrades, traderWeights, days, capital } = input;
   const totalW = sumWeights(watchlist, traderWeights) || 1;
-  const windowCutoffMs = Date.now() - days * 86400_000;
+  const end = windowEnd(input);
+  const windowCutoffMs = end - days * 86400_000;
   const trades: StratTraderTrade[] = [];
   const stats: Record<string, TraderRoiStats> = {};
   for (const addr of watchlist) {
@@ -294,7 +372,7 @@ export function buildStratHistory(
     const st = traderStats.get(addr);
     if (st) stats[addr.toLowerCase()] = st;
     for (const t of traderTrades.get(addr) || []) {
-      if (t.timestamp < windowCutoffMs) continue;
+      if (t.timestamp < windowCutoffMs || t.timestamp > end) continue;
       trades.push({
         ...t, trader: addr, weight, weightFraction: weight / totalW,
         copyRatio: copyRatio.get(addr) ?? 0, notional: t.price * t.size,
@@ -310,7 +388,10 @@ export function buildStratHistory(
     capital,
     watchlist: watchlist.map((a) => ({ address: a, weight: traderWeights[a] || 0 })),
     cycle: 0,
-    now: Date.now(),
+    // History-aware hooks (the staleness gate, time-to-close) price everything
+    // against this — a historical replay whose `now` is the wall clock would
+    // call every trade in its window hours stale.
+    now: end,
   };
 }
 
@@ -332,7 +413,8 @@ export function computeKeptBuyIds(
   // minIntervalMs floor — so a 5s UI setting still buckets at the 1-min clamp
   // live enforces.
   const cycleBucketMs = Math.max(60_000, Math.round((pollMinutes || 1) * 60_000));
-  const windowCutoffMs = Date.now() - days * 86400_000;
+  const end = windowEnd(input);
+  const windowCutoffMs = end - days * 86400_000;
   const totalW = sumWeights(watchlist, traderWeights) || 1;
 
   type Cand = { id: string; ts: number; score: number };
@@ -343,7 +425,7 @@ export function computeKeptBuyIds(
     const weight = traderWeights[addr] || 0;
     const weightFraction = weight / totalW;
     for (const t of trades) {
-      if (t.timestamp < windowCutoffMs) continue;
+      if (t.timestamp < windowCutoffMs || t.timestamp > end) continue;
       if (t.side !== "BUY") continue;
       const stratTrade: StratTraderTrade = {
         ...t, trader: addr, weight, weightFraction,
@@ -407,19 +489,25 @@ export function runBacktestSim(
     watchlist, traderTrades, traderPositions, traderWeights, strat, days, capital,
     minTrade, maxTrade, maxOpenPositions, stopLossPct, takeProfitFrac, marketQuery,
     rebalancePeriod = 0, rebalanceHour = 0, samplePct = 100, showAllTrades = false, loading = false,
+    resolved = new Map<string, number>(),
   } = input;
 
   const empty: BacktestSim = {
     rows: [], equityHistory: [], markers: [],
     skipped: 0, funnel, netPnl: 0, grossPnl: 0, fees: 0, gas: 0, volume: 0,
     cash: capital, posValue: 0, unrealized: 0, costBasis: 0, open: [],
+    settlement: emptySettlement(),
   };
   if (watchlist.length === 0 || loading) return empty;
-  const cutoffMs = Date.now() - days * 86400_000;
+  const endMs = windowEnd(input);
+  const cutoffMs = endMs - days * 86400_000;
 
   // Build from raw trades directly (not curve points) to use conditionId for filtering
   type RawEntry = {
     ts: number; market: string; conditionId: string; trader: string;
+    /** The OUTCOME TOKEN this fill is in (lib/leg.ts) — the sim's book key.
+        `conditionId` above stays the market, for display and filters. */
+    leg: string;
     side: "BUY" | "SELL"; size: number; price: number; realized: number;
     /** Full strat-shaped trade — sizing goes through the SAME
         sizeAndPrice hook the live engine calls, for both sides. */
@@ -442,7 +530,7 @@ export function runBacktestSim(
     // Strict-in-window FIFO: a copy-trader starting at cutoffMs has no
     // pre-window inventory, so SELLs that would consume pre-window basis
     // shouldn't appear in the feed (they're not actually replicable).
-    const inWindowAll = replayTrades.filter((t) => t.timestamp >= cutoffMs);
+    const inWindowAll = replayTrades.filter((t) => t.timestamp >= cutoffMs && t.timestamp <= endMs);
     // Apply SAMPLE % so the feed matches the chart's sampled trade set.
     const inWindowSampled = samplePct >= 100
       ? inWindowAll
@@ -482,6 +570,7 @@ export function runBacktestSim(
       }
       allEntries.push({
         ts: t.timestamp, market: t.market, conditionId: t.conditionId || t.market,
+        leg: legKey(t.conditionId || t.market, t.outcome),
         trader: addr, side: t.side, size: t.size, price: t.price,
         realized: t.realized, stratTrade,
         score,
@@ -493,18 +582,19 @@ export function runBacktestSim(
 
   allEntries.sort((a, b) => a.ts - b.ts);
 
-  // Last time ANY leader trade touched each market — sorted ascending, so
+  // Last time ANY leader trade touched each leg — sorted ascending, so
   // the final write per key is its max. Drives the settlement pass below.
   const lastSeen = new Map<string, number>();
-  for (const e of allEntries) lastSeen.set(e.conditionId, e.ts);
+  for (const e of allEntries) lastSeen.set(e.leg, e.ts);
 
   // Current market prices for the final mark-to-market point — same source
   // the live portfolio uses (position currentPrice), falling back to the
-  // last traded price the replay observed.
+  // last traded price the replay observed. Keyed by leg: a leader's open No
+  // position prices the No token, and says nothing about the Yes token.
   const curPx = new Map<string, number>();
   for (const addr of watchlist) {
     for (const p of traderPositions.get(addr) || []) {
-      const key = p.conditionId || p.market;
+      const key = legKey(p.conditionId || p.market, p.outcome);
       if (key && p.currentPrice > 0) curPx.set(key, p.currentPrice);
     }
   }
@@ -525,7 +615,15 @@ export function runBacktestSim(
   // sold to fund it.
   const REBALANCE_MARGIN = 1 + REBALANCE_MARGIN_PCT;
   let cash = capital;
-  const book = new Map<string, { shares: number; avgPx: number; entryScore: number; market: string }>();
+  // Keyed by LEG (lib/leg.ts), like the live engine's `positions` map is keyed
+  // by token_id — Yes and No in the same market are two positions, marked
+  // independently, closed independently.
+  const book = new Map<string, {
+    shares: number; avgPx: number; entryScore: number;
+    /** Display title + the MARKET id, so a row built from a book entry still
+        quotes the conditionId the console links against (never the leg key). */
+    market: string; conditionId: string;
+  }>();
   const lastPx = new Map<string, number>();
   const rows: LinkedTrade[] = [];
   const equityHistory: EquitySnapshot[] = [];
@@ -534,10 +632,15 @@ export function runBacktestSim(
   let fees = 0;
   let volume = 0;
 
+  // A resolved leg is worth its resolution and nothing else — that beats any
+  // mark, including the stale currentPrice data-api keeps serving for
+  // redeemable positions.
+  const markOf = (k: string, marks: Map<string, number>, avgPx = 0) =>
+    resolved.get(k) ?? marks.get(k) ?? lastPx.get(k) ?? avgPx;
   const posValue = (marks: Map<string, number>) => {
     let v = 0;
     for (const [k, b] of book) {
-      if (b.shares > 1e-9) v += b.shares * (marks.get(k) ?? lastPx.get(k) ?? b.avgPx);
+      if (b.shares > 1e-9) v += b.shares * markOf(k, marks, b.avgPx);
     }
     return v;
   };
@@ -583,19 +686,43 @@ export function runBacktestSim(
   // so the replay keeps trading like a live deployment. Gas is charged like
   // any redeem; no taker fee (redeems aren't CLOB fills). Rendered as the
   // same amber REDEEM markers the LIVE chart uses — not as feed rows.
+  //
+  // WHERE THE PRICE COMES FROM decides whether the number means anything.
+  // `resolved` (the worker's resolution store) says what the leg was actually
+  // worth: $1 or $0. Only when that lookup misses does the sim fall back to
+  // the last observed price, and every such fallback is counted in
+  // `settlement` so the caller can say how much of the P&L is a guess. A
+  // resolved leg settles as soon as its feed goes quiet — no waiting for a
+  // live price that will never come, because the token no longer trades.
   const STALE_SETTLE_MS = 30 * 60_000;
   let settles = 0;
+  const settlement = emptySettlement();
   const settleDead = (now: number) => {
     for (const [k, b] of [...book]) {
       if (b.shares <= 1e-9) { book.delete(k); continue; }
-      if (curPx.has(k)) continue; // market is alive today — keep marking
+      const truth = resolved.get(k);
+      // A live current price only keeps a leg alive if it did NOT resolve —
+      // data-api serves a stale currentPrice for redeemable positions.
+      if (truth === undefined && curPx.has(k)) continue;
       if (now - (lastSeen.get(k) ?? 0) < STALE_SETTLE_MS) continue;
-      const px = lastPx.get(k) ?? b.avgPx;
+      const px = truth ?? lastPx.get(k) ?? b.avgPx;
       const proceeds = b.shares * px;
+      if (truth === undefined) {
+        settlement.marked++;
+        settlement.markedUsd += proceeds;
+      } else {
+        settlement.resolved++;
+        settlement.resolvedUsd += proceeds;
+      }
       cash += proceeds - GAS_PER_TRADE_USD;
       settles++;
       book.delete(k);
-      markers.push({ t: now, side: "REDEEM", label: `SETTLE · ${b.market}`, usd: proceeds });
+      markers.push({
+        t: now,
+        side: "REDEEM",
+        label: `${truth === undefined ? "SETTLE" : truth > 0 ? "REDEEM WIN" : "EXPIRED WORTHLESS"} · ${b.market}`,
+        usd: proceeds,
+      });
       equityHistory.push({ t: now, liq: cash, pos: posValue(lastPx) });
       lastSnapT = now;
     }
@@ -603,7 +730,7 @@ export function runBacktestSim(
 
   for (const t of allEntries) {
     settleDead(t.ts);
-    const key = t.conditionId;
+    const key = t.leg;
     const prevEquity = cash + posValue(lastPx);
     // Observed price is real market information whether or not we trade on
     // it — the mark moves either way (that's what MTM means).
@@ -636,7 +763,7 @@ export function runBacktestSim(
         rows.push({
           ts: t.ts,
           market: topped.market,
-          conditionId: key,
+          conditionId: t.conditionId,
           trader: t.trader,
           side: "SELL",
           amount: proceeds,
@@ -670,7 +797,7 @@ export function runBacktestSim(
         rows.push({
           ts: t.ts,
           market: stopped.market,
-          conditionId: key,
+          conditionId: t.conditionId,
           trader: t.trader,
           side: "SELL",
           amount: proceeds,
@@ -747,7 +874,7 @@ export function runBacktestSim(
           .sort((a, b) => a[1].entryScore - b[1].entryScore);
         for (const [k, b] of sellable) {
           if (cost <= cash) break;
-          const mark = lastPx.get(k) ?? b.avgPx;
+          const mark = markOf(k, lastPx, b.avgPx);
           const proceeds = b.shares * mark;
           const sellFee = b.shares * Math.min(mark, 1 - mark) * (TAKER_FEE_BPS / 10_000);
           cash += proceeds - sellFee - GAS_PER_TRADE_USD;
@@ -759,7 +886,7 @@ export function runBacktestSim(
           rows.push({
             ts: t.ts,
             market: b.market,
-            conditionId: k,
+            conditionId: b.conditionId,
             trader: t.trader,
             side: "SELL",
             amount: proceeds,
@@ -781,7 +908,8 @@ export function runBacktestSim(
         }
       }
       cash -= cost;
-      const b = book.get(key) ?? { shares: 0, avgPx: 0, entryScore: 0, market: t.market };
+      const b = book.get(key)
+        ?? { shares: 0, avgPx: 0, entryScore: 0, market: t.market, conditionId: t.conditionId };
       const newShares = b.shares + shares;
       b.avgPx = newShares > 0 ? (b.avgPx * b.shares + t.price * shares) / newShares : 0;
       b.shares = newShares;
@@ -813,7 +941,7 @@ export function runBacktestSim(
     rows.push({
       ts: t.ts,
       market: t.market,
-      conditionId: key,
+      conditionId: t.conditionId,
       trader: t.trader,
       side: t.side,
       amount,
@@ -839,14 +967,14 @@ export function runBacktestSim(
   }
 
   // Final settlement sweep — anything still held in a dead market settles
-  // before the NOW mark, so resolved inventory shows as cash (what a live
-  // deployment would actually be holding today), not as phantom positions.
-  settleDead(Date.now());
+  // before the closing mark, so resolved inventory shows as cash (what a live
+  // deployment would actually be holding), not as phantom positions.
+  settleDead(endMs);
 
-  // Final NOW point — open inventory re-marked at current market prices so
-  // the curve ends where a live deployment's portfolio would sit today.
+  // Final point — open inventory re-marked at current market prices so the
+  // curve ends where a live deployment's portfolio would sit at `endMs`.
   const nowPos = posValue(curPx);
-  equityHistory.push({ t: Date.now(), liq: cash, pos: nowPos });
+  equityHistory.push({ t: endMs, liq: cash, pos: nowPos });
 
   const gas = (rows.length + settles) * GAS_PER_TRADE_USD;
   const netPnl = round2(cash + nowPos - capital);
@@ -858,7 +986,7 @@ export function runBacktestSim(
   let costBasis = 0;
   for (const [k, b] of book) {
     if (b.shares <= 1e-9) continue;
-    const mark = curPx.get(k) ?? lastPx.get(k) ?? b.avgPx;
+    const mark = markOf(k, curPx, b.avgPx);
     const basis = b.avgPx * b.shares;
     const pnlUsd = round2(b.shares * (mark - b.avgPx));
     unrealized += pnlUsd;
@@ -866,9 +994,9 @@ export function runBacktestSim(
     open.push({
       key: k,
       market: b.market,
-      // The sim books by conditionId, not by outcome leg — every mirrored
-      // fill follows the leader's side, so the held leg is theirs.
-      outcome: "COPY",
+      // The leg actually held — the sim books by outcome token, like live.
+      // Rows from feeds without an `outcome` field keep the old label.
+      outcome: legOutcome(k).toUpperCase() || "COPY",
       size: b.shares,
       avgPrice: b.avgPx,
       curPrice: mark,
@@ -899,6 +1027,12 @@ export function runBacktestSim(
     unrealized: round2(unrealized),
     costBasis: round2(costBasis),
     open,
+    settlement: {
+      resolved: settlement.resolved,
+      resolvedUsd: round2(settlement.resolvedUsd),
+      marked: settlement.marked,
+      markedUsd: round2(settlement.markedUsd),
+    },
   };
 }
 
@@ -907,6 +1041,7 @@ export function runBacktestSim(
 export function runBacktest(input: BacktestInput): BacktestResult {
   const traderStats = computeTraderStats(
     input.watchlist, input.traderTrades, input.traderPositions, input.marketQuery,
+    windowEnd(input),
   );
   const copyRatio = computeCopyRatios(input);
   const history = buildStratHistory(input, traderStats, copyRatio);
@@ -927,6 +1062,10 @@ export function stratFromIndex(idx: SavedIndex): Strat {
     tradeFilters: idx.tradeFilters ?? {},
     filter: idx.filter ?? undefined,
     minMinutesToClose: idx.minMinutesToClose ?? DEFAULT_MIN_MINUTES_TO_CLOSE,
+    // Staleness gate + the poll cadence it models discovery lag against. The
+    // engine's default is OFF, so only send what the strat actually set.
+    ...(idx.maxTradeAgeSec !== undefined && { maxTradeAgeSec: idx.maxTradeAgeSec }),
+    pollIntervalMs: Math.round(stratBacktestParams(idx).pollMinutes * 60_000),
     ...(idx.maxUpscale !== undefined && { maxUpscale: idx.maxUpscale }),
     ...(idx.sizing !== undefined && { sizing: idx.sizing }),
     ...(idx.turnover !== undefined && { turnover: idx.turnover }),

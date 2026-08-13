@@ -1,4 +1,5 @@
 import { PolymarketTrade, PolymarketPosition } from "./types";
+import { legKey } from "./leg";
 import { CurvePoint } from "../components/PnlChart";
 
 export interface AnnotatedTrade extends PolymarketTrade {
@@ -40,6 +41,7 @@ export function aggregateToRebalanceWindows(
     bucketStart: number;
     market: string;
     conditionId: string;
+    outcome?: string;
     buyShares: number;
     buyValue: number;
     sellShares: number;
@@ -51,13 +53,16 @@ export function aggregateToRebalanceWindows(
     const anchor = anchorMs(t.timestamp);
     const idx = Math.floor((t.timestamp - anchor) / periodMs);
     const bucketStart = anchor + idx * periodMs;
-    const key = `${t.conditionId || t.market}:${bucketStart}`;
+    // One bucket per OUTCOME TOKEN — netting a Yes buy against a No sell
+    // would erase both legs of a hedge that really was two open positions.
+    const key = `${legKey(t.conditionId || t.market, t.outcome)}:${bucketStart}`;
     let b = buckets.get(key);
     if (!b) {
       b = {
         bucketStart,
         market: t.market,
         conditionId: t.conditionId,
+        outcome: t.outcome,
         buyShares: 0, buyValue: 0,
         sellShares: 0, sellValue: 0,
       };
@@ -79,9 +84,10 @@ export function aggregateToRebalanceWindows(
     const executeAt = b.bucketStart + periodMs;
     const isBuy = net > 0;
     out.push({
-      id: `rebal:${b.conditionId || b.market}:${b.bucketStart}`,
+      id: `rebal:${legKey(b.conditionId || b.market, b.outcome)}:${b.bucketStart}`,
       market: b.market,
       conditionId: b.conditionId,
+      outcome: b.outcome,
       side: isBuy ? "BUY" : "SELL",
       size: Math.abs(net),
       price: isBuy
@@ -108,16 +114,18 @@ export function computeFifoTrades(
   const seedAvgPrice = new Map<string, number>();
   if (!cutoffMs) {
     for (const p of positions) {
-      const key = p.conditionId || p.market;
+      const key = legKey(p.conditionId || p.market, p.outcome);
       if (key && p.avgPrice > 0) seedAvgPrice.set(key, p.avgPrice);
     }
   }
   const sorted = [...trades].sort((a, b) => a.timestamp - b.timestamp);
   type BuyLot = { price: number; size: number; ts: number };
+  // Lots are per OUTCOME TOKEN, not per market — a No exit must not consume
+  // Yes lots (see lib/leg.ts).
   const book = new Map<string, BuyLot[]>();
 
   return sorted.map((t) => {
-    const key = t.conditionId || t.market;
+    const key = legKey(t.conditionId || t.market, t.outcome);
     if (!book.has(key)) book.set(key, []);
     const lots = book.get(key)!;
 
@@ -177,7 +185,7 @@ export function buildPnlCurve(
 
   const curByKey = new Map<string, number>();
   for (const p of positions) {
-    const key = p.conditionId || p.market;
+    const key = legKey(p.conditionId || p.market, p.outcome);
     if (key && p.currentPrice > 0) curByKey.set(key, p.currentPrice);
   }
 
@@ -194,7 +202,7 @@ export function buildPnlCurve(
     });
 
   const points: CurvePoint[] = sorted.map((t, i) => {
-    const key = t.conditionId || t.market;
+    const key = legKey(t.conditionId || t.market, t.outcome);
     if (t.side === "BUY") {
       cash -= t.price * t.size;
       inv.set(key, (inv.get(key) || 0) + t.size);

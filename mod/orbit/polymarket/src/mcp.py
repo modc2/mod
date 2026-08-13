@@ -49,7 +49,10 @@ INSTRUCTIONS = (
     'deployment runs and pm_backtests for their cached 1-day backtests — read '
     "the `funnel` on each: it says how many of the leader's entries the strat "
     'actually copied and which gate blocked the rest, which is the answer to '
-    'almost every "why is it not trading?" question. pm_live_sessions and '
+    'almost every "why is it not trading?" question, and the `settlement`, '
+    'which says how much of that P&L was settled against real market '
+    'resolutions vs still marked at the last observed price (unverified marks '
+    'read high — losers expire quietly). pm_live_sessions and '
     'pm_live_gates show what the engine is doing right now. Read-only: no tool '
     'here can place, cancel or size an order.'
 )
@@ -220,32 +223,83 @@ def _t_strats(args):
     }
 
 
+def _read_manifest():
+    try:
+        return json.load(open(os.path.join(_state_dir(), 'hub', 'manifest.json')))
+    except Exception:
+        return {}
+
+
 def _t_backtests(args):
     days = int(args.get('days') or 1)
     cache = _get(_hub(f'?days={days}'), timeout=30)
     results = cache.get('results') or {}
     name = str(args.get('strat') or '').strip().lower()
+    # Strat ids are opaque (`mrjg86gf`); the manifest is what turns them back
+    # into the names on the cards, and into the roll-call below.
+    owned = {s.get('id'): (s.get('name') or s.get('id'))
+             for s in (_read_manifest().get('strats') or []) if s.get('id')}
     rows = []
     for key, bt in results.items():
-        if name and name not in key.lower():
+        if name and name not in key.lower() and name not in owned.get(key, '').lower():
             continue
         f = bt.get('funnel') or {}
+        s = bt.get('settlement') or {}
         rows.append({
-            'key': key, 'pnl': bt.get('pnl'), 'roi': bt.get('roi'),
+            'key': key, 'name': owned.get(key), 'pnl': bt.get('pnl'), 'roi': bt.get('roi'),
             'trades': bt.get('trades'), 'capital': bt.get('capital'),
             'traders': bt.get('traders'), 'note': bt.get('note'),
             'ran_at': bt.get('at'), 'by': bt.get('by'),
+            # How the replay valued what it was still holding when the leaders
+            # went quiet. `unverified_usd` was priced at the last observed
+            # trade, which reads HIGH: leaders trade winners and let losers
+            # expire, so an unresolved mark is usually a loss not yet booked.
+            # A pnl with a large unverified_usd is provisional.
+            'settlement': {
+                'resolved_positions': s.get('resolved'),
+                'unverified_positions': s.get('marked'),
+                'unverified_usd': s.get('markedUsd'),
+            } if s else None,
+            # Traders whose history wasn't cached yet when this replayed. Any
+            # non-zero value means the pnl above is a FLOOR, not the result.
+            'warming': bt.get('warming'),
+            # WALK-FORWARD. The same strat replayed over the window BEFORE this
+            # one, with the clock wound back so it knew nothing of what came
+            # after — and the verdict of the two side by side. `held` is the
+            # only pass: profitable then AND profitable since. Anything ranked
+            # by `pnl` alone is ranked by one window, which is how a strat that
+            # had one good day ends up at the top of the list.
+            'forward': {
+                'verdict': (bt.get('forward') or {}).get('verdict'),
+                'confirmed': (bt.get('forward') or {}).get('ok'),
+                'prior_pnl': (bt.get('forward') or {}).get('pnl'),
+                'prior_roi': (bt.get('forward') or {}).get('roi'),
+                'prior_trades': (bt.get('forward') or {}).get('trades'),
+                'prior_window': [(bt.get('forward') or {}).get('from'),
+                                 (bt.get('forward') or {}).get('to')],
+            } if bt.get('forward') else None,
             'funnel': {'observed': f.get('observed'), 'copied': f.get('executed'),
                        'blocked_by_filters': f.get('gated'), 'outranked': f.get('outranked'),
                        'unplaceable': f.get('skipped'), 'reasons': f.get('reasons')} if f else None,
         })
     rows.sort(key=lambda r: (r.get('pnl') or 0), reverse=True)
-    return {'days': days, 'worker': cache.get('status'), 'backtests': rows}
+    # An owned strat with NO card for this window is the one thing a list of
+    # cards cannot show. Name them: absent is not the same as flat, and the
+    # difference used to be invisible.
+    covered = set(results)
+    missing = [{'key': sid, 'name': nm} for sid, nm in owned.items() if sid not in covered]
+    return {'days': days, 'worker': cache.get('status'), 'backtests': rows,
+            'owned': len(owned), 'untested': missing,
+            **({'note': f'{len(missing)} owned strat(s) have no {days}d replay yet — '
+                        'run pm_backtest_run, or wait for the next worker pass'} if missing else {})}
 
 
 def _t_backtest_run(args):
-    """Replay every published strat now. Minutes, not seconds — it walks each
-       watched trader's 30-day activity through the data-api."""
+    """Replay every published strat now, out of the server's cached trader
+       feeds — no upstream requests. refresh=true tops that cache up first
+       (that IS the upstream work, and it takes minutes)."""
+    if args.get('refresh'):
+        _post(_hub('?refresh=1'))
     if args.get('wait') is False:
         return _post(_hub('?run=1'))
     return _post(_hub(), method='PUT')
@@ -344,7 +398,12 @@ TOOLS = {
         'description': 'Cached backtests from the background worker (every strat, same window, '
                        'refreshed every 2h). Each carries a FUNNEL: entries observed → copied, '
                        'with a per-gate breakdown of what blocked the rest. Read the funnel '
-                       'before concluding a strat is "flat" — it is usually "blocked".',
+                       'before concluding a strat is "flat" — it is usually "blocked". Each '
+                       'also carries FORWARD: the same strat replayed over the PREVIOUS window '
+                       'with no knowledge of this one, and the verdict of the pair — '
+                       'held / faded / recovered / no-edge / stalled / untested. Only '
+                       'forward.confirmed means "made money then, and still is"; ranking by '
+                       'pnl alone ranks by a single window.',
         'inputSchema': {'type': 'object', 'properties': {
             'days': {'type': 'integer', 'description': 'window in days (default 1 — what the worker runs)'},
             'strat': {'type': 'string', 'description': 'filter by strat id / template slug (optional)'},
@@ -353,10 +412,14 @@ TOOLS = {
     },
     'pm_backtest_run': {
         'description': 'Replay every published strat NOW instead of waiting for the next '
-                       '2-hourly pass. Takes minutes (it walks each watched trader\'s activity). '
+                       'pass. The replay runs over the server\'s cached trader history and '
+                       'costs no upstream requests; pass refresh=true to top that cache up '
+                       'first (that part takes minutes and spends the data-api budget). '
                        'wait=false queues it and returns immediately.',
         'inputSchema': {'type': 'object', 'properties': {
             'wait': {'type': 'boolean', 'description': 'false = queue and return (default true)'},
+            'refresh': {'type': 'boolean',
+                        'description': 'fetch newer trader history before replaying (default false)'},
         }},
         'handler': _t_backtest_run,
     },

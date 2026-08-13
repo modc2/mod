@@ -1,10 +1,13 @@
 "use client";
 
-// The strat sidebar: a real LEFT column listing every saved strat — click to
-// switch, ✎ or double-click to rename, ⑂ to fork, × to delete — with the
-// sidebar header showing the deposit wallet's on-chain USDC and each row
-// showing the money that strat actually has in play right now plus its 24h
-// PnL, both from the signed-in wallet's engine ledger.
+// The user sidebar: a real RIGHT column that answers "who am I / which strat
+// am I on" in one place. Its top block is the ACCOUNT switcher
+// (AccountsPanel — every wallet this browser knows, its funded USDC, sign
+// in/out); below it is every saved strat — click to switch, ✎ or double-click
+// to rename, ⑂ to fork, × to delete — with the section header showing the
+// deposit wallet's on-chain USDC and each row showing the money that strat
+// actually has in play right now plus its 24h PnL, both from the signed-in
+// wallet's engine ledger.
 //
 // It is furniture, not a menu. On a wide viewport (≥1024px) it DOCKS: no
 // backdrop, no dimming, no scroll lock, no click-out-to-close — the page
@@ -13,9 +16,10 @@
 // default there; the user's open/closed choice is remembered. Below 1024px
 // there isn't room for a column, so it falls back to a modal overlay drawer.
 //
-// It sits on the LEFT because that's where the header cluster that owns it
-// lives — and because the wallet/account panel drops out of the top-RIGHT
-// chip and would land on top of it.
+// It sits on the RIGHT, under the wallet chip that opens it: whose money and
+// which strategy are one question, so the account switcher and the strat list
+// are one column, opened from one corner. The top-LEFT is page navigation and
+// nothing else.
 //
 // The rows show REAL money only. There is deliberately no allocation editor
 // here: a `capital` number typed into a sidebar is an intention, not funds,
@@ -27,13 +31,16 @@
 // touching the others.
 //
 // In the header this component is a one-line readout of the ACTIVE strat —
-// name, live dot, trader count, keyword count — that toggles the sidebar. It
-// is deliberately not a dropdown: the list belongs in the column, so the
-// header stays a row of things you can read at a glance.
+// name, live dot, trader count, keyword count — sitting immediately left of
+// the wallet chip, and both toggle the same column. It is deliberately not a
+// dropdown: the list belongs in the column, so the header stays a row of
+// things you can read at a glance. + NEW STRAT and ▦ STRAT HUB used to be
+// icon buttons next to it; they live in the column now, so the top-right is
+// two readouts (who / what) and nothing else.
 //
-// The [+] beside the name creates a new strat, a DEFAULT STRATS gallery at the
-// bottom forks curated templates (lib/defaultStrats.ts) into user-owned
-// strats, and ▦ opens the STRAT HUB (/strats), where every strat is a card
+// A DEFAULT STRATS gallery at the bottom forks curated templates
+// (lib/defaultStrats.ts) into user-owned strats, and ▦ opens the STRAT HUB
+// (/strats), where every strat is a card
 // showing its 1-day backtest. Every mutation goes through useStratManager
 // (lib/stratManager.ts) — indexStore localStorage store, `strat-updated`
 // window event, best-effort server sync — so the hub, CopyIndex, the LIVE
@@ -48,6 +55,7 @@ import { useStratStats, fmtUsd } from "../lib/stratStats";
 import { useStratManager } from "../lib/stratManager";
 import { describeTraderFilter } from "../lib/strats/strat";
 import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
+import AccountsPanel, { OPEN_ACCOUNTS_EVENT } from "./AccountsPanel";
 
 // Wide enough for a real column beside the console; below this the sidebar
 // falls back to a modal overlay. Matches the media query in globals.css that
@@ -72,6 +80,10 @@ export default function StratSidebar() {
   } = useStratManager();
   const [open, setOpen] = useState(false);
   const [docked, setDocked] = useState(false);
+  // Set when the header's wallet chip asks for the accounts section — the
+  // column is where accounts live now, so the chip opens it rather than
+  // dropping its own list on top of the page.
+  const [accountsWanted, setAccountsWanted] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   // Per-strat live PnL from the backend engine's tagged fills + the deposit
@@ -106,6 +118,14 @@ export default function StratSidebar() {
       localStorage.setItem(DOCK_KEY, next ? "1" : "0");
     } catch {}
   }, []);
+
+  // The wallet chip in the header asks for the accounts section by name: open
+  // the column (docked or overlay) and let AccountsPanel mount expanded.
+  useEffect(() => {
+    const onOpen = () => { setAccountsWanted(true); setDrawer(true); };
+    window.addEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
+  }, [setDrawer]);
 
   // Inset the console for the docked column (CSS var, consumed by
   // .crt-screen in layout.tsx).
@@ -192,13 +212,24 @@ export default function StratSidebar() {
   //    framing around it differs, so there is one copy of the markup. ──
   const column = (
     <>
+      {/* ── Who you are ──
+          The ACCOUNT switcher is the column's top bar: every wallet this
+          browser has signed in as, the money each holds, and the controls to
+          switch/rename/forget/add. Accounts and strats are the same decision
+          made twice — a strat's money, its engine session and its ledger are
+          all keyed by (wallet, strat) — so "which wallet am I" is the first
+          line of the same column that answers "which strat am I on". It also
+          carries the column's close button, so the user block reads as the
+          sidebar's header rather than as a panel bolted onto one. */}
+      <AccountsPanel initialExpanded={accountsWanted} onClose={() => setDrawer(false)} />
+
       <div
-        className="flex items-center gap-2 px-3 h-12 shrink-0"
+        className="flex items-center gap-2 px-3 py-1.5 shrink-0"
         style={{ borderBottom: "1px solid var(--border)" }}
       >
-        <span className="text-[12px] font-mono font-bold tracking-[0.18em] text-pixel-white">STRATS</span>
+        <span className="text-[11px] font-mono font-bold tracking-[0.18em] text-pixel-white">STRATS</span>
         <span
-          className="flex-1 text-[10.5px] font-mono text-pixel-gray truncate"
+          className="flex-1 text-[10.5px] font-mono text-pixel-gray truncate text-right"
           title="Wallet = your deposit wallet's on-chain USDC, free to trade. Each row shows what that strat currently has in play."
         >
           {indexes.length} saved · wallet{" "}
@@ -206,13 +237,6 @@ export default function StratSidebar() {
             {cash === null ? "…" : fmtUsd(cash)}
           </span>
         </span>
-        <button
-          onClick={() => setDrawer(false)}
-          title={docked ? "Hide the strat sidebar" : "Close (Esc)"}
-          className="grid place-items-center w-[24px] h-[24px] rounded-[var(--radius-sm)] border border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40 transition-colors text-[13px] leading-none shrink-0"
-        >
-          ×
-        </button>
       </div>
       <div className="flex-1 overflow-y-auto p-1.5 flex flex-col gap-0.5">
         {indexes.length === 0 && (
@@ -271,7 +295,19 @@ export default function StratSidebar() {
                   className="flex-1 min-w-0"
                   title="Double-click to rename"
                 >
-                  <span className="block truncate text-[12px] font-mono font-semibold">{idx.name}</span>
+                  <span className="block truncate text-[12px] font-mono font-semibold">
+                    {idx.name}
+                    {idx.identity && (
+                      <span className="ml-1.5 text-[9px] tracking-[0.1em] text-cyan-400" title={`IDENTITY strat — copies exactly one trader: ${idx.identity}`}>
+                        ID
+                      </span>
+                    )}
+                    {idx.visibility === "public" && (
+                      <span className="ml-1.5 text-[9px] tracking-[0.1em] text-green-400/90" title="Published to the PUBLIC gallery — anyone can view and fork it from the STRAT HUB">
+                        PUB
+                      </span>
+                    )}
+                  </span>
                   {idx.marketQuery?.trim() && (
                     <span
                       className="block truncate text-[10px] font-mono text-amber-300/70"
@@ -433,12 +469,12 @@ export default function StratSidebar() {
   // no click-out — the page beside it stays fully live.
   const dockedSidebar = (
     <aside
-      className="fixed inset-y-0 left-0 z-30 w-[var(--strat-dock)] flex flex-col backdrop-blur-md"
+      className="fixed inset-y-0 right-0 z-30 w-[var(--strat-dock)] flex flex-col backdrop-blur-md"
       style={{
         background:
           "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.97), rgb(var(--pixel-bg-rgb)/0.95))",
-        borderRight: "1px solid var(--border)",
-        animation: "drawer-in-left 0.18s ease-out",
+        borderLeft: "1px solid var(--border)",
+        animation: "drawer-in-right 0.18s ease-out",
       }}
     >
       {column}
@@ -451,13 +487,13 @@ export default function StratSidebar() {
       <div className="absolute inset-0" style={{ background: "rgb(var(--pixel-black-rgb)/0.35)" }} />
       <aside
         onClick={(e) => e.stopPropagation()}
-        className="absolute inset-y-0 left-0 w-[340px] max-w-[85vw] flex flex-col backdrop-blur-md"
+        className="absolute inset-y-0 right-0 w-[340px] max-w-[85vw] flex flex-col backdrop-blur-md"
         style={{
           background:
             "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.97), rgb(var(--pixel-bg-rgb)/0.95))",
-          borderRight: "1px solid var(--border)",
-          boxShadow: "12px 0 32px rgba(0,0,0,0.45)",
-          animation: "drawer-in-left 0.18s ease-out",
+          borderLeft: "1px solid var(--border)",
+          boxShadow: "-12px 0 32px rgba(0,0,0,0.45)",
+          animation: "drawer-in-right 0.18s ease-out",
         }}
       >
         {column}
@@ -471,7 +507,7 @@ export default function StratSidebar() {
         onClick={() => setDrawer(!open)}
         title={
           active
-            ? `Strat: ${active.name}${activeKeywords ? ` — keywords: ${activeKeywords}` : ""} — click to ${open ? "hide" : "show"} the strat sidebar`
+            ? `Strat: ${active.name}${activeKeywords ? ` — keywords: ${activeKeywords}` : ""} — click to ${open ? "hide" : "show"} your account + strats sidebar`
             : "Select a strat"
         }
         aria-expanded={open}
@@ -479,12 +515,13 @@ export default function StratSidebar() {
           open ? "bg-pixel-white/[0.06] text-green-400" : "text-pixel-gray hover:bg-pixel-white/[0.06]"
         }`}
       >
-        {/* Sidebar glyph: the left rail fills in when the column is showing —
-            the only affordance the header needs now that the list lives in
-            the sidebar rather than in a dropdown. */}
+        {/* Sidebar glyph: the RIGHT rail fills in when the column is showing —
+            it points at the edge the column actually comes from, and it's the
+            only affordance the header needs now that the list lives in the
+            sidebar rather than in a dropdown. */}
         <svg className="w-[13px] h-[13px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="3" y="4" width="18" height="16" rx="2" />
-          {open ? <rect x="3" y="4" width="6" height="16" rx="2" fill="currentColor" /> : <path d="M9 4v16" />}
+          {open ? <rect x="15" y="4" width="6" height="16" rx="2" fill="currentColor" /> : <path d="M15 4v16" />}
         </svg>
         {/* Engine truth, not the strat's `liveEnabled` intent flag — and the
             count when the wallet is running more than this one strat. */}
@@ -513,20 +550,6 @@ export default function StratSidebar() {
             ⌕{keywordGroups(activeKeywords).length}
           </span>
         )}
-      </button>
-      <button
-        onClick={create}
-        title="Create new strat"
-        className="grid place-items-center w-[22px] h-[22px] rounded-[var(--radius-sm)] border border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors text-[14px] leading-none shrink-0"
-      >
-        +
-      </button>
-      <button
-        onClick={() => { if (!docked) setDrawer(false); router.push("/strats"); }}
-        title="Open the STRAT HUB — every strat as a card with its 1-day backtest"
-        className="hidden min-[480px]:grid place-items-center w-[22px] h-[22px] rounded-[var(--radius-sm)] border border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors text-[11px] leading-none shrink-0"
-      >
-        ▦
       </button>
 
       {/* Portal to <body>: the TopBar's backdrop-blur makes the header the

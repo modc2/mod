@@ -56,9 +56,19 @@ function setItemSafe(key: string, value: string): void {
 // was user-set and is left alone. Read-side so imported/shared strats
 // migrate too; the next save persists the bumped value.
 const LEGACY_DEFAULT_STOP_LOSS = 0.5;
+// Candle-mode momentum strats (BTC 5-MIN DELTA and forks of it) defend 80% of
+// entry, not the house 75% — see the template in defaultStrats.ts. Strats
+// forked BEFORE that template carried a stop-loss have no `stopLoss` field at
+// all, so they silently inherit the looser default; give them the tighter one
+// too. Only ever fills an ABSENT value — an explicit number (including 0 =
+// off) is a choice and is left alone.
+const CANDLE_STOP_LOSS = 0.8;
 function migrateIndex(idx: SavedIndex): SavedIndex {
   if (idx && idx.stopLoss === LEGACY_DEFAULT_STOP_LOSS) {
     return { ...idx, stopLoss: DEFAULT_STOP_LOSS };
+  }
+  if (idx && idx.stopLoss === undefined && idx.momentum?.candles) {
+    return { ...idx, stopLoss: CANDLE_STOP_LOSS };
   }
   return idx;
 }
@@ -123,9 +133,12 @@ export function forkIndex(id: string, name?: string): SavedIndex | null {
   if (!source) return null;
   const now = Date.now();
   const {
-    // Dropped on purpose — see above.
+    // Dropped on purpose — see above. `visibility`/`owner` too: publishing
+    // is a per-strat act, so a fork of a public strat starts private and
+    // unattributed until its new owner publishes it themselves.
     lastPnl: _p, lastPnlAfterCosts: _pc, lastRoi1k: _r,
     lastTradeCount: _tc, lastBacktestAt: _ba,
+    visibility: _v, owner: _o,
     ...strategy
   } = source;
   const fork: SavedIndex = {

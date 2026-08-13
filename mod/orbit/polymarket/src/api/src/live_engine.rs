@@ -753,6 +753,11 @@ pub struct StratStats {
     pub sells: u64,
     #[serde(default)]
     pub redeems: u64,
+    /// Positions that resolved in the wallet rather than being sold —
+    /// counted separately because a burned loser produces no SELL and no
+    /// redeem, and used to be dropped from the ledger unbooked.
+    #[serde(default)]
+    pub settled: u64,
     #[serde(rename = "lastFillAt", default)]
     pub last_fill_at: i64,
 }
@@ -1017,6 +1022,31 @@ impl EngineState {
 /// Ledger key for a fill: the strat stamped on the exiting position when it
 /// has one, else the fallback (usually the running session's strat, or
 /// "unassigned" when there's no session context at all).
+/// `(proceeds, cost basis)` to book for a ledger position the wallet no
+/// longer holds, or `None` to book nothing.
+///
+/// Three cases, and the middle one is the bug this exists to close:
+///   * `sold` — the SELL path already booked it and cleared the entry; the
+///     data-api just hasn't dropped the token yet. Booking again double-counts.
+///   * settled at a known price — the market RESOLVED under us. A winner was
+///     redeemed to cash, a loser burned to nothing. Either way the position is
+///     realized, and the loser is the half that used to disappear unbooked:
+///     no SELL, no redeem, so `realized` never moved while the cash did.
+///   * price unknown — resolution isn't indexed yet. Book nothing and let a
+///     later cycle catch it, rather than inventing a total loss.
+fn settlement_booking(pos: &OpenPosition, sold: bool, settled_price: Option<f64>) -> Option<(f64, f64)> {
+    if sold {
+        return None;
+    }
+    let price = settled_price?;
+    let basis = pos.size * pos.entry_price;
+    let proceeds = pos.size * price;
+    if basis <= 0.0 && proceeds <= 0.0 {
+        return None;
+    }
+    Some((proceeds, basis))
+}
+
 fn strat_key(position_strat: &str, fallback: &str) -> String {
     if !position_strat.is_empty() {
         position_strat.to_string()
@@ -1127,6 +1157,48 @@ async fn fetch_held_positions(http: &reqwest::Client, wallet: &str) -> Option<Ve
                 out.push(HeldPosition { token_id, size, condition_id, market, avg_price, current_value });
             }
         }
+    }
+    Some(out)
+}
+
+/// Settlement price per token for positions the wallet has CLOSED, from
+/// data-api `/closed-positions`. `curPrice` there is the resolved value of
+/// that outcome — 1.0 if it won, 0.0 if it burned.
+///
+/// The reconciler needs this to tell the two apart. A tracked position that
+/// vanishes from `/positions` has settled one way or the other, and the
+/// difference is the whole PnL: a redeemed winner paid `size × 1.0`, a loser
+/// paid nothing. Guessing "loser" would slander every redeem the engine
+/// didn't perform itself (the manual REDEEM button, or a redeem racing the
+/// auto-redeem pass).
+async fn fetch_closed_outcomes(http: &reqwest::Client, wallet: &str) -> Option<HashMap<String, f64>> {
+    if wallet.is_empty() {
+        return None;
+    }
+    let url = format!(
+        "{}/closed-positions?user={}&limit={}",
+        DATA_API, wallet, HELD_POSITIONS_LIMIT,
+    );
+    let resp = match http.get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "closed-positions fetch failed");
+            return None;
+        }
+    };
+    let text = resp.text().await.unwrap_or_default();
+    let parsed: Value = serde_json::from_str(&text).ok()?;
+    let mut out = HashMap::new();
+    for p in parsed.as_array()? {
+        let token_id = p.get("asset").and_then(|v| v.as_str()).unwrap_or("");
+        if token_id.is_empty() {
+            continue;
+        }
+        let cur = p
+            .get("curPrice")
+            .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+            .unwrap_or(0.0);
+        out.insert(token_id.to_string(), cur);
     }
     Some(out)
 }
@@ -1512,17 +1584,77 @@ impl EngineRegistry {
         if let Some(held) = &held {
             let onchain: HashMap<&str, &HeldPosition> =
                 held.iter().map(|p| (p.token_id.as_str(), p)).collect();
+            // Only worth asking when the ledger actually claims something the
+            // wallet no longer holds — the common cycle settles nothing.
+            let vanished = {
+                let s = state.read();
+                s.positions.keys().any(|t| {
+                    !onchain.get(t.as_str()).map_or(false, |h| h.size > 0.0)
+                })
+            };
+            let settled = if vanished {
+                fetch_closed_outcomes(&self.http, &wallet).await
+            } else {
+                None
+            };
             let mut s = state.write();
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            // Expire the SELL cooldown first: the set below has to answer
+            // "did this session sell it" for the same cycle it's read in.
+            s.exited_recently.retain(|_, t| now_ms - *t < EXIT_READOPT_COOLDOWN_MS);
+            let sold: std::collections::HashSet<String> =
+                s.exited_recently.keys().cloned().collect();
             // Drop / shrink ledger entries to match on-chain reality.
+            let mut settled_out: Vec<(OpenPosition, (f64, f64))> = Vec::new();
             s.positions.retain(|token_id, pos| {
                 match onchain.get(token_id.as_str()) {
                     Some(h) if h.size > 0.0 => {
                         if h.size + 1e-6 < pos.size { pos.size = h.size; }
                         true
                     }
-                    _ => false, // no longer held → drop
+                    _ => {
+                        // No longer held. A SELL already booked its own
+                        // realized PnL and removed its ledger entry, so
+                        // anything still here that the wallet dropped
+                        // RESOLVED — and resolution is a realized outcome
+                        // whether it paid or burned. Booking only the paying
+                        // half is what let a strat that emptied the account
+                        // report a profit: losers leave no SELL and no
+                        // redeem, so the ledger never saw them.
+                        let price = settled.as_ref().and_then(|m| m.get(token_id)).copied();
+                        if let Some(booking) = settlement_booking(pos, sold.contains(token_id), price) {
+                            settled_out.push((pos.clone(), booking));
+                        }
+                        false
+                    }
                 }
             });
+            for (pos, (proceeds, basis)) in settled_out {
+                let key = strat_key(&pos.strategy_id, &cfg.strategy_id);
+                {
+                    let stats = s.strat_stats.entry(key.clone()).or_default();
+                    stats.realized += proceeds - basis;
+                    stats.volume += proceeds;
+                    stats.settled += 1;
+                    stats.last_fill_at = now_ms;
+                }
+                push_realized(&mut s.realized_events, key, proceeds - basis, basis, now_ms);
+                push_log(&mut s.log, LogEntry {
+                    id: format!("settled-{}-{}", pos.token_id, now_ms),
+                    timestamp: now_ms,
+                    kind: "SETTLED".into(),
+                    reason: Some(format!(
+                        "{} · {:.0} shares @ {:.0}¢ · realized {:+.2} · {}",
+                        if proceeds > 0.0 { "WON — resolved in the money" } else { "LOST — resolved worthless" },
+                        pos.size,
+                        pos.entry_price * 100.0,
+                        proceeds - basis,
+                        pos.market,
+                    )),
+                    trader_address: if pos.leader.is_empty() { None } else { Some(pos.leader.clone()) },
+                    trades_seen: None,
+                });
+            }
             // ADOPT real holdings the ledger doesn't know — bought before a
             // state wipe, by an earlier session, or manually. Without a
             // ledger entry the take-profit/stop-loss pass can't defend them
@@ -1532,8 +1664,6 @@ impl EngineRegistry {
             // buy. Tokens the engine just SOLD are skipped for the cooldown
             // window — the data-api still lists them until the fill settles,
             // and re-adopting one re-fires its exit (double sell).
-            let now_ms = chrono::Utc::now().timestamp_millis();
-            s.exited_recently.retain(|_, t| now_ms - *t < EXIT_READOPT_COOLDOWN_MS);
             for h in held {
                 if s.exited_recently.contains_key(&h.token_id) { continue; }
                 if h.size > 0.0 && !s.positions.contains_key(&h.token_id) {
@@ -2085,6 +2215,29 @@ impl EngineRegistry {
         let mut initial = restore.unwrap_or_else(EngineState::empty);
         initial.status = EngineStatus::Running;
         initial.error = None;
+        // `minMinutesToClose: 0` is a legitimate setting (the candle lane
+        // needs it), but on a REAL-MONEY copy session it opens the sub-hour
+        // Up/Down lane the gate exists to keep the engine out of — measured
+        // at −$580 across 2040 mirrors on this deployment. Silence is what
+        // let that run for weeks, so say it out loud, once, at start.
+        if cfg.auto_execute
+            && cfg.momentum.is_none()
+            && cfg.min_minutes_to_close.map_or(true, |m| m <= 0.0)
+        {
+            push_log(&mut initial.log, LogEntry {
+                id: format!("guard-off-{}", chrono::Utc::now().timestamp_millis()),
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                kind: "WARN".into(),
+                reason: Some(
+                    "minMinutesToClose is OFF — this session may mirror 5m/15m Up-or-Down candles, \
+                     which resolve faster than a poller can react and lose structurally. \
+                     Set it to 60 unless you mean to trade them."
+                        .into(),
+                ),
+                trader_address: None,
+                trades_seen: None,
+            });
+        }
         let state = Arc::new(RwLock::new(initial));
         let cancel = Arc::new(AtomicBool::new(false));
 
@@ -5027,6 +5180,59 @@ mod tests {
     fn parse_activity_skips_non_trade() {
         let v = json!({"type": "MERGE", "size": 1, "price": 0.5, "timestamp": 1});
         assert!(parse_activity_trade(&v, "0x").is_none());
+    }
+
+    fn pos_for_settlement(size: f64, entry: f64) -> OpenPosition {
+        OpenPosition {
+            token_id: "tok".into(),
+            condition_id: "0xcond".into(),
+            market: "Bitcoin Up or Down - 5m".into(),
+            size,
+            entry_price: entry,
+            entry_score: 0.0,
+            opened_at: 0,
+            strategy_id: "s1".into(),
+            leader: String::new(),
+        }
+    }
+
+    /// The regression that emptied a live account while the console showed a
+    /// PROFIT: a losing 5-minute candle burns to zero, produces no SELL and
+    /// no redeem, and used to be dropped from the ledger unbooked.
+    #[test]
+    fn worthless_expiry_books_the_full_loss() {
+        let p = pos_for_settlement(40.0, 0.55);
+        let (proceeds, basis) = settlement_booking(&p, false, Some(0.0)).expect("must book");
+        assert_eq!(proceeds, 0.0);
+        assert!((basis - 22.0).abs() < 1e-9);
+        assert!((proceeds - basis + 22.0).abs() < 1e-9, "loss must be the whole basis");
+    }
+
+    /// The other half of the same path — a winner that resolved and was
+    /// redeemed pays out at 1.0/share, so it must NOT be slandered as a loss.
+    #[test]
+    fn resolved_winner_books_a_gain_not_a_loss() {
+        let p = pos_for_settlement(40.0, 0.55);
+        let (proceeds, basis) = settlement_booking(&p, false, Some(1.0)).expect("must book");
+        assert!((proceeds - 40.0).abs() < 1e-9);
+        assert!((proceeds - basis - 18.0).abs() < 1e-9);
+    }
+
+    /// A token the session SOLD is already booked by the sell path; the
+    /// data-api simply lists it until the fill indexes. Booking here again
+    /// would double-count it.
+    #[test]
+    fn sold_position_is_not_rebooked() {
+        let p = pos_for_settlement(40.0, 0.55);
+        assert!(settlement_booking(&p, true, Some(0.0)).is_none());
+    }
+
+    /// Resolution not indexed yet ⇒ book nothing and retry next cycle. The
+    /// engine must never invent a total loss from a missing lookup.
+    #[test]
+    fn unindexed_settlement_books_nothing() {
+        let p = pos_for_settlement(40.0, 0.55);
+        assert!(settlement_booking(&p, false, None).is_none());
     }
 
     #[test]

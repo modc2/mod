@@ -1062,8 +1062,8 @@ input[type="radio"] {
   .subtab-rail { animation: none; }
 }
 
-/* Drawer entrances. The strat sidebar docks LEFT; `drawer-in-right` is kept
-   for the panels that slide in from the other edge. */
+/* Drawer entrances. The account/strat sidebar docks RIGHT; `drawer-in-left`
+   is kept for the panels that slide in from the other edge. */
 @keyframes drawer-in-left {
   from { transform: translateX(-100%); }
   to { transform: translateX(0); }
@@ -1076,17 +1076,18 @@ input[type="radio"] {
   [style*="drawer-in-left"], [style*="drawer-in-right"] { animation: none !important; }
 }
 
-/* Strat sidebar dock. On a wide viewport the strat manager is a real left
-   column — the page insets by its width (--strat-dock) instead of being
-   covered, so you can work on a strat while the list and its money stay on
-   screen. Narrow viewports fall back to the modal overlay drawer, so the
-   inset stays 0 there. StratSidebar owns the html[data-strat-dock]
-   attribute, and reads --strat-dock back as the column's own width. */
+/* Account + strat sidebar dock. On a wide viewport the account switcher and
+   the strat manager are a real RIGHT column — the page insets by its width
+   (--strat-dock) instead of being covered, so you can work on a strat while
+   the list and its money stay on screen. Narrow viewports fall back to the
+   modal overlay drawer, so the inset stays 0 there. StratSidebar owns the
+   html[data-strat-dock] attribute, and reads --strat-dock back as the
+   column's own width; BuildBadge offsets by it so it clears the column. */
 :root { --strat-dock: 0px; }
 @media (min-width: 1024px) {
   html[data-strat-dock="open"] { --strat-dock: 340px; }
 }
-.dock-inset { transition: padding-left 0.18s ease-out; }
+.dock-inset { transition: padding-right 0.18s ease-out; }
 /* The header lives INSIDE the inset, so the nav tabs have 340px less room
    than their own media query thinks. Drop their labels to icons until the
    viewport can spare the column plus the 900px the labelled row needs. */

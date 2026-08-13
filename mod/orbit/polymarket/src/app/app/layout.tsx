@@ -54,12 +54,13 @@ export default function RootLayout({
                   Explicit STOP clears the record, so accidental reloads
                   auto-resume but deliberate stops stay stopped. */}
               <div className="crt-overlay" />
-              {/* The whole console insets when the strat sidebar is docked
-                  open (--strat-dock, set by StratSidebar) — header included,
-                  so the header cluster never slides under it. */}
+              {/* The whole console insets when the account/strat sidebar is
+                  docked open (--strat-dock, set by StratSidebar) — header
+                  included, so the header cluster that owns it (top-RIGHT)
+                  never slides under it. */}
               <div
                 className="crt-screen dock-inset min-h-screen"
-                style={{ paddingLeft: "var(--strat-dock, 0px)" }}
+                style={{ paddingRight: "var(--strat-dock, 0px)" }}
               >
                 {/* Owner-only gate: the API 401s everything until the sudo
                     address signs the terms-acceptance challenge, so the

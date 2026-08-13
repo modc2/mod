@@ -40,6 +40,9 @@ interface Props {
   // stats and tabs must not present 0 trades as a real answer in that case.
   tradesError?: string | null;
   onRetrySync?: () => void;
+  // Supplied ⇒ the header renders ⑂ IDENTITY: create a strat whose entire
+  // watchlist is THIS trader (an IDENTITY strat) and jump to its workspace.
+  onCopyIdentity?: () => void;
 }
 
 // 30 is the ceiling — trade syncs never reach further back than
@@ -138,6 +141,7 @@ export default function TraderProfile({
   onClearStratFilters,
   tradesError = null,
   onRetrySync,
+  onCopyIdentity,
 }: Props) {
   const dayLabel = days > 0 ? `${days}D` : "ALL-TIME";
   const [customDays, setCustomDays] = useState("");
@@ -581,6 +585,15 @@ export default function TraderProfile({
         >
           [COPY]
         </button>
+        {onCopyIdentity && (
+          <button
+            onClick={onCopyIdentity}
+            title={`Create an IDENTITY strat — a strat that copies ${shortAddress(trader.address)} and no one else`}
+            className="pixel-btn border-cyan-400/60 text-cyan-400 hover:text-pixel-white hover:border-pixel-white text-[13px] py-1 tracking-wider"
+          >
+            ⑂ IDENTITY
+          </button>
+        )}
 
         {onDaysChange && (
           <>

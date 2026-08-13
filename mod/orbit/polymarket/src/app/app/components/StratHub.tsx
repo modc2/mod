@@ -24,9 +24,14 @@
 import { useMemo, useState } from "react";
 import { DEFAULT_STRATS, type StratTemplate } from "../lib/defaultStrats";
 import { fmtUsd, type StratMoney } from "../lib/stratStats";
-import { HUB_WINDOWS, templateBacktestKey, type HubBacktest } from "../lib/hubBacktest";
-import { triggerHubWorker, type WorkerStatus } from "../lib/hubCache";
+import {
+  HUB_WINDOWS, templateBacktestKey,
+  type ForwardCheck, type ForwardVerdict, type HubBacktest,
+} from "../lib/hubBacktest";
+import { triggerHubRefresh, triggerHubWorker, type WorkerStatus } from "../lib/hubCache";
 import { describeTraderFilter } from "../lib/strats/strat";
+import { shortAddress } from "../lib/auth";
+import type { PublicStratEntry } from "../lib/stratSync";
 import type { SavedIndex } from "../lib/types";
 
 interface Props {
@@ -56,6 +61,18 @@ interface Props {
   onForkSaved: (id: string) => void;
   /** Re-run every card's backtest now, ignoring the freshness window. */
   onRefresh?: () => void;
+  // ── ME / PUBLIC strat classes ──
+  /** The community gallery — every strat any account has published. */
+  publicStrats?: PublicStratEntry[];
+  publicLoading?: boolean;
+  /** Signed-in EOA (lowercased), for marking my own gallery cards. */
+  myAddress?: string | null;
+  /** Fork a gallery strat into my (private) strats. */
+  onImportPublic?: (e: PublicStratEntry) => void;
+  /** Publish / unpublish one of my strats. */
+  onSetVisibility?: (id: string, pub: boolean) => void;
+  /** IDENTITY strat: create a strat that copies exactly ONE trader. */
+  onCreateIdentity?: (address: string) => void;
 }
 
 function timeAgo(ts?: number): string {
@@ -194,17 +211,22 @@ function BacktestBlock({
           {window} BACKTEST
         </span>
         {/* Where this number came from and how old it is. A card fed by the
-            2-hourly worker says so — otherwise "replayed 40m ago" reads as a
+            background worker says so — otherwise "replayed 40m ago" reads as a
             stall rather than as a cache doing its job. */}
         {bt && (
           <span
             className="text-[9.5px] font-mono text-pixel-gray shrink-0"
             title={
               `Replayed ${timeAgo(bt.at)} on $${bt.capital} of paper capital across ${bt.traders} trader(s)` +
-              (bt.by === "worker" ? " by the background worker (runs every 2h)" : " in this browser")
+              (bt.by === "worker" ? " by the background worker, over its cached trader history" : " in this browser") +
+              // An understated number has to explain itself on the card, not
+              // only in the header's coverage line.
+              (bt.warming ? ` — ${bt.warming} of them had no cached history yet, so this is a FLOOR, not the strat's result` : "")
             }
           >
-            {bt.note ? "" : `${bt.trades} TR · `}{bt.by === "worker" ? "⟳ " : ""}{timeAgo(bt.at)}
+            {bt.note ? "" : `${bt.trades} TR · `}
+            {bt.warming ? <span className="text-amber-400">⧗ </span> : null}
+            {bt.by === "worker" ? "⟳ " : ""}{timeAgo(bt.at)}
           </span>
         )}
       </div>
@@ -234,10 +256,92 @@ function BacktestBlock({
       ) : (
         <div className="mt-1 text-[12px] font-mono text-pixel-gray">{emptyLabel}</div>
       )}
+      {/* WALK-FORWARD: the previous window, and whether this one confirmed it.
+          Rendered for every card that has one — including the ones whose own
+          window is empty, because "profitable yesterday, silent today" is
+          precisely the state that needs saying out loud. A card without one
+          (a snapshot older than this check) shows nothing rather than
+          implying it passed. */}
+      {bt?.forward && <ForwardLine fwd={bt.forward} pnl={bt.pnl} days={days} />}
       {/* The funnel, one line: how much of the observed flow this strat
           actually traded. "8/225 entries" with the dominant gate named is the
           difference between a strat that's selective and one that's mute. */}
       {bt?.funnel && bt.funnel.observed > 0 && <FunnelLine funnel={bt.funnel} />}
+    </div>
+  );
+}
+
+/// ── THE WALK-FORWARD BADGE ──
+/// A backtest over one window answers "did this make money?", which is the
+/// wrong question: over any single window a strat can be found that printed a
+/// great number, and that is exactly what a wall of cards sorts to the top.
+/// So every card also carries the window BEFORE its own, replayed with no
+/// knowledge of what came after (lib/hubReplay.ts `ForwardCheck`), and the
+/// badge says whether the edge survived into the window on the card.
+///
+/// HELD is the only pass. Everything else is a different failure, named:
+/// FADED (made money then lost it) is the one that costs real capital.
+const FORWARD_FACE: Record<ForwardVerdict, { icon: string; label: string; tone: string; why: string }> = {
+  held: {
+    icon: "✓", label: "HELD", tone: "text-green-400",
+    why: "Profitable in the prior window AND in this one — the headline above survived out of sample. The strongest thing a card can say.",
+  },
+  faded: {
+    icon: "✗", label: "FADED", tone: "text-red-400",
+    why: "Made money in the prior window and LOST it in this one. A strat that looks good only on the window you picked is the classic way to lose real money — treat the headline as noise.",
+  },
+  recovered: {
+    icon: "↗", label: "TURNED UP", tone: "text-amber-400",
+    why: "Lost in the prior window, profitable in this one. One good window after a bad one is not yet an edge — it needs a second confirmation before it means anything.",
+  },
+  "no-edge": {
+    icon: "✗", label: "NO EDGE", tone: "text-red-400",
+    why: "Unprofitable in both windows. Nothing here to deploy.",
+  },
+  untested: {
+    icon: "?", label: "UNTESTED", tone: "text-pixel-gray",
+    why: "The prior window executed no trades, so there was no edge to confirm. This card's number rests on one window only.",
+  },
+  stalled: {
+    icon: "⏸", label: "STALLED", tone: "text-amber-400",
+    why: "Profitable in the prior window, then stopped trading entirely. It didn't lose — it went quiet, which usually means a gate (or the leaders) shut the flow off. Check the funnel line.",
+  },
+  idle: {
+    icon: "·", label: "NO FLOW", tone: "text-pixel-gray",
+    why: "Neither window executed a trade. There is nothing to judge yet.",
+  },
+};
+
+function signedUsd(v: number): string {
+  return `${v >= 0 ? "+" : "−"}$${Math.abs(v).toFixed(2)}`;
+}
+
+/// "✓ HELD · prior day +$4.10 → +$2.30" — the previous window's result, the
+/// current one, and the verdict of putting them side by side.
+function ForwardLine({ fwd, pnl, days }: { fwd: ForwardCheck; pnl: number; days: number }) {
+  const face = FORWARD_FACE[fwd.verdict] ?? FORWARD_FACE.idle;
+  const unit = days === 1 ? "day" : `${days}d`;
+  const stamp = (t: number) => new Date(t).toISOString().slice(5, 16).replace("T", " ");
+  return (
+    <div
+      className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono min-w-0"
+      title={
+        `WALK-FORWARD — is this strat profitable NOW given what it did the previous ${unit}?\n\n` +
+        `${face.label}: ${face.why}\n\n` +
+        `Prior ${unit} (${stamp(fwd.from)} → ${stamp(fwd.to)} UTC): ${signedUsd(fwd.pnl)} ` +
+        `(${fwd.roi >= 0 ? "+" : ""}${fwd.roi.toFixed(2)}%) over ${fwd.trades} trade(s)\n` +
+        `This ${unit}: ${signedUsd(pnl)}\n\n` +
+        "The prior window is replayed with the clock wound back: no trade, no trader stat and no " +
+        "market it couldn't have seen at the time reaches it. Only the settlement prices are " +
+        "today's — that's what values the window, not what decides it."
+      }
+    >
+      <span className={`shrink-0 font-semibold tracking-[0.12em] ${face.tone}`}>
+        {face.icon} {face.label}
+      </span>
+      <span className="text-pixel-gray truncate">
+        prior {unit} {fwd.trades > 0 ? signedUsd(fwd.pnl) : "no trades"} → {signedUsd(pnl)}
+      </span>
     </div>
   );
 }
@@ -294,20 +398,68 @@ export default function StratHub({
   onFork,
   onForkSaved,
   onRefresh,
+  publicStrats = [],
+  publicLoading,
+  myAddress,
+  onImportPublic,
+  onSetVisibility,
+  onCreateIdentity,
 }: Props) {
   const [query, setQuery] = useState("");
+  // The two strat classes: ME (my strats — private unless I publish them)
+  // and PUBLIC (every strat anyone has published, forkable into ME).
+  const [shelf, setShelf] = useState<"me" | "public">("me");
+  // "Show me only the ones that actually held up." Filters the grid down to
+  // cards whose walk-forward verdict is HELD — profitable over the previous
+  // window AND over this one. Off by default: hiding a strat you own is worse
+  // than showing it with a red badge.
+  const [heldOnly, setHeldOnly] = useState(false);
+  // Inline IDENTITY creation — one address, one strat.
+  const [identityAddr, setIdentityAddr] = useState("");
+  const identityValid = /^0x[0-9a-fA-F]{40}$/.test(identityAddr.trim());
+  const submitIdentity = () => {
+    if (!identityValid || !onCreateIdentity) return;
+    onCreateIdentity(identityAddr.trim());
+    setIdentityAddr("");
+  };
+
+  // The HELD-ONLY gate, by card key. A card with no walk-forward yet (still
+  // replaying, or a snapshot from before the check existed) does NOT pass —
+  // "we haven't checked" must never read as "confirmed".
+  const held = (key: string) => !heldOnly || backtests?.[key]?.forward?.ok === true;
 
   // Newest-touched first — the strat you were just editing leads the grid.
   const sorted = useMemo(
     () =>
       [...indexes]
         .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-        .filter((idx) => matchesQuery(query, idx.name, filterChips(idx))),
-    [indexes, query],
+        .filter((idx) => matchesQuery(query, idx.name, filterChips(idx)) && held(idx.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [indexes, query, heldOnly, backtests],
   );
   const recommended = useMemo(
-    () => DEFAULT_STRATS.filter((t) => matchesQuery(query, t.name, filterChips(t.params), t.description)),
-    [query],
+    () => DEFAULT_STRATS.filter((t) =>
+      matchesQuery(query, t.name, filterChips(t.params), t.description)
+      && held(templateBacktestKey(t.slug)),
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [query, heldOnly, backtests],
+  );
+  /** How the whole shelf scored, for the header tally. */
+  const forwardTally = useMemo(() => {
+    let ok = 0, checked = 0;
+    for (const idx of indexes) {
+      const f = backtests?.[idx.id]?.forward;
+      if (!f) continue;
+      checked++;
+      if (f.ok) ok++;
+    }
+    return { ok, checked };
+  }, [indexes, backtests]);
+  // The PUBLIC shelf, through the same search box as everything else.
+  const publicGallery = useMemo(
+    () => publicStrats.filter((e) => matchesQuery(query, e.strat.name, filterChips(e.strat))),
+    [publicStrats, query],
   );
   const oldest = sorted.reduce<number | null>((acc, i) => {
     const at = backtests?.[i.id]?.at;
@@ -327,9 +479,43 @@ export default function StratHub({
           >
             STRAT HUB
           </span>
+          {/* The two strat classes. ME is everything this account owns —
+              private by default; PUBLIC is the community gallery of every
+              published strat, forkable into ME. */}
+          <div className="flex items-center rounded-[var(--radius-sm)] border border-pixel-border overflow-hidden shrink-0">
+            {([["me", `ME · ${indexes.length}`], ["public", `PUBLIC · ${publicStrats.length}`]] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setShelf(key)}
+                title={key === "me"
+                  ? "Your strats. Private by default — publish one to put it in the gallery."
+                  : "Every strat any account has published. Fork one to make it yours."}
+                className={`px-2.5 py-1 text-[11px] font-mono font-semibold tracking-[0.1em] transition-colors ${
+                  shelf === key
+                    ? "bg-green-400/[0.12] text-green-400"
+                    : "text-pixel-gray hover:text-pixel-white"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <span className="text-[12px] font-mono text-pixel-gray truncate">
-            {indexes.length} saved · every card backtested over the last {windowLabel}
+            {shelf === "me"
+              ? `every card backtested over the last ${windowLabel}, and again over the ${windowLabel} before it`
+              : "community gallery · fork a card to copy it into your strats"}
           </span>
+          {/* The shelf's walk-forward score. "2/9 HELD" is the number that
+              says how much of this wall is a real edge rather than one good
+              window — and it's usually small, which is the point. */}
+          {shelf === "me" && forwardTally.checked > 0 && (
+            <span
+              className={`text-[11px] font-mono shrink-0 ${forwardTally.ok > 0 ? "text-green-400" : "text-amber-400"}`}
+              title={`${forwardTally.ok} of ${forwardTally.checked} checked strat(s) were profitable over the previous ${windowLabel} AND the ${windowLabel} since. The rest either faded, never had an edge, or stopped trading.`}
+            >
+              ✓ {forwardTally.ok}/{forwardTally.checked} HELD
+            </span>
+          )}
           {/* The worker's heartbeat. Cards are cached, not live — saying so
               (and when the next pass lands) is the difference between "these
               numbers are stale" and "these numbers are 40 minutes old, by
@@ -345,7 +531,15 @@ export default function StratHub({
               title={
                 worker.error
                   ? `Background worker last failed: ${worker.error}`
-                  : `A worker inside the app replays every strat over the last ${windowLabel} on a 2-hour cadence, so the hub has numbers before you open it. Last pass covered ${worker.strats} strat(s).`
+                  : `A worker inside the app replays every strat over the last ${windowLabel}, out of a trader-history cache it keeps on disk. Last pass covered ${worker.strats} strat(s).`
+                    + (worker.feeds
+                      ? `\n\nFeed cache: ${worker.feeds.cached}/${worker.feeds.traders} traders`
+                        + (worker.feeds.missing ? `, ${worker.feeds.missing} not fetched yet` : "")
+                        + (worker.feeds.stale ? `, ${worker.feeds.stale} due a top-up` : "")
+                        + `. Last topped up ${worker.feeds.at ? timeAgo(worker.feeds.at) : "never"}`
+                        + `, next ${countdown(worker.feeds.nextAt)}.`
+                        + (worker.feeds.error ? `\nLast fetch error: ${worker.feeds.error}` : "")
+                      : "")
               }
             >
               {worker.running
@@ -353,6 +547,14 @@ export default function StratHub({
                 : worker.error
                   ? "⚠ worker error"
                   : `⟳ cached ${timeAgo(worker.at)} · next ${countdown(worker.nextAt)}`}
+              {/* Coverage, not just recency: a pass over a half-filled cache
+                  is a real pass with understated numbers, and the header is
+                  where that has to be visible. */}
+              {worker.feeds && worker.feeds.missing > 0 && (
+                <span className="ml-1.5 text-amber-400">
+                  {worker.feeds.running ? "⇣" : "⧗"} warming {worker.feeds.cached}/{worker.feeds.traders}
+                </span>
+              )}
             </span>
           ) : null}
         </div>
@@ -396,12 +598,31 @@ export default function StratHub({
               </button>
             ))}
           </div>
+          {/* The walk-forward filter — the whole point of the check, as a
+              control: hide everything that didn't stay profitable. */}
+          <button
+            onClick={() => setHeldOnly((v) => !v)}
+            title={
+              heldOnly
+                ? "Showing only strats that were profitable over the previous window AND over this one. Click to show all."
+                : `Show only strats that made money over the previous ${windowLabel} AND over the ${windowLabel} since — everything else (faded, no edge, stalled, unchecked) is hidden.`
+            }
+            className={`shrink-0 px-2.5 py-1 rounded-[var(--radius-sm)] border text-[11px] font-mono font-semibold tracking-[0.08em] transition-colors ${
+              heldOnly
+                ? "border-green-400/60 text-green-400 bg-green-400/[0.10]"
+                : "border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400/60"
+            }`}
+          >
+            ✓ HELD ONLY
+          </button>
           {onRefresh && (
             <button
               onClick={() => {
-                // Kick BOTH: the worker refreshes the disk cache for every
-                // strat (including ones this browser isn't showing), the local
-                // pass repaints these cards without waiting for it.
+                // Kick all three: top up the server's trader-feed cache (the
+                // only upstream work), re-replay every strat on the server
+                // (including ones this browser isn't showing), and re-run
+                // locally so these cards repaint without waiting for either.
+                void triggerHubRefresh();
                 void triggerHubWorker();
                 onRefresh();
               }}
@@ -415,6 +636,16 @@ export default function StratHub({
         </div>
       </div>
 
+      {shelf === "me" && (<>
+      {/* An empty HELD-ONLY shelf is an answer, and a common one. Say it in
+          words so it can't be read as a broken filter. */}
+      {heldOnly && sorted.length === 0 && indexes.length > 0 && (
+        <div className="mb-3 px-3 py-2 rounded-[var(--radius-sm)] border border-amber-400/40 text-[11.5px] font-mono text-amber-400/90 leading-relaxed">
+          None of your {indexes.length} strat(s) held up over both windows — each one either faded,
+          never had an edge, stopped trading, or hasn&apos;t been checked yet. That is a result, not a
+          broken filter: turn HELD ONLY off to see what each card actually did.
+        </div>
+      )}
       {/* Card grid */}
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
         {sorted.map((idx) => {
@@ -456,8 +687,34 @@ export default function StratHub({
                       ACTIVE
                     </span>
                   )}
+                  {idx.identity && (
+                    <span
+                      className="ml-1 px-1.5 py-0.5 border border-cyan-400/60 text-cyan-400 rounded-full text-[9px] tracking-[0.1em]"
+                      title={`IDENTITY strat — copies exactly one trader: ${idx.identity}`}
+                    >
+                      IDENTITY
+                    </span>
+                  )}
                 </span>
                 <div className="flex items-center gap-2">
+                  {/* The strat's class, and the switch between them. Every
+                      strat starts PRIVATE; publishing puts it (plaintext) in
+                      the community gallery for anyone to fork. */}
+                  {onSetVisibility && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onSetVisibility(idx.id, idx.visibility !== "public"); }}
+                      title={idx.visibility === "public"
+                        ? "This strat is PUBLIC — listed in the gallery for anyone to view and fork. Click to make it private again."
+                        : "This strat is PRIVATE (the default) — only you can see it. Click to publish it to the PUBLIC gallery."}
+                      className={`px-1.5 py-0.5 rounded-full border text-[9px] font-semibold tracking-[0.1em] transition-colors ${
+                        idx.visibility === "public"
+                          ? "border-green-400/60 text-green-400 hover:border-pixel-border hover:text-pixel-gray"
+                          : "border-pixel-border text-pixel-gray hover:border-green-400/60 hover:text-green-400"
+                      }`}
+                    >
+                      {idx.visibility === "public" ? "PUBLIC" : "PRIVATE"}
+                    </button>
+                  )}
                   <span className="text-[11px] text-pixel-gray font-mono">{timeAgo(idx.updatedAt)}</span>
                   <button
                     onClick={(e) => { e.stopPropagation(); onForkSaved(idx.id); }}
@@ -559,6 +816,37 @@ export default function StratHub({
             <div className="text-[11px] font-mono font-semibold tracking-[0.14em]">NEW STRAT</div>
           </div>
         </button>
+
+        {/* New IDENTITY card — a strat that copies exactly ONE trader.
+            Paste the address here, or hit ⑂ IDENTITY on any trader profile. */}
+        {onCreateIdentity && (
+          <div className="min-h-[180px] rounded-[var(--radius-lg)] border border-dashed border-pixel-border flex flex-col items-center justify-center gap-2 px-4 text-pixel-gray">
+            <div className="text-[11px] font-mono font-semibold tracking-[0.14em] text-cyan-400">NEW IDENTITY</div>
+            <div className="text-[10.5px] font-mono text-center leading-snug">
+              copy ONE trader — the strat is their identity
+            </div>
+            <input
+              value={identityAddr}
+              onChange={(e) => setIdentityAddr(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submitIdentity(); }}
+              placeholder="0x trader address…"
+              spellCheck={false}
+              className="w-full max-w-[220px] px-2 py-1 rounded-[var(--radius-sm)] bg-[var(--input-bg)] border border-pixel-border text-[11px] font-mono text-pixel-white placeholder:text-pixel-gray/60 focus:outline-none focus:border-cyan-400/60"
+            />
+            <button
+              onClick={submitIdentity}
+              disabled={!identityValid}
+              title={identityValid ? "Create an IDENTITY strat copying this trader" : "Paste a full 0x… trader address"}
+              className={`px-2.5 py-1 rounded-[var(--radius-sm)] border text-[10.5px] font-mono font-semibold tracking-[0.1em] transition-colors ${
+                identityValid
+                  ? "border-cyan-400/60 text-cyan-400 hover:bg-cyan-400/10"
+                  : "border-pixel-border text-pixel-gray/50 cursor-not-allowed"
+              }`}
+            >
+              ⑂ CREATE IDENTITY
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Recommended strats — curated recipes forked into user-owned strats,
@@ -641,6 +929,102 @@ export default function StratHub({
           );
         })}
       </div>
+      </>)}
+
+      {/* ── PUBLIC shelf — the community gallery. Every published strat from
+          every account, mine included (badged MINE). Forking copies the whole
+          strategy into MY strats, private, with lineage. ── */}
+      {shelf === "public" && (
+        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
+          {publicGallery.map((entry) => {
+            const s = entry.strat;
+            const chips = filterChips(s);
+            const mine = !!myAddress && entry.owner === myAddress.toLowerCase();
+            const enabledTraders = (s.traders ?? []).filter((t) => t.enabled !== false).length;
+            return (
+              <div
+                key={entry.id}
+                onClick={() => onImportPublic?.(entry)}
+                className="market-card group cursor-pointer flex flex-col relative overflow-hidden isolate"
+              >
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="flex items-center gap-1.5 text-[10.5px] tracking-[0.16em] uppercase font-semibold">
+                    <span className="text-green-400">PUBLIC</span>
+                    {s.identity && (
+                      <span
+                        className="px-1.5 py-0.5 border border-cyan-400/60 text-cyan-400 rounded-full text-[9px] tracking-[0.1em]"
+                        title={`IDENTITY strat — copies exactly one trader: ${s.identity}`}
+                      >
+                        IDENTITY
+                      </span>
+                    )}
+                    {mine && (
+                      <span className="px-1.5 py-0.5 border border-amber-400/60 text-amber-400 rounded-full text-[9px] tracking-[0.1em]">
+                        MINE
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[11px] font-mono text-pixel-gray opacity-60 group-hover:opacity-100 group-hover:text-green-400 transition-opacity">
+                    ⑂ FORK
+                  </span>
+                </div>
+                <div className="text-[16px] font-semibold tracking-[-0.01em] text-pixel-white leading-[1.35] mb-2 font-mono line-clamp-2">
+                  {s.name}
+                </div>
+                <div className="text-[11px] font-mono text-pixel-gray mb-2.5">
+                  by {entry.owner ? shortAddress(entry.owner) : "anon"} · {timeAgo(entry.updated_at)}
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 mb-2.5">
+                  {[
+                    { label: "TRADERS", value: `${enabledTraders}` },
+                    { label: "CAPITAL", value: `$${s.capital ?? 1000}` },
+                    { label: "TRADE", value: `$${s.minTrade ?? 5}–${s.maxTrade ?? 100}` },
+                  ].map((p) => (
+                    <div key={p.label} className="px-2 py-1.5 rounded-[var(--radius-sm)] bg-[var(--input-bg)] border border-[var(--border)]">
+                      <div className="text-[9px] text-pixel-gray font-semibold tracking-[0.14em]">{p.label}</div>
+                      <div className="text-[12.5px] text-pixel-white font-mono truncate">{p.value}</div>
+                    </div>
+                  ))}
+                </div>
+                {chips.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2.5">
+                    {chips.map((c) => (
+                      <span
+                        key={c}
+                        className="px-1.5 py-0.5 text-[10px] font-mono text-cyan-400 border border-cyan-400/40 rounded-full truncate max-w-full"
+                      >
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex-1" />
+                <div className="flex items-center justify-between pt-2.5 mt-1 border-t border-[var(--border)] text-[10.5px] font-mono text-pixel-gray">
+                  <span>fork to copy into YOUR strats — forks land private</span>
+                  {mine && onSetVisibility && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onSetVisibility(entry.id, false); }}
+                      title="Take your strat off the public gallery (it stays in ME)"
+                      className="shrink-0 text-pixel-gray hover:text-red-400 transition-colors"
+                    >
+                      UNPUBLISH
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {publicGallery.length === 0 && (
+            <div className="min-h-[180px] rounded-[var(--radius-lg)] border border-dashed border-pixel-border grid place-items-center text-pixel-gray text-[11.5px] font-mono px-6 text-center leading-relaxed">
+              {publicLoading
+                ? "loading the gallery…"
+                : query
+                  ? "no public strats match the search"
+                  : "no public strats yet — flip one of yours to PUBLIC on the ME shelf and it will show up here for everyone"}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

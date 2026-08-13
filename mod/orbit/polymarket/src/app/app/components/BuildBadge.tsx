@@ -161,9 +161,12 @@ export default function BuildBadge() {
     // opacity so it reads as a watermark over the page it floats on, and
     // comes back to full strength on hover (or while a publish is running).
     <div
-      className={`fixed bottom-2 right-2 z-40 flex flex-col items-end gap-1 transition-opacity duration-200 hover:opacity-100 ${
+      className={`fixed bottom-2 z-40 flex flex-col items-end gap-1 transition-opacity duration-200 hover:opacity-100 ${
         status || busy ? "opacity-100" : "opacity-45"
       }`}
+      // Clears the docked sidebar, which is a right-hand column now — pinned
+      // to `right-2` the badge floated on top of the account/strat panel.
+      style={{ right: "calc(var(--strat-dock, 0px) + 0.5rem)" }}
     >
       {status && (
         <div className="pixel-btn text-[12px] px-2 py-0.5 font-mono border-pixel-border text-green-400 bg-pixel-black/80 backdrop-blur-sm">

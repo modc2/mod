@@ -99,22 +99,22 @@ export default function TopBar({
       {/* Nav cluster left, theme toggle + sign-in right; search lives on
           its own row below this bar. */}
       <div className="px-4 h-12 flex items-center justify-between gap-3">
-        {/* ── Active strat + page tabs — top-left corner. The strat readout
-            leads (it toggles the strat sidebar, which owns the list and the
-            per-strat money) with every page laid out inline to its right;
-            strat selection is global (indexStore). Nothing here is a
-            dropdown: the header is a row you read, not a menu. ── */}
+        {/* ── Page tabs — top-left corner, and nothing else. Every page is
+            laid out inline; nothing here is a dropdown, the header is a row
+            you read, not a menu. ── */}
         <div className="flex items-center gap-1 min-w-0">
-          <StratSidebar />
           <NavMenu />
         </div>
-        {/* ── Theme picker + sign in — top-right corner. The picker yields
-            on tiny screens so the wallet chip never gets shoved under the
-            left cluster. ── */}
-        <div className="flex items-center gap-2">
+        {/* ── Theme picker + who/what — top-right corner. The active strat
+            readout and the wallet chip sit side by side because they open the
+            same right-hand sidebar: strat selection (global, indexStore) and
+            the account switcher are one column. The picker yields on tiny
+            screens so the pair never gets shoved under the left cluster. ── */}
+        <div className="flex items-center gap-2 min-w-0">
           <div className="hidden min-[480px]:block">
             <ThemePicker />
           </div>
+          <StratSidebar />
           <WalletChip />
         </div>
       </div>

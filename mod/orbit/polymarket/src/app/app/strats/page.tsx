@@ -7,8 +7,10 @@ import CopyIndex from "../components/CopyIndex";
 import StratHub from "../components/StratHub";
 import ConfirmDeleteStrat from "../components/ConfirmDeleteStrat";
 import { useUrlSync } from "../context/FiltersContext";
+import { useAuth } from "../context/AuthContext";
 import { useStratManager } from "../lib/stratManager";
 import { useStratStats } from "../lib/stratStats";
+import { fetchPublicStrats, type PublicStratEntry } from "../lib/stratSync";
 import { useHubBacktests, HUB_BACKTEST_DAYS, HUB_WINDOWS } from "../lib/hubBacktest";
 import { setActiveIndexId } from "../lib/indexStore";
 
@@ -63,10 +65,24 @@ function StratsInner() {
 /// recommended templates alike — for the headline.
 function Hub({ onOpen }: { onOpen: (id: string) => void }) {
   const {
-    indexes, activeId, select, create, fork, forkDefault,
+    indexes, activeId, select, create, createIdentity, fork, forkDefault,
+    importPublic, setVisibility,
     requestDelete, pendingDelete, confirmDelete, cancelDelete,
   } = useStratManager();
   const { stats } = useStratStats();
+  const { auth } = useAuth();
+
+  // The PUBLIC shelf — every published strat, from every account. Loaded
+  // once per hub visit and refreshed after any publish/unpublish from here.
+  const [publicStrats, setPublicStrats] = useState<PublicStratEntry[]>([]);
+  const [publicLoading, setPublicLoading] = useState(true);
+  const reloadPublic = () => {
+    fetchPublicStrats().then((rows) => {
+      setPublicStrats(rows);
+      setPublicLoading(false);
+    });
+  };
+  useEffect(() => { reloadPublic(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // The window survives navigation: someone comparing strats over 7 days
   // shouldn't be dropped back to 24h every time they open one.
   const [days, setDays] = useState(HUB_BACKTEST_DAYS);
@@ -105,6 +121,12 @@ function Hub({ onOpen }: { onOpen: (id: string) => void }) {
         onForkSaved={(id) => { const copy = fork(id); if (copy) onOpen(copy.id); }}
         onFork={(t) => { const idx = forkDefault(t); onOpen(idx.id); }}
         onRefresh={refresh}
+        publicStrats={publicStrats}
+        publicLoading={publicLoading}
+        myAddress={auth.address ?? null}
+        onImportPublic={(e) => { const copy = importPublic(e); onOpen(copy.id); }}
+        onSetVisibility={(id, pub) => { void setVisibility(id, pub).then(reloadPublic); }}
+        onCreateIdentity={(addr) => { const idx = createIdentity(addr); onOpen(idx.id); }}
       />
       <ConfirmDeleteStrat
         name={pendingDelete === null ? null : indexes.find((i) => i.id === pendingDelete)?.name ?? pendingDelete}

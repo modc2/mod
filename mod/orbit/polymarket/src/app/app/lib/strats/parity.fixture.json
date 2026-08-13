@@ -215,7 +215,7 @@
     "takeProfit": 0.99,
     "maxUpscale": 2.0,
     "minMinutesToClose": 60,
-    "maxTradeAgeSec": 300,
+    "maxTradeAgeSec": null,
     "filterTopN": 5
   },
   "rebalanceMarginPct": 0.2,

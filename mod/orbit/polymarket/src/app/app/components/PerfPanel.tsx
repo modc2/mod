@@ -59,6 +59,12 @@ export interface PerfCosts {
   /** Trades the wallet could not place (backtest only today). */
   skipped?: number;
   skippedTitle?: string;
+  /** How much of the result was settled at a looked-up resolution vs valued
+      at the last price anyone printed — backtest only, since LIVE settles
+      against the real wallet. A replay whose exits are mostly MARKED is a
+      hypothesis, and the panel has to say so rather than quoting the P&L with
+      the same confidence as a verified one. */
+  settled?: { resolved: number; marked: number; markedUsd: number };
 }
 
 export interface PerfPosition {
@@ -431,6 +437,23 @@ export default function PerfPanel({
               <Dot />
               <span className="text-[12px] text-pixel-gray/70 tracking-wider" title={costs.skippedTitle}>
                 {costs.skipped} SKIPPED
+              </span>
+            </>
+          )}
+          {costs.settled != null && costs.settled.resolved + costs.settled.marked > 0 && (
+            <>
+              <Dot />
+              <span
+                className={`text-[12px] tracking-wider ${costs.settled.marked > 0 ? "text-amber-400/80" : "text-pixel-gray/70"}`}
+                title={
+                  costs.settled.marked > 0
+                    ? `${costs.settled.resolved} position(s) closed at the price the market actually resolved at; `
+                      + `${costs.settled.marked} ($${costs.settled.markedUsd.toFixed(2)}) had no resolution on file and were valued at the last price a copied trader printed. `
+                      + `Leaders trade their winners and let their losers expire, so unresolved marks read HIGH — treat this P&L as provisional until the server's resolution store catches up.`
+                    : `Every closed position was settled at the price its market actually resolved at.`
+                }
+              >
+                {costs.settled.resolved}/{costs.settled.resolved + costs.settled.marked} SETTLED
               </span>
             </>
           )}

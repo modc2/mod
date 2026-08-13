@@ -99,7 +99,15 @@ export function serverAuthHeaders(): Record<string, string> {
 // transient failures with a short bounded retry + per-attempt timeout; only a
 // genuine, sustained outage (or a real HTTP error) makes it out of here.
 async function polyApi(endpoint: string, params: Record<string, string> = {}): Promise<unknown> {
-  const qs = new URLSearchParams({ endpoint, ...params });
+  return polyApiQs(endpoint, new URLSearchParams(params));
+}
+
+/** `polyApi` for endpoints that need a param REPEATED rather than set once —
+ *  gamma's `condition_ids` is the one that matters (see
+ *  `fetchMarketResolutions`). Takes the query already built. */
+async function polyApiQs(endpoint: string, params: URLSearchParams): Promise<unknown> {
+  const qs = new URLSearchParams(params);
+  qs.set("endpoint", endpoint);
   // NOTE the slash before `?`. The gateway route strips the `/api/polymarket`
   // prefix; without a trailing slash the upstream request line has an empty
   // path and Caddy/Cloudflare reject it with a 400. `/api/polymarket/?…` →
@@ -350,6 +358,97 @@ export async function fetchMarketBySlug(slug: string): Promise<PolymarketMarket 
   setMarketCache(cacheKey, rawArr);
   const list = normalizeMarkets(raw);
   return list[0] || null;
+}
+
+// ── Market RESOLUTION lookups ───────────────────────────────────
+//
+// What a market actually paid out. This is the only way a replay can know
+// whether a position it was still holding when the leaders went quiet was
+// worth $1 or $0 — see the `Settlement` doc in lib/backtest.ts.
+//
+// gamma's `condition_ids` filter has two traps, both silent (it answers 200
+// with `[]` rather than complaining):
+//
+//   1. the param must be REPEATED, not comma-joined —
+//      `?condition_ids=A&condition_ids=B`, never `?condition_ids=A,B`;
+//   2. the default market filter excludes closed markets, so a query for a
+//      RESOLVED market returns nothing unless it also passes `closed=true`.
+//
+// Both are why this doesn't go through `polyApi` with a params object, and why
+// the caller must always check which ids came back rather than assuming the
+// response lines up with the request.
+
+/** One market's resolution: outcome name (lowercased) → payout, 0 or 1. */
+export interface MarketResolution {
+  conditionId: string;
+  legs: Record<string, number>;
+  /** Resolution time (ms) — gamma's endDate. 0 when absent. */
+  endMs: number;
+}
+
+/** Gamma caps a page at 100 and the URL has to stay sane. */
+const RESOLUTION_BATCH = 20;
+
+/** Look up how the given markets resolved. Only CLOSED markets come back, so
+ *  an id that is `checked` but absent from `resolutions` is genuinely still
+ *  open — never "worth zero".
+ *
+ *  `checked` is the important half: an id whose batch request FAILED is not in
+ *  it, and callers must not cache such an id as "no resolution". The first run
+ *  of this code did exactly that — the API had been put to sleep under it, all
+ *  600 lookups threw, and every one was filed as a negative that then
+ *  suppressed re-checks for hours. An unanswered question is not an answer. */
+export async function fetchMarketResolutions(
+  conditionIds: string[],
+): Promise<{ resolutions: Map<string, MarketResolution>; checked: Set<string> }> {
+  const resolutions = new Map<string, MarketResolution>();
+  const checked = new Set<string>();
+  const ids = [...new Set(conditionIds.filter((c) => c && c.startsWith("0x")))];
+  for (let i = 0; i < ids.length; i += RESOLUTION_BATCH) {
+    const batch = ids.slice(i, i + RESOLUTION_BATCH);
+    const qs = new URLSearchParams();
+    for (const id of batch) qs.append("condition_ids", id);
+    qs.set("closed", "true");
+    qs.set("limit", String(RESOLUTION_BATCH * 2));
+    let raw: unknown;
+    try {
+      raw = await polyApiQs("markets", qs);
+    } catch {
+      continue; // unanswered — leave every id in this batch unchecked
+    }
+    if (!Array.isArray(raw)) continue; // an error object, not a market list
+    for (const id of batch) checked.add(id);
+    for (const m of raw as Record<string, unknown>[]) {
+      const parsed = parseResolution(m);
+      // Trap 3: gamma will happily return a market we didn't ask about if a
+      // param is ignored. Only trust ids from the batch we sent.
+      if (parsed && batch.includes(parsed.conditionId)) resolutions.set(parsed.conditionId, parsed);
+    }
+  }
+  return { resolutions, checked };
+}
+
+function parseResolution(m: Record<string, unknown>): MarketResolution | null {
+  const conditionId = typeof m.conditionId === "string" ? m.conditionId : "";
+  if (!conditionId || m.closed !== true) return null;
+  const asList = (v: unknown): unknown[] => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === "string") { try { return JSON.parse(v) as unknown[]; } catch { return []; } }
+    return [];
+  };
+  const outcomes = asList(m.outcomes).map((o) => String(o).trim().toLowerCase());
+  const prices = asList(m.outcomePrices).map(Number);
+  if (outcomes.length < 2 || outcomes.length !== prices.length) return null;
+  if (prices.some((p) => !Number.isFinite(p))) return null;
+  // A resolved market pays out exactly $1 across its outcomes. Anything else
+  // is a closed-but-unsettled market (or a shape we don't understand) and is
+  // safer left unknown than booked as a loss.
+  const total = prices.reduce((s, p) => s + p, 0);
+  if (Math.abs(total - 1) > 0.01) return null;
+  const legs: Record<string, number> = {};
+  outcomes.forEach((o, i) => { legs[o] = prices[i]; });
+  const endMs = typeof m.endDate === "string" ? Date.parse(m.endDate) || 0 : 0;
+  return { conditionId, legs, endMs };
 }
 
 export interface PricePoint { t: number; p: number; }
@@ -1177,9 +1276,18 @@ export interface ClosedPosition {
   timestamp: number;    // ms — when the position closed
 }
 
+/// Every closed position for `address`, oldest history included.
+///
+/// `maxRows` is a runaway guard, NOT a display cap — truncating here
+/// silently corrupts any total computed from the result. The data-api does
+/// not return closed positions in P&L order, so a cut tail is not a random
+/// sample: on the reference account the 1000-row cap dropped 251 legs worth
+/// -$2,259, and the console's "REALIZED" headline read +$1,777 against a
+/// wallet holding $0.70. Keep the ceiling far above any real account's leg
+/// count so the sum is always the whole book.
 export async function fetchClosedPositions(
   address: string,
-  maxRows = 1000,
+  maxRows = 20000,
 ): Promise<ClosedPosition[]> {
   // The data-api silently caps limit at 50 — page until a short page.
   const PAGE = 50;

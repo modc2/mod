@@ -1,8 +1,9 @@
 // Next's server-start hook — the one place the app gets to run something that
 // isn't a request.
 //
-// Used for the hub's background backtest worker: every strat the console has
-// published is replayed every 2 hours so the STRAT HUB has real numbers
+// Used for the hub's background backtest worker: a fetch loop keeps an on-disk
+// cache of every watched trader's history warm, and a replay loop backtests
+// every published strat over that cache, so the STRAT HUB has real numbers
 // waiting instead of computing a wall of backtests in the browser on every
 // visit. See app/lib/server/hubWorker.ts.
 

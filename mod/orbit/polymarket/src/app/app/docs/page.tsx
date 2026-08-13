@@ -551,8 +551,10 @@ export default function DocsPage() {
                 <tr>
                   <td className="text-pixel-white font-mono whitespace-nowrap">maxTradeAgeSec</td>
                   <td className="text-pixel-gray-light">
-                    Mirrors are refused for leader trades older than this (default 300s). After a fetch outage the backlog
-                    would otherwise be entered at prices the leader never paid.
+                    Mirrors are refused for leader trades older than this. <span className="text-pixel-white">Off unless you set it</span> —
+                    as a default it refused most observed flow, because the history a session pulls on its first cycle is
+                    old by definition. Set it when you care that a post-outage backlog would enter at prices the leader
+                    never paid.
                   </td>
                 </tr>
               </tbody>
