@@ -14,6 +14,8 @@ import {
 } from "@/lib/wallet";
 import { api, MediaOut, MeResponse, VeniceModel, mediaUrl } from "@/lib/api";
 import { makePaidFetch } from "@/lib/x402";
+import ThemePicker from "@/components/ThemePicker";
+import Pix from "@/components/Pix";
 
 const TOKEN_KEY = "venice:token";
 const ADDR_KEY = "venice:addr";
@@ -423,29 +425,56 @@ export default function Page() {
     return (
       <div className="stage hero">
         <div className="hero-card panel">
-          <span className="brand">venice</span>
-          <span className="brand-sub">a generative atelier — text, image &amp; video conjured in a single thread</span>
-          {error && <div className="banner err">✕ {error}</div>}
-          {ok && !busy && <div className="banner ok">✓ {ok}</div>}
+          <div className="hero-top">
+            <div>
+              <span className="brand">venice</span>
+              <span className="brand-sub">
+                a generative atelier — text, image &amp; video conjured in a single thread
+              </span>
+            </div>
+            <ThemePicker />
+          </div>
+
+          <div className="strip" aria-hidden="true"><i /><i /><i /><i /><i /><i /></div>
+
+          {error && <div className="banner err"><Pix name="cross" /> {error}</div>}
+          {ok && !busy && <div className="banner ok"><Pix name="check" /> {ok}</div>}
+
           <p className="lead">
             Edit your photos and summon images &amp; video in one conversation —
             <span className="accent"> attach a picture, describe the change</span>, Venice does the rest.
             Bring your own Venice key (encrypted at rest, used only for your calls), or pay per turn in USDC.
           </p>
-          <p className="lead" style={{ marginTop: 10 }}>
+
+          <div className="tiles">
+            {[
+              { ico: "▣", name: "Edit", body: "Attach a photo, describe the change — it comes back re-rendered." },
+              { ico: "✦", name: "Conjure", body: "Images from a sentence. Upscale 2× in the same breath." },
+              { ico: "▶", name: "Animate", body: "Turn any still into a few seconds of video." },
+            ].map((t) => (
+              <div className="tile" key={t.name}>
+                <div className="tile-ico" aria-hidden="true">{t.ico}</div>
+                <span className="tile-name">{t.name}</span>
+                <div className="tile-body">{t.body}</div>
+              </div>
+            ))}
+          </div>
+
+          <p className="lead" style={{ marginTop: 18 }}>
             Two ways to sign in. <strong>Wallet</strong> ties the session to your address. Or go
             <span className="accent"> anonymous</span>: a keypair is minted right here in your browser —
             no wallet, no email, no identity revealed. Each anonymous identity carries its own Venice key;
             the private key never leaves this device, and <em>Forget identity</em> erases it.
           </p>
-          <div className="row" style={{ marginTop: 22 }}>
+
+          <div className="hero-actions">
             {wallet && (
               <button className="primary" onClick={signIn} disabled={!!busy}>
                 Sign in with wallet
               </button>
             )}
             <button
-              className={wallet ? "ghost" : "primary"}
+              className={wallet ? "" : "primary"}
               onClick={() => signInLocal()}
               disabled={!!busy}
               title="Generate a keypair in this browser — no wallet, no identity revealed"
@@ -453,6 +482,11 @@ export default function Page() {
               {hasLocal ? "Resume anonymous" : "Use anonymously"}
             </button>
             {busy && <span className="thinking"><span className="orb" />{busy}</span>}
+          </div>
+
+          <div className="fineprint">
+            Eleven display modes, light and dark — pick one from the swatch up top. Nothing about the
+            mode touches your session.
           </div>
         </div>
       </div>
@@ -465,7 +499,7 @@ export default function Page() {
       <aside className={`side ${sideOpen ? "" : "closed"}`}>
         <div className="side-head">
           <span className="side-brand">venice</span>
-          <button className="ghost icon" onClick={toggleSide} title="hide sidebar" aria-label="hide sidebar">«</button>
+          <button className="ghost icon" onClick={toggleSide} title="hide sidebar" aria-label="hide sidebar"><Pix name="left" /></button>
         </div>
 
         <button className="primary new-convo" onClick={newConvo} disabled={!!busy}>
@@ -494,7 +528,7 @@ export default function Page() {
         </div>
 
         <div className="side-sec">
-          <div className="side-sec-title">Identity</div>
+          <div className="sec-title">Identity</div>
           <div className="row" style={{ gap: 8 }}>
             <span className={`pill ${idKind === "local" ? "ok" : "brand"}`}>
               {idKind === "local" ? "anonymous" : "wallet"}
@@ -514,10 +548,10 @@ export default function Page() {
         </div>
 
         <div className="side-sec">
-          <div className="side-sec-title">Access</div>
+          <div className="sec-title">Access</div>
           {me?.has_key ? (
             <div className="row" style={{ gap: 8 }}>
-              <span className="pill ok">✓ your key (BYOK)</span>
+              <span className="pill ok"><Pix name="check" size={11} /> your key (BYOK)</span>
               <button className="ghost" onClick={removeKey} disabled={!!busy}>Remove</button>
             </div>
           ) : (
@@ -552,7 +586,7 @@ export default function Page() {
         </div>
 
         <div className="side-sec">
-          <div className="side-sec-title">Model</div>
+          <div className="sec-title">Model</div>
           <select value={model} onChange={(e) => setModel(e.target.value)} title="orchestrator model (calls the image/video tools)">
             {agentModels.length === 0 && <option value="">loading…</option>}
             {agentModels.map((m) => (
@@ -565,20 +599,24 @@ export default function Page() {
       <main className="main">
         <div className="topbar">
           {!sideOpen && (
-            <button className="ghost icon" onClick={toggleSide} title="show sidebar" aria-label="show sidebar">☰</button>
+            <button className="ghost icon" onClick={toggleSide} title="show sidebar" aria-label="show sidebar"><Pix name="menu" /></button>
           )}
           <span className="topbar-title">{active?.title ?? "venice"}</span>
           <div className="spacer" />
           {status && <span className="thinking"><span className="orb" />{status}</span>}
+          <ThemePicker />
         </div>
 
-        {error && <div className="banner err">✕ {error}</div>}
-        {ok && !busy && <div className="banner ok">✓ {ok}</div>}
+        {error && <div className="banner err"><Pix name="cross" /> {error}</div>}
+        {ok && !busy && <div className="banner ok"><Pix name="check" /> {ok}</div>}
 
         <div className="thread" ref={threadRef}>
           {thread.length === 0 && (
             <div className="empty">
               <div className="empty-title">what shall we dream up?</div>
+              <div className="empty-sub">
+                Type below, or attach a photo and say what to change. Pick a starting point:
+              </div>
               <div className="prompts">
                 {[
                   "draw a neon cyberpunk fox",
@@ -632,7 +670,7 @@ export default function Page() {
         <div className="composer">
           <label className="attach" title="attach an image">
             <input type="file" accept="image/*" hidden disabled={!!busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) attachImage(f); e.target.value = ""; }} />
-            📎
+            <Pix name="image" size={18} />
           </label>
           <textarea
             placeholder={me?.has_key || me?.paid_available ? "Message venice…  (text, images, video)" : "add a key or enable paid to chat"}

@@ -1,12 +1,12 @@
 {
   "name": "venice",
-  "version": "0.2.0",
-  "description": "Venice AI gateway — Rust API + Next.js app. Bring your own key, or pay per request (x402) and we fund the call with our backend key. Wallet (mod protocol) auth.",
+  "version": "0.3.0",
+  "description": "Venice AI gateway \u2014 Rust API + Next.js app with an 8-bit console (eleven display modes, light and dark). Bring your own key, or pay per request (x402) and we fund the call with our backend key. Wallet (mod protocol) auth.",
   "port": 50880,
   "app_port": 3880,
   "route": true,
   "icon": "V",
-  "color": "#b91c1c",
+  "color": "#e43b44",
   "provider": "venice",
   "default_model": "zai-org-glm-5",
   "urls": {
@@ -15,14 +15,38 @@
     "gateway": "http://localhost:3000/venice"
   },
   "endpoints": {
-    "/health": { "method": "GET", "docs": "Liveness probe" },
-    "/models": { "method": "GET", "docs": "Public Venice model list" },
-    "/me": { "method": "GET", "docs": "Caller identity + key/paid availability (Bearer token)" },
-    "/key": { "method": "POST", "docs": "Store caller's BYOK Venice key (Bearer token)" },
-    "/chat": { "method": "POST", "docs": "Chat completion — BYOK or x402-paid (Bearer token)" },
-    "/agent": { "method": "POST", "docs": "Multimodal agent turn — SSE status/media/message events (Bearer token)" },
-    "/media": { "method": "POST", "docs": "Upload an attachment (base64/data URL) for the agent (Bearer token)" },
-    "/media/:id": { "method": "GET", "docs": "Fetch stored media by capability id (public, unguessable)" }
+    "/health": {
+      "method": "GET",
+      "docs": "Liveness probe"
+    },
+    "/models": {
+      "method": "GET",
+      "docs": "Public Venice model list"
+    },
+    "/me": {
+      "method": "GET",
+      "docs": "Caller identity + key/paid availability (Bearer token)"
+    },
+    "/key": {
+      "method": "POST",
+      "docs": "Store caller's BYOK Venice key (Bearer token)"
+    },
+    "/chat": {
+      "method": "POST",
+      "docs": "Chat completion \u2014 BYOK or x402-paid (Bearer token)"
+    },
+    "/agent": {
+      "method": "POST",
+      "docs": "Multimodal agent turn \u2014 SSE status/media/message events (Bearer token)"
+    },
+    "/media": {
+      "method": "POST",
+      "docs": "Upload an attachment (base64/data URL) for the agent (Bearer token)"
+    },
+    "/media/:id": {
+      "method": "GET",
+      "docs": "Fetch stored media by capability id (public, unguessable)"
+    }
   },
   "fns": [
     "forward",

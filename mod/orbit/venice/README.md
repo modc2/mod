@@ -12,6 +12,10 @@ for a user to pay, both gated by **wallet (mod-protocol) auth**:
    per request over the [x402](https://x402.org) protocol, and the backend
    funds the actual Venice call with **our** key.
 
+The console is **8-bit**: hard 3px frames, offset drop shadows, Press Start 2P
+chrome over a VT323 body, a pixel lattice and CRT scanlines. Eleven display
+modes ship with it — eight dark, three light — see *Display modes* below.
+
 ```
 venice/
 ├── venice/mod.py          # original Python SDK (forward/models/pricing/keys…)
@@ -40,6 +44,44 @@ pm2 start ecosystem.config.js
 ```
 
 API on `:50880`, app on `:3880/venice`.
+
+## Display modes
+
+Every mode is pure CSS. `data-theme` on `<html>` swaps a block of custom
+properties and `data-base` records whether that palette is light or dark; no
+component hard-codes a colour, so a light mode is a palette swap and nothing
+else. Structure (frame width, radius, shadow, fonts, scanline strength) is a
+variable too — that's how one soft mode coexists with ten pixel ones.
+
+| mode | base | |
+| --- | --- | --- |
+| Arcade | dark | NES cabinet — red, gold, midnight blue *(default)* |
+| Atelier | dark | Venetian gold leaf on obsidian, in 8 bits |
+| Noir | dark | monochrome ink and brushed steel |
+| Lagoon | dark | the water at dawn — aqua on deep teal |
+| Commodore | dark | C64 boot screen |
+| Vapor | dark | neon dusk — magenta, cyan, chrome |
+| Phosphor | dark | green CRT terminal, heavier scanlines |
+| Velvet | dark | the original obsidian-glass atelier — no pixels |
+| Paper | light | ink on warm newsprint |
+| Game Boy | light | DMG-01, four shades of pea soup |
+| Bloom | light | rose, cream and ripe plum |
+
+The picker sits top-right (swatch + a one-tap light/dark flip). The choice is
+stored under `venice:theme`, re-painted before first paint by the inline script
+in `app/src/app/layout.tsx`, and with nothing stored the OS
+`prefers-color-scheme` decides — a light-mode machine never gets a black screen.
+Ids live in `app/src/lib/theme.ts`; the layout script and `globals.css` mirror
+them.
+
+Icons are pixel SVGs (`app/src/components/Pix.tsx`) drawn on a 7×7 grid rather
+than emoji or an icon font: a host with no emoji font renders 📎 as tofu, and
+pixel fonts carry no symbol range.
+
+```bash
+python3 scripts/shots.py            # screenshot every mode → /tmp/venice-shots
+python3 scripts/shots.py arcade     # …or just one
+```
 
 ## Enabling the paid path
 
