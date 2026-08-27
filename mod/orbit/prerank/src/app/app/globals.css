@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #080b16;
+  --panel: #0e1424;
+  --edge: #1c2540;
+  --fg: #c6d2e8;
+  --muted: #6b7b9c;
+  --accent: #7aa2f7;
+  --up: #4ade80;
+  --down: #f87171;
+  --warn: #fbbf24;
+}
+
+html,
+body {
+  background: var(--ink);
+  color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+/* The console is one column of cards on a dark field; these are the three
+   shapes it uses over and over. */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.tab {
+  padding: 10px 4px;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tab:hover {
+  color: var(--fg);
+}
+.tab[data-active="true"] {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+.btn {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 7px 14px;
+  color: var(--fg);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08101f;
+  font-weight: 600;
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.field {
+  background: #060a14;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: var(--fg);
+  width: 100%;
+  outline: none;
+}
+.field:focus {
+  border-color: var(--accent);
+}
+
+.pill {
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.mono-dim {
+  color: var(--muted);
+  word-break: break-all;
+}
+
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+}
+table.grid th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--edge);
+}
+table.grid td {
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(28, 37, 64, 0.5);
+}

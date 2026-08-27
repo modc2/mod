@@ -1,11 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { TopTrader, CATEGORIES, formatVolume, formatPnl, timeAgo, matchMarketCategory, CategorySlug } from "../lib/polymarket";
+import Link from "next/link";
+import { TopTrader, CATEGORIES, formatVolume, formatPnl, timeAgo, matchMarketCategory, CategorySlug, MAX_ACTIVITY_ROWS } from "../lib/polymarket";
 import { shortAddress } from "@/lib/auth";
 import { PolymarketTrade, PolymarketPosition, TradeFilters } from "../lib/types";
 import { tradeMatchesFilters, describeTradeFilters } from "../lib/tradeFilters";
-import TradeFilterBar, { TradeFilterToggle, useTradeFilterBar } from "./TradeFilterBar";
+import { marketMatchesQuery } from "../lib/marketQuery";
+import { useTradeFilterBar } from "./TradeFilterBar";
+import ProfileFilters from "./ProfileFilters";
+import CopySimPanel from "./CopySimPanel";
+import type { AllocationParams } from "../lib/identityStrat";
 import PnlChart from "./PnlChart";
 import type { CurvePoint } from "./PnlChart";
 // No recharts — pure SVG charts for reliability with any version.
@@ -27,6 +32,18 @@ interface Props {
   onDaysChange?: (d: number | null) => void;
   searchFilter?: string;
   categoryFilter?: CategorySlug;
+  // The leaderboard's market-topic filter (FiltersContext `marketQuery`, ?mq=),
+  // carried in from the row that was clicked. That row's P&L / volume / trade
+  // count were recomputed from ONLY the matching markets, so the profile has to
+  // narrow the same way — otherwise opening a "bitcoin" trader shows their whole
+  // tape and none of the numbers reconcile with the list you came from.
+  // Same matcher the strats use (lib/marketQuery.ts). Cleared via the chip's ✕.
+  marketQuery?: string;
+  onClearMarketQuery?: () => void;
+  // Supplied ⇒ the filter rail can SET the topic gate, not just clear it. The
+  // profile used to be able only to drop the query it was handed, which made
+  // "expand into the trader" a one-way door out of the market you searched.
+  onMarketQueryChange?: (q: string) => void;
   // Supplied ⇒ the FILTERS bar renders the global category buckets and can
   // set them from here (same shared filter TRADERS/MARKETS/TRADES use).
   onCategoryChange?: (c: CategorySlug) => void;
@@ -39,10 +56,27 @@ interface Props {
   // Non-null when the trade-history sync failed (rate limit / outage). The
   // stats and tabs must not present 0 trades as a real answer in that case.
   tradesError?: string | null;
+  /** The sync ended at Polymarket's activity-feed ceiling instead of at the
+   *  requested window. Not an error — the trades shown are real and current —
+   *  but they are the most RECENT slice, so anything older in the window is
+   *  absent and every window-wide stat is a floor, not a total. */
+  feedDepthCapped?: boolean;
   onRetrySync?: () => void;
-  // Supplied ⇒ the header renders ⑂ IDENTITY: create a strat whose entire
-  // watchlist is THIS trader (an IDENTITY strat) and jump to its workspace.
-  onCopyIdentity?: () => void;
+  // Supplied ⇒ the header renders the COPY DESK control and the COPY SIM
+  // panel: put an amount against this trader and add them to the copy book.
+  // This is THE action on the page, and the only way the console starts
+  // copying anyone. `params` is the configuration that was simulated — the
+  // market gate and the engine knobs — so the row that gets written is the
+  // one whose replay you just read, not the template's defaults.
+  onCopyToDesk?: (allocationUsd: number, params?: AllocationParams) => void | Promise<void>;
+  // Their current allocation, when they're already on the desk. `null` ⇒ not
+  // copied; a number ⇒ the header says so instead of offering to add them
+  // again (adding twice is an update, not a second session, but a button that
+  // doesn't say which is a button that gets clicked by mistake).
+  deskAllocationUsd?: number | null;
+  /** Where the sticky filter rail parks, in px from the top of the viewport.
+      The page raises it while the sync strip is on screen. */
+  stickyTopPx?: number;
 }
 
 // 30 is the ceiling — trade syncs never reach further back than
@@ -135,15 +169,31 @@ export default function TraderProfile({
   onDaysChange,
   searchFilter = "",
   categoryFilter = "",
+  marketQuery = "",
+  onClearMarketQuery,
+  onMarketQueryChange,
   onCategoryChange,
   stratFilters = null,
   stratFilterName = "",
   onClearStratFilters,
   tradesError = null,
+  feedDepthCapped = false,
   onRetrySync,
-  onCopyIdentity,
+  onCopyToDesk,
+  deskAllocationUsd = null,
+  stickyTopPx = 56,
 }: Props) {
+  // The COPY DESK amount field, opened from the header button.
+  const [deskAmount, setDeskAmount] = useState("100");
+  const [deskOpen, setDeskOpen] = useState(false);
+  const [deskBusy, setDeskBusy] = useState(false);
   const dayLabel = days > 0 ? `${days}D` : "ALL-TIME";
+  // How far the synced tape actually reaches — the honest answer to "is this
+  // the whole window?" when the feed came back depth-capped.
+  const oldestTradeMs = useMemo(
+    () => trades.reduce((m, t) => (m === 0 || t.timestamp < m ? t.timestamp : m), 0),
+    [trades],
+  );
   const [customDays, setCustomDays] = useState("");
   const [posSort, setPosSort] = useState<PosSort>("pnlUsd");
   const [posSortDir, setPosSortDir] = useState<SortDir>("desc");
@@ -159,8 +209,9 @@ export default function TraderProfile({
   const [tradeView, setTradeView] = useState<TradeView>("all");
   // Same FILTERS bar as the TRADES tape — slices this trader's flow by side /
   // entry price / size / keyword / category. Narrows EVERYTHING below (stats,
-  // curve, tables), like the search + category filters already do.
-  const [showFilters, setShowFilters] = useState(false);
+  // curve, tables, and the copy simulator), like the search + category filters
+  // already do. It lives in the sticky rail below the header, not behind a
+  // toggle in the tab bar: a gate you can't see is one you forget you set.
   const bar = useTradeFilterBar();
   // Selected-market filter over THIS trader's trades — set by clicking a
   // market name in the trade/results tables. No standing input: the chip in
@@ -259,10 +310,14 @@ export default function TraderProfile({
   const filteredTrades = useMemo(() => {
     const q = searchFilter.trim().toLowerCase();
     const local = tradeQuery.trim().toLowerCase();
-    if (!q && !local && !categoryFilter && !stratFilters && !bar.active) return tradesInWindow;
+    const mq = marketQuery.trim();
+    if (!q && !local && !mq && !categoryFilter && !stratFilters && !bar.active) return tradesInWindow;
     return tradesInWindow.filter((t) => {
       if (q && !t.market.toLowerCase().includes(q)) return false;
       if (local && !t.market.toLowerCase().includes(local)) return false;
+      // The topic filter the traders list was ranked by — same matcher, so the
+      // profile shows the same slice of flow the leaderboard scored.
+      if (mq && !marketMatchesQuery(t.market, mq)) return false;
       if (categoryFilter && !matchMarketCategory(t.market, categoryFilter)) return false;
       // The FILTERS bar — side / entry price / size / keyword.
       if (!bar.matches(t)) return false;
@@ -271,11 +326,11 @@ export default function TraderProfile({
       if (stratFilters && !tradeMatchesFilters(t, stratFilters)) return false;
       return true;
     });
-  }, [tradesInWindow, searchFilter, tradeQuery, categoryFilter, stratFilters, bar.active, bar.matches]);
+  }, [tradesInWindow, searchFilter, tradeQuery, marketQuery, categoryFilter, stratFilters, bar.active, bar.matches]);
 
-  // Any trade-level filter active (TopBar search, local keyword, category,
-  // FILTERS bar, strat trade-filter handoff)?
-  const filterActive = !!(searchFilter.trim() || tradeQuery.trim() || categoryFilter || stratFilters || bar.active);
+  // Any trade-level filter active (TopBar search, local keyword, leaderboard
+  // topic query, category, FILTERS bar, strat trade-filter handoff)?
+  const filterActive = !!(searchFilter.trim() || tradeQuery.trim() || marketQuery.trim() || categoryFilter || stratFilters || bar.active);
 
   // Mark-to-market cumulative P&L, one point per trade, plus a final "NOW"
   // mark that revalues any still-open inventory at current position prices.
@@ -450,10 +505,12 @@ export default function TraderProfile({
   // matching markets.
   const filteredPositions = useMemo(() => {
     const q = searchFilter.trim().toLowerCase();
+    const mq = marketQuery.trim();
     const stratCats = stratFilters?.categories ?? [];
-    if (!q && !categoryFilter && stratCats.length === 0 && bar.keywords.length === 0) return positions;
+    if (!q && !mq && !categoryFilter && stratCats.length === 0 && bar.keywords.length === 0) return positions;
     return positions.filter((p) => {
       if (q && !p.market.toLowerCase().includes(q)) return false;
+      if (mq && !marketMatchesQuery(p.market, mq)) return false;
       if (categoryFilter && !matchMarketCategory(p.market, categoryFilter)) return false;
       // Only the bar's keyword dimension applies — a position has no
       // side/price/size-of-fill to gate on.
@@ -463,7 +520,7 @@ export default function TraderProfile({
       if (stratCats.length > 0 && !stratCats.some((c) => matchMarketCategory(p.market, c))) return false;
       return true;
     });
-  }, [positions, searchFilter, categoryFilter, stratFilters, bar.keywords, bar.matchesText]);
+  }, [positions, searchFilter, marketQuery, categoryFilter, stratFilters, bar.keywords, bar.matchesText]);
 
   const sortedPositions = useMemo(() => {
     return [...filteredPositions].sort((a, b) => {
@@ -585,15 +642,64 @@ export default function TraderProfile({
         >
           [COPY]
         </button>
-        {onCopyIdentity && (
-          <button
-            onClick={onCopyIdentity}
-            title={`Create an IDENTITY strat — a strat that copies ${shortAddress(trader.address)} and no one else`}
-            className="pixel-btn border-cyan-400/60 text-cyan-400 hover:text-pixel-white hover:border-pixel-white text-[13px] py-1 tracking-wider"
-          >
-            ⑂ IDENTITY
-          </button>
-        )}
+        {/* THE primary action: put money against this trader. */}
+        {onCopyToDesk &&
+          (deskAllocationUsd !== null ? (
+            <Link
+              href={`/copy/${trader.address.toLowerCase()}`}
+              title="Already on the copy desk — open their workspace to change the amount, backtest them or start them"
+              className="pixel-btn border-pixel-green/70 text-pixel-green hover:text-pixel-white hover:border-pixel-white text-[13px] py-1 tracking-wider"
+            >
+              ✓ ON DESK ${deskAllocationUsd.toLocaleString("en-US")}
+            </Link>
+          ) : deskOpen ? (
+            <span className="inline-flex items-center gap-1">
+              <input
+                autoFocus
+                className="pixel-input-sm w-24 font-mono text-[13px]"
+                value={deskAmount}
+                inputMode="decimal"
+                onChange={(e) => setDeskAmount(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setDeskOpen(false);
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
+                placeholder="$"
+              />
+              <button
+                className="pixel-btn border-pixel-green/70 text-pixel-green text-[13px] py-1 tracking-wider"
+                disabled={deskBusy || !(Number(deskAmount) > 0)}
+                onClick={async () => {
+                  setDeskBusy(true);
+                  try {
+                    // Carry the topic gate the profile is being read under —
+                    // "find on bitcoin, copy on bitcoin" has to survive the
+                    // quick-add too, not just the simulator's CTA.
+                    await onCopyToDesk(Number(deskAmount), {
+                      marketQuery: marketQuery.trim(),
+                    });
+                    setDeskOpen(false);
+                  } finally {
+                    setDeskBusy(false);
+                  }
+                }}
+              >
+                {deskBusy ? "…" : "ADD TO DESK"}
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setDeskOpen(true)}
+              title={`Copy ${shortAddress(trader.address)} with an amount — adds them to the copy desk`}
+              className="pixel-btn border-pixel-green/70 text-pixel-green hover:text-pixel-white hover:border-pixel-white text-[13px] py-1 tracking-wider"
+            >
+              ＋ COPY WITH $
+            </button>
+          ))}
+        {/* There is no second copy button. "＋ COPY WITH $" used to sit beside
+            "⑂ IDENTITY", which forked a local strat that copied this one trader
+            — the same act, in a second vocabulary, writing to a second store.
+            Copying a trader is one thing now: a row on the server's copy book. */}
 
         {onDaysChange && (
           <>
@@ -668,6 +774,22 @@ export default function TraderProfile({
         </button>
       </div>
 
+      {/* ── The filter rail — ALWAYS on screen ──
+          The market gate the board was found with, still adjustable after you
+          open the trader. It narrows the stats, the curve, every tab AND the
+          copy simulator, so one control surface answers "which slice is this?"
+          for the whole page. See components/ProfileFilters.tsx. */}
+      <ProfileFilters
+        marketQuery={marketQuery}
+        onMarketQueryChange={onMarketQueryChange}
+        category={categoryFilter}
+        onCategoryChange={onCategoryChange}
+        bar={bar}
+        matched={filteredTrades.length}
+        total={tradesInWindow.length}
+        stickyTopPx={stickyTopPx}
+      />
+
       {/* ── Strat trade-filter chip ──
           Shown when the profile was opened from a strat's trader list with
           active per-trade filters: everything below (stats, curve, tables)
@@ -730,6 +852,24 @@ export default function TraderProfile({
             </div>
           )}
 
+          {/* Not a failure — a ceiling. Polymarket's activity feed refuses to
+              page past 5,500 rows for any wallet, and the traders worth
+              copying are exactly the ones who blow through that inside the
+              window. Say what IS held rather than pretending the window was
+              covered: every stat below is a floor. */}
+          {feedDepthCapped && !tradesError && (
+            <div className="pixel-panel p-4 border-amber-500/50">
+              <div className="text-[15px] text-amber-400 tracking-wider">
+                {`FEED DEPTH LIMIT — POLYMARKET SERVES AT MOST ${MAX_ACTIVITY_ROWS.toLocaleString()} ACTIVITY ROWS PER WALLET`}
+              </div>
+              <div className="text-[13px] text-pixel-gray mt-1">
+                {oldestTradeMs > 0
+                  ? `THIS TRADER HAS MORE THAN THAT IN ${dayLabel} — HISTORY BELOW REACHES BACK ${timeAgo(oldestTradeMs)}, NOT ${dayLabel}. WINDOW STATS ARE FLOORS.`
+                  : `THIS TRADER HAS MORE THAN THAT IN ${dayLabel} — ONLY THE MOST RECENT SLICE IS SHOWN. WINDOW STATS ARE FLOORS.`}
+              </div>
+            </div>
+          )}
+
           {/* Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {([
@@ -757,6 +897,47 @@ export default function TraderProfile({
             })}
           </div>
 
+          {/* ── SIMULATE THE COPY ──
+              The stats above are the TRADER's record. This is YOURS: the same
+              window replayed as a copy of them, at a dollar amount you name,
+              under the gate the rail is showing. It sits above the tape on
+              purpose — deciding whether to copy someone is the reason this
+              page is open, and it used to require adding them first. */}
+          {onCopyToDesk && (
+            <CopySimPanel
+              address={trader.address}
+              trades={trades}
+              positions={positions}
+              days={days}
+              marketQuery={marketQuery}
+              tradeFilters={
+                // The rail's enforceable dimensions, plus the strat handoff
+                // when the profile was opened from one. Keywords are excluded
+                // deliberately — the panel says why.
+                bar.tfActive || categoryFilter || stratFilters
+                  ? {
+                      ...(stratFilters ?? {}),
+                      ...(bar.tfActive ? bar.tf : {}),
+                      ...(categoryFilter ? { categories: [categoryFilter] } : {}),
+                    }
+                  : null
+              }
+              keywords={bar.keywords}
+              onUseKeywordsAsTopic={
+                onMarketQueryChange && bar.keywords.length > 0
+                  ? () => {
+                      onMarketQueryChange(bar.keywords.join(", "));
+                      bar.clear();
+                    }
+                  : undefined
+              }
+              loading={loading}
+              feedDepthCapped={feedDepthCapped}
+              deskAllocationUsd={deskAllocationUsd}
+              onCopyToDesk={onCopyToDesk}
+            />
+          )}
+
           {/* ── Tabbed: TRADES / P&L / INFO ── */}
           <div className="pixel-panel overflow-hidden">
             {/* Tab bar */}
@@ -782,6 +963,29 @@ export default function TraderProfile({
                 </button>
               ))}
               <div className="ml-auto mr-2 flex items-center gap-1.5 min-w-0">
+                {/* Topic chip — the leaderboard keyword this trader was found
+                    with. It narrows every tab, so it has to be visible here:
+                    an invisible filter that hides most of a tape reads as a
+                    trader who barely trades. ✕ shows their whole flow. */}
+                {marketQuery.trim() && (
+                  <>
+                    <span
+                      className="border-2 border-green-400/60 text-green-400 px-2 py-1 text-[13px] font-mono truncate max-w-[280px]"
+                      title={`Showing only markets matching “${marketQuery.trim()}” — the keyword the traders list was ranked by. Every number on this page is that slice, not their whole record.`}
+                    >
+                      {marketQuery.trim()}
+                    </span>
+                    {onClearMarketQuery && (
+                      <button
+                        onClick={onClearMarketQuery}
+                        className="text-[14px] text-pixel-gray hover:text-pixel-white px-1"
+                        title="Clear the keyword filter — show every market this trader traded"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </>
+                )}
                 {/* Selected-market chip — only shown once a market is picked
                     (click a market name in any table below). Narrows every tab
                     (P&L curve, trade tables) and the stats above. */}
@@ -802,23 +1006,12 @@ export default function TraderProfile({
                     </button>
                   </>
                 )}
-                <TradeFilterToggle
-                  open={showFilters}
-                  onToggle={() => setShowFilters((s) => !s)}
-                  count={bar.count + (categoryFilter ? 1 : 0)}
-                />
               </div>
             </div>
-
-            {/* The tape's own FILTERS bar — narrows every tab AND the stats
-                above, same as the search/category filters do. */}
-            <TradeFilterBar
-              bar={bar}
-              open={showFilters}
-              embedded
-              category={categoryFilter}
-              onCategoryChange={onCategoryChange}
-            />
+            {/* No FILTERS toggle here — the dimensions it used to hide are in
+                the sticky rail above, which is on screen whichever tab this
+                is. Two places to set one filter is how a tape ends up narrowed
+                by something you can't see. */}
 
             {/* Tab content */}
             {profileTab === "trades" ? (
@@ -1117,11 +1310,19 @@ export default function TraderProfile({
                       ["FIRST TRADE", info.firstTs ? new Date(info.firstTs).toLocaleString() : "—"],
                       ["LAST TRADE", info.lastTs ? timeAgo(info.lastTs).toUpperCase() : "—"],
                       ["MARKETS TRADED", `${info.markets}`],
-                      ["FEED", tradesError ? `SYNC FAILED — ${tradesError}` : "OK"],
+                      ["FEED", tradesError
+                        ? `SYNC FAILED — ${tradesError}`
+                        : feedDepthCapped
+                        ? `DEPTH-CAPPED AT ${MAX_ACTIVITY_ROWS.toLocaleString()} UPSTREAM ROWS`
+                        : "OK"],
                     ] as const).map(([k, v]) => (
                       <div key={k} className="flex items-baseline gap-2">
                         <span className="text-pixel-gray tracking-wider w-[130px] shrink-0">{k}</span>
-                        <span className={k === "FEED" && tradesError ? "text-red-400" : "text-pixel-white"}>{v}</span>
+                        <span className={
+                          k === "FEED" && tradesError ? "text-red-400"
+                            : k === "FEED" && feedDepthCapped ? "text-amber-400"
+                              : "text-pixel-white"
+                        }>{v}</span>
                       </div>
                     ))}
                   </div>
@@ -1217,6 +1418,9 @@ export default function TraderProfile({
                       )}
                       {tradeQuery && (
                         <span className="pixel-badge border-pixel-gray-light text-pixel-gray-light truncate max-w-[320px]">MARKET “{tradeQuery}”</span>
+                      )}
+                      {marketQuery.trim() && (
+                        <span className="pixel-badge border-green-400/60 text-green-400 truncate max-w-[320px]">TOPIC “{marketQuery.trim()}”</span>
                       )}
                       {categoryFilter && (
                         <span className="pixel-badge border-pixel-gray-light text-pixel-gray-light">{categoryFilter.toUpperCase()}</span>

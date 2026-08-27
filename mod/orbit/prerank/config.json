@@ -1,0 +1,148 @@
+{
+    "name": "prerank",
+    "version": "1.0.0",
+    "description": "A once-a-day prediction market over which model finishes first, and a way of paying people for having used it early. A round opens on a fixed field of models; a bet is a hash of the model you picked, so the amount is public and locked from the moment you commit but the direction is unreadable \u2014 by other bettors and by this server alike \u2014 until the reveal window, which is what makes the odds you take the odds of being early rather than the odds of having waited to see where the money went. Alongside the betting there is a second door in: every metered call on a model carries a spend and a cost, and the house's margin between them is handed back to the caller as a claim on that model, weighted by how early the call was, so that the first credits through a model buy a full unit and the same margin buys half as much once it has absorbed K credits. Because the rebate comes out of the margin and not the spend, farming usage to build a position always costs more than the position it builds. Every rule is enforced in one Rust file and every claim is checkable from outside: the log is hash-linked and the state is nothing but its fold, each sealed round publishes a Merkle root over its commitments so a bettor can prove inclusion without trusting the set, the field and the payout parameters are hashed into the round when it opens, a quorum of registered graders must independently agree on a ranking or the round voids and refunds, and a grader holding a position in the round it grades is recorded and not counted.",
+    "icon": "\u25f3",
+    "anchor": "mod.py",
+    "protocol": "prerank/1.0",
+    "port": 50630,
+    "app_port": 50631,
+    "gateway_port": 50630,
+    "base_path": "/prerank",
+    "route": true,
+    "urls": {
+        "api": "http://localhost:50630",
+        "app": "http://localhost:50631/prerank",
+        "same_origin_api": "http://localhost:50631/prerank/_api",
+        "gateway_api": "https://modc2.com/api/prerank",
+        "gateway_app": "https://modc2.com/prerank"
+    },
+    "backend": "src/api (Rust: axum, an append-only hash chain, sealed-bid parimutuel settlement \u2014 :50630)",
+    "frontend": "src/app (Next.js 14; the console at /prerank on :50631, proxying /prerank/_api to the API)",
+    "state": "~/.mod/prerank/chain.jsonl \u2014 the whole market is this one append-only log; the running state is its fold and nothing else. bets.json alongside it holds the CLI's own salts.",
+    "identity": "EIP-191 personal_sign over secp256k1. mod.py signs with this box's own protocol key, so the CLI and a browser wallet are the same kind of caller.",
+    "cadence": "one round per UTC day: commitments until 18:00, reveals until 23:00, grading until 00:00, then settlement",
+    "market": {
+        "kind": "sealed-bid parimutuel",
+        "unit": "micro-credits (1 credit = 1000000)",
+        "mint": "a revealed bet mints claim units 1:1; an early-user edge position mints margin \u00d7 K/(K+c)",
+        "token": "PRE-<MODEL>-<ROUND> \u2014 a per-round token, transferable between the seal and the settlement, redeemed at settlement",
+        "payout": "winners divide the pool less the house fee; floor division, remainder to the treasury as dust",
+        "no_winner": "a quorum agreed but nobody backed the winner \u2014 stakes returned, no fee",
+        "void": "no quorum, or two contradicting quorums \u2014 everything refunded including forfeits"
+    },
+    "cheat_proofing": [
+        "bets are sealed: the amount is public and locked, the model is a hash until the reveal window",
+        "a commitment that is never opened forfeits its stake to the pool, so withholding is strictly bad",
+        "the log is hash-linked and the state is its fold \u2014 GET /verify replays it from genesis and checks the running server against it",
+        "every sealed round publishes a Merkle root over its commitments; GET /proof gives an inclusion path the browser walks itself",
+        "the field and every payout parameter are hashed into spec_hash when the round opens and never read again",
+        "a rank needs a quorum of registered graders to agree; no quorum or two quorums voids the round and refunds everyone",
+        "a grader holding a position in the round it grades is recorded and not counted toward quorum",
+        "rankings are published as hashes until settlement, so a second grader cannot copy the first",
+        "the round token trades only after the seal \u2014 an earlier transfer would leak which model the sender is on",
+        "every signed action carries a single-use nonce, so a captured request cannot be replayed",
+        "edge credit comes from the house's margin on meter-signed spend, lands a round later than it was earned, and is capped per user per model",
+        "credits are conserved: issued == balances + locked + open pools + treasury, checked after every scenario in the tests"
+    ],
+    "roles": {
+        "owner": "sets the field, issues credits, appoints graders and meters",
+        "grader": "ranks a sealed round; a quorum must agree",
+        "meter": "posts signed usage receipts, which is the only way credits enter the earliness curve",
+        "bettor": "anybody with a balance"
+    },
+    "endpoints": {
+        "info": "GET /",
+        "health": "GET /health",
+        "status": "GET /status",
+        "rounds": "GET /round | GET /rounds | GET /rounds/{id}",
+        "commit": "POST /commit {address,signature,round,commitment,amount,nonce}",
+        "reveal": "POST /reveal {round,commitment,model,salt}",
+        "transfer": "POST /transfer {address,signature,round,model,to,units,nonce}",
+        "attest": "POST /attest {address,signature,round,ranking[]}",
+        "usage": "POST /usage {id,user,model,spend,cost,at,meter,signature}",
+        "account": "GET /account/{address}",
+        "models": "GET /models",
+        "leaderboard": "GET /leaderboard",
+        "verify": "GET /verify",
+        "proof": "GET /proof/{round}/{commitment}",
+        "chain": "GET /chain?from=&limit=",
+        "tick": "POST /tick",
+        "owner": "POST /owner | POST /roster | POST /attestors | POST /meters | POST /credits/grant | POST /round/force",
+        "dev": "POST /dev/sign {wallet,message} \u2014 open mode only",
+        "console": "GET /prerank (app service)"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "readme",
+        "health",
+        "status",
+        "round",
+        "rounds",
+        "models",
+        "leaderboard",
+        "account",
+        "bet",
+        "bets",
+        "reveal",
+        "transfer",
+        "attest",
+        "usage",
+        "owner",
+        "roster",
+        "grader",
+        "meter",
+        "grant",
+        "tick",
+        "verify",
+        "proof",
+        "chain",
+        "address",
+        "build",
+        "serve",
+        "kill",
+        "logs",
+        "test"
+    ],
+    "env": {
+        "PRERANK_DIR": "off-tree state: the chain and the CLI's salts (default: ~/.mod/prerank)",
+        "PRERANK_OPEN": "1 accepts unsigned actions and enables the development wallets \u2014 local only, and reported by /health",
+        "PRERANK_OWNER": "the owner address a fresh chain is created with",
+        "PRERANK_PORT": "API port (default 50630)",
+        "PRERANK_APP_PORT": "console port (default 50631)",
+        "PRERANK_API": "where mod.py and the console proxy to (default http://127.0.0.1:50630)",
+        "PRERANK_DAY_SECONDS": "round length in seconds (default 86400 \u2014 lower it to demonstrate a full day in minutes)",
+        "PRERANK_REVEAL_BPS": "when commitments close, in basis points of the round (default 7500 = 18:00 UTC)",
+        "PRERANK_SEAL_BPS": "when reveals close and grading opens (default 9583 = 23:00 UTC)",
+        "PRERANK_FEE_BPS": "house fee on the pool (default 200 = 2%)",
+        "PRERANK_QUORUM": "graders who must agree (default 2)",
+        "PRERANK_EARLINESS_K": "the earliness constant K in micro-credits (default 100000000 = 100 credits)"
+    },
+    "toolchain": {
+        "rust": [
+            "axum",
+            "tokio",
+            "k256",
+            "sha2",
+            "sha3"
+        ],
+        "node": [
+            "next@14",
+            "react@18",
+            "tailwindcss"
+        ],
+        "python": [
+            "eth-account"
+        ]
+    },
+    "tests": {
+        "rust": "cargo test --manifest-path src/api/Cargo.toml \u2014 37 tests; tests/cheatproof.rs is one test per way of cheating",
+        "python": "pytest tests \u2014 drives a live API end to end, including a full round in compressed time"
+    },
+    "services": [
+        "prerank-api",
+        "prerank-app"
+    ],
+    "schema": "QmP148xpAsWwEM7D8ahqUpU4VRj7EVA7go2cdgaGmnEZBX"
+}

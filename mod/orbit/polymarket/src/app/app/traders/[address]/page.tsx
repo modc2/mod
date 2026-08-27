@@ -9,13 +9,18 @@ import { PolymarketTrade, PolymarketPosition, TradeFilters } from "../../lib/typ
 import TraderProfile from "../../components/TraderProfile";
 import TopBar from "../../components/TopBar";
 import { useFilters, useUrlSync } from "../../context/FiltersContext";
-import { useStratManager } from "../../lib/stratManager";
+import { fetchCopyBook, upsertAllocation } from "../../lib/copyBook";
+import { getOwnerAddress } from "../../lib/access";
+import { useAuth } from "../../context/AuthContext";
 
 interface FetchProgress {
   pages: number;
   totalTrades: number;
   oldestMs: number;        // 0 = not yet known
   done: boolean;
+  /** Upstream stopped serving pages before the window was covered — see
+   *  MAX_ACTIVITY_ROWS. Not a failure, but not a whole answer either. */
+  depthCapped?: boolean;
 }
 
 // Per-trader lookback overrides: { [address]: days }, 1..MAX_LOOKBACK_DAYS.
@@ -35,9 +40,15 @@ function TraderPageInner() {
   useUrlSync();
   const params = useParams();
   const router = useRouter();
-  const { daysAgo, setSearch, category, setCategory, reloadKey } = useFilters();
-  // ⑂ IDENTITY — one click from a trader's page to a strat that copies them.
-  const { createIdentity } = useStratManager();
+  const {
+    daysAgo, setSearch, category, setCategory, marketQuery, setMarketQuery, reloadKey,
+  } = useFilters();
+  const { auth } = useAuth();
+  const eoa = getOwnerAddress() ?? auth.address ?? null;
+  // Are they already on the copy desk, and for how much? Read once per visit
+  // so the header can say "ON DESK $250" instead of offering to add someone
+  // who is already being copied.
+  const [deskAllocationUsd, setDeskAllocationUsd] = useState<number | null>(null);
   const globalDays = Math.min(
     Number(daysAgo) > 0 ? Number(daysAgo) : 7,
     MAX_LOOKBACK_DAYS,
@@ -57,6 +68,23 @@ function TraderPageInner() {
   const address = String(
     Array.isArray(params.address) ? params.address[0] : params.address || "",
   ).toLowerCase();
+
+  // Is this trader already on the COPY DESK? One read per visit; the desk
+  // itself owns the polling.
+  useEffect(() => {
+    if (!address) return;
+    let cancelled = false;
+    void fetchCopyBook(eoa)
+      .then((book) => {
+        if (cancelled) return;
+        const row = book.allocations.find((a) => a.address === address);
+        setDeskAllocationUsd(row ? row.allocationUsd : null);
+      })
+      // Gate locked or API down — the header just offers to add them, which
+      // is the same thing it does for a trader who genuinely isn't copied.
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [address, eoa]);
 
   // Strat trade-filter handoff (?tf= from the strat editor's trader list):
   // when present, the profile gates every trade through the SAME per-trade
@@ -279,6 +307,7 @@ function TraderPageInner() {
           positions={positions}
           loading={loading && trades.length === 0}
           tradesError={tradesError}
+          feedDepthCapped={progress.depthCapped === true}
           onRetrySync={() => setRetryKey((k) => k + 1)}
           watching={watching}
           onToggleWatch={toggleWatch}
@@ -289,15 +318,39 @@ function TraderPageInner() {
           onDaysChange={changeDays}
           categoryFilter={category}
           onCategoryChange={setCategory}
+          // The topic keyword the leaderboard was filtered by (?mq=, carried
+          // over by CopyTrading's row click). The list scored this trader on
+          // matching markets only; the profile now shows the same slice, so
+          // the two screens agree about what this trader's record is.
+          marketQuery={marketQuery}
+          onClearMarketQuery={() => setMarketQuery("")}
+          // The rail can re-aim the gate from here — pick a different market
+          // type without going back to the board. `useUrlSync` writes it to
+          // ?mq=, so the screen is shareable and a reload keeps the slice.
+          onMarketQueryChange={setMarketQuery}
+          // Park the sticky rail below the sync strip while that's on screen,
+          // under the nav bar otherwise.
+          stickyTopPx={loading && progress.pages > 0 ? 94 : 56}
           stratFilters={stratFilters}
           stratFilterName={stratFilterName}
           onClearStratFilters={() => {
             setStratFilters(null);
             setStratFilterName("");
           }}
-          onCopyIdentity={() => {
-            const idx = createIdentity(address);
-            router.push(`/strats?id=${idx.id}`);
+          deskAllocationUsd={deskAllocationUsd}
+          onCopyToDesk={async (allocationUsd, params) => {
+            // `params` is what the simulator actually replayed — the market
+            // gate and the engine knobs. Posting them with the amount is what
+            // makes the row the engine runs the same configuration whose
+            // numbers were on screen when the decision was made. Server-side
+            // `params` is a PATCH, so omitted knobs keep their template value.
+            const res = await upsertAllocation({ address, allocationUsd, params }, eoa);
+            setDeskAllocationUsd(res.allocation.allocationUsd);
+            // Straight into THIS leader's workspace rather than the desk. You
+            // just decided to copy one person; the next question is about them
+            // (what does the replay say, do I start them, is the wallet
+            // funded?) and every answer is one route away.
+            router.push(`/copy/${address.toLowerCase()}`);
           }}
         />
       </div>
