@@ -1,21 +1,649 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&family=Silkscreen:wght@400;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* ═══════════════════════════════════════════════════════════════════════
+   BlocTime console — one instrument, ten faces
+   ───────────────────────────────────────────────────────────────────────
+   The rules of this system, in order:
 
-body {
-  background: #0a0a0f;
-  color: #e5e5e5;
-  font-family: 'SF Mono', 'Fira Code', 'IBM Plex Mono', monospace;
-  min-height: 100vh;
+   1. NOTHING NAMES A HUE. Components ask for `accent`, `up`, `gold`,
+      `iris`, `down` — never "cyan". That indirection is the only reason a
+      skin can move from a neon cabinet to a paper ledger and still read.
+   2. TYPE IS FOUR STEPS, NOT ALPHA. ink → ink2 → mute → faint are real
+      per-skin colours. Fading black to 25% on paper is unreadable; every
+      skin picks its own bottom step instead.
+   3. NUMBERS ARE MONO AND TABULAR. A staking console is a column of
+      figures; they have to line up when they change.
+   4. DEPTH IS ONE HAIRLINE AND ONE SHADOW. No stacked translucency.
+   5. MOTION IS UNDER 250ms AND ONLY ON INTENT. Nothing animates on load
+      except the tab body.
+
+   Every value a skin can move lives in the token block below. A
+   `[data-theme="…"]` block restates the SAME list in the SAME order — a
+   skin that drops a line silently inherits MIDNIGHT's, which is the one
+   way this breaks. `data-base` (stamped alongside) says light or dark, and
+   the generic rules at the bottom key on that rather than on any one id.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme="midnight"] {
+  /* Surfaces — a switched-off screen is never pure black */
+  --base-rgb:   9 10 18;
+  --raise-rgb:  18 20 32;
+  --panel-rgb:  16 18 28;
+  --panel2-rgb: 22 25 38;
+  --field-rgb:  25 28 42;
+  --fieldhi-rgb: 34 38 56;
+  --scrim-rgb:  4 4 8;
+  /* Type — four steps, brightest first */
+  --ink-rgb:    233 237 250;
+  --ink2-rgb:   174 182 206;
+  --mute-rgb:   126 135 162;
+  --faint-rgb:  86 94 118;
+  /* Edges */
+  --hair-rgb:   40 45 66;
+  --line-rgb:   56 62 88;
+  --line2-rgb:  92 102 140;
+  /* The five voices */
+  --accent-rgb: 56 224 255;
+  --up-rgb:     52 227 155;
+  --gold-rgb:   247 201 72;
+  --iris-rgb:   167 139 250;
+  --down-rgb:   255 92 114;
+
+  --font-ui:  'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --r-sm: 5px; --r-md: 8px; --r-lg: 12px; --r-xl: 18px; --r-full: 999px;
+
+  /* Backdrop wash + panel shadow strength. Light skins take these to 0 —
+     a glow on paper reads as a printing error. */
+  --glow: 0.5;
+  --shadow: 0 14px 34px -18px rgb(0 0 0 / 0.75);
+  --ease: cubic-bezier(.22,.68,.28,1);
+  --scan: 0;
 }
 
+/* Derived once. Charts and inline SVG paint through these (a `var()` in a
+   presentation attribute never resolves — they get used as style props). */
+:root {
+  --accent: rgb(var(--accent-rgb));
+  --up:     rgb(var(--up-rgb));
+  --gold:   rgb(var(--gold-rgb));
+  --iris:   rgb(var(--iris-rgb));
+  --down:   rgb(var(--down-rgb));
+}
+
+/* ═══ SKINS ════════════════════════════════════════════════════════════ */
+
+/* Graphite instrument panel. The quiet one — no hue in the field at all. */
+[data-theme="slate"] {
+  --base-rgb:   14 17 21;
+  --raise-rgb:  25 30 37;
+  --panel-rgb:  21 25 31;
+  --panel2-rgb: 28 33 41;
+  --field-rgb:  32 38 47;
+  --fieldhi-rgb: 43 51 62;
+  --scrim-rgb:  6 8 10;
+  --ink-rgb:    233 238 244;
+  --ink2-rgb:   175 185 197;
+  --mute-rgb:   128 139 152;
+  --faint-rgb:  88 98 110;
+  --hair-rgb:   40 47 57;
+  --line-rgb:   56 65 77;
+  --line2-rgb:  95 108 124;
+  --accent-rgb: 79 157 255;
+  --up-rgb:     61 214 140;
+  --gold-rgb:   238 190 84;
+  --iris-rgb:   150 148 255;
+  --down-rgb:   255 106 106;
+  --font-ui:  'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, monospace;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 12px; --r-full: 999px;
+  --glow: 0.18;
+  --shadow: 0 12px 30px -18px rgb(0 0 0 / 0.8);
+  --ease: cubic-bezier(.22,.68,.28,1);
+  --scan: 0;
+}
+
+/* Bullion. Black felt, one metal, everything else stands down. */
+[data-theme="vault"] {
+  --base-rgb:   12 10 7;
+  --raise-rgb:  26 22 15;
+  --panel-rgb:  21 18 12;
+  --panel2-rgb: 30 25 17;
+  --field-rgb:  35 29 19;
+  --fieldhi-rgb: 48 40 26;
+  --scrim-rgb:  5 4 2;
+  --ink-rgb:    246 238 220;
+  --ink2-rgb:   199 184 154;
+  --mute-rgb:   150 135 106;
+  --faint-rgb:  108 96 74;
+  --hair-rgb:   52 44 30;
+  --line-rgb:   74 62 40;
+  --line2-rgb:  120 100 62;
+  --accent-rgb: 232 181 60;
+  --up-rgb:     143 199 87;
+  --gold-rgb:   255 214 102;
+  --iris-rgb:   199 160 255;
+  --down-rgb:   233 96 79;
+  --font-ui:  'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, monospace;
+  --r-sm: 3px; --r-md: 5px; --r-lg: 7px; --r-xl: 10px; --r-full: 999px;
+  --glow: 0.35;
+  --shadow: 0 14px 30px -18px rgb(0 0 0 / 0.9);
+  --ease: cubic-bezier(.22,.68,.28,1);
+  --scan: 0;
+}
+
+/* Phosphor tube. One green, bent five ways, scanlines on. */
+[data-theme="terminal"] {
+  --base-rgb:   2 11 6;
+  --raise-rgb:  6 24 14;
+  --panel-rgb:  4 19 11;
+  --panel2-rgb: 7 28 16;
+  --field-rgb:  8 33 19;
+  --fieldhi-rgb: 12 46 26;
+  --scrim-rgb:  0 6 3;
+  --ink-rgb:    186 255 214;
+  --ink2-rgb:   112 226 160;
+  --mute-rgb:   70 176 118;
+  --faint-rgb:  46 122 82;
+  --hair-rgb:   16 62 38;
+  --line-rgb:   26 92 56;
+  --line2-rgb:  48 150 94;
+  --accent-rgb: 61 255 148;
+  --up-rgb:     140 255 120;
+  --gold-rgb:   210 255 106;
+  --iris-rgb:   96 240 210;
+  --down-rgb:   255 118 118;
+  --font-ui:  'IBM Plex Mono', ui-monospace, monospace;
+  --font-num: 'IBM Plex Mono', ui-monospace, monospace;
+  --r-sm: 2px; --r-md: 3px; --r-lg: 4px; --r-xl: 6px; --r-full: 999px;
+  --glow: 0.55;
+  --shadow: 0 0 26px -6px rgb(var(--accent-rgb) / 0.22);
+  --ease: cubic-bezier(.22,.68,.28,1);
+  --scan: 0.16;
+}
+
+/* The other tube. Amber gas-plasma, 1983. */
+[data-theme="amber"] {
+  --base-rgb:   13 8 2;
+  --raise-rgb:  30 19 5;
+  --panel-rgb:  23 14 4;
+  --panel2-rgb: 34 22 7;
+  --field-rgb:  40 26 8;
+  --fieldhi-rgb: 56 37 12;
+  --scrim-rgb:  6 3 0;
+  --ink-rgb:    255 216 150;
+  --ink2-rgb:   226 174 96;
+  --mute-rgb:   178 132 64;
+  --faint-rgb:  126 92 44;
+  --hair-rgb:   62 42 14;
+  --line-rgb:   92 62 20;
+  --line2-rgb:  146 100 34;
+  --accent-rgb: 255 186 64;
+  --up-rgb:     186 226 74;
+  --gold-rgb:   255 214 110;
+  --iris-rgb:   255 150 96;
+  --down-rgb:   255 96 74;
+  --font-ui:  'IBM Plex Mono', ui-monospace, monospace;
+  --font-num: 'IBM Plex Mono', ui-monospace, monospace;
+  --r-sm: 2px; --r-md: 3px; --r-lg: 4px; --r-xl: 6px; --r-full: 999px;
+  --glow: 0.5;
+  --shadow: 0 0 26px -6px rgb(var(--accent-rgb) / 0.2);
+  --ease: cubic-bezier(.22,.68,.28,1);
+  --scan: 0.14;
+}
+
+/* Neon. Magenta and cyan on a violet night — the loudest cabinet. */
+[data-theme="neon"] {
+  --base-rgb:   16 3 26;
+  --raise-rgb:  36 8 56;
+  --panel-rgb:  28 6 45;
+  --panel2-rgb: 40 10 62;
+  --field-rgb:  46 12 72;
+  --fieldhi-rgb: 62 18 96;
+  --scrim-rgb:  8 1 14;
+  --ink-rgb:    250 232 255;
+  --ink2-rgb:   206 166 232;
+  --mute-rgb:   162 116 196;
+  --faint-rgb:  118 78 150;
+  --hair-rgb:   62 20 96;
+  --line-rgb:   92 34 138;
+  --line2-rgb:  148 68 210;
+  --accent-rgb: 45 233 255;
+  --up-rgb:     57 255 176;
+  --gold-rgb:   255 214 92;
+  --iris-rgb:   255 61 190;
+  --down-rgb:   255 62 118;
+  --font-ui:  'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, monospace;
+  --r-sm: 5px; --r-md: 9px; --r-lg: 14px; --r-xl: 20px; --r-full: 999px;
+  --glow: 0.95;
+  --shadow: 0 18px 40px -20px rgb(var(--iris-rgb) / 0.5);
+  --ease: cubic-bezier(.22,.68,.28,1);
+  --scan: 0;
+}
+
+/* Drafting table. Cyanotype field, white linework, one warm annotation. */
+[data-theme="blueprint"] {
+  --base-rgb:   8 26 56;
+  --raise-rgb:  16 44 88;
+  --panel-rgb:  12 36 74;
+  --panel2-rgb: 17 46 92;
+  --field-rgb:  20 54 106;
+  --fieldhi-rgb: 28 70 132;
+  --scrim-rgb:  4 14 30;
+  --ink-rgb:    232 242 255;
+  --ink2-rgb:   174 202 240;
+  --mute-rgb:   130 165 214;
+  --faint-rgb:  94 128 178;
+  --hair-rgb:   28 66 122;
+  --line-rgb:   46 94 160;
+  --line2-rgb:  96 148 216;
+  --accent-rgb: 122 214 255;
+  --up-rgb:     124 236 186;
+  --gold-rgb:   255 206 122;
+  --iris-rgb:   178 186 255;
+  --down-rgb:   255 130 130;
+  --font-ui:  'IBM Plex Mono', ui-monospace, monospace;
+  --font-num: 'IBM Plex Mono', ui-monospace, monospace;
+  --r-sm: 0px; --r-md: 0px; --r-lg: 0px; --r-xl: 0px; --r-full: 999px;
+  --glow: 0.3;
+  --shadow: 0 12px 28px -18px rgb(0 0 0 / 0.7);
+  --ease: cubic-bezier(.22,.68,.28,1);
+  --scan: 0;
+}
+
+/* 8-bit. Square everything, bitmap type, hard offset shadow. */
+[data-theme="pixel"] {
+  --base-rgb:   10 6 20;
+  --raise-rgb:  30 20 56;
+  --panel-rgb:  23 16 43;
+  --panel2-rgb: 34 23 62;
+  --field-rgb:  14 9 28;
+  --fieldhi-rgb: 44 30 78;
+  --scrim-rgb:  5 3 10;
+  --ink-rgb:    244 240 255;
+  --ink2-rgb:   186 172 224;
+  --mute-rgb:   139 124 178;
+  --faint-rgb:  102 88 138;
+  --hair-rgb:   58 40 100;
+  --line-rgb:   86 57 154;
+  --line2-rgb:  138 96 226;
+  --accent-rgb: 34 240 255;
+  --up-rgb:     43 255 136;
+  --gold-rgb:   255 207 40;
+  --iris-rgb:   160 92 255;
+  --down-rgb:   255 51 85;
+  --font-ui:  'Silkscreen', ui-monospace, monospace;
+  --font-num: 'Silkscreen', ui-monospace, monospace;
+  --r-sm: 0px; --r-md: 0px; --r-lg: 0px; --r-xl: 0px; --r-full: 0px;
+  --glow: 0.45;
+  --shadow: 4px 4px 0 rgb(0 0 0 / 0.85);
+  --ease: steps(4, end);
+  --scan: 0.1;
+}
+
+/* ── Light skins ─────────────────────────────────────────────────────── */
+
+/* Ledger paper. Warm stock, printed ink, one blue for the pen. */
+[data-theme="paper"] {
+  --base-rgb:   246 244 238;
+  --raise-rgb:  255 255 252;
+  --panel-rgb:  255 254 250;
+  --panel2-rgb: 240 237 229;
+  --field-rgb:  255 255 253;
+  --fieldhi-rgb: 236 232 222;
+  --scrim-rgb:  60 55 44;
+  --ink-rgb:    26 23 18;
+  --ink2-rgb:   72 66 56;
+  --mute-rgb:   118 110 96;
+  --faint-rgb:  158 150 134;
+  --hair-rgb:   222 216 202;
+  --line-rgb:   200 192 176;
+  --line2-rgb:  150 140 120;
+  --accent-rgb: 32 82 190;
+  --up-rgb:     18 130 82;
+  --gold-rgb:   173 122 16;
+  --iris-rgb:   112 62 200;
+  --down-rgb:   196 44 56;
+  --font-ui:  'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, monospace;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 10px; --r-xl: 14px; --r-full: 999px;
+  --glow: 0;
+  --shadow: 0 10px 24px -18px rgb(60 50 30 / 0.5);
+  --ease: cubic-bezier(.22,.68,.28,1);
+  --scan: 0;
+}
+
+/* Clinic. Cool white, teal instrument, high contrast. */
+[data-theme="mint"] {
+  --base-rgb:   240 246 243;
+  --raise-rgb:  255 255 255;
+  --panel-rgb:  255 255 255;
+  --panel2-rgb: 234 242 238;
+  --field-rgb:  255 255 255;
+  --fieldhi-rgb: 228 238 233;
+  --scrim-rgb:  30 54 46;
+  --ink-rgb:    12 32 27;
+  --ink2-rgb:   54 82 74;
+  --mute-rgb:   104 132 124;
+  --faint-rgb:  146 172 164;
+  --hair-rgb:   216 230 224;
+  --line-rgb:   190 212 204;
+  --line2-rgb:  132 166 156;
+  --accent-rgb: 0 132 140;
+  --up-rgb:     14 138 84;
+  --gold-rgb:   166 118 8;
+  --iris-rgb:   90 78 208;
+  --down-rgb:   198 42 62;
+  --font-ui:  'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, monospace;
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px; --r-full: 999px;
+  --glow: 0;
+  --shadow: 0 12px 28px -20px rgb(20 60 50 / 0.45);
+  --ease: cubic-bezier(.22,.68,.28,1);
+  --scan: 0;
+}
+
+/* Noon. Cream stock, hot orange, the only skin that's genuinely bright. */
+[data-theme="solar"] {
+  --base-rgb:   253 246 232;
+  --raise-rgb:  255 252 244;
+  --panel-rgb:  255 251 242;
+  --panel2-rgb: 249 238 219;
+  --field-rgb:  255 253 247;
+  --fieldhi-rgb: 246 233 210;
+  --scrim-rgb:  70 48 20;
+  --ink-rgb:    38 24 8;
+  --ink2-rgb:   88 64 32;
+  --mute-rgb:   134 106 66;
+  --faint-rgb:  176 148 106;
+  --hair-rgb:   234 219 194;
+  --line-rgb:   214 194 162;
+  --line2-rgb:  164 136 94;
+  --accent-rgb: 200 84 12;
+  --up-rgb:     26 124 62;
+  --gold-rgb:   158 110 6;
+  --iris-rgb:   130 60 168;
+  --down-rgb:   192 36 46;
+  --font-ui:  'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-num: 'IBM Plex Mono', ui-monospace, monospace;
+  --r-sm: 4px; --r-md: 8px; --r-lg: 12px; --r-xl: 16px; --r-full: 999px;
+  --glow: 0;
+  --shadow: 0 10px 26px -20px rgb(120 70 10 / 0.5);
+  --ease: cubic-bezier(.22,.68,.28,1);
+  --scan: 0;
+}
+
+/* ═══ BASE ═════════════════════════════════════════════════════════════ */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  background: rgb(var(--base-rgb));
+  color: rgb(var(--ink-rgb));
+  font-family: var(--font-ui);
+  font-feature-settings: 'cv01', 'ss01';
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers are mono and tabular everywhere, without asking. */
+.tabular-nums, .font-mono, input[type="number"] {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+::selection { background: rgb(var(--accent-rgb) / 0.28); color: rgb(var(--ink-rgb)); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgb(var(--base-rgb)); }
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--line-rgb));
+  border: 2px solid rgb(var(--base-rgb));
+  border-radius: var(--r-full);
+}
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--line2-rgb)); }
+
+/* Chrome paints number spinners and date pickers from the UA sheet; on a
+   dark skin they're a white brick unless told otherwise. */
+input, select, textarea { color-scheme: var(--scheme, dark); }
+[data-base="light"] { --scheme: light; }
+
+/* ═══ THE FIELD ════════════════════════════════════════════════════════
+   A fixed backdrop: two accent washes and a faint grid, all scaled by
+   --glow so the light skins get plain paper for free. ═══════════════════ */
+
+.field-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--glow);
+  background:
+    radial-gradient(60rem 40rem at 15% -10%, rgb(var(--accent-rgb) / 0.16), transparent 65%),
+    radial-gradient(50rem 36rem at 95% 5%, rgb(var(--iris-rgb) / 0.14), transparent 60%),
+    radial-gradient(40rem 30rem at 50% 110%, rgb(var(--up-rgb) / 0.08), transparent 65%);
+}
+
+/* Grid + scanlines. The grid is always drawn (it's nearly invisible at low
+   --glow); the scanlines only exist on skins that ask for them. */
+.field-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: calc(var(--glow) * 0.5);
+  background-image:
+    linear-gradient(rgb(var(--line-rgb) / 0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--line-rgb) / 0.35) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(70% 60% at 50% 0%, #000 0%, transparent 100%);
+}
+
+.field-scan {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  opacity: var(--scan);
+  background: repeating-linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0.5) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+/* ═══ COMPONENTS ═══════════════════════════════════════════════════════ */
+
+@layer components {
+
+  /* Card — the only container. Everything on this page is one of these. */
+  .card {
+    @apply border border-line rounded-lg bg-panel;
+    box-shadow: var(--shadow);
+    transition: border-color .18s var(--ease);
+  }
+  .card-head {
+    @apply flex items-center gap-2 px-4 py-3 border-b border-hair;
+  }
+  .card-body { @apply p-4; }
+
+  /* The 10px uppercase label that names everything on this screen. */
+  .lbl {
+    @apply text-[10px] font-semibold uppercase text-mute;
+    letter-spacing: .14em;
+  }
+  .lbl-dim { @apply lbl text-faint; }
+
+  /* Stat tile — a number with a name and a coloured hairline on top.
+     `--tone` is set per tile; nothing here knows which hue that is. */
+  .stat {
+    @apply relative p-4 text-center overflow-hidden;
+    transition: background-color .18s var(--ease);
+  }
+  .stat::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--tone, rgb(var(--accent-rgb))), transparent);
+    opacity: .7;
+  }
+  .stat:hover { background: rgb(var(--panel2-rgb) / 0.7); }
+  .stat-val { @apply text-lg font-semibold tabular-nums leading-tight; color: var(--tone, rgb(var(--ink-rgb))); }
+  .stat-lab { @apply lbl-dim mt-1 block; }
+
+  /* Buttons. One shape, five voices; `.btn` alone is the quiet one. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md
+           text-[10px] font-bold uppercase border border-line bg-field text-ink2
+           whitespace-nowrap;
+    letter-spacing: .12em;
+    transition: background-color .16s var(--ease), color .16s var(--ease),
+                border-color .16s var(--ease), transform .1s var(--ease);
+  }
+  .btn:hover:not(:disabled) { @apply bg-fieldhi text-ink border-line2; }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:disabled { @apply opacity-30 cursor-not-allowed; }
+  .btn-sm { @apply px-3 py-1.5; }
+  .btn-icon { @apply p-2 rounded-md; }
+
+  .btn-accent { @apply border-accent/40 bg-accent/15 text-accent; }
+  .btn-accent:hover:not(:disabled) { @apply bg-accent/25 border-accent/60 text-accent; }
+  .btn-up { @apply border-up/40 bg-up/15 text-up; }
+  .btn-up:hover:not(:disabled) { @apply bg-up/25 border-up/60 text-up; }
+  .btn-gold { @apply border-gold/40 bg-gold/15 text-gold; }
+  .btn-gold:hover:not(:disabled) { @apply bg-gold/25 border-gold/60 text-gold; }
+  .btn-down { @apply border-down/40 bg-down/15 text-down; }
+  .btn-down:hover:not(:disabled) { @apply bg-down/25 border-down/60 text-down; }
+
+  /* Inputs. Focus is a ring in the accent, never a browser outline. */
+  .input {
+    @apply w-full text-sm px-3.5 py-2.5 rounded-md border border-line bg-field
+           text-ink placeholder:text-faint;
+    font-family: var(--font-num);
+    transition: border-color .16s var(--ease), box-shadow .16s var(--ease);
+  }
+  .input:focus {
+    @apply outline-none border-accent/70;
+    box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14);
+  }
+
+  /* Tab bar — a segmented control. The active tab is a filled chip, and
+     the row scrolls sideways on a phone rather than wrapping. */
+  .tabbar {
+    @apply flex gap-1 p-1 rounded-lg border border-line bg-panel overflow-x-auto;
+    scrollbar-width: none;
+  }
+  .tabbar::-webkit-scrollbar { display: none; }
+  .tab {
+    @apply flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-md
+           text-[10px] font-bold uppercase text-mute whitespace-nowrap;
+    letter-spacing: .12em;
+    transition: background-color .16s var(--ease), color .16s var(--ease);
+  }
+  .tab:hover { @apply text-ink2 bg-panel2/60; }
+  .tab-on, .tab-on:hover {
+    @apply bg-field text-ink;
+    box-shadow: inset 0 0 0 1px rgb(var(--line2-rgb) / 0.55);
+  }
+  .tab-on .tab-mark { opacity: 1; }
+
+  /* Chip — a small piece of state (address, network, count). */
+  .chip {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-hair
+           bg-panel2 text-[11px] text-ink2;
+    font-family: var(--font-num);
+  }
+  .chip-dot { @apply w-1.5 h-1.5 rounded-full; }
+
+  /* Popover / dropdown. Raised, so it needs its own surface. */
+  .menu {
+    @apply absolute z-40 rounded-lg border border-line bg-raise p-1 animate-fade-up;
+    box-shadow: 0 20px 44px -18px rgb(var(--scrim-rgb) / 0.9);
+  }
+  .menu-item {
+    @apply w-full flex items-center gap-2 px-2.5 py-2 rounded-sm text-left text-[11px] text-ink2;
+    transition: background-color .14s var(--ease), color .14s var(--ease);
+  }
+  .menu-item:hover { @apply bg-fieldhi text-ink; }
+  .menu-item[aria-checked="true"] { @apply text-accent; }
+
+  /* Table rows — used by the positions grid and the market list. */
+  .row { @apply transition-colors; }
+  .row:hover { background: rgb(var(--panel2-rgb) / 0.75); }
+
+  /* Section heading above a group of cards. */
+  .section-title { @apply lbl flex items-center gap-2 text-ink2; }
+}
+
+/* ═══ SKIN-SPECIFIC OVERRIDES ══════════════════════════════════════════
+   Keyed on `data-base` (a whole family) wherever possible, and on a single
+   id only when that cabinet is genuinely one of a kind. ═══════════════ */
+
+/* Paper doesn't glow, so panels earn their edge with a slightly firmer
+   border and a real (if faint) drop shadow instead. */
+[data-base="light"] .card { border-color: rgb(var(--line-rgb) / 0.85); }
+[data-base="light"] .field-grid { opacity: 0; }
+[data-base="light"] ::selection { background: rgb(var(--accent-rgb) / 0.18); }
+
+/* On paper the input fill IS the card fill, so an active tab picked out in
+   `--field` reads as nothing. Light skins fill it with the nested tone. */
+[data-base="light"] .tab-on,
+[data-base="light"] .tab-on:hover { background: rgb(var(--panel2-rgb)); }
+
+/* PIXEL: hard offset shadow, no soft edges, and the press actually moves. */
+[data-theme="pixel"] .card,
+[data-theme="pixel"] .menu { border-width: 2px; }
+[data-theme="pixel"] .btn { border-width: 2px; box-shadow: 3px 3px 0 rgb(0 0 0 / 0.8); }
+[data-theme="pixel"] .btn:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: none; }
+[data-theme="pixel"] .lbl, [data-theme="pixel"] .btn, [data-theme="pixel"] .tab {
+  letter-spacing: 0;
+}
+
+/* BLUEPRINT: linework, not fills — panels go translucent over the field. */
+[data-theme="blueprint"] .card { background: rgb(var(--panel-rgb) / 0.72); }
+[data-theme="blueprint"] .field-grid { opacity: .55; mask-image: none; background-size: 28px 28px; }
+
+/* The two tubes bloom: text on a phosphor screen has a halo. */
+[data-theme="terminal"] .stat-val,
+[data-theme="amber"] .stat-val,
+[data-theme="terminal"] .card-head .lbl,
+[data-theme="amber"] .card-head .lbl { text-shadow: 0 0 12px currentColor; }
+
+/* ═══ TOASTS ═══════════════════════════════════════════════════════════ */
+
 .Toastify__toast {
-  background: rgba(20, 20, 30, 0.95) !important;
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
-  font-family: monospace;
-  font-size: 12px;
+  background: rgb(var(--raise-rgb)) !important;
+  border: 1px solid rgb(var(--line-rgb)) !important;
+  border-radius: var(--r-md) !important;
+  color: rgb(var(--ink-rgb)) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 12px !important;
+  box-shadow: var(--shadow) !important;
+}
+.Toastify__toast-body { color: rgb(var(--ink-rgb)) !important; }
+.Toastify__close-button { color: rgb(var(--mute-rgb)) !important; opacity: 1 !important; }
+.Toastify__progress-bar--success { background: rgb(var(--up-rgb)) !important; }
+.Toastify__progress-bar--error { background: rgb(var(--down-rgb)) !important; }
+.Toastify__progress-bar--info { background: rgb(var(--accent-rgb)) !important; }
+.Toastify__progress-bar--warning { background: rgb(var(--gold-rgb)) !important; }
+
+/* ═══ MOTION ═══════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
 }

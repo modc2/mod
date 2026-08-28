@@ -1,0 +1,125 @@
+{
+    "name": "encrypt",
+    "version": "1.0.0",
+    "description": "Encrypted message vault with bring-your-own-circuit cryptography \u2014 you upload the circuit (a python module exposing encrypt/decrypt), the module runs it server-side in a sandbox, and only the ciphertext is kept, stored as a CID in the store mod. Keys are never persisted. Every circuit and every message can be downloaded back and deleted server-side.",
+    "anchor": "mod.py",
+    "deps": [
+        "store"
+    ],
+    "port": 50380,
+    "app_port": 50381,
+    "gateway_port": 50381,
+    "route": true,
+    "urls": {
+        "api": "http://localhost:50380",
+        "app": "http://localhost:50381"
+    },
+    "store_url": "http://localhost:50152",
+    "activator_url": "http://localhost:9000",
+    "sandbox": {
+        "timeout": 15,
+        "cpu_seconds": 10,
+        "memory_mb": 512,
+        "user": "nobody",
+        "network": false
+    },
+    "limits": {
+        "max_circuit_bytes": 262144,
+        "max_message_bytes": 8388608
+    },
+    "endpoints": {
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness + sandbox capabilities"
+        },
+        "status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Module status: store reachability, sandbox isolation, circuit/message counts"
+        },
+        "me": {
+            "method": "GET",
+            "auth": true,
+            "docs": "Caller address + the store identity your uploads land under"
+        },
+        "circuits": {
+            "method": "GET/POST/DELETE",
+            "auth": true,
+            "docs": "GET list circuits (own + public); POST upload a circuit (multipart file or {source,name,public}) \u2014 validated by an encrypt\u2192decrypt roundtrip in the sandbox and pinned to the store; DELETE /circuits/{id} removes it server-side"
+        },
+        "circuit_source": {
+            "method": "GET",
+            "auth": true,
+            "docs": "GET /circuits/{id}/source \u2014 download the circuit you brought (owner, or any public circuit)"
+        },
+        "circuit_install": {
+            "method": "POST",
+            "auth": true,
+            "docs": "POST /circuits/install {cid} \u2014 install a circuit someone shared by store CID"
+        },
+        "messages": {
+            "method": "GET/POST",
+            "auth": true,
+            "docs": "GET list your messages (metadata only); POST {circuit,key,text|data_b64,label,public,burn} \u2014 encrypts server-side with your circuit, stores the ciphertext in the store mod, returns the CID. The key is used in memory and never written anywhere"
+        },
+        "message_open": {
+            "method": "POST",
+            "auth": true,
+            "docs": "POST /messages/{id}/open {key} \u2014 fetch the ciphertext from the store and decrypt it server-side with the same circuit; burn-after-read messages delete themselves on success"
+        },
+        "message_download": {
+            "method": "GET",
+            "auth": true,
+            "docs": "GET /messages/{id}/download[?burn=1] \u2014 raw ciphertext bytes, to decrypt yourself with your own copy of the circuit"
+        },
+        "message_delete": {
+            "method": "DELETE",
+            "auth": true,
+            "docs": "DELETE /messages/{id} \u2014 removes the object from the store and drops the metadata. DELETE /messages purges every message you own"
+        },
+        "message_attach": {
+            "method": "POST",
+            "auth": true,
+            "docs": "POST /messages/attach {cid,circuit,label} \u2014 register a blob you encrypted client-side and uploaded to the store yourself (the server never sees the key or the plaintext)"
+        },
+        "message_publish": {
+            "method": "POST",
+            "auth": true,
+            "docs": "POST /messages/{id}/publish {public} \u2014 flip the stored ciphertext public/private in the store"
+        }
+    },
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "status",
+        "circuits",
+        "add_circuit",
+        "rm_circuit",
+        "install_circuit",
+        "source",
+        "encrypt",
+        "open",
+        "messages",
+        "download",
+        "rm",
+        "purge",
+        "examples",
+        "serve",
+        "serve_api",
+        "serve_app",
+        "kill",
+        "register",
+        "deregister"
+    ],
+    "env": {
+        "ENCRYPT_DIR": "Off-tree state: circuits + message index (default: ~/.mod/encrypt)",
+        "ENCRYPT_STORE_URL": "store mod gateway (default: config store_url / http://localhost:50152)",
+        "ENCRYPT_ACTIVATOR_URL": "activator control plane, used to wake a slept store (default: config activator_url / http://localhost:9000)",
+        "ENCRYPT_KEY": "Local key name used to mint a protocol token for CLI calls (default: the default mod key)",
+        "ENCRYPT_SANDBOX_USER": "Unix user the circuit process drops to when the API runs as root (default: config sandbox.user)"
+    },
+    "key": "encrypt",
+    "schema": "QmXh3YY1mPGVaePSDNpVqcyNVp1XZ8TNkgbhbN1nj1ZpLd"
+}

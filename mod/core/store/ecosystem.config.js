@@ -1,5 +1,5 @@
 // pm2 process definition for the mod store module.
-//   store-api : FastAPI gateway (protocol-auth + quota) on :50150
+//   store-api : FastAPI gateway (protocol-auth + quota) on :50152
 //   store-app : Next.js frontend on :50151
 // Launch:  pm2 start ecosystem.config.js   (or ./serve.sh, which wraps this)
 const path = require("path");
@@ -7,7 +7,7 @@ const path = require("path");
 const DIR = __dirname;                       // .../mod/core/store
 const REPO = path.resolve(DIR, "../../..");  // repo root (holds the `mod` package)
 
-const API_PORT = process.env.STORE_API_PORT || "50150";
+const API_PORT = process.env.STORE_API_PORT || "50152";
 const APP_PORT = process.env.STORE_APP_PORT || "50151";
 const MODE = process.env.STORE_MODE || "dev"; // "dev" | "prod"
 

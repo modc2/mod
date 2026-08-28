@@ -20,13 +20,42 @@ type HmacSha256 = Hmac<Sha256>;
 
 use std::sync::OnceLock;
 
-/// Server secret for HMAC token signing (generated at startup)
+/// Server secret for HMAC token signing. Persisted at ~/.mod/claude/server.secret
+/// so bearer tokens survive API restarts — this server restarts itself after
+/// self-edit jobs, and a fresh random secret would 401 every signed-in browser.
 static SERVER_SECRET: OnceLock<[u8; 32]> = OnceLock::new();
 
+fn secret_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".mod")
+        .join("claude")
+        .join("server.secret")
+}
+
 pub fn init_secret() {
+    let path = secret_path();
+    if let Ok(bytes) = std::fs::read(&path) {
+        if bytes.len() == 32 {
+            let mut secret = [0u8; 32];
+            secret.copy_from_slice(&bytes);
+            SERVER_SECRET.set(secret).ok();
+            return;
+        }
+    }
     use rand::RngCore;
     let mut secret = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut secret);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    if std::fs::write(&path, secret).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).ok();
+        }
+    }
     SERVER_SECRET.set(secret).ok();
 }
 
@@ -39,6 +68,101 @@ pub type ChallengeStore = Arc<RwLock<HashMap<String, String>>>;
 
 pub fn new_challenge_store() -> ChallengeStore {
     Arc::new(RwLock::new(HashMap::new()))
+}
+
+// ── Terms of Use ─────────────────────────────────────────────────────
+//
+// Every non-owner wallet must sign the current terms once before it can
+// sign in. The terms are embedded in the challenge message itself, so the
+// wallet signature covers them; acceptance is recorded per-address in
+// ~/.mod/claude/terms_accepted.json and re-required when the version bumps.
+
+pub const TERMS_VERSION: u32 = 1;
+pub const TERMS_MARKER: &str = "Claude Jobs Terms of Use (v1)";
+pub const TERMS_TEXT: &str = "\
+1. This service runs coding tasks on the operator's infrastructure. Your \
+prompts, task output, and files a task touches may be visible to the \
+operator, and tasks appear in a world-readable job ledger.
+2. You will not use the service for unlawful, abusive, or malicious \
+activity, or to access data or systems you are not authorized to access.
+3. Access is granted at the operator's discretion and may be limited, \
+suspended, or revoked at any time without notice.
+4. You are responsible for your wallet, its keys, and everything submitted \
+from your address.
+5. The service is provided \"as is\", without warranty of any kind. To the \
+maximum extent permitted by law, the operator is not liable for any damages \
+or losses arising from its use.";
+
+fn terms_accepted_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".mod")
+        .join("claude")
+        .join("terms_accepted.json")
+}
+
+fn read_terms_accepted() -> HashMap<String, serde_json::Value> {
+    std::fs::read_to_string(terms_accepted_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// True when this address needs no terms signature: the configured owner
+/// (or the first user, who becomes owner) sets the terms rather than
+/// agreeing to them, and already-recorded acceptances stay valid until
+/// TERMS_VERSION bumps.
+pub fn terms_satisfied(addr: &str) -> bool {
+    match get_owner_address() {
+        Some(owner) if owner != addr => {}
+        _ => return true,
+    }
+    read_terms_accepted()
+        .get(addr)
+        .and_then(|v| v.get("version"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v >= TERMS_VERSION as u64)
+        .unwrap_or(false)
+}
+
+fn record_terms_acceptance(addr: &str) {
+    let mut map = read_terms_accepted();
+    map.insert(
+        addr.to_string(),
+        serde_json::json!({
+            "version": TERMS_VERSION,
+            "accepted_at": chrono::Utc::now().timestamp(),
+        }),
+    );
+    let path = terms_accepted_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    if let Ok(s) = serde_json::to_string_pretty(&map) {
+        std::fs::write(&path, s).ok();
+    }
+}
+
+#[derive(Deserialize)]
+pub struct TermsQuery {
+    #[serde(default)]
+    pub address: Option<String>,
+}
+
+/// Public: the current terms text plus whether the given address still has
+/// to sign them, so the app can show the agreement before requesting a
+/// wallet signature.
+pub async fn terms(Query(q): Query<TermsQuery>) -> impl IntoResponse {
+    let required = match q.address.as_deref() {
+        Some(a) if !a.is_empty() => !terms_satisfied(&a.to_lowercase()),
+        _ => true,
+    };
+    Json(serde_json::json!({
+        "version": TERMS_VERSION,
+        "title": TERMS_MARKER,
+        "text": TERMS_TEXT,
+        "required": required,
+    }))
 }
 
 // ── Endpoints ────────────────────────────────────────────────────────
@@ -59,10 +183,18 @@ pub async fn challenge(
 ) -> impl IntoResponse {
     let addr = q.address.to_lowercase();
     let nonce = hex::encode(rand::random::<[u8; 16]>());
-    let message = format!(
+    let mut message = format!(
         "Sign this message to authenticate with Claude Jobs.\n\nAddress: {}\nNonce: {}",
         addr, nonce
     );
+    // First sign-in from a non-owner wallet also signs the terms: embedding
+    // them in the challenge makes the signature cover the exact text.
+    if !terms_satisfied(&addr) {
+        message.push_str(&format!(
+            "\n\nBy signing you accept the {}:\n{}",
+            TERMS_MARKER, TERMS_TEXT
+        ));
+    }
 
     let mut challenges = store.write().await;
     challenges.insert(addr, message.clone());
@@ -198,6 +330,25 @@ pub async fn verify(
             }
         }
     };
+
+    // Terms gate: the challenge for a not-yet-accepted address embeds the
+    // terms, so a valid signature over a message carrying the marker IS the
+    // acceptance. A message without it means a stale/forged challenge —
+    // send the client back through sign-in.
+    if !is_new_owner && !terms_satisfied(&addr) {
+        if req.message.contains(TERMS_MARKER) {
+            record_terms_acceptance(&addr);
+            println!("✓ Terms v{} accepted by {}", TERMS_VERSION, addr);
+        } else {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "error": "Terms of Use acceptance required — refresh and sign in again",
+                    "terms_required": true,
+                })),
+            ));
+        }
+    }
 
     let token = mint_token(&addr);
 
@@ -501,6 +652,10 @@ pub struct Grant {
     /// Optional human label so the owner remembers what a grant was for.
     #[serde(default)]
     pub label: Option<String>,
+    /// Module scope: None = every module (the default); Some(list) confines
+    /// the holder's edit powers to just those modules.
+    #[serde(default)]
+    pub modules: Option<Vec<String>>,
     pub created: i64,
     #[serde(default)]
     pub revoked: bool,
@@ -512,6 +667,10 @@ pub struct Redemption {
     pub exp: i64,
     pub grant: String,
     pub redeemed: i64,
+    /// Module scope stamped from the grant at redemption (None = every module),
+    /// so access stays correctly scoped even if the grant row is later pruned.
+    #[serde(default)]
+    pub modules: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -564,12 +723,30 @@ fn prune_grants(mut file: GrantsFile, now: i64) -> GrantsFile {
     file
 }
 
+/// Normalize a requested module scope: trim, drop empties, dedupe (order
+/// preserved). An empty/absent list means "every module" and collapses to None.
+fn normalize_modules(modules: Option<Vec<String>>) -> Option<Vec<String>> {
+    let list: Vec<String> = modules?
+        .into_iter()
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .fold(Vec::new(), |mut acc, m| {
+            if !acc.contains(&m) {
+                acc.push(m);
+            }
+            acc
+        });
+    if list.is_empty() { None } else { Some(list) }
+}
+
 /// Mint a new grant. `ttl` is clamped by the caller; `key` (if any) is hashed,
-/// never stored in the clear. Returns the created grant.
+/// never stored in the clear. `modules` (if any) confines the holder's edit
+/// powers to those modules — None means everything. Returns the created grant.
 pub fn create_grant(
     ttl: i64,
     key: Option<&str>,
     label: Option<&str>,
+    modules: Option<Vec<String>>,
 ) -> Result<Grant, String> {
     let now = chrono::Utc::now().timestamp();
     let id = hex::encode(rand::random::<[u8; 12]>());
@@ -581,6 +758,7 @@ pub fn create_grant(
         label: label
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty()),
+        modules: normalize_modules(modules),
         created: now,
         revoked: false,
     };
@@ -643,6 +821,7 @@ pub fn redeem_grant(id: &str, key: Option<&str>, address: &str) -> Result<i64, S
         exp: grant.exp,
         grant: grant.id.clone(),
         redeemed: now,
+        modules: grant.modules.clone(),
     });
     write_grants(&file)?;
     Ok(grant.exp)
@@ -677,6 +856,68 @@ pub fn grant_active(address: &str) -> bool {
         .any(|r| r.address == addr && r.exp > now && live.contains(r.grant.as_str()))
 }
 
+/// What a trusted address may edit. Owner and whitelisted editors always get
+/// everything; grant holders get whatever scope their invite carried.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EditScope {
+    /// Every module — the owner, whitelisted editors, and unscoped grants.
+    All,
+    /// Only these modules (compartmentalized-risk invites).
+    Modules(Vec<String>),
+}
+
+/// Resolve the edit scope for `address`: None = not trusted at all. A holder
+/// of several active grants gets the union of their scopes; any unscoped
+/// grant (or owner/whitelist status) widens to All.
+pub fn edit_scope(address: &str) -> Option<EditScope> {
+    if address.is_empty() {
+        return None;
+    }
+    let addr = address.to_lowercase();
+    if is_owner(&addr) || read_whitelist().iter().any(|w| w == &addr) {
+        return Some(EditScope::All);
+    }
+    let now = chrono::Utc::now().timestamp();
+    let file = read_grants();
+    let live: std::collections::HashSet<&str> = file
+        .grants
+        .iter()
+        .filter(|g| !g.revoked && g.exp > now)
+        .map(|g| g.id.as_str())
+        .collect();
+    let mut modules: Vec<String> = Vec::new();
+    let mut any = false;
+    for r in file
+        .redemptions
+        .iter()
+        .filter(|r| r.address == addr && r.exp > now && live.contains(r.grant.as_str()))
+    {
+        any = true;
+        match &r.modules {
+            None => return Some(EditScope::All),
+            Some(list) => {
+                for m in list {
+                    if !modules.contains(m) {
+                        modules.push(m.clone());
+                    }
+                }
+            }
+        }
+    }
+    if any { Some(EditScope::Modules(modules)) } else { None }
+}
+
+/// Module-aware trust check: true when `address` is trusted AND `module`
+/// falls inside its edit scope. This is the gate for per-module editor
+/// powers (MR verdicts, MR close); `is_trusted` stays the coarse gate.
+pub fn can_edit_module(address: &str, module: &str) -> bool {
+    match edit_scope(address) {
+        Some(EditScope::All) => true,
+        Some(EditScope::Modules(list)) => list.iter().any(|m| m == module),
+        None => false,
+    }
+}
+
 // ── Session handoff (QR sign-in on another device) ──────────────────
 //
 // A signed-in browser mints a short-lived, SINGLE-USE code bound to its own
@@ -696,19 +937,25 @@ struct Handoff {
 
 static HANDOFFS: OnceLock<std::sync::Mutex<HashMap<String, Handoff>>> = OnceLock::new();
 
-/// How long a handoff QR stays scannable. Short on purpose: the code is a
-/// bearer capability for the minter's whole identity.
+/// Default lifetime of a handoff QR. Short on purpose: the code is a
+/// bearer capability for the minter's whole identity. The minter may pick
+/// a different TTL, clamped to [HANDOFF_TTL_MIN, HANDOFF_TTL_MAX].
 pub const HANDOFF_TTL: i64 = 300;
+pub const HANDOFF_TTL_MIN: i64 = 60;
+pub const HANDOFF_TTL_MAX: i64 = 86_400;
 
 fn handoff_store() -> &'static std::sync::Mutex<HashMap<String, Handoff>> {
     HANDOFFS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
-/// Mint a single-use handoff code for `address`. Returns (code, expiry).
-pub fn create_handoff(address: &str) -> (String, i64) {
+/// Mint a single-use handoff code for `address`. `ttl` is the requested
+/// lifetime in seconds (None → HANDOFF_TTL), clamped so a caller can't mint
+/// an effectively-immortal identity capability. Returns (code, expiry).
+pub fn create_handoff(address: &str, ttl: Option<i64>) -> (String, i64) {
     let now = chrono::Utc::now().timestamp();
     let code = hex::encode(rand::random::<[u8; 16]>());
-    let exp = now + HANDOFF_TTL;
+    let ttl = ttl.unwrap_or(HANDOFF_TTL).clamp(HANDOFF_TTL_MIN, HANDOFF_TTL_MAX);
+    let exp = now + ttl;
     let mut map = handoff_store().lock().unwrap();
     map.retain(|_, h| h.exp > now);
     map.insert(
@@ -780,6 +1027,71 @@ pub fn write_whitelist(addresses: &[String]) -> Result<(), String> {
     }
     let json = serde_json::to_string_pretty(&addresses).map_err(|e| format!("encode: {}", e))?;
     std::fs::write(&path, json).map_err(|e| format!("write: {}", e))
+}
+
+// ── Agent (Claude Code CLI) credentials ─────────────────────────────
+// The owner can paste a Claude Code credential from the console — either the
+// long-lived OAuth token minted by `claude setup-token` (sk-ant-oat…) or a
+// plain API key (sk-ant-api…). Off-chain like the whitelist: it's a secret,
+// so it lives in ~/.mod/claude/agent_auth.json (0600), never in the repo.
+
+pub fn agent_auth_path() -> Option<std::path::PathBuf> {
+    Some(private_dir()?.join("agent_auth.json"))
+}
+
+/// Read the stored (oauth_token, api_key) pair. Absent/malformed file → (None, None).
+pub fn read_agent_auth() -> (Option<String>, Option<String>) {
+    let path = match agent_auth_path() {
+        Some(p) => p,
+        None => return (None, None),
+    };
+    let v: serde_json::Value = match std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+    {
+        Some(v) => v,
+        None => return (None, None),
+    };
+    let get = |k: &str| {
+        v.get(k)
+            .and_then(|t| t.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+    };
+    (get("oauth_token"), get("api_key"))
+}
+
+/// Persist the agent credentials (either field may be None to clear it).
+/// Passing (None, None) deletes the file entirely.
+pub fn write_agent_auth(oauth_token: Option<&str>, api_key: Option<&str>) -> Result<(), String> {
+    let path = agent_auth_path().ok_or("no home dir")?;
+    if oauth_token.is_none() && api_key.is_none() {
+        match std::fs::remove_file(&path) {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(format!("remove: {}", e)),
+        }
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
+    }
+    let mut obj = serde_json::Map::new();
+    if let Some(t) = oauth_token {
+        obj.insert("oauth_token".into(), serde_json::Value::String(t.into()));
+    }
+    if let Some(k) = api_key {
+        obj.insert("api_key".into(), serde_json::Value::String(k.into()));
+    }
+    let json = serde_json::to_string_pretty(&serde_json::Value::Object(obj))
+        .map_err(|e| format!("encode: {}", e))?;
+    std::fs::write(&path, json).map_err(|e| format!("write: {}", e))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
 }
 
 /// Read the optional `gate_command` from ~/.mod/claude/gate.json — a shell command that the
@@ -998,9 +1310,26 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_modules_scope() {
+        // Absent / empty / all-blank scopes collapse to None (= everything).
+        assert_eq!(normalize_modules(None), None);
+        assert_eq!(normalize_modules(Some(vec![])), None);
+        assert_eq!(normalize_modules(Some(vec!["  ".into(), "".into()])), None);
+        // Trim + dedupe, order preserved.
+        assert_eq!(
+            normalize_modules(Some(vec![
+                " store ".into(),
+                "claude".into(),
+                "store".into(),
+            ])),
+            Some(vec!["store".to_string(), "claude".to_string()])
+        );
+    }
+
+    #[test]
     fn test_handoff_roundtrip_single_use() {
         let addr = "0xABCDef1234567890abcdef1234567890abcdef12";
-        let (code, exp) = create_handoff(addr);
+        let (code, exp) = create_handoff(addr, None);
         assert!(exp > chrono::Utc::now().timestamp());
 
         // Redeems to the lowercased bound address…
@@ -1014,6 +1343,22 @@ mod tests {
     #[test]
     fn test_handoff_unknown_code() {
         assert!(redeem_handoff("nope").is_err());
+    }
+
+    #[test]
+    fn test_handoff_ttl_clamped() {
+        let addr = "0xabcdef1234567890abcdef1234567890abcdef12";
+        let now = chrono::Utc::now().timestamp();
+
+        // Requested TTL is honored within bounds…
+        let (_, exp) = create_handoff(addr, Some(3600));
+        assert!((exp - now - 3600).abs() <= 2);
+
+        // …and clamped outside them (can't mint an immortal or instant code).
+        let (_, exp) = create_handoff(addr, Some(999_999_999));
+        assert!(exp - now <= HANDOFF_TTL_MAX + 2);
+        let (_, exp) = create_handoff(addr, Some(0));
+        assert!(exp - now >= HANDOFF_TTL_MIN - 2);
     }
 
     #[test]

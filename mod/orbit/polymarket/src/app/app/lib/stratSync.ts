@@ -145,6 +145,79 @@ export async function deleteServerStrat(
   }
 }
 
+// ── Public gallery ──
+//
+// Publishing is the opposite of the encrypted private store: a public strat
+// is PLAINTEXT on the server by definition (anyone may view and fork it).
+// The publisher's token_id (never returned by the list endpoint) is what
+// gates republish/unpublish, so only the account that published a strat can
+// update or take it down.
+
+export interface PublicStratEntry {
+  id: string;
+  /** Publisher EOA (lowercased) — gallery attribution. */
+  owner: string;
+  strat: SavedIndex;
+  updated_at: number;
+}
+
+export async function fetchPublicStrats(): Promise<PublicStratEntry[]> {
+  try {
+    const res = await fetch(`${API_URL}/strats/public`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const rows = Array.isArray(data.strats) ? data.strats : [];
+    return rows.filter((r: PublicStratEntry) => r?.strat && r.strat.id && r.strat.name);
+  } catch {
+    return [];
+  }
+}
+
+export async function publishStrat(
+  strat: SavedIndex,
+  owner: string,
+  localToken: string,
+): Promise<boolean> {
+  try {
+    const body = JSON.stringify({
+      token_id: tokenPreview(localToken),
+      owner,
+      strat,
+      updated_at: strat.updatedAt,
+    });
+    const sig = await hmacSign(body);
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (sig) headers["x-strat-sig"] = sig;
+    const res = await fetch(`${API_URL}/strats/public/${strat.id}`, {
+      method: "PUT",
+      headers,
+      body,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function unpublishStrat(
+  id: string,
+  localToken: string,
+): Promise<boolean> {
+  try {
+    const tid = tokenPreview(localToken);
+    const sig = await hmacSign(`${tid}:${id}`);
+    const headers: Record<string, string> = {};
+    if (sig) headers["x-strat-sig"] = sig;
+    const res = await fetch(`${API_URL}/strats/public/${id}?token_id=${tid}`, {
+      method: "DELETE",
+      headers,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Sync server strats with localStorage.
  * Decrypts server blobs, merges with local (server wins on conflict by updatedAt).

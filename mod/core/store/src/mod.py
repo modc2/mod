@@ -47,7 +47,7 @@ class Store:
             return {'error': str(e)}
         return {
             'pm2': ['store-api', 'store-app'],
-            'api': 'http://localhost:50150',
+            'api': 'http://localhost:50152',
             'app': 'http://localhost:50151',
             'returncode': out.returncode,
             'stdout': out.stdout[-2000:],
@@ -75,7 +75,8 @@ class Store:
             'localfs': 'this Store class (key-value on disk)',
             'filecoin': 'm store.filecoin/* — Lotus daemon + gateway (proxies orbit/filecoin)',
             'hippius': 'm store.hippius/* — Substrate node + S3 gateway (proxies orbit/hippius)',
-            'unified': 'm dstore/* — filecoin + hippius with SIWE auth',
+            'lighthouse': 'm store.lighthouse/* — Lighthouse Labs perpetual IPFS/Filecoin (proxies orbit/lighthouse)',
+            'unified': 'm dstore/* — filecoin + hippius + lighthouse with SIWE auth',
         }
 
     # ── on-chain (chain mod: BlocTime + Registry) ────────────────────

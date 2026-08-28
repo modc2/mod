@@ -43,6 +43,11 @@ k256 = { version = "0.13", features = ["ecdsa", "sha256"] }
 aes-gcm = "0.10"
 rand = "0.8"
 
+# malloc_trim after each warmup cycle — glibc otherwise retains the burst
+# heap (multi-GB of parsed trade JSON) in its arenas forever, pinning RSS
+# at the high-water mark.
+libc = "0.2"
+
 # Concurrency
 dashmap = "6"
 parking_lot = "0.12"

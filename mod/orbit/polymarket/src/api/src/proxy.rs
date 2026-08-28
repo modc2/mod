@@ -16,11 +16,20 @@ const DATA_API: &str = "https://data-api.polymarket.com";
 // — it must NOT resolve to the CLOB API's `/trades`, which is an
 // authenticated (API-key-gated) endpoint for the caller's own fills and
 // returns 401 for anyone else's market history.
+// `user-trades` likewise rewrites to data-api `/trades?user=<wallet>` but is a
+// DISTINCT endpoint name so it gets its own near-live TTL — the signed-in
+// user's own fill tape must not sit behind the global tape's 1h freshness.
 const DATA_PREFIXES: &[&str] = &[
     "positions", "closed-positions", "trades", "activity", "value", "holders", "users/", "v1/", "market-trades",
+    "user-trades",
 ];
+// `live-prices-history` / `live-midpoint` rewrite to the same CLOB endpoints
+// but under a DISTINCT name so they get a near-live TTL and no disk
+// persistence. Sub-hour candle strats (BTC 5-min Up/Down) read through them:
+// the whole market lives ~5 minutes, so the regular `prices-history` path —
+// 24h disk persistence — would freeze the series at its first fetch.
 const CLOB_PREFIXES: &[&str] = &[
-    "prices-history", "book", "books", "midpoint", "midpoints", "price",
+    "prices-history", "book", "books", "midpoint", "midpoints", "price", "live-",
 ];
 
 fn select_upstream(endpoint: &str) -> &'static str {
@@ -35,10 +44,11 @@ fn select_upstream(endpoint: &str) -> &'static str {
 }
 
 fn rewrite_endpoint(endpoint: &str) -> &str {
-    if endpoint == "market-trades" {
-        "trades"
-    } else {
-        endpoint
+    match endpoint {
+        "market-trades" | "user-trades" => "trades",
+        "live-prices-history" => "prices-history",
+        "live-midpoint" => "midpoint",
+        _ => endpoint,
     }
 }
 
@@ -56,11 +66,18 @@ pub async fn proxy_handler(
     let qs = req.uri().query().unwrap_or("");
     let cache_key = format!("proxy:{}", qs);
 
-    // Check cache (memory + disk for persistent endpoints)
+    // Check cache (memory + disk for persistent endpoints). Only a FRESH
+    // entry short-circuits — a stale one falls through to a live upstream
+    // fetch (and is still served by the stale-on-error branches below if
+    // that fetch fails). Serving stale here unconditionally meant a cached
+    // /value or /positions could outlive the actual holdings by a day and
+    // the portfolio panel kept rendering positions that were long gone.
     if let Some((data, fresh)) = state.proxy_cache.get(&cache_key, &endpoint) {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-cache", if fresh { "HIT" } else { "STALE" }.parse().unwrap());
-        return (StatusCode::OK, headers, Json(data)).into_response();
+        if fresh {
+            let mut headers = HeaderMap::new();
+            headers.insert("x-cache", "HIT".parse().unwrap());
+            return (StatusCode::OK, headers, Json(data)).into_response();
+        }
     }
 
     // Build upstream URL
@@ -79,11 +96,33 @@ pub async fn proxy_handler(
         format!("{}/{}?{}", upstream, rewritten, upstream_qs)
     };
 
-    // Fetch upstream
-    let result = state.http.get(&url)
+    // Fetch upstream. Cloudflare rate-limits data-api (HTTP 429, error 1015)
+    // when the live engine + a browser page hit it from the same IP — for a
+    // first-time trader there's no stale cache to fall back on, so a single
+    // 429 used to surface as a 502 and the profile rendered "0 trades" over
+    // 100 open positions. Ride out the burst with a couple of spaced retries
+    // before giving up; only 429/5xx re-attempt (other 4xx are deterministic).
+    let mut result = state.http.get(&url)
         .header("accept", "application/json")
         .send()
         .await;
+    for delay_ms in [1200u64, 2600] {
+        let retryable = match &result {
+            Ok(resp) => {
+                let s = resp.status();
+                s.as_u16() == 429 || s.is_server_error()
+            }
+            Err(_) => true,
+        };
+        if !retryable {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        result = state.http.get(&url)
+            .header("accept", "application/json")
+            .send()
+            .await;
+    }
 
     match result {
         Ok(resp) if resp.status().is_success() => {
@@ -131,7 +170,10 @@ pub async fn proxy_handler(
                 headers.insert("x-cache", "STALE".parse().unwrap());
                 return (StatusCode::OK, headers, Json(data)).into_response();
             }
-            (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("upstream {}", status)}))).into_response()
+            // Surface a rate-limit as 429 so the frontend can back off and
+            // retry instead of treating it as a dead gateway.
+            let out = if status == 429 { StatusCode::TOO_MANY_REQUESTS } else { StatusCode::BAD_GATEWAY };
+            (out, Json(json!({"error": format!("upstream {}", status)}))).into_response()
         }
         Err(e) => {
             // Serve stale on network error

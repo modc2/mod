@@ -1,429 +1,323 @@
+"""chutes — Chutes.ai serverless GPU inference, backed by a Rust MCP server.
+
+The backend is chutes-rs/ (axum): an MCP server (JSON-RPC 2.0 over Streamable
+HTTP at /mcp, plus --stdio for MCP clients like Claude Code). Every REST route
+on the server dispatches through the same MCP tool layer, and this Python mod
+is a thin client over that server — with a direct-to-chutes.ai fallback when
+the server isn't running.
+"""
+
 import os
 import json
 import subprocess
+import itertools
 import requests
-from typing import List, Dict, Optional, Union, Iterator
-
-_engine = None
-
-def _get_engine(api_key=None, base_url=None):
-    """Lazy-load the chutes_rs Rust engine."""
-    global _engine
-    if _engine is None:
-        try:
-            import chutes_rs
-            config = json.dumps({
-                'api_key': api_key or '',
-                'base_url': base_url or 'https://api.chutes.ai',
-            })
-            _engine = chutes_rs.ChutesEngine(config)
-        except ImportError:
-            return None
-    return _engine
 
 
 class Mod:
     description = """
     Chutes.ai - Serverless GPU inference platform.
-    Chat completions, image generation, chute management.
-    Uses Rust bindings (PyO3) for high-performance HTTP + SSE streaming.
-    Falls back to pure Python when Rust engine unavailable.
+    Rust MCP server backend (chutes-rs): chat, image generation, chute
+    management exposed as MCP tools over Streamable HTTP (/mcp) and stdio.
     """
 
     def __init__(self, api_key: str = None, default_model: str = None,
-                 base_url: str = None, **kwargs):
-        self.api_key = api_key or os.environ.get('CHUTES_API_KEY', '')
+                 base_url: str = None, server_url: str = None, **kwargs):
+        self.dir = os.path.dirname(os.path.abspath(__file__))
+        self.api_key = api_key or os.environ.get('CHUTES_API_KEY', '') or self._key_file()
         self.default_model = default_model or os.environ.get(
             'CHUTES_DEFAULT_MODEL', 'unsloth/Llama-3.3-70B-Instruct')
         self.base_url = base_url or os.environ.get(
             'CHUTES_BASE_URL', 'https://api.chutes.ai')
-        self.dir = os.path.dirname(os.path.abspath(__file__))
-        self._engine = None
+        cfg = self._load_config()
+        self.port = cfg.get('port', 50300)
+        self.server_url = server_url or f'http://127.0.0.1:{self.port}'
+        self._rpc_ids = itertools.count(1)
 
-    @property
-    def engine(self):
-        if self._engine is None:
-            self._engine = _get_engine(self.api_key, self.base_url)
-        return self._engine
-
-    @property
-    def headers(self):
-        return {
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json',
-        }
-
-    # ── Primary Entry Point ──────────────────────────────────────
-
-    def forward(self, message: str = None, model: str = None,
-                stream: bool = False, system_prompt: str = None,
-                **kwargs) -> Union[str, Iterator[str]]:
-        """Default entry - simple chat completion."""
-        if not message:
-            return self.list_chutes()
-        messages = [{'role': 'user', 'content': message}]
-        system = system_prompt or kwargs.pop('system', None)
-        if system:
-            messages.insert(0, {'role': 'system', 'content': system})
-        result = self.chat(messages, model=model, stream=stream, **kwargs)
-        if stream:
-            return result
-        try:
-            return result['choices'][0]['message']['content']
-        except (KeyError, IndexError):
-            return result
-
-    # ── Chat Completions ─────────────────────────────────────────
-
-    def chat(self, messages: List[Dict], model: str = None,
-             stream: bool = False, temperature: float = 0.7,
-             max_tokens: int = 4096, **kwargs):
-        """OpenAI-compatible chat completions.
-
-        Args:
-            messages: List of {'role': str, 'content': str}
-            model: Model name (defaults to self.default_model)
-            stream: Enable SSE streaming
-            temperature: Sampling temperature
-            max_tokens: Max tokens to generate
-
-        Returns:
-            Response dict, or generator of delta dicts if stream=True
-        """
-        model = model or self.default_model
-
-        if stream:
-            return self._chat_stream(messages, model, temperature, max_tokens, **kwargs)
-
-        # Try Rust engine first
-        if self.engine:
-            try:
-                result = self.engine.chat(
-                    json.dumps(messages), model, temperature, max_tokens)
-                return json.loads(result)
-            except Exception:
-                pass
-
-        # Python fallback
-        return self._chat_python(messages, model, temperature, max_tokens, **kwargs)
-
-    def _chat_python(self, messages, model, temperature, max_tokens, **kwargs):
-        """Pure Python chat completion."""
-        url = f'{self.base_url}/v1/chat/completions'
-        body = {
-            'model': model,
-            'messages': messages,
-            'temperature': temperature,
-            'max_tokens': max_tokens,
-            'stream': False,
-            **kwargs,
-        }
-        resp = requests.post(url, json=body, headers=self.headers, timeout=120)
-        resp.raise_for_status()
-        return resp.json()
-
-    def _chat_stream(self, messages, model, temperature, max_tokens, **kwargs):
-        """Streaming chat - uses Rust callback or Python SSE parsing."""
-        if self.engine:
-            try:
-                return self._stream_rust(messages, model, temperature, max_tokens)
-            except Exception:
-                pass
-        return self._stream_python(messages, model, temperature, max_tokens, **kwargs)
-
-    def _stream_rust(self, messages, model, temperature, max_tokens):
-        """Rust-accelerated SSE streaming via callback."""
-        chunks = []
-
-        def on_chunk(json_str):
-            chunks.append(json.loads(json_str))
-
-        self.engine.chat_stream(
-            json.dumps(messages), model, on_chunk, temperature, max_tokens)
-
-        for chunk in chunks:
-            yield chunk
-
-    def _stream_python(self, messages, model, temperature, max_tokens, **kwargs):
-        """Pure Python SSE streaming."""
-        url = f'{self.base_url}/v1/chat/completions'
-        body = {
-            'model': model,
-            'messages': messages,
-            'temperature': temperature,
-            'max_tokens': max_tokens,
-            'stream': True,
-            **kwargs,
-        }
-        resp = requests.post(url, json=body, headers=self.headers,
-                             stream=True, timeout=120)
-        resp.raise_for_status()
-
-        for line in resp.iter_lines(decode_unicode=True):
-            if not line:
-                continue
-            if line.startswith('data: '):
-                data = line[6:]
-                if data == '[DONE]':
-                    break
-                try:
-                    yield json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-
-    # ── Image Generation ─────────────────────────────────────────
-
-    def generate_image(self, prompt: str, model: str = None,
-                       size: str = '1024x1024', n: int = 1,
-                       response_format: str = 'url', **kwargs) -> Dict:
-        """Generate images from text prompts."""
-        if self.engine:
-            try:
-                result = self.engine.generate_image(prompt, model or '', size, n)
-                return json.loads(result)
-            except Exception:
-                pass
-
-        url = f'{self.base_url}/v1/images/generations'
-        body = {
-            'prompt': prompt,
-            'n': n,
-            'size': size,
-            'response_format': response_format,
-            **kwargs,
-        }
-        if model:
-            body['model'] = model
-        resp = requests.post(url, json=body, headers=self.headers, timeout=120)
-        resp.raise_for_status()
-        return resp.json()
-
-    # ── Chute Management ─────────────────────────────────────────
-
-    def list_chutes(self, page: int = 1, limit: int = 50) -> List[Dict]:
-        """List all deployed chutes."""
-        if self.engine:
-            try:
-                return json.loads(self.engine.list_chutes())
-            except Exception:
-                pass
-
-        resp = requests.get(
-            f'{self.base_url}/chutes/',
-            params={'page': page, 'limit': limit},
-            headers=self.headers, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
-
-    def get_chute(self, chute_id: str) -> Dict:
-        """Get chute details by ID or name."""
-        if self.engine:
-            try:
-                return json.loads(self.engine.get_chute(chute_id))
-            except Exception:
-                pass
-
-        resp = requests.get(
-            f'{self.base_url}/chutes/{chute_id}',
-            headers=self.headers, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
-
-    def deploy_chute(self, config: Dict) -> Dict:
-        """Deploy a new chute."""
-        if self.engine:
-            try:
-                return json.loads(self.engine.deploy_chute(json.dumps(config)))
-            except Exception:
-                pass
-
-        resp = requests.post(
-            f'{self.base_url}/chutes/',
-            json=config, headers=self.headers, timeout=60)
-        resp.raise_for_status()
-        return resp.json()
-
-    def delete_chute(self, chute_id: str) -> Dict:
-        """Delete a chute by ID."""
-        if self.engine:
-            try:
-                return json.loads(self.engine.delete_chute(chute_id))
-            except Exception:
-                pass
-
-        resp = requests.delete(
-            f'{self.base_url}/chutes/{chute_id}',
-            headers=self.headers, timeout=30)
-        resp.raise_for_status()
-        return resp.json() if resp.text else {'status': 'deleted'}
-
-    def warmup(self, chute_id: str) -> Dict:
-        """Pre-initialize a chute to reduce cold start latency."""
-        if self.engine:
-            try:
-                return json.loads(self.engine.warmup(chute_id))
-            except Exception:
-                pass
-
-        resp = requests.get(
-            f'{self.base_url}/chutes/warmup/{chute_id}',
-            headers=self.headers, timeout=60)
-        resp.raise_for_status()
-        return resp.json()
-
-    def utilization(self) -> Dict:
-        """Get current capacity and utilization metrics."""
-        if self.engine:
-            try:
-                return json.loads(self.engine.utilization())
-            except Exception:
-                pass
-
-        resp = requests.get(
-            f'{self.base_url}/chutes/utilization',
-            headers=self.headers, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
-
-    # ── Model Discovery ──────────────────────────────────────────
-
-    def models(self, search: str = None) -> List[Dict]:
-        """List available models/chutes, optionally filtered."""
-        chutes = self.list_chutes(limit=200)
-        if search and isinstance(chutes, list):
-            search_lower = search.lower()
-            chutes = [c for c in chutes if search_lower in json.dumps(c).lower()]
-        return chutes
-
-    # ── Batch Operations ─────────────────────────────────────────
-
-    def batch_chat(self, prompts: List[str], model: str = None,
-                   **kwargs) -> List[str]:
-        """Run multiple chat completions concurrently via Rust, or sequentially."""
-        if self.engine:
-            try:
-                msgs_list = [json.dumps([{'role': 'user', 'content': p}]) for p in prompts]
-                result = self.engine.batch_chat(
-                    json.dumps(msgs_list),
-                    model or self.default_model,
-                    kwargs.get('temperature', 0.7),
-                    kwargs.get('max_tokens', 4096),
-                )
-                return json.loads(result)
-            except Exception:
-                pass
-
-        results = []
-        for prompt in prompts:
-            resp = self.forward(prompt, model=model, **kwargs)
-            results.append(resp)
-        return results
-
-    # ── Serve / Kill ──────────────────────────────────────────────
+    # ── config / secrets ─────────────────────────────────────────
 
     def _load_config(self):
         cfg_path = os.path.join(self.dir, 'config.json')
         if os.path.exists(cfg_path):
             with open(cfg_path) as f:
                 return json.load(f)
-        return {'port': 50120, 'app_port': 50121}
+        return {}
 
-    def serve(self, port=None, app_port=None, dev=True, **kwargs):
-        """Start FastAPI API and Next.js app via PM2."""
+    def _key_file(self):
+        path = os.path.expanduser('~/.mod/chutes/api_key')
+        if os.path.exists(path):
+            with open(path) as f:
+                return f.read().strip()
+        return ''
+
+    def set_api_key(self, api_key: str, persist: bool = False):
+        """Set API key; persist=True writes ~/.mod/chutes/api_key (off-chain)."""
+        self.api_key = api_key
+        if persist:
+            d = os.path.expanduser('~/.mod/chutes')
+            os.makedirs(d, exist_ok=True)
+            path = os.path.join(d, 'api_key')
+            with open(path, 'w') as f:
+                f.write(api_key)
+            os.chmod(path, 0o600)
+        return {'status': 'set', 'persisted': persist}
+
+    # ── MCP client (the backend) ─────────────────────────────────
+
+    def _server_up(self):
+        try:
+            r = requests.get(f'{self.server_url}/health', timeout=2)
+            return r.ok
+        except Exception:
+            return False
+
+    def mcp_call(self, tool: str, arguments: dict = None, **kwargs):
+        """Call an MCP tool on the Rust backend (JSON-RPC tools/call)."""
+        arguments = dict(arguments or {}, **kwargs)
+        headers = {'Content-Type': 'application/json'}
+        if self.api_key:
+            headers['x-api-key'] = self.api_key
+        resp = requests.post(
+            f'{self.server_url}/mcp',
+            json={
+                'jsonrpc': '2.0',
+                'id': next(self._rpc_ids),
+                'method': 'tools/call',
+                'params': {'name': tool, 'arguments': arguments},
+            },
+            headers=headers, timeout=180,
+        )
+        resp.raise_for_status()
+        msg = resp.json()
+        if 'error' in msg:
+            raise RuntimeError(msg['error'].get('message', str(msg['error'])))
+        result = msg.get('result', {})
+        if result.get('isError'):
+            raise RuntimeError(result.get('content', [{}])[0].get('text', 'tool error'))
+        if 'structuredContent' in result:
+            return result['structuredContent']
+        text = result.get('content', [{}])[0].get('text', '')
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            return text
+
+    def mcp_config(self):
+        """MCP client config snippets (stdio + Streamable HTTP)."""
+        binary = os.path.join(self.dir, 'chutes-rs', 'target', 'release', 'chutes-api')
+        return {
+            'stdio': {'command': binary, 'args': ['--stdio'],
+                      'env': {'CHUTES_API_KEY': '<your key>'}},
+            'http': {'url': f'{self.server_url}/mcp'},
+            'claude_code': f'claude mcp add chutes -- {binary} --stdio',
+        }
+
+    # ── direct fallback (server down) ────────────────────────────
+
+    @property
+    def headers(self):
+        return {'Authorization': f'Bearer {self.api_key}',
+                'Content-Type': 'application/json'}
+
+    def _direct(self, method, path, body=None, params=None):
+        resp = requests.request(
+            method, f'{self.base_url}{path}',
+            json=body, params=params, headers=self.headers, timeout=180)
+        resp.raise_for_status()
+        return resp.json() if resp.text else {}
+
+    def _call(self, tool, direct, **arguments):
+        """Route through the MCP server; fall back to chutes.ai directly."""
+        if self._server_up():
+            return self.mcp_call(tool, arguments)
+        return direct()
+
+    # ── api surface ──────────────────────────────────────────────
+
+    def forward(self, message: str = None, model: str = None,
+                system_prompt: str = None, **kwargs):
+        """Default entry — simple chat completion (or list chutes if empty)."""
+        if not message:
+            return self.list_chutes()
+        result = self.chat(
+            [{'role': 'user', 'content': message}],
+            model=model, system=system_prompt or kwargs.pop('system', None),
+            **kwargs)
+        try:
+            return result['choices'][0]['message']['content']
+        except (KeyError, IndexError, TypeError):
+            return result
+
+    def chat(self, messages, model=None, system=None,
+             temperature: float = 0.7, max_tokens: int = 4096, **kwargs):
+        """OpenAI-compatible chat completion via the MCP `chat` tool."""
+        if isinstance(messages, str):
+            messages = [{'role': 'user', 'content': messages}]
+        args = {'messages': messages, 'model': model or self.default_model,
+                'temperature': temperature, 'max_tokens': max_tokens}
+        if system:
+            args['system'] = system
+
+        def direct():
+            body = {'model': args['model'], 'messages': messages,
+                    'temperature': temperature, 'max_tokens': max_tokens,
+                    'stream': False}
+            if system:
+                body['messages'] = [{'role': 'system', 'content': system}] + messages
+            return self._direct('POST', '/v1/chat/completions', body)
+
+        return self._call('chat', direct, **args)
+
+    def generate_image(self, prompt: str, model: str = None,
+                       size: str = '1024x1024', n: int = 1, **kwargs):
+        """Generate images via the MCP `generate_image` tool."""
+        args = {'prompt': prompt, 'size': size, 'n': n}
+        if model:
+            args['model'] = model
+
+        def direct():
+            body = dict(args, response_format='url')
+            return self._direct('POST', '/v1/images/generations', body)
+
+        return self._call('generate_image', direct, **args)
+
+    def models(self, search: str = None, limit: int = 200):
+        """List available models/chutes, optionally filtered."""
+        args = {'limit': limit}
+        if search:
+            args['search'] = search
+
+        def direct():
+            data = self._direct('GET', '/chutes/', params={'page': 1, 'limit': limit})
+            items = data.get('items', data if isinstance(data, list) else [])
+            if search:
+                q = search.lower()
+                items = [c for c in items if q in json.dumps(c).lower()]
+            return {'items': items, 'total': len(items)}
+
+        return self._call('models', direct, **args)
+
+    def list_chutes(self, page: int = 1, limit: int = 50):
+        return self._call(
+            'list_chutes',
+            lambda: self._direct('GET', '/chutes/', params={'page': page, 'limit': limit}),
+            page=page, limit=limit)
+
+    def get_chute(self, chute_id: str):
+        return self._call(
+            'get_chute',
+            lambda: self._direct('GET', f'/chutes/{chute_id}'),
+            chute_id=chute_id)
+
+    def deploy_chute(self, config: dict):
+        return self._call(
+            'deploy_chute',
+            lambda: self._direct('POST', '/chutes/', config),
+            config=config)
+
+    def delete_chute(self, chute_id: str):
+        return self._call(
+            'delete_chute',
+            lambda: self._direct('DELETE', f'/chutes/{chute_id}'),
+            chute_id=chute_id)
+
+    def warmup(self, chute_id: str):
+        return self._call(
+            'warmup',
+            lambda: self._direct('GET', f'/chutes/warmup/{chute_id}'),
+            chute_id=chute_id)
+
+    def utilization(self):
+        return self._call(
+            'utilization',
+            lambda: self._direct('GET', '/chutes/utilization'))
+
+    # ── build / serve / kill ─────────────────────────────────────
+
+    @property
+    def binary(self):
+        return os.path.join(self.dir, 'chutes-rs', 'target', 'release', 'chutes-api')
+
+    def build(self, **kwargs):
+        """Build the Rust MCP server (cargo build --release)."""
+        rs_dir = os.path.join(self.dir, 'chutes-rs')
+        result = subprocess.run(
+            ['cargo', 'build', '--release'],
+            cwd=rs_dir, capture_output=True, text=True,
+            env={**os.environ, 'PATH': os.environ['PATH'] + ':' + os.path.expanduser('~/.cargo/bin')},
+        )
+        if result.returncode != 0:
+            return {'status': 'build_failed', 'stderr': result.stderr[-3000:]}
+        return {'status': 'built', 'binary': self.binary}
+
+    def serve(self, port=None, **kwargs):
+        """Run the Rust MCP server under pm2 as chutes-api."""
+        port = port or self.port
+        if not os.path.exists(self.binary):
+            built = self.build()
+            if built.get('status') != 'built':
+                return built
         self.kill()
-        cfg = self._load_config()
-        port = port or cfg.get('port', 50120)
-        app_port = app_port or cfg.get('app_port', 50121)
-        api_dir = os.path.join(self.dir, 'api')
-        app_dir = os.path.join(self.dir, 'app')
-
-        # Start API
-        api_cmd = ['python3', '-m', 'uvicorn', 'api:app',
-                    '--host', '0.0.0.0', '--port', str(port)]
-        if dev:
-            api_cmd.append('--reload')
-        subprocess.run(['pm2', 'delete', 'chutes.api'], capture_output=True)
+        env = {**os.environ, 'PORT': str(port)}
+        if self.api_key:
+            env['CHUTES_API_KEY'] = self.api_key
         subprocess.run(
-            ['pm2', 'start', api_cmd[0], '--name', 'chutes.api', '--'] + api_cmd[1:],
-            cwd=api_dir,
-            env={**os.environ, 'PYTHONPATH': os.path.expanduser('~/mod'), 'PORT': str(port)},
-        )
-
-        # Start App
-        app_cmd = ['npx', 'next', 'dev' if dev else 'start', '-p', str(app_port)]
-        subprocess.run(['pm2', 'delete', 'chutes.app'], capture_output=True)
-        subprocess.run(
-            ['pm2', 'start', app_cmd[0], '--name', 'chutes.app', '--'] + app_cmd[1:],
-            cwd=app_dir,
-            env={**os.environ, 'NEXT_PUBLIC_API_URL': f'http://localhost:{port}', 'PORT': str(app_port)},
-        )
-
+            ['pm2', 'start', self.binary, '--name', 'chutes-api'],
+            cwd=self.dir, env=env, capture_output=True)
         return {
             'api': f'http://localhost:{port}',
-            'app': f'http://localhost:{app_port}',
-            'processes': ['chutes.api', 'chutes.app'],
+            'mcp': f'http://localhost:{port}/mcp',
+            'console': f'http://localhost:{port}/ (browser)',
+            'processes': ['chutes-api'],
         }
 
     def kill(self, **kwargs):
-        """Stop chutes API and app PM2 processes."""
+        """Stop the chutes backend (current and legacy pm2 names)."""
         killed = []
-        for name in ['chutes.api', 'chutes.app']:
+        for name in ['chutes-api', 'chutes.api', 'chutes.app']:
             r = subprocess.run(['pm2', 'delete', name], capture_output=True, text=True)
             if r.returncode == 0:
                 killed.append(name)
         return {'killed': killed}
 
-    # ── Configuration ────────────────────────────────────────────
-
-    def set_api_key(self, api_key: str):
-        """Update API key."""
-        self.api_key = api_key
-        self._engine = None
-        global _engine
-        _engine = None
-
-    def set_model(self, model: str):
-        """Set default model."""
-        self.default_model = model
-
-    # ── Build ────────────────────────────────────────────────────
-
-    def build(self, **kwargs):
-        """Build the Rust engine via maturin."""
-        rs_dir = os.path.join(self.dir, 'chutes-rs')
-        if not os.path.exists(rs_dir):
-            return {'status': 'error', 'message': f'chutes-rs not found at {rs_dir}'}
-        result = subprocess.run(
-            ['maturin', 'develop', '--release'],
-            cwd=rs_dir, capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            return {'status': 'build_failed', 'stderr': result.stderr}
-        global _engine
-        _engine = None
-        self._engine = None
-        return {'status': 'built', 'path': rs_dir}
-
-    # ── Test ─────────────────────────────────────────────────────
+    # ── test ─────────────────────────────────────────────────────
 
     def test(self, **kwargs):
-        """Run basic connectivity test."""
-        results = {}
-        results['rust_engine'] = self.engine is not None
+        """Connectivity test: server health, MCP handshake, live upstream call."""
+        results = {'server_url': self.server_url}
+        results['server_up'] = self._server_up()
+
+        if results['server_up']:
+            try:
+                r = requests.post(
+                    f'{self.server_url}/mcp',
+                    json={'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+                          'params': {'protocolVersion': '2025-06-18'}},
+                    timeout=5).json()
+                results['mcp_initialize'] = r.get('result', {}).get('serverInfo')
+                r = requests.post(
+                    f'{self.server_url}/mcp',
+                    json={'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'},
+                    timeout=5).json()
+                results['mcp_tools'] = [t['name'] for t in r['result']['tools']]
+            except Exception as e:
+                results['mcp_error'] = str(e)
 
         try:
             util = self.utilization()
-            results['api_connected'] = True
-            results['utilization'] = util
+            results['upstream_connected'] = True
+            if isinstance(util, list):
+                results['upstream_chutes_reporting'] = len(util)
         except Exception as e:
-            results['api_connected'] = False
-            results['error'] = str(e)
+            results['upstream_connected'] = False
+            results['upstream_error'] = str(e)
 
-        if results.get('api_connected') and self.api_key:
+        if results.get('upstream_connected') and self.api_key:
             try:
-                resp = self.forward('Say "ok" and nothing else.', max_tokens=10)
-                results['chat'] = resp
+                results['chat'] = self.forward('Say "ok" and nothing else.', max_tokens=10)
             except Exception as e:
                 results['chat_error'] = str(e)
+        elif not self.api_key:
+            results['chat'] = 'skipped (no CHUTES_API_KEY / ~/.mod/chutes/api_key)'
 
         return results

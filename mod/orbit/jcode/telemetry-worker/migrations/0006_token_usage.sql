@@ -1,0 +1,5 @@
+ALTER TABLE events ADD COLUMN input_tokens INTEGER DEFAULT 0;
+ALTER TABLE events ADD COLUMN output_tokens INTEGER DEFAULT 0;
+ALTER TABLE events ADD COLUMN cache_read_input_tokens INTEGER DEFAULT 0;
+ALTER TABLE events ADD COLUMN cache_creation_input_tokens INTEGER DEFAULT 0;
+ALTER TABLE events ADD COLUMN total_tokens INTEGER DEFAULT 0;

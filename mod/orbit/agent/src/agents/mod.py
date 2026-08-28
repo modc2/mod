@@ -6,10 +6,15 @@ Each agent is a folder with mod.py containing an Agent class.
 Create new agents locally or register on-chain via the registry module.
 Save agents as JSON CIDs (localfs content-addressed storage).
 
+Every agent carries an owner — the address that created it, so creating one
+takes a sign-in. Agents with no recorded owner (the shipped ones, or anything
+made before ownership existed) belong to the HOST, the module owner, who can
+edit and remove any of them.
+
 Usage:
     agents = Agents()
     agents.ls()                         # list all agent names
-    agents.get("architect")             # get agent config
+    agents.get("architect")             # get agent config (incl. owner)
     agents.create("myagent", {...})     # create new agent locally
     agents.save("architect")            # save agent as JSON CID -> "localfs/Qm..."
     agents.load("localfs/Qm...")        # load agent from CID
@@ -20,7 +25,7 @@ import os
 import json
 import time
 import secrets
-import importlib.util
+import types
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 
@@ -29,6 +34,17 @@ try:
 except ImportError:
     m = None
 
+try:
+    from src.identity import Identity
+except ImportError:  # running the registry standalone
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from src.identity import Identity
+
+# shipped agents — host-owned; anyone else must clone them into a custom agent
+BUILTINS = {"default", "architect", "reviewer", "debugger", "builder", "refactorer",
+            "safety", "claude-code", "codex", "claude-mod", "build-mod"}
+
 AGENT_TEMPLATE = '''"""{name} agent - {description}"""
 
 
@@ -36,8 +52,10 @@ class Agent:
     name = "{label}"
     description = "{description}"
     icon = "{icon}"
-    skills = {skills}
+    tools = {tools}
     model = {model}
+    harness = {harness}
+    owner = {owner}
 
     goal = """{goal}"""
 '''
@@ -46,9 +64,17 @@ class Agent:
 class Agents:
     description = "Agent registry - discover, load, create, and register agent personas"
 
-    def __init__(self, **kwargs):
+    def __init__(self, identity: "Identity" = None, **kwargs):
         self._dir = Path(__file__).parent
         self._cache = {}
+        # unbound registry: no host known, so nobody holds host rights
+        self.identity = identity or Identity()
+
+    def bind(self, identity: "Identity") -> "Agents":
+        """Attach the module's identity (host address + caller verification)."""
+        self.identity = identity
+        self._cache.clear()
+        return self
 
     def ls(self) -> List[str]:
         """List available agent names"""
@@ -64,10 +90,13 @@ class Agents:
         mod_path = self._dir / name / "mod.py"
         if not mod_path.exists():
             raise KeyError(f"agent not found: {name}")
-        spec = importlib.util.spec_from_file_location(f"agents.{name}", str(mod_path))
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        cls = getattr(mod, "Agent", None)
+        # compiled straight from source, never through __pycache__: two edits
+        # inside the same second that leave the file the same length reuse a
+        # stale .pyc, and an agent that was just updated would read back old
+        module = types.ModuleType(f"agents.{name}")
+        module.__file__ = str(mod_path)
+        exec(compile(mod_path.read_text(), str(mod_path), "exec"), module.__dict__)
+        cls = getattr(module, "Agent", None)
         if cls is None:
             raise AttributeError(f"no Agent class in {name}/mod.py")
         config = {
@@ -75,58 +104,149 @@ class Agents:
             "description": getattr(cls, "description", ""),
             "goal": getattr(cls, "goal", None),
             "icon": getattr(cls, "icon", ">_"),
-            "skills": getattr(cls, "skills", None),
+            # `skills` is the pre-rename attribute — agents written then
+            # still declare it, so it stands in when `tools` is absent
+            "tools": getattr(cls, "tools", None) or getattr(cls, "skills", None),
             "model": getattr(cls, "model", None),
+            # set -> the run is handed to an external CLI (see harness/mod.py)
+            # instead of this module's own loop
+            "harness": getattr(cls, "harness", None),
+            "builtin": name in BUILTINS,
+            # unowned -> the host owns it
+            **self.identity.owner_of(getattr(cls, "owner", None)),
             "cls": cls,
         }
         self._cache[name] = config
         return config
 
+    # ── ownership ──────────────────────────────────────────────────
+
+    def _recorded_owner(self, name: str) -> Optional[str]:
+        """The owner written into the agent file, or None (= host-owned)."""
+        try:
+            cfg = self.get(name)
+        except Exception:
+            return None
+        return cfg["owner"] if cfg.get("owner_source") == "item" else None
+
+    def _require_manage(self, name: str, key: str = None, operation: str = "modify"):
+        """Only the agent's owner or the host may change it."""
+        builtin = name in BUILTINS
+        what = f"built-in agent: {name}" if builtin else f"agent: {name}"
+        self.identity.require(self._recorded_owner(name), key,
+                              operation=f"cannot {operation} {what}",
+                              builtin=builtin)
+
+    def can_manage(self, name: str, key: str = None) -> bool:
+        """Whether this caller may edit/remove the agent."""
+        return self.identity.can_manage(self._recorded_owner(name), key,
+                                        builtin=name in BUILTINS)
+
+    @staticmethod
+    def _check_harness(harness: Optional[str]) -> Optional[str]:
+        """Validate a harness name against the installed runners."""
+        if not harness:
+            return None
+        try:
+            from ..harness.mod import Harness
+        except ImportError:  # registry running standalone — trust the caller
+            return harness
+        h = Harness()
+        if not h.exists(harness):
+            raise ValueError(f"unknown harness: {harness} (have: {', '.join(h.names())})")
+        return harness
+
     def create(self, name: str, description: str = "", goal: str = "",
-               icon: str = ">_", skills: list = None, model: str = None,
-               key: str = None) -> Dict[str, Any]:
+               icon: str = ">_", tools: list = None, model: str = None,
+               harness: str = None, key: str = None) -> Dict[str, Any]:
         """Create a new agent locally in agents/ directory.
+
+        Signed-in callers only — the agent is filed under the address that
+        made it, and an anonymous create has no address to file it under.
 
         Args:
             name: agent slug (lowercase, no spaces)
             description: what this agent does
             goal: system prompt / goal for the agent
             icon: display icon
-            skills: optional list of skill names to restrict to
+            tools: optional list of tool names to restrict to
             model: optional model override
-            key: caller auth token (for permission check)
+            harness: external CLI to hand the run to ('claude', 'codex'), or
+                     None to run on this module's own loop
+            key: caller auth token — the resolved address becomes the owner
         """
         name = name.lower().replace(" ", "-").replace("_", "-")
+        harness = self._check_harness(harness)
+        self.identity.require_signed_in(key, f"create agent: {name}")
         agent_dir = self._dir / name
         if agent_dir.exists():
             raise FileExistsError(f"agent already exists: {name}")
 
         agent_dir.mkdir(parents=True)
         label = name.replace("-", " ").title()
+        owner = self.identity.addr(key)
         content = AGENT_TEMPLATE.format(
             name=name,
             label=label,
             description=description or f"{label} agent",
             icon=icon,
-            skills=repr(skills) if skills else "None",
+            tools=repr(tools) if tools else "None",
             model=repr(model) if model else "None",
+            harness=repr(harness) if harness else "None",
+            owner=repr(owner) if owner else "None",
             goal=goal or f"You are a {label} agent.",
         )
         (agent_dir / "mod.py").write_text(content)
 
         # clear cache so new agent is discovered
         self._cache.pop(name, None)
-        return self.get(name)
+        cid = self._autopin(name)
+        return {**self.get(name), **({"cid": cid} if cid else {})}
+
+    def update(self, name: str, description: str = None, goal: str = None,
+               icon: str = None, tools: list = ..., model: str = ...,
+               harness: str = ..., key: str = None) -> Dict[str, Any]:
+        """Update an agent in place. The owner or the host may edit it —
+        for everyone else built-ins are read-only, so clone them instead.
+
+        Only the fields passed are changed; the rest keep their current value.
+        tools/model/harness use `...` as the not-passed sentinel so an explicit
+        None can clear them (None = every tool / default model / own loop).
+        """
+        name = name.lower().replace(" ", "-").replace("_", "-")
+        agent_dir = self._dir / name
+        if not (agent_dir / "mod.py").exists():
+            raise KeyError(f"agent not found: {name}")
+        self._require_manage(name, key, "edit")
+
+        current = self.get(name)
+        new_tools = current.get("tools") if tools is ... else tools
+        new_model = current.get("model") if model is ... else model
+        new_harness = current.get("harness") if harness is ... else self._check_harness(harness)
+        label = name.replace("-", " ").title()
+        content = AGENT_TEMPLATE.format(
+            name=name,
+            label=label,
+            description=description if description is not None else current.get("description", ""),
+            icon=icon if icon is not None else current.get("icon", ">_"),
+            tools=repr(new_tools) if new_tools else "None",
+            model=repr(new_model) if new_model else "None",
+            harness=repr(new_harness) if new_harness else "None",
+            # an edit never transfers ownership
+            owner=repr(self._recorded_owner(name)) if self._recorded_owner(name) else "None",
+            goal=goal if goal is not None else (current.get("goal") or f"You are a {label} agent."),
+        )
+        (agent_dir / "mod.py").write_text(content)
+        self._cache.pop(name, None)
+        cid = self._autopin(name)
+        return {**self.get(name), **({"cid": cid} if cid else {})}
 
     def remove(self, name: str, key: str = None) -> Dict[str, Any]:
-        """Remove a local agent."""
+        """Remove a local agent. Owner or host only; built-ins are host-only."""
         agent_dir = self._dir / name
         if not agent_dir.exists():
             raise KeyError(f"agent not found: {name}")
-        # don't allow removing built-in agents
-        builtins = {"default", "architect", "reviewer", "debugger", "builder", "refactorer"}
-        if name in builtins:
-            raise PermissionError(f"cannot remove built-in agent: {name}")
+        self._require_manage(name, key, "remove")
         import shutil
         shutil.rmtree(agent_dir)
         self._cache.pop(name, None)
@@ -135,26 +255,30 @@ class Agents:
     # ── CID storage (save/load as content-addressed JSON) ──────────
 
     def _build_config(self, name: str = None, description: str = None,
-                      goal: str = None, icon: str = ">_", skills: list = None,
-                      model: str = None, memory: str = None) -> Dict[str, Any]:
+                      goal: str = None, icon: str = ">_", tools: list = None,
+                      model: str = None, memory: str = None,
+                      harness: str = None) -> Dict[str, Any]:
         """Build an agent config dict from name/overrides."""
         config = {}
         if name and name in self.ls():
             existing = self.get(name)
-            config = {k: v for k, v in existing.items() if k != "cls"}
+            config = {k: v for k, v in existing.items()
+                      if k not in ("cls", "builtin", "owner_source")}
 
         if description is not None:
             config["description"] = description
         if goal is not None:
             config["goal"] = goal
-        if skills is not None:
-            config["skills"] = skills
+        if tools is not None:
+            config["tools"] = tools
         if model is not None:
             config["model"] = model
         if icon != ">_" or "icon" not in config:
             config["icon"] = icon
         if memory is not None:
             config["memory"] = memory
+        if harness is not None:
+            config["harness"] = harness
         if name:
             config["name"] = name
 
@@ -163,8 +287,8 @@ class Agents:
         return config
 
     def save(self, name: str = None, description: str = None, goal: str = None,
-             icon: str = ">_", skills: list = None, model: str = None,
-             memory: str = None, private: bool = False,
+             icon: str = ">_", tools: list = None, model: str = None,
+             memory: str = None, harness: str = None, private: bool = False,
              provider_key: str = None, client_key: str = None,
              key: str = None) -> Dict[str, Any]:
         """Save an agent definition as a JSON CID on localfs.
@@ -178,7 +302,7 @@ class Agents:
             description: agent description (override or new)
             goal: system prompt / goal (override or new)
             icon: display icon
-            skills: list of skill names to bundle
+            tools: list of tool names to bundle
             model: model override
             memory: memory module path (e.g. 'agent.memory')
             private: if True, encrypt with 2-of-2 secret sharing
@@ -196,7 +320,7 @@ class Agents:
             raise RuntimeError("mod framework required for CID storage")
 
         config = self._build_config(name, description, goal, icon,
-                                    skills, model, memory)
+                                    tools, model, memory, harness)
 
         if private:
             return self._save_private(config, provider_key, client_key)
@@ -274,7 +398,7 @@ class Agents:
             shares: list of 2 Shamir shares (required for private agents)
 
         Returns:
-            Agent config dict with name, goal, skills, model, memory, etc.
+            Agent config dict with name, goal, tools, model, memory, etc.
         """
         if not m:
             raise RuntimeError("mod framework required for CID storage")
@@ -323,8 +447,9 @@ class Agents:
             description=data.get("description", ""),
             goal=data.get("goal", ""),
             icon=data.get("icon", ">_"),
-            skills=data.get("skills"),
+            tools=data.get("tools") or data.get("skills"),
             model=data.get("model"),
+            harness=data.get("harness"),
             key=key,
         )
 
@@ -337,15 +462,28 @@ class Agents:
         return []
 
     def _index_cid(self, cid: str, name: str, private: bool = False):
-        """Append a CID to the local agent index."""
+        """Record a CID in the local agent index. Public snapshots replace the
+        previous entry for the same name (one live CID per agent); private
+        envelopes are always appended (each has its own shares)."""
         index_path = self._dir / ".agent_cids.json"
         index = self.ls_cids()
         entry = {"cid": cid, "name": name, "saved": time.time()}
         if private:
             entry["private"] = True
+        else:
+            index = [e for e in index
+                     if e.get("private") or e.get("name") != name]
         index.append(entry)
         with open(index_path, "w") as f:
             json.dump(index, f, indent=2)
+
+    def _autopin(self, name: str) -> Optional[str]:
+        """Best-effort snapshot of an agent to localfs after create/update —
+        every agent definition lives in the content-addressed store too."""
+        try:
+            return self.save(name)["cid"]
+        except Exception:
+            return None
 
     def register(self, name: str, key: str = None,
                  backend: str = "offchain") -> Dict[str, Any]:
@@ -360,7 +498,7 @@ class Agents:
             raise RuntimeError("mod framework required for registry")
 
         config = self.get(name)
-        data = {k: v for k, v in config.items() if k != "cls"}
+        data = {k: v for k, v in config.items() if k not in ("cls", "builtin")}
         data["type"] = "agent"
 
         registry = m.mod("registry")()
@@ -388,6 +526,7 @@ class Agents:
         forward()                           -> list all agents
         forward("architect")                -> get agent config
         forward(action="create", name=...)  -> create new agent
+        forward(action="update", name=...) -> update a custom agent
         forward(action="remove", name=...) -> remove agent
         forward(action="save", name=...)   -> save agent as JSON CID
         forward(action="load", cid=...)    -> load agent from CID
@@ -403,8 +542,20 @@ class Agents:
                 description=kwargs.get("description", ""),
                 goal=kwargs.get("goal", ""),
                 icon=kwargs.get("icon", ">_"),
-                skills=kwargs.get("skills"),
+                tools=kwargs.get("tools", kwargs.get("skills")),
                 model=kwargs.get("model"),
+                harness=kwargs.get("harness"),
+                key=kwargs.get("key"),
+            )
+        if action == "update":
+            return self.update(
+                name=kwargs.get("name", name or ""),
+                description=kwargs.get("description"),
+                goal=kwargs.get("goal"),
+                icon=kwargs.get("icon"),
+                tools=kwargs.get("tools", kwargs.get("skills", ...)),
+                model=kwargs.get("model", ...),
+                harness=kwargs.get("harness", ...),
                 key=kwargs.get("key"),
             )
         if action == "remove":
@@ -415,9 +566,10 @@ class Agents:
                 description=kwargs.get("description"),
                 goal=kwargs.get("goal"),
                 icon=kwargs.get("icon", ">_"),
-                skills=kwargs.get("skills"),
+                tools=kwargs.get("tools", kwargs.get("skills")),
                 model=kwargs.get("model"),
                 memory=kwargs.get("memory"),
+                harness=kwargs.get("harness"),
                 private=kwargs.get("private", False),
                 provider_key=kwargs.get("provider_key"),
                 client_key=kwargs.get("client_key"),
@@ -444,7 +596,9 @@ class Agents:
             )
 
         if name is None:
-            return {"agents": self.ls(), "total": len(self.ls()), "schemas": self.schema()}
+            names = self.ls()
+            return {"agents": names, "total": len(names),
+                    "host": self.identity.host, "schemas": self.schema()}
         return {k: v for k, v in self.get(name).items() if k != "cls"}
 
     def chains(self) -> Dict[str, Any]:

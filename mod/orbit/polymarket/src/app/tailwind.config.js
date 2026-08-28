@@ -47,6 +47,27 @@ module.exports = {
           blue: "rgb(var(--accent-2) / <alpha-value>)",
           "blue-bright": "rgb(var(--accent-2) / <alpha-value>)",
         },
+        // The green/red/amber families ARE this app's semantic vocabulary —
+        // gain, loss, warning — spread over ~700 utility classes written
+        // long before there was more than one theme. Re-pointing the shades
+        // actually in use at the theme tokens is what carries a theme switch
+        // into all of them; channel vars keep every opacity modifier
+        // (`text-amber-300/80`, `bg-green-400/10`) working. Shades not listed
+        // here still resolve to stock Tailwind.
+        green: {
+          300: "rgb(var(--up-rgb) / <alpha-value>)",
+          400: "rgb(var(--up-rgb) / <alpha-value>)",
+          500: "rgb(var(--up-rgb) / <alpha-value>)",
+        },
+        red: {
+          400: "rgb(var(--danger) / <alpha-value>)",
+          500: "rgb(var(--danger) / <alpha-value>)",
+        },
+        amber: {
+          300: "rgb(var(--warn) / <alpha-value>)",
+          400: "rgb(var(--warn) / <alpha-value>)",
+          500: "rgb(var(--warn) / <alpha-value>)",
+        },
       },
       fontFamily: {
         // Vibe overhaul: `font-pixel` (used widely across components) now

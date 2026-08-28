@@ -40,20 +40,27 @@ function b64urlJson(obj: unknown): string {
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/** Anything that can produce an EIP-191 `personal_sign` signature. */
+export type Signer = (message: string, address: string) => Promise<string>;
+
 /**
- * Build a mod **protocol auth** token: a wallet-signed, time-bounded
+ * Build a mod **protocol auth** token: a signed, time-bounded
  * `{data, time, key, signature}` envelope, base64url-encoded.
  *
  * The signed material is `JSON.stringify({data, time})` with no spaces, which
  * is exactly what `mod core/server/auth` re-serializes and verifies server-side
  * (sig_features = ["data", "time"], separators (',',':')).
+ *
+ * `sign` defaults to the injected wallet; local sign-in passes a browser-held
+ * key instead — the server can't tell the two apart.
  */
 export async function buildModToken(
   address: string,
-  data: Record<string, unknown> = {}
+  data: Record<string, unknown> = {},
+  sign: Signer = personalSign
 ): Promise<string> {
   const time = (Date.now() / 1000).toString();
   const sigData = JSON.stringify({ data, time });
-  const signature = await personalSign(sigData, address);
+  const signature = await sign(sigData, address);
   return b64urlJson({ data, time, key: address, signature });
 }

@@ -29,31 +29,12 @@
   animation: profileMenuExpandLeft 180ms cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
-:root {
-  --crt-green: #34d399;
-  --crt-amber: #fbbf24;
-  --crt-blue: #60a5fa;
-  --crt-red: #f87171;
-  --crt-dark: #0f172a;
-  --pixel-border: 1px;
-  --text-primary: #f1f5f9;
-  --text-secondary: #cbd5e1;
-  --text-tertiary: #64748b;
-  --accent-color: #60a5fa;
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tint: rgba(96,165,250,0.04);
-  --border-color: rgba(255,255,255,0.08);
-  --border-color-strong: rgba(255,255,255,0.15);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
-  --shadow-lg: 0 8px 30px rgba(0,0,0,0.4);
-}
-
+/* The bare :root MUST match the dark theme exactly — data-theme is set
+   client-side, so any divergence here paints as a wrong-palette flash on
+   first load before hydration. */
+:root,
 :root[data-theme="dark"] {
+  --pixel-border: 1px;
   /* Bento glass palette — soft tiles on a deep gradient */
   --crt-green: #34d399;
   --crt-amber: #fbbf24;
@@ -85,34 +66,35 @@
 }
 
 :root[data-theme="light"] {
-  /* Bumped: many UI sites render these at 25–35% opacity (e.g.
-     text-crt-green/35) — on white that needs a much darker base to stay
-     readable. WCAG-AA-ish contrast at the common usage opacities. */
-  --crt-green: #047857;
-  --crt-amber: #92400e;
-  --crt-blue: #1d4ed8;
-  --crt-red: #b91c1c;
-  --crt-dark: #ffffff;
-  --text-primary: #020617;
-  --text-secondary: #1e293b;
-  --text-tertiary: #475569;
-  --accent-color: #1d4ed8;
-  --accent-color-2: #0e7490;
-  --bg-primary: #ffffff;
-  --bg-secondary: #f1f5f9;
-  --bg-tint: rgba(29,78,216,0.06);
-  --glass-bg: rgba(248, 250, 252, 0.85);
-  --glass-bg-strong: rgba(241, 245, 249, 0.95);
-  --glass-border: rgba(0, 0, 0, 0.12);
-  --glass-border-strong: rgba(0, 0, 0, 0.22);
-  --glass-highlight: rgba(0, 0, 0, 0.04);
-  --border-color: rgba(0,0,0,0.16);
-  --border-color-strong: rgba(0,0,0,0.28);
+  /* ☮ PSYCHEDELIC BABE-RAINBOW LIGHT ☮ — groovy pastel wash, deep-violet
+     ink for text, saturated jewel accents. Bases stay dark enough that the
+     common `text-crt-green/35`-style opacity utilities remain readable on
+     the pale backdrop (the floor rules below force them opaque anyway). */
+  --crt-green: #059669;
+  --crt-amber: #c2410c;
+  --crt-blue: #4f46e5;
+  --crt-red: #e11d48;
+  --crt-dark: #fffdf7;
+  --text-primary: #2a1245;
+  --text-secondary: #46296b;
+  --text-tertiary: #7a639c;
+  --accent-color: #c026d3;
+  --accent-color-2: #0891b2;
+  --bg-primary: #fffdf7;
+  --bg-secondary: #fdf3fa;
+  --bg-tint: rgba(192,38,211,0.06);
+  --glass-bg: rgba(255, 253, 250, 0.72);
+  --glass-bg-strong: rgba(255, 250, 252, 0.92);
+  --glass-border: rgba(147, 51, 234, 0.16);
+  --glass-border-strong: rgba(147, 51, 234, 0.28);
+  --glass-highlight: rgba(255, 255, 255, 0.65);
+  --border-color: rgba(120, 53, 187, 0.18);
+  --border-color-strong: rgba(120, 53, 187, 0.32);
   --pixel-border: 1px;
-  --shadow-sm: 0 1px 3px rgba(15,23,42,0.10);
-  --shadow-md: 0 4px 14px rgba(15,23,42,0.14);
-  --shadow-lg: 0 12px 36px rgba(15,23,42,0.18);
-  --shadow-glow: 0 0 0 1px rgba(29,78,216,0.30), 0 8px 32px rgba(29,78,216,0.18);
+  --shadow-sm: 0 1px 3px rgba(148,64,190,0.10);
+  --shadow-md: 0 6px 18px rgba(236,72,153,0.12), 0 2px 8px rgba(139,92,246,0.10);
+  --shadow-lg: 0 16px 44px rgba(236,72,153,0.16), 0 6px 18px rgba(139,92,246,0.14);
+  --shadow-glow: 0 0 0 1px rgba(192,38,211,0.28), 0 8px 32px rgba(236,72,153,0.20);
   --radius-sm: 10px;
   --radius-md: 16px;
   --radius-lg: 22px;
@@ -120,10 +102,10 @@
 
 /* Floor opacity-styled text in light mode so the common
    `text-crt-*/30..40` utilities don't render as ghost text on white. */
-:root[data-theme="light"] [class*="text-crt-green/"] { color: #047857 !important; opacity: 1 !important; }
-:root[data-theme="light"] [class*="text-crt-amber/"] { color: #92400e !important; opacity: 1 !important; }
-:root[data-theme="light"] [class*="text-crt-blue/"]  { color: #1d4ed8 !important; opacity: 1 !important; }
-:root[data-theme="light"] [class*="text-crt-red/"]   { color: #b91c1c !important; opacity: 1 !important; }
+:root[data-theme="light"] [class*="text-crt-green/"] { color: #059669 !important; opacity: 1 !important; }
+:root[data-theme="light"] [class*="text-crt-amber/"] { color: #c2410c !important; opacity: 1 !important; }
+:root[data-theme="light"] [class*="text-crt-blue/"]  { color: #4f46e5 !important; opacity: 1 !important; }
+:root[data-theme="light"] [class*="text-crt-red/"]   { color: #e11d48 !important; opacity: 1 !important; }
 
 /* Only `dark` and `light` themes ship now. The legacy
    matrix/cyberpunk/amber/ocean/ibm/win95 blocks were removed — the JS
@@ -483,11 +465,11 @@ html {
 :root[data-theme="light"] textarea,
 :root[data-theme="light"] input[type="text"],
 :root[data-theme="light"] input[type="password"] {
-  background: #ffffff;
+  background: rgba(255,255,255,0.85);
 }
 
 :root[data-theme="light"] select {
-  background-color: #ffffff;
+  background-color: rgba(255,255,255,0.85);
 }
 
 /* Win95 specific button styling */
@@ -734,6 +716,236 @@ body {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
+ * Versions timeline (VersionsPanel) — day-grouped rows on a hairline
+ * rail; per-row actions reveal on hover. EditsPanel still uses the
+ * plain .version-row above.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+.vtl { display: flex; flex-direction: column; }
+
+.vtl-day {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 6px;
+  padding-left: 2px;
+}
+.vtl-group:first-of-type .vtl-day { margin-top: 2px; }
+.vtl-day .lab {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.vtl-day .rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--glass-border), transparent);
+}
+
+.vtl-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px 6px 2px;
+  border-radius: 10px;
+  transition: background 130ms ease;
+}
+.vtl-row:hover { background: var(--glass-highlight); }
+.vtl-row.head {
+  background: linear-gradient(90deg, rgba(167,139,250,0.09), transparent 70%);
+}
+.vtl-row.head:hover {
+  background: linear-gradient(90deg, rgba(167,139,250,0.13), var(--glass-highlight) 70%);
+}
+
+/* rail: connecting hairline behind the action dot */
+.vtl-rail {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.vtl-rail::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  bottom: -6px;
+  width: 1px;
+  background: var(--glass-border);
+}
+.vtl-items .vtl-row:first-child .vtl-rail::before { top: 50%; }
+.vtl-items .vtl-row:last-child  .vtl-rail::before { bottom: 50%; }
+.vtl-items .vtl-row:only-child  .vtl-rail::before { display: none; }
+.vtl-dot {
+  position: relative;
+  z-index: 1;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.vtl-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+.vtl-msg {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vtl-row.auto .vtl-msg {
+  color: var(--text-secondary);
+  font-weight: 500;
+  opacity: 0.75;
+}
+.vtl-tag {
+  flex: 0 0 auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.vtl-tag.head-tag {
+  color: var(--accent-color);
+  border-color: rgba(167,139,250,0.4);
+  background: rgba(167,139,250,0.12);
+}
+
+.vtl-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.vtl-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  min-width: 52px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.vtl-acts {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.vtl-row:hover .vtl-acts,
+.vtl-row.head .vtl-acts,
+.vtl-acts:focus-within {
+  opacity: 1;
+  transform: none;
+}
+@media (hover: none) {
+  .vtl-acts { opacity: 1; transform: none; }
+}
+/* compact chips/buttons inside timeline rows (globals bump these with
+   !important, so these must be !important too to win the cascade) */
+.vtl-row .glass-btn { font-size: 12px !important; padding: 4px 10px !important; }
+.vtl-row .cid-chip  { font-size: 11px !important; padding: 3px 9px !important; }
+
+/* status / error notes */
+.vtl-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  margin-bottom: 10px;
+}
+.vtl-note.ok  { color: var(--crt-green); border-color: rgba(52,211,153,0.35);  background: rgba(52,211,153,0.09); }
+.vtl-note.err { color: var(--crt-red);   border-color: rgba(251,113,133,0.35); background: rgba(251,113,133,0.09); }
+
+/* loading shimmer + empty state */
+.vtl-skels { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.vtl-skel {
+  height: 28px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--glass-highlight), rgba(255,255,255,0.09), var(--glass-highlight));
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+.vtl-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 6px;
+  font-size: 13.5px;
+  color: var(--text-tertiary);
+}
+.vtl-empty-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent-color);
+  box-shadow: 0 0 10px rgba(167,139,250,0.5);
+  animation: soft-pulse 2.2s ease-in-out infinite;
+}
+
+/* snap composer — joined pill input + button */
+.snap-bar {
+  display: flex;
+  align-items: center;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  padding: 3px 3px 3px 14px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.snap-bar:focus-within {
+  border-color: rgba(167,139,250,0.45);
+  box-shadow: 0 0 0 3px rgba(167,139,250,0.12);
+}
+.snap-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  width: 190px;
+}
+.snap-input::placeholder { color: var(--text-tertiary); }
+.snap-btn {
+  border: none;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 7px 16px;
+  margin-left: 10px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(167,139,250,0.95), rgba(124,58,237,0.95));
+  box-shadow: 0 4px 14px rgba(124,58,237,0.35);
+  transition: background 150ms ease, transform 100ms ease;
+}
+.snap-btn:hover { background: linear-gradient(135deg, rgba(180,156,255,1), rgba(140,80,250,1)); }
+.snap-btn:active { transform: scale(0.97); }
+.snap-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+/* ──────────────────────────────────────────────────────────────────────
  * Refinements — subtle motion, hairlines, focus rings, button polish
  * ──────────────────────────────────────────────────────────────────────*/
 
@@ -760,6 +972,27 @@ body {
 
 .fade-in {
   animation: fade-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Restart toast — slides in under the tab bar; keyframes carry the -50%
+   centering translate so the entrance doesn't fight the utility class */
+.restart-toast {
+  animation: restart-toast-in 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes restart-toast-in {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.restart-toast-spin {
+  display: inline-block;
+  animation: restart-toast-spin 1.1s linear infinite;
+}
+@keyframes restart-toast-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .restart-toast { animation: none; }
+  .restart-toast-spin { animation: none; }
 }
 
 .soft-pulse {
@@ -1308,6 +1541,182 @@ pre.font-code,
   .task-action { font-size: 12.5px; padding: 5px 12px; }
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+ * HUB card wall — every module gets its own neon accent (--hub-accent,
+ * hashed from the module name in JS). Glass tile + accent wash, a sheen
+ * that sweeps across on hover, a soft lift-and-glow, and a staggered
+ * entrance so the wall cascades in instead of popping.
+ * ──────────────────────────────────────────────────────────────────────*/
+@keyframes hub-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.hub-card {
+  --hub-accent: var(--accent-color);
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--hub-accent) 18%, var(--border-color));
+  background:
+    radial-gradient(130% 100% at 0% 0%, color-mix(in srgb, var(--hub-accent) 9%, transparent), transparent 55%),
+    var(--glass-bg, var(--bg-secondary));
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  box-shadow: 0 1px 0 inset color-mix(in srgb, var(--hub-accent) 8%, transparent), var(--shadow-sm);
+  animation: hub-in 340ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+}
+
+/* accent bar down the left edge */
+.hub-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--hub-accent) 85%, transparent),
+    color-mix(in srgb, var(--hub-accent) 20%, transparent));
+  opacity: 0.7;
+  pointer-events: none;
+  transition: opacity 200ms ease, box-shadow 200ms ease;
+}
+
+/* sheen sweep — glides across the tile once per hover */
+.hub-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg,
+    transparent 40%,
+    color-mix(in srgb, var(--hub-accent) 14%, rgba(255,255,255,0.10)) 50%,
+    transparent 60%);
+  transform: translateX(-130%) skewX(-10deg);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hub-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--hub-accent) 50%, var(--border-color-strong));
+  box-shadow:
+    0 14px 34px -14px color-mix(in srgb, var(--hub-accent) 50%, rgba(0,0,0,0.5)),
+    0 0 0 1px color-mix(in srgb, var(--hub-accent) 22%, transparent),
+    var(--shadow-md);
+}
+.hub-card:hover::before {
+  opacity: 1;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--hub-accent) 60%, transparent);
+}
+.hub-card:hover::after {
+  transform: translateX(130%) skewX(-10deg);
+  opacity: 1;
+  transition: transform 600ms cubic-bezier(0.3, 0.6, 0.3, 1), opacity 150ms ease;
+}
+.hub-card:active { transform: translateY(-1px) scale(0.995); }
+
+/* online modules idle with a faint green halo — alive at a glance */
+.hub-card[data-live="true"] {
+  border-color: color-mix(in srgb, var(--hub-accent) 26%, var(--border-color));
+  box-shadow:
+    0 0 18px -8px color-mix(in srgb, var(--crt-green) 45%, transparent),
+    0 1px 0 inset color-mix(in srgb, var(--hub-accent) 8%, transparent),
+    var(--shadow-sm);
+}
+
+/* the module currently loaded in the editor */
+.hub-card[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--hub-accent) 60%, transparent);
+  background:
+    radial-gradient(130% 100% at 0% 0%, color-mix(in srgb, var(--hub-accent) 16%, transparent), transparent 60%),
+    var(--glass-bg, var(--bg-secondary));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--hub-accent) 30%, transparent),
+    0 8px 26px -12px color-mix(in srgb, var(--hub-accent) 45%, transparent);
+}
+
+/* "Add a module" tile — gradient dashed invite that glows on approach */
+.hub-add-card {
+  position: relative;
+  border-radius: 16px;
+  border: 1.5px dashed color-mix(in srgb, var(--accent-color) 45%, transparent);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-color) 7%, transparent),
+    color-mix(in srgb, var(--accent-color-2, var(--crt-blue)) 5%, transparent));
+  animation: hub-in 340ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease, background 200ms ease;
+}
+.hub-add-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent-color);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-color) 13%, transparent),
+    color-mix(in srgb, var(--accent-color-2, var(--crt-blue)) 9%, transparent));
+  box-shadow: 0 12px 30px -12px color-mix(in srgb, var(--accent-color) 45%, transparent);
+}
+.hub-add-card__plus {
+  background: linear-gradient(135deg, var(--accent-color), var(--accent-color-2, var(--crt-blue)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.hub-add-card:hover .hub-add-card__plus { transform: scale(1.18) rotate(90deg); }
+
+/* Aurora backdrop for the HUB — two slow-drifting color blobs behind the
+ * card wall. Pure transform animation (GPU-cheap), pointer-transparent. */
+.hub-aurora {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.hub-aurora::before,
+.hub-aurora::after {
+  content: "";
+  position: absolute;
+  width: 46vw;
+  height: 46vw;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.14;
+  will-change: transform;
+}
+.hub-aurora::before {
+  top: -18%;
+  left: -10%;
+  background: radial-gradient(circle, var(--accent-color), transparent 65%);
+  animation: aurora-a 26s ease-in-out infinite alternate;
+}
+.hub-aurora::after {
+  bottom: -22%;
+  right: -8%;
+  background: radial-gradient(circle, var(--accent-color-2, var(--crt-blue)), transparent 65%);
+  animation: aurora-b 34s ease-in-out infinite alternate;
+}
+@keyframes aurora-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(10vw, 7vh, 0) scale(1.18); }
+}
+@keyframes aurora-b {
+  from { transform: translate3d(0, 0, 0) scale(1.12); }
+  to   { transform: translate3d(-9vw, -7vh, 0) scale(0.95); }
+}
+:root[data-theme="light"] .hub-aurora::before,
+:root[data-theme="light"] .hub-aurora::after { opacity: 0.09; }
+
+/* Respect users who asked the OS for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .hub-card, .hub-add-card { animation: none; }
+  .hub-card:hover::after { transition: none; opacity: 0; }
+  .hub-aurora::before, .hub-aurora::after { animation: none; }
+  .hub-add-card:hover .hub-add-card__plus { transform: none; }
+}
+
 /* Reusable status pill that picks up an accent via --pill-accent. Used by
  * the ONLINE/OFFLINE chips on Gateway / API / APP tiles. */
 .status-pill {
@@ -1331,4 +1740,287 @@ pre.font-code,
   border-radius: 999px;
   background: var(--pill-accent);
   box-shadow: 0 0 6px color-mix(in srgb, var(--pill-accent) 70%, transparent);
+}
+
+/* Themed hover tooltip — data-tip replaces native title bubbles (the gray
+   OS chrome clashes hard with the dark console). Drops below-left of the
+   element so it never fights the card header. */
+[data-tip] { position: relative; }
+[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 8px;
+  z-index: 80;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+  white-space: nowrap;
+  max-width: min(420px, 80vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-primary) 94%, var(--accent-color));
+  border: 1px solid var(--border-color-strong);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Mobile header vibe — the stacked header rows (account / omnibox /
+ * module) plus the APP/CODE/INFO tab strip get real presence on a phone:
+ * bigger type, taller tap targets, and a soft green wash so the whole
+ * block reads as one glowing instrument panel instead of three cramped
+ * strips. Appended LAST so these win over the generic text-size bumps.
+ * ──────────────────────────────────────────────────────────────────────*/
+@media (max-width: 767px) {
+  .console-header {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 6%, transparent), transparent 60%),
+      var(--bg-secondary) !important;
+    box-shadow:
+      0 10px 30px rgba(0, 0, 0, 0.35),
+      inset 0 -1px 0 color-mix(in srgb, var(--crt-green) 14%, transparent);
+  }
+
+  /* Row breathing room — account row up top, URL bar in the middle,
+     module row underneath. */
+  .hdr-account-row { padding-top: 10px !important; padding-bottom: 8px !important; }
+  .hdr-omni-row    { padding-top: 8px !important;  padding-bottom: 10px !important; }
+  .hdr-mod-row     { padding-top: 7px !important;  padding-bottom: 7px !important; }
+
+  /* APP / CODE / INFO — big confident tabs with a thicker active bar. */
+  .mod-tab {
+    font-size: 19px !important;
+    padding: 13px 16px !important;
+    gap: 9px !important;
+    letter-spacing: 0.05em !important;
+    border-bottom-width: 3px !important;
+    margin-bottom: -1px !important;
+  }
+  .mod-tab svg { width: 19px !important; height: 19px !important; }
+
+  /* Owner chip pinned right of the tabs — legible, still a pill. */
+  .owner-bubble { font-size: 13px !important; padding: 7px 14px !important; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * ☮ BABE RAINBOW — psychedelic light mode ☮
+ *
+ * Dark stays the moody glass console. Flipping to light drops the whole
+ * UI into a groovy pastel-rainbow wash: sunset-blob backdrop, rainbow
+ * hairlines on cards, prismatic buttons and gradient headings. All the
+ * color rides on tokens + these overrides — no markup changes needed.
+ * Appended LAST so it wins the cascade over the base primitives above.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+/* Native form controls / scrollbars follow the theme. */
+:root { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+
+/* Shared rainbow ramps (cyclical — first == last so pans loop clean). */
+:root {
+  --rainbow: linear-gradient(90deg,
+    #ff2d95, #ff7a18, #ffc700, #2bd97c, #22b8ff, #8a5cff, #ff2d95);
+  --rainbow-soft: linear-gradient(90deg,
+    #ffd1ec, #ffe3c6, #fdf7c0, #cff5dd, #cfe8ff, #e6d9ff, #ffd1ec);
+  --rainbow-ink: linear-gradient(90deg,
+    #d61f76, #dd5a0b, #a16207, #047857, #0369a1, #7c3aed, #d61f76);
+}
+
+@keyframes rainbow-pan {
+  from { background-position: 0% 50%; }
+  to   { background-position: 300% 50%; }
+}
+
+/* Sunset-blob backdrop — four pastel color fields breathing behind the
+ * glass tiles. Fixed attachment, zero layout cost. */
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(ellipse 70% 55% at 12% -5%,  rgba(255,138,216,0.26), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 95% 5%,   rgba(255,199,113,0.24), transparent 60%),
+    radial-gradient(ellipse 55% 45% at 85% 100%, rgba(124,199,255,0.24), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 5% 105%,  rgba(148,255,196,0.22), transparent 60%),
+    linear-gradient(180deg, #fffdf7 0%, #fff5fb 100%);
+  background-attachment: fixed;
+}
+
+/* Header band → soft rainbow strip (inline style pins var(--bg-secondary),
+ * so this needs !important to win). White veil keeps chips legible. */
+:root[data-theme="light"] .console-header {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.55)),
+    var(--rainbow-soft) !important;
+  background-size: 100% 100%, 300% 100% !important;
+  animation: rainbow-pan 30s linear infinite;
+  box-shadow: 0 1px 0 rgba(147,51,234,0.14), 0 8px 28px -18px rgba(236,72,153,0.35) !important;
+}
+
+/* Cards: candy borders + a rainbow hairline across the top edge. */
+:root[data-theme="light"] .bento,
+:root[data-theme="light"] .section-card,
+:root[data-theme="light"] .task-card,
+:root[data-theme="light"] .hub-card {
+  border-color: rgba(168, 85, 247, 0.22);
+  box-shadow:
+    0 10px 28px -14px rgba(236,72,153,0.22),
+    0 3px 10px rgba(139,92,246,0.10);
+}
+:root[data-theme="light"] .bento::before {
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  animation: rainbow-pan 12s linear infinite;
+  opacity: 0.55;
+}
+:root[data-theme="light"] .bento:hover::before { opacity: 0.9; }
+
+/* Section / bento titles trip out — animated gradient ink (colors are all
+ * dark enough to read at 800 weight on the pale wash). */
+:root[data-theme="light"] .bento-title,
+:root[data-theme="light"] .section-card__title {
+  background: var(--rainbow-ink);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent;
+  animation: rainbow-pan 9s linear infinite;
+}
+:root[data-theme="light"] .section-card__glyph {
+  background: rgba(192,38,211,0.10);
+  color: #c026d3;
+  border-color: rgba(192,38,211,0.30);
+}
+
+/* Prismatic primary actions — the full spectrum, slowly drifting. */
+:root[data-theme="light"] .glass-btn.primary,
+:root[data-theme="light"] .snap-btn,
+:root[data-theme="light"] .pixel-btn:not(.pixel-btn-red):not(.pixel-btn-amber):not(.pixel-btn-blue) {
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  animation: rainbow-pan 8s linear infinite;
+  border-color: transparent;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(60,0,60,0.35);
+  box-shadow: 0 6px 20px -6px rgba(236,72,153,0.55);
+}
+:root[data-theme="light"] .glass-btn.primary:hover,
+:root[data-theme="light"] .snap-btn:hover {
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  filter: saturate(1.25) brightness(1.05);
+  box-shadow: 0 8px 26px -6px rgba(236,72,153,0.65);
+}
+
+/* CID chips go bubblegum. */
+:root[data-theme="light"] .cid-chip {
+  background: rgba(236,72,153,0.10);
+  border-color: rgba(236,72,153,0.32);
+  color: #c02690;
+}
+:root[data-theme="light"] .cid-chip:hover { background: rgba(236,72,153,0.18); }
+
+/* Rainbow scrollbar + hot-pink selection. */
+:root[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ff8ac2, #ffc37a, #7ee2a8, #7ec3ff, #b89aff);
+  background-clip: padding-box;
+}
+:root[data-theme="light"] ::selection {
+  background: rgba(255,45,149,0.28);
+  color: #2a1245;
+}
+
+/* HUB aurora blobs: crank the lava lamp. (Overrides the dim 0.09 above.) */
+:root[data-theme="light"] .hub-aurora::before {
+  background: radial-gradient(circle, #ff7ac8, transparent 65%);
+  opacity: 0.30;
+}
+:root[data-theme="light"] .hub-aurora::after {
+  background: radial-gradient(circle, #6cc7ff, transparent 65%);
+  opacity: 0.26;
+}
+
+/* Status pills & LED glows read warmer on the pale wash. */
+:root[data-theme="light"] .status-pill {
+  background: color-mix(in srgb, var(--pill-accent) 10%, #ffffff);
+}
+:root[data-theme="light"] .vtl-note.ok  { background: rgba(5,150,105,0.08); }
+:root[data-theme="light"] .vtl-note.err { background: rgba(225,29,72,0.08); }
+
+/* Skeleton shimmer needs a darker sheen than rgba(255,…) on white. */
+:root[data-theme="light"] .vtl-skel {
+  background: linear-gradient(90deg,
+    rgba(168,85,247,0.08), rgba(236,72,153,0.16), rgba(168,85,247,0.08));
+  background-size: 200% 100%;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Theme toggle — a little round portal in the header. Dark mode shows a
+ * 🌈 invitation; light mode shows the ☾ way home, wrapped in a live
+ * spinning rainbow ring (conic border via mask-composite).
+ * ──────────────────────────────────────────────────────────────────────*/
+.theme-toggle {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid var(--border-color-strong);
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 200ms ease;
+}
+.theme-toggle:hover { transform: translateY(-1px) rotate(10deg) scale(1.06); }
+.theme-toggle:active { transform: scale(0.94); }
+.theme-toggle::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(#ff5f6d, #ffc371, #fdff8f, #7bffb0, #6cc7ff, #b18cff, #ff8ce1, #ff5f6d);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  animation: hue-spin 4s linear infinite;
+  pointer-events: none;
+}
+.theme-toggle:hover::before { opacity: 1; }
+:root[data-theme="light"] .theme-toggle {
+  background: rgba(255,255,255,0.8);
+  box-shadow: 0 2px 10px rgba(236,72,153,0.25);
+}
+:root[data-theme="light"] .theme-toggle::before { opacity: 0.9; }
+@keyframes hue-spin {
+  to { filter: hue-rotate(360deg); }
+}
+@media (max-width: 767px) {
+  .theme-toggle { width: 38px; height: 38px; font-size: 18px; }
+}
+
+/* Chill out for reduced-motion users — rainbow stays, motion stops. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="light"] .console-header,
+  :root[data-theme="light"] .bento::before,
+  :root[data-theme="light"] .bento-title,
+  :root[data-theme="light"] .section-card__title,
+  :root[data-theme="light"] .glass-btn.primary,
+  :root[data-theme="light"] .snap-btn,
+  :root[data-theme="light"] .pixel-btn,
+  .theme-toggle::before {
+    animation: none;
+  }
 }

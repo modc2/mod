@@ -1,10 +1,10 @@
-"""Chain Interface - Orchestrator for modular contract deployment.
+"""Chain Interface - Orchestrator for contract deployment.
 
 Provides:
-- Modular deployment via per-contract mods (mods/)
-- Parallel proxy deployment with multiple keys
-- Backward-compatible interaction with all contracts
-- Dependency graph resolution for deploy ordering
+- Fleet deployment straight from the compiled artifacts in artifacts/
+- Deploy waves derived from the constructor dependency graph
+- Parallel deployment with pre-assigned nonces (one key or several)
+- Forks: the same fleet redeployed under a new owner
 """
 
 from web3 import Web3
@@ -12,10 +12,17 @@ from typing import Dict, Any, Optional, List, Union
 import json
 import os
 import subprocess
+import threading
+import time
 import mod as m
 import requests
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
+
+# Price/whitelist sentinel for native ETH, as the oracle and TokenGate use it.
+ETH_SENTINEL = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'
+# Supply minted to the deployer for the mock stables and the native token.
+MOCK_SUPPLY = 1_000_000 * 10 ** 18
 
 
 class Mod:
@@ -28,19 +35,74 @@ class Mod:
     }
     conns = {}
 
-    # Mod deploy order (dependency graph as ordered groups)
-    # Each group can deploy in parallel; groups are sequential
-    DEPLOY_GROUPS = [
-        ['token', 'oracle', 'registry', 'perms'],   # no dependencies
-        ['tokengate', 'bloctime'],                    # depend on group 1
-        ['treasury'],                                 # depends on tokengate + bloctime
-        ['market'],                                   # depends on treasury + tokengate
-        ['debit'],                                    # depends on market
-    ]
+    # ── The fleet, as data ──────────────────────────────────────────────────
+    # Each mod lists what it puts on chain — (config key, contract, constructor
+    # args) — and the calls that wire it up once everything is standing. An
+    # '@Key' arg is another contract's address, resolved from the current run
+    # first and the network's config second, so the dependency graph (and the
+    # deploy waves that fall out of it) is derived, never hand-kept.
+    # Mirrors the constructors in src/contracts and the console's DeployGraph.
+    FLEET = {
+        'token': {'deploys': [
+            ('USDC', 'Token', ['USD Coin', 'USDC', MOCK_SUPPLY]),
+            ('USDT', 'Token', ['Tether USD', 'USDT', MOCK_SUPPLY]),
+            ('DAI', 'Token', ['Dai Stablecoin', 'DAI', MOCK_SUPPLY]),
+            ('NativeToken', 'Token', ['Native Token', 'NAT', MOCK_SUPPLY]),
+        ]},
+        'oracle': {
+            'deploys': [('ManualPriceOracle', 'ManualPriceOracle', [])],
+            # Stables at $1, ETH at $3000 — 8 decimals, Chainlink convention.
+            'setup': [
+                ('ManualPriceOracle', 'setPrice', ['@USDC', 100_000_000, 8]),
+                ('ManualPriceOracle', 'setPrice', ['@USDT', 100_000_000, 8]),
+                ('ManualPriceOracle', 'setPrice', ['@DAI', 100_000_000, 8]),
+                ('ManualPriceOracle', 'setPrice', [ETH_SENTINEL, 300_000_000_000, 8]),
+            ],
+        },
+        'registry': {'deploys': [('Registry', 'Registry', [])]},
+        'perms': {'deploys': [('Perms', 'Perms', [])]},
+        'tokengate': {
+            'deploys': [('TokenGate', 'TokenGate', ['@ManualPriceOracle'])],
+            'setup': [
+                ('TokenGate', 'whitelistToken', ['@USDC']),
+                ('TokenGate', 'whitelistToken', ['@USDT']),
+                ('TokenGate', 'whitelistToken', ['@DAI']),
+                ('TokenGate', 'whitelistToken', [ETH_SENTINEL]),
+            ],
+        },
+        'bloctime': {
+            'deploys': [('BlocTime', 'BlocTime',
+                         ['@NativeToken', 'BlocTime Token', 'BLOC', 100_000, 5_000])],
+            # (lock blocks, multiplier in basis points) — longer lock, more BLOC.
+            'setup': [('BlocTime', 'setPoints',
+                       [[(0, 10_000), (10_000, 15_000), (50_000, 20_000), (100_000, 30_000)]])],
+        },
+        'treasury': {
+            # 2000 bp = 20% of fees to the owner, the rest to BLOC holders.
+            'deploys': [('Treasury', 'Treasury', [2_000, '@TokenGate'])],
+            'setup': [('Treasury', 'setGovernanceToken', ['@BlocTime'])],
+        },
+        'market': {
+            'deploys': [('Market', 'Market',
+                         ['BlocTime Market Token', 'BTMT', '@Treasury', '@TokenGate'])],
+            # Debit deploys after Market and points back at it, so this call
+            # can only happen once the whole fleet is up.
+            'setup': [('Market', 'setDebitContract', ['@Debit'])],
+        },
+        'debit': {'deploys': [('Debit', 'Debit', ['@Market'])]},
+    }
 
-    MOD_NAMES = ['token', 'oracle', 'tokengate', 'bloctime',
-                 'registry', 'treasury', 'market', 'debit', 'perms',
-                 'safe', 'bridge']
+    # Tokens that already exist on a network — recorded, never redeployed.
+    KNOWN_ADDRESSES = {
+        'mainnet': {  # Base mainnet
+            'USDC': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+            'USDT': '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
+            'DAI': '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb',
+        },
+    }
+
+    # config.json is read-modify-written from parallel deploy threads.
+    _config_lock = threading.Lock()
 
     # Built-in ABIs for stable core contracts. Used as a fallback when the
     # compiled artifact / pinned IPFS ABI isn't available in a checkout, so the
@@ -214,303 +276,402 @@ class Mod:
         self.load_all_contracts()
         self._mods = {}
 
-    # ==================== MOD SYSTEM ====================
-
-    def mod(self, name):
-        """Get a contract mod instance.
-
-        Args:
-            name: Mod name (e.g. 'market', 'token', 'oracle')
-
-        Returns:
-            m.mod('chain.contracts')ule subclass instance
-        """
-        if name not in self._mods:
-            from importlib import import_module
-            mod_path = f'mod.core.chain.contracts.{name}.mod'
-            mod_module = import_module(mod_path)
-            self._mods[name] = mod_module.Mod(
-                network=self.network,
-                key=self.key_name if hasattr(self, 'key_name') else 'test',
-            )
-        return self._mods[name]
+    # ==================== FLEET GRAPH ====================
 
     def list_mods(self):
-        """List available contract mods."""
-        return self.MOD_NAMES
+        """Mods the deploy pipeline knows how to ship."""
+        return list(self.FLEET)
 
-    # ==================== PARALLEL PROXY DEPLOYMENT ====================
+    @classmethod
+    def key_owner(cls, config_key):
+        """The mod that deploys the contract stored under this config key."""
+        for name, spec in cls.FLEET.items():
+            if any(key.lower() == config_key.lower() for key, _c, _a in spec['deploys']):
+                return name
+        return None
+
+    @classmethod
+    def deps_of(cls, mod_name):
+        """Mods whose addresses this one's constructors take."""
+        deps = []
+        for _key, _contract, args in cls.FLEET[mod_name]['deploys']:
+            for arg in args:
+                if not (isinstance(arg, str) and arg.startswith('@')):
+                    continue
+                owner = cls.key_owner(arg[1:])
+                if owner and owner != mod_name and owner not in deps:
+                    deps.append(owner)
+        return deps
+
+    @classmethod
+    def waves(cls, mods=None):
+        """Deploy waves: a mod sits one wave behind its deepest dependency, so
+        everything in a wave can go out at once and waves run in order.
+
+        Args:
+            mods: Subset to deploy (default: the whole fleet). Depths are
+                  measured on the full graph, so a partial deploy keeps the
+                  same relative order and trusts what's already on chain.
+        """
+        unknown = [n for n in (mods or []) if n not in cls.FLEET]
+        if unknown:
+            raise ValueError(f'Unknown mod(s): {", ".join(unknown)}')
+
+        depth = {}
+
+        def depth_of(name):
+            if name not in depth:
+                depth[name] = max([depth_of(d) + 1 for d in cls.deps_of(name)] or [0])
+            return depth[name]
+
+        rows = {}
+        for name in cls.FLEET:
+            if mods is None or name in mods:
+                rows.setdefault(depth_of(name), []).append(name)
+        return [rows[d] for d in sorted(rows)]
+
+    # ==================== DEPLOY ====================
 
     def deploy(self, network: str = None, keys: list = None,
                deployer_key: str = None, mods: list = None,
                setup: bool = True):
-        """Deploy all contracts with optional parallel proxy deployment.
+        """Deploy the fleet (or a subset), one dependency wave at a time.
 
         Args:
-            network: Target network (testnet/ganache/mainnet)
-            keys: List of proxy key names for parallel deployment.
-                  If None, uses single key (deployer_key or self key).
-            deployer_key: Key that will own all contracts after deployment.
-                          Defaults to self key.
-            mods: Specific mods to deploy (default: all core mods)
-            setup: Run post-deploy setup for each mod
+            network: Target network (testnet/ganache/mainnet). Default: self.network.
+            keys: Proxy keys to spread the deploy across — each mod in a wave
+                  gets one, so several deploys stay in flight. Ownership lands
+                  on deployer_key afterwards.
+            deployer_key: Key that owns the contracts when the dust settles.
+            mods: Subset of the fleet (default: all of it).
+            setup: Run the post-deploy wiring calls.
 
         Returns:
-            Dict of module_name -> deployed addresses
+            {config key: address} for everything that went on chain.
         """
-        if network is None:
-            network = self.network
+        network = network or self.network
+        deployer_key = deployer_key or getattr(self, 'key_name', 'test')
+        key_names = list(keys) if keys else [deployer_key]
+        deployer = self.address_of(deployer_key)
 
-        # Resolve keys
-        deployer_key_name = deployer_key or (self.key_name if hasattr(self, 'key_name') else 'test')
-        deployer = m.key(deployer_key_name)
-        deployer_address = self.w3.eth.account.from_key(deployer.private_key).address
+        # Deploys read the artifacts on disk; a stale/absent toolchain
+        # shouldn't sink the run, a missing artifact still errors below.
+        try:
+            self.compile()
+        except Exception as e:
+            m.print(f'compile skipped - {e}', color='yellow')
 
-        if keys:
-            proxy_key_names = keys
-        else:
-            proxy_key_names = [deployer_key_name]
+        groups = self.waves(mods)
+        m.print(f'Deploying to {network} with {len(key_names)} key(s)', color='cyan')
+        m.print(f'Waves: {groups}', color='cyan')
+        m.print(f'Deployer (final owner): {deployer}', color='cyan')
 
-        # Compile first
-        self.compile()
+        records = self._deploy_waves(groups, network, key_names)
 
-        # Filter deploy groups to requested mods
-        requested = set(mods) if mods else None
-        deploy_groups = []
-        for group in self.DEPLOY_GROUPS:
-            filtered = [name for name in group if requested is None or name in requested]
-            if filtered:
-                deploy_groups.append(filtered)
-
-        m.print(f'Deploying to {network} with {len(proxy_key_names)} key(s)', color='cyan')
-        m.print(f'Deploy groups: {deploy_groups}', color='cyan')
-        m.print(f'Deployer (final owner): {deployer_address}', color='cyan')
-
-        deployed = {}  # module_name -> address or dict of addresses
-
-        for group_idx, group in enumerate(deploy_groups):
-            m.print(f'\n--- Group {group_idx + 1}: {group} ---', color='yellow')
-
-            if len(group) > 1:
-                if len(proxy_key_names) > 1:
-                    # Parallel deployment with multiple proxy keys
-                    futures = {}
-                    for i, mod_name in enumerate(group):
-                        key_name = proxy_key_names[i % len(proxy_key_names)]
-                        deps = self._resolve_deps(mod_name, deployed)
-                        future = m.submit(
-                            self._deploy_mod,
-                            dict(mod_name=mod_name, network=network,
-                                 key=key_name, deps=deps),
-                        )
-                        futures[future] = mod_name
-
-                    for future in m.as_completed(futures.keys()):
-                        name = futures[future]
-                        try:
-                            result = future.result()
-                            deployed[name] = result
-                            m.print(f'{name}: deployed -> {result}', color='green')
-                        except Exception as e:
-                            m.print(f'{name}: FAILED -> {e}', color='red')
-                            raise
-                else:
-                    # Parallel deployment with single key via nonce pre-assignment
-                    results = self._deploy_group_parallel(
-                        group, network, proxy_key_names[0], deployed)
-                    deployed.update(results)
-            else:
-                # Sequential deployment (single mod in group)
-                for mod_name in group:
-                    key_name = proxy_key_names[0]
-                    deps = self._resolve_deps(mod_name, deployed)
-                    result = self._deploy_mod(mod_name, network, key_name, deps)
-                    deployed[mod_name] = result
-                    m.print(f'{mod_name}: deployed -> {result}', color='green')
-
-        # Post-deploy setup
         if setup:
-            m.print(f'\n--- Running setup ---', color='yellow')
-            for group in deploy_groups:
-                for mod_name in group:
-                    try:
-                        mod_instance = self.mod(mod_name)
-                        all_deps = self._resolve_all_deps(deployed)
-                        mod_instance.setup(network=network, **all_deps)
-                    except Exception as e:
-                        m.print(f'{mod_name} setup: {e}', color='yellow')
+            m.print('\n--- Wiring up ---', color='yellow')
+            self._run_setup([n for g in groups for n in g], network, deployer_key, records)
 
-        # Transfer ownership from proxy keys to deployer
-        if keys and len(keys) > 1:
-            m.print(f'\n--- Transferring ownership to {deployer_address} ---', color='yellow')
-            for mod_name in deployed:
-                try:
-                    mod_instance = self.mod(mod_name)
-                    mod_instance.transfer_ownership(deployer_address)
-                except Exception as e:
-                    m.print(f'{mod_name} ownership transfer: {e}', color='yellow')
+        if key_names != [deployer_key]:
+            m.print(f'\n--- Handing ownership to {deployer} ---', color='yellow')
+            self._transfer_ownership(records, deployer, network)
 
-        # Reload contracts
         self.config = m.config('chain')
         self.load_all_contracts()
-
-        # Sync to app
         try:
             self.sync_app()
         except Exception:
             pass
 
-        m.print(f'\nDeployment complete!', color='green')
+        deployed = {key: r['address'] for key, r in records.items()}
+        m.print(f'\nDeployment complete - {len(deployed)} contract(s) on {network}', color='green')
         return deployed
 
-    def deploy_mod(self, mod_name, network=None, key=None, **deps):
-        """Deploy a single mod.
+    def deploy_mod(self, mod_name, network=None, key=None):
+        """Deploy a single mod. Its dependencies must already be on chain."""
+        return self.deploy(network=network, mods=[mod_name], deployer_key=key)
 
-        Args:
-            mod_name: Mod name (e.g. 'market')
-            network: Target network
-            key: Key name for signing
-            **deps: Dependency addresses
+    def _deploy_waves(self, groups, network, key_names, record=True):
+        """Run the waves, returning {config key: {address, contract, key}}.
+
+        Within a wave each mod deploys in parallel on a pre-assigned nonce run,
+        so one key can keep several transactions in flight without colliding.
         """
-        network = network or self.network
-        key = key or (self.key_name if hasattr(self, 'key_name') else 'test')
-        self.compile()
-        result = self._deploy_mod(mod_name, network, key, deps)
-        self.config = m.config('chain')
-        self.load_all_contracts()
-        return result
+        w3 = self._w3(network)
+        records = {}
 
-    def _deploy_mod(self, mod_name, network, key, deps, nonce=None):
-        """Internal: deploy a single mod."""
-        mod_instance = self.mod(mod_name)
-        mod_instance.set_key(key)
-        return mod_instance.deploy(network=network, key=key, nonce=nonce, **deps)
+        for index, group in enumerate(groups):
+            m.print(f'\n--- Wave {index + 1}: {", ".join(group)} ---', color='yellow')
 
-    def _deploy_group_parallel(self, group, network, key_name, deployed):
-        """Deploy a group of mods in parallel using nonce pre-assignment.
+            plans, next_nonce = {}, {}
+            for i, name in enumerate(group):
+                plan, known = self._plan(name, network, record=record)
+                records.update(known)
+                key_name = key_names[i % len(key_names)]
+                if key_name not in next_nonce:
+                    next_nonce[key_name] = w3.eth.get_transaction_count(
+                        self.address_of(key_name), 'pending')
+                plans[name] = (key_name, next_nonce[key_name], plan)
+                next_nonce[key_name] += len(plan)
 
-        Pre-assigns nonces from a single wallet so all deploys can fire
-        concurrently without nonce conflicts.
+            # Everything a wave needs was deployed by an earlier one, so each
+            # mod resolves its args against the same snapshot.
+            snapshot = dict(records)
+            if len(group) == 1:
+                name = group[0]
+                key_name, nonce, plan = plans[name]
+                records.update(self._deploy_plan(name, plan, network, key_name,
+                                                 nonce, snapshot, record))
+                continue
+
+            futures = {}
+            for name, (key_name, nonce, plan) in plans.items():
+                future = m.submit(
+                    self._deploy_plan,
+                    dict(mod_name=name, plan=plan, network=network, key_name=key_name,
+                         nonce=nonce, known=snapshot, record=record),
+                    timeout=600,
+                )
+                futures[future] = name
+            for future in m.as_completed(futures.keys()):
+                name = futures[future]
+                try:
+                    records.update(future.result())
+                except Exception as e:
+                    m.print(f'{name}: FAILED -> {e}', color='red')
+                    raise
+
+        return records
+
+    def _plan(self, mod_name, network, record=True):
+        """What a mod actually has to put on chain, and what's already there."""
+        known_addresses = self.KNOWN_ADDRESSES.get(network, {})
+        plan, known = [], {}
+        for config_key, contract, args in self.FLEET[mod_name]['deploys']:
+            address = known_addresses.get(config_key)
+            if not address:
+                plan.append((config_key, contract, args))
+                continue
+            known[config_key] = {'address': address, 'contract': contract, 'key': None}
+            if record:
+                self._save_deployment(config_key, address, contract, network)
+            m.print(f'{mod_name}: {config_key} already on {network} -> {address}', color='yellow')
+        return plan, known
+
+    def _deploy_plan(self, mod_name, plan, network, key_name, nonce, known, record=True):
+        """Deploy one mod's contracts over its pre-assigned nonce run."""
+        out = {}
+        for config_key, contract, args in plan:
+            resolved = [self._resolve(a, {**known, **out}, network, config_fallback=record)
+                        for a in args]
+            address = self._deploy_contract(contract, resolved, key_name, network, nonce)
+            nonce += 1
+            out[config_key] = {'address': address, 'contract': contract, 'key': key_name}
+            m.print(f'{mod_name}: {config_key} -> {address}', color='green')
+            if record:
+                self._save_deployment(config_key, address, contract, network,
+                                      deployer=self.address_of(key_name))
+        return out
+
+    def _deploy_contract(self, contract, args, key_name, network, nonce=None):
+        """Deploy one contract from its compiled artifact."""
+        artifact = self.artifact(contract)
+        if not artifact.get('bytecode') or artifact['bytecode'] == '0x':
+            raise ValueError(f'{contract} has no bytecode - is it an interface?')
+
+        w3 = self._w3(network)
+        account = self.account_of(key_name)
+        factory = w3.eth.contract(abi=artifact['abi'], bytecode=artifact['bytecode'])
+        params = {
+            'from': account.address,
+            'nonce': nonce if nonce is not None else w3.eth.get_transaction_count(
+                account.address, 'pending'),
+            # Explicit gas limit: eth_estimateGas is unreliable on load-balanced
+            # public RPCs, and a wave's later nonces aren't simulatable anyway.
+            # Every contract here is well under this; unused gas isn't charged.
+            'gas': 6_000_000,
+            'chainId': w3.eth.chain_id,
+        }
+        params.update(self._gas_fees(w3))
+        tx = factory.constructor(*args).build_transaction(params)
+        signed = w3.eth.account.sign_transaction(tx, account.key)
+        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
+        if receipt.status != 1:
+            raise RuntimeError(f'{contract} deploy reverted (tx {tx_hash.hex()})')
+        return receipt.contractAddress
+
+    def _run_setup(self, names, network, key_name, records, config_fallback=True):
+        """Post-deploy wiring - the calls that can only happen once the
+        addresses exist. A step whose target or argument is missing is skipped
+        with a warning, not fatal: a partial deploy wires what it can.
+
+        Each call is signed by whichever key deployed the contract, since
+        ownership only moves to the deployer once the wiring is done.
         """
-        # Get base nonce
-        deployer = m.key(key_name)
-        deployer_address = self.w3.eth.account.from_key(deployer.private_key).address
-        base_nonce = self.w3.eth.get_transaction_count(deployer_address, 'pending')
+        for name in names:
+            for config_key, function, args in self.FLEET[name].get('setup', []):
+                try:
+                    resolved = [self._resolve(a, records, network, config_fallback)
+                                for a in args]
+                    contract = self._contract_at(config_key, network, records)
+                    signer = (records.get(config_key) or {}).get('key') or key_name
+                    self._send(contract, function, resolved, signer, network)
+                    m.print(f'{name}: {config_key}.{function} ok', color='green')
+                except Exception as e:
+                    m.print(f'{name}: {config_key}.{function} skipped - {e}', color='yellow')
 
-        # Assign nonce ranges
-        nonce_assignments = {}
-        current_nonce = base_nonce
-        for mod_name in group:
-            mod_instance = self.mod(mod_name)
-            count = getattr(mod_instance, 'deploy_count', 1)
-            nonce_assignments[mod_name] = current_nonce
-            current_nonce += count
-
-        m.print(f'Nonce pre-assignment: base={base_nonce}, '
-                f'assignments={nonce_assignments}', color='cyan')
-
-        # Fire all deploys in parallel
-        futures = {}
-        for mod_name in group:
-            deps = self._resolve_deps(mod_name, deployed)
-            nonce = nonce_assignments[mod_name]
-            future = m.submit(
-                self._deploy_mod,
-                dict(mod_name=mod_name, network=network,
-                     key=key_name, deps=deps, nonce=nonce),
-            )
-            futures[future] = mod_name
-
-        # Collect results
-        results = {}
-        for future in m.as_completed(futures.keys()):
-            name = futures[future]
+    def _transfer_ownership(self, records, new_owner, network):
+        """Hand every Ownable contract we deployed to its final owner."""
+        new_owner = Web3.to_checksum_address(new_owner)
+        for config_key, record in records.items():
+            key_name = record.get('key')
+            if not key_name:
+                continue  # recorded, not deployed by us
             try:
-                result = future.result()
-                results[name] = result
-                m.print(f'{name}: deployed -> {result}', color='green')
+                contract = self._contract_at(config_key, network, records)
+                # Ownable, specifically: Registry also has a transferOwnership,
+                # but it moves a *mod's* owner and takes (modId, address).
+                if not any(item.get('name') == 'transferOwnership'
+                           and [i['type'] for i in item.get('inputs', [])] == ['address']
+                           for item in contract.abi if item.get('type') == 'function'):
+                    continue
+                # Freshly deployed code can lag on a load-balanced RPC.
+                owner = None
+                for _attempt in range(5):
+                    try:
+                        owner = contract.functions.owner().call()
+                        break
+                    except Exception:
+                        time.sleep(2)
+                if owner is None:
+                    m.print(f'{config_key}: could not read owner', color='red')
+                    continue
+                if owner.lower() == new_owner.lower():
+                    continue
+                self._send(contract, 'transferOwnership', [new_owner], key_name, network)
+                m.print(f'{config_key}: owner -> {new_owner}', color='green')
             except Exception as e:
-                m.print(f'{name}: FAILED -> {e}', color='red')
-                raise
+                m.print(f'{config_key}: ownership transfer failed - {e}', color='yellow')
 
-        return results
+    # ==================== DEPLOY PLUMBING ====================
 
-    def _resolve_deps(self, mod_name, deployed):
-        """Resolve dependency addresses from already-deployed mods."""
-        mod_instance = self.mod(mod_name)
-        deps = {}
-        for dep_name in mod_instance.dependencies:
-            if dep_name in deployed:
-                val = deployed[dep_name]
-                if isinstance(val, str):
-                    deps[dep_name] = val
-                elif isinstance(val, dict) and 'address' in val:
-                    deps[dep_name] = val['address']
-                elif isinstance(val, dict):
-                    # Multi-address result (e.g. token returns {USDC: addr, ...})
-                    deps[dep_name] = val
-                else:
-                    raise ValueError(f'Invalid deployment result for {dep_name}: {val}')
+    def _w3(self, network=None):
+        """web3 client for a network (connections are shared class-wide)."""
+        if network is None or network == self.network:
+            return self.w3
+        url = self.network2url.get(network, network)
+        if url not in self.conns:
+            self.conns[url] = Web3(Web3.HTTPProvider(url))
+        return self.conns[url]
 
-            else:
-                # Try to load from config
-                deployment = self.config.get('deployments', {}).get(self.network, {})
-                contracts = deployment.get('contracts', {})
-                # Map mod name to config key
-                key_map = {
-                    'oracle': 'ManualPriceOracle',
-                    'tokengate': 'TokenGate',
-                    'bloctime': 'BlocTime',
-                    'market': 'Market',
-                    'treasury': 'Treasury',
-                    'debit': 'Debit',
-                    'registry': 'Registry',
-                    'perms': 'Perms',
-                    'token': 'NativeToken',
-                }
-                config_key = key_map.get(dep_name, dep_name)
-                if config_key in contracts:
-                    deps[dep_name] = contracts[config_key].get('address')
-        return deps
+    def account_of(self, key_name):
+        """Signing account for a key name. Never touches self.account, so
+        parallel waves can sign with different keys."""
+        return Account.from_key(m.key(key_name or 'test').private_key)
 
-    def _resolve_all_deps(self, deployed):
-        """Build a flat dict of all deployed addresses for setup."""
-        deps = {}
-        for name, result in deployed.items():
-            if isinstance(result, dict):
-                deps.update(result)
-                deps[name] = result
-            else:
-                deps[name] = result
-        # Also pull from config
-        deployment = self.config.get('deployments', {}).get(self.network, {})
-        contracts = deployment.get('contracts', {})
+    def address_of(self, key_name):
+        """Address behind a key name."""
+        return self.account_of(key_name).address
+
+    def artifact(self, contract):
+        """Compiled hardhat artifact (abi + bytecode) for a contract name."""
+        for root in (self.contracts_path, os.path.join(self.path, 'artifacts')):
+            for dirpath, _dirs, files in os.walk(root):
+                if f'{contract}.json' in files:
+                    with open(os.path.join(dirpath, f'{contract}.json')) as f:
+                        return json.load(f)
+        raise ValueError(f'No compiled artifact for {contract} - run `m chain/compile`')
+
+    def deployed_entry(self, config_key, network=None):
+        """Config record for a contract key on a network (case-insensitive)."""
+        contracts = (m.config('chain').get('deployments', {})
+                     .get(network or self.network, {}).get('contracts', {}))
         for key, info in contracts.items():
-            if key.lower() not in deps:
-                deps[key.lower()] = info.get('address')
-            deps[key] = info.get('address')
-        return deps
+            if key.lower() == config_key.lower():
+                return info
+        return None
 
+    def deployed_address(self, config_key, network=None):
+        """Address recorded for a contract key, or None."""
+        return (self.deployed_entry(config_key, network) or {}).get('address')
+
+    def _resolve(self, value, records, network, config_fallback=True):
+        """'@Key' -> a deployed address; every other arg passes through."""
+        if not (isinstance(value, str) and value.startswith('@')):
+            return value
+        config_key = value[1:]
+        record = records.get(config_key)
+        address = record['address'] if record else (
+            self.deployed_address(config_key, network) if config_fallback else None)
+        if not address:
+            raise ValueError(f'{config_key} has no address on {network} - deploy it first')
+        return Web3.to_checksum_address(address)
+
+    def _contract_at(self, config_key, network, records=None):
+        """A web3 contract bound to the address recorded for a contract key."""
+        record = (records or {}).get(config_key) or self.deployed_entry(config_key, network)
+        if not record or not record.get('address'):
+            raise ValueError(f'{config_key} is not deployed on {network}')
+        name = record.get('contract') or config_key
+        return self._w3(network).eth.contract(
+            address=Web3.to_checksum_address(record['address']),
+            abi=self.artifact(name)['abi'])
+
+    def _send(self, contract, function, args, key_name, network):
+        """Sign and broadcast a contract call with an arbitrary key."""
+        w3 = self._w3(network)
+        account = self.account_of(key_name)
+        params = {
+            'from': account.address,
+            'nonce': w3.eth.get_transaction_count(account.address, 'pending'),
+            'gas': 500_000,
+            'chainId': w3.eth.chain_id,
+        }
+        params.update(self._gas_fees(w3))
+        tx = getattr(contract.functions, function)(*args).build_transaction(params)
+        signed = w3.eth.account.sign_transaction(tx, account.key)
+        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=300)
+        if receipt.status != 1:
+            raise RuntimeError(f'{function} reverted (tx {tx_hash.hex()})')
+        return receipt
+
+    def _save_deployment(self, config_key, address, contract, network=None, deployer=None):
+        """Record a deployed address in the module config."""
+        network = network or self.network
+        with self._config_lock:
+            config = m.config('chain')
+            deployment = config.setdefault('deployments', {}).setdefault(network, {})
+            deployment.setdefault('chainId', str(self._w3(network).eth.chain_id))
+            deployment.setdefault('url', self.network2url.get(network, network))
+            if deployer:
+                deployment['deployer'] = deployer
+            deployment.setdefault('contracts', {})[config_key] = {
+                'address': address, 'contract': contract,
+            }
+            m.save_config('chain', config)
+            self.config = config
+        return address
     # ==================== FORK ====================
 
     def fork(self, owner, mods=None, network=None, label=None, gas_key='test'):
-        """Fork contracts - redeploy all (or selected) contracts under a new owner.
+        """Fork the fleet - redeploy it (or part of it) under a new owner.
 
-        The gas_key (default: test) pays for deployment gas. After deployment,
-        ownership of each contract transfers to the forker's address.
-
-        Uses nonce pre-assignment for parallel deployment within each group.
+        The gas_key pays for deployment; ownership of each contract transfers
+        to the forker afterwards. A fork's addresses land in
+        ~/mod/chain/forks/<label>.json and its contracts wire to each other -
+        the module's own deployment config is never touched.
 
         Args:
             owner: Key name or address that will own the forked contracts.
-            mods: List of mod names to fork (default: all in DEPLOY_GROUPS).
+            mods: List of mod names to fork (default: the whole fleet).
             network: Target network (default: self.network).
-            label: Optional label for the fork (used in config namespace).
-                   Defaults to the owner's address.
+            label: Fork label, used in the fork key (default: owner prefix).
             gas_key: Key name that pays for gas (default: 'test').
 
         Returns:
-            Dict with deployed addresses and fork metadata.
+            Fork metadata plus the contracts it deployed.
 
         CLI:
             m chain/fork owner=alice
@@ -518,189 +679,57 @@ class Mod:
             m chain/fork owner=0x1234... label=myproject
         """
         network = network or self.network
-        w3 = self.w3
-        chain_id = self.chain_id
+        w3 = self._w3(network)
 
-        # Resolve gas sponsor
-        gas_account = w3.eth.account.from_key(m.key(gas_key).private_key)
-        gas_balance = w3.eth.get_balance(gas_account.address)
-        m.print(f'Gas sponsor: {gas_account.address} ({gas_balance / 1e18:.4f} ETH)', color='cyan')
+        gas_address = self.address_of(gas_key)
+        gas_balance = w3.eth.get_balance(gas_address)
+        m.print(f'Gas sponsor: {gas_address} ({gas_balance / 1e18:.4f} ETH)', color='cyan')
         if gas_balance == 0:
             raise ValueError(f'Gas key "{gas_key}" has no ETH for deployment')
 
-        # Resolve fork owner
         if Web3.is_address(owner):
             owner_address = Web3.to_checksum_address(owner)
         else:
-            owner_address = w3.eth.account.from_key(m.key(owner).private_key).address
+            owner_address = self.address_of(owner)
         fork_label = label or owner_address[:10].lower()
 
         m.print(f'Forking contracts for {owner_address}', color='cyan')
         m.print(f'Fork label: {fork_label}', color='cyan')
 
-        # Compile first
-        self.compile()
+        try:
+            self.compile()
+        except Exception as e:
+            m.print(f'compile skipped - {e}', color='yellow')
 
-        # Filter deploy groups
-        requested = set(mods) if mods else None
-        deploy_groups = []
-        for group in self.DEPLOY_GROUPS:
-            filtered = [name for name in group if requested is None or name in requested]
-            if filtered:
-                deploy_groups.append(filtered)
+        groups = self.waves(mods)
+        m.print(f'Waves: {groups}', color='cyan')
 
-        m.print(f'Deploy groups: {deploy_groups}', color='cyan')
-
-        deployed = {}  # mod_name -> address or dict
-
-        for group_idx, group in enumerate(deploy_groups):
-            m.print(f'\n--- Fork group {group_idx + 1}: {group} ---', color='yellow')
-
-            if len(group) > 1:
-                # Parallel deploy with nonce pre-assignment
-                base_nonce = w3.eth.get_transaction_count(gas_account.address, 'pending')
-                nonce_map = {}
-                current_nonce = base_nonce
-
-                # Pre-count how many txs each mod needs
-                deploy_counts = {
-                    'token': 4,  # USDC, USDT, DAI, NativeToken
-                }
-                for mod_name in group:
-                    count = deploy_counts.get(mod_name, getattr(self.mod(mod_name), 'deploy_count', 1))
-                    nonce_map[mod_name] = current_nonce
-                    current_nonce += count
-
-                m.print(f'Nonce pre-assignment: base={base_nonce}, map={nonce_map}', color='cyan')
-
-                futures = {}
-                for mod_name in group:
-                    deps = self._resolve_deps(mod_name, deployed)
-                    start_nonce = nonce_map[mod_name]
-                    future = m.submit(
-                        self._fork_deploy_mod,
-                        dict(mod_name=mod_name, network=network,
-                             gas_key=gas_key, deps=deps, nonce=start_nonce),
-                    )
-                    futures[future] = mod_name
-
-                for future in m.as_completed(futures.keys()):
-                    name = futures[future]
-                    try:
-                        result = future.result()
-                        deployed[name] = result
-                        m.print(f'{name}: forked -> {result}', color='green')
-                    except Exception as e:
-                        m.print(f'{name}: FAILED -> {e}', color='red')
-                        raise
-            else:
-                for mod_name in group:
-                    deps = self._resolve_deps(mod_name, deployed)
-                    result = self._fork_deploy_mod(mod_name, network, gas_key, deps)
-                    deployed[mod_name] = result
-                    m.print(f'{mod_name}: forked -> {result}', color='green')
-
-        # Transfer ownership to fork owner
-        import time
+        # record=False keeps the fork out of the canonical config, and makes
+        # its contracts resolve each other rather than the live deployment.
+        records = self._deploy_waves(groups, network, [gas_key], record=False)
+        self._run_setup([n for g in groups for n in g], network, gas_key, records,
+                        config_fallback=False)
         m.print(f'\n--- Transferring ownership to {owner_address} ---', color='yellow')
-        for mod_name in deployed:
-            try:
-                mod_instance = self.mod(mod_name)
-                mod_instance.set_key(gas_key)
-                mod_w3 = mod_instance.w3
-                result = deployed[mod_name]
-                if isinstance(result, dict):
-                    m.print(f'{mod_name}: multi-contract, skipping ownership transfer', color='yellow')
-                    continue
-                address = result
-                abi = mod_instance.get_abi(mod_instance.contracts[0])
-                has_ownership = any(
-                    item.get('name') == 'transferOwnership'
-                    for item in abi if item.get('type') == 'function'
-                )
-                if not has_ownership:
-                    m.print(f'{mod_name}: no transferOwnership function', color='yellow')
-                    continue
-                contract = mod_w3.eth.contract(
-                    address=Web3.to_checksum_address(address), abi=abi)
-                # Retry owner() call with backoff (RPC state sync delay)
-                current_owner = None
-                for attempt in range(5):
-                    try:
-                        current_owner = contract.functions.owner().call()
-                        break
-                    except Exception:
-                        time.sleep(2)
-                if current_owner is None:
-                    m.print(f'{mod_name}: could not read owner after retries', color='red')
-                    continue
-                if current_owner.lower() != owner_address.lower():
-                    tx = contract.functions.transferOwnership(
-                        Web3.to_checksum_address(owner_address)
-                    ).build_transaction({
-                        'from': mod_instance.account.address,
-                        'nonce': mod_w3.eth.get_transaction_count(
-                            mod_instance.account.address, 'pending'),
-                        'gasPrice': mod_w3.eth.gas_price,
-                        'chainId': mod_instance.chain_id,
-                    })
-                    signed = mod_w3.eth.account.sign_transaction(
-                        tx, mod_instance.account.key)
-                    tx_hash = mod_w3.eth.send_raw_transaction(signed.raw_transaction)
-                    mod_w3.eth.wait_for_transaction_receipt(tx_hash)
-                    m.print(f'{mod_name}: ownership -> {owner_address}', color='green')
-                else:
-                    m.print(f'{mod_name}: already owned by {owner_address}', color='yellow')
-            except Exception as e:
-                m.print(f'{mod_name}: ownership transfer failed - {e}', color='red')
+        self._transfer_ownership(records, owner_address, network)
 
-        # Save fork deployment to ~/mod/chain/forks/
         fork_key = f'{network}:fork:{fork_label}'
         forks_dir = os.path.join(os.path.expanduser('~/mod/chain'), 'forks')
         os.makedirs(forks_dir, exist_ok=True)
         fork_data = {
             'owner': owner_address,
-            'gas_sponsor': gas_account.address,
+            'gas_sponsor': gas_address,
             'network': network,
             'label': fork_label,
-            'contracts': {},
+            'contracts': {key: {'address': r['address'], 'contract': r['contract'],
+                                'mod': self.key_owner(key)}
+                          for key, r in records.items()},
         }
-        for mod_name, result in deployed.items():
-            if isinstance(result, dict):
-                for k, v in result.items():
-                    fork_data['contracts'][k] = {
-                        'address': v, 'mod': mod_name,
-                    }
-            else:
-                fork_data['contracts'][mod_name] = {
-                    'address': result, 'mod': mod_name,
-                }
-        fork_file = os.path.join(forks_dir, f'{fork_label}.json')
-        with open(fork_file, 'w') as f:
+        with open(os.path.join(forks_dir, f'{fork_label}.json'), 'w') as f:
             json.dump(fork_data, f, indent=4)
 
         m.print(f'\nFork complete! Owner: {owner_address}', color='green')
         m.print(f'Fork key: {fork_key}', color='cyan')
-        return {
-            'fork_key': fork_key,
-            'owner': owner_address,
-            'gas_sponsor': gas_account.address,
-            'deployed': deployed,
-        }
-
-    def _fork_deploy_mod(self, mod_name, network, gas_key, deps, nonce=None):
-        """Internal: deploy a single mod using gas_key as sponsor.
-
-        Sets _next_nonce on the mod instance so deploy_contract auto-increments
-        through pre-assigned nonces for parallel deployment.
-        """
-        mod_instance = self.mod(mod_name)
-        mod_instance.set_key(gas_key)
-        if nonce is not None:
-            mod_instance._next_nonce = nonce
-        result = mod_instance.deploy(network=network, key=gas_key, **deps)
-        mod_instance._next_nonce = None  # reset
-        return result
+        return {**fork_data, 'fork_key': fork_key}
 
     def forks(self, network=None):
         """List all forks from ~/mod/chain/forks/."""
@@ -1361,14 +1390,15 @@ class Mod:
         tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
         return self.w3.eth.wait_for_transaction_receipt(tx_hash)
 
-    def _gas_fees(self) -> Dict[str, int]:
+    def _gas_fees(self, w3=None) -> Dict[str, int]:
         """EIP-1559 fee fields: 2 gwei priority + 2× base-fee headroom. Falls
         back to an empty dict (node defaults) if the chain isn't 1559-capable."""
+        w3 = w3 or self.w3
         try:
-            base = self.w3.eth.get_block('latest').get('baseFeePerGas')
+            base = w3.eth.get_block('latest').get('baseFeePerGas')
             if base is None:
                 return {}
-            priority = self.w3.to_wei(2, 'gwei')
+            priority = w3.to_wei(2, 'gwei')
             return {'maxPriorityFeePerGas': priority, 'maxFeePerGas': base * 2 + priority}
         except Exception:
             return {}
@@ -1474,7 +1504,7 @@ class Mod:
     # ==================== CONTROL PANEL (deploy scripts / verify) ====================
     #
     # Hardhat-script-based deploys (e.g. the DeFi vault, which isn't part of the
-    # Python/web3 DEPLOY_GROUPS pipeline) and Basescan/Etherscan source verification,
+    # Python/web3 FLEET pipeline) and Basescan/Etherscan source verification,
     # both invoked via `npx hardhat ...` subprocesses scoped to this module's directory.
 
     HH_NETWORK = {'testnet': 'base_sepolia', 'mainnet': 'base', 'ganache': 'ganache', 'localhost': 'hardhat'}
@@ -2107,49 +2137,19 @@ class Mod:
         """Default action."""
         return x + y
 
-    def test(self, mod_name=None, network=None):
-        """Run contract tests.
+    def test(self, network=None):
+        """Run the contract test suite (hardhat)."""
+        return os.system(f'cd {self.path} && npx hardhat test')
 
-        Args:
-            mod_name: Specific mod to test (e.g. 'market', 'token').
-                      If None, runs all tests.
-            network: Network for test context (default: testnet).
-                     Used for ganache/fork tests.
-        """
-        network = network or self.network
-        if mod_name:
-            mod_instance = self.mod(mod_name)
-            if hasattr(mod_instance, 'test'):
-                return mod_instance.test()
-            raise ValueError(f'{mod_name} has no test() method')
-        # Run all tests
-        dp = m.dp('chain')
-        return os.system(f'cd {dp} && npx hardhat test')
-
-    def compile(self, mod_name=None):
-        """Compile contracts.
-
-        Args:
-            mod_name: If provided, compile only that mod's contracts.
-                      If None, compile all mods.
-        """
-        if mod_name:
-            mod_instance = self.mod(mod_name)
-            mod_instance.compile()
-        else:
-            # Compile each mod that has local contracts
-            mods_dir = os.path.join(self.path, 'chain', 'mods')
-            for name in self.MOD_NAMES:
-                mod_contracts = os.path.join(mods_dir, name, 'contracts')
-                if os.path.isdir(mod_contracts):
-                    try:
-                        mod_instance = self.mod(name)
-                        mod_instance.compile()
-                    except Exception as e:
-                        m.print(f'Error compiling {name}: {e}', color='yellow')
-            # Also compile chain-level contracts as fallback
-            dp = m.dp('chain')
-            os.system(f'cd {dp} && npx hardhat compile')
+    def compile(self):
+        """Compile src/contracts into artifacts/ via hardhat."""
+        proc = subprocess.run(['npx', 'hardhat', 'compile'], cwd=self.path,
+                              capture_output=True, text=True, timeout=600)
+        output = ((proc.stdout or '') + (proc.stderr or '')).strip()
+        if proc.returncode != 0:
+            raise RuntimeError(output or f'compile failed (exit {proc.returncode})')
+        m.print(output.splitlines()[-1] if output else 'compiled', color='green')
+        return {'status': 'ok', 'output': output}
 
     def abifiles(self, search=None):
         """Get ABI files."""
@@ -2432,11 +2432,10 @@ class Mod:
                                     stdout=log, stderr=subprocess.STDOUT)
             return {'manager': 'subprocess', 'pid': proc.pid, 'warn': str(e)}
 
-    def serve(self, mods=None, dev=True):
-        """Serve chain hub API + app, plus all (or selected) module APIs + apps.
+    def serve(self, dev=True):
+        """Serve the chain hub API + app.
 
         Args:
-            mods: List of mod names to serve, or None for all
             dev: Use dev mode (hot reload)
 
         Returns:
@@ -2446,7 +2445,7 @@ class Mod:
         import signal as sig
         from pathlib import Path
 
-        self.kill(mods=mods)
+        self.kill()
 
         results = {}
         chain_dir = Path(self.path)
@@ -2489,29 +2488,12 @@ class Mod:
 
         results['hub_logs'] = str(log_dir)
 
-        # ── Start module APIs + apps ─────────────────────────────
-        mod_names = mods if mods else self.MOD_NAMES
-        results['modules'] = {}
-
-        for mod_name in mod_names:
-            try:
-                mod_instance = self.mod(mod_name)
-                mod_result = mod_instance.serve(dev=dev)
-                results['modules'][mod_name] = mod_result
-                m.print(f'{mod_name}: serving', color='green')
-            except Exception as e:
-                results['modules'][mod_name] = {'error': str(e)}
-                m.print(f'{mod_name}: serve failed - {e}', color='red')
-
         m.print(f'\nChain Hub: {api_url}/docs', color='cyan')
         m.print(f'Chain App: {app_url}', color='cyan')
         return results
 
-    def kill(self, mods=None):
-        """Kill chain hub and all (or selected) module processes.
-
-        Args:
-            mods: List of mod names to kill, or None for all
+    def kill(self):
+        """Kill the chain hub API and app.
 
         Returns:
             Dict of killed processes
@@ -2545,17 +2527,5 @@ class Mod:
             except Exception:
                 pass
         results['hub'] = {'killed': hub_killed}
-
-        # ── Kill modules ─────────────────────────────────────────
-        mod_names = mods if mods else self.MOD_NAMES
-        results['modules'] = {}
-
-        for mod_name in mod_names:
-            try:
-                mod_instance = self.mod(mod_name)
-                mod_result = mod_instance.kill()
-                results['modules'][mod_name] = mod_result
-            except Exception as e:
-                results['modules'][mod_name] = {'error': str(e)}
 
         return results

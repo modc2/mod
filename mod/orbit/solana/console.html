@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>solana — one mod, the whole chain</title>
+<style>
+  :root{
+    --bg:#07090c; --panel:#0d1117; --line:#1b2230; --ink:#dae2ec; --dim:#66748c;
+    --hot:#14f195; --hot2:#9945ff; --ink2:#b9c6d6;
+    --good:#14f195; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+  header{display:flex;align-items:baseline;gap:14px;padding:13px 18px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:9;
+         flex-wrap:wrap}
+  h1{font-size:15px;margin:0;letter-spacing:.14em}
+  h1 b{background:linear-gradient(90deg,var(--hot2),var(--hot));
+       -webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--dim);font-size:11px}
+  nav{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap}
+  nav button{background:none;border:1px solid var(--line);color:var(--dim);
+             padding:5px 12px;cursor:pointer;font:inherit;font-size:11px;letter-spacing:.1em}
+  nav button.on{color:#05140d;background:var(--hot);border-color:var(--hot)}
+  main{padding:16px 18px;max-width:1440px}
+  section{display:none} section.on{display:block}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  input,select,textarea{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+               padding:6px 9px;font:inherit}
+  input:focus,select:focus{outline:none;border-color:var(--hot)}
+  input.wide{min-width:min(460px,72vw)}
+  label.chk{color:var(--dim);font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer}
+  button.go{background:var(--hot);color:#05140d;border:none;padding:7px 16px;
+            cursor:pointer;font:inherit;font-weight:600;letter-spacing:.08em}
+  button.go.danger{background:var(--bad);color:#180707}
+  button.go:disabled{opacity:.5;cursor:wait}
+  button.ghost{background:none;border:1px solid var(--line);color:var(--ink);
+               padding:3px 9px;cursor:pointer;font:inherit;font-size:11px}
+  button.ghost:hover{border-color:var(--hot);color:var(--hot)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:var(--dim);font-weight:400;border-bottom:1px solid var(--line);
+     padding:6px 8px;font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+  td{padding:6px 8px;border-bottom:1px solid #10141c;vertical-align:top}
+  tr:hover td{background:#0d1118}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  .p{display:inline-block;padding:1px 6px;border:1px solid var(--line);border-radius:2px;
+     font-size:10px;color:var(--dim);margin-right:3px}
+  .p.hot{color:var(--hot);border-color:#134a34}
+  .p.pur{color:#c4a0ff;border-color:#3a2168}
+  .p.bad{color:var(--bad);border-color:#4a1d1d}
+  .up{color:var(--good)} .down{color:var(--bad)} .dimtxt{color:var(--dim)}
+  .warnv{color:var(--warn)} .badv{color:var(--bad)}
+  .addr{color:#c4a0ff;cursor:pointer;word-break:break-all}
+  .addr:hover{text-decoration:underline}
+  pre{background:var(--panel);border:1px solid var(--line);padding:12px;overflow:auto;
+      font-size:11px;max-height:65vh;white-space:pre-wrap;word-break:break-word;margin:0}
+  .note{color:var(--dim);font-size:11px;margin:8px 0}
+  .flash{color:var(--warn);font-size:11px;min-height:16px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;
+         margin-bottom:14px}
+  .card{background:var(--panel);border:1px solid var(--line);padding:12px}
+  .card h3{margin:0 0 6px;font-size:10px;letter-spacing:.12em;color:var(--dim);
+           text-transform:uppercase}
+  .card .big{font-size:19px;color:var(--ink2);font-variant-numeric:tabular-nums}
+  .card .big.grn{color:var(--hot)}
+  .card .sm{font-size:11px;color:var(--dim)}
+  .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+  @media(max-width:900px){.split{grid-template-columns:minmax(0,1fr)}}
+  h2.t{font-size:11px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;
+       margin:18px 0 8px;border-bottom:1px solid var(--line);padding-bottom:5px}
+  .empty{color:var(--dim);padding:18px 0;font-size:12px}
+  .bararea{height:4px;background:#131a24;margin-top:5px}
+  .bararea i{display:block;height:100%;background:var(--hot);transition:width .3s}
+  .panel{background:var(--panel);border:1px solid var(--line);padding:12px;margin-bottom:14px}
+  .rows{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center}
+  .rows label{color:var(--dim);font-size:11px;text-align:right;white-space:nowrap}
+  .rows > input,.rows > select,.rows > textarea{width:100%}
+  .rows .line{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .rows .line .grow{flex:1 1 260px}
+  .chips{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+  pre.logs{max-height:320px;font-size:10.5px;background:#080b10}
+  .ok{color:var(--good)} .no{color:var(--bad)}
+  .seg{display:flex;gap:0}
+  .seg button{background:none;border:1px solid var(--line);color:var(--dim);
+              padding:4px 10px;cursor:pointer;font:inherit;font-size:11px}
+  .seg button.on{color:var(--hot);border-color:var(--hot)}
+  .ixlist{max-height:300px;overflow:auto;border:1px solid var(--line)}
+  .ixlist div{padding:4px 8px;cursor:pointer;font-size:11.5px;border-bottom:1px solid #10141c}
+  .ixlist div:hover{background:#0d1118;color:var(--hot)}
+  .ixlist div.on{background:#0d2a1e;color:var(--hot)}
+  .mini{font-size:10px;color:var(--dim)}
+</style>
+</head>
+<body>
+<header>
+  <h1>◎ <b>SOLANA</b></h1>
+  <span class="sub" id="tagline">connecting…</span>
+  <nav>
+    <button data-tab="explore" class="on">EXPLORE</button>
+    <button data-tab="tx">TX</button>
+    <button data-tab="programs">PROGRAMS</button>
+    <button data-tab="market">MARKET</button>
+    <button data-tab="chain">CHAIN</button>
+    <button data-tab="wallet">WALLET</button>
+    <button data-tab="mcp">MCP</button>
+  </nav>
+</header>
+<main>
+
+<!-- ── explore ── -->
+<section id="explore" class="on">
+  <div class="bar">
+    <input id="ex-addr" class="wide" placeholder="paste any Solana address — wallet, mint, token account, program">
+    <select id="ex-net"><option>mainnet</option><option>devnet</option><option>testnet</option></select>
+    <button class="go" id="ex-go">LOOK UP</button>
+    <span class="flash" id="ex-flash"></span>
+  </div>
+  <div class="note">Solana addresses do not say what they are. This asks the chain,
+    then shows whatever turned out to be there.</div>
+  <div id="ex-out"></div>
+</section>
+
+<!-- ── tx ── -->
+<section id="tx">
+  <div class="bar">
+    <input id="tx-sig" class="wide" placeholder="transaction signature">
+    <select id="tx-net"><option>mainnet</option><option>devnet</option><option>testnet</option></select>
+    <label class="chk"><input type="checkbox" id="tx-logs"> logs</label>
+    <button class="go" id="tx-go">DECODE</button>
+    <span class="flash" id="tx-flash"></span>
+  </div>
+  <div class="note">Net SOL and token movement per owner — not raw account indexes.</div>
+  <div id="tx-out"></div>
+</section>
+
+
+<!-- ── programs ── -->
+<section id="programs">
+  <div class="bar">
+    <input id="pg-addr" class="wide" placeholder="program address — or a shortcut: memo, spl_token, ata, name_service">
+    <select id="pg-net"><option>mainnet</option><option>devnet</option><option>testnet</option></select>
+    <input id="pg-rpc" size="24" placeholder="rpc url — for a local validator">
+    <button class="go" id="pg-go">LOAD</button>
+    <button class="ghost" id="pg-deploy-open">deploy…</button>
+    <button class="ghost" id="pg-state">state accounts</button>
+    <span class="flash" id="pg-flash"></span>
+  </div>
+  <div class="note">A program is an ELF of sBPF bytecode sitting in an account. This says which
+    loader holds it, whether anyone can still replace the code, what it imports, and — if it
+    publishes an anchor IDL — every instruction you can call. Then call one: nothing is signed
+    until you press SEND.</div>
+
+  <div id="pg-deploy" class="panel" style="display:none">
+    <h2 class="t" style="margin-top:0">deploy a program</h2>
+    <div class="seg" style="margin-bottom:10px">
+      <button data-src="clone" class="on">clone one that already exists</button>
+      <button data-src="upload">upload a .so</button>
+      <button data-src="path">a path on the server</button>
+    </div>
+    <div class="rows">
+      <label>source</label>
+      <div class="line">
+        <span data-src="clone" class="line"><input id="d-clone" value="memo" size="42"
+          placeholder="program address on another cluster, or memo / spl_token / ata">
+          <span class="mini">from</span>
+          <select id="d-clonenet"><option>mainnet</option><option>devnet</option><option>testnet</option></select></span>
+        <span data-src="upload" style="display:none"><input type="file" id="d-file" accept=".so"></span>
+        <span data-src="path" style="display:none"><input id="d-path" size="46"
+          placeholder="/path/to/target/deploy/yours.so"></span>
+      </div>
+      <label>deploy to</label>
+      <div class="line"><select id="d-net"><option>devnet</option><option>testnet</option><option>mainnet</option></select>
+        <input id="d-rpc" size="30" placeholder="or a full rpc url — e.g. http://127.0.0.1:8899">
+        <label class="chk" style="display:inline-flex"><input type="checkbox" id="d-confirm"> confirm (mainnet)</label></div>
+      <label>pays &amp; owns it</label>
+      <div class="line"><input id="d-wallet" size="14" placeholder="wallet (default)">
+        <input id="d-name" size="16" placeholder="name for the new program key">
+        <input id="d-program" class="grow" placeholder="or: an existing program address, to upgrade it in place"></div>
+      <label>token</label>
+      <div class="line"><input id="d-token" class="grow" size="46" placeholder="bearer — the contents of ~/.mod/solana/server.secret">
+        <button class="go" id="d-go">DEPLOY</button></div>
+    </div>
+    <div id="d-out"></div>
+  </div>
+
+  <div id="pg-out"></div>
+  <div id="pg-play"></div>
+</section>
+
+<!-- ── market ── -->
+<section id="market">
+  <div class="split">
+    <div>
+      <h2 class="t">Price</h2>
+      <div class="bar">
+        <input id="pr-ids" value="SOL,USDC,JUP,BONK" placeholder="mints or symbols, comma-separated">
+        <button class="go" id="pr-go">PRICE</button>
+      </div>
+      <div id="pr-out"></div>
+    </div>
+    <div>
+      <h2 class="t">Swap quote</h2>
+      <div class="bar">
+        <input id="q-in" value="SOL" size="8">
+        <span class="dimtxt">→</span>
+        <input id="q-out" value="USDC" size="8">
+        <input id="q-amt" value="1" size="6">
+        <input id="q-slip" value="50" size="4" title="slippage bps">
+        <button class="go" id="q-go">QUOTE</button>
+      </div>
+      <div class="flash" id="q-flash"></div>
+      <div id="q-res"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── chain ── -->
+<section id="chain">
+  <div class="bar">
+    <select id="ch-net"><option>mainnet</option><option>devnet</option><option>testnet</option></select>
+    <button class="go" id="ch-go">REFRESH</button>
+    <span class="flash" id="ch-flash"></span>
+  </div>
+  <div id="ch-out"></div>
+  <h2 class="t">Validators by stake</h2>
+  <div id="ch-val"></div>
+</section>
+
+<!-- ── wallet ── -->
+<section id="wallet">
+  <div class="bar">
+    <input id="t-token" placeholder="bearer token — the contents of ~/.mod/solana/server.secret" size="46">
+    <span class="dimtxt">needed unless you reached this over loopback</span>
+  </div>
+  <div class="bar">
+    <button class="go" id="w-refresh">WALLETS</button>
+    <input id="w-name" placeholder="name" size="10">
+    <button class="ghost" id="w-create">create</button>
+    <input id="w-secret" placeholder="secret to import (base58 / keypair json / path)" size="34">
+    <button class="ghost" id="w-import">import</button>
+    <span class="flash" id="w-flash"></span>
+  </div>
+  <div id="w-list"></div>
+  <h2 class="t">Send</h2>
+  <div class="bar">
+    <select id="t-net"><option>devnet</option><option>testnet</option><option>mainnet</option></select>
+    <input id="t-from" placeholder="from wallet (keystore name)" size="14">
+    <input id="t-to" placeholder="to address" size="30">
+    <input id="t-amt" placeholder="amount" size="8">
+    <input id="t-mint" placeholder="mint (blank = SOL)" size="20">
+    <input id="t-memo" placeholder="memo" size="12">
+    <label class="chk"><input type="checkbox" id="t-confirm"> confirm</label>
+    <button class="go danger" id="t-go">SEND</button>
+  </div>
+  <div class="note">Devnet is selected first on purpose — a landed transfer cannot be undone.
+    Anything over the value guard comes back held, with a plan, until you tick confirm.</div>
+  <div id="t-out"></div>
+</section>
+
+<!-- ── mcp ── -->
+<section id="mcp">
+  <h2 class="t">Connect an agent</h2>
+  <div class="note">Streamable HTTP, JSON-RPC 2.0. Same code as every panel above.</div>
+  <pre id="mcp-cfg">…</pre>
+  <h2 class="t">Tools</h2>
+  <div id="mcp-tools"></div>
+</section>
+
+</main>
+<script>
+const API = location.pathname.replace(/\/+$/,'') + '/_api';
+const $ = s => document.querySelector(s);
+const el = (t,c,x) => { const n=document.createElement(t); if(c)n.className=c;
+                        if(x!==undefined)n.textContent=x; return n; };
+
+async function get(path, params){
+  const u = new URL(API + path, location.origin);
+  Object.entries(params||{}).forEach(([k,v]) => (v!==''&&v!=null) && u.searchParams.set(k,v));
+  const r = await fetch(u);
+  const j = await r.json().catch(()=>({error:'bad response'}));
+  if(!r.ok) throw new Error(j.error || ('HTTP '+r.status));
+  return j;
+}
+async function post(path, body, token){
+  const r = await fetch(API + path, {method:'POST',
+    headers:{'content-type':'application/json', ...(token?{authorization:'Bearer '+token}:{})},
+    body: JSON.stringify(body||{})});
+  const j = await r.json().catch(()=>({error:'bad response'}));
+  if(!r.ok) throw new Error(j.error || ('HTTP '+r.status));
+  return j;
+}
+const usd = v => v==null ? '—' :
+  (v>=1000? '$'+Math.round(v).toLocaleString() : '$'+(+v).toFixed(v<1?4:2));
+const num = (v,d) => v==null ? '—' : (+v).toLocaleString(undefined,{maximumFractionDigits:d??4});
+const short = a => !a ? '—' : a.length>16 ? a.slice(0,6)+'…'+a.slice(-5) : a;
+const pct = v => v==null ? '' : (v>=0?'+':'')+(+v).toFixed(2)+'%';
+
+function addr(a, onclick){
+  const s = el('span','addr', short(a)); s.title = a||'';
+  s.onclick = onclick || (()=>{ $('#ex-addr').value=a; tab('explore'); explore(); });
+  return s;
+}
+function cards(items){
+  const w = el('div','cards');
+  items.forEach(([label, value, sub, cls]) => {
+    const c = el('div','card'); c.append(el('h3','',label));
+    c.append(el('div','big'+(cls?' '+cls:''), value));
+    if(sub) c.append(el('div','sm',sub));
+    w.append(c);
+  });
+  return w;
+}
+function table(cols, rows){
+  const t = el('table'), h = el('tr'), head = el('thead');
+  cols.forEach(c => { const th=el('th', c.n?'n':'', c.label); h.append(th); });
+  head.append(h); t.append(head);
+  const b = el('tbody');
+  rows.forEach(r => {
+    const tr = el('tr');
+    cols.forEach(c => { const td=el('td', c.n?'n':''); const v=c.get(r);
+      if(v instanceof Node) td.append(v); else td.innerHTML = v==null?'—':v; tr.append(td); });
+    b.append(tr);
+  });
+  t.append(b);
+  return t;
+}
+function busy(btn, on){ btn.disabled = on; }
+function fail(node, e){ node.textContent = e.message || String(e); }
+
+// ── explore ──
+async function explore(){
+  const out = $('#ex-out'), a = $('#ex-addr').value.trim(), net = $('#ex-net').value;
+  if(!a) return;
+  out.innerHTML=''; $('#ex-flash').textContent='…'; busy($('#ex-go'),true);
+  try{
+    const acc = await get('/account', {address:a, network:net});
+    $('#ex-flash').textContent='';
+    out.append(cards([
+      ['what it is', acc.kind, acc.owner_name || acc.program || '', 'grn'],
+      ['sol held', num(acc.sol,6), usd(acc.usd)],
+      ['data', acc.exists ? (acc.data_bytes||0)+' bytes' : 'no account',
+       acc.executable ? 'executable' : ''],
+    ]));
+    if(!acc.exists){ out.append(el('div','empty', acc.note||'nothing here')); return; }
+    if(acc.kind === 'program'){
+      const b = el('button','ghost','open it in PROGRAMS — code, authority, and what it accepts');
+      b.onclick = () => { $('#pg-addr').value=a; $('#pg-net').value=net; tab('programs'); pgLoad(a); };
+      out.append(b);
+    }
+    if(acc.mint) renderMint(out, acc.mint, a);
+    if(acc.token_account){
+      const t = acc.token_account;
+      const d = el('div'); d.append(el('span','p pur','TOKEN ACCOUNT'));
+      d.append(document.createTextNode(' '+num(t.amount)+' of '));
+      d.append(addr(t.mint)); d.append(document.createTextNode(' held by '));
+      d.append(addr(t.owner)); out.append(d);
+    }
+    if(acc.kind === 'wallet'){
+      const [h, r, s] = [el('div'), el('div'), el('div')];
+      out.append(h, r, s);
+      await Promise.all([holdings(h, a, net), recent(r, a, net), staked(s, a, net)]);
+    } else if(acc.kind === 'mint' || acc.kind === 'program'){
+      const r = el('div'); out.append(r); await recent(r, a, net);
+    } else if(acc.parsed){
+      out.append(el('h2','t','decoded'));
+      out.append(el('pre','',JSON.stringify(acc.parsed,null,2)));
+    }
+  }catch(e){ $('#ex-flash').textContent=''; fail(out, e); }
+  finally{ busy($('#ex-go'),false); }
+}
+function renderMint(out, m, mint){
+  out.append(el('h2','t', (m.symbol||'token') + (m.name?' — '+m.name:'')));
+  out.append(cards([
+    ['price', usd(m.price_usd), m.decimals+' decimals'],
+    ['supply', num(m.supply,0), 'market cap ' + usd(m.market_cap_usd)],
+    ['holders', num(m.holders,0), ''],
+  ]));
+  const risks = [];
+  if(m.mint_authority) risks.push('mint authority live — supply can be inflated');
+  if(m.freeze_authority) risks.push('freeze authority live — accounts can be frozen');
+  const d = el('div','note');
+  if(risks.length){ risks.forEach(r => d.append(el('span','p bad', r))); }
+  else d.append(el('span','p hot','no mint or freeze authority — supply is fixed'));
+  out.append(d);
+}
+async function holdings(out, a, net){
+  const h = el('h2','t','holdings'); out.append(h);
+  const box = el('div','empty','…'); out.append(box);
+  try{
+    const p = await get('/portfolio', {address:a, network:net, limit:60});
+    box.remove();
+    out.append(cards([
+      ['total value', usd(p.total_usd), p.token_count+' tokens', 'grn'],
+      ['sol', num(p.sol,4), usd(p.sol_usd)],
+      ['tokens', usd(p.token_usd), p.unpriced_tokens+' unpriced'],
+    ]));
+    if(!p.tokens.length){ out.append(el('div','empty','no priced token positions')); return; }
+    const t = table([
+      {label:'token', get:r => { const s=el('span'); s.append(el('span','p pur', r.symbol||'?'));
+         s.append(addr(r.mint)); return s; }},
+      {label:'amount', n:1, get:r => num(r.amount)},
+      {label:'price', n:1, get:r => usd(r.price_usd)},
+      {label:'24h', n:1, get:r => r.change_24h_pct==null ? '—' :
+         '<span class="'+(r.change_24h_pct>=0?'up':'down')+'">'+pct(r.change_24h_pct)+'</span>'},
+      {label:'value', n:1, get:r => usd(r.value_usd)},
+    ], p.tokens);
+    out.append(t);
+    if(p.hidden_dust_usd) out.append(el('div','note',
+      'plus '+usd(p.hidden_dust_usd)+' of dust below $0.01, and '+p.empty_accounts+' empty accounts'));
+  }catch(e){ box.textContent = e.message; }
+}
+async function staked(out, a, net){
+  try{
+    const s = await get('/stake', {address:a, network:net});
+    if(!s.accounts) return;                       // nothing staked — no section at all
+    out.append(el('h2','t','stake — '+num(s.total_sol,4)+' SOL ('+usd(s.total_usd)+')'));
+    out.append(table([
+      {label:'stake account', get:r => addr(r.stake_account)},
+      {label:'validator', get:r => addr(r.validator)},
+      {label:'state', get:r => '<span class="p '+(r.state==='active'?'hot':'')+'">'+r.state+'</span>'},
+      {label:'sol', n:1, get:r => num(r.sol,4)},
+    ], s.stakes));
+  }catch(e){ /* stake lookup needs getProgramAccounts; not every RPC allows it */ }
+}
+async function recent(out, a, net){
+  const h = el('h2','t','recent activity'); out.append(h);
+  const box = el('div','empty','…'); out.append(box);
+  try{
+    const r = await get('/history', {address:a, network:net, limit:15, detail:1});
+    box.remove();
+    if(!r.transactions.length){ out.append(el('div','empty','no transactions')); return; }
+    out.append(table([
+      {label:'when', get:t => t.age||'—'},
+      {label:'signature', get:t => addr(t.signature, ()=>{ $('#tx-sig').value=t.signature;
+        $('#tx-net').value=net; tab('tx'); decode(); })},
+      {label:'what', get:t => (t.actions||[]).slice(0,3).join(', ') || '—'},
+      {label:'net sol', n:1, get:t => t.net_sol ?
+        '<span class="'+(t.net_sol>0?'up':'down')+'">'+num(t.net_sol,6)+'</span>' : '—'},
+      {label:'tokens', n:1, get:t => (t.my_token_moves||[]).map(m =>
+        '<span class="'+(m.amount>0?'up':'down')+'">'+num(m.amount,4)+' '+
+        (m.symbol||short(m.mint))+'</span>').join('<br>') || '—'},
+      {label:'', get:t => t.ok ? '' : '<span class="p bad">failed</span>'},
+    ], r.transactions));
+  }catch(e){ box.textContent = e.message; }
+}
+
+// ── tx ──
+async function decode(){
+  const out = $('#tx-out'), sig = $('#tx-sig').value.trim();
+  if(!sig) return;
+  out.innerHTML=''; $('#tx-flash').textContent='…'; busy($('#tx-go'),true);
+  try{
+    const t = await get('/tx', {signature:sig, network:$('#tx-net').value,
+                                logs:$('#tx-logs').checked?1:''});
+    $('#tx-flash').textContent='';
+    out.append(cards([
+      ['status', t.ok?'success':'failed', t.age||'', t.ok?'grn':''],
+      ['fee', num(t.fee_sol,6)+' SOL', 'slot '+num(t.slot,0)],
+      ['compute', num(t.compute_units,0), t.version+' tx'],
+    ]));
+    const p = el('div','note'); p.append(document.createTextNode('paid by '));
+    p.append(addr(t.fee_payer)); out.append(p);
+    const progs = el('div','note');
+    (t.programs||[]).forEach(x => progs.append(el('span','p'+(x.name?' hot':''),
+      x.name || short(x.id))));
+    out.append(progs);
+    if(t.error){ const e=el('div','note badv'); e.textContent='error: '+JSON.stringify(t.error);
+      out.append(e); }
+    if(t.sol_moves?.length){
+      out.append(el('h2','t','sol moved'));
+      out.append(table([
+        {label:'account', get:r => addr(r.address)},
+        {label:'', get:r => r.is_fee_payer ? '<span class="p">fee payer</span>' : ''},
+        {label:'change', n:1, get:r => '<span class="'+(r.sol>0?'up':'down')+'">'+
+          (r.sol>0?'+':'')+num(r.sol,9)+'</span>'},
+      ], t.sol_moves));
+    }
+    if(t.token_moves?.length){
+      out.append(el('h2','t','tokens moved'));
+      out.append(table([
+        {label:'owner', get:r => addr(r.owner)},
+        {label:'token', get:r => { const s=el('span');
+          s.append(el('span','p pur', r.symbol||'?')); s.append(addr(r.mint)); return s; }},
+        {label:'change', n:1, get:r => '<span class="'+(r.amount>0?'up':'down')+'">'+
+          (r.amount>0?'+':'')+num(r.amount,6)+'</span>'},
+      ], t.token_moves));
+    }
+    out.append(el('h2','t','instructions'));
+    out.append(table([
+      {label:'program', get:r => r.program},
+      {label:'action', get:r => r.type},
+      {label:'detail', get:r => r.info ?
+        '<span class="dimtxt">'+Object.entries(r.info).slice(0,4)
+          .map(([k,v])=>k+'='+(typeof v==='object'?'…':String(v).slice(0,22))).join(' ')+'</span>' : ''},
+    ], t.actions||[]));
+    if(t.logs){ out.append(el('h2','t','logs')); out.append(el('pre','',t.logs.join('\n'))); }
+  }catch(e){ $('#tx-flash').textContent=''; fail(out, e); }
+  finally{ busy($('#tx-go'),false); }
+}
+
+// ── market ──
+async function prices(){
+  const out = $('#pr-out'); out.innerHTML='…';
+  try{
+    const r = await get('/price', {ids:$('#pr-ids').value});
+    out.innerHTML='';
+    out.append(table([
+      {label:'token', get:r => (r.symbol||r.query)+(r.name?' <span class="dimtxt">'+r.name+'</span>':'')},
+      {label:'mint', get:r => r.mint?addr(r.mint):'—'},
+      {label:'price', n:1, get:r => r.error ? '<span class="badv">'+r.error+'</span>' : usd(r.usd)},
+      {label:'24h', n:1, get:r => r.change_24h_pct==null?'—':
+        '<span class="'+(r.change_24h_pct>=0?'up':'down')+'">'+pct(r.change_24h_pct)+'</span>'},
+      {label:'liquidity', n:1, get:r => usd(r.liquidity_usd)},
+    ], r.prices));
+  }catch(e){ fail(out, e); }
+}
+async function quote(){
+  const out = $('#q-res'); out.innerHTML=''; $('#q-flash').textContent='…';
+  busy($('#q-go'),true);
+  try{
+    const q = await get('/quote', {input:$('#q-in').value, output:$('#q-out').value,
+      amount:$('#q-amt').value, slippage_bps:$('#q-slip').value});
+    $('#q-flash').textContent='';
+    out.append(cards([
+      ['you get', num(q.buy.amount,6)+' '+(q.buy.symbol||''), usd(q.buy.usd), 'grn'],
+      ['rate', num(q.rate,6), '1 '+(q.sell.symbol||'in')+' → '+(q.buy.symbol||'out')],
+      ['price impact', pct(q.price_impact_pct*100),
+       'worst case '+num(q.worst_case_out,6), q.price_impact_pct>0.01?'':''],
+    ]));
+    const r = el('div','note'); r.append(document.createTextNode('route: '));
+    (q.route||[]).forEach(h => r.append(el('span','p hot', h.amm+' '+h.percent+'%')));
+    out.append(r);
+    out.append(el('div','note', q.note));
+  }catch(e){ $('#q-flash').textContent=''; fail(out, e); }
+  finally{ busy($('#q-go'),false); }
+}
+
+// ── chain ──
+async function chain(){
+  const out = $('#ch-out'); out.innerHTML=''; $('#ch-flash').textContent='…';
+  busy($('#ch-go'),true);
+  const net = $('#ch-net').value;
+  try{
+    const s = await get('/network', {network:net});
+    $('#ch-flash').textContent='';
+    out.append(cards([
+      ['sol', usd(s.sol_price_usd), 'market cap '+usd(s.supply.market_cap_usd), 'grn'],
+      ['tps', num(s.tps_non_vote,0), num(s.tps,0)+' including votes'],
+      ['slot', num(s.slot,0), 'block '+num(s.block_height,0)],
+      ['epoch', String(s.epoch), s.epoch_progress_pct+'% · '+s.epoch_ends_in_hours+'h left'],
+      ['supply', num(s.supply.circulating,0), 'of '+num(s.supply.total,0)+' total'],
+      ['health', s.healthy?'ok':(s.health||'?'), 'v'+(s.version||'?'),
+       s.healthy?'grn':''],
+    ]));
+    const b = el('div','bararea'); const i = el('i');
+    i.style.width = s.epoch_progress_pct+'%'; b.append(i); out.append(b);
+    out.append(el('div','note','inflation '+s.inflation_pct+'% · '+
+      num(s.total_transactions,0)+' transactions all time · rpc '+s.rpc));
+    const v = await get('/validators', {network:net, limit:25});
+    const box = $('#ch-val'); box.innerHTML='';
+    box.append(el('div','note','Nakamoto coefficient '+v.nakamoto_coefficient+
+      ' — that many validators could halt the chain. '+v.validators+' total, '+
+      v.delinquent+' delinquent, '+num(v.total_stake_sol,0)+' SOL staked.'));
+    box.append(table([
+      {label:'identity', get:r => addr(r.identity)},
+      {label:'stake', n:1, get:r => num(r.stake_sol,0)},
+      {label:'share', n:1, get:r => r.stake_pct.toFixed(3)+'%'},
+      {label:'fee', n:1, get:r => r.commission_pct+'%'},
+      {label:'', get:r => r.delinquent?'<span class="p bad">delinquent</span>':''},
+    ], v.top));
+  }catch(e){ $('#ch-flash').textContent=''; fail(out, e); }
+  finally{ busy($('#ch-go'),false); }
+}
+
+// ── wallet ──
+const tok = () => $('#t-token').value.trim();
+async function wlist(){
+  const out = $('#w-list'); out.innerHTML='…';
+  try{
+    const w = await post('/wallet', {action:'list'}, tok());
+    out.innerHTML='';
+    if(!w.wallets.length){ out.append(el('div','empty',
+      'no wallets yet — name one and hit create. Stored at '+w.keystore+', mode 0600.')); return; }
+    out.append(table([
+      {label:'name', get:r => r.name + (r.default?' <span class="p hot">default</span>':'')},
+      {label:'address', get:r => addr(r.address)},
+      {label:'created', get:r => r.created||'—'},
+    ], w.wallets));
+    out.append(el('div','note','signing backend: '+w.signer+' · keystore '+w.keystore));
+  }catch(e){
+    out.innerHTML='';
+    out.append(el('div','note warnv', e.message));
+    if(/bearer|loopback/i.test(e.message))
+      out.append(el('div','note','Paste it in the box above, or reach this console '
+        +'over localhost. Reads need no token; only the keystore and transfers do.'));
+  }
+}
+async function wact(action, body){
+  $('#w-flash').textContent='…';
+  try{
+    const r = await post('/wallet', {action, ...body}, tok());
+    $('#w-flash').textContent = r.address ? action+' → '+r.address : 'ok';
+    wlist();
+  }catch(e){ $('#w-flash').textContent = e.message; }
+}
+async function send(){
+  const out = $('#t-out'); out.innerHTML=''; busy($('#t-go'),true);
+  try{
+    const r = await post('/transfer', {
+      network:$('#t-net').value, wallet:$('#t-from').value.trim()||undefined,
+      to:$('#t-to').value.trim(), amount:parseFloat($('#t-amt').value),
+      mint:$('#t-mint').value.trim()||undefined, memo:$('#t-memo').value.trim()||undefined,
+      confirm:$('#t-confirm').checked}, tok());
+    if(r.needs_confirm){
+      out.append(cards([['held back', usd(r.usd), 'guard is '+usd(r.guard_usd), '']]));
+      out.append(el('div','note warnv', r.reason));
+    } else {
+      out.append(cards([
+        ['sent', num(r.amount)+' '+(r.symbol||''), usd(r.usd), 'grn'],
+        ['status', r.confirmation?.confirmed ? (r.confirmation.status||'confirmed')
+                                             : (r.confirmation?.status||'submitted'),
+         'slot '+num(r.confirmation?.slot,0)],
+      ]));
+      const a = el('a','addr', r.signature); a.href = r.explorer; a.target='_blank';
+      const d = el('div','note'); d.append(document.createTextNode('signature ')); d.append(a);
+      out.append(d);
+    }
+    out.append(el('pre','',JSON.stringify(r,null,2)));
+  }catch(e){ fail(out, e); }
+  finally{ busy($('#t-go'),false); }
+}
+
+// ── mcp ──
+async function loadMcp(){
+  const base = location.origin + location.pathname.replace(/\/+$/,'');
+  $('#mcp-cfg').textContent = JSON.stringify({mcpServers:{solana:{
+    type:'http', url: base + '/mcp'}}}, null, 2) +
+    '\n\n# stdio, from the module directory:\n#   python3 mcp.py';
+  try{
+    const t = await get('/tools');
+    const box = $('#mcp-tools'); box.innerHTML='';
+    box.append(table([
+      {label:'tool', get:r => '<span class="p pur">'+r.name+'</span>'},
+      {label:'does', get:r => '<span class="dimtxt">'+r.description+'</span>'},
+      {label:'args', get:r => Object.keys(r.inputSchema.properties||{}).join(', ')},
+    ], t.tools));
+  }catch(e){ fail($('#mcp-tools'), e); }
+}
+
+// ── programs ──
+let PG = {program:null, idl:null, net:'mainnet', ix:null};
+const pgTok = () => ($('#d-token').value.trim() || $('#t-token').value.trim());
+
+async function pgLoad(which){
+  const out=$('#pg-out'), play=$('#pg-play');
+  const a=(which||$('#pg-addr').value).trim(); if(!a) return;
+  $('#pg-addr').value=a; out.innerHTML=''; play.innerHTML='';
+  $('#pg-flash').textContent='reading the chain…'; busy($('#pg-go'),true);
+  try{
+    const net=$('#pg-net').value, rpc=$('#pg-rpc').value.trim();
+    const p=await get('/program',{program:a, network:net, rpc});
+    PG={program:p.program, idl:p.idl, net, rpc, ix:null};
+    $('#pg-flash').textContent='';
+    if(!p.exists){ out.append(el('div','empty', p.note)); return; }
+    const elf=p.elf||{};
+    out.append(cards([
+      ['loader', p.loader_name||'—', p.known_as||short(p.loader)],
+      ['upgrade authority', p.immutable?'IMMUTABLE':short(p.upgrade_authority||'—'),
+       p.authority_note, p.immutable?'grn':''],
+      ['code', num(elf.code_bytes,0)+' b', (elf.instructions?num(elf.instructions,0)+' instructions · ':'')+(elf.machine_name||'')],
+      ['deployed', p.last_deployed_slot?('slot '+num(p.last_deployed_slot,0)):'—',
+       p.headroom_bytes!=null? num(p.headroom_bytes,0)+' bytes of headroom':''],
+      ['rent', (p.rent_sol!=null?num(p.rent_sol,4):num(p.sol,4))+' SOL',
+       'refundable only by closing it'],
+    ]));
+    if(p.upgrade_authority){
+      const d=el('div','note warnv');
+      d.append(document.createTextNode('whoever holds '));
+      d.append(addr(p.upgrade_authority, ()=>{ $('#ex-addr').value=p.upgrade_authority; tab('explore'); explore(); }));
+      d.append(document.createTextNode(' can replace this code at any time.'));
+      out.append(d);
+    }
+    if(elf.syscalls && elf.syscalls.length){
+      out.append(el('h2','t','syscalls it imports'));
+      const c=el('div','chips');
+      elf.syscalls.forEach(s=>c.append(el('span','p'+(/invoke_signed/.test(s)?' bad':''), s)));
+      out.append(c);
+      if(elf.syscalls.some(s=>/invoke_signed/.test(s)))
+        out.append(el('div','note','sol_invoke_signed_ means it signs for its own PDAs — '
+          +'it can move tokens those addresses hold.'));
+    }
+    if(elf.sections && elf.sections.length){
+      const c=el('div','chips');
+      elf.sections.forEach(s=>c.append(el('span','p', s.name+' '+num(s.bytes,0))));
+      out.append(el('h2','t','elf'));
+      out.append(c);
+    }
+    if(elf.strings && elf.strings.length){
+      const det=el('details'); det.append(el('summary','note','strings in .rodata — '
+        +'a Rust binary concatenates its literals, so these run together'));
+      det.append(el('pre','', elf.strings.join('\n')));
+      out.append(det);
+    }
+    pgPlay(p);
+  }catch(e){ $('#pg-flash').textContent=''; fail(out,e); }
+  finally{ busy($('#pg-go'),false); }
+}
+
+function pgPlay(p){
+  const play=$('#pg-play'); play.innerHTML='';
+  play.append(el('h2','t','call it'));
+  const wrap=el('div','split');
+  const left=el('div'), right=el('div');
+  wrap.append(left, right); play.append(wrap);
+
+  if(p.idl && p.idl.instructions && p.idl.instructions.length){
+    left.append(el('div','note', (p.idl.name||'')+' '+(p.idl.version||'')+' · '
+      +p.idl.instructions.length+' instructions · idl from '+(p.idl_source||'chain')));
+    const list=el('div','ixlist');
+    p.idl.instructions.forEach(ix=>{
+      const row=el('div','', ix.name+'  ');
+      row.append(el('span','mini', (ix.args||[]).map(a=>a.name+':'+a.type).join(', ')||'no args'));
+      row.onclick=()=>{ [...list.children].forEach(c=>c.classList.remove('on'));
+        row.classList.add('on'); PG.ix=ix; pgForm(right, ix); };
+      list.append(row);
+    });
+    left.append(list);
+    if(p.idl.errors && p.idl.errors.length)
+      left.append(el('div','note', p.idl.errors.length+' error codes defined — a failed '
+        +'call comes back with the name, not the number'));
+  } else {
+    left.append(el('div','note', p.idl_note ||
+      'no IDL, so instructions have no names here. Send raw bytes below, or paste an IDL '
+      +'and every call gets named arguments.'));
+    const ta=el('textarea'); ta.id='pg-idlpaste'; ta.rows=4; ta.style.width='100%';
+    ta.placeholder='paste an anchor IDL (JSON) to teach this module the program';
+    left.append(ta);
+    const b=el('button','ghost','save this IDL');
+    b.onclick=async()=>{ try{
+        const doc=JSON.parse($('#pg-idlpaste').value);
+        await post('/idl',{program:PG.program, action:'set', idl:doc}, pgTok());
+        pgLoad(PG.program);
+      }catch(e){ $('#pg-flash').textContent=e.message; } };
+    left.append(b);
+  }
+  pgForm(right, null);
+}
+
+function pgForm(box, ix){
+  box.innerHTML='';
+  const rows=el('div','rows');
+  const add=(label,node)=>{ rows.append(el('label','',label)); rows.append(node); };
+  if(ix){
+    const head=el('div','note'); head.append(el('b','',ix.name));
+    head.append(document.createTextNode(' — arguments are borsh-encoded from the IDL. '
+      +'Leave an account blank and it gets filled from the IDL, the sysvars, your wallet, '
+      +'or a PDA whose seeds the IDL declares.'));
+    box.append(head);
+    (ix.args||[]).forEach(a=>{
+      const i=el('input'); i.dataset.arg=a.name; i.dataset.type=a.type;
+      i.placeholder=a.type; add(a.name, i);
+    });
+    (ix.accounts||[]).forEach(a=>{
+      const i=el('input'); i.dataset.acct=a.name;
+      i.placeholder=(a.derived?'derived — or paste one':'auto / paste an address')
+        +(a.signer?' · signer':'')+(a.writable?' · writable':'');
+      const lab=a.name+(a.signer?' ✎':'')+(a.writable?' ✱':'');
+      add(lab, i);
+    });
+  } else {
+    const d=el('input'); d.id='pg-data';
+    d.placeholder='instruction data — hex, base64, or text:the literal characters';
+    add('data', d);
+    const t=el('textarea'); t.id='pg-accts'; t.rows=3;
+    t.placeholder='one account per line — ws:<address> writable+signer, w:, s:, or just the address. "self" = your wallet';
+    add('accounts', t);
+  }
+  const w=el('input'); w.id='pg-wallet'; w.placeholder='keystore wallet to sign with (default)';
+  add('wallet', w);
+  const p=el('input'); p.id='pg-payer';
+  p.placeholder='or simulate as any address, no key needed';
+  add('payer', p);
+  box.append(rows);
+
+  const bar=el('div','bar'); bar.style.marginTop='10px';
+  const sim=el('button','go','SIMULATE'), send=el('button','go danger','SEND');
+  sim.onclick=()=>pgCall(false); send.onclick=()=>pgCall(true);
+  bar.append(sim, send); box.append(bar);
+  const res=el('div'); res.id='pg-res'; box.append(res);
+}
+
+function pgArgs(){
+  const out={};
+  document.querySelectorAll('[data-arg]').forEach(i=>{
+    const v=i.value.trim(); if(!v) return;
+    const t=i.dataset.type||'';
+    if(t==='bool') out[i.dataset.arg]= v.toLowerCase()==='true';
+    else if(/^[uif]\d+$/.test(t) && +v==+v && Math.abs(+v)<=9007199254740991) out[i.dataset.arg]=+v;
+    else if(v[0]==='['||v[0]==='{'){ try{ out[i.dataset.arg]=JSON.parse(v); }catch(e){ out[i.dataset.arg]=v; } }
+    else out[i.dataset.arg]=v;
+  });
+  return out;
+}
+function pgAccts(){
+  if(PG.ix){
+    const out={};
+    document.querySelectorAll('[data-acct]').forEach(i=>{ const v=i.value.trim(); if(v) out[i.dataset.acct]=v; });
+    return out;
+  }
+  const raw=($('#pg-accts')||{}).value||'';
+  return raw.split('\n').map(s=>s.trim()).filter(Boolean);
+}
+
+async function pgCall(send){
+  const res=$('#pg-res'); res.innerHTML='running…';
+  const body={program:PG.program, network:PG.net, rpc:PG.rpc||undefined,
+              accounts:pgAccts(), send};
+  if(PG.ix){ body.ix=PG.ix.name; body.args=pgArgs(); }
+  else body.data=($('#pg-data')||{}).value||'';
+  const w=($('#pg-wallet')||{}).value.trim(); if(w) body.wallet=w;
+  const p=($('#pg-payer')||{}).value.trim(); if(p) body.payer=p;
+  try{
+    const r=await post('/invoke', body, pgTok());
+    res.innerHTML='';
+    const s=r.simulation||{};
+    res.append(cards([
+      ['simulation', s.ok?'passes':'fails', s.reason||(s.ok?'nothing would revert':''), s.ok?'grn':''],
+      ['compute', num(s.units,0)+' CU', 'of 200,000'],
+      ['data', r.data_bytes+' bytes', r.discriminator?('discriminator '+r.discriminator):'raw'],
+      ['sent', r.sent?'yes':'no', r.sent?(r.confirmation?.status||'submitted'):(r.refused||'simulate only')],
+    ]));
+    if(r.sent && r.signature){
+      const a=el('a','addr', r.signature); a.href=r.explorer; a.target='_blank';
+      const d=el('div','note'); d.append(document.createTextNode('signature ')); d.append(a); res.append(d);
+    }
+    if(r.accounts && r.accounts.length){
+      res.append(el('h2','t','accounts, as sent'));
+      res.append(table([
+        {label:'name', get:x=>x.name||'—'},
+        {label:'address', get:x=>addr(x.pubkey)},
+        {label:'flags', get:x=>(x.signer?'<span class="p hot">signer</span>':'')+(x.writable?'<span class="p pur">writable</span>':'')},
+        {label:'filled by', get:x=>'<span class="dimtxt">'+(x.via||'')+'</span>'},
+      ], r.accounts));
+    }
+    if(s.logs && s.logs.length){
+      res.append(el('h2','t','program log'));
+      res.append(el('pre','logs', s.logs.join('\n')));
+    }
+    if(r.after && r.after.length){
+      res.append(el('h2','t','writable accounts, after'));
+      res.append(el('pre','logs', JSON.stringify(r.after,null,1)));
+    }
+  }catch(e){ res.innerHTML=''; fail(res,e); }
+}
+
+async function pgState(){
+  const out=$('#pg-out');
+  if(!PG.program) return;
+  const box=el('div'); out.append(el('h2','t','accounts this program owns'), box);
+  box.textContent='…';
+  try{
+    const r=await get('/program',{program:PG.program, network:PG.net, rpc:PG.rpc,
+                                  accounts:1, limit:25, strings:0});
+    const pa=r.program_accounts||{};
+    box.innerHTML='';
+    box.append(el('div','note', num(pa.count,0)+' accounts, showing '+(pa.shown||0)));
+    box.append(table([
+      {label:'address', get:x=>addr(x.address)},
+      {label:'type', get:x=>x.type?'<span class="p pur">'+x.type+'</span>':'<span class="dimtxt">'+x.discriminator+'</span>'},
+      {label:'bytes', n:1, get:x=>num(x.bytes,0)},
+      {label:'sol', n:1, get:x=>num(x.sol,4)},
+      {label:'data', get:x=>'<span class="dimtxt">'+(x.data?JSON.stringify(x.data).slice(0,90):(x.decode_error||''))+'</span>'},
+    ], pa.accounts||[]));
+  }catch(e){ box.innerHTML=''; fail(box,e); }
+}
+
+// ── deploying ──
+function dSource(){ return document.querySelector('#pg-deploy .seg button.on').dataset.src; }
+async function pgDeploy(){
+  const out=$('#d-out'); out.innerHTML='';
+  const body={network: $('#d-rpc').value.trim() || $('#d-net').value,
+              confirm:$('#d-confirm').checked, wait:20};
+  const w=$('#d-wallet').value.trim(); if(w) body.wallet=w;
+  const n=$('#d-name').value.trim(); if(n) body.name=n;
+  const up=$('#d-program').value.trim(); if(up) body.program=up;
+  const src=dSource();
+  try{
+    if(src==='clone'){ body.clone=$('#d-clone').value.trim(); body.clone_network=$('#d-clonenet').value; }
+    else if(src==='path'){ body.path=$('#d-path').value.trim(); }
+    else {
+      const f=$('#d-file').files[0];
+      if(!f) throw new Error('pick a .so file first');
+      body.data = await new Promise((ok,no)=>{ const r=new FileReader();
+        r.onload=()=>ok('base64:'+r.result.split(',')[1]); r.onerror=no; r.readAsDataURL(f); });
+    }
+    busy($('#d-go'),true);
+    out.append(el('div','note','opening a buffer…'));
+    const job=await post('/deploy', body, pgTok());
+    await pgWatch(job);
+  }catch(e){ out.innerHTML=''; fail(out,e); }
+  finally{ busy($('#d-go'),false); }
+}
+
+async function pgWatch(job){
+  const out=$('#d-out');
+  for(let i=0;i<400;i++){
+    out.innerHTML='';
+    out.append(cards([
+      ['status', job.status, job.phase||'', job.status==='done'?'grn':''],
+      ['program', short(job.program), job.network],
+      ['written', num(job.written_bytes||0,0)+' / '+num(job.elf_bytes||0,0)+' b',
+       (job.chunks_done||0)+' of '+(job.chunks_total||0)+' transactions'],
+      ['cost', num(job.cost_sol,4)+' SOL', 'rent, mostly refundable'],
+    ]));
+    const bar=el('div','bararea'), fill=el('i');
+    fill.style.width=(job.progress_pct||0)+'%'; bar.append(fill); out.append(bar);
+    out.append(el('pre','logs',(job.steps||[]).map(s=>'  '+s.at+'s  '+s.say).join('\n')));
+    if(job.error){
+      out.append(el('div','note badv', job.error));
+      if(job.recover) out.append(el('div','note', job.recover));
+    }
+    if(job.status==='done'){
+      const b=el('button','go','OPEN '+short(job.program));
+      b.onclick=()=>{ if(job.network!=='custom') $('#pg-net').value=job.network;
+        $('#pg-rpc').value = job.network==='custom' ? (job.rpc||'') : '';
+        $('#pg-deploy').style.display='none';
+        pgLoad(job.program); };
+      out.append(b);
+      out.append(el('div','note','the program keypair is in the keystore as "'+(job.program_wallet||'—')
+        +'" — it is the only way to redeploy this address'));
+      return;
+    }
+    if(job.status==='failed') return;
+    await new Promise(r=>setTimeout(r,1500));
+    job = await get('/deploy',{action:'status', job:job.id});
+  }
+}
+
+// ── shell ──
+function tab(name){
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab===name));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id===name));
+  if(name==='chain' && !$('#ch-out').children.length) chain();
+  if(name==='mcp' && $('#mcp-tools').innerHTML==='') loadMcp();
+  if(name==='wallet' && $('#w-list').innerHTML==='') wlist();
+  if(name==='market' && !$('#pr-out').children.length) prices();
+  if(name==='programs' && !$('#pg-out').children.length && !$('#pg-addr').value)
+    $('#pg-addr').value='';
+}
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => tab(b.dataset.tab));
+$('#ex-go').onclick = explore;
+$('#ex-addr').onkeydown = e => e.key==='Enter' && explore();
+$('#tx-go').onclick = decode;
+$('#tx-sig').onkeydown = e => e.key==='Enter' && decode();
+$('#pr-go').onclick = prices;
+$('#pr-ids').onkeydown = e => e.key==='Enter' && prices();
+$('#q-go').onclick = quote;
+$('#ch-go').onclick = chain;
+$('#w-refresh').onclick = wlist;
+$('#w-create').onclick = () => wact('create', {name:$('#w-name').value.trim()||'default'});
+$('#w-import').onclick = () => wact('import', {name:$('#w-name').value.trim()||'imported',
+                                               secret:$('#w-secret').value.trim()});
+$('#t-go').onclick = send;
+$('#pg-go').onclick = () => pgLoad();
+$('#pg-addr').onkeydown = e => e.key==='Enter' && pgLoad();
+$('#pg-state').onclick = pgState;
+$('#pg-deploy-open').onclick = () => { const d=$('#pg-deploy');
+  d.style.display = d.style.display==='none' ? 'block' : 'none'; };
+$('#d-go').onclick = pgDeploy;
+document.querySelectorAll('#pg-deploy .seg button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#pg-deploy .seg button').forEach(x => x.classList.toggle('on', x===b));
+  document.querySelectorAll('#pg-deploy [data-src]').forEach(x => {
+    if(x.tagName==='SPAN') x.style.display = x.dataset.src===b.dataset.src ? '' : 'none'; });
+});
+
+get('/health').then(h => {
+  $('#tagline').textContent = h.network+' · slot '+h.slot?.toLocaleString()+
+    ' · '+h.tools+' mcp tools · signer '+h.signer;
+}).catch(e => { $('#tagline').textContent = 'offline — '+e.message; });
+</script>
+</body>
+</html>

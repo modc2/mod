@@ -25,6 +25,16 @@ class CopyRequest(BaseModel):
     poll_interval_sec: Optional[int] = None
 
 
+class AskRequest(BaseModel):
+    """A turn of the strat-agent conversation.
+
+    `session_id` comes back on every event; sending it with the next question
+    resumes the same conversation, so a follow-up knows what it just built.
+    """
+    question: str
+    session_id: Optional[str] = None
+
+
 class WalletSetRequest(BaseModel):
     name: str = "copytensor"
     hotkey: str = "default"
@@ -47,6 +57,74 @@ class SubnetResponse(BaseModel):
     tempo: int
     emission: float
 
+    # Everything below comes from the bt index's screener. It stays None when
+    # reads fall back to raw RPC (bt down) — the UI hides those cells rather
+    # than inventing zeros.
+    symbol: Optional[str] = None
+    market_cap_tao: Optional[float] = None
+    volume_tao: Optional[float] = None
+    vol_24h_tao: Optional[float] = None
+    change_1h: Optional[float] = None
+    change_24h: Optional[float] = None
+    change_7d: Optional[float] = None
+    spark: Optional[List[float]] = None
+    alpha_in: Optional[float] = None
+    alpha_out: Optional[float] = None
+    owner: Optional[str] = None
+    registered_at: Optional[int] = None
+    logo: Optional[str] = None
+    description: Optional[str] = None
+    github: Optional[str] = None
+    url: Optional[str] = None
+    discord: Optional[str] = None
+
+
+class MarketStatsResponse(BaseModel):
+    """Network-wide totals for the market header strip."""
+    subnets: int = 0
+    total_market_cap_tao: float = 0
+    total_tao_in_pools: float = 0
+    volume_24h_tao: float = 0
+    block: int = 0
+    tao_usd: Optional[float] = None
+    updated_at: Optional[int] = None
+    source: str = "bt"
+    gainers: List[SubnetResponse] = []
+    losers: List[SubnetResponse] = []
+
+
+class SubnetValidator(BaseModel):
+    uid: int
+    hotkey: str
+    coldkey: str
+    stake: float = 0
+    validator_trust: float = 0
+    dividends: float = 0
+    incentive: float = 0
+    emission: float = 0
+    active: bool = True
+    validator_permit: bool = False
+
+
+class SubnetDetailResponse(BaseModel):
+    subnet: SubnetResponse
+    owner_hotkey: Optional[str] = None
+    owner_coldkey: Optional[str] = None
+    contact: Optional[str] = None
+    neurons: int = 0
+    blocks_since_last_step: Optional[int] = None
+    pending_alpha_emission: Optional[float] = None
+    alpha_out_emission: Optional[float] = None
+    moving_price: Optional[float] = None
+    validators: List[SubnetValidator] = []
+
+
+class PricePoint(BaseModel):
+    t: int
+    price: float
+    mcap: Optional[float] = None
+    volume: Optional[float] = None
+
 
 class AllocationResponse(BaseModel):
     netuid: int
@@ -65,6 +143,7 @@ class AccountResponse(BaseModel):
     pnl_tao: float = 0
     pnl_pct: float = 0
     days: int = 7
+    baseline: bool = True
 
 
 class SubnetPnlResponse(BaseModel):
@@ -89,6 +168,7 @@ class PnlResponse(BaseModel):
     end_value_tao: float
     pnl_tao: float
     pnl_pct: float
+    baseline: bool = True
     by_subnet: List[SubnetPnlResponse]
 
 
@@ -101,6 +181,13 @@ class LeaderboardEntryResponse(BaseModel):
     num_subnets: int
     top_subnet: Optional[int]
     top_subnet_pnl: float
+    baseline: bool = True
+    # Days of history this row's PnL actually covers (≤ the requested horizon).
+    window_days: float = 0.0
+    # PnL split: price move on the book held vs stake deposited/withdrawn.
+    market_pnl_tao: float = 0.0
+    market_pct: float = 0.0
+    flow_tao: float = 0.0
 
 
 class TargetTraderInfo(BaseModel):
@@ -138,3 +225,36 @@ class TradeResponse(BaseModel):
     tx_hash: Optional[str]
     status: str
     error: Optional[str]
+
+
+# ── strats (saved baskets) ───────────────────────────────────────
+
+class StratTrader(BaseModel):
+    ss58: str
+    label: Optional[str] = None
+    weight: float = 1.0
+    enabled: bool = True
+
+
+class BacktestRequest(BaseModel):
+    """Replay a basket. Sent on every edit in the picker, so it carries the
+    basket itself rather than an id — an unsaved draft backtests too."""
+    traders: List[StratTrader]
+    days: int = 7
+    capital_tao: float = 100.0
+
+
+class StratWrite(BaseModel):
+    """Create/replace a strat. Everything past `name`/`traders` is the
+    picker's own settings, carried through untouched."""
+    name: str
+    traders: List[StratTrader] = []
+    visibility: Optional[str] = None          # private | public | whitelist
+    whitelist: Optional[List[str]] = None     # viewer fingerprints
+    our_hotkey: Optional[str] = None
+    max_tao_per_tx: Optional[float] = None
+    daily_limit_tao: Optional[float] = None
+    rebalance_threshold_pct: Optional[float] = None
+    poll_interval_sec: Optional[int] = None
+    thesis: Optional[str] = None
+    live_copy_ids: Optional[List[str]] = None

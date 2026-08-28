@@ -5,7 +5,7 @@ class Agent:
     name = "Debugger"
     description = "Bug hunting and root cause analysis"
     icon = "⬡"
-    skills = ["read", "bash", "debug", "grep", "test", "edit", "think"]
+    tools = ["read", "bash", "debug", "grep", "test", "edit", "think"]
     model = None
 
     goal = """You are an expert debugger. You find root causes, not symptoms.

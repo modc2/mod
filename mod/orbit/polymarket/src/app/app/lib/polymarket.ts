@@ -5,6 +5,7 @@ import {
   getMarketCache, setMarketCache,
 } from "./cache";
 import { computeFifoTrades } from "./pnlEngine";
+import { statsFromReturns } from "./strats/strat";
 
 // ── Top Trader type ─────────────────────────────────────────────
 export interface TopTrader {
@@ -14,6 +15,10 @@ export interface TopTrader {
   sellVolume: number;    // in-window USDC on SELLs
   pnl: number;
   winRate: number;
+  /** Sharpe ratio over the window (per-closed-trade returns), computed
+      server-side by the same `stats_from_returns` formula the live engine
+      uses. Default SCORE metric in the leaderboard. */
+  sharpe: number;
   positions: number;
   marketTitles: string[];
   recentTrades: number;
@@ -29,17 +34,23 @@ export interface TopTrader {
 
 // ── Formatting helpers ──────────────────────────────────────────
 
+// Thresholds sit just below each unit so the ROUNDED value picks the bucket,
+// not the raw one: at `>= 1_000` a volume of 999.6 fell through to the plain
+// branch and rendered "$1000" — four digits sitting in a column of "$10.0K"s,
+// which reads as a broken formatter rather than as a number.
 export function formatVolume(vol: number): string {
-  if (vol >= 1_000_000) return `$${(vol / 1_000_000).toFixed(1)}M`;
-  if (vol >= 1_000) return `$${(vol / 1_000).toFixed(1)}K`;
+  if (vol >= 999_950) return `$${(vol / 1_000_000).toFixed(1)}M`;
+  if (vol >= 999.5) return `$${(vol / 1_000).toFixed(1)}K`;
   return `$${vol.toFixed(0)}`;
 }
 
 export function formatPnl(pnl: number): string {
   const prefix = pnl >= 0 ? "+$" : "-$";
   const abs = Math.abs(pnl);
-  if (abs >= 1_000_000) return `${prefix}${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${prefix}${(abs / 1_000).toFixed(1)}K`;
+  // Same rounding seam as formatVolume — 999.996 must be "+$1.0K", not
+  // "+$1000.00". The cent branch below rounds to 2dp, hence 999.995.
+  if (abs >= 999_950) return `${prefix}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 999.995) return `${prefix}${(abs / 1_000).toFixed(1)}K`;
   return `${prefix}${abs.toFixed(2)}`;
 }
 
@@ -56,7 +67,30 @@ export function timeAgo(ts: number): string {
 
 // ── API helpers ─────────────────────────────────────────────────
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+// In the browser this is the same-origin proxy path the gateway rewrites. On
+// the SERVER (the background backtest worker) a relative path has nothing to
+// resolve against, so calls go straight to the Rust API — which is also one
+// less hop for a process that lives on the same box.
+const API_URL =
+  typeof window === "undefined"
+    ? process.env.POLYMARKET_API_URL || "http://127.0.0.1:50091"
+    : process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+/** Base URL of the module API — for callers that need non-proxy routes
+ *  (deposit-wallet info, live engine status) without hardcoding the path. */
+export const API_BASE = API_URL;
+
+// The API is owner-gated. In the browser access.ts patches `fetch` once and
+// stamps every API-bound request with the session's Bearer token; there is no
+// such patch in Node, so the worker hands its minted owner token to this
+// module and the fetch helpers below attach it. Unset (the browser case) ⇒ no
+// header, and the patch does its job.
+let serverToken: string | null = null;
+export function setServerAuthToken(token: string | null): void {
+  serverToken = token;
+}
+export function serverAuthHeaders(): Record<string, string> {
+  return serverToken ? { Authorization: `Bearer ${serverToken}` } : {};
+}
 
 // Bare `fetch` surfaces any momentary blip — a wifi hiccup, a laptop wake, a
 // Caddy graceful-reload — as a thrown "Failed to fetch". The live engine polls
@@ -65,7 +99,15 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
 // transient failures with a short bounded retry + per-attempt timeout; only a
 // genuine, sustained outage (or a real HTTP error) makes it out of here.
 async function polyApi(endpoint: string, params: Record<string, string> = {}): Promise<unknown> {
-  const qs = new URLSearchParams({ endpoint, ...params });
+  return polyApiQs(endpoint, new URLSearchParams(params));
+}
+
+/** `polyApi` for endpoints that need a param REPEATED rather than set once —
+ *  gamma's `condition_ids` is the one that matters (see
+ *  `fetchMarketResolutions`). Takes the query already built. */
+async function polyApiQs(endpoint: string, params: URLSearchParams): Promise<unknown> {
+  const qs = new URLSearchParams(params);
+  qs.set("endpoint", endpoint);
   // NOTE the slash before `?`. The gateway route strips the `/api/polymarket`
   // prefix; without a trailing slash the upstream request line has an empty
   // path and Caddy/Cloudflare reject it with a 400. `/api/polymarket/?…` →
@@ -74,22 +116,29 @@ async function polyApi(endpoint: string, params: Record<string, string> = {}): P
   const ATTEMPTS = 3;
   let lastErr: unknown;
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    if (attempt > 0) {
-      // 300ms, 900ms backoff — long enough to ride out a reload/blip, short
-      // enough to stay well inside the engine's poll interval.
-      await new Promise((r) => setTimeout(r, 300 * 3 ** (attempt - 1)));
-    }
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-      // 5xx is the gateway/backend briefly unhappy — worth retrying. 4xx is a
-      // real client error (bad address, bad params) and won't change on retry.
-      if (res.status >= 500) throw new Error(`API ${res.status}`);
+      const res = await fetch(url, {
+        headers: serverAuthHeaders(),
+        signal: AbortSignal.timeout(20_000),
+      });
+      // 5xx is the gateway/backend briefly unhappy — worth retrying. 429 is
+      // the upstream data-api rate-limiting us — also transient, but needs a
+      // LONGER pause than a blip. Any other 4xx is a real client error (bad
+      // address, bad params) and won't change on retry.
       if (!res.ok) throw new Error(`API ${res.status}`);
       return await res.json();
     } catch (e) {
       lastErr = e;
-      // Don't burn retries on a deterministic 4xx.
-      if (e instanceof Error && /^API 4\d\d$/.test(e.message)) throw e;
+      // Don't burn retries on a deterministic 4xx (429 excepted).
+      const msg = e instanceof Error ? e.message : "";
+      if (/^API 4\d\d$/.test(msg) && msg !== "API 429") throw e;
+      if (attempt < ATTEMPTS - 1) {
+        // Rate-limit: 3s, 8s. Everything else: 300ms, 900ms.
+        const wait = msg === "API 429"
+          ? [3_000, 8_000][attempt]
+          : 300 * 3 ** attempt;
+        await new Promise((r) => setTimeout(r, wait));
+      }
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
@@ -311,6 +360,97 @@ export async function fetchMarketBySlug(slug: string): Promise<PolymarketMarket 
   return list[0] || null;
 }
 
+// ── Market RESOLUTION lookups ───────────────────────────────────
+//
+// What a market actually paid out. This is the only way a replay can know
+// whether a position it was still holding when the leaders went quiet was
+// worth $1 or $0 — see the `Settlement` doc in lib/backtest.ts.
+//
+// gamma's `condition_ids` filter has two traps, both silent (it answers 200
+// with `[]` rather than complaining):
+//
+//   1. the param must be REPEATED, not comma-joined —
+//      `?condition_ids=A&condition_ids=B`, never `?condition_ids=A,B`;
+//   2. the default market filter excludes closed markets, so a query for a
+//      RESOLVED market returns nothing unless it also passes `closed=true`.
+//
+// Both are why this doesn't go through `polyApi` with a params object, and why
+// the caller must always check which ids came back rather than assuming the
+// response lines up with the request.
+
+/** One market's resolution: outcome name (lowercased) → payout, 0 or 1. */
+export interface MarketResolution {
+  conditionId: string;
+  legs: Record<string, number>;
+  /** Resolution time (ms) — gamma's endDate. 0 when absent. */
+  endMs: number;
+}
+
+/** Gamma caps a page at 100 and the URL has to stay sane. */
+const RESOLUTION_BATCH = 20;
+
+/** Look up how the given markets resolved. Only CLOSED markets come back, so
+ *  an id that is `checked` but absent from `resolutions` is genuinely still
+ *  open — never "worth zero".
+ *
+ *  `checked` is the important half: an id whose batch request FAILED is not in
+ *  it, and callers must not cache such an id as "no resolution". The first run
+ *  of this code did exactly that — the API had been put to sleep under it, all
+ *  600 lookups threw, and every one was filed as a negative that then
+ *  suppressed re-checks for hours. An unanswered question is not an answer. */
+export async function fetchMarketResolutions(
+  conditionIds: string[],
+): Promise<{ resolutions: Map<string, MarketResolution>; checked: Set<string> }> {
+  const resolutions = new Map<string, MarketResolution>();
+  const checked = new Set<string>();
+  const ids = [...new Set(conditionIds.filter((c) => c && c.startsWith("0x")))];
+  for (let i = 0; i < ids.length; i += RESOLUTION_BATCH) {
+    const batch = ids.slice(i, i + RESOLUTION_BATCH);
+    const qs = new URLSearchParams();
+    for (const id of batch) qs.append("condition_ids", id);
+    qs.set("closed", "true");
+    qs.set("limit", String(RESOLUTION_BATCH * 2));
+    let raw: unknown;
+    try {
+      raw = await polyApiQs("markets", qs);
+    } catch {
+      continue; // unanswered — leave every id in this batch unchecked
+    }
+    if (!Array.isArray(raw)) continue; // an error object, not a market list
+    for (const id of batch) checked.add(id);
+    for (const m of raw as Record<string, unknown>[]) {
+      const parsed = parseResolution(m);
+      // Trap 3: gamma will happily return a market we didn't ask about if a
+      // param is ignored. Only trust ids from the batch we sent.
+      if (parsed && batch.includes(parsed.conditionId)) resolutions.set(parsed.conditionId, parsed);
+    }
+  }
+  return { resolutions, checked };
+}
+
+function parseResolution(m: Record<string, unknown>): MarketResolution | null {
+  const conditionId = typeof m.conditionId === "string" ? m.conditionId : "";
+  if (!conditionId || m.closed !== true) return null;
+  const asList = (v: unknown): unknown[] => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === "string") { try { return JSON.parse(v) as unknown[]; } catch { return []; } }
+    return [];
+  };
+  const outcomes = asList(m.outcomes).map((o) => String(o).trim().toLowerCase());
+  const prices = asList(m.outcomePrices).map(Number);
+  if (outcomes.length < 2 || outcomes.length !== prices.length) return null;
+  if (prices.some((p) => !Number.isFinite(p))) return null;
+  // A resolved market pays out exactly $1 across its outcomes. Anything else
+  // is a closed-but-unsettled market (or a shape we don't understand) and is
+  // safer left unknown than booked as a loss.
+  const total = prices.reduce((s, p) => s + p, 0);
+  if (Math.abs(total - 1) > 0.01) return null;
+  const legs: Record<string, number> = {};
+  outcomes.forEach((o, i) => { legs[o] = prices[i]; });
+  const endMs = typeof m.endDate === "string" ? Date.parse(m.endDate) || 0 : 0;
+  return { conditionId, legs, endMs };
+}
+
 export interface PricePoint { t: number; p: number; }
 
 export async function fetchPriceHistory(
@@ -331,6 +471,35 @@ export async function fetchPriceHistory(
   const result = arr.map((x) => ({ t: Number(x.t), p: Number(x.p) }));
   if (result.length > 0) setMarketCache(cacheKey, result as unknown as unknown[]);
   return result;
+}
+
+/** Near-live price history for sub-hour candle markets. Bypasses BOTH the
+ *  client market cache and the server's 24h `prices-history` persistence by
+ *  reading through the `live-prices-history` alias (15s server TTL) at
+ *  fidelity 1 — 1-minute bars, the CLOB minimum. A 5-minute market's whole
+ *  life fits inside one regular cache generation, so the normal cached path
+ *  would freeze its series at the first fetch. */
+export async function fetchPriceHistoryLive(tokenId: string): Promise<PricePoint[]> {
+  const raw = await polyApi("live-prices-history", {
+    market: tokenId,
+    interval: "1h",
+    fidelity: "1",
+  }) as { history?: { t: number; p: number }[] };
+  const arr = Array.isArray(raw?.history) ? raw.history : [];
+  return arr.map((x) => ({ t: Number(x.t), p: Number(x.p) }));
+}
+
+/** Near-live CLOB midpoint for one token (0–1), or null when the book is
+ *  empty/unreadable. Used as the synthetic "now" point on candle series —
+ *  fidelity-1 history can lag ~90s, which is a third of a 5-minute candle. */
+export async function fetchMidpointLive(tokenId: string): Promise<number | null> {
+  try {
+    const raw = await polyApi("live-midpoint", { token_id: tokenId }) as { mid?: unknown };
+    const mid = Number(raw?.mid);
+    return Number.isFinite(mid) && mid > 0 && mid < 1 ? mid : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface MarketTrade {
@@ -390,6 +559,21 @@ export async function fetchGlobalTrades(limit = 100, offset = 0): Promise<Global
   const params: Record<string, string> = { limit: String(limit), takerOnly: "false" };
   if (offset > 0) params.offset = String(offset);
   const raw = await polyApi("trades", params) as unknown;
+  return mapDataApiTrades(raw);
+}
+
+/** Every fill executed BY a specific wallet (the user's trading wallet), via
+ *  the `user-trades` virtual endpoint → data-api `/trades?user=<wallet>`.
+ *  Distinct endpoint name so the proxy gives it a 60s near-live TTL instead
+ *  of the global tape's 1h freshness window. */
+export async function fetchUserTrades(user: string, limit = 100, offset = 0): Promise<GlobalTrade[]> {
+  const params: Record<string, string> = { user, limit: String(limit), takerOnly: "false" };
+  if (offset > 0) params.offset = String(offset);
+  const raw = await polyApi("user-trades", params) as unknown;
+  return mapDataApiTrades(raw);
+}
+
+function mapDataApiTrades(raw: unknown): GlobalTrade[] {
   const arr = Array.isArray(raw) ? raw : [];
   return arr
     .map((t: Record<string, unknown>) => {
@@ -489,10 +673,18 @@ export async function fetchTradersPage(opts: {
   if (opts.minBuyVolume && opts.minBuyVolume > 0) params.set("minBuyVolume", String(opts.minBuyVolume));
   if (opts.minSellVolume && opts.minSellVolume > 0) params.set("minSellVolume", String(opts.minSellVolume));
 
-  const res = await fetch(`${API_URL}/active-traders?${params.toString()}`);
+  const res = await fetch(`${API_URL}/active-traders?${params.toString()}`, { headers: serverAuthHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json() as Promise<PagedTradersResult>;
 }
+
+/** The candidate pool the server's hourly warmup aggregates under
+    (`warmup_cycle` in pipeline.rs). A paged request for ANY other pool is a
+    different cache key, and a cold paged key returns `{cold:true, traders:[]}`
+    rather than computing — so asking for the default 1000 got an empty
+    leaderboard every time, which is why forking a template used to seed zero
+    traders. Every leaderboard read in the console asks for this pool. */
+export const WARMED_CANDIDATE_POOL = 2000;
 
 // Top-N trader addresses for the currently active filters, sorted by P&L.
 // Used to seed a new/empty strat with a sensible default instead of leaving
@@ -505,6 +697,7 @@ export async function fetchTopTraderAddresses(
     const res = await fetchTradersPage({
       days: opts.days,
       minPerDay: opts.minPerDay,
+      pool: WARMED_CANDIDATE_POOL,
       category: opts.category || undefined,
       marketQuery: opts.marketQuery || undefined,
       sort: "pnl",
@@ -561,7 +754,7 @@ export async function fetchTopTradersStream(
   // cancel the prior in-flight stream and start fresh. Without this an
   // HMR-dropped stream leaves inFlightRef stuck true on the caller and
   // every subsequent click silently no-ops.
-  const res = await fetch(`${API_URL}/active-traders?${qs}`, { signal });
+  const res = await fetch(`${API_URL}/active-traders?${qs}`, { headers: serverAuthHeaders(), signal });
   if (!res.ok || !res.body) throw new Error(`active-traders ${res.status}`);
 
   const reader = res.body.getReader();
@@ -593,6 +786,7 @@ export async function fetchTopTradersStream(
           sellVolume: Number(t.sellVolume || 0),
           pnl: Number(t.pnl || 0),
           winRate: Number(t.winRate || 0),
+          sharpe: Number(t.sharpe || 0),
           positions: Number(t.positions || 0),
           marketTitles: Array.isArray(t.marketTitles) ? (t.marketTitles as string[]) : [],
           recentTrades: Number(t.recentTrades || 0),
@@ -629,7 +823,7 @@ export async function fetchTopTraders(
     minPerDay: String(minTradesPerDay),
     pool: String(candidatePool),
   });
-  const res = await fetch(`${API_URL}/active-traders?${qs}`);
+  const res = await fetch(`${API_URL}/active-traders?${qs}`, { headers: serverAuthHeaders() });
   if (!res.ok) throw new Error(`active-traders ${res.status}`);
   const data = await res.json();
   const traders = Array.isArray(data?.traders) ? data.traders : [];
@@ -640,6 +834,7 @@ export async function fetchTopTraders(
     sellVolume: Number(t.sellVolume || 0),
     pnl: Number(t.pnl || 0),
     winRate: Number(t.winRate || 0),
+    sharpe: Number(t.sharpe || 0),
     positions: Number(t.positions || 0),
     marketTitles: Array.isArray(t.marketTitles) ? (t.marketTitles as string[]) : [],
     recentTrades: Number(t.recentTrades || 0),
@@ -655,6 +850,14 @@ export async function fetchTopTraders(
 //
 // onProgress fires after each page so the UI can stream partial results
 // and show how far back the data has reached.
+
+// Hard ceiling on how far back ANY trade sync reaches. Every caller's
+// untilTs is clamped to this — passing 0 ("all history") now means "the
+// last 30 days", not "back to the trader's first trade" (which was pulling
+// 100+ days of pages for old accounts and blowing the shared-origin
+// localStorage quota, so nothing got cached at all).
+export const MAX_LOOKBACK_DAYS = 30;
+
 export interface FetchTradesProgress {
   pages: number;
   totalTrades: number;
@@ -669,10 +872,19 @@ export async function fetchWalletTradesUntil(
   onProgress?: (info: FetchTradesProgress) => void,
   maxTrades = 10000,
 ): Promise<PolymarketTrade[]> {
+  // Clamp the window to the global ceiling — see MAX_LOOKBACK_DAYS.
+  const minUntilTs =
+    Math.floor(Date.now() / 1000) - MAX_LOOKBACK_DAYS * 86400;
+  if (untilTs < minUntilTs) untilTs = minUntilTs;
+
   // ── Check hourly cache first ──
+  // An empty cached array is a real answer ("no trades in the window",
+  // cached below on a clean fetch) — honoring it avoids refetching
+  // inactive traders on every visit. Errors never land in the cache;
+  // polyApi throws on any non-200.
   const cached = getTradeCache(address);
-  if (cached && cached.length > 0) {
-    let oldest = cached[0].timestamp;
+  if (cached) {
+    let oldest = cached.length > 0 ? cached[0].timestamp : 0;
     for (let i = 1; i < cached.length; i++) {
       if (cached[i].timestamp < oldest) oldest = cached[i].timestamp;
     }
@@ -687,7 +899,11 @@ export async function fetchWalletTradesUntil(
   }
 
   // ── Cache miss — paginate from API ──
-  const PAGE = 1000;
+  // data-api enforces a max activity limit of 500 and 400s above it (same
+  // cap the Rust pipeline documents) — limit=1000 made EVERY first-page
+  // fetch fail deterministically, so trader profiles showed 0 trades while
+  // positions (a different endpoint) loaded fine.
+  const PAGE = 500;
   const out: PolymarketTrade[] = [];
   let oldestMs = 0;
 
@@ -728,6 +944,7 @@ export async function fetchWalletTradesUntil(
       out.push({
         id: String(t.transactionHash || ""),
         market: String(t.title || t.slug || ""),
+        slug: t.slug ? String(t.slug) : undefined,
         conditionId: String(t.conditionId || t.asset || ""),
         side,
         price,
@@ -757,11 +974,13 @@ export async function fetchWalletTradesUntil(
   }
 
   // ── Store in hourly cache + build CID index ──
-  if (out.length > 0) {
-    setTradeCache(address, out);
-  }
+  // Drop the last page's spillover past the 30-day ceiling before caching
+  // so the stored array (and its per-CID index copies) stays bounded.
+  // Empty results are cached too — see the cache-first read above.
+  const trimmed = out.filter((t) => t.timestamp >= minUntilTs * 1000);
+  setTradeCache(address, trimmed);
 
-  return out;
+  return trimmed;
 }
 
 // Parse a single /activity row into a PolymarketTrade or null. Shared by the
@@ -782,6 +1001,7 @@ function parseActivityTrade(t: Record<string, unknown>): PolymarketTrade | null 
   return {
     id: String(t.transactionHash || ""),
     market: String(t.title || t.slug || ""),
+    slug: t.slug ? String(t.slug) : undefined,
     conditionId: String(t.conditionId || t.asset || ""),
     side,
     price,
@@ -792,6 +1012,36 @@ function parseActivityTrade(t: Record<string, unknown>): PolymarketTrade | null 
   };
 }
 
+// Minimum wall-clock between two /activity syncs of the SAME trader, shared
+// by every caller in the tab. The watched traders are polled from several
+// places at once — the live engine's cycle, the console's background curve
+// refresh, the LIVE fills panel — and each used to pull its own copy, so a
+// 30s cadence in three places was three times the data-api budget. One sync
+// per trader per 30s: callers that ask sooner get the cache the last sync
+// left behind. Mirrors MIN_POLL_MINUTES here and `default_min_interval_ms`
+// in api/src/live_engine.rs.
+export const TRADER_SYNC_MIN_MS = 30_000;
+
+// addr → epoch ms of the last COMPLETED sync (success or failure; a failed
+// fetch still spent the request budget).
+const lastTraderSyncAt = new Map<string, number>();
+// addr → in-flight sync, so two callers landing in the same tick share one
+// request instead of racing two identical page walks.
+const traderSyncInFlight = new Map<string, Promise<PolymarketTrade[]>>();
+
+// Freshest series we can hand back without touching the network: whichever
+// of the caller's baseline and the trade cache carries the newer trade.
+function freshestKnownTrades(
+  address: string,
+  existing: PolymarketTrade[],
+): PolymarketTrade[] {
+  const cached = getTradeCache(address);
+  if (!cached) return existing;
+  const newestOf = (ts: PolymarketTrade[]) =>
+    ts.reduce((m, t) => (t.timestamp > m ? t.timestamp : m), 0);
+  return newestOf(cached) >= newestOf(existing) ? cached : existing;
+}
+
 // Incremental refresh — paginates /activity from the newest trade backwards
 // and stops as soon as it hits a trade we already have cached, then merges
 // the fresh window with the existing array (dedupe by tx hash). Avoids the
@@ -799,11 +1049,34 @@ function parseActivityTrade(t: Record<string, unknown>): PolymarketTrade | null 
 // older trades from being silently dropped if Polymarket trims the activity
 // feed. `existing` is whatever's already in memory or trade cache; pass `[]`
 // to force a full backfill (delegates to fetchWalletTradesUntil).
+//
+// Rate-gated by TRADER_SYNC_MIN_MS — see above.
 export async function fetchWalletTradesIncremental(
   address: string,
   existing: PolymarketTrade[],
   windowUntilTsSec: number,
   maxPages = 5,
+): Promise<PolymarketTrade[]> {
+  const key = address.toLowerCase();
+  const inFlight = traderSyncInFlight.get(key);
+  if (inFlight) return inFlight;
+  const since = Date.now() - (lastTraderSyncAt.get(key) ?? 0);
+  if (since < TRADER_SYNC_MIN_MS) return freshestKnownTrades(address, existing);
+
+  const run = syncWalletTrades(address, existing, windowUntilTsSec, maxPages)
+    .finally(() => {
+      lastTraderSyncAt.set(key, Date.now());
+      traderSyncInFlight.delete(key);
+    });
+  traderSyncInFlight.set(key, run);
+  return run;
+}
+
+async function syncWalletTrades(
+  address: string,
+  existing: PolymarketTrade[],
+  windowUntilTsSec: number,
+  maxPages: number,
 ): Promise<PolymarketTrade[]> {
   if (existing.length === 0) {
     // No baseline — incremental can't do better than the full fetch.
@@ -856,8 +1129,12 @@ export async function fetchWalletTradesIncremental(
   if (fresh.length === 0) return existing;
 
   // Merge + persist. Newest-first ordering matches what the rest of the app
-  // expects from the bulk fetch path.
-  const merged = [...fresh, ...existing].sort((a, b) => b.timestamp - a.timestamp);
+  // expects from the bulk fetch path. Trades that have aged past the global
+  // 30-day ceiling fall off here so the cache can't grow without bound.
+  const floorMs = Date.now() - MAX_LOOKBACK_DAYS * 86400_000;
+  const merged = [...fresh, ...existing]
+    .filter((t) => t.timestamp >= floorMs)
+    .sort((a, b) => b.timestamp - a.timestamp);
   setTradeCache(address, merged);
   return merged;
 }
@@ -894,6 +1171,7 @@ export async function fetchWalletTrades(address: string, limit: number = 200): P
       return {
         id: String(t.transactionHash || ""),
         market: String(t.title || t.slug || ""),
+        slug: t.slug ? String(t.slug) : undefined,
         conditionId: String(t.conditionId || t.asset || ""),
         side,
         price,
@@ -926,13 +1204,22 @@ export async function fetchPositions(
   }
 
   // Polymarket data API: /positions?user=<address>&sizeThreshold=.1
-  const raw = await polyApi("positions", {
-    user: address,
-    sizeThreshold: ".1",
-    limit: "100",
-  }) as unknown;
-
-  const positions = Array.isArray(raw) ? raw : [];
+  // limit was 100, which silently truncated big traders — the profile
+  // showed exactly "100 positions" for anyone holding more. 500 is the
+  // data-api's max per page (same cap as /activity), so paginate with
+  // offset until a short page. 2000 is a sanity ceiling, not a target.
+  const positions: Record<string, unknown>[] = [];
+  for (let offset = 0; offset < 2000; offset += 500) {
+    const raw = await polyApi("positions", {
+      user: address,
+      sizeThreshold: ".1",
+      limit: "500",
+      offset: String(offset),
+    }) as unknown;
+    if (!Array.isArray(raw) || raw.length === 0) break;
+    positions.push(...(raw as Record<string, unknown>[]));
+    if (raw.length < 500) break;
+  }
 
   const safe = (n: unknown, fallback = 0): number => {
     const v = Number(n);
@@ -989,9 +1276,18 @@ export interface ClosedPosition {
   timestamp: number;    // ms — when the position closed
 }
 
+/// Every closed position for `address`, oldest history included.
+///
+/// `maxRows` is a runaway guard, NOT a display cap — truncating here
+/// silently corrupts any total computed from the result. The data-api does
+/// not return closed positions in P&L order, so a cut tail is not a random
+/// sample: on the reference account the 1000-row cap dropped 251 legs worth
+/// -$2,259, and the console's "REALIZED" headline read +$1,777 against a
+/// wallet holding $0.70. Keep the ceiling far above any real account's leg
+/// count so the sum is always the whole book.
 export async function fetchClosedPositions(
   address: string,
-  maxRows = 1000,
+  maxRows = 20000,
 ): Promise<ClosedPosition[]> {
   // The data-api silently caps limit at 50 — page until a short page.
   const PAGE = 50;
@@ -1075,27 +1371,10 @@ export async function fetchTraderRoiStats(
     returns.push(t.realized / entryNotional);
   }
 
-  const sampleSize = returns.length;
-  let roi = 0;
-  let stdev = 0;
-  if (sampleSize > 0) {
-    const mean = returns.reduce((s, r) => s + r, 0) / sampleSize;
-    roi = mean;
-    if (sampleSize >= 2) {
-      const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (sampleSize - 1);
-      stdev = Math.sqrt(variance);
-    }
-  }
-  // Treat <3 closed trades as "unknown" — too noisy to score on.
-  const sharpe = sampleSize >= 3 && stdev > 0 ? roi / stdev : 0;
-
   return {
     address: address.toLowerCase(),
     windowDays,
-    roi,
-    stdev,
-    sampleSize,
-    sharpe,
+    ...statsFromReturns(returns),
     cashDeployed,
     syncedAt: Date.now(),
   };

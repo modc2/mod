@@ -4,6 +4,13 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "/polymarket";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false, // Prevent double-mount in dev that causes API race conditions
+  // build.sh builds into a staging dir and atomically swaps it in, so the
+  // live `next start` never serves from a half-written .next (in-place
+  // rebuilds used to 400 every _next/static chunk for the whole build).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  // instrumentation.ts — starts the hub's 2-hourly background backtest worker
+  // when the server boots. Still experimental in Next 14; stable in 15.
+  experimental: { instrumentationHook: true },
   ...(basePath ? { basePath } : {}),
   env: {
     NEXT_PUBLIC_API_URL: "/api/polymarket",

@@ -4,7 +4,7 @@
 
 **Version 1.0 | July 2026**
 
-> Looking for the two-page version? Read the [simple whitepaper](simple-whitepaper). The StakeTime validator-network design lives with its own module: `mod/orbit/staketime/WHITEPAPER.md`.
+> Looking for the two-page version? Flip the docs to **Human** mode. The StakeTime validator-network design lives with its own module: `mod/orbit/staketime/WHITEPAPER.md`.
 
 **Abstract.** MOD turns software into modules: self-describing directories that one convention makes loadable from Python, callable from a CLI, servable as HTTP APIs, routable through a gateway, and registrable on-chain. The protocol is deliberately small — a module anatomy, one URL rule, a null-call discovery convention, a shared signature-based identity layer, and a suite of smart contracts on Base (the BlocTime suite) for registration, payments, revenue sharing, and time-weighted staking. Everything else — 200+ modules spanning trading engines, storage networks, AI agents, and games — is built on top of, not into, the protocol.
 

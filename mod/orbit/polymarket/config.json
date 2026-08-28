@@ -1,6 +1,6 @@
 {
     "name": "polymarket",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "description": "Polymarket prediction market \u2014 Rust API + Next.js frontend",
     "port": 50091,
     "app_port": 3091,
@@ -20,16 +20,47 @@
         "trending",
         "events",
         "active_traders",
-        "forward"
+        "sync",
+        "forward",
+        "backtests",
+        "mcp"
     ],
     "endpoints": {
         "/health": {
             "method": "GET",
-            "docs": "Health check"
+            "docs": "Health check (public)"
+        },
+        "/access/info": {
+            "method": "GET",
+            "docs": "Access gate info: owner-only mode + Terms of Use text/version/hash (public)"
+        },
+        "/access/challenge": {
+            "method": "GET",
+            "docs": "Owner sign-in challenge for ?address= \u2014 message embeds the terms hash, signing = accepting (public)"
+        },
+        "/access/verify": {
+            "method": "POST",
+            "docs": "Exchange {address, timestamp, signature} for a Bearer token; only the sudo/owner address is accepted; acceptance recorded to terms_accepted.json (public)"
+        },
+        "/access/check": {
+            "method": "GET",
+            "docs": "Probe whether the Bearer token is still valid"
         },
         "/active-traders": {
             "method": "GET",
             "docs": "Active traders pipeline (streaming/paged/json)"
+        },
+        "/sync/status": {
+            "method": "GET",
+            "docs": "Background sync schedule: cadence, last run, next run, last error"
+        },
+        "/sync/config": {
+            "method": "POST",
+            "docs": "Owner sets the sync cadence: {enabled?, intervalSecs|intervalMinutes|intervalHours} (5min\u20137d); persists to ~/.mod/polymarket/sync.json"
+        },
+        "/sync/run": {
+            "method": "POST",
+            "docs": "Run one background sync cycle now (bypasses the freshness skip)"
         },
         "/?endpoint=markets": {
             "method": "GET",
@@ -58,8 +89,30 @@
         "/user-strats/import": {
             "method": "POST",
             "docs": "Import a strat by CID as a private copy you own"
+        },
+        "/polymarket/api/hub": {
+            "method": "GET|POST|PUT",
+            "docs": "Background backtest worker (served by the Next app, owner-gated): GET ?days=N returns the cached per-strat backtests + funnels + the walk-forward verdict (each strat replayed over the PREVIOUS window too, then judged held/faded/recovered/no-edge/stalled/untested/idle) and the worker's schedule; POST {days,strats} publishes the roster to keep warm (POST ?run=1 queues a pass); PUT runs a pass synchronously"
         }
     },
-    "schema": "QmZ1DErg6Agaf4i1FpUU8MtPkWyyJ4TFDHDznm5PuRTaQz",
-    "gateway_port": 3091
+    "schema": "QmamiN4g39A4vEky54CXUvWbq566eTyBUEgV2268XQHK43",
+    "gateway_port": 3091,
+    "mcp": {
+        "stdio": "python3 src/mcp.py",
+        "http": "python3 src/mcp.py --http --port 50092",
+        "port": 50092,
+        "path": "/mcp",
+        "tools": [
+            "pm_health",
+            "pm_markets",
+            "pm_top_traders",
+            "pm_trader",
+            "pm_strats",
+            "pm_backtests",
+            "pm_backtest_run",
+            "pm_live_sessions",
+            "pm_live_gates"
+        ],
+        "docs": "Read-only MCP server over the console: markets, leaderboard, one leader's flow (incl. its sub-hour candle share), the strats this deployment runs, the worker's cached backtests WITH the entry funnel, live sessions, and the live gate tally. No order-placing tool by design."
+    }
 }

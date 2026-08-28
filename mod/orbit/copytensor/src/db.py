@@ -5,6 +5,7 @@ SQLite storage for copytensor — snapshots, trades, copy configs, watched accou
 import json
 import os
 import sqlite3
+import time
 import uuid
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
@@ -56,6 +57,24 @@ CREATE TABLE IF NOT EXISTS accounts (
     label       TEXT,
     added_at    TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Saved strats. They used to live in one browser's localStorage, which made
+-- "my strats" mean "this laptop's strats" and left nothing to share. Owner
+-- is the SHA-256 of the caller's owner key (X-Owner-Key) — the key itself
+-- never touches the disk. visibility is 'private' (default), 'public' (the
+-- hub lists it) or 'whitelist' (owner + the fingerprints in whitelist_json).
+CREATE TABLE IF NOT EXISTS strats (
+    id            TEXT PRIMARY KEY,
+    owner_hash    TEXT    NOT NULL,
+    name          TEXT    NOT NULL,
+    visibility    TEXT    NOT NULL DEFAULT 'private',
+    whitelist_json TEXT   NOT NULL DEFAULT '[]',
+    payload_json  TEXT    NOT NULL,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_strats_owner ON strats(owner_hash);
+CREATE INDEX IF NOT EXISTS idx_strats_vis ON strats(visibility);
 """
 
 
@@ -67,11 +86,21 @@ class Database:
 
     def _init_schema(self):
         with self._conn() as conn:
+            # WAL: the snapshot workers and the leaderboard walkers hit this
+            # file from many threads at once, and the default rollback
+            # journal turns every concurrent writer into "database is
+            # locked" (a dropped snapshot, silently). Set once — it is a
+            # persistent property of the file.
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
             conn.executescript(SCHEMA)
+
+    # Long enough to outlast a burst of concurrent snapshot writes.
+    BUSY_TIMEOUT_SEC = 30
 
     @contextmanager
     def _conn(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=self.BUSY_TIMEOUT_SEC)
         conn.row_factory = sqlite3.Row
         try:
             yield conn
@@ -104,8 +133,20 @@ class Database:
             d["allocations"] = json.loads(d["allocations"])
             return d
 
+    def get_first_snapshot(self, ss58: str) -> Optional[Dict]:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM snapshots WHERE ss58 = ? ORDER BY block ASC LIMIT 1",
+                (ss58,)
+            ).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["allocations"] = json.loads(d["allocations"])
+            return d
+
     def get_snapshots(self, ss58: str, from_block: int = 0,
-                      to_block: int = 2**63, limit: int = 100) -> List[Dict]:
+                      to_block: int = 2**63 - 1, limit: int = 100) -> List[Dict]:
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM snapshots WHERE ss58 = ? AND block >= ? AND block <= ? "
@@ -248,3 +289,84 @@ class Database:
         with self._conn() as conn:
             row = conn.execute("SELECT 1 FROM accounts WHERE ss58 = ?", (ss58,)).fetchone()
             return row is not None
+
+    # ── strats ───────────────────────────────────────────────────────
+    # A strat row is (who owns it, who may see it, the basket itself). The
+    # payload is the whole client-side shape, stored as JSON so the picker
+    # can keep evolving without a migration for every new knob.
+
+    def _strat_row(self, r: sqlite3.Row) -> Dict:
+        d = dict(r)
+        d["whitelist"] = json.loads(d.pop("whitelist_json") or "[]")
+        d.update(json.loads(d.pop("payload_json") or "{}"))
+        return d
+
+    def create_strat(self, owner_hash: str, name: str, payload: Dict,
+                     visibility: str = "private",
+                     whitelist: Optional[List[str]] = None,
+                     strat_id: Optional[str] = None) -> Dict:
+        now = int(time.time())
+        sid = strat_id or f"st_{uuid.uuid4().hex[:12]}"
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO strats (id, owner_hash, name, visibility, whitelist_json,"
+                " payload_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                (sid, owner_hash, name, visibility,
+                 json.dumps(whitelist or []), json.dumps(payload), now, now),
+            )
+        return self.get_strat(sid)
+
+    def get_strat(self, strat_id: str) -> Optional[Dict]:
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM strats WHERE id = ?", (strat_id,)).fetchone()
+            return self._strat_row(row) if row else None
+
+    def update_strat(self, strat_id: str, *, name: Optional[str] = None,
+                     payload: Optional[Dict] = None,
+                     visibility: Optional[str] = None,
+                     whitelist: Optional[List[str]] = None) -> Optional[Dict]:
+        cur = self.get_strat(strat_id)
+        if not cur:
+            return None
+        sets, vals = ["updated_at = ?"], [int(time.time())]
+        if name is not None:
+            sets.append("name = ?"); vals.append(name)
+        if visibility is not None:
+            sets.append("visibility = ?"); vals.append(visibility)
+        if whitelist is not None:
+            sets.append("whitelist_json = ?"); vals.append(json.dumps(whitelist))
+        if payload is not None:
+            sets.append("payload_json = ?"); vals.append(json.dumps(payload))
+        vals.append(strat_id)
+        with self._conn() as conn:
+            conn.execute(f"UPDATE strats SET {', '.join(sets)} WHERE id = ?", vals)
+        return self.get_strat(strat_id)
+
+    def delete_strat(self, strat_id: str):
+        with self._conn() as conn:
+            conn.execute("DELETE FROM strats WHERE id = ?", (strat_id,))
+
+    def list_strats(self, owner_hash: Optional[str] = None,
+                    fingerprint: Optional[str] = None,
+                    include_public: bool = True) -> List[Dict]:
+        """Everything this caller may see: their own, the public shelf, and
+        anything whose whitelist names their FINGERPRINT (what they hand out;
+        the full hash never leaves this process). An anonymous caller sees
+        the public shelf only."""
+        with self._conn() as conn:
+            rows = conn.execute("SELECT * FROM strats ORDER BY updated_at DESC").fetchall()
+        out = []
+        for r in rows:
+            s = self._strat_row(r)
+            mine = bool(owner_hash) and s["owner_hash"] == owner_hash
+            listed = bool(fingerprint) and fingerprint in (s.get("whitelist") or [])
+            if mine or listed or (include_public and s["visibility"] == "public"):
+                out.append(s)
+        return out
+
+    def list_public_strats(self) -> List[Dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM strats WHERE visibility = 'public' ORDER BY updated_at DESC"
+            ).fetchall()
+        return [self._strat_row(r) for r in rows]

@@ -93,6 +93,7 @@ c.bg_list()
 job = c.submit("Build React dashboard", model="sonnet", work_dir="/project")
 c.tail(job['id'])          # stream live output (SSE)
 c.jobs()                   # list all jobs
+c.guide(job['id'], "focus on the API first")  # steer a running job mid-task
 c.cancel(job['id'])        # cancel running job
 c.delete_job(job['id'])    # remove job
 ```
@@ -109,6 +110,24 @@ c.changelog()
 c.get_version("v1.2.0")
 c.restore_version("v1.2.0")
 ```
+
+### Prompts (shareable, stored in localfs)
+
+Every task inherits a nice, readable **default system prompt** — no hidden
+empty string. Named prompts are saved to a small catalog and pushed into
+localfs (IPFS), so each one gets a content-address (CID) you can share. Someone
+else pulls it in by CID.
+
+```python
+c.default_prompt()                       # the default system prompt, ready to show
+c.save_prompt("Rust Reviewer", "You review Rust for correctness…")
+c.list_prompts()                         # the gallery — everything saved, newest first
+c.share_prompt("p_ab12cd34ef56")         # → { cid, gateway } — the share link
+c.import_prompt("Qm…")                   # pull a shared prompt into your catalog
+c.delete_prompt("p_ab12cd34ef56")        # author or owner only
+```
+
+Bodies live in localfs; the catalog index lives off-tree in `~/.mod/claude/prompts.json`.
 
 ### Modules
 
@@ -208,6 +227,7 @@ Rust server (Axum + SQLite) on port `8820`.
 | `GET` | `/jobs/{id}` | Job details |
 | `DELETE` | `/jobs/{id}` | Delete job |
 | `POST` | `/jobs/{id}/cancel` | Cancel job |
+| `POST` | `/jobs/{id}/message` | Guide a running job mid-task (steering) |
 | `GET` | `/jobs/{id}/stream` | SSE output stream |
 | `POST` | `/files/write` | Write file |
 | `POST` | `/modules/{name}/process` | Manage a module's pm2 processes (status/stop/start/restart) |

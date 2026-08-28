@@ -1,0 +1,41 @@
+{
+    "name": "cshare",
+    "description": "Fractional compute marketplace (compute/1.0): machines listed as share-issuing assets, shares traded on an order book, hourly rental income streamed pro-rata to every shareholder",
+    "version": "2.0.0",
+    "urls": {
+        "api": "http://localhost:50290",
+        "app": "http://localhost:50291/cshare"
+    },
+    "port": 50290,
+    "app_port": 50291,
+    "base_path": "/cshare",
+    "route": true,
+    "protocol": "compute/1.0",
+    "fns": [
+        "forward",
+        "card",
+        "stats",
+        "deposit",
+        "balance",
+        "list_node",
+        "nodes",
+        "node",
+        "market",
+        "sell",
+        "cancel",
+        "buy",
+        "rent",
+        "rentals",
+        "portfolio",
+        "demo",
+        "reset",
+        "schema",
+        "info",
+        "readme",
+        "serve",
+        "serve_api",
+        "serve_app",
+        "kill"
+    ],
+    "schema": "QmNQYcLU496MrvViLtBmQFLmr3Ea7xqzLjBQZgqorSv3bx"
+}

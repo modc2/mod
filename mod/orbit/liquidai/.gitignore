@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+src/app/node_modules/
+src/app/.next/
+src/app/tsconfig.tsbuildinfo

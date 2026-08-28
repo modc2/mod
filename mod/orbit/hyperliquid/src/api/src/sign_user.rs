@@ -95,6 +95,50 @@ fn enc_bool(b: bool) -> [u8; 32] {
     o[31] = if b { 1 } else { 0 };
     o
 }
+fn enc_address(addr: &str) -> [u8; 32] {
+    let mut o = [0u8; 32];
+    let trimmed = addr.strip_prefix("0x").unwrap_or(addr);
+    if let Ok(bytes) = hex::decode(trimmed) {
+        if bytes.len() == 20 { o[12..].copy_from_slice(&bytes); }
+    }
+    o
+}
+
+/// Full EIP-712 typed-data JSON for a user-signed action, in the exact shape
+/// `eth_signTypedData_v4` expects. `fields` is the ordered (name, solType)
+/// list of the primary type; `message` must carry exactly those keys.
+/// Browser wallets hash this themselves — it must agree with
+/// `user_signed_digest`, which the tests below pin.
+pub fn user_typed_data(
+    primary_type: &str,
+    fields: &[(&str, &str)],
+    message: Value,
+    is_mainnet: bool,
+) -> Value {
+    let chain_id = if is_mainnet { SIGNATURE_CHAIN_ID_MAINNET } else { SIGNATURE_CHAIN_ID_TESTNET };
+    let field_defs: Vec<Value> = fields.iter()
+        .map(|(n, t)| json!({"name": n, "type": t}))
+        .collect();
+    json!({
+        "types": {
+            "EIP712Domain": [
+                {"name": "name", "type": "string"},
+                {"name": "version", "type": "string"},
+                {"name": "chainId", "type": "uint256"},
+                {"name": "verifyingContract", "type": "address"},
+            ],
+            primary_type: field_defs,
+        },
+        "primaryType": primary_type,
+        "domain": {
+            "name": "HyperliquidSignTransaction",
+            "version": "1",
+            "chainId": chain_id,
+            "verifyingContract": "0x0000000000000000000000000000000000000000",
+        },
+        "message": message,
+    })
+}
 
 // ─── Action builders ────────────────────────────────────────────────────
 
@@ -216,7 +260,10 @@ pub fn build_approve_agent(agent_address: &str, agent_name: Option<&str>, nonce:
     });
     let mut fields = Vec::with_capacity(32 * 4);
     fields.extend_from_slice(&enc_string(hyperliquid_chain(is_mainnet)));
-    fields.extend_from_slice(&enc_string(agent_address));
+    // `agentAddress` is an EIP-712 `address` field — left-padded 20 bytes,
+    // NOT a string hash. (A string hash here would produce a digest browser
+    // wallets disagree with, and HL would reject the signature.)
+    fields.extend_from_slice(&enc_address(agent_address));
     fields.extend_from_slice(&enc_string(name));
     fields.extend_from_slice(&enc_uint64(nonce));
     let d = user_signed_digest(
@@ -226,6 +273,57 @@ pub fn build_approve_agent(agent_address: &str, agent_name: Option<&str>, nonce:
         is_mainnet,
     );
     (action, d)
+}
+
+// ─── Typed-data companions (for browser-wallet signing) ─────────────────
+//
+// Same actions as above, but emitted as full eth_signTypedData_v4 payloads
+// so the *master* wallet can sign in MetaMask. Used for the flows an agent
+// key is not allowed to sign: approveAgent, withdraw3, usdClassTransfer.
+
+pub fn approve_agent_typed_data(agent_address: &str, agent_name: Option<&str>, nonce: u64, is_mainnet: bool) -> Value {
+    user_typed_data(
+        "HyperliquidTransaction:ApproveAgent",
+        &[("hyperliquidChain", "string"), ("agentAddress", "address"),
+          ("agentName", "string"), ("nonce", "uint64")],
+        json!({
+            "hyperliquidChain": hyperliquid_chain(is_mainnet),
+            "agentAddress": agent_address,
+            "agentName": agent_name.unwrap_or(""),
+            "nonce": nonce,
+        }),
+        is_mainnet,
+    )
+}
+
+pub fn withdraw3_typed_data(destination: &str, amount: &str, time_ms: u64, is_mainnet: bool) -> Value {
+    user_typed_data(
+        "HyperliquidTransaction:Withdraw",
+        &[("hyperliquidChain", "string"), ("destination", "string"),
+          ("amount", "string"), ("time", "uint64")],
+        json!({
+            "hyperliquidChain": hyperliquid_chain(is_mainnet),
+            "destination": destination,
+            "amount": amount,
+            "time": time_ms,
+        }),
+        is_mainnet,
+    )
+}
+
+pub fn usd_class_transfer_typed_data(amount: &str, to_perp: bool, nonce: u64, is_mainnet: bool) -> Value {
+    user_typed_data(
+        "HyperliquidTransaction:UsdClassTransfer",
+        &[("hyperliquidChain", "string"), ("amount", "string"),
+          ("toPerp", "bool"), ("nonce", "uint64")],
+        json!({
+            "hyperliquidChain": hyperliquid_chain(is_mainnet),
+            "amount": amount,
+            "toPerp": to_perp,
+            "nonce": nonce,
+        }),
+        is_mainnet,
+    )
 }
 
 /// Split a 65-byte signature into the {r, s, v} envelope HL expects.

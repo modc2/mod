@@ -74,16 +74,26 @@ export default function MarketCard({ market, onSelect, selected }: Props) {
       }`}
     >
       {/* Top: category + end date */}
-      <div className="flex items-center justify-between mb-2.5">
-        <span className="text-[11px] tracking-[0.16em] text-pixel-gray uppercase font-semibold">
-          {market.category ? market.category.slice(0, 14) : "\u00A0"}
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        {/* CSS truncation, not slice(0, 14) \u2014 the hard cut chopped mid-word
+            with no ellipsis ("DRAW (LDU QUIT", "REPUBLICAN PAR") and read as
+            corrupt data rather than as an abbreviated label. */}
+        <span
+          className="min-w-0 truncate text-[11px] tracking-[0.16em] text-pixel-gray uppercase font-semibold"
+          title={market.category || undefined}
+        >
+          {market.category || "\u00A0"}
         </span>
-        <span className="text-[12px] text-pixel-gray font-mono">{endDate}</span>
+        <span className="shrink-0 text-[12px] text-pixel-gray font-mono">{endDate}</span>
       </div>
 
       {/* Question — grouped tight against its price bar; the flex spacer under
-          the outcome cluster pins the stats footer to the card's bottom edge. */}
-      <div className="text-[15.5px] font-semibold tracking-[-0.01em] text-pixel-white leading-[1.45] mb-3.5 line-clamp-3">
+          the outcome cluster pins the stats footer to the card's bottom edge.
+          The 3-line reserve is what makes the grid read as a grid: cards in a
+          row stretch to the tallest question, so without it a 1-line card's
+          price bar floated ~45px above its neighbours' and every row landed
+          on a different baseline. */}
+      <div className="min-h-[68px] text-[15.5px] font-semibold tracking-[-0.01em] text-pixel-white leading-[1.45] mb-3.5 line-clamp-3">
         {market.question}
       </div>
 
@@ -153,15 +163,15 @@ export default function MarketCard({ market, onSelect, selected }: Props) {
             </button>
           </div>
 
-          {/* Conviction indicator */}
-          {isHighConviction && (
-            <div className="flex items-center gap-1.5 pt-0.5">
-              <div className={`w-1.5 h-1.5 rounded-full ${yesPct >= 80 ? "bg-green-400" : "bg-red-400"}`} />
-              <span className={`text-[10.5px] font-semibold tracking-[0.14em] ${yesPct >= 80 ? "text-green-400" : "text-red-400"}`}>
-                {yesPct >= 80 ? "HIGH YES" : "HIGH NO"}
-              </span>
-            </div>
-          )}
+          {/* Conviction indicator — the row is always laid out (invisible when
+              the market is mid-book) so its presence doesn't shift the footer
+              of one card relative to the card beside it. */}
+          <div className={`flex items-center gap-1.5 pt-0.5 h-[17px] ${isHighConviction ? "" : "invisible"}`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${yesPct >= 80 ? "bg-green-400" : "bg-red-400"}`} />
+            <span className={`text-[10.5px] font-semibold tracking-[0.14em] ${yesPct >= 80 ? "text-green-400" : "text-red-400"}`}>
+              {yesPct >= 80 ? "HIGH YES" : "HIGH NO"}
+            </span>
+          </div>
         </div>
       ) : (
         /* Multi-outcome: list each option with price */

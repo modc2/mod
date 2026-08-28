@@ -1,0 +1,4 @@
+{
+  "name": "core",
+  "description": "The core tree — root folder of the protocol modules (chain, store, registry, web, docs…). Every folder in here is a mod, including this one."
+}

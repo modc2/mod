@@ -43,7 +43,7 @@ class Polymarket(m.Mod):
     fns = [
         "serve", "kill", "status", "build", "logs", "test",
         "search", "markets", "trending", "events",
-        "active_traders", "forward",
+        "active_traders", "sync", "forward", "backtests", "mcp",
         "build_cid", "publish_build", "build_onchain",
     ]
 
@@ -483,7 +483,16 @@ class Polymarket(m.Mod):
     # ── data passthroughs ────────────────────────────────────────
 
     def _get(self, path: str, **params) -> Any:
-        r = requests.get(f"{self.api_url}{path}", params=params, timeout=30)
+        # The API is owner-gated (access.rs): data routes 401 without a
+        # Bearer token minted via /access/verify. CLI callers export
+        # POLYMARKET_ACCESS_TOKEN (copy it from the signed-in browser's
+        # poly_access_token localStorage entry, or mint one by signing the
+        # challenge with the owner key).
+        headers = {}
+        tok = os.environ.get("POLYMARKET_ACCESS_TOKEN")
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+        r = requests.get(f"{self.api_url}{path}", params=params, headers=headers, timeout=30)
         r.raise_for_status()
         return r.json()
 
@@ -504,6 +513,97 @@ class Polymarket(m.Mod):
         # call returns the pre-aggregated payload instantly instead of
         # forcing a fresh multi-minute pipeline run.
         return self._get("/active-traders", days=str(days), pool=str(pool))
+
+    # ── background sync schedule ─────────────────────────────────
+
+    def sync(self, hours: Optional[float] = None, minutes: Optional[float] = None,
+             enabled: Optional[bool] = None, now: bool = False) -> Any:
+        """Show or set the background sync cadence (default: every 5 minutes).
+
+        m polymarket/sync                  → current schedule + last/next run
+        m polymarket/sync hours=6          → re-warm the leaderboards every 6h
+        m polymarket/sync minutes=30       → …every 30 minutes (5min floor)
+        m polymarket/sync enabled=false    → pause auto-sync
+        m polymarket/sync now=true         → run one cycle right now
+        """
+        headers = {}
+        tok = os.environ.get("POLYMARKET_ACCESS_TOKEN")
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+
+        if now:
+            r = requests.post(f"{self.api_url}/sync/run", headers=headers, timeout=30)
+            r.raise_for_status()
+            return r.json()
+
+        body = {}
+        if hours is not None:
+            body["intervalHours"] = float(hours)
+        if minutes is not None:
+            body["intervalMinutes"] = float(minutes)
+        if enabled is not None:
+            body["enabled"] = enabled if isinstance(enabled, bool) else str(enabled).lower() == "true"
+        if not body:
+            return self._get("/sync/status")
+
+        r = requests.post(f"{self.api_url}/sync/config", json=body, headers=headers, timeout=30)
+        if r.status_code == 400:
+            return {"ok": False, **r.json()}
+        r.raise_for_status()
+        return r.json()
+
+    # ── backtest worker ───────────────────────────────────────────
+
+    @staticmethod
+    def _mcp_module():
+        """Load src/mcp.py BY PATH. A plain `import mcp` only works when the
+        module is run from its own directory — the framework loads mod.py with
+        src/ off sys.path (and rightly so: src/ is not a package)."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "polymarket_mcp", os.path.join(SRC_DIR, "mcp.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def backtests(self, days: int = 1, run: bool = False) -> Any:
+        """The background worker's cached strat backtests (refreshed every 2h).
+
+        m polymarket/backtests              → every strat's cached 1d replay
+        m polymarket/backtests run=true     → force a pass now (minutes)
+
+        Each row carries the entry FUNNEL — how many of the leaders' entries
+        the strat actually copied, and which gate blocked the rest. That is
+        the answer to "why isn't this strat trading?", so it's printed here
+        rather than buried in the console.
+        """
+        _mcp = self._mcp_module()  # same owner-token minting + hub client
+        if run:
+            return _mcp._t_backtest_run({})
+        return _mcp._t_backtests({"days": days})
+
+    # ── mcp ───────────────────────────────────────────────────────
+
+    def mcp(self, http: bool = False, port: int = 50092) -> Any:
+        """Run the MCP server (see src/mcp.py).
+
+        m polymarket/mcp                 → stdio (for an MCP client to spawn)
+        m polymarket/mcp http=true       → Streamable HTTP on :50092, POST /mcp
+
+        Read-only tools: markets, leaderboard, trader flow, strats, cached
+        backtests + funnels, live sessions and the live gate tally. No tool
+        can place an order.
+        """
+        script = os.path.join(SRC_DIR, "mcp.py")
+        argv = ["python3", script] + (["--http", "--port", str(port)] if http else [])
+        if not http:
+            return {"stdio": " ".join(argv),
+                    "claude_code": f"claude mcp add polymarket -- python3 {script}",
+                    "tools": ["pm_health", "pm_markets", "pm_top_traders", "pm_trader",
+                              "pm_strats", "pm_backtests", "pm_backtest_run",
+                              "pm_live_sessions", "pm_live_gates"]}
+        subprocess.run(argv, check=False)
+        return {"ok": True}
 
     # ── test ──────────────────────────────────────────────────────
 

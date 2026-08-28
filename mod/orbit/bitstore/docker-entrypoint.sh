@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-API_PORT=50130
-GATEWAY_PORT="${GATEWAY_PORT:-50131}"
+API_PORT=50250
+GATEWAY_PORT="${GATEWAY_PORT:-50251}"
 MODULE="bitstore"
 
 echo "── $MODULE docker ──"

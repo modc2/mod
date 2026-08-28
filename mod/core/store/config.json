@@ -1,15 +1,16 @@
 {
     "name": "store",
-    "description": "Mod store \u2014 CID-agnostic decentralized storage (localfs + filecoin + hippius + external refs) gated by mod protocol auth + per-user quotas, with timed access grants, data pools (mutual access), QR auth handoff between devices, and on-chain BlocTime-gated access + chain Registry registration",
+    "description": "Mod store \u2014 CID-agnostic decentralized storage (localfs + filecoin + hippius + lighthouse + external refs) gated by mod protocol auth + per-user quotas, with timed access grants, data pools (mutual access), QR auth handoff between devices, and on-chain BlocTime-gated access + chain Registry registration",
     "quota_bytes": 104857600,
     "bloctime_gate": true,
     "chain_network": "testnet",
     "bloctime_ttl": 60,
     "onchain_registry": false,
-    "port": 50150,
+    "terms_version": "1.0",
+    "port": 50152,
     "app_port": 50151,
     "urls": {
-        "api": "http://localhost:50150",
+        "api": "http://localhost:50152",
         "app": "http://localhost:50151"
     },
     "app": {
@@ -20,15 +21,21 @@
     "api": {
         "module": "api.api",
         "app_obj": "app",
-        "port": 50150
+        "port": 50152
     },
     "backends": [
         "localfs",
         "filecoin",
         "hippius",
+        "lighthouse",
         "external"
     ],
     "endpoints": {
+        "backends": {
+            "method": "GET/POST",
+            "auth": true,
+            "docs": "GET /backends list; GET /backends/status per-backend configured/needs_key (?probe=1 owner validates creds remotely); POST /backends/key (owner) persist hippius s3_key+s3_secret or lighthouse api_key off-chain in ~/.mod/{backend}/"
+        },
         "me": {
             "method": "GET",
             "auth": true,
@@ -47,7 +54,22 @@
         "put": {
             "method": "POST",
             "auth": true,
-            "docs": "Upload file/text/image; form: backend, key, public, pool (whitelisted + within quota)"
+            "docs": "Upload file/text/image; form: backend, key, public, pool (whitelisted + within quota + signed terms)"
+        },
+        "terms": {
+            "method": "GET/POST",
+            "auth": false,
+            "docs": "GET current terms text+version (+accepted if auth); POST /terms/accept sign-accepts (required before put/register); GET /terms/accepts (owner) audit"
+        },
+        "rm": {
+            "method": "DELETE",
+            "auth": true,
+            "docs": "Delete own object; the module owner may remove ANY content (e.g. illegal) with ?reason= \u2014 logged to the takedown audit"
+        },
+        "takedowns": {
+            "method": "GET",
+            "auth": true,
+            "docs": "Owner-only audit log of admin content removals"
         },
         "register": {
             "method": "POST",
@@ -68,6 +90,11 @@
             "method": "GET",
             "auth": false,
             "docs": "Full object info: stored when/by whom, backends, visibility, semhash, pinned, and who has access (grants+pools, owner-only roster)"
+        },
+        "graph": {
+            "method": "GET/POST",
+            "auth": true,
+            "docs": "CID graph: GET /graph returns nodes (objects + upload time) and edges (an object's content embeds another CID); ?scope=all adds objects shared with you, ?isolated=true adds unlinked ones, CIDs not stored here come back as external nodes. POST /graph/scan re-derives the edges from content (?scope=all = every object, owner only)"
         },
         "publish": {
             "method": "POST",
@@ -109,6 +136,11 @@
             "auth": true,
             "docs": "One-time access tickets: POST {cid,ttl_seconds=10} mints single-use short-TTL fetch link; GET lists active; GET /ticket/{code} redeems exactly once (anti-replay)"
         },
+        "market": {
+            "method": "GET/POST/DELETE",
+            "auth": false,
+            "docs": "Marketplace: GET /market public browse (q/tag/sort/free); POST /market/list list own object w/ title/tags/price_bloc (0=free, >0 = buyer must hold that much BlocTime); POST /market/acquire mints a permanent read grant; POST /market/like; GET /market/mine; DELETE /market/list delist (admin = logged takedown)"
+        },
         "onchain": {
             "method": "GET/POST",
             "auth": false,
@@ -123,6 +155,11 @@
             "method": "GET",
             "auth": false,
             "docs": "Module + backend status"
+        },
+        "mcp": {
+            "method": "POST",
+            "auth": "optional",
+            "docs": "Model Context Protocol (Streamable HTTP, JSON-RPC 2.0) tool server for LLM agents; auth via the same Bearer protocol token. Tools: store_status, store_market_browse, store_terms (public); store_me, store_list, store_search, store_get, store_object_info, store_graph, store_put_text, store_share, store_pin, store_pins, store_pools (authed)"
         }
     },
     "auth": "mod-protocol",
@@ -132,5 +169,5 @@
         "STORE_BLOCTIME_GATE": "Set 0/false to disable BlocTime-holder access (overrides config bloctime_gate)",
         "STORE_CHAIN_NETWORK": "Chain network for BlocTime/Registry (default: config chain_network / testnet)"
     },
-    "schema": "Qmdb1KphZNUjLbGdCEjmpBDb4nNMBWTp8p8aVqKNENCKT2"
+    "schema": "QmPJtd3MNvHnpVAaw22TNEA1LFLiFHHKC6R9hkz4Q1fPro"
 }

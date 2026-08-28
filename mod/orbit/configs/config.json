@@ -1,0 +1,32 @@
+{
+    "name": "configs",
+    "version": "0.1.0",
+    "description": "Fleet config manager. Scans every module config.json across core/ and orbit/, gets/sets keys by dot-path with automatic timestamped backups, lints the fleet (invalid JSON, missing fields, name/dir mismatches, duplicate names, port collisions), and maps every claimed port. Ships a zero-dependency read-only web browser: config card grid with search, pretty JSON viewer, port map, and lint report.",
+    "anchor": "mod.py",
+    "icon": "\ud83e\udde9",
+    "color": "#38c793",
+    "app_port": 50230,
+    "urls": {
+        "app": "https://modc2.com/configs",
+        "gateway": "https://modc2.com/configs"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "configs",
+        "get",
+        "set",
+        "unset",
+        "path",
+        "lint",
+        "ports",
+        "history",
+        "diff",
+        "backups",
+        "restore",
+        "serve",
+        "kill"
+    ],
+    "key": "configs",
+    "schema": "QmTFbqJ8Ntf6urTNgUUKjoBqPuQv8TnSU1VaVwY97RpXk6"
+}

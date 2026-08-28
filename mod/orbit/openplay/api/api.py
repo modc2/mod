@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import mod as m
@@ -65,6 +66,36 @@ class CreateGame(BaseModel):
     notes: str = ""
     admin_wallet: str = ""
     links: Optional[List[Dict[str, str]]] = None
+    force: bool = False        # book it even if it double-books a field
+
+
+class CheckConflicts(BaseModel):
+    sport: str
+    starts_at: int
+    duration_min: int = 60
+    venue: str = ""
+    city: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    recurrence: Optional[Recurrence] = None
+    admin: str = ""
+    ignore_game_id: Optional[str] = None
+
+
+class ProposeGame(CreateGame):
+    agent: str
+    reason: str = ""
+
+
+class AgentListReq(BaseModel):
+    admin_secret: str
+    status: str = "pending"
+
+
+class AgentDecisionReq(BaseModel):
+    admin_secret: str
+    reason: str = ""          # deny only
+    force: bool = False       # authorize anyway despite a blocking conflict
 
 
 class JoinReq(BaseModel):
@@ -180,6 +211,11 @@ class RotateAccountReq(BaseModel):
 
 def _check(result):
     if isinstance(result, dict) and result.get("error"):
+        if result.get("conflicts"):
+            # a clash is worth more than a sentence — hand back the games it hits
+            raise HTTPException(status_code=409, detail={
+                "error": result["error"], "conflicts": result["conflicts"],
+                "warnings": result.get("warnings", []), "hint": result.get("hint", "")})
         raise HTTPException(status_code=400, detail=result["error"])
     return result
 
@@ -259,9 +295,68 @@ def rotate_account(req: RotateAccountReq):
 
 # ── Create / edit ───────────────────────────────────────────────
 @app.post("/games")
-def create_game(req: CreateGame):
+def create_game(req: CreateGame, request: Request):
     payload = req.model_dump(exclude_none=True)
+    # A caller that identifies itself as an agent doesn't get to create games
+    # outright — it gets routed into the proposal queue the owner authorizes.
+    agent = request.headers.get("x-agent", "").strip()
+    if agent:
+        payload.pop("force", None)
+        out = _check(op().agent_propose_game(agent=agent, **payload))
+        return JSONResponse(status_code=202, content=out)
     return _check(op().create_game(**payload))
+
+
+@app.post("/conflicts")
+def conflicts(req: CheckConflicts):
+    payload = req.model_dump(exclude_none=True)
+    if req.recurrence:
+        payload["recurrence"] = req.recurrence.model_dump(exclude_none=True)
+    return _check(op().check_conflicts(**payload))
+
+
+# ── Agent gate (reads open, creates need the owner) ─────────────
+@app.get("/agent/scope")
+def agent_scope():
+    return op().agent_scope()
+
+
+@app.get("/agent/find")
+def agent_find(sport: Optional[str] = None, city: Optional[str] = None, on: Optional[str] = None,
+               within_days: int = 14, free_only: bool = False, min_spots: int = 1,
+               query: str = "", near_lat: Optional[float] = None, near_lng: Optional[float] = None,
+               radius_km: Optional[float] = None, limit: int = 20):
+    return op().agent_find_games(sport=sport, city=city, on=on, within_days=within_days,
+                                 free_only=free_only, min_spots=min_spots, query=query,
+                                 near_lat=near_lat, near_lng=near_lng, radius_km=radius_km,
+                                 limit=limit)
+
+
+@app.post("/agent/propose")
+def agent_propose(req: ProposeGame):
+    payload = req.model_dump(exclude_none=True)
+    payload.pop("force", None)
+    return JSONResponse(status_code=202, content=_check(op().agent_propose_game(**payload)))
+
+
+@app.get("/agent/request/{request_id}")
+def agent_request(request_id: str):
+    return _check(op().agent_request(request_id))
+
+
+@app.post("/agent/requests")
+def agent_pending(req: AgentListReq):
+    return _check(op().agent_pending(req.admin_secret, status=req.status))
+
+
+@app.post("/agent/request/{request_id}/authorize")
+def agent_authorize(request_id: str, req: AgentDecisionReq):
+    return _check(op().agent_authorize(request_id, req.admin_secret, force=req.force))
+
+
+@app.post("/agent/request/{request_id}/deny")
+def agent_deny(request_id: str, req: AgentDecisionReq):
+    return _check(op().agent_deny(request_id, req.admin_secret, reason=req.reason))
 
 
 @app.post("/game/{game_id}/edit")

@@ -41,8 +41,8 @@ export default function SubnetPositions({
         })}
       </div>
 
-      <div className="pixel-panel overflow-hidden">
-        <table className="pixel-table">
+      <div className="pixel-panel overflow-x-auto">
+        <table className="pixel-table" style={{ minWidth: 640 }}>
           <thead className="sticky">
             <tr>
               <th>Subnet</th>

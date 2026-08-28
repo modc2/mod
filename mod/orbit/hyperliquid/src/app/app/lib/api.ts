@@ -66,19 +66,57 @@ export type Signal = {
 const BP = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const BASE = BP ? `/api${BP}` : "/hl";
 
+// mod protocol-auth bearer token, persisted by WalletProvider (lib/wallet.tsx).
+// Read per-call so a fresh sign-in takes effect without any plumbing.
+function authToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return JSON.parse(localStorage.getItem("hl_wallet_v2") || "null")?.token ?? null;
+  } catch { return null; }
+}
+
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = authToken();
   const r = await fetch(`${BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers || {}),
+    },
     cache: "no-store",
   });
+  if (r.status === 401 && typeof window !== "undefined") {
+    // Stale/invalid session — tell WalletProvider to drop the token so the
+    // header shows "sign in" instead of silently failing everywhere.
+    window.dispatchEvent(new CustomEvent("hl:unauthorized"));
+  }
   if (!r.ok) throw new Error(`${path} ${r.status} ${await r.text().catch(() => "")}`);
   return r.json() as Promise<T>;
 }
 
+// ── market ──
+// All mid prices, coin → price string (perps by ticker; spot/dex/prediction
+// markets carry "@"/":"/"#" prefixes — callers filter what they need).
+export const fetchMids = () => j<Record<string, string>>(`/mids`);
+
 // ── traders ──
+// Live progress of the API's current top-traders scan (also ticks while the
+// server-side prewarm loop is refreshing boards). Polled while `scan` runs.
+export type ScanProgress = {
+  scanned: number;      // addresses enriched so far
+  total: number;        // addresses in the enrich slice
+  days: number;
+  hours_total: number;  // days * 24 — history depth being covered
+  hours_scanned: number;
+  started_ms: number;
+  finished_ms: number;
+  running: boolean;
+};
+export const fetchScanProgress = () => j<ScanProgress>(`/scan/progress`);
+
 export const fetchTopTraders = (days: number, minPerDay = 1, pool = 150, seed?: string[]) =>
-  j<{ traders: TopTrader[]; days: number; pool: number }>(
+  j<{ traders: TopTrader[]; days: number; pool: number; updated_at?: number }>(
     `/traders/top?days=${days}&min_per_day=${minPerDay}&pool=${pool}` +
     (seed?.length ? `&seed=${encodeURIComponent(seed.join(","))}` : "")
   );
@@ -159,10 +197,87 @@ export const signerAddress = (eoa: string) =>
   });
 
 export const approveAgentIntent = (eoa: string, agent_name?: string) =>
-  j<{ action: any; nonce: number; agentAddress: string; digest: string; exchange_url: string }>(
+  j<{ action: any; nonce: number; agentAddress: string; digest: string; typedData: any; exchange_url: string }>(
     `/signer/approve_agent`,
     { method: "POST", body: JSON.stringify({ eoa, ...(agent_name ? { agent_name } : {}) }) }
   );
+
+export const agentStatus = (eoa: string) =>
+  j<{ eoa: string; agentAddress: string; approved: boolean; agents: any }>(
+    `/agent/status?eoa=${encodeURIComponent(eoa)}`
+  );
+
+// ── master-wallet (MetaMask) signing: intents + relay ──
+export type SignedIntent = { action: any; nonce: number; digest?: string; typedData: any };
+
+export const intentWithdraw = (destination: string, amount: string) =>
+  j<SignedIntent>(`/intent/withdraw`, {
+    method: "POST", body: JSON.stringify({ destination, amount }),
+  });
+
+export const intentUsdClassTransfer = (amount: string, to_perp: boolean) =>
+  j<SignedIntent>(`/intent/usd_class_transfer`, {
+    method: "POST", body: JSON.stringify({ amount, to_perp }),
+  });
+
+export const exchangeRelay = (b: { action: any; nonce: number; signature: { r: string; s: string; v: number }; vaultAddress?: string }) =>
+  j<any>(`/exchange/relay`, { method: "POST", body: JSON.stringify(b) });
+
+export type WalletNetConfig = {
+  testnet: boolean;
+  chainId: number;
+  chainIdHex: string;
+  chainName: string;
+  usdcAddress: string;
+  bridgeAddress: string;
+  rpcUrl: string;
+  explorerUrl: string;
+  minDepositUsd: number;
+  withdrawalFeeUsd: number;
+};
+export const walletConfig = () => j<WalletNetConfig>(`/wallet/config`);
+
+// ── cross-chain deposit (Ethereum / Base / Polygon → Arbitrum → HL) ──
+export type DepositChain = {
+  key: string; name: string; chainId: number; chainIdHex: string;
+  rpcUrl: string; explorerUrl: string; usdcAddress: string;
+  nativeSymbol: string; gasReserve: number; direct: boolean;
+};
+export type DepositChains = {
+  testnet: boolean; toChainId: number; toUsdc: string;
+  minDepositUsd: number; chains: DepositChain[];
+};
+export type DepositBalance = {
+  key: string; chainId: number; name: string; ok: boolean;
+  native: { symbol: string; balance: number; usd: number; priceUsd: number; gasReserve: number };
+  usdc: { balance: number; usd: number };
+};
+export type DepositQuote = {
+  tool: string | null;
+  fromChainId: number; fromToken: string; fromAmountUnits: string;
+  toUsdc: number; toUsdcMin: number; durationSec: number;
+  approvalAddress: string | null;
+  transactionRequest: { to: string; data: string; value?: string; gasLimit?: string; gasPrice?: string } | null;
+};
+export type DepositStatus = {
+  status: "NOT_FOUND" | "INVALID" | "PENDING" | "DONE" | "FAILED";
+  substatus?: string | null; substatusMessage?: string | null;
+  receivedUsdc?: number | null;
+};
+
+export const depositChains = () => j<DepositChains>(`/deposit/chains`);
+export const depositBalances = (eoa: string) =>
+  j<{ eoa: string; chains: DepositBalance[] }>(`/deposit/balances?eoa=${encodeURIComponent(eoa)}`);
+export const depositQuote = (b: {
+  from_chain_id: number; token: "usdc" | "native"; amount: string; eoa: string;
+  to_chain_id?: number; to_address?: string; // withdrawals bridge Arbitrum → elsewhere
+}) =>
+  j<DepositQuote>(`/deposit/quote`, { method: "POST", body: JSON.stringify(b) });
+export const depositStatus = (txHash: string, fromChainId: number, toChainId?: number) =>
+  j<DepositStatus>(`/deposit/status?tx_hash=${encodeURIComponent(txHash)}&from_chain_id=${fromChainId}` +
+    (toChainId ? `&to_chain_id=${toChainId}` : ""));
+
+export const userState = (addr: string) => j<any>(`/user/${addr}/state`);
 
 // ── trade actions ──
 export const trade = (b: {
@@ -208,6 +323,74 @@ export const liveStop = (eoa: string) =>
   j<any>(`/live/stop`, { method: "POST", body: JSON.stringify({ eoa }) });
 export const liveStatus = (eoa: string) =>
   j<{ eoa: string; config: any; state: any }>(`/live/status?eoa=${encodeURIComponent(eoa)}`);
+
+// ── agent (`/ask`) ──
+// The agent answers only out of MCP tool calls against this same API, so it
+// sees exactly what the signed-in wallet sees. `act` unlocks the write tools.
+export type AskStatus = {
+  ready: boolean;
+  auth?: string | null;
+  hint?: string | null;
+  model?: string;
+  max_turns?: number;
+  read_tools?: number;
+  write_tools?: number;
+};
+export const askStatus = () => j<AskStatus>(`/ask/status`);
+
+export type AskEvent =
+  | { type: "ready"; tools: number; act: boolean; signed_in: boolean }
+  | { type: "start"; model: string; tools: number }
+  | { type: "text"; text: string }
+  | { type: "tool"; name: string; args: Record<string, any> }
+  | { type: "tool_done"; error: boolean }
+  | { type: "done"; answer: string; turns?: number; ms?: number; cost_usd?: number }
+  | { type: "error"; error: string };
+
+/** POST /ask and dispatch its SSE events as they arrive. */
+export async function askStream(
+  body: { question: string; act?: boolean },
+  onEvent: (ev: AskEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const token = authToken();
+  const r = await fetch(`${BASE}/ask`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (r.status === 401 && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("hl:unauthorized"));
+  }
+  if (!r.ok || !r.body) {
+    const detail = await r.text().catch(() => "");
+    throw new Error(`ask ${r.status} ${detail}`);
+  }
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    // SSE frames are separated by a blank line; each carries one JSON event.
+    const frames = buf.split("\n\n");
+    buf = frames.pop() ?? "";
+    for (const frame of frames) {
+      const data = frame
+        .split("\n")
+        .filter((l) => l.startsWith("data:"))
+        .map((l) => l.slice(5).trim())
+        .join("");
+      if (!data) continue;
+      try { onEvent(JSON.parse(data) as AskEvent); } catch { /* keep-alive */ }
+    }
+  }
+}
 
 // ── formatting helpers ──
 export const fmtUsd = (n: number) => {

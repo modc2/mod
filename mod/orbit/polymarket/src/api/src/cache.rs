@@ -21,13 +21,22 @@ pub struct ProxyCache {
     disk_dir: PathBuf,
 }
 
-/// Freshness window for trader activity/trades (seconds). Matches the hourly
-/// warmup cadence in main.rs and `AGG_TTL` below: warmed entries stay valid for
-/// the full hour instead of expiring early and forcing an on-demand data-api
-/// refetch (the dominant 429 source). The live copy engine does NOT use this
-/// cache — it fetches data-api directly at its own 60s cadence — so copy
+/// Freshness window for trader activity/trades (seconds). An upper bound, not a
+/// match, now that the background warmup runs every 5 min by default (main.rs):
+/// warmed entries stay valid for up to an hour instead of expiring early and
+/// forcing an on-demand data-api refetch (the dominant 429 source) — in
+/// practice a warmup cycle replaces them first. The live copy engine does NOT
+/// use this cache — it fetches data-api directly at its own 60s cadence — so copy
 /// responsiveness is unaffected by this window.
 const FRESHNESS_TTL_SECS: u64 = 3600;
+
+/// Freshness window for the user's OWN portfolio reads (seconds). Positions
+/// and total value change with every fill/redeem — serving them for 24h made
+/// the portfolio panel show positions that no longer exist (stale-$227 bug:
+/// data-api said $0 while the proxy kept returning a day-old /value). 90s
+/// keeps data-api load trivial (the panel polls every 30s) while bounding
+/// staleness to ~1 poll cycle.
+const PORTFOLIO_TTL_SECS: u64 = 90;
 
 /// Endpoints whose responses get persisted to disk (trader + historical data).
 /// These survive server restarts and are never re-fetched from Polymarket
@@ -67,25 +76,24 @@ impl ProxyCache {
         }
         // Disk fallback for persistent endpoints
         if Self::is_persistent(endpoint) {
-            if let Some(data) = self.load_from_disk(key) {
-                // Re-populate memory with a long TTL
+            if let Some((data, age)) = self.load_from_disk(key) {
+                // Re-populate memory, backdating the entry by the file's age
+                // so its freshness matches reality — a 3h-old disk snapshot
+                // must NOT be served as fresh for another full window (that's
+                // exactly how a $0 portfolio kept rendering as $227).
+                let ttl = Self::persist_freshness(endpoint);
+                let inserted_at = Instant::now().checked_sub(age).unwrap_or_else(Instant::now);
+                let fresh = age < ttl;
                 let mut entries = self.entries.write();
                 if entries.len() >= self.max_entries {
                     self.evict_one(&mut entries);
                 }
-                // Match the same freshness rule the writer uses — disk-loaded
-                // trader entries also expire after 1h so they re-fetch.
-                let ttl = if Self::is_freshness_critical(endpoint) {
-                    Duration::from_secs(FRESHNESS_TTL_SECS)
-                } else {
-                    Duration::from_secs(86400)
-                };
                 entries.insert(key.to_string(), CacheEntry {
                     data: data.clone(),
-                    inserted_at: Instant::now(),
+                    inserted_at,
                     ttl,
                 });
-                return Some((data, true));
+                return Some((data, fresh));
             }
         }
         None
@@ -94,22 +102,38 @@ impl ProxyCache {
     /// Trader trade/activity endpoints persist to disk (survive restarts) but
     /// memory-cache for only `FRESHNESS_TTL_SECS` (1h), not 24h. This bounds how
     /// stale a trader's activity can get while still letting it survive between
-    /// hourly warmup cycles. Markets/holders/historical data still cache for 24h
+    /// warmup cycles. Markets/holders/historical data still cache for 24h
     /// — those don't churn meaningfully.
     fn is_freshness_critical(endpoint: &str) -> bool {
         let ep = endpoint.to_lowercase();
         ep.starts_with("activity") || ep.starts_with("trades")
     }
 
+    /// Portfolio endpoints (the signed-in user's own holdings) must stay
+    /// near-live; see PORTFOLIO_TTL_SECS.
+    fn is_portfolio(endpoint: &str) -> bool {
+        let ep = endpoint.to_lowercase();
+        ep.starts_with("positions") || ep.starts_with("value") || ep.starts_with("closed-positions")
+    }
+
+    /// Memory-freshness window for a persistent endpoint.
+    fn persist_freshness(endpoint: &str) -> Duration {
+        if Self::is_portfolio(endpoint) {
+            Duration::from_secs(PORTFOLIO_TTL_SECS)
+        } else if Self::is_freshness_critical(endpoint) {
+            Duration::from_secs(FRESHNESS_TTL_SECS)
+        } else {
+            Duration::from_secs(86400)
+        }
+    }
+
     pub fn set(&self, key: String, data: Value, ttl: Duration, endpoint: &str) {
         let persist = Self::is_persistent(endpoint);
-        // Trader trade/activity entries get a 1-hour memory TTL (matching the
-        // hourly warmup) so on-demand browse requests hit the warmed cache
-        // instead of refetching data-api every minute.
-        let mem_ttl = if Self::is_freshness_critical(endpoint) {
-            Duration::from_secs(FRESHNESS_TTL_SECS)
-        } else if persist {
-            Duration::from_secs(86400)
+        // Trader trade/activity entries get a 1-hour memory TTL (an upper bound
+        // on the warmup cadence) so on-demand browse requests hit the warmed
+        // cache instead of refetching data-api every minute.
+        let mem_ttl = if persist {
+            Self::persist_freshness(endpoint)
         } else {
             ttl
         };
@@ -134,7 +158,20 @@ impl ProxyCache {
     /// Get TTL for an endpoint (used for Cache-Control headers).
     pub fn ttl_for_endpoint(endpoint: &str) -> Duration {
         let ep = endpoint.to_lowercase();
-        if Self::is_persistent(&ep) {
+        if ep.starts_with("user-trades") {
+            // The signed-in user's own fill tape — must be near-live so an
+            // executed order shows up within a poll cycle, not an hour later.
+            // (Checked before is_persistent: "user-trades" doesn't prefix-match
+            // "trades" so it's memory-only, but keep the guard explicit.)
+            Duration::from_secs(60)
+        } else if ep.starts_with("live-") {
+            // Near-live CLOB reads for sub-hour candle strats (live-prices-history,
+            // live-midpoint). The markets they track live ~5 minutes end to end,
+            // so a cache generation must be a fraction of one poll cycle. The
+            // "live-" name also keeps them off every PERSIST prefix — a 24h disk
+            // snapshot of a 5-minute market is worse than no data.
+            Duration::from_secs(15)
+        } else if Self::is_persistent(&ep) {
             Duration::from_secs(86400) // 24 hours — data is on disk, no need to refetch
         } else if ep.starts_with("markets") || ep.starts_with("events") || ep.contains("search") {
             Duration::from_secs(90) // 90 seconds — keep markets fresh
@@ -173,42 +210,42 @@ impl ProxyCache {
         }
     }
 
-    fn load_from_disk(&self, key: &str) -> Option<Value> {
+    /// Load a persisted entry along with its age (from file mtime). The
+    /// caller decides freshness per-endpoint — stale entries are still
+    /// returned so the proxy can serve them as a fallback when the upstream
+    /// errors, but they no longer masquerade as fresh (which used to
+    /// propagate day-old positions/activity as live data).
+    fn load_from_disk(&self, key: &str) -> Option<(Value, Duration)> {
         let path = self.disk_path(key);
         if !path.exists() { return None; }
-        // Freshness gate: trader activity/trades on disk older than the
-        // freshness window (1h) are considered stale. Without this, a 48h-old
-        // cache file gets loaded as if fresh and propagates "0 trades in last
-        // 24h" everywhere. The endpoint prefix lives in the filename
-        // (proxy_endpoint_<ep>_…).
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        let is_freshness_critical = name.contains("endpoint_activity")
-            || name.contains("endpoint_trades");
-        if is_freshness_critical {
-            if let Ok(meta) = std::fs::metadata(&path) {
-                if let Ok(modified) = meta.modified() {
-                    if modified.elapsed().unwrap_or(Duration::ZERO) > Duration::from_secs(FRESHNESS_TTL_SECS) {
-                        // Delete the stale file so next save_to_disk doesn't
-                        // bump mtime on a stale payload by accident.
-                        let _ = std::fs::remove_file(&path);
-                        return None;
-                    }
-                }
-            }
-        }
+        let age = std::fs::metadata(&path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|m| m.elapsed().ok())
+            .unwrap_or(Duration::from_secs(86400 * 365));
         let raw = std::fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&raw).ok()
+        let data = serde_json::from_str(&raw).ok()?;
+        Some((data, age))
     }
 }
 
-// ─── Pipeline Cache (Memory + Disk, hourly) ───
+// ─── Pipeline Cache (Memory + Disk, 1h ceiling) ───
 
-// 1 hour — matches the hourly warmup cadence in main.rs. The aggregated
+// 1 hour — the ceiling on leaderboard staleness when the background warmup is
+// paused or falling behind; on the default 5-min cadence a fresh cycle
+// overwrites these entries long before the TTL matters. The aggregated
 // leaderboard (30d trader Sharpe/ROI) is slow-moving, so serving it from
 // cache for an hour avoids re-pulling ~6k traders from the data-api on every
 // on-demand request (the old 60s TTL was a major 429 source).
 const AGG_TTL: Duration = Duration::from_secs(3600);
 const DISK_MAX_AGE: Duration = Duration::from_secs(86400); // 24h — keep disk cache across restarts
+
+/// Max AggPayloads held in memory at once. Each is ~2k traders with pnl
+/// curves + per-market metrics (12–48MB as JSON, several× that as structs),
+/// and the warmup writes one per window (1/7/10/14/30d) — keeping them all
+/// resident duplicated the whole disk cache in RAM. Disk is authoritative;
+/// memory is a hot tier for the window(s) actually being browsed.
+const MEM_ENTRIES_MAX: usize = 2;
 
 struct PipelineCacheEntry {
     payload: AggPayload,
@@ -252,6 +289,7 @@ impl PipelineCache {
                 payload: payload.clone(),
                 created_at: Instant::now(),
             });
+            Self::evict_over_cap(&mut entries);
             return Some((payload, "disk"));
         }
         None
@@ -264,9 +302,24 @@ impl PipelineCache {
             payload: payload.clone(),
             created_at: Instant::now(),
         });
+        Self::evict_over_cap(&mut entries);
         drop(entries);
         // Disk (best-effort)
         self.save_to_disk(key, &payload);
+    }
+
+    /// Drop the oldest entries until the memory tier fits MEM_ENTRIES_MAX.
+    /// Evicted windows reload from disk on next request via get_or_disk.
+    fn evict_over_cap(entries: &mut HashMap<String, PipelineCacheEntry>) {
+        while entries.len() > MEM_ENTRIES_MAX {
+            let oldest = entries.iter()
+                .min_by_key(|(_, v)| v.created_at)
+                .map(|(k, _)| k.clone());
+            match oldest {
+                Some(k) => { entries.remove(&k); }
+                None => break,
+            }
+        }
     }
 
     fn disk_path(&self, key: &str) -> PathBuf {
@@ -303,6 +356,16 @@ impl PipelineCache {
             // sees a sensible "last sync" instead of 1970.
             if payload.synced_at == 0 {
                 payload.synced_at = mtime_secs;
+            }
+            // Payloads written before the Sharpe epsilon guard carry
+            // degenerate ~1e15 values (float-noise stdev on identical
+            // returns). Zero them so a stale disk cache can't put junk
+            // traders on top of the sharpe-sorted leaderboard until the
+            // next warmup recompute.
+            for t in &mut payload.traders {
+                if !t.sharpe.is_finite() || t.sharpe.abs() > 1e6 {
+                    t.sharpe = 0.0;
+                }
             }
             Some(payload)
         } else {

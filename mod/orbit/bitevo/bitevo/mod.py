@@ -47,10 +47,10 @@ class Mod:
     fns = [
         'forward', 'simulate', 'epoch', 'leaderboard', 'results',
         'status', 'add_miner', 'challenge', 'score_idea',
-        'backends', 'test', 'serve', 'kill',
+        'backends', 'whitepaper', 'test', 'serve', 'kill',
     ]
 
-    def __init__(self, backend='openrouter', model=None, local=True,
+    def __init__(self, backend='claude', model=None, local=True,
                  tempo=120, netuid=None, storage_path='~/.bitevo', **kwargs):
         self.module_dir = DIR
         self.api_port = API_PORT
@@ -93,10 +93,10 @@ class Mod:
             'backend': self.backend,
             'model': self.model,
             'local': self.local,
-            'epochs': self.validator.epochs if self._validator else 0,
+            'epochs': self.validator.epochs,
             'tempo': self.tempo,
-            'miners': len(self.validator._local_miners) if self._validator else 0,
-            'leaderboard': self.validator.leaderboard() if self._validator else [],
+            'miners': len(self.validator._local_miners),
+            'leaderboard': self.validator.leaderboard(),
             'urls': self.config.get('urls', {}),
         }
 
@@ -104,7 +104,7 @@ class Mod:
         from neurons.miner import BitevoMiner
 
         if backends is None:
-            backends = ['openrouter', 'venice', 'chutes']
+            backends = ['claude']
 
         for i in range(int(n_miners)):
             backend = backends[i % len(backends)]
@@ -180,6 +180,7 @@ class Mod:
     # ── Backends ──────────────────────────────────────────────────
 
     SUPPORTED_BACKENDS = {
+        'claude': {'model': 'haiku', 'type': 'local-cli'},
         'openrouter': {'model': 'anthropic/claude-sonnet-4', 'type': 'api'},
         'venice': {'model': 'llama-3.3-70b', 'type': 'api'},
         'chutes': {'model': 'unsloth/Llama-3.3-70B-Instruct', 'type': 'decentralized'},
@@ -187,6 +188,10 @@ class Mod:
 
     def backends(self):
         return self.SUPPORTED_BACKENDS
+
+    def whitepaper(self):
+        wp = self.module_dir / 'WHITEPAPER.md'
+        return wp.read_text() if wp.exists() else 'whitepaper missing'
 
     # ── Test ─────────────────────────────────────────────────────
 
@@ -196,8 +201,9 @@ class Mod:
 
     # ── Serve / Kill ──────────────────────────────────────────────
 
-    def serve(self, api_port=None, dev=True):
+    def serve(self, api_port=None, app_port=None, dev=False):
         api_port = int(api_port or self.api_port)
+        app_port = int(app_port or self.app_port)
         log_dir = Path('/tmp/bitevo')
         log_dir.mkdir(parents=True, exist_ok=True)
         self.kill()
@@ -218,10 +224,17 @@ class Mod:
             cmd.append('--reload')
         subprocess.Popen(cmd, env=env, stdout=api_log, stderr=subprocess.STDOUT)
 
+        app_log = open(log_dir / 'app.log', 'w')
+        subprocess.Popen(
+            ['python3', str(self.module_dir / 'app' / 'server.py'), str(app_port)],
+            env=env, stdout=app_log, stderr=subprocess.STDOUT,
+        )
+
         return {
             'api': f'http://localhost:{api_port}',
+            'app': f'http://localhost:{app_port}',
             'docs': f'http://localhost:{api_port}/docs',
-            'log': str(log_dir / 'api.log'),
+            'logs': str(log_dir),
         }
 
     def kill(self):

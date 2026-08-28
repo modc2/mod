@@ -65,6 +65,33 @@ class DeployRequest(BaseModel):
     property_details: str = ""
     total_shares: int = 1000
     share_price: float = 0.1
+    home_price: float = 0
+    monthly_rent: float = 0
+    model: Optional[str] = None
+    fee_pct: Optional[float] = None
+    owner: Optional[str] = None
+
+class TermsRequest(BaseModel):
+    model: Optional[str] = None
+    fee_pct: Optional[float] = None
+    credit_pct: Optional[float] = None
+    option_fee_pct: Optional[float] = None
+    home_price: Optional[float] = None
+    monthly_rent: Optional[float] = None
+    owner: Optional[str] = None
+    treasury: Optional[str] = None
+
+class ClaimOwnerRequest(BaseModel):
+    address: str
+
+class PayRentRequest(BaseModel):
+    renter: str
+    amount: float
+    kind: str = "rent"
+
+class QuoteRequest(BaseModel):
+    amount: float
+    kind: str = "rent"
 
 
 # ── Health / Status ─────────────────────────────────────────────
@@ -103,6 +130,71 @@ def share_price():
 @app.get("/balance")
 def balance():
     return get_openhouse().balance()
+
+
+# ── Rent-to-own ─────────────────────────────────────────────────
+
+@app.get("/models")
+def models():
+    """Rent-to-own model presets, the 1–5% fee band, and what platforms take."""
+    return get_openhouse().models()
+
+@app.get("/terms")
+def terms():
+    return get_openhouse().terms()
+
+@app.post("/terms")
+def set_terms(req: TermsRequest):
+    result = get_openhouse().set_terms(**req.model_dump(exclude_none=True))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.post("/claim_owner")
+def claim_owner(req: ClaimOwnerRequest):
+    result = get_openhouse().claim_owner(req.address)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.post("/quote")
+def quote(req: QuoteRequest):
+    result = get_openhouse().quote(req.amount, kind=req.kind)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.post("/pay_rent")
+def pay_rent(req: PayRentRequest):
+    result = get_openhouse().pay_rent(req.renter, req.amount, kind=req.kind)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.get("/rent_ledger")
+def rent_ledger(renter: str = ""):
+    return get_openhouse().rent_ledger(renter)
+
+@app.get("/rent_stats")
+def rent_stats():
+    return get_openhouse().rent_stats()
+
+
+# ── The landscape ───────────────────────────────────────────────
+
+@app.get("/peers")
+def peers(refresh: bool = False):
+    """Other on-chain housing projects, sorted by who ends up owning the house."""
+    return get_openhouse().peers(refresh=refresh)
+
+@app.get("/compare")
+def compare(refresh: bool = False):
+    """OpenHouse against the field — including where the field is ahead."""
+    return get_openhouse().compare(refresh=refresh)
+
+@app.get("/equity/{address}")
+def equity(address: str):
+    return get_openhouse().equity(address)
 
 
 # ── Shareholders ────────────────────────────────────────────────
@@ -197,6 +289,9 @@ def deploy(req: DeployRequest):
         property_details=req.property_details,
         total_shares=req.total_shares,
         share_price=req.share_price,
+        home_price=req.home_price,
+        monthly_rent=req.monthly_rent,
+        model=req.model, fee_pct=req.fee_pct, owner=req.owner,
     )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])

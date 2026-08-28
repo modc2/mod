@@ -1,0 +1,21 @@
+[package]
+name = "lium-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Lium MCP server — Rust backend for the lium mod (Bittensor SN51 GPU marketplace)"
+
+[[bin]]
+name = "lium-api"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower-http = { version = "0.5", features = ["cors"] }
+
+[profile.release]
+opt-level = 2
+strip = true

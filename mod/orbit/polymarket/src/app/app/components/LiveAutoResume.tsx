@@ -35,7 +35,9 @@ export default function LiveAutoResume() {
     const strat = loadIndexes().find((s) => s.id === rec.strategyId);
     if (!strat) return;
     const traders = strat.traders.filter((t) => t.enabled !== false);
-    if (traders.length === 0) return;
+    // Momentum strats originate from market prices — an empty watchlist is
+    // a valid running configuration for them, so only copy strats bail here.
+    if (traders.length === 0 && !strat.momentum) return;
 
     attemptedRef.current = true;
     startLive({
@@ -52,6 +54,9 @@ export default function LiveAutoResume() {
       // them).
       marketQuery: strat.marketQuery,
       tradeFilters: strat.tradeFilters,
+      filter: strat.filter,
+      momentum: strat.momentum,
+      ...(strat.maxUpscale !== undefined && { maxUpscale: strat.maxUpscale }),
     });
   }, [auth.connected, auth.address, auth.clobCreds, isLive, startLive]);
 

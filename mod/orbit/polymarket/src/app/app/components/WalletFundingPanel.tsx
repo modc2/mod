@@ -90,10 +90,15 @@ export default function WalletFundingPanel({ capital, onCapitalChange }: Props) 
   // Bridge fires when source isn't already Polygon USDC.
   const isBridge = src.id !== "polygon" || srcAsset !== "usdc";
 
-  const fetchAllBalances = useCallback(async () => {
+  // Read USDC / USDT / native balances for `nets`. Split from the polling
+  // loop below so the background tick can stay on the SELECTED chain — the
+  // full sweep is five chains × three tokens of RPC per tick, and only the
+  // selected one is on screen (the others just fill the FROM dropdown's
+  // labels, which a load-once + manual ↻ keeps current enough).
+  const fetchBalances = useCallback(async (nets: NetworkConfig[]) => {
     if (!auth.address) return;
     await Promise.all(
-      NETWORKS.map(async (net) => {
+      nets.map(async (net) => {
         try {
           const raw: bigint = await withRpcFallback(net, async (url) => {
             const provider = new JsonRpcProvider(url);
@@ -127,13 +132,24 @@ export default function WalletFundingPanel({ capital, onCapitalChange }: Props) 
     );
   }, [auth.address]);
 
+  const fetchAllBalances = useCallback(
+    () => fetchBalances(NETWORKS),
+    [fetchBalances],
+  );
+
+  // One full sweep per sign-in so every chain in the FROM list has a number.
   useEffect(() => { void fetchAllBalances(); }, [fetchAllBalances]);
 
+  // Then keep only what's on screen live — the SELECTED chain, plus Polygon
+  // (the headline "in your MetaMask" balance and the bridge destination).
+  // Re-reads on chain switch and every 30s.
   useEffect(() => {
     if (!auth.address) return;
-    const t = setInterval(() => { void fetchAllBalances(); }, 30_000);
+    const watched = src.id === POLYGON.id ? [POLYGON] : [POLYGON, src];
+    void fetchBalances(watched);
+    const t = setInterval(() => { void fetchBalances(watched); }, 30_000);
     return () => clearInterval(t);
-  }, [auth.address, fetchAllBalances]);
+  }, [auth.address, src, fetchBalances]);
 
   useEffect(() => {
     if (auth.address && !recipient) setRecipient(auth.address);

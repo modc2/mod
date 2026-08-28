@@ -253,6 +253,14 @@ class Access:
         conn.close()
         return [r['cid'] for r in rows]
 
+    def all_refs(self) -> list:
+        """Every edge in the store: [{cid, ref_cid, created}] — the whole graph
+        in one query, so the graph view doesn't fan out per object."""
+        conn = self._db()
+        rows = conn.execute('SELECT cid, ref_cid, created FROM refs').fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
     # ── grants (timed access) ──────────────────────────────────────
 
     def create_grant(self, grantor, grantee, cid=None, scope='read',

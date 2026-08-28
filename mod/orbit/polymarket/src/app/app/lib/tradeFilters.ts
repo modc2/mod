@@ -17,6 +17,12 @@
 import { TradeFilters } from "./types";
 import { matchMarketCategory } from "./polymarket";
 
+/* There is deliberately no implicit entry-price floor. A 60¢ "likely to win"
+   default used to apply to BUYs whenever a strat set no price band, and it was
+   the single largest source of "the engine sees 57 leader entries and copies
+   none": a filter nobody chose, silently rejecting most of the flow. A price
+   band is now exactly what the strat says it is. Mirror of live_engine.rs. */
+
 /** The minimal trade shape the gate needs. `PolymarketTrade` and the strat's
     `TraderTrade` both satisfy it. `notional` is optional — when absent we
     derive it from price × size. */
@@ -43,19 +49,19 @@ export function tradeFiltersActive(filters: TradeFilters | undefined | null): bo
 }
 
 /** Apply the semantic per-trade gate. Returns true ⇒ mirror this trade.
-    Empty/undefined filters ⇒ always true. */
+    Empty/undefined filters ⇒ everything passes. */
 export function tradeMatchesFilters(
   trade: FilterableTrade,
   filters: TradeFilters | undefined | null,
 ): boolean {
-  if (!tradeFiltersActive(filters)) return true;
-  const f = filters!;
+  const f = filters ?? {};
 
   // ── Side ──
   if (f.sides === "buy" && trade.side !== "BUY") return false;
   if (f.sides === "sell" && trade.side !== "SELL") return false;
 
   // ── Entry price band (0–1) ──
+  // Only the band the strat actually set. Nothing implicit.
   if (f.minPrice != null && trade.price < f.minPrice) return false;
   if (f.maxPrice != null && trade.price > f.maxPrice) return false;
 

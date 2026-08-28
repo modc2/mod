@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { Nav, Footer } from '@/components/site'
 
 export const metadata: Metadata = {
   title: 'ModCity — Prefab buildings, snapped together like LEGO',
@@ -9,7 +10,13 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <main className="min-h-screen relative overflow-x-hidden flex flex-col">
+          <Nav />
+          <div className="flex-1">{children}</div>
+          <Footer />
+        </main>
+      </body>
     </html>
   )
 }

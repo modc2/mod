@@ -1,7 +1,7 @@
 {
     "name": "openhouse",
-    "description": "Rent-to-own, on-chain \u2014 every rent payment becomes principal toward owning the home; ownership redistributed quarterly",
-    "version": "2.0.0",
+    "description": "Rent-to-own, on-chain \u2014 the protocol takes 1\u20135% (owner-set, capped in the contract) and 95\u201399% of every payment stays with the property as renter equity and owner income",
+    "version": "2.1.0",
     "port": 50130,
     "app_port": 50131,
     "urls": {
@@ -32,6 +32,17 @@
         "available_shares",
         "share_price",
         "dividends",
+        "models",
+        "terms",
+        "set_terms",
+        "claim_owner",
+        "quote",
+        "pay_rent",
+        "rent_ledger",
+        "equity",
+        "rent_stats",
+        "peers",
+        "compare",
         "purchase",
         "distribute",
         "record_action",
@@ -50,6 +61,6 @@
         "register",
         "deregister"
     ],
-    "schema": "QmTsRVJMfLYkcymvnwm93DtVzzohTqYqwMkCDezZbaKbPS",
+    "schema": "QmPmi8U4wdbt86hBpvCTmGVZZZwJzai3PDoNYjDQDGKsoK",
     "gateway_port": 50131
 }

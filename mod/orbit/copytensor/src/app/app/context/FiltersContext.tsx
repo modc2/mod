@@ -7,7 +7,8 @@ import {
   createContext, useCallback, useContext, useEffect, useState, type ReactNode,
 } from "react";
 
-export type SortKey = "pnl_pct" | "pnl_tao" | "total_stake_tao" | "num_subnets";
+export type SortKey =
+  | "pnl_pct" | "pnl_tao" | "market_pct" | "total_stake_tao" | "num_subnets";
 export type SortDir = "asc" | "desc";
 
 interface FiltersContextValue {
@@ -53,7 +54,10 @@ export function useFilters() {
 export function FiltersProvider({ children }: { children: ReactNode }) {
   const [days, setDaysState] = useState(7);
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("pnl_pct");
+  // Market %, not raw %: over a pool of hundreds the raw column is topped by
+  // coldkeys that simply deposited, which is not what a copy-trader is
+  // shopping for. Raw % is one click away.
+  const [sortKey, setSortKey] = useState<SortKey>("market_pct");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [minSubnets, setMinSubnetsState] = useState(0);
   const [netuidFilter, setNetuidFilter] = useState<number | null>(null);

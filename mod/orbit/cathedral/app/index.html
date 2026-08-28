@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cathedral — confidential compute</title>
+<!-- Assets are pinned to the mount prefix, not to "./".
+     The published link is the bare /cathedral, with no trailing slash, and a
+     relative base resolves *that* against the site root — so app.css and app.js
+     were being fetched from https://host/app.css and never arrived. The bare
+     port serves this prefix too (serve.py strips it), so one absolute base is
+     correct at /cathedral, /cathedral/, the bare port, and its root alike.
+     Root-relative fetches in app.js are unaffected by <base>. -->
+<base href="/cathedral/">
+<link rel="stylesheet" href="app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 28'><path d='M4 27V13C4 7 8 3 12 1c4 2 8 6 8 12v14z' fill='none' stroke='%237c6cff' stroke-width='2'/><circle cx='12' cy='12' r='2.6' fill='none' stroke='%237c6cff' stroke-width='2'/></svg>">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <!-- an arch and a rose window, drawn rather than an emoji: the box this
+         runs in has no emoji font, and ⛪ renders as tofu. -->
+    <svg class="glyph" viewBox="0 0 24 28" aria-hidden="true">
+      <path d="M4 27V13C4 7 8 3 12 1c4 2 8 6 8 12v14z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <circle cx="12" cy="12" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    </svg>
+    <b>CATHEDRAL</b><span class="sub">confidential compute</span></div>
+  <div class="chips">
+    <span class="chip" id="chip-upstream">upstream …</span>
+    <span class="chip" id="chip-gpu">gpu …</span>
+    <span class="chip" id="chip-payer">no key</span>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail">
+    <!-- Catalog leads: the first question anyone opens this with is "what compute
+         is there", and that answer costs no key. -->
+    <button class="tab on" data-tab="catalog">Catalog</button>
+    <button class="tab" data-tab="account">Account</button>
+    <button class="tab" data-tab="run">Run</button>
+    <button class="tab" data-tab="workers">Workers</button>
+    <button class="tab" data-tab="evidence">Evidence</button>
+    <button class="tab" data-tab="credits">Credits</button>
+    <div class="rail-foot">
+      <a href="https://cathedral.computer/docs/" target="_blank" rel="noreferrer">docs&nbsp;&#8599;</a>
+      <a href="https://cathedral.computer/account/" target="_blank" rel="noreferrer">get a key&nbsp;&#8599;</a>
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- ── ACCOUNT ───────────────────────────────────────────────── -->
+    <section id="account" class="pane">
+      <h1>Your key, your credits</h1>
+      <p class="lede">Every run on this console is billed to <em>your</em> Cathedral
+        account. This module holds no house key and never rents compute on anyone
+        else's balance.</p>
+
+      <div class="card">
+        <h2>API key</h2>
+        <div class="row">
+          <input id="key" type="password" placeholder="cat_sk_…" autocomplete="off" spellcheck="false">
+          <button id="use-key" class="go">Use key</button>
+          <button id="forget-key" class="ghost">Forget</button>
+        </div>
+        <p class="fine">Held in this browser tab only (<code>sessionStorage</code>) — it is
+          sent as an <code>Authorization</code> header and never written to disk by the
+          server. Close the tab and it is gone. Revoke keys at
+          <a href="https://cathedral.computer/account/" target="_blank" rel="noreferrer">cathedral.computer/account</a>.</p>
+        <div id="key-out"></div>
+      </div>
+
+      <div class="card">
+        <h2>Balance</h2>
+        <div id="balance" class="empty">No key yet.</div>
+      </div>
+    </section>
+
+    <!-- ── CATALOG ───────────────────────────────────────────────── -->
+    <section id="catalog" class="pane on">
+      <h1>All available compute</h1>
+      <p class="lede">Every hardware class Cathedral publishes and every shape you can
+        order on it — including the ones the raw catalog buries inside a profile.
+        Public: no key, no charge. These fields are runtime gates, not documentation,
+        and they are read again before every submission.</p>
+
+      <div id="fleet-sum" class="summary">counting…</div>
+      <div id="fleet"></div>
+
+      <div class="card">
+        <h2>Price sheet, per execution</h2>
+        <p class="fine">The flat sheet the spend guard quotes from — it also carries the
+          free minute, which the profile catalog above does not list.</p>
+        <div id="prices" class="empty">loading…</div>
+        <p class="fine" id="price-src"></p>
+      </div>
+
+      <div class="card">
+        <h2>Sealed worker, per hour</h2>
+        <div id="hourly" class="empty">loading…</div>
+        <p class="fine">Hourly metering starts when the workload is ready and stops
+          after provider cleanup. The rate is pinned at creation.</p>
+      </div>
+
+      <!-- The failing gates are already named on the GPU card above; this is the
+           full verdict, gate by gate, for whoever wants to read it. -->
+      <details class="card">
+        <summary>Confidential GPU gates, one by one</summary>
+        <div id="gates" class="empty">loading…</div>
+        <p class="fine">A GPU job is only submittable when every gate passes. When one
+          does not, the refusal is upstream state, not a bug here.</p>
+      </details>
+
+      <details class="card">
+        <summary>Raw profile catalog</summary>
+        <pre id="profiles-raw" class="json">…</pre>
+      </details>
+    </section>
+
+    <!-- ── RUN ───────────────────────────────────────────────────── -->
+    <section id="run" class="pane">
+      <h1>Run something</h1>
+      <p class="lede">Anything over $0.20 needs an explicit authorization — the same
+        line Cathedral's own agent contract draws.</p>
+
+      <div class="card">
+        <h2>Free minute <span class="tag">$0.00</span></h2>
+        <p class="fine">One fixed restricted minute per verified account. The second
+          attempt answers 409.</p>
+        <button class="go" data-run="free">Take the free minute</button>
+      </div>
+
+      <div class="card">
+        <h2>CPU job <span class="tag">attest.v1</span><span class="tag" id="tag-cpu">$0.20</span></h2>
+        <p class="fine">One fresh, bounded Intel TDX job with a teardown-bound receipt.
+          A failed CPU run is refunded.</p>
+        <label>Image <input id="cpu-image" value="python:3.12-slim"></label>
+        <label>Command <input id="cpu-command" value="python -c print(6*7)"></label>
+        <div class="row">
+          <label class="sm">Minutes <input id="cpu-minutes" type="number" value="10" min="1"></label>
+          <label class="sm">Max spend $ <input id="cpu-spend" type="number" value="0.20" step="0.05" min="0"></label>
+          <label class="sm">Egress
+            <select id="cpu-egress">
+              <option value="none">none</option>
+              <option value="control_plane_only">control_plane_only</option>
+            </select>
+          </label>
+        </div>
+        <div class="authorize" id="cpu-auth"></div>
+        <button class="go" data-run="cpu">Submit CPU job</button>
+      </div>
+
+      <div class="card">
+        <h2>Sealed worker <span class="tag">custom.v1</span><span class="tag" id="tag-rent">hourly</span></h2>
+        <p class="fine">A sealed TDX worker kept alive — the only hourly-metered shape.</p>
+        <div class="row">
+          <label class="sm">Name <input id="rent-name" value="sealed-worker"></label>
+          <label>Image <input id="rent-image" placeholder="(optional) nginx:1.27-alpine"></label>
+        </div>
+        <div class="row">
+          <label class="sm">Minutes <input id="rent-minutes" type="number" value="60" min="1"></label>
+          <label class="sm">Shape <select id="rent-shape"></select></label>
+          <label class="sm">Max spend $ <input id="rent-spend" type="number" value="1.00" step="0.10" min="0"></label>
+        </div>
+        <label>SSH public key <input id="rent-ssh" placeholder="(optional) ssh-ed25519 AAAA…"></label>
+        <div class="authorize" id="rent-auth"></div>
+        <button class="go" data-run="rent">Rent worker</button>
+      </div>
+
+      <div class="card" id="gpu-card">
+        <h2>Confidential GPU <span class="tag">cc_gpu</span><span class="tag" id="tag-gpu">$3.00</span></h2>
+        <p class="fine">Up to ten workload minutes on a confidential NVIDIA GPU. Nonzero
+          exits and timeouts are still billable.</p>
+        <div id="gpu-blocked" class="blocked">checking gates…</div>
+        <label>Command <input id="gpu-command" value="python -c print('hello from a sealed gpu')"></label>
+        <div class="row">
+          <label class="sm">Minutes <input id="gpu-minutes" type="number" value="10" min="1"></label>
+          <label class="sm">Max spend $ <input id="gpu-spend" type="number" value="3.00" step="0.5" min="0"></label>
+          <label class="sm">Attempts <input id="gpu-attempts" type="number" value="2" min="1"></label>
+        </div>
+        <label>Image <input id="gpu-image" placeholder="(default) the catalog's pinned runtime digest"></label>
+        <div class="authorize" id="gpu-auth"></div>
+        <button class="go" data-run="gpu">Submit GPU execution</button>
+      </div>
+
+      <div class="card" id="submitted" hidden>
+        <h2>Last submission</h2>
+        <pre id="submit-out" class="json"></pre>
+      </div>
+    </section>
+
+    <!-- ── WORKERS ───────────────────────────────────────────────── -->
+    <section id="workers" class="pane">
+      <h1>Workers</h1>
+      <p class="lede">A one-shot reaches <code>completed</code> only after fresh-environment
+        deletion is confirmed — that is what the receipt binds.</p>
+      <div class="card">
+        <div class="row between">
+          <label class="sm inline"><input type="checkbox" id="poll"> auto-refresh every 10s</label>
+          <button class="ghost" id="refresh-workers">Refresh</button>
+        </div>
+        <div id="worker-list" class="empty">No key yet.</div>
+      </div>
+    </section>
+
+    <!-- ── EVIDENCE ──────────────────────────────────────────────── -->
+    <section id="evidence" class="pane">
+      <h1>Evidence</h1>
+      <p class="lede">A receipt is only evidence if the signature checks out. This does that
+        offline, against Cathedral's published ed25519 keys — no API key needed, because
+        verification is a statement about bytes you already hold.</p>
+
+      <div class="card">
+        <h2>Verify a receipt</h2>
+        <p class="fine">Paste a receipt, or open one from the Workers tab and hit Verify there.</p>
+        <textarea id="verify-receipt" rows="6" placeholder='{"schema":"cathedral_customer_receipt_v1", …}'></textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="go" id="do-verify">Verify signature</button>
+        </div>
+        <div id="verify-result"></div>
+      </div>
+
+      <div class="card">
+        <h2>Trusted keys</h2>
+        <p class="fine">Fetched once from
+          <code>cathedral.computer/customer-receipt-trusted-keys.json</code> and pinned. If the
+          public key for a known id ever changes, the pinned copy is kept and the change is
+          reported — confirm any rotation through a channel you trust before accepting it.</p>
+        <div id="trusted-keys" class="empty">loading…</div>
+      </div>
+
+      <div class="card">
+        <h2>What a pass proves</h2>
+        <p class="fine">That a Cathedral key you trust signed exactly these assertions, and that
+          the document is internally consistent. It does <b>not</b> replay Intel or NVIDIA
+          evidence, inspect billing, contact the provider, confirm teardown, or prove AMD SEV
+          host attestation. On the G4 path <code>report_data_match</code> and
+          <code>intel_verified</code> are null by design.</p>
+      </div>
+    </section>
+
+    <!-- ── CREDITS ───────────────────────────────────────────────── -->
+    <section id="credits" class="pane">
+      <h1>Credits</h1>
+      <p class="lede">Top-ups go through Cathedral's own Stripe checkout, in your name.
+        This console only hands you the hosted URL — no card ever touches it.</p>
+
+      <div class="card">
+        <h2>Packs</h2>
+        <div id="packs" class="empty">loading…</div>
+      </div>
+
+      <div class="card">
+        <h2>Settle a payment</h2>
+        <p class="fine">Checkout redirects can land before Cathedral has settled the
+          session. Paste the <code>session_id</code> to settle it — idempotent.</p>
+        <div class="row">
+          <input id="session-id" placeholder="cs_…">
+          <button class="go" id="verify-payment">Verify</button>
+        </div>
+        <div id="verify-out"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="sheet">
+    <div class="row between">
+      <h2 id="modal-title">Receipt</h2>
+      <div>
+        <button class="ghost" id="modal-verify" hidden>Verify</button>
+        <button class="ghost" id="modal-save">Download</button>
+        <button class="ghost" id="modal-close">Close</button>
+      </div>
+    </div>
+    <pre id="modal-body" class="json"></pre>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

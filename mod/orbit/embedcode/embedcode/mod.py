@@ -116,7 +116,9 @@ class EmbeddingEngine:
 
     @property
     def dim(self) -> int:
-        return self.model.get_sentence_embedding_dimension()
+        get_dim = getattr(self.model, 'get_embedding_dimension', None) \
+            or self.model.get_sentence_embedding_dimension
+        return get_dim()
 
 
 # ── vector store (numpy, no deps) ────────────────────────────────
@@ -221,8 +223,8 @@ class Mod:
 
     # ── Core functions ──
 
-    def embed(self, path: str, collection: str = None, chunk_size: int = 512,
-              overlap: int = 64, extensions: List[str] = None) -> dict:
+    def embed(self, path: str, collection: str = None, chunk_size: int = 64,
+              overlap: int = 16, extensions: List[str] = None) -> dict:
         """Embed all code files in a path into a named collection."""
         path = os.path.expanduser(path)
         name = collection or self._collection_name(path)
@@ -237,6 +239,7 @@ class Mod:
         batch_texts = []
         batch_meta = []
 
+        step = max(1, chunk_size - overlap)
         for f in files:
             chunks = chunk_text(f['content'], chunk_size, overlap)
             for i, chunk in enumerate(chunks):
@@ -245,7 +248,8 @@ class Mod:
                     'path': f['path'],
                     'chunk_index': i,
                     'total_chunks': len(chunks),
-                    'preview': chunk[:200],
+                    'start_line': i * step + 1,
+                    'preview': chunk[:600],
                 })
             total_chunks += len(chunks)
 

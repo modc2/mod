@@ -47,8 +47,8 @@ export default function MarketPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { theme } = useTheme();
-  const OUTCOME_COLORS = theme === "light" ? OUTCOME_COLORS_LIGHT : OUTCOME_COLORS_DARK;
+  const { base } = useTheme();
+  const OUTCOME_COLORS = base === "light" ? OUTCOME_COLORS_LIGHT : OUTCOME_COLORS_DARK;
   const slug = String(
     Array.isArray(params.slug) ? params.slug[0] : params.slug || "",
   );

@@ -1,7 +1,7 @@
 import { BrowserProvider, Contract, JsonRpcProvider, formatUnits, type JsonRpcSigner } from "ethers";
-import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, TraderRoiStats, TradeFilters } from "./types";
+import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, TraderRoiStats, TradeFilters, TraderFilter, MomentumParams } from "./types";
 import { placeOrder, detectSigType, ClobOrderResult } from "./clobClient";
-import { fetchWalletTradesUntil, fetchWalletTradesIncremental, fetchPositions, fetchTraderRoiStats } from "./polymarket";
+import { fetchWalletTradesUntil, fetchWalletTradesIncremental, fetchPositions, fetchTraderRoiStats, searchMarkets, fetchPriceHistory, fetchPriceHistoryLive, fetchMidpointLive, fetchMarketBySlug } from "./polymarket";
 import { getTradeCache } from "./cache";
 import {
   Strat,
@@ -9,9 +9,17 @@ import {
   SizeConstraints,
   StratHistory,
   ProposedTrade,
+  MarketPriceSeries,
   emptyHistory,
-} from "./strats/base";
-import { getStrat } from "./strats/registry";
+  tickRoundPrice,
+  candleSlug,
+  clobMinNotional,
+  POLYMARKET_MIN_USD,
+  POLYMARKET_MIN_SHARES,
+  successProbability,
+  copyRatioFor,
+  type SizingModel,
+} from "./strats/strat";
 import { marketMatchesQuery } from "./marketQuery";
 import { tradeMatchesFilters } from "./tradeFilters";
 import { networkById, ensureChain, withRpcFallback } from "./networks";
@@ -24,7 +32,7 @@ export type CopyEngineStatus = "stopped" | "starting" | "running" | "paused" | "
 export interface ExecutionLogEntry {
   id: string;
   timestamp: number;
-  type: "COPY_BUY" | "COPY_SELL" | "SKIP" | "ERROR" | "BALANCE" | "CYCLE_START" | "CYCLE_END";
+  type: "COPY_BUY" | "COPY_SELL" | "SKIP" | "ERROR" | "BALANCE" | "CYCLE_START" | "CYCLE_END" | "REDEEM" | "WATCHLIST";
   traderAddress?: string;
   market?: string;
   conditionId?: string;
@@ -73,6 +81,11 @@ export interface ObservedTrade {
   score: number;
   /** Trader's 30d Sharpe at the time we scored. 0 = insufficient stats. */
   sharpe: number;
+  /** P(success) the playbook priced this trade at — the trader's Laplace-
+      smoothed 30d win rate (0.5 = coin-flip prior / no closed trades).
+      Stamped by the Rust engine (`successProb` on its ObservedTrade);
+      optional so pre-upgrade persisted state still deserializes. */
+  successProb?: number;
 }
 
 export interface CopyEngineState {
@@ -84,6 +97,10 @@ export interface CopyEngineState {
   totalOrdersFailed: number;
   totalVolumeMirrored: number;
   balance: number | null;
+  /** Cash + mark value of this session's open positions — the number every
+      proportional mirror is sized as a fraction of. Backend-only
+      (live_engine.rs `AccountValue`); the in-browser engine leaves it unset. */
+  accountValue?: number | null;
   log: ExecutionLogEntry[];
   /** Ring buffer of upstream trades observed in recent cycles. Capped to
       RECENT_TRADES_LIMIT so memory stays bounded. Newest-first ordering. */
@@ -98,6 +115,29 @@ export interface CopyEngineState {
       breakdown next to each trader and observed trade. Keyed by lowercased
       address. Refreshed every ROI_REFRESH_MS (30min) in the background. */
   traderRoiStats: Record<string, TraderRoiStats>;
+  /** Why the leader flow the engine DID see never became orders, keyed by
+      gate ("price", "market query", "resolves too soon", …) over the last
+      30 minutes. Backend-only (live_engine.rs `gated_recently`); the
+      in-browser engine leaves it unset. LivePanel turns it into the
+      "nothing is being copied because…" banner. */
+  gatedRecently?: Record<string, GateTally>;
+  /** Mirrors that cleared every gate and were suppressed by dry run alone,
+      over the same 30-minute window. Backend-only (live_engine.rs
+      `dry_run_recently`). Deliberately NOT folded into `gatedRecently`: these
+      entries passed the filters, so blaming the filters for them would send
+      the owner to loosen settings that are working. */
+  dryRunRecently?: GateTally;
+}
+
+/** One gate's recent damage: how many leader entries it blocked in the last
+    30 minutes, when it last fired, and which leaders those entries came from.
+    The leader list is the actionable half — a bot that only trades 5-minute
+    candles has 100% of its flow refused forever, and the fix is to drop that
+    leader, not to lower a gate that is saving money. */
+export interface GateTally {
+  count: number;
+  lastAt: number;
+  traders?: string[];
 }
 
 export interface CopyEngineConfig {
@@ -119,12 +159,39 @@ export interface CopyEngineConfig {
       so the live engine's sizing matches what the backtest preview shows.
       Defaults to 3 (the backtest default) when not provided. */
   backtestDays?: number;
+  /** What mirrors are sized proportionally to — see `copyRatioFor`.
+      "flow" divides by the capital the leader deployed in that window
+      instead of their net worth, which is what keeps a small account's
+      mirrors above the order floor. Undefined ⇒ "bankroll". */
+  sizing?: SizingModel;
+  /** "flow" only — allocation redeployments per window. Undefined ⇒ 1. */
+  turnover?: number;
+  /** Proportional-fidelity limit — how far a sub-floor mirror may be rounded
+      UP before it's refused as SUB_SCALE instead. Undefined ⇒ 2; 0/null ⇒ off
+      (place everything at the floor). Must reach the Strat or the SIZING →
+      UPSCALE field is a lie in this engine. */
+  maxUpscale?: number | null;
   /** Top-N sampling cap: per cycle, score every observed BUY candidate as
       `score = trader_sharpe_30d * trade_notional` and copy only the top N.
       The single most important fee-control knob — without it the engine
       mirrors every observed trade (11k trades / 7d = $58 of gas burns the
       gross P&L). Defaults to 3. */
   maxPerCycle?: number;
+  /** Cap on concurrent open positions. The backend live engine skips a
+      mirror BUY that would open a NEW token while this many are already
+      held; topping up an existing hold still goes through. Default 10. */
+  maxOpenPositions?: number;
+  /** Per-position stop-loss as a fraction of avg entry price (0–1). The
+      backend engine sells a held position at the book bid once that bid
+      decays to ≤ `stopLoss` × entry (0.75 = three quarters) — the "don't
+      ride it to 0" guard. 0 ⇒ off; undefined ⇒ backend default (0.75). */
+  stopLoss?: number;
+  /** Per-position take-profit as an ABSOLUTE bid level (0–1). The backend
+      engine liquidates a held position at the book bid once that bid runs to
+      ≥ this level (0.99 = the top tick, i.e. the market ran to 100%) —
+      frees decided-market capital instead of waiting for resolution +
+      auto-redeem. 0 ⇒ off; undefined ⇒ backend default (0.99). */
+  takeProfit?: number;
   /** Minimum shares per order used in the CLOB sizing floor (strat-supplied;
       backend defaults to Polymarket's 5-share minimum when omitted). */
   minShares?: number;
@@ -142,6 +209,17 @@ export interface CopyEngineConfig {
       AND the CATCH UP backfill. Empty/undefined ⇒ no per-trade gating beyond
       `marketQuery`. */
   tradeFilters?: TradeFilters;
+  /** Trader-quality gate: re-rank the watchlist each cycle and mirror only
+      the top scorers (see `TraderFilter`). Forwarded to the BACKEND engine
+      too, so a filtered strat keeps filtering after the tab closes. */
+  filter?: TraderFilter;
+  /** Opt-in price-momentum origination — the general, watchlist-free
+      strategy path: the engine feeds the strat CLOB price history for
+      markets matching the query and the strat buys the outcome whose odds
+      are rising, exits when the move flips. Works with an EMPTY watchlist.
+      Forwarded to the BACKEND live engine too (live_engine.rs
+      `execute_momentum`), so it keeps trading after the tab closes. */
+  momentum?: MomentumParams;
 }
 
 // ── Scoring constants ──────────────────────────────────────────
@@ -166,6 +244,18 @@ const ORDER_DELAY_MS = 500;
 // market+outcome+side (Phase 4). Stops unfilled GTC proposals from being
 // stacked on the book every cycle while the signal persists.
 const PROPOSAL_COOLDOWN_MS = 30 * 60_000;
+// Momentum price-feed refresh cadence. The frontend market cache already
+// serves prices-history for 5 minutes; refreshing the assembled series at
+// 2 minutes keeps momentum reads at most one cache generation stale while
+// bounding API load to ~maxMarkets fetches per 5-minute window.
+const MARKET_PRICES_TTL_MS = 2 * 60_000;
+// Candle-mode refresh cadence (momentum.candles set). A 5-minute candle
+// lives ~10 engine cycles at the fastest poll; the 2-minute TTL above would
+// hand momentum the same frozen series for half the candle's life. 15s
+// matches the server-side `live-` alias TTL — reads through this path are
+// at most one generation (~15s) stale, and it's only 2–3 requests per
+// refresh for the single live candle.
+const CANDLE_PRICES_TTL_MS = 15_000;
 // 0 — the matcher's fee schedule for binary markets returns 0, and a
 // hardcoded 200 bps was making every CLOB POST reject with HTTP 400
 // "Invalid order payload" because the signed feeRateBps didn't match
@@ -179,32 +269,12 @@ const TAKER_FEE_BPS = 0;
 // the resulting order always hits ≥5 shares regardless of trade price.
 //
 // User-configurable minOrderSize is the strat's per-trade USD floor;
-// these constants are the hard API limit we MUST clamp to regardless
-// of strat settings. Without them, users who dropped the floor to $0.01
-// via the auto-fix banner produced cascades of rejected $0.01 orders.
-const POLYMARKET_MIN_USD = 1.0;
-const POLYMARKET_MIN_SHARES = 5;
-
-/** Smallest mirror notional that CLOB will accept at the given price
- *  — combines the $1 notional floor and the 5-share share floor. */
-function clobMinNotional(price: number): number {
-  const sharesFloor = POLYMARKET_MIN_SHARES * Math.max(price, 1e-9);
-  return Math.max(POLYMARKET_MIN_USD, sharesFloor);
-}
-
-// Polymarket binary markets use a 0.01 (1¢) tick size by default; some
-// fine-grained markets use 0.001. Leader trade prices come back from the
-// data-api with full f64 precision (e.g. 0.5099601593625498 from an
-// implied-price derivation), which trips a "Price breaks minimum tick
-// size" 400. Round every price we send to 2 decimals so it always lands
-// on a tick — slight cost is we round to the nearest cent rather than
-// the leader's exact fill, which is negligible for copy trading and
-// avoids per-market tick lookups.
-function tickRoundPrice(p: number): number {
-  if (!Number.isFinite(p)) return 0;
-  const clamped = Math.max(0.01, Math.min(0.99, p));
-  return Math.round(clamped * 100) / 100;
-}
+// POLYMARKET_MIN_USD / POLYMARKET_MIN_SHARES / clobMinNotional /
+// tickRoundPrice (imported from strats/strat.ts — one definition for
+// engine, backtest, and the Strat class itself) are the hard API limits
+// we MUST clamp to regardless of strat settings. Without them, users who
+// dropped the floor to $0.01 via the auto-fix banner produced cascades
+// of rejected $0.01 orders.
 
 // ── Token ID Cache ─────────────────────────────────────────────
 
@@ -309,10 +379,10 @@ export class CopyEngine {
   private roiRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private roiRefreshInFlight = false;
   // The strategy decides scoring + sizing per candidate — and may
-  // originate its own trades from history (propose). Swap by pointing
-  // this at any class extending Strat. Default = CopyTrader. The engine
-  // handles everything else (cycle loop, balance check, deposit wallet,
-  // CLOB submission, log persistence).
+  // originate its own trades from history (propose). ONE standard class
+  // (strats/strat.ts), fully param-driven; the engine handles everything
+  // else (cycle loop, balance check, deposit wallet, CLOB submission,
+  // log persistence).
   private strat: Strat;
   // The most recent cycle's assembled history — every strat hook receives
   // it. Kept on the instance so out-of-cycle helpers (bestBuyCandidateEP)
@@ -323,17 +393,24 @@ export class CopyEngine {
   // cooldown a history-driven strat re-proposes the same consensus entry
   // every cycle and stacks duplicate orders on the book.
   private proposedRecently: Map<string, number> = new Map();
+  // Momentum price feed cache — one market-search + N price-history fetches
+  // per MARKET_PRICES_TTL_MS, not per cycle (1-min polling would otherwise
+  // re-hit the gamma/CLOB APIs every cycle for slow-moving hourly series).
+  private marketPricesCache: { at: number; data: MarketPriceSeries[] } | null = null;
 
   constructor(config: CopyEngineConfig, strat?: Strat) {
     this.config = config;
     this.tokenMap = loadTokenMap();
     this.negRiskMap = loadNegRiskMap();
-    // Active strategy. Pass `strat` to override, or change the default
-    // in src/app/app/lib/strats/registry.ts to swap globally.
-    this.strat = strat ?? getStrat(undefined, {
+    // Active strategy — the one standard Strat class, configured straight
+    // from the engine config. Pass `strat` to inject a subclass override.
+    this.strat = strat ?? new Strat({
       maxPerCycle: config.maxPerCycle,
       marketQuery: config.marketQuery,
       tradeFilters: config.tradeFilters,
+      filter: config.filter,
+      momentum: config.momentum,
+      ...(config.maxUpscale !== undefined && { maxUpscale: config.maxUpscale }),
     });
     this.state = {
       status: "stopped",
@@ -1179,14 +1256,16 @@ export class CopyEngine {
 
       const enabledTraders = this.config.traders.filter((t) => t.enabled !== false);
       const totalWeight = enabledTraders.reduce((s, t) => s + t.weight, 0);
-      if (totalWeight <= 0) return;
+      // An empty watchlist only stops MIRROR strats — origination strats
+      // (momentum) trade from market data alone and need no traders at all.
+      if (totalWeight <= 0 && !this.stratProposes()) return;
 
       // ── Assemble this cycle's StratHistory ──
       // Every strat hook receives it. `trades` fills during Phase 1 (each
       // trader's full lookback window lands before any hook runs on that
       // trader's fills; the whole watchlist is in by Phase 3/4). Positions
-      // are an extra API call, fetched only when the strat class actually
-      // originates trades (overrides propose).
+      // are an extra API call, fetched only when the strat actually
+      // originates trades (strat.proposes()).
       const history: StratHistory = {
         trades: [],
         traderStats: this.traderRoiStats,
@@ -1202,6 +1281,11 @@ export class CopyEngine {
           const proxy = await this.resolveTradingWallet();
           if (proxy) history.positions = await fetchPositions(proxy, { bypassCache: true });
         } catch {} // history.positions stays [] — propose still runs
+      }
+      if (this.strat.wantsMarketPrices()) {
+        try {
+          history.marketPrices = await this.assembleMarketPrices();
+        } catch {} // stays undefined — momentum just idles this cycle
       }
       this.lastHistory = history;
 
@@ -1283,8 +1367,21 @@ export class CopyEngine {
             .filter((t) => t.side === "SELL")
             .reduce((s, t) => s + t.price * t.size, 0);
           const traderVol = Math.max(buyVol, sellVol, 1);
-          const capitalAlloc = this.config.capital * (trader.weight / totalWeight);
-          const copyRatio = capitalAlloc / traderVol;
+          const weightFraction = trader.weight / totalWeight;
+          const capitalAlloc = this.config.capital * weightFraction;
+          // Through `copyRatioFor` so this engine, the Rust one and the
+          // backtest all size off one function. No bankroll is cached here,
+          // so "bankroll" mode lands on its volume fallback — the ratio this
+          // line always computed — and "flow" adds the turnover multiplier.
+          const copyRatio = copyRatioFor(
+            this.config.capital,
+            weightFraction,
+            undefined,
+            capitalAlloc,
+            traderVol,
+            this.config.sizing,
+            this.config.turnover,
+          );
 
           // Feed this trader's full lookback window into the shared
           // history BEFORE any hook runs on their fills — strats can
@@ -1313,6 +1410,7 @@ export class CopyEngine {
               notional: stratTrade.notional,
               score: sc.score,
               sharpe: sc.sharpe,
+              successProb: t.side === "BUY" ? successProbability(sc.stats) : undefined,
             };
           });
           const RECENT_TRADES_LIMIT = 500;
@@ -1325,7 +1423,7 @@ export class CopyEngine {
           for (const trade of newTrades) {
             const stratTrade = this.buildStratTrade(trade, trader, copyRatio, totalWeight);
             // Strat pre-filter — runs before scoring/sizing per the Strat
-            // contract (base.ts). Default CopyTrader passes everything.
+            // contract (strats/strat.ts). Default params pass everything.
             if (!this.strat.shouldMirror(stratTrade, history)) {
               this.addLog({
                 id: uid(),
@@ -1335,7 +1433,10 @@ export class CopyEngine {
                 market: trade.market,
                 conditionId: trade.conditionId,
                 side: trade.side,
-                reason: "STRAT_FILTERED · shouldMirror returned false",
+                // Say WHICH gate rejected it (market query / trade filter /
+                // trader FILTER rank) — "shouldMirror returned false" sent
+                // users hunting through params to find out why.
+                reason: `STRAT_FILTERED · ${this.strat.skipReason(stratTrade, history) || "shouldMirror returned false"}`,
                 upstreamTradeId: trade.id,
               });
               this.copiedIds.add(trade.id);
@@ -1380,7 +1481,7 @@ export class CopyEngine {
 
       // ── Phase 2: rank BUYs by EXPECTED PROFIT and slice top N ──
       // SELLs always execute. BUYs compete for the strat's maxPerCycle
-      // budget (a CopyTrader knob, overridable per-strat). score = EP in
+      // budget (a per-strat param). score = EP in
       // dollars (roi × mirror$). Non-positive-EP buys never execute — no
       // edge means no reason to spend capital or rotate a position for them.
       const maxPerCycle = this.strat.maxPerCycle();
@@ -1515,8 +1616,8 @@ export class CopyEngine {
                 {
                   tokenID: tokenId,
                   // Use the strat's limit price (already tick-rounded
-                  // by the strat). For BUYs the default CopyTrader widens
-                  // toward fillable by `slippageBps`; SELLs widen down.
+                  // by the strat). For BUYs the default widens toward
+                  // fillable by `slippageBps`; SELLs widen down.
                   price: decision.limitPrice,
                   size: Math.round(mirrorSize * 100) / 100,
                   side: trade.side,
@@ -1903,11 +2004,106 @@ export class CopyEngine {
   // Used by both observed-trade enrichment (score for UI display) and the
   // execution path (score + sizing). One builder = one source of truth
   // for the engine→strat hand-off.
-  /** True when the active strat class overrides `propose` — i.e. it
-   *  originates trades from history rather than only mirroring. Gates the
-   *  per-cycle positions fetch and Phase 4. */
+  /** True when the active strat originates trades from history rather
+   *  than only mirroring (param-driven via `params.flow`, or a subclass
+   *  propose override). Gates the per-cycle positions fetch and Phase 4. */
   private stratProposes(): boolean {
-    return this.strat.propose !== Strat.prototype.propose;
+    return this.strat.proposes();
+  }
+
+  /** Momentum price feed: top-volume active markets matching the strat's
+   *  momentum query (default: marketQuery, else "bitcoin"), each with its
+   *  first outcome's CLOB price history over the last 6 hours. Cached for
+   *  MARKET_PRICES_TTL_MS. Per-market failures are skipped, not fatal —
+   *  momentum works off whatever slice of the feed resolved. */
+  private async assembleMarketPrices(): Promise<MarketPriceSeries[]> {
+    const mo = this.strat.params.momentum;
+    if (!mo) return [];
+    const cached = this.marketPricesCache;
+    const ttlMs = mo.candles ? CANDLE_PRICES_TTL_MS : MARKET_PRICES_TTL_MS;
+    if (cached && Date.now() - cached.at < ttlMs) return cached.data;
+
+    // Candle mode: one deterministic live market, near-live feed — no search.
+    if (mo.candles) {
+      const data = await this.assembleCandleSeries(mo.candles);
+      this.marketPricesCache = { at: Date.now(), data };
+      return data;
+    }
+
+    const query = mo.query || this.strat.params.marketQuery || "bitcoin";
+    const markets = await searchMarkets(query, 60);
+    const candidates = markets
+      .filter((m) =>
+        m.active &&
+        m.conditionId &&
+        (m.clobTokenIds?.length ?? 0) >= 2 &&
+        (m.outcomes?.length ?? 0) >= 2,
+      )
+      .sort((a, b) => (b.volume || 0) - (a.volume || 0))
+      .slice(0, mo.maxMarkets ?? 12);
+
+    const data: MarketPriceSeries[] = [];
+    for (const m of candidates) {
+      try {
+        // 6h window at 5-minute fidelity comfortably covers the default
+        // 60-minute lookback with points to spare on both sides.
+        const pts = await fetchPriceHistory(m.clobTokenIds![0], "6h", 5);
+        if (pts.length < 2) continue;
+        const endDateMs = Date.parse(m.endDate);
+        data.push({
+          conditionId: m.conditionId,
+          market: m.question,
+          outcomes: [m.outcomes[0], m.outcomes[1]],
+          tokenIds: [m.clobTokenIds![0], m.clobTokenIds![1]],
+          endDateMs: Number.isFinite(endDateMs) ? endDateMs : undefined,
+          // prices-history stamps unix SECONDS; series are ms everywhere here.
+          points: pts.map(({ t, p }) => ({ t: t > 1e12 ? t : t * 1000, p })),
+        });
+      } catch {}
+    }
+    this.marketPricesCache = { at: Date.now(), data };
+    return data;
+  }
+
+  /** Candle-mode momentum feed: resolve the candle currently LIVE in a
+   *  recurring sub-hour series (e.g. BTC 5-min Up/Down) by its deterministic
+   *  slug and build ONE series from near-live 1-minute price history, with
+   *  the current CLOB midpoint appended as a synthetic "now" point (the
+   *  fidelity-1 history can lag ~90s — a third of the candle). Every read
+   *  goes through the `live-` proxy aliases; the regular prices-history path
+   *  persists for 24h, which would freeze a 5-minute market's series at its
+   *  first fetch and blind both the entry delta and the exit flip. */
+  private async assembleCandleSeries(
+    candles: NonNullable<MomentumParams["candles"]>,
+  ): Promise<MarketPriceSeries[]> {
+    const slug = candleSlug(
+      candles.slugPrefix ?? "btc-updown-5m",
+      candles.periodMinutes ?? 5,
+      Date.now(),
+    );
+    // Static per-candle fields (tokens, condition id, end date) — the 5-min
+    // client market cache is fine here because every candle has a fresh slug.
+    const m = await fetchMarketBySlug(slug);
+    if (!m?.conditionId || (m.clobTokenIds?.length ?? 0) < 2 || (m.outcomes?.length ?? 0) < 2) {
+      return [];
+    }
+    const pts = await fetchPriceHistoryLive(m.clobTokenIds![0]);
+    // prices-history stamps unix SECONDS; series are ms everywhere here.
+    const points = pts.map(({ t, p }) => ({ t: t > 1e12 ? t : t * 1000, p }));
+    const mid = await fetchMidpointLive(m.clobTokenIds![0]);
+    if (mid !== null && (points.length === 0 || points[points.length - 1].t < Date.now())) {
+      points.push({ t: Date.now(), p: mid });
+    }
+    if (points.length < 2) return [];
+    const endDateMs = Date.parse(m.endDate);
+    return [{
+      conditionId: m.conditionId,
+      market: m.question,
+      outcomes: [m.outcomes[0], m.outcomes[1]],
+      tokenIds: [m.clobTokenIds![0], m.clobTokenIds![1]],
+      endDateMs: Number.isFinite(endDateMs) ? endDateMs : undefined,
+      points,
+    }];
   }
 
   /** Phase 4 body: ask the strat for history-driven proposals and submit
@@ -1950,7 +2146,9 @@ export class CopyEngine {
 
       const clobFloor = clobMinNotional(limitPrice);
       const notional = Math.max(p.notional, clobFloor);
-      const tokenId = await this.resolveTokenId(p.conditionId, p.outcome || "Yes");
+      // Strat-supplied token id wins — the name-based fallback assumes
+      // Yes/No naming and would mis-resolve "Up"/"Down" outcomes.
+      const tokenId = p.tokenId ?? await this.resolveTokenId(p.conditionId, p.outcome || "Yes");
       if (!tokenId) {
         this.addLog({
           id: uid(),
@@ -2060,10 +2258,12 @@ export class CopyEngine {
     if (!stats) {
       // Stats not loaded yet — DON'T block copying on a missing ROI (that
       // stranded every trade behind "NO_STATS · ROI not loaded yet"). Score
-      // a neutral expected-profit (DEFAULT_ROI × mirror notional) so the
-      // trade still executes, ranked by mirror size, until real stats land.
+      // a neutral expected-profit (0.5 coin-flip prior × DEFAULT_ROI ×
+      // mirror notional — same scale as the real P × ROI × mirror$ score)
+      // so the trade still executes, ranked by mirror size, until real
+      // stats land.
       const rawMirrorNotional = stratTrade.notional * stratTrade.copyRatio;
-      return { score: DEFAULT_ROI * rawMirrorNotional, sharpe: 0, stats: null };
+      return { score: 0.5 * DEFAULT_ROI * rawMirrorNotional, sharpe: 0, stats: null };
     }
     const score = this.strat.scoreCandidate(stratTrade, stats, this.lastHistory);
     return { score, sharpe: stats?.sharpe ?? 0, stats };

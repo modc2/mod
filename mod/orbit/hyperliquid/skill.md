@@ -1,6 +1,6 @@
 ---
 name: hyperliquid
-description: Copy-trade any Hyperliquid wallet by N-day performance and compose them into vault-backed indexes
+description: Copy-trade any Hyperliquid wallet by N-day performance, compose them into vault-backed indexes, and drive it all over REST or MCP
 ---
 
 # hyperliquid
@@ -63,6 +63,75 @@ hl.list_signals(follower='0x…')
 
 The same operations are reachable via `POST /forward` on the Rust API
 for keyless mod-protocol consumers.
+
+## Auth
+
+Public reads (market data, leaderboards, trader analysis, vaults, index
+browsing) are open. Everything wallet-scoped — follows, signals, signer,
+trading, transfers, live engine — needs a mod protocol-auth token as
+`Authorization: Bearer <token>`, and any `eoa`/`follower`/`owner` you pass
+must be that token's own address. Pass it as `m.mod('hyperliquid')(token=…)`
+or `HYPERLIQUID_TOKEN`; `HYPERLIQUID_ACCESS_OPEN=1` disables the gate for
+local dev.
+
+## MCP tool server
+
+The whole fn surface is also an MCP server — 53 tools, one per mod fn,
+named `hl_<fn>`. Transports: `POST /mcp` (Streamable HTTP, JSON-RPC 2.0,
+one message per POST) and stdio.
+
+```bash
+claude mcp add hyperliquid -- src/api/target/release/hyperliquid-api --stdio
+# or point an HTTP MCP client at  /api/hyperliquid/mcp
+```
+
+```python
+hl.mcp()                     # tool schema + the mod-protocol mapping
+hl.mcp_tools()               # [{name, fn, route, public, bound}, …]
+hl.mcp_call('hl_top_traders', days=7, pool=50)
+hl.mcp_config()              # client config snippets (stdio / http / gateway)
+```
+
+`GET /mcp/schema` is the bridge between the two protocols: every tool
+publishes the `fn` it fronts and the REST route that fn calls, so an MCP
+client and a mod client see the same module. Tool calls execute as loopback
+requests against this API carrying the caller's own `Authorization` header —
+the auth gate treats MCP exactly like browser traffic, and MCP grants no
+authority of its own. A unit test asserts every tool's `fn` is declared in
+`config.json`, so the two schemas cannot drift.
+
+## Ask — the agent that drives that MCP server
+
+`src/agent.py` runs a Claude agent whose *only* toolbox is the MCP server
+above, so it answers from live tool calls instead of memory. UI: `/ask`.
+
+```python
+hl.ask('who are the top 5 traders by 7-day ROI, and what do they hold?')
+# → {answer, tools: [{name, args}, …], turns, ms, cost_usd}
+hl.ask('close my BTC position', act=True)   # write tools, needs a token
+hl.ask_status()                             # model auth, tool counts, hints
+```
+
+```bash
+curl -N /api/hyperliquid/ask -H "Authorization: Bearer $TOKEN" \
+     -d '{"question":"best APR vault over $1M TVL?"}'   # SSE event stream
+```
+
+Two guarantees hold it in place:
+
+* **No new authority.** The caller's token rides to the stdio MCP server as
+  `HYPERLIQUID_TOKEN`, every tool re-enters this API over its REST routes,
+  and `auth.rs` gates it. The agent can never read or do more than the
+  caller could by hand. `POST /ask` itself needs a token (it spends model
+  credits); `GET /ask/status` is public.
+* **A question cannot trade.** The allow/deny lists come from
+  `GET /mcp/schema`: GET-backed tools are reads, everything else is a write.
+  Reads-only is the default; writes need `act=true` *and* a token. Local
+  host tools (Bash/Read/Write/…) are denied in both modes.
+
+Model auth resolves ANTHROPIC_API_KEY → `~/.mod/hyperliquid/anthropic.key`
+(created 0600 on first run) → Claude CLI OAuth. Knobs: `HL_AGENT_MODEL`
+(sonnet), `HL_AGENT_MAX_TURNS` (16), `HL_AGENT_TIMEOUT` (300s).
 
 ## Backend agent wallet
 

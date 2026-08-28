@@ -1,6 +1,30 @@
 {
     "name": "lighthouse",
-    "description": "lighthouse",
-    "version": "0.1.0",
-    "schema": "QmTBgKmy5XwXy8urSz4pg3jDyfwDgzthk7EyKQNcB2iXCF"
+    "description": "Lighthouse Labs perpetual decentralized storage (lighthouse.storage) \u2014 API-key uploads to IPFS/Filecoin with perpetual pinning, gateway retrieval, owner-keyed local index",
+    "version": "0.2.0",
+    "urls": {
+        "api": "https://api.lighthouse.storage",
+        "upload": "https://upload.lighthouse.storage/api/v0/add",
+        "gateway": "https://gateway.lighthouse.storage",
+        "dashboard": "https://files.lighthouse.storage"
+    },
+    "fns": [
+        "put",
+        "get",
+        "pin",
+        "list",
+        "rm",
+        "status",
+        "usage",
+        "uploads",
+        "set_key",
+        "key_status",
+        "install"
+    ],
+    "env": {
+        "LIGHTHOUSE_API_KEY": "API key from files.lighthouse.storage (or persist via m lighthouse/set_key)",
+        "LIGHTHOUSE_GATEWAY": "Override retrieval gateway (default https://gateway.lighthouse.storage)"
+    },
+    "credentials": "~/.mod/lighthouse/credentials.json (off-chain, never committed)",
+    "schema": "QmeyNbTReWgML1EmMhBcQZDGZnjGmypdX7Z14R5ZkagG8G"
 }

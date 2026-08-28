@@ -108,6 +108,20 @@ async def add_miner(req: AddMinerRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/backends")
+async def backends():
+    return {"result": get_bitevo().backends()}
+
+
+@app.get("/whitepaper")
+async def whitepaper():
+    from fastapi.responses import PlainTextResponse
+    wp = MODULE_DIR / "WHITEPAPER.md"
+    if not wp.exists():
+        raise HTTPException(status_code=404, detail="whitepaper missing")
+    return PlainTextResponse(wp.read_text(), media_type="text/markdown; charset=utf-8")
+
+
 @app.get("/challenge")
 async def challenge(type: Optional[str] = Query(None)):
     return {"result": get_bitevo().challenge(challenge_type=type)}

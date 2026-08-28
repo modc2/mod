@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>MUSICA — decks, mixer, sequencer</title>
+<!-- The gateway serves this at /musica with the prefix kept, so every asset and
+     every API call below is relative to it. Do not make these absolute. -->
+<base href="./">
+<link rel="stylesheet" href="css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>%F0%9F%8E%9B%EF%B8%8F</text></svg>">
+</head>
+<body>
+
+<div id="boot" class="boot">
+  <div class="boot-card">
+    <h1>MUSICA</h1>
+    <p>Two decks, a mixer, and a pattern studio. Everything is decoded and mixed
+       in this tab — nothing you load leaves your machine.</p>
+    <button id="boot-go" class="big">OPEN THE BOOTH</button>
+    <small>Browsers only start audio after a click.</small>
+  </div>
+</div>
+
+<header class="topbar">
+  <div class="brand"><b>MUSICA</b><span id="ver">0.1.0</span></div>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab on" data-tab="booth" role="tab">BOOTH</button>
+    <button class="tab" data-tab="studio" role="tab">STUDIO</button>
+    <button class="tab" data-tab="crate" role="tab">CRATE</button>
+  </nav>
+
+  <div class="transport">
+    <button id="seq-play" class="tp" title="Play / stop the sequencer (space)">▶</button>
+    <div class="bpm">
+      <label>BPM</label>
+      <input id="bpm" type="number" min="40" max="220" step="0.01" value="126">
+      <button id="tap" class="mini" title="Tap four beats">TAP</button>
+    </div>
+    <div class="pos"><span id="bars">1</span>.<span id="beats">1</span></div>
+  </div>
+
+  <div class="master">
+    <button id="rec" class="tp rec" title="Record the master bus">●</button>
+    <span id="rec-time" class="rec-time"></span>
+    <div class="meter"><i id="meter-l"></i><i id="meter-r"></i></div>
+    <div class="knob" data-param="master" data-min="0" data-max="1.4" data-value="0.9"
+         data-label="MASTER"></div>
+  </div>
+</header>
+
+<!-- ── BOOTH ─────────────────────────────────────────────────────────── -->
+<main id="booth" class="pane on">
+
+  <section class="deck" data-deck="A">
+    <div class="deck-head">
+      <span class="tag">A</span>
+      <div class="meta">
+        <b class="title">— drop a file —</b>
+        <span class="sub">drag audio here, or load one from the CRATE</span>
+      </div>
+      <div class="detected">
+        <span class="bpm-read">--.-</span>
+        <span class="key-read" title="Detected key · Camelot code">--</span>
+      </div>
+    </div>
+
+    <canvas class="wave-full" height="46"></canvas>
+    <canvas class="wave-zoom" height="96"></canvas>
+
+    <div class="deck-controls">
+      <div class="cues">
+        <button class="cue-btn" data-cue="1">1</button>
+        <button class="cue-btn" data-cue="2">2</button>
+        <button class="cue-btn" data-cue="3">3</button>
+        <button class="cue-btn" data-cue="4">4</button>
+      </div>
+      <div class="loops">
+        <button class="loop-btn" data-beats="0.5">½</button>
+        <button class="loop-btn" data-beats="1">1</button>
+        <button class="loop-btn" data-beats="2">2</button>
+        <button class="loop-btn" data-beats="4">4</button>
+        <button class="loop-btn" data-beats="8">8</button>
+        <button class="loop-off">✕</button>
+      </div>
+      <div class="play-row">
+        <button class="cue-hold" title="Hold to preview from the cue point">CUE</button>
+        <button class="play" title="Play / pause">▶</button>
+        <button class="sync" title="Match the other deck's tempo and downbeat">SYNC</button>
+      </div>
+      <div class="pitch">
+        <label>PITCH <span class="pitch-read">0.0%</span></label>
+        <input class="pitch-fader" type="range" min="-16" max="16" step="0.02" value="0">
+        <div class="nudge">
+          <button data-nudge="-1">◀</button>
+          <button class="pitch-reset">0</button>
+          <button data-nudge="1">▶</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- the mixer sits between the decks, the way it does on a real booth -->
+  <section class="mixer">
+    <div class="strip" data-deck="A">
+      <div class="knob" data-param="trim" data-deck="A" data-min="0" data-max="2" data-value="1" data-label="GAIN"></div>
+      <div class="knob" data-param="high" data-deck="A" data-min="0" data-max="1" data-value="0.5" data-label="HI"></div>
+      <div class="knob" data-param="mid"  data-deck="A" data-min="0" data-max="1" data-value="0.5" data-label="MID"></div>
+      <div class="knob" data-param="low"  data-deck="A" data-min="0" data-max="1" data-value="0.5" data-label="LOW"></div>
+      <div class="knob" data-param="filter" data-deck="A" data-min="-1" data-max="1" data-value="0" data-label="FILTER" data-bipolar="1"></div>
+      <input class="fader" data-deck="A" type="range" min="0" max="1" step="0.001" value="0.85" orient="vertical">
+      <button class="cue-mon" data-deck="A" title="Pre-fader solo">CUE</button>
+    </div>
+
+    <div class="strip mid-strip">
+      <div class="knob" data-param="fx" data-min="0" data-max="1" data-value="0" data-label="ECHO"></div>
+      <div class="xfade-wrap">
+        <input id="xfade" type="range" min="0" max="1" step="0.001" value="0.5">
+        <div class="xf-labels"><span>A</span><span>B</span></div>
+      </div>
+      <button id="xf-cut" class="mini" title="Snap the crossfader to the centre">CENTRE</button>
+    </div>
+
+    <div class="strip" data-deck="B">
+      <div class="knob" data-param="trim" data-deck="B" data-min="0" data-max="2" data-value="1" data-label="GAIN"></div>
+      <div class="knob" data-param="high" data-deck="B" data-min="0" data-max="1" data-value="0.5" data-label="HI"></div>
+      <div class="knob" data-param="mid"  data-deck="B" data-min="0" data-max="1" data-value="0.5" data-label="MID"></div>
+      <div class="knob" data-param="low"  data-deck="B" data-min="0" data-max="1" data-value="0.5" data-label="LOW"></div>
+      <div class="knob" data-param="filter" data-deck="B" data-min="-1" data-max="1" data-value="0" data-label="FILTER" data-bipolar="1"></div>
+      <input class="fader" data-deck="B" type="range" min="0" max="1" step="0.001" value="0.85" orient="vertical">
+      <button class="cue-mon" data-deck="B" title="Pre-fader solo">CUE</button>
+    </div>
+  </section>
+
+  <section class="deck" data-deck="B">
+    <div class="deck-head">
+      <span class="tag">B</span>
+      <div class="meta">
+        <b class="title">— drop a file —</b>
+        <span class="sub">drag audio here, or load one from the CRATE</span>
+      </div>
+      <div class="detected">
+        <span class="bpm-read">--.-</span>
+        <span class="key-read" title="Detected key · Camelot code">--</span>
+      </div>
+    </div>
+
+    <canvas class="wave-full" height="46"></canvas>
+    <canvas class="wave-zoom" height="96"></canvas>
+
+    <div class="deck-controls">
+      <div class="cues">
+        <button class="cue-btn" data-cue="1">1</button>
+        <button class="cue-btn" data-cue="2">2</button>
+        <button class="cue-btn" data-cue="3">3</button>
+        <button class="cue-btn" data-cue="4">4</button>
+      </div>
+      <div class="loops">
+        <button class="loop-btn" data-beats="0.5">½</button>
+        <button class="loop-btn" data-beats="1">1</button>
+        <button class="loop-btn" data-beats="2">2</button>
+        <button class="loop-btn" data-beats="4">4</button>
+        <button class="loop-btn" data-beats="8">8</button>
+        <button class="loop-off">✕</button>
+      </div>
+      <div class="play-row">
+        <button class="cue-hold" title="Hold to preview from the cue point">CUE</button>
+        <button class="play" title="Play / pause">▶</button>
+        <button class="sync" title="Match the other deck's tempo and downbeat">SYNC</button>
+      </div>
+      <div class="pitch">
+        <label>PITCH <span class="pitch-read">0.0%</span></label>
+        <input class="pitch-fader" type="range" min="-16" max="16" step="0.02" value="0">
+        <div class="nudge">
+          <button data-nudge="-1">◀</button>
+          <button class="pitch-reset">0</button>
+          <button data-nudge="1">▶</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ── STUDIO ────────────────────────────────────────────────────────── -->
+<main id="studio" class="pane">
+  <div class="studio-bar">
+    <div class="patterns" id="patterns"></div>
+    <label class="field">STEPS
+      <select id="steps">
+        <option>16</option><option>32</option><option>64</option>
+      </select>
+    </label>
+    <label class="field">SWING <input id="swing" type="range" min="0" max="0.75" step="0.01" value="0">
+      <span id="swing-read">0%</span>
+    </label>
+    <button id="seq-clear" class="mini">CLEAR</button>
+    <button id="seq-rand" class="mini" title="Seed a beat you can edit">SEED</button>
+    <span class="hint">click a step · right-click for accent · drag a file onto a
+      channel name to make it a sampler</span>
+  </div>
+
+  <div class="rack" id="rack"></div>
+
+  <div class="roll-wrap">
+    <div class="roll-head">
+      <b>PIANO ROLL</b>
+      <select id="roll-channel"></select>
+      <span class="hint">click to place a note · drag its right edge to lengthen ·
+        right-click to remove</span>
+    </div>
+    <div class="roll-scroll"><canvas id="roll" height="480"></canvas></div>
+  </div>
+</main>
+
+<!-- ── CRATE ─────────────────────────────────────────────────────────── -->
+<main id="crate" class="pane">
+  <div class="crate-bar">
+    <input id="q" type="search" placeholder="search Spotify — artist, track, playlist">
+    <select id="kind">
+      <option value="track">tracks</option>
+      <option value="album">albums</option>
+      <option value="artist">artists</option>
+      <option value="playlist">playlists</option>
+    </select>
+    <button id="go" class="mini">SEARCH</button>
+    <label class="filebtn">LOAD FILES<input id="files" type="file" accept="audio/*" multiple hidden></label>
+  </div>
+
+  <div id="sp-note" class="note"></div>
+
+  <div class="crate-cols">
+    <div>
+      <h3>LOCAL <span class="hint">the only thing that can actually be mixed</span></h3>
+      <ul id="local" class="rows"></ul>
+    </div>
+    <div>
+      <h3>SPOTIFY <span class="hint">metadata — for planning the set</span></h3>
+      <ul id="results" class="rows"></ul>
+    </div>
+  </div>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script src="js/engine.js"></script>
+<script src="js/analyze.js"></script>
+<script src="js/synth.js"></script>
+<script src="js/sequencer.js"></script>
+<script src="js/spotify.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

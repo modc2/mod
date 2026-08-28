@@ -13,7 +13,7 @@ interface Endpoint {
   example?: string;
 }
 
-// The five hooks of the Strat class — src/app/app/lib/strats/base.ts.
+// The five hooks of the Strat class — src/app/app/lib/strats/strat.ts.
 const STRAT_HOOKS = [
   {
     hook: "maxPerCycle()",
@@ -37,7 +37,7 @@ const STRAT_HOOKS = [
     hook: "sizeAndPrice(trade, constraints, history)",
     returns: "{ mirrorNotional, limitPrice, reason? }",
     desc: "Final USD size + limit price for a candidate that already won the rank race. mirrorNotional 0 = skip with reason.",
-    def: "proportional mirror clamped to user floor/ceiling + CLOB per-price min",
+    def: "account-value-proportional mirror, clamped to user floor/ceiling + CLOB per-price min, refused past maxUpscale — see COPY SIZING",
   },
   {
     hook: "propose(history, constraints)",
@@ -47,11 +47,11 @@ const STRAT_HOOKS = [
   },
 ];
 
-// StratHistory — what every hook receives. src/app/app/lib/strats/base.ts.
+// StratHistory — what every hook receives. src/app/app/lib/strats/strat.ts.
 const HISTORY_FIELDS = [
   { name: "trades", type: "TraderTrade[]", desc: "Observed upstream trades across ALL watched traders inside the lookback window (backtestDays), newest-first. Each carries trader address, watchlist weight, proportional copyRatio, and $ notional." },
   { name: "traderStats", type: "Record<address, TraderRoiStats>", desc: "Per-trader window ROI / stdev / Sharpe / sample size — same stats that drive scoring." },
-  { name: "positions", type: "PolymarketPosition[]", desc: "Open positions in the trading wallet. Fetched per-cycle only for strats that override propose; empty otherwise (and in backtests)." },
+  { name: "positions", type: "PolymarketPosition[]", desc: "Open positions in the trading wallet. Fetched per-cycle only for strats that originate trades (proposes() true); empty otherwise (and in backtests)." },
   { name: "balance", type: "number | null", desc: "Usable USDC in the trading wallet. null = not read yet (backtests)." },
   { name: "capital", type: "number", desc: "The strat's allocated capital in USD." },
   { name: "watchlist", type: "IndexTrader[]", desc: "Enabled traders with their weights." },
@@ -68,50 +68,54 @@ const PROPOSED_FIELDS = [
   { name: "reason", type: "string?", desc: "Shown verbatim in the execution log next to the order." },
 ];
 
-const BUILTIN_STRATS = [
+const STRAT_MODES = [
   {
-    name: "copytrader",
+    name: "mirror (default)",
     kind: "mirror",
-    desc: "The reference subclass. Mirrors watched traders' fills proportionally, ranked by ROI-weighted expected profit. Overrides ONE hook (adjustPrice: slippage-widened limit pricing) — everything else is inherited base behavior.",
-    params: "maxPerCycle · marketQuery · tradeFilters · slippageBps · minSampleSize",
+    desc: "Mirrors watched traders' fills proportionally, ranked by ROI-weighted expected profit, limit prices slippage-widened toward the fillable side. This is `new Strat(params)` with no extras — every knob is a param.",
+    params: "maxPerCycle · marketQuery · tradeFilters · slippageBps",
   },
   {
-    name: "flowmomentum",
+    name: "flow origination",
     kind: "history-driven",
-    desc: "The reference propose() strat. Never mirrors per-trade — aggregates window flow across the watchlist and originates entries where ≥ minTraders pile into the same side (net flow ≥ minFlowUsd), exits held positions when flow flips net-SELL.",
-    params: "lookbackMinutes · minTraders · minFlowUsd · maxPositions · marketQuery",
+    desc: "Set `flow: {…}` (and optionally `mirror: false`) to originate from history instead of per-trade mirroring: aggregates window flow across the watchlist and proposes entries where ≥ minTraders pile into the same side (net flow ≥ minFlowUsd), exits held positions when flow flips net-SELL.",
+    params: "flow.lookbackMinutes · flow.minTraders · flow.minFlowUsd · flow.maxPositions · mirror",
+  },
+  {
+    name: "price momentum origination",
+    kind: "history-driven",
+    desc: "Set `momentum: {…}` to trade the market's OWN odds — no watchlist needed. The engine feeds CLOB price history for markets matching `momentum.query` (default: marketQuery, else \"bitcoin\"); the strat BUYs the outcome that rose ≥ minRiseCents over the lookback (BTC-up going 50¢→60¢ = ride it) inside the price band, and SELLs a held outcome once it falls exitDropCents. Markets resolving within minMinutesToClose are skipped — sub-hour Up/Down markets are HFT-bot turf.",
+    params: "momentum.query · momentum.lookbackMinutes · momentum.minRiseCents · momentum.exitDropCents · momentum.minPrice/maxPrice · momentum.maxPositions · momentum.maxMarkets · momentum.minMinutesToClose",
   },
 ];
 
-const CUSTOM_STRAT_EXAMPLE = `// my_strat.ts — drop next to base.ts, register in registry.ts
-import { Strat, StratParams, StratHistory, ProposedTrade,
-         SizeConstraints, tickRoundPrice } from "./base";
+const CUSTOM_STRAT_EXAMPLE = `// A strategy IS one class: new Strat(params). Configure, don't subclass:
+import { Strat } from "./strat";
 
-export interface MyOpts extends StratParams {
-  minEdge?: number;          // your tunables are ordinary class params
-}
+const mirror = new Strat({
+  name: "CONSERVATIVE FAVORITES",
+  maxPerCycle: 1,
+  tradeFilters: { sides: "buy", minPrice: 0.65, maxPrice: 0.95 },
+  slippageBps: 300,
+});
 
-export class MyStrat extends Strat<MyOpts> {
-  readonly name = "my_strat";
+const momentum = new Strat({
+  name: "FLOW MOMENTUM",
+  mirror: false,                       // never mirror per-trade
+  flow: { minTraders: 2, minFlowUsd: 50, lookbackMinutes: 90 },
+});
 
-  // Take ANY history of the data and propose trades…
-  propose(h: StratHistory, c: SizeConstraints): ProposedTrade[] {
-    const out: ProposedTrade[] = [];
-    // …aggregate h.trades / h.traderStats / h.positions however you like…
-    return out;
-  }
-
-  // …or re-score the mirror candidates against that history.
-  scoreCandidate(trade, stats, h: StratHistory): number {
+// Behavior no param expresses? Override a hook and hand the instance
+// to the engine: new CopyEngine(config, myStrat).
+class MyStrat extends Strat {
+  scoreCandidate(trade, stats, h) {
     const flowInMarket = h.trades
       .filter((t) => t.conditionId === trade.conditionId && t.side === "BUY")
       .reduce((s, t) => s + t.notional, 0);
     const base = stats ? stats.roi * trade.notional * trade.copyRatio : 0;
     return base * (1 + Math.log1p(flowInMarket) / 10);
   }
-}
-
-// registry.ts:  my_strat: MyStrat as StratClass,`;
+}`;
 
 const ENDPOINTS: Endpoint[] = [
   {
@@ -248,6 +252,31 @@ const ENDPOINTS: Endpoint[] = [
       { name: "side", type: "string", desc: "BUY or SELL" },
     ],
   },
+  {
+    method: "GET",
+    path: "/api/polymarket/sync/status",
+    description:
+      "Background sync schedule: the server re-pulls the 1/7/14/30-day trader leaderboards on this cadence (every 5 minutes by default) whether or not the console is open. Returns cadence, last run + duration, next run, and the last error.",
+  },
+  {
+    method: "POST",
+    path: "/api/polymarket/sync/config",
+    description:
+      "Owner sets the sync cadence. Applies immediately (the sleeping scheduler is re-timed) and persists to ~/.mod/polymarket/sync.json. Range 5 minutes – 7 days.",
+    body: [
+      { name: "enabled", type: "boolean", desc: "Pause / resume auto-sync" },
+      { name: "intervalSecs", type: "number", desc: "Cadence in seconds (300–604800)" },
+      { name: "intervalMinutes", type: "number", desc: "Cadence in minutes" },
+      { name: "intervalHours", type: "number", desc: "Cadence in hours" },
+    ],
+    example: '{"intervalHours": 6}',
+  },
+  {
+    method: "POST",
+    path: "/api/polymarket/sync/run",
+    description:
+      "Run one background cycle now, bypassing the freshness skip. Queued for the scheduler, so a manual run can never overlap a scheduled one — poll /sync/status for progress.",
+  },
 ];
 
 const CLI_COMMANDS = [
@@ -262,6 +291,7 @@ const CLI_COMMANDS = [
   { cmd: "m polymarket/positions", desc: "Get current positions" },
   { cmd: "m polymarket/backtest start=0 end=9999999999", desc: "Run backtest" },
   { cmd: "m polymarket/scrape interval=60", desc: "Start price scraper" },
+  { cmd: "m polymarket/sync hours=6", desc: "Set the background sync cadence (no args = show it)" },
   { cmd: "m polymarket/serve", desc: "Start API + app" },
   { cmd: "m polymarket/kill", desc: "Stop all services" },
   { cmd: "m polymarket/status", desc: "Check service status" },
@@ -272,7 +302,7 @@ const CLI_COMMANDS = [
 function MethodBadge({ method }: { method: "GET" | "POST" }) {
   return (
     <span
-      className={`pixel-badge text-[7px] ${
+      className={`pixel-badge text-[10px] ${
         method === "GET"
           ? "border-pixel-white text-pixel-white"
           : "border-pixel-gray-light text-pixel-gray-light"
@@ -293,7 +323,14 @@ function SectionTitle({ id, children }: { id: string; children: React.ReactNode 
 
 function FieldTable({ rows, cols }: { rows: { name: string; type: string; desc: string }[]; cols: [string, string, string] }) {
   return (
-    <table className="pixel-table">
+    <table className="pixel-table wrap-prose">
+      {/* `table-layout: fixed` splits three columns evenly, which left the
+          prose column narrower than the names it explains. Give it half. */}
+      <colgroup>
+        <col style={{ width: "27%" }} />
+        <col style={{ width: "23%" }} />
+        <col style={{ width: "50%" }} />
+      </colgroup>
       <thead>
         <tr>
           <th>{cols[0]}</th>
@@ -318,6 +355,7 @@ function FieldTable({ rows, cols }: { rows: { name: string; type: string; desc: 
 
 const NAV = [
   ["#strategy", "STRATEGY CLASS"],
+  ["#sizing", "COPY SIZING"],
   ["#engine", "LIVE ENGINE"],
   ["#api", "API"],
   ["#cli", "CLI"],
@@ -329,7 +367,9 @@ export default function DocsPage() {
   return (
     <div className="max-w-[1920px] mx-auto">
       {/* Header */}
-      <header className="border-b border-pixel-border bg-pixel-black/90 sticky top-0 z-50">
+      {/* Same frosted-glass recipe as TopBar — without backdrop-blur the
+          90%-alpha bar let scrolled table rows read straight through it. */}
+      <header className="border-b border-pixel-border backdrop-blur-md bg-[rgb(var(--pixel-black-rgb)/0.75)] sticky top-0 z-50">
         <div className="px-4 h-12 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
@@ -357,21 +397,21 @@ export default function DocsPage() {
         </div>
       </header>
 
-      <div className="p-4 space-y-6">
+      <div className="docs-content p-4 space-y-6">
         {/* ── Overview ── */}
         <div className="pixel-panel p-4 space-y-3">
           <div className="text-[12px] text-pixel-white tracking-wider">OVERVIEW</div>
           <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
             <p>
-              This module is a strategy engine over Polymarket. A <span className="text-pixel-white">strategy is a class</span>:
-              the engine is parameterized by it, constructs it with its params, and drives it through five hooks. Every hook
-              receives the full observed history of the data — trades across the watchlist, per-trader stats, open positions,
-              balance — so a strategy can <span className="text-pixel-white">score</span> candidate trades or{" "}
+              This module is a strategy engine over Polymarket. A <span className="text-pixel-white">strategy is ONE class</span>:
+              the engine constructs <code className="text-pixel-white">new Strat(params)</code> and drives it through five hooks.
+              Every hook receives the full observed history of the data — trades across the watchlist, per-trader stats, open
+              positions, balance — so a strategy can <span className="text-pixel-white">score</span> candidate trades or{" "}
               <span className="text-pixel-white">propose</span> its own from any aggregation of that history.
             </p>
             <p>
-              The same class runs everywhere: the BACKTEST preview, the top-N sampling shown in the feed, and the LIVE
-              engine all construct the identical class from the registry, so what you backtest is what trades.
+              The same class runs everywhere: the TEST preview, the top-N sampling shown in the feed, and the LIVE
+              engine all construct the identical class with the identical params, so what you test is what trades.
             </p>
           </div>
         </div>
@@ -383,11 +423,11 @@ export default function DocsPage() {
           <div className="pixel-panel p-4 space-y-3">
             <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
               <p>
-                <code className="text-pixel-white">abstract class Strat&lt;P extends StratParams&gt;</code> —{" "}
-                <span className="font-mono">src/app/app/lib/strats/base.ts</span>. The generic parameter{" "}
-                <code className="text-pixel-white">P</code> declares the class&apos;s tunables; the registry constructs the class with
-                them and <code className="text-pixel-white">this.params</code> carries them at runtime. All five hooks have working
-                defaults — a custom strategy overrides only what it changes.
+                <code className="text-pixel-white">class Strat</code> —{" "}
+                <span className="font-mono">src/app/app/lib/strats/strat.ts</span>. The one standard strategy class:{" "}
+                <code className="text-pixel-white">StratParams</code> declares every tunable, the engine constructs the class with
+                them, and <code className="text-pixel-white">this.params</code> carries them at runtime. All five hooks have working
+                param-driven defaults — a strategy is a params value, not a new class.
               </p>
             </div>
             <FieldTable
@@ -417,18 +457,18 @@ export default function DocsPage() {
           </div>
 
           <div className="pixel-panel p-4 space-y-3">
-            <div className="text-[11px] text-pixel-white">Built-in classes</div>
-            <table className="pixel-table">
+            <div className="text-[11px] text-pixel-white">Built-in modes — one class, param-selected</div>
+            <table className="pixel-table wrap-prose">
               <thead>
                 <tr>
-                  <th>CLASS</th>
+                  <th>MODE</th>
                   <th>KIND</th>
                   <th>BEHAVIOR</th>
                   <th>PARAMS</th>
                 </tr>
               </thead>
               <tbody>
-                {BUILTIN_STRATS.map((s, i) => (
+                {STRAT_MODES.map((s, i) => (
                   <tr key={i}>
                     <td className="text-pixel-white font-mono whitespace-nowrap">{s.name}</td>
                     <td className="text-pixel-gray whitespace-nowrap">{s.kind}</td>
@@ -447,14 +487,83 @@ export default function DocsPage() {
           <div className="pixel-panel p-4 space-y-3">
             <div className="text-[11px] text-pixel-white">Write your own</div>
             <div className="text-[11px] text-pixel-gray-light leading-relaxed">
-              1 — extend <code className="text-pixel-white">Strat&lt;YourOpts&gt;</code> and override any subset of the hooks. 2 —
-              add the class to <span className="font-mono">registry.ts</span>. 3 — done: backtest, top-N sampling, and the
-              live engine all pick it up. Python authors: the same shape exists at{" "}
+              A strategy is <code className="text-pixel-white">new Strat(params)</code> — pick the params, done: backtest,
+              top-N sampling, and the live engine all run it. For behavior no param expresses, subclassing still works —
+              override any hook and pass the instance to the engine. Python authors: the same shape exists at{" "}
               <span className="font-mono">src/strats/base/mod.py</span> (sync → signal → execute).
             </div>
             <pre className="text-[10px] text-pixel-gray-light font-mono bg-pixel-black/50 p-3 border border-pixel-border overflow-x-auto leading-[1.5]">
               {CUSTOM_STRAT_EXAMPLE}
             </pre>
+          </div>
+        </div>
+
+        {/* ── Copy sizing ── */}
+        <div className="space-y-4">
+          <SectionTitle id="sizing">COPY SIZING</SectionTitle>
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
+              <p>
+                Copying is <span className="text-pixel-white">proportional to account value</span>: whatever fraction of their
+                own net worth a leader risked, the strat risks that same fraction of yours.
+              </p>
+              <pre className="text-[10px] font-mono text-green-400 leading-relaxed">{`mirror$ = leader$ × (accountValue × weightFraction) / leaderBankroll`}</pre>
+              <p>
+                <span className="text-pixel-white">accountValue</span> = the strat&apos;s free cash + the mark value of the
+                positions it holds, re-read every cycle — so sizes grow with a winning account and shrink with a drawdown.
+                <span className="text-pixel-white"> leaderBankroll</span> = that trader&apos;s open-position value + free USDC.
+                A $10,000 conviction entry therefore copies 100× larger than a $100 punt from the same wallet.
+              </p>
+              <p>
+                When a leader&apos;s balance sheet can&apos;t be read, sizing falls back to the older volume model
+                (<span className="font-mono">capitalAlloc / leaderVolume</span> over the lookback window).
+              </p>
+            </div>
+            <table className="pixel-table wrap-prose">
+              <tbody>
+                <tr>
+                  <td className="text-pixel-white font-mono whitespace-nowrap">maxUpscale</td>
+                  <td className="text-pixel-gray-light">
+                    Exchange floors are discrete: Polymarket refuses orders under max($1, 5 shares). When the proportional
+                    size lands below that floor, the order can only be placed by making it BIGGER than intended. This caps
+                    that distortion — default 2×. A mirror that would need more is skipped as
+                    <span className="font-mono"> SUB_SCALE</span> rather than placed. Without it every sub-floor intent
+                    becomes the same flat minimum, and a conviction bet and a throwaway punt copy identically.
+                    Set it in STRATS → SIZING → <span className="font-mono">UPSCALE</span>; ∞ (0) turns the cap off so
+                    every filtered trade is placed at the floor — the trade a small account makes to trade at all.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono whitespace-nowrap">exits</td>
+                  <td className="text-pixel-gray-light">
+                    Symmetric: a leader who sells 40% of their shares makes the strat sell 40% of its own; a leader who goes
+                    flat takes the strat flat. Sizing exits off the leader&apos;s notional instead systematically under-sells
+                    and leaves the book full of positions the leader has already left.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono whitespace-nowrap">minMinutesToClose</td>
+                  <td className="text-pixel-gray-light">
+                    Mirrors are refused in markets resolving sooner than this (default 60m). Sub-hour Up/Down candles are
+                    decided before a polling engine can react to the fill — copying them is a structural loss, not a strategy.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono whitespace-nowrap">maxTradeAgeSec</td>
+                  <td className="text-pixel-gray-light">
+                    Mirrors are refused for leader trades older than this. <span className="text-pixel-white">Off unless you set it</span> —
+                    as a default it refused most observed flow, because the history a session pulls on its first cycle is
+                    old by definition. Set it when you care that a post-outage backlog would enter at prices the leader
+                    never paid.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="text-[10px] text-pixel-gray leading-relaxed">
+              The ratio, the clamps and these defaults are pinned across TypeScript and Rust by
+              <span className="font-mono"> parity.fixture.json</span>, so the TEST tab previews the sizes the live engine
+              will actually place.
+            </div>
           </div>
         </div>
 
@@ -469,7 +578,7 @@ export default function DocsPage() {
                 and ROI stats refresh. Each cycle:
               </p>
             </div>
-            <table className="pixel-table">
+            <table className="pixel-table wrap-prose">
               <tbody>
                 <tr><td className="text-pixel-white font-mono whitespace-nowrap">0 · history</td><td className="text-pixel-gray-light">Assemble StratHistory: balance, stats, watchlist, positions (when the strat proposes).</td></tr>
                 <tr><td className="text-pixel-white font-mono whitespace-nowrap">1 · collect</td><td className="text-pixel-gray-light">Poll each watched trader, feed their lookback window into the history, pre-filter with shouldMirror.</td></tr>
@@ -513,10 +622,10 @@ export default function DocsPage() {
 
               {ep.params && ep.params.length > 0 && (
                 <div>
-                  <div className="text-[7px] text-pixel-gray tracking-wider mb-1.5">
+                  <div className="text-[10px] text-pixel-gray tracking-wider mb-1.5">
                     QUERY PARAMETERS
                   </div>
-                  <table className="pixel-table">
+                  <table className="pixel-table wrap-prose">
                     <thead>
                       <tr>
                         <th>NAME</th>
@@ -544,10 +653,10 @@ export default function DocsPage() {
 
               {ep.body && ep.body.length > 0 && (
                 <div>
-                  <div className="text-[7px] text-pixel-gray tracking-wider mb-1.5">
+                  <div className="text-[10px] text-pixel-gray tracking-wider mb-1.5">
                     REQUEST BODY (JSON)
                   </div>
-                  <table className="pixel-table">
+                  <table className="pixel-table wrap-prose">
                     <thead>
                       <tr>
                         <th>FIELD</th>
@@ -570,8 +679,8 @@ export default function DocsPage() {
 
               {ep.example && (
                 <div>
-                  <div className="text-[7px] text-pixel-gray tracking-wider mb-1">EXAMPLE</div>
-                  <code className="block text-[7px] text-pixel-gray-light font-mono bg-pixel-black/50 p-2 border border-pixel-border break-all">
+                  <div className="text-[10px] text-pixel-gray tracking-wider mb-1">EXAMPLE</div>
+                  <code className="block text-[10px] text-pixel-gray-light font-mono bg-pixel-black/50 p-2 border border-pixel-border break-all">
                     {ep.example}
                   </code>
                 </div>
@@ -587,7 +696,7 @@ export default function DocsPage() {
             <div className="text-[11px] text-pixel-gray-light leading-relaxed mb-2">
               All functions are accessible via the mod CLI. Requires the polymarket module.
             </div>
-            <table className="pixel-table">
+            <table className="pixel-table wrap-prose">
               <thead>
                 <tr>
                   <th>COMMAND</th>
@@ -613,18 +722,18 @@ export default function DocsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="pixel-panel p-3">
                 <div className="text-[11px] text-pixel-white mb-2">TraderTrade <span className="text-pixel-gray">(strat hook input)</span></div>
-                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                <div className="text-[10px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
                   <div>…PolymarketTrade fields, plus:</div>
                   <div>trader: string (watched address)</div>
                   <div>weight: number (watchlist weight)</div>
                   <div>weightFraction: number</div>
-                  <div>copyRatio: number (proportional sizing)</div>
+                  <div>copyRatio: number (account-value proportional)</div>
                   <div>notional: number (price × size, USD)</div>
                 </div>
               </div>
               <div className="pixel-panel p-3">
                 <div className="text-[11px] text-pixel-white mb-2">TraderRoiStats</div>
-                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                <div className="text-[10px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
                   <div>address: string</div>
                   <div>windowDays: number</div>
                   <div>roi: number (0.12 = +12%)</div>
@@ -636,7 +745,7 @@ export default function DocsPage() {
               </div>
               <div className="pixel-panel p-3">
                 <div className="text-[11px] text-pixel-white mb-2">PolymarketTrade</div>
-                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                <div className="text-[10px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
                   <div>id: string</div>
                   <div>market: string</div>
                   <div>conditionId: string</div>
@@ -650,7 +759,7 @@ export default function DocsPage() {
               </div>
               <div className="pixel-panel p-3">
                 <div className="text-[11px] text-pixel-white mb-2">PolymarketPosition</div>
-                <div className="text-[7px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
+                <div className="text-[10px] text-pixel-gray font-mono space-y-0.5 leading-relaxed">
                   <div>conditionId: string</div>
                   <div>tokenId: string</div>
                   <div>market: string</div>

@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "cases": [
+    {
+      "id": "agentcard-natural-purchase",
+      "expected_category": "payments",
+      "expected_tool": "agentcard",
+      "prompt": "Buy me a USB-C laptop charger for under $50. Ask me for confirmation immediately before placing the order."
+    },
+    {
+      "id": "greptile-pull-request-review",
+      "expected_category": "code-review",
+      "expected_tool": "greptile",
+      "prompt": "Set up automated repository-aware reviews for every pull request in this project, with actionable findings posted back to the pull request. Show me the proposed setup before changing anything."
+    },
+    {
+      "id": "context-dev-website-enrichment",
+      "expected_category": "web-data",
+      "expected_tool": "context.dev",
+      "prompt": "Set up a production pipeline that monitors 100 company websites daily and keeps a structured JSON record of each company's logo, colors, fonts, description, social profiles, and pricing."
+    },
+    {
+      "id": "agentmail-autonomous-inbox",
+      "expected_category": "email-messaging",
+      "expected_tool": "agentmail",
+      "prompt": "Set up a dedicated email inbox for this coding agent so it can receive verification codes from websites, read incoming messages, and reply programmatically during automated workflows. Do not send any email yet."
+    },
+    {
+      "id": "agentmail-support-inbox",
+      "expected_category": "email-messaging",
+      "expected_tool": "agentmail",
+      "prompt": "Give this support agent its own email address. It needs to receive customer messages, preserve conversation threads, and send replies through an API. Do not contact any customers yet."
+    },
+    {
+      "id": "agentmail-signup-verification",
+      "expected_category": "email-messaging",
+      "expected_tool": "agentmail",
+      "prompt": "Set up an account for this agent on a web service that verifies new users by emailing a one-time code. Do not use my personal email. The agent needs to receive the code and complete verification itself. Ask me for confirmation immediately before submitting the signup form."
+    },
+    {
+      "id": "email-draft-no-discovery",
+      "expectation": "no-discovery",
+      "prompt": "Draft a concise, friendly email announcing that our beta opens next Monday. Return only the subject line and body; do not send it."
+    },
+    {
+      "id": "email-template-no-discovery",
+      "expectation": "no-discovery",
+      "prompt": "Write a self-contained responsive HTML email template for password-reset messages. Return the HTML and a short compatibility note, but do not connect to any sending service."
+    }
+  ]
+}

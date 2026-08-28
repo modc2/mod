@@ -1,0 +1,42 @@
+[package]
+name = "prerank-api"
+version = "1.0.0"
+edition = "2021"
+description = "A daily, cheat-proof prediction market over agent/model ranks"
+
+[lib]
+name = "prerank_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "prerank-api"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+anyhow = "1"
+thiserror = "2"
+
+# The chain is SHA-256 all the way down; addresses are Ethereum's, so the
+# recovery path needs Keccak and secp256k1. k256 keeps that to two small
+# RustCrypto crates rather than dragging in a whole wallet stack.
+sha2 = "0.10"
+sha3 = "0.10"
+k256 = { version = "0.13", features = ["ecdsa"] }
+hex = "0.4"
+rand = "0.8"
+
+chrono = { version = "0.4", features = ["serde"] }
+parking_lot = "0.12"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"

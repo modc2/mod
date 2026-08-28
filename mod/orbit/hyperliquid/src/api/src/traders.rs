@@ -201,6 +201,48 @@ fn score_fills(fills: &[Fill], cutoff_ms: i64) -> (f64, f64, f64, usize, Vec<Str
     (volume, pnl, win_rate, count, coins, sharpe, last)
 }
 
+/// Computed board for one window, kept in memory and mirrored to disk so a
+/// freshly (re)started API serves data instantly instead of making the first
+/// visitor sit through a multi-minute 429-throttled scan. The prewarm loop in
+/// main.rs is the writer; /traders/top is a pure cache read for the standard
+/// windows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoardEntry {
+    pub updated_at: i64, // ms epoch of the compute that produced this board
+    pub pool: usize,     // how many rows were captured (requests truncate down)
+    pub traders: Vec<TopTrader>,
+}
+
+pub struct BoardCache {
+    path: std::path::PathBuf,
+    boards: Mutex<std::collections::HashMap<u32, BoardEntry>>,
+}
+
+impl BoardCache {
+    pub fn load(dir: &str) -> Self {
+        let path = std::path::PathBuf::from(dir).join("boards.json");
+        let boards = std::fs::read_to_string(&path).ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        Self { path, boards: Mutex::new(boards) }
+    }
+    pub fn get(&self, days: u32) -> Option<BoardEntry> {
+        self.boards.lock().get(&days).cloned()
+    }
+    pub fn put(&self, days: u32, pool: usize, traders: Vec<TopTrader>) {
+        let entry = BoardEntry {
+            updated_at: chrono::Utc::now().timestamp_millis(),
+            pool,
+            traders,
+        };
+        let mut g = self.boards.lock();
+        g.insert(days, entry);
+        if let Ok(s) = serde_json::to_string(&*g) {
+            let _ = std::fs::write(&self.path, s);
+        }
+    }
+}
+
 pub async fn top_traders(
     hl: Arc<Client>,
     days: u32,

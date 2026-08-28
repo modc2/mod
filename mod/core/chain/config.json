@@ -175,7 +175,62 @@
                     "src": "QmW3nZFvhvZbWoFVENBGyAqtisQkvdyy63qHwtCZw2YADG"
                 }
             }
+        },
+        "http://localhost:8545": {
+            "chainId": "31337",
+            "url": "http://localhost:8545",
+            "deployer": "0x50e369357C40a2db175A16EC517Af77A60ef82d7",
+            "contracts": {
+                "USDC": {
+                    "address": "0x0485ff49F6F5812855D8448DF7e5557C359d0713",
+                    "contract": "Token"
+                },
+                "USDT": {
+                    "address": "0x12B59cb0b7a37E991e417b0d5d5d3bDB8C4C4E84",
+                    "contract": "Token"
+                },
+                "DAI": {
+                    "address": "0xA54b7AcCc742ddF42fCc788F78AC10Ccf6740376",
+                    "contract": "Token"
+                },
+                "NativeToken": {
+                    "address": "0x2EDDa313F6bBA0bc60C2f0e619Bff8B5ecdc4641",
+                    "contract": "Token"
+                },
+                "Registry": {
+                    "address": "0xA7CaA8f96c85C9fc81Fc236F9413f944174BdBfE",
+                    "contract": "Registry"
+                },
+                "Perms": {
+                    "address": "0x5098B77C473C5b62A165a103663174d7DF5028Af",
+                    "contract": "Perms"
+                },
+                "ManualPriceOracle": {
+                    "address": "0xdBb44dC9D8DAF91679Fa25448892a277041Aeb6f",
+                    "contract": "ManualPriceOracle"
+                },
+                "TokenGate": {
+                    "address": "0x3a03cCc5C5624EF0700aB3E1f98680d500c0A875",
+                    "contract": "TokenGate"
+                },
+                "BlocTime": {
+                    "address": "0xEd4aa9Ef7F8E8ef1eeE0291A98Bad42f01dAa607",
+                    "contract": "BlocTime"
+                },
+                "Treasury": {
+                    "address": "0xe54021AF26632ee8fa1129e485BCDb31Ef8A1604",
+                    "contract": "Treasury"
+                },
+                "Market": {
+                    "address": "0x4283AAFC59bC77b62Eb1D4d66E43a4b435f80Dca",
+                    "contract": "Market"
+                },
+                "Debit": {
+                    "address": "0xa024337c87E5483cf3aB049412Adf347d96B6eC9",
+                    "contract": "Debit"
+                }
+            }
         }
     },
-    "schema": "QmbmAQVYtjoGN5fCxTKxPhhzpYsZL38s7DPaLuFQxSgXjM"
+    "schema": "QmTNdSZaFfeJrK8T8pDVchfwDiTiLixytNZTZvjgyzERZs"
 }

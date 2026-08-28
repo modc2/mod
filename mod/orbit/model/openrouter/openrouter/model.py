@@ -126,9 +126,15 @@ class OpenRouter:
         message = message + prompt if prompt else message
         model = self.resolve_model(model)
         model_info = self.model_info(model)
-        num_tokens = len(message) // 4  # rough char-to-token estimate
+        # rough char-to-token estimate over everything we send, not just the
+        # last message — and deliberately pessimistic, because under-counting
+        # here makes the output budget overrun the context window by a hair
+        # and the provider rejects the whole request with a 400.
+        sent = message + ''.join(str(h.get('content', '')) for h in history)
+        num_tokens = len(sent) // 3
         print(f'Sending ~{num_tokens} tokens -> {model}')
-        max_tokens = min(max_tokens, max(1024, model_info['context_length'] - num_tokens))
+        headroom = model_info['context_length'] - num_tokens - self.context_reserve
+        max_tokens = max(1, min(max_tokens, headroom))
         messages = history.copy()
         messages.append({"role": "user", "content": message})
         result = self.client.chat.completions.create(model=model, messages=messages, stream= bool(stream), max_tokens = max_tokens, temperature= temperature  )
@@ -237,13 +243,29 @@ class OpenRouter:
         self.store.put(self.api_path, keys)
         return keys
 
+    # OpenRouter adds and retires models constantly. Without a TTL the cached
+    # catalog freezes on first fetch, and every model released after that is
+    # rejected by resolve_model() before a request is ever made.
+    model_cache_max_age = 24 * 60 * 60
+
+    # tokens held back from the output budget for chat scaffolding the
+    # char-count estimate can't see (role wrappers, tool schemas, templates)
+    context_reserve = 512
+
     def model2info(self, search: str = None, path='models',  update=False):
-        models = self.store.get(path, default={},  update=update)
+        models = self.store.get(path, default={}, max_age=self.model_cache_max_age, update=update)
         if len(models) == 0:
             print('Updating models...')
-            response = requests.get(self.url + '/models')
-            models = json.loads(response.text)['data']
-            self.store.put(path, models)
+            try:
+                response = requests.get(self.url + '/models', timeout=30)
+                models = json.loads(response.text)['data']
+                self.store.put(path, models)
+            except Exception as e:
+                # a refresh failure must not brick callers — serve the stale copy
+                models = self.store.get(path, default=[])
+                if not models:
+                    raise
+                print(f'Model refresh failed ({e}); using cached catalog.')
         models = self.filter_models(models, search=search)
         return {m['id']:m for m in models}
     

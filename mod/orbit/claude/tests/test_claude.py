@@ -279,6 +279,7 @@ class TestOwnership:
         """Error message is human-readable with truncated addresses."""
         c = Mod()
         c._owner = "0xeb0631ce3ec62ceed053c66eb6481753d0c812a8"
+        c._bloctime_gate = False  # isolate owner-matching from live BlocTime holders
         try:
             c.require_owner("0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB", "forward(test query...)")
             assert False, "Should have raised"
@@ -294,6 +295,7 @@ class TestOwnership:
         """require_owner handles Key objects with .address attribute."""
         c = Mod()
         c._owner = "0xeb0631ce3ec62ceed053c66eb6481753d0c812a8"
+        c._bloctime_gate = False  # isolate owner-matching from live BlocTime holders
         key = MagicMock()
         key.address = "0xaF3e0796042aF79eA1642c919ac0ea6d165Bc6dB"
         key.__str__ = lambda self: f"Key({self.address}, type=ecdsa)"
@@ -1246,6 +1248,132 @@ class TestServer:
         assert 'id' in job
         found = c.job(job['id'])
         assert found['id'] == job['id']
+
+
+class TestPrompts:
+    """Shareable prompt catalog (localfs / IPFS CID)."""
+
+    @pytest.fixture
+    def c(self, tmp_path):
+        mod = Mod()
+        mod._prompts_dir = tmp_path / 'prompts'
+        return mod
+
+    class _FakeIpfs:
+        """Minimal in-memory localfs stand-in: put(text)->cid, get(cid)->text."""
+        def __init__(self):
+            self.store = {}
+        def put(self, text):
+            cid = "Qm" + hashlib_sha(text)
+            self.store[cid] = text
+            return cid
+        def get(self, cid):
+            return self.store[cid]
+
+    @pytest.fixture
+    def with_ipfs(self, monkeypatch):
+        fake = TestPrompts._FakeIpfs()
+        orig = m.m.mod
+        def fake_mod(name, *a, **k):
+            if name == 'ipfs':
+                return lambda *aa, **kk: fake
+            return orig(name, *a, **k)
+        monkeypatch.setattr(m.m, 'mod', fake_mod)
+        return fake
+
+    def test_default_prompt_is_nice_and_showable(self, c):
+        d = c.default_prompt()
+        assert d['id'] == 'default'
+        assert d['builtin'] is True
+        assert len(d['body']) > 100          # a real prompt, not a stub
+        assert 'Steve' in d['body']          # make Steve proud
+
+    def test_empty_catalog(self, c):
+        assert c.list_prompts() == []
+
+    def test_save_and_list(self, c):
+        e = c.save_prompt("My Reviewer", "You review code.", kind="system")
+        assert e['id'].startswith('p_')
+        assert e['title'] == "My Reviewer"
+        got = c.list_prompts()
+        assert len(got) == 1 and got[0]['id'] == e['id']
+
+    def test_save_requires_title(self, c):
+        with pytest.raises(ValueError):
+            c.save_prompt("", "body")
+
+    def test_save_tags_from_csv(self, c):
+        e = c.save_prompt("Tagged", "body", tags="a, b ,c")
+        assert e['tags'] == ["a", "b", "c"]
+
+    def test_resave_same_title_updates_in_place(self, c):
+        a = c.save_prompt("Dup", "v1")
+        b = c.save_prompt("Dup", "v2")
+        assert a['id'] == b['id']
+        assert len(c.list_prompts()) == 1
+        assert c.get_prompt(id=a['id'])['body'] == "v2"
+
+    def test_list_filter_by_kind(self, c):
+        c.save_prompt("sys", "s", kind="system")
+        c.save_prompt("task", "t", kind="task")
+        assert len(c.list_prompts(kind="system")) == 1
+        assert len(c.list_prompts(kind="task")) == 1
+
+    def test_get_by_id(self, c):
+        e = c.save_prompt("Findme", "body")
+        assert c.get_prompt(id=e['id'])['title'] == "Findme"
+        assert c.get_prompt(id="nope") is None
+
+    def test_save_gets_cid_with_localfs(self, c, with_ipfs):
+        e = c.save_prompt("Shared", "You are shared.")
+        assert e['cid'] and e['cid'].startswith("Qm")
+
+    def test_share_returns_cid_and_gateway(self, c, with_ipfs):
+        e = c.save_prompt("Shareme", "body text")
+        s = c.share_prompt(e['id'])
+        assert s['cid'] == e['cid']
+        assert s['gateway'].endswith(e['cid'])
+
+    def test_import_roundtrip(self, c, with_ipfs):
+        e = c.save_prompt("Original", "portable body")
+        # A fresh catalog imports it purely by CID.
+        c2 = Mod()
+        c2._prompts_dir = c._prompts_dir.parent / 'other'
+        imported = c2.import_prompt(e['cid'], title="Copied")
+        assert imported['body'] == "portable body"
+        assert len(c2.list_prompts()) == 1
+
+    def test_import_existing_cid_is_idempotent(self, c, with_ipfs):
+        e = c.save_prompt("Once", "body")
+        again = c.import_prompt(e['cid'])
+        assert again['id'] == e['id']
+        assert len(c.list_prompts()) == 1
+
+    def test_get_by_cid_falls_back_to_localfs(self, c, with_ipfs):
+        cid = c._localfs_put("floating body")
+        got = c.get_prompt(cid=cid)
+        assert got['body'] == "floating body"
+        assert got['imported'] is True
+
+    def test_delete_by_author(self, c):
+        e = c.save_prompt("Trash", "body")          # author defaults to owner key
+        res = c.delete_prompt(e['id'])
+        assert res['deleted'] == e['id']
+        assert c.list_prompts() == []
+
+    def test_delete_missing(self, c):
+        assert 'error' in c.delete_prompt("p_nope")
+
+    def test_persists_across_instances(self, c):
+        c.save_prompt("Sticky", "body")
+        c2 = Mod()
+        c2._prompts_dir = c._prompts_dir
+        assert len(c2.list_prompts()) == 1
+
+
+def hashlib_sha(text):
+    import hashlib
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 if __name__ == "__main__":

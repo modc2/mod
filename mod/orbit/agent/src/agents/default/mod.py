@@ -6,5 +6,5 @@ class Agent:
     description = "General-purpose coding agent"
     icon = ">_"
     goal = None  # uses base Agent goal
-    skills = None  # all skills
+    tools = None  # every tool
     model = None  # default model

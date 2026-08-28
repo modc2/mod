@@ -1,155 +1,279 @@
 {
-    "anchor": "src/mod.py",
-    "app_port": 3150,
-    "cooldown_sec": 60,
-    "daily_limit_tao": 100.0,
-    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers (round-robin public RPCs, no third-party APIs)",
-    "endpoints": {
-        "/account/{ss58}": {
-            "docs": "Coldkey allocations + N-day PnL",
-            "method": "GET"
-        },
-        "/account/{ss58}/pnl": {
-            "docs": "Detailed PnL breakdown by subnet",
-            "method": "GET"
-        },
-        "/copies": {
-            "docs": "List active copy configs",
-            "method": "GET"
-        },
-        "/copy": {
-            "docs": "Create a copy config (target \u2192 our hotkey)",
-            "method": "POST"
-        },
-        "/copy/{id}/pause": {
-            "docs": "Pause a copy",
-            "method": "POST"
-        },
-        "/copy/{id}/resume": {
-            "docs": "Resume a copy",
-            "method": "POST"
-        },
-        "/copy/{id}/sync": {
-            "docs": "Force sync (apply target's allocations now)",
-            "method": "POST"
-        },
-        "/health": {
-            "docs": "Chain health + active RPC + full pool",
-            "method": "GET"
-        },
-        "/leaderboard": {
-            "docs": "Top performers by N-day alpha PnL (?days=7&top=50)",
-            "method": "GET"
-        },
-        "/status": {
-            "docs": "Running state, block height, tracked accounts, active copies",
-            "method": "GET"
-        },
-        "/subnets": {
-            "docs": "All Bittensor subnets (netuid, alpha price, total stake, tempo, emission)",
-            "method": "GET"
-        },
-        "/trader/{ss58}": {
-            "docs": "Full trader profile (positions, performance, label)",
-            "method": "GET"
-        },
-        "/trades": {
-            "docs": "Copy-engine trade history (?limit=50&copy_id=...)",
-            "method": "GET"
-        },
-        "/wallet/balance": {
-            "docs": "Current wallet TAO balance",
-            "method": "GET"
-        },
-        "/wallet/set": {
-            "docs": "Set wallet (mnemonic or seed_hex) \u2014 only needed to stake",
-            "method": "POST"
-        },
-        "/watch": {
-            "docs": "Add coldkey to watch list",
-            "method": "POST"
-        },
-        "/watches": {
-            "docs": "List watched coldkeys",
-            "method": "GET"
-        }
+  "anchor": "src/mod.py",
+  "app_port": 3150,
+  "archive_pool_size": 6,
+  "auto_discover": true,
+  "bt_mirror_max": 120,
+  "bt_url": "http://localhost:50280",
+  "cooldown_sec": 60,
+  "daily_limit_tao": 100.0,
+  "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers; the leaderboard and every read are served by the bt module's local index (public RPCs as fallback), and a strat agent you can talk to builds the baskets",
+  "endpoints": {
+    "/account/{ss58}": {
+      "docs": "Coldkey allocations + N-day PnL",
+      "method": "GET"
     },
-    "fns": [
-        "serve",
-        "kill",
-        "status",
-        "logs",
-        "test",
-        "gateway",
-        "subnets",
-        "leaderboard",
-        "account",
-        "account_pnl",
-        "trader",
-        "trades",
-        "rpc_pool",
-        "watch",
-        "unwatch",
-        "watches",
-        "create_copy",
-        "list_copies",
-        "pause_copy",
-        "resume_copy",
-        "delete_copy",
-        "sync_copy",
-        "set_wallet",
-        "wallet_balance",
-        "forward"
-    ],
-    "gateway_port": 3001,
-    "leaderboard_pool_size": 100,
-    "max_subnets": 20,
-    "max_tao_per_tx": 10.0,
-    "min_balance_tao": 1.0,
-    "name": "copytensor",
-    "network": "finney",
-    "poll_interval_sec": 300,
-    "port": 50150,
-    "public_rpc_pool": [
-        "wss://entrypoint-finney.opentensor.ai:443",
-        "wss://archive.chain.opentensor.ai:443",
-        "wss://lite.chain.opentensor.ai:443",
-        "wss://bittensor-finney.api.onfinality.io/public-ws"
-    ],
-    "rebalance_threshold_pct": 5.0,
-    "schema": "QmS3ZzNjyKGTRjyN1b6c6mizSyQxUaszVu69yCa1kDdNdF",
-    "seed_validators": [
-        {
-            "label": "Opentensor Foundation",
-            "ss58": "5GcCYwRyEFpVnTbf3wAtNRD9aDxKkNyc5VxgvbdGsTL7uw6L"
-        },
-        {
-            "label": "Datura",
-            "ss58": "5DkQ4Yu2VbDFh5VxsvHCcBu7G2HrXfQyNGGNqKsCo3DMxgw3"
-        },
-        {
-            "label": "Yuma",
-            "ss58": "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2"
-        },
-        {
-            "label": "TaoStation",
-            "ss58": "5HK5tp6t2S59DywmHRWPBVJeJ86T61KjurYqeooqj8sREpeN"
-        }
-    ],
-    "snapshot_interval_sec": 1800,
-    "subnet_allowlist": null,
-    "subnet_denylist": [],
-    "subtensor_endpoint": null,
-    "urls": {
-        "api": "http://localhost:50150",
-        "app": "http://localhost:3150/copytensor",
-        "gateway_api": "http://localhost:3001/api/copytensor",
-        "gateway_app": "http://localhost:3001/copytensor"
+    "/account/{ss58}/curve": {
+      "docs": "Equity/PnL curve from local snapshots, with inferred trades pinned to the curve (?days=7)",
+      "method": "GET"
     },
-    "version": "0.2.0",
-    "watched_accounts": [
-        "5GcCYwRyEFpVnTbf3wAtNRD9aDxKkNyc5VxgvbdGsTL7uw6L",
-        "5DkQ4Yu2VbDFh5VxsvHCcBu7G2HrXfQyNGGNqKsCo3DMxgw3",
-        "5HEo565WAy4Dbq3Sv271SAi7syBSofyfhhwRNjFNSM2gP9M2"
-    ]
+    "/account/{ss58}/pnl": {
+      "docs": "Detailed PnL breakdown by subnet",
+      "method": "GET"
+    },
+    "/agent": {
+      "docs": "Strat-agent status \u2014 auth, model, and the tools it can reach",
+      "method": "GET"
+    },
+    "/agent/ask": {
+      "docs": "Talk to the strat agent (SSE: start|text|tool|tool_done|strat|done|error). Send session_id to continue the conversation",
+      "method": "POST"
+    },
+    "/copies": {
+      "docs": "List active copy configs",
+      "method": "GET"
+    },
+    "/copy": {
+      "docs": "Create a copy config (target \u2192 our hotkey)",
+      "method": "POST"
+    },
+    "/copy/{id}/pause": {
+      "docs": "Pause a copy",
+      "method": "POST"
+    },
+    "/copy/{id}/resume": {
+      "docs": "Resume a copy",
+      "method": "POST"
+    },
+    "/copy/{id}/sync": {
+      "docs": "Force sync (apply target's allocations now)",
+      "method": "POST"
+    },
+    "/discover": {
+      "docs": "Watch top-N of the on-chain universe (?top=8&kind=validator|nominator|all)",
+      "method": "POST"
+    },
+    "/flows": {
+      "docs": "Inferred trade tape across every tracked trader",
+      "method": "GET"
+    },
+    "/health": {
+      "docs": "Chain health + active RPC + full pool",
+      "method": "GET"
+    },
+    "/leaderboard": {
+      "docs": "Top performers by N-day alpha PnL, ranked out of bt's trader index (?days=7&top=50) \u2014 PnL split into market move vs stake flow",
+      "method": "GET"
+    },
+    "/market": {
+      "docs": "Network totals (alpha market cap, 24h volume, block, TAO/USD) + top gainers/losers",
+      "method": "GET"
+    },
+    "/pool": {
+      "docs": "Resize the trader pool (?size=250&refresh=false) \u2014 grows in background",
+      "method": "POST"
+    },
+    "/status": {
+      "docs": "Running state, block height, tracked accounts, active copies, and which backend serves reads (bt | rpc)",
+      "method": "GET"
+    },
+    "/strats": {
+      "method": [
+        "GET",
+        "POST"
+      ],
+      "docs": "Your saved strats (plus public + whitelisted-to-you), or create one. X-Owner-Key header owns them"
+    },
+    "/strats/backtest": {
+      "method": "POST",
+      "docs": "Replay a basket over the last N days (inline basket, no id needed) \u2014 equity curve, stats, per-trader contribution"
+    },
+    "/strats/hub": {
+      "method": "GET",
+      "docs": "The public shelf \u2014 every published strat"
+    },
+    "/strats/{id}": {
+      "method": [
+        "GET",
+        "PUT",
+        "DELETE"
+      ],
+      "docs": "Read / replace / delete one strat (writes are owner-only)"
+    },
+    "/strats/{id}/clone": {
+      "method": "POST",
+      "docs": "Copy a readable strat onto your own key, private and flat"
+    },
+    "/subnets": {
+      "docs": "All subnets, enriched from the bt index (price, 24h/1h change, market cap, volume, sparkline, identity)",
+      "method": "GET"
+    },
+    "/subnets/{netuid}": {
+      "docs": "One subnet: pool state, on-chain identity, validator rankings",
+      "method": "GET"
+    },
+    "/subnets/{netuid}/history": {
+      "docs": "Indexed price/mcap/volume series for a subnet (?hours=168)",
+      "method": "GET"
+    },
+    "/tao_price": {
+      "docs": "TAO/USD price (coingecko, 5-min server cache)",
+      "method": "GET"
+    },
+    "/trader/{ss58}": {
+      "docs": "Full trader profile (positions, performance, label)",
+      "method": "GET"
+    },
+    "/traders": {
+      "docs": "Tracked traders with value, allocation and windowed PnL (from bt's index)",
+      "method": "GET"
+    },
+    "/traders/{ss58}": {
+      "docs": "Indexed profile \u2014 positions, equity curve, inferred trades",
+      "method": "GET"
+    },
+    "/traders/{ss58}/flows": {
+      "docs": "One trader's inferred buys/sells",
+      "method": "GET"
+    },
+    "/traders/{ss58}/history": {
+      "docs": "Portfolio value over time (free/staked/total)",
+      "method": "GET"
+    },
+    "/trades": {
+      "docs": "Copy-engine trade history (?limit=50&copy_id=...)",
+      "method": "GET"
+    },
+    "/universe": {
+      "docs": "Trader-pool status: watched vs on-chain universe size, discovery progress",
+      "method": "GET"
+    },
+    "/wallet/balance": {
+      "docs": "Current wallet TAO balance",
+      "method": "GET"
+    },
+    "/wallet/set": {
+      "docs": "Set wallet (mnemonic or seed_hex) \u2014 only needed to stake",
+      "method": "POST"
+    },
+    "/watch": {
+      "docs": "Add coldkey to watch list",
+      "method": "POST"
+    },
+    "/watches": {
+      "docs": "List watched coldkeys",
+      "method": "GET"
+    },
+    "/whoami": {
+      "method": "GET",
+      "docs": "Your strat-owner fingerprint \u2014 the id someone whitelists to let you in"
+    }
+  },
+  "fns": [
+    "serve",
+    "kill",
+    "status",
+    "logs",
+    "test",
+    "gateway",
+    "subnets",
+    "leaderboard",
+    "account",
+    "account_pnl",
+    "account_curve",
+    "trader",
+    "trades",
+    "rpc_pool",
+    "source",
+    "flows",
+    "trader_history",
+    "traders",
+    "watch",
+    "unwatch",
+    "watches",
+    "discover",
+    "set_pool",
+    "universe",
+    "ask",
+    "agent_status",
+    "create_copy",
+    "list_copies",
+    "pause_copy",
+    "resume_copy",
+    "delete_copy",
+    "sync_copy",
+    "set_wallet",
+    "wallet_balance",
+    "forward"
+  ],
+  "gateway_port": 3001,
+  "leaderboard_pool_size": 1000,
+  "leaderboard_workers": 8,
+  "max_subnets": 20,
+  "max_tao_per_tx": 10.0,
+  "min_balance_tao": 1.0,
+  "name": "copytensor",
+  "network": "finney",
+  "poll_interval_sec": 300,
+  "pool_kinds": [
+    "validator",
+    "nominator"
+  ],
+  "pool_min_stake_weight": 0.0,
+  "port": 50150,
+  "public_rpc_pool": [
+    "wss://entrypoint-finney.opentensor.ai:443",
+    "wss://archive.chain.opentensor.ai:443",
+    "wss://lite.chain.opentensor.ai:443",
+    "wss://bittensor-finney.api.onfinality.io/public-ws"
+  ],
+  "rebalance_threshold_pct": 5.0,
+  "route": true,
+  "schema": "QmURRHn99pkdjawhcJUUDKMasDYP1ohTJNhSSjWgE5c7RV",
+  "seed_validators": [
+    {
+      "label": "Top delegate #1 owner",
+      "ss58": "5GsbTgfvgCH4xdqSkiPb7EaBBFLHjWH5vfEALhJaewSFpZX9"
+    },
+    {
+      "label": "Top delegate #2 owner",
+      "ss58": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC"
+    },
+    {
+      "label": "Top delegate #3 owner",
+      "ss58": "5CWzmvA17MAMQ9mnAecLxFXS2N8846rz6T7m4QNHyVtJVq4j"
+    },
+    {
+      "label": "Top delegate #4 owner",
+      "ss58": "5E9fVY1jexCNVMjd2rdBsAxeamFGEMfzHcyTn2fHgdHeYc5p"
+    },
+    {
+      "label": "Top delegate #5 owner",
+      "ss58": "5CMCxTXzJNZqgXsujrmuWypaxoRo9ChMSPbzBEMk6H3m9Uv9"
+    },
+    {
+      "label": "Top delegate #6 owner",
+      "ss58": "5DkwfxC9mZTTCsRUt6nrnwQEWVrhsmY13SBRparj6cpAVxVY"
+    }
+  ],
+  "snapshot_interval_sec": 1800,
+  "snapshot_workers": 8,
+  "subnet_allowlist": null,
+  "subnet_denylist": [],
+  "subtensor_endpoint": null,
+  "urls": {
+    "api": "http://localhost:50150",
+    "app": "http://localhost:3150/copytensor",
+    "gateway_api": "http://localhost:3001/api/copytensor",
+    "gateway_app": "http://localhost:3001/copytensor"
+  },
+  "version": "0.8.0",
+  "watched_accounts": [
+    "5GsbTgfvgCH4xdqSkiPb7EaBBFLHjWH5vfEALhJaewSFpZX9",
+    "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+    "5CWzmvA17MAMQ9mnAecLxFXS2N8846rz6T7m4QNHyVtJVq4j",
+    "5E9fVY1jexCNVMjd2rdBsAxeamFGEMfzHcyTn2fHgdHeYc5p",
+    "5CMCxTXzJNZqgXsujrmuWypaxoRo9ChMSPbzBEMk6H3m9Uv9",
+    "5DkwfxC9mZTTCsRUt6nrnwQEWVrhsmY13SBRparj6cpAVxVY"
+  ]
 }

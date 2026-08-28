@@ -103,6 +103,14 @@ export interface Constraints {
   setback_side_m?: number
   max_coverage_pct?: number
   max_fsr?: number
+  // ── pro-forma overrides (savings vs site-built + ROI) ──
+  land_cost_usd?: number
+  monthly_rent_usd?: number
+  rent_per_m2_mo?: number
+  site_built_cost_m2?: number
+  soft_cost_pct?: number
+  vacancy_pct?: number
+  opex_pct?: number
 }
 
 // Resolved parcel geometry (mirror of mod.py _plot_metrics)
@@ -121,6 +129,40 @@ export interface CostItem {
 export interface CostBreakdown {
   style: string; price_mult: number; modules: CostItem[]
   module_subtotal_usd: number; unit_count: number
+  envelope?: EnvelopeTakeoff
+  total_usd?: number
+}
+
+// Façade takeoff — exposed wall/curtain faces priced per-panel (mirror of mod.py _envelope)
+export interface EnvelopeItem {
+  id: string; name: string; kind: 'wall' | 'curtain'; qty: number
+  unit_price: number; line_total: number; unit_carbon_kg: number
+}
+export interface EnvelopeTakeoff {
+  skin: string | null; items: EnvelopeItem[]; panel_count: number
+  subtotal_usd: number; carbon_kg: number; lead_days: number
+}
+
+// Pro-forma — savings vs site-built + rental ROI (mirror of mod.py _financials)
+export interface Financials {
+  all_in_cost_usd: number
+  site_built_cost_usd: number
+  savings_usd: number
+  savings_pct: number
+  modular_months: number
+  site_built_months: number
+  months_saved: number
+  early_revenue_usd: number
+  monthly_rent_usd: number
+  annual_noi_usd: number
+  yield_on_cost_pct: number
+  payback_years: number | null
+  carbon_saved_kg: number
+  assumptions: {
+    site_built_cost_m2: number; rent_per_m2_mo: number; land_cost_usd: number
+    soft_cost_pct: number; vacancy_pct: number; opex_pct: number
+    site_built_carbon_kg_m2: number
+  }
 }
 
 // ── Pluggable building-standards audit ──────────────────────────
@@ -182,6 +224,7 @@ export interface Estimate {
   cost_breakdown?: CostBreakdown
   plot?: PlotMetrics
   compliance?: Compliance
+  financials?: Financials
 }
 
 export interface Cell { x: number; z: number; stack: string[] }
@@ -350,8 +393,101 @@ export const FALLBACK_STYLES: StyleSpec[] = [
 
 const SLEEPING = new Set(['studio', 'bedroom', 'mezz', 'parlor', 'bay'])
 
+// ── Pro-forma benchmarks (mirror of mod.py; overridable via Constraints) ──
+export const PROFORMA = {
+  site_built_cost_m2: 3400,      // USD/m² hard cost, conventional stick-built
+  site_built_carbon_kg_m2: 650,  // kg CO₂e/m² embodied, conventional build
+  rent_per_m2_mo: 30,            // USD/m²/month asking-rent default
+  soft_cost_pct: 15,             // design + permits + fees, % of hard cost
+  vacancy_pct: 5,
+  opex_pct: 25,
+  site_months_base: 8,           // site-built schedule = base + area-scaled
+  site_months_per_m2: 1 / 25,
+  modular_site_months: 2,        // foundations + crane set + hookup
+}
+
+// Façade takeoff (mirror of mod.py _envelope): count EXPOSED wall/curtain
+// faces — party walls culled exactly as rendered — and price them with the
+// active skin panel or the built-in defaults. Modules price structure +
+// fit-out + cassettes; the envelope is priced per-panel, so choosing (or
+// forging) a cheaper panel visibly changes the building's cost.
+export function envelopeTakeoff(cells: Cell[], catalog: ModuleSpec[], skin?: PanelSpec): EnvelopeTakeoff {
+  const byId = Object.fromEntries(catalog.map((m) => [m.id, m]))
+  const occ = new Map<string, string[]>(cells.map((c) => [`${c.x},${c.z}`, c.stack]))
+  const wall = skin && skin.kind !== 'curtain' ? skin : PANEL_INDEX_FALLBACK['clt_solid']
+  const curtain = skin && skin.kind === 'curtain' ? skin : PANEL_INDEX_FALLBACK['curtain_glass']
+  const isOpen = (x: number, z: number, l: number) => {
+    const s = byId[(occ.get(`${x},${z}`) || [])[l]]
+    return !s || s.id === 'garden' || (s.category === 'outdoor' && !s.glass)
+  }
+  let walls = 0, curtains = 0
+  for (const c of cells) {
+    c.stack.forEach((id, level) => {
+      const s = byId[id]
+      if (!s || isOpen(c.x, c.z, level)) return
+      const exposed = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const)
+        .filter(([dx, dz]) => isOpen(c.x + dx, c.z + dz, level)).length
+      if (s.glass) curtains += exposed; else walls += exposed
+    })
+  }
+  const items: EnvelopeItem[] = []
+  if (walls) items.push({ id: wall.id, name: wall.name, kind: 'wall', qty: walls, unit_price: wall.price, line_total: wall.price * walls, unit_carbon_kg: wall.carbon_kg })
+  if (curtains) items.push({ id: curtain.id, name: curtain.name, kind: 'curtain', qty: curtains, unit_price: curtain.price, line_total: curtain.price * curtains, unit_carbon_kg: curtain.carbon_kg })
+  return {
+    skin: skin?.id || null, items, panel_count: walls + curtains,
+    subtotal_usd: items.reduce((s, i) => s + i.line_total, 0),
+    carbon_kg: items.reduce((s, i) => s + i.unit_carbon_kg * i.qty, 0),
+    lead_days: Math.max(walls ? wall.lead_days : 0, curtains ? curtain.lead_days : 0),
+  }
+}
+
+// Pro-forma (mirror of mod.py _financials): savings vs a site-built job of
+// the same floor area, plus rental ROI (yield-on-cost, payback).
+export function localFinancials(est: Estimate, c?: Constraints | null): Financials | undefined {
+  const area = est.floor_area_m2
+  if (!area) return undefined
+  const P = PROFORMA
+  const siteM2 = c?.site_built_cost_m2 || P.site_built_cost_m2
+  const softPct = c?.soft_cost_pct ?? P.soft_cost_pct
+  const land = c?.land_cost_usd || 0
+  const vac = c?.vacancy_pct ?? P.vacancy_pct
+  const opex = c?.opex_pct ?? P.opex_pct
+  const rentM2 = c?.rent_per_m2_mo || P.rent_per_m2_mo
+  const rent = c?.monthly_rent_usd || Math.round(area * rentM2)
+
+  const allIn = est.price_usd * (1 + softPct / 100) + land
+  const siteHard = area * siteM2
+  const siteAllIn = siteHard * (1 + softPct / 100) + land
+  const savings = siteAllIn - allIn
+  const modularMonths = Math.round((est.lead_time_days / 30 + P.modular_site_months) * 10) / 10
+  const siteMonths = Math.round((P.site_months_base + area * P.site_months_per_m2) * 10) / 10
+  const monthsSaved = Math.max(0, Math.round((siteMonths - modularMonths) * 10) / 10)
+  const annualGross = rent * 12 * (1 - vac / 100)
+  const noi = annualGross * (1 - opex / 100)
+  return {
+    all_in_cost_usd: Math.round(allIn),
+    site_built_cost_usd: Math.round(siteAllIn),
+    savings_usd: Math.round(savings),
+    savings_pct: siteAllIn ? Math.round(savings / siteAllIn * 1000) / 10 : 0,
+    modular_months: modularMonths,
+    site_built_months: siteMonths,
+    months_saved: monthsSaved,
+    early_revenue_usd: Math.round(monthsSaved * rent),
+    monthly_rent_usd: Math.round(rent),
+    annual_noi_usd: Math.round(noi),
+    yield_on_cost_pct: allIn ? Math.round(noi / allIn * 10000) / 100 : 0,
+    payback_years: noi > 0 ? Math.round(allIn / noi * 10) / 10 : null,
+    carbon_saved_kg: Math.round(area * P.site_built_carbon_kg_m2 - est.embodied_carbon_kg),
+    assumptions: {
+      site_built_cost_m2: siteM2, rent_per_m2_mo: rentM2, land_cost_usd: land,
+      soft_cost_pct: softPct, vacancy_pct: vac, opex_pct: opex,
+      site_built_carbon_kg_m2: P.site_built_carbon_kg_m2,
+    },
+  }
+}
+
 // ── Local estimator mirror (snappy HUD; matches backend formula) ──
-export function localEstimate(cells: Cell[], style: StyleSpec, catalog: ModuleSpec[], constraints?: Constraints | null): Estimate {
+export function localEstimate(cells: Cell[], style: StyleSpec, catalog: ModuleSpec[], constraints?: Constraints | null, skin?: PanelSpec): Estimate {
   const byId = Object.fromEntries(catalog.map((m) => [m.id, m]))
   const flat: ModuleSpec[] = []
   let floors = 0, footprint = 0, maxAx = 0, maxAz = 0
@@ -381,6 +517,17 @@ export function localEstimate(cells: Cell[], style: StyleSpec, catalog: ModuleSp
     footprint_m2: Math.round(footprint * 9 * 10) / 10,
     cost_breakdown: costBreakdown(flat, style),
   }
+  // façade takeoff — the chosen skin panel reprices the exposed envelope
+  const env = envelopeTakeoff(cells, catalog, skin)
+  if (env.panel_count && est.cost_breakdown) {
+    est.price_usd += env.subtotal_usd
+    est.price_per_m2 = area ? Math.round(est.price_usd / area) : 0
+    est.embodied_carbon_kg += env.carbon_kg
+    est.lead_time_days = flat.length ? Math.max(lead, env.lead_days) + assembly : 0
+    est.cost_breakdown.envelope = env
+    est.cost_breakdown.total_usd = est.cost_breakdown.module_subtotal_usd + env.subtotal_usd
+  }
+  est.financials = localFinancials(est, constraints)
   if (constraints) {
     const plot = plotMetrics(constraints, est)
     if (plot) est.plot = plot
@@ -512,6 +659,29 @@ export const CODES: CodeSpec[] = [
 ]
 export const CODE_INDEX: Record<string, CodeSpec> = Object.fromEntries(CODES.map((c) => [c.id, c]))
 
+// ── Real-world lot presets — typical parcels with typical setbacks ──
+// Selecting one fills the realistic plot (metres); the buildable envelope,
+// grid and pad all derive from it. Fully custom sizes stay editable.
+export interface LotPreset {
+  id: string; name: string; note: string
+  plot_w_m: number; plot_d_m: number
+  setback_front_m: number; setback_rear_m: number; setback_side_m: number
+}
+export const LOT_PRESETS: LotPreset[] = [
+  { id: 'backyard_adu', name: 'Backyard ADU pad · 8×10 m', note: 'Rear-yard laneway/garden-suite footprint carved off a city lot.',
+    plot_w_m: 8, plot_d_m: 10, setback_front_m: 1, setback_rear_m: 0.9, setback_side_m: 0.6 },
+  { id: 'nyc_25x100', name: 'NYC rowhouse · 25×100 ft', note: 'Classic Manhattan/Brooklyn brownstone lot; zero side yards, 30 ft rear yard.',
+    plot_w_m: 7.6, plot_d_m: 30.5, setback_front_m: 0, setback_rear_m: 9.1, setback_side_m: 0 },
+  { id: 'to_20x100', name: 'Toronto narrow · 20×100 ft', note: 'Typical Toronto residential lot.',
+    plot_w_m: 6.1, plot_d_m: 30.5, setback_front_m: 6, setback_rear_m: 7.5, setback_side_m: 0.6 },
+  { id: 'van_33x122', name: 'Vancouver RS · 33×122 ft', note: 'Standard Vancouver single-family parcel.',
+    plot_w_m: 10.1, plot_d_m: 37.2, setback_front_m: 4.9, setback_rear_m: 10.7, setback_side_m: 1.2 },
+  { id: 'sub_50x100', name: 'Suburban · 50×100 ft', note: 'Common North-American suburban lot.',
+    plot_w_m: 15.2, plot_d_m: 30.5, setback_front_m: 6, setback_rear_m: 7.5, setback_side_m: 1.5 },
+  { id: 'quarter_acre', name: 'Quarter acre · 66×165 ft', note: 'The classic quarter-acre block.',
+    plot_w_m: 20.1, plot_d_m: 50.3, setback_front_m: 7.5, setback_rear_m: 7.5, setback_side_m: 2 },
+]
+
 // Pre-approved-style laneway templates (mirror of mod.py LANEWAY_TEMPLATES) —
 // instant-load compositions that already fit their code envelope.
 export interface LanewayTemplate { id: string; name: string; style: string; code: string; description: string; constraints: Constraints; cells: Cell[] }
@@ -542,7 +712,8 @@ export const SECTIONS = [
   { k: 'Style is a layer', t: 'Brownstone today. Neo-Tokyo tomorrow.', b: 'Geometry and style are separated. The same stack re-skins instantly across nine architectures. A West Village row becomes a neon Hudson Yards spire with one tap — and the cost re-prices itself.' },
   { k: 'Private by default', t: 'Yours until you say so.', b: 'Every building you save is private. Publish to put it in the shared city, export it as a portable file, or share its content-addressed CID — and anyone can copy-and-remix it into their own.' },
   { k: 'Set the rules', t: 'Parameters & constraints, enforced live.', b: 'Set a lot size, a height cap, a budget and a carbon ceiling. The builder fences you to the lot, caps your floors, and the spec panel turns red the moment you bust a constraint — real developer pro-forma, in your browser.' },
-  { k: 'Any realistic plot', t: 'Real lots, in metres.', b: 'Enter a real parcel — width, depth, front/rear/side setbacks — and ModCity carves the buildable envelope, snaps it to the module grid and computes site coverage and FSR (FAR) live, the exact figures a zoning bylaw checks. Every placed module is priced as a unit, so a transparent bill of quantities falls straight out.' },
+  { k: 'Any realistic plot', t: 'Your lot, your size.', b: 'Pick a real parcel preset — a 25×100 ft NYC rowhouse lot, a Vancouver 33-footer, a backyard ADU pad — or type any custom dimensions in metres or feet, with front/rear/side setbacks. ModCity carves the buildable envelope, snaps it to the module grid and computes site coverage and FSR (FAR) live, the exact figures a zoning bylaw checks. Every placed module is priced as a unit, so a transparent bill of quantities falls straight out.' },
+  { k: 'Savings & ROI', t: 'Know your numbers before you build.', b: 'A live pro-forma prices your building against a conventional site-built job of the same floor area: hard-cost savings, months saved (prefab assembles while permits clear), the rent those months earn, then rental yield-on-cost, payback and carbon saved. Every assumption — land cost, rent, site-built benchmark, vacancy, operating costs — is yours to override.' },
   { k: 'Audit it', t: 'Will it pass? Ask an agent.', b: 'A pluggable building-standards audit agent reviews your design against the code envelope, life-safety (egress), habitability (wet cores, light), structure and energy — returning a verdict, a score and fix-by-fix recommendations. Run it on Venice or Claude, or the always-on built-in rules auditor. The audit agent is swappable: any OpenAI-compatible or Anthropic endpoint drops in.' },
   { k: 'Content-addressed', t: 'Buildings travel as CIDs.', b: 'Saving a building writes a self-contained, IPFS-style document — bundled custom panels included — through the localfs module. The CID is the building: load it on any node, anywhere, and it renders identically.' },
 ]

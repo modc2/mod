@@ -1,22 +1,45 @@
 {
     "name": "agent",
-    "version": "3.1.0",
-    "description": "Autonomous coding agent. 21 skills for software engineering. Claude module interface with owner permissions and portal sandboxing.",
-    "owner": "0x7d7c323496eD80E16d47b036607c586fB33dd123",
+    "version": "3.19.1",
+    "description": "Autonomous coding agent. One tool registry with three kinds in it: the 23 tools shipped here, the shell tools you add from the console, and every module in the fleet \u2014 all bundled into snap-on toolboxes. Layered memory subsystem (working/episodic/semantic) that runs as its own process. Unified library market (prompts, tool documents, memory, agents) with cross-filtering; prompts, memory notes, toolboxes, agents, and console conversations all pinned to localfs with shareable CIDs. Server-side per-address conversation history. Per-address key-value vaults (public + AES-GCM-sealed private entries, e.g. API keys) persisted via the store module. Claude module interface with owner permissions and portal sandboxing. Agents and prompts are one selectable list in the console, each showing its owner \u2014 the address that created it; anything unowned belongs to the host (the module owner), who administers it. Creating an agent or any of the blocks it is built from (prompts, memory notes, installed tool documents) takes a wallet sign-in, and you can only edit or delete what you made. Tool aggregator: one search scans GitHub (repos + skill topics), the official anthropics/skills catalog, npm, the MCP registry, Glama and curated awesome-lists, merges duplicates across platforms, and installs what you find into the library as documents (never executable code) that attach to a run as context. Console TOOLS tab: the whole tool surface in one list \u2014 the tools shipped here, the custom tools you add there (a described, parameterised shell command the agent calls exactly like a built-in; params are shell-quoted, adding one is admin), and the fleet: every mod-protocol module on the host, callable as `mod.<name>` with the function you want and its arguments. The fleet is potential, not loaded \u2014 hundreds of modules would drown a prompt, so they sit in the registry until you switch one on, and a sandboxed run can never call one. The same tab sets the loadout \u2014 which of those tools the model actually gets: a toolbox chip snaps a whole bundle on, a per-tool switch refines that into an exact list, and whatever you land on can be saved as a named toolbox to snap back later. Console MEMORY tab: both memory layers side by side \u2014 the notes you attach to a run and the facts the agent recalls on its own \u2014 each editable in place. Console layout: two rails around the workspace \u2014 one side carries the chats you've had and the AGENTS pane (every agent and prompt you can run as, with its owner, editable in place), the other side is the market: the whole library (prompts, tool documents, memory notes, agents) searchable and filterable by kind, one click to attach it to the next run. Either rail collapses to a strip, both are drag-resizable, and swapping sides moves both. Harness agents: an agent can hand the whole run to a coding CLI installed on the host \u2014 Claude Code or Codex \u2014 instead of running on this module's own loop; their events are translated into the same step trace, so a CLI run renders in the console like a native one (host owner only, since the CLIs run with their approval prompts off). The same handoff reaches a whole console: pick Claude Console or Build Console and the run becomes a job in that module \u2014 the same CLI, but sandboxed per caller, snapshotted to a CID and filed in that module's public ledger, so it keeps running and stays steerable there after this conversation moves on. The market rail can also add to itself: the + in its header creates an agent (native or CLI-backed), a prompt, or a memory note without leaving the console. Bring your own: the same + has an upload panel that takes a file you wrote \u2014 markdown with YAML front matter, or JSON \u2014 and files it as a prompt, a tool document, a memory note, or a whole agent (name, icon, model, tool list and system prompt), with the kind read from the file's type:, its name, then its shape unless you pick one; a shared localfs CID installs the same way, and every upload is pinned back to a CID of its own so an agent you wrote can be handed to anyone. The format reference (docs/uploads.md) is served by the API and rendered inside the upload panel, so what you read is what the parser accepts. Nine looks, one switch: the header's swatch button picks a theme \u2014 ARCADE (the 8-bit house skin), MATRIX and WIN95 keep the pixel chrome; MIDNIGHT, ABYSS, EMBER, NEON, PAPER and DAYLIGHT wear the modern one, rounded and hairlined, in dark and light. A theme is one block of colour tokens plus a skin, so the whole console \u2014 rails, dock, market, builder \u2014 re-dresses at once and the choice is remembered per browser. Credits pay the providers: a guest's USDT/USDC deposit funds the OpenRouter/Venice credits their own runs burn. Every run is metered against the provider's live price list \u2014 a step on Opus is not a step on a small model \u2014 and billed at that cost plus the module's margin (5% by default, settable to anything from 0 up). The owner's TREASURY panel closes the loop: live balances on both provider keys, unspent guest credits valued at cost, the one number that says how much has to go to the providers now, a log of the credits bought with the float, and the earned margin ready to take. Estimate drift against OpenRouter's own meter is on the same panel, so under-billing is visible rather than discovered. See docs/credits.md. Arena: every agent runs the same tasks, in the same seeded scratch directory, under the same step budget, and is scored on what the run actually did \u2014 the files it left behind and the steps it took, by deterministic scorers, never an LLM judge. The score is 70% the task's own checks, 20% reliability (no errored steps, and it finished), 10% the step budget it left unspent; agents are then rated against each other pairwise per task with Elo, so the board is a ranking rather than a pile of percentages. It keeps itself current without anyone pressing anything: a background process qualifies a newly created agent within a minute of it appearing \u2014 rated against every incumbent's last score on the same tasks \u2014 and replays the field once a day, rotating through the task pool. Tasks come from the eval registry, including two suites written for this that cannot be answered from the prompt at all, only by looking at the directory and changing it (one of them passes only if the agent wrote nothing). Rounds run on free models by default, so a board that runs itself on a timer never quietly spends the host's credits, and a match the provider failed \u2014 a rate-limited endpoint, a dead key \u2014 is replayed and then voided rather than scored as a loss. See docs/arena.md. Models that cost nothing: besides the hosted providers, every Liquid AI (LFM) model is selectable through the liquidai module \u2014 running on this box, on Liquid's cloud under the operator's own key, or, and this is the one worth having, inside the visitor's own tab. A browser run downloads the ONNX weights straight from HuggingFace and generates with WebGPU, so the prompt, the tokens and the weights never touch this server; the agent loop still runs here, parks each step's generation on the run's event stream and waits for the tab to hand the text back. None of the three spends the module's provider credit, so they are never billed, never gated on a credit balance, and need no API key at all. The model list is the live liquidai catalog, one entry per loadable repo. See docs/models.md.",
+    "owner": "0x89bcdee4a284cb0848eebb975bec78ab5bd06cfa",
+    "dependencies": [
+        "store",
+        "build",
+        "liquidai"
+    ],
     "fns": [
         "forward",
-        "run_skill",
-        "skill_schema",
+        "run_tool",
+        "tool_schema",
         "serve",
         "kill",
         "status",
         "health",
         "test",
         "is_owner",
-        "allowed_paths_for"
+        "allowed_paths_for",
+        "snap",
+        "unsnap",
+        "select",
+        "scan_tools",
+        "tool_install",
+        "all_tools"
     ],
-    "schema": "QmUoYUR9QNkYB416abCvWU7B56VTj6g9Esc8Erqsmau6fC",
-    "skills": [
+    "toolboxes": [
+        "core",
+        "explore",
+        "code",
+        "verify",
+        "vcs",
+        "web",
+        "meta"
+    ],
+    "memory": {
+        "port": 50119
+    },
+    "schema": "QmeH9gQPL1w4JVy7csaxnVL1CzvTLobBKhJ8vzD3w12aoE",
+    "tools": [
         "bash",
         "read",
         "write",
@@ -69,11 +92,42 @@
             "value": "refactorer",
             "label": "Refactorer",
             "icon": "\u27f3"
+        },
+        {
+            "value": "claude-code",
+            "label": "Claude Code",
+            "icon": "\u2b21",
+            "harness": "claude"
+        },
+        {
+            "value": "codex",
+            "label": "Codex",
+            "icon": "\u25c7",
+            "harness": "codex"
+        },
+        {
+            "value": "claude-mod",
+            "label": "Claude Console",
+            "icon": "\u2726",
+            "harness": "claudemod"
+        },
+        {
+            "value": "build-mod",
+            "label": "Build Console",
+            "icon": "\u2726",
+            "harness": "buildmod"
         }
     ],
+    "harnesses": {
+        "claude": "claudecode",
+        "codex": "codexcli",
+        "claudemod": "claude",
+        "buildmod": "build"
+    },
     "urls": {
         "api": "http://localhost:50117",
-        "app": "http://localhost:3117"
+        "app": "http://localhost:3117",
+        "memory": "http://localhost:50119"
     },
     "gateway_port": 3117
 }

@@ -242,7 +242,7 @@ impl SignerStore {
 /// Address = keccak256(uncompressed_pubkey[1..])[12..] in classical Ethereum.
 /// We only have SHA-256 here, so we use Keccak's cousin via the `sha2` crate?
 /// No — sha2 ≠ keccak. We need a proper Keccak-256. Use tiny-keccak by hand.
-fn address_from_pubkey(vk: &VerifyingKey) -> String {
+pub(crate) fn address_from_pubkey(vk: &VerifyingKey) -> String {
     // Need the *uncompressed* SEC1 encoding (65 bytes: 0x04 || X || Y).
     // The default From<&VerifyingKey> may give the compressed (33-byte) form
     // depending on feature flags — explicitly request uncompressed.

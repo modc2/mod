@@ -2,7 +2,7 @@
 // Backend (FastAPI gateway) URL — used only as the dev-mode rewrite target when
 // the Caddy gateway isn't in front of Next.js. In prod, Caddy routes
 // /api/store/* → store-api directly (see /etc/caddy/Caddyfile).
-const apiUrl = process.env.STORE_API_URL || "http://localhost:50150";
+const apiUrl = process.env.STORE_API_URL || "http://localhost:50152";
 // Served under modc2.com/store via the gateway → app must carry the base path.
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "/store";
 

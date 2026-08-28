@@ -14,14 +14,53 @@ import {
 } from "@/lib/wallet";
 import { api, MediaOut, MeResponse, VeniceModel, mediaUrl } from "@/lib/api";
 import { makePaidFetch } from "@/lib/x402";
+import ThemePicker from "@/components/ThemePicker";
+import Pix from "@/components/Pix";
 
 const TOKEN_KEY = "venice:token";
 const ADDR_KEY = "venice:addr";
 const IDKIND_KEY = "venice:idkind";
+const SIDE_KEY = "venice:sidebar";
 
 type Mode = "byok" | "paid";
 type IdKind = "wallet" | "local";
 type ChatMsg = { role: "user" | "assistant"; text: string; media: MediaOut[] };
+type Convo = { id: string; title: string; thread: ChatMsg[]; updated: number };
+
+// Conversations persist per identity (one shared origin across all modc2.com
+// modules — keep blobs small and every write quota-safe).
+const convosKey = (addr: string) => `venice:convos:${addr.toLowerCase()}`;
+const MAX_CONVOS = 30;
+
+function newId(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function titleFrom(text: string): string {
+  const t = text.trim().replace(/\s+/g, " ");
+  return t.length > 42 ? `${t.slice(0, 42)}…` : t || "new conversation";
+}
+
+// Defensive load: anything malformed is dropped, never thrown.
+function sanitizeConvos(raw: string | null): Convo[] {
+  try {
+    const arr = JSON.parse(raw || "[]");
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((c) => c && typeof c.id === "string" && Array.isArray(c.thread))
+      .map((c) => ({
+        id: c.id,
+        title: typeof c.title === "string" ? c.title : "conversation",
+        updated: typeof c.updated === "number" ? c.updated : 0,
+        thread: (c.thread as ChatMsg[]).filter(
+          (m) => m && (m.role === "user" || m.role === "assistant")
+        ).map((m) => ({ role: m.role, text: m.text || "", media: Array.isArray(m.media) ? m.media : [] })),
+      }))
+      .slice(0, MAX_CONVOS);
+  } catch {
+    return [];
+  }
+}
 
 export default function Page() {
   const [wallet, setWallet] = useState(false);
@@ -41,9 +80,20 @@ export default function Page() {
 
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<MediaOut[]>([]);
-  const [thread, setThread] = useState<ChatMsg[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+
+  // ── conversations ──────────────────────────────────────────────
+  const [convos, setConvos] = useState<Convo[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  // Persist only after the stored set has been loaded for this identity —
+  // otherwise the empty initial state clobbers what's on disk (see the
+  // shared-localStorage clobber race that bit the module rail).
+  const [convosLoaded, setConvosLoaded] = useState(false);
+  const [sideOpen, setSideOpen] = useState(true);
+
+  const active = convos.find((c) => c.id === activeId) ?? null;
+  const thread = active?.thread ?? [];
 
   // tool-capable text models drive the agent (they call the media tools)
   const agentModels = models.filter(
@@ -53,6 +103,7 @@ export default function Page() {
   useEffect(() => {
     setWallet(hasWallet());
     setHasLocal(hasLocalIdentity());
+    setSideOpen(localStorage.getItem(SIDE_KEY) !== "closed");
     const savedKind = localStorage.getItem(IDKIND_KEY) as IdKind | null;
     const t = localStorage.getItem(TOKEN_KEY);
     const a = localStorage.getItem(ADDR_KEY);
@@ -88,9 +139,70 @@ export default function Page() {
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load this identity's conversations; most recent one becomes active.
+  useEffect(() => {
+    setConvosLoaded(false);
+    if (!address) {
+      setConvos([]);
+      setActiveId(null);
+      return;
+    }
+    const loaded = sanitizeConvos(localStorage.getItem(convosKey(address)));
+    loaded.sort((a, b) => b.updated - a.updated);
+    setConvos(loaded);
+    setActiveId(loaded[0]?.id ?? null);
+    setConvosLoaded(true);
+  }, [address]);
+
+  // Persist (quota-safe). If the full set won't fit in the shared origin,
+  // retry with just the most recent few rather than losing everything.
+  useEffect(() => {
+    if (!convosLoaded || !address) return;
+    const key = convosKey(address);
+    if (!safeSetItem(key, JSON.stringify(convos.slice(0, MAX_CONVOS)))) {
+      safeSetItem(key, JSON.stringify(convos.slice(0, 5)));
+    }
+  }, [convos, convosLoaded, address]);
+
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight });
   }, [thread, status]);
+
+  const toggleSide = () => {
+    setSideOpen((o) => {
+      safeSetItem(SIDE_KEY, o ? "closed" : "open");
+      return !o;
+    });
+  };
+
+  const newConvo = () => {
+    const c: Convo = { id: newId(), title: "new conversation", thread: [], updated: Date.now() };
+    setConvos((cs) => [c, ...cs]);
+    setActiveId(c.id);
+    setAttachments([]);
+    setError(null);
+    setOk(null);
+  };
+
+  const deleteConvo = (id: string) => {
+    setConvos((cs) => cs.filter((c) => c.id !== id));
+    if (activeId === id) {
+      const rest = convos.filter((c) => c.id !== id);
+      setActiveId(rest[0]?.id ?? null);
+    }
+  };
+
+  const patchConvo = (id: string, fn: (c: Convo) => Convo) =>
+    setConvos((cs) => cs.map((c) => (c.id === id ? fn(c) : c)));
+
+  // update the last (assistant) message of a conversation immutably
+  const patchAssistant = (id: string, fn: (m: ChatMsg) => ChatMsg) =>
+    patchConvo(id, (c) => {
+      const copy = c.thread.slice();
+      const i = copy.length - 1;
+      if (i >= 0 && copy[i].role === "assistant") copy[i] = fn(copy[i]);
+      return { ...c, thread: copy };
+    });
 
   const refreshMe = useCallback(async (t: string) => {
     try {
@@ -177,13 +289,17 @@ export default function Page() {
     setAddress(null);
     setIdKind(null);
     setMe(null);
-    setThread([]);
+    setConvos([]);
+    setActiveId(null);
+    setConvosLoaded(false);
     setAttachments([]);
   };
 
   // Destroy the anonymous identity itself (not just the session): wipes the
   // local private key, orphaning whatever Venice key was stored under it.
+  // Its conversations go with it — they belong to the destroyed pseudonym.
   const forgetIdentity = () => {
+    if (address) localStorage.removeItem(convosKey(address));
     clearLocalIdentity();
     setHasLocal(false);
     signOut();
@@ -237,26 +353,32 @@ export default function Page() {
     }
   };
 
-  // update the last (assistant) message immutably
-  const patchAssistant = (fn: (m: ChatMsg) => ChatMsg) =>
-    setThread((t) => {
-      const copy = t.slice();
-      const i = copy.length - 1;
-      if (i >= 0 && copy[i].role === "assistant") copy[i] = fn(copy[i]);
-      return copy;
-    });
-
   const send = async () => {
     if (!token || !prompt.trim() || !model) return;
     setError(null);
     setOk(null);
 
-    const userMsg: ChatMsg = { role: "user", text: prompt, media: attachments };
+    // Sending into empty space starts a conversation.
+    let cid = activeId;
+    if (!cid || !convos.some((c) => c.id === cid)) {
+      cid = newId();
+      const c: Convo = { id: cid, title: "new conversation", thread: [], updated: Date.now() };
+      setConvos((cs) => [c, ...cs]);
+      setActiveId(cid);
+    }
+
+    const text = prompt;
+    const userMsg: ChatMsg = { role: "user", text, media: attachments };
     const history = thread.map((m) => ({ role: m.role, content: m.text }));
-    const apiMessages = [...history, { role: "user", content: prompt }];
+    const apiMessages = [...history, { role: "user", content: text }];
     const attachIds = attachments.map((a) => a.media_id);
 
-    setThread((t) => [...t, userMsg, { role: "assistant", text: "", media: [] }]);
+    patchConvo(cid, (c) => ({
+      ...c,
+      title: c.thread.length === 0 ? titleFrom(text) : c.title,
+      updated: Date.now(),
+      thread: [...c.thread, userMsg, { role: "assistant", text: "", media: [] }],
+    }));
     setPrompt("");
     setAttachments([]);
     setStatus("starting…");
@@ -275,16 +397,17 @@ export default function Page() {
         { model, messages: apiMessages, attachments: attachIds },
         {
           onStatus: (s) => setStatus(s),
-          onMedia: (m) => patchAssistant((a) => ({ ...a, media: [...a.media, m] })),
-          onMessage: (text) => patchAssistant((a) => ({ ...a, text })),
+          onMedia: (m) => patchAssistant(cid, (a) => ({ ...a, media: [...a.media, m] })),
+          onMessage: (t) => patchAssistant(cid, (a) => ({ ...a, text: t })),
           onError: (err) => {
             setError(err);
-            patchAssistant((a) => ({ ...a, text: a.text || `⚠ ${err}` }));
+            patchAssistant(cid, (a) => ({ ...a, text: a.text || `⚠ ${err}` }));
           },
           onDone: () => setStatus(null),
         },
         fetchImpl
       );
+      patchConvo(cid, (c) => ({ ...c, updated: Date.now() }));
       await refreshMe(token);
     } catch (e) {
       setError((e as Error).message);
@@ -297,205 +420,270 @@ export default function Page() {
   const canSend =
     !!token && !!prompt.trim() && !!model && (mode === "byok" ? me?.has_key : me?.paid_available);
 
-  return (
-    <div className="stage">
-    <div className="wrap">
-      <header className="header">
-        <div>
-          <span className="brand">venice</span>
-          <span className="brand-sub">a generative atelier — text, image &amp; video conjured in a single thread</span>
-        </div>
-        <div className="row">
-          {!token && (
-            <>
-              {wallet && (
-                <button className="primary" onClick={signIn} disabled={!!busy}>
-                  Sign in with wallet
-                </button>
-              )}
-              <button
-                className={wallet ? "ghost" : "primary"}
-                onClick={() => signInLocal()}
-                disabled={!!busy}
-                title="Generate a keypair in this browser — no wallet, no identity revealed"
-              >
-                {hasLocal ? "Resume anonymous" : "Use anonymously"}
-              </button>
-            </>
-          )}
-          {token && address && (
-            <>
-              <span className={`pill ${idKind === "local" ? "ok" : "brand"}`}>
-                {idKind === "local" ? "anonymous" : "mod-auth"}
+  // ── signed-out hero ────────────────────────────────────────────
+  if (!token) {
+    return (
+      <div className="stage hero">
+        <div className="hero-card panel">
+          <div className="hero-top">
+            <div>
+              <span className="brand">venice</span>
+              <span className="brand-sub">
+                a generative atelier — text, image &amp; video conjured in a single thread
               </span>
-              <span className="mono" title={idKind === "local" ? "browser-local pseudonym" : "wallet address"}>
-                {shortAddress(address)}
-              </span>
-              <button className="ghost" onClick={signOut}>Sign out</button>
-            </>
-          )}
-        </div>
-      </header>
+            </div>
+            <ThemePicker />
+          </div>
 
-      {error && <div className="banner err">✕ {error}</div>}
-      {ok && !busy && <div className="banner ok">✓ {ok}</div>}
+          <div className="strip" aria-hidden="true"><i /><i /><i /><i /><i /><i /></div>
 
-      {!token && (
-        <div className="panel">
+          {error && <div className="banner err"><Pix name="cross" /> {error}</div>}
+          {ok && !busy && <div className="banner ok"><Pix name="check" /> {ok}</div>}
+
           <p className="lead">
             Edit your photos and summon images &amp; video in one conversation —
             <span className="accent"> attach a picture, describe the change</span>, Venice does the rest.
             Bring your own Venice key (encrypted at rest, used only for your calls), or pay per turn in USDC.
           </p>
-          <p className="lead" style={{ marginTop: 10 }}>
+
+          <div className="tiles">
+            {[
+              { ico: "▣", name: "Edit", body: "Attach a photo, describe the change — it comes back re-rendered." },
+              { ico: "✦", name: "Conjure", body: "Images from a sentence. Upscale 2× in the same breath." },
+              { ico: "▶", name: "Animate", body: "Turn any still into a few seconds of video." },
+            ].map((t) => (
+              <div className="tile" key={t.name}>
+                <div className="tile-ico" aria-hidden="true">{t.ico}</div>
+                <span className="tile-name">{t.name}</span>
+                <div className="tile-body">{t.body}</div>
+              </div>
+            ))}
+          </div>
+
+          <p className="lead" style={{ marginTop: 18 }}>
             Two ways to sign in. <strong>Wallet</strong> ties the session to your address. Or go
             <span className="accent"> anonymous</span>: a keypair is minted right here in your browser —
             no wallet, no email, no identity revealed. Each anonymous identity carries its own Venice key;
             the private key never leaves this device, and <em>Forget identity</em> erases it.
           </p>
-        </div>
-      )}
 
-      {token && (
-        <>
-          <div className="panel">
-            <h2 className="panel-title">Access</h2>
-            <div className="row">
-              <span className={`pill ${idKind === "local" ? "ok" : "brand"}`}>
-                {idKind === "local" ? "anonymous identity (this browser)" : "wallet identity"}
-              </span>
-              <span className={`pill ${me?.has_key ? "ok" : ""}`}>
-                {me?.has_key ? "✓ your key on file (BYOK)" : "no key on file"}
-              </span>
-              <span className={`pill ${me?.paid_available ? "ok" : ""}`}>
-                {me?.paid_available
-                  ? `pay-per-turn: ${me?.price} ${me?.currency} on ${me?.network}`
-                  : "pay-per-turn: unavailable"}
-              </span>
-              <div className="spacer" />
-              {me?.has_key ? (
-                <button onClick={removeKey} disabled={!!busy}>Remove key</button>
-              ) : (
-                <>
-                  <input
-                    type="password"
-                    placeholder="Venice API key (vk-…)"
-                    value={keyInput}
-                    onChange={(e) => setKeyInput(e.target.value)}
-                    disabled={!!busy}
-                    style={{ maxWidth: 260 }}
-                  />
-                  <button className="primary" onClick={saveKey} disabled={!keyInput.trim() || !!busy}>
-                    Save key
-                  </button>
-                </>
-              )}
-            </div>
-            {idKind === "local" && (
-              <p className="muted" style={{ marginTop: 8, fontSize: 12 }}>
-                Your private key lives only in this browser — clearing site data or other devices won&apos;t see it.
-                <button className="ghost" style={{ marginLeft: 8 }} onClick={forgetIdentity} disabled={!!busy}>
-                  Forget identity
-                </button>
-              </p>
+          <div className="hero-actions">
+            {wallet && (
+              <button className="primary" onClick={signIn} disabled={!!busy}>
+                Sign in with wallet
+              </button>
             )}
+            <button
+              className={wallet ? "" : "primary"}
+              onClick={() => signInLocal()}
+              disabled={!!busy}
+              title="Generate a keypair in this browser — no wallet, no identity revealed"
+            >
+              {hasLocal ? "Resume anonymous" : "Use anonymously"}
+            </button>
+            {busy && <span className="thinking"><span className="orb" />{busy}</span>}
           </div>
 
-          <div className="panel">
-            <div className="row" style={{ marginBottom: 10 }}>
-              <h2 className="panel-title" style={{ margin: 0 }}>Chat</h2>
-              <div className="spacer" />
-              <div className="seg">
-                <button className={mode === "byok" ? "active" : ""} onClick={() => setMode("byok")} disabled={!me?.has_key} title={me?.has_key ? "" : "add a key first"}>
-                  My key
-                </button>
-                <button className={mode === "paid" ? "active" : ""} onClick={() => setMode("paid")} disabled={!me?.paid_available} title={me?.paid_available ? "" : "paid path unavailable"}>
-                  Pay per turn
-                </button>
-              </div>
-              <select value={model} onChange={(e) => setModel(e.target.value)} title="orchestrator model (calls the image/video tools)">
-                {agentModels.length === 0 && <option value="">loading…</option>}
-                {agentModels.map((m) => (
-                  <option key={m.id} value={m.id}>{m.id}</option>
-                ))}
-              </select>
-            </div>
+          <div className="fineprint">
+            Eleven display modes, light and dark — pick one from the swatch up top. Nothing about the
+            mode touches your session.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-            <div className="thread" ref={threadRef}>
-              {thread.length === 0 && (
-                <div className="empty">
-                  <div className="empty-title">what shall we dream up?</div>
-                  <div className="prompts">
-                    {[
-                      "draw a neon cyberpunk fox",
-                      "a Murano-glass koi, then upscale it 2×",
-                      "a melting clock over the Venetian lagoon, Dalí style",
-                      "animate a paper crane unfolding into flight, 5s",
-                    ].map((p) => (
-                      <button key={p} className="prompt-chip" onClick={() => setPrompt(p)} disabled={!!busy}>
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {thread.map((m, i) => (
-                <div key={i} className={`msg ${m.role}`}>
-                  <div className="msg-role">{m.role === "user" ? "you" : "venice"}</div>
-                  {m.text && <div className="msg-text">{m.text}</div>}
-                  {m.media.length > 0 && (
-                    <div className="media-grid">
-                      {m.media.map((md) =>
-                        md.kind === "video" ? (
-                          <video key={md.media_id} className="media" src={mediaUrl(md.url)} controls loop />
-                        ) : (
-                          <a key={md.media_id} href={mediaUrl(md.url)} target="_blank" rel="noreferrer">
-                            <img className="media" src={mediaUrl(md.url)} alt={md.prompt || "image"} />
-                          </a>
-                        )
-                      )}
-                    </div>
-                  )}
-                  {m.role === "assistant" && !m.text && m.media.length === 0 && status && (
-                    <div className="thinking"><span className="orb" />{status}</div>
-                  )}
-                </div>
-              ))}
-            </div>
+  // ── signed-in: full-screen chat + sidebar ──────────────────────
+  return (
+    <div className="stage shell">
+      <aside className={`side ${sideOpen ? "" : "closed"}`}>
+        <div className="side-head">
+          <span className="side-brand">venice</span>
+          <button className="ghost icon" onClick={toggleSide} title="hide sidebar" aria-label="hide sidebar"><Pix name="left" /></button>
+        </div>
 
-            {attachments.length > 0 && (
-              <div className="row" style={{ margin: "8px 0" }}>
-                {attachments.map((a) => (
-                  <span key={a.media_id} className="chip">
-                    <img src={mediaUrl(a.url)} alt="attachment" />
-                    attached
-                    <button className="chip-x" onClick={() => setAttachments((s) => s.filter((x) => x.media_id !== a.media_id))}>×</button>
-                  </span>
-                ))}
-              </div>
-            )}
+        <button className="primary new-convo" onClick={newConvo} disabled={!!busy}>
+          + New conversation
+        </button>
 
-            <div className="composer">
-              <label className="attach" title="attach an image">
-                <input type="file" accept="image/*" hidden disabled={!!busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) attachImage(f); e.target.value = ""; }} />
-                📎
-              </label>
-              <textarea
-                placeholder={me?.has_key || me?.paid_available ? "Message venice…  (text, images, video)" : "add a key or enable paid to chat"}
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }}
-                rows={2}
-              />
-              <button className="primary send" onClick={send} disabled={!canSend || !!busy}>
-                {mode === "paid" ? `Pay & send` : "Send"}
+        <div className="convo-list">
+          {convos.length === 0 && <div className="side-empty">nothing yet — say something</div>}
+          {convos.map((c) => (
+            <div
+              key={c.id}
+              className={`convo-item ${c.id === activeId ? "active" : ""}`}
+              onClick={() => { setActiveId(c.id); setAttachments([]); }}
+              title={c.title}
+            >
+              <span className="convo-title">{c.title}</span>
+              <button
+                className="convo-x"
+                title="delete conversation"
+                onClick={(e) => { e.stopPropagation(); deleteConvo(c.id); }}
+              >
+                ×
               </button>
             </div>
-            {status && <div className="thinking fineprint" style={{ marginTop: 10 }}><span className="orb" />{status}</div>}
+          ))}
+        </div>
+
+        <div className="side-sec">
+          <div className="sec-title">Identity</div>
+          <div className="row" style={{ gap: 8 }}>
+            <span className={`pill ${idKind === "local" ? "ok" : "brand"}`}>
+              {idKind === "local" ? "anonymous" : "wallet"}
+            </span>
+            <span className="mono" title={idKind === "local" ? "browser-local pseudonym" : "wallet address"}>
+              {shortAddress(address || "")}
+            </span>
           </div>
-        </>
-      )}
-    </div>
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <button className="ghost" onClick={signOut}>Sign out</button>
+            {idKind === "local" && (
+              <button className="ghost" onClick={forgetIdentity} disabled={!!busy} title="erase the browser-local private key">
+                Forget identity
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="side-sec">
+          <div className="sec-title">Access</div>
+          {me?.has_key ? (
+            <div className="row" style={{ gap: 8 }}>
+              <span className="pill ok"><Pix name="check" size={11} /> your key (BYOK)</span>
+              <button className="ghost" onClick={removeKey} disabled={!!busy}>Remove</button>
+            </div>
+          ) : (
+            <div className="key-form">
+              <input
+                type="password"
+                placeholder="Venice API key (vk-…)"
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+                disabled={!!busy}
+              />
+              <button className="primary" onClick={saveKey} disabled={!keyInput.trim() || !!busy}>
+                Save
+              </button>
+            </div>
+          )}
+          <div style={{ marginTop: 8 }}>
+            <span className={`pill ${me?.paid_available ? "ok" : ""}`}>
+              {me?.paid_available
+                ? `pay-per-turn: ${me?.price} ${me?.currency} on ${me?.network}`
+                : "pay-per-turn: unavailable"}
+            </span>
+          </div>
+          <div className="seg" style={{ marginTop: 10 }}>
+            <button className={mode === "byok" ? "active" : ""} onClick={() => setMode("byok")} disabled={!me?.has_key} title={me?.has_key ? "" : "add a key first"}>
+              My key
+            </button>
+            <button className={mode === "paid" ? "active" : ""} onClick={() => setMode("paid")} disabled={!me?.paid_available} title={me?.paid_available ? "" : "paid path unavailable"}>
+              Pay per turn
+            </button>
+          </div>
+        </div>
+
+        <div className="side-sec">
+          <div className="sec-title">Model</div>
+          <select value={model} onChange={(e) => setModel(e.target.value)} title="orchestrator model (calls the image/video tools)">
+            {agentModels.length === 0 && <option value="">loading…</option>}
+            {agentModels.map((m) => (
+              <option key={m.id} value={m.id}>{m.id}</option>
+            ))}
+          </select>
+        </div>
+      </aside>
+
+      <main className="main">
+        <div className="topbar">
+          {!sideOpen && (
+            <button className="ghost icon" onClick={toggleSide} title="show sidebar" aria-label="show sidebar"><Pix name="menu" /></button>
+          )}
+          <span className="topbar-title">{active?.title ?? "venice"}</span>
+          <div className="spacer" />
+          {status && <span className="thinking"><span className="orb" />{status}</span>}
+          <ThemePicker />
+        </div>
+
+        {error && <div className="banner err"><Pix name="cross" /> {error}</div>}
+        {ok && !busy && <div className="banner ok"><Pix name="check" /> {ok}</div>}
+
+        <div className="thread" ref={threadRef}>
+          {thread.length === 0 && (
+            <div className="empty">
+              <div className="empty-title">what shall we dream up?</div>
+              <div className="empty-sub">
+                Type below, or attach a photo and say what to change. Pick a starting point:
+              </div>
+              <div className="prompts">
+                {[
+                  "draw a neon cyberpunk fox",
+                  "a Murano-glass koi, then upscale it 2×",
+                  "a melting clock over the Venetian lagoon, Dalí style",
+                  "animate a paper crane unfolding into flight, 5s",
+                ].map((p) => (
+                  <button key={p} className="prompt-chip" onClick={() => setPrompt(p)} disabled={!!busy}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {thread.map((m, i) => (
+            <div key={i} className={`msg ${m.role}`}>
+              <div className="msg-role">{m.role === "user" ? "you" : "venice"}</div>
+              {m.text && <div className="msg-text">{m.text}</div>}
+              {m.media.length > 0 && (
+                <div className="media-grid">
+                  {m.media.map((md) =>
+                    md.kind === "video" ? (
+                      <video key={md.media_id} className="media" src={mediaUrl(md.url)} controls loop />
+                    ) : (
+                      <a key={md.media_id} href={mediaUrl(md.url)} target="_blank" rel="noreferrer">
+                        <img className="media" src={mediaUrl(md.url)} alt={md.prompt || "image"} />
+                      </a>
+                    )
+                  )}
+                </div>
+              )}
+              {m.role === "assistant" && !m.text && m.media.length === 0 && status && i === thread.length - 1 && (
+                <div className="thinking"><span className="orb" />{status}</div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {attachments.length > 0 && (
+          <div className="row" style={{ margin: "8px 0 0" }}>
+            {attachments.map((a) => (
+              <span key={a.media_id} className="chip">
+                <img src={mediaUrl(a.url)} alt="attachment" />
+                attached
+                <button className="chip-x" onClick={() => setAttachments((s) => s.filter((x) => x.media_id !== a.media_id))}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="composer">
+          <label className="attach" title="attach an image">
+            <input type="file" accept="image/*" hidden disabled={!!busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) attachImage(f); e.target.value = ""; }} />
+            <Pix name="image" size={18} />
+          </label>
+          <textarea
+            placeholder={me?.has_key || me?.paid_available ? "Message venice…  (text, images, video)" : "add a key or enable paid to chat"}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }}
+            rows={2}
+          />
+          <button className="primary send" onClick={send} disabled={!canSend || !!busy}>
+            {mode === "paid" ? `Pay & send` : "Send"}
+          </button>
+        </div>
+      </main>
     </div>
   );
 }

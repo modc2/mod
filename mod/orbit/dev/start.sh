@@ -1,24 +1,38 @@
 #!/bin/bash
-# Build the Rust gateway (if needed), install app deps (if needed), then start
-# both processes under pm2. Re-run any time to pick up code changes.
-set -e
-DIR="$(cd "$(dirname "$0")" && pwd)"
+# Build + launch the build module under pm2 (as root, for cross-module editing).
+#
+#   ./start.sh                # prod: build the Rust binary + Next app, then pm2 start
+#   DEV_MODE=dev ./start.sh # dev: skip the Next build, run `next dev`
+#
+# Run this as root so dev-api can edit sibling modules. Cross-module writes
+# still require a per-operation sudo signature from the owner key — pm2/root only
+# grants the *capability*; sudo.rs enforces *authorization*.
+#
+# (The per-service src/api/start.sh + src/app/start.sh remain for unauthenticated
+#  host-only dev; this top-level script is the real pm2 deployment.)
+set -euo pipefail
+cd "$(dirname "$0")"
 
-echo "[dev] building Rust API…"
-( cd "$DIR/src/api" && cargo build --release )
+MODE="${DEV_MODE:-prod}"
+API_DIR="src/api"
+APP_DIR="src/app"
 
-if [ ! -d "$DIR/src/app/node_modules" ]; then
-  echo "[dev] installing app deps…"
-  ( cd "$DIR/src/app" && npm install )
+echo "▸ building dev-api (release)…"
+( cd "$API_DIR" && cargo build --release )
+
+echo "▸ installing app deps…"
+( cd "$APP_DIR" && npm install --no-audit --no-fund >/dev/null 2>&1 || npm install )
+
+if [ "$MODE" = "prod" ]; then
+  echo "▸ building Next app (prod bundle — avoids ChunkLoadError over the gateway)…"
+  # Wipe .next first: a stale partial build trips a /_document PageNotFoundError
+  # during page-data collection.
+  ( cd "$APP_DIR" && rm -rf .next && NEXT_PUBLIC_BASE_PATH="${NEXT_PUBLIC_BASE_PATH:-/dev}" npx next build )
 fi
 
-if [ "${DEV_MODE:-dev}" = "prod" ]; then
-  echo "[dev] building Next app…"
-  ( cd "$DIR/src/app" && NEXT_PUBLIC_BASE_PATH=/dev npm run build )
-fi
+echo "▸ (re)starting pm2 processes dev-api + dev-app…"
+pm2 delete dev-api dev-app >/dev/null 2>&1 || true
+DEV_MODE="$MODE" pm2 start ecosystem.config.js
 
-echo "[dev] (re)starting pm2 processes…"
-pm2 start "$DIR/ecosystem.config.js" --update-env
-pm2 save || true
-
-echo "[dev] up:  api → http://localhost:${DEV_API_PORT:-8870}   app → http://localhost:${DEV_APP_PORT:-8871}/dev"
+pm2 save >/dev/null 2>&1 || true
+echo "✓ build up — API :${DEV_API_PORT:-8870}  APP :${DEV_APP_PORT:-8871}  (pm2 ls)"

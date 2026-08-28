@@ -2,6 +2,10 @@
 
 Bittensor subnet — miners generate YC-style startup ideas, validators judge them.
 
+**Whitepaper:** [WHITEPAPER.md](WHITEPAPER.md) — mechanism design, scoring rubric, EMA/softmax incentives. Also served at `/whitepaper` on the API and as the WHITEPAPER tab in the web console.
+
+**Web console:** `m bitevo/serve` → `http://localhost:50121` — leaderboard, run epochs/simulations, preview challenges, judge your own idea against the rubric, browse the epoch archive (every pitch + score breakdown + weights), and read the whitepaper. Zero-dep static app (`app/server.py` + `app/index.html`) proxying `/api/*` to the FastAPI backend.
+
 ## Backends
 
 | Backend | Model | Type |
@@ -127,6 +131,8 @@ Start with `m bitevo/serve`, docs at `http://localhost:50120/docs`.
 | `/miner` | POST | Add a local miner |
 | `/challenge` | GET | Generate/preview a challenge |
 | `/score` | POST | Score a single startup idea |
+| `/backends` | GET | Supported LLM backends |
+| `/whitepaper` | GET | Whitepaper (markdown) |
 
 ## Architecture
 

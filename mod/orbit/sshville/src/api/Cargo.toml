@@ -52,3 +52,9 @@ parking_lot = "0.12"
 
 # Random salt for ssh tempfile names
 rand = "0.8"
+
+# ed25519 SSH keypair generation + OpenSSH encoding (RustCrypto)
+ssh-key = { version = "0.6", features = ["ed25519", "rand_core"] }
+
+# QR SVG rendering for key sharing
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }

@@ -8,18 +8,9 @@
         uri strip_prefix /api/polymarket
         reverse_proxy localhost:50091
     }
-    # CLOB L2 passthrough — browser can hit clob.polymarket.com under CORS,
-    # but proxying keeps origin checks predictable and matches the dev script.
-    @polymarket_l2 path /api/polymarket-l2 /api/polymarket-l2/*
-    handle @polymarket_l2 {
-        uri strip_prefix /api/polymarket-l2
-        reverse_proxy https://clob.polymarket.com {
-            header_up Host clob.polymarket.com
-        }
-    }
-    @polymarket_app path /polymarket/QmTdqSNwtTavaPQcjKPZxEridBZZ6iGQZZHs21fBuc2tr5 /polymarket/QmTdqSNwtTavaPQcjKPZxEridBZZ6iGQZZHs21fBuc2tr5/*
+    @polymarket_app path /polymarket/QmZ1DErg6Agaf4i1FpUU8MtPkWyyJ4TFDHDznm5PuRTaQz /polymarket/QmZ1DErg6Agaf4i1FpUU8MtPkWyyJ4TFDHDznm5PuRTaQz/*
     handle @polymarket_app {
-        uri replace /polymarket/QmTdqSNwtTavaPQcjKPZxEridBZZ6iGQZZHs21fBuc2tr5 /polymarket 1
+        uri replace /polymarket/QmZ1DErg6Agaf4i1FpUU8MtPkWyyJ4TFDHDznm5PuRTaQz /polymarket 1
         reverse_proxy localhost:3091
     }
     handle /* {

@@ -1,35 +1,41 @@
-# ── Stage 1: FastAPI proxy deps ──────────────────────────────────
-FROM python:3.12-slim AS api-builder
-WORKDIR /build
-COPY src/api/requirements.txt ./
-RUN pip install --no-cache-dir --target /build/deps -r requirements.txt
+# Build on mod:latest which already has Rust 1.93, Node 20, build-essential, libssl-dev
+FROM mod:latest
 
-# ── Stage 2: Build Next.js app (when present) ────────────────────
-FROM node:20-slim AS app-builder
-WORKDIR /build
-COPY src/app/ ./
-RUN if [ -f package.json ]; then npm ci --no-audit --no-fund && npm run build || echo "no app build script"; else echo "no app/"; fi
+# Create node user (mod:latest runs as root)
+RUN useradd -u 1000 -m -s /bin/bash node \
+    && mkdir -p /home/node/.claude /home/node/.mod/dev \
+    && chown -R node:node /home/node
 
-# ── Stage 3: Runtime ─────────────────────────────────────────────
-FROM python:3.12-slim
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates nodejs npm && rm -rf /var/lib/apt/lists/*
+# Install the Claude Code CLI globally so the Rust API can spawn it.
+# Without this, jobs.rs falls back to bare "claude" on PATH; the inherited
+# PATH includes /root/.cargo/bin which the node (uid 1000) user can't
+# traverse, producing a misleading "Permission denied (os error 13)".
+RUN npm install -g @anthropic-ai/claude-code \
+    && which claude \
+    && claude --version
+
+# Build Rust API (uses vendored deps — no network needed)
+WORKDIR /app
+COPY src/api/ /app/src/api/
+RUN cd /app/src/api \
+    && export OPENSSL_LIB_DIR=/usr/lib/$(uname -m)-linux-gnu OPENSSL_INCLUDE_DIR=/usr/include \
+    && cargo build --release \
+    && mkdir -p /app/bin \
+    && cp target/release/dev-jobs /app/bin/dev-jobs \
+    && rm -rf target vendor
+
+# Copy Next.js App (with node_modules pre-installed)
+COPY src/app/ /app/src/app/
+ENV NEXT_PUBLIC_BASE_PATH=/build
+RUN cd /app/src/app && npx next build
+
+# Entrypoint
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh /app/bin/dev-jobs
+
+ARG DEV_CID=""
+ARG DEV_TIME=""
+ENV DEV_CID=${DEV_CID} DEV_TIME=${DEV_TIME}
 
 WORKDIR /app
-COPY config.json .
-COPY src/api/ /app/src/api/
-COPY --from=api-builder /build/deps /app/deps
-ENV PYTHONPATH=/app/deps
-
-COPY --from=app-builder /build /app/src/app
-
-COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
-
-# Owner-managed key store mount target (per-wallet ciphertexts)
-RUN mkdir -p /home/node/.mod/dev
-
-ENV API_PORT=8870
-ENV APP_PORT=8871
-EXPOSE 8870 8871
-
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

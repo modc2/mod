@@ -91,4 +91,4 @@ export function formatPrice(value: bigint | string | number, decimals: number = 
 }
 
 // API base URL for the FastAPI backend
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8830'
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/prefi/api'

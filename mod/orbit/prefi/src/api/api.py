@@ -48,8 +48,35 @@ def add_market(
     token: str = Query(..., description="Token contract address"),
     symbol: str = Query(..., description="Token symbol e.g. WETH"),
     fee_tier: int = Query(3000, description="Uniswap V3 fee tier (500, 3000, 10000)"),
+    source: str = Query("coingecko", description="Price source: coingecko | hyperliquid"),
 ):
-    return get_mod().add_market(token, symbol, fee_tier)
+    result = get_mod().add_market(token, symbol, fee_tier, source)
+    if 'error' in result:
+        raise HTTPException(status_code=400, detail=result['error'])
+    return result
+
+@app.post("/markets/seed")
+def seed_markets():
+    return get_mod().seed()
+
+
+# ── Hyperliquid ──────────────────────────────────────────────────
+
+@app.get("/hyperliquid/assets")
+def hl_assets(
+    search: str = Query("", description="Filter by coin name"),
+    limit: int = Query(50, description="Max results"),
+):
+    return get_mod().hl_assets(search, limit)
+
+@app.post("/hyperliquid/add")
+def add_hl_market(
+    coin: str = Query(..., description="Hyperliquid perp name e.g. SOL"),
+):
+    result = get_mod().add_hl_market(coin)
+    if 'error' in result:
+        raise HTTPException(status_code=400, detail=result['error'])
+    return result
 
 
 # ── Positions ────────────────────────────────────────────────────
@@ -78,6 +105,84 @@ def close_position(
 @app.get("/positions/{address}")
 def get_positions(address: str):
     return get_mod().get_positions(address)
+
+
+# ── Predictions ──────────────────────────────────────────────────
+
+@app.post("/predict")
+def predict(
+    asset: str = Query(..., description="Market symbol e.g. WETH"),
+    predicted_price: float = Query(..., description="Where the price will be at resolution"),
+    burn: float = Query(..., description="PREFI to burn on the call"),
+    address: str = Query(..., description="Forecaster address"),
+    horizon: Optional[int] = Query(None, description="Seconds until resolution (default 86400)"),
+):
+    result = get_mod().predict(asset, predicted_price, burn, address, horizon)
+    if 'error' in result:
+        raise HTTPException(status_code=400, detail=result['error'])
+    return result
+
+@app.get("/predictions")
+def list_predictions(limit: int = Query(100)):
+    return get_mod().get_predictions(None, limit)
+
+@app.get("/predictions/board")
+def prediction_board():
+    return get_mod().prediction_board()
+
+@app.post("/predictions/resolve")
+def resolve_predictions():
+    return get_mod().resolve_predictions()
+
+@app.get("/predictions/{address}")
+def get_predictions(address: str, limit: int = Query(100)):
+    return get_mod().get_predictions(address, limit)
+
+
+# ── Scoring ──────────────────────────────────────────────────────
+
+@app.get("/scoring")
+def get_scoring():
+    return get_mod().get_scoring()
+
+@app.get("/scoring/models")
+def scoring_models():
+    return get_mod().scoring_models()
+
+@app.post("/scoring")
+def set_scoring(
+    model: Optional[str] = Query(None, description="l2 | linear | exponential | threshold"),
+    tolerance: Optional[float] = Query(None, description="Normalized error scale, e.g. 0.02"),
+    multiplier: Optional[float] = Query(None, description="payout = burn × multiplier × score"),
+    horizon: Optional[int] = Query(None, description="Default seconds until resolution"),
+    min_burn: Optional[float] = Query(None, description="Smallest accepted burn"),
+):
+    result = get_mod().set_scoring(model=model, tolerance=tolerance,
+                                   multiplier=multiplier, horizon=horizon,
+                                   min_burn=min_burn)
+    if 'error' in result:
+        raise HTTPException(status_code=400, detail=result['error'])
+    return result
+
+@app.get("/scoring/preview")
+def score_preview(
+    predicted: float = Query(..., description="Predicted price"),
+    actual: float = Query(..., description="Actual price"),
+    model: Optional[str] = Query(None),
+    tolerance: Optional[float] = Query(None),
+    burn: Optional[float] = Query(None),
+):
+    result = get_mod().score_preview(predicted, actual, model, tolerance, burn)
+    if 'error' in result:
+        raise HTTPException(status_code=400, detail=result['error'])
+    return result
+
+
+# ── PREFI balance ────────────────────────────────────────────────
+
+@app.get("/balance/{address}")
+def prefi_balance(address: str):
+    return get_mod().prefi_balance(address)
 
 
 # ── Staking ──────────────────────────────────────────────────────

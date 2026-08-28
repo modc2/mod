@@ -12,16 +12,17 @@ export default function FollowsPage() {
   const { address } = useWallet();
   const [follows, setFollows] = useState<Follow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterMine, setFilterMine] = useState(true);
 
+  // Follows are private per wallet — the API only serves your own rows,
+  // scoped to the signed-in address on the auth token.
   const load = useCallback(async () => {
+    if (!address) { setFollows([]); setLoading(false); return; }
     setLoading(true);
     try {
-      const filt = filterMine && address ? address : undefined;
-      const r = await listFollows(filt);
+      const r = await listFollows(address);
       setFollows(r.follows);
     } finally { setLoading(false); }
-  }, [address, filterMine]);
+  }, [address]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -46,10 +47,6 @@ export default function FollowsPage() {
           <p className="text-xs text-muted mt-1">copy-trade configurations + status</p>
         </div>
         <div className="flex gap-2 items-center">
-          <label className="text-[11px] text-muted flex items-center gap-1">
-            <input type="checkbox" checked={filterMine} onChange={(e) => setFilterMine(e.target.checked)} />
-            mine only
-          </label>
           <button className="btn" onClick={load} disabled={loading}>refresh</button>
         </div>
       </div>

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chutes — rust mcp backend</title>
+<style>
+:root{
+  --bg:#07090f; --panel:rgba(255,255,255,.035); --line:rgba(255,255,255,.08);
+  --text:#dbe4f0; --dim:#7d8ba1; --acc:#7c6cff; --acc2:#3ddc97; --err:#ff6b81;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,'Inter',system-ui,sans-serif;min-height:100vh}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(700px 400px at 15% -5%,rgba(124,108,255,.14),transparent 60%),
+             radial-gradient(600px 380px at 95% 0%,rgba(61,220,151,.08),transparent 55%)}
+.wrap{max-width:980px;margin:0 auto;padding:36px 20px 60px;position:relative}
+header{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+h1{font-size:22px;letter-spacing:.5px}
+h1 b{color:var(--acc)}
+.tag{font:11px var(--mono);color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:2px 10px}
+.sub{color:var(--dim);margin-bottom:24px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;backdrop-filter:blur(8px)}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:1.4px;color:var(--dim);margin-bottom:12px}
+.full{grid-column:1/-1}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.05);font-family:var(--mono);font-size:12px}
+.kv:last-child{border-bottom:0}
+.kv .k{color:var(--dim)}
+.tool{padding:8px 0;border-bottom:1px dashed rgba(255,255,255,.05)}
+.tool:last-child{border-bottom:0}
+.tool .n{font-family:var(--mono);font-size:12.5px;color:var(--acc2)}
+.tool .d{color:var(--dim);font-size:12px}
+textarea,input{width:100%;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:9px;color:var(--text);padding:9px 11px;font:12.5px var(--mono);outline:none}
+textarea:focus,input:focus{border-color:var(--acc)}
+textarea{resize:vertical;min-height:64px}
+.row{display:flex;gap:8px;margin-top:8px}
+button{background:linear-gradient(135deg,var(--acc),#5a4bd8);border:0;border-radius:9px;color:#fff;padding:9px 18px;font-weight:600;cursor:pointer;font-size:13px}
+button:hover{filter:brightness(1.12)}
+button:disabled{opacity:.5;cursor:wait}
+pre{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:9px;padding:11px;font:12px var(--mono);white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto;margin-top:10px}
+.ok{color:var(--acc2)} .bad{color:var(--err)}
+.hint{font-size:11.5px;color:var(--dim);margin-top:8px;font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>⛰ chutes <b>· rust mcp</b></h1><span class="tag" id="ver">…</span></header>
+  <p class="sub">Serverless GPU inference (chutes.ai) behind a Rust MCP server — every call below is a JSON-RPC <span style="font-family:var(--mono)">tools/call</span> to <span style="font-family:var(--mono)">/mcp</span>.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Server</h2>
+      <div id="infobox"><div class="kv"><span class="k">status</span><span>loading…</span></div></div>
+    </div>
+
+    <div class="card">
+      <h2>MCP tools</h2>
+      <div id="toolbox">loading…</div>
+    </div>
+
+    <div class="card full">
+      <h2>Chat · tools/call → chat</h2>
+      <input id="key" type="password" placeholder="x-api-key (chutes.ai API key — kept in this tab only)">
+      <div class="row">
+        <input id="model" placeholder="model (blank = server default)">
+      </div>
+      <div class="row"><textarea id="msg" placeholder="Say something…">Say "ok" and nothing else.</textarea></div>
+      <div class="row"><button id="send">tools/call</button><button id="ping" style="background:rgba(255,255,255,.08)">ping /mcp</button></div>
+      <pre id="out">—</pre>
+      <div class="hint">stdio: <span class="ok">chutes-api --stdio</span> · claude mcp add chutes -- &lt;path&gt;/chutes-api --stdio</div>
+    </div>
+  </div>
+</div>
+<script>
+const base = location.pathname.replace(/\/$/,'');
+let rpcId = 0;
+async function rpc(method, params, key){
+  const headers = {'content-type':'application/json'};
+  if(key) headers['x-api-key'] = key;
+  const r = await fetch(base + '/mcp', {method:'POST', headers,
+    body: JSON.stringify({jsonrpc:'2.0', id: ++rpcId, method, params: params||{}})});
+  return r.json();
+}
+function kv(k,v,cls){return `<div class="kv"><span class="k">${k}</span><span class="${cls||''}">${v}</span></div>`}
+
+(async()=>{
+  try{
+    const info = await fetch(base + '/info').then(r=>r.json());
+    document.getElementById('ver').textContent = 'v' + info.version;
+    document.getElementById('infobox').innerHTML =
+      kv('status', info.status, 'ok') + kv('backend', info.backend) +
+      kv('protocol', info.protocol) + kv('upstream', info.upstream) +
+      kv('mcp', 'POST ' + base + '/mcp');
+  }catch(e){ document.getElementById('infobox').innerHTML = kv('status','unreachable','bad'); }
+  try{
+    const t = await rpc('tools/list');
+    document.getElementById('toolbox').innerHTML = (t.result.tools||[]).map(x=>
+      `<div class="tool"><div class="n">${x.name}</div><div class="d">${x.description}</div></div>`).join('');
+  }catch(e){ document.getElementById('toolbox').textContent = 'tools/list failed'; }
+})();
+
+document.getElementById('ping').onclick = async ()=>{
+  const out = document.getElementById('out');
+  out.textContent = 'ping…';
+  try{ out.textContent = JSON.stringify(await rpc('ping'), null, 2); }
+  catch(e){ out.textContent = String(e); }
+};
+document.getElementById('send').onclick = async ()=>{
+  const btn = document.getElementById('send'), out = document.getElementById('out');
+  btn.disabled = true; out.textContent = 'calling…';
+  try{
+    const args = { message: document.getElementById('msg').value };
+    const model = document.getElementById('model').value.trim();
+    if(model) args.model = model;
+    const resp = await rpc('tools/call', {name:'chat', arguments:args}, document.getElementById('key').value.trim());
+    const res = resp.result || resp;
+    if(res.isError){ out.innerHTML = `<span class="bad">${(res.content?.[0]?.text)||'error'}</span>`; }
+    else {
+      const sc = res.structuredContent;
+      const text = sc?.choices?.[0]?.message?.content;
+      out.textContent = text ? text : JSON.stringify(res, null, 2);
+    }
+  }catch(e){ out.textContent = String(e); }
+  btn.disabled = false;
+};
+</script>
+</body>
+</html>

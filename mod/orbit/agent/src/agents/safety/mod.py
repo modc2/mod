@@ -5,7 +5,7 @@ class Agent:
     name = "Safety"
     description = "Code quality, security, and safety analysis"
     icon = "◇"
-    skills = ["read", "grep", "symbols", "test", "lint", "diff", "think", "glob", "bash"]
+    tools = ["read", "grep", "symbols", "test", "lint", "diff", "think", "glob", "bash"]
     model = None
 
     goal = """You are a code safety and quality auditor. You check code for correctness, security vulnerabilities, and quality issues before it ships.

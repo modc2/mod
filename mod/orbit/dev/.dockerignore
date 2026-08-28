@@ -1,0 +1,5 @@
+src/api/target/
+src/app/.next/
+.claude/
+tests/
+README.md

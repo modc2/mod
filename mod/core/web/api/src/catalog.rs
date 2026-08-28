@@ -42,6 +42,11 @@ pub struct Module {
     pub has_app: bool,
     /// Public mount path under the gateway, e.g. "/venice".
     pub mount: String,
+    /// True when the gateway serves this module on the public web — i.e. the
+    /// caddy-generated site file routes `/{name}` or `/api/{name}` to it. A
+    /// routed module counts even while the activator has it asleep, since it
+    /// wakes on access.
+    pub on_web: bool,
     /// On-chain content id (schema/manifest CID) if pinned.
     pub schema: Option<String>,
     /// Raw config.json, passed through for the detail view.
@@ -55,6 +60,8 @@ pub struct Stats {
     pub functions: usize,
     pub rust_apis: usize,
     pub apps: usize,
+    /// How many modules the gateway serves on the public web.
+    pub on_web: usize,
 }
 
 /// Cached snapshot of the catalog plus the moment it was scanned.
@@ -68,6 +75,9 @@ struct Snapshot {
 /// explorer surfaces the whole ecosystem, core modules included.
 pub struct Catalog {
     roots: Vec<PathBuf>,
+    /// The caddy-generated site file that routes `/{mod}` on the public host.
+    /// Modules with a route here are "on the web" and rank first.
+    caddy_site: PathBuf,
     ttl: Duration,
     snapshot: RwLock<Option<Snapshot>>,
 }
@@ -81,8 +91,12 @@ impl Catalog {
                 roots.push(core);
             }
         }
+        let caddy_site = std::env::var("MOD_CADDY_SITE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/etc/caddy/mod_site.caddy"));
         Self {
             roots,
+            caddy_site,
             ttl: Duration::from_secs(3),
             snapshot: RwLock::new(None),
         }
@@ -113,6 +127,14 @@ impl Catalog {
                 .then(completeness(b).cmp(&completeness(a)))
         });
         modules.dedup_by(|a, b| a.name == b.name);
+        // Stamp which modules the gateway serves publicly and float them to the
+        // top: the live web deployment is what visitors can actually use, so it
+        // outranks the long tail of on-disk-only modules.
+        let routed = web_routed_names(&self.caddy_site);
+        for m in modules.iter_mut() {
+            m.on_web = routed.contains(&m.name.to_lowercase());
+        }
+        modules.sort_by(|a, b| b.on_web.cmp(&a.on_web).then_with(|| a.name.cmp(&b.name)));
         *self.snapshot.write() = Some(Snapshot {
             modules: modules.clone(),
             scanned_at: Instant::now(),
@@ -233,6 +255,7 @@ impl Catalog {
             functions: modules.iter().map(|m| m.fn_count).sum(),
             rust_apis: modules.iter().filter(|m| m.has_rust).count(),
             apps: modules.iter().filter(|m| m.has_app).count(),
+            on_web: modules.iter().filter(|m| m.on_web).count(),
             modules: modules.len(),
         }
     }
@@ -283,6 +306,7 @@ impl Catalog {
         hits.sort_by(|a, b| {
             b.0.cmp(&a.0)
                 .then_with(|| b.1.cmp(&a.1))
+                .then_with(|| b.2.on_web.cmp(&a.2.on_web))
                 .then_with(|| a.2.name.cmp(&b.2.name))
         });
         hits.into_iter().map(|(_, _, m)| m).collect()
@@ -470,6 +494,40 @@ fn read_file_sandboxed(module_dir: &Path, rel: &str) -> Result<FileContent, File
         truncated: false,
         content,
     })
+}
+
+/// Parse the caddy-generated site file into the set of module names it routes.
+///
+/// `m caddy/apply` emits one matcher per public route, e.g.
+/// `@venice_app path /venice /venice/*` and `@venice_api path /api/venice …`,
+/// so every `path` token reduces to a module name after stripping the optional
+/// `api/` prefix and glob suffix. Missing/unreadable file (dev machines without
+/// a caddy deployment) yields an empty set — every module then sorts by name as
+/// before.
+fn web_routed_names(site_file: &Path) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    let Ok(text) = std::fs::read_to_string(site_file) else {
+        return names;
+    };
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        if !parts.next().is_some_and(|t| t.starts_with('@')) {
+            continue;
+        }
+        if parts.next() != Some("path") {
+            continue;
+        }
+        for tok in parts {
+            let p = tok
+                .trim_end_matches("/*")
+                .trim_matches('/');
+            let name = p.strip_prefix("api/").unwrap_or(p);
+            if !name.is_empty() && !name.contains('/') {
+                names.insert(name.to_lowercase());
+            }
+        }
+    }
+    names
 }
 
 /// A rough "how fully described is this module" score, used to break ties when
@@ -690,6 +748,8 @@ fn parse_module(dir: &Path, cfg_path: &Path) -> Option<Module> {
     let mount = format!("/{name}");
 
     Some(Module {
+        // Stamped from the caddy site file after the scan, once per snapshot.
+        on_web: false,
         name,
         description,
         version,

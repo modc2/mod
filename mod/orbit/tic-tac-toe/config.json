@@ -1,0 +1,45 @@
+{
+    "name": "tic-tac-toe",
+    "description": "Three in a row.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "wasm",
+    "anchor": "mod.py",
+    "artifact": "df484e3df4b3049ee3e8c38472a0be75695b0308a1974ac09799106898b7eabc",
+    "blob": "blobs/df484e3df4b3049ee3e8c38472a0be75695b0308a1974ac09799106898b7eabc",
+    "cid": "QmUWxent8vhmWX1ExS7PPjwPHWEwaeirivWVdeJRpZZY2B",
+    "bytes": 76291,
+    "author": "0xalice",
+    "tags": [
+        "classic"
+    ],
+    "abi": {
+        "required": [
+            "game_init",
+            "game_view",
+            "game_step",
+            "game_done",
+            "game_result"
+        ],
+        "optional": [
+            "game_info"
+        ],
+        "strings": "alloc(i32)->i32; returns are one i64 packed as (ptr << 32) | len"
+    },
+    "exports": [
+        "memory",
+        "alloc",
+        "game_done",
+        "game_info",
+        "game_init",
+        "game_result",
+        "game_step",
+        "game_view",
+        "__data_end",
+        "__heap_base"
+    ],
+    "plays_in": "arena",
+    "stored_in": "store",
+    "schema": "QmZrpJeoTGAiLcTRefUuNuhoYywB8EDsBQ54stFLd7fiQ4"
+}

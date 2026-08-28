@@ -8,8 +8,9 @@ import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js'
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js'
 import {
   ModuleSpec, StyleSpec, Cell, Estimate, Constraints, PortableDoc, PanelSpec,
-  localEstimate, api, ownerId, CODES, CODE_INDEX, LANEWAY_TEMPLATES,
+  localEstimate, api, ownerId, CODES, CODE_INDEX, LANEWAY_TEMPLATES, LOT_PRESETS,
   FALLBACK_PANELS, PANEL_INDEX_FALLBACK, buildFabSchedule, fabScheduleCSV,
+  envelopeTakeoff, PROFORMA,
   AuditResult, AUDIT_PROVIDERS, DEFAULT_AUDIT_PROVIDER, runAudit,
 } from '@/lib/modcity'
 
@@ -17,6 +18,24 @@ const STEP = 3
 const BRICK = 2.86      // module footprint / floor-to-floor height (m)
 const PANEL_T = 0.12    // thickness of a wall / floor / curtain-wall panel
 const HARD_MAX = 14
+const HARD_CELLS = 21   // grid safety cap for huge custom lots
+const M2FT = 3.28084
+
+// The buildable grid: derived from the realistic plot (custom lot size −
+// setbacks, snapped to the 3 m module grid) when one is set, else the
+// abstract lot-cell counts. Plot-derived bounds are strict (2·hw+1 ≤ cells)
+// so the massing can never overflow the real buildable envelope.
+function gridFromConstraints(c: Constraints) {
+  if (c.plot_w_m && c.plot_d_m) {
+    const bw = Math.max(0, c.plot_w_m - 2 * (c.setback_side_m || 0))
+    const bd = Math.max(0, c.plot_d_m - (c.setback_front_m || 0) - (c.setback_rear_m || 0))
+    const w = Math.min(HARD_CELLS, Math.floor(bw / 3)), d = Math.min(HARD_CELLS, Math.floor(bd / 3))
+    return { plot: true, w, d, hw: Math.max(0, Math.floor((w - 1) / 2)), hd: Math.max(0, Math.floor((d - 1) / 2)) }
+  }
+  // legacy abstract lot: unset = unbounded placement (pad still draws 5×5)
+  const w = Math.min(HARD_CELLS, c.lot_w || 5), d = Math.min(HARD_CELLS, c.lot_d || 5)
+  return { plot: false, w, d, hw: Math.floor((c.lot_w || 99) / 2), hd: Math.floor((c.lot_d || 99) / 2) }
+}
 const CATEGORIES = ['living', 'service', 'work', 'commerce', 'outdoor', 'light', 'structure', 'roof']
 const PRESET_COLORS = ['#9c6b46', '#e63946', '#f4a261', '#457b9d', '#00f5d4', '#c77dff', '#80b918', '#ffd166', '#e9ecef', '#3a3330']
 
@@ -91,6 +110,7 @@ export default function Configurator({
   const [fullscreen, setFullscreen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
+  const [glFailed, setGlFailed] = useState(false)
   const [constraints, setConstraints] = useState<Constraints>({ lot_w: 5, lot_d: 5, max_floors: 8 })
   const [showParams, setShowParams] = useState(false)
   const [showDesigner, setShowDesigner] = useState(false)
@@ -100,6 +120,9 @@ export default function Configurator({
   const [showPanels, setShowPanels] = useState(false)
   const [panelTab, setPanelTab] = useState<'all' | 'mine' | 'community'>('all')
   const [showPanelDesigner, setShowPanelDesigner] = useState(false)
+  // ── pro-forma (savings vs site-built + ROI) & lot units ──
+  const [showProforma, setShowProforma] = useState(false)
+  const [unit, setUnit] = useState<'m' | 'ft'>('m')
   // ── building-standards audit (pluggable agent) ──
   const [showAudit, setShowAudit] = useState(false)
   const [auditProvider, setAuditProvider] = useState(DEFAULT_AUDIT_PROVIDER)
@@ -168,18 +191,34 @@ export default function Configurator({
 
   const lotBounds = () => {
     const c = constraintsRef.current
-    return { hw: Math.floor((c.lot_w || 99) / 2), hd: Math.floor((c.lot_d || 99) / 2),
-             maxF: Math.min(HARD_MAX, c.max_floors || HARD_MAX) }
+    const g = gridFromConstraints(c)
+    return { hw: g.hw, hd: g.hd, maxF: Math.min(HARD_MAX, c.max_floors || HARD_MAX) }
   }
 
   // ── Scene (once) ──────────────────────────────────────────────
   useEffect(() => {
-    const mount = mountRef.current!
+    const mount = mountRef.current
+    if (!mount) return
+    // WebGL is unavailable in some embeds / headless browsers — three.js throws
+    // on construction there, which would take down the whole page. Probe first
+    // and degrade to the 2D elevation view instead.
+    let renderer: THREE.WebGLRenderer
+    try {
+      const probe = document.createElement('canvas')
+      if (!probe.getContext('webgl2') && !probe.getContext('webgl')) throw new Error('webgl unavailable')
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    } catch {
+      if (cellsRef.current.size === 0 && !loadDoc) {
+        for (const [x, z, stack] of SEED) cellsRef.current.set(key(x, z), [...stack])
+      }
+      setGlFailed(true)
+      setTick((t) => t + 1)
+      return
+    }
     const scene = new THREE.Scene()
     const W = mount.clientWidth, H = mount.clientHeight
     const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 1000)
     camera.position.set(15, 12, 18)
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(W, H)
     renderer.shadowMap.enabled = true
@@ -297,14 +336,47 @@ export default function Configurator({
     while (ctx.children.length) { const c = ctx.children.pop(); c.geometry?.dispose?.(); c.material?.dispose?.() }
   }
 
-  // pad / street rebuilt when the lot changes
+  // pad / street rebuilt when the lot changes. With a realistic plot set,
+  // the FULL parcel is drawn at real metres with the setback ring visible and
+  // the buildable envelope highlighted — so the lot reads like a survey plan.
   function buildPad() {
     const t = three.current; if (!t.padGroup) return
     const g = t.padGroup
     while (g.children.length) { const c = g.children.pop(); c.geometry?.dispose?.(); (c.material?.dispose?.() ?? 0) }
     const c = constraintsRef.current
-    const cols = c.lot_w || 5, rows = c.lot_d || 5
+    const gr = gridFromConstraints(c)
+    const cols = gr.plot ? Math.max(1, 2 * gr.hw + 1) : gr.w
+    const rows = gr.plot ? Math.max(1, 2 * gr.hd + 1) : gr.d
     const pw = cols * STEP, pd = rows * STEP
+    if (gr.plot && c.plot_w_m && c.plot_d_m) {
+      const lotW = c.plot_w_m, lotD = c.plot_d_m
+      const sf = c.setback_front_m || 0, sr = c.setback_rear_m || 0, ss = c.setback_side_m || 0
+      const bw = Math.max(0.5, lotW - 2 * ss), bd = Math.max(0.5, lotD - sf - sr)
+      const zOff = (sf - sr) / 2   // buildable envelope stays centred; lot shifts around it
+      const street = new THREE.Mesh(new THREE.BoxGeometry(lotW + STEP * 3, 0.2, lotD + STEP * 3),
+        new THREE.MeshStandardMaterial({ color: 0x101018, roughness: 1 }))
+      street.position.set(0, -0.12, zOff); street.receiveShadow = true; g.add(street)
+      const lot = new THREE.Mesh(new THREE.BoxGeometry(lotW, 0.14, lotD),
+        new THREE.MeshStandardMaterial({ color: 0x1b2218, roughness: 1 }))   // yard
+      lot.position.set(0, -0.08, zOff); lot.receiveShadow = true; g.add(lot)
+      const lotEdge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(lotW, 0.02, lotD)),
+        new THREE.LineBasicMaterial({ color: 0xd9c98a, transparent: true, opacity: 0.7 }))
+      lotEdge.position.set(0, 0.02, zOff); g.add(lotEdge)                     // property line
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(bw, 0.1, bd),
+        new THREE.MeshStandardMaterial({ color: 0x1d2a2a, roughness: 0.9 }))  // buildable envelope
+      pad.position.y = -0.03; pad.receiveShadow = true; g.add(pad)
+      const padEdge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(bw, 0.02, bd)),
+        new THREE.LineBasicMaterial({ color: 0x35e0b8, transparent: true, opacity: 0.8 }))
+      padEdge.position.y = 0.03; g.add(padEdge)
+      if (gr.w >= 1 && gr.d >= 1) {
+        const grid = new THREE.GridHelper(Math.max(pw, pd), Math.max(cols, rows), 0x4a4a6a, 0x2a2a40)
+        grid.position.y = 0.04
+        ;(grid.material as THREE.Material).transparent = true; (grid.material as THREE.Material).opacity = 0.5
+        grid.scale.set(pw / Math.max(pw, pd), 1, pd / Math.max(pw, pd))
+        g.add(grid)
+      }
+      return
+    }
     const street = new THREE.Mesh(new THREE.BoxGeometry(pw + STEP * 2.4, 0.2, pd + STEP * 2.4),
       new THREE.MeshStandardMaterial({ color: 0x101018, roughness: 1 }))
     street.position.y = -0.12; street.receiveShadow = true; g.add(street)
@@ -520,20 +592,20 @@ export default function Configurator({
     t.sun.intensity = neon ? 1.1 : 1.5
     ;(t.ground.material as THREE.MeshStandardMaterial).color.set(neon ? 0x07070d : 0x14141d)
 
-    setStats(localEstimate(serialize(), style, mergedCatalog, constraints))
+    setStats(localEstimate(serialize(), style, mergedCatalog, constraints, activePanel))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, style, mergedCatalog, activePanel])
 
   // recompute compliance when constraints change (also clamp out-of-lot cells)
   useEffect(() => {
-    const { hw, hd } = { hw: Math.floor((constraints.lot_w || 99) / 2), hd: Math.floor((constraints.lot_d || 99) / 2) }
+    const { hw, hd } = gridFromConstraints(constraints)
     let changed = false
     cellsRef.current.forEach((_, k) => {
       const [x, z] = k.split(',').map(Number)
       if (Math.abs(x) > hw || Math.abs(z) > hd) { cellsRef.current.delete(k); changed = true }
     })
     if (changed) setTick((t) => t + 1)
-    else { buildPad(); setStats(localEstimate(serialize(), style, mergedCatalog, constraints)) }
+    else { buildPad(); setStats(localEstimate(serialize(), style, mergedCatalog, constraints, activePanel)) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [constraints])
 
@@ -719,9 +791,69 @@ export default function Configurator({
     return mergedPanels
   }, [mergedPanels, panelTab, owner])
 
+  // What each panel would do to THIS building's envelope cost (Δ$ vs the
+  // active skin) — panels stop being cosmetic and become a purchase decision.
+  const panelDeltas = useMemo(() => {
+    if (!showPanels) return {} as Record<string, number>
+    const cells = serialize()
+    const cur = envelopeTakeoff(cells, mergedCatalog, activePanel).subtotal_usd
+    const out: Record<string, number> = {
+      __default: envelopeTakeoff(cells, mergedCatalog, undefined).subtotal_usd - cur,
+    }
+    for (const pn of mergedPanels) out[pn.id] = envelopeTakeoff(cells, mergedCatalog, pn).subtotal_usd - cur
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPanels, tick, mergedCatalog, mergedPanels, activePanel])
+
+  // metre↔feet display conversion for the realistic-plot inputs
+  const cv = (mVal?: number) => mVal == null ? undefined : Math.round(mVal * (unit === 'ft' ? M2FT : 1) * 10) / 10
+  const uv = (v?: number) => v == null ? undefined : Math.round(v / (unit === 'ft' ? M2FT : 1) * 100) / 100
+
   const comp = stats?.compliance
+  const fin = stats?.financials
+  const hasPlot = !!(constraints.plot_w_m && constraints.plot_d_m)
   const activeCode = constraints.code && constraints.code !== 'none' ? CODE_INDEX[constraints.code] : undefined
   const swatchOf = (m: ModuleSpec) => m.color || style.palette[m.tone] || style.accent
+
+  // no WebGL (headless capture, GPU-less embed) — show a 2D elevation of the
+  // design instead of the interactive foundry, and never crash the page.
+  if (glFailed) {
+    const cells = serialize()
+    const est = localEstimate(cells, style, mergedCatalog, constraints, activePanel)
+    const byId = Object.fromEntries(mergedCatalog.map((m) => [m.id, m]))
+    const cols = [...cells].sort((a, b) => a.x - b.x || a.z - b.z)
+    return (
+      <div className="relative w-full h-[72vh] min-h-[560px] rounded-2xl overflow-hidden border border-white/10 grid place-items-center"
+        style={{ background: `linear-gradient(180deg, ${style?.sky || '#0a0a0f'}26, rgba(5,5,10,0.85))` }}>
+        <div className="text-center px-6">
+          <div className="flex items-end justify-center gap-[5px] mb-8 min-h-[120px]">
+            {cols.map((c, i) => (
+              <div key={i} className="flex flex-col-reverse gap-[3px]">
+                {c.stack.slice(0, HARD_MAX).map((id, j) => {
+                  const spec = byId[id]
+                  return <span key={j} className="w-6 h-6 rounded-[3px] border border-black/40 shadow-lg"
+                    style={{ background: spec?.color || style?.palette[spec?.tone || 'warm'] || '#888', opacity: spec?.glass ? 0.55 : 1 }} />
+                })}
+              </div>
+            ))}
+          </div>
+          <div className="text-lg font-bold tracking-tight">
+            {est.module_count} panels · {est.floors} floors · {fmtUSD(est.price_usd)}
+          </div>
+          {est.financials && est.financials.savings_usd > 0 && (
+            <div className="mt-1 text-[11px] text-emerald-300">
+              saves {fmtUSD(est.financials.savings_usd)} vs site-built · yield {est.financials.yield_on_cost_pct}%/yr
+            </div>
+          )}
+          <div className="mt-1 text-[11px] uppercase tracking-[0.2em] text-white/40">{style?.name} · elevation view</div>
+          <p className="mt-4 text-sm text-white/50 max-w-md mx-auto leading-relaxed">
+            The interactive 3D foundry needs WebGL, which this browser or embed doesn&apos;t expose —
+            open the page in a regular browser to stack panels, forge modules and save designs.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div ref={rootRef} className={`overflow-hidden border border-white/10 bg-black/40 select-none ${fullscreen ? 'fixed inset-0 z-[80] w-screen h-screen rounded-none' : 'relative w-full h-[72vh] min-h-[560px] rounded-2xl'}`}>
@@ -745,6 +877,25 @@ export default function Configurator({
           <Row l="Sleeps" v={`${stats.occupancy}`} />
           <Row l="Lead time" v={`${stats.lead_time_days} d`} />
           <Row l="Carbon" v={`${fmt(Math.round(stats.embodied_carbon_kg / 1000))} t`} />
+          {fin && (
+            <button onClick={() => setShowProforma((v) => !v)} className="w-full mt-2 pt-2 border-t border-white/10 text-left group">
+              <div className="flex items-center justify-between text-[11px] py-0.5">
+                <span className="text-white/45">vs site-built</span>
+                <span className={`font-semibold ${fin.savings_usd >= 0 ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  {fin.savings_usd >= 0 ? 'save ' : 'over '}{fmtUSD(Math.abs(fin.savings_usd))}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] py-0.5">
+                <span className="text-white/45">Months saved</span>
+                <span className="text-white/90 font-medium">{fin.months_saved}</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] py-0.5">
+                <span className="text-white/45">ROI · yield</span>
+                <span className="text-white/90 font-medium">{fin.yield_on_cost_pct}%/yr</span>
+              </div>
+              <div className="text-[9px] text-cyan-300/70 group-hover:text-cyan-200 text-right">full pro-forma →</div>
+            </button>
+          )}
           {comp && Object.keys(comp).some((k) => k !== 'ok') && (
             <div className="mt-2 pt-2 border-t border-white/10">
               <div className="text-[9px] uppercase tracking-[0.2em] text-white/40 mb-1">Constraints</div>
@@ -830,21 +981,40 @@ export default function Configurator({
             </select>
           </label>
           {activeCode && <p className="text-[9px] text-cyan-200/70 mb-2 leading-snug">{activeCode.note}</p>}
-          <NumRow label="Lot width" value={constraints.lot_w} min={1} max={9} onChange={(v) => setConstraints((c) => ({ ...c, lot_w: v }))} />
-          <NumRow label="Lot depth" value={constraints.lot_d} min={1} max={9} onChange={(v) => setConstraints((c) => ({ ...c, lot_d: v }))} />
+          {!hasPlot && <>
+            <NumRow label="Lot width" value={constraints.lot_w} min={1} max={15} onChange={(v) => setConstraints((c) => ({ ...c, lot_w: v }))} />
+            <NumRow label="Lot depth" value={constraints.lot_d} min={1} max={15} onChange={(v) => setConstraints((c) => ({ ...c, lot_d: v }))} />
+          </>}
           <NumRow label="Max floors" value={constraints.max_floors} min={1} max={HARD_MAX} onChange={(v) => setConstraints((c) => ({ ...c, max_floors: v }))} />
           <ConRow label="Budget cap" suffix="$" value={constraints.max_budget} step={50000} onChange={(v) => setConstraints((c) => ({ ...c, max_budget: v }))} />
           <ConRow label="Carbon cap" suffix="kg" value={constraints.max_carbon_kg} step={10000} onChange={(v) => setConstraints((c) => ({ ...c, max_carbon_kg: v }))} />
           <ConRow label="Min sleeps" value={constraints.min_occupancy} step={1} onChange={(v) => setConstraints((c) => ({ ...c, min_occupancy: v }))} />
 
-          {/* realistic parcel — metres + setbacks + zoning caps */}
+          {/* realistic parcel — custom lot size + setbacks + zoning caps */}
           <div className="mt-2 pt-2 border-t border-white/10">
-            <div className="text-[9px] uppercase tracking-[0.18em] text-white/40 mb-1.5">Realistic plot (metres)</div>
-            <MRow label="Plot width" value={constraints.plot_w_m} step={0.5} onChange={(v) => setConstraints((c) => ({ ...c, plot_w_m: v }))} />
-            <MRow label="Plot depth" value={constraints.plot_d_m} step={0.5} onChange={(v) => setConstraints((c) => ({ ...c, plot_d_m: v }))} />
-            <MRow label="Setback front" value={constraints.setback_front_m} step={0.5} onChange={(v) => setConstraints((c) => ({ ...c, setback_front_m: v }))} />
-            <MRow label="Setback rear" value={constraints.setback_rear_m} step={0.5} onChange={(v) => setConstraints((c) => ({ ...c, setback_rear_m: v }))} />
-            <MRow label="Setback side" value={constraints.setback_side_m} step={0.5} onChange={(v) => setConstraints((c) => ({ ...c, setback_side_m: v }))} />
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[9px] uppercase tracking-[0.18em] text-white/40">Your lot · custom size</span>
+              <span className="flex rounded-md overflow-hidden border border-white/15">
+                {(['m', 'ft'] as const).map((u) => (
+                  <button key={u} onClick={() => setUnit(u)}
+                    className={`px-1.5 py-0.5 text-[9px] font-semibold transition ${unit === u ? 'bg-cyan-400/80 text-black' : 'bg-black/40 text-white/50 hover:bg-white/10'}`}>{u}</button>
+                ))}
+              </span>
+            </div>
+            <select value="" onChange={(e) => {
+              const p = LOT_PRESETS.find((x) => x.id === e.target.value)
+              if (p) setConstraints((c) => ({ ...c, plot_w_m: p.plot_w_m, plot_d_m: p.plot_d_m,
+                setback_front_m: p.setback_front_m, setback_rear_m: p.setback_rear_m, setback_side_m: p.setback_side_m }))
+            }}
+              className="w-full mb-1.5 bg-black/40 border border-white/15 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:border-cyan-400">
+              <option value="" className="bg-[#13131c]">— real-lot preset (or type any size) —</option>
+              {LOT_PRESETS.map((p) => <option key={p.id} value={p.id} title={p.note} className="bg-[#13131c]">{p.name}</option>)}
+            </select>
+            <MRow label="Lot width" value={cv(constraints.plot_w_m)} step={0.5} suffix={unit} onChange={(v) => setConstraints((c) => ({ ...c, plot_w_m: uv(v) }))} />
+            <MRow label="Lot depth" value={cv(constraints.plot_d_m)} step={0.5} suffix={unit} onChange={(v) => setConstraints((c) => ({ ...c, plot_d_m: uv(v) }))} />
+            <MRow label="Setback front" value={cv(constraints.setback_front_m)} step={0.5} suffix={unit} onChange={(v) => setConstraints((c) => ({ ...c, setback_front_m: uv(v) }))} />
+            <MRow label="Setback rear" value={cv(constraints.setback_rear_m)} step={0.5} suffix={unit} onChange={(v) => setConstraints((c) => ({ ...c, setback_rear_m: uv(v) }))} />
+            <MRow label="Setback side" value={cv(constraints.setback_side_m)} step={0.5} suffix={unit} onChange={(v) => setConstraints((c) => ({ ...c, setback_side_m: uv(v) }))} />
             <MRow label="Max coverage" value={constraints.max_coverage_pct} step={5} suffix="%" onChange={(v) => setConstraints((c) => ({ ...c, max_coverage_pct: v }))} />
             <MRow label="Max FSR" value={constraints.max_fsr} step={0.05} suffix="×" onChange={(v) => setConstraints((c) => ({ ...c, max_fsr: v }))} />
             {stats?.plot && (
@@ -852,8 +1022,57 @@ export default function Configurator({
                 Buildable {stats.plot.buildable_w_m}×{stats.plot.buildable_d_m} m → {stats.plot.build_cells_w}×{stats.plot.build_cells_d} grid · coverage {stats.plot.coverage_pct}% · FSR {stats.plot.fsr}
               </p>
             )}
+            {hasPlot && (
+              <button onClick={() => setConstraints((c) => ({ ...c, plot_w_m: undefined, plot_d_m: undefined }))}
+                className="mt-1 text-[9px] text-white/45 hover:text-white underline">✕ clear lot — back to freeform grid</button>
+            )}
           </div>
-          <p className="text-[9px] text-white/35 mt-1">Setbacks carve a buildable envelope out of the real lot; coverage & FSR are checked live and feed the audit.</p>
+          <p className="text-[9px] text-white/35 mt-1">The build grid, the 3D pad and the setback ring all derive from your lot; coverage & FSR are checked live and feed the audit.</p>
+        </div>
+      )}
+
+      {/* pro-forma — savings vs site-built + rental ROI */}
+      {showProforma && fin && (
+        <div className="absolute right-[224px] top-3 w-[272px] max-h-[85vh] overflow-auto bg-black/70 backdrop-blur-md rounded-xl border border-white/10 p-3 text-white z-20">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-white/50">Pro-forma · savings & ROI</div>
+            <button onClick={() => setShowProforma(false)} className="text-white/40 hover:text-white text-xs">✕</button>
+          </div>
+
+          <div className={`rounded-lg border p-2.5 mb-2 ${fin.savings_usd >= 0 ? 'border-emerald-400/30 bg-emerald-400/10' : 'border-amber-400/30 bg-amber-400/10'}`}>
+            <div className="text-[9px] uppercase tracking-[0.18em] text-white/50">vs conventional site-built</div>
+            <div className={`text-xl font-bold ${fin.savings_usd >= 0 ? 'text-emerald-300' : 'text-amber-300'}`}>
+              {fin.savings_usd >= 0 ? '−' : '+'}{fmtUSD(Math.abs(fin.savings_usd))}
+              <span className="text-xs font-medium text-white/60"> ({Math.abs(fin.savings_pct)}%)</span>
+            </div>
+            <Row l="Modular all-in" v={fmtUSD(fin.all_in_cost_usd)} />
+            <Row l="Site-built all-in" v={fmtUSD(fin.site_built_cost_usd)} />
+            <Row l="Build time" v={`${fin.modular_months} vs ${fin.site_built_months} mo`} />
+            <Row l="Months saved" v={`${fin.months_saved}`} />
+            <Row l="Rent those months earn" v={fmtUSD(fin.early_revenue_usd)} />
+            <Row l="Carbon saved" v={`${fmt(Math.max(0, Math.round(fin.carbon_saved_kg / 1000)))} t CO₂e`} />
+          </div>
+
+          <div className="rounded-lg border border-white/10 bg-black/30 p-2.5 mb-2">
+            <div className="text-[9px] uppercase tracking-[0.18em] text-white/50 mb-1">Rental ROI</div>
+            <Row l="Monthly rent" v={fmtUSD(fin.monthly_rent_usd)} />
+            <Row l="NOI / year" v={fmtUSD(fin.annual_noi_usd)} />
+            <Row l="Yield on cost" v={`${fin.yield_on_cost_pct}%`} />
+            <Row l="Payback" v={fin.payback_years ? `${fin.payback_years} yrs` : '—'} />
+          </div>
+
+          <div className="text-[9px] uppercase tracking-[0.18em] text-white/40 mb-1.5">Your assumptions</div>
+          <MRow label="Land cost" value={constraints.land_cost_usd} step={10000} suffix="$" onChange={(v) => setConstraints((c) => ({ ...c, land_cost_usd: v }))} />
+          <MRow label={`Rent (auto ${fmtUSD(fin.monthly_rent_usd)})`} value={constraints.monthly_rent_usd} step={100} suffix="$/mo" onChange={(v) => setConstraints((c) => ({ ...c, monthly_rent_usd: v }))} />
+          <MRow label="Market rent" value={constraints.rent_per_m2_mo ?? PROFORMA.rent_per_m2_mo} step={1} suffix="$/m²" onChange={(v) => setConstraints((c) => ({ ...c, rent_per_m2_mo: v }))} />
+          <MRow label="Site-built cost" value={constraints.site_built_cost_m2 ?? PROFORMA.site_built_cost_m2} step={100} suffix="$/m²" onChange={(v) => setConstraints((c) => ({ ...c, site_built_cost_m2: v }))} />
+          <MRow label="Soft costs" value={constraints.soft_cost_pct ?? PROFORMA.soft_cost_pct} step={1} suffix="%" onChange={(v) => setConstraints((c) => ({ ...c, soft_cost_pct: v }))} />
+          <MRow label="Vacancy" value={constraints.vacancy_pct ?? PROFORMA.vacancy_pct} step={1} suffix="%" onChange={(v) => setConstraints((c) => ({ ...c, vacancy_pct: v }))} />
+          <MRow label="Operating costs" value={constraints.opex_pct ?? PROFORMA.opex_pct} step={1} suffix="%" onChange={(v) => setConstraints((c) => ({ ...c, opex_pct: v }))} />
+          <p className="text-[9px] text-white/35 mt-1 leading-snug">
+            Benchmarks: site-built ${PROFORMA.site_built_cost_m2}/m² hard cost, {PROFORMA.site_built_carbon_kg_m2} kg CO₂e/m².
+            Assumptions save with the design. Planning figures, not a quote.
+          </p>
         </div>
       )}
 
@@ -898,8 +1117,14 @@ export default function Configurator({
                       <span className="font-mono">{fmtUSD(it.unit_price)} · {fmtUSD(it.line_total)}</span>
                     </div>
                   ))}
+                  {stats.cost_breakdown.envelope?.items.map((it) => (
+                    <div key={`env-${it.kind}`} className="flex items-center justify-between text-[10px] text-amber-200/80">
+                      <span>{it.qty}× {it.name} <span className="text-white/35">({it.kind} panel)</span></span>
+                      <span className="font-mono">{fmtUSD(it.unit_price)} · {fmtUSD(it.line_total)}</span>
+                    </div>
+                  ))}
                   <div className="flex items-center justify-between text-[10px] font-semibold text-white mt-1 pt-1 border-t border-white/10">
-                    <span>{stats.cost_breakdown.unit_count} units · {style.name}</span>
+                    <span>{stats.cost_breakdown.unit_count} units{stats.cost_breakdown.envelope ? ` + ${stats.cost_breakdown.envelope.panel_count} panels` : ''} · {style.name}</span>
                     <span className="font-mono">{fmtUSD(stats.price_usd)}</span>
                   </div>
                 </div>
@@ -965,7 +1190,8 @@ export default function Configurator({
                   <button onClick={() => setSkin(undefined)}
                     className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-left border ${!constraints.skin ? 'bg-white/15 border-white/40' : 'bg-black/40 border-white/10 hover:bg-white/10'}`}>
                     <span className="w-5 h-5 rounded-[5px] shrink-0 border border-black/30" style={{ background: `linear-gradient(135deg, ${style.accent}, #222)` }} />
-                    <span className="text-[11px] font-medium text-white">Style default</span>
+                    <span className="text-[11px] font-medium text-white flex-1">Style default</span>
+                    <DeltaBadge delta={panelDeltas['__default']} />
                   </button>
                   {visiblePanels.map((pn) => (
                     <button key={pn.id} onClick={() => setSkin(pn.id)} title={pn.fab_notes}
@@ -976,11 +1202,13 @@ export default function Configurator({
                           <span className="block text-[11px] font-medium text-white truncate">{pn.name}</span>
                           {pn.custom && <span className="text-[8px] px-1 rounded bg-cyan-400/20 text-cyan-200">{pn.mine || pn.owner === owner ? 'mine' : 'shared'}</span>}
                         </span>
-                        <span className="block text-[9px] text-white/40 truncate">{pn.assembly} · {pn.thickness_mm}mm · RSI {pn.r_value}</span>
+                        <span className="block text-[9px] text-white/40 truncate">{fmtUSD(pn.price)}/panel · {pn.assembly} · RSI {pn.r_value}</span>
                       </span>
+                      <DeltaBadge delta={panelDeltas[pn.id]} />
                     </button>
                   ))}
                 </div>
+                <div className="text-[9px] text-white/35 px-1 pt-1 leading-snug">Δ$ = what switching skin does to THIS building&apos;s envelope cost.</div>
                 <button onClick={() => { setShowPanels(false); setShowPanelDesigner(true) }}
                   className="w-full mt-1.5 text-[11px] font-semibold py-1.5 rounded-lg bg-gradient-to-r from-amber-300/90 to-cyan-300/90 text-black hover:from-amber-200 hover:to-cyan-200 transition">✎ Forge a panel</button>
               </div>
@@ -989,6 +1217,7 @@ export default function Configurator({
           <Btn onClick={toggleFullscreen} active={fullscreen}>{fullscreen ? '⤡ Exit full screen' : '⛶ Full screen'}</Btn>
           <Btn onClick={() => setAutoRotate((v) => !v)} active={autoRotate}>⟳ {autoRotate ? 'Spinning' : 'Rotate'}</Btn>
           <Btn onClick={() => setShowParams((v) => !v)} active={showParams}>⚙ Parameters</Btn>
+          <Btn onClick={() => setShowProforma((v) => !v)} active={showProforma}>💰 Savings & ROI</Btn>
           <Btn onClick={() => { setShowAudit((v) => !v); if (!showAudit && !audit) doAudit() }} active={showAudit}>🛡 Audit standards</Btn>
           <Btn onClick={undo}>↩ Undo</Btn>
           <Btn onClick={clear}>✕ Clear</Btn>
@@ -1031,6 +1260,15 @@ export default function Configurator({
 function Row({ l, v }: { l: string; v: string }) {
   return <div className="flex items-center justify-between text-[11px] py-0.5"><span className="text-white/45">{l}</span><span className="text-white/90 font-medium">{v}</span></div>
 }
+// envelope-cost delta of switching to a panel — green saves, rose costs
+function DeltaBadge({ delta }: { delta?: number }) {
+  if (delta == null || Math.round(delta) === 0) return null
+  return (
+    <span className={`shrink-0 text-[9px] font-semibold px-1 rounded ${delta < 0 ? 'bg-emerald-400/20 text-emerald-200' : 'bg-rose-400/15 text-rose-300'}`}>
+      {delta < 0 ? '−' : '+'}{fmtUSD(Math.abs(delta))}
+    </span>
+  )
+}
 function Btn({ children, onClick, active }: { children: any; onClick: () => void; active?: boolean }) {
   return <button onClick={onClick} className={`px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-all ${active ? 'bg-white/20 border-white/40 text-white' : 'bg-black/40 border-white/15 text-white/75 hover:bg-white/10'}`}>{children}</button>
 }
@@ -1055,7 +1293,7 @@ function MRow({ label, value, step = 1, suffix = 'm', onChange }: { label: strin
         <input type="number" step={step} value={value ?? ''} placeholder="—"
           onChange={(e) => { const v = e.target.value; onChange(v === '' ? undefined : Number(v)) }}
           className="w-16 bg-black/40 border border-white/15 rounded px-1.5 py-0.5 text-[11px] font-mono text-right outline-none focus:border-cyan-400" />
-        <span className="text-[10px] text-white/35 w-4">{suffix}</span>
+        <span className="text-[10px] text-white/35 min-w-[16px] whitespace-nowrap">{suffix}</span>
       </div>
     </div>
   )
@@ -1253,7 +1491,7 @@ function SaveModal({ onClose, onSave, flash }: { onClose: () => void; onSave: (n
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState<any>(null)
 
-  const shareLink = saved ? `${typeof window !== 'undefined' ? window.location.origin : ''}/modcity/?${saved.cid ? 'cid=' + saved.cid : 'd=' + saved.id}` : ''
+  const shareLink = saved ? `${typeof window !== 'undefined' ? window.location.origin : ''}/modcity/build?${saved.cid ? 'cid=' + saved.cid : 'd=' + saved.id}` : ''
 
   const submit = async () => {
     setBusy(true)

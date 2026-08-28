@@ -1,0 +1,25 @@
+{
+    "name": "config",
+    "version": "0.1.0",
+    "description": "The config app — a web face for core/config's Config class (dict with attribute access and a clean aligned tree repr). Browse every fleet module's config.json rendered as the Config tree (collapse nested blocks, click a row to copy its dot-path, flip to raw JSON), paste any JSON into the playground to see its tree, and read the library's doc + source. Zero-dependency single-port app; fleet data reuses orbit/configs.",
+    "anchor": "mod.py",
+    "icon": "🌳",
+    "color": "#8b7cf6",
+    "app_port": 50240,
+    "route": true,
+    "urls": {
+        "app": "https://modc2.com/config",
+        "gateway": "https://modc2.com/config"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "modules",
+        "get",
+        "render",
+        "source",
+        "serve",
+        "kill"
+    ],
+    "key": "config"
+}

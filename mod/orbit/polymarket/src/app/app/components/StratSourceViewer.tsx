@@ -3,8 +3,9 @@
 // STRATS-tab source viewer.
 //
 // Two source surfaces in one panel:
-//   - Built-in TS strats (base / copytrader / registry) — read-only.
-//     Pulled in via the webpack `?raw` rule wired in next.config.mjs.
+//   - The built-in TS Strat class (strats/strat.ts — THE one standard
+//     strategy class) — read-only. Pulled in via the webpack `?raw` rule
+//     wired in next.config.mjs.
 //   - User-uploaded mod.py / mod.rs strats — editable, persisted through
 //     /api/polymarket/user-strats POST (same endpoint UserStratsPanel uses).
 //
@@ -14,10 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import baseSrc from "../lib/strats/base.ts?raw";
-import copytraderSrc from "../lib/strats/copytrader.ts?raw";
-import flowmomentumSrc from "../lib/strats/flowmomentum.ts?raw";
-import registrySrc from "../lib/strats/registry.ts?raw";
+import stratSrc from "../lib/strats/strat.ts?raw";
 
 type StratKind = "py" | "rs" | "ts";
 
@@ -37,10 +35,7 @@ interface ViewerStrat {
 const asSource = (v: unknown): string => (typeof v === "string" ? v : "");
 
 const BUILTIN: ViewerStrat[] = [
-  { id: "copytrader",   kind: "ts", source: asSource(copytraderSrc),   editable: false, label: "copytrader — mirror strat" },
-  { id: "flowmomentum", kind: "ts", source: asSource(flowmomentumSrc), editable: false, label: "flowmomentum — history strat" },
-  { id: "base",         kind: "ts", source: asSource(baseSrc),         editable: false, label: "base — Strat class" },
-  { id: "registry",     kind: "ts", source: asSource(registrySrc),     editable: false, label: "registry — class binding" },
+  { id: "strat", kind: "ts", source: asSource(stratSrc), editable: false, label: "strat — THE Strat class" },
 ];
 
 const keyOf = (s: { id: string; kind: StratKind }) => `${s.id}.${s.kind}`;
@@ -211,7 +206,7 @@ export default function StratSourceViewer() {
 
       {userStrats.length === 0 && (
         <div className="text-[10px] text-pixel-muted">
-          No uploaded strats yet — upload a mod.py / mod.rs on the LIVE → PARAMS tab to see it appear here, editable.
+          No uploaded strats yet — upload a mod.py / mod.rs on the STRAT tab to see it appear here, editable.
         </div>
       )}
     </div>

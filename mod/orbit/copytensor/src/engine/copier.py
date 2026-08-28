@@ -53,10 +53,10 @@ class CopyEngine:
         self.client = client
         self.db = db
         self.safety = safety
-        self._wallet: Optional[bt.wallet] = None
+        self._wallet: Optional[bt.Wallet] = None
         self._running_tasks: Dict[str, asyncio.Task] = {}
 
-    def set_wallet(self, wallet: bt.wallet):
+    def set_wallet(self, wallet: bt.Wallet):
         """Set the wallet for signing transactions. Memory-only."""
         self._wallet = wallet
 

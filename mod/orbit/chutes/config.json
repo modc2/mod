@@ -1,17 +1,39 @@
 {
     "name": "chutes",
-    "port": 50120,
-    "app_port": 50121,
+    "version": "2.0.0",
+    "description": "Chutes.ai serverless GPU inference \u2014 Rust MCP server backend",
+    "port": 50300,
     "urls": {
-        "api": "http://localhost:50120",
-        "app": "http://localhost:50121"
+        "api": "http://localhost:50300",
+        "app": "http://localhost:50300"
     },
     "endpoints": {
+        "mcp": "POST /mcp",
         "chat": "POST /chat",
         "images": "POST /images",
         "models": "GET /models",
-        "forward": "POST /forward"
+        "forward": "POST /forward",
+        "tools": "GET /tools"
     },
-    "schema": "QmbxW2Kt3i3wKKoAUiS9Dx3uJAwPhhSuSXHBLYz7UFoWwY",
-    "gateway_port": 50121
+    "fns": [
+        "forward",
+        "chat",
+        "generate_image",
+        "models",
+        "list_chutes",
+        "get_chute",
+        "warmup",
+        "utilization",
+        "deploy_chute",
+        "delete_chute",
+        "mcp_call",
+        "mcp_config",
+        "build",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "backend": "chutes-rs (Rust: axum MCP server, JSON-RPC 2.0 Streamable HTTP + stdio)",
+    "schema": "QmR6Ky5sfthcjJLjR581JyYt2PiDztZAnFcsjpPw2aN8QX",
+    "gateway_port": 50300
 }

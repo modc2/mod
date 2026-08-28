@@ -7,11 +7,11 @@ services:
       dockerfile: mod/core/store/Dockerfile
     container_name: mod-store
     ports:
-      - "${STORE_API_PORT:-50150}:50150"
+      - "${STORE_API_PORT:-50152}:50152"
       - "${STORE_APP_PORT:-50151}:50151"
     restart: unless-stopped
     environment:
-      STORE_API_PORT: 50150
+      STORE_API_PORT: 50152
       STORE_APP_PORT: 50151
       STORE_JWT_SECRET: ${STORE_JWT_SECRET:-}
       STORE_DOMAIN: ${STORE_DOMAIN:-localhost:50151}

@@ -1,0 +1,333 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import 'maplibre-gl/dist/maplibre-gl.css';
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Super Mario chrome.
+
+   The palette below is the NES sprite set — coin yellow, Mario red, pipe
+   green, sky blue, brick orange — and it dresses the *chrome only*: panels,
+   buttons, HUD and type. Every colour that encodes data still comes from
+   lib/palette.ts, whose ramps were checked against the map surface. Repainting
+   a choropleth in primaries would look great and read as nothing, so the joke
+   stops at the edge of the map.
+
+   The look is built from three ideas, all of them straight off the NES:
+     · hard corners and a 2–3px black outline on every sprite,
+     · a bevel — light on top, dark underneath — instead of a soft shadow,
+     · motion in whole pixels, stepped, never eased.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+
+  --nes-void: #0a0a18;
+  --nes-panel: #0e1330;
+  --nes-raised: #1a2258;
+  --nes-sky: #5c94fc;
+  --nes-red: #e52521;
+  --nes-coin: #fbd000;
+  --nes-green: #43b047;
+  --nes-brick: #c1440e;
+
+  --nes-ink: #ffffff;
+  --nes-ink-2: #ccd3f2;
+  --nes-ink-3: #8f98c8;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--nes-ink-2);
+  background: var(--nes-void);
+  /* The page never scrolls — the map owns the gesture. Without this, a drag
+     that starts on the map bubbles out as pull-to-refresh or as the rubber-band
+     bounce, and panning north drops the whole app. */
+  overscroll-behavior: none;
+  /* A phone rotated to landscape otherwise inflates body text on its own, which
+     desynchronises the pixel type from the sprite grid it is drawn on. */
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: var(--nes-coin);
+  color: #000;
+}
+
+/* ── type ──────────────────────────────────────────────────────────────
+   Press Start 2P is a display face: it is used for HUD numerals, headings
+   and short button labels, and never for prose or data values, which stay in
+   the body sans so a $1.45M is still legible at 12px. */
+.pixel {
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  line-height: 1.6;
+}
+
+/* The drop shadow every NES title screen puts behind its type. */
+.pixel-shadow {
+  text-shadow: 2px 2px 0 #000;
+}
+
+/* ── the block ─────────────────────────────────────────────────────────
+   Panels are blocks you could stand on: black outline, lit top edge, dark
+   under-edge, and a hard offset shadow with no blur in it. */
+.blk {
+  border: 3px solid #000;
+  border-radius: 0;
+  background: var(--nes-panel);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.14),
+    inset 3px 0 0 rgba(255, 255, 255, 0.07),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.5),
+    inset -3px 0 0 rgba(0, 0, 0, 0.35),
+    4px 4px 0 rgba(0, 0, 0, 0.6);
+}
+
+/* ── buttons ───────────────────────────────────────────────────────────
+   A button sits on a 3px black plinth. Hover lifts it a whole pixel pair and
+   grows the plinth; pressing drives it into the floor. Steps, not easing —
+   an NES has no sub-pixel motion. */
+.btn {
+  position: relative;
+  border: 2px solid #000;
+  border-radius: 0;
+  background: var(--nes-raised);
+  color: var(--nes-ink-2);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.45),
+    0 3px 0 #000;
+  transition:
+    transform 80ms steps(2),
+    box-shadow 80ms steps(2),
+    background-color 80ms steps(2);
+}
+/* Hover is scoped to devices that have a pointer. A touch screen keeps the
+   last-tapped element in :hover until something else is tapped, which would
+   leave a button stuck in its lifted state after every press. */
+@media (hover: hover) {
+  .btn:hover {
+    color: var(--nes-ink);
+    background: #232d6e;
+    transform: translateY(-2px);
+    box-shadow:
+      inset 0 2px 0 rgba(255, 255, 255, 0.24),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.45),
+      0 5px 0 #000;
+  }
+}
+.btn:active {
+  transform: translateY(3px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.45),
+    0 0 0 #000;
+}
+/* The selected state: Mario red, and it stays pressed. */
+.btn-on,
+.btn-on:hover {
+  background: var(--nes-red);
+  color: #fff;
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.4),
+    0 1px 0 #000;
+}
+
+/* ── brick ─────────────────────────────────────────────────────────────
+   Offset courses with a mortar line and a lit top edge, drawn as an SVG tile
+   so the seams stay crisp at any zoom instead of blurring like a gradient. */
+.brick {
+  background-color: var(--nes-brick);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Crect width='24' height='24' fill='%23c1440e'/%3E%3Cg fill='%23000' opacity='.55'%3E%3Crect width='24' height='2'/%3E%3Crect y='12' width='24' height='2'/%3E%3Crect y='2' width='2' height='10'/%3E%3Crect x='12' y='14' width='2' height='10'/%3E%3C/g%3E%3Cg fill='%23e8763a' opacity='.55'%3E%3Crect y='2' width='24' height='2'/%3E%3Crect y='14' width='24' height='2'/%3E%3C/g%3E%3C/svg%3E");
+  image-rendering: pixelated;
+}
+
+/* Down a narrow edge strip the 24px course is too coarse to read as anything
+   but noise, so the tile is scaled to show one full brick across the width. */
+.brick-strip {
+  background-size: 10px 10px;
+}
+
+/* ── coin ──────────────────────────────────────────────────────────────
+   The busy indicator. A spinning coin is the one loading spinner every player
+   already knows, and it squashes on its vertical axis exactly like the sprite
+   does — four frames, stepped, no interpolation. */
+@keyframes coin-spin {
+  0%,
+  100% {
+    transform: scaleX(1);
+  }
+  25% {
+    transform: scaleX(0.45);
+  }
+  50% {
+    transform: scaleX(0.12);
+  }
+  75% {
+    transform: scaleX(0.45);
+  }
+}
+.coin-spin {
+  animation: coin-spin 900ms steps(1, end) infinite;
+}
+
+/* The bump a question block gives when you hit it from below. */
+@keyframes block-bump {
+  0% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-6px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+.block-bump {
+  animation: block-bump 260ms steps(3, end);
+}
+
+/* ── maplibre chrome ───────────────────────────────────────────────────
+   MapLibre ships a white pill-shaped control set built for light basemaps.
+   Rebuild it as blocks so the map's own furniture matches the HUD. */
+.maplibregl-ctrl-group {
+  background: var(--nes-panel) !important;
+  border: 3px solid #000 !important;
+  border-radius: 0 !important;
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.5),
+    4px 4px 0 rgba(0, 0, 0, 0.6) !important;
+}
+.maplibregl-ctrl-group button {
+  border-radius: 0 !important;
+}
+.maplibregl-ctrl-group button + button {
+  border-top: 2px solid #000 !important;
+}
+.maplibregl-ctrl-group button:hover {
+  background: var(--nes-raised) !important;
+}
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1) opacity(0.7);
+}
+.maplibregl-ctrl-group button:hover .maplibregl-ctrl-icon {
+  filter: invert(1) opacity(1);
+}
+.maplibregl-ctrl-attrib {
+  background: rgba(10, 10, 24, 0.85) !important;
+  border-radius: 0 !important;
+  color: var(--nes-ink-3) !important;
+  font-size: 10px !important;
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--nes-ink-2) !important;
+}
+.maplibregl-ctrl-attrib-button {
+  filter: invert(1) opacity(0.6);
+}
+.maplibregl-ctrl-scale {
+  background: rgba(10, 10, 24, 0.8) !important;
+  border: 2px solid #000 !important;
+  border-top: none !important;
+  border-radius: 0 !important;
+  color: var(--nes-ink-2) !important;
+  font-size: 10px !important;
+}
+.maplibregl-canvas:focus {
+  outline: none;
+}
+
+/* ── scrollbar ─────────────────────────────────────────────────────────
+   Square, coin-coloured, on a black track — the rail should look like a
+   status bar, not a browser affordance. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--nes-coin) rgba(0, 0, 0, 0.5);
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--nes-coin);
+  border: 2px solid #000;
+  border-radius: 0;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #ffe45c;
+}
+*::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* ── touch ─────────────────────────────────────────────────────────────
+   Everything below applies to phones and tablets only. */
+
+/* Safe areas: a notch or a home indicator must never sit on top of a control.
+   `max()` keeps the ordinary 12px gutter on hardware that has neither. */
+.safe-t {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+.safe-b {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+.safe-x {
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+}
+
+@media (pointer: coarse) {
+  /* iOS zooms the whole page when a field with type under 16px takes focus,
+     and it never zooms back out — the map ends up cropped and off-centre for
+     the rest of the session. Fields are the one place the layout gives up its
+     own scale. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* A finger is about 9mm across; the pointer-sized controls in the rail need
+     a target that clears 44px even where the ink inside them is small. */
+  .tap {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* The coin scrollbar is chrome a touch device doesn't need — the panels
+     scroll by drag, and 10px of it eats into a 300px drawer. */
+  *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  * {
+    scrollbar-width: none;
+  }
+}
+
+/* The drawer and the inspector sheet slide in whole pixels, like everything
+   else here. Transform only, so neither one repaints the map underneath. */
+.sheet-in {
+  transition: transform 160ms steps(4, end);
+}
+
+/* Someone who has asked for less motion should not be sent a spinning coin. */
+@media (prefers-reduced-motion: reduce) {
+  .coin-spin,
+  .block-bump {
+    animation: none;
+  }
+  .btn,
+  .sheet-in {
+    transition: none;
+  }
+}

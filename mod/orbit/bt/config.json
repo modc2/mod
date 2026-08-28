@@ -1,6 +1,15 @@
 {
     "name": "bt",
-    "description": "bt",
-    "version": "0.1.0",
-    "schema": "QmSZZTkcoPzJ3xCzxaaKuBHCT8x89cgkavksSsgx9rAF9S"
+    "description": "Bittensor protocol console + MCP server — subnets, wallets, TAO, alpha trading, and a local index that tracks any trader over time",
+    "version": "2.3.0",
+    "port": 50280,
+    "app_port": 50280,
+    "route": true,
+    "urls": {
+        "api": "http://localhost:50280/api",
+        "app": "http://localhost:50280",
+        "mcp": "http://localhost:50280/mcp"
+    },
+    "network": "finney",
+    "schema": "QmU38PFaR25xLLMNSJi5fHbzgZeXUKbXR3cu4gSd33ZjQ8"
 }

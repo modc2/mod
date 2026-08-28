@@ -1,0 +1,9 @@
+{
+  "name": "markov",
+  "description": "An order-2 character Markov chain over a baked corpus. Seed in, text out.",
+  "author": "arena",
+  "tags": [
+    "example",
+    "model"
+  ]
+}

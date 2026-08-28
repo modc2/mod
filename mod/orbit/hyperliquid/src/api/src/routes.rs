@@ -9,13 +9,27 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use axum::Extension;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+/// Session probe for the frontend: the guard already verified the Bearer
+/// token, so this just echoes who the token says you are.
+async fn auth_me(ext: Option<Extension<crate::auth::AuthedUser>>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    match ext {
+        Some(Extension(u)) => Ok(Json(json!({"ok": true, "address": u.0, "auth": "mod-protocol"}))),
+        None => Err((StatusCode::UNAUTHORIZED, Json(json!({"ok": false, "error": "unauthorized"})))),
+    }
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/", get(info))
         .route("/health", get(health))
         .route("/status", get(status))
+
+        // ── auth (mod protocol-auth; gated, so reaching it proves the token) ──
+        .route("/auth/me", get(auth_me))
 
         // ── public market data ──
         .route("/market/meta", get(meta))
@@ -59,6 +73,26 @@ pub fn router() -> Router<AppState> {
         // ── backend signer / agent wallet ──
         .route("/signer/address", post(signer_address))
         .route("/signer/approve_agent", post(approve_agent_intent))
+        .route("/agent/status", get(agent_status))
+
+        // ── browser-wallet (master EOA) signing support ──
+        //
+        // The backend agent key may sign L1 actions (orders, vaultTransfer…)
+        // but Hyperliquid only accepts *master-wallet* signatures on the
+        // user-signed action class (withdraw3, usdClassTransfer, approveAgent).
+        // These endpoints build canonical intents (action + EIP-712 typedData
+        // for eth_signTypedData_v4); the browser signs and posts the result
+        // back through /exchange/relay.
+        .route("/intent/withdraw", post(intent_withdraw))
+        .route("/intent/usd_class_transfer", post(intent_usd_class_transfer))
+        .route("/exchange/relay", post(exchange_relay))
+        .route("/wallet/config", get(wallet_config))
+
+        // ── cross-chain deposit (Ethereum / Base / Polygon → Arbitrum → HL) ──
+        .route("/deposit/chains", get(crate::deposit::deposit_chains))
+        .route("/deposit/balances", get(crate::deposit::deposit_balances))
+        .route("/deposit/quote", post(crate::deposit::deposit_quote))
+        .route("/deposit/status", get(crate::deposit::deposit_status))
 
         // ── trading actions (signed by backend agent) ──
         .route("/trade", post(trade))
@@ -86,8 +120,55 @@ pub fn router() -> Router<AppState> {
         .route("/live/stop", post(live_stop))
         .route("/live/status", get(live_status))
 
+        // ── MCP tool server (JSON-RPC 2.0 over Streamable HTTP) ──
+        .route("/mcp", post(mcp_post).get(mcp_get))
+        .route("/mcp/schema", get(mcp_schema))
+
+        // ── agent: answers questions / runs tasks through that MCP server ──
+        .route("/ask", post(crate::agent::ask))
+        .route("/ask/status", get(crate::agent::ask_status))
+
         // ── generic mod-protocol passthrough ──
         .route("/forward", post(forward))
+}
+
+// ── MCP ──
+
+/// One JSON-RPC message per POST. Tool calls re-enter this server over
+/// loopback carrying the caller's Authorization header (see mcp.rs).
+async fn mcp_post(
+    State(s): State<AppState>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let msg: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            let err = crate::mcp::rpc_error(Value::Null, -32700, &format!("parse error: {e}"));
+            return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+        }
+    };
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok());
+    match crate::mcp::handle_message(&s.self_url, &msg, auth).await {
+        Some(resp) => Json(resp).into_response(),
+        // Notifications carry no id and get no body — 202 per the spec.
+        None => StatusCode::ACCEPTED.into_response(),
+    }
+}
+
+async fn mcp_get() -> (StatusCode, Json<Value>) {
+    (StatusCode::METHOD_NOT_ALLOWED, Json(json!({
+        "error": "POST JSON-RPC 2.0 messages to this endpoint",
+        "schema": "/mcp/schema",
+    })))
+}
+
+/// The MCP tool surface plus its mod-protocol mapping (tool → fn → route).
+async fn mcp_schema(State(s): State<AppState>) -> Json<Value> {
+    Json(crate::mcp::schema_doc(s.hl.testnet))
 }
 
 // Helper to convert anyhow::Error into a 500 with JSON body.
@@ -98,6 +179,32 @@ fn err500<E: std::fmt::Display>(e: E) -> (StatusCode, Json<Value>) {
 // ── health / status ──
 
 async fn health() -> Json<Value> { Json(json!({"status": "ok"})) }
+
+/// mod protocol null call: `GET /` returns module info without auth.
+async fn info(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({
+        "name": "hyperliquid",
+        "version": env!("CARGO_PKG_VERSION"),
+        "description": "Hyperliquid full-stack — backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server",
+        "protocol": "mod",
+        "auth": "mod protocol-auth Bearer token (personal_sign) — public reads open, user-scoped routes gated",
+        "testnet": s.hl.testnet,
+        "urls": { "app": "/hyperliquid", "api": "/api/hyperliquid" },
+        "endpoints": {
+            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/indexes", "/mcp", "/mcp/schema"],
+            "gated": ["/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action"],
+        },
+        // The mod-protocol fn surface is also an MCP tool server; /mcp/schema
+        // publishes the tool → fn → route mapping.
+        "mcp": {
+            "endpoint": "/mcp",
+            "schema": "/mcp/schema",
+            "transport": "streamable-http",
+            "protocolVersion": crate::mcp::DEFAULT_PROTOCOL_VERSION,
+            "tools": crate::mcp::tools().len(),
+        },
+    }))
+}
 
 async fn status(State(s): State<AppState>) -> Json<Value> {
     Json(json!({
@@ -172,12 +279,34 @@ async fn top_traders(State(s): State<AppState>, Query(q): Query<TopQ>)
     let seed: Vec<String> = q.seed.unwrap_or_default()
         .split(',').filter(|x| !x.is_empty())
         .map(|x| x.trim().to_lowercase()).collect();
+
+    // Fast path: the background refresher keeps boards for the standard
+    // windows; serve those directly instead of re-running the scan per
+    // request. Seeded requests need custom rows, so they fall through.
+    if seed.is_empty() {
+        if let Some(entry) = s.boards.get(days) {
+            if entry.pool >= pool {
+                let mut traders = entry.traders;
+                traders.truncate(pool);
+                return Ok(Json(json!({
+                    "days": days, "min_per_day": min_per_day, "pool": pool,
+                    "updated_at": entry.updated_at,
+                    "traders": traders,
+                })));
+            }
+        }
+    }
+
     let traders = crate::traders::top_traders_with_progress(
-        s.hl.clone(), days, min_per_day, pool, seed,
+        s.hl.clone(), days, min_per_day, pool, seed.clone(),
         Some(s.progress.clone()),
     ).await.map_err(err500)?;
+    if seed.is_empty() {
+        s.boards.put(days, pool, traders.clone());
+    }
     Ok(Json(json!({
         "days": days, "min_per_day": min_per_day, "pool": pool,
+        "updated_at": chrono::Utc::now().timestamp_millis(),
         "traders": traders,
     })))
 }
@@ -539,14 +668,148 @@ async fn approve_agent_intent(State(s): State<AppState>, Json(b): Json<ApproveAg
     let (action, digest) = sign_user::build_approve_agent(
         &agent_addr, b.agent_name.as_deref(), nonce, is_mainnet,
     );
+    let typed_data = sign_user::approve_agent_typed_data(
+        &agent_addr, b.agent_name.as_deref(), nonce, is_mainnet,
+    );
     Ok(Json(json!({
         "action": action,
         "nonce": nonce,
         "agentAddress": agent_addr,
         "digest": format!("0x{}", hex::encode(digest)),
+        "typedData": typed_data,
         "exchange_url": s.hl.exchange_url,
-        "note": "Sign `digest` with the master EOA wallet, then POST { action, nonce, signature: {r,s,v} } to /exchange (or via /forward with fn:'exchange_post').",
+        "note": "Sign `typedData` with eth_signTypedData_v4 (master EOA, on Arbitrum), then POST { action, nonce, signature: {r,s,v} } to /exchange/relay.",
     })))
+}
+
+/// Is the backend agent for this EOA already approved on Hyperliquid?
+#[derive(Deserialize)]
+struct AgentStatusQ { eoa: String }
+
+async fn agent_status(State(s): State<AppState>, Query(q): Query<AgentStatusQ>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let agent_addr = s.signer.signer_address(&q.eoa).map_err(err500)?;
+    let agents = s.hl.extra_agents(&q.eoa).await.unwrap_or(Value::Null);
+    let approved = agents.as_array().map(|arr| arr.iter().any(|a| {
+        a.get("address").and_then(|x| x.as_str())
+            .map(|x| x.eq_ignore_ascii_case(&agent_addr)).unwrap_or(false)
+    })).unwrap_or(false);
+    Ok(Json(json!({
+        "eoa": q.eoa,
+        "agentAddress": agent_addr,
+        "approved": approved,
+        "agents": agents,
+    })))
+}
+
+// ── master-wallet intents + relay ──
+
+#[derive(Deserialize)]
+struct WithdrawIntentBody { destination: String, amount: String }
+
+async fn intent_withdraw(State(s): State<AppState>, Json(b): Json<WithdrawIntentBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let is_mainnet = !s.hl.testnet;
+    let now = chrono::Utc::now().timestamp_millis() as u64;
+    let (action, digest) = sign_user::build_withdraw3(&b.destination, &b.amount, now, is_mainnet);
+    let typed_data = sign_user::withdraw3_typed_data(&b.destination, &b.amount, now, is_mainnet);
+    Ok(Json(json!({
+        "action": action,
+        "nonce": now,
+        "digest": format!("0x{}", hex::encode(digest)),
+        "typedData": typed_data,
+    })))
+}
+
+#[derive(Deserialize)]
+struct UsdClassIntentBody { amount: String, to_perp: bool }
+
+async fn intent_usd_class_transfer(State(s): State<AppState>, Json(b): Json<UsdClassIntentBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let is_mainnet = !s.hl.testnet;
+    let nonce = chrono::Utc::now().timestamp_millis() as u64;
+    let (action, digest) = sign_user::build_usd_class_transfer(&b.amount, b.to_perp, nonce, is_mainnet);
+    let typed_data = sign_user::usd_class_transfer_typed_data(&b.amount, b.to_perp, nonce, is_mainnet);
+    Ok(Json(json!({
+        "action": action,
+        "nonce": nonce,
+        "digest": format!("0x{}", hex::encode(digest)),
+        "typedData": typed_data,
+    })))
+}
+
+/// Relay a browser-signed action to Hyperliquid's /exchange. The body is the
+/// exact envelope HL expects — we forward it untouched so signatures stay
+/// valid, but surface HL-level "err" statuses as HTTP errors for the UI.
+#[derive(Deserialize)]
+struct RelayBody {
+    action: Value,
+    nonce: u64,
+    signature: Value,
+    #[serde(default, rename = "vaultAddress")]
+    vault_address: Option<String>,
+}
+
+async fn exchange_relay(State(s): State<AppState>, Json(b): Json<RelayBody>)
+    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+{
+    let mut body = json!({
+        "action": b.action,
+        "nonce": b.nonce,
+        "signature": b.signature,
+    });
+    if let Some(v) = &b.vault_address {
+        body.as_object_mut().unwrap().insert("vaultAddress".into(), Value::String(v.clone()));
+    }
+    let r = s.http.post(&s.hl.exchange_url).json(&body).send().await.map_err(err500)?;
+    let status = r.status();
+    let text = r.text().await.unwrap_or_default();
+    let v: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({"raw": text}));
+    tracing::info!(%status, response = %v, "POST /exchange (relay) response");
+    if !status.is_success() {
+        return Err((StatusCode::BAD_GATEWAY, Json(json!({"error": format!("/exchange HTTP {status}"), "response": v}))));
+    }
+    if v.get("status").and_then(|x| x.as_str()) == Some("err") {
+        return Err((StatusCode::BAD_REQUEST, Json(json!({
+            "error": v.get("response").and_then(|x| x.as_str()).unwrap_or("exchange rejected action"),
+            "response": v,
+        }))));
+    }
+    Ok(Json(v))
+}
+
+/// Chain constants the frontend needs to drive MetaMask: which chain to be
+/// on for user-signed actions, and where USDC bridge deposits go.
+async fn wallet_config(State(s): State<AppState>) -> Json<Value> {
+    let testnet = s.hl.testnet;
+    let (chain_id, chain_name, usdc, bridge, rpc, explorer) = if testnet {
+        (421614u64, "Arbitrum Sepolia",
+         "0x1baAbB04529D43a73232B713C0FE471f7c7334d5",
+         "0x08cfc1B6b2dCF36A1480b99353A354AA8AC56f89",
+         "https://sepolia-rollup.arbitrum.io/rpc",
+         "https://sepolia.arbiscan.io")
+    } else {
+        (42161u64, "Arbitrum One",
+         "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+         "0x2Df1c51E09aECF9cacB7bc98cB1742757f163dF7",
+         "https://arb1.arbitrum.io/rpc",
+         "https://arbiscan.io")
+    };
+    Json(json!({
+        "testnet": testnet,
+        "chainId": chain_id,
+        "chainIdHex": format!("0x{:x}", chain_id),
+        "chainName": chain_name,
+        "usdcAddress": usdc,
+        "bridgeAddress": bridge,
+        "rpcUrl": rpc,
+        "explorerUrl": explorer,
+        "minDepositUsd": 5.0,
+        "withdrawalFeeUsd": 1.0,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -761,8 +1024,12 @@ async fn vault_transfer(State(s): State<AppState>, Json(b): Json<VaultTransferBo
     let nonce = chrono::Utc::now().timestamp_millis() as u64;
     // NB: vaultAddress is part of the action itself for vaultTransfer — the
     // envelope-level vaultAddress is for *trading as* a vault, not transfers.
-    actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, action, nonce, None)
-        .await.map(Json).map_err(err500)
+    let res = actions::post_l1_action(&s.http, &s.hl, &s.signer, &b.eoa, action, nonce, None)
+        .await.map(Json).map_err(err500)?;
+    // Drop cached vaultDetails for this vault so the page reload right after
+    // a deposit/withdraw shows the new followerState instead of a stale copy.
+    s.hl.cache_evict_prefix(&format!("vaultDetails:{}", b.vault.to_lowercase()));
+    Ok(res)
 }
 
 #[derive(Deserialize)]

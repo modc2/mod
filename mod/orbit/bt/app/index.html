@@ -1,0 +1,1939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>bt · WORLD τ-1 — the open Bittensor explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<script>
+  /* set theme before first paint to avoid a flash */
+  (function () {
+    var t; try { t = localStorage.getItem('bt.theme'); } catch (e) {}
+    if (t !== 'light' && t !== 'dark')
+      t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
+<style>
+  /* ---------- LIGHT · Super Mario overworld ---------- */
+  :root {
+    color-scheme: light;
+    --sky: linear-gradient(160deg, #8fd0ff, #5c94fc 38%, #8f7bff 72%, #5c94fc);
+    --bg: #fff6dd;
+    --card: #ffffff;
+    --ink: #17215e;
+    --ink2: #46549b;
+    --ink3: #8a93c9;
+    --line: rgba(23,33,94,.16);
+    --accent: #e52521;
+    --accent-ink: #ffffff;
+    --good: #1f9b34;
+    --bad: #d70015;
+    --star: #fbd000;
+    --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+    --glass: rgba(173,216,255,.72);
+    --rainbow: linear-gradient(90deg, #e52521, #ff8c1a, #fbd000, #43b047, #049cd8, #8f7bff, #e52521);
+  }
+  /* ---------- DARK · warp-zone underground ---------- */
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --sky: linear-gradient(180deg, #05061e, #0a0c30 60%, #05061e);
+    --bg: #0a0c30;
+    --card: #14163e;
+    --ink: #eef1ff;
+    --ink2: #9aa3e8;
+    --ink3: #5d64a8;
+    --line: rgba(150,160,255,.22);
+    --accent: #fbd000;
+    --accent-ink: #241c00;
+    --good: #4ade63;
+    --bad: #ff5a4e;
+    --star: #fbd000;
+    --glass: rgba(8,9,38,.78);
+    --rainbow: linear-gradient(90deg, #ff5a4e, #ff9f0a, #fbd000, #4ade63, #64d2ff, #bf5af2, #ff5a4e);
+    --block: #64d2ff;
+    --shadow: #01021a;
+  }
+  :root { --pixel: "Press Start 2P", var(--mono); --block: #17215e; --shadow: #17215e; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Inter, sans-serif;
+    background: var(--sky); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  html[data-theme="light"] body {
+    background: var(--sky) fixed;
+    background-size: 300% 300%;
+    animation: skydrift 40s ease-in-out infinite;
+  }
+  @keyframes skydrift {
+    0%, 100% { background-position: 0% 0%; }
+    50% { background-position: 100% 100%; }
+  }
+  a { color: var(--accent); text-decoration: none; }
+  html[data-theme="dark"] a { color: #64d2ff; }
+
+  /* Mario chrome — both worlds. Light is the overworld, dark is the
+     underground; same blocky language, different palette. */
+  nav::after {
+    content: ""; display: block; height: 4px;
+    background: var(--rainbow); background-size: 200% 100%;
+    animation: rbslide 6s linear infinite;
+  }
+  @keyframes rbslide { to { background-position: 200% 0; } }
+  .nav-logo::before { content: "🍄 "; }
+  html[data-theme="dark"] .nav-logo::before { content: "⭐ "; }
+  .card {
+    border: 3px solid var(--block) !important;
+    box-shadow: 0 5px 0 color-mix(in srgb, var(--shadow) 55%, transparent) !important;
+    border-radius: 10px !important;
+  }
+  .pill {
+    font-family: var(--pixel); font-size: 10px; text-transform: uppercase;
+    border-radius: 8px; letter-spacing: .02em;
+  }
+  .pill.primary { border: 3px solid var(--block); box-shadow: 0 4px 0 var(--shadow); }
+  .pill.primary:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--shadow); }
+  .pill.ghost {
+    background: var(--star); color: #17215e;
+    border: 3px solid var(--block); box-shadow: 0 4px 0 var(--shadow);
+  }
+  .pill.ghost:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--shadow); }
+  html[data-theme="dark"] .pill.primary { background: var(--accent); color: var(--accent-ink); }
+  .tag { background: var(--star); color: #5b4200; font-family: var(--pixel); font-size: 8px; }
+  .tag.warn { background: var(--bad); color: #fff; }
+  section > h2, .hero h1, .nav-logo, .stat b, .ovl-head h3, .doc-group h3 {
+    font-family: var(--pixel); font-weight: 400 !important; letter-spacing: 0 !important;
+  }
+  .nav-logo { font-size: 12px; }
+  section > h2 { font-size: 20px; line-height: 1.5; display: flex; align-items: center; gap: 12px; }
+  section > h2::before {
+    content: "?"; font-family: var(--pixel); font-size: 14px; flex: none;
+    width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+    background: var(--star); color: #7a5a00; border: 3px solid var(--block);
+    box-shadow: inset -3px -3px 0 rgba(0,0,0,.22), inset 3px 3px 0 rgba(255,255,255,.45), 0 3px 0 var(--shadow);
+    animation: qbob 2.4s ease-in-out infinite;
+  }
+  @keyframes qbob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+  .ovl-head h3 { font-size: 15px; line-height: 1.5; }
+  .doc-group h3 { font-size: 13px; }
+  th { font-family: var(--pixel); font-size: 8px !important; font-weight: 400 !important; }
+  .stat b { font-size: 17px; }
+  .stat span { font-family: var(--pixel); font-size: 7px; }
+  input, select { border: 3px solid var(--line); border-radius: 8px; }
+  input:focus, select:focus { border-color: var(--accent); }
+  .ovl-card { border: 3px solid var(--block); border-radius: 12px; box-shadow: 0 6px 0 var(--shadow), 0 20px 70px rgba(0,0,0,.35); }
+  .ranges button.sel { font-family: var(--pixel); font-size: 9px; }
+  footer::before {
+    content: ""; display: block; height: 26px; margin-bottom: 26px;
+    border-top: 3px solid var(--block);
+    background:
+      repeating-linear-gradient(90deg, transparent 0 44px, color-mix(in srgb, var(--shadow) 45%, transparent) 44px 47px),
+      linear-gradient(180deg, #c84c0c, #9c3a08);
+  }
+  html[data-theme="dark"] footer::before {
+    background:
+      repeating-linear-gradient(90deg, transparent 0 44px, rgba(0,0,20,.6) 44px 47px),
+      linear-gradient(180deg, #2a6cd4, #17418e);
+  }
+  .hero { position: relative; overflow: hidden; }
+  html[data-theme="light"] .hero::before,
+  html[data-theme="light"] .hero::after {
+    content: ""; position: absolute; z-index: -1; opacity: .9;
+    width: 150px; height: 44px; border-radius: 44px; background: #fff;
+    box-shadow: 34px -16px 0 6px #fff, -30px -12px 0 2px #fff;
+    animation: clouddrift 60s linear infinite;
+  }
+  html[data-theme="light"] .hero::before { top: 42px; left: -180px; }
+  html[data-theme="light"] .hero::after { top: 130px; left: -420px; transform: scale(.65); animation-duration: 90s; }
+  @keyframes clouddrift { to { translate: calc(100vw + 640px) 0; } }
+  html[data-theme="light"] .hero h1, html[data-theme="light"] .hero p.sub {
+    text-shadow: 0 2px 0 rgba(255,255,255,.35);
+  }
+  html[data-theme="light"] .hero h1 .tao { text-shadow: none; }
+
+  /* theme toggle */
+  #themeBtn {
+    border: none; cursor: pointer; font-family: inherit;
+    font-size: 15px; line-height: 1; padding: 6px 10px;
+    border-radius: 980px; background: transparent; color: var(--ink2);
+    transition: transform .2s, background .2s; margin-left: auto; flex: none;
+  }
+  #themeBtn:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); transform: rotate(-12deg) scale(1.1); }
+
+  /* ---------- top bar · logo + wallet ---------- */
+  nav {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    background: var(--glass);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner {
+    max-width: 1120px; margin: 0 auto; padding: 0 22px;
+    height: 56px; display: flex; align-items: center; gap: 12px;
+  }
+  .nav-logo { font-weight: 400; font-size: 12px; color: var(--ink); flex: none; margin-right: 8px; }
+  .nav-logo span { color: var(--ink2); font-weight: 400; }
+  #netdot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--ink2); display: inline-block; margin-right: 6px;
+    transition: background .3s;
+  }
+  #netdot.on { background: var(--good); }
+  #netdot.off { background: var(--bad); }
+
+  /* ---------- wallet bar (lives in the top bar) ---------- */
+  .wbar { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+  .wbar-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+  .wchip {
+    display: inline-flex; align-items: center; gap: 8px; flex: none;
+    height: 34px; padding: 0 15px; border-radius: 999px;
+    border: 2px solid color-mix(in srgb, var(--ink) 26%, transparent);
+    background: transparent; color: var(--ink); cursor: pointer;
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: .01em;
+    transition: border-color .2s, background .2s, transform .15s;
+  }
+  .wchip:hover { border-color: var(--accent); background: color-mix(in srgb, var(--ink) 6%, transparent); }
+  .wchip:active { transform: scale(.97); }
+  .wchip.badge { width: 34px; padding: 0; justify-content: center; font-size: 15px; }
+  .wchip .sub { color: var(--ink3); }
+  .wchip .cp { color: var(--ink3); font-size: 12px; }
+  .wchip.val { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+  .wchip.val.zero { color: var(--ink2); border-color: color-mix(in srgb, var(--ink) 26%, transparent); }
+  .iconbtn {
+    border: none; background: transparent; cursor: pointer; color: var(--ink3);
+    font-family: inherit; font-size: 15px; line-height: 1; padding: 7px 9px;
+    border-radius: 999px; transition: color .2s, background .2s, transform .3s;
+  }
+  .iconbtn:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+  .iconbtn.spin { animation: wspin .7s linear infinite; }
+  @keyframes wspin { to { transform: rotate(-360deg); } }
+  .wpop {
+    position: absolute; top: 60px; left: 22px; z-index: 60; width: min(340px, calc(100vw - 44px));
+    background: var(--card); border: 3px solid var(--block); border-radius: 12px;
+    box-shadow: 0 6px 0 var(--shadow), 0 20px 60px rgba(0,0,0,.28); padding: 16px;
+  }
+  .wpop .wlocal { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .wpop .wlocal button {
+    font-family: var(--mono); font-size: 12px; padding: 6px 12px; border-radius: 999px;
+    border: 2px solid var(--line); background: transparent; color: var(--ink); cursor: pointer;
+  }
+  .wpop .wlocal button:hover { border-color: var(--accent); }
+
+  /* ---------- rail (the sidebar) ---------- */
+  .rail {
+    position: fixed; left: 0; top: 0; bottom: 0; width: 208px; z-index: 55;
+    display: flex; flex-direction: column; gap: 2px; padding: 16px 12px;
+    background: var(--glass); border-right: 1px solid var(--line);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    overflow-y: auto;
+  }
+  .rail a {
+    display: flex; align-items: center; gap: 11px; white-space: nowrap;
+    padding: 9px 12px; border-radius: 10px; font-size: 13.5px; color: var(--ink2);
+    border: 2px solid transparent; transition: color .18s, background .18s;
+  }
+  /* each tab gets its own little block; the active one turns into a coin */
+  .rail a i {
+    width: 11px; height: 11px; flex: none; border-radius: 3px;
+    background: var(--dot, var(--ink3)); opacity: .85;
+    box-shadow: inset -2px -2px 0 rgba(0,0,0,.2);
+    transition: transform .18s, border-radius .18s;
+  }
+  .rail a:nth-child(1) { --dot: #fbd000; }
+  .rail a:nth-child(2) { --dot: #049cd8; }
+  .rail a:nth-child(3) { --dot: #e52521; }
+  .rail a:nth-child(4) { --dot: #8f7bff; }
+  .rail a:nth-child(5) { --dot: #43b047; }
+  .rail a:nth-child(6) { --dot: #ff8c1a; }
+  .rail a:nth-child(7) { --dot: #64d2ff; }
+  .rail a:nth-child(8) { --dot: #b07a3c; }
+  .rail a:nth-child(9) { --dot: #ff5a9e; }
+  .rail a:nth-child(10) { --dot: #9aa3e8; }
+  .rail a:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+  .rail a:hover i { transform: translateY(-2px); }
+  .rail a.active {
+    color: #5b4200; background: var(--star); border-color: var(--block);
+    box-shadow: 0 3px 0 var(--shadow);
+  }
+  .rail a.active i { border-radius: 50%; background: #fff6dd; opacity: 1; }
+  .rail .rail-foot {
+    margin-top: auto; padding: 12px 12px 4px; font-size: 11px; color: var(--ink3);
+    font-family: var(--mono); display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  }
+  .rail .rail-foot button {
+    border: none; background: transparent; color: var(--ink3); cursor: pointer;
+    font: inherit; padding: 2px 0; text-decoration: underline;
+  }
+  .rail .rail-foot button:hover { color: var(--ink); }
+  @media (min-width: 900px) { body { padding-left: 208px; } }
+  @media (max-width: 899px) {
+    .rail {
+      position: sticky; top: 56px; inset: auto; width: auto;
+      flex-direction: row; gap: 4px; overflow-x: auto; padding: 8px 12px;
+      border-right: none; border-bottom: 1px solid var(--line);
+    }
+    .rail .rail-foot { display: none; }
+    .nav-logo { display: none; }
+  }
+
+  /* ---------- hero ---------- */
+  .hero { text-align: center; padding: 84px 22px 52px; }
+  .hero .world {
+    font-family: var(--pixel); font-size: 11px; color: var(--ink2);
+    letter-spacing: .12em; margin-bottom: 22px; display: block;
+  }
+  .hero .world .coin { color: var(--star); }
+  .hero h1 {
+    font-family: var(--pixel); font-weight: 400;
+    font-size: clamp(20px, 3.6vw, 38px); line-height: 1.6;
+    text-shadow: 3px 3px 0 color-mix(in srgb, var(--shadow) 40%, transparent);
+  }
+  .hero h1 .tao {
+    background: var(--rainbow); background-size: 300% 100%;
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    animation: rbslide 5s linear infinite;
+  }
+  .hero p.sub {
+    margin-top: 16px; font-size: 20px; color: var(--ink2);
+    font-weight: 400; letter-spacing: -.01em;
+  }
+  .hero .cta { margin-top: 26px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 22px; border-radius: 980px; font-size: 15px;
+    border: none; cursor: pointer; font-family: inherit;
+    transition: transform .15s, opacity .15s;
+  }
+  .pill:hover { opacity: .88; }
+  .pill:active { transform: scale(.97); }
+  .pill.primary { background: var(--accent); color: var(--accent-ink); }
+  .pill.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .stats { margin: 40px auto 0; display: flex; gap: 0; justify-content: center; flex-wrap: wrap; }
+  .stat { padding: 6px 30px; text-align: center; border-right: 1px solid var(--line); }
+  .stat:last-child { border-right: none; }
+  .stat b { display: block; font-size: 28px; font-weight: 600; letter-spacing: -.02em; }
+  .stat span { font-size: 11.5px; color: var(--ink2); text-transform: uppercase; letter-spacing: .06em; }
+  .synced {
+    margin: 16px auto 0; display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink3);
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  .synced i {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--good);
+    box-shadow: 0 0 0 0 var(--good); animation: sync-pulse 2.4s ease-out infinite;
+  }
+  .synced.stale i { background: var(--star); animation: none; }
+  .synced.dead i { background: var(--bad); animation: none; }
+  .synced em { font-style: normal; }
+  @keyframes sync-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(31,155,52,.55); }
+    70%  { box-shadow: 0 0 0 6px rgba(31,155,52,0); }
+    100% { box-shadow: 0 0 0 0 rgba(31,155,52,0); }
+  }
+
+  /* ---------- pages (one per nav tab) ---------- */
+  .page { display: none; }
+  .page.active { display: block; }
+  section.page { min-height: calc(100vh - 300px); }
+
+  /* ---------- sections ---------- */
+  section { max-width: 1120px; margin: 0 auto; padding: 52px 22px; }
+  section.narrow { max-width: 980px; }
+  section > h2 { font-size: 20px; margin-bottom: 10px; font-family: var(--pixel); }
+  section > p.lead { color: var(--ink2); font-size: 17px; margin-bottom: 24px; }
+  .card {
+    background: var(--card); border-radius: 18px; padding: 24px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.05);
+    border: 1px solid var(--line);
+  }
+  .grid { display: grid; gap: 18px; }
+  .grid.cols2 { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 720px) { .grid.cols2 { grid-template-columns: 1fr; } }
+
+  /* ---------- controls ---------- */
+  input, select {
+    font-family: inherit; font-size: 15px; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 12px; padding: 10px 14px; outline: none; width: 100%;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  label { font-size: 12px; color: var(--ink2); display: block; margin: 10px 0 5px; letter-spacing: .02em; }
+  .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 130px; }
+
+  /* ---------- tables ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-size: 11px; color: var(--ink2); text-transform: uppercase; letter-spacing: .07em; font-weight: 600; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  tr:last-child td { border-bottom: none; }
+  tbody tr { transition: background .15s; }
+  tbody tr:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  .num { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 13px; }
+  th.num, td.num { text-align: right; }
+  .up { color: var(--good); }
+  .down { color: var(--bad); }
+  .tag { font-size: 11px; padding: 3px 9px; border-radius: 980px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-weight: 500; }
+  .tag.warn { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
+
+  /* ---------- screener ---------- */
+  #screener-wrap { overflow: auto; }
+  #screener th { cursor: pointer; user-select: none; }
+  #screener th:hover { color: var(--ink); }
+  #screener th .arrow { font-size: 9px; opacity: .8; }
+  #screener tbody tr, #traders-tbl tbody tr.trow { cursor: pointer; }
+  .sn-cell { display: flex; align-items: center; gap: 10px; min-width: 180px; }
+  .sn-logo {
+    width: 26px; height: 26px; border-radius: 8px; flex: none;
+    object-fit: contain; background: var(--bg); border: 1px solid var(--line);
+  }
+  .sn-avatar {
+    width: 26px; height: 26px; border-radius: 8px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent); font-size: 13px; font-weight: 600;
+  }
+  .sn-name { font-weight: 500; line-height: 1.2; }
+  .sn-sym { font-size: 11.5px; color: var(--ink2); font-family: var(--mono); }
+  .spark { display: block; }
+  .spark path.l { fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .spark.up path.l { stroke: var(--good); }
+  .spark.down path.l { stroke: var(--bad); }
+  .spark.flat path.l { stroke: var(--ink3); }
+  .updated { font-size: 12px; color: var(--ink2); }
+
+  /* ---------- detail overlay ---------- */
+  #ovl, #tovl {
+    position: fixed; inset: 0; z-index: 100; display: none;
+    background: color-mix(in srgb, var(--bg) 55%, transparent);
+    backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    overflow-y: auto; padding: 5vh 16px 8vh;
+  }
+  #ovl.open, #tovl.open { display: block; }
+  .ovl-card {
+    max-width: 860px; margin: 0 auto; background: var(--card);
+    border-radius: 22px; border: 1px solid var(--line);
+    box-shadow: 0 20px 70px rgba(0,0,0,.25); padding: 28px;
+  }
+  .ovl-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .ovl-head .sn-logo, .ovl-head .sn-avatar { width: 44px; height: 44px; border-radius: 12px; font-size: 20px; }
+  .ovl-head h3 { font-size: 16px; line-height: 1.5; }
+  .ovl-close {
+    margin-left: auto; border: none; cursor: pointer;
+    width: 32px; height: 32px; border-radius: 50%; font-size: 15px;
+    background: color-mix(in srgb, var(--ink) 7%, transparent); color: var(--ink2);
+  }
+  .ovl-close:hover { color: var(--ink); }
+  .idlinks { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .idlinks a, .idlinks span.na {
+    font-size: 12px; padding: 5px 12px; border-radius: 980px;
+    border: 1px solid var(--line); color: var(--ink2);
+  }
+  .idlinks a:hover { color: var(--ink); border-color: var(--ink3); }
+  .bigprice { margin-top: 18px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .bigprice b { font-size: 40px; font-weight: 600; letter-spacing: -.02em; }
+  .bigprice .delta { font-size: 17px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .ranges { display: flex; gap: 6px; margin: 16px 0 6px; }
+  .ranges button {
+    font-family: inherit; font-size: 12.5px; padding: 6px 14px; cursor: pointer;
+    border-radius: 980px; border: 1px solid var(--line); background: transparent; color: var(--ink2);
+  }
+  .ranges button.sel { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  #chart-box, #tchart-box { position: relative; margin-top: 6px; }
+  #chart-box svg, #tchart-box svg { display: block; width: 100%; }
+  #chart-tip, #tchart-tip {
+    position: absolute; pointer-events: none; display: none; z-index: 5;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 12px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.15);
+    white-space: nowrap;
+  }
+  #chart-tip b, #tchart-tip b { display: block; font-size: 14px; font-variant-numeric: tabular-nums; }
+  #chart-tip span, #tchart-tip span { color: var(--ink2); }
+  .poolgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 22px; }
+  .poolgrid .cell { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .poolgrid .cell span { display: block; font-size: 11px; color: var(--ink2); text-transform: uppercase; letter-spacing: .05em; }
+  .poolgrid .cell b { font-size: 16px; font-weight: 600; }
+  .ovl-sub { font-size: 15px; font-weight: 600; margin: 26px 0 10px; }
+  .desc { margin-top: 14px; font-size: 14px; color: var(--ink2); }
+
+  /* ---------- console ---------- */
+  pre.out {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px; overflow: auto; max-height: 420px;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid var(--line);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .7s linear infinite; display: inline-block; vertical-align: -3px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .muted { color: var(--ink2); font-size: 13px; }
+
+  /* ---------- ask (agent) ---------- */
+  .ask-sugg { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .ask-sugg button {
+    font-family: inherit; font-size: 12.5px; cursor: pointer;
+    padding: 7px 12px; border-radius: 8px;
+    border: 2px solid var(--line); background: var(--bg); color: var(--ink2);
+  }
+  .ask-sugg button:hover { color: var(--ink); border-color: var(--accent); }
+  #ask-log { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+  .ask-turn { border-top: 2px dashed var(--line); padding-top: 14px; }
+  .ask-you {
+    font-family: var(--pixel); font-size: 10px; line-height: 1.8; color: var(--ink);
+  }
+  .ask-you::before { content: "🧑‍🔧 "; }
+  .ask-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .ask-tool {
+    font-family: var(--pixel); font-size: 8px; line-height: 1.6;
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 10px; border: 3px solid var(--block); border-radius: 6px;
+    background: var(--star); color: #5b4200;
+    box-shadow: inset -2px -2px 0 rgba(0,0,0,.18), inset 2px 2px 0 rgba(255,255,255,.4);
+    cursor: default;
+  }
+  .ask-tool.pending { animation: qbob 1s ease-in-out infinite; }
+  .ask-tool.done { background: var(--card); color: var(--ink2); box-shadow: none; }
+  .ask-tool.err { background: var(--bad); color: #fff; }
+  .ask-text { font-size: 14.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+  .ask-text code { font-family: var(--mono); font-size: 12.5px;
+    background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 1px 5px; border-radius: 5px; }
+  .ask-flag {
+    margin-top: 10px; font-family: var(--pixel); font-size: 8px; color: var(--ink3);
+    line-height: 1.8;
+  }
+  .ask-err { color: var(--bad); font-size: 13.5px; margin-top: 8px; }
+  .coin {
+    display: inline-block; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--star); border: 2px solid #7a5a00;
+    animation: coinspin .7s linear infinite; vertical-align: -2px;
+  }
+  @keyframes coinspin { 50% { transform: scaleX(.15); } }
+
+  /* ---------- docs ---------- */
+  .doc-group { margin-bottom: 34px; }
+  .doc-group h3 { font-size: 13px; margin-bottom: 12px; }
+  .doc-tool { padding: 16px 0; border-bottom: 1px solid var(--line); }
+  .doc-tool:last-child { border-bottom: none; }
+  .doc-tool .tname { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--accent); }
+  .doc-tool p { font-size: 14px; color: var(--ink2); margin: 6px 0 8px; }
+  .doc-params { font-size: 12.5px; color: var(--ink2); font-family: var(--mono); line-height: 1.7; }
+  .doc-params b { color: var(--ink); font-weight: 500; }
+  code.inline, .copyblock code {
+    font-family: var(--mono); font-size: 12.5px;
+    background: color-mix(in srgb, var(--ink) 6%, transparent);
+    padding: 2px 7px; border-radius: 6px;
+  }
+  .copyblock {
+    position: relative; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px 16px; margin: 10px 0;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .copyblock code { background: none; padding: 0; }
+  .copybtn {
+    position: absolute; top: 8px; right: 8px; font-size: 11px;
+    background: var(--card); border: 1px solid var(--line); color: var(--ink2);
+    border-radius: 8px; padding: 4px 10px; cursor: pointer; font-family: inherit;
+  }
+  .copybtn:hover { color: var(--ink); }
+
+  /* ---------- open ---------- */
+  .open-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+  .open-grid .card h3 { font-size: 17px; margin-bottom: 8px; }
+  .open-grid .card p { font-size: 14px; color: var(--ink2); line-height: 1.5; }
+
+  footer { text-align: center; padding: 44px 22px 64px; color: var(--ink2); font-size: 12px; }
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="#top">τ bt</a>
+    <div class="wbar" id="wbar">
+      <button class="wchip badge" id="w-badge" onclick="toggleWpop()" title="Wallet">τ</button>
+      <button class="wchip" id="w-addr" onclick="onAddrChip()">Connect a wallet</button>
+      <button class="wchip val zero" id="w-val" onclick="openWalletAccount()" title="See the full account">τ —</button>
+      <div class="wbar-actions">
+        <button class="iconbtn" id="w-refresh" onclick="refreshWallet()" title="Refresh balance" aria-label="Refresh balance">↺</button>
+        <button class="iconbtn" onclick="hideWbar()" title="Hide wallet bar" aria-label="Hide wallet bar">✕</button>
+      </div>
+    </div>
+    <button id="themeBtn" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+  </div>
+  <div class="wpop" id="wpop" hidden>
+    <label style="margin-top:0">Watch any ss58 address</label>
+    <input id="wpop-addr" placeholder="5Grw…" spellcheck="false" onkeydown="if(event.key==='Enter')watchFromInput()">
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+      <button class="pill primary" onclick="watchFromInput()">Watch</button>
+      <button class="iconbtn" onclick="closeWpop()">Cancel</button>
+    </div>
+    <div class="wlocal" id="wpop-local"></div>
+  </div>
+</nav>
+
+<aside class="rail">
+  <a href="#markets"><i></i>Markets</a>
+  <a href="#ask"><i></i>Ask</a>
+  <a href="#traders"><i></i>Traders</a>
+  <a href="#account"><i></i>Account</a>
+  <a href="#wallet"><i></i>Wallet</a>
+  <a href="#trade"><i></i>Trade</a>
+  <a href="#console"><i></i>Console</a>
+  <a href="#docs"><i></i>Docs</a>
+  <a href="#open"><i></i>Open</a>
+  <a href="#mcp"><i></i>MCP</a>
+  <div class="rail-foot">
+    <span id="netdot"></span><span id="rail-net">finney</span>
+    <button id="wshow" onclick="showWbar()" hidden>show wallet</button>
+  </div>
+</aside>
+
+<div class="hero page" id="top">
+  <span class="world">WORLD τ-1 &nbsp;·&nbsp; <span class="coin">🪙</span>×<span id="hud-coins">∞</span> &nbsp;·&nbsp; 1UP</span>
+  <h1>The <span class="tao">open</span> Bittensor explorer.</h1>
+  <p class="sub">Every subnet, price, validator and account — indexed locally, served instantly.<br>No closed backend. No API key. The whole stack is open source. Let's-a go.</p>
+  <div class="cta">
+    <button class="pill primary" onclick="location.hash='#markets'">Explore markets</button>
+    <button class="pill ghost" onclick="location.hash='#ask'">Ask the network</button>
+  </div>
+  <div class="stats">
+    <div class="stat"><b id="stat-subnets">—</b><span>Subnets</span></div>
+    <div class="stat"><b id="stat-mcap">—</b><span>Alpha mcap τ</span></div>
+    <div class="stat"><b id="stat-vol">—</b><span>24h volume τ</span></div>
+    <div class="stat"><b id="stat-pools">—</b><span>TAO in pools</span></div>
+  </div>
+  <div class="synced" id="stat-synced" title="Local indexer snapshot time"><i></i><em>last sync —</em></div>
+</div>
+
+<!-- ================= MARKETS ================= -->
+<section id="markets" class="page reveal">
+  <h2>Markets.</h2>
+  <p class="lead">Every alpha market on the chain — live prices, changes, volume and 24-hour trend, straight from the built-in open indexer.</p>
+  <div class="card">
+    <div class="row" style="margin-bottom:14px;align-items:center">
+      <div style="max-width:300px">
+        <input id="scr-search" placeholder="Search name, symbol or netuid" spellcheck="false">
+      </div>
+      <div style="flex:1"></div>
+      <div style="flex:0"><span class="updated" id="scr-updated"></span></div>
+    </div>
+    <div id="screener-wrap">
+      <table id="screener">
+        <thead><tr></tr></thead>
+        <tbody><tr><td colspan="10" class="muted">Loading markets…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ================= DETAIL OVERLAY ================= -->
+<div id="ovl" onclick="if(event.target===this)closeDetail()">
+  <div class="ovl-card">
+    <div class="ovl-head" id="ovl-head"></div>
+    <div class="idlinks" id="ovl-links"></div>
+    <div class="bigprice" id="ovl-price"></div>
+    <div class="ranges" id="ovl-ranges"></div>
+    <div id="chart-box">
+      <div id="chart-tip"></div>
+      <div id="chart-svg"><div class="muted" style="padding:40px 0;text-align:center">Loading chart…</div></div>
+    </div>
+    <div class="poolgrid" id="ovl-pool"></div>
+    <p class="desc" id="ovl-desc"></p>
+    <div class="ovl-sub">Top validators</div>
+    <div id="ovl-vals" class="muted">Loading…</div>
+  </div>
+</div>
+
+<!-- ================= ASK ================= -->
+<section id="ask" class="page reveal narrow">
+  <h2>Ask.</h2>
+  <p class="lead">Ask the network anything. A Claude agent answers by playing the same MCP tools this console runs on — every question becomes a run of ?-blocks. Read-only: it sees everything, it signs nothing.</p>
+  <div class="card">
+    <p class="ask-err" id="ask-auth" style="display:none;margin-bottom:12px"></p>
+    <div class="row">
+      <div style="flex:3">
+        <input id="ask-q" placeholder="Which subnet pumped hardest today, and who runs it?" spellcheck="false">
+      </div>
+      <div style="flex:0"><button class="pill primary" id="ask-btn" onclick="askNetwork()">Ask ▶</button></div>
+    </div>
+    <div class="ask-sugg" id="ask-sugg"></div>
+    <div id="ask-log"></div>
+    <p class="muted" id="ask-meta" style="margin-top:14px"></p>
+  </div>
+</section>
+
+<!-- ================= TRADERS ================= -->
+<section id="traders" class="page reveal">
+  <h2>Traders.</h2>
+  <p class="lead">Track any coldkey and the indexer keeps its history — portfolio value over time, PnL, and a trade tape inferred from what actually moved. The accounts you follow, indexed the same way subnets are.</p>
+  <div class="card">
+    <div class="row" style="align-items:end">
+      <div style="flex:3"><label>ss58 coldkey to track</label>
+        <input id="trk-addr" placeholder="5Grw…" spellcheck="false"></div>
+      <div style="flex:1"><label>Label (optional)</label>
+        <input id="trk-label" placeholder="whale #1" spellcheck="false"></div>
+      <div style="flex:0"><button class="pill primary" onclick="trackTrader()">Track</button></div>
+      <div style="flex:0" id="trk-spin"></div>
+    </div>
+    <p class="muted" id="trk-msg" style="margin-top:8px"></p>
+    <div id="traders-wrap" style="overflow:auto;margin-top:14px">
+      <table id="traders-tbl">
+        <thead><tr>
+          <th>Trader</th><th class="num">Total τ</th><th class="num">Free τ</th>
+          <th class="num">Staked τ</th><th class="num">Subnets</th>
+          <th class="num">24h</th><th class="num">7d</th><th class="num">Moves 24h</th>
+          <th>Equity</th><th></th>
+        </tr></thead>
+        <tbody><tr><td colspan="10" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="muted" style="margin-top:12px">Snapshots run every 15 minutes. Change and PnL columns fill in as history accumulates. <span class="tag">bt_track</span> <span class="tag">bt_traders</span> <span class="tag">bt_trader</span></p>
+  </div>
+  <div class="card" style="margin-top:18px">
+    <h3 style="font-size:17px;margin-bottom:4px">The tape</h3>
+    <p class="muted" style="margin-bottom:12px">Buys and sells inferred from how tracked portfolios changed between snapshots, not from extrinsics — moves under 2% of a position (or 0.05 τ) are dropped as emission drift, and a large dividend payout can still read as a small buy.</p>
+    <div id="flows-out" class="muted">Loading…</div>
+  </div>
+</section>
+
+<!-- ================= TRADER OVERLAY ================= -->
+<div id="tovl" onclick="if(event.target===this)closeTrader()">
+  <div class="ovl-card">
+    <div class="ovl-head" id="tovl-head"></div>
+    <div class="bigprice" id="tovl-value"></div>
+    <div class="ranges" id="tovl-ranges"></div>
+    <div id="tchart-box">
+      <div id="tchart-tip"></div>
+      <div id="tchart-svg"><div class="muted" style="padding:40px 0;text-align:center">Loading…</div></div>
+    </div>
+    <div class="poolgrid" id="tovl-stats"></div>
+    <div class="ovl-sub">Positions</div>
+    <div id="tovl-pos" class="muted">Loading…</div>
+    <div class="ovl-sub">Inferred trades</div>
+    <div id="tovl-flows" class="muted">Loading…</div>
+  </div>
+</div>
+
+<!-- ================= ACCOUNT ================= -->
+<section id="account" class="page reveal">
+  <h2>Account.</h2>
+  <p class="lead">Explore any address on the chain — free TAO plus every alpha position, valued live. Not just yours: anyone's.</p>
+  <div class="card">
+    <div class="row">
+      <div style="flex:3"><label>ss58 coldkey address</label>
+        <input id="acct-addr" placeholder="5Grw…" spellcheck="false"></div>
+      <div style="flex:0"><button class="pill primary" onclick="loadAccount()">Explore</button></div>
+      <div style="flex:0" id="acct-spin"></div>
+    </div>
+    <div id="acct-out" style="margin-top:16px"></div>
+  </div>
+</section>
+
+<!-- ================= WALLET ================= -->
+<section id="wallet" class="page reveal">
+  <h2>Wallet.</h2>
+  <p class="lead">Local wallets, balances, and transfers.</p>
+  <div class="grid cols2">
+    <div class="card">
+      <h3 style="font-size:17px;margin-bottom:8px">Local wallets</h3>
+      <div id="wallets-out" class="muted">Loading…</div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:17px;margin-bottom:8px">Check any balance</h3>
+      <label>ss58 address</label>
+      <input id="bal-addr" placeholder="5Grw…" spellcheck="false">
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+        <button class="pill primary" onclick="checkBalance()">Balance</button>
+        <span id="bal-out" class="num" style="font-size:17px"></span>
+      </div>
+      <p class="muted" style="margin-top:16px">Transfers, wallet creation, and every other write happen in the <a href="#console">Console</a> — each on-chain action asks before it signs.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= TRADE ================= -->
+<section id="trade" class="page reveal">
+  <h2>Trade.</h2>
+  <p class="lead">Stake TAO into subnet alpha. Portfolio, buys, sells, swaps.</p>
+  <div class="grid cols2">
+    <div class="card">
+      <h3 style="font-size:17px;margin-bottom:8px">Portfolio</h3>
+      <div class="row">
+        <div><label>Wallet</label><input id="pf-wallet" value="default"></div>
+        <div style="flex:0"><button class="pill primary" onclick="loadPortfolio()">Load</button></div>
+      </div>
+      <div id="pf-out" style="margin-top:14px" class="muted">—</div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:17px;margin-bottom:8px">Place a trade</h3>
+      <div class="row">
+        <div><label>Action</label>
+          <select id="tr-side"><option value="bt_buy">Buy (stake)</option><option value="bt_sell">Sell (unstake)</option></select>
+        </div>
+        <div><label>Netuid</label><input id="tr-netuid" type="number" placeholder="1"></div>
+        <div><label>Amount τ</label><input id="tr-amt" type="number" step="0.01" placeholder="0.5"></div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+        <button class="pill primary" onclick="placeTrade()">Review &amp; sign</button>
+        <span id="tr-out" class="muted"></span>
+      </div>
+      <p class="muted" style="margin-top:12px"><span class="tag warn">on-chain</span> Real TAO moves. You'll be asked to confirm.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CONSOLE ================= -->
+<section id="console" class="page reveal narrow">
+  <h2>Console.</h2>
+  <p class="lead">Run any protocol tool directly. Forms are generated from the same schemas the MCP server publishes.</p>
+  <div class="card">
+    <div class="row">
+      <div style="max-width:320px">
+        <label>Tool</label>
+        <select id="tool-select" onchange="renderToolForm()"></select>
+      </div>
+      <div style="flex:2"><span class="muted" id="tool-desc"></span></div>
+    </div>
+    <div id="tool-form" style="margin-top:6px"></div>
+    <div style="margin-top:16px;display:flex;gap:12px;align-items:center">
+      <button class="pill primary" onclick="runTool()">Run</button>
+      <span id="tool-spin"></span>
+      <span id="tool-meta" class="muted"></span>
+    </div>
+    <pre class="out" id="tool-out" style="margin-top:16px;display:none"></pre>
+  </div>
+</section>
+
+<!-- ================= DOCS ================= -->
+<section id="docs" class="page reveal narrow">
+  <h2>Docs.</h2>
+  <p class="lead">The complete protocol surface — every tool, every parameter. This is generated from the live registry, so it can't drift.</p>
+  <div class="card" id="docs-body"><span class="muted">Loading…</span></div>
+</section>
+
+<!-- ================= OPEN ================= -->
+<section id="open" class="page reveal">
+  <h2>Open. As in actually open.</h2>
+  <p class="lead">Taostats and tao.app sit on closed indexers you can't run, read, or fork. This explorer's entire stack — the indexer, the API, the MCP server, this page — is one open-source module you can run on a laptop.</p>
+  <div class="open-grid">
+    <div class="card">
+      <h3>The code</h3>
+      <p>Everything lives in <code class="inline">orbit/bt</code> of the mod repo — the SQLite indexer is ~250 lines you can actually read.</p>
+      <p style="margin-top:10px"><a href="https://github.com/modc2/mod/tree/main/mod/orbit/bt">github.com/modc2/mod → orbit/bt</a></p>
+    </div>
+    <div class="card">
+      <h3>The data</h3>
+      <p>Every number on this page comes from a public endpoint — same table, no key, no rate-limit tiers:</p>
+      <div class="copyblock"><button class="copybtn" onclick="copyBlock(this)">Copy</button><code id="open-curl">curl …</code></div>
+    </div>
+    <div class="card">
+      <h3>The indexer</h3>
+      <p>A background thread snapshots every subnet pool on an interval into local SQLite — that's the whole trick. Prices, changes, volume and charts are served from your own disk in microseconds.</p>
+      <p style="margin-top:10px"><span class="tag" id="open-snaps">indexer: —</span></p>
+    </div>
+    <div class="card">
+      <h3>The agent surface</h3>
+      <p>The same registry drives an MCP server, so Claude — or any agent — gets the whole explorer <em>and</em> trading as tools. Closed explorers stop at a dashboard; this one is programmable.</p>
+      <p style="margin-top:10px"><a href="#mcp">Connect via MCP →</a></p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= MCP ================= -->
+<section id="mcp" class="page reveal narrow">
+  <h2>MCP.</h2>
+  <p class="lead">Wire the whole protocol into Claude — or any MCP client — in one line.</p>
+  <div class="grid cols2">
+    <div class="card">
+      <h3 style="font-size:17px;margin-bottom:6px">stdio <span class="tag">recommended</span></h3>
+      <p class="muted">Local, no server needed. From Claude Code:</p>
+      <div class="copyblock"><button class="copybtn" onclick="copyBlock(this)">Copy</button><code>claude mcp add bittensor -- python3 -m bt.mcp_server</code></div>
+      <p class="muted">Or in any <code class="inline">mcpServers</code> config:</p>
+      <div class="copyblock"><button class="copybtn" onclick="copyBlock(this)">Copy</button><code>{
+  "bittensor": {
+    "command": "python3",
+    "args": ["-m", "bt.mcp_server"],
+    "cwd": "/root/mod/mod/orbit/bt"
+  }
+}</code></div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:17px;margin-bottom:6px">Streamable HTTP</h3>
+      <p class="muted">This server also speaks MCP over HTTP — point a remote client at:</p>
+      <div class="copyblock"><button class="copybtn" onclick="copyBlock(this)">Copy</button><code id="mcp-url">…/mcp</code></div>
+      <p class="muted">Same tools, same schemas. Try it:</p>
+      <div class="copyblock"><button class="copybtn" onclick="copyBlock(this)">Copy</button><code id="mcp-curl">curl -s …/mcp -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'</code></div>
+    </div>
+  </div>
+</section>
+
+<footer>bt · the open Bittensor explorer, console &amp; MCP server · network <span id="foot-net">finney</span> · <a href="https://github.com/modc2/mod/tree/main/mod/orbit/bt">source</a></footer>
+
+<script>
+/* ---------- theme ---------- */
+function applyThemeIcon() {
+  /* light = overworld, dark = underground; button shows where the pipe goes */
+  document.getElementById('themeBtn').textContent =
+    document.documentElement.dataset.theme === 'dark' ? '🍄' : '⭐';
+}
+function toggleTheme() {
+  const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('bt.theme', t); } catch (e) {}
+  applyThemeIcon();
+}
+applyThemeIcon();
+
+const BASE = location.pathname.replace(/\/(index\.html)?$/, '');
+const api = p => `${BASE}/api/${p}`;
+let TOOLS = [];
+
+async function call(tool, args) {
+  const r = await fetch(api('call'), {
+    method: 'POST', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({tool, args})
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'call failed');
+  return j;
+}
+const fmt = (x, d=4) => typeof x === 'number' ? x.toLocaleString(undefined, {maximumFractionDigits: d}) : (x ?? '—');
+const compact = x => typeof x === 'number'
+  ? new Intl.NumberFormat(undefined, {notation: 'compact', maximumFractionDigits: 2}).format(x) : '—';
+const fmtPrice = p => {
+  if (typeof p !== 'number') return '—';
+  if (p >= 1) return p.toLocaleString(undefined, {maximumFractionDigits: 3});
+  if (p >= 0.0001) return p.toFixed(5);
+  return p.toPrecision(3);
+};
+const fmtPct = v => v == null ? '<span class="muted">—</span>'
+  : `<span class="${v >= 0 ? 'up' : 'down'}">${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%</span>`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const short = a => a ? a.slice(0, 6) + '…' + a.slice(-4) : '—';
+
+/* ---------- sparkline (SVG, no lib) ---------- */
+function sparkSVG(pts, dir, w=110, h=30) {
+  if (!pts || pts.length < 2) return '<span class="muted" style="font-size:11px">soon</span>';
+  const min = Math.min(...pts), max = Math.max(...pts), pad = 2;
+  const span = max - min || 1;
+  const X = i => pad + i * (w - 2*pad) / (pts.length - 1);
+  const Y = v => h - pad - (v - min) * (h - 2*pad) / span;
+  const d = pts.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join('');
+  const cls = dir == null ? 'flat' : dir >= 0 ? 'up' : 'down';
+  return `<svg class="spark ${cls}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path class="l" d="${d}"/></svg>`;
+}
+
+/* ---------- boot ---------- */
+(async () => {
+  document.getElementById('mcp-url').textContent = location.origin + BASE + '/mcp';
+  document.getElementById('mcp-curl').textContent =
+    `curl -s ${location.origin}${BASE}/mcp -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
+  document.getElementById('open-curl').textContent =
+    `curl -s ${location.origin}${BASE}/api/call -H 'content-type: application/json' -d '{"tool":"bt_screener","args":{"limit":5}}'`;
+  try {
+    const info = await (await fetch(api(''))).json();
+    document.getElementById('foot-net').textContent = info.network;
+    document.getElementById('rail-net').textContent = info.network;
+    document.getElementById('netdot').className = 'on';
+  } catch (e) { document.getElementById('netdot').className = 'off'; }
+  try {
+    TOOLS = (await (await fetch(api('tools'))).json()).tools;
+    const sel = document.getElementById('tool-select');
+    sel.innerHTML = TOOLS.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+    renderToolForm();
+  } catch (e) {}
+  initWbar();
+  loadAgent();
+  loadDocs();
+  loadWallets();
+  loadScreener();
+  loadStats();
+  loadTraders();
+  loadFlows();
+  setInterval(loadScreener, 60000);
+  setInterval(loadStats, 60000);
+  setInterval(loadTraders, 60000);
+  setInterval(loadFlows, 120000);
+})();
+
+/* ---------- stats ---------- */
+let SYNC_AT = null;      // unix seconds of the newest indexer snapshot
+let SYNC_BLOCK = null;   // chain block that snapshot was read at
+
+function agoText(sec) {
+  if (sec < 5) return 'just now';
+  if (sec < 90) return Math.round(sec) + 's ago';
+  if (sec < 5400) return Math.round(sec / 60) + 'm ago';
+  if (sec < 172800) return Math.round(sec / 3600) + 'h ago';
+  return Math.round(sec / 86400) + 'd ago';
+}
+
+function renderSync() {
+  const el = document.getElementById('stat-synced');
+  if (!el) return;
+  if (SYNC_AT == null) {
+    el.className = 'synced stale';
+    el.querySelector('em').textContent = 'last sync — warming up';
+    return;
+  }
+  const age = Math.max(0, Math.floor(Date.now() / 1000) - SYNC_AT);
+  const clock = new Date(SYNC_AT * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+  el.className = 'synced' + (age > 900 ? ' dead' : age > 300 ? ' stale' : '');
+  el.title = 'Local indexer snapshot · ' + new Date(SYNC_AT * 1000).toLocaleString()
+    + (SYNC_BLOCK ? ' · chain block ' + SYNC_BLOCK.toLocaleString() : '');
+  const at = SYNC_BLOCK ? `block #${SYNC_BLOCK.toLocaleString()}` : clock;
+  el.querySelector('em').textContent = `synced ${agoText(age)} · ${at}`;
+}
+
+async function loadStats() {
+  try {
+    const j = await call('bt_stats', {});
+    const s = j.result;
+    if (s.updated_at) { SYNC_AT = s.updated_at; SYNC_BLOCK = s.block || null; renderSync(); }
+    if (s.warming) return;
+    document.getElementById('stat-subnets').textContent = s.subnets || '—';
+    document.getElementById('hud-coins').textContent = s.subnets || '∞';
+    document.getElementById('stat-mcap').textContent = compact(s.total_market_cap_tao);
+    document.getElementById('stat-vol').textContent = s.volume_24h_tao != null ? compact(s.volume_24h_tao) : 'soon';
+    document.getElementById('stat-pools').textContent = compact(s.total_tao_in_pools);
+  } catch (e) {}
+}
+setInterval(renderSync, 1000);
+
+/* ---------- screener ---------- */
+const COLS = [
+  {key: 'netuid',     label: '#',        num: true},
+  {key: 'name',       label: 'Subnet',   num: false},
+  {key: 'price',      label: 'Price τ',  num: true},
+  {key: 'change_1h',  label: '1h',       num: true},
+  {key: 'change_24h', label: '24h',      num: true},
+  {key: 'change_7d',  label: '7d',       num: true},
+  {key: 'market_cap', label: 'Mcap τ',   num: true},
+  {key: 'vol_24h',    label: 'Vol 24h τ',num: true},
+  {key: 'tao_in',     label: 'Liquidity τ', num: true},
+  {key: 'spark',      label: '24h trend',num: false, nosort: true},
+];
+let SCREEN = [], SORT = {key: 'market_cap', dir: -1};
+
+function renderHead() {
+  document.querySelector('#screener thead tr').innerHTML = COLS.map(c => {
+    const arrow = SORT.key === c.key ? `<span class="arrow">${SORT.dir < 0 ? '▼' : '▲'}</span>` : '';
+    return `<th class="${c.num ? 'num' : ''}" ${c.nosort ? '' : `onclick="sortBy('${c.key}')"`}>${c.label} ${arrow}</th>`;
+  }).join('');
+}
+function sortBy(key) {
+  SORT = {key, dir: SORT.key === key ? -SORT.dir : -1};
+  renderScreener();
+}
+function renderScreener() {
+  renderHead();
+  const q = document.getElementById('scr-search').value.trim().toLowerCase();
+  let rows = SCREEN;
+  if (q) rows = rows.filter(r =>
+    String(r.name || '').toLowerCase().includes(q) ||
+    String(r.symbol || '').toLowerCase().includes(q) ||
+    String(r.netuid) === q);
+  rows = [...rows].sort((a, b) => {
+    let av = a[SORT.key], bv = b[SORT.key];
+    if (typeof av === 'string') { av = av.toLowerCase(); bv = String(bv || '').toLowerCase();
+      return SORT.dir * (av < bv ? -1 : av > bv ? 1 : 0); }
+    return SORT.dir * ((av ?? -Infinity) - (bv ?? -Infinity));
+  });
+  const tbody = document.querySelector('#screener tbody');
+  tbody.innerHTML = rows.map(r => {
+    const logo = r.logo
+      ? `<img class="sn-logo" src="${esc(r.logo)}" loading="lazy" referrerpolicy="no-referrer" alt=""
+           onerror="this.outerHTML='<span class=sn-avatar>${esc((r.symbol || 'τ').slice(0,2))}</span>'">`
+      : `<span class="sn-avatar">${esc((r.symbol || 'τ').slice(0, 2))}</span>`;
+    return `<tr onclick="openDetail(${r.netuid})">
+      <td class="num">${r.netuid}</td>
+      <td><div class="sn-cell">${logo}<div><div class="sn-name">${esc(r.name || '—')}</div>
+        <div class="sn-sym">${esc(r.symbol || '')}</div></div></div></td>
+      <td class="num">${fmtPrice(r.price)}</td>
+      <td class="num">${fmtPct(r.change_1h)}</td>
+      <td class="num">${fmtPct(r.change_24h)}</td>
+      <td class="num">${fmtPct(r.change_7d)}</td>
+      <td class="num">${compact(r.market_cap)}</td>
+      <td class="num">${r.vol_24h != null ? compact(r.vol_24h) : '<span class="muted">—</span>'}</td>
+      <td class="num">${compact(r.tao_in)}</td>
+      <td>${sparkSVG(r.spark, r.change_24h)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="10" class="muted">No matches.</td></tr>';
+}
+async function loadScreener() {
+  try {
+    const j = await call('bt_screener', {sort_by: 'market_cap'});
+    const res = j.result;
+    if (res.warming) {
+      document.querySelector('#screener tbody').innerHTML =
+        `<tr><td colspan="10" class="muted">${esc(res.note || 'Indexer warming up — first snapshot in progress.')}</td></tr>`;
+      setTimeout(loadScreener, 15000);
+      return;
+    }
+    SCREEN = res.rows || [];
+    const age = res.age_sec;
+    if (res.updated_at) { SYNC_AT = res.updated_at; SYNC_BLOCK = res.block || null; renderSync(); }
+    document.getElementById('scr-updated').textContent =
+      age != null ? `updated ${age < 90 ? age + 's' : Math.round(age / 60) + 'm'} ago` : '';
+    renderScreener();
+  } catch (e) {
+    document.querySelector('#screener tbody').innerHTML =
+      `<tr><td colspan="10" class="muted">${esc(e.message)}</td></tr>`;
+  }
+  try {
+    const j = await call('bt_history', {netuid: 0, hours: 24 * 30, points: 5000});
+    const n = (j.result.series || []).length;
+    document.getElementById('open-snaps').textContent =
+      n ? `indexer: ${n} snapshots on disk` : 'indexer: warming up';
+  } catch (e) {}
+}
+document.getElementById('scr-search').addEventListener('input', renderScreener);
+
+/* ---------- subnet detail ---------- */
+const RANGES = [{label: '1D', hours: 24}, {label: '7D', hours: 168},
+                {label: '30D', hours: 720}, {label: 'ALL', hours: 24 * 365}];
+let DETAIL = null, RANGE = 0, CHART = null;
+
+function openDetail(netuid) {
+  const r = SCREEN.find(x => x.netuid === netuid);
+  if (!r) return;
+  DETAIL = r; RANGE = 0;
+  const logo = r.logo
+    ? `<img class="sn-logo" src="${esc(r.logo)}" referrerpolicy="no-referrer" alt=""
+         onerror="this.outerHTML='<span class=sn-avatar>${esc((r.symbol || 'τ').slice(0,2))}</span>'">`
+    : `<span class="sn-avatar">${esc((r.symbol || 'τ').slice(0, 2))}</span>`;
+  document.getElementById('ovl-head').innerHTML = `${logo}
+    <h3>${esc(r.name || 'subnet ' + r.netuid)}</h3>
+    <span class="tag">netuid ${r.netuid}</span>
+    <span class="sn-sym" style="font-size:14px">${esc(r.symbol || '')}</span>
+    <button class="ovl-close" onclick="closeDetail()" aria-label="Close">✕</button>`;
+  const links = [];
+  if (r.github)  links.push(`<a href="${esc(r.github)}" target="_blank" rel="noopener">⌥ GitHub</a>`);
+  if (r.url)     links.push(`<a href="${esc(r.url)}" target="_blank" rel="noopener">↗ Website</a>`);
+  if (r.discord) links.push(/^https?:\/\//.test(r.discord)
+    ? `<a href="${esc(r.discord)}" target="_blank" rel="noopener">💬 Discord</a>`
+    : `<span class="na" title="Discord">💬 ${esc(r.discord)}</span>`);
+  if (!r.github) links.push('<span class="na">no public repo — ask them why</span>');
+  document.getElementById('ovl-links').innerHTML = links.join('');
+  document.getElementById('ovl-price').innerHTML =
+    `<b>τ ${fmtPrice(r.price)}</b><span class="delta">${fmtPct(r.change_24h)} <span class="muted">24h</span></span>`;
+  document.getElementById('ovl-pool').innerHTML = [
+    ['Market cap τ', compact(r.market_cap)],
+    ['Vol 24h τ', r.vol_24h != null ? compact(r.vol_24h) : '—'],
+    ['TAO liquidity', compact(r.tao_in)],
+    ['Alpha in pool', compact(r.alpha_in)],
+    ['Alpha staked', compact(r.alpha_out)],
+    ['Registered at block', r.registered_at ? fmt(r.registered_at, 0) : '—'],
+  ].map(([k, v]) => `<div class="cell"><span>${k}</span><b>${v}</b></div>`).join('');
+  const desc = document.getElementById('ovl-desc');
+  desc.textContent = r.description || '';
+  desc.style.display = r.description ? 'block' : 'none';
+  renderRanges();
+  loadChart();
+  loadValidators(netuid);
+  document.getElementById('ovl').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeDetail() {
+  document.getElementById('ovl').classList.remove('open');
+  document.body.style.overflow = '';
+}
+addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+
+function renderRanges() {
+  document.getElementById('ovl-ranges').innerHTML = RANGES.map((r, i) =>
+    `<button class="${i === RANGE ? 'sel' : ''}" onclick="setRange(${i})">${r.label}</button>`).join('');
+}
+function setRange(i) { RANGE = i; renderRanges(); loadChart(); }
+
+async function loadChart() {
+  const box = document.getElementById('chart-svg');
+  const netuid = DETAIL.netuid;
+  try {
+    const j = await call('bt_history', {netuid, hours: RANGES[RANGE].hours, points: 400});
+    if (DETAIL?.netuid !== netuid) return;
+    drawChart(j.result.series || []);
+  } catch (e) {
+    box.innerHTML = `<div class="muted" style="padding:40px 0;text-align:center">${esc(e.message)}</div>`;
+  }
+}
+
+/* Single-series price line: 2px accent line, 10% area wash, hairline solid
+   gridlines, clean y ticks, crosshair + tooltip snapping to nearest point. */
+function niceTicks(min, max, n) {
+  if (min === max) { min *= 0.95; max *= 1.05 || 1; }
+  const span = max - min, step0 = span / n,
+        mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => span / s <= n) || mag * 10;
+  const ticks = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + 1e-12; v += step) ticks.push(v);
+  return ticks;
+}
+function drawChart(series) {
+  const box = document.getElementById('chart-svg');
+  if (series.length < 2) {
+    box.innerHTML = '<div class="muted" style="padding:40px 0;text-align:center">Not enough history yet — the indexer snapshots every few minutes; charts fill in as it runs.</div>';
+    return;
+  }
+  const W = Math.max(box.clientWidth || 780, 320), H = 260,
+        padL = 56, padR = 18, padT = 14, padB = 26;
+  const ts = series.map(p => p.t), ps = series.map(p => p.price);
+  const tMin = ts[0], tMax = ts[ts.length - 1] || tMin + 1;
+  let pMin = Math.min(...ps), pMax = Math.max(...ps);
+  if (pMin === pMax) { pMin *= 0.98; pMax *= 1.02; }
+  const X = t => padL + (t - tMin) / (tMax - tMin) * (W - padL - padR);
+  const Y = p => padT + (pMax - p) / (pMax - pMin) * (H - padT - padB);
+  const yTicks = niceTicks(pMin, pMax, 4);
+  const hours = RANGES[RANGE].hours;
+  const tLab = t => {
+    const d = new Date(t * 1000);
+    return hours <= 24
+      ? d.toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'})
+      : d.toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+  };
+  const nX = Math.min(5, series.length);
+  const xTicks = Array.from({length: nX}, (_, i) => tMin + i * (tMax - tMin) / (nX - 1));
+  const line = series.map((p, i) => `${i ? 'L' : 'M'}${X(p.t).toFixed(1)},${Y(p.price).toFixed(1)}`).join('');
+  const area = line + `L${X(tMax).toFixed(1)},${H - padB}L${X(tMin).toFixed(1)},${H - padB}Z`;
+  const last = series[series.length - 1];
+  box.innerHTML = `<svg id="pchart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    ${yTicks.map(v => `<line x1="${padL}" y1="${Y(v).toFixed(1)}" x2="${W - padR}" y2="${Y(v).toFixed(1)}"
+        stroke="var(--line)" stroke-width="1"/>
+      <text x="${padL - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end"
+        font-size="10.5" fill="var(--ink2)" font-family="var(--mono)">${fmtPrice(v)}</text>`).join('')}
+    ${xTicks.map((t, i) => `<text x="${X(t).toFixed(1)}" y="${H - 8}"
+        text-anchor="${i === 0 ? 'start' : i === nX - 1 ? 'end' : 'middle'}"
+        font-size="10.5" fill="var(--ink2)">${tLab(t)}</text>`).join('')}
+    <path d="${area}" fill="var(--accent)" opacity="0.1"/>
+    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${X(last.t).toFixed(1)}" cy="${Y(last.price).toFixed(1)}" r="4"
+      fill="var(--accent)" stroke="var(--card)" stroke-width="2"/>
+    <line id="xhair" x1="0" x2="0" y1="${padT}" y2="${H - padB}"
+      stroke="var(--ink3)" stroke-width="1" style="display:none"/>
+    <circle id="xdot" r="4" fill="var(--accent)" stroke="var(--card)" stroke-width="2" style="display:none"/>
+    <rect x="${padL}" y="${padT}" width="${W - padL - padR}" height="${H - padT - padB}" fill="transparent"/>
+  </svg>`;
+  CHART = {series, X, Y, W, H, padL, padR, tLab};
+  const svg = document.getElementById('pchart'), tip = document.getElementById('chart-tip');
+  svg.addEventListener('pointermove', e => {
+    const rect = svg.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (W / rect.width);
+    let best = 0, bd = Infinity;
+    CHART.series.forEach((p, i) => {
+      const d = Math.abs(CHART.X(p.t) - mx);
+      if (d < bd) { bd = d; best = i; }
+    });
+    const p = CHART.series[best], x = CHART.X(p.t), y = CHART.Y(p.price);
+    const xh = svg.querySelector('#xhair'), xd = svg.querySelector('#xdot');
+    xh.setAttribute('x1', x); xh.setAttribute('x2', x); xh.style.display = 'block';
+    xd.setAttribute('cx', x); xd.setAttribute('cy', y); xd.style.display = 'block';
+    tip.style.display = 'block';
+    tip.innerHTML = '';
+    const b = document.createElement('b'); b.textContent = `τ ${fmtPrice(p.price)}`;
+    const s = document.createElement('span');
+    s.textContent = new Date(p.t * 1000).toLocaleString(undefined,
+      {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+    tip.append(b, s);
+    const bx = box.getBoundingClientRect();
+    const px = x * (rect.width / W) + (rect.left - bx.left);
+    tip.style.left = Math.min(Math.max(px - tip.offsetWidth / 2, 0), bx.width - tip.offsetWidth) + 'px';
+    tip.style.top = (y * (rect.height / H) - tip.offsetHeight - 12) + 'px';
+  });
+  svg.addEventListener('pointerleave', () => {
+    tip.style.display = 'none';
+    svg.querySelector('#xhair').style.display = 'none';
+    svg.querySelector('#xdot').style.display = 'none';
+  });
+}
+
+const VAL_CACHE = {};
+async function loadValidators(netuid) {
+  const el = document.getElementById('ovl-vals');
+  if (VAL_CACHE[netuid]) { renderValidators(VAL_CACHE[netuid]); return; }
+  el.innerHTML = '<span class="spinner"></span>';
+  try {
+    const j = await call('bt_validators', {netuid, limit: 10});
+    VAL_CACHE[netuid] = j.result;
+    if (DETAIL?.netuid === netuid) renderValidators(j.result);
+  } catch (e) { el.innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
+}
+function renderValidators(v) {
+  const el = document.getElementById('ovl-vals');
+  const rows = v.top || [];
+  el.innerHTML = rows.length
+    ? `<div style="overflow:auto"><table><thead><tr><th>UID</th><th>Hotkey</th>
+       <th class="num">Stake τ</th><th class="num">VTrust</th><th class="num">Dividends</th>
+       <th class="num">Emission</th></tr></thead><tbody>` +
+      rows.map(n => `<tr><td class="num">${n.uid}</td>
+        <td class="num" title="${esc(n.hotkey || '')}">${esc(short(n.hotkey))}</td>
+        <td class="num">${compact(n.stake)}</td>
+        <td class="num">${fmt(n.validator_trust, 3)}</td>
+        <td class="num">${fmt(n.dividends, 3)}</td>
+        <td class="num">${fmt(n.emission, 3)}</td></tr>`).join('') +
+      `</tbody></table><p class="muted" style="margin-top:8px">${v.neurons} neurons registered on this subnet.</p></div>`
+    : '<span class="muted">No neurons found.</span>';
+}
+
+/* ---------- traders ---------- */
+let TRADERS = [];
+
+async function loadTraders() {
+  const tb = document.querySelector('#traders-tbl tbody');
+  try {
+    const j = await call('bt_traders', {sort_by: 'total_tao'});
+    TRADERS = j.result.rows || [];
+    renderTraders();
+  } catch (e) {
+    tb.innerHTML = `<tr><td colspan="10" class="muted">${esc(e.message)}</td></tr>`;
+  }
+}
+
+function renderTraders() {
+  const tb = document.querySelector('#traders-tbl tbody');
+  if (!TRADERS.length) {
+    tb.innerHTML = `<tr><td colspan="10" class="muted">No traders tracked yet — paste a coldkey above.
+      Try a validator owner from any subnet's <a href="#markets">detail view</a>.</td></tr>`;
+    return;
+  }
+  tb.innerHTML = TRADERS.map(t => {
+    const name = t.label || short(t.ss58);
+    const warming = t.warming || t.total_tao == null;
+    return `<tr class="trow" onclick="openTrader('${esc(t.ss58)}')">
+      <td><div class="sn-cell"><span class="sn-avatar">${esc((t.label || 'τ').slice(0, 2))}</span>
+        <div><div class="sn-name">${esc(name)}</div>
+        <div class="sn-sym" title="${esc(t.ss58)}">${esc(short(t.ss58))}</div></div></div></td>
+      <td class="num">${warming ? '<span class="muted">…</span>' : fmt(t.total_tao, 3)}</td>
+      <td class="num">${warming ? '—' : fmt(t.free_tao, 3)}</td>
+      <td class="num">${warming ? '—' : fmt(t.staked_tao, 3)}</td>
+      <td class="num">${t.subnets || 0}</td>
+      <td class="num">${fmtPct(t.change_24h)}</td>
+      <td class="num">${fmtPct(t.change_7d)}</td>
+      <td class="num">${t.flows_24h || '<span class="muted">0</span>'}</td>
+      <td>${sparkSVG(t.spark, t.change_24h)}</td>
+      <td class="num"><button class="copybtn" style="position:static"
+        onclick="event.stopPropagation();untrackTrader('${esc(t.ss58)}')">Untrack</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function trackTrader() {
+  const addr = document.getElementById('trk-addr').value.trim();
+  const label = document.getElementById('trk-label').value.trim();
+  const msg = document.getElementById('trk-msg'), spin = document.getElementById('trk-spin');
+  if (!addr) return;
+  spin.innerHTML = '<span class="spinner"></span>'; msg.textContent = 'Reading the chain…';
+  try {
+    const j = await call('bt_track', label ? {address: addr, label} : {address: addr});
+    const r = j.result;
+    msg.textContent = r.snapshot
+      ? `Tracking ${label || short(addr)} — τ ${fmt(r.snapshot.total_tao, 3)} across ${r.snapshot.positions} positions.`
+      : `Tracking ${label || short(addr)} — ${r.snapshot_error || 'first snapshot pending'}`;
+    document.getElementById('trk-addr').value = '';
+    document.getElementById('trk-label').value = '';
+    loadTraders(); loadFlows();
+  } catch (e) { msg.textContent = e.message; }
+  spin.innerHTML = '';
+}
+
+async function untrackTrader(ss58) {
+  if (!confirm(`Stop tracking ${short(ss58)}?\n\nRecorded history is kept.`)) return;
+  try { await call('bt_untrack', {address: ss58}); } catch (e) {}
+  if (TRADER?.ss58 === ss58) closeTrader();
+  loadTraders();
+}
+
+async function loadFlows() {
+  const el = document.getElementById('flows-out');
+  try {
+    const j = await call('bt_trader_flows', {hours: 168, limit: 25});
+    const fs = j.result.flows || [];
+    el.innerHTML = fs.length
+      ? `<div style="overflow:auto"><table><thead><tr><th>When</th><th>Trader</th><th>Side</th>
+         <th>Subnet</th><th class="num">Alpha</th><th class="num">Value τ</th></tr></thead><tbody>` +
+        fs.map(f => `<tr>
+          <td class="muted">${agoText(Math.max(0, Math.floor(Date.now()/1000) - f.ts))}</td>
+          <td title="${esc(f.ss58)}">${esc(f.label || short(f.ss58))}</td>
+          <td><span class="tag ${f.side === 'sell' ? 'warn' : ''}">${f.side}</span></td>
+          <td>${esc(f.name || 'subnet ' + f.netuid)} <span class="sn-sym">#${f.netuid}</span></td>
+          <td class="num">${fmt(f.alpha, 3)}</td>
+          <td class="num">${fmt(f.tao_value, 3)}</td></tr>`).join('') +
+        '</tbody></table></div>'
+      : '<span class="muted">Nothing yet — moves appear once a tracked portfolio changes between two snapshots.</span>';
+  } catch (e) { el.innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
+}
+
+/* ---------- trader detail ---------- */
+let TRADER = null, TRANGE = 1, TCHART = null;
+
+async function openTrader(ss58) {
+  TRADER = {ss58}; TRANGE = 1;
+  document.getElementById('tovl').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  renderTRanges();
+  await loadTrader();
+}
+function closeTrader() {
+  TRADER = null;
+  document.getElementById('tovl').classList.remove('open');
+  document.body.style.overflow = '';
+}
+addEventListener('keydown', e => { if (e.key === 'Escape' && TRADER) closeTrader(); });
+
+function renderTRanges() {
+  document.getElementById('tovl-ranges').innerHTML = RANGES.map((r, i) =>
+    `<button class="${i === TRANGE ? 'sel' : ''}" onclick="setTRange(${i})">${r.label}</button>`).join('');
+}
+function setTRange(i) { TRANGE = i; renderTRanges(); loadTrader(); }
+
+async function snapshotTrader() {
+  if (!TRADER) return;
+  const el = document.getElementById('tovl-value');
+  el.insertAdjacentHTML('beforeend', ' <span class="spinner" id="tsnap-spin"></span>');
+  try { await call('bt_trader_snapshot', {address: TRADER.ss58}); } catch (e) {}
+  await loadTrader(); loadTraders(); loadFlows();
+}
+
+async function loadTrader() {
+  const ss58 = TRADER?.ss58;
+  if (!ss58) return;
+  let t;
+  try {
+    t = (await call('bt_trader', {address: ss58, hours: RANGES[TRANGE].hours})).result;
+  } catch (e) {
+    document.getElementById('tovl-pos').innerHTML = `<span class="muted">${esc(e.message)}</span>`;
+    return;
+  }
+  if (TRADER?.ss58 !== ss58) return;
+  TRADER = t;
+  document.getElementById('tovl-head').innerHTML = `
+    <span class="sn-avatar">${esc((t.label || 'τ').slice(0, 2))}</span>
+    <h3>${esc(t.label || short(ss58))}</h3>
+    <span class="tag" title="${esc(ss58)}">${esc(short(ss58))}</span>
+    ${t.tracked ? '' : '<span class="tag warn">not tracked</span>'}
+    <button class="ovl-close" onclick="closeTrader()" aria-label="Close">✕</button>`;
+  document.getElementById('tovl-value').innerHTML =
+    `<b>τ ${fmt(t.total_tao, 3)}</b>
+     <span class="delta">${fmtPct(t.change_24h)} <span class="muted">24h</span></span>
+     <span class="delta">${fmtPct(t.change_7d)} <span class="muted">7d</span></span>
+     <button class="pill ghost" style="margin-left:auto;padding:6px 14px;font-size:12.5px"
+       onclick="snapshotTrader()">Snapshot now</button>`;
+  document.getElementById('tovl-stats').innerHTML = [
+    ['Free τ', fmt(t.free_tao, 3)],
+    ['Staked τ', fmt(t.staked_tao, 3)],
+    ['Subnets', t.subnets || 0],
+    ['PnL 24h τ', t.pnl_24h != null ? fmt(t.pnl_24h, 3) : '—'],
+    ['Price-only PnL 24h τ', t.hold_pnl_24h != null ? fmt(t.hold_pnl_24h, 3) : '—'],
+    ['Snapshots', t.snapshots || 0],
+  ].map(([k, v]) => `<div class="cell"><span>${k}</span><b>${v}</b></div>`).join('');
+  const pos = t.positions || [];
+  document.getElementById('tovl-pos').innerHTML = pos.length
+    ? `<div style="overflow:auto"><table><thead><tr><th>Subnet</th><th class="num">Alpha</th>
+       <th class="num">Price τ</th><th class="num">Value τ</th><th class="num">Weight</th></tr></thead><tbody>` +
+      pos.map(p => `<tr onclick="closeTrader();openDetail(${p.netuid})" style="cursor:pointer">
+        <td>${esc(p.name)} <span class="sn-sym">#${p.netuid}</span></td>
+        <td class="num">${fmt(p.alpha, 3)}</td>
+        <td class="num">${fmtPrice(p.price)}</td>
+        <td class="num">${fmt(p.value_tao, 3)}</td>
+        <td class="num">${fmt(p.pct_of_total, 1)}%</td></tr>`).join('') +
+      '</tbody></table></div>'
+    : `<span class="muted">${esc(t.note || 'No alpha positions.')}</span>`;
+  const fs = t.flows || [];
+  document.getElementById('tovl-flows').innerHTML = fs.length
+    ? `<div style="overflow:auto"><table><thead><tr><th>When</th><th>Side</th><th>Subnet</th>
+       <th class="num">Alpha</th><th class="num">Value τ</th></tr></thead><tbody>` +
+      fs.map(f => `<tr><td class="muted">${new Date(f.ts * 1000).toLocaleString(undefined,
+          {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})}</td>
+        <td><span class="tag ${f.side === 'sell' ? 'warn' : ''}">${f.side}</span></td>
+        <td>#${f.netuid}</td>
+        <td class="num">${fmt(f.alpha, 3)}</td>
+        <td class="num">${fmt(f.tao_value, 3)}</td></tr>`).join('') +
+      '</tbody></table><p class="muted" style="margin-top:8px">Inferred from snapshot deltas — not extrinsics.</p></div>'
+    : '<span class="muted">No moves recorded in this window.</span>';
+  drawEquity(t.series || []);
+}
+
+/* Portfolio-value line — same visual language as the price chart. */
+function drawEquity(series) {
+  const box = document.getElementById('tchart-svg');
+  if (series.length < 2) {
+    box.innerHTML = '<div class="muted" style="padding:40px 0;text-align:center">Not enough history yet — the indexer snapshots tracked traders every 15 minutes.</div>';
+    return;
+  }
+  const W = Math.max(box.clientWidth || 780, 320), H = 220,
+        padL = 62, padR = 18, padT = 14, padB = 26;
+  const ts = series.map(p => p.t), vs = series.map(p => p.total_tao);
+  const tMin = ts[0], tMax = ts[ts.length - 1] || tMin + 1;
+  let vMin = Math.min(...vs), vMax = Math.max(...vs);
+  if (vMin === vMax) { vMin *= 0.98; vMax *= 1.02 || 1; }
+  const X = t => padL + (t - tMin) / (tMax - tMin) * (W - padL - padR);
+  const Y = v => padT + (vMax - v) / (vMax - vMin) * (H - padT - padB);
+  const up = vs[vs.length - 1] >= vs[0];
+  const stroke = up ? 'var(--good)' : 'var(--bad)';
+  const hours = RANGES[TRANGE].hours;
+  const tLab = t => {
+    const d = new Date(t * 1000);
+    return hours <= 24
+      ? d.toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'})
+      : d.toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+  };
+  const nX = Math.min(5, series.length);
+  const xTicks = Array.from({length: nX}, (_, i) => tMin + i * (tMax - tMin) / (nX - 1));
+  const line = series.map((p, i) => `${i ? 'L' : 'M'}${X(p.t).toFixed(1)},${Y(p.total_tao).toFixed(1)}`).join('');
+  const area = line + `L${X(tMax).toFixed(1)},${H - padB}L${X(tMin).toFixed(1)},${H - padB}Z`;
+  box.innerHTML = `<svg id="tchart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    ${niceTicks(vMin, vMax, 4).map(v => `<line x1="${padL}" y1="${Y(v).toFixed(1)}" x2="${W - padR}" y2="${Y(v).toFixed(1)}"
+        stroke="var(--line)" stroke-width="1"/>
+      <text x="${padL - 8}" y="${(Y(v) + 4).toFixed(1)}" text-anchor="end"
+        font-size="10.5" fill="var(--ink2)" font-family="var(--mono)">${fmt(v, 2)}</text>`).join('')}
+    ${xTicks.map((t, i) => `<text x="${X(t).toFixed(1)}" y="${H - 8}"
+        text-anchor="${i === 0 ? 'start' : i === nX - 1 ? 'end' : 'middle'}"
+        font-size="10.5" fill="var(--ink2)">${tLab(t)}</text>`).join('')}
+    <path d="${area}" fill="${stroke}" opacity="0.09"/>
+    <path d="${line}" fill="none" stroke="${stroke}" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"/>
+    <line id="txhair" x1="0" x2="0" y1="${padT}" y2="${H - padB}"
+      stroke="var(--ink3)" stroke-width="1" style="display:none"/>
+    <circle id="txdot" r="4" fill="${stroke}" stroke="var(--card)" stroke-width="2" style="display:none"/>
+    <rect x="${padL}" y="${padT}" width="${W - padL - padR}" height="${H - padT - padB}" fill="transparent"/>
+  </svg>`;
+  TCHART = {series, X, Y, W, H};
+  const svg = document.getElementById('tchart'), tip = document.getElementById('tchart-tip');
+  svg.addEventListener('pointermove', e => {
+    const rect = svg.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) * (W / rect.width);
+    let best = 0, bd = Infinity;
+    TCHART.series.forEach((p, i) => {
+      const d = Math.abs(TCHART.X(p.t) - mx);
+      if (d < bd) { bd = d; best = i; }
+    });
+    const p = TCHART.series[best], x = TCHART.X(p.t), y = TCHART.Y(p.total_tao);
+    const xh = svg.querySelector('#txhair'), xd = svg.querySelector('#txdot');
+    xh.setAttribute('x1', x); xh.setAttribute('x2', x); xh.style.display = 'block';
+    xd.setAttribute('cx', x); xd.setAttribute('cy', y); xd.style.display = 'block';
+    tip.style.display = 'block';
+    tip.innerHTML = '';
+    const b = document.createElement('b'); b.textContent = `τ ${fmt(p.total_tao, 3)}`;
+    const s = document.createElement('span');
+    s.textContent = `${fmt(p.staked_tao, 2)} staked · ${new Date(p.t * 1000).toLocaleString(undefined,
+      {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})}`;
+    tip.append(b, s);
+    const bx = box.getBoundingClientRect();
+    const px = x * (rect.width / W) + (rect.left - bx.left);
+    tip.style.left = Math.min(Math.max(px - tip.offsetWidth / 2, 0), bx.width - tip.offsetWidth) + 'px';
+    tip.style.top = (y * (rect.height / H) - tip.offsetHeight - 12) + 'px';
+  });
+  svg.addEventListener('pointerleave', () => {
+    tip.style.display = 'none';
+    svg.querySelector('#txhair').style.display = 'none';
+    svg.querySelector('#txdot').style.display = 'none';
+  });
+}
+
+/* ---------- account explorer ---------- */
+async function loadAccount() {
+  const addr = document.getElementById('acct-addr').value.trim();
+  const out = document.getElementById('acct-out'), spin = document.getElementById('acct-spin');
+  if (!addr) return;
+  spin.innerHTML = '<span class="spinner"></span>'; out.innerHTML = '';
+  try {
+    const j = await call('bt_account', {address: addr});
+    const a = j.result;
+    const names = Object.fromEntries(SCREEN.map(r => [r.netuid, r.name]));
+    out.innerHTML = `
+      <div class="stats" style="margin:4px 0 18px;justify-content:flex-start">
+        <div class="stat" style="text-align:left;padding-left:0"><b>τ ${fmt(a.free_tao, 4)}</b><span>Free</span></div>
+        <div class="stat" style="text-align:left"><b>τ ${fmt(a.staked_value_tao, 4)}</b><span>Staked value</span></div>
+        <div class="stat" style="text-align:left"><b>τ ${fmt(a.total_value_tao, 4)}</b><span>Total</span></div>
+      </div>` +
+      (a.positions.length
+        ? `<div style="overflow:auto"><table><thead><tr><th>Subnet</th><th>Hotkey</th>
+           <th class="num">Alpha</th><th class="num">Price τ</th><th class="num">Value τ</th></tr></thead><tbody>` +
+          a.positions.map(p => `<tr>
+            <td>${esc(names[p.netuid] || '')} <span class="sn-sym">#${p.netuid}</span></td>
+            <td class="num" title="${esc(p.hotkey || '')}">${esc(short(p.hotkey))}</td>
+            <td class="num">${fmt(p.alpha, 4)}</td>
+            <td class="num">${fmtPrice(p.price)}</td>
+            <td class="num">${p.value_tao != null ? fmt(p.value_tao, 4) : '—'}</td></tr>`).join('') +
+          '</tbody></table></div>'
+        : '<span class="muted">No alpha positions.</span>') +
+      `<div style="margin-top:16px;display:flex;gap:10px;align-items:center">
+         <button class="pill ghost" onclick="trackFromAccount('${esc(addr)}')">Track this trader</button>
+         <span class="muted">Keeps its history so you get an equity curve, PnL and a trade tape.</span>
+       </div>` +
+      (a.stake_error ? `<p class="muted" style="margin-top:10px">stake lookup: ${esc(a.stake_error)}</p>` : '');
+  } catch (e) { out.innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
+  spin.innerHTML = '';
+}
+
+async function trackFromAccount(addr) {
+  document.getElementById('trk-addr').value = addr;
+  location.hash = '#traders';
+  await trackTrader();
+}
+
+/* ---------- wallet bar ----------
+   One address in the chrome at all times: a local coldkey if there is one,
+   otherwise any address you paste. Value is the account total (free + staked),
+   cached so the bar paints before the chain answers. */
+const WKEY = 'bt.wallet', WBAR_KEY = 'bt.wbar';
+let WALLET = null;   // {addr, name, local, tao}
+
+function saveWallet() {
+  try { WALLET ? localStorage.setItem(WKEY, JSON.stringify(WALLET)) : localStorage.removeItem(WKEY); } catch (e) {}
+}
+function renderWbar() {
+  const badge = document.getElementById('w-badge');
+  const addr = document.getElementById('w-addr');
+  const val = document.getElementById('w-val');
+  if (!WALLET) {
+    badge.textContent = 'τ'; badge.title = 'Pick a wallet';
+    addr.textContent = 'Connect a wallet';
+    val.textContent = 'τ —'; val.className = 'wchip val zero';
+    return;
+  }
+  badge.textContent = WALLET.local ? '👑' : '👁';
+  badge.title = WALLET.local ? `Local wallet · ${WALLET.name}` : 'Watch-only';
+  addr.innerHTML = `${WALLET.local ? `<span class="sub">${esc(WALLET.name)}</span>` : ''}${esc(short(WALLET.addr))} <span class="cp">⧉</span>`;
+  addr.title = WALLET.addr + ' — click to copy';
+  val.textContent = WALLET.tao == null ? 'τ —' : `τ ${fmt(WALLET.tao, 3)}`;
+  val.className = 'wchip val' + (WALLET.tao ? '' : ' zero');
+}
+function connectWallet(addr, name, local) {
+  WALLET = {addr, name: name || null, local: !!local, tao: null};
+  saveWallet(); renderWbar(); closeWpop(); refreshWallet();
+}
+async function refreshWallet() {
+  if (!WALLET) { toggleWpop(); return; }
+  const btn = document.getElementById('w-refresh');
+  btn.classList.add('spin');
+  try {
+    const j = await call('bt_account', {address: WALLET.addr});
+    WALLET.tao = j.result.total_value_tao ?? j.result.free_tao ?? null;
+    saveWallet();
+  } catch (e) { /* keep the cached number rather than blanking the bar */ }
+  btn.classList.remove('spin');
+  renderWbar();
+}
+function onAddrChip() {
+  if (!WALLET) return toggleWpop();
+  navigator.clipboard.writeText(WALLET.addr).then(() => {
+    const el = document.getElementById('w-addr'), was = el.innerHTML;
+    el.textContent = 'Copied ✓';
+    setTimeout(() => { el.innerHTML = was; }, 1000);
+  });
+}
+function openWalletAccount() {
+  if (!WALLET) return toggleWpop();
+  document.getElementById('acct-addr').value = WALLET.addr;
+  location.hash = '#account';
+  loadAccount();
+}
+async function toggleWpop() {
+  const pop = document.getElementById('wpop');
+  if (!pop.hidden) return closeWpop();
+  pop.hidden = false;
+  document.getElementById('wpop-addr').value = WALLET ? WALLET.addr : '';
+  document.getElementById('wpop-addr').focus();
+  const box = document.getElementById('wpop-local');
+  box.innerHTML = '';
+  try {
+    const ws = (await call('bt_wallets', {})).result || [];
+    box.innerHTML = ws.filter(w => w.coldkey).map(w =>
+      `<button onclick="connectWallet('${esc(w.coldkey)}', '${esc(w.name)}', true)">👑 ${esc(w.name)}</button>`).join('');
+  } catch (e) {}
+}
+function closeWpop() { document.getElementById('wpop').hidden = true; }
+function watchFromInput() {
+  const a = document.getElementById('wpop-addr').value.trim();
+  if (a) connectWallet(a, null, false);
+}
+function hideWbar() {
+  document.getElementById('wbar').style.display = 'none';
+  document.getElementById('wshow').hidden = false;
+  closeWpop();
+  try { localStorage.setItem(WBAR_KEY, 'off'); } catch (e) {}
+}
+function showWbar() {
+  document.getElementById('wbar').style.display = '';
+  document.getElementById('wshow').hidden = true;
+  try { localStorage.removeItem(WBAR_KEY); } catch (e) {}
+}
+async function initWbar() {
+  try { if (localStorage.getItem(WBAR_KEY) === 'off') hideWbar(); } catch (e) {}
+  try { WALLET = JSON.parse(localStorage.getItem(WKEY) || 'null'); } catch (e) {}
+  renderWbar();
+  if (WALLET) return refreshWallet();
+  /* no pick yet — adopt the first local coldkey if the node has one */
+  try {
+    const w = ((await call('bt_wallets', {})).result || []).find(x => x.coldkey);
+    if (w) connectWallet(w.coldkey, w.name, true);
+  } catch (e) {}
+}
+addEventListener('click', e => {
+  const pop = document.getElementById('wpop');
+  if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('#w-badge, #w-addr, #w-val')) closeWpop();
+});
+
+/* ---------- wallet ---------- */
+async function loadWallets() {
+  const el = document.getElementById('wallets-out');
+  try {
+    const j = await call('bt_wallets', {});
+    const ws = j.result || [];
+    el.innerHTML = ws.length
+      ? '<table><thead><tr><th>Name</th><th>Coldkey</th><th>Hotkeys</th></tr></thead><tbody>' +
+        ws.map(w => `<tr><td>${esc(w.name)}</td><td class="num" title="${esc(w.coldkey||'')}">${w.coldkey ? esc(short(w.coldkey)) : '—'}</td><td>${(w.hotkeys||[]).map(esc).join(', ') || '—'}</td></tr>`).join('') +
+        '</tbody></table>'
+      : 'No local wallets yet — create one from the Console (<code class="inline">bt_create_wallet</code>).';
+  } catch (e) { el.textContent = e.message; }
+}
+async function checkBalance() {
+  const out = document.getElementById('bal-out');
+  const addr = document.getElementById('bal-addr').value.trim();
+  if (!addr) return;
+  out.innerHTML = '<span class="spinner"></span>';
+  try {
+    const j = await call('bt_balance', {address: addr});
+    out.textContent = `τ ${fmt(j.result.tao, 6)}`;
+  } catch (e) { out.textContent = e.message; }
+}
+
+/* ---------- trade ---------- */
+async function loadPortfolio() {
+  const el = document.getElementById('pf-out');
+  el.innerHTML = '<span class="spinner"></span>';
+  try {
+    const j = await call('bt_portfolio', {wallet: document.getElementById('pf-wallet').value || 'default'});
+    const ps = j.result || [];
+    el.innerHTML = ps.length
+      ? '<table><thead><tr><th>Netuid</th><th>Alpha</th><th>Value τ</th></tr></thead><tbody>' +
+        ps.map(p => `<tr><td class="num">${p.netuid ?? '—'}</td><td class="num">${fmt(p.alpha ?? p.stake, 4)}</td><td class="num">${fmt(p.tao_value ?? p.value, 4)}</td></tr>`).join('') +
+        '</tbody></table>'
+      : '<span class="muted">No open positions.</span>';
+  } catch (e) { el.innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
+}
+async function placeTrade() {
+  const side = document.getElementById('tr-side').value;
+  const netuid = +document.getElementById('tr-netuid').value;
+  const amt = +document.getElementById('tr-amt').value;
+  const out = document.getElementById('tr-out');
+  if (!netuid || !amt) { out.textContent = 'Enter netuid and amount.'; return; }
+  const verb = side === 'bt_buy' ? 'BUY into' : 'SELL out of';
+  if (!confirm(`${verb} subnet ${netuid} for ${amt} TAO?\n\nThis signs a real on-chain transaction.`)) return;
+  out.innerHTML = '<span class="spinner"></span>';
+  try {
+    const j = await call(side, {netuid, amount_tao: amt});
+    out.textContent = j.result.ok ? `Done in ${j.ms} ms ✓` : 'Extrinsic not confirmed';
+  } catch (e) { out.textContent = e.message; }
+}
+
+/* ---------- ask (agent) ---------- */
+const SUGGESTIONS = [
+  'Which subnet pumped hardest in the last 24h, and why might that be?',
+  'Summarize the whole alpha market right now in three sentences.',
+  'Who are the top validators on the biggest subnet by market cap?',
+  'Did any tracked trader make a big move this week?',
+];
+let ASKING = false;
+
+async function loadAgent() {
+  const sug = document.getElementById('ask-sugg');
+  sug.innerHTML = SUGGESTIONS.map(s =>
+    `<button onclick="document.getElementById('ask-q').value=this.textContent;askNetwork()">${esc(s)}</button>`).join('');
+  try {
+    const a = await (await fetch(api('agent'))).json();
+    document.getElementById('ask-meta').textContent =
+      a.ready ? `Agent ready — ${a.model} · ${a.tools} tools allowed, ${a.denied} on-chain tools denied · auth: ${a.method}`
+              : '';
+    if (!a.ready) {
+      const el = document.getElementById('ask-auth');
+      el.style.display = 'block';
+      el.textContent = '⚠ ' + (a.hint || 'Agent auth not configured on this host.');
+    }
+  } catch (e) {}
+}
+
+async function askNetwork() {
+  if (ASKING) return;
+  const q = document.getElementById('ask-q').value.trim();
+  if (!q) return;
+  ASKING = true;
+  const btn = document.getElementById('ask-btn');
+  btn.textContent = '…'; btn.disabled = true;
+  const log = document.getElementById('ask-log');
+  const turn = document.createElement('div');
+  turn.className = 'ask-turn';
+  const you = document.createElement('div'); you.className = 'ask-you'; you.textContent = q;
+  const tools = document.createElement('div'); tools.className = 'ask-tools';
+  const coin = document.createElement('span'); coin.className = 'coin';
+  tools.appendChild(coin);
+  turn.append(you, tools);
+  log.prepend(turn);
+  let gotText = false;
+  const addText = t => {
+    const d = document.createElement('div'); d.className = 'ask-text';
+    /* escape first, then allow only **bold** and `code` back through */
+    d.innerHTML = esc(t)
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+    turn.appendChild(d); gotText = true;
+  };
+  const handle = ev => {
+    if (ev.type === 'tool') {
+      const c = document.createElement('span');
+      c.className = 'ask-tool pending';
+      const args = Object.entries(ev.args || {}).map(([k, v]) => `${k}:${v}`).join(' ');
+      c.textContent = `? ${ev.name}${args ? ' · ' + args : ''}`;
+      c.title = JSON.stringify(ev.args || {});
+      tools.insertBefore(c, coin);
+    } else if (ev.type === 'tool_done') {
+      const p = tools.querySelector('.ask-tool.pending');
+      if (p) { p.className = 'ask-tool ' + (ev.error ? 'err' : 'done');
+               p.textContent = (ev.error ? '✗ ' : '🪙 ') + p.textContent.slice(2); }
+    } else if (ev.type === 'text') {
+      addText(ev.text);
+    } else if (ev.type === 'done') {
+      coin.remove();
+      tools.querySelectorAll('.ask-tool.pending').forEach(p => p.classList.replace('pending', 'done'));
+      if (!gotText && ev.answer) addText(ev.answer);
+      const f = document.createElement('div'); f.className = 'ask-flag';
+      const secs = ev.ms != null ? (ev.ms / 1000).toFixed(1) + 's' : '';
+      f.textContent = `🏁 COURSE CLEAR · ${ev.turns ?? '?'} turns · ${secs}` +
+        (ev.cost_usd != null ? ` · $${(+ev.cost_usd).toFixed(4)}` : '');
+      turn.appendChild(f);
+    } else if (ev.type === 'error') {
+      coin.remove();
+      const d = document.createElement('div'); d.className = 'ask-err';
+      d.textContent = '💀 ' + ev.error; turn.appendChild(d);
+    }
+  };
+  try {
+    const r = await fetch(api('ask'), {
+      method: 'POST', headers: {'content-type': 'application/json'},
+      body: JSON.stringify({question: q}),
+    });
+    if (!r.ok || !r.body) {
+      handle({type: 'error', error: (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`});
+    } else {
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, {stream: true});
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
+          if (chunk.startsWith('data: ')) {
+            try { handle(JSON.parse(chunk.slice(6))); } catch (e) {}
+          }
+        }
+      }
+      coin.remove();
+    }
+  } catch (e) { handle({type: 'error', error: e.message}); }
+  document.getElementById('ask-q').value = '';
+  btn.textContent = 'Ask ▶'; btn.disabled = false;
+  ASKING = false;
+}
+document.getElementById('ask-q').addEventListener('keydown', e => {
+  if (e.key === 'Enter') askNetwork();
+});
+
+/* ---------- console ---------- */
+function renderToolForm() {
+  const name = document.getElementById('tool-select').value;
+  const tool = TOOLS.find(t => t.name === name);
+  if (!tool) return;
+  document.getElementById('tool-desc').textContent = tool.description;
+  const props = tool.inputSchema.properties || {};
+  const req = tool.inputSchema.required || [];
+  document.getElementById('tool-form').innerHTML =
+    '<div class="row">' + Object.entries(props).map(([k, p]) => `
+      <div><label>${k}${req.includes(k) ? ' *' : ''} <span style="opacity:.6">(${p.type})</span></label>
+      <input data-param="${k}" data-type="${p.type}" placeholder="${p.default !== undefined ? esc(String(p.default)) : esc(p.description || '')}"></div>`
+    ).join('') + '</div>';
+}
+async function runTool() {
+  const name = document.getElementById('tool-select').value;
+  const args = {};
+  document.querySelectorAll('#tool-form input').forEach(inp => {
+    const v = inp.value.trim();
+    if (!v) return;
+    const t = inp.dataset.type;
+    args[inp.dataset.param] = t === 'integer' ? parseInt(v) : t === 'number' ? parseFloat(v) : t === 'boolean' ? v === 'true' : v;
+  });
+  const isWrite = /bt_(buy|sell|sell_all|swap|transfer|create_wallet)/.test(name);
+  if (isWrite && !confirm(`Run ${name} ${JSON.stringify(args)}?\n\nThis is a real on-chain / key-material action.`)) return;
+  const spin = document.getElementById('tool-spin'), out = document.getElementById('tool-out'), meta = document.getElementById('tool-meta');
+  spin.innerHTML = '<span class="spinner"></span>'; meta.textContent = ''; out.style.display = 'block'; out.textContent = '';
+  try {
+    const j = await call(name, args);
+    out.textContent = JSON.stringify(j.result, null, 2);
+    meta.textContent = `${j.ms} ms`;
+  } catch (e) { out.textContent = e.message; }
+  spin.innerHTML = '';
+}
+
+/* ---------- docs ---------- */
+async function loadDocs() {
+  const el = document.getElementById('docs-body');
+  try {
+    const j = await (await fetch(api('docs'))).json();
+    el.innerHTML = j.groups.map(g => `
+      <div class="doc-group">
+        <h3>${esc(g.group)}</h3>
+        ${g.tools.map(t => `
+          <div class="doc-tool">
+            <span class="tname">${t.name}</span>
+            ${t.mutates ? ' <span class="tag warn">on-chain write</span>' : ''}
+            <p>${esc(t.description)}</p>
+            <div class="doc-params">${t.params.length ? t.params.map(p =>
+              `<b>${p.name}</b>${p.required ? '*' : ''} <span style="opacity:.7">${p.type}</span> — ${esc(p.description || '')}${p.default !== undefined ? ` (default ${esc(String(p.default))})` : ''}`
+            ).join('<br>') : '<span style="opacity:.6">no parameters</span>'}</div>
+          </div>`).join('')}
+      </div>`).join('');
+  } catch (e) { el.innerHTML = `<span class="muted">${esc(e.message)}</span>`; }
+}
+
+/* ---------- chrome ---------- */
+function copyBlock(btn) {
+  const code = btn.parentElement.querySelector('code');
+  navigator.clipboard.writeText(code.textContent).then(() => {
+    btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1200);
+  });
+}
+/* ---------- router: one page per tab ---------- */
+const links = [...document.querySelectorAll('.rail a')];
+function route() {
+  let id = (location.hash || '#top').slice(1);
+  const target = document.getElementById(id);
+  if (!target || !target.classList.contains('page')) id = 'top';
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.toggle('active', p.id === id);
+    p.classList.remove('in');
+  });
+  const cur = document.getElementById(id);
+  /* double rAF so display:block lands before .in, letting the reveal transition play */
+  requestAnimationFrame(() => requestAnimationFrame(() => cur.classList.add('in')));
+  links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+  scrollTo(0, 0);
+}
+addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>

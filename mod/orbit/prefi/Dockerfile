@@ -39,7 +39,7 @@ COPY --from=app-builder /build/next.config.* /app/src/app/
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
-ENV GATEWAY_PORT=8831
-EXPOSE 8831
+ENV GATEWAY_PORT=50411
+EXPOSE 50411
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

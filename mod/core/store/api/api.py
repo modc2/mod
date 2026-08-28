@@ -15,7 +15,15 @@ Access control
         ~/.mod/store/owner.json      {"owner": "0x.."}        (admin, unlimited)
         ~/.mod/store/whitelist.json  ["0x..", ...]            (allowed uploaders)
         ~/.mod/store/quotas.json     {"0x..": <bytes>}        (per-user overrides)
+        ~/.mod/store/terms.json      {"0x..": {version, ts, proof}}  (signed ToS)
+        ~/.mod/store/takedowns.json  [{cid, by, reason, ts}]  (moderation audit)
     Empty whitelist AND no owner ⇒ open access (back-compat / bootstrap).
+
+Terms of service (liability)
+    Every uploader must sign-accept terms.md (versioned) before /put or
+    /register: acceptance is recorded with the caller's wallet-signed session
+    token as proof. The admin may remove ANY content (illegal/infringing) via
+    DELETE /rm; non-owner removals are appended to the takedown audit log.
 
 Quota
     Each non-admin address gets `quota_bytes` (config.json, default 100 MiB) of
@@ -36,6 +44,8 @@ Endpoints
     GET  /get?cid=…[&token=…]     retrieve by CID (read-gated for private)
     GET  /preview?cid=…           peek content (truncated text + size flag)
     GET  /object?cid=…            full info: stored when/by-whom + who has access
+    GET  /graph                   CID graph: objects + the CIDs their content embeds
+    POST /graph/scan              re-derive the graph from content (admin: scope=all)
     POST /publish                 (owner) flip object private⇄public
     POST /pin                     pin a CID
     GET  /pins                    list caller's pinned objects
@@ -43,7 +53,11 @@ Endpoints
     GET  /list                    list caller's objects (+visibility/scheme/semhash)
     GET  /search?q=…[&semantic_q=…] filter + 1-bit semantic (Hamming) ranking
     GET  /shared                  objects shared WITH caller (grants + pools)
-    DELETE /rm?cid=…              delete record
+    DELETE /rm?cid=…[&reason=…]   delete own object; admin may remove ANY (logged)
+    GET  /terms                   current terms text + version (+accepted if auth)
+    POST /terms/accept            sign-accept current terms (required to store)
+    GET  /terms/accepts           (owner) audit: who accepted what, when
+    GET  /takedowns               (owner) audit log of admin content removals
 
   timed access grants
     POST   /grants                grant addr timed read/write to a CID or all
@@ -69,19 +83,31 @@ Endpoints
     GET  /tickets                 my active (unused, unexpired) tickets
     GET  /ticket/{code}           redeem → serve object exactly once
 
+  marketplace (listings over stored objects; BlocTime-priced access)
+    GET    /market                browse the public storefront (q/tag/sort/free)
+    POST   /market/list           list an object you own (title/desc/tags/price_bloc)
+    DELETE /market/list           delist (seller; admin ⇒ logged takedown)
+    POST   /market/acquire        get an item — free, or hold >= price_bloc BlocTime
+    POST   /market/like           toggle a like (one per wallet)
+    GET    /market/mine           my listings + my acquisitions
+
   on-chain (chain mod: BlocTime + Registry)
     GET  /onchain                 Registry registration + BlocTime gate status
     GET  /onchain/bloctime        caller's BlocTime balance + holder flag
     POST /onchain/register        (owner) register store in the chain Registry
 
+  MCP (Model Context Protocol — api/mcp.py)
+    POST /mcp                     JSON-RPC 2.0 Streamable HTTP: store tools for LLM agents
+
 Access also honors on-chain BlocTime: a staked BlocTime holder is authorized to
 store as if whitelisted (config bloctime_gate, default on).
 
 Run (under pm2 — see ecosystem.config.js):
-    uvicorn api.api:app --host 0.0.0.0 --port 50150
+    uvicorn api.api:app --host 0.0.0.0 --port 50152
 """
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -97,6 +123,7 @@ from pydantic import BaseModel
 import mod as m  # noqa: E402
 
 from api.access import Access, infer_scheme  # noqa: E402
+from api.market import Market  # noqa: E402
 from api.onchain import OnChain  # noqa: E402
 from api import semantic  # noqa: E402
 
@@ -120,10 +147,20 @@ PRIVATE_DIR.mkdir(parents=True, exist_ok=True)
 WHITELIST_PATH = PRIVATE_DIR / 'whitelist.json'
 OWNER_PATH = PRIVATE_DIR / 'owner.json'
 QUOTAS_PATH = PRIVATE_DIR / 'quotas.json'
+TERMS_ACCEPTS_PATH = PRIVATE_DIR / 'terms.json'
+TAKEDOWNS_PATH = PRIVATE_DIR / 'takedowns.json'
+
+# Versioned terms of service every uploader must sign-accept before storing.
+TERMS_PATH = mod_dir / 'terms.md'
+TERMS_VERSION = str(CONFIG.get('terms_version', '1.0'))
 
 # Access model: timed grants, data pools, QR auth handoff, CID-agnostic ACL.
 # SQLite alongside the JSON access state — off-chain, never committed.
 ACCESS = Access(PRIVATE_DIR / 'access.db')
+
+# Marketplace: listings/likes/acquisitions over stored objects. Priced items
+# are gated by on-chain BlocTime holdings; buying mints a permanent read grant.
+MARKET = Market(PRIVATE_DIR / 'market.json')
 
 # On-chain integration (chain mod): BlocTime holders earn store access, and the
 # module registers itself in the chain Registry. Tunable via config.json:
@@ -178,6 +215,54 @@ def read_quotas() -> dict:
 
 def write_quotas(quotas: dict) -> None:
     QUOTAS_PATH.write_text(json.dumps({k.lower(): int(v) for k, v in quotas.items()}, indent=2))
+
+
+def read_terms_text() -> str:
+    try:
+        return TERMS_PATH.read_text()
+    except Exception:
+        return f'Store terms of service v{TERMS_VERSION}: you are solely ' \
+               'responsible for content you upload; the operator may remove ' \
+               'any content at any time.'
+
+
+def read_terms_accepts() -> dict:
+    try:
+        return json.loads(TERMS_ACCEPTS_PATH.read_text())
+    except Exception:
+        return {}
+
+
+def has_accepted_terms(address: str) -> bool:
+    rec = read_terms_accepts().get(address.lower())
+    return bool(rec) and str(rec.get('version')) == TERMS_VERSION
+
+
+def record_terms_accept(address: str, proof: str) -> dict:
+    """Record a wallet-signed acceptance of the CURRENT terms version.
+
+    `proof` is the caller's bearer token — a wallet-signed, time-bounded
+    protocol-auth signature — kept off-chain in ~/.mod/store/terms.json as
+    evidence the address accepted this version."""
+    accepts = read_terms_accepts()
+    rec = {'version': TERMS_VERSION, 'accepted_at': int(time.time()), 'proof': proof}
+    accepts[address.lower()] = rec
+    TERMS_ACCEPTS_PATH.write_text(json.dumps(accepts, indent=2))
+    return rec
+
+
+def read_takedowns() -> list:
+    try:
+        return json.loads(TAKEDOWNS_PATH.read_text())
+    except Exception:
+        return []
+
+
+def log_takedown(cid: str, by: str, reason: Optional[str]) -> None:
+    entries = read_takedowns()
+    entries.append({'cid': cid, 'by': by.lower(),
+                    'reason': reason or 'admin takedown', 'ts': int(time.time())})
+    TAKEDOWNS_PATH.write_text(json.dumps(entries, indent=2))
 
 
 def is_admin(address: str) -> bool:
@@ -276,6 +361,17 @@ def require_authorized(authorization: Optional[str]) -> str:
     return addr
 
 
+def require_terms(address: str) -> str:
+    """Storing content requires a signed acceptance of the current terms."""
+    if not has_accepted_terms(address):
+        raise HTTPException(
+            451,
+            f'terms of service v{TERMS_VERSION} not accepted: '
+            'GET /terms then POST /terms/accept before uploading',
+        )
+    return address
+
+
 def require_owner(authorization: Optional[str]) -> str:
     addr = require_session(authorization)
     owner = read_owner()
@@ -311,6 +407,62 @@ def backends():
     return {'backends': store_mod.backends()}
 
 
+@app.get('/backends/status')
+def backends_status(probe: bool = False,
+                    authorization: Optional[str] = Header(default=None)):
+    """Per-backend readiness for the app's BACKENDS tab.
+
+    Light by default (no network round-trips); `?probe=1` additionally
+    validates stored credentials against the remote service (owner only,
+    since it can be slow and leaks validity)."""
+    require_session(authorization)
+    if probe:
+        require_owner(authorization)
+        keyed = store_mod.keys()
+    else:
+        keyed = {}
+        for b in getattr(store_mod, 'KEYED_BACKENDS', ['hippius', 'lighthouse']):
+            try:
+                s = getattr(store_mod, b)().status()
+                keyed[b] = {'configured': bool(s.get('configured')),
+                            'needs_key': bool(s.get('needs_key'))}
+            except Exception as e:
+                keyed[b] = {'error': str(e), 'configured': False, 'needs_key': True}
+    out = {}
+    for b in store_mod.backends():
+        if b == 'both':
+            continue
+        out[b] = keyed.get(b, {'configured': True, 'needs_key': False})
+    return {'backends': out, 'probed': bool(probe)}
+
+
+class BackendKeyBody(BaseModel):
+    backend: str
+    api_key: Optional[str] = None          # lighthouse
+    s3_key: Optional[str] = None           # hippius
+    s3_secret: Optional[str] = None
+    s3_endpoint: Optional[str] = None
+    s3_bucket: Optional[str] = None
+
+
+@app.post('/backends/key')
+def backends_set_key(body: BackendKeyBody,
+                     authorization: Optional[str] = Header(default=None)):
+    """(owner) Persist API credentials for a keyed backend.
+
+    Keys are stored off-chain under ~/.mod/{hippius,lighthouse}/ — never in
+    committed config — and picked up by the backend modules on next use."""
+    require_owner(authorization)
+    creds = {k: v for k, v in body.dict().items()
+             if k != 'backend' and v is not None and str(v).strip()}
+    if not creds:
+        raise HTTPException(400, 'no credentials provided')
+    r = store_mod.set_key(body.backend, **creds)
+    if isinstance(r, dict) and r.get('error'):
+        raise HTTPException(400, r['error'])
+    return {'backend': body.backend.lower(), **(r if isinstance(r, dict) else {})}
+
+
 # ── identity / authorization ──
 
 @app.get('/me')
@@ -329,7 +481,40 @@ def me(authorization: Optional[str] = Header(default=None)):
         'bloctime': bloctime,
         'via': via,
         'quota': quota_view(addr),
+        'terms': {'version': TERMS_VERSION, 'accepted': has_accepted_terms(addr)},
     }
+
+
+# ── terms of service (signed acceptance, required to store) ──
+
+@app.get('/terms')
+def terms_get(authorization: Optional[str] = Header(default=None)):
+    addr = optional_session(authorization)
+    out = {'version': TERMS_VERSION, 'text': read_terms_text(), 'required': True}
+    if addr:
+        out['address'] = addr
+        out['accepted'] = has_accepted_terms(addr)
+    return out
+
+
+@app.post('/terms/accept')
+def terms_accept(authorization: Optional[str] = Header(default=None)):
+    addr = require_session(authorization)
+    token = (authorization or '').split(' ', 1)[-1]
+    rec = record_terms_accept(addr, proof=token)
+    return {'address': addr, 'accepted': True,
+            'version': rec['version'], 'accepted_at': rec['accepted_at']}
+
+
+@app.get('/terms/accepts')
+def terms_accepts(authorization: Optional[str] = Header(default=None)):
+    """Owner-only liability audit: every signed acceptance on record."""
+    require_owner(authorization)
+    accepts = read_terms_accepts()
+    return {'version': TERMS_VERSION, 'count': len(accepts),
+            'accepts': {a: {'version': r.get('version'),
+                            'accepted_at': r.get('accepted_at')}
+                        for a, r in accepts.items()}}
 
 
 # ── quota ──
@@ -414,19 +599,22 @@ def _truthy(v) -> bool:
     return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-def _detect_cid_refs(path: Path, exclude: set, cap: int = 1 << 16) -> list:
-    """Best-effort scan of a file's text content for embedded references to
-    other CIDs already known to the store — the signal that this object is a
-    manifest/bundle *mapped from* pre-existing objects. Binary or unreadable
-    content just yields no refs."""
+# CID-shaped tokens: v0 (Qm + 44 base58) and v1 base32 (b-prefixed, ≥59 chars).
+CID_RE = re.compile(r'Qm[1-9A-HJ-NP-Za-km-z]{44}|ba[a-z2-7]{57,}')
+
+
+def _detect_cid_refs(path: Path, exclude: set, cap: int = 1 << 18) -> list:
+    """Best-effort scan of a file's text content for embedded CIDs — the signal
+    that this object is a manifest/bundle *mapped from* other content. Matches
+    any CID-shaped token, not just ones already in this store: the store is
+    cid-agnostic, so a reference to content held elsewhere is still an edge.
+    Binary or unreadable content just yields no refs."""
     try:
         with open(path, 'rb') as f:
             text = f.read(cap).decode('utf-8')
     except (OSError, UnicodeDecodeError):
         return []
-    known = {o.get('cid') for o in store_mod.list(limit=100000) if o.get('cid')}
-    known -= exclude
-    return [c for c in known if c in text]
+    return sorted({c for c in CID_RE.findall(text) if c not in exclude})
 
 
 @app.post('/put')
@@ -438,7 +626,7 @@ async def put(
     pool: Optional[str] = Form(None),
     authorization: Optional[str] = Header(default=None),
 ):
-    owner = require_authorized(authorization)
+    owner = require_terms(require_authorized(authorization))
 
     cache_dir = Path(os.path.expanduser('~/.store-mod/upload'))
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -500,7 +688,7 @@ def register(body: RegisterBody, authorization: Optional[str] = Header(default=N
     """Reference a CID stored in *any other* system (arweave, ipfs elsewhere,
     s3, …) so it becomes a first-class, shareable, poolable store object —
     without re-uploading bytes. The store is CID-agnostic by design."""
-    owner = require_authorized(authorization)
+    owner = require_terms(require_authorized(authorization))
     cid = body.cid.strip()
     if not cid:
         raise HTTPException(400, 'cid required')
@@ -638,6 +826,109 @@ def object_info(cid: str, authorization: Optional[str] = Header(default=None)):
         info['pools'] = []
         info['you_can_read'] = ACCESS.can_read(caller, cid)
     return info
+
+
+def _scan_refs(objs: list, max_size: int = 8 << 20) -> dict:
+    """Re-derive the CID graph for `objs` by reading each object's content and
+    recording the CIDs it embeds. Objects arrive already ACL-checked. Huge or
+    binary blobs are skipped (nothing to read a CID out of)."""
+    # Per-call scratch file: two callers scanning at once must not read each
+    # other's bytes and record the wrong refs.
+    scratch = Path(os.path.expanduser('~/.store-mod/scan')) / f'{os.getpid()}-{time.time_ns()}'
+    scratch.parent.mkdir(parents=True, exist_ok=True)
+    stat = {'scanned': 0, 'skipped': 0, 'with_refs': 0, 'edges': 0}
+    try:
+        for o in objs:
+            cid = o.get('cid')
+            if not cid or (o.get('size') or 0) > max_size:
+                stat['skipped'] += 1
+                continue
+            try:
+                got = store_mod.get(cid=cid, backend=o.get('backend'), out=str(scratch))
+            except Exception:
+                got = {'error': 'unreadable'}
+            if isinstance(got, dict) and 'error' in got:
+                stat['skipped'] += 1
+                continue
+            refs = _detect_cid_refs(scratch, exclude={cid})
+            ACCESS.set_refs(cid, refs)
+            stat['scanned'] += 1
+            if refs:
+                stat['with_refs'] += 1
+                stat['edges'] += len(refs)
+    finally:
+        scratch.unlink(missing_ok=True)
+    return stat
+
+
+@app.post('/graph/scan')
+def graph_scan(scope: str = 'mine', authorization: Optional[str] = Header(default=None)):
+    """Rebuild the CID graph from content. Refs are normally detected once, at
+    upload time; rescanning picks up objects stored before a reference existed
+    (and anything uploaded through another path). `scope=all` is admin-only."""
+    addr = require_session(authorization)
+    if scope == 'all':
+        if not is_admin(addr):
+            raise HTTPException(403, 'scope=all is admin only')
+        objs = store_mod.list(limit=100000)
+    else:
+        objs = store_mod.list(owner=addr, limit=100000)
+    t0 = time.time()
+    stat = _scan_refs(objs)
+    return {'scope': scope, 'objects': len(objs), **stat, 'seconds': round(time.time() - t0, 2)}
+
+
+@app.get('/graph')
+def graph(scope: str = 'mine', isolated: bool = False, limit: int = 2000,
+          authorization: Optional[str] = Header(default=None)):
+    """The CID graph the caller can see: nodes are objects, edges point from an
+    object to the CIDs its content embeds. Referenced CIDs the store doesn't
+    hold come back as `external` nodes — the store is cid-agnostic, so a link
+    out to content living elsewhere is still part of the graph. `isolated=true`
+    also returns objects with no links, so the view can show everything."""
+    addr = require_session(authorization)
+    nodes = {o['cid']: {**o, 'shared_via': None}
+             for o in _annotate(store_mod.list(owner=addr, limit=limit))}
+    if scope in ('shared', 'all'):
+        for o in _shared_objects(addr)['objects']:
+            nodes.setdefault(o['cid'], o)
+    mine = set(nodes)
+
+    index = None
+    edges = []
+    linked = set()
+    for e in ACCESS.all_refs():
+        src, dst = e['cid'], e['ref_cid']
+        if src not in mine and dst not in mine:
+            continue
+        # An edge is only visible if its source object is — otherwise the graph
+        # would leak the existence of someone else's private object.
+        if not ACCESS.can_read(addr, src):
+            continue
+        for c in (src, dst):
+            if c in nodes or c in linked:
+                continue
+            if not ACCESS.can_read(addr, c):
+                continue
+            if index is None:
+                index = {o.get('cid'): o for o in store_mod.list(limit=100000)}
+            row = index.get(c)
+            nodes[c] = _annotate([dict(row)])[0] if row else {
+                'cid': c, 'backend': None, 'owner': None, 'key': None,
+                'size': None, 'timestamp': None, 'external': True,
+                'visibility': ACCESS.visibility(c), 'scheme': infer_scheme(c),
+            }
+        if src in nodes and dst in nodes:
+            edges.append({'from': src, 'to': dst, 'created': e['created']})
+            linked.update((src, dst))
+
+    for n in nodes.values():
+        n.setdefault('external', False)
+    out = [n for n in nodes.values() if isolated or n['cid'] in linked]
+    out.sort(key=lambda n: n.get('timestamp') or 0, reverse=True)
+    return {'address': addr, 'scope': scope,
+            'nodes': out, 'edges': edges,
+            'total_objects': len(mine), 'linked': len(linked)}
 
 
 @app.post('/publish')
@@ -801,9 +1092,30 @@ def search(
 
 
 @app.delete('/rm')
-def rm(cid: str, authorization: Optional[str] = Header(default=None)):
-    require_authorized(authorization)
-    return store_mod.rm(cid)
+def rm(cid: str, reason: Optional[str] = None,
+       authorization: Optional[str] = Header(default=None)):
+    """Delete a stored object. Callers may remove their OWN objects; the
+    module owner (admin) may remove ANY object — e.g. illegal or infringing
+    content — and such takedowns are appended to an off-chain audit log."""
+    addr = require_session(authorization)
+    own = caller_owns(cid, addr)
+    if not own and not is_admin(addr):
+        raise HTTPException(403, 'not your object (only the module owner may remove others\' content)')
+    r = store_mod.rm(cid)
+    ACCESS.set_refs(cid, [])   # a deleted object stops pointing at anything
+    if not own:
+        log_takedown(cid, by=addr, reason=reason)
+        if isinstance(r, dict):
+            r['takedown'] = True
+    return r
+
+
+@app.get('/takedowns')
+def takedowns(authorization: Optional[str] = Header(default=None)):
+    """Owner-only moderation audit log of admin content removals."""
+    require_owner(authorization)
+    entries = read_takedowns()
+    return {'count': len(entries), 'takedowns': entries}
 
 
 # ── grants (timed access) ──────────────────────────────────────────
@@ -1049,6 +1361,160 @@ def ticket_claim(code: str):
     return FileResponse(out, filename=cid)
 
 
+# ── marketplace ────────────────────────────────────────────────────
+
+def _market_annotate(listings: list, caller: Optional[str]) -> list:
+    """Attach object metadata (size/key/scheme/visibility) + caller-relative
+    flags (liked/owned/acquired/can_read) to raw listings."""
+    index = {o.get('cid'): o for o in store_mod.list(limit=100000)}
+    acquired = MARKET.acquired_by(caller) if caller else {}
+    for l in listings:
+        cid = l['cid']
+        meta = index.get(cid, {})
+        acl = ACCESS.get_acl(cid) or {}
+        l['key'] = meta.get('key')
+        l['size'] = meta.get('size')
+        l['scheme'] = acl.get('scheme') or infer_scheme(cid)
+        l['visibility'] = acl.get('visibility', 'public')
+        l['external_url'] = acl.get('url')
+        l['liked'] = MARKET.liked(cid, caller) if caller else False
+        l['owned'] = bool(caller and l['seller'] == caller)
+        l['acquired'] = cid in acquired
+        l['can_read'] = ACCESS.can_read(caller, cid)
+    return listings
+
+
+@app.get('/market')
+def market_browse(
+    q: str = '',
+    tag: str = '',
+    seller: str = '',
+    sort: str = 'hot',            # 'hot' | 'new' | 'top'
+    free: Optional[str] = None,   # truthy ⇒ free listings only
+    limit: int = 100,
+    authorization: Optional[str] = Header(default=None),
+):
+    """Public storefront — no auth needed to window-shop. Signed-in callers
+    additionally see liked/owned/acquired/can_read flags per listing."""
+    caller = optional_session(authorization)
+    listings = MARKET.browse(q=q, tag=tag, seller=seller, sort=sort,
+                             free_only=_truthy(free) if free is not None else False,
+                             limit=limit)
+    return {'count': len(listings), 'sort': sort, 'tags': MARKET.tag_counts(),
+            'listings': _market_annotate(listings, caller)}
+
+
+class MarketListBody(BaseModel):
+    cid: str
+    title: str
+    description: str = ''
+    tags: list = []
+    price_bloc: float = 0.0       # 0 = free; >0 = buyer must HOLD this much BlocTime
+
+
+@app.post('/market/list')
+def market_list(body: MarketListBody, authorization: Optional[str] = Header(default=None)):
+    """List (or re-list with new metadata) an object you own on the market.
+    The object keeps its own visibility: listing a PRIVATE object sells access
+    (acquire mints a read grant); a public one is a discoverable free drop."""
+    addr = require_terms(require_authorized(authorization))
+    cid = body.cid.strip()
+    if not cid:
+        raise HTTPException(400, 'cid required')
+    if not (caller_owns(cid, addr) or is_admin(addr)):
+        raise HTTPException(403, 'you can only list objects you own')
+    existing = MARKET.get(cid)
+    if existing and existing['seller'] != addr and not is_admin(addr):
+        raise HTTPException(403, 'already listed by someone else')
+    try:
+        row = MARKET.upsert(cid, seller=addr, title=body.title,
+                            description=body.description, tags=body.tags,
+                            price_bloc=body.price_bloc)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _market_annotate([row], addr)[0]
+
+
+@app.delete('/market/list')
+def market_delist(cid: str, reason: Optional[str] = None,
+                  authorization: Optional[str] = Header(default=None)):
+    """Remove a listing. Sellers delist their own; the admin may delist ANY
+    listing (moderation) — logged to the takedown audit. Bytes stay stored."""
+    addr = require_session(authorization)
+    row = MARKET.get(cid)
+    if not row:
+        raise HTTPException(404, 'not listed')
+    own = row['seller'] == addr
+    if not own and not is_admin(addr):
+        raise HTTPException(403, 'not your listing')
+    MARKET.delist(cid)
+    if not own:
+        log_takedown(cid, by=addr, reason=reason or 'market delisting')
+    return {'cid': cid, 'delisted': True, 'takedown': not own}
+
+
+class MarketAcquireBody(BaseModel):
+    cid: str
+
+
+@app.post('/market/acquire')
+def market_acquire(body: MarketAcquireBody, authorization: Optional[str] = Header(default=None)):
+    """Get a listed item. Free ⇒ instant. Priced ⇒ the caller must HOLD at
+    least price_bloc BlocTime on-chain (holdings ARE the ticket — no custody).
+    Access lands as a permanent read grant, so the item appears under /shared
+    and every read path (get/preview/QR tickets) just works."""
+    addr = require_session(authorization)
+    cid = body.cid.strip()
+    row = MARKET.get(cid)
+    if not row:
+        raise HTTPException(404, 'not listed on the market')
+    if row['seller'] == addr:
+        return {'cid': cid, 'acquired': True, 'note': 'you are the seller'}
+    price = row['price_bloc']
+    if price > 0:
+        balance = float(ONCHAIN.bloctime_balance(addr) or 0)
+        if balance < price:
+            raise HTTPException(
+                402,
+                f'this item needs {price} BlocTime held on-chain — '
+                f'you hold {balance}. Stake BlocTime to unlock it.',
+            )
+    # Idempotent: skip the grant if one from the seller already covers it.
+    if not ACCESS.can_read(addr, cid):
+        ACCESS.create_grant(row['seller'], addr, cid=cid, scope='read')
+    MARKET.record_acquire(cid, addr)
+    fresh = MARKET.get(cid)
+    return {'cid': cid, 'acquired': True, 'price_bloc': price,
+            'downloads': fresh['downloads'] if fresh else row['downloads']}
+
+
+class MarketLikeBody(BaseModel):
+    cid: str
+
+
+@app.post('/market/like')
+def market_like(body: MarketLikeBody, authorization: Optional[str] = Header(default=None)):
+    """Toggle a like on a listing (one per address — it's wallet-signed)."""
+    addr = require_session(authorization)
+    r = MARKET.toggle_like(body.cid.strip(), addr)
+    if not r:
+        raise HTTPException(404, 'not listed on the market')
+    return r
+
+
+@app.get('/market/mine')
+def market_mine(authorization: Optional[str] = Header(default=None)):
+    """The caller's market activity: their listings + what they've acquired."""
+    addr = require_session(authorization)
+    listings = _market_annotate(MARKET.listings_by(addr), addr)
+    acquired_ts = MARKET.acquired_by(addr)
+    acquired = [{**row, 'acquired_at': ts}
+                for cid, ts in sorted(acquired_ts.items(), key=lambda kv: kv[1], reverse=True)
+                if (row := MARKET.get(cid))]
+    return {'address': addr, 'listings': listings,
+            'acquired': _market_annotate(acquired, addr)}
+
+
 # ── on-chain (BlocTime + Registry) ─────────────────────────────────
 
 @app.get('/onchain')
@@ -1103,3 +1569,10 @@ def root():
         'auth': 'mod-protocol',
         'endpoints': sorted(CONFIG.get('endpoints', {}).keys()),
     }
+
+
+# MCP (Model Context Protocol) over Streamable HTTP: POST /mcp exposes the
+# operations above as tools for LLM agents. Imported last so the router can
+# wrap every endpoint function already defined in this module.
+from api.mcp import router as mcp_router  # noqa: E402
+app.include_router(mcp_router)

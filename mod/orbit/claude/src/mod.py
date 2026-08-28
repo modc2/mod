@@ -1,14 +1,171 @@
 import json
 import os
+import re
 import time
+import hashlib
+import hmac
 import signal
 import subprocess
 import threading
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Optional, Dict, Any, Union, List
+from typing import Callable, Optional, Dict, Any, Union, List
 import mod as m
+
+
+# ── Default system prompt ────────────────────────────────────────────
+# The prompt every task inherits when the user hasn't chained their own.
+# Shown in the console (SYSTEM PROMPTS manager) so people can read, fork,
+# and share it — not a hidden string. Keep it short, opinionated, honest.
+DEFAULT_SYSTEM_PROMPT = """You are a builder in the Orbit — a fleet of small, composable modules that each own one job and talk to each other over the mod protocol. You write code that ships.
+
+HOW YOU WORK
+- Read before you write. Match the file you're in: its naming, its idioms, its comment density. New code should look like it was always there.
+- Prefer the smallest change that fully solves the problem. Delete more than you add when you can.
+- Verify. Run the tests, drive the flow, read the output — don't claim it works because it should.
+- Be honest about state. If something is a stub, say stub. If a test failed, show the failure. No cheerful hand-waving.
+
+WHAT GOOD LOOKS LIKE
+- Simple beats clever. The best design is the one the next person understands without you.
+- One module, one responsibility. Reach for an existing module before inventing a new one.
+- Secrets and per-user state live off-tree (~/.mod/<module>/), never in committed config.
+- Leave the codebase better lit than you found it: clear names, a why-comment where the reason isn't obvious.
+
+Ship it clean. Make Steve proud."""
+
+
+# ── harness trace ────────────────────────────────────────────────────
+# The job server streams one rendered line at a time (`⚡ Bash`, `$ ls`, the
+# EDIT diff block, `[VERSION] … cid …`). JobTrace reads that stream back into
+# the step dicts the fleet speaks — {'tool', 'params', 'result'|'error'} — so a
+# job run by this module renders in another module's console exactly like a
+# native one. It is the mirror of the Rust StreamParser in api/src/jobs.rs;
+# the two move together.
+
+HARNESS_TIMEOUT = 3600          # wall-clock cap on one harness run
+
+_TOOL_LINE = re.compile(r"^⚡\s*(\S+)\s*(.*)$")
+_DETAIL_LINE = re.compile(r"^(\$ |┌|│|└|→)")
+
+# CLI tool names -> the fleet's skill names (unknown tools just lowercase)
+_TOOLS = {
+    "Bash": "bash", "Read": "read", "Write": "write", "Edit": "edit",
+    "MultiEdit": "edit", "NotebookEdit": "edit", "Glob": "glob",
+    "Grep": "grep", "Task": "task", "WebFetch": "fetch",
+    "WebSearch": "search", "TodoWrite": "todo",
+}
+
+
+class JobTrace:
+    """One job's output stream, translated into steps. Line in, steps out."""
+
+    MAX_RESULT = 4000
+
+    def __init__(self):
+        self._held: Optional[str] = None    # narration waiting to be flushed
+        self._tool: Optional[dict] = None   # tool step collecting its detail lines
+        self._detail: List[str] = []
+        self.cids: Dict[str, str] = {}      # {'version': cid, 'task': cid}
+        self.done = False                   # the server said [DONE]
+
+    @classmethod
+    def clip(cls, text: str) -> str:
+        return text if len(text) <= cls.MAX_RESULT else \
+            text[:cls.MAX_RESULT] + f"\n… [{len(text) - cls.MAX_RESULT} more chars]"
+
+    # An agent's prose is only a narration step once something follows it: the
+    # last thing it says is the answer, and that belongs in finish.
+    def hold(self, text: str) -> List[dict]:
+        out = self.flush()
+        self._held = (text or "").strip() or None
+        return out
+
+    def flush(self) -> List[dict]:
+        out = self._close_tool()
+        text, self._held = self._held, None
+        if text:
+            out.append({"tool": "response", "params": {}, "result": text})
+        return out
+
+    @property
+    def summary(self) -> str:
+        """The last thing the agent said — the answer."""
+        return self._held or ""
+
+    def line(self, text: str) -> List[dict]:
+        """Translate one line of job output into zero or more steps."""
+        stripped = text.strip()
+        if not stripped:
+            return []
+        if stripped == "[DONE]":
+            self.done = True
+            return []
+        if stripped.startswith("[VERSION]") or stripped.startswith("[STORE]"):
+            kind = "version" if stripped.startswith("[VERSION]") else "task"
+            cid = stripped.rsplit(" ", 1)[-1]
+            self.cids[kind] = cid
+            # a trailer the server appends after the run — it must not flush the
+            # held message, which is the agent's answer and belongs in finish
+            return self._close_tool() + [{"tool": "snapshot", "params": {"kind": kind},
+                                          "result": cid}]
+        if stripped.startswith("[ERROR]"):
+            return self.flush() + [{"tool": "error", "params": {},
+                                    "error": stripped[7:].strip()}]
+        if stripped.startswith("⏳"):
+            return []                       # session banner, not a step
+        if stripped.startswith("💭"):
+            return self.flush() + [{"tool": "think",
+                                    "params": {"thought": self.clip(stripped[1:].strip())}}]
+        tool = _TOOL_LINE.match(stripped)
+        if tool:
+            out = self.flush()
+            name, rest = tool.group(1), tool.group(2).strip()
+            self._tool = {"tool": _TOOLS.get(name, name.lower()), "params": {}}
+            self._detail = []
+            if rest:
+                self._detail.append(rest)
+            return out
+        if self._tool is not None and _DETAIL_LINE.match(text):
+            self._detail.append(text.rstrip())
+            return []
+        # anything else is the agent talking
+        return self.hold(stripped)
+
+    def _close_tool(self) -> List[dict]:
+        """Emit the tool step that was collecting detail lines."""
+        if self._tool is None:
+            return []
+        step, detail = self._tool, "\n".join(self._detail).strip()
+        self._tool, self._detail = None, []
+        params = step["params"]
+        # pull the shapes the server renders into real params; the rest of the
+        # block (a diff, a command's description) stays as the step's result
+        first = detail.split("\n", 1)[0] if detail else ""
+        if first.startswith("$ "):
+            params["command"] = first[2:].split(" # ", 1)[0]
+        elif first.startswith("┌─ EDIT: ") or first.startswith("┌─ WRITE: "):
+            params["file_path"] = first.split(": ", 1)[1].split(" (", 1)[0]
+        elif first.startswith("glob:") or first.startswith("grep:"):
+            params["pattern"] = first.split(":", 1)[1]
+        elif first.startswith("→ "):
+            params["description"] = first[2:]
+        elif first:
+            params["file_path" if step["tool"] in ("read", "write", "edit") else "detail"] = first
+        if detail:
+            step["result"] = self.clip(detail)
+        return [step]
+
+    def close(self, status: str, error: str = None) -> List[dict]:
+        """Terminal step, from the job's final state."""
+        out = self._close_tool()
+        text, self._held = self._held, None
+        if status == "completed":
+            params = {"summary": text or ""}
+            params.update({f"{k}_cid": v for k, v in self.cids.items()})
+            return out + [{"tool": "finish", "params": params}]
+        return out + [{"tool": "error", "params": {},
+                       "error": error or text or f"job {status}"}]
 
 
 class Mod:
@@ -25,8 +182,9 @@ class Mod:
 
     description = "Claude AI interface — jobs, code ops, IPFS versioning, and module management."
     endpoints = [
-        'forward', 'ask', 'submit', 'jobs', 'job', 'cancel', 'tail',
-        'create_module', 'edit_module', 'analyze_code', 'generate_code',
+        'forward', 'ask', 'submit', 'jobs', 'job', 'cancel', 'guide', 'tail',
+        'create_module', 'edit_module', 'import_module', 'delete_module',
+        'fork_module', 'analyze_code', 'generate_code',
         'refactor', 'debug', 'edit_file', 'run_task', 'batch_process',
         'bg', 'bg_status', 'bg_list', 'snapshot', 'changelog',
         'get_version', 'restore_version', 'health', 'modules',
@@ -34,6 +192,8 @@ class Mod:
         'set_owner', 'get_owner', 'is_owner', 'is_bloctime_owner',
         'is_trusted', 'is_whitelisted', 'editors', 'add_editor', 'remove_editor',
         'register_onchain', 'permissions', 'ensure_env',
+        'default_prompt', 'save_prompt', 'list_prompts', 'get_prompt',
+        'import_prompt', 'share_prompt', 'delete_prompt',
         'install', 'setup', 'serve',
         'kill', 'kill_port', 'status', 'logs', 'scan', 'fix',
     ]
@@ -55,6 +215,10 @@ class Mod:
         self.default_path = default_path or cfg.get('default_path', os.path.expanduser('~/mod'))
         self._owner = cfg.get('owner') or self.key.address.lower()
         self._history_dir = Path(self._module_dir()) / '.history'
+        # Shareable prompt catalog. Bodies live in localfs (IPFS CID) so any
+        # prompt can be shared by CID; the catalog index lives off-tree next to
+        # the other private state (~/.mod/claude/). Overridable in tests.
+        self._prompts_dir = Path(os.path.expanduser('~/.mod/claude'))
         # dynamic API lifecycle
         self._idle_timeout = idle_timeout or cfg.get('idle_timeout', 300)  # seconds
         self._last_activity = 0.0
@@ -400,17 +564,28 @@ class Mod:
 
     # ── HTTP helpers ──────────────────────────────────────────────
 
-    def _request(self, method: str, path: str, data: dict = None, timeout: int = 30) -> dict:
+    def _request(self, method: str, path: str, data: dict = None, timeout: int = 30,
+                 headers: dict = None) -> dict:
         """Make a request to the API server. Auto-starts API if needed."""
         self._ensure_api()
         url = f"{self.api_url}{path}"
         body = json.dumps(data).encode() if data else None
-        headers = {'Content-Type': 'application/json'} if data else {}
-        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        req_headers = {'Content-Type': 'application/json'} if data else {}
+        if headers:
+            req_headers.update(headers)
+        req = urllib.request.Request(url, data=body, headers=req_headers, method=method)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 self._touch_activity()
                 return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            # The server answered — surface its JSON error instead of
+            # pretending it's unreachable (401/403 from the owner gates).
+            self._touch_activity()
+            try:
+                return json.loads(e.read().decode())
+            except Exception:
+                return {'error': f'HTTP {e.code} {e.reason}'}
         except urllib.error.URLError as e:
             raise ConnectionError(
                 f"API server not reachable at {self.api_url} — "
@@ -715,6 +890,7 @@ class Mod:
     def submit(self, prompt: str, model: str = "sonnet", work_dir: str = None,
                module_name: str = None, creation_mode: str = None,
                github_url: str = None, anchor_dir: str = None,
+               system_prompt: str = None, agent_type: str = None,
                key: str = None, **kwargs) -> dict:
         """Submit a background job to the Rust server."""
         data = {"prompt": prompt, "model": model}
@@ -729,7 +905,19 @@ class Mod:
             data["github_url"] = github_url
         if anchor_dir:
             data["anchor_dir"] = anchor_dir
-        return self._request("POST", "/jobs", data)
+        if system_prompt:
+            data["system_prompt"] = system_prompt
+        if agent_type:
+            data["agent_type"] = agent_type
+        # The server reads the caller's identity off the token, not the body —
+        # sign the request so a submit works against a deployed API too, not
+        # only a local one. Unsignable key? Let the server decide (local mode
+        # still accepts it; a deployed one answers 401).
+        try:
+            headers = self._auth_headers(key)
+        except Exception:
+            headers = None
+        return self._request("POST", "/jobs", data, headers=headers)
 
     def jobs(self) -> list:
         """List all background jobs."""
@@ -739,9 +927,18 @@ class Mod:
         """Get job details."""
         return self._request("GET", f"/jobs/{job_id}")
 
-    def cancel(self, job_id: str) -> dict:
+    def cancel(self, job_id: str, key=None) -> dict:
         """Cancel a running job."""
-        return self._request("POST", f"/jobs/{job_id}/cancel")
+        try:
+            headers = self._auth_headers(key)
+        except Exception:
+            headers = None
+        return self._request("POST", f"/jobs/{job_id}/cancel", headers=headers)
+
+    def guide(self, job_id: str, message: str) -> dict:
+        """Guide a RUNNING job mid-task: the message is injected into the
+        agent's session at its next tool boundary (Claude Code steering)."""
+        return self._request("POST", f"/jobs/{job_id}/message", {"message": message})
 
     def kill(self, pid: int = None, port: int = None, sig: str = "SIGKILL") -> dict:
         """Kill a process by PID, port, or both claude services (API+App) if no args given. Owner-only."""
@@ -813,6 +1010,118 @@ class Mod:
         """Get job output text."""
         return self._request("GET", f"/jobs/{job_id}").get("output", "")
 
+    # ── harness: hand a whole run to this module ──────────────────
+    # Other modules (orbit/agent) treat claude as an agent they can hand a run
+    # to. The contract is two calls — harness() and run() — the same pair the
+    # CLI harness modules answer (orbit/claudecode, orbit/codexcli). What's
+    # different is what backs it: a job here is sandboxed per caller, snapshots
+    # the module tree it touched into a CID, and lands in the public ledger.
+
+    def harness(self) -> dict:
+        """Harness card: who this is and whether it can run here."""
+        up = self._server_available()
+        return {
+            "name": "claudemod",
+            "label": "Claude Console",
+            "description": "This module's job server — Claude Code with per-caller "
+                           "sandboxing, snapshot CIDs and a public task ledger",
+            "available": up or bool(self._find_claude_safe()),
+            "server": up,
+            "install": "m claude/serve",
+            "api": self.api_url,
+            "module": "claude",
+        }
+
+    def _find_claude_safe(self) -> Optional[str]:
+        try:
+            return self._find_claude()
+        except Exception:
+            return None
+
+    def run(self, query: str, path: str = None, goal: str = None,
+            model: str = None, timeout: int = HARNESS_TIMEOUT,
+            on_step: Callable[[dict], None] = None, key=None,
+            **kwargs) -> List[dict]:
+        """Run a job here and return its step trace.
+
+        Submits the job, follows its live output, and translates it into the
+        step dicts every agent run in the fleet emits. Blocks until the job
+        reaches a terminal state; the job itself survives independently — its
+        id is on every step's `job` field, so a caller that gives up can still
+        follow, steer or cancel it.
+
+        Args:
+            query: the task, handed to the job as its prompt
+            path: work_dir for the job (a non-owner caller is confined to
+                  their own workspace by the server, whatever this says)
+            goal: system prompt for the run
+            model: model for the job ('auto' lets the server pick a tier)
+            timeout: wall-clock cap; the job is cancelled when it expires
+            on_step: called with each step as it happens (live progress)
+            key: caller identity — decides ownership, sandbox and ledger entry
+        """
+        # No identity given? Reaching this API in-process means being on its
+        # host, so the run is the owner's — otherwise every module-to-module
+        # run would land in a peer sandbox belonging to the local keypair.
+        # A caller that hands over a `key` gets exactly that caller's scope.
+        identity = key or self.get_owner()
+        job = self.submit(query, model=model or "auto", work_dir=path,
+                          system_prompt=goal, key=identity)
+        job_id = job.get("id")
+        if not job_id:
+            raise RuntimeError(f"job was not accepted: {job.get('error') or job}")
+
+        trace = JobTrace()
+        steps: List[dict] = []
+
+        def emit(step: dict):
+            step.setdefault("params", {})
+            step["job"] = job_id
+            steps.append(step)
+            if on_step:
+                try:
+                    on_step(step)
+                except Exception:
+                    pass
+
+        deadline = time.time() + timeout
+        try:
+            for line in self._stream_lines(f"/jobs/{job_id}/stream", deadline):
+                for step in trace.line(line):
+                    emit(step)
+                if trace.done:
+                    break
+        except Exception as e:
+            # the stream broke, the job didn't — fall through to its final state
+            emit({"tool": "harness", "params": {}, "result": f"stream ended: {e}"})
+
+        expired = time.time() >= deadline
+        if expired and not trace.done:
+            self.cancel(job_id, key=identity)
+        final = self.job(job_id) or {}
+        status = (final.get("status") or "").lower()
+        if expired and status not in ("completed", "failed"):
+            status, error = "timeout", f"exceeded {timeout}s — job {job_id} cancelled"
+        else:
+            error = final.get("error")
+        for step in trace.close(status or "unknown", error):
+            emit(step)
+        return steps
+
+    def _stream_lines(self, path: str, deadline: float):
+        """Yield the job's output lines from the SSE stream until it ends."""
+        url = f"{self.api_url}{path}"
+        req = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
+        with urllib.request.urlopen(req, timeout=max(1, deadline - time.time())) as resp:
+            for raw in resp:
+                if time.time() >= deadline:
+                    return
+                text = raw.decode("utf-8", errors="replace").rstrip("\n")
+                if text.startswith("data:"):
+                    payload = text[5:]
+                    # SSE writes "data: <line>" — the space is framing, not content
+                    yield payload[1:] if payload.startswith(" ") else payload
+
     def tail(self, job_id: str) -> None:
         """Live-stream job output via SSE. Ctrl-C to detach."""
         print(f"Streaming job {job_id[:8]}...")
@@ -881,6 +1190,212 @@ class Mod:
         self.require_permission(key, module=module_name, operation="edit_module")
         return self.submit(prompt=prompt, model=model, module_name=module_name,
                            creation_mode="edit", key=key)
+
+    # ── mod protocol: owner-only module management (terminal) ──────
+    # Module creation and deletion are owner-only end to end: the API rejects
+    # non-owner tokens, and these helpers sign with the local owner key so the
+    # whole lifecycle (import/fork/delete/snapshot/restore) is drivable from
+    # the terminal — `m claude/import_module`, `m claude/delete_module`.
+
+    def _auth_headers(self, key=None) -> dict:
+        """Bearer token headers for the API, as the given key (default: owner).
+
+        Prefers the API's own session token, which is what its Bearer path
+        actually validates; the core signed token is the fallback for the
+        endpoints that accept it.
+        """
+        address = self._resolve_address(key)
+        token = self._session_token(address) or self.token(key=key)
+        return {'Authorization': f'Bearer {token}'}
+
+    def _session_token(self, address: str) -> Optional[str]:
+        """Mint an API session token — `address:time:hmac` under the server
+        secret, the same shape the API hands a signed-in browser.
+
+        Only possible on the API's own host: the secret is 0600 in
+        ~/.mod/claude/. That is exactly where module-to-module calls come
+        from, so a sibling module can talk to the job server as itself
+        without a wallet round-trip. Returns None anywhere else.
+        """
+        try:
+            secret = Path(os.path.expanduser('~/.mod/claude/server.secret')).read_bytes()
+        except OSError:
+            return None
+        if len(secret) != 32:
+            return None
+        payload = f"{address.lower()}:{int(time.time())}"
+        sig = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+        return f"{payload}:{sig}"
+
+    def _sudo_message(self, action: str, target: str, time_s: int, nonce: str) -> str:
+        """The exact sudo message. MUST stay byte-for-byte in sync with the
+        Rust `sudo_message` (sudo.rs) and the frontend `buildSudoMessage`."""
+        return "\n".join([
+            "MOD Claude Sudo Authorization",
+            f"action: {action}",
+            f"target: {target}",
+            f"time: {time_s}",
+            f"nonce: {nonce}",
+            "",
+            "Authorizing a privileged cross-module operation as the owner. "
+            "Free signature, not a transaction.",
+        ])
+
+    def _sudo_header(self, action: str, target: str, key=None) -> dict:
+        """Build a replay-protected x-sudo header: EIP-191 personal_sign over
+        the canonical sudo message, base64url(no-pad) JSON envelope."""
+        import base64
+        import secrets
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+        k = m.key(key) if key else self.key
+        time_s = int(time.time())
+        nonce = secrets.token_hex(16)
+        message = self._sudo_message(action, target, time_s, nonce)
+        signed = Account.sign_message(encode_defunct(text=message), k.private_key)
+        envelope = json.dumps({
+            'action': action,
+            'target': target,
+            'time': time_s,
+            'nonce': nonce,
+            'key': k.address,
+            'signature': signed.signature.hex() if signed.signature.hex().startswith('0x')
+                         else '0x' + signed.signature.hex(),
+        })
+        encoded = base64.urlsafe_b64encode(envelope.encode()).decode().rstrip('=')
+        return {'x-sudo': encoded}
+
+    def import_module(self, name: str, github: str = None, cid: str = None,
+                      category: str = 'orbit', key=None) -> dict:
+        """Import a new module from a GitHub repo or snapshot CID. Owner-only.
+
+        m claude/import_module mymod github=https://github.com/user/repo
+        m claude/import_module mymod cid=Qm...
+        """
+        self.require_owner(key, operation="import_module")
+        if not github and not cid:
+            return {'error': 'provide github=<clone url> or cid=<snapshot cid>'}
+        data = {
+            'source': 'github' if github else 'cid',
+            'name': name,
+            'category': category,
+        }
+        if github:
+            data['url'] = github
+        else:
+            data['cid'] = cid
+        return self._request('POST', '/modules/import', data,
+                             timeout=120, headers=self._auth_headers(key))
+
+    def delete_module(self, name: str, key=None) -> dict:
+        """Delete a module directory. Owner-only; signs the sudo authorization
+        with the local owner key (deleting anything but claude requires it).
+
+        m claude/delete_module mymod
+        """
+        self.require_owner(key, operation="delete_module")
+        headers = self._auth_headers(key)
+        if name != 'claude':
+            headers.update(self._sudo_header('delete', name, key))
+        return self._request('DELETE', f'/modules/{name}', headers=headers)
+
+    def fork_module(self, name: str, cid: str, target_name: str = None, key=None) -> dict:
+        """Fork a module from a snapshot CID into the portal tree. Owner-only."""
+        self.require_owner(key, operation="fork_module")
+        data = {'cid': cid}
+        if target_name:
+            data['target_name'] = target_name
+        return self._request('POST', f'/modules/{name}/fork', data,
+                             timeout=120, headers=self._auth_headers(key))
+
+    # ── merge requests: fork → propose → review → agentic merge ───
+    # Anyone signed-in can fork a module into their sandboxed workspace,
+    # edit it, and open a merge request (a {base_cid, head_cid} pair in the
+    # shared blob store). The owner approves and the merge itself is done
+    # BY THE AGENT: a job three-way merges base/head/live semantically.
+
+    def mr_fork(self, module: str, refresh: bool = False, key=None) -> dict:
+        """Fork a module into your workspace, pinned to a base CID.
+
+        m claude/mr_fork polymarket
+        """
+        return self._request('POST', f'/modules/{module}/mr-fork',
+                             {'refresh': refresh}, timeout=120,
+                             headers=self._auth_headers(key))
+
+    def mr_open(self, module: str, title: str, description: str = '',
+                head_cid: str = None, base_cid: str = None,
+                message: str = '', key=None) -> dict:
+        """Open a merge request from your fork (or from raw snapshot CIDs).
+
+        m claude/mr_open polymarket title="fix fee calc"
+        m claude/mr_open polymarket title="import" head_cid=<cid>
+        """
+        data = {'title': title, 'description': description, 'message': message}
+        if head_cid:
+            data['head_cid'] = head_cid
+        if base_cid:
+            data['base_cid'] = base_cid
+        return self._request('POST', f'/modules/{module}/merge-requests',
+                             data, timeout=120, headers=self._auth_headers(key))
+
+    def mrs(self, module: str = None) -> dict:
+        """List merge requests (all, or for one module). Public ledger."""
+        path = f'/modules/{module}/merge-requests' if module else '/merge-requests'
+        return self._request('GET', path)
+
+    def mr(self, id: str) -> dict:
+        """Get one merge request (reconciles a finished merge job)."""
+        return self._request('GET', f'/merge-requests/{id}')
+
+    def mr_diff(self, id: str, key=None) -> dict:
+        """Changed files + conflicts vs the live tree for an MR."""
+        return self._request('GET', f'/merge-requests/{id}/diff',
+                             headers=self._auth_headers(key))
+
+    def mr_comment(self, id: str, body: str = '', action: str = None, key=None) -> dict:
+        """Comment on an MR. action=approve|request_changes needs a trusted reviewer.
+
+        m claude/mr_comment mr_ab12 body="nice" action=approve
+        """
+        data = {'body': body}
+        if action:
+            data['action'] = action
+        return self._request('POST', f'/merge-requests/{id}/comment',
+                             data, headers=self._auth_headers(key))
+
+    def mr_update(self, id: str, head_cid: str = None, message: str = '', key=None) -> dict:
+        """Push a new revision (re-snapshots your fork unless head_cid given)."""
+        data = {'message': message}
+        if head_cid:
+            data['head_cid'] = head_cid
+        return self._request('POST', f'/merge-requests/{id}/update',
+                             data, timeout=120, headers=self._auth_headers(key))
+
+    def mr_close(self, id: str, key=None) -> dict:
+        """Close an MR (author or trusted reviewer)."""
+        return self._request('POST', f'/merge-requests/{id}/close',
+                             {}, headers=self._auth_headers(key))
+
+    def mr_merge(self, id: str, instructions: str = None, model: str = None, key=None) -> dict:
+        """Owner-approve an MR and hand the merge to the agent (three-way
+        semantic merge of base/head/live; auto-snapshot first). Signs the
+        sudo authorization when the target module isn't claude.
+
+        m claude/mr_merge mr_ab12 instructions="keep the new fee tests"
+        """
+        self.require_owner(key, operation="mr_merge")
+        headers = self._auth_headers(key)
+        target = self.mr(id).get('module')
+        if target and target != 'claude':
+            headers.update(self._sudo_header('merge', target, key))
+        data = {}
+        if instructions:
+            data['instructions'] = instructions
+        if model:
+            data['model'] = model
+        return self._request('POST', f'/merge-requests/{id}/merge',
+                             data or {}, timeout=120, headers=headers)
 
     # ── read-only helpers (API endpoints) ─────────────────────────
 
@@ -1111,6 +1626,169 @@ class Mod:
             "cid": entry['cid'],
             "count": len(restored),
         }
+
+    # ── shareable prompts (localfs / IPFS CID) ────────────────────
+    # A prompt is just a named block of text (a system prompt, or a reusable
+    # task prompt). We keep a small catalog index off-tree and push each body
+    # into localfs so it gets a content-address (CID) — that CID is the share
+    # link. `list_prompts` is the HUB's gallery; `import_prompt` pulls someone
+    # else's CID into your catalog. Writes are open (anyone can contribute a
+    # prompt); the author is recorded and only the author/owner can delete.
+
+    def _prompts_path(self) -> Path:
+        return self._prompts_dir / 'prompts.json'
+
+    def _load_prompts(self) -> list:
+        p = self._prompts_path()
+        if not p.exists():
+            return []
+        try:
+            data = json.loads(p.read_text())
+        except Exception:
+            return []
+        return data if isinstance(data, list) else data.get('prompts', [])
+
+    def _save_prompts(self, prompts: list):
+        self._prompts_dir.mkdir(parents=True, exist_ok=True)
+        self._prompts_path().write_text(json.dumps(prompts, indent=2))
+
+    def _localfs_put(self, text: str) -> Optional[str]:
+        """Push text into localfs (IPFS), returning its CID. None if unavailable."""
+        try:
+            return m.mod('ipfs')().put(text)
+        except Exception:
+            return None
+
+    def _localfs_get(self, cid: str) -> Optional[str]:
+        """Fetch text from localfs (IPFS) by CID. None if unavailable."""
+        try:
+            return m.mod('ipfs')().get(cid)
+        except Exception:
+            return None
+
+    def default_prompt(self) -> dict:
+        """The nice default system prompt, ready to show, fork, or share."""
+        return {
+            "id": "default",
+            "name": "Default",
+            "icon": ">_",
+            "kind": "system",
+            "body": DEFAULT_SYSTEM_PROMPT,
+            "builtin": True,
+        }
+
+    def save_prompt(self, title: str, body: str, kind: str = "system",
+                    icon: str = ">_", tags=None, key=None) -> dict:
+        """Save a prompt to the catalog and push its body into localfs.
+
+        Returns the catalog entry, including the `cid` share link. Re-saving a
+        prompt with the same title updates it in place (new CID, same id).
+        """
+        title = (title or "").strip()
+        body = body or ""
+        if not title:
+            raise ValueError("prompt needs a title")
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+        author = None
+        try:
+            author = self._resolve_address(key)
+        except Exception:
+            pass
+        cid = self._localfs_put(body)
+        prompts = self._load_prompts()
+        now = time.time()
+        existing = next((p for p in prompts if p.get("title") == title), None)
+        if existing:
+            existing.update({
+                "body": body, "kind": kind, "icon": icon,
+                "tags": tags or existing.get("tags", []),
+                "cid": cid, "updated": now,
+                "date": time.strftime("%Y-%m-%d %H:%M:%S"),
+            })
+            entry = existing
+        else:
+            entry = {
+                "id": "p_" + hashlib.sha256(
+                    f"{title}{now}".encode()).hexdigest()[:12],
+                "title": title, "body": body, "kind": kind, "icon": icon,
+                "tags": tags or [], "author": author, "cid": cid,
+                "builtin": False, "created": now,
+                "date": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            prompts.append(entry)
+        self._save_prompts(prompts)
+        return entry
+
+    def list_prompts(self, kind: str = None) -> list:
+        """The prompt gallery — every saved prompt, newest first (public)."""
+        prompts = self._load_prompts()
+        if kind:
+            prompts = [p for p in prompts if p.get("kind") == kind]
+        return sorted(prompts, key=lambda p: p.get("created", 0), reverse=True)
+
+    def get_prompt(self, id: str = None, cid: str = None) -> Optional[dict]:
+        """Fetch one prompt by local id or by CID (pulls body from localfs)."""
+        for p in self._load_prompts():
+            if (id and p.get("id") == id) or (cid and p.get("cid") == cid):
+                return p
+        if cid:
+            body = self._localfs_get(cid)
+            if body is not None:
+                return {"cid": cid, "body": body, "kind": "system",
+                        "title": None, "imported": True}
+        return None
+
+    def import_prompt(self, cid: str, title: str = None, key=None) -> dict:
+        """Pull a shared prompt (by CID) from localfs into your catalog."""
+        if not cid:
+            raise ValueError("import_prompt needs a cid")
+        existing = next((p for p in self._load_prompts()
+                         if p.get("cid") == cid), None)
+        if existing:
+            return existing
+        body = self._localfs_get(cid)
+        if body is None:
+            return {"error": f"could not fetch {cid} from localfs"}
+        return self.save_prompt(title or f"imported-{cid[:8]}", body, key=key)
+
+    def share_prompt(self, id: str) -> dict:
+        """Ensure a prompt is in localfs and return its shareable CID + link."""
+        p = self.get_prompt(id=id)
+        if not p:
+            return {"error": f"prompt not found: {id}"}
+        cid = p.get("cid") or self._localfs_put(p.get("body", ""))
+        if cid and cid != p.get("cid"):
+            p["cid"] = cid
+            prompts = self._load_prompts()
+            for i, e in enumerate(prompts):
+                if e.get("id") == id:
+                    prompts[i] = p
+            self._save_prompts(prompts)
+        if not cid:
+            return {"error": "localfs unavailable — could not produce a CID"}
+        return {"id": id, "cid": cid, "title": p.get("title"),
+                "gateway": f"https://ipfs.io/ipfs/{cid}"}
+
+    def delete_prompt(self, id: str, key=None) -> dict:
+        """Delete a prompt from the catalog. Author or owner only."""
+        prompts = self._load_prompts()
+        target = next((p for p in prompts if p.get("id") == id), None)
+        if not target:
+            return {"error": f"prompt not found: {id}"}
+        author = target.get("author")
+        caller = None
+        try:
+            caller = self._resolve_address(key)
+        except Exception:
+            pass
+        allowed = self.is_owner(key) or (
+            author and caller and author.lower() == caller.lower())
+        if not allowed:
+            raise PermissionError("only the author or owner can delete a prompt")
+        prompts = [p for p in prompts if p.get("id") != id]
+        self._save_prompts(prompts)
+        return {"deleted": id, "remaining": len(prompts)}
 
     # ── conversational (OpenRouter) ───────────────────────────────
 

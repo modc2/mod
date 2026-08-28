@@ -4,25 +4,27 @@ networks:
     name: modnet
 
 services:
-  dev:
+  build:
     build:
       context: .
       args:
-        BUILD_CID: "${BUILD_CID:-}"
-        BUILD_TIME: "${BUILD_TIME:-}"
-    container_name: dev
-    image: dev:latest
-    expose:
-      - "8870"
-      - "8871"
+        DEV_CID: "${DEV_CID:-}"
+        DEV_TIME: "${DEV_TIME:-}"
+    container_name: build
+    image: build:latest
+    ports:
+      - "8871:8871"
     restart: unless-stopped
+    # Linux needs an explicit alias; Mac/Windows resolve host.docker.internal automatically.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - API_PORT=8870
       - APP_PORT=8871
-      - CLAUDE_API=http://claude:8820
-      - CODEX_API=http://codex:8830
+      - DEV_JOBS_LOCAL=1
     volumes:
-      # Per-wallet ciphertext store (AES-GCM(api_key)) — server stores
-      # opaque ciphertext keyed by wallet address. Plaintext is reconstructed
-      # only at request time using the caller's wallet signature.
+      - "${HOME}/.claude:/host-claude"
       - "${HOME}/.mod/dev:/home/node/.mod/dev"
+      - "${HOME}/.mod/api:/home/node/.mod/api"
+      - "${HOME}/mod:/home/node/mod"
+      - "./docker-entrypoint.sh:/app/docker-entrypoint.sh:ro"

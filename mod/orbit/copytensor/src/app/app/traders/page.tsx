@@ -1,15 +1,14 @@
 import Leaderboard from "../components/Leaderboard";
+import PageHeader from "../components/PageHeader";
 
 export default function TradersPage() {
   return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="font-display text-2xl font-bold mb-1">Validators</h1>
-        <p className="text-pixel-gray-light text-sm">
-          Coldkeys ranked by alpha PnL. Click a row for the full position
-          breakdown, or COPY to mirror their allocations.
-        </p>
-      </header>
+    <div className="space-y-5">
+      <PageHeader title="TRADERS">
+        Coldkeys ranked by alpha PnL — price gains split from stake flow, so
+        a deposit never outranks a trade. Click a row for the full breakdown,
+        COPY to mirror its allocations.
+      </PageHeader>
       <Leaderboard />
     </div>
   );

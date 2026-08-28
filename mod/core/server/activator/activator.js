@@ -33,30 +33,62 @@ const IDLE_MS = parseInt(process.env.IDLE_MS || String(parseInt(process.env.IDLE
 const SWEEP_MS = parseInt(process.env.SWEEP_SECONDS || "60", 10) * 1000;
 const WAKE_TIMEOUT_MS = parseInt(process.env.WAKE_TIMEOUT_MS || "30000", 10);
 // Modules that must never be auto-stopped (the gateway/infra itself).
-const PIN = new Set((process.env.ACTIVATOR_PIN || "web,claude").split(",").map((s) => s.trim()).filter(Boolean));
+const PIN = new Set((process.env.ACTIVATOR_PIN || "claude").split(",").map((s) => s.trim()).filter(Boolean));
 // If set, the idle sweep ONLY ever stops these modules — the ones whose gateway
 // traffic is actually routed through the activator. Prevents sleeping a module
 // that's still reached directly (it would have no wake path). Empty = manage all
 // (minus PIN), which is only safe once EVERY module routes through here.
 const MANAGED = new Set((process.env.ACTIVATOR_MANAGED || "").split(",").map((s) => s.trim()).filter(Boolean));
+// OOM guard: keep at least this much MemAvailable (MB). When the box dips
+// below, the sweep/wake path stops least-recently-used managed modules until
+// the headroom recovers — better one cold-start than the kernel OOM killer
+// picking a victim for us. 0 disables the guard.
+const MIN_FREE_MB = parseInt(process.env.MIN_FREE_MB || "1500", 10);
+// Hard cap on concurrently RUNNING managed modules (0 = uncapped). Waking one
+// more evicts the LRU first, so "too many apps" can't accumulate.
+const MAX_RUNNING = parseInt(process.env.MAX_RUNNING || "0", 10);
 
 // ── host overrides (the host owns this machine; manual control beats automation)
-// ~/.mod/activator/overrides.json = { "disabled": [...], "pinned": [...] }
-//   disabled → kept STOPPED; the activator refuses to wake it (503) until the
-//              host re-enables it. "I want this off" actually stays off.
-//   pinned   → never slept (on top of the env PIN). "I want this always on."
+// ~/.mod/activator/overrides.json = { "disabled": [...], "pinned": [...], "idleSeconds": N }
+//   disabled    → kept STOPPED; the activator refuses to wake it (503) until the
+//                 host re-enables it. "I want this off" actually stays off.
+//   pinned      → never slept (on top of the env PIN). "I want this always on."
+//   idleSeconds → the person's idle timeout; beats the env IDLE_MINUTES default.
+//   minFreeMb   → the person's OOM-guard headroom floor; beats env MIN_FREE_MB.
+//   maxRunning  → the person's concurrent-app cap; beats env MAX_RUNNING.
 // Hot-reloaded every sweep + on each control call, so host edits take effect live.
 const OVERRIDES_PATH = path.join(HOME, ".mod", "activator", "overrides.json");
-let overrides = { disabled: [], pinned: [] };
+const IDLE_SECONDS_MIN = 10, IDLE_SECONDS_MAX = 86400;
+let overrides = { disabled: [], pinned: [], idleSeconds: null, minFreeMb: null, maxRunning: null };
 function loadOverrides() {
   try {
     const o = JSON.parse(fs.readFileSync(OVERRIDES_PATH, "utf8"));
     overrides = {
       disabled: Array.isArray(o.disabled) ? o.disabled : [],
       pinned: Array.isArray(o.pinned) ? o.pinned : [],
+      idleSeconds: clampIdle(o.idleSeconds),
+      minFreeMb: clampRange(o.minFreeMb, 0, 65536),
+      maxRunning: clampRange(o.maxRunning, 0, 128),
     };
-  } catch { overrides = { disabled: [], pinned: [] }; }
+  } catch { overrides = { disabled: [], pinned: [], idleSeconds: null, minFreeMb: null, maxRunning: null }; }
 }
+function clampIdle(v) {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(IDLE_SECONDS_MIN, Math.min(IDLE_SECONDS_MAX, n));
+}
+// null/invalid → null (use env default); otherwise clamped integer (0 allowed —
+// it means "disabled" for both guard knobs).
+function clampRange(v, min, max) {
+  if (v === null || v === undefined) return null;
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return null;
+  return Math.max(min, Math.min(max, n));
+}
+// Effective idle threshold right now (overrides beat env, hot-reloaded).
+const idleMsNow = () => (overrides.idleSeconds ? overrides.idleSeconds * 1000 : IDLE_MS);
+const minFreeMbNow = () => (overrides.minFreeMb !== null ? overrides.minFreeMb : MIN_FREE_MB);
+const maxRunningNow = () => (overrides.maxRunning !== null ? overrides.maxRunning : MAX_RUNNING);
 function saveOverrides() {
   try {
     fs.mkdirSync(path.dirname(OVERRIDES_PATH), { recursive: true });
@@ -115,12 +147,13 @@ function pm2Jlist() {
 
 // pm2 process names whose cwd / exec / args land inside the module dir — mirrors
 // the matching the claude process backend uses (python modules carry the path
-// only in args via `--app-dir`).
-function pm2NamesFor(moduleDir) {
+// only in args via `--app-dir`). Pass a prefetched `pm2 jlist` when checking
+// many modules in one pass (each jlist call shells out).
+function pm2NamesFor(moduleDir, jlist) {
   const canon = fs.realpathSync.native ? safeReal(moduleDir) : moduleDir;
   const inside = (s) => s && (s === canon || s.startsWith(canon + "/"));
   const out = [];
-  for (const p of pm2Jlist()) {
+  for (const p of jlist || pm2Jlist()) {
     const env = p.pm2_env || {};
     const args = Array.isArray(env.args) ? env.args : [];
     if (inside(env.pm_cwd) || inside(env.pm_exec_path) || args.some((a) => inside(String(a)))) {
@@ -165,6 +198,65 @@ function establishedConns(port) {
   } catch { return 0; }
 }
 
+// ── OOM guard ───────────────────────────────────────────────────────────────
+// The activator is the only thing starting apps on demand, so it also owns the
+// budget: keep MemAvailable above the floor and the running-app count under the
+// cap by stopping least-recently-used managed modules. A stopped module still
+// wakes on its next request — a cold-start beats the kernel OOM killer.
+const guardStats = { pressureStops: 0, capStops: 0, lastStop: null };
+
+function memAvailableMb() {
+  try {
+    const raw = fs.readFileSync("/proc/meminfo", "utf8");
+    const m = raw.match(/^MemAvailable:\s+(\d+)/m);
+    return m ? Math.round(parseInt(m[1], 10) / 1024) : Infinity;
+  } catch { return Infinity; } // non-Linux: guard never fires
+}
+
+// Managed modules with online pm2 procs that the guard is ALLOWED to stop
+// (not pinned/disabled — disabled ones are already being stopped by the sweep),
+// LRU first. One jlist pass for the whole scan.
+function evictionCandidates(excludeMod) {
+  const jlist = pm2Jlist();
+  const mods = MANAGED.size ? [...MANAGED] : Object.keys(REGISTRY);
+  return mods
+    .filter((m) => REGISTRY[m] && m !== excludeMod && !isPinned(m) && !isDisabled(m))
+    .filter((m) => pm2NamesFor(REGISTRY[m].dir, jlist).some((p) => p.status === "online"))
+    .sort((a, b) => (lastAccess[a] || 0) - (lastAccess[b] || 0));
+}
+
+// Stop LRU modules until the memory floor / running cap is satisfied. Prefers
+// idle victims (0 established conns); falls back to busy ones only for memory
+// pressure — a dropped request beats the whole box going down.
+async function relievePressure(excludeMod) {
+  const floor = minFreeMbNow();
+  const cap = maxRunningNow();
+  let candidates = evictionCandidates(excludeMod);
+  const overCap = () => cap > 0 && candidates.length + (excludeMod ? 1 : 0) > cap;
+  const underFloor = () => floor > 0 && memAvailableMb() < floor;
+  if (!overCap() && !underFloor()) return;
+
+  const evict = async (mod, why, stat) => {
+    log(`guard ${why}: stopping ${mod} (free=${memAvailableMb()}MB floor=${floor}MB running=${candidates.length} cap=${cap || "∞"})`);
+    await stopModule(mod);
+    guardStats[stat]++;
+    guardStats.lastStop = { module: mod, reason: why, at: new Date().toISOString() };
+    candidates = candidates.filter((m) => m !== mod);
+  };
+
+  // Idle victims first, LRU order.
+  for (const mod of [...candidates]) {
+    if (!overCap() && !underFloor()) return;
+    const info = REGISTRY[mod];
+    if (establishedConns(info.apiPort) + establishedConns(info.appPort) > 0) continue;
+    await evict(mod, overCap() ? "cap" : "pressure", overCap() ? "capStops" : "pressureStops");
+  }
+  // Still under the memory floor with only busy modules left → evict anyway.
+  while (underFloor() && candidates.length) {
+    await evict(candidates[0], "pressure(busy)", "pressureStops");
+  }
+}
+
 // ── wake ────────────────────────────────────────────────────────────────────
 async function stopModule(mod) {
   const info = REGISTRY[mod];
@@ -181,6 +273,9 @@ async function wake(mod, port) {
   waking[mod] = (async () => {
     const procs = pm2NamesFor(REGISTRY[mod].dir);
     if (!procs.length) { log(`wake ${mod}: no pm2 procs found`); return await isUp(port); }
+    // Make room BEFORE starting: evict LRU modules if this wake would breach
+    // the running cap or the box is already short on memory.
+    try { await relievePressure(mod); } catch (e) { log("guard error", e.message); }
     log(`wake ${mod}: starting ${procs.map((p) => p.name).join(", ")}`);
     // `restart` reliably starts a stopped proc here (plain `start` can no-op on a
     // stopped pm2 entry); wake only runs when the port is already down, so we
@@ -278,17 +373,23 @@ async function sweep() {
       }
       if (isPinned(mod)) continue; // host/env wants it always on
       const idleFor = now() - (lastAccess[mod] || 0);
-      if (idleFor < IDLE_MS) continue;
+      if (idleFor < idleMsNow()) continue;
       const conns = establishedConns(info.apiPort) + establishedConns(info.appPort);
       if (conns > 0) { lastAccess[mod] = now(); continue; } // still in use — keep alive
       const procs = pm2NamesFor(info.dir).filter((p) => p.status === "online");
       if (!procs.length) continue;
-      log(`idle ${mod}: ${Math.round(idleFor / 60000)}m, 0 conns → stopping ${procs.map((p) => p.name).join(", ")}`);
+      log(`idle ${mod}: ${Math.round(idleFor / 1000)}s, 0 conns → stopping ${procs.map((p) => p.name).join(", ")}`);
       for (const p of procs) await pm2("stop", p.name);
     }
+    // After the idle pass: enforce the memory floor / running cap even when
+    // nothing has hit its idle timeout yet.
+    await relievePressure();
   } catch (e) { log("sweep error", e.message); }
 }
-setInterval(sweep, SWEEP_MS);
+// Self-rescheduling so short idle timeouts fire close to on-time: sweep at a
+// quarter of the threshold (min 5s), never slower than the env SWEEP cadence.
+const sweepDelay = () => Math.max(5000, Math.min(SWEEP_MS, idleMsNow() / 4));
+(function sweepLoop() { setTimeout(async () => { await sweep(); sweepLoop(); }, sweepDelay()); })();
 
 // ── host control plane ────────────────────────────────────────────────────────
 // The host owns this machine, so manual control must beat the automation. Bound
@@ -333,7 +434,22 @@ async function handleControl(req, res) {
 
   const urlPath = req.url.split("?")[0];
   if (req.method === "GET" && urlPath === "/_activator/state") {
-    return send(200, { idleMinutes: IDLE_MS / 60000, pinned: [...PIN], overrides, modules: await buildState() });
+    const free = memAvailableMb();
+    return send(200, {
+      idleSeconds: idleMsNow() / 1000,
+      idleSource: overrides.idleSeconds ? "overrides" : "env",
+      defaultIdleSeconds: IDLE_MS / 1000,
+      sweepSeconds: sweepDelay() / 1000,
+      idleMinutes: idleMsNow() / 60000,
+      guard: {
+        minFreeMb: minFreeMbNow(),
+        maxRunning: maxRunningNow(),
+        availableMb: free === Infinity ? null : free,
+        underPressure: minFreeMbNow() > 0 && free < minFreeMbNow(),
+        ...guardStats,
+      },
+      pinned: [...PIN], overrides, modules: await buildState(),
+    });
   }
   if (req.method === "POST" && urlPath === "/_activator/control") {
     let body = "";
@@ -342,6 +458,28 @@ async function handleControl(req, res) {
       let p;
       try { p = JSON.parse(body || "{}"); } catch { return send(400, { error: "bad json" }); }
       const mod = p.module, action = p.action;
+      // "set" is fleet-wide (no module): idle timeout + OOM-guard knobs. Only
+      // the keys present in the body are touched; null resets to env default.
+      if (action === "set") {
+        if ("idleSeconds" in p) {
+          const secs = clampIdle(p.idleSeconds);
+          if (secs === null && p.idleSeconds !== null) {
+            return send(400, { error: `idleSeconds must be ${IDLE_SECONDS_MIN}-${IDLE_SECONDS_MAX}, or null to reset to the env default` });
+          }
+          overrides.idleSeconds = secs;
+        }
+        if ("minFreeMb" in p) overrides.minFreeMb = clampRange(p.minFreeMb, 0, 65536);
+        if ("maxRunning" in p) overrides.maxRunning = clampRange(p.maxRunning, 0, 128);
+        saveOverrides();
+        log(`control: set idleSeconds=${overrides.idleSeconds ?? `env(${IDLE_MS / 1000}s)`} minFreeMb=${overrides.minFreeMb ?? `env(${MIN_FREE_MB})`} maxRunning=${overrides.maxRunning ?? `env(${MAX_RUNNING})`}`);
+        return send(200, {
+          ok: true,
+          idleSeconds: idleMsNow() / 1000,
+          idleSource: overrides.idleSeconds ? "overrides" : "env",
+          minFreeMb: minFreeMbNow(),
+          maxRunning: maxRunningNow(),
+        });
+      }
       if (!mod || !REGISTRY[mod]) return send(404, { error: `unknown module '${mod}'` });
       if (MANAGED.size && !MANAGED.has(mod)) return send(400, { error: `${mod} is not activator-managed` });
       const port = REGISTRY[mod].appPort || REGISTRY[mod].apiPort;
@@ -374,5 +512,5 @@ async function handleControl(req, res) {
 }
 
 server.listen(PORT, "0.0.0.0", () => {
-  log(`activator on :${PORT} — ${Object.keys(REGISTRY).length} modules, idle=${IDLE_MS / 60000}m, pinned=[${[...PIN].join(",")}], managed=[${MANAGED.size ? [...MANAGED].join(",") : "ALL"}]`);
+  log(`activator on :${PORT} — ${Object.keys(REGISTRY).length} modules, idle=${IDLE_MS / 60000}m, pinned=[${[...PIN].join(",")}], managed=[${MANAGED.size ? [...MANAGED].join(",") : "ALL"}], minFree=${MIN_FREE_MB}MB, maxRunning=${MAX_RUNNING || "∞"}`);
 });

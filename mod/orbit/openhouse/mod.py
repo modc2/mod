@@ -1,18 +1,21 @@
 """
 OpenHouse — Collective Asset Ownership Platform.
 
-Fractional property ownership through smart contracts on Base.
-Users purchase shares, receive proportional dividends, and participate
-in transparent on-chain governance managed by a legal entity (trust/company).
+Rent-to-own property, on-chain. Renters pay monthly; the protocol takes 1–5%
+(the owner picks the number, the band is hard-capped in the contract) and the
+rest stays with the property — split between the renter's equity and the
+owner's rent income by an owner-chosen rent-to-own model.
 
 Flow:
   1. Deploy contract  — deploy(network, key, property_details, total_shares, share_price)
-  2. Purchase shares   — purchase(buyer, share_count, payment)
-  3. Distribute income — distribute(total_amount)
-  4. Query portfolio   — portfolio(address)
+  2. Set the deal     — set_terms(model=, fee_pct=, credit_pct=, owner=)
+  3. Pay rent         — pay_rent(renter, amount)  → fee / equity / owner income
+  4. Query equity     — equity(address), rent_ledger()
+
+Also supports the original fractional-share float: purchase(), distribute().
 
 On-chain: OpenHouse contract on Base Sepolia.
-Storage:  ~/.openhouse/shareholders.json, ~/.openhouse/properties.json
+Storage:  ~/.openhouse/{shareholders,properties,dividends,terms,rent}.json
 """
 
 import json
@@ -26,7 +29,80 @@ import mod as m
 
 
 class Mod:
-    description = "Rent-to-own, on-chain — every rent payment becomes principal toward owning the home; ownership redistributed quarterly."
+    description = "Rent-to-own, on-chain — the protocol takes 1–5% (owner-set), the rest stays with the property as renter equity and owner income."
+
+    # ── The protocol take ──────────────────────────────────────────
+    # Mirrors MIN_FEE_BPS / MAX_FEE_BPS in contracts/OpenHouse.sol. The owner
+    # picks a number inside this band; nothing can widen it.
+    MIN_FEE_PCT = 1.0
+    MAX_FEE_PCT = 5.0
+
+    # ── Rent-to-own models ─────────────────────────────────────────
+    # A model is one number with a name: how much of each post-fee payment is
+    # credited to the renter as principal. Owners start from a preset and tune.
+    MODELS = [
+        {
+            'id': 'full_credit',
+            'name': 'Full credit',
+            'credit_pct': 100.0,
+            'option_fee_pct': 0.0,
+            'headline': 'Every net dollar buys the house',
+            'detail': 'The whole payment, after the protocol fee, is principal. '
+                      'The owner earns from lowfi yield on funds in flight rather than from rent.',
+        },
+        {
+            'id': 'hybrid',
+            'name': 'Hybrid 50/50',
+            'credit_pct': 50.0,
+            'option_fee_pct': 0.0,
+            'headline': 'Half equity, half rent income',
+            'detail': 'Half of each payment builds the renter\'s stake, half is the owner\'s income. '
+                      'The balanced deal when the owner still carries a mortgage.',
+        },
+        {
+            'id': 'classic',
+            'name': 'Classic lease-option',
+            'credit_pct': 25.0,
+            'option_fee_pct': 3.0,
+            'headline': 'The standard rent-to-own, minus the middleman',
+            'detail': 'A 25% rent credit plus an upfront option fee of 3% of the price — the usual '
+                      'contract-for-deed shape, except the credit is enforced on-chain instead of promised.',
+        },
+        {
+            'id': 'lease',
+            'name': 'Plain lease',
+            'credit_pct': 0.0,
+            'option_fee_pct': 0.0,
+            'headline': 'No equity, still no extraction',
+            'detail': 'A normal tenancy. The renter builds nothing, but the owner keeps 95–99% of the '
+                      'rent instead of handing a platform double digits.',
+        },
+    ]
+
+    # What the incumbents take off the top. Published headline rates — the point
+    # of the comparison is the order of magnitude, not the decimal.
+    BENCHMARKS = [
+        {'name': 'Airbnb', 'take_pct': 15.0, 'equity_pct': 0.0,
+         'note': 'host 3% + guest ~14%, or ~15% host-only'},
+        {'name': 'Vrbo / Booking', 'take_pct': 13.0, 'equity_pct': 0.0,
+         'note': 'commission plus payment processing'},
+        {'name': 'Property manager', 'take_pct': 10.0, 'equity_pct': 0.0,
+         'note': '8–12% of monthly rent, plus leasing fees'},
+        {'name': 'Traditional lease', 'take_pct': 0.0, 'equity_pct': 0.0,
+         'note': 'no platform — and no equity either'},
+    ]
+
+    DEFAULT_TERMS = {
+        'model': 'full_credit',
+        'fee_pct': 2.5,
+        'credit_pct': 100.0,
+        'option_fee_pct': 0.0,
+        'home_price': 0.0,
+        'monthly_rent': 0.0,
+        'owner': '',
+        'treasury': '',
+        'updated': 0,
+    }
 
     def __init__(self, config=None):
         self.module_dir = Path(__file__).parent
@@ -38,6 +114,9 @@ class Mod:
         self.shareholders_path = self.store_dir / 'shareholders.json'
         self.properties_path = self.store_dir / 'properties.json'
         self.dividends_path = self.store_dir / 'dividends.json'
+        self.terms_path = self.store_dir / 'terms.json'
+        self.rent_path = self.store_dir / 'rent.json'
+        self.peers_cache_path = self.store_dir / 'peers_cache.json'
 
         # Config
         self.network = self.config.get('network', 'testnet')
@@ -91,6 +170,276 @@ class Mod:
     def _save_dividends(self, data):
         self._save_json(self.dividends_path, data)
 
+    def _load_rent(self):
+        return self._load_json(self.rent_path, [])
+
+    def _save_rent(self, data):
+        self._save_json(self.rent_path, data)
+
+    # ━━ Rent-to-own terms ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _model(self, model_id):
+        for m_ in self.MODELS:
+            if m_['id'] == model_id:
+                return m_
+        return None
+
+    def models(self):
+        """The rent-to-own models an owner can start from.
+
+        Each preset is a starting point, not a cage — the owner tunes credit_pct
+        and fee_pct afterwards. Fee bounds are the same for every model.
+        """
+        return {
+            'models': self.MODELS,
+            'fee_band': {'min_pct': self.MIN_FEE_PCT, 'max_pct': self.MAX_FEE_PCT},
+            'benchmarks': self.BENCHMARKS,
+        }
+
+    def terms(self):
+        """The live deal: model, protocol fee, rent credit, and what it implies."""
+        t = {**self.DEFAULT_TERMS, **self._load_json(self.terms_path, {})}
+        fee_pct = float(t['fee_pct'])
+        credit_pct = float(t['credit_pct'])
+        # Of every 100 paid: fee to the protocol, the rest split equity / owner.
+        to_property = 100.0 - fee_pct
+        t['equity_pct_of_rent'] = round(to_property * credit_pct / 100.0, 4)
+        t['owner_pct_of_rent'] = round(to_property - t['equity_pct_of_rent'], 4)
+        t['to_property_pct'] = round(to_property, 4)
+        t['fee_band'] = {'min_pct': self.MIN_FEE_PCT, 'max_pct': self.MAX_FEE_PCT}
+        m_ = self._model(t.get('model'))
+        t['model_name'] = m_['name'] if m_ else 'Custom'
+        t['custom'] = bool(m_ and abs(credit_pct - m_['credit_pct']) > 1e-9)
+        return t
+
+    def set_terms(self, model=None, fee_pct=None, credit_pct=None,
+                  option_fee_pct=None, home_price=None, monthly_rent=None,
+                  owner=None, treasury=None) -> dict:
+        """Owner sets the deal.
+
+        Args:
+            model:          preset id (full_credit | hybrid | classic | lease)
+            fee_pct:        protocol take, 1–5 (rejected outside the band)
+            credit_pct:     share of the post-fee payment credited as equity, 0–100
+            option_fee_pct: upfront option fee, % of home price
+            home_price:     price to own outright
+            monthly_rent:   the scheduled monthly payment
+            owner:          address making the change — must match the recorded
+                            owner once one is set (see the note below)
+            treasury:       protocol fee sink
+
+        The owner check here is an address match, not a signature — the local
+        store mirrors the contract, where ``onlyOwner`` does the real enforcing.
+        """
+        current = {**self.DEFAULT_TERMS, **self._load_json(self.terms_path, {})}
+        recorded_owner = (current.get('owner') or '').lower()
+        caller = (owner or '').strip()
+        if recorded_owner and caller.lower() != recorded_owner:
+            return {'error': 'Only the property owner can change the terms'}
+        if not recorded_owner and caller:
+            current['owner'] = caller
+
+        if model is not None:
+            m_ = self._model(model)
+            if not m_:
+                return {'error': f"Unknown model: {model}. "
+                                 f"Choose one of: {', '.join(x['id'] for x in self.MODELS)}"}
+            current['model'] = m_['id']
+            # A preset sets the dials; explicit args below still win.
+            current['credit_pct'] = m_['credit_pct']
+            current['option_fee_pct'] = m_['option_fee_pct']
+
+        if fee_pct is not None:
+            fee = float(fee_pct)
+            if fee < self.MIN_FEE_PCT or fee > self.MAX_FEE_PCT:
+                return {'error': f'Protocol fee must be between {self.MIN_FEE_PCT}% '
+                                 f'and {self.MAX_FEE_PCT}% — got {fee}%'}
+            current['fee_pct'] = round(fee, 4)
+
+        if credit_pct is not None:
+            credit = float(credit_pct)
+            if credit < 0 or credit > 100:
+                return {'error': f'Rent credit must be between 0% and 100% — got {credit}%'}
+            current['credit_pct'] = round(credit, 4)
+
+        if option_fee_pct is not None:
+            opt = float(option_fee_pct)
+            if opt < 0 or opt > 100:
+                return {'error': 'Option fee must be between 0% and 100% of the price'}
+            current['option_fee_pct'] = round(opt, 4)
+
+        if home_price is not None:
+            current['home_price'] = max(float(home_price), 0.0)
+        if monthly_rent is not None:
+            current['monthly_rent'] = max(float(monthly_rent), 0.0)
+        if treasury is not None:
+            current['treasury'] = str(treasury)
+
+        current['updated'] = int(time.time())
+        self._save_json(self.terms_path, current)
+        return {'success': True, 'terms': self.terms()}
+
+    def claim_owner(self, address: str) -> dict:
+        """Claim the owner seat while it's empty (first writer wins)."""
+        if not address:
+            return {'error': 'Address required'}
+        current = {**self.DEFAULT_TERMS, **self._load_json(self.terms_path, {})}
+        if current.get('owner'):
+            return {'error': 'Owner already set', 'owner': current['owner']}
+        current['owner'] = address
+        current['updated'] = int(time.time())
+        self._save_json(self.terms_path, current)
+        return {'success': True, 'owner': address}
+
+    # ━━ Rent ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def quote(self, amount: float, kind: str = 'rent') -> dict:
+        """Split a payment the way pay_rent would, without recording it.
+
+        Mirrors ``quoteRent`` in the contract, including the clamp that stops
+        equity credit from running past the home price.
+        """
+        amount = float(amount)
+        if amount <= 0:
+            return {'error': 'Amount must be greater than 0'}
+        t = self.terms()
+        fee = amount * float(t['fee_pct']) / 100.0
+        net = amount - fee
+        # An option fee is pure equity — that's what the renter is buying with it.
+        credit_pct = 100.0 if kind == 'option' else float(t['credit_pct'])
+        credit = net * credit_pct / 100.0
+
+        price = float(t['home_price'])
+        if price > 0:
+            room = max(price - self._principal_paid_total(), 0.0)
+            credit = min(credit, room)
+        owner_income = net - credit
+
+        return {
+            'amount': round(amount, 8),
+            'fee': round(fee, 8),
+            'credit': round(credit, 8),
+            'owner_income': round(owner_income, 8),
+            'fee_pct': t['fee_pct'],
+            'credit_pct': credit_pct,
+            'to_property': round(net, 8),
+            'to_property_pct': t['to_property_pct'],
+            'kind': kind,
+        }
+
+    def _principal_paid_total(self):
+        return sum(float(r.get('credit', 0)) for r in self._load_rent())
+
+    def pay_rent(self, renter: str, amount: float, kind: str = 'rent') -> dict:
+        """Record a rent payment and split it: protocol fee, equity, owner income.
+
+        Args:
+            renter: the paying address
+            amount: payment amount
+            kind:   'rent' (split by the model) or 'option' (all equity)
+        """
+        if not renter:
+            return {'error': 'Renter address required'}
+        split = self.quote(amount, kind=kind)
+        if 'error' in split:
+            return split
+
+        t = self.terms()
+        price = float(t['home_price'])
+        if price > 0 and self._principal_paid_total() >= price:
+            return {'error': 'Home already paid off'}
+
+        entry = {
+            'timestamp': int(time.time()),
+            'renter': renter,
+            'amount': split['amount'],
+            'fee': split['fee'],
+            'credit': split['credit'],
+            'owner_income': split['owner_income'],
+            'fee_pct': split['fee_pct'],
+            'credit_pct': split['credit_pct'],
+            'model': t['model'],
+            'kind': kind,
+        }
+        ledger = self._load_rent()
+        ledger.append(entry)
+        self._save_rent(ledger)
+
+        return {'success': True, **entry, 'equity': self.equity(renter)}
+
+    def rent_ledger(self, renter: str = '') -> list:
+        """Every recorded payment, newest first. Filter by renter if given."""
+        ledger = self._load_rent()
+        if renter:
+            ledger = [r for r in ledger if r.get('renter', '').lower() == renter.lower()]
+        return list(reversed(ledger))
+
+    def equity(self, address: str) -> dict:
+        """A renter's stake: principal credited, rent paid, and what it bought."""
+        ledger = [r for r in self._load_rent()
+                  if r.get('renter', '').lower() == (address or '').lower()]
+        credit = sum(float(r.get('credit', 0)) for r in ledger)
+        paid = sum(float(r.get('amount', 0)) for r in ledger)
+        fees = sum(float(r.get('fee', 0)) for r in ledger)
+        price = float(self.terms()['home_price'])
+        return {
+            'address': address,
+            'payments': len(ledger),
+            'rent_paid': round(paid, 8),
+            'principal': round(credit, 8),
+            'fees_paid': round(fees, 8),
+            'equity_pct': round(credit / price * 100, 4) if price > 0 else 0.0,
+            'remaining': round(max(price - credit, 0.0), 8) if price > 0 else 0.0,
+            'fully_owned': bool(price > 0 and credit >= price),
+        }
+
+    def rent_stats(self) -> dict:
+        """Where the rent actually went — the number that makes the case."""
+        ledger = self._load_rent()
+        gross = sum(float(r.get('amount', 0)) for r in ledger)
+        fees = sum(float(r.get('fee', 0)) for r in ledger)
+        credit = sum(float(r.get('credit', 0)) for r in ledger)
+        income = sum(float(r.get('owner_income', 0)) for r in ledger)
+        t = self.terms()
+        price = float(t['home_price'])
+        renters = sorted({r.get('renter', '') for r in ledger if r.get('renter')})
+        return {
+            'payments': len(ledger),
+            'renters': len(renters),
+            'gross_rent': round(gross, 8),
+            'protocol_fees': round(fees, 8),
+            'renter_equity': round(credit, 8),
+            'owner_income': round(income, 8),
+            # Of every dollar paid, what stayed with the property vs the platform.
+            'to_property_pct': round((gross - fees) / gross * 100, 4) if gross > 0 else t['to_property_pct'],
+            'take_pct': round(fees / gross * 100, 4) if gross > 0 else t['fee_pct'],
+            'owned_pct': round(credit / price * 100, 4) if price > 0 else 0.0,
+            'home_price': price,
+        }
+
+    # ━━ The landscape ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _peers_mod(self):
+        """Load peers.py by path — `peers` is too common a name to risk on sys.path."""
+        if getattr(self, '_peers_cache', None) is None:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'openhouse_peers', self.module_dir / 'peers.py')
+            mod_ = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_)
+            self._peers_cache = mod_
+        return self._peers_cache
+
+    def peers(self, refresh: bool = False) -> dict:
+        """Every other on-chain housing project, sorted by who ends up owning
+        the house. Live numbers come from RealT's keyless community API and
+        CoinGecko; see peers.py for what is editorial and what is fetched."""
+        return self._peers_mod().peers(self.peers_cache_path, refresh=refresh)
+
+    def compare(self, refresh: bool = False) -> dict:
+        """OpenHouse against the field — including where the field is ahead."""
+        return self._peers_mod().compare(self.terms(), self.peers_cache_path, refresh=refresh)
+
     # ━━ Health & Status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def health(self):
@@ -117,8 +466,11 @@ class Mod:
         deployed = bool(prop)
         total_shares = int(prop.get('total_shares', 0)) if deployed else 0
 
+        rent = self.rent_stats()
         return {
             'deployed': deployed,
+            'terms': self.terms(),
+            'rent': rent,
             'shareholders': len(shareholders),
             'total_shares': total_shares,
             'shares_sold': total_shares_sold,
@@ -375,7 +727,8 @@ class Mod:
         return {'success': True, 'output': result.stdout}
 
     def deploy(self, network='testnet', key=None, property_details='',
-               total_shares=1000, share_price=0.1) -> dict:
+               total_shares=1000, share_price=0.1, home_price=0,
+               monthly_rent=0, model=None, fee_pct=None, owner=None) -> dict:
         """Deploy OpenHouse contract.
 
         Args:
@@ -384,6 +737,11 @@ class Mod:
             property_details: description of the property
             total_shares: total number of shares
             share_price: price per share in ETH
+            home_price: price to own the home outright
+            monthly_rent: scheduled monthly payment
+            model: rent-to-own model id (see models())
+            fee_pct: protocol take, 1–5
+            owner: address that owns the deal terms
         """
         # Save property info locally
         props = self._load_properties()
@@ -397,6 +755,14 @@ class Mod:
         }
         self._save_properties(props)
 
+        # Seed the rent-to-own deal alongside the float, if given.
+        terms_result = None
+        if any(v is not None and v != 0 for v in (home_price, monthly_rent, model, fee_pct, owner)):
+            terms_result = self.set_terms(
+                model=model, fee_pct=fee_pct, owner=owner,
+                home_price=home_price or None, monthly_rent=monthly_rent or None,
+            )
+
         return {
             'success': True,
             'network': network,
@@ -404,6 +770,7 @@ class Mod:
             'total_shares': int(total_shares),
             'share_price': float(share_price),
             'contract': self.contract_address or 'pending deployment',
+            'terms': (terms_result or {}).get('terms') or self.terms(),
         }
 
     # ━━ Source ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -598,6 +965,18 @@ class Mod:
         Actions:
             status             - Aggregate stats
             health             - Service health check
+            models             - Rent-to-own models + fee band + benchmarks
+            terms              - The live deal (fee, credit, model)
+            set_terms          - Owner sets the deal (model=, fee_pct=, credit_pct=,
+                                 option_fee_pct=, home_price=, monthly_rent=, owner=)
+            claim_owner        - Claim the owner seat while empty (address=)
+            quote              - Preview a payment split (amount=, kind=)
+            pay_rent           - Record a payment (renter=, amount=, kind=)
+            rent_ledger        - Payment history (renter=)
+            equity             - A renter's stake (address=)
+            rent_stats         - Where the rent went
+            peers              - Other on-chain housing projects (refresh=)
+            compare            - OpenHouse against the field (refresh=)
             property           - Property details
             shareholders       - All shareholders
             shareholder        - Shareholder info (address=)
@@ -623,6 +1002,33 @@ class Mod:
         actions = {
             'status': lambda: self.status(),
             'health': lambda: self.health(),
+            'models': lambda: self.models(),
+            'terms': lambda: self.terms(),
+            'set_terms': lambda: self.set_terms(
+                model=kwargs.get('model'),
+                fee_pct=kwargs.get('fee_pct'),
+                credit_pct=kwargs.get('credit_pct'),
+                option_fee_pct=kwargs.get('option_fee_pct'),
+                home_price=kwargs.get('home_price'),
+                monthly_rent=kwargs.get('monthly_rent'),
+                owner=kwargs.get('owner'),
+                treasury=kwargs.get('treasury'),
+            ),
+            'claim_owner': lambda: self.claim_owner(kwargs.get('address', '')),
+            'quote': lambda: self.quote(
+                float(kwargs.get('amount', 0)),
+                kind=kwargs.get('kind', 'rent'),
+            ),
+            'pay_rent': lambda: self.pay_rent(
+                kwargs.get('renter', ''),
+                float(kwargs.get('amount', 0)),
+                kind=kwargs.get('kind', 'rent'),
+            ),
+            'rent_ledger': lambda: self.rent_ledger(kwargs.get('renter', '')),
+            'equity': lambda: self.equity(kwargs.get('address', '')),
+            'rent_stats': lambda: self.rent_stats(),
+            'peers': lambda: self.peers(refresh=bool(kwargs.get('refresh'))),
+            'compare': lambda: self.compare(refresh=bool(kwargs.get('refresh'))),
             'property': lambda: self.property(),
             'shareholders': lambda: self.shareholders(),
             'shareholder': lambda: self.shareholder(kwargs.get('address', '')),
@@ -651,6 +1057,11 @@ class Mod:
                 property_details=kwargs.get('property_details', ''),
                 total_shares=int(kwargs.get('total_shares', 1000)),
                 share_price=float(kwargs.get('share_price', 0.1)),
+                home_price=float(kwargs.get('home_price', 0)),
+                monthly_rent=float(kwargs.get('monthly_rent', 0)),
+                model=kwargs.get('model'),
+                fee_pct=kwargs.get('fee_pct'),
+                owner=kwargs.get('owner'),
             ),
             'serve': lambda: self.serve(
                 port=kwargs.get('port'),

@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+
+# Screenshots from tests/smoke.py --shots: build output, not source.
+tests/shots/
+
+# Never commit game data. Test ROMs live in ~/.mod/supermario/testroms.
+*.nes
+*.sav

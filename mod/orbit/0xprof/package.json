@@ -1,0 +1,11 @@
+{
+  "name": "0xprof-toolchain",
+  "private": true,
+  "description": "the node half of the verifier bench: snarkjs, the reference implementation this module checks its own answers against",
+  "dependencies": {
+    "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.5",
+    "solc": "^0.8.36"
+  }
+}

@@ -1,0 +1,2983 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@keyframes profileMenuExpandLeft {
+  from {
+    opacity: 0;
+    transform: scaleX(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.profile-menu-expand-left {
+  animation: profileMenuExpandLeft 180ms cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+/* The bare :root mirrors the GLASS tokens as an attribute-less fallback.
+   The real default is MARIO — layout.tsx server-renders data-theme="mario"
+   (corrected by its blocking script for any saved theme), so first paint
+   always lands on a themed html element and never on bare :root. */
+:root,
+:root[data-theme="dark"] {
+  --pixel-border: 1px;
+  /* Bento glass palette — soft tiles on a deep gradient */
+  --crt-green: #34d399;
+  --crt-amber: #fbbf24;
+  --crt-blue: #818cf8;
+  --crt-red: #fb7185;
+  --crt-dark: #0a0a0f;
+  --text-primary: #ffffff;
+  --text-secondary: #d8d8e4;
+  --text-tertiary: #8a8aa2;
+  --accent-color: #a78bfa;
+  --accent-color-2: #38bdf8;
+  --bg-primary: #07070d;
+  --bg-secondary: #11111a;
+  --bg-tint: rgba(167,139,250,0.05);
+  --glass-bg: rgba(22, 22, 34, 0.65);
+  --glass-bg-strong: rgba(32, 32, 48, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-border-strong: rgba(255, 255, 255, 0.18);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
+  --border-color: rgba(255,255,255,0.09);
+  --border-color-strong: rgba(255,255,255,0.18);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md: 0 8px 24px rgba(0,0,0,0.5);
+  --shadow-lg: 0 24px 60px rgba(0,0,0,0.6);
+  --shadow-glow: 0 0 0 1px rgba(167,139,250,0.22), 0 8px 32px rgba(167,139,250,0.14);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
+:root[data-theme="light"] {
+  /* ☮ PSYCHEDELIC BABE-RAINBOW LIGHT ☮ — groovy pastel wash, deep-violet
+     ink for text, saturated jewel accents. Bases stay dark enough that the
+     common `text-crt-green/35`-style opacity utilities remain readable on
+     the pale backdrop (the floor rules below force them opaque anyway). */
+  --crt-green: #059669;
+  --crt-amber: #c2410c;
+  --crt-blue: #4f46e5;
+  --crt-red: #e11d48;
+  --crt-dark: #fffdf7;
+  --text-primary: #2a1245;
+  --text-secondary: #46296b;
+  --text-tertiary: #7a639c;
+  --accent-color: #c026d3;
+  --accent-color-2: #0891b2;
+  --bg-primary: #fffdf7;
+  --bg-secondary: #fdf3fa;
+  --bg-tint: rgba(192,38,211,0.06);
+  --glass-bg: rgba(255, 253, 250, 0.72);
+  --glass-bg-strong: rgba(255, 250, 252, 0.92);
+  --glass-border: rgba(147, 51, 234, 0.16);
+  --glass-border-strong: rgba(147, 51, 234, 0.28);
+  --glass-highlight: rgba(255, 255, 255, 0.65);
+  --border-color: rgba(120, 53, 187, 0.18);
+  --border-color-strong: rgba(120, 53, 187, 0.32);
+  --pixel-border: 1px;
+  --shadow-sm: 0 1px 3px rgba(148,64,190,0.10);
+  --shadow-md: 0 6px 18px rgba(236,72,153,0.12), 0 2px 8px rgba(139,92,246,0.10);
+  --shadow-lg: 0 16px 44px rgba(236,72,153,0.16), 0 6px 18px rgba(139,92,246,0.14);
+  --shadow-glow: 0 0 0 1px rgba(192,38,211,0.28), 0 8px 32px rgba(236,72,153,0.20);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
+/* ── Custom themes ─────────────────────────────────────────────────────
+   Each block redefines the full token set; `data-base` (set by JS next to
+   data-theme) carries the dark/light classification so the generic
+   light-mode legibility rules below apply to ANY light-base theme. */
+
+/* MATRIX — green phosphor on near-black. Every accent collapses toward
+   the phosphor so the console reads like a single-gun CRT. */
+:root[data-theme="matrix"] {
+  --pixel-border: 1px;
+  --crt-green: #00ff7f;
+  --crt-amber: #b8ff5c;
+  --crt-blue: #4defc9;
+  --crt-red: #ff6a5c;
+  --crt-dark: #010502;
+  --text-primary: #d7ffe6;
+  --text-secondary: #8effbe;
+  --text-tertiary: #3e9a68;
+  --accent-color: #00ff7f;
+  --accent-color-2: #4defc9;
+  --bg-primary: #010502;
+  --bg-secondary: #04120a;
+  --bg-tint: rgba(0,255,127,0.05);
+  --glass-bg: rgba(4, 22, 12, 0.72);
+  --glass-bg-strong: rgba(6, 32, 18, 0.88);
+  --glass-border: rgba(0, 255, 127, 0.14);
+  --glass-border-strong: rgba(0, 255, 127, 0.28);
+  --glass-highlight: rgba(0, 255, 127, 0.06);
+  --border-color: rgba(0,255,127,0.14);
+  --border-color-strong: rgba(0,255,127,0.30);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 8px 24px rgba(0,0,0,0.6);
+  --shadow-lg: 0 24px 60px rgba(0,0,0,0.7);
+  --shadow-glow: 0 0 0 1px rgba(0,255,127,0.25), 0 8px 32px rgba(0,255,127,0.16);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+/* NEON — cyberpunk night: magenta + cyan on deep violet-navy. */
+:root[data-theme="neon"] {
+  --pixel-border: 1px;
+  --crt-green: #0ff0d4;
+  --crt-amber: #ffd319;
+  --crt-blue: #46a5ff;
+  --crt-red: #ff2d78;
+  --crt-dark: #0a0416;
+  --text-primary: #f4e9ff;
+  --text-secondary: #d4b8f5;
+  --text-tertiary: #8a6bb8;
+  --accent-color: #ff2da0;
+  --accent-color-2: #0ff0d4;
+  --bg-primary: #0a0416;
+  --bg-secondary: #150a28;
+  --bg-tint: rgba(255,45,160,0.06);
+  --glass-bg: rgba(28, 14, 52, 0.68);
+  --glass-bg-strong: rgba(40, 20, 72, 0.85);
+  --glass-border: rgba(255, 45, 160, 0.18);
+  --glass-border-strong: rgba(15, 240, 212, 0.30);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
+  --border-color: rgba(255,45,160,0.18);
+  --border-color-strong: rgba(15,240,212,0.32);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 8px 24px rgba(10,2,30,0.6);
+  --shadow-lg: 0 24px 60px rgba(10,2,30,0.7);
+  --shadow-glow: 0 0 0 1px rgba(255,45,160,0.30), 0 8px 32px rgba(15,240,212,0.18);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
+/* EMBER — amber phosphor terminal: warm oranges on soot. */
+:root[data-theme="ember"] {
+  --pixel-border: 1px;
+  --crt-green: #ffb347;
+  --crt-amber: #ffd75e;
+  --crt-blue: #ff9e64;
+  --crt-red: #ff5c40;
+  --crt-dark: #0c0603;
+  --text-primary: #ffe8cc;
+  --text-secondary: #f5c896;
+  --text-tertiary: #9c6f4a;
+  --accent-color: #ff9e2c;
+  --accent-color-2: #ffd75e;
+  --bg-primary: #0c0603;
+  --bg-secondary: #1a0f06;
+  --bg-tint: rgba(255,158,44,0.05);
+  --glass-bg: rgba(30, 17, 8, 0.72);
+  --glass-bg-strong: rgba(44, 25, 12, 0.88);
+  --glass-border: rgba(255, 158, 44, 0.16);
+  --glass-border-strong: rgba(255, 158, 44, 0.32);
+  --glass-highlight: rgba(255, 179, 71, 0.06);
+  --border-color: rgba(255,158,44,0.16);
+  --border-color-strong: rgba(255,158,44,0.34);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 8px 24px rgba(0,0,0,0.6);
+  --shadow-lg: 0 24px 60px rgba(0,0,0,0.7);
+  --shadow-glow: 0 0 0 1px rgba(255,158,44,0.26), 0 8px 32px rgba(255,158,44,0.16);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+}
+
+/* ABYSS — deep-ocean blues, bioluminescent teal accents. */
+:root[data-theme="abyss"] {
+  --pixel-border: 1px;
+  --crt-green: #2dd4bf;
+  --crt-amber: #fbbf24;
+  --crt-blue: #60a5fa;
+  --crt-red: #fb7185;
+  --crt-dark: #030b18;
+  --text-primary: #e6f2ff;
+  --text-secondary: #b6d4f0;
+  --text-tertiary: #5d7fa3;
+  --accent-color: #38bdf8;
+  --accent-color-2: #2dd4bf;
+  --bg-primary: #030b18;
+  --bg-secondary: #081526;
+  --bg-tint: rgba(56,189,248,0.05);
+  --glass-bg: rgba(10, 26, 46, 0.70);
+  --glass-bg-strong: rgba(14, 36, 62, 0.86);
+  --glass-border: rgba(56, 189, 248, 0.14);
+  --glass-border-strong: rgba(56, 189, 248, 0.28);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
+  --border-color: rgba(56,189,248,0.14);
+  --border-color-strong: rgba(56,189,248,0.30);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 8px 24px rgba(1,8,20,0.6);
+  --shadow-lg: 0 24px 60px rgba(1,8,20,0.7);
+  --shadow-glow: 0 0 0 1px rgba(56,189,248,0.24), 0 8px 32px rgba(45,212,191,0.15);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
+/* PAPER — calm warm-sepia light theme. No rainbow: the psychedelic
+   overrides below key on data-theme="light" specifically, so PAPER only
+   inherits the generic data-base="light" legibility rules. */
+:root[data-theme="paper"] {
+  --pixel-border: 1px;
+  --crt-green: #15803d;
+  --crt-amber: #b45309;
+  --crt-blue: #1d4ed8;
+  --crt-red: #be123c;
+  --crt-dark: #f7f2e9;
+  --text-primary: #292018;
+  --text-secondary: #52422f;
+  --text-tertiary: #8c7a63;
+  --accent-color: #9a5b2c;
+  --accent-color-2: #1d4ed8;
+  --bg-primary: #f7f2e9;
+  --bg-secondary: #efe7d8;
+  --bg-tint: rgba(154,91,44,0.05);
+  --glass-bg: rgba(255, 252, 245, 0.78);
+  --glass-bg-strong: rgba(255, 253, 248, 0.94);
+  --glass-border: rgba(120, 90, 50, 0.18);
+  --glass-border-strong: rgba(120, 90, 50, 0.32);
+  --glass-highlight: rgba(255, 255, 255, 0.7);
+  --border-color: rgba(120,90,50,0.18);
+  --border-color-strong: rgba(120,90,50,0.34);
+  --shadow-sm: 0 1px 3px rgba(90,64,30,0.08);
+  --shadow-md: 0 6px 18px rgba(90,64,30,0.10);
+  --shadow-lg: 0 16px 44px rgba(90,64,30,0.14);
+  --shadow-glow: 0 0 0 1px rgba(154,91,44,0.22), 0 8px 32px rgba(154,91,44,0.12);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+/* WIN95 — beveled gray nostalgia. Zero radii; the bevel itself lives in
+   the win95 .pixel-btn rules further down (they predate this block). */
+:root[data-theme="win95"] {
+  --pixel-border: 2px;
+  --crt-green: #008000;
+  --crt-amber: #808000;
+  --crt-blue: #000080;
+  --crt-red: #aa0000;
+  --crt-dark: #c0c0c0;
+  --text-primary: #000000;
+  --text-secondary: #222222;
+  --text-tertiary: #555555;
+  --accent-color: #000080;
+  --accent-color-2: #008080;
+  --bg-primary: #c0c0c0;
+  --bg-secondary: #b0b0b0;
+  --bg-tint: rgba(0,0,128,0.05);
+  --glass-bg: rgba(223, 223, 223, 0.96);
+  --glass-bg-strong: #dfdfdf;
+  --glass-border: #808080;
+  --glass-border-strong: #404040;
+  --glass-highlight: #ffffff;
+  --border-color: #808080;
+  --border-color-strong: #404040;
+  --shadow-sm: inset -1px -1px 0 0 #808080, inset 1px 1px 0 0 #ffffff;
+  --shadow-md: 2px 2px 0 rgba(0,0,0,0.35);
+  --shadow-lg: 4px 4px 0 rgba(0,0,0,0.35);
+  --shadow-glow: 0 0 0 1px #000080;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+}
+
+/* MARIO — SMB overworld: level-sky blue backdrop, cloud-cream panels with
+   hard cartoon outlines, fire-flower red accent, pipe green / coin gold /
+   cap blue signals. Square corners + hard sprite shadows; the full 8-bit
+   skin (ground strip, pixel chrome, beveled block buttons) lives in the
+   WORLD 1-1 section at the end of file. */
+:root[data-theme="mario"] {
+  /* Signal colors are tuned for TYPE on the cloud-cream panels (#f4efdc):
+     every one clears WCAG AA ≥4.4:1 there, so 10px labels stay legible.
+     The bright sprite golds/reds live on in the hardcoded WORLD 1-1
+     chrome (coin blocks, fire-flower buttons) — only the font ink here
+     is darkened. Many labels also render at 0.4–0.7 opacity, which is
+     why the muted text inks err dark. */
+  --pixel-border: 2px;
+  /* Drop the app shell to transparent so the World 1-1 scene painted on
+     html (sky, clouds, scenery, ground) shows through the gutters. */
+  --shell-bg: transparent;
+  --crt-green: #0d7a14;
+  --crt-amber: #8a6200;
+  --crt-blue: #0a5fb0;
+  --crt-red: #c42400;
+  --crt-dark: #f4efdc;
+  --text-primary: #1c1c28;
+  --text-secondary: #3a3b52;
+  --text-tertiary: #4e4f68;
+  --accent-color: #c42400;
+  --accent-color-2: #0a5fb0;
+  --bg-primary: #5c94fc;
+  --bg-secondary: #f4efdc;
+  --bg-tint: rgba(196,36,0,0.06);
+  --glass-bg: rgba(255, 253, 242, 0.90);
+  --glass-bg-strong: rgba(255, 253, 242, 0.97);
+  --glass-border: rgba(28, 28, 40, 0.45);
+  --glass-border-strong: rgba(22, 22, 31, 0.85);
+  --glass-highlight: rgba(255, 255, 255, 0.75);
+  --border-color: rgba(28,28,40,0.45);
+  --border-color-strong: rgba(22,22,31,0.85);
+  --shadow-sm: 2px 2px 0 rgba(28,28,40,0.28);
+  --shadow-md: 3px 3px 0 rgba(28,28,40,0.32);
+  --shadow-lg: 5px 5px 0 rgba(28,28,40,0.38);
+  --shadow-glow: 0 0 0 2px rgba(196,36,0,0.55);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  /* The reading sheet is opaque cloud-cream: the sky belongs in the
+     gutters, never behind body text. */
+  --sheet-bg: #fffdf2;
+  --sheet-bg-solid: #fffdf2;
+  --sheet-border: #16161f;
+  --sheet-shadow: 4px 4px 0 rgba(28,28,40,0.30);
+}
+
+/* WARP — SMB underground: near-black with blue brick undertones, blue
+   mortar hairlines, cap-blue accent, coin gold glowing in the dark. */
+:root[data-theme="warp"] {
+  --pixel-border: 2px;
+  --shell-bg: transparent; /* see mario block — reveals the html scene */
+  --crt-green: #43b047;
+  --crt-amber: #fbd000;
+  --crt-blue: #2fb1f0;
+  --crt-red: #e52521;
+  --crt-dark: #050712;
+  --text-primary: #f2f2e6;
+  --text-secondary: #a8b0cc;
+  --text-tertiary: #7681a6;
+  --accent-color: #2fb1f0;
+  --accent-color-2: #fbd000;
+  --bg-primary: #050712;
+  --bg-secondary: #0b1024;
+  --bg-tint: rgba(47,177,240,0.06);
+  --glass-bg: rgba(11, 16, 36, 0.86);
+  --glass-bg-strong: rgba(16, 23, 54, 0.95);
+  --glass-border: rgba(61, 74, 148, 0.45);
+  --glass-border-strong: rgba(85, 100, 180, 0.75);
+  --glass-highlight: rgba(143, 216, 255, 0.07);
+  --border-color: rgba(61,74,148,0.45);
+  --border-color-strong: rgba(85,100,180,0.75);
+  --shadow-sm: 2px 2px 0 rgba(0,0,0,0.45);
+  --shadow-md: 3px 3px 0 rgba(0,0,0,0.55);
+  --shadow-lg: 5px 5px 0 rgba(0,0,0,0.65);
+  --shadow-glow: 0 0 0 2px rgba(251,208,0,0.55);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  /* see mario — opaque brick-dark page, scene stays in the gutters */
+  --sheet-bg: #0b1024;
+  --sheet-bg-solid: #0b1024;
+  --sheet-border: #3d4a94;
+  --sheet-shadow: 4px 4px 0 rgba(0,0,0,0.45);
+}
+
+/* Floor opacity-styled text on ANY light-base theme so the common
+   `text-crt-*/30..40` utilities don't render as ghost text on white.
+   Colors come from the theme's own tokens now (was hardcoded per-theme). */
+:root[data-base="light"] [class*="text-crt-green/"] { color: var(--crt-green) !important; opacity: 1 !important; }
+:root[data-base="light"] [class*="text-crt-amber/"] { color: var(--crt-amber) !important; opacity: 1 !important; }
+:root[data-base="light"] [class*="text-crt-blue/"]  { color: var(--crt-blue) !important; opacity: 1 !important; }
+:root[data-base="light"] [class*="text-crt-red/"]   { color: var(--crt-red) !important; opacity: 1 !important; }
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow: hidden;
+  height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  letter-spacing: -0.005em;
+}
+
+/* The console shell. `100vh` on a phone is the LARGE viewport — it measures
+ * as if the browser's bottom bar (iOS Safari's address bar, Chrome's bottom
+ * chrome) were hidden, so the last ~50px of the page — the docked ask bar and
+ * its PARAMS/mod/model + HUB/TASKS strip — render underneath it and can't be
+ * tapped. `100dvh` tracks the bar as it shows/hides, keeping the bottom of the
+ * console on screen. `100vh` stays as the fallback for browsers without dvh. */
+/* …and `100dvh` only tracks that bar AFTER its slide animation settles, and
+ * not at all for the software keyboard. `--app-shell-h` is published from the
+ * visual viewport (see the visualViewport effect in page.tsx) and reports the
+ * genuinely visible box live; it falls back to dvh where that API is absent. */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+  height: var(--app-shell-h, 100dvh);
+}
+
+button, select, input, textarea {
+  font-weight: 500;
+}
+
+strong, b {
+  font-weight: 700;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent-color) 35%, transparent);
+  color: var(--text-primary);
+}
+
+/* CRT Scanline Overlay - hidden by default in modern mode */
+.crt-overlay {
+  display: none;
+}
+
+/* CRT Screen Glow - disabled */
+.crt-screen {
+  box-shadow: none;
+  animation: none;
+}
+
+/* Modern Border Utility */
+.pixel-border {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.pixel-border-amber {
+  border: 1px solid color-mix(in srgb, var(--crt-amber) 30%, transparent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Modern Button */
+.pixel-btn {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--accent-color);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  position: relative;
+  text-transform: none;
+  transition: all 0.15s ease;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  letter-spacing: 0.01em;
+}
+
+.pixel-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  filter: brightness(1.08);
+}
+
+.pixel-btn:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+.pixel-btn:disabled {
+  background: var(--text-tertiary);
+  color: var(--bg-secondary);
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+  filter: none;
+  opacity: 0.5;
+}
+
+.pixel-btn-red {
+  background: var(--crt-red);
+}
+
+.pixel-btn-amber {
+  background: var(--crt-amber);
+}
+
+.pixel-btn-blue {
+  background: var(--crt-blue);
+}
+
+/* Blinking Cursor */
+.cursor-blink::after {
+  content: '|';
+  animation: blink 1s step-end infinite;
+  font-weight: 100;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color-strong);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color-strong) transparent;
+}
+
+/* Text glow - subtle in modern mode */
+.text-glow {
+  text-shadow: none;
+}
+
+.text-glow-amber {
+  text-shadow: none;
+}
+
+/* Status LED */
+.led-pulse {
+  animation: led-pulse 2s ease-in-out infinite;
+}
+
+@keyframes led-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Versions strip — HEAD chip glow + scroll-edge fades */
+.head-glow {
+  animation: head-glow 2.6s ease-in-out infinite;
+}
+
+@keyframes head-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px var(--head-color, var(--accent-color)),
+      0 0 14px -2px var(--head-color, var(--accent-color));
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px var(--head-color, var(--accent-color)),
+      0 0 22px 1px var(--head-color, var(--accent-color));
+  }
+}
+
+.versions-strip {
+  position: relative;
+  scrollbar-width: none;
+}
+.versions-strip::-webkit-scrollbar { display: none; }
+
+.versions-strip::before,
+.versions-strip::after {
+  content: "";
+  position: sticky;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  flex-shrink: 0;
+}
+.versions-strip::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-primary), transparent);
+  margin-right: -24px;
+}
+.versions-strip::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg-primary), transparent);
+  margin-left: -24px;
+}
+
+.commit-chip {
+  position: relative;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.commit-chip:hover {
+  transform: translateY(-1px);
+}
+
+/* Tiny rail that connects commit dots — drawn as a pseudo line */
+.commit-rail {
+  position: relative;
+}
+.commit-rail::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  width: 6px;
+  height: 1px;
+  background: var(--border-color-strong);
+  transform: translateY(-0.5px);
+  opacity: 0.6;
+}
+.commit-rail:last-child::after { display: none; }
+
+/* Select styling */
+select {
+  appearance: none;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px !important;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: 'Inter', -apple-system, sans-serif;
+}
+
+select:hover {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 10%, transparent);
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 15%, transparent);
+}
+
+select option {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 10px 12px;
+  line-height: 1.8;
+  font-size: 13px;
+  font-family: 'Inter', -apple-system, sans-serif;
+}
+
+/* Textarea */
+textarea, input[type="text"], input[type="password"] {
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+textarea:focus, input[type="text"]:focus, input[type="password"]:focus {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 12%, transparent);
+}
+
+textarea::placeholder, input[type="text"]::placeholder, input[type="password"]::placeholder {
+  color: var(--text-tertiary);
+  opacity: 0.6;
+}
+
+/* Smooth transitions */
+.transition-smooth {
+  transition: all 0.2s ease;
+}
+
+/* Enhanced hover states */
+.hover-glow:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* Better focus indicators */
+textarea:focus-visible, input[type="text"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-color) 30%, transparent);
+  outline-offset: 2px;
+}
+
+/* Font size scaling */
+html[data-font-scale="small"] { --font-scale: 0.85; }
+html[data-font-scale="medium"] { --font-scale: 1; }
+html[data-font-scale="large"] { --font-scale: 1.15; }
+html[data-font-scale="xlarge"] { --font-scale: 1.3; }
+
+html {
+  --font-scale: 1;
+}
+
+.font-scaled {
+  font-size: calc(1em * var(--font-scale));
+}
+
+/* Dark theme specific */
+:root[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2364748b'/%3E%3C/svg%3E");
+}
+
+/* Light-base themes (light / paper / win95) */
+:root[data-base="light"] .pixel-btn {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+}
+
+:root[data-base="light"] .pixel-btn:hover {
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06);
+}
+
+:root[data-base="light"] .pixel-border {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+:root[data-base="light"] textarea,
+:root[data-base="light"] input[type="text"],
+:root[data-base="light"] input[type="password"] {
+  background: rgba(255,255,255,0.85);
+}
+
+:root[data-base="light"] select {
+  background-color: rgba(255,255,255,0.85);
+}
+
+/* Win95 specific button styling */
+:root[data-theme="win95"] .pixel-btn {
+  border-radius: 2px;
+  box-shadow:
+    inset -1px -1px 0 0 #000000,
+    inset 1px 1px 0 0 #ffffff,
+    inset -2px -2px 0 0 #808080,
+    inset 2px 2px 0 0 #dfdfdf;
+}
+
+:root[data-theme="win95"] .pixel-btn:hover {
+  transform: none;
+}
+
+:root[data-theme="win95"] .pixel-btn:active {
+  box-shadow:
+    inset 1px 1px 0 0 #000000,
+    inset -1px -1px 0 0 #ffffff;
+  transform: none;
+}
+
+:root[data-theme="win95"] select {
+  border-radius: 2px;
+  border: 2px solid;
+  border-color: #ffffff #000000 #000000 #ffffff;
+}
+
+:root[data-theme="win95"] textarea,
+:root[data-theme="win95"] input[type="text"],
+:root[data-theme="win95"] input[type="password"] {
+  border-radius: 2px;
+  border: 2px solid;
+  border-color: #808080 #ffffff #ffffff #808080;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Bento glass primitives
+ * Soft tiles, glassmorphism, gentle gradients. Cascade from the dark
+ * theme tokens above; other themes can override via :root[data-theme=...].
+ * ──────────────────────────────────────────────────────────────────────*/
+
+:root[data-theme="dark"] body,
+body {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(167,139,250,0.10), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(56,189,248,0.06), transparent 60%),
+    var(--bg-primary);
+  background-attachment: fixed;
+}
+
+.bento-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.bento-grid.dense {
+  grid-auto-flow: dense;
+}
+
+.bento-grid .col-2 { grid-column: span 2; }
+.bento-grid .col-3 { grid-column: span 3; }
+.bento-grid .row-2 { grid-row: span 2; }
+
+.bento {
+  position: relative;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border-strong);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: var(--shadow-md);
+  transition: border-color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+  overflow: hidden;
+}
+
+.bento::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, var(--glass-highlight), transparent 40%);
+  pointer-events: none;
+}
+
+.bento:hover {
+  border-color: var(--glass-border-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+}
+
+.bento.interactive {
+  cursor: pointer;
+}
+
+.bento.accent {
+  border-color: rgba(167,139,250,0.25);
+  background:
+    linear-gradient(135deg, rgba(167,139,250,0.10), rgba(56,189,248,0.04)),
+    var(--glass-bg);
+}
+
+.bento.accent:hover {
+  border-color: rgba(167,139,250,0.45);
+  box-shadow: var(--shadow-glow);
+}
+
+.bento-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 12px;
+}
+
+.bento-title {
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.bento-value {
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.bento-sub {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+.cid-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(167,139,250,0.12);
+  border: 1px solid rgba(167,139,250,0.28);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent-color);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.cid-chip:hover {
+  background: rgba(167,139,250,0.18);
+}
+
+.glass-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border-strong);
+  background: var(--glass-bg-strong);
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 150ms ease, border-color 150ms ease, transform 100ms ease;
+}
+
+.glass-btn:hover {
+  background: rgba(40, 40, 56, 0.85);
+  border-color: rgba(167,139,250,0.35);
+}
+
+.glass-btn:active { transform: scale(0.97); }
+
+.glass-btn.primary {
+  background: linear-gradient(135deg, rgba(167,139,250,0.95), rgba(124,58,237,0.95));
+  border-color: rgba(167,139,250,0.55);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(124,58,237,0.30);
+}
+
+.glass-btn.primary:hover {
+  background: linear-gradient(135deg, rgba(180,156,255,1), rgba(140,80,250,1));
+}
+
+.glass-btn.ghost {
+  background: transparent;
+  border-color: var(--glass-border);
+}
+
+.glass-btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.version-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 120ms ease;
+}
+
+.version-row:hover {
+  background: var(--glass-highlight);
+}
+
+.version-row .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-color);
+  box-shadow: 0 0 0 2px rgba(167,139,250,0.12);
+}
+
+.version-row .msg {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.version-row .meta {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Versions timeline (VersionsPanel) — day-grouped rows on a hairline
+ * rail; per-row actions reveal on hover. EditsPanel still uses the
+ * plain .version-row above.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+.vtl { display: flex; flex-direction: column; }
+
+.vtl-day {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 6px;
+  padding-left: 2px;
+}
+.vtl-group:first-of-type .vtl-day { margin-top: 2px; }
+.vtl-day .lab {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.vtl-day .rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--glass-border), transparent);
+}
+
+.vtl-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px 6px 2px;
+  border-radius: 10px;
+  transition: background 130ms ease;
+}
+.vtl-row:hover { background: var(--glass-highlight); }
+.vtl-row.head {
+  background: linear-gradient(90deg, rgba(167,139,250,0.09), transparent 70%);
+}
+.vtl-row.head:hover {
+  background: linear-gradient(90deg, rgba(167,139,250,0.13), var(--glass-highlight) 70%);
+}
+
+/* rail: connecting hairline behind the action dot */
+.vtl-rail {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.vtl-rail::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  bottom: -6px;
+  width: 1px;
+  background: var(--glass-border);
+}
+.vtl-items .vtl-row:first-child .vtl-rail::before { top: 50%; }
+.vtl-items .vtl-row:last-child  .vtl-rail::before { bottom: 50%; }
+.vtl-items .vtl-row:only-child  .vtl-rail::before { display: none; }
+.vtl-dot {
+  position: relative;
+  z-index: 1;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.vtl-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+.vtl-msg {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vtl-row.auto .vtl-msg {
+  color: var(--text-secondary);
+  font-weight: 500;
+  opacity: 0.75;
+}
+.vtl-tag {
+  flex: 0 0 auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.vtl-tag.head-tag {
+  color: var(--accent-color);
+  border-color: rgba(167,139,250,0.4);
+  background: rgba(167,139,250,0.12);
+}
+
+.vtl-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.vtl-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  min-width: 52px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.vtl-acts {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.vtl-row:hover .vtl-acts,
+.vtl-row.head .vtl-acts,
+.vtl-acts:focus-within {
+  opacity: 1;
+  transform: none;
+}
+@media (hover: none) {
+  .vtl-acts { opacity: 1; transform: none; }
+}
+/* compact chips/buttons inside timeline rows (globals bump these with
+   !important, so these must be !important too to win the cascade) */
+.vtl-row .glass-btn { font-size: 12px !important; padding: 4px 10px !important; }
+.vtl-row .cid-chip  { font-size: 11px !important; padding: 3px 9px !important; }
+
+/* status / error notes */
+.vtl-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  margin-bottom: 10px;
+}
+.vtl-note.ok  { color: var(--crt-green); border-color: rgba(52,211,153,0.35);  background: rgba(52,211,153,0.09); }
+.vtl-note.err { color: var(--crt-red);   border-color: rgba(251,113,133,0.35); background: rgba(251,113,133,0.09); }
+
+/* loading shimmer + empty state */
+.vtl-skels { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.vtl-skel {
+  height: 28px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--glass-highlight), rgba(255,255,255,0.09), var(--glass-highlight));
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+.vtl-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 6px;
+  font-size: 13.5px;
+  color: var(--text-tertiary);
+}
+.vtl-empty-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent-color);
+  box-shadow: 0 0 10px rgba(167,139,250,0.5);
+  animation: soft-pulse 2.2s ease-in-out infinite;
+}
+
+/* snap composer — joined pill input + button */
+.snap-bar {
+  display: flex;
+  align-items: center;
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  padding: 3px 3px 3px 14px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.snap-bar:focus-within {
+  border-color: rgba(167,139,250,0.45);
+  box-shadow: 0 0 0 3px rgba(167,139,250,0.12);
+}
+.snap-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  width: 190px;
+}
+.snap-input::placeholder { color: var(--text-tertiary); }
+.snap-btn {
+  border: none;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 7px 16px;
+  margin-left: 10px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(167,139,250,0.95), rgba(124,58,237,0.95));
+  box-shadow: 0 4px 14px rgba(124,58,237,0.35);
+  transition: background 150ms ease, transform 100ms ease;
+}
+.snap-btn:hover { background: linear-gradient(135deg, rgba(180,156,255,1), rgba(140,80,250,1)); }
+.snap-btn:active { transform: scale(0.97); }
+.snap-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Refinements — subtle motion, hairlines, focus rings, button polish
+ * ──────────────────────────────────────────────────────────────────────*/
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes soft-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(0.92); }
+}
+
+/* Account-panel tab underline — eases in on tab switch */
+@keyframes tab-underline-in {
+  from { transform: scaleX(0.35); opacity: 0.3; }
+  to   { transform: scaleX(1); opacity: 1; }
+}
+
+.fade-in {
+  animation: fade-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Restart toast — slides in under the tab bar; keyframes carry the -50%
+   centering translate so the entrance doesn't fight the utility class */
+.restart-toast {
+  animation: restart-toast-in 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes restart-toast-in {
+  from { opacity: 0; transform: translate(-50%, -10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.restart-toast-spin {
+  display: inline-block;
+  animation: restart-toast-spin 1.1s linear infinite;
+}
+@keyframes restart-toast-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .restart-toast { animation: none; }
+  .restart-toast-spin { animation: none; }
+}
+
+/* Ask bar minimize — the bar shrinks UP into the header's ASK chip and
+   unfolds back out of it, so the chip reads as where it went. Transform and
+   opacity only: the dock publishes its measured height as --composer-dock-h
+   and a layout-affecting animation would make that jitter. */
+.composer-collapsing {
+  animation: composer-collapse 170ms cubic-bezier(0.4, 0, 1, 1) both;
+  transform-origin: top center;
+  pointer-events: none;
+}
+@keyframes composer-collapse {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-10px) scale(0.965); }
+}
+.composer-restoring {
+  animation: composer-restore 200ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transform-origin: top center;
+}
+@keyframes composer-restore {
+  from { opacity: 0; transform: translateY(-8px) scale(0.975); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-collapsing, .composer-restoring { animation: none; }
+  .composer-collapsing { opacity: 0; }
+}
+
+.soft-pulse {
+  animation: soft-pulse 1.6s ease-in-out infinite;
+}
+
+/* Hairline borders that adapt to theme via currentColor mix */
+.hairline {
+  border: 1px solid var(--border-color);
+}
+.hairline-strong {
+  border: 1px solid var(--border-color-strong);
+}
+
+/* Refined focus ring used on interactive elements that aren't inputs */
+.focus-ring:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-color) 40%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Subtle chip used across the UI */
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  border: 1px solid var(--border-color-strong);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+.ui-chip:hover {
+  border-color: var(--border-color-strong);
+  color: var(--text-primary);
+}
+
+/* Soft divider that fades at the edges */
+.divider-soft {
+  height: 1px;
+  width: 100%;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--border-color-strong),
+    transparent
+  );
+}
+
+/* Glow ring used around the agent button while running */
+.ring-running {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--crt-blue) 50%, transparent),
+    0 0 12px -2px color-mix(in srgb, var(--crt-blue) 60%, transparent);
+}
+
+/* Make pre/code blocks easier on the eyes */
+pre, code, kbd, samp {
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, Consolas, monospace;
+  font-variant-ligatures: none;
+}
+
+/* Smooth color/border transitions on common interactive elements */
+button, a, [role="button"], select, input, textarea {
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease,
+    transform 100ms ease;
+}
+
+/* Standard button hover lift — only when not disabled */
+button:not(:disabled):hover {
+  transition-duration: 120ms;
+}
+
+/* Refined hr-style spacer for sidebar sections */
+.section-rule {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Helper: muted label */
+.label-muted {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* Refined select hover/focus state already exists; add a disabled variant */
+select:disabled,
+input:disabled,
+textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Slightly brighter inline code */
+code:not(pre code) {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.92em;
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+  color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, var(--accent-color) 18%, transparent);
+}
+
+/* Tighter, calmer placeholders site-wide */
+::placeholder {
+  font-weight: 400;
+}
+
+/* Tooltip-ish title decoration (no JS) — uses default browser title */
+
+/* Subtle marquee gradient for "loading" strips, if used */
+.loading-strip {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent-color) 18%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Readability bump
+ *
+ * The whole dashboard was authored with `text-[10px]` / `text-[11px]` /
+ * `text-[12px]` arbitrary-value classes. On a real phone (let alone a
+ * laptop sitting on a desk) those are eye-strain territory. Rather than
+ * touch every call site we override the generated tailwind classes here.
+ *
+ * Desktop: a gentle +1–2px nudge so labels actually read.
+ * Mobile (< 768px): more aggressive — the design becomes single-column
+ *   anyway, so we have room to spend.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+/* Desktop nudges — tiny labels were criminally small */
+.text-\[8px\]  { font-size: 10px !important; }
+.text-\[9px\]  { font-size: 11px !important; }
+.text-\[10px\] { font-size: 12px !important; }
+.text-\[10\.5px\] { font-size: 12.5px !important; }
+.text-\[11px\] { font-size: 13px !important; }
+.text-\[12px\] { font-size: 14px !important; }
+.text-\[12\.5px\] { font-size: 14.5px !important; }
+.text-\[13px\] { font-size: 15px !important; }
+.text-\[13\.5px\] { font-size: 15.5px !important; }
+.text-\[14px\] { font-size: 16px !important; }
+.text-\[14\.5px\] { font-size: 16.5px !important; }
+.text-\[15px\] { font-size: 16.5px !important; }
+.text-\[16px\] { font-size: 17.5px !important; }
+.text-\[18px\] { font-size: 20px !important; }
+
+/* Bento primitive sizes — used by the .bento-* utility classes */
+.bento-title { font-size: 14px !important; letter-spacing: 0.08em !important; }
+.bento-value { font-size: 34px !important; }
+.bento-sub   { font-size: 15px !important; }
+.label-muted { font-size: 11.5px !important; letter-spacing: 0.12em !important; }
+.ui-chip     { font-size: 12px !important; }
+.cid-chip    { font-size: 13.5px !important; padding: 5px 12px !important; }
+
+/* Glass + version primitives */
+.glass-btn       { font-size: 14.5px !important; padding: 10px 18px !important; }
+.version-row .msg  { font-size: 13px !important; }
+.version-row .meta { font-size: 11.5px !important; }
+.version-row .glass-btn { font-size: 11.5px !important; padding: 3px 8px !important; }
+.version-row .cid-chip  { font-size: 11px !important; padding: 3px 8px !important; }
+
+/* Pixel button (used throughout for action chips) */
+.pixel-btn { font-size: 14px !important; padding: 9px 18px !important; }
+
+/* Mobile: turn everything up a notch — at a glance the dashboard
+ * should be readable from arm's length on a phone. */
+@media (max-width: 767px) {
+  html, body { font-size: 18px; }
+
+  .text-\[8px\]  { font-size: 13px !important; }
+  .text-\[9px\]  { font-size: 14px !important; }
+  .text-\[10px\] { font-size: 15px !important; }
+  .text-\[10\.5px\] { font-size: 15.5px !important; }
+  .text-\[11px\] { font-size: 16px !important; }
+  .text-\[12px\] { font-size: 17px !important; }
+  .text-\[12\.5px\] { font-size: 17.5px !important; }
+  .text-\[13px\] { font-size: 18px !important; }
+  .text-\[13\.5px\] { font-size: 18.5px !important; }
+  .text-\[14px\] { font-size: 19px !important; }
+  .text-\[14\.5px\] { font-size: 19.5px !important; }
+  .text-\[15px\] { font-size: 20px !important; }
+  .text-\[16px\] { font-size: 21px !important; }
+  .text-\[18px\] { font-size: 24px !important; }
+
+  .bento-title { font-size: 15px !important; }
+  .bento-value { font-size: 36px !important; }
+  .bento-sub   { font-size: 16px !important; }
+  .label-muted { font-size: 12.5px !important; }
+  .ui-chip     { font-size: 13px !important; padding: 5px 10px !important; }
+  .cid-chip    { font-size: 15px !important; padding: 6px 14px !important; }
+
+  .glass-btn   { font-size: 16px !important; padding: 12px 20px !important; }
+  .pixel-btn   { font-size: 15px !important; padding: 11px 20px !important; }
+
+  /* Bigger comfy tap targets — anything visibly button-like */
+  button, [role="button"], a, select, input, textarea {
+    min-height: 38px;
+  }
+  /* But don't force-grow inline tiny chips inside a row layout */
+  .ui-chip, .cid-chip, .commit-chip,
+  button.text-\[8px\], button.text-\[9px\], button.text-\[10px\] {
+    min-height: 0;
+  }
+
+  /* Side-scrolling tab rows on phone — let the OVERVIEW/APP/API/LOGS/FILES
+     row scroll instead of wrap into a stacked mess. */
+  .nav-tabs-mobile-scroll {
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    scrollbar-width: none;
+  }
+  .nav-tabs-mobile-scroll::-webkit-scrollbar { display: none; }
+
+  /* Cards: more vertical breathing room on phone */
+  .bento { padding: 18px 18px; border-radius: 18px; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * iPhone / touch-screen editor pass
+ *
+ * Two goals: (1) file editor needs to be comfortably legible on a phone
+ * while thumb-typing, (2) avoid the iOS Safari auto-zoom-on-focus
+ * behavior that triggers whenever an input/textarea has effective
+ * font-size < 16px. Code views and editor textareas inherit `font-code`
+ * (JetBrains Mono), so we anchor on that selector.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+/* Always: code-font textareas and pre blocks read at a real size, with
+ * a touch more line-height so wrapping is easy on the eyes. */
+textarea.font-code,
+pre.font-code,
+.font-code textarea,
+.font-code pre {
+  font-size: 16px !important;
+  line-height: 1.55 !important;
+}
+
+/* iOS Safari refuses to NOT zoom when a focused input is < 16px. Pin
+ * every input/textarea to a 16px floor so tapping into a field never
+ * yanks the viewport. */
+@supports (-webkit-touch-callout: none) {
+  input, textarea, select {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
+/* Phone-specific editor bump and safe-area handling */
+@media (max-width: 767px) {
+  textarea.font-code,
+  pre.font-code,
+  .font-code textarea,
+  .font-code pre {
+    font-size: 18px !important;
+    line-height: 1.6 !important;
+  }
+
+  /* Respect the iPhone notch + home indicator so the dashboard chrome
+   * isn't clipped under system UI. */
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Kill the 300ms tap delay + flash on iOS for everything tappable. */
+  button, [role="button"], a, select, input, textarea, label {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * "Dope" polish — a little more depth on the section cards and
+ * a livelier accent bar where the codebase paints a 3px stripe on the
+ * left edge of each card. These rules don't change layout; they just
+ * make the surface feel less flat.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+:root[data-theme="dark"] .bento {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.025), transparent 30%),
+    var(--glass-bg);
+}
+
+/* Lift any rounded-lg card with an accent stripe (the codebase pattern
+ * `<div className="relative rounded-lg overflow-hidden">` followed by a
+ * 3px left bar). Adds a soft inset highlight + nicer shadow on hover. */
+.rounded-lg {
+  transition: box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease;
+}
+.rounded-lg:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* Animated LED dot — currently `led-pulse` keyframes only fade opacity.
+ * Add a subtle glow halo so the "ONLINE" badge actually reads as alive. */
+@keyframes led-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--crt-green) 60%, transparent),
+                0 0 4px color-mix(in srgb, var(--crt-green) 60%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--crt-green) 0%, transparent),
+                0 0 10px color-mix(in srgb, var(--crt-green) 70%, transparent);
+  }
+}
+.led-pulse {
+  animation: led-glow 2.2s ease-in-out infinite, led-pulse 2s ease-in-out infinite;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Section Card — unified primitive for the overview panel.
+ *
+ * Each card carries an accent color via --card-accent (set inline or
+ * via data-accent below). The bar, glyph and title pick it up; the
+ * background and border stay neutral-glassy so the six cards no longer
+ * fight each other for attention.
+ * ──────────────────────────────────────────────────────────────────────*/
+.section-card {
+  --card-accent: var(--accent-color);
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--card-accent) 14%, var(--border-color));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--card-accent) 2.5%, transparent), transparent 55%),
+    color-mix(in srgb, var(--glass-bg) 92%, transparent);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 1px 0 inset color-mix(in srgb, var(--card-accent) 6%, transparent), var(--shadow-sm);
+  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+}
+.section-card:hover {
+  border-color: color-mix(in srgb, var(--card-accent) 24%, var(--border-color-strong));
+  box-shadow: 0 1px 0 inset color-mix(in srgb, var(--card-accent) 8%, transparent), var(--shadow-md);
+}
+
+.section-card[data-accent="blue"]  { --card-accent: var(--crt-blue); }
+.section-card[data-accent="green"] { --card-accent: var(--crt-green); }
+.section-card[data-accent="amber"] { --card-accent: var(--crt-amber); }
+.section-card[data-accent="red"]   { --card-accent: var(--crt-red); }
+
+.section-card__bar {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--card-accent) 80%, transparent),
+    color-mix(in srgb, var(--card-accent) 25%, transparent));
+  pointer-events: none;
+}
+
+.section-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 14px 10px 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--card-accent) 8%, var(--border-color));
+}
+
+.section-card__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--card-accent) 88%, var(--text-primary));
+}
+
+.section-card__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  font-size: 11px;
+  line-height: 1;
+  background: color-mix(in srgb, var(--card-accent) 13%, transparent);
+  color: var(--card-accent);
+  border: 1px solid color-mix(in srgb, var(--card-accent) 22%, transparent);
+}
+
+.section-card__body {
+  padding: 12px 14px 14px 18px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Task cards — the TASKS view job list.
+ *
+ * Each card is a glass tile that carries its status color via
+ * --task-accent: a left accent bar, an accent-washed border, and (while
+ * running) a live shimmer strip along the bottom edge. Hover lifts the
+ * card and brightens the bar; cards stagger in via animation-delay set
+ * inline per row.
+ * ──────────────────────────────────────────────────────────────────────*/
+@keyframes task-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.task-card {
+  --task-accent: var(--accent-color);
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--task-accent) 10%, var(--border-color));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--task-accent) 4%, transparent), transparent 50%),
+    var(--glass-bg, var(--bg-secondary));
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: var(--shadow-sm);
+  animation: task-in 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.task-card::before {
+  /* status-tinted accent bar on the left edge */
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--task-accent) 85%, transparent),
+    color-mix(in srgb, var(--task-accent) 22%, transparent)
+  );
+  opacity: 0.75;
+  pointer-events: none;
+  transition: opacity 180ms ease, box-shadow 180ms ease;
+}
+
+.task-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--task-accent) 28%, var(--border-color-strong));
+  box-shadow:
+    0 8px 24px -10px color-mix(in srgb, var(--task-accent) 30%, rgba(0, 0, 0, 0.45)),
+    var(--shadow-md);
+}
+
+.task-card:hover::before {
+  opacity: 1;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--task-accent) 55%, transparent);
+}
+
+.task-card--running {
+  border-color: color-mix(in srgb, var(--task-accent) 28%, var(--border-color));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--task-accent) 16%, transparent),
+    0 4px 18px -8px color-mix(in srgb, var(--task-accent) 35%, transparent);
+}
+
+.task-card__progress {
+  /* live shimmer strip along the bottom edge of a running card */
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--task-accent) 85%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+  pointer-events: none;
+}
+
+/* Small metadata chip on a task card (model, module, attachments…). */
+.task-chip {
+  --chip-accent: var(--text-tertiary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-radius: 999px;
+  color: var(--chip-accent);
+  background: color-mix(in srgb, var(--chip-accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip-accent) 24%, transparent);
+}
+
+/* Hover action pill on a task card (Cancel / Replay / Delete). */
+.task-action {
+  --action-accent: var(--text-tertiary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--action-accent);
+  background: color-mix(in srgb, var(--action-accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--action-accent) 30%, transparent);
+  transition: background 140ms ease, border-color 140ms ease, transform 100ms ease;
+}
+
+.task-action:hover {
+  background: color-mix(in srgb, var(--action-accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--action-accent) 55%, transparent);
+}
+
+.task-action:active { transform: scale(0.96); }
+
+@media (max-width: 767px) {
+  .task-chip   { font-size: 12.5px; }
+  .task-action { font-size: 12.5px; padding: 5px 12px; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Reading sheet — the task stream is a *page*, not a wash.
+ *
+ * The header, the sticky sub-tabs and the log body are three stacked
+ * boxes sharing one material, so they read as a single sheet of paper
+ * with the shell (and, on the 8-bit themes, the World 1-1 scene) framing
+ * it in the gutters instead of showing through the text. Before this the
+ * stream had no background at all: monospace output rendered directly on
+ * sky blue.
+ * ──────────────────────────────────────────────────────────────────────*/
+:root {
+  --sheet-bg: var(--glass-bg, var(--bg-secondary));
+  /* The sticky strip needs the near-opaque variant — at 0.86 alpha the
+     header text underneath still reads through the blur. */
+  --sheet-bg-solid: var(--glass-bg-strong, var(--bg-secondary));
+  --sheet-border: var(--border-color);
+}
+
+.sheet {
+  position: relative;
+  background: var(--sheet-bg);
+  border-left: 1px solid var(--sheet-border);
+  border-right: 1px solid var(--sheet-border);
+  box-shadow: var(--sheet-shadow, none);
+}
+
+.sheet--head {
+  margin-top: 14px;
+  border-top: 1px solid var(--sheet-border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* The strip rides a sticky wrapper and scrolls over the log, so it needs the
+ * opaque variant of the material — translucent would smear the text under it. */
+.sheet--tabs {
+  background: var(--sheet-bg-solid, var(--sheet-bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--sheet-border) 55%, transparent);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+}
+
+.sheet--body {
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--sheet-border);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+/* The task list's search row — same material as the sheet, so the list view
+ * and the stream view are cut from one cloth. Its sticky dock stays see-
+ * through-but-blurred: cards pass under it without smearing the field. */
+.filter-bar {
+  background: var(--sheet-bg-solid, var(--sheet-bg));
+  border: 1px solid var(--sheet-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--sheet-shadow, var(--shadow-sm));
+}
+.task-filter-dock {
+  background: color-mix(in srgb, var(--bg-primary) 55%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+:root[data-theme="mario"] .filter-bar, :root[data-theme="warp"] .filter-bar { border-width: 2px; }
+
+/* Quiet variant of a metadata chip: present but not competing (the status
+ * counts in the filter bar, off until you click one). Specificity is
+ * deliberate — it has to outrank the light-base .task-chip ink fix. */
+:root .task-chip.task-chip--quiet {
+  color: var(--text-tertiary);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--text-tertiary) 26%, transparent);
+}
+:root .task-chip.task-chip--quiet:hover {
+  color: color-mix(in srgb, var(--chip-accent) 60%, var(--text-primary));
+  border-color: color-mix(in srgb, var(--chip-accent) 45%, transparent);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * HUB card wall — every module gets its own neon accent (--hub-accent,
+ * hashed from the module name in JS). Glass tile + accent wash, a sheen
+ * that sweeps across on hover, a soft lift-and-glow, and a staggered
+ * entrance so the wall cascades in instead of popping.
+ * ──────────────────────────────────────────────────────────────────────*/
+@keyframes hub-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.hub-card {
+  --hub-accent: var(--accent-color);
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--hub-accent) 18%, var(--border-color));
+  background:
+    radial-gradient(130% 100% at 0% 0%, color-mix(in srgb, var(--hub-accent) 9%, transparent), transparent 55%),
+    var(--glass-bg, var(--bg-secondary));
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  box-shadow: 0 1px 0 inset color-mix(in srgb, var(--hub-accent) 8%, transparent), var(--shadow-sm);
+  animation: hub-in 340ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+}
+
+/* accent bar down the left edge */
+.hub-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--hub-accent) 85%, transparent),
+    color-mix(in srgb, var(--hub-accent) 20%, transparent));
+  opacity: 0.7;
+  pointer-events: none;
+  transition: opacity 200ms ease, box-shadow 200ms ease;
+}
+
+/* sheen sweep — glides across the tile once per hover */
+.hub-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg,
+    transparent 40%,
+    color-mix(in srgb, var(--hub-accent) 14%, rgba(255,255,255,0.10)) 50%,
+    transparent 60%);
+  transform: translateX(-130%) skewX(-10deg);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hub-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--hub-accent) 50%, var(--border-color-strong));
+  box-shadow:
+    0 14px 34px -14px color-mix(in srgb, var(--hub-accent) 50%, rgba(0,0,0,0.5)),
+    0 0 0 1px color-mix(in srgb, var(--hub-accent) 22%, transparent),
+    var(--shadow-md);
+}
+.hub-card:hover::before {
+  opacity: 1;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--hub-accent) 60%, transparent);
+}
+.hub-card:hover::after {
+  transform: translateX(130%) skewX(-10deg);
+  opacity: 1;
+  transition: transform 600ms cubic-bezier(0.3, 0.6, 0.3, 1), opacity 150ms ease;
+}
+.hub-card:active { transform: translateY(-1px) scale(0.995); }
+
+/* online modules idle with a faint green halo — alive at a glance */
+.hub-card[data-live="true"] {
+  border-color: color-mix(in srgb, var(--hub-accent) 26%, var(--border-color));
+  box-shadow:
+    0 0 18px -8px color-mix(in srgb, var(--crt-green) 45%, transparent),
+    0 1px 0 inset color-mix(in srgb, var(--hub-accent) 8%, transparent),
+    var(--shadow-sm);
+}
+
+/* the module currently loaded in the editor */
+.hub-card[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--hub-accent) 60%, transparent);
+  background:
+    radial-gradient(130% 100% at 0% 0%, color-mix(in srgb, var(--hub-accent) 16%, transparent), transparent 60%),
+    var(--glass-bg, var(--bg-secondary));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--hub-accent) 30%, transparent),
+    0 8px 26px -12px color-mix(in srgb, var(--hub-accent) 45%, transparent);
+}
+
+/* Live page preview at the top of a hub card — the module's own website,
+ * full-bleed. Fixed 16:10 so the wall stays on a grid whatever the page
+ * looks like; the shot pans down a touch on hover to hint it's a real page. */
+.hub-shot {
+  --hub-accent: var(--accent-color);
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  overflow: hidden;
+  background:
+    linear-gradient(160deg,
+      color-mix(in srgb, var(--hub-accent) 16%, transparent),
+      color-mix(in srgb, var(--hub-accent) 4%, transparent)),
+    var(--bg-primary);
+  border: 1px solid color-mix(in srgb, var(--hub-accent) 16%, var(--border-color));
+}
+.hub-shot__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  transition: opacity 260ms ease, transform 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.hub-card:hover .hub-shot__img { transform: scale(1.03); }
+
+/* shimmer while the capture is being taken/fetched */
+@keyframes hub-shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+.hub-shot__skeleton {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.hub-shot__skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in srgb, var(--hub-accent) 18%, rgba(255,255,255,0.06)),
+    transparent);
+  animation: hub-shimmer 1.4s ease-in-out infinite;
+}
+.hub-shot__fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  color: color-mix(in srgb, var(--hub-accent) 70%, transparent);
+  letter-spacing: 0.04em;
+}
+
+/* "Add a module" tile — gradient dashed invite that glows on approach */
+.hub-add-card {
+  position: relative;
+  border-radius: 16px;
+  border: 1.5px dashed color-mix(in srgb, var(--accent-color) 45%, transparent);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-color) 7%, transparent),
+    color-mix(in srgb, var(--accent-color-2, var(--crt-blue)) 5%, transparent));
+  animation: hub-in 340ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease, background 200ms ease;
+}
+.hub-add-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent-color);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-color) 13%, transparent),
+    color-mix(in srgb, var(--accent-color-2, var(--crt-blue)) 9%, transparent));
+  box-shadow: 0 12px 30px -12px color-mix(in srgb, var(--accent-color) 45%, transparent);
+}
+.hub-add-card__plus {
+  background: linear-gradient(135deg, var(--accent-color), var(--accent-color-2, var(--crt-blue)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.hub-add-card:hover .hub-add-card__plus { transform: scale(1.18) rotate(90deg); }
+
+/* Aurora backdrop for the HUB — two slow-drifting color blobs behind the
+ * card wall. Pure transform animation (GPU-cheap), pointer-transparent. */
+.hub-aurora {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.hub-aurora::before,
+.hub-aurora::after {
+  content: "";
+  position: absolute;
+  width: 46vw;
+  height: 46vw;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.14;
+  will-change: transform;
+}
+.hub-aurora::before {
+  top: -18%;
+  left: -10%;
+  background: radial-gradient(circle, var(--accent-color), transparent 65%);
+  animation: aurora-a 26s ease-in-out infinite alternate;
+}
+.hub-aurora::after {
+  bottom: -22%;
+  right: -8%;
+  background: radial-gradient(circle, var(--accent-color-2, var(--crt-blue)), transparent 65%);
+  animation: aurora-b 34s ease-in-out infinite alternate;
+}
+@keyframes aurora-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(10vw, 7vh, 0) scale(1.18); }
+}
+@keyframes aurora-b {
+  from { transform: translate3d(0, 0, 0) scale(1.12); }
+  to   { transform: translate3d(-9vw, -7vh, 0) scale(0.95); }
+}
+:root[data-theme="light"] .hub-aurora::before,
+:root[data-theme="light"] .hub-aurora::after { opacity: 0.09; }
+
+/* Home-hero badge: a slow breathing glow so the landing view feels alive.
+ * Animates box-shadow only (the badge is a single small element, cheap). */
+@keyframes hero-breathe {
+  0%, 100% { box-shadow: 0 0 44px -6px rgba(167,139,250,0.55), inset 0 1px 0 rgba(255,255,255,0.10); }
+  50%      { box-shadow: 0 0 64px -4px rgba(167,139,250,0.8),  inset 0 1px 0 rgba(255,255,255,0.14); }
+}
+.hero-glow-breathe { animation: hero-breathe 4.5s ease-in-out infinite; }
+
+/* Respect users who asked the OS for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .hub-card, .hub-add-card { animation: none; }
+  .hub-card:hover::after { transition: none; opacity: 0; }
+  .hub-aurora::before, .hub-aurora::after { animation: none; }
+  .hub-add-card:hover .hub-add-card__plus { transform: none; }
+  .hero-glow-breathe { animation: none; }
+}
+
+/* Reusable status pill that picks up an accent via --pill-accent. Used by
+ * the ONLINE/OFFLINE chips on Gateway / API / APP tiles. */
+.status-pill {
+  --pill-accent: var(--crt-green);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  color: var(--pill-accent);
+  background: color-mix(in srgb, var(--pill-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pill-accent) 28%, transparent);
+}
+.status-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--pill-accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--pill-accent) 70%, transparent);
+}
+
+/* One control chrome for the wallet identity strip (address · QR · network),
+ * so every button in that row is the same height, radius and hover — they
+ * used to be three hand-rolled sizes. Accent per button via --ctl-accent. */
+.wallet-ctl {
+  --ctl-accent: var(--crt-green);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 9px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.wallet-ctl.square { width: 30px; padding: 0; }
+.wallet-ctl:hover {
+  color: var(--ctl-accent);
+  background: color-mix(in srgb, var(--ctl-accent) 8%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--ctl-accent) 40%, transparent);
+}
+/* Open panel — the button stays lit while the thing it opened is on screen. */
+.wallet-ctl[aria-expanded="true"] {
+  color: var(--ctl-accent);
+  background: color-mix(in srgb, var(--ctl-accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ctl-accent) 45%, transparent);
+}
+.wallet-ctl:active { transform: scale(0.96); }
+.wallet-ctl__caret { transition: transform 140ms ease; }
+.wallet-ctl[aria-expanded="true"] .wallet-ctl__caret { transform: rotate(180deg); }
+
+/* Themed hover tooltip. components/Tooltip.tsx draws every `title=` (and the
+   older hand-rolled `data-tip`) as this bubble — the gray OS chrome clashes
+   hard with the dark console and lands a second late. One node portalled to
+   <body> and placed in JS: it centers on the anchor, flips above it at the
+   bottom edge and clamps at the sides, so no call site has to say where it
+   sits. Transform is the position, so the fade must not touch it. */
+.tip-bubble {
+  position: fixed;
+  top: 0;
+  left: 0;
+  /* Above every layer that can own a hint — the header (320) and the modals
+     (9999) included, or the bubble's caret slides under the very chrome the
+     pointer is on. */
+  z-index: 10000;
+  padding: 5px 9px;
+  border-radius: 7px;
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.45;
+  /* Hints carry newlines (task status · module · age); wrap them instead of
+     ellipsing the tail the way the old one-line bubble did. */
+  white-space: pre-line;
+  max-width: min(320px, 84vw);
+  color: var(--text-secondary);
+  /* Built from the panel tokens, not its own colors, so the bubble is a small
+     version of whatever a floating surface is in this theme: soft glass under
+     the dark skins, an opaque cloud-cream card with a 2px pixel border and a
+     hard drop shadow under mario/win95. */
+  background: var(--glass-bg-strong);
+  border: var(--pixel-border, 1px) solid var(--border-color-strong);
+  border-radius: min(7px, var(--radius-sm, 7px));
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  animation: tip-in 90ms ease-out;
+}
+/* Rotated square sharing the bubble's fill, with the two borders facing the
+   anchor left showing — the corner pokes out, the rest hides behind. */
+.tip-caret {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  margin-left: -4px;
+  background: inherit;
+  border: var(--pixel-border, 1px) solid var(--border-color-strong);
+  transform: rotate(45deg);
+}
+.tip-bubble[data-side="below"] .tip-caret { top: -4.5px; border-right: 0; border-bottom: 0; }
+.tip-bubble[data-side="above"] .tip-caret { bottom: -4.5px; border-left: 0; border-top: 0; }
+@keyframes tip-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Header control cluster — HUB · TASKS · ASK · PARAMS · theme · SPLIT ·
+   fold. Symbol-only buttons, so the name lives in the data-tip. */
+.hdr-chip:hover { filter: brightness(1.3); }
+@media (max-width: 767px) {
+  /* Thumb-sized on a phone, where the tab strip side-scrolls. */
+  .hdr-chip { height: 30px !important; min-width: 34px !important; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Mobile header vibe — two slim strips: a title bar (orbit mark +
+ * address pill + account chips) over the APP/CODE/INFO tab strip. A
+ * soft green wash keeps the instrument-panel feel without the old
+ * three-row bulk. Appended LAST so these win the generic size bumps.
+ * ──────────────────────────────────────────────────────────────────────*/
+@media (max-width: 767px) {
+  .console-header {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--crt-green) 5%, transparent), transparent 70%),
+      var(--bg-secondary) !important;
+    box-shadow:
+      0 6px 20px rgba(0, 0, 0, 0.25),
+      inset 0 -1px 0 color-mix(in srgb, var(--crt-green) 12%, transparent);
+  }
+
+  /* Title bar breathing room. */
+  .hdr-account-row { padding-top: 8px !important; padding-bottom: 8px !important; }
+
+  /* APP / CODE / INFO — symbol only, so the glyph carries the tab: a
+     bigger icon inside a thumb-sized box, thick active bar. */
+  .mod-tab {
+    padding: 10px 14px !important;
+    border-bottom-width: 3px !important;
+    margin-bottom: -1px !important;
+  }
+  .mod-tab svg { width: 19px !important; height: 19px !important; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * ☮ BABE RAINBOW — psychedelic light mode ☮
+ *
+ * Dark stays the moody glass console. Flipping to light drops the whole
+ * UI into a groovy pastel-rainbow wash: sunset-blob backdrop, rainbow
+ * hairlines on cards, prismatic buttons and gradient headings. All the
+ * color rides on tokens + these overrides — no markup changes needed.
+ * Appended LAST so it wins the cascade over the base primitives above.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+/* Native form controls / scrollbars follow the theme. */
+:root { color-scheme: dark; }
+:root[data-base="light"] { color-scheme: light; }
+
+/* Shared rainbow ramps (cyclical — first == last so pans loop clean). */
+:root {
+  --rainbow: linear-gradient(90deg,
+    #ff2d95, #ff7a18, #ffc700, #2bd97c, #22b8ff, #8a5cff, #ff2d95);
+  --rainbow-soft: linear-gradient(90deg,
+    #ffd1ec, #ffe3c6, #fdf7c0, #cff5dd, #cfe8ff, #e6d9ff, #ffd1ec);
+  --rainbow-ink: linear-gradient(90deg,
+    #d61f76, #dd5a0b, #a16207, #047857, #0369a1, #7c3aed, #d61f76);
+}
+
+@keyframes rainbow-pan {
+  from { background-position: 0% 50%; }
+  to   { background-position: 300% 50%; }
+}
+
+/* Sunset-blob backdrop — four pastel color fields breathing behind the
+ * glass tiles. Fixed attachment, zero layout cost. */
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(ellipse 70% 55% at 12% -5%,  rgba(255,138,216,0.26), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 95% 5%,   rgba(255,199,113,0.24), transparent 60%),
+    radial-gradient(ellipse 55% 45% at 85% 100%, rgba(124,199,255,0.24), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 5% 105%,  rgba(148,255,196,0.22), transparent 60%),
+    linear-gradient(180deg, #fffdf7 0%, #fff5fb 100%);
+  background-attachment: fixed;
+}
+
+/* Header band → soft rainbow strip (inline style pins var(--bg-secondary),
+ * so this needs !important to win). White veil keeps chips legible. */
+:root[data-theme="light"] .console-header {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.55)),
+    var(--rainbow-soft) !important;
+  background-size: 100% 100%, 300% 100% !important;
+  animation: rainbow-pan 30s linear infinite;
+  box-shadow: 0 1px 0 rgba(147,51,234,0.14), 0 8px 28px -18px rgba(236,72,153,0.35) !important;
+}
+
+/* Cards: candy borders + a rainbow hairline across the top edge. */
+:root[data-theme="light"] .bento,
+:root[data-theme="light"] .section-card,
+:root[data-theme="light"] .task-card,
+:root[data-theme="light"] .hub-card {
+  border-color: rgba(168, 85, 247, 0.22);
+  box-shadow:
+    0 10px 28px -14px rgba(236,72,153,0.22),
+    0 3px 10px rgba(139,92,246,0.10);
+}
+:root[data-theme="light"] .bento::before {
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  animation: rainbow-pan 12s linear infinite;
+  opacity: 0.55;
+}
+:root[data-theme="light"] .bento:hover::before { opacity: 0.9; }
+
+/* Section / bento titles trip out — animated gradient ink (colors are all
+ * dark enough to read at 800 weight on the pale wash). */
+:root[data-theme="light"] .bento-title,
+:root[data-theme="light"] .section-card__title {
+  background: var(--rainbow-ink);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent;
+  animation: rainbow-pan 9s linear infinite;
+}
+:root[data-theme="light"] .section-card__glyph {
+  background: rgba(192,38,211,0.10);
+  color: #c026d3;
+  border-color: rgba(192,38,211,0.30);
+}
+
+/* Prismatic primary actions — the full spectrum, slowly drifting. */
+:root[data-theme="light"] .glass-btn.primary,
+:root[data-theme="light"] .snap-btn,
+:root[data-theme="light"] .pixel-btn:not(.pixel-btn-red):not(.pixel-btn-amber):not(.pixel-btn-blue) {
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  animation: rainbow-pan 8s linear infinite;
+  border-color: transparent;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(60,0,60,0.35);
+  box-shadow: 0 6px 20px -6px rgba(236,72,153,0.55);
+}
+:root[data-theme="light"] .glass-btn.primary:hover,
+:root[data-theme="light"] .snap-btn:hover {
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  filter: saturate(1.25) brightness(1.05);
+  box-shadow: 0 8px 26px -6px rgba(236,72,153,0.65);
+}
+
+/* CID chips go bubblegum. */
+:root[data-theme="light"] .cid-chip {
+  background: rgba(236,72,153,0.10);
+  border-color: rgba(236,72,153,0.32);
+  color: #c02690;
+}
+:root[data-theme="light"] .cid-chip:hover { background: rgba(236,72,153,0.18); }
+
+/* Rainbow scrollbar + hot-pink selection. */
+:root[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ff8ac2, #ffc37a, #7ee2a8, #7ec3ff, #b89aff);
+  background-clip: padding-box;
+}
+:root[data-theme="light"] ::selection {
+  background: rgba(255,45,149,0.28);
+  color: #2a1245;
+}
+
+/* HUB aurora blobs: crank the lava lamp. (Overrides the dim 0.09 above.) */
+:root[data-theme="light"] .hub-aurora::before {
+  background: radial-gradient(circle, #ff7ac8, transparent 65%);
+  opacity: 0.30;
+}
+:root[data-theme="light"] .hub-aurora::after {
+  background: radial-gradient(circle, #6cc7ff, transparent 65%);
+  opacity: 0.26;
+}
+
+/* Status pills & LED glows read warmer on any pale wash. */
+:root[data-base="light"] .status-pill {
+  background: color-mix(in srgb, var(--pill-accent) 10%, #ffffff);
+  color: color-mix(in srgb, var(--pill-accent) 62%, var(--text-primary));
+}
+/* Chip inks are picked for dark glass (neon violets, ambers); on a light
+   page they wash out to near-invisible. Pull each accent toward the body
+   ink and give the chip a solid fill so the metadata row still reads. */
+:root[data-base="light"] .task-chip {
+  color: color-mix(in srgb, var(--chip-accent) 48%, var(--text-primary));
+  background: color-mix(in srgb, var(--chip-accent) 14%, #ffffff);
+  border-color: color-mix(in srgb, var(--chip-accent) 42%, transparent);
+}
+:root[data-base="light"] .task-action {
+  color: color-mix(in srgb, var(--action-accent) 52%, var(--text-primary));
+  background: color-mix(in srgb, var(--action-accent) 10%, #ffffff);
+  border-color: color-mix(in srgb, var(--action-accent) 40%, transparent);
+}
+:root[data-base="light"] .vtl-note.ok  { background: rgba(5,150,105,0.08); }
+:root[data-base="light"] .vtl-note.err { background: rgba(225,29,72,0.08); }
+
+/* Skeleton shimmer needs a darker sheen than rgba(255,…) on white. */
+:root[data-base="light"] .vtl-skel {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent-color) 8%, transparent),
+    color-mix(in srgb, var(--accent-color) 16%, transparent),
+    color-mix(in srgb, var(--accent-color) 8%, transparent));
+  background-size: 200% 100%;
+}
+
+/* ── Per-theme backdrop flavor ─────────────────────────────────────────
+ * The token blocks up top carry the palette; these add each theme's
+ * signature wash behind the glass tiles. */
+:root[data-theme="matrix"] body {
+  background:
+    radial-gradient(ellipse 85% 55% at 50% -10%, rgba(0,255,127,0.08), transparent 60%),
+    #010502;
+  background-attachment: fixed;
+}
+/* Phosphor scanlines — fixed overlay, no layout cost, clicks pass through. */
+:root[data-theme="matrix"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg, rgba(0,0,0,0.16) 0px, rgba(0,0,0,0.16) 1px, transparent 1px, transparent 3px);
+  opacity: 0.5;
+}
+:root[data-theme="neon"] body {
+  background:
+    radial-gradient(ellipse 60% 50% at 8% 0%,   rgba(255,45,160,0.16), transparent 60%),
+    radial-gradient(ellipse 55% 45% at 95% 95%, rgba(15,240,212,0.13), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 5%,  rgba(70,60,255,0.12), transparent 60%),
+    #0a0416;
+  background-attachment: fixed;
+}
+:root[data-theme="ember"] body {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 110%, rgba(255,120,30,0.14), transparent 65%),
+    radial-gradient(ellipse 60% 40% at 10% -5%,  rgba(255,158,44,0.07), transparent 60%),
+    #0c0603;
+  background-attachment: fixed;
+}
+:root[data-theme="abyss"] body {
+  background:
+    radial-gradient(ellipse 70% 55% at 50% -10%, rgba(56,189,248,0.10), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 85% 105%, rgba(45,212,191,0.08), transparent 60%),
+    #030b18;
+  background-attachment: fixed;
+}
+:root[data-theme="paper"] body {
+  background:
+    radial-gradient(ellipse 70% 50% at 50% -10%, rgba(154,91,44,0.06), transparent 60%),
+    linear-gradient(180deg, #f7f2e9 0%, #f2ead9 100%);
+  background-attachment: fixed;
+}
+/* Win95 goes all the way: no rounded corners anywhere. Inline styles pin
+ * fixed radii (borderRadius: 999 etc.), so tokens alone can't win — the
+ * blanket !important is the only lever, and it's visual-only. */
+:root[data-theme="win95"] body { background: #c0c0c0; }
+:root[data-theme="win95"] * { border-radius: 0 !important; }
+:root[data-theme="win95"] * { text-shadow: none !important; }
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Theme toggle — a little round portal in the header. Dark mode shows a
+ * 🌈 invitation; light mode shows the ☾ way home, wrapped in a live
+ * spinning rainbow ring (conic border via mask-composite).
+ * ──────────────────────────────────────────────────────────────────────*/
+.theme-toggle {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  border: 1px solid var(--border-color-strong);
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow 200ms ease;
+}
+.theme-toggle:hover { transform: translateY(-1px) rotate(10deg) scale(1.06); }
+.theme-toggle:active { transform: scale(0.94); }
+.theme-toggle::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(#ff5f6d, #ffc371, #fdff8f, #7bffb0, #6cc7ff, #b18cff, #ff8ce1, #ff5f6d);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  animation: hue-spin 4s linear infinite;
+  pointer-events: none;
+}
+.theme-toggle:hover::before { opacity: 1; }
+:root[data-theme="light"] .theme-toggle {
+  background: rgba(255,255,255,0.8);
+  box-shadow: 0 2px 10px rgba(236,72,153,0.25);
+}
+:root[data-theme="light"] .theme-toggle::before { opacity: 0.9; }
+@keyframes hue-spin {
+  to { filter: hue-rotate(360deg); }
+}
+@media (max-width: 767px) {
+  .theme-toggle { width: 38px; height: 38px; font-size: 18px; }
+}
+
+/* Theme picker — the toggle now opens a dropdown of every theme, each row
+ * showing swatch dots sampled straight from that theme's palette. */
+.theme-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  min-width: 190px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: var(--radius-md);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-border-strong);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(14px);
+  animation: profileMenuExpandLeft 160ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  transform-origin: top right;
+}
+.theme-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease, color 120ms ease;
+}
+.theme-menu__item:hover {
+  background: color-mix(in srgb, var(--accent-color) 10%, transparent);
+  color: var(--text-primary);
+}
+.theme-menu__item[aria-checked="true"] {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent-color) 40%, transparent);
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+}
+.theme-menu__swatch {
+  display: inline-flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.theme-menu__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.25);
+}
+.theme-menu__glyph { width: 18px; text-align: center; flex-shrink: 0; }
+@media (max-width: 767px) {
+  /* Fatter touch rows on phones. */
+  .theme-menu { min-width: 230px; }
+  .theme-menu__item { padding: 12px 12px; font-size: 14px; }
+  .theme-menu__dot { width: 12px; height: 12px; }
+}
+
+/* Chill out for reduced-motion users — rainbow stays, motion stops. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="light"] .console-header,
+  :root[data-theme="light"] .bento::before,
+  :root[data-theme="light"] .bento-title,
+  :root[data-theme="light"] .section-card__title,
+  :root[data-theme="light"] .glass-btn.primary,
+  :root[data-theme="light"] .snap-btn,
+  :root[data-theme="light"] .pixel-btn,
+  .theme-toggle::before {
+    animation: none;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * 🍄 WORLD 1-1 — the 8-bit skin shared by MARIO (overworld) and WARP
+ * (underground). Colors ride the token blocks up top; this section does
+ * the structure: a row of ground blocks pinned to the viewport bottom,
+ * scenery (clouds, bush, hill, warp pipe), faint CRT scanlines, square corners everywhere (inline styles pin
+ * radii, so the win95-style blanket !important is the only lever),
+ * pixel type on interface chrome, and buttons that press down like a
+ * stomped block. Appended LAST so it wins the cascade.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+/* Overworld: flat sky with pixel clouds, scanlines, scenery (bush, hill,
+ * warp pipe) and orange brick ground. Each cloud/bush/hill is stacked flat
+ * boxes (narrow rows over wide rows) so it reads as an 8-bit sprite. The
+ * scene paints on html — NOT body — so the sprites peek through the
+ * gutters behind the 90%-opaque panels. The composer dock moved up under
+ * the header, so the ground line sits at the viewport bottom again. */
+:root[data-theme="mario"], :root[data-theme="warp"] {
+  --world-floor: 0px;
+}
+:root[data-theme="mario"] {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 3px, #0000000d 3px 4px),
+    linear-gradient(#fffdf2, #fffdf2) 12% 74px / 42px 14px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 12% 88px / 78px 14px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 52% 40px / 34px 12px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 52% 52px / 64px 12px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 88% 110px / 46px 14px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 88% 124px / 86px 14px no-repeat,
+    linear-gradient(90deg, #16161f 0 2px, #98e698 2px 10px, #43b047 10px 40px, #186a18 40px 46px, #16161f 46px 48px) right 7% bottom calc(var(--world-floor) + 64px) / 48px 14px no-repeat,
+    linear-gradient(90deg, #16161f 0 2px, #98e698 2px 8px, #43b047 8px 33px, #186a18 33px 38px, #16161f 38px 40px) right calc(7% + 4px) bottom calc(var(--world-floor) + 28px) / 40px 36px no-repeat,
+    linear-gradient(#4ab04a, #4ab04a) left 30% bottom calc(var(--world-floor) + 40px) / 44px 12px no-repeat,
+    linear-gradient(#4ab04a, #4ab04a) left 30% bottom calc(var(--world-floor) + 28px) / 80px 14px no-repeat,
+    linear-gradient(#2d8a2d, #2d8a2d) left 68% bottom calc(var(--world-floor) + 56px) / 40px 14px no-repeat,
+    linear-gradient(#2d8a2d, #2d8a2d) left 68% bottom calc(var(--world-floor) + 42px) / 76px 14px no-repeat,
+    linear-gradient(#2d8a2d, #2d8a2d) left 68% bottom calc(var(--world-floor) + 28px) / 112px 14px no-repeat,
+    linear-gradient(180deg, #00000073 0 2px, #ffffff26 2px 4px, transparent 4px) left 0 bottom var(--world-floor) / 100% 28px repeat-x,
+    repeating-linear-gradient(90deg, #ff8a3c 0 2px, #c84c0c 2px 28px, #7a2600 28px 32px) left 0 bottom var(--world-floor) / 32px 28px repeat-x,
+    var(--bg-primary);
+  background-attachment: fixed;
+}
+:root[data-theme="mario"] body { background: transparent; }
+
+/* Underground: near-black, scanlines, blue brick ceiling AND ground, a few
+ * gold coin pixels floating in the dark. Same html-not-body trick. */
+:root[data-theme="warp"] {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 3px, #0000001a 3px 4px),
+    linear-gradient(#fbd000, #fbd000) 18% 34% / 6px 9px no-repeat,
+    linear-gradient(#fbd000, #fbd000) 63% 22% / 6px 9px no-repeat,
+    linear-gradient(#fbd000, #fbd000) 87% 56% / 6px 9px no-repeat,
+    linear-gradient(#fbd000, #fbd000) 34% 68% / 6px 9px no-repeat,
+    linear-gradient(#fbd000, #fbd000) 76% 80% / 6px 9px no-repeat,
+    linear-gradient(0deg, #000000a6 0 2px, #ffffff14 2px 4px, transparent 4px) left top / 100% 20px repeat-x,
+    repeating-linear-gradient(90deg, #4a66d8 0 2px, #2f43ac 2px 28px, #1a2570 28px 32px) left top / 32px 20px repeat-x,
+    linear-gradient(180deg, #00000073 0 2px, #ffffff26 2px 4px, transparent 4px) left 0 bottom var(--world-floor) / 100% 28px repeat-x,
+    repeating-linear-gradient(90deg, #4a66d8 0 2px, #2f43ac 2px 28px, #1a2570 28px 32px) left 0 bottom var(--world-floor) / 32px 28px repeat-x,
+    var(--bg-primary);
+  background-attachment: fixed;
+}
+:root[data-theme="warp"] body { background: transparent; }
+
+/* No rounded corners on an 8-bit console; sprites render pixelated. */
+:root[data-theme="mario"] *, :root[data-theme="warp"] * { border-radius: 0 !important; }
+:root[data-theme="mario"] img, :root[data-theme="warp"] img { image-rendering: pixelated; }
+
+/* Coin-flash selection. */
+:root[data-theme="mario"] ::selection,
+:root[data-theme="warp"] ::selection { background: #fbd000; color: #000; }
+
+/* Pixel type on interface chrome — titles, labels, chips and pills. Prose
+ * and code keep their faces so job output and CIDs stay readable. Sizes
+ * need !important to beat the readability-bump overrides above. */
+:root[data-theme="mario"] .bento-title,   :root[data-theme="warp"] .bento-title,
+:root[data-theme="mario"] .section-card__title, :root[data-theme="warp"] .section-card__title,
+:root[data-theme="mario"] .label-muted,   :root[data-theme="warp"] .label-muted {
+  font-family: 'Press Start 2P', 'JetBrains Mono', monospace;
+  font-size: 10px !important;
+  letter-spacing: 0.06em !important;
+  line-height: 1.7;
+}
+:root[data-theme="mario"] .ui-chip,      :root[data-theme="warp"] .ui-chip,
+:root[data-theme="mario"] .status-pill,  :root[data-theme="warp"] .status-pill,
+:root[data-theme="mario"] .task-chip,    :root[data-theme="warp"] .task-chip,
+:root[data-theme="mario"] .task-action,  :root[data-theme="warp"] .task-action,
+:root[data-theme="mario"] .vtl-tag,      :root[data-theme="warp"] .vtl-tag {
+  font-family: 'Press Start 2P', 'JetBrains Mono', monospace;
+  font-size: 8px !important;
+  letter-spacing: 0.06em;
+  line-height: 1.9;
+}
+:root[data-theme="mario"] .theme-menu__item, :root[data-theme="warp"] .theme-menu__item {
+  font-family: 'Press Start 2P', 'JetBrains Mono', monospace;
+  font-size: 9px;
+  line-height: 1.8;
+}
+
+/* Sprite outlines: thicken the big surfaces to 2px cartoon borders. */
+:root[data-theme="mario"] .bento,         :root[data-theme="warp"] .bento,
+:root[data-theme="mario"] .section-card,  :root[data-theme="warp"] .section-card,
+:root[data-theme="mario"] .task-card,     :root[data-theme="warp"] .task-card,
+:root[data-theme="mario"] .hub-card,      :root[data-theme="warp"] .hub-card,
+:root[data-theme="mario"] .theme-menu,    :root[data-theme="warp"] .theme-menu {
+  border-width: 2px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* The sheet is outlined like a sprite too — but only on the sides it
+   actually shows, so the three stacked boxes still read as one page. */
+:root[data-theme="mario"] .sheet, :root[data-theme="warp"] .sheet {
+  border-left-width: 2px;
+  border-right-width: 2px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+:root[data-theme="mario"] .sheet--head, :root[data-theme="warp"] .sheet--head { border-top-width: 2px; }
+:root[data-theme="mario"] .sheet--body, :root[data-theme="warp"] .sheet--body { border-bottom-width: 2px; }
+
+/* Task cards are blocks sitting ON the level, so they get opaque paint and
+   a hard drop shadow instead of the glass wash — and they press in on
+   hover the way every other 8-bit control does, no float. */
+:root[data-theme="mario"] .task-card { background: #fffdf2; }
+:root[data-theme="warp"]  .task-card { background: #0b1024; }
+:root[data-theme="mario"] .task-card, :root[data-theme="warp"] .task-card {
+  border-color: var(--sheet-border);
+  box-shadow: var(--sheet-shadow);
+}
+:root[data-theme="mario"] .task-card:hover, :root[data-theme="warp"] .task-card:hover {
+  transform: translate(2px, 2px);
+  border-color: var(--sheet-border);
+  box-shadow: 1px 1px 0 color-mix(in srgb, var(--sheet-border) 30%, transparent);
+}
+/* Accent bar reads as a sprite stripe: full-bleed, 4px, flat paint. */
+:root[data-theme="mario"] .task-card::before, :root[data-theme="warp"] .task-card::before {
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: var(--task-accent);
+  opacity: 1;
+}
+
+/* Primary actions become fire-flower blocks: flat red fill, beveled
+ * sprite edges, and a press-down instead of a hover-lift. */
+:root[data-theme="mario"] .glass-btn.primary, :root[data-theme="warp"] .glass-btn.primary,
+:root[data-theme="mario"] .snap-btn,          :root[data-theme="warp"] .snap-btn,
+:root[data-theme="mario"] .pixel-btn:not(.pixel-btn-amber):not(.pixel-btn-blue),
+:root[data-theme="warp"]  .pixel-btn:not(.pixel-btn-amber):not(.pixel-btn-blue) {
+  background: #e52521;
+  border: 2px solid #16161f;
+  color: #fff;
+  text-shadow: 1px 1px 0 #8c100d;
+  box-shadow: inset 2px 2px 0 #ff7261, inset -2px -2px 0 #8c100d, var(--shadow-sm);
+}
+:root[data-theme="mario"] .glass-btn.primary:hover, :root[data-theme="warp"] .glass-btn.primary:hover,
+:root[data-theme="mario"] .snap-btn:hover,          :root[data-theme="warp"] .snap-btn:hover,
+:root[data-theme="mario"] .pixel-btn:not(:disabled):hover,
+:root[data-theme="warp"]  .pixel-btn:not(:disabled):hover {
+  background: #ff3b30;
+  transform: none;
+  filter: none;
+  box-shadow: inset 2px 2px 0 #ff7261, inset -2px -2px 0 #8c100d, var(--shadow-sm);
+}
+:root[data-theme="mario"] button:active:not(:disabled),
+:root[data-theme="warp"]  button:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+/* CID chips are coin blocks — gold with a coin-edge bevel. */
+:root[data-theme="mario"] .cid-chip, :root[data-theme="warp"] .cid-chip {
+  background: #fbd000;
+  border: 2px solid #16161f;
+  color: #3a2200;
+  box-shadow: inset 2px 2px 0 #ffe66d, inset -2px -2px 0 #c77d11;
+}
+:root[data-theme="mario"] .cid-chip:hover, :root[data-theme="warp"] .cid-chip:hover {
+  background: #ffdd2e;
+  animation: coin-flip 0.4s ease;
+}
+/* Touched coins spin once — an edge-on squeeze, no mirror (CIDs stay
+ * readable mid-flip). */
+@keyframes coin-flip {
+  0%, 100% { transform: scaleX(1); }
+  50% { transform: scaleX(0.12); }
+}
+
+/* Kill the purple-tinted glass washes; blocks are flat paint. */
+:root[data-theme="mario"] .bento.accent, :root[data-theme="warp"] .bento.accent {
+  background: var(--glass-bg);
+  border-color: var(--border-color-strong);
+}
+:root[data-theme="mario"] .bento::before, :root[data-theme="warp"] .bento::before {
+  display: none;
+}
+
+/* Theme toggle: the round portal becomes a ? block. */
+:root[data-theme="mario"] .theme-toggle, :root[data-theme="warp"] .theme-toggle {
+  background: #fbd000;
+  border: 2px solid #16161f;
+  box-shadow: inset 2px 2px 0 #ffe66d, inset -2px -2px 0 #c77d11;
+}
+:root[data-theme="mario"] .theme-toggle:hover, :root[data-theme="warp"] .theme-toggle:hover {
+  transform: none;
+}
+/* …with the four corner rivets every ? block has. This repurposes the
+ * ::before that draws the rainbow portal ring elsewhere, so the ring's
+ * mask/padding/animation all need explicit resets. Offsets assume the
+ * 30px toggle (38px on mobile, below). */
+:root[data-theme="mario"] .theme-toggle::before,
+:root[data-theme="warp"] .theme-toggle::before {
+  content: "";
+  position: absolute;
+  inset: auto;
+  left: 4px;
+  top: 4px;
+  width: 3px;
+  height: 3px;
+  padding: 0;
+  background: #7a5a00;
+  -webkit-mask: none;
+  mask: none;
+  box-shadow: 19px 0 #7a5a00, 0 19px #7a5a00, 19px 19px #7a5a00;
+  opacity: 1;
+  animation: none;
+}
+@media (max-width: 767px) {
+  :root[data-theme="mario"] .theme-toggle::before,
+  :root[data-theme="warp"] .theme-toggle::before {
+    box-shadow: 27px 0 #7a5a00, 0 27px #7a5a00, 27px 27px #7a5a00;
+  }
+}
+
+/* RUNNING jobs go starman — the pill dot strobes the invincibility
+ * palette. steps(1): palettes swap, they don't tween. */
+:root[data-theme="mario"] .status-pill__dot.soft-pulse,
+:root[data-theme="warp"] .status-pill__dot.soft-pulse {
+  animation: starman 0.5s steps(1) infinite;
+  box-shadow: none;
+}
+@keyframes starman {
+  0%, 100% { background: #e52521; }
+  25% { background: #fbd000; }
+  50% { background: #43b047; }
+  75% { background: #049cd8; }
+}
+
+/* Blocky scrollbar — a solid brick, no pill. */
+:root[data-theme="mario"] ::-webkit-scrollbar-thumb {
+  background: #c84c0c;
+  border: 2px solid #7a2600;
+}
+:root[data-theme="warp"] ::-webkit-scrollbar-thumb {
+  background: #2f43ac;
+  border: 2px solid #1a2570;
+}
+
+/* Coin-gold focus ring — keyboard nav reads like coin selection. */
+:root[data-theme="mario"] :focus-visible,
+:root[data-theme="warp"] :focus-visible {
+  outline: 3px solid #fbd000;
+  outline-offset: 1px;
+}
+
+/* The ? block theme toggle glints every few seconds, waiting to be bopped.
+ * steps(1) snaps between frames — no tween on an 8-bit console. */
+@keyframes qblock-glint {
+  0%, 88%, 100% { filter: brightness(1); }
+  92% { filter: brightness(1.4); }
+  96% { filter: brightness(0.92); }
+}
+:root[data-theme="mario"] .theme-toggle,
+:root[data-theme="warp"] .theme-toggle {
+  animation: qblock-glint 3.4s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="mario"] .glass-btn.primary,
+  :root[data-theme="warp"] .glass-btn.primary,
+  :root[data-theme="mario"] .theme-toggle,
+  :root[data-theme="warp"] .theme-toggle,
+  :root[data-theme="mario"] .status-pill__dot.soft-pulse,
+  :root[data-theme="warp"] .status-pill__dot.soft-pulse,
+  :root[data-theme="mario"] .cid-chip:hover,
+  :root[data-theme="warp"] .cid-chip:hover { animation: none; }
+}

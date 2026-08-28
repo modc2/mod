@@ -1,6 +1,6 @@
 {
     "name": "caddy",
-    "description": "caddy",
-    "version": "0.1.0",
-    "schema": "QmZsrwmRaRUrjG94iH4m5M89mCXZgR9q9E6fDSULe7gTB9"
+    "description": "The mod router: generated {host}/{mod} Caddy site from module configs; owner-configurable host",
+    "version": "0.2.0",
+    "schema": "QmUb6XT3hpr32Q6w1RaWGJttZAhu4Lscne2gAm6EmnbZDs"
 }

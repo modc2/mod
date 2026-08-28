@@ -50,7 +50,7 @@ mod/core/store/
 
 ```bash
 cd ~/mod/mod/core/store
-docker compose up --build         # API: 50150, App: 50151
+docker compose up --build         # API: 50152, App: 50151
 # open http://localhost:50151
 ```
 
@@ -95,11 +95,16 @@ m store/stop                      # pm2 stop
 | GET    | `/whitelist` | —    | owner + allowed uploader addresses |
 | POST   | `/whitelist` | owner| add an address `{address}` |
 | DELETE | `/whitelist` | owner| remove an address `?address=0x…` |
-| POST   | `/put`       | ✓ wl | multipart upload (form: `file, backend, key, public, pool`) |
-| POST   | `/register`  | ✓ wl | reference an external CID `{cid, scheme?, backend?, url?, public?, pool?}` |
+| POST   | `/put`       | ✓ wl+tos | multipart upload (form: `file, backend, key, public, pool`) |
+| POST   | `/register`  | ✓ wl+tos | reference an external CID `{cid, scheme?, backend?, url?, public?, pool?}` |
+| GET    | `/terms`     | opt  | current terms of service text + version (+`accepted` if auth) |
+| POST   | `/terms/accept` | ✓ | sign-accept the current terms (required before `put`/`register`) |
+| GET    | `/terms/accepts` | owner | liability audit: every signed acceptance on record |
 | GET    | `/get`       | opt  | retrieve by CID; private objects need `?token=` or Bearer |
 | GET    | `/preview`   | opt  | peek content: truncated text + `size`/`truncated` flag |
 | GET    | `/object`    | opt  | full info: stored when/by-whom, backends, visibility, semhash, **who has access** |
+| GET    | `/graph`     | ✓    | the whole CID graph: `nodes` + `edges` (`?scope=all` adds shared, `?isolated=true` adds unlinked) |
+| POST   | `/graph/scan`| ✓    | re-derive the graph from content (`?scope=all` = every object, owner only) |
 | POST   | `/publish`   | owner| flip an object private⇄public `{cid, public}` |
 | POST   | `/pin`       | ✓ wl | pin a CID on a backend |
 | GET    | `/pins`      | ✓    | list the caller's pinned objects |
@@ -107,7 +112,8 @@ m store/stop                      # pm2 stop
 | GET    | `/list`      | ✓    | list caller's objects (+`visibility/scheme/url/semhash`) |
 | GET    | `/search`    | ✓    | filter by `q`/backend/scheme/visibility; rank by `semantic_q` |
 | GET    | `/shared`    | ✓    | objects shared **with** caller (grants + pools) |
-| DELETE | `/rm`        | ✓ wl | remove an index record |
+| DELETE | `/rm`        | ✓    | delete **own** object; the module owner may remove **any** content (`?reason=…`, logged) |
+| GET    | `/takedowns` | owner| moderation audit log of admin content removals |
 | DELETE | `/pools/{id}`| owner| delete a pool (members + objects) |
 | POST   | `/tickets`   | ✓    | mint single-use short-TTL fetch ticket `{cid, ttl_seconds=10}` |
 | GET    | `/tickets`   | ✓    | the caller's active (unused, unexpired) tickets |
@@ -124,9 +130,82 @@ m store/stop                      # pm2 stop
 | DELETE | `/pools/{id}/objects` | owner/editor | unpool an object `?cid=…` |
 | POST   | `/handoff`   | ✓    | mint a one-time code carrying my session token `{ttl_seconds?}` |
 | GET    | `/handoff/{code}` | — | claim → token (single use, short TTL) |
+| GET    | `/market`    | opt  | browse the storefront `?q=&tag=&seller=&sort=hot|new|top&free=1` |
+| POST   | `/market/list` | ✓ wl+tos | list an object you own `{cid, title, description?, tags?, price_bloc?}` |
+| DELETE | `/market/list` | ✓  | delist `?cid=…`; admin delisting others' = logged takedown |
+| POST   | `/market/acquire` | ✓ | get a listed item — free, or **hold** ≥ `price_bloc` BlocTime |
+| POST   | `/market/like` | ✓  | toggle a like (one per wallet) |
+| GET    | `/market/mine` | ✓  | my listings + my acquisitions |
+| POST   | `/mcp`       | opt  | Model Context Protocol tool server (JSON-RPC 2.0) — see **MCP** below |
 
 `✓` = valid protocol token required; `✓ wl` = token **and** whitelist membership;
+`+tos` = also requires a signed acceptance of the current terms of service;
 `opt` = optional token (anonymous allowed for public objects).
+
+## MCP
+
+The API doubles as a **Model Context Protocol** server (Streamable HTTP,
+plain-JSON responses — no SSE), so any MCP client (Claude, IDEs, agent
+frameworks) can drive the store as tools:
+
+- `POST /api/store/mcp` via the gateway, or `http://localhost:50152/mcp` direct
+- Auth: the same `Authorization: Bearer <mod protocol token>` header as the
+  REST API. Public tools work anonymously; authed tools return a clean
+  `isError` tool result (not an HTTP 401) when the token is missing/invalid.
+- `GET /mcp` → 405; notifications get an empty `202`.
+
+| Tool | Auth | What |
+|------|------|------|
+| `store_status` | — | service + backend status |
+| `store_market_browse` | — | browse the marketplace (`q`/`tag`/`seller`/`sort`/`free`) |
+| `store_terms` | — | current terms of service text + version |
+| `store_me` | ✓ | caller identity, quota, authorization + terms state |
+| `store_list` | ✓ | the caller's objects (optional `backend` filter) |
+| `store_search` | ✓ | substring (`q`) + semantic (`semantic_q`) search, `scope` mine/shared/all |
+| `store_get` | opt | preview object content by CID (`max_bytes` cap); public objects need no auth |
+| `store_object_info` | opt | full object profile incl. the CID links graph |
+| `store_graph` | ✓ | the whole CID graph: nodes (key/size/upload time) + edges (`scope`, `isolated`) |
+| `store_put_text` | ✓ wl+tos | store a text/JSON payload (`name`, `text`, `backend`, `public`, `pool`) |
+| `store_share` | ✓ | timed read grant (`grantee`, `cid`, `ttl_seconds`) |
+| `store_pin` / `store_pins` | ✓ | pin a CID / list the caller's pins |
+| `store_pools` | ✓ | pools the caller owns or belongs to |
+
+```bash
+# handshake, then call a public tool
+curl -s localhost:50152/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}'
+curl -s localhost:50152/mcp -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"store_market_browse","arguments":{"sort":"new"}}}'
+```
+
+## Marketplace (listings · likes · BlocTime-priced access)
+
+The store ships a storefront over objects that already live in it: sellers
+list a CID with a title/description/tags and a price, browsable by anyone at
+`GET /market` (hot/new/top ranking, tag + seller filters, full-text search).
+Pricing reuses the on-chain BlocTime gate instead of inventing a payment rail:
+
+- `price_bloc = 0` — a **free drop**: any signed-in caller can grab it.
+- `price_bloc > 0` — the buyer must **hold** ≥ that much BlocTime on-chain.
+  Holdings are the ticket; nothing is transferred or held in custody.
+
+"Buying" mints a **permanent read grant** (seller → buyer) through the normal
+Access layer, so acquired items appear under `/shared` and every read path
+(get / preview / QR tickets) works unchanged. Listing a *private* object sells
+access; listing a *public* one makes a discoverable free drop. Listings are
+metadata only (`~/.mod/store/market.json`) — delisting never deletes bytes.
+The admin may delist any listing; such moderation lands in the takedown audit.
+
+## Terms of service & moderation (liability)
+
+Every uploader must **sign-accept** the versioned terms (`terms.md`,
+`terms_version` in config.json) before storing: the acceptance is recorded in
+`~/.mod/store/terms.json` together with the caller's wallet-signed session
+token as proof. The terms make the uploader solely responsible for their
+content and let the operator remove anything illegal. Bumping `terms_version`
+requires everyone to re-accept. The module owner can take down **any** object
+via `DELETE /rm?cid=…&reason=…`; non-own removals are appended to
+`~/.mod/store/takedowns.json` and auditable at `GET /takedowns`.
 
 ## Access model (grants · pools · QR handoff · CID-agnostic)
 
@@ -135,6 +214,7 @@ Private auth/access state lives under `~/.mod/store/` (never committed):
 | File | What |
 |------|------|
 | `owner.json` / `whitelist.json` / `quotas.json` | admin, uploaders, per-user byte limits |
+| `terms.json` / `takedowns.json` | signed ToS acceptances, moderation audit log |
 | `access.db` (SQLite) | per-object ACL, timed grants, pools + members + objects, QR handoff codes |
 
 - **Visibility** — uploads are **private** by default (`public=true` to open, or
@@ -179,6 +259,15 @@ Private auth/access state lives under `~/.mod/store/` (never committed):
   it, backends, visibility, pinned state, the semantic hash, and (for the owner)
   the full access roster: every active grant (grantee/scope/expiry) and every
   pool it lives in. Non-owners only learn whether *they* can read it.
+- **CID graph** — every upload is scanned for CID-shaped tokens in its content,
+  and each hit is recorded as an edge: this object was *mapped from* that one.
+  `GET /graph` returns the whole picture at once — nodes carry key, size and
+  **upload time**, edges carry direction — so a manifest and the parts it names
+  form a visible cluster. CIDs the store doesn't hold come back as `external`
+  nodes (the store is cid-agnostic; a link out is still a link). Edges are only
+  shown when the caller can read the *source* object, so the graph can't leak
+  the existence of someone else's private data. `POST /graph/scan` re-derives
+  the edges for objects stored before their target existed.
 - **Pin management** — `GET /pins` lists your pins; `POST /pin` pins (and tracks)
   a CID; `DELETE /pin?cid=…` unpins.
 - **Content viewer** — `GET /preview?cid=…&max_bytes=…` returns up to N bytes
@@ -187,7 +276,9 @@ Private auth/access state lives under `~/.mod/store/` (never committed):
 
 The app surfaces all of this: instant CID/name search + a 🧠 semantic toggle, a
 per-object content viewer (truncate + copy-all), a 📱 one-time-ticket QR for
-phone hand-off, an object-info panel, a fetch-by-CID box, and a pins tab.
+phone hand-off, an object-info panel, a fetch-by-CID box, a pins tab, upload
+times on every object row, and a 🕸 **Graph** tab that draws the whole CID graph
+(force-directed, hover for details, click to open, `rescan` to re-derive).
 
 ## On-chain (BlocTime + chain Registry)
 
@@ -219,13 +310,33 @@ startup, default `false` to avoid unprompted gas). Env overrides:
 
 ## Protocol auth flow
 
-1. App: MetaMask `personal_sign` over `JSON.stringify({data, time})`.
+1. App: `personal_sign` over `JSON.stringify({data, time})` — from MetaMask, or
+   from a **local key** (below).
 2. App assembles a base64url token `{data, time, key, signature}` — the envelope
    produced/verified by `mod core/server/auth` (`m.mod('auth')`).
 3. App stores the token in `localStorage`, sends `Authorization: Bearer <token>`.
 4. Server `AUTH.verify(token)` recovers the signer; the `key` field **is** the
    caller's address and the per-object `owner`. Tokens expire after
    `STORE_SESSION_TTL` (no server-side session/nonce state).
+
+### Local sign-in (no wallet extension)
+
+*Continue without a wallet* mints an ethers keypair **in the browser** and signs
+the same envelope with it — the API can't tell it from MetaMask (identical
+address space, identical `v=27/28` signature). The key is persisted in
+`localStorage` under `store:localkey` and is exempt from the quota-eviction sweep
+in `app/src/lib/safeStorage.ts`; everything else the module stores is
+re-derivable, this isn't.
+
+- Sessions renew silently: an expired token is re-signed on load instead of
+  bouncing the user to the sign-in screen (no prompt to accept).
+- The 🔑 chip button reveals the key for backup, imports another key, or erases
+  it. Erasing without a backup orphans everything stored under that address.
+- It's a browser-held key, not a vault — anything with access to the profile
+  (including neighbouring modules on the shared modc2.com origin) can read it.
+  The UI says so; treat local accounts as throwaway identities.
+- Server-side it's just another unwhitelisted address: view-only until the owner
+  whitelists it or it holds BlocTime.
 
 ## Access control & quotas (off-chain)
 
@@ -258,7 +369,7 @@ can also do this live via `POST /whitelist`).
 | `HIPPIUS_S3_ENDPOINT` | `https://s3.hippius.com` | S3 gateway |
 | `HIPPIUS_S3_KEY` / `_SECRET` / `_BUCKET` | — | S3 credentials |
 | `HIPPIUS_IPFS_GATEWAY` | `https://get.hippius.network` | retrieval gateway |
-| `STORE_API_PORT` / `STORE_APP_PORT` | `50150` / `50151` | port overrides |
+| `STORE_API_PORT` / `STORE_APP_PORT` | `50152` / `50151` | port overrides |
 
 ## Architecture
 
@@ -268,7 +379,7 @@ can also do this live via `POST /whitelist`).
    └──────┬──────────────┘
           │ Bearer <protocol token>
    ┌──────▼──────────────┐
-   │ FastAPI (50150)     │  AUTH.verify → whitelist + quota → /put /get …
+   │ FastAPI (50152)     │  AUTH.verify → whitelist + quota → /put /get …
    └──────┬──────────────┘
           │
    ┌──────▼──────────────┐

@@ -1,6 +1,152 @@
 {
     "name": "0xprof",
-    "description": "0xprof",
-    "version": "0.1.0",
-    "schema": "QmTRKR73c1pWjSxk53TN6bmyFwXydL4VgbCceMHGNQ3YQX"
+    "version": "1.0.0",
+    "description": "A marketplace for zero-knowledge proofs where nothing is taken on one verifier's word. Every proof published here is checked by every method this box can bring to bear — its own pairing arithmetic in Python, iden3's snarkjs in a subprocess, an independent BigInt implementation of the sigma protocols, Ethereum's own alt_bn128 precompiles over eth_call, and the real Solidity verifier contract compiled from the verification key and executed by a public node through an eth_call state override, without ever being deployed — and each answer is kept and published separately. Two agreeing methods make a proof `verified`; one makes it `claimed`; a disagreement makes it `disputed`, which is the outcome the whole design exists to surface. A visitor can also verify in their own tab with the snarkjs wasm bundle, and that answer is recorded as a witness that can contest a proof but never promote one. On top of the verifier sits the market: proofs are sold with their statement and every verdict public and only the bytes gated, bounties fund proofs that do not exist yet from escrow against a mechanical spec, and a proof that stops verifying after it was sold can be refunded against the seller's balance. groth16, plonk, fflonk, merkle inclusion, schnorr, chaum-pedersen and pedersen openings, with the not-zero-knowledge ones labelled as such.",
+    "icon": "◈",
+    "anchor": "mod.py",
+    "protocol": "0xprof/1.0",
+    "port": 50610,
+    "app_port": 50611,
+    "gateway_port": 50610,
+    "base_path": "/0xprof",
+    "route": true,
+    "urls": {
+        "api": "http://localhost:50610",
+        "app": "http://localhost:50611/0xprof",
+        "same_origin_api": "http://localhost:50611/0xprof/_api",
+        "gateway_api": "https://modc2.com/api/0xprof",
+        "gateway_app": "https://modc2.com/0xprof"
+    },
+    "backend": "src/api/api.py (FastAPI — the API, :50610)",
+    "frontend": "src/app/server.py (stdlib — the console at /0xprof on :50611; proxies /0xprof/_api to the API)",
+    "state": "the store mod (prefix 0xprof/, blobs shared); ~/.mod/0xprof holds only the HMAC secret, the owner claim and the solidity compile cache",
+    "storage": "store",
+    "deps": [
+        "store"
+    ],
+    "systems": {
+        "groth16": "native, snarkjs, evm, solidity, browser",
+        "plonk": "snarkjs, solidity, browser",
+        "fflonk": "snarkjs, solidity, browser",
+        "merkle": "native, node, browser",
+        "schnorr": "native, node, browser",
+        "dleq": "native, node, browser",
+        "pedersen": "native, node, browser"
+    },
+    "methods": {
+        "native": "this process — py_ecc pairings and hand-written secp256k1, depending on nothing else",
+        "snarkjs": "a node subprocess running iden3's reference implementation",
+        "node": "a node subprocess running an independent BigInt implementation of the sigma protocols and the tree walk",
+        "evm": "a public ethereum node's alt_bn128 precompiles (0x06/0x07/0x08) over eth_call — no contract, no gas",
+        "solidity": "the real verifier contract, rendered from the verification key, compiled with solc and executed by a public node through an eth_call state override — never deployed",
+        "browser": "the visitor's own tab with the snarkjs wasm bundle — a witness, never a verification",
+        "attest": "a signed verdict from another address — a peer's replay"
+    },
+    "verification": {
+        "quorum": 2,
+        "authoritative": [
+            "native",
+            "snarkjs",
+            "node",
+            "evm",
+            "solidity"
+        ],
+        "witness": [
+            "browser",
+            "attest"
+        ],
+        "statuses": [
+            "unverified",
+            "claimed",
+            "verified",
+            "invalid",
+            "disputed"
+        ],
+        "attribution": "every run is logged against the address that asked for it; a re-verification over HTTP needs a personal_sign naming that proof, and ZKPROF_OPEN does not waive it. The methods verify; an address only makes them run"
+    },
+    "endpoints": {
+        "info": "GET /",
+        "health": "GET /health",
+        "status": "GET /status",
+        "systems": "GET /systems | GET /systems/{name}",
+        "methods": "GET /methods",
+        "verify": "POST /verify",
+        "prove": "POST /prove",
+        "sample": "GET /sample?system=&circuit=",
+        "proofs": "GET|POST /proofs, POST /proofs/upload",
+        "proof": "GET|DELETE /proofs/{id}",
+        "recheck": "POST /proofs/{id}/verify — signed: needs {address, message, signature} from personal_sign over the challenge below",
+        "recheck_challenge": "POST /proofs/{id}/verify/challenge",
+        "checks": "GET /proofs/{id}/checks — every run of the methods, and who asked",
+        "attest": "POST /proofs/{id}/attest",
+        "buy": "POST /proofs/{id}/buy",
+        "refund": "POST /proofs/{id}/refund",
+        "bounties": "GET|POST /bounties, GET /bounties/{id}, POST /bounties/{id}/submit, POST /bounties/{id}/cancel, POST /bounties/sweep",
+        "account": "GET /account/{address} | GET /me | POST /credits/grant",
+        "auth": "POST /auth/challenge | POST /auth/verify | GET /auth/me",
+        "bundle": "GET /vendor/snarkjs.min.js",
+        "console": "GET /0xprof (app service)",
+        "verifiers": "GET /verifiers — the addresses that have checked things here"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "readme",
+        "health",
+        "status",
+        "systems",
+        "methods",
+        "verify",
+        "prove",
+        "proofs",
+        "proof",
+        "publish",
+        "recheck",
+        "checks",
+        "verifiers",
+        "buy",
+        "refund",
+        "bounties",
+        "bounty",
+        "submit",
+        "sweep",
+        "account",
+        "grant",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "env": {
+        "ZKPROF_DIR": "off-tree state: HMAC secret, owner claim, solidity compile cache (default: ~/.mod/0xprof)",
+        "ZKPROF_OPEN": "1 treats every caller as signed in — local development only",
+        "ZKPROF_OWNER": "fallback owner address when no owner.json has been claimed",
+        "ZKPROF_RPC": "comma-separated EVM RPC endpoints for the evm and solidity methods (default: public keyless nodes)",
+        "ZKPROF_RPC_TIMEOUT": "seconds to wait on an RPC (default 12)",
+        "ZKPROF_NODE": "the node binary (default: node on PATH)",
+        "ZKPROF_NODE_TIMEOUT": "seconds a node verifier may take (default 120)",
+        "ZKPROF_SOLC_TIMEOUT": "seconds a solc compile may take (default 180)",
+        "ZKPROF_PORT": "API port (default 50610)",
+        "ZKPROF_APP_PORT": "console port (default 50611)",
+        "ZKPROF_API": "where the console proxies to (default http://127.0.0.1:50610)"
+    },
+    "toolchain": {
+        "python": [
+            "py_ecc",
+            "fastapi",
+            "uvicorn",
+            "pycryptodome"
+        ],
+        "node": [
+            "snarkjs",
+            "solc",
+            "circomlib",
+            "circomlibjs"
+        ],
+        "optional": "circom — only needed to rebuild the fixtures from circuits/*.circom"
+    },
+    "services": [
+        "0xprof-api",
+        "0xprof-app"
+    ],
+    "schema": "QmPtx66HepQArfqiNciiHncWTMQgD5uWPkymGwyqWdBW41"
 }

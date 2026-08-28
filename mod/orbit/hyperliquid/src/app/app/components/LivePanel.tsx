@@ -3,19 +3,23 @@
 import { useEffect, useState } from "react";
 import {
   ago, fmtUsd, shortAddr,
-  signerAddress, approveAgentIntent,
+  agentStatus, walletConfig, type WalletNetConfig,
   liveStart, liveStop, liveStatus,
   type LiveTrader,
 } from "../lib/api";
+import { approveAgentFlow } from "../lib/hlActions";
 import { useWallet } from "../lib/wallet";
 
 type LiveStatusResp = Awaited<ReturnType<typeof liveStatus>>;
 
 export default function LivePanel() {
-  const { address } = useWallet();
+  const wallet = useWallet();
+  const { address, kind } = wallet;
   const eoa = address ?? "";
   const [agent, setAgent] = useState<string | null>(null);
+  const [approved, setApproved] = useState<boolean | null>(null);
   const [agentErr, setAgentErr] = useState<string | null>(null);
+  const [cfg, setCfg] = useState<WalletNetConfig | null>(null);
 
   const [tradersRaw, setTradersRaw] = useState("");
   const [intervalMs, setIntervalMs] = useState(15000);
@@ -30,14 +34,15 @@ export default function LivePanel() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Resolve the backend agent address for this user.
+  // Resolve the backend agent address + its on-HL approval state.
   useEffect(() => {
     if (!eoa) return;
-    setAgent(null); setAgentErr(null);
-    signerAddress(eoa)
-      .then((r) => setAgent(r.agentAddress))
+    setAgent(null); setApproved(null); setAgentErr(null);
+    agentStatus(eoa)
+      .then((r) => { setAgent(r.agentAddress); setApproved(r.approved); })
       .catch((e) => setAgentErr(String(e?.message ?? e)));
   }, [eoa]);
+  useEffect(() => { walletConfig().then(setCfg).catch(() => {}); }, []);
 
   // Poll status every 3s while running.
   useEffect(() => {
@@ -53,20 +58,13 @@ export default function LivePanel() {
   }, [eoa]);
 
   const onApproveAgent = async () => {
-    if (!eoa) return;
+    if (!eoa || !cfg) return;
     setBusy(true); setErr(null);
     try {
-      const r = await approveAgentIntent(eoa, "hl-engine");
-      // Hand the intent to whatever wallet the user has wired up. We don't
-      // ship an inline signer — the user signs in their browser wallet and
-      // posts the result back via /forward. Surface the JSON so they can
-      // copy/paste into a signing tool too.
-      alert(
-        "Sign this approveAgent payload with your master wallet and POST it back:\n\n" +
-        JSON.stringify({ action: r.action, nonce: r.nonce }, null, 2)
-      );
+      await approveAgentFlow(wallet, cfg, eoa, "hl-engine");
+      setApproved(true);
     } catch (e: any) {
-      setErr(String(e?.message ?? e));
+      setErr(e?.code === 4001 ? "Signature rejected in MetaMask." : String(e?.message ?? e));
     } finally { setBusy(false); }
   };
 
@@ -119,18 +117,26 @@ export default function LivePanel() {
             <div className="text-xs uppercase tracking-wider text-muted">Backend agent</div>
             <div className="text-sm mt-1">
               {agent
-                ? <span className="text-accent2">{shortAddr(agent)}</span>
+                ? <>
+                    <span className="text-accent2">{shortAddr(agent)}</span>
+                    {approved === true && <span className="text-win text-xs ml-2">approved ✓</span>}
+                    {approved === false && <span className="text-warn text-xs ml-2">not approved</span>}
+                  </>
                 : agentErr ? <span className="text-danger">{agentErr}</span>
                 : <span className="text-muted">resolving…</span>}
             </div>
             <p className="text-[11px] text-muted mt-2 max-w-xl">
-              Sign once with your master wallet to authorize this address. After
-              that, the engine signs every order/cancel/modify/transfer for you.
+              Sign once in MetaMask to authorize this address. After that, the
+              engine signs every order/cancel/modify/vault-transfer for you.
+              {kind === "watch" && <span className="text-warn"> Watch-only mode can't sign — connect MetaMask.</span>}
             </p>
           </div>
-          <button className="btn-primary" disabled={!agent || busy} onClick={onApproveAgent}>
-            approve agent
-          </button>
+          {approved !== true && (
+            <button className="btn-primary" disabled={!agent || !cfg || busy || kind !== "metamask"}
+              onClick={onApproveAgent}>
+              {busy ? "check MetaMask…" : "approve agent"}
+            </button>
+          )}
         </div>
       </section>
 

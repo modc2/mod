@@ -1,0 +1,68 @@
+{
+    "owner": "0x50e369357C40a2db175A16EC517Af77A60ef82d7",
+    "gas_sponsor": "0x6478255B80b561B4d8D96c02Ce86ffCeBbB9D09E",
+    "network": "http://localhost:8545",
+    "label": "0x50e36935",
+    "contracts": {
+        "ManualPriceOracle": {
+            "address": "0x1c871b1c85d4cd95c3cb65Ce2721c5E6956b303A",
+            "contract": "ManualPriceOracle",
+            "mod": "oracle"
+        },
+        "Perms": {
+            "address": "0x192acB342e9DE60b31C70C002D41Cfc24d8dc659",
+            "contract": "Perms",
+            "mod": "perms"
+        },
+        "Registry": {
+            "address": "0x10f8232907828d5DF3c16b81468EA44ca1E075cD",
+            "contract": "Registry",
+            "mod": "registry"
+        },
+        "USDC": {
+            "address": "0x175be5c9D3759a8747A83BbB86E7c2d5551242E9",
+            "contract": "Token",
+            "mod": "token"
+        },
+        "USDT": {
+            "address": "0x6654A52FcbafCe6a05E1f65b8a62201fB424A2A1",
+            "contract": "Token",
+            "mod": "token"
+        },
+        "DAI": {
+            "address": "0xF5f495b4Fdc2f272b9CaC5ea53da185109051792",
+            "contract": "Token",
+            "mod": "token"
+        },
+        "NativeToken": {
+            "address": "0x82d897cb4647853f8D60838D0558cda2128362D3",
+            "contract": "Token",
+            "mod": "token"
+        },
+        "BlocTime": {
+            "address": "0x85dC566cF85F573D5aBD5c2692Dbc962B6E1eD3D",
+            "contract": "BlocTime",
+            "mod": "bloctime"
+        },
+        "TokenGate": {
+            "address": "0x3E04BA3f8f63A6faB4044F4C35fF2c946C3c8ec0",
+            "contract": "TokenGate",
+            "mod": "tokengate"
+        },
+        "Treasury": {
+            "address": "0xF6e92eCD5F0AcfDB3b24F592438697B961655D53",
+            "contract": "Treasury",
+            "mod": "treasury"
+        },
+        "Market": {
+            "address": "0xb105f36bDBB04e9a4091ec3EEb39c73C6aBc0177",
+            "contract": "Market",
+            "mod": "market"
+        },
+        "Debit": {
+            "address": "0x357F867449c49A1E8fcA34D03d3aA5a5aF527736",
+            "contract": "Debit",
+            "mod": "debit"
+        }
+    }
+}

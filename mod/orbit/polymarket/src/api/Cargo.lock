@@ -1119,6 +1119,7 @@ dependencies = [
  "hex",
  "hmac",
  "k256",
+ "libc",
  "mockito",
  "parking_lot",
  "rand 0.8.6",

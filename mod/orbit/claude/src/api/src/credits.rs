@@ -660,7 +660,9 @@ mod tests {
 
     #[test]
     fn test_deposit_derivation_deterministic_and_distinct() {
-        // Point HOME at a temp dir so the test seeds its own store
+        // Point HOME at a temp dir so the test seeds its own store. HOME is
+        // process-global — take the shared lock so sudo's tests don't race us.
+        let _g = crate::home_test_lock();
         let tmp = std::env::temp_dir().join(format!("credits-test-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         let prev = std::env::var("HOME").ok();

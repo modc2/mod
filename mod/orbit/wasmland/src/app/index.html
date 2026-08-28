@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>wasmland — verifiable compute</title>
+<!-- The page is served at /wasmland and its API alias sits one segment down,
+     so every relative fetch resolves the same behind the gateway or on a bare
+     port. Pin the base rather than guessing per-deployment. -->
+<base href="/wasmland/">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="shell">
+  <aside id="sidebar">
+    <nav>
+      <button class="nav" data-view="market" aria-current="true"><span class="ic">▤</span><span>Market</span></button>
+      <button class="nav" data-view="upload"><span class="ic">↑</span><span>Publish</span></button>
+      <button class="nav" data-view="runs"><span class="ic">✓</span><span>Runs</span></button>
+      <button class="nav" data-view="engines"><span class="ic">◈</span><span>Compute</span></button>
+      <button class="nav" data-view="games"><span class="ic">◉</span><span>Arena</span></button>
+      <button class="nav" data-view="account"><span class="ic">◍</span><span>Account</span></button>
+    </nav>
+    <div class="rail-foot">
+      <div class="venue" id="venue-note"></div>
+    </div>
+  </aside>
+
+  <div id="main">
+    <header>
+      <!-- Tapping the logo toggles the sidebar. It is the one control that is
+           always in the same place, so it is the one that opens the rail. -->
+      <button id="logo" title="Tap the logo to show or hide the sidebar" aria-label="Toggle sidebar">
+        <span class="mark">◱</span><span class="word">wasmland</span>
+      </button>
+      <div class="grow"></div>
+      <span id="chain" class="pill" title="Where a run happens"></span>
+      <button id="signin" class="pill act">Sign in</button>
+    </header>
+
+    <main id="view"></main>
+  </div>
+</div>
+<div id="toast"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

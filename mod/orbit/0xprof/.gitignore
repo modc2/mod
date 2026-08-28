@@ -1,0 +1,17 @@
+# The node half is installed, not committed.
+node_modules/
+package-lock.json
+
+# Ceremony and proving artifacts: big, regenerable, and not what anyone needs
+# from a verifier. `./fixtures/build.sh` rebuilds all of it from circuits/.
+fixtures/*.ptau
+fixtures/*.zkey
+fixtures/*.r1cs
+fixtures/*_js/
+
+# The proofs, keys and public signals themselves stay in the repo — they are a
+# few kilobytes each and they are what the tests are measured against.
+
+__pycache__/
+*.pyc
+.pytest_cache/

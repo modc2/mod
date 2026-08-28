@@ -93,6 +93,7 @@ interface NetworkDeployment {
 interface ChainData {
   blockNumber: number | null
   balance: string | null
+  gasGwei: string | null
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -171,7 +172,7 @@ function ChainHubInner() {
   const [network, setNetwork] = useState('testnet')
   const [search, setSearch] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [chainData, setChainData] = useState<ChainData>({ blockNumber: null, balance: null })
+  const [chainData, setChainData] = useState<ChainData>({ blockNumber: null, balance: null, gasGwei: null })
   const [blockPulse, setBlockPulse] = useState(false)
   const prevBlock = useRef<number | null>(null)
 
@@ -209,12 +210,21 @@ function ChainHubInner() {
         } catch {}
       }
 
+      let gasGwei: string | null = null
+      try {
+        const fee = await provider.getFeeData()
+        if (fee.gasPrice !== null) {
+          const gwei = Number(fee.gasPrice) / 1e9
+          gasGwei = gwei >= 10 ? gwei.toFixed(1) : gwei.toPrecision(3)
+        }
+      } catch {}
+
       if (prevBlock.current !== null && blockNumber > prevBlock.current) {
         setBlockPulse(true)
         setTimeout(() => setBlockPulse(false), 1000)
       }
       prevBlock.current = blockNumber
-      setChainData({ blockNumber, balance })
+      setChainData({ blockNumber, balance, gasGwei })
     } catch {}
   }, [network, deployments])
 
@@ -286,15 +296,16 @@ function ChainHubInner() {
       footer={`${CHAIN_NAMES[network]} — chain hub`}
     >
       {/* ═══ Hero ═══ */}
-      <div className="fade-up pt-4 pb-2" style={{ '--i': 0 } as any}>
-        <h1 className="text-[34px] md:text-[42px] font-semibold tracking-[-0.03em] leading-tight text-white">
+      <div className="fade-up pt-1" style={{ '--i': 0 } as any}>
+        <h1 className="text-[24px] md:text-[30px] font-semibold tracking-[-0.03em] leading-tight text-white">
           The modular contract{' '}
           <span className="bg-gradient-to-r from-cyan-300 via-sky-300 to-violet-300 bg-clip-text text-transparent">
             ecosystem
           </span>
         </h1>
-        <p className="mt-2 text-[14px] text-white/40 max-w-xl">
+        <p className="mt-1 text-[13px] text-white/40 max-w-xl">
           Deploy, inspect and operate every protocol module on {CHAIN_NAMES[network]} — from one surface.
+          {' '}<a href="/docs" className="text-cyan-400/60 hover:text-cyan-300 transition-colors">New here? Start with the tutorial →</a>
         </p>
       </div>
 
@@ -321,7 +332,9 @@ function ChainHubInner() {
           {
             label: 'Balance',
             value: <span className="tabular-nums">{fmtBalance(chainData.balance)} <span className="text-[13px] text-white/35 font-medium">ETH</span></span>,
-            sub: 'native gas balance',
+            sub: chainData.gasGwei
+              ? <span className="tabular-nums">gas {chainData.gasGwei} gwei</span>
+              : 'native gas balance',
           },
           {
             label: 'Fleet',
@@ -333,10 +346,10 @@ function ChainHubInner() {
             sub: <span><span className="text-emerald-300/90 tabular-nums">{aliveCount}/{mods.length}</span> module APIs live</span>,
           },
         ].map((s, i) => (
-          <div key={s.label} className="glass glass-hover p-4 fade-up" style={{ '--i': i + 1 } as any}>
-            <p className="label mb-2">{s.label}</p>
-            <div className="stat-value text-[20px] md:text-[22px]">{s.value}</div>
-            <p className="text-[11px] text-white/30 mt-1.5">{s.sub}</p>
+          <div key={s.label} className="glass glass-hover px-4 py-3 fade-up" style={{ '--i': i + 1 } as any}>
+            <p className="label mb-1.5">{s.label}</p>
+            <div className="stat-value text-[18px] md:text-[20px]">{s.value}</div>
+            <p className="text-[11px] text-white/30 mt-1">{s.sub}</p>
           </div>
         ))}
       </div>

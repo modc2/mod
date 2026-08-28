@@ -1,15 +1,15 @@
+import MarketStrip from "../components/MarketStrip";
 import SubnetsGrid from "../components/SubnetsGrid";
+import PageHeader from "../components/PageHeader";
 
 export default function SubnetsPage() {
   return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="font-display text-2xl font-bold mb-1">Subnets</h1>
-        <p className="text-pixel-gray-light text-sm">
-          Live alpha pools across every Bittensor subnet. Click a subnet for
-          validator rankings and recent flow.
-        </p>
-      </header>
+    <div className="space-y-5">
+      <PageHeader title="SUBNETS">
+        Every subnet&rsquo;s alpha pool, live from the local index. Click one
+        for its chart and validator rankings.
+      </PageHeader>
+      <MarketStrip />
       <SubnetsGrid />
     </div>
   );

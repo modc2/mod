@@ -8,6 +8,7 @@ import {
   Index, fmtPnl, fmtUsd, fmtPct, shortAddr, ago,
 } from "../../lib/api";
 import { useWallet } from "../../lib/wallet";
+import VaultTransferPanel from "../../components/VaultTransferPanel";
 
 export default function StratDetail() {
   const { id } = useParams<{ id: string }>();
@@ -142,11 +143,16 @@ export default function StratDetail() {
         </div>
 
         {idx.vault_address ? (
-          <div className="text-xs">
-            linked vault:&nbsp;
-            <a className="text-accent2 hover:underline num"
-              href={`https://app.hyperliquid.xyz/explorer/address/${idx.vault_address}`}
-              target="_blank" rel="noreferrer">{idx.vault_address}</a>
+          <div className="space-y-3">
+            <div className="text-xs">
+              linked vault:&nbsp;
+              <a className="text-accent2 hover:underline num"
+                href={`https://app.hyperliquid.xyz/explorer/address/${idx.vault_address}`}
+                target="_blank" rel="noreferrer">{idx.vault_address}</a>
+            </div>
+            {/* Deposit/withdraw USDC into the strat's vault — same rails as
+                a native vault (agent-signed, authorized once via MetaMask). */}
+            <VaultTransferPanel vault={idx.vault_address} vaultName={idx.name} />
           </div>
         ) : (
           isOwner ? (

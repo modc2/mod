@@ -3,25 +3,35 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import type { AccountData, PnlData } from "../../lib/types";
+import type { AccountData, CurveData, PnlData } from "../../lib/types";
 import {
   fetchAccount,
+  fetchCurve,
   fetchPnl,
+  fmtPct,
   shortSs58,
   watchAccount,
 } from "../../lib/api";
 import PnlBadge from "../../components/PnlBadge";
+import PnlCurve from "../../components/PnlCurve";
+import StatTile from "../../components/StatTile";
 import SubnetPositions from "../../components/SubnetPositions";
-import { useCurrency, fmtValue } from "../../context/CurrencyContext";
+import { useCurrency, fmtValue, fmtPnlValue } from "../../context/CurrencyContext";
+import { useFilters } from "../../context/FiltersContext";
+import { useSidebar } from "../../context/SidebarContext";
 
 const WINDOWS = [1, 3, 7, 14, 30];
 
 export default function TraderPage() {
   const { ss58 } = useParams<{ ss58: string }>();
   const { currency, usdPerTao } = useCurrency();
-  const [days, setDays] = useState(7);
+  const { openStrat } = useSidebar();
+  // The board's window, not a private one — clicking a row off a 7d board
+  // and landing on a profile measured over something else is a silent lie.
+  const { days, setDays } = useFilters();
   const [account, setAccount] = useState<AccountData | null>(null);
   const [pnl, setPnl] = useState<PnlData | null>(null);
+  const [curve, setCurve] = useState<CurveData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [watched, setWatched] = useState(false);
@@ -39,6 +49,18 @@ export default function TraderPage() {
       .finally(() => setLoading(false));
   }, [ss58, days]);
 
+  // The curve reads only the local snapshot record — it must never block the
+  // page on a slow chain walk, so it loads on its own.
+  useEffect(() => {
+    if (!ss58) return;
+    let cancelled = false;
+    setCurve(null);
+    fetchCurve(ss58, days)
+      .then((c) => !cancelled && setCurve(c))
+      .catch(() => !cancelled && setCurve(null));
+    return () => { cancelled = true; };
+  }, [ss58, days]);
+
   if (loading && !account) {
     return <p className="text-pixel-gray">loading {shortSs58(ss58 || "")}…</p>;
   }
@@ -53,12 +75,12 @@ export default function TraderPage() {
 
   return (
     <div className="space-y-6">
-      <Link href="/leaderboard" className="text-pixel-gray hover:text-pixel-white text-sm no-underline">
-        ← leaderboard
+      <Link href="/traders" className="text-pixel-gray hover:text-pixel-white text-sm no-underline">
+        ← traders
       </Link>
 
-      <header className="pixel-panel p-6 flex items-start justify-between flex-wrap gap-4">
-        <div>
+      <header className="pixel-panel p-4 sm:p-6 flex items-start justify-between flex-wrap gap-4">
+        <div className="min-w-0">
           <h1 className="font-display text-2xl font-bold text-pixel-white">
             {shortSs58(ss58)}
           </h1>
@@ -66,9 +88,9 @@ export default function TraderPage() {
             {ss58}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full sm:w-auto">
           <button
-            className="pixel-btn text-[11px]"
+            className="pixel-btn text-[11px] flex-1 sm:flex-none"
             onClick={async () => {
               await watchAccount(ss58);
               setWatched(true);
@@ -77,32 +99,37 @@ export default function TraderPage() {
           >
             {watched ? "★ WATCHED" : "+ WATCH"}
           </button>
-          <Link
-            href={`/strats?target=${ss58}`}
-            className="pixel-btn text-[11px] border-green-400 text-green-400 no-underline"
+          <button
+            onClick={() => openStrat(ss58)}
+            title="Add to the strat maker's basket"
+            className="pixel-btn text-[11px] flex-1 sm:flex-none border-green-400 text-green-400"
           >
             COPY
-          </Link>
+          </button>
         </div>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Stat label="total stake" value={fmtValue(account.total_stake_tao, currency, usdPerTao)} />
-        <div className="pixel-panel p-4">
-          <p className="text-[10px] tracking-[2px] uppercase text-pixel-gray mb-1">
-            {days}d PnL
-          </p>
-          <PnlBadge tao={account.pnl_tao} pct={account.pnl_pct} size="lg" />
-        </div>
-        <Stat label="subnets" value={String(account.allocations.length)} />
+      {/* The same scoreboard cluster the board uses — three hand-rolled
+          panels here meant the PnL ran off the plate on a narrow screen and
+          sat on a different baseline from every other readout in the app. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <StatTile label="total stake" value={fmtValue(account.total_stake_tao, currency, usdPerTao)} />
+        <StatTile
+          label={`${days}d pnl`}
+          value={fmtPnlValue(account.pnl_tao, currency, usdPerTao)}
+          sub={fmtPct(account.pnl_pct)}
+          tone={account.pnl_tao >= 0 ? "up" : "down"}
+        />
+        <StatTile label="subnets" value={String(account.allocations.length)} />
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="rail no-scrollbar">
+        <span className="text-[11px] text-pixel-gray-light mr-1">history</span>
         {WINDOWS.map((w) => (
           <button
             key={w}
             onClick={() => setDays(w)}
-            className={`pixel-btn text-[11px] px-2 py-1 ${
+            className={`pixel-btn text-[11px] px-3 py-1 ${
               days === w ? "border-green-400 text-green-400" : "text-pixel-gray-light"
             }`}
           >
@@ -110,6 +137,14 @@ export default function TraderPage() {
           </button>
         ))}
       </div>
+
+      {curve ? (
+        <PnlCurve curve={curve} days={days} />
+      ) : (
+        <div className="pixel-panel p-6 text-sm text-pixel-gray">
+          building PnL curve from snapshots…
+        </div>
+      )}
 
       <section>
         <h2 className="font-display text-lg font-bold mb-3">Allocations</h2>
@@ -121,8 +156,11 @@ export default function TraderPage() {
           <h2 className="font-display text-lg font-bold mb-3">
             PnL by subnet ({days}d)
           </h2>
-          <div className="pixel-panel overflow-hidden">
-            <table className="pixel-table">
+          {/* Six numeric columns don't fit a phone at any type size worth
+              reading — the plate scrolls sideways rather than crushing every
+              price into an ellipsis. */}
+          <div className="pixel-panel overflow-x-auto">
+            <table className="pixel-table" style={{ minWidth: 660 }}>
               <thead className="sticky">
                 <tr>
                   <th>Subnet</th>
@@ -159,17 +197,6 @@ export default function TraderPage() {
           </div>
         </section>
       )}
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="pixel-panel p-4">
-      <p className="text-[10px] tracking-[2px] uppercase text-pixel-gray mb-1">
-        {label}
-      </p>
-      <p className="font-mono text-lg text-pixel-white tabular-nums">{value}</p>
     </div>
   );
 }

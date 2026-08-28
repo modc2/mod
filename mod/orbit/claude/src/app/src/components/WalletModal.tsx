@@ -114,6 +114,32 @@ export default function WalletModal({
     return "Not available for this wallet type";
   };
 
+  // Throwaway-wallet secrets — these key types are meant to be quick,
+  // disposable identities, so the raw secret is viewable/copyable anytime.
+  const getPassword = () => {
+    if (walletType === "password") {
+      return localStorage.getItem("claude_jobs_password") || "";
+    }
+    return "";
+  };
+
+  const getPrivateKey = () => {
+    try {
+      if (walletType === "password") {
+        const pw = getPassword();
+        // Same derivation as sign-in: private key = keccak256(password)
+        return pw ? ethers.id(pw) : "";
+      }
+      if (walletType === "local") {
+        const mnemonic = localStorage.getItem("claude_jobs_seed");
+        return mnemonic ? ethers.Wallet.fromPhrase(mnemonic).privateKey : "";
+      }
+    } catch {
+      /* malformed stored secret — just show nothing */
+    }
+    return "";
+  };
+
   const handleSwitchNetwork = async (targetChainId: number) => {
     if (targetChainId === chainId) {
       setShowNetworkSelector(false);
@@ -437,8 +463,10 @@ export default function WalletModal({
               </div>
             )}
 
-            {/* Seed Phrase */}
-            {walletType === "local" && (
+            {/* Throwaway-wallet secrets — local (seed) and password wallets are
+                quick disposable identities, so the seed / password / private
+                key are viewable and copyable at any time. */}
+            {(walletType === "local" || walletType === "password") && (
               <div
                 className="p-4"
                 style={{
@@ -456,12 +484,16 @@ export default function WalletModal({
                   <span style={{ fontSize: "12px", transition: "transform 0.15s" }}>
                     {showSeedPhrase ? "▾" : "▸"}
                   </span>
-                  {showSeedPhrase ? "HIDE SEED PHRASE" : "SHOW SEED PHRASE"}
+                  {showSeedPhrase
+                    ? "HIDE WALLET SECRETS"
+                    : walletType === "password"
+                      ? "SHOW PASSWORD & PRIVATE KEY"
+                      : "SHOW SEED & PRIVATE KEY"}
                 </button>
                 {showSeedPhrase && (
                   <div className="mt-3 space-y-3">
                     <div
-                      className="px-3 py-2 text-[10px] tracking-wider"
+                      className="px-3 py-2 text-[10px] tracking-wider leading-relaxed"
                       style={{
                         background: "color-mix(in srgb, var(--crt-red) 6%, transparent)",
                         border: "1px solid color-mix(in srgb, var(--crt-red) 20%, transparent)",
@@ -469,30 +501,100 @@ export default function WalletModal({
                         borderRadius: "8px",
                       }}
                     >
-                      KEEP THIS SECRET — NEVER SHARE
+                      THROWAWAY WALLET — ANYONE WITH THIS SECRET IS THIS IDENTITY
                     </div>
-                    <div
-                      className="p-3 font-mono text-[11px] break-all leading-relaxed"
-                      style={{
-                        background: "var(--bg-secondary)",
-                        border: "1px solid color-mix(in srgb, var(--crt-red) 10%, transparent)",
-                        color: "var(--text-primary)",
-                        borderRadius: "8px",
-                      }}
-                    >
-                      {getSeedPhrase()}
-                    </div>
-                    <button
-                      onClick={() => handleCopy(getSeedPhrase(), "seed")}
-                      className="text-[9px] px-3 py-1.5 transition-all tracking-wider"
-                      style={{
-                        border: copied === "seed" ? "1px solid var(--crt-green)" : "1px solid color-mix(in srgb, var(--crt-red) 25%, transparent)",
-                        color: copied === "seed" ? "var(--crt-green)" : "var(--crt-red)",
-                        borderRadius: "8px",
-                      }}
-                    >
-                      {copied === "seed" ? "COPIED" : "COPY SEED"}
-                    </button>
+
+                    {walletType === "local" && (
+                      <>
+                        <div className="text-[9px] tracking-[2px]" style={{ color: "var(--text-tertiary)" }}>
+                          SEED PHRASE
+                        </div>
+                        <div
+                          className="p-3 font-mono text-[11px] break-all leading-relaxed"
+                          style={{
+                            background: "var(--bg-secondary)",
+                            border: "1px solid color-mix(in srgb, var(--crt-red) 10%, transparent)",
+                            color: "var(--text-primary)",
+                            borderRadius: "8px",
+                          }}
+                        >
+                          {getSeedPhrase()}
+                        </div>
+                        <button
+                          onClick={() => handleCopy(getSeedPhrase(), "seed")}
+                          className="text-[9px] px-3 py-1.5 transition-all tracking-wider"
+                          style={{
+                            border: copied === "seed" ? "1px solid var(--crt-green)" : "1px solid color-mix(in srgb, var(--crt-red) 25%, transparent)",
+                            color: copied === "seed" ? "var(--crt-green)" : "var(--crt-red)",
+                            borderRadius: "8px",
+                          }}
+                        >
+                          {copied === "seed" ? "COPIED" : "COPY SEED"}
+                        </button>
+                      </>
+                    )}
+
+                    {walletType === "password" && (
+                      <>
+                        <div className="text-[9px] tracking-[2px]" style={{ color: "var(--text-tertiary)" }}>
+                          PASSWORD
+                        </div>
+                        <div
+                          className="p-3 font-mono text-[11px] break-all leading-relaxed"
+                          style={{
+                            background: "var(--bg-secondary)",
+                            border: "1px solid color-mix(in srgb, var(--crt-red) 10%, transparent)",
+                            color: "var(--text-primary)",
+                            borderRadius: "8px",
+                          }}
+                        >
+                          {getPassword() || "Password not stored on this device — sign in with it again to re-save."}
+                        </div>
+                        {getPassword() && (
+                          <button
+                            onClick={() => handleCopy(getPassword(), "pw")}
+                            className="text-[9px] px-3 py-1.5 transition-all tracking-wider"
+                            style={{
+                              border: copied === "pw" ? "1px solid var(--crt-green)" : "1px solid color-mix(in srgb, var(--crt-red) 25%, transparent)",
+                              color: copied === "pw" ? "var(--crt-green)" : "var(--crt-red)",
+                              borderRadius: "8px",
+                            }}
+                          >
+                            {copied === "pw" ? "COPIED" : "COPY PASSWORD"}
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    {getPrivateKey() && (
+                      <>
+                        <div className="text-[9px] tracking-[2px]" style={{ color: "var(--text-tertiary)" }}>
+                          PRIVATE KEY
+                        </div>
+                        <div
+                          className="p-3 font-mono text-[11px] break-all leading-relaxed"
+                          style={{
+                            background: "var(--bg-secondary)",
+                            border: "1px solid color-mix(in srgb, var(--crt-red) 10%, transparent)",
+                            color: "var(--text-primary)",
+                            borderRadius: "8px",
+                          }}
+                        >
+                          {getPrivateKey()}
+                        </div>
+                        <button
+                          onClick={() => handleCopy(getPrivateKey(), "pk")}
+                          className="text-[9px] px-3 py-1.5 transition-all tracking-wider"
+                          style={{
+                            border: copied === "pk" ? "1px solid var(--crt-green)" : "1px solid color-mix(in srgb, var(--crt-red) 25%, transparent)",
+                            color: copied === "pk" ? "var(--crt-green)" : "var(--crt-red)",
+                            borderRadius: "8px",
+                          }}
+                        >
+                          {copied === "pk" ? "COPIED" : "COPY PRIVATE KEY"}
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

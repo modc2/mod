@@ -1,16 +1,56 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Archivo:wght@600;700;800;900&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,600&family=JetBrains+Mono:wght@400;500;700;800&family=Press+Start+2P&family=Pixelify+Sans:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ── Palette ──────────────────────────────────────────────
+   Milan (Memphis: flat blocks, hard shadows, confetti) × Japan (washi paper,
+   seigaiha waves, a rising sun) × surf-shop pastels pitched loud, not quiet.
+   Every one of these is a Mario-smooth hue: coral-red, sky, coin-gold, pipe-mint.
+
+   Every colour is an `R G B` triplet so Tailwind can alpha it (`text-coral/60`)
+   and — the reason it's shaped this way — so DIGITAL mode can repaint the
+   entire page by swapping this one block. See the mode section at the bottom. */
 :root {
-  --ink: #050507;
-  --gold: #e8c07d;
-  --gold-2: #f5d9a8;
-  --emerald: #34d399;
-  --neon: #ff3d81;
-  --paper: #f4f1ea;
+  --paper-rgb: 255 246 236;
+  --ink-rgb: 43 35 80;
+  /* text that sits ON a bright accent fill (buttons, badges, the logo tile) —
+     the one colour that can't just follow --ink when the page inverts. */
+  --on-accent-rgb: 43 35 80;
+
+  --coral-rgb: 255 122 92;
+  --peach-rgb: 255 180 143;
+  --ember-rgb: 230 74 46;
+  --pink-rgb: 255 79 163;
+  --pink-deep-rgb: 200 31 116;
+  --mint-rgb: 46 211 183;
+  --sky-rgb: 99 199 255;
+  --sun-rgb: 255 216 77;
+  --lilac-rgb: 183 156 255;
+  /* the "owner income / done" green — Tailwind's emerald, re-cut as surf mint */
+  --em-300-rgb: 138 235 216;
+  --em-400-rgb: 46 211 183;
+  --em-500-rgb: 18 191 163;
+  --em-600-rgb: 14 161 137;
+
+  --paper: rgb(var(--paper-rgb));
+  --ink: rgb(var(--ink-rgb));
+  --coral: rgb(var(--coral-rgb));
+  --peach: rgb(var(--peach-rgb));
+  --ember: rgb(var(--ember-rgb));
+  --pink: rgb(var(--pink-rgb));
+  --pink-deep: rgb(var(--pink-deep-rgb));
+  --mint: rgb(var(--mint-rgb));
+  --sky: rgb(var(--sky-rgb));
+  --sun: rgb(var(--sun-rgb));
+  --lilac: rgb(var(--lilac-rgb));
+
+  --font-body: 'Outfit', 'SF Pro Display', -apple-system, system-ui, sans-serif;
+  --font-display: 'Baloo 2', 'Outfit', sans-serif;
+  --font-ed: 'Fraunces', Georgia, serif;
+  --headline-track: -0.015em;
+
   --mx: 50%;
   --my: 30%;
 }
@@ -19,72 +59,97 @@
 html { scroll-behavior: smooth; }
 
 body {
-  background: var(--ink);
-  color: #e9e6df;
-  font-family: 'Inter', 'SF Pro Display', -apple-system, system-ui, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
 }
 
-.font-display { font-family: 'Archivo', 'Inter', sans-serif; }
-.font-serif-ed { font-family: 'Fraunces', Georgia, serif; }
+.font-display { font-family: var(--font-display); }
+.font-serif-ed { font-family: var(--font-ed); }
 
 .headline {
-  font-family: 'Archivo', sans-serif;
-  font-weight: 900;
-  letter-spacing: -0.03em;
-  line-height: 0.92;
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: var(--headline-track);
+  line-height: 0.95;
+}
+
+/* Testnet strip — a solid gold band on paper, a dim amber console rail in
+   DIGITAL (light ink on solid gold is unreadable once the page inverts). */
+.banner-strip {
+  background: var(--sun);
+  border-bottom: 2px solid rgb(var(--ink-rgb) / 0.15);
 }
 
 /* ── Gradient + glow text ───────────────────────────────── */
-.text-gold-grad {
-  background: linear-gradient(110deg, #fff2d8 0%, #f5d9a8 25%, #e8c07d 50%, #b8893f 72%, #f5d9a8 100%);
-  background-size: 220% auto;
+.text-surf-grad {
+  /* the sun stop between mint and coral keeps the wrap-around from muddying into olive */
+  background: linear-gradient(100deg, var(--coral) 0%, var(--pink) 16%, var(--lilac) 32%, var(--sky) 48%, var(--mint) 64%, var(--sun) 80%, var(--coral) 100%);
+  background-size: 260% auto;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: shine 6s linear infinite;
+  animation: shine 9s linear infinite;
 }
-@keyframes shine { to { background-position: 220% center; } }
+@keyframes shine { to { background-position: 260% center; } }
 
-.glow-gold { text-shadow: 0 0 40px rgba(232,192,125,0.35); }
+.glow-warm { text-shadow: 4px 4px 0 rgba(255, 122, 92, 0.18); }
 
 /* ── Scroll reveal ──────────────────────────────────────── */
 .reveal { opacity: 0; transform: translateY(30px); transition: opacity 1s cubic-bezier(0.16,1,0.3,1), transform 1s cubic-bezier(0.16,1,0.3,1); }
 .reveal.in { opacity: 1; transform: translateY(0); }
 
-/* ── Aurora + hero spotlight ────────────────────────────── */
+/* ── Pastel wash + Memphis confetti + seigaiha paper ────── */
 .aurora {
   position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background:
-    radial-gradient(60% 50% at 18% 0%, rgba(232,192,125,0.16), transparent 60%),
-    radial-gradient(55% 50% at 85% 12%, rgba(255,61,129,0.10), transparent 60%),
-    radial-gradient(70% 60% at 50% 110%, rgba(52,211,153,0.10), transparent 60%);
+    radial-gradient(58% 46% at 14% 4%, rgba(255,122,92,0.20), transparent 62%),
+    radial-gradient(52% 46% at 88% 10%, rgba(99,199,255,0.22), transparent 62%),
+    radial-gradient(46% 40% at 70% 52%, rgba(255,79,163,0.13), transparent 62%),
+    radial-gradient(64% 56% at 30% 104%, rgba(46,211,183,0.18), transparent 62%);
 }
+/* seigaiha — Japanese wave scallops, printed faintly into the paper */
+.aurora::before {
+  content: ''; position: fixed; inset: 0; opacity: 0.30;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='40' viewBox='0 0 80 40'%3E%3Cg fill='none' stroke='%232b2350' stroke-opacity='0.16' stroke-width='1.4'%3E%3Cpath d='M0 40a20 20 0 0140 0M40 40a20 20 0 0140 0M-20 20a20 20 0 0140 0M20 20a20 20 0 0140 0M60 20a20 20 0 0140 0'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 80px 40px;
+}
+/* Memphis confetti — dot grid + a tossed square, Sottsass by way of the beach */
+.aurora::after {
+  content: ''; position: fixed; inset: 0; opacity: 0.5;
+  background-image:
+    radial-gradient(rgba(255,79,163,0.22) 1.6px, transparent 1.7px),
+    radial-gradient(rgba(99,199,255,0.20) 1.6px, transparent 1.7px);
+  background-size: 34px 34px, 34px 34px;
+  background-position: 0 0, 17px 17px;
+}
+
 .spotlight {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
-  background: radial-gradient(420px circle at var(--mx) var(--my), rgba(232,192,125,0.14), transparent 65%);
+  background: radial-gradient(460px circle at var(--mx) var(--my), rgba(255,216,77,0.22), transparent 65%);
   transition: background 0.18s ease;
 }
 
-/* grain */
+/* paper tooth */
 .grain::after {
-  content: ''; position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0.045;
+  content: ''; position: fixed; inset: 0; z-index: 2; pointer-events: none; opacity: 0.05;
+  mix-blend-mode: multiply;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
-/* vignette */
+/* warm edge instead of the old black vignette */
 .vignette::before {
   content: ''; position: fixed; inset: 0; z-index: 2; pointer-events: none;
-  box-shadow: inset 0 0 200px 60px rgba(0,0,0,0.7);
+  box-shadow: inset 0 0 180px 50px rgba(255, 180, 143, 0.28);
 }
 
 /* ── Scroll progress ────────────────────────────────────── */
 .scrollbar-prog {
-  position: fixed; top: 0; left: 0; height: 2.5px; z-index: 60;
-  background: linear-gradient(90deg, #b8893f, #e8c07d, #f5d9a8);
-  box-shadow: 0 0 12px rgba(232,192,125,0.6);
+  position: fixed; top: 0; left: 0; height: 4px; z-index: 60;
+  background: linear-gradient(90deg, var(--coral), var(--sun), var(--mint), var(--sky), var(--pink));
 }
 
 /* ── Marquee (both directions) ──────────────────────────── */
@@ -92,46 +157,582 @@ body {
 .marquee-rev { animation-direction: reverse; animation-duration: 44s; }
 @keyframes scroll-x { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
-/* ── Glass + tilt cards ─────────────────────────────────── */
-.glass { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(14px); }
+/* ── Cards: washi panel + Memphis hard shadow ───────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1.5px solid rgb(var(--ink-rgb) / 0.14);
+  backdrop-filter: blur(10px);
+  box-shadow: 6px 6px 0 rgb(var(--ink-rgb) / 0.07);
+}
 .glass-hover { transition: transform 0.4s cubic-bezier(0.16,1,0.3,1), border-color 0.4s, background 0.4s, box-shadow 0.4s; }
-.glass-hover:hover { transform: translateY(-5px); border-color: rgba(232,192,125,0.4); background: rgba(255,255,255,0.05); box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7); }
+.glass-hover:hover {
+  transform: translate(-3px, -5px);
+  border-color: rgb(var(--coral-rgb) / 0.6);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 10px 12px 0 rgb(var(--coral-rgb) / 0.22);
+}
 .tilt { transform-style: preserve-3d; transition: transform 0.25s cubic-bezier(0.16,1,0.3,1); will-change: transform; }
 .tilt-inner { transform: translateZ(40px); }
 
 /* ── Shimmer-sweep button ───────────────────────────────── */
-.btn-shine { position: relative; overflow: hidden; }
+.btn-shine { position: relative; overflow: hidden; box-shadow: 4px 4px 0 rgb(var(--ink-rgb) / 0.18); }
 .btn-shine::after {
   content: ''; position: absolute; top: 0; left: -120%; width: 60%; height: 100%;
-  background: linear-gradient(100deg, transparent, rgba(255,255,255,0.55), transparent);
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,0.75), transparent);
   transform: skewX(-18deg); transition: left 0.7s ease;
 }
 .btn-shine:hover::after { left: 140%; }
 
-/* ── NYC skyline ────────────────────────────────────────── */
-.skyline { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; justify-content: center; gap: 2px; height: 46vh; z-index: 1; pointer-events: none; padding: 0 1vw; }
-.bldg { position: relative; background: linear-gradient(180deg, #0c0c12 0%, #08080c 100%); border-top: 1px solid rgba(232,192,125,0.10); border-left: 1px solid rgba(255,255,255,0.02); display: grid; align-content: start; justify-content: center; gap: 6px 5px; padding: 7px 4px; border-radius: 2px 2px 0 0; }
-.win { width: 4px; height: 6px; border-radius: 0.5px; background: rgba(232,192,125,0.85); box-shadow: 0 0 5px rgba(232,192,125,0.6); animation: twinkle 5s ease-in-out infinite; }
-.win.dim { background: rgba(120,120,150,0.18); box-shadow: none; animation: none; }
-@keyframes twinkle { 0%,100% { opacity: 0.85; } 45% { opacity: 0.2; } 70% { opacity: 1; } }
+/* ── Daytime skyline: flat pastel blocks under a rising sun ─ */
+.skyline { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 46vh; z-index: 1; pointer-events: none; padding: 0 1vw; }
+.skyline::before {
+  content: ''; position: absolute; left: 50%; bottom: 26%; width: 44vmin; height: 44vmin;
+  transform: translateX(-50%); border-radius: 50%; z-index: -1; opacity: 0.55;
+  background: radial-gradient(circle, var(--sun) 38%, var(--peach) 70%, rgba(255,180,143,0) 72%);
+}
+.bldg {
+  position: relative; display: grid; align-content: start; justify-content: center;
+  gap: 6px 5px; padding: 8px 4px; border-radius: 4px 4px 0 0;
+  border: 1.5px solid rgb(var(--ink-rgb) / 0.22); border-bottom: none;
+  background: var(--b, var(--peach));
+}
+.bldg:nth-child(5n+1) { --b: #ffb9a3; }
+.bldg:nth-child(5n+2) { --b: #a9dcff; }
+.bldg:nth-child(5n+3) { --b: #ffe08a; }
+.bldg:nth-child(5n+4) { --b: #9fe8d6; }
+.bldg:nth-child(5n+5) { --b: #d3c2ff; }
+.win { width: 4px; height: 6px; border-radius: 1px; background: rgba(255,255,255,0.95); box-shadow: 0 0 0 1px rgb(var(--ink-rgb) / 0.14); animation: twinkle 6s ease-in-out infinite; }
+.win.dim { background: rgb(var(--ink-rgb) / 0.12); box-shadow: none; animation: none; }
+@keyframes twinkle { 0%,100% { opacity: 1; } 55% { opacity: 0.35; } }
 
 @keyframes float { 0%,100%{ transform: translateY(0);} 50%{ transform: translateY(-10px);} }
 .float { animation: float 7s ease-in-out infinite; }
 
-::selection { background: rgba(232,192,125,0.3); color: #fff; }
-::-webkit-scrollbar { width: 9px; }
-::-webkit-scrollbar-track { background: #050507; }
-::-webkit-scrollbar-thumb { background: rgba(232,192,125,0.25); border-radius: 9px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(232,192,125,0.45); }
+::selection { background: var(--sun); color: var(--ink); }
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: rgb(var(--ink-rgb) / 0.05); }
+::-webkit-scrollbar-thumb { background: var(--coral); border-radius: 9px; border: 2px solid var(--paper); }
+::-webkit-scrollbar-thumb:hover { background: var(--pink); }
 
+/* range sliders read as toys, not OS chrome */
+input[type='range'] { height: 22px; }
+
+/* ReactToastify.css loads after globals.css and re-points its own :root vars,
+   so surface, type and colour all have to be forced from here. */
 .Toastify__toast {
-  background: rgba(12,12,16,0.96) !important;
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(232,192,125,0.25);
-  color: #f4f1ea; font-family: 'Inter', sans-serif; font-size: 13px; border-radius: 12px;
+  background: #fffdf8 !important;
+  border: 1.5px solid rgb(var(--ink-rgb) / 0.16);
+  box-shadow: 5px 5px 0 rgb(var(--coral-rgb) / 0.25);
+  color: var(--ink) !important; font-family: var(--font-body) !important;
+  font-size: 13px; border-radius: 14px;
 }
+.Toastify__close-button { color: var(--ink); opacity: 0.5; }
+
+/* ════════════════════════════════════════════════════════════
+   VIBES — three attributes on <html>, set before first paint by the boot
+   script in layout.tsx and rewritten by the VIBE picker in the nav:
+
+     data-mode  paper | digital   the FIELD — washi and daylight, or a CRT
+     data-skin  soft  | pixel     the TREATMENT — round and printed, or 8-bit
+     data-vibe  <id>              the PALETTE — ten triplets, nothing else
+
+   Mode and skin are the only things that carry structure. A new vibe is
+   therefore just a palette block plus which mode and skin it rides on —
+   SUNDAY is the bare :root, TERMINAL is the bare digital block, and every
+   cabinet below is ten lines of colour. See VIBES in page.tsx for the list
+   the picker renders; the two files agree on the ids and nothing else.
+   ════════════════════════════════════════════════════════════ */
+
+/* ── paper·soft · SUNDAY — the default, defined at the top of this file ── */
+
+/* ════════════════════════════════════════════════════════════
+   DIGITAL mode — the same building, on a green screen.
+
+   Almost all of it is the palette swap below: the page is written in
+   tokens, so re-pointing ten triplets inverts paper→phosphor everywhere
+   at once. What follows the palette is only what a colour swap can't say
+   — mono type, square corners, a CRT grid and scanlines instead of washi
+   and confetti. Bare, it is the TERMINAL vibe; the digital cabinets
+   further down keep this structure and repaint the ten triplets.
+   ════════════════════════════════════════════════════════════ */
+[data-mode="digital"] {
+  --paper-rgb: 4 8 7;
+  --ink-rgb: 214 255 235;
+  --on-accent-rgb: 3 14 10;
+
+  --coral-rgb: 0 232 160;      /* the terminal's own green — the brand accent */
+  --peach-rgb: 125 255 208;
+  --ember-rgb: 0 181 124;
+  --pink-rgb: 255 47 135;      /* the fee, still the loud one */
+  --pink-deep-rgb: 176 20 92;
+  --mint-rgb: 53 240 192;
+  --sky-rgb: 41 182 255;
+  --sun-rgb: 255 214 61;
+  --lilac-rgb: 157 125 255;
+  --em-300-rgb: 154 255 216;
+  --em-400-rgb: 45 240 168;
+  --em-500-rgb: 20 209 142;
+  --em-600-rgb: 10 168 113;
+
+  --font-body: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-ed: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --headline-track: 0.01em;
+
+  color-scheme: dark;
+}
+
+/* Terminals don't have rounded corners. One line squares every pill, card and
+   dot on the page — the status dots become pixels, which is the point. */
+[data-mode="digital"] [class*="rounded"] { border-radius: 2px; }
+
+[data-mode="digital"] .headline { text-shadow: 0 0 22px rgb(var(--coral-rgb) / 0.35); }
+[data-mode="digital"] .glow-warm { text-shadow: 0 0 26px rgb(var(--coral-rgb) / 0.45); }
+[data-mode="digital"] .font-serif-ed { font-style: normal; }
+
+[data-mode="digital"] .banner-strip {
+  background: rgb(var(--sun-rgb) / 0.10);
+  border-bottom: 1px solid rgb(var(--sun-rgb) / 0.35);
+}
+
+/* Panels: no washi, no hard shadow — a hairline box with its own faint glow. */
+[data-mode="digital"] .glass {
+  background: rgb(var(--coral-rgb) / 0.035);
+  border: 1px solid rgb(var(--coral-rgb) / 0.22);
+  backdrop-filter: blur(3px);
+  box-shadow: inset 0 0 26px rgb(var(--coral-rgb) / 0.06);
+}
+[data-mode="digital"] .glass-hover:hover {
+  transform: none;
+  background: rgb(var(--coral-rgb) / 0.07);
+  border-color: rgb(var(--coral-rgb) / 0.55);
+  box-shadow: 0 0 24px rgb(var(--coral-rgb) / 0.18), inset 0 0 34px rgb(var(--coral-rgb) / 0.08);
+}
+[data-mode="digital"] .btn-shine { box-shadow: 0 0 18px rgb(var(--coral-rgb) / 0.30); }
+[data-mode="digital"] .btn-shine::after {
+  background: linear-gradient(100deg, transparent, rgb(var(--peach-rgb) / 0.45), transparent);
+}
+
+/* Backdrop: phosphor haze, engineering grid, scanlines. */
+[data-mode="digital"] .aurora {
+  background:
+    radial-gradient(58% 46% at 14% 4%, rgb(var(--coral-rgb) / 0.16), transparent 62%),
+    radial-gradient(52% 46% at 88% 10%, rgb(var(--sky-rgb) / 0.12), transparent 62%),
+    radial-gradient(46% 40% at 70% 52%, rgb(var(--pink-rgb) / 0.07), transparent 62%),
+    radial-gradient(64% 56% at 30% 104%, rgb(var(--mint-rgb) / 0.14), transparent 62%);
+}
+[data-mode="digital"] .aurora::before {
+  opacity: 0.55;
+  background-image:
+    linear-gradient(rgb(var(--coral-rgb) / 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--coral-rgb) / 0.10) 1px, transparent 1px);
+  background-size: 46px 46px, 46px 46px;
+}
+[data-mode="digital"] .aurora::after {
+  opacity: 0.55;
+  background-image: repeating-linear-gradient(0deg, rgba(0,0,0,0.55) 0 1px, transparent 1px 3px);
+  background-size: auto;
+  animation: crt-roll 9s linear infinite;
+}
+@keyframes crt-roll { to { background-position: 0 150px; } }
+
+[data-mode="digital"] .grain::after { opacity: 0.09; mix-blend-mode: screen; }
+[data-mode="digital"] .vignette::before { box-shadow: inset 0 0 220px 70px rgba(0,0,0,0.9); }
+[data-mode="digital"] .spotlight {
+  background: radial-gradient(460px circle at var(--mx) var(--my), rgb(var(--coral-rgb) / 0.10), transparent 65%);
+}
+
+/* The skyline stops being a pastel postcard and becomes a wireframe readout. */
+[data-mode="digital"] .skyline::before {
+  opacity: 0.45;
+  background: radial-gradient(circle, rgb(var(--coral-rgb) / 0.35) 32%, rgb(var(--sky-rgb) / 0.10) 62%, transparent 70%);
+}
+[data-mode="digital"] .bldg {
+  border-color: rgb(var(--coral-rgb) / 0.45);
+  box-shadow: 0 0 16px rgb(var(--coral-rgb) / 0.10);
+}
+[data-mode="digital"] .bldg:nth-child(5n+1) { --b: rgb(var(--coral-rgb) / 0.08); }
+[data-mode="digital"] .bldg:nth-child(5n+2) { --b: rgb(var(--sky-rgb) / 0.08); }
+[data-mode="digital"] .bldg:nth-child(5n+3) { --b: rgb(var(--mint-rgb) / 0.10); }
+[data-mode="digital"] .bldg:nth-child(5n+4) { --b: rgb(var(--coral-rgb) / 0.05); }
+[data-mode="digital"] .bldg:nth-child(5n+5) { --b: rgb(var(--lilac-rgb) / 0.08); }
+[data-mode="digital"] .win {
+  background: rgb(var(--coral-rgb));
+  box-shadow: 0 0 6px rgb(var(--coral-rgb) / 0.85);
+}
+[data-mode="digital"] .win.dim { background: rgb(var(--coral-rgb) / 0.14); box-shadow: none; }
+
+[data-mode="digital"] ::selection { background: rgb(var(--coral-rgb)); color: rgb(var(--on-accent-rgb)); }
+[data-mode="digital"] .Toastify__toast {
+  background: #030b08 !important;
+  border-color: rgb(var(--coral-rgb) / 0.35);
+  box-shadow: 0 0 20px rgb(var(--coral-rgb) / 0.18);
+}
+
+/* ════════════════════════════════════════════════════════════
+   THE CABINETS — one palette block each. They come after the digital
+   block so a digital-base vibe overrides the phosphor greens, and they
+   touch nothing but colour: structure is mode + skin, above and below.
+   ════════════════════════════════════════════════════════════ */
+
+/* MARIO — paper·pixel. World 1-1: #5c94fc sky, brick tan, coin gold, pipe
+   green, and the one red that everything else is arranged around. */
+[data-vibe="mario"] {
+  --paper-rgb: 92 148 252;
+  --ink-rgb: 22 18 46;
+  --on-accent-rgb: 255 250 236;
+
+  --coral-rgb: 228 52 52;      /* Mario red — the brand accent */
+  --peach-rgb: 249 166 108;    /* brick */
+  --ember-rgb: 176 32 20;
+  --pink-rgb: 236 88 160;
+  --pink-deep-rgb: 168 32 108;
+  --mint-rgb: 60 188 88;       /* pipe */
+  --sky-rgb: 60 188 252;
+  --sun-rgb: 252 216 60;       /* coin */
+  --lilac-rgb: 152 120 240;
+  --em-300-rgb: 140 232 152;
+  --em-400-rgb: 60 188 88;
+  --em-500-rgb: 34 156 64;
+  --em-600-rgb: 20 116 44;
+}
+
+/* GAMEBOY — paper·pixel. The DMG had four greens and no fifth. Every token
+   below is one of those four, which is why the cabinet reads monochrome:
+   that isn't a shortcut, it's the whole hardware. */
+[data-vibe="gameboy"] {
+  --paper-rgb: 155 188 15;
+  --ink-rgb: 15 56 15;
+  --on-accent-rgb: 155 188 15;
+
+  --coral-rgb: 48 98 48;
+  --peach-rgb: 139 172 15;
+  --ember-rgb: 15 56 15;
+  --pink-rgb: 48 98 48;
+  --pink-deep-rgb: 15 56 15;
+  --mint-rgb: 48 98 48;
+  --sky-rgb: 139 172 15;
+  --sun-rgb: 139 172 15;
+  --lilac-rgb: 48 98 48;
+  --em-300-rgb: 139 172 15;
+  --em-400-rgb: 48 98 48;
+  --em-500-rgb: 48 98 48;
+  --em-600-rgb: 15 56 15;
+}
+
+/* ARCADE — digital·pixel. NES black with the cabinet's neon on top. */
+[data-vibe="arcade"] {
+  --paper-rgb: 10 6 20;
+  --ink-rgb: 244 240 255;
+  --on-accent-rgb: 6 4 14;
+
+  --coral-rgb: 34 240 255;
+  --peach-rgb: 138 248 255;
+  --ember-rgb: 0 186 208;
+  --pink-rgb: 255 47 185;
+  --pink-deep-rgb: 186 20 132;
+  --mint-rgb: 43 255 136;
+  --sky-rgb: 90 160 255;
+  --sun-rgb: 255 207 40;
+  --lilac-rgb: 178 120 255;
+  --em-300-rgb: 150 255 196;
+  --em-400-rgb: 43 255 136;
+  --em-500-rgb: 22 214 108;
+  --em-600-rgb: 12 168 84;
+}
+
+/* C64 — digital·pixel. The breadbin booted to light blue on dark blue and
+   64K of BASIC; the field is that screen, not its lighter border. */
+[data-vibe="c64"] {
+  --paper-rgb: 48 40 138;
+  --ink-rgb: 186 178 255;
+  --on-accent-rgb: 24 20 82;
+
+  --coral-rgb: 170 255 238;
+  --peach-rgb: 210 255 246;
+  --ember-rgb: 108 200 190;
+  --pink-rgb: 255 119 119;
+  --pink-deep-rgb: 196 72 72;
+  --mint-rgb: 170 255 102;
+  --sky-rgb: 124 112 218;
+  --sun-rgb: 255 214 106;
+  --lilac-rgb: 160 148 240;
+  --em-300-rgb: 206 255 170;
+  --em-400-rgb: 170 255 102;
+  --em-500-rgb: 132 214 74;
+  --em-600-rgb: 96 168 52;
+}
+
+/* AMBER — digital·soft. A single-gun amber monitor: everything is one hue
+   at different burns, so the fee stops shouting and the page reads as
+   one long readout. */
+[data-vibe="amber"] {
+  --paper-rgb: 13 7 0;
+  --ink-rgb: 255 207 107;
+  --on-accent-rgb: 20 10 0;
+
+  --coral-rgb: 255 176 40;
+  --peach-rgb: 255 224 150;
+  --ember-rgb: 200 126 16;
+  --pink-rgb: 255 122 32;
+  --pink-deep-rgb: 190 82 16;
+  --mint-rgb: 226 214 96;
+  --sky-rgb: 255 198 96;
+  --sun-rgb: 255 232 150;
+  --lilac-rgb: 230 170 90;
+  --em-300-rgb: 255 232 160;
+  --em-400-rgb: 226 214 96;
+  --em-500-rgb: 190 168 56;
+  --em-600-rgb: 148 126 32;
+}
+
+/* VAPOR — digital·pixel. Miami at 2am: hot pink, a cyan grid, a sun that
+   sets in stripes. The loudest cabinet in the set, on purpose. */
+[data-vibe="vapor"] {
+  --paper-rgb: 22 3 40;
+  --ink-rgb: 255 236 255;
+  --on-accent-rgb: 22 3 40;
+
+  --coral-rgb: 255 45 149;
+  --peach-rgb: 255 142 200;
+  --ember-rgb: 198 20 110;
+  --pink-rgb: 255 45 149;
+  --pink-deep-rgb: 186 16 110;
+  --mint-rgb: 43 255 206;
+  --sky-rgb: 90 200 255;
+  --sun-rgb: 255 214 106;
+  --lilac-rgb: 178 120 255;
+  --em-300-rgb: 150 255 230;
+  --em-400-rgb: 43 255 206;
+  --em-500-rgb: 20 214 172;
+  --em-600-rgb: 10 164 132;
+}
+
+/* ════════════════════════════════════════════════════════════
+   PIXEL skin — `data-skin="pixel"`.
+
+   Rides on top of either field. Nothing here is a colour: it is the
+   treatment a sprite-era machine applies to whatever palette it's given
+   — a pixel grid instead of a curve, hard offset shadows instead of
+   blur, and type that was drawn on graph paper.
+   ════════════════════════════════════════════════════════════ */
+[data-skin="pixel"] {
+  /* Two pixel faces, because one can't do both jobs. Press Start 2P is
+     monospaced at one em per glyph — magnificent on a marquee, a brick
+     wall in a paragraph, and impossible to size safely against the page's
+     existing Tailwind classes (`text-[8.5rem]` in Press Start overruns any
+     column). Pixelify Sans is proportional and legible down to 11px, so it
+     carries body AND headline and every size class stays correct.
+     Press Start is held back for the chrome, where we control the width. */
+  --font-arcade: 'Press Start 2P', monospace;
+  --font-display: 'Pixelify Sans', 'JetBrains Mono', monospace;
+  --font-body: 'Pixelify Sans', 'JetBrains Mono', monospace;
+  --font-ed: 'Pixelify Sans', 'JetBrains Mono', monospace;
+  --headline-track: 0;
+}
+
+[data-skin="pixel"] .headline { font-weight: 700; }
+[data-skin="pixel"] .font-serif-ed { font-style: normal; }
+[data-skin="pixel"] body { line-height: 1.6; }
+
+/* The chrome — logo, stat captions, panel titles — is short, fixed and
+   between 13 and 24px. That's exactly Press Start's range. */
+[data-skin="pixel"] .font-display {
+  font-family: var(--font-arcade);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+/* …but "OpenHouse" set in a one-em-per-glyph face is 150px wide, and a
+   390px nav has about 90px to give it. Below sm the chrome drops back to
+   the proportional pixel face; Press Start is a luxury that needs room. */
+@media (max-width: 639px) {
+  [data-skin="pixel"] .font-display {
+    font-family: var(--font-display);
+    font-weight: 700;
+  }
+}
+
+/* No curves anywhere. A 2px step is the largest radius a chunky pixel grid
+   can express without going soft. */
+[data-skin="pixel"] [class*="rounded"] { border-radius: 2px; }
+
+/* Hard offset shadows — the drop shadow a sprite gets is a copy of itself,
+   moved a few pixels, never a blur. */
+[data-skin="pixel"] .glass {
+  /* Nearly opaque on purpose: a 2px blur can't hide the skyline the way
+     the soft skin's 10px does, and the hero cards sit right on top of it.
+     Panelling in the field's own colour only works where the field is
+     near-black — the paper·pixel cabinets each name their own panel down
+     in the cabinet section, because on a saturated field this disappears. */
+  background: rgb(var(--paper-rgb) / 0.93);
+  border: 2px solid rgb(var(--ink-rgb) / 0.55);
+  backdrop-filter: none;
+  box-shadow: 4px 4px 0 rgb(var(--ink-rgb) / 0.35);
+}
+[data-skin="pixel"] .glass-hover:hover {
+  transform: translate(-2px, -2px);
+  background: rgb(var(--paper-rgb));
+  border-color: rgb(var(--coral-rgb) / 0.9);
+  box-shadow: 6px 6px 0 rgb(var(--coral-rgb) / 0.55);
+}
+[data-skin="pixel"] .btn-shine {
+  box-shadow: 3px 3px 0 rgb(var(--ink-rgb) / 0.55);
+  border: 2px solid rgb(var(--ink-rgb) / 0.55);
+}
+[data-skin="pixel"] .btn-shine:hover { box-shadow: 1px 1px 0 rgb(var(--ink-rgb) / 0.55); }
+/* The shimmer sweep is a lens-flare gesture; a sprite gets a hard wipe. */
+[data-skin="pixel"] .btn-shine::after {
+  background: linear-gradient(90deg, transparent 0 46%, rgb(var(--paper-rgb) / 0.55) 46% 54%, transparent 54%);
+  transform: none;
+  transition: left 0.35s steps(8, end);
+}
+
+/* Sprites don't ease. Every transition on the page snaps through 6 frames. */
+[data-skin="pixel"] .reveal,
+[data-skin="pixel"] .glass-hover,
+[data-skin="pixel"] .tilt { transition-timing-function: steps(6, end); }
+[data-skin="pixel"] .tilt { transform: none !important; }
+[data-skin="pixel"] .tilt-inner { transform: none; }
+[data-skin="pixel"] .float { animation-timing-function: steps(8, end); }
+[data-skin="pixel"] .win { animation-timing-function: steps(2, end); }
+
+/* The scroll rail and the coin gradient become hard colour bands — a
+   pixel machine can't dither a 5-stop ramp, so it doesn't try. */
+[data-skin="pixel"] .scrollbar-prog {
+  height: 6px;
+  background: linear-gradient(90deg,
+    var(--coral) 0 20%, var(--sun) 20% 40%, var(--mint) 40% 60%,
+    var(--sky) 60% 80%, var(--pink) 80% 100%);
+}
+/* The animated six-stop ramp is a lens trick. Banding it into hard stops
+   only made SKYLINE. unreadable — a sprite-era machine draws a hero word
+   in ONE colour and pushes it forward with a hard drop shadow instead. */
+[data-skin="pixel"] .text-surf-grad {
+  background: none;
+  -webkit-text-fill-color: var(--sun);
+  color: var(--sun);
+  animation: none;
+  text-shadow: 4px 4px 0 rgb(var(--ember-rgb)), 8px 8px 0 rgb(var(--ink-rgb) / 0.35);
+}
+[data-skin="pixel"] .glow-warm { text-shadow: 3px 3px 0 rgb(var(--ember-rgb) / 0.7); }
+[data-skin="pixel"] .headline { text-shadow: 3px 3px 0 rgb(var(--ink-rgb) / 0.22); }
+
+/* Buildings become blocks with a hard rim light, and their windows lose
+   the last of their rounding. */
+[data-skin="pixel"] .bldg { border-radius: 0; border-width: 2px; }
+[data-skin="pixel"] .win { border-radius: 0; width: 5px; height: 7px; }
+
+[data-skin="pixel"] ::-webkit-scrollbar-thumb { border-radius: 0; border-width: 2px; }
+[data-skin="pixel"] .Toastify__toast {
+  border-radius: 0;
+  border-width: 2px;
+  box-shadow: 4px 4px 0 rgb(var(--ink-rgb) / 0.4);
+}
+
+/* Paper·pixel keeps the daylight but trades washi and confetti for a
+   sprite grid — this is where MARIO and GAMEBOY get their backdrop. */
+[data-mode="paper"][data-skin="pixel"] .aurora::before {
+  opacity: 0.35;
+  background-image:
+    linear-gradient(rgb(var(--ink-rgb) / 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--ink-rgb) / 0.10) 1px, transparent 1px);
+  background-size: 16px 16px, 16px 16px;
+}
+[data-mode="paper"][data-skin="pixel"] .aurora::after {
+  opacity: 0.30;
+  /* a 50% Bayer dither, which is how an 8-bit machine spells "gradient" */
+  background-image:
+    linear-gradient(45deg, rgb(var(--ink-rgb) / 0.16) 25%, transparent 25% 75%, rgb(var(--ink-rgb) / 0.16) 75%);
+  background-size: 6px 6px;
+  background-position: 0 0;
+}
+[data-mode="paper"][data-skin="pixel"] .grain::after { opacity: 0.03; }
+[data-mode="paper"][data-skin="pixel"] .vignette::before {
+  box-shadow: inset 0 0 0 6px rgb(var(--ink-rgb) / 0.35);
+}
+[data-mode="paper"][data-skin="pixel"] .spotlight { display: none; }
+
+/* MARIO's own sky: bricks along the floor and a coin sun overhead. */
+[data-vibe="mario"] .aurora {
+  background:
+    linear-gradient(180deg, rgb(var(--sky-rgb) / 0.35) 0%, transparent 46%),
+    radial-gradient(38% 26% at 82% 12%, rgb(var(--sun-rgb) / 0.40), transparent 66%);
+}
+[data-vibe="mario"] .skyline::before {
+  opacity: 0.85;
+  background: radial-gradient(circle, var(--sun) 46%, rgb(var(--sun-rgb) / 0.35) 48% 60%, transparent 62%);
+}
+[data-vibe="mario"] .bldg { border-color: rgb(var(--ink-rgb) / 0.55); }
+[data-vibe="mario"] .bldg:nth-child(5n+1) { --b: #e45c10; }   /* brick */
+[data-vibe="mario"] .bldg:nth-child(5n+2) { --b: #3cbc58; }   /* pipe */
+[data-vibe="mario"] .bldg:nth-child(5n+3) { --b: #f9a66c; }   /* stone */
+[data-vibe="mario"] .bldg:nth-child(5n+4) { --b: #e43434; }
+[data-vibe="mario"] .bldg:nth-child(5n+5) { --b: #fcd83c; }   /* ? block */
+[data-vibe="mario"] .win { background: rgb(var(--ink-rgb) / 0.55); box-shadow: none; }
+[data-vibe="mario"] .win.dim { background: rgb(var(--paper-rgb) / 0.45); }
+/* A panel the colour of the field vanishes into a bright sky. In 1-1 the
+   thing that sits in front of the sky is a cloud, so that's the panel. */
+[data-vibe="mario"] .glass { background: rgb(255 255 255 / 0.86); }
+[data-vibe="mario"] .glass-hover:hover { background: rgb(255 255 255); }
+
+/* GAMEBOY: an LCD is a dot matrix and a fixed backlight, not weather. */
+[data-vibe="gameboy"] .aurora { background: rgb(var(--peach-rgb) / 0.30); }
+[data-vibe="gameboy"] .aurora::before {
+  opacity: 0.5;
+  background-image:
+    linear-gradient(rgb(var(--ink-rgb) / 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--ink-rgb) / 0.16) 1px, transparent 1px);
+  background-size: 4px 4px, 4px 4px;
+}
+[data-vibe="gameboy"] .aurora::after { opacity: 0.18; }
+[data-vibe="gameboy"] .skyline::before { opacity: 0.28; background: radial-gradient(circle, rgb(var(--peach-rgb)) 40%, transparent 62%); }
+[data-vibe="gameboy"] .bldg:nth-child(5n+1) { --b: #8bac0f; }
+[data-vibe="gameboy"] .bldg:nth-child(5n+2) { --b: #306230; }
+[data-vibe="gameboy"] .bldg:nth-child(5n+3) { --b: #9bbc0f; }
+[data-vibe="gameboy"] .bldg:nth-child(5n+4) { --b: #306230; }
+[data-vibe="gameboy"] .bldg:nth-child(5n+5) { --b: #8bac0f; }
+[data-vibe="gameboy"] .win { background: #0f380f; box-shadow: none; }
+[data-vibe="gameboy"] .win.dim { background: rgb(15 56 15 / 0.25); }
+/* The pixel skin fills the hero word with --sun, which on four greens is
+   the tone right next to the field — SKYLINE. vanished. Here the hero
+   word is the DARKEST tone and the shadow steps back up through the other
+   three, which is how the DMG drew emphasis in the first place. */
+[data-vibe="gameboy"] .text-surf-grad {
+  -webkit-text-fill-color: rgb(var(--ink-rgb));
+  color: rgb(var(--ink-rgb));
+  text-shadow: 4px 4px 0 rgb(var(--coral-rgb)), 8px 8px 0 rgb(var(--peach-rgb));
+}
+/* Panels need a tone of their own too, for the same reason. */
+[data-vibe="gameboy"] .glass { background: rgb(var(--peach-rgb) / 0.92); }
+[data-vibe="gameboy"] .glass-hover:hover { background: rgb(var(--peach-rgb)); }
+/* the DMG's screen sat in a bezel, not at the edge of the plastic */
+[data-vibe="gameboy"] .vignette::before {
+  box-shadow: inset 0 0 0 8px #0f380f, inset 0 0 0 14px rgb(139 172 15 / 0.5);
+}
+
+/* VAPOR: the horizon grid, which is the only thing this cabinet needs. */
+[data-vibe="vapor"] .aurora::before {
+  opacity: 0.5;
+  background-image:
+    linear-gradient(rgb(var(--coral-rgb) / 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--mint-rgb) / 0.14) 1px, transparent 1px);
+  background-size: 52px 52px, 52px 52px;
+}
+[data-vibe="vapor"] .skyline::before {
+  opacity: 0.7;
+  background:
+    repeating-linear-gradient(180deg, rgb(var(--coral-rgb) / 0.9) 0 8px, transparent 8px 14px),
+    radial-gradient(circle, rgb(var(--sun-rgb)) 50%, transparent 52%);
+  -webkit-mask-image: radial-gradient(circle, #000 49%, transparent 51%);
+  mask-image: radial-gradient(circle, #000 49%, transparent 51%);
+}
+
+/* AMBER burns in; it doesn't glow green. */
+[data-vibe="amber"] .headline { text-shadow: 0 0 24px rgb(var(--coral-rgb) / 0.45); }
+[data-vibe="amber"] .aurora::after { opacity: 0.42; }
 
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1 !important; transform: none !important; }
-  .win, .text-gold-grad, .float { animation: none !important; }
+  .win, .text-surf-grad, .float { animation: none !important; }
+  [data-mode="digital"] .aurora::after { animation: none !important; }
 }

@@ -1,0 +1,16 @@
+[Unit]
+Description=jcode server with WebSocket gateway
+After=network.target
+
+[Service]
+Environment=PATH=/home/ec2-user/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=JCODE_BEDROCK_ENABLE=1
+Environment=AWS_REGION=us-east-1
+Environment=JCODE_BEDROCK_MODEL=us.anthropic.claude-opus-4-6-v1
+ExecStartPre=/bin/rm -f /run/user/1000/jcode-daemon.lock /run/user/1000/jcode.sock /run/user/1000/jcode.sock.hash /run/user/1000/jcode-debug.sock
+ExecStart=/home/ec2-user/.local/bin/jcode --provider bedrock serve
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

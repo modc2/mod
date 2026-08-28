@@ -2,8 +2,9 @@
 
 import json
 import os
+import re
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -317,20 +318,132 @@ async def contract_source(file: Optional[str] = None, mod: str = "chain",
     return {"contracts": contracts, "count": len(contracts), "module": mod}
 
 
-# ── Contract ABIs + sources, stored in localfs by CID ────────────────────────
+# ── Contract ABIs + sources, stored in the store mod ─────────────────────────
 #
-# ABIs and Solidity sources are pinned into the content-addressable localfs
-# store; their CIDs are recorded per-contract in config.json ("abi" / "src"),
-# same pattern the deploy pipeline already uses. Serving prefers the pinned
-# CID; hardhat artifacts are only read to pin content the first time.
+# Every ABI this module knows about — the fleet's own contracts and anything a
+# wallet deploys from the builder — is written into the **store module**
+# (m.mod('dstore')) as a content-addressed object owned by the address that
+# deployed it. What gets recorded is the CID: "abi" / "src" per contract in
+# config.json, abi_cid / src_cid on a build row. So an ABI is fetchable by CID
+# from anywhere in the fleet instead of living only in this box's artifacts/.
+# The store's localfs backend is the same content store earlier versions pinned
+# into, so CIDs recorded before this all still resolve.
+
+ABI_KEY = "chain/abi"          # store key prefix — what marks an object an ABI
+SRC_KEY = "chain/src"
 
 _artifact_cache = {}
+_store_mod = None
+
+
+def _store():
+    """The store module's storage layer, or None when it isn't installed."""
+    global _store_mod
+    if _store_mod is None:
+        try:
+            import mod as m
+            _store_mod = m.mod('dstore')()
+        except Exception:
+            _store_mod = False
+    return _store_mod or None
+
 
 def _localfs():
     try:
         import mod as m
         return m.mod('localfs')()
     except Exception:
+        return None
+
+
+def _store_put(data, owner: str = "fleet", key: Optional[str] = None,
+               suffix: str = ".json") -> Optional[str]:
+    """Pin JSON (or text) into the store mod. Returns the CID, or None if the
+    store is unavailable — pinning is a bonus, never a reason to fail a deploy."""
+    st = _store()
+    if st is None:
+        return None
+    text = data if isinstance(data, str) else json.dumps(data)
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        r = st.put(path=path, backend="localfs", owner=_who(owner), key=key)
+        return ((r.get("results") or {}).get("localfs") or {}).get("cid")
+    except Exception:
+        return None
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _store_index(cid: str, owner: str, key: str, size: int = 0):
+    """Index a CID the store already holds the bytes for. Content pinned before
+    this module used the store (or by anyone else) is real content — registering
+    it makes it a first-class store object without re-uploading."""
+    st = _store()
+    if st is None:
+        return
+    try:
+        st.register(cid=cid, backend="localfs", owner=_who(owner), key=key,
+                    size=size, scheme="ipfs")
+    except Exception:
+        pass
+
+
+def _store_known(owner: str, limit: int = 2000) -> set:
+    """CIDs the store index already lists for an owner."""
+    st = _store()
+    if st is None:
+        return set()
+    try:
+        return {o.get("cid") for o in st.list(owner=_who(owner), limit=limit)}
+    except Exception:
+        return set()
+
+
+def _store_get(cid: str) -> Optional[str]:
+    """Read a CID back out of the store as text, or None if it isn't there."""
+    st = _store()
+    if st is not None:
+        import tempfile
+        fd, path = tempfile.mkstemp()
+        os.close(fd)
+        try:
+            if "error" not in st.get(cid=cid, out=path):
+                with open(path) as f:
+                    return f.read()
+        except Exception:
+            pass
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+    # Pre-store installs pinned straight into localfs — still readable.
+    lf = _localfs()
+    if lf is None:
+        return None
+    try:
+        data = lf.get(cid)
+        if isinstance(data, bytes):
+            return data.decode("utf-8")
+        return data if isinstance(data, str) else json.dumps(data)
+    except Exception:
+        return None
+
+
+def _store_get_json(cid: str):
+    """A stored CID parsed as JSON, or None when it's missing or isn't JSON."""
+    text = _store_get(cid)
+    if text is None:
+        return None
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
         return None
 
 
@@ -355,20 +468,9 @@ def _load_artifact(contract_type: str):
     return artifact
 
 
-def _lf_get_json(lf, cid):
-    """localfs.get that tolerates bytes payloads; returns parsed JSON or None."""
-    try:
-        data = lf.get(cid)
-        if isinstance(data, bytes):
-            data = json.loads(data.decode("utf-8"))
-        return data
-    except Exception:
-        return None
-
-
 @app.get("/contracts/abis")
 async def contract_abis(network: str = "testnet"):
-    """Deployed contracts with addresses + ABIs (localfs-pinned), for wallet-side calls."""
+    """Deployed contracts with addresses + ABIs (store-pinned), for wallet-side calls."""
     base = _module_dir("chain")
     cfg_path = os.path.join(base, "config.json") if base else None
     try:
@@ -379,8 +481,8 @@ async def contract_abis(network: str = "testnet"):
 
     deployment = cfg.get("deployments", {}).get(network, {})
     contracts = deployment.get("contracts") or {}
-    lf = _localfs()
     out, dirty = [], False
+    known = _store_known("fleet")
 
     for name, info in contracts.items():
         if not isinstance(info, dict) or not info.get("address"):
@@ -388,34 +490,37 @@ async def contract_abis(network: str = "testnet"):
         ctype = info.get("contract") or name
         abi, abi_cid, src_cid = None, info.get("abi"), info.get("src")
 
-        # 1) pinned ABI CID from config
-        if lf and abi_cid:
-            abi = _lf_get_json(lf, abi_cid)
+        # 1) pinned ABI CID from the store
+        if abi_cid:
+            abi = _store_get_json(abi_cid)
+            # CIDs pinned before this module used the store aren't in its index
+            if abi is not None and abi_cid not in known:
+                _store_index(abi_cid, "fleet", f"{ABI_KEY}/{network}/{name}.json",
+                             len(json.dumps(abi)))
+        if src_cid and src_cid not in known:
+            _store_index(src_cid, "fleet", f"{SRC_KEY}/{network}/{ctype}.sol")
 
-        # 2) fall back to the hardhat artifact — and pin it for next time
+        # 2) fall back to the hardhat artifact — and store it for next time
         if abi is None:
             artifact = _load_artifact(ctype)
             abi = (artifact or {}).get("abi")
-            if lf and abi:
-                try:
-                    abi_cid = lf.put(abi)
-                    info["abi"] = abi_cid
+            if abi:
+                cid = _store_put(abi, owner="fleet", key=f"{ABI_KEY}/{network}/{name}.json")
+                if cid:
+                    abi_cid = info["abi"] = cid
                     dirty = True
-                except Exception:
-                    pass
 
-        # pin the Solidity source alongside (once)
-        if lf and not src_cid:
+        # store the Solidity source alongside (once)
+        if not src_cid:
             artifact = _load_artifact(ctype)
             src_path = os.path.join(base, (artifact or {}).get("sourceName", "")) if base else ""
             if src_path and os.path.isfile(src_path):
-                try:
-                    with open(src_path) as f:
-                        src_cid = lf.put(f.read())
-                    info["src"] = src_cid
+                with open(src_path) as f:
+                    cid = _store_put(f.read(), owner="fleet",
+                                     key=f"{SRC_KEY}/{network}/{ctype}.sol", suffix=".sol")
+                if cid:
+                    src_cid = info["src"] = cid
                     dirty = True
-                except Exception:
-                    pass
 
         if not abi:
             continue
@@ -437,39 +542,28 @@ async def contract_abis(network: str = "testnet"):
 
 @app.get("/cid/{cid}")
 async def cid_get(cid: str):
-    """Fetch pinned content (ABI JSON / Solidity source) from localfs by CID."""
-    lf = _localfs()
-    if not lf:
-        raise HTTPException(status_code=503, detail="localfs unavailable")
-    try:
-        data = lf.get(cid)
-    except Exception as e:
+    """Fetch stored content (ABI JSON / Solidity source) from the store by CID."""
+    data = _store_get(cid)
+    if data is None:
         raise HTTPException(status_code=404, detail=f"CID not found: {cid}")
-    if isinstance(data, bytes):
-        try:
-            data = data.decode("utf-8")
-        except Exception:
-            raise HTTPException(status_code=415, detail="Binary content")
     return {"cid": cid, "content": data}
 
 
 # ── Module Proxy ──────────────────────────────────────────────────────────
 
 class ModCallReq(BaseModel):
-    mod: str
     method: str
     args: Optional[list] = None
     network: str = "testnet"
 
 @app.post("/call")
 async def mod_call(req: ModCallReq):
-    """Call a method on a contract module."""
+    """Call a method on the chain orchestrator (stake, credit, whitelist_token, …)."""
     chain = get_chain(req.network)
     try:
-        mod_instance = chain.mod(req.mod)
-        method = getattr(mod_instance, req.method, None)
-        if not method:
-            raise HTTPException(status_code=404, detail=f"Method {req.method} not found on {req.mod}")
+        method = getattr(chain, req.method, None)
+        if not method or req.method.startswith("_"):
+            raise HTTPException(status_code=404, detail=f"Method {req.method} not found")
         result = method(*(req.args or []))
         if hasattr(result, 'transactionHash'):
             return {"result": {
@@ -649,6 +743,182 @@ async def bloctime_owner(address: Optional[str] = None, network: str = "testnet"
         return {"address": addr, "bloctime": balance, "is_owner": balance > 0}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Per-mod BlocTime staking ─────────────────────────────────────────────────
+#
+# Holders allocate their on-chain BlocTime weight to individual modules — a
+# curation signal ("skin in the game" per mod) surfaced in the web catalog.
+# The allocation ledger lives off-chain (~/.mod/chain/mod_stakes.json), but
+# every stake is backed 1:1 by the address's live BlocTime balance: you can
+# never have more allocated across mods than you hold on-chain.
+
+MOD_STAKES_PATH = Path(os.path.expanduser("~/.mod/chain/mod_stakes.json"))
+
+
+def _load_mod_stakes() -> dict:
+    """{network: {mod_name: {address: amount_wei}}} — empty dict when absent."""
+    try:
+        with open(MOD_STAKES_PATH) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_mod_stakes(data: dict):
+    MOD_STAKES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = MOD_STAKES_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(MOD_STAKES_PATH)
+
+
+def _allocated(book: dict, addr: str) -> int:
+    """Total wei `addr` has staked across every mod on one network."""
+    return sum(int(stakers.get(addr, 0)) for stakers in book.values())
+
+
+@app.get("/mods/stakes")
+async def mod_stakes_all(network: str = "testnet"):
+    """Total BlocTime staked per module — the catalog's ranking signal."""
+    book = _load_mod_stakes().get(network, {})
+    mods = {}
+    for name, stakers in book.items():
+        amounts = [int(v) for v in stakers.values() if int(v) > 0]
+        if amounts:
+            mods[name] = {"total": sum(amounts), "stakers": len(amounts)}
+    return {
+        "network": network,
+        "mods": mods,
+        "total": sum(m["total"] for m in mods.values()),
+    }
+
+
+@app.get("/mods/stakes/{name}")
+async def mod_stakes_one(name: str, address: Optional[str] = None,
+                         key: Optional[str] = None, network: str = "testnet"):
+    """One module's stake book; with ?address= (or ?key=) also the caller's
+    position and how much BlocTime they still have free to stake."""
+    name = name.strip().lower()
+    book = _load_mod_stakes().get(network, {})
+    stakers = {a: int(v) for a, v in book.get(name, {}).items() if int(v) > 0}
+    out = {
+        "name": name,
+        "network": network,
+        "total": sum(stakers.values()),
+        "stakers": [
+            {"address": a, "amount": v}
+            for a, v in sorted(stakers.items(), key=lambda kv: -kv[1])
+        ],
+    }
+    if address or key:
+        chain = get_chain(network, key)
+        addr = address or chain.account.address
+        try:
+            balance = chain.bloctime_balance(addr)
+        except Exception:
+            balance = 0
+        allocated = _allocated(book, addr)
+        out.update({
+            "address": addr,
+            "my_stake": stakers.get(addr, 0),
+            "bloctime": balance,
+            "available": max(0, balance - allocated),
+        })
+    return out
+
+
+class ModStakeReq(BaseModel):
+    name: str
+    amount: float                 # BLOC (18-decimals token, ether units)
+    key: Optional[str] = None
+    network: str = "testnet"
+
+
+@app.post("/mods/stake")
+async def mod_stake(req: ModStakeReq):
+    """Stake BlocTime to a module. Fails if the signing key's free BlocTime
+    (on-chain balance minus what it already staked to mods) can't cover it."""
+    name = req.name.strip().lower()
+    if not name:
+        raise HTTPException(status_code=400, detail="module name required")
+    amount_wei = int(req.amount * 10**18)
+    if amount_wei <= 0:
+        raise HTTPException(status_code=400, detail="amount must be > 0")
+    chain = get_chain(req.network, req.key)
+    try:
+        addr = chain.account.address
+        balance = chain.bloctime_balance(addr)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    data = _load_mod_stakes()
+    book = data.setdefault(req.network, {})
+    allocated = _allocated(book, addr)
+    if allocated + amount_wei > balance:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"insufficient BlocTime: balance {balance / 1e18:.4f} BLOC, "
+                f"already staked {allocated / 1e18:.4f} — stake MOD (POST /stake) "
+                f"to earn more BlocTime first"
+            ),
+        )
+    entry = book.setdefault(name, {})
+    entry[addr] = int(entry.get(addr, 0)) + amount_wei
+    _save_mod_stakes(data)
+    return {
+        "name": name,
+        "address": addr,
+        "my_stake": entry[addr],
+        "total": sum(int(v) for v in entry.values()),
+        "bloctime": balance,
+        "available": max(0, balance - allocated - amount_wei),
+    }
+
+
+class ModUnstakeReq(BaseModel):
+    name: str
+    amount: Optional[float] = None  # BLOC; omit to withdraw the whole stake
+    key: Optional[str] = None
+    network: str = "testnet"
+
+
+@app.post("/mods/unstake")
+async def mod_unstake(req: ModUnstakeReq):
+    """Withdraw some or all of the signing key's stake from a module."""
+    name = req.name.strip().lower()
+    chain = get_chain(req.network, req.key)
+    addr = chain.account.address
+    data = _load_mod_stakes()
+    book = data.setdefault(req.network, {})
+    entry = book.get(name, {})
+    current = int(entry.get(addr, 0))
+    if current <= 0:
+        raise HTTPException(status_code=400, detail=f"no stake on '{name}' from {addr}")
+    amount_wei = current if req.amount is None else int(req.amount * 10**18)
+    if amount_wei <= 0:
+        raise HTTPException(status_code=400, detail="amount must be > 0")
+    amount_wei = min(amount_wei, current)
+    remaining = current - amount_wei
+    if remaining > 0:
+        entry[addr] = remaining
+    else:
+        entry.pop(addr, None)
+        if not entry:
+            book.pop(name, None)
+    _save_mod_stakes(data)
+    try:
+        balance = chain.bloctime_balance(addr)
+    except Exception:
+        balance = 0
+    return {
+        "name": name,
+        "address": addr,
+        "my_stake": remaining,
+        "total": sum(int(v) for v in entry.values()) if entry else 0,
+        "bloctime": balance,
+        "available": max(0, balance - _allocated(book, addr)),
+    }
 
 
 # ── Protocol: Registry ──────────────────────────────────────────────────────
@@ -1087,6 +1357,795 @@ async def control_deploy_script(req: DeployScriptReq):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ── Contract builder (write → compile → deploy from a wallet) ───────────────
+#
+# Compilation runs solc in a subprocess (src/build/compile.js); imports resolve
+# against the chain module's node_modules, so @openzeppelin/… just works.
+# Tests run in a throwaway Hardhat project (src/build/hardhat.template.js) that
+# borrows the same node_modules — offline, no compiler download.
+# Deployment itself is signed in the browser — the API never sees a user key.
+# Projects and the user's own deployments live off-tree in ~/.mod/chain/build/.
+
+BUILD_DIR = Path.home() / ".mod" / "chain" / "build"
+BUILD_TIMEOUT = 120
+TEST_TIMEOUT = 240
+
+
+def _build_dir() -> Path:
+    BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    return BUILD_DIR
+
+
+def _build_store(name: str) -> dict:
+    path = _build_dir() / name
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _build_save(name: str, data: dict):
+    path = _build_dir() / name
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+
+def _who(address: Optional[str]) -> str:
+    """Storage key for a user — an address, or 'anon' for unsigned sessions."""
+    return (address or "anon").lower()
+
+
+def _safe_rel(path: str) -> str:
+    """A project-relative path with no way out of the project directory."""
+    parts = [p for p in (path or "").replace("\\", "/").split("/") if p not in ("", ".")]
+    if not parts or any(p == ".." for p in parts):
+        raise HTTPException(status_code=400, detail=f"bad file path: {path}")
+    return "/".join(parts)
+
+
+def _layout(files: dict) -> dict:
+    """Normalise a project's files onto the Hardhat layout tests expect."""
+    out = {}
+    for raw, content in (files or {}).items():
+        path = _safe_rel(raw)
+        head = path.split("/")[0]
+        if path.endswith(".sol") and head != "contracts":
+            path = f"contracts/{path}"
+        elif path.endswith((".js", ".ts", ".cjs", ".mjs")) and head != "test":
+            path = f"test/{path}"
+        out[path] = content
+    return out
+
+
+class CompileReq(BaseModel):
+    source: Optional[str] = None            # single file …
+    filename: str = "Contract.sol"
+    sources: Optional[dict] = None          # … or a whole project {path: source}
+    optimize: bool = True
+    runs: int = 200
+
+
+@app.post("/build/compile")
+async def build_compile(req: CompileReq):
+    """Compile Solidity source (one file or a project); returns artifacts + diagnostics."""
+    import subprocess
+
+    base = _module_dir("chain")
+    script = os.path.join(base or "", "src", "build", "compile.js")
+    if not os.path.isfile(script):
+        raise HTTPException(status_code=503, detail="compiler not installed")
+
+    if req.sources:
+        # Keys are relative paths so `import "./Other.sol"` resolves between them.
+        sources = {_safe_rel(p): s for p, s in req.sources.items() if p.endswith(".sol")}
+        if not sources:
+            raise HTTPException(status_code=400, detail="no .sol sources to compile")
+    else:
+        filename = os.path.basename(req.filename) or "Contract.sol"
+        if not filename.endswith(".sol"):
+            filename += ".sol"
+        sources = {filename: req.source or ""}
+
+    payload = json.dumps({
+        "sources": sources,
+        "optimize": req.optimize,
+        "runs": req.runs,
+    })
+    try:
+        proc = subprocess.run(["node", script], input=payload, capture_output=True,
+                              text=True, timeout=BUILD_TIMEOUT, cwd=base)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="compile timed out")
+    try:
+        out = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail=(proc.stderr or "compiler failed")[:500])
+
+    errors, warnings = [], []
+    for d in out.get("errors", []):
+        entry = {
+            "severity": d.get("severity", "error"),
+            "message": d.get("formattedMessage") or d.get("message", ""),
+            "line": (d.get("sourceLocation") or {}).get("start"),
+        }
+        (errors if entry["severity"] == "error" else warnings).append(entry)
+
+    # Only contracts from the user's own files are deployable — imports are deps.
+    contracts = []
+    for path in sources:
+        for name, c in (out.get("contracts", {}).get(path, {}) or {}).items():
+            bytecode = "0x" + (c.get("evm", {}).get("bytecode", {}).get("object") or "")
+            deployed = c.get("evm", {}).get("deployedBytecode", {}).get("object") or ""
+            abi = c.get("abi") or []
+            ctor = next((f for f in abi if f.get("type") == "constructor"), None)
+            contracts.append({
+                "name": name,
+                "file": path,
+                "abi": abi,
+                "bytecode": bytecode,
+                "size": len(deployed) // 2,
+                "abstract": len(bytecode) <= 2,
+                "constructor": (ctor or {}).get("inputs", []),
+            })
+    contracts.sort(key=lambda c: (c["abstract"], c["name"].lower()))
+
+    return {"ok": not errors, "contracts": contracts,
+            "errors": errors, "warnings": warnings, "solc": out.get("version")}
+
+
+@app.get("/build/templates")
+async def build_templates():
+    """Starter projects — each a contract plus the test that proves it works."""
+    base = _module_dir("chain")
+    root = os.path.join(base or "", "src", "build", "templates")
+    out = []
+    for fname in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        if not fname.endswith(".sol"):
+            continue
+        stem = fname[:-4]
+        with open(os.path.join(root, fname)) as f:
+            source = f.read()
+        test = ""
+        test_path = os.path.join(root, f"{stem}.test.js")
+        if os.path.isfile(test_path):
+            with open(test_path) as f:
+                test = f.read()
+        # second comment line of each template is its one-line description
+        lines = source.splitlines()
+        desc = next((l.lstrip("/ ").strip() for l in lines[:4]
+                     if l.startswith("//") and "SPDX" not in l), "")
+        files = {f"contracts/{fname}": source}
+        if test:
+            files[f"test/{stem}.test.js"] = test
+        out.append({"key": stem.lower(), "name": stem, "description": desc,
+                    "source": source, "files": files})
+    return {"templates": out}
+
+
+# ── Projects ────────────────────────────────────────────────────────────────
+#
+# A project is a named bag of files — contracts/*.sol next to test/*.test.js —
+# stored per wallet address. It's what the sidebar lists and what the test
+# runner materialises into a Hardhat sandbox.
+
+
+def _projects_store() -> dict:
+    """All users' projects, migrating any pre-project drafts on first read."""
+    store = _build_store("projects.json")
+    drafts = _build_store("drafts.json")
+    changed = False
+    for user, user_drafts in drafts.items():
+        if user in store or not user_drafts:
+            continue
+        for dname, d in user_drafts.items():
+            stem = dname[:-4] if dname.endswith(".sol") else dname
+            store.setdefault(user, {})[stem] = {
+                "files": {f"contracts/{stem}.sol": d.get("source", "")},
+                "updated": d.get("updated", 0),
+            }
+        changed = True
+    if changed:
+        _build_save("projects.json", store)
+    return store
+
+
+def _project(address: Optional[str], name: str) -> dict:
+    proj = _projects_store().get(_who(address), {}).get(name)
+    if proj is None:
+        raise HTTPException(status_code=404, detail=f"no project named {name}")
+    return proj
+
+
+class ProjectReq(BaseModel):
+    address: Optional[str] = None
+    name: str
+    files: dict = {}
+
+
+@app.get("/build/projects")
+async def build_projects(address: Optional[str] = None):
+    """List a user's projects (newest first), without file bodies."""
+    projects = _projects_store().get(_who(address), {})
+    rows = [{
+        "name": n,
+        "updated": p.get("updated", 0),
+        "files": sorted((p.get("files") or {}).keys()),
+    } for n, p in projects.items()]
+    rows.sort(key=lambda p: p.get("updated", 0), reverse=True)
+    return {"projects": rows}
+
+
+@app.get("/build/projects/{name}")
+async def build_project_get(name: str, address: Optional[str] = None):
+    """One project, files and all."""
+    return {"name": name, **_project(address, name)}
+
+
+@app.post("/build/projects")
+async def build_project_save(req: ProjectReq):
+    """Create or overwrite a project under the caller's address."""
+    import time
+    if not req.name.strip():
+        raise HTTPException(status_code=400, detail="project needs a name")
+    store = _projects_store()
+    files = {_safe_rel(p): s for p, s in (req.files or {}).items()}
+    store.setdefault(_who(req.address), {})[req.name] = {
+        "files": files, "updated": time.time(),
+    }
+    _build_save("projects.json", store)
+    return {"ok": True, "name": req.name, "files": sorted(files)}
+
+
+@app.delete("/build/projects")
+async def build_project_delete(name: str, address: Optional[str] = None):
+    store = _projects_store()
+    user = store.get(_who(address), {})
+    if user.pop(name, None) is None:
+        raise HTTPException(status_code=404, detail=f"no project named {name}")
+    _build_save("projects.json", store)
+    return {"ok": True}
+
+
+# ── Shared projects ─────────────────────────────────────────────────────────
+#
+# A gallery: publish a project you built, anyone can fork it into their own
+# sidebar. Entries are keyed "<author>/<name>". The fleet's own contracts ship
+# as read-only entries, so the gallery is never empty and BlocTime is one click
+# away from a working editor.
+
+# Paths are chain-module-relative and read fresh on every request, so editing a
+# fleet contract updates its gallery entry without a republish.
+BUILTIN_SHARED = [{
+    "id": "fleet/bloctime",
+    "name": "bloctime",
+    "author": "fleet",
+    "description": "Stake an ERC20 for a block duration, mint blocTime on a multiplier curve.",
+    "sources": {
+        "contracts/BlocTime.sol": "src/contracts/bloctime/BlocTime.sol",
+        "contracts/Token.sol": "src/build/shared/bloctime/Token.sol",
+        "test/BlocTime.test.js": "src/contracts/bloctime/test/BlocTime.test.js",
+    },
+}]
+
+
+def _builtin_files(entry: dict) -> dict:
+    """Read a shipped entry's files off disk, skipping any that have moved."""
+    base = _module_dir("chain") or ""
+    files = {}
+    for path, rel in entry["sources"].items():
+        try:
+            with open(os.path.join(base, rel)) as f:
+                files[path] = f.read()
+        except OSError:
+            continue
+    return files
+
+
+def _shared_store() -> dict:
+    return _build_store("shared.json")
+
+
+def _shared_id(author: str, name: str) -> str:
+    return f"{author}/{_safe_rel(name)}"
+
+
+class ShareReq(BaseModel):
+    address: str
+    name: str
+    description: str = ""
+    files: dict = {}
+
+
+@app.get("/build/shared")
+async def build_shared_list():
+    """Everything in the gallery — shipped entries first, then newest published."""
+    rows = [{
+        "id": e["id"], "name": e["name"], "author": e["author"],
+        "description": e["description"], "files": sorted(_builtin_files(e)),
+        "updated": 0, "builtin": True,
+    } for e in BUILTIN_SHARED]
+    published = [{
+        "id": eid,
+        "name": e.get("name", eid.split("/")[-1]),
+        "author": e.get("author", "anon"),
+        "description": e.get("description", ""),
+        "files": sorted((e.get("files") or {}).keys()),
+        "updated": e.get("updated", 0),
+        "builtin": False,
+    } for eid, e in _shared_store().items()]
+    published.sort(key=lambda e: e["updated"], reverse=True)
+    return {"shared": rows + published}
+
+
+@app.get("/build/shared/{entry_id:path}")
+async def build_shared_get(entry_id: str):
+    """One gallery entry, files and all — what a fork copies."""
+    for e in BUILTIN_SHARED:
+        if e["id"] == entry_id:
+            return {**{k: v for k, v in e.items() if k != "sources"},
+                    "files": _builtin_files(e), "builtin": True}
+    entry = _shared_store().get(entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"no shared project {entry_id}")
+    return {"id": entry_id, "builtin": False, **entry}
+
+
+@app.post("/build/shared")
+async def build_shared_publish(req: ShareReq):
+    """Publish a project under the caller's address. Republishing overwrites."""
+    import time
+    author = _who(req.address)
+    if author == "anon":
+        raise HTTPException(status_code=400, detail="sign in with a wallet to share a project")
+    if not req.name.strip():
+        raise HTTPException(status_code=400, detail="project needs a name")
+    if not req.files:
+        raise HTTPException(status_code=400, detail="nothing to share — the project has no files")
+    entry_id = _shared_id(author, req.name.strip())
+    store = _shared_store()
+    store[entry_id] = {
+        "name": req.name.strip(),
+        "author": author,
+        "description": req.description.strip()[:280],
+        "files": {_safe_rel(p): s for p, s in req.files.items()},
+        "updated": time.time(),
+    }
+    _build_save("shared.json", store)
+    return {"ok": True, "id": entry_id}
+
+
+@app.delete("/build/shared")
+async def build_shared_unpublish(id: str, address: Optional[str] = None):
+    """Pull your own entry back out of the gallery."""
+    store = _shared_store()
+    entry = store.get(id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"no shared project {id}")
+    if entry.get("author") != _who(address):
+        raise HTTPException(status_code=403, detail="only the author can unshare this")
+    store.pop(id)
+    _build_save("shared.json", store)
+    return {"ok": True}
+
+
+# ── Test runner ─────────────────────────────────────────────────────────────
+#
+# Each user gets one sandbox under ~/.mod/chain/build/run/<who>/ holding the
+# generated hardhat.config.js, their files, and a warm compile cache. The
+# sandbox borrows the chain module's node_modules by symlink, so Hardhat, its
+# in-process EVM and solc are all already on disk — a run never hits the network.
+
+_test_locks: dict = {}
+
+
+def _sandbox(who: str) -> Path:
+    """A ready-to-run Hardhat project directory for one user."""
+    import shutil
+
+    base = _module_dir("chain")
+    template = os.path.join(base or "", "src", "build", "hardhat.template.js")
+    if not os.path.isfile(template):
+        raise HTTPException(status_code=503, detail="test runner not installed")
+
+    root = _build_dir() / "run" / re.sub(r"[^a-z0-9]", "_", who)
+    root.mkdir(parents=True, exist_ok=True)
+
+    modules = root / "node_modules"
+    if not modules.exists():
+        modules.symlink_to(os.path.join(base, "node_modules"))
+    # Hardhat insists on a package.json at (or above) the project root.
+    (root / "package.json").write_text('{"name": "chain-build-sandbox", "private": true}\n')
+    shutil.copyfile(template, root / "hardhat.config.js")
+
+    for sub in ("contracts", "test"):
+        shutil.rmtree(root / sub, ignore_errors=True)
+        (root / sub).mkdir()
+    return root
+
+
+class TestReq(BaseModel):
+    address: Optional[str] = None
+    files: dict = {}
+    grep: Optional[str] = None       # run only tests whose name matches
+
+
+@app.post("/build/test")
+async def build_test(req: TestReq):
+    """Run a project's Hardhat/Mocha tests against an in-process EVM."""
+    import subprocess
+    import threading
+
+    files = _layout(req.files)
+    if not any(p.startswith("test/") for p in files):
+        raise HTTPException(status_code=400, detail="no test files — add test/<Name>.test.js")
+
+    who = _who(req.address)
+    lock = _test_locks.setdefault(who, threading.Lock())
+    if not lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="a test run is already in flight")
+    try:
+        root = _sandbox(who)
+        for path, content in files.items():
+            dest = root / path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content or "")
+
+        report = root / "mocha.json"
+        report.unlink(missing_ok=True)
+        cmd = [os.path.join(_module_dir("chain"), "node_modules", ".bin", "hardhat"), "test"]
+        if req.grep:
+            cmd += ["--grep", req.grep]
+        try:
+            proc = subprocess.run(cmd, cwd=root, capture_output=True, text=True,
+                                  timeout=TEST_TIMEOUT,
+                                  env={**os.environ, "HARDHAT_DISABLE_TELEMETRY_PROMPT": "true"})
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504,
+                                detail=f"tests timed out after {TEST_TIMEOUT}s")
+    finally:
+        lock.release()
+
+    # Hardhat greets every run with a Node-version warning; it isn't the user's news.
+    noise = re.compile(r"^WARNING: You are currently using Node\.js")
+    output = "\n".join(
+        line for chunk in (proc.stdout, proc.stderr) for line in chunk.splitlines()
+        if line.strip() and not noise.match(line)
+    )
+    try:
+        result = json.loads(report.read_text())
+    except Exception:
+        # No report means we never reached mocha — a compile error, almost always.
+        return {"ok": False, "passing": 0, "failing": 0, "tests": [],
+                "output": output, "error": output or "test run failed"}
+
+    stats = result.get("stats", {})
+    tests = []
+    for t in result.get("tests", []):
+        full, title = t.get("fullTitle", ""), t.get("title", "")
+        err = t.get("err") or {}
+        tests.append({
+            "title": title,
+            "suite": full[: len(full) - len(title)].strip(),
+            "duration": t.get("duration"),
+            "passed": not err,
+            "error": err.get("message"),
+            "diff": err.get("stack"),
+        })
+
+    return {
+        "ok": proc.returncode == 0 and not stats.get("failures"),
+        "passing": stats.get("passes", 0),
+        "failing": stats.get("failures", 0),
+        "duration": stats.get("duration", 0),
+        "tests": tests,
+        "output": output,
+    }
+
+
+class BuiltReq(BaseModel):
+    address: Optional[str] = None      # deployer (wallet that signed)
+    network: str = "testnet"
+    name: str
+    contract_address: str
+    tx_hash: Optional[str] = None
+    abi: list = []
+    source: Optional[str] = None
+
+
+@app.post("/build/deployments")
+async def build_record(req: BuiltReq):
+    """Record a wallet-signed deployment so it shows up in CONTRACTS / INTERACT."""
+    import time
+    store = _build_store("deployments.json")
+    rows = store.setdefault(_who(req.address), [])
+
+    # Store the ABI + source so the build is fetchable by CID from anywhere,
+    # exactly like a fleet contract. The deployer owns the objects.
+    abi_cid = _store_put(req.abi, owner=req.address,
+                         key=f"{ABI_KEY}/{req.network}/{req.name}.json") if req.abi else None
+    src_cid = _store_put(req.source, owner=req.address, suffix=".sol",
+                         key=f"{SRC_KEY}/{req.network}/{req.name}.sol") if req.source else None
+
+    row = {"name": req.name, "network": req.network, "address": req.contract_address,
+           "tx_hash": req.tx_hash, "abi": req.abi, "abi_cid": abi_cid,
+           "src_cid": src_cid, "deployer": req.address, "created": time.time()}
+    rows.insert(0, row)
+    _build_save("deployments.json", store)
+    return {"ok": True, "deployment": row}
+
+
+@app.get("/build/deployments")
+async def build_deployments(address: Optional[str] = None, network: Optional[str] = None):
+    """A user's wallet-signed deployments, newest first."""
+    rows = _build_store("deployments.json").get(_who(address), [])
+    if network:
+        rows = [r for r in rows if r.get("network") == network]
+    return {"deployments": rows, "count": len(rows)}
+
+
+# ── ABIs in the store ───────────────────────────────────────────────────────
+#
+# Deploying writes the ABI to the store automatically, but a contract deployed
+# somewhere else is just as welcome: POST one here and it becomes a CID like any
+# other. The console loads a contract straight from a CID, so an ABI travels
+# between projects (and between people) without being pasted around.
+
+
+class AbiReq(BaseModel):
+    address: Optional[str] = None      # owner of the stored object
+    name: str = "abi"
+    network: str = "testnet"
+    abi: list = []
+    source: Optional[str] = None
+
+
+@app.post("/build/abi")
+async def build_abi_put(req: AbiReq):
+    """Store an ABI (and optionally its source) — returns the CIDs."""
+    if not req.abi:
+        raise HTTPException(status_code=400, detail="abi is empty")
+    name = _safe_rel(req.name).replace("/", "_")
+    abi_cid = _store_put(req.abi, owner=req.address,
+                         key=f"{ABI_KEY}/{req.network}/{name}.json")
+    if not abi_cid:
+        raise HTTPException(status_code=503, detail="store unavailable")
+    src_cid = _store_put(req.source, owner=req.address, suffix=".sol",
+                         key=f"{SRC_KEY}/{req.network}/{name}.sol") if req.source else None
+    return {"ok": True, "cid": abi_cid, "abi_cid": abi_cid, "src_cid": src_cid}
+
+
+@app.get("/build/abi/{cid}")
+async def build_abi_get(cid: str):
+    """One ABI by CID, parsed — what INTERACT loads a contract from."""
+    abi = _store_get_json(cid)
+    if not isinstance(abi, list):
+        raise HTTPException(status_code=404,
+                            detail=f"no ABI at {cid}" if abi is None
+                            else f"{cid} is not an ABI (expected a JSON array)")
+    return {"cid": cid, "abi": abi}
+
+
+@app.get("/build/abis")
+async def build_abis(address: Optional[str] = None, limit: int = 100):
+    """ABIs an address has in the store, newest first."""
+    st = _store()
+    if st is None:
+        return {"abis": [], "count": 0}
+    rows = []
+    for o in st.list(owner=_who(address), limit=max(1, min(limit, 1000)) * 4):
+        key = o.get("key") or ""
+        if not key.startswith(ABI_KEY + "/"):
+            continue
+        parts = key.split("/")
+        rows.append({"cid": o.get("cid"), "key": key, "size": o.get("size"),
+                     "stored": o.get("timestamp"),
+                     "network": parts[2] if len(parts) > 3 else None,
+                     "name": parts[-1].removesuffix(".json")})
+        if len(rows) >= limit:
+            break
+    return {"abis": rows, "count": len(rows)}
+
+
+# ── Host readout (owner-only) ────────────────────────────────────────────────
+#
+# CPU / memory / disk / process / network stats describe the machine the
+# protocol runs on: raw cmdlines can carry secrets and traffic shape is
+# operational intel, so this is the one part of the API that is not public.
+# Access is proven by a wallet signature from an owner address, exchanged for
+# a short-lived HMAC token. Owners and the signing secret live off-tree in
+# ~/.mod/chain/ — never in the committed config.
+
+CHAIN_HOME = Path.home() / ".mod" / "chain"
+OWNERS_PATH = CHAIN_HOME / "owners.json"
+SECRET_PATH = CHAIN_HOME / "server.secret"
+TOKEN_TTL = 12 * 3600   # one signature buys half a day of access
+NONCE_TTL = 300         # a challenge must be signed within five minutes
+
+_nonces = {}            # nonce -> (address, expires_at)
+_secret = None
+
+
+def _owner_addresses() -> set:
+    """Addresses allowed to see the host.
+
+    ~/.mod/chain/owners.json is the ACL. On a fresh install it is seeded from
+    the deployer addresses in config.json — whoever deployed the protocol owns
+    the box it runs on — and can then be edited by hand. $CHAIN_OWNERS (comma
+    separated) overrides the file entirely.
+    """
+    env = os.environ.get("CHAIN_OWNERS", "").strip()
+    if env:
+        return {a.strip().lower() for a in env.split(",") if a.strip()}
+    try:
+        owners = {str(a).lower() for a in json.loads(OWNERS_PATH.read_text()).get("owners", []) if a}
+        if owners:
+            return owners
+    except Exception:
+        pass
+    seeded = set()
+    base = _module_dir("chain")
+    try:
+        with open(os.path.join(base, "config.json")) as f:
+            for deployment in (json.load(f).get("deployments") or {}).values():
+                # Local chains deploy from a well-known test key whose private
+                # key ships with hardhat — never an owner.
+                if str(deployment.get("chainId")) in ("1337", "31337"):
+                    continue
+                if deployment.get("deployer"):
+                    seeded.add(deployment["deployer"].lower())
+    except Exception:
+        pass
+    try:
+        CHAIN_HOME.mkdir(parents=True, exist_ok=True)
+        OWNERS_PATH.write_text(json.dumps({"owners": sorted(seeded)}, indent=2))
+        os.chmod(OWNERS_PATH, 0o600)
+    except Exception:
+        pass
+    return seeded
+
+
+def _server_secret() -> bytes:
+    """HMAC key for host-access tokens, persisted 0600 so a restart doesn't
+    invalidate every signed-in owner."""
+    global _secret
+    if _secret is None:
+        try:
+            _secret = SECRET_PATH.read_bytes()
+        except Exception:
+            import secrets as _s
+            _secret = _s.token_bytes(32)
+            try:
+                CHAIN_HOME.mkdir(parents=True, exist_ok=True)
+                SECRET_PATH.write_bytes(_secret)
+                os.chmod(SECRET_PATH, 0o600)
+            except Exception:
+                pass
+    return _secret
+
+
+def _sign_token(address: str, expires: int) -> str:
+    import hmac, hashlib
+    body = f"{address}.{expires}"
+    mac = hmac.new(_server_secret(), body.encode(), hashlib.sha256).hexdigest()
+    return f"{body}.{mac}"
+
+
+def _token_address(authorization: Optional[str]) -> Optional[str]:
+    """The owner address a Bearer token proves, or None if it proves nothing."""
+    import hmac, hashlib, time as _t
+    raw = (authorization or "").strip()
+    if raw.lower().startswith("bearer "):
+        raw = raw[7:].strip()
+    parts = raw.split(".")
+    if len(parts) != 3:
+        return None
+    address, expires, mac = parts
+    try:
+        if int(expires) < _t.time():
+            return None
+    except ValueError:
+        return None
+    body = f"{address}.{expires}"
+    want = hmac.new(_server_secret(), body.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(want, mac):
+        return None
+    return address if address in _owner_addresses() else None
+
+
+def _require_owner(authorization: Optional[str]) -> str:
+    address = _token_address(authorization)
+    if not address:
+        raise HTTPException(status_code=403, detail="owner only")
+    return address
+
+
+def _host_module():
+    """The /proc reader that lives next to this file."""
+    import sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import host
+    return host
+
+
+@app.get("/system/access")
+async def system_access(address: Optional[str] = None,
+                        authorization: Optional[str] = Header(None)):
+    """Whether an address may see the host readout, and whether this session
+    already can. The console hides the panel outright for everyone else."""
+    authed = _token_address(authorization)
+    addr = (address or "").strip().lower() or (authed or "")
+    return {
+        "address": addr or None,
+        "is_owner": bool(addr) and addr in _owner_addresses(),
+        "authed": authed is not None,
+    }
+
+
+@app.get("/system/challenge")
+async def system_challenge(address: str):
+    """A single-use message for an owner wallet to sign."""
+    import secrets as _s, time as _t
+    addr = (address or "").strip().lower()
+    if not addr or addr not in _owner_addresses():
+        raise HTTPException(status_code=403, detail="owner only")
+    now = _t.time()
+    for stale in [n for n, (_, exp) in _nonces.items() if exp < now]:
+        _nonces.pop(stale, None)
+    nonce = _s.token_hex(16)
+    _nonces[nonce] = (addr, now + NONCE_TTL)
+    return {
+        "nonce": nonce,
+        "message": ("chain — owner console\n\n"
+                    "Sign in to view this host's stats.\n"
+                    f"address: {addr}\n"
+                    f"nonce: {nonce}"),
+        "expires": int(now + NONCE_TTL),
+    }
+
+
+class HostLoginReq(BaseModel):
+    address: str
+    signature: str
+    nonce: str
+
+
+@app.post("/system/login")
+async def system_login(req: HostLoginReq):
+    """Trade a signed challenge for a host-access token."""
+    import time as _t
+    addr = (req.address or "").strip().lower()
+    entry = _nonces.pop(req.nonce, None)   # single use, win or lose
+    if not entry or entry[1] < _t.time() or entry[0] != addr:
+        raise HTTPException(status_code=400, detail="challenge expired — request a new one")
+    message = ("chain — owner console\n\n"
+               "Sign in to view this host's stats.\n"
+               f"address: {addr}\n"
+               f"nonce: {req.nonce}")
+    try:
+        from eth_account import Account
+        from eth_account.messages import encode_defunct
+        signer = Account.recover_message(encode_defunct(text=message), signature=req.signature)
+    except Exception:
+        raise HTTPException(status_code=400, detail="bad signature")
+    if signer.lower() != addr or addr not in _owner_addresses():
+        raise HTTPException(status_code=403, detail="owner only")
+    expires = int(_t.time()) + TOKEN_TTL
+    return {"token": _sign_token(addr, expires), "address": addr, "expires": expires}
+
+
+@app.get("/system/stats")
+async def system_stats(top: int = 30, authorization: Optional[str] = Header(None)):
+    """Live host readout: per-core CPU, memory, disk, processes and per-
+    interface network traffic. Owner-only."""
+    _require_owner(authorization)
+    return await _host_module().collect(top=max(1, min(top, 100)))
+
+
 @app.get("/info")
 async def info():
     """API info."""
@@ -1102,9 +2161,15 @@ async def info():
             "credit", "transfer", "tokens",
             "contracts/source", "contracts/mods", "contracts/abis", "cid/{cid}",
             "registry/mods", "registry/all", "registry/register", "bloctime/owner",
+            "mods/stakes", "mods/stakes/{name}", "mods/stake", "mods/unstake",
             "register", "mint", "pool", "pool/claimable", "pool/claim",
             "pool/epochs", "pool/snapshot",
             "admin/owners", "admin/encode", "admin/send", "admin/transfer-all",
             "control/status", "control/verify", "control/deploy-script",
+            "build/compile", "build/templates", "build/test",
+            "build/projects", "build/projects/{name}", "build/deployments",
+            "build/shared", "build/shared/{id}",
+            "build/abi", "build/abi/{cid}", "build/abis",
+            "system/access", "system/challenge", "system/login", "system/stats",
         ],
     }

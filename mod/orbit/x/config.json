@@ -1,6 +1,53 @@
 {
     "name": "x",
-    "description": "x",
-    "version": "0.1.0",
-    "schema": "QmWTm83y3TXQmFUx7ZcqqvFh2gHJiNK6H77rjUHcsmh1vx"
+    "version": "0.2.0",
+    "description": "X (Twitter) API v2 \u2014 Rust MCP server backend",
+    "port": 50350,
+    "route": false,
+    "urls": {
+        "api": "http://localhost:50350",
+        "app": "http://localhost:50350"
+    },
+    "endpoints": {
+        "mcp": "POST /mcp",
+        "search": "GET /search?q=",
+        "get_post": "GET /posts/:id",
+        "post": "POST /posts",
+        "delete_post": "DELETE /posts/:id",
+        "user": "GET /users/:handle",
+        "timeline": "GET /users/:handle/timeline",
+        "forward": "POST /forward",
+        "tools": "GET /tools"
+    },
+    "fns": [
+        "forward",
+        "search",
+        "counts",
+        "get_post",
+        "user",
+        "timeline",
+        "mentions",
+        "followers",
+        "following",
+        "me",
+        "post",
+        "delete_post",
+        "like",
+        "repost",
+        "follow",
+        "auth_status",
+        "set_keys",
+        "credentials",
+        "tools",
+        "mcp_call",
+        "mcp_config",
+        "build",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "backend": "x-rs (Rust: axum MCP server, JSON-RPC 2.0 Streamable HTTP + stdio)",
+    "secrets": "~/.mod/x/credentials.json",
+    "schema": "QmfJCnNiaKN3LKs6HYCT3S6eX7PkNJkXDJAAxPp7347yqd",
+    "gateway_port": 50350
 }

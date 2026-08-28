@@ -23,11 +23,20 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(50091);
 
     let http = reqwest::Client::builder()
+        // Public Polygon RPCs + Polymarket data-api now reject requests that
+        // carry no User-Agent (reqwest sends none by default) with 401/403.
+        // That surfaced as phantom $0 balances and "0 trades observed" — a
+        // browser-like UA is all they want. Keep this or on-chain reads and
+        // trader polling silently break again.
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .pool_max_idle_per_host(64)
         .timeout(std::time::Duration::from_secs(30))
         .build()?;
 
-    let proxy_cache = Arc::new(ProxyCache::new(500));
+    // 128 entries: memory is a hot tier only — persistent endpoints (trader
+    // activity/positions/history) reload from disk on eviction, so a small
+    // cap costs no upstream refetches, just keeps big JSON bodies off-heap.
+    let proxy_cache = Arc::new(ProxyCache::new(128));
     let pipeline = Arc::new(PipelineState::new(http.clone()));
 
     let strat_store = Arc::new(StratStore::new());
@@ -71,7 +80,7 @@ async fn main() -> anyhow::Result<()> {
                         ),
                         Err(e) => tracing::warn!(eoa = %eoa, error = %e, "scheduled redemption errored"),
                     }
-                    match liq_engines.liquidate_all(&eoa).await {
+                    match liq_engines.liquidate_all(&eoa, None).await {
                         Ok(r) => tracing::info!(
                             eoa = %eoa, positions = r.positions, placed = r.placed,
                             skipped = r.skipped, failed = r.failed,
@@ -89,6 +98,7 @@ async fn main() -> anyhow::Result<()> {
     let user_strats = Arc::new(polymarket_api::UserStratStore::new());
     let share = polymarket_api::ShareStore::from_env();
     tracing::info!(backend = %share.label(), "strat share store");
+    let sync = polymarket_api::SyncSchedule::from_env();
     let state = AppState {
         http: http.clone(),
         proxy_cache: proxy_cache.clone(),
@@ -98,24 +108,57 @@ async fn main() -> anyhow::Result<()> {
         engines,
         user_strats,
         share,
+        sync: sync.clone(),
     };
 
-    // Background warmup: traders pipeline. HOURLY cadence — re-warming the
-    // 1D/7D/14D/30D leaderboards (~6k traders) every minute was the dominant
-    // source of data-api rate-limiting (429s). The leaderboard is slow-moving
-    // (30d Sharpe barely shifts minute-to-minute), so a ~1h refresh is plenty;
-    // the live engine polls the user's tracked traders separately at 60s, so
-    // copy responsiveness is unaffected. Paired with the 1h `AGG_TTL` in
-    // cache.rs so warmed entries stay valid between cycles instead of expiring
-    // after 60s and triggering on-demand refetches. Each cycle still only
-    // re-fetches expired entries, so steady-state load stays proportional to
-    // the candidate pool size (default 2000 traders).
+    // Background warmup: traders pipeline. 5-MINUTE cadence by default — the
+    // freshest schedule the sweep can absorb, and deliberately aggressive: a
+    // full 1D/7D/14D/30D pass over ~6k traders takes 8–10 min, so in practice
+    // cycles run back-to-back and the effective cadence is the cycle duration.
+    // Expect steady data-api 429s at this setting; individual traders that get
+    // rate-limited drop out of a window and reappear on the next pass. Raising
+    // the interval (AUTO chip / `/sync/config`) buys a quieter upstream and a
+    // scheduler that actually idles. Copy responsiveness never depended on
+    // this: the live engine polls the user's tracked traders separately at 60s.
+    // Paired with the 1h `AGG_TTL` in cache.rs, which is now an upper bound
+    // rather than a match — warmed entries are replaced long before they
+    // expire. Each cycle still only re-fetches windows past
+    // `resync_after_secs`, so a restart loop can't multiply the load.
+    //
+    // The cadence is OWNER-SETTABLE (sync.rs): `wait_for_next_run` schedules
+    // start-to-start off the persisted interval — never sleep-after-work, which
+    // drifted to interval + cycle duration — and wakes early when the owner
+    // changes the schedule or presses SYNC NOW. Each cycle is panic-guarded so
+    // one bad upstream payload can't kill the task and silently stop syncs.
     let warmup_pipeline = pipeline.clone();
+    let warmup_sync = sync.clone();
     tokio::spawn(async move {
+        use futures::FutureExt;
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         loop {
-            warmup_pipeline.warmup_cycle().await;
-            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            let trigger = warmup_sync.wait_for_next_run().await;
+            // A manual "sync now" bypasses the freshness skip entirely (0) —
+            // the owner asked for fresh data, not for a no-op cycle.
+            let min_age = match trigger {
+                polymarket_api::sync::Trigger::Manual => 0,
+                polymarket_api::sync::Trigger::Scheduled => warmup_sync.resync_after_secs(),
+            };
+            warmup_sync.mark_started(trigger);
+            let cycle = warmup_pipeline.warmup_cycle(min_age);
+            let panicked = std::panic::AssertUnwindSafe(cycle).catch_unwind().await.is_err();
+            if panicked {
+                tracing::error!(
+                    interval_secs = warmup_sync.interval_secs(),
+                    "warmup cycle panicked; retrying on the next scheduled sync",
+                );
+            }
+            warmup_sync.mark_finished(panicked.then(|| "cycle panicked".to_string()));
+            // Hand the cycle's burst heap back to the OS. Parsing thousands
+            // of trader activity pages allocates GBs that glibc otherwise
+            // keeps in its arenas forever — RSS sat pinned at the ~11GB
+            // high-water mark while live data (all disk-backed) was <200MB.
+            #[cfg(target_os = "linux")]
+            unsafe { libc::malloc_trim(0); }
         }
     });
 
@@ -159,9 +202,19 @@ async fn main() -> anyhow::Result<()> {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // Owner-only access gate + signed terms acceptance (access.rs). Applied
+    // here (not inside polymarket_api::router()) so unit/integration tests
+    // exercise routes without minting tokens; the deployed binary is what's
+    // gated. Guard wraps EVERYTHING merged above it — the /access/* routes
+    // exempt themselves inside the middleware.
+    let access = polymarket_api::AccessStore::from_env();
     let app = Router::new()
-        .merge(polymarket_api::router())
-        .with_state(state)
+        .merge(polymarket_api::router().with_state(state))
+        .merge(polymarket_api::access::router(access.clone()))
+        .layer(axum::middleware::from_fn_with_state(
+            access.clone(),
+            polymarket_api::access::guard,
+        ))
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 

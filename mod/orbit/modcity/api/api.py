@@ -98,6 +98,31 @@ class PanelRequest(BaseModel):
     public: bool = False
     panel_id: Optional[str] = None
 
+class BuildRequest(BaseModel):
+    brief: str = ""
+    name: Optional[str] = None
+    owner: str = ""
+    style: Optional[str] = None
+    code: Optional[str] = None
+    bedrooms: Optional[int] = None
+    bathrooms: Optional[int] = None
+    floors: Optional[int] = None
+    constraints: Optional[Dict[str, Any]] = None
+    description: Optional[str] = None
+    public: bool = False
+    save: bool = True
+    design_id: Optional[str] = None
+
+class EditRequest(BaseModel):
+    instruction: str = ""
+    owner: str = ""
+    save: bool = True
+
+class OpsRequest(BaseModel):
+    ops: List[Dict[str, Any]]
+    owner: str = ""
+    save: bool = True
+
 class AuditRequest(BaseModel):
     design_id: Optional[str] = None
     cells: Optional[List[Dict[str, Any]]] = None
@@ -209,6 +234,28 @@ def publish_panel(panel_id: str, req: PublishRequest):
 @app.delete("/panel/{panel_id}")
 def delete_panel(panel_id: str, owner: Optional[str] = None):
     return _guard(mc().delete_panel(panel_id, owner=owner))
+
+
+# ── Agent rail (text → building → text-edited building) ─────────
+@app.get("/agent")
+def agent_spec(): return mc().agent_spec()
+
+@app.post("/build")
+def build(req: BuildRequest):
+    return _guard(mc().build(
+        brief=req.brief, name=req.name, owner=req.owner, style=req.style, code=req.code,
+        bedrooms=req.bedrooms, bathrooms=req.bathrooms, floors=req.floors,
+        constraints=req.constraints, description=req.description,
+        public=req.public, save=req.save, design_id=req.design_id))
+
+@app.post("/design/{design_id}/edit")
+def edit(design_id: str, req: EditRequest):
+    return _guard(mc().edit(design_id, instruction=req.instruction,
+                            owner=req.owner, save=req.save))
+
+@app.post("/design/{design_id}/ops")
+def edit_design(design_id: str, req: OpsRequest):
+    return _guard(mc().edit_design(design_id, ops=req.ops, owner=req.owner, save=req.save))
 
 
 # ── Estimator (with constraints/compliance) ─────────────────────

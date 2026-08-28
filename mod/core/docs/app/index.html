@@ -5,103 +5,171 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>mod · docs</title>
 <style>
-  :root { --bg:#0b0e0c; --panel:#11161300; --fg:#d6e2da; --muted:#7d8c84;
-          --accent:#10b981; --border:#1d2622; --code:#0f1411; }
+  :root {
+    --bg:#0a0d0b; --fg:#d9e4dd; --muted:#77857d; --accent:#10b981;
+    --border:#1b241f; --code:#0e1310; --heading:#f0f6f2;
+    --thumb:#152019;
+  }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.7 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+         -webkit-font-smoothing:antialiased; }
   .wrap { display:flex; min-height:100vh; }
-  aside { width:250px; flex:none; border-right:1px solid var(--border); padding:18px 14px; position:sticky; top:0; height:100vh; overflow:auto; }
-  .brand { font-weight:700; letter-spacing:.04em; color:var(--accent); margin:0 0 4px; font-size:15px; }
-  .brand small { color:var(--muted); font-weight:400; }
-  nav a { display:block; padding:6px 10px; color:var(--fg); text-decoration:none; border-radius:6px; font-size:13.5px; text-transform:capitalize; }
+
+  /* ── sidebar ── */
+  aside { width:264px; flex:none; border-right:1px solid var(--border);
+          padding:26px 18px 18px; position:sticky; top:0; height:100vh; overflow:auto;
+          display:flex; flex-direction:column; gap:4px; }
+  .brand { font-weight:700; letter-spacing:.05em; color:var(--accent); margin:0; font-size:16px; }
+  .brand small { display:block; color:var(--muted); font-weight:400; letter-spacing:.02em; margin-top:2px; }
+
+  /* mode switch — one control, whole site */
+  .mode { margin:20px 0 14px; }
+  .mode .seg { position:relative; display:grid; grid-template-columns:1fr 1fr;
+               border:1px solid var(--border); border-radius:999px; padding:3px;
+               background:#ffffff06; }
+  .mode .thumb { position:absolute; top:3px; bottom:3px; left:3px; width:calc(50% - 3px);
+                 border-radius:999px; background:linear-gradient(180deg,#1b2b22,#14221b);
+                 box-shadow:0 1px 6px #0009, inset 0 1px 0 #ffffff12;
+                 transition:transform .28s cubic-bezier(.32,.72,.28,1); }
+  .mode .seg.eng .thumb { transform:translateX(100%); }
+  .mode button { position:relative; z-index:1; background:none; border:0; cursor:pointer;
+                 padding:7px 0; font:600 11.5px/1 inherit; letter-spacing:.14em;
+                 color:var(--muted); transition:color .28s; border-radius:999px; }
+  .mode button.on { color:var(--accent); }
+  .mode .hint { display:block; margin:8px 2px 0; color:var(--muted); font-size:11.5px;
+                letter-spacing:.02em; min-height:1.4em; transition:opacity .25s; }
+
+  nav { display:flex; flex-direction:column; gap:1px; }
+  nav a { display:block; padding:6px 12px; color:var(--fg); text-decoration:none;
+          border-radius:7px; font-size:13.5px; text-transform:capitalize;
+          transition:background .15s,color .15s; }
   nav a:hover { background:#ffffff0a; }
-  nav a.active { background:color-mix(in srgb,var(--accent) 14%,transparent); color:var(--accent); }
-  main { flex:1; padding:34px 44px; max-width:880px; }
+  nav a.active { background:color-mix(in srgb,var(--accent) 13%,transparent); color:var(--accent); }
+
+  /* ── content ── */
+  main { flex:1; padding:44px 56px 80px; max-width:820px; }
+  #content { transition:opacity .18s ease; }
+  #content.fade { opacity:0; }
   main img { max-width:100%; }
-  h1,h2,h3 { color:#eef5f1; line-height:1.25; }
-  h1 { border-bottom:1px solid var(--border); padding-bottom:.3em; }
+  h1,h2,h3 { color:var(--heading); line-height:1.25; letter-spacing:-.01em; }
+  h1 { font-size:30px; border-bottom:1px solid var(--border); padding-bottom:.35em; margin-top:.2em; }
+  h2 { margin-top:1.8em; }
   a { color:var(--accent); }
-  pre { background:var(--code); border:1px solid var(--border); border-radius:8px; padding:14px 16px; overflow:auto; }
+  pre { background:var(--code); border:1px solid var(--border); border-radius:10px;
+        padding:14px 16px; overflow:auto; }
   code { background:#ffffff10; padding:.12em .4em; border-radius:4px; font-size:.92em; }
   pre code { background:none; padding:0; }
-  table { border-collapse:collapse; } th,td { border:1px solid var(--border); padding:6px 10px; }
+  table { border-collapse:collapse; display:block; overflow-x:auto; }
+  th,td { border:1px solid var(--border); padding:6px 10px; }
   blockquote { border-left:3px solid var(--accent); margin:0; padding:.2em 1em; color:var(--muted); }
   .muted { color:var(--muted); }
-  .wp-toggle { display:flex; align-items:center; gap:10px; margin:0 0 18px; }
-  .wp-toggle .seg { display:inline-flex; border:1px solid var(--border); border-radius:999px; overflow:hidden; }
-  .wp-toggle button { background:none; border:0; color:var(--muted); font:12.5px/1 inherit; padding:7px 14px; cursor:pointer; letter-spacing:.03em; }
-  .wp-toggle button.on { background:color-mix(in srgb,var(--accent) 16%,transparent); color:var(--accent); }
-  .wp-toggle .hint { color:var(--muted); font-size:12px; }
+
+  /* subtle badge when a page only exists in engineer form */
+  .only-eng { display:inline-flex; align-items:center; gap:6px; margin:0 0 14px;
+              padding:5px 12px; border:1px solid var(--border); border-radius:999px;
+              color:var(--muted); font-size:11.5px; letter-spacing:.06em; }
+  .only-eng::before { content:""; width:6px; height:6px; border-radius:50%;
+                      background:var(--accent); opacity:.6; }
+
+  @media (max-width:760px) {
+    .wrap { flex-direction:column; }
+    aside { width:100%; height:auto; position:static; border-right:0;
+            border-bottom:1px solid var(--border); }
+    main { padding:26px 20px 60px; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <aside>
     <p class="brand">mod<br><small>protocol docs</small></p>
+    <div class="mode">
+      <div class="seg" id="seg">
+        <div class="thumb"></div>
+        <button data-m="simple">HUMAN</button>
+        <button data-m="tech">ENGINEER</button>
+      </div>
+      <span class="hint" id="modeHint"></span>
+    </div>
     <nav id="nav"></nav>
   </aside>
-  <main id="content"><p class="muted">Loading…</p></main>
+  <main><div id="content"><p class="muted">Loading…</p></div></main>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
 const BASE = "/docs";
-const order = ["README","getting-started","protocol","cli","api","modules","orbit","servers","storage","keys","skills","contracts","frontend","utils","simple-whitepaper","whitepaper"];
+const order = ["README","getting-started","protocol","cli","api","modules","orbit","servers","storage","keys","skills","contracts","frontend","utils","whitepaper"];
 const label = n => n === "README" ? "Overview" : n.replace(/-/g," ");
+const HINTS = { simple: "plain language — no jargon", tech: "the full technical detail" };
 
-// The two whitepaper variants share one nav entry + an on-page Simple/Full toggle.
-const WP_FULL = "whitepaper", WP_SIMPLE = "simple-whitepaper";
-const isWp = p => p === WP_FULL || p === WP_SIMPLE;
-const wpPref = () => { try { return localStorage.getItem("docs.wp") || "simple"; } catch(e) { return "simple"; } };
-const setWpPref = v => { try { localStorage.setItem("docs.wp", v); } catch(e){} };
+// One site-wide reading mode, chosen by each reader, remembered per browser.
+const mode = () => { try { return localStorage.getItem("docs.mode") || "simple"; } catch(e) { return "simple"; } };
+const setMode = v => { try { localStorage.setItem("docs.mode", v); } catch(e){} };
+
+let PAGES = [];           // [{name, simple}]
+let current = "README";
+
+function paintMode() {
+  const m = mode();
+  document.getElementById("seg").classList.toggle("eng", m === "tech");
+  document.querySelectorAll(".mode button").forEach(b => b.classList.toggle("on", b.dataset.m === m));
+  document.getElementById("modeHint").textContent = HINTS[m];
+}
 
 async function loadPages() {
-  let pages = [];
-  try { pages = await (await fetch(BASE + "/_pages")).json(); } catch(e){}
-  pages.sort((a,b) => { const ia=order.indexOf(a), ib=order.indexOf(b);
-    return (ia<0?99:ia) - (ib<0?99:ib) || a.localeCompare(b); });
+  try { PAGES = await (await fetch(BASE + "/_pages")).json(); } catch(e){}
+  PAGES.sort((a,b) => { const ia=order.indexOf(a.name), ib=order.indexOf(b.name);
+    return (ia<0?99:ia) - (ib<0?99:ib) || a.name.localeCompare(b.name); });
   const nav = document.getElementById("nav");
   nav.innerHTML = "";
-  for (const p of pages) {
-    if (p === WP_SIMPLE) continue;
+  for (const p of PAGES) {
     const a = document.createElement("a");
-    a.textContent = label(p); a.href = BASE + "/" + p; a.dataset.page = p;
-    a.onclick = e => { e.preventDefault(); show(p === WP_FULL && wpPref() === "simple" ? WP_SIMPLE : p, true); };
+    a.textContent = label(p.name); a.href = BASE + "/" + p.name; a.dataset.page = p.name;
+    a.onclick = e => { e.preventDefault(); show(p.name, true); };
     nav.appendChild(a);
   }
   const start = (location.pathname.replace(BASE,"").replace(/^\//,"").replace(/\.md$/,"")) || "README";
-  show(pages.includes(start) ? start : (pages[0]||"README"), false);
+  show(PAGES.some(p => p.name === start) ? start : (PAGES[0]?.name || "README"), false);
 }
 
 async function show(page, push) {
-  document.querySelectorAll("#nav a").forEach(a =>
-    a.classList.toggle("active", a.dataset.page === page || (a.dataset.page === WP_FULL && isWp(page))));
-  const main = document.getElementById("content");
+  current = page;
+  document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("active", a.dataset.page === page));
+  const box = document.getElementById("content");
+  box.classList.add("fade");
+  const wantSimple = mode() === "simple";
   try {
-    const md = await (await fetch(BASE + "/_page/" + page)).text();
-    main.innerHTML = window.marked ? marked.parse(md) : "<pre>" + md.replace(/[&<]/g,c=>({"&":"&amp;","<":"&lt;"}[c])) + "</pre>";
-    if (isWp(page)) wpToggle(main, page);
-  } catch(e) { main.innerHTML = "<p class='muted'>Could not load “"+page+"”.</p>"; }
+    const r = await fetch(BASE + "/_page/" + page + (wantSimple ? "?v=simple" : ""));
+    const md = await r.text();
+    const got = r.headers.get("x-docs-variant") || (wantSimple ? "simple" : "tech");
+    setTimeout(() => {
+      box.innerHTML = window.marked ? marked.parse(md) : "<pre>" + md.replace(/[&<]/g,c=>({"&":"&amp;","<":"&lt;"}[c])) + "</pre>";
+      if (wantSimple && got === "tech") {
+        const b = document.createElement("span");
+        b.className = "only-eng"; b.textContent = "engineer edition — no plain-language version yet";
+        box.prepend(b);
+      }
+      box.classList.remove("fade");
+    }, 120);
+  } catch(e) {
+    box.innerHTML = "<p class='muted'>Could not load “"+page+"”.</p>";
+    box.classList.remove("fade");
+  }
   if (push) history.pushState({}, "", BASE + "/" + page);
   window.scrollTo(0,0);
 }
 
-function wpToggle(main, page) {
-  const simple = page === WP_SIMPLE;
-  const bar = document.createElement("div");
-  bar.className = "wp-toggle";
-  bar.innerHTML =
-    '<span class="seg">' +
-      '<button data-v="simple" class="' + (simple ? "on" : "") + '">SIMPLE</button>' +
-      '<button data-v="full" class="' + (simple ? "" : "on") + '">FULL</button>' +
-    '</span>' +
-    '<span class="hint">' + (simple ? "the human version — no jargon" : "the technical version") + '</span>';
-  bar.querySelectorAll("button").forEach(b => b.onclick = () => {
-    setWpPref(b.dataset.v);
-    show(b.dataset.v === "simple" ? WP_SIMPLE : WP_FULL, true);
-  });
-  main.prepend(bar);
-}
+document.querySelectorAll(".mode button").forEach(b => b.onclick = () => {
+  if (b.dataset.m === mode()) return;
+  setMode(b.dataset.m);
+  paintMode();
+  show(current, false);   // same page, other voice
+});
+
 window.onpopstate = () => show((location.pathname.replace(BASE,"").replace(/^\//,"").replace(/\.md$/,"")) || "README", false);
+paintMode();
 loadPages();
 </script>
 </body>
