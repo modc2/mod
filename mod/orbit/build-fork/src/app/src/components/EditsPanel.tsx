@@ -116,10 +116,18 @@ type Props = {
   jobs: JobLite[];
   authHeader?: Record<string, string>;
   onRestored?: () => void;
+  /// Revert authority — the owner's own key, not merely edit rights. Same
+  /// rule as the VERSIONS panel: an editor changes the module, only the owner
+  /// rolls it back. Omitted → the versions response answers it.
+  canRevert?: boolean;
+  /// apiBase-relative fetch that raises the Sudo sheet on 401 {sudo_required}.
+  sudoFetch?: (path: string, init?: RequestInit) => Promise<Response>;
 };
 
-export function EditsPanel({ apiBase, module, jobs, authHeader, onRestored }: Props) {
+export function EditsPanel({ apiBase, module, jobs, authHeader, onRestored, canRevert, sudoFetch }: Props) {
   const [versions, setVersions] = useState<VersionRecord[]>([]);
+  const [serverCanRevert, setServerCanRevert] = useState<boolean | null>(null);
+  const mayRevert = canRevert ?? serverCanRevert ?? false;
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -128,9 +136,12 @@ export function EditsPanel({ apiBase, module, jobs, authHeader, onRestored }: Pr
   const load = useCallback(async () => {
     if (!module) return;
     try {
-      const r = await fetch(`${apiBase}/modules/${encodeURIComponent(module)}/versions`);
+      const r = await fetch(`${apiBase}/modules/${encodeURIComponent(module)}/versions`, {
+        headers: { ...(authHeader || {}) },
+      });
       const d = await r.json();
       setVersions(Array.isArray(d.versions) ? d.versions : []);
+      setServerCanRevert(typeof d?.revert?.can_revert === "boolean" ? d.revert.can_revert : null);
     } catch (e) {
       setError(`load failed: ${(e as Error).message}`);
     } finally {
@@ -187,11 +198,14 @@ export function EditsPanel({ apiBase, module, jobs, authHeader, onRestored }: Pr
     setError(null);
     setStatus(null);
     try {
-      const r = await fetch(`${apiBase}/modules/${encodeURIComponent(module)}/restore`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(authHeader || {}) },
-        body: JSON.stringify({ cid }),
-      });
+      const path = `/modules/${encodeURIComponent(module)}/restore`;
+      const r = sudoFetch
+        ? await sudoFetch(path, { method: "POST", body: JSON.stringify({ cid }) })
+        : await fetch(`${apiBase}${path}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...(authHeader || {}) },
+            body: JSON.stringify({ cid }),
+          });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
       setStatus(`restored to ${cid.slice(0, 10)}… (${d.file_count} files)`);
@@ -262,7 +276,10 @@ export function EditsPanel({ apiBase, module, jobs, authHeader, onRestored }: Pr
                     {v ? (
                       <>
                         <CidChip cid={v.cid} />
-                        <GlassButton variant="ghost" onClick={() => restore(v.cid)} title="Rollback the module to this version (auto-snapshots current state first)">↺</GlassButton>
+                        {/* Owner only — an editor sees the history, not the undo. */}
+                        {mayRevert && (
+                          <GlassButton variant="ghost" onClick={() => restore(v.cid)} title="Revert the module to this version — the owner's undo (current state is pinned first)">↺</GlassButton>
+                        )}
                       </>
                     ) : (
                       <span className="meta" style={{ opacity: 0.55 }}>

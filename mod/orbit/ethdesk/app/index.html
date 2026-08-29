@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/ethdesk/">
+<title>ethdesk — write, test and deploy contracts</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="bar-inner">
+    <a class="brand" href="./" title="ethdesk — the Solidity bench">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 256 417">
+          <path class="f2" d="M127.96 0 125.17 9.5v275.67l2.79 2.79 127.96-75.64z"/>
+          <path class="f1" d="M127.96 0 0 212.32l127.96 75.64V154.16z"/>
+          <path class="f2" d="m127.96 312.19-1.57 1.92v98.2l1.57 4.6L256 236.59z"/>
+          <path class="f1" d="M127.96 416.91v-104.72L0 236.59z"/>
+          <path class="f3" d="m127.96 287.96 127.96-75.64-127.96-58.16z"/>
+          <path class="f2" d="M0 212.32l127.96 75.64v-133.8z"/>
+        </svg>
+      </span>
+      <span class="name">ethdesk</span>
+      <span class="brand-tag" aria-hidden="true">
+        <b>write it</b><i>·</i><b>test it on a testnet</b><i>·</i><b>deploy it</b><i>·</i><b>share the CID</b>
+      </span>
+    </a>
+
+    <div class="bar-right">
+      <div class="pulse" id="pulse" hidden title="latest block · gas right now">
+        <span class="p-block" id="p-block">—</span>
+        <span class="p-gas" id="p-gas"></span>
+      </div>
+
+      <div class="chain" id="chain" title="which chain everything on this page talks to">
+        <span id="chain-dot" class="dot"></span>
+        <select id="network" class="net" aria-label="network"></select>
+        <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        <span id="chain-kind" class="kind" hidden>real money</span>
+      </div>
+
+      <button id="theme" class="icon-btn" title="light / dark" aria-label="switch theme">
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 1.8v2.6m0 15.2v2.6M1.8 12h2.6m15.2 0h2.6M4.8 4.8l1.9 1.9m10.6 10.6 1.9 1.9m0-14.4-1.9 1.9M6.7 17.3l-1.9 1.9"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.9A9 9 0 1 1 11.1 3a7 7 0 0 0 9.9 9.9z"/></svg>
+      </button>
+
+      <div class="ident">
+        <button id="who" class="who" title="copy your address" hidden>
+          <span id="who-pic" class="pic" aria-hidden="true"></span>
+          <span id="who-addr" class="addr"></span>
+          <svg class="i-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>
+        </button>
+        <button id="signout" class="icon-btn" title="sign out" aria-label="sign out" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 17 5-5-5-5M20 12H9M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5"/></svg>
+        </button>
+        <button id="signin" class="primary sign">sign in</button>
+      </div>
+    </div>
+  </div>
+
+  <nav class="tabs" id="tabs" aria-label="sections">
+    <button class="tab on" data-pane="pane-build">build</button>
+    <button class="tab" data-pane="pane-overview">overview</button>
+    <button class="tab" data-pane="pane-accounts">accounts</button>
+    <button class="tab" data-pane="pane-contracts">deployed</button>
+    <button class="tab" data-pane="pane-explorer">explorer</button>
+    <button class="tab" data-pane="pane-agents">agents</button>
+    <span class="tab-ink" id="tab-ink" aria-hidden="true"></span>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ── build ────────────────────────────────────────────────── -->
+  <section class="pane on" id="pane-build">
+    <div class="bench-grid">
+
+      <aside class="rail">
+        <div class="rail-head">
+          <h3>projects</h3>
+          <button id="pj-new" class="tiny primary">new</button>
+        </div>
+        <div id="pj-list" class="rail-list"></div>
+
+        <div class="rail-head"><h3>open a shared one</h3></div>
+        <div class="row">
+          <input id="pj-cid" class="grow mono" placeholder="a CID, or a share link"
+                 autocomplete="off">
+          <button id="pj-open" class="tiny ghost">open</button>
+        </div>
+        <p class="hint">Anyone's CID opens here — read it, run it, fork it.
+          A CID <em>is</em> the share: content-addressed, so what you open is
+          byte-for-byte what they saved.</p>
+        <div id="store-state"></div>
+      </aside>
+
+      <section class="bench">
+        <div class="bench-head">
+          <input id="pj-name" class="title-input" placeholder="untitled contract"
+                 autocomplete="off" spellcheck="false">
+          <span id="pj-chips" class="chips"></span>
+          <span class="spacer"></span>
+          <button id="pj-save" class="ghost" title="save this project to the store (ctrl/cmd + S)">save</button>
+          <button id="pj-share" class="primary">share</button>
+        </div>
+
+        <div id="pj-banner" class="banner-slot"></div>
+
+        <div class="files" id="pj-files"></div>
+        <div id="editor" class="editor-host"></div>
+
+        <div class="bench-bar">
+          <select id="b-template" class="grow"></select>
+          <button id="b-compile" class="ghost" title="compile (ctrl/cmd + enter)">compile</button>
+          <select id="b-contract" class="narrow" title="which contract in this source"></select>
+          <label class="check"><input type="checkbox" id="b-optimize" checked> optimizer</label>
+        </div>
+
+        <div id="ctor" class="ctor"></div>
+
+        <div class="bench-bar act" id="act-bar">
+          <select id="b-account" class="grow" title="which key signs"></select>
+          <input id="b-pw" type="password" class="narrow" placeholder="password"
+                 autocomplete="off">
+          <label class="check danger" title="required on a chain that is not a testnet">
+            <input type="checkbox" id="b-confirm"> confirm</label>
+          <button id="b-test" class="primary">test on <span id="b-net" class="net-test">local</span></button>
+          <button id="b-deploy" class="gold">deploy</button>
+        </div>
+      </section>
+
+      <aside class="results">
+        <div class="res-tabs">
+          <button class="res-tab on" data-res="res-out">output</button>
+          <button class="res-tab" data-res="res-tests">tests</button>
+          <button class="res-tab" data-res="res-share">share</button>
+        </div>
+
+        <div class="res on" id="res-out">
+          <div id="b-deployed"></div>
+          <div id="b-out" class="out"></div>
+          <p class="hint">Compile is free and local. Deploy spends gas, and a
+            contract cannot be edited once it is out there — which is the
+            argument for the tab next door.</p>
+        </div>
+
+        <div class="res" id="res-tests">
+          <div class="res-head">
+            <h3>suite</h3>
+            <button id="suite-generate" class="tiny ghost">generate</button>
+            <button id="suite-run" class="tiny primary">run</button>
+          </div>
+          <div id="suite-editor" class="suite-host"></div>
+          <p class="hint">A case names a function; whether that is a free call
+            or a signed transaction is read off the ABI. Expect with
+            <code>expect</code>, <code>expect_gt</code>,
+            <code>expect_event</code>, <code>expect_revert</code>. Placeholders:
+            <code>$deployer</code>, <code>$contract</code>, <code>$zero</code>,
+            <code>$account:name</code>.</p>
+          <div id="test-report" class="report"></div>
+          <div id="test-runs" class="rows"></div>
+        </div>
+
+        <div class="res" id="res-share"></div>
+      </aside>
+
+    </div>
+  </section>
+
+  <!-- ── overview ─────────────────────────────────────────────── -->
+  <section class="pane" id="pane-overview">
+    <div class="grid two">
+      <div class="card">
+        <h2>chain<span id="net-badge" class="badge"></span></h2>
+        <dl id="chain-facts" class="facts"><dt>&nbsp;</dt><dd>loading&hellip;</dd></dl>
+      </div>
+      <div class="card">
+        <h2>gas right now</h2>
+        <dl id="gas-facts" class="facts"><dt>&nbsp;</dt><dd>loading&hellip;</dd></dl>
+        <p class="hint">A write on a chain marked <b>mainnet</b> is refused
+          unless you tick <em>confirm</em> — an argument on the request, not a
+          setting somewhere.</p>
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <h2>your balances</h2>
+        <div id="balances" class="rows"><p class="hint">Sign in to see your accounts.</p></div>
+      </div>
+      <div class="card">
+        <h2>compiler</h2>
+        <dl id="solc-facts" class="facts"><dt>&nbsp;</dt><dd>loading&hellip;</dd></dl>
+        <p class="hint">solc is found on this box first (foundry's store,
+          hardhat's cache, <code>which solc</code>) and only fetched — and
+          checksummed — when a pragma asks for a version that is missing.</p>
+      </div>
+    </div>
+
+    <section class="card">
+      <h2>recent transactions</h2>
+      <div id="history" class="rows"><p class="hint">Nothing sent from this box yet.</p></div>
+    </section>
+  </section>
+
+  <!-- ── accounts ─────────────────────────────────────────────── -->
+  <section class="pane" id="pane-accounts">
+    <div class="card">
+      <h2>accounts</h2>
+      <p class="hint">Keys are keystore-v3 files under <code>~/.mod/eth/accounts/&lt;you&gt;</code>,
+        encrypted with scrypt under a password this module never stores. Losing
+        the password loses the account — there is no reset, because a reset is a
+        second way to spend the money.</p>
+      <div id="accounts" class="rows"><p class="hint">Sign in to manage accounts.</p></div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <h2>new account</h2>
+        <div class="row wrap">
+          <input id="acct-name" placeholder="name (e.g. dev)" autocomplete="off">
+          <input id="acct-pw" type="password" placeholder="password (8+ chars)" autocomplete="new-password">
+        </div>
+        <div class="row wrap">
+          <label class="check"><input type="checkbox" id="acct-mnemonic"> also give me a 12-word phrase</label>
+          <button id="acct-create" class="primary">create</button>
+        </div>
+        <div class="row">
+          <input id="acct-secret" type="password" placeholder="or paste a private key / mnemonic to import" autocomplete="off">
+          <button id="acct-import" class="ghost">import</button>
+        </div>
+        <div id="acct-out" class="out"></div>
+      </div>
+
+      <div class="card">
+        <h2>send</h2>
+        <div class="row wrap">
+          <select id="send-from" class="grow"></select>
+          <input id="send-to" placeholder="to — 0x…, an account name, or vitalik.eth">
+        </div>
+        <div class="row wrap">
+          <input id="send-value" placeholder="amount (0.01 = 0.01 ETH)">
+          <input id="send-pw" type="password" placeholder="password (unless unlocked)" autocomplete="off">
+        </div>
+        <div class="row wrap">
+          <label class="check danger"><input type="checkbox" id="send-confirm"> confirm — real funds</label>
+          <button id="send-go" class="primary">send</button>
+        </div>
+        <div id="send-out" class="out"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── deployed contracts ───────────────────────────────────── -->
+  <section class="pane" id="pane-contracts">
+    <div class="card">
+      <div class="head-row">
+        <h2>your contracts</h2>
+        <button id="refresh-contracts" class="ghost">refresh</button>
+      </div>
+      <div id="contracts" class="rows"><p class="hint">Sign in to see what you deployed.</p></div>
+      <div class="row">
+        <input id="attach-address" placeholder="attach an ABI to an address — 0x…">
+        <input id="attach-name" placeholder="name" class="narrow">
+      </div>
+      <div class="row">
+        <textarea id="attach-abi" rows="3" placeholder="the ABI as JSON"></textarea>
+      </div>
+      <div class="row"><button id="attach" class="ghost">attach</button></div>
+      <div id="attach-out" class="out"></div>
+    </div>
+
+    <div class="card" id="interact-card" hidden>
+      <div class="head-row">
+        <h2>interact</h2>
+        <span id="interact-title" class="who"></span>
+      </div>
+      <div class="grid two">
+        <div>
+          <h3>reads <span class="hint">— free</span></h3>
+          <div id="reads"></div>
+        </div>
+        <div>
+          <h3>writes <span class="hint">— cost gas</span></h3>
+          <div id="writes"></div>
+        </div>
+      </div>
+      <div class="row wrap">
+        <select id="int-from" class="grow"></select>
+        <input id="int-pw" type="password" placeholder="password (unless unlocked)" autocomplete="off">
+        <label class="check danger"><input type="checkbox" id="int-confirm"> confirm — real funds</label>
+      </div>
+      <div id="interact-out" class="out"></div>
+    </div>
+  </section>
+
+  <!-- ── explorer ─────────────────────────────────────────────── -->
+  <section class="pane" id="pane-explorer">
+    <div class="card">
+      <h2>look something up</h2>
+      <div class="row">
+        <input id="lookup" placeholder="an address, a tx hash, a block number, or a token address">
+        <button id="lookup-go" class="primary">look up</button>
+      </div>
+      <p class="hint">Anything here works signed out — a chain is public, and a
+        console that needs a wallet to show you a block is a console getting in
+        the way.</p>
+      <div id="lookup-out" class="out"></div>
+    </div>
+  </section>
+
+  <!-- ── agents ───────────────────────────────────────────────── -->
+  <section class="pane" id="pane-agents">
+    <div class="card">
+      <h2>this module, as tools</h2>
+      <p class="hint">Everything on these tabs is also an MCP server, so an
+        agent does the same work through the same engine — same gas estimation,
+        same mainnet confirm, same keystore, same store. The schema below is the
+        server's own, read live from <code>GET /mcp</code>.</p>
+      <div class="row"><button id="mcp-copy" class="ghost">copy client config</button>
+        <span id="mcp-count" class="who"></span></div>
+      <pre id="mcp-config" class="code"></pre>
+      <div id="mcp-tools" class="tools"></div>
+    </div>
+  </section>
+
+</main>
+
+<div id="toast" class="toast"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

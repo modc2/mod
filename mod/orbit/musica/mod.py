@@ -113,8 +113,8 @@ class Mod:
         self.network = network
         self.module_dir = MODULE_DIR
         cfg = self._config()
-        self.port = int(cfg.get('port', 50480))
-        self.app_port = int(cfg.get('app_port', 50480))
+        self.port = int(cfg.get('port', 50780))
+        self.app_port = int(cfg.get('app_port', 50780))
 
     def _config(self) -> dict:
         try:

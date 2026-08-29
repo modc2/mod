@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
-import nextDynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES, TRADER_SYNC_MIN_MS } from "../lib/polymarket";
 import { PolymarketPosition, PolymarketTrade, SavedIndex, TradeFilters, TraderFilter, TraderMetric } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
-import { Strat, rankTraders, DEFAULT_FILTER_TOP_N, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES, DEFAULT_MIN_MINUTES_TO_CLOSE, DEFAULT_MAX_UPSCALE } from "../lib/strats/strat";
+import { Strat, rankTraders, formatAgeShort, DEFAULT_FILTER_TOP_N, DEFAULT_MAX_STALE_HOURS, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES, DEFAULT_MIN_MINUTES_TO_CLOSE, DEFAULT_MAX_UPSCALE } from "../lib/strats/strat";
 import type { TraderTrade as StratTraderTrade } from "../lib/strats/strat";
 import { marketMatchesQuery } from "../lib/marketQuery";
+import { setAllocationMarketQuery } from "../lib/copyBook";
+import { getOwnerAddress } from "../lib/access";
 import { shortAddress } from "@/lib/auth";
 import { useFilterParams, useFilters } from "../context/FiltersContext";
 import { useAuth } from "../context/AuthContext";
@@ -29,42 +31,38 @@ import {
   runBacktest, keepInSample, TAKER_FEE_BPS, GAS_PER_TRADE_USD, DEFAULT_CAPITAL,
   type BacktestSim,
 } from "../lib/backtest";
+import { tapeFor } from "../lib/momentumTape";
+import type { PriceTape } from "../lib/originationBacktest";
 import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId, equalWeightTraders } from "../lib/indexStore";
 import { pushStrat } from "../lib/stratSync";
 import { fetchTraderBankrolls } from "../lib/liveSessions";
 import LivePanel, { type LiveTab, normalizeLiveTab } from "./LivePanel";
-// Client-only: the `?raw` source imports resolve to different strings in the
-// server and client bundles (server sees a shorter transform), so SSR-ing the
-// viewer text-mismatches on hydration (React #425). No SEO value in strat
-// source — skip SSR entirely.
-const StratSourceViewer = nextDynamic(() => import("./StratSourceViewer"), { ssr: false });
+import { modeOf } from "../lib/tradingMode";
+import { SessionChip } from "./ModeControl";
 import WalletTokenPanel from "./WalletTokenPanel";
 import WalletPanel from "./WalletPanel";
 import WalletFundingPanel from "./WalletFundingPanel";
 import PolymarketAccountPanel from "./PolymarketAccountPanel";
-import UserStratsPanel from "./UserStratsPanel";
 
 // ══════════════════════════════════════════
-// ── Subtab rail — second-level nav under the main TEST / LIVE tabs. WALLET
-//    lives HERE (under LIVE) instead of eating a main tab: it funds the
-//    engine, so it sits next to the engine. Each main tab gets its own accent
-//    so the rail reads as a mode switch, not just more buttons.
+// ── Subtab rail — second-level nav under the main BACKTEST / TRADE tabs.
+//    WALLET lives HERE (under TRADE) instead of eating a main tab: it funds
+//    the engine, so it sits next to the engine.
 //
-//    The STRAT editor is NOT a tab — it's the collapsible panel above these,
-//    because what you copy and how you size it applies to the test AND the
-//    live engine at once. Its own three views ride STRAT_SUBTABS.
+//    Each main tab gets its own accent, but note what those accents are NOT:
+//    they are wayfinding, not mode. "Is the money real?" is answered only by
+//    the amber/green TEST|LIVE switch inside the TRADE tab (lib/tradingMode.ts
+//    owns that palette). A nav colour that also encoded execution mode is how
+//    a cyan LIVE tab ended up sitting over an amber dry run.
+//
+//    SETTINGS is NOT a tab — it's the collapsible panel above these, because
+//    the gates the engine copies through apply to the backtest AND the live
+//    session at once. It has no rail of its own: it used to carry BUILD /
+//    SOURCE / MARKET, and the last two went with the strat layer.
 // ══════════════════════════════════════════
 type MainTab = "BACKTEST" | "LIVE";
-type StratSub = "build" | "source" | "market";
 type BacktestSub = "results" | "trades";
 type LiveSub = LiveTab | "wallet";
-
-const STRAT_SUBTABS: { id: StratSub; glyph: string; label: string; title: string }[] = [
-  { id: "build", glyph: "◈", label: "BUILD", title: "Traders + params — who you copy and every tuning knob" },
-  { id: "source", glyph: "</>", label: "SOURCE", title: "The strat's code — read-only built-ins, editable uploads" },
-  { id: "market", glyph: "▤", label: "MARKET", title: "Strat market — publish yours, browse and fork other traders', import by CID" },
-];
-const STRAT_ACCENT = "border-green-400/60 text-green-400 bg-green-400/[0.08] shadow-[0_0_16px_rgba(74,222,128,0.25)]";
 
 const SUBTABS: Record<MainTab, { id: string; glyph: string; label: string; title: string }[]> = {
   BACKTEST: [
@@ -89,8 +87,8 @@ const SUB_ACCENT: Record<MainTab, string> = {
 };
 const WALLET_ACCENT = "border-amber-400/60 text-amber-400 bg-amber-400/[0.08] shadow-[0_0_16px_rgba(251,191,36,0.25)]";
 
-// Main-tab accents mirror the subtab rail's per-mode tones so TEST and LIVE
-// read as two distinct modes from the top row alone.
+// Main-tab accents mirror the subtab rail's per-screen tones so BACKTEST and
+// TRADE read as two distinct places from the top row alone.
 const MAIN_ACTIVE: Record<MainTab, string> = {
   BACKTEST: "text-amber-400 bg-amber-400/[0.08]",
   LIVE: "text-cyan-300 bg-cyan-400/[0.08]",
@@ -500,7 +498,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // Pull the live engine state so the chart can switch its data source to
   // the engine's actual order log when mode === "LIVE" — historical replay
   // is meaningless when the user is monitoring real-time trading.
-  const { isLive, engineState } = useCopyEngine();
+  const { isLive, engineState, backendRunning, autoExecute } = useCopyEngine();
 
   // ── Strategy management ──
   const [savedIndexes, setSavedIndexes] = useState<SavedIndex[]>([]);
@@ -633,7 +631,6 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // TEST → LIVE → TEST lands back where you were. Read after mount
   // (not in the initializer) to dodge a hydration mismatch; writes are
   // quota-safe — modc2.com modules share one localStorage origin.
-  const [stratSub, setStratSub] = useState<StratSub>("build");
   // The strat panel sits above both tabs and starts COLLAPSED on every load.
   // Editing is bursty (open it, turn knobs, collapse it and watch the
   // result) but READING is the common case: the console should open on the
@@ -645,8 +642,10 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   const [liveSub, setLiveSub] = useState<LiveSub>("desk");
   useEffect(() => {
     try {
-      const ss = localStorage.getItem(STRAT_SUB_KEY);
-      if (ss === "build" || ss === "source" || ss === "market") setStratSub(ss);
+      // STRAT_SUB_KEY selected BUILD / SOURCE / MARKET under the settings
+      // panel. There is only one view now — clear the stale entry rather than
+      // leave a key nothing reads in the shared-origin store.
+      localStorage.removeItem(STRAT_SUB_KEY);
       // STRAT_OPEN_KEY is deliberately NOT restored — see `stratOpen`. The
       // key is still cleared so an old persisted "true" can't linger.
       localStorage.removeItem(STRAT_OPEN_KEY);
@@ -666,15 +665,6 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     try { localStorage.setItem(SUB_KEYS[m], id); } catch { /* quota full — non-fatal */ }
   }, []);
   const activeSub = mode === "BACKTEST" ? backtestSub : liveSub;
-  // The strat panel's own rail — opening a view opens the panel with it, so
-  // clicking SOURCE while collapsed shows the code instead of nothing.
-  const pickStratSub = useCallback((id: StratSub) => {
-    setStratSub(id);
-    setStratOpen(true);
-    // Which VIEW you were last on is remembered; whether the panel was open
-    // is not (it re-collapses on the next load).
-    try { localStorage.setItem(STRAT_SUB_KEY, id); } catch { /* quota full — non-fatal */ }
-  }, []);
   const toggleStrat = useCallback(() => setStratOpen((o) => !o), []);
 
   // 1s tick for the rail's next-cycle countdown — only while the LIVE tab is
@@ -739,6 +729,20 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // "add traders first" gate below has to exempt them, or picking BTC 5-MIN
   // DELTA hides its own backtest and LIVE panel behind a browse-traders nag.
   const originates = !!activeIndex?.momentum;
+
+  // ── THE LEADER ──
+  // A workspace is one copy-book row, so the strat's watchlist is exactly one
+  // address at weight 1 and `identity` names them (lib/identityStrat.ts). Read
+  // `identity` FIRST rather than `traders[0]`: a strat left over from the
+  // multi-trader era also has a traders[0], and treating it as "the leader"
+  // would quietly present a basket as one person. Null there means the active
+  // strat is not a single-trader copy, and the panel says so.
+  const leaderAddress = useMemo(() => {
+    const id = (activeIndex?.identity ?? "").trim().toLowerCase();
+    if (id) return id;
+    const traders = activeIndex?.traders ?? [];
+    return traders.length === 1 ? traders[0].address.toLowerCase() : null;
+  }, [activeIndex]);
 
   // Bankrolls for the current watchlist, refreshed when it changes. Cached
   // server-side (~10m), so this is one cheap call per roster edit.
@@ -1168,11 +1172,28 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // Restricts the strat to markets whose title matches the query; empty string
   // means "all markets". Persisted on commit (blur / Enter) so a half-typed
   // query doesn't churn the backtest on every keystroke.
+  //
+  // On a COPY row the local store is only a cache: `/copy/<address>` re-reads
+  // the server book every 15s and `materialize()` lets server fields win, so a
+  // query written here alone was overwritten within one poll — the filter
+  // looked broken because the strat it edited was replaced. The server copy of
+  // the gate is the one the live engine and the worker's backtest read, so
+  // write it there and let the cache be refreshed from it.
   const updateMarketQuery = (q: string) => {
     const trimmed = q.trim();
     setMarketQuery(trimmed);
     if (activeIndex) {
       updateIndex(activeIndex.id, { marketQuery: trimmed, updatedAt: Date.now() });
+    }
+    const identity = (activeIndex?.identity ?? "").trim().toLowerCase();
+    if (identity) {
+      // Same owner rule as the desk — `auth.address` lags a wallet switch, and
+      // without an eoa the route can't reconfigure a RUNNING session, so the
+      // engine would keep copying under the old gate until the next restart.
+      const eoa = getOwnerAddress() ?? auth.address ?? null;
+      setAllocationMarketQuery(identity, trimmed, eoa).catch((e) => {
+        console.error("failed to persist the market gate to the copy book", e);
+      });
     }
   };
 
@@ -1447,6 +1468,13 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     // so it opens showing exactly the slice of this trader's flow the strat
     // would copy — not their whole history.
     const qs = new URLSearchParams(filterQs);
+    // The market gate travels too (?mq=). It is half of what this strat copies
+    // — the other half of the pair `tf` already carried — and the profile has
+    // no way to know it otherwise: `filterQs` is the LEADERBOARD's filter
+    // state, which on this screen is usually empty, so the gate would be
+    // dropped and the tape would open showing markets the strat never touches.
+    // The strat's own gate wins over a leftover leaderboard keyword.
+    if (marketQuery.trim()) qs.set("mq", marketQuery.trim());
     if (tradeFiltersActive(tradeFilters)) {
       qs.set("tf", JSON.stringify(tradeFilters));
       if (activeIndex?.name) qs.set("tfn", activeIndex.name);
@@ -1491,42 +1519,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // Fee burden: what % of scaled gross PnL is eaten by fees
   const feeBurdenPct = totalScaledPnl > 0 ? (totalCosts / totalScaledPnl) * 100 : 0;
   const feesExceedPnl = totalScaledPnl > 0 && totalCosts > totalScaledPnl;
-  const feesWarning = feeBurdenPct > 50 || feesExceedPnl || (totalScaledPnl <= 0 && totalCosts > 5);
 
-  // Weighted gross PnL (raw, trader-scale — for display)
-  const weightedBacktestPnl = useMemo(() => {
-    if (totalWeight <= 0) return totalBacktestPnl;
-    return backtests.reduce((s, bt) => {
-      const w = (traderWeights[bt.address] || 0) / totalWeight;
-      return s + bt.estimatedPnl * w;
-    }, 0);
-  }, [backtests, traderWeights, totalWeight, totalBacktestPnl]);
 
-  // Weighted net PnL after costs (scaled to $1K)
-  const weightedPnlAfterCosts = useMemo(() => {
-    if (totalWeight <= 0) return backtests.reduce((s, b) => s + b.pnlAfterCosts, 0);
-    return backtests.reduce((s, bt) => {
-      const w = (traderWeights[bt.address] || 0) / totalWeight;
-      return s + bt.pnlAfterCosts * w;
-    }, 0);
-  }, [backtests, traderWeights, totalWeight]);
 
-  // ROI per trader as percentage of the capital allocated to this trader.
-  // pnlAfterCosts is already scaled to user capital, so ROI% = pnl / capital * 100.
-  const roiPerTrader = (bt: TraderBacktest) => capital > 0 ? (bt.pnlAfterCosts / capital) * 100 : 0;
-  const tradersWithBuys = backtests.filter((bt) => bt.buyVolume > 0);
-  // Combined ROI (%): weighted P&L over total capital, expressed as percent
-  const combinedRoi1k = useMemo(() => {
-    if (tradersWithBuys.length === 0 || capital <= 0) return 0;
-    if (totalWeight <= 0) {
-      // Equal weight: average of per-trader ROI%
-      return tradersWithBuys.reduce((s, bt) => s + (bt.pnlAfterCosts / capital) * 100, 0) / tradersWithBuys.length;
-    }
-    return tradersWithBuys.reduce((s, bt) => {
-      const w = (traderWeights[bt.address] || 0) / totalWeight;
-      return s + ((bt.pnlAfterCosts / capital) * 100) * w;
-    }, 0);
-  }, [tradersWithBuys, traderWeights, totalWeight, capital]);
 
   // ── Strat instance — single source of truth for live + backtest ──
   // The live engine instantiates its OWN copy (so the backtest can
@@ -1545,10 +1540,65 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       maxUpscale,
       ...(activeIndex?.sizing !== undefined && { sizing: activeIndex.sizing }),
       ...(activeIndex?.turnover !== undefined && { turnover: activeIndex.turnover }),
+      // ORIGINATION params. Dropping these built a strat that could only
+      // mirror, so the tab showed a momentum strat doing nothing while its
+      // live session traded every cycle — the same gap the hub card had.
+      ...(activeIndex?.momentum && { momentum: activeIndex.momentum }),
     }),
     [maxPerCycle, marketQuery, tradeFilters, traderFilter, minMinutesToClose,
-     maxUpscale, activeIndex?.sizing, activeIndex?.turnover],
+     maxUpscale, activeIndex?.sizing, activeIndex?.turnover, activeIndex?.momentum],
   );
+
+  // ── The ORIGINATION price tape ──
+  // A momentum strat's trades come from a market's own odds, not from anyone's
+  // flow, so the replay needs the odds as they stood across the window. Fetched
+  // only for strats that originate; every copy strat leaves this undefined and
+  // pays nothing for it.
+  const [priceTape, setPriceTape] = useState<PriceTape | undefined>(undefined);
+  const [tapeLoading, setTapeLoading] = useState(false);
+  const momentumKey = JSON.stringify(activeIndex?.momentum ?? null);
+  useEffect(() => {
+    const mo = activeIndex?.momentum;
+    if (!mo) { setPriceTape(undefined); setTapeLoading(false); return; }
+    let live = true;
+    setTapeLoading(true);
+    void tapeFor(mo, marketQuery, backtestDays, Date.now())
+      .then((t) => { if (live) setPriceTape(t); })
+      .finally(() => { if (live) setTapeLoading(false); });
+    return () => { live = false; };
+    // Keyed by the momentum PARAMS, not the object identity — the strat list
+    // rebuilds its objects on every poll and would re-fetch the tape each time.
+  }, [momentumKey, backtestDays, marketQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** What the panel says about the price data this replay stood on. */
+  const tapeChip = useMemo(() => {
+    if (!activeIndex?.momentum) return undefined;
+    if (tapeLoading) {
+      return { label: "TAPE LOADING…", title: "Fetching the window's price history.", partial: true };
+    }
+    if (!priceTape || priceTape.markets === 0) {
+      return {
+        label: "NO PRICE TAPE",
+        title: priceTape?.note
+          ?? "No price history came back for this window, so there was nothing to replay.",
+        partial: true,
+      };
+    }
+    const partial = priceTape.markets < priceTape.expected;
+    const hours = (priceTape.toMs - priceTape.fromMs) / 3_600_000;
+    const unit = priceTape.mode === "candles" ? "CANDLES" : "MARKETS";
+    return {
+      label: `${priceTape.markets}/${priceTape.expected} ${unit}`,
+      title:
+        `Origination replay: ${priceTape.markets} of the window's ${priceTape.expected} ${unit.toLowerCase()}, `
+        + `covering ${hours < 1 ? `${Math.round(hours * 60)} minutes` : `${hours.toFixed(1)} hours`} `
+        + `at ${Math.round(priceTape.fidelityMs / 60_000)}-minute price bars.\n`
+        + `A live session polls every ${Math.max(MIN_POLL_MINUTES, activeIndex?.livePollMinutes ?? MIN_POLL_MINUTES) * 60}s and also reads the CLOB midpoint, `
+        + `so it sees moves BETWEEN these bars that this replay cannot — treat the entry/exit timing as coarser than live.`
+        + (priceTape.note ? `\n${priceTape.note}` : ""),
+      partial,
+    };
+  }, [activeIndex?.momentum, activeIndex?.livePollMinutes, priceTape, tapeLoading]);
 
   // ── What the window's markets actually paid out ──
   // The replay has to value whatever it's still holding when the leaders go
@@ -1612,16 +1662,16 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     sizing: activeIndex?.sizing,
     turnover: activeIndex?.turnover,
     resolved: resolvedLegs,
+    // Origination replay input — undefined for copy strats.
+    tape: priceTape,
   }), [watchlist, traderTrades, traderData, traderWeights, traderBankrolls, backtestStrat,
        backtestDays, capital, minTrade, maxTrade, maxOpenPositions, stopLossPct, takeProfitFrac,
        marketQuery, activeIndex?.livePollMinutes, rebalanceMinutes, rebalancePeriod,
        rebalanceHour, samplePct, showAllTrades, loading, activeIndex?.sizing,
-       activeIndex?.turnover, resolvedLegs]);
+       activeIndex?.turnover, resolvedLegs, priceTape]);
 
-  const traderStatsMap = backtest.traderStats;
   const traderCopyRatio = backtest.copyRatio;
   const backtestHistory = backtest.history;
-  const keptBuyIds = backtest.keptBuyIds;
   const backtestSim: BacktestSim = backtest.sim;
 
   // ── CAPITAL PLAN input — the flow this strat would actually copy ──
@@ -1672,70 +1722,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       backtestHistory, marketQuery, capital, minTrade, maxTrade, walletBalance,
       maxUpscale, activeIndex?.sizing, activeIndex?.turnover, backtestDays]);
 
-  // ── Combined FIFO PnL curve (scaled to user's capital) ──
-  const combinedCurveData = useMemo((): { combined: CurvePoint[]; perTrader: { address: string; points: CurvePoint[]; weight: number }[] } => {
-    if (watchlist.length === 0 || loading) return { combined: [], perTrader: [] };
-    const cutoffMs = Date.now() - backtestDays * 24 * 60 * 60 * 1000;
-    const traderCurves: { address: string; points: CurvePoint[]; weight: number }[] = [];
 
-    for (const addr of watchlist) {
-      // Honor the strat's market-topic filter — same gate `backtests` and
-      // `traderStatsMap` apply. Without this, a SELL outside the query (or
-      // BUYs that never went through `keptBuyIds`) still leaked into the
-      // curve, so the chart didn't match the filtered preview numbers.
-      const rawTrades = (traderTrades.get(addr) || [])
-        .filter((t) => marketMatchesQuery(t.market, marketQuery));
-      const positions = traderData.get(addr) || [];
-      if (rawTrades.length === 0) continue;
-
-      const replayTradesRaw = rebalancePeriod > 0
-        ? aggregateToRebalanceWindows(rawTrades, rebalancePeriod, rebalanceHour)
-        : rawTrades;
-      // Apply SAMPLE % only to in-window trades — pre-window trades stay
-      // intact so FIFO basis tracking still sees the prior inventory.
-      const replaySampled = samplePct >= 100
-        ? replayTradesRaw
-        : replayTradesRaw.filter((t, i) =>
-            t.timestamp < cutoffMs ||
-            keepInSample(samplePct, `${addr}:${t.timestamp}:${i}`),
-          );
-      // Top-N Sharpe sampling — drop in-window BUYs that lost the per-cycle
-      // rank race. SELLs always kept (close existing positions). Pre-window
-      // trades pass through so FIFO basis stays intact.
-      const replayTrades = rebalancePeriod > 0
-        ? replaySampled
-        : replaySampled.filter((t) =>
-            t.timestamp < cutoffMs || t.side === "SELL" || keptBuyIds.has(t.id),
-          );
-      const annotated = computeFifoTrades(replayTrades, positions, cutoffMs);
-      const curve = buildPnlCurve(annotated, positions, cutoffMs);
-      if (curve.length === 0) continue;
-
-      // Scale PnL curve to user's capital allocation for this trader.
-      // Use max(buyVol, sellVol) as denominator — prevents amplification when
-      // a trader mostly sells old positions in the window (tiny buyVol but huge PnL).
-      const wFrac = totalWeight > 0 ? (traderWeights[addr] || 0) / totalWeight : 1 / watchlist.length;
-      const windowTrades = replayTrades.filter((t) => t.timestamp >= cutoffMs);
-      const buyVol = windowTrades.filter((t) => t.side === "BUY").reduce((s, t) => s + t.price * t.size, 0);
-      const sellVol = windowTrades.filter((t) => t.side === "SELL").reduce((s, t) => s + t.price * t.size, 0);
-      const traderVol = Math.max(buyVol, sellVol, 1);
-      const capitalScale = (capital * wFrac) / traderVol;
-      traderCurves.push({ address: addr, points: curve, weight: capitalScale });
-    }
-
-    return { combined: buildCombinedPnlCurve(traderCurves), perTrader: traderCurves };
-  }, [watchlist, traderTrades, traderData, backtestDays, traderWeights, totalWeight, capital, loading, rebalancePeriod, rebalanceHour, samplePct, keptBuyIds, marketQuery]);
-
-  // Per-trader scaled MTM P&L from curves (consistent with chart)
-  const traderCurvePnl = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const tc of combinedCurveData.perTrader) {
-      if (tc.points.length === 0) continue;
-      const lastPnl = tc.points[tc.points.length - 1].pnl;
-      map.set(tc.address, Math.round(lastPnl * tc.weight * 100) / 100);
-    }
-    return map;
-  }, [combinedCurveData]);
 
   const linkedTrades = backtestSim.rows;
   const backtestRoi = capital > 0 ? (backtestSim.netPnl / capital) * 100 : 0;
@@ -1769,7 +1756,6 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // `null` shows everyone (the default). Click a trader chip or a trader cell
   // in the feed to set; click again or the ALL chip to clear.
   const [feedTraderFilter, setFeedTraderFilter] = useState<string | null>(null);
-  const [indexTradeLimit, setIndexTradeLimit] = useState(100);
   const [feedOrder, setFeedOrder] = useState<"newest" | "oldest">("newest");
 
   // Chart marker hover → highlight the nearest feed row (and vice versa the
@@ -1828,40 +1814,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   }, [traderTrades]);
   const lastTradeAgeMs = lastTradeTs > 0 ? utcNow - lastTradeTs : null;
 
-  // ── Trader summaries (all traders including hidden, for editor panel) ──
-  const traderSummaries: (TraderSummary & { enabled: boolean })[] = useMemo(() => {
-    return allTraderAddrs.map((addr) => {
-      const positions = traderData.get(addr) || [];
-      const q = searchFilter.trim().toLowerCase();
-      const filtered = q ? positions.filter((p) => p.market.toLowerCase().includes(q)) : positions;
-      const isEnabled = activeIndex?.traders.find((t) => t.address === addr)?.enabled !== false;
-      return {
-        address: addr,
-        positions: positions.length,
-        filteredPositions: filtered.length,
-        totalPnl: filtered.reduce((s, p) => s + p.pnlUsd, 0),
-        loaded: traderData.has(addr),
-        enabled: isEnabled,
-      };
-    });
-  }, [allTraderAddrs, traderData, searchFilter, activeIndex]);
 
-  // Per-trader 24h activity count — surfaces dormant traders so the user
-  // knows which ones in the watchlist actually contribute trades to copy.
-  // Derived live from the already-fetched traderTrades map (no extra fetch);
-  // re-runs whenever the 60s background refresh swaps in new traderTrades.
-  const trades24hByAddr = useMemo(() => {
-    const cutoffMs = Date.now() - 86_400_000;
-    const m = new Map<string, number>();
-    for (const addr of allTraderAddrs) {
-      const trades = traderTrades.get(addr);
-      if (!trades) continue;
-      let c = 0;
-      for (const t of trades) if (t.timestamp >= cutoffMs) c++;
-      m.set(addr, c);
-    }
-    return m;
-  }, [allTraderAddrs, traderTrades]);
 
   // Per-trader total trade count (across the loaded history window) +
   // timestamp of their most recent trade. Surfaces "this trader is very
@@ -1877,6 +1830,25 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     }
     return m;
   }, [allTraderAddrs, traderTrades]);
+
+
+  /** The leader's own activity in the loaded window — how many trades came
+      back and how long ago the last one was. Two numbers, because "is this
+      screen looking at anything at all?" is the first question a silent copy
+      session raises, and the answer is usually "they haven't traded". */
+  const leaderStats = useMemo(() => {
+    if (!leaderAddress) return null;
+    const st =
+      traderTradeStatsByAddr.get(leaderAddress) ??
+      // The map is keyed by the strat's stored casing, which is normally
+      // lowercase but need not be for a hand-edited entry.
+      [...traderTradeStatsByAddr.entries()].find(
+        ([a]) => a.toLowerCase() === leaderAddress,
+      )?.[1];
+    if (!st) return null;
+    return { total: st.total, last: st.lastTs || null };
+  }, [leaderAddress, traderTradeStatsByAddr]);
+
 
 
   // How many of the selected traders' in-window trades pass the keyword
@@ -1898,29 +1870,6 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     return { matched, total };
   }, [watchlist, traderTrades, backtestDays, marketQuery]);
 
-  // Per-trader params bite — how many of each trader's in-window trades
-  // survive the FULL params gate (market keywords AND side/price/size/
-  // category trade filters). Renders as the FILT column in the trader rows,
-  // so selecting a trader shows on the spot which slice of their flow the
-  // current params would actually copy.
-  const paramsFilterActive = marketQuery.trim() !== "" || tradeFiltersActive(tradeFilters);
-  const traderFilteredByAddr = useMemo(() => {
-    const cutoff = Date.now() - backtestDays * 24 * 60 * 60 * 1000;
-    const m = new Map<string, { matched: number; total: number }>();
-    for (const addr of allTraderAddrs) {
-      const trades = traderTrades.get(addr);
-      if (!trades) continue;
-      let total = 0;
-      let matched = 0;
-      for (const t of trades) {
-        if (t.timestamp < cutoff) continue;
-        total++;
-        if (marketMatchesQuery(t.market, marketQuery) && tradeMatchesFilters(t, tradeFilters)) matched++;
-      }
-      m.set(addr, { matched, total });
-    }
-    return m;
-  }, [allTraderAddrs, traderTrades, backtestDays, marketQuery, tradeFilters]);
 
   // ══════════════════════════════════════════
   // ── RENDER ──
@@ -1945,55 +1894,24 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
             <button
               onClick={toggleStrat}
               className="shrink-0 flex items-center gap-2 group/st"
-              title={stratOpen ? "Collapse the strat editor" : "Expand the strat editor — traders, params, source, market"}
+              title={stratOpen ? "Collapse the settings" : "Expand the settings — the leader, and every gate the engine copies them through"}
               aria-expanded={stratOpen}
             >
               <span className={`text-pixel-gray text-[12px] transition-transform duration-200 ${stratOpen ? "rotate-90" : ""}`}>▸</span>
-              <span className="text-[14px] text-pixel-white tracking-[0.2em] group-hover/st:text-green-400 transition-colors">STRAT</span>
+              <span className="text-[14px] text-pixel-white tracking-[0.2em] group-hover/st:text-green-400 transition-colors">SETTINGS</span>
             </button>
             <div className="w-2 h-2 bg-green-400 shrink-0" />
-            {/* Name doubles as the strat switcher; ✎ (or a double-click on
-                the name) turns it into an inline rename field. */}
-            {renamingId === activeIndex.id ? (
-              <input
-                autoFocus
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onFocus={(e) => e.currentTarget.select()}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleRename(activeIndex.id, renameValue);
-                  if (e.key === "Escape") setRenamingId(null);
-                }}
-                onBlur={() => handleRename(activeIndex.id, renameValue)}
-                maxLength={60}
-                className="bg-pixel-bg border border-green-400/60 px-1.5 py-0.5 text-[14px] font-mono text-green-400 font-bold outline-none w-[180px] shrink-0"
-                title="Enter to save · Esc to cancel"
-              />
-            ) : (
-              <>
-                <select
-                  value={activeIndex.id}
-                  onChange={(e) => selectStrategy(e.target.value)}
-                  onDoubleClick={() => { setRenamingId(activeIndex.id); setRenameValue(activeIndex.name); }}
-                  className="bg-transparent text-[14px] font-mono text-green-400 font-bold truncate outline-none border-none cursor-pointer hover:underline pr-1"
-                  title="Switch active strat · double-click to rename"
-                >
-                  {savedIndexes.map((s) => (
-                    <option key={s.id} value={s.id} className="bg-pixel-bg text-pixel-white">
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => { setRenamingId(activeIndex.id); setRenameValue(activeIndex.name); }}
-                  className="shrink-0 text-[12px] text-pixel-gray hover:text-green-400 px-1 leading-none"
-                  title={`Rename "${activeIndex.name}"`}
-                >
-                  ✎
-                </button>
-              </>
-            )}
-            <span className="text-[13px] text-pixel-gray shrink-0">{activeIndex.traders.length}T</span>
+            {/* Just the name. This was a <select> over every saved strat plus
+                an inline rename — a global switcher parked inside the strat it
+                was switching. A workspace is one copy-book row now, the row is
+                the URL, and the name comes from the server (the row's label,
+                or "COPY 0xab…cd"), so there is nothing here to pick or edit. */}
+            <span
+              className="text-[14px] font-mono text-green-400 font-bold truncate"
+              title={activeIndex.name}
+            >
+              {activeIndex.name}
+            </span>
             {activeIndex.lastPnlAfterCosts !== undefined && (
               <span className={`text-[13px] font-mono shrink-0 ${activeIndex.lastPnlAfterCosts >= 0 ? "text-green-400" : "text-red-400"}`}>
                 {activeIndex.lastPnlAfterCosts >= 0 ? "+" : ""}${activeIndex.lastPnlAfterCosts.toFixed(0)}
@@ -2038,321 +1956,76 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
             )}
           </div>
 
-          {/* The strat's own rail — BUILD / SOURCE / MARKET. Clicking one
-              opens the panel, so a collapsed strat is still one click from
-              its code. Collapsed, the rail is replaced by the one-line
-              summary of what the strat currently does. */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {STRAT_SUBTABS.map((t) => {
-              const on = stratOpen && stratSub === t.id;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => pickStratSub(t.id)}
-                  title={t.title}
-                  style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.14em" }}
-                  className={`group inline-flex items-center gap-1.5 px-3 py-1 text-[11px] font-bold uppercase rounded-full border transition-all duration-200 ${
-                    on ? STRAT_ACCENT
-                      : "border-pixel-border/50 text-pixel-gray hover:text-pixel-white hover:border-pixel-border hover:bg-pixel-white/[0.04]"
-                  }`}
-                >
-                  <span className={`font-mono normal-case tracking-normal text-[10px] transition-opacity ${on ? "opacity-90" : "opacity-50 group-hover:opacity-80"}`}>
-                    {t.glyph}
-                  </span>
-                  {t.label}
-                </button>
-              );
-            })}
-            {!stratOpen && (
-              <span className="ml-auto text-[11px] font-mono text-pixel-gray truncate" title="Traders copied · market keywords · window — expand to edit">
-                {watchlist.length} trader{watchlist.length === 1 ? "" : "s"}
-                {" · "}
+          {/* No rail here any more. It carried BUILD / SOURCE / MARKET; two
+              of those are archived and BUILD alone is not a choice, so a
+              collapsed panel just states what the settings currently say and
+              the caret above opens them. */}
+          {!stratOpen && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="ml-auto text-[11px] font-mono text-pixel-gray truncate" title="Markets copied · backtest window — expand to edit">
                 <span className={marketQuery.trim() ? "text-amber-300" : ""}>
                   {marketQuery.trim() || "all markets"}
                 </span>
                 {" · "}
                 {backtestDays}d
               </span>
-            )}
-          </div>
+            </div>
+          )}
 
-          {stratOpen && stratSub === "build" && (
+          {stratOpen && (
           <>
-          {/* ── TRADERS — browse/add bar + watchlist rows ── */}
-          <div className="border-t border-pixel-border/40 pt-2.5 space-y-2">
-            {/* Browse Traders — one collapsible unit: the toggle is the
-                header, with the search/add bar and leaderboard browser
-                directly below it inside the same div so the whole
-                trader-picking UI folds away together. Clicking a
-                leaderboard trader toggles them in/out of the active strat. */}
-            <div className="border border-pixel-border/60 rounded-[var(--radius-sm)]">
-              <button
-                onClick={() => setBrowseOpen((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-2 text-left group/bt"
-              >
-                <span className="flex items-center gap-2.5">
-                  <span className={`text-pixel-gray text-[12px] transition-transform duration-200 ${browseOpen ? "rotate-90" : ""}`}>▸</span>
-                  <span
-                    className="text-[13px] font-bold text-pixel-white uppercase tracking-[0.18em] group-hover/bt:text-green-400 transition-colors"
-                    style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif' }}
+          {/* ── LEADER — who this workspace copies ──
+              Read-only, and that is the point. This used to be a watchlist
+              editor: a leaderboard browser, an add bar, N trader rows with
+              weight sliders that had to sum to 100, plus EQ / NORM / PRUNE /
+              RESET. A strat was a basket, and copying one person was the
+              basket with a single name in it.
+              The console only copies ONE person now. The leader IS the row's
+              identity — it is in the URL, in the strat id (`copy-<address>`),
+              in the engine's session key and in the ledger bucket — so it is
+              not editable here: changing it would be asking for a different
+              row. Copy someone else and they get their own workspace. */}
+          <div className="border-t border-pixel-border/40 pt-2.5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <span className="text-[11px] font-bold text-pixel-white tracking-[0.26em]">LEADER</span>
+              {leaderAddress ? (
+                <>
+                  <button
+                    onClick={() => goToTrader(leaderAddress)}
+                    className="font-mono text-[14px] text-green-400 hover:text-pixel-white transition-colors"
+                    title={`${leaderAddress} — their own trading record`}
                   >
-                    Browse Traders
-                  </span>
-                  <span className="text-[11px] text-pixel-gray hidden sm:inline tracking-wide">
-                    search, or click a leaderboard trader to add
-                  </span>
-                </span>
-                <span className="flex items-center gap-2 shrink-0">
-                  {loading && (
-                    <span className="text-[12px] text-green-400 font-mono animate-pulse">
-                      {loadedCount}/{watchlist.length}
+                    {shortAddress(leaderAddress)} ↗
+                  </button>
+                  {leaderStats && (
+                    <span className="font-mono text-[11px] text-pixel-gray">
+                      {leaderStats.total} trade{leaderStats.total === 1 ? "" : "s"} in window
+                      {leaderStats.last != null && (
+                        <> · last {formatAgoShort(Date.now() - leaderStats.last)} ago</>
+                      )}
                     </span>
                   )}
-                  {allTraderAddrs.length > 0 && (
-                    <span className="text-[11px] text-green-400 font-mono px-2 py-0.5 rounded-full bg-green-400/[0.08] border border-green-400/30">
-                      {allTraderAddrs.length} in strat
-                    </span>
-                  )}
+                  <span className="flex-1" />
+                  <Link
+                    href="/copy"
+                    className="text-[11px] font-mono text-pixel-gray hover:text-green-400"
+                    title="Every leader you copy, with their amounts"
+                  >
+                    copy desk →
+                  </Link>
+                </>
+              ) : (
+                // Only reachable when a pre-archive multi-trader strat is
+                // still the active id in localStorage. Say so plainly rather
+                // than render an editor for a shape nothing runs any more.
+                <span className="text-[11px] font-mono text-amber-400">
+                  this strat isn&apos;t a single-trader copy —{" "}
+                  <Link href="/copy" className="underline">
+                    open the copy desk
+                  </Link>
                 </span>
-              </button>
-              {browseOpen && (
-                <div className="px-3 pb-3 border-t border-pixel-border/40 pt-3 space-y-3">
-                  {/* Search-first add bar — lives under the browse header inside
-                      the same collapsible so both fold away together. */}
-                  <AddTraderBar watchlist={watchlist} onAdd={addTrader} />
-                  <CopyTrading
-                    days={browseDays}
-                    minTradesPerDay={browseMinTradesPerDay}
-                    reloadKey={browseReloadKey}
-                    search={searchFilter}
-                    category={browseCategory}
-                    marketQuery={browseMarketQuery}
-                    selectedAddresses={allTraderAddrs}
-                    onSelect={(addr) => {
-                      const a = addr.toLowerCase();
-                      // Remove using the exact stored casing (removeTrader matches
-                      // case-sensitively); add new entries lowercased to match the
-                      // app's storage convention.
-                      const stored = allTraderAddrs.find((x) => x.toLowerCase() === a);
-                      if (stored) removeTrader(stored);
-                      else addTrader(a);
-                    }}
-                  />
-                </div>
               )}
             </div>
-
-            {/* Watchlist editor — everyone in the strat, with the FILT column
-                showing how the params below bite each trader's flow. */}
-            {allTraderAddrs.length > 0 && (
-              <div className="space-y-1">
-                {/* Toolbar: count + actions + weight sum */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[14px] text-pixel-gray tracking-wider">{watchlist.length}/{allTraderAddrs.length} ACTIVE</span>
-                    <button
-                      onClick={equalizeWeights}
-                      className="pixel-btn text-[13px] px-2 py-1 border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400 transition-colors"
-                      title="Equalize all weights"
-                    >
-                      EQ
-                    </button>
-                    {totalWeight !== 100 && totalWeight > 0 && (
-                      <button
-                        onClick={normalizeWeights}
-                        className="pixel-btn text-[13px] px-2 py-1 border-amber-400/60 text-amber-400 hover:bg-amber-400/10 transition-colors"
-                        title="Normalize weights to 100%"
-                      >
-                        NORM
-                      </button>
-                    )}
-                    <button
-                      onClick={resetStrat}
-                      className="pixel-btn text-[13px] px-2 py-1 border-red-400/60 text-red-400 hover:bg-red-400/10 transition-colors"
-                      title="Reset strat — clears traders, weights, and tuning back to defaults"
-                    >
-                      RESET
-                    </button>
-                  </div>
-                  <span className={`text-[15px] font-mono ${
-                    totalWeight === 100 ? "text-pixel-gray" : totalWeight > 0 ? "text-amber-400" : "text-pixel-gray"
-                  }`}>
-                    {totalWeight}%
-                  </span>
-                </div>
-
-                {/* Column headers */}
-                <div className="flex items-center text-[12px] text-pixel-gray tracking-wider px-0.5 border-t border-pixel-border pt-1">
-                  <span className="w-5 shrink-0" />
-                  <span className="w-5 shrink-0" />
-                  <span className="flex-1">ADDRESS</span>
-                  <span className="w-12 text-right" title="Total trades observed in the loaded history window">TXS</span>
-                  <span className="w-14 text-right" title="Time since this trader's most recent trade">LAST</span>
-                  <span className="w-10 text-right" title="Trades by this trader in the last 24h — 0 means dormant">24H</span>
-                  <span className="w-16 text-right" title="In-window trades passing the PARAMS below (market keywords + trade filter) — the slice the strat would actually copy">FILT</span>
-                  <span className="w-16 text-right">P&L</span>
-                  <span className="flex-1 text-center">WEIGHT</span>
-                  <span className="w-5" />
-                </div>
-
-                {/* Trader rows */}
-                <div className="space-y-0">
-                  {traderSummaries.map((t, i) => {
-                    const curvePnl = traderCurvePnl.get(t.address);
-                    const displayPnl = curvePnl ?? t.totalPnl;
-                    const pnlColor = displayPnl > 0 ? "text-green-400"
-                      : displayPnl < 0 ? "text-red-400" : "text-pixel-gray-light";
-                    const w = traderWeights[t.address] || 0;
-                    return (
-                      <div key={t.address} className={`flex items-center gap-0.5 px-0.5 py-1 hover:bg-pixel-white/5 transition-colors group border-b border-pixel-border/20 last:border-b-0 ${t.enabled ? "" : "opacity-40"}`}>
-                        {/* Toggle enabled/disabled */}
-                        <button
-                          onClick={() => toggleTrader(t.address)}
-                          className="w-4 shrink-0 flex items-center justify-center"
-                          title={t.enabled ? "Hide trader" : "Show trader"}
-                        >
-                          <div className={`w-1.5 h-1.5 rounded-full transition-colors ${t.enabled ? "bg-green-400" : "bg-pixel-gray"}`} />
-                        </button>
-                        <span className="text-[12px] text-pixel-gray font-mono w-5 shrink-0 text-center">{i + 1}</span>
-                        <button
-                          onClick={() => goToTrader(t.address)}
-                          className="flex-1 text-left text-[15px] font-mono text-pixel-white hover:text-green-400 transition-colors truncate"
-                        >
-                          {shortAddress(t.address)}
-                        </button>
-                        {/* TXS — total trade count in the loaded history window.
-                            Tooltips show the absolute number; cell rendered with
-                            a "K" suffix for large counts to keep the column tight. */}
-                        {(() => {
-                          const stats = traderTradeStatsByAddr.get(t.address);
-                          const total = stats?.total ?? null;
-                          return (
-                            <span
-                              className="w-12 text-right text-[13px] font-mono text-pixel-gray-light"
-                              title={total === null ? "Loading…" : `${total.toLocaleString()} total trades observed`}
-                            >
-                              {total === null ? "…" : total >= 1000 ? `${(total / 1000).toFixed(1)}k` : String(total)}
-                            </span>
-                          );
-                        })()}
-                        {/* LAST — short-form "5m" / "3h" / "2d" since the most
-                            recent trade. Red when stale (>24h), amber when warming
-                            (>1h), green when fresh. */}
-                        {(() => {
-                          const stats = traderTradeStatsByAddr.get(t.address);
-                          if (!stats) {
-                            return (
-                              <span className="w-14 text-right text-[13px] font-mono text-pixel-gray">…</span>
-                            );
-                          }
-                          const ageMs = Date.now() - stats.lastTs;
-                          const cls =
-                            ageMs < 3_600_000 ? "text-green-400" :
-                            ageMs < 86_400_000 ? "text-amber-400" :
-                            "text-red-400";
-                          const short = (() => {
-                            const sec = Math.floor(ageMs / 1000);
-                            if (sec < 60) return `${sec}s`;
-                            const m = Math.floor(sec / 60);
-                            if (m < 60) return `${m}m`;
-                            const h = Math.floor(m / 60);
-                            if (h < 24) return `${h}h`;
-                            return `${Math.floor(h / 24)}d`;
-                          })();
-                          return (
-                            <span
-                              className={`w-14 text-right text-[13px] font-mono ${cls}`}
-                              title={`Last trade ${new Date(stats.lastTs).toLocaleString()}`}
-                            >
-                              {short}
-                            </span>
-                          );
-                        })()}
-                        {/* 24H activity — red when dormant, amber when thin,
-                            green when active. Pure visual cue, no filtering. */}
-                        {(() => {
-                          const c24 = trades24hByAddr.get(t.address);
-                          const activityCls = c24 === undefined
-                            ? "text-pixel-gray"
-                            : c24 === 0
-                              ? "text-red-400"
-                              : c24 < 3
-                                ? "text-amber-400"
-                                : "text-green-400";
-                          const title = c24 === undefined
-                            ? "Loading trade history…"
-                            : c24 === 0
-                              ? "No trades in last 24h — trader may be dormant"
-                              : `${c24} trade${c24 === 1 ? "" : "s"} in last 24h`;
-                          return (
-                            <span
-                              className={`w-10 text-right text-[13px] font-mono ${activityCls}`}
-                              title={title}
-                            >
-                              {c24 === undefined ? "…" : c24}
-                            </span>
-                          );
-                        })()}
-                        {/* FILT — how many of this trader's in-window trades pass
-                            the params below (market keywords AND per-trade
-                            filters). Red when the params exclude this trader
-                            entirely; gray "all" when no filter is active. */}
-                        {(() => {
-                          const f = traderFilteredByAddr.get(t.address);
-                          if (!f) {
-                            return (
-                              <span className="w-16 text-right text-[13px] font-mono text-pixel-gray">…</span>
-                            );
-                          }
-                          const compact = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-                          if (!paramsFilterActive) {
-                            return (
-                              <span
-                                className="w-16 text-right text-[13px] font-mono text-pixel-gray-light"
-                                title={`${f.total} trades in the ${backtestDays}d window — no params filter active, everything passes`}
-                              >
-                                {compact(f.total)}
-                              </span>
-                            );
-                          }
-                          const cls = f.matched === 0 ? "text-red-400" : "text-amber-300";
-                          return (
-                            <span
-                              className={`w-16 text-right text-[13px] font-mono ${cls}`}
-                              title={`${f.matched}/${f.total} trades in the ${backtestDays}d window pass the current params (market keywords + trade filter)`}
-                            >
-                              {compact(f.matched)}/{compact(f.total)}
-                            </span>
-                          );
-                        })()}
-                        <span className={`w-16 text-right text-[15px] font-mono ${pnlColor}`}>
-                          {curvePnl !== undefined ? formatPnl(curvePnl) : t.loaded ? formatPnl(t.totalPnl) : "..."}
-                        </span>
-                        {/* Weight slider + value */}
-                        <div className="flex-1 flex items-center gap-1 px-1">
-                          <input
-                            type="range"
-                            min={0}
-                            max={100}
-                            value={w}
-                            onChange={(e) => updateWeight(t.address, parseInt(e.target.value, 10))}
-                            className="flex-1 h-[4px] appearance-none bg-pixel-border rounded cursor-grab accent-green-400 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-sm [&::-webkit-slider-thumb]:bg-green-400 [&::-webkit-slider-thumb]:cursor-grab"
-                          />
-                          <span className="text-[14px] font-mono text-pixel-gray w-9 text-right shrink-0">{w}%</span>
-                        </div>
-                        <button
-                          onClick={() => removeTrader(t.address)}
-                          className="w-5 text-center text-[13px] text-pixel-gray hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-                          title="Remove trader"
-                        >
-                          x
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* ── PARAMS — every knob; the filters gate the traders above,
@@ -2741,23 +2414,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 </span>
               </ParamGroup>
 
-              {/* Trader FILTER — which of the watched traders are worth
-                  copying right now. The card renders the live ranking from
-                  the same `rankTraders` the live engine enforces. */}
-              <ParamGroup
-                title="TRADER FILTER"
-                hint="copy only the top-ranked traders — re-ranked every scan"
-                className="lg:col-span-2"
-              >
-                <TraderFilterCard
-                  filter={traderFilter}
-                  onPatch={patchTraderFilter}
-                  watchlist={watchlist}
-                  traderStats={Object.fromEntries(
-                    [...traderStatsMap.entries()].map(([a, st]) => [a.toLowerCase(), st]),
-                  )}
-                />
-              </ParamGroup>
+              {/* No TRADER FILTER card here. It ranked the watched traders
+                  every scan and copied only the top N — a gate on WHICH of
+                  many leaders to mirror. With exactly one leader it can only
+                  ever answer "them" or "nobody", and the second answer is
+                  what the enabled switch on the desk is for. */}
 
               {/* How much money to run it with — derived from this strat's own
                   filtered flow and the engine's real order floors. */}
@@ -2786,24 +2447,19 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
         </div>
       )}
 
-      {/* Strat list + "+ New" live in the strat sidebar (StratSidebar). */}
-
-      {/* ── STRAT → SOURCE subtab — the strat's code ──
-          Read-only for built-in TS strats; editable for user-uploaded
-          mod.py / mod.rs files (persisted via /api/polymarket/user-strats). */}
-      {stratOpen && stratSub === "source" && <StratSourceViewer />}
-
-      {/* ── STRAT → MARKET subtab — the strat market ──
-          Publish your uploaded strats (public, or by CID), browse every
-          public strat other traders shipped, fork one into your own list.
-          Keyed on the signed-in wallet so YOURS is distinguishable from
-          theirs (UserStratsPanel). */}
-      {stratOpen && stratSub === "market" && <UserStratsPanel eoa={auth.address ?? undefined} />}
+      {/* There is no SOURCE or MARKET view under STRAT any more. SOURCE
+          showed the strat's code — read-only for the built-in TypeScript
+          strats, editable for uploaded mod.py/mod.rs; MARKET was the strat
+          shelf: publish yours, browse everyone else's, import one by CID.
+          Both belonged to a console where a strat was an artifact you
+          authored and traded. What this console runs is a leader and an
+          amount, so the code is the engine's, not the user's. Archived under
+          `src/_archive` if that changes back. */}
 
       {/* ── Header: main tabs + subtab rail ──
-          Two-level nav: TEST / LIVE on top, a contextual subtab rail below
-          (the strat is the panel above, not a tab). Wallet/token/QR +
-          trading wallet + funding live under LIVE → WALLET ($ pill). */}
+          Two-level nav: BACKTEST / TRADE on top, a contextual subtab rail
+          below (the strat is the panel above, not a tab). Wallet/token/QR +
+          trading wallet + funding live under TRADE → WALLET ($ pill). */}
       <div className="pixel-panel px-3 py-2 space-y-2">
         {/* Tabs */}
         <div className="flex items-center gap-2">
@@ -2817,22 +2473,35 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               // LIVE (SUBTABS above), next to the engine it funds. Neither is
               // STRAT: it's the panel above these two, since a strat feeds
               // both of them.
-              // Label is TEST, id stays BACKTEST — the id keys the accent
-              // maps, the localStorage subtab keys and every mode check.
-              { id: "BACKTEST", label: "TEST", disabled: false },
-              { id: "LIVE", label: "LIVE", disabled: false },
+              // These two tabs are SCREENS, not modes. That distinction is the
+              // whole point of the rename: the left one was labelled TEST and
+              // the right one LIVE, which collided head-on with TEST and LIVE
+              // being the engine's two execution modes — so a tab called LIVE
+              // routinely sat over a session that had never placed an order,
+              // and "test trading" could mean either a backtest or a dry run
+              // depending on who you asked.
+              //
+              // Now: BACKTEST replays history, TRADE runs the engine, and
+              // whether the engine's money is real is the TEST|LIVE switch
+              // inside it (mirrored on the chip below). Ids are unchanged —
+              // they key the accent maps, the localStorage subtab keys and
+              // every mode check in this file.
+              { id: "BACKTEST", label: "BACKTEST", disabled: false },
+              { id: "LIVE", label: "TRADE", disabled: false },
             ] as { id: MainTab; label: string; disabled: boolean }[]
           ).map((t) => {
             const active = mode === t.id;
-            // Show a RUNNING chip on the LIVE tab while the engine is
-            // actively trading — so the user can tell at a glance there's
-            // a "task" firing in the background even from TEST.
-            const showRunning = t.id === "LIVE" && isLive;
-            const runningTone = engineState?.status === "paused"
-              ? "border-amber-400/60 text-amber-400 bg-amber-400/10"
+            // Chip on the TRADE tab whenever a session exists — so from the
+            // BACKTEST screen you can still see that something is running AND
+            // whether it is spending real money. The old chip only said
+            // RUNNING, which was the half of the answer nobody was worried
+            // about.
+            const showRunning = t.id === "LIVE" && (isLive || backendRunning);
+            const runState = engineState?.status === "paused"
+              ? "PAUSED" as const
               : engineState?.status === "error"
-                ? "border-red-400/60 text-red-400 bg-red-400/10"
-                : "border-green-400/60 text-green-400 bg-green-400/10";
+                ? "ERROR" as const
+                : "RUNNING" as const;
             return (
               <button
                 key={t.id}
@@ -2847,13 +2516,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               >
                 {t.label}
                 {showRunning && (
-                  <span
-                    className={`text-[9px] px-1.5 py-0.5 border tracking-[0.1em] rounded-full font-semibold ${runningTone}`}
-                    title={`Live engine ${engineState?.status ?? "running"}`}
-                  >
-                    {engineState?.status === "paused" ? "PAUSED" :
-                     engineState?.status === "error" ? "ERROR" : "RUNNING"}
-                  </span>
+                  <SessionChip run={runState} mode={modeOf(autoExecute)} className="rounded-full" />
                 )}
                 <span
                   className={`absolute left-3 right-3 -bottom-px h-[2px] rounded-full transition-all duration-200 ${
@@ -2965,12 +2628,10 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       {activeIndex && (
         <>
           {/* Empty trader state — suppressed for ORIGINATION strats (they are
-              complete with zero traders), and under STRAT → MARKET (and LIVE →
-              WALLET): the market is about OTHER people's strats, so a "no
-              traders yet" nag under it is noise. */}
+              complete with zero traders) and under LIVE → WALLET, where the
+              screen is about funding rather than about who is copied. */}
           {watchlist.length === 0 && !originates &&
-            !(mode === "LIVE" && liveSub === "wallet") &&
-            !(stratOpen && stratSub === "market") && (
+            !(mode === "LIVE" && liveSub === "wallet") && (
             // Real empty state, not a nag line: the panel is the CTA. The old
             // copy pointed at a breadcrumb ("ADD TRADERS FROM PARAMS →
             // TRADERS + PARAMS") that named the panel it was sitting under,
@@ -2987,14 +2648,16 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 </svg>
               </div>
               <div className="font-display text-[15px] font-semibold tracking-[0.08em] text-pixel-white">
-                NO TRADERS YET
+                NO LEADER
               </div>
               <div className="text-[12.5px] leading-5 text-pixel-gray-light max-w-[46ch]">
-                A strategy mirrors the traders you pick. Add a few and the
-                backtest and live engine start following their fills.
+                This workspace copies one trader, and it hasn&apos;t got one.
+                That means a strat saved before the console narrowed to
+                single-trader copying is still selected. Pick a leader off the
+                desk and this fills in.
               </div>
-              <button
-                onClick={() => { pickStratSub("build"); setBrowseOpen(true); }}
+              <Link
+                href="/copy"
                 className="mt-1 rounded-[var(--radius)] px-4 py-2 text-[12px] font-bold tracking-[0.1em] transition-all hover:brightness-110 hover:-translate-y-px active:translate-y-0"
                 style={{
                   color: "#06130c",
@@ -3002,11 +2665,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                   boxShadow: "0 1px 0 rgba(255,255,255,0.25) inset, 0 8px 22px -10px rgb(var(--accent) / 0.55)",
                 }}
               >
-                BROWSE TRADERS
-              </button>
+                OPEN THE COPY DESK
+              </Link>
               {mode === "BACKTEST" && (
                 <div className="text-[11px] text-pixel-gray tracking-wider">
-                  TESTS RUN ON SIMULATED FUNDS — NO WALLET OR DEPOSIT NEEDED.
+                  A BACKTEST REPLAYS HISTORY ON SIMULATED FUNDS — NO WALLET OR DEPOSIT NEEDED.
                 </div>
               )}
             </div>
@@ -3177,19 +2840,31 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                   </div>
               </>}
               notices={<>
+                {/* Origination strats ARE replayed now (lib/originationBacktest.ts):
+                    the cycle loop runs over the window's price tape and calls the
+                    same propose() hook the live engine calls. What this notice says
+                    is the honest remainder — where the replay is still coarser than
+                    a live session — because a backtest that hides its own resolution
+                    is how a strat gets deployed on a number it never earned. */}
                 {activeIndex?.momentum && (
                   <div className="text-[11px] font-mono tracking-[0.1em] px-2 py-1.5 border border-amber-400/50 text-amber-400/90 bg-amber-400/5">
-                    {watchlist.length === 0 ? (
-                      <>⚠ ORIGINATION-ONLY STRAT — it copies nobody, so there is no
-                      mirror flow to replay and this curve stays flat. That is
-                      expected, not a broken test: judge these params in a DRY RUN
-                      live session, where the engine trades the price tape itself.</>
+                    {tapeLoading ? (
+                      <>⏳ LOADING THE PRICE TAPE — an origination strat is replayed
+                      against the window&apos;s own odds, so the curve appears once the
+                      tape lands.</>
+                    ) : priceTape && priceTape.markets > 0 ? (
+                      <>⚠ ORIGINATION REPLAY · {priceTape.markets}/{priceTape.expected}{" "}
+                      {priceTape.mode === "candles" ? "candles" : "markets"} at{" "}
+                      {Math.round(priceTape.fidelityMs / 60_000)}-minute bars. The engine
+                      polls every{" "}
+                      {Math.max(MIN_POLL_MINUTES, activeIndex?.livePollMinutes ?? MIN_POLL_MINUTES) * 60}s
+                      and also reads the CLOB midpoint, so it sees moves BETWEEN these
+                      bars that this replay cannot — treat entry/exit timing as coarser
+                      than live, and the spread as unmodeled on both sides.</>
                     ) : (
-                      <>⚠ MOMENTUM ORIGINATION IS NOT SIMULATED — this backtest replays
-                      only the copy-mirror side of the strat. Live, the engine also
-                      originates its own entries from rising prices, so live results
-                      will diverge from this curve. Judge momentum params in a DRY
-                      RUN live session instead.</>
+                      <>⚠ NO PRICE TAPE FOR THIS WINDOW — this strat trades a market&apos;s
+                      own odds, and none came back for the window selected, so there is
+                      nothing to replay. {priceTape?.note ?? "Try a shorter window, or run the engine in TEST against the live feed."}</>
                     )}
                   </div>
                 )}
@@ -3231,6 +2906,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                   marked: backtestSim.settlement.marked,
                   markedUsd: backtestSim.settlement.markedUsd,
                 },
+                tape: tapeChip,
               }}
               caption={`${backtestDays}D SIMULATED EQUITY`}
               history={backtestSim.equityHistory}
@@ -3238,7 +2914,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               highlightT={chartHighlightT}
               onHoverMarker={handleChartHover}
               emptyHint={originates && watchlist.length === 0
-                ? "NOTHING TO REPLAY — THIS STRAT ORIGINATES ITS OWN ENTRIES LIVE. RUN IT IN A DRY-RUN LIVE SESSION TO SEE A CURVE."
+                ? (tapeLoading
+                    ? "LOADING THE WINDOW'S PRICE TAPE — THE ORIGINATION REPLAY RUNS ON THE MARKET'S OWN ODDS."
+                    : priceTape && priceTape.markets > 0
+                      ? "PRICE TAPE REPLAYED — THIS STRAT'S SIGNAL NEVER FIRED IN THIS WINDOW. WIDEN THE WINDOW OR LOOSEN THE ENTRY BAND."
+                      : `NO PRICE TAPE FOR THIS WINDOW${priceTape?.note ? ` — ${priceTape.note.toUpperCase()}` : "."}`)
                 : "NOT ENOUGH TRADE DATA FOR THE EQUITY CURVE — ADD TRADERS OR WIDEN THE WINDOW."}
               positions={backtestSim.open}
               positionsNote="simulated holds · worst first"

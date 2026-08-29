@@ -15,6 +15,7 @@ import {
 import { api, MediaOut, MeResponse, VeniceModel, mediaUrl } from "@/lib/api";
 import { makePaidFetch } from "@/lib/x402";
 import ThemePicker from "@/components/ThemePicker";
+import Account, { IdKind, Mode } from "@/components/Account";
 import Pix from "@/components/Pix";
 
 const TOKEN_KEY = "venice:token";
@@ -22,8 +23,6 @@ const ADDR_KEY = "venice:addr";
 const IDKIND_KEY = "venice:idkind";
 const SIDE_KEY = "venice:sidebar";
 
-type Mode = "byok" | "paid";
-type IdKind = "wallet" | "local";
 type ChatMsg = { role: "user" | "assistant"; text: string; media: MediaOut[] };
 type Convo = { id: string; title: string; thread: ChatMsg[]; updated: number };
 
@@ -69,6 +68,9 @@ export default function Page() {
   const [address, setAddress] = useState<string | null>(null);
   const [idKind, setIdKind] = useState<IdKind | null>(null);
   const [me, setMe] = useState<MeResponse | null>(null);
+  // Whether this deployment can charge per turn at all (x402 + a backend key).
+  // Signed-out visitors read the hero, so it can't wait on /me to find out.
+  const [paidOffered, setPaidOffered] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -127,6 +129,10 @@ export default function Page() {
     } else if (savedKind === "local" && hasLocalIdentity()) {
       signInLocal(true);
     }
+    api
+      .info()
+      .then((r) => setPaidOffered(!!r.paid_available))
+      .catch(() => {});
     api
       .models()
       .then((m) => {
@@ -443,7 +449,8 @@ export default function Page() {
           <p className="lead">
             Edit your photos and summon images &amp; video in one conversation —
             <span className="accent"> attach a picture, describe the change</span>, Venice does the rest.
-            Bring your own Venice key (encrypted at rest, used only for your calls), or pay per turn in USDC.
+            Bring your own Venice key — encrypted at rest, used only for your calls
+            {paidOffered ? ", or pay per turn in USDC." : "."}
           </p>
 
           <div className="tiles">
@@ -527,65 +534,9 @@ export default function Page() {
           ))}
         </div>
 
-        <div className="side-sec">
-          <div className="sec-title">Identity</div>
-          <div className="row" style={{ gap: 8 }}>
-            <span className={`pill ${idKind === "local" ? "ok" : "brand"}`}>
-              {idKind === "local" ? "anonymous" : "wallet"}
-            </span>
-            <span className="mono" title={idKind === "local" ? "browser-local pseudonym" : "wallet address"}>
-              {shortAddress(address || "")}
-            </span>
-          </div>
-          <div className="row" style={{ gap: 8, marginTop: 8 }}>
-            <button className="ghost" onClick={signOut}>Sign out</button>
-            {idKind === "local" && (
-              <button className="ghost" onClick={forgetIdentity} disabled={!!busy} title="erase the browser-local private key">
-                Forget identity
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="side-sec">
-          <div className="sec-title">Access</div>
-          {me?.has_key ? (
-            <div className="row" style={{ gap: 8 }}>
-              <span className="pill ok"><Pix name="check" size={11} /> your key (BYOK)</span>
-              <button className="ghost" onClick={removeKey} disabled={!!busy}>Remove</button>
-            </div>
-          ) : (
-            <div className="key-form">
-              <input
-                type="password"
-                placeholder="Venice API key (vk-…)"
-                value={keyInput}
-                onChange={(e) => setKeyInput(e.target.value)}
-                disabled={!!busy}
-              />
-              <button className="primary" onClick={saveKey} disabled={!keyInput.trim() || !!busy}>
-                Save
-              </button>
-            </div>
-          )}
-          <div style={{ marginTop: 8 }}>
-            <span className={`pill ${me?.paid_available ? "ok" : ""}`}>
-              {me?.paid_available
-                ? `pay-per-turn: ${me?.price} ${me?.currency} on ${me?.network}`
-                : "pay-per-turn: unavailable"}
-            </span>
-          </div>
-          <div className="seg" style={{ marginTop: 10 }}>
-            <button className={mode === "byok" ? "active" : ""} onClick={() => setMode("byok")} disabled={!me?.has_key} title={me?.has_key ? "" : "add a key first"}>
-              My key
-            </button>
-            <button className={mode === "paid" ? "active" : ""} onClick={() => setMode("paid")} disabled={!me?.paid_available} title={me?.paid_available ? "" : "paid path unavailable"}>
-              Pay per turn
-            </button>
-          </div>
-        </div>
-
-        <div className="side-sec">
+        {/* Identity and billing live in the top-right account menu; the rail is
+            for the conversation and the model driving it, nothing else. */}
+        <div className="side-foot">
           <div className="sec-title">Model</div>
           <select value={model} onChange={(e) => setModel(e.target.value)} title="orchestrator model (calls the image/video tools)">
             {agentModels.length === 0 && <option value="">loading…</option>}
@@ -593,6 +544,15 @@ export default function Page() {
               <option key={m.id} value={m.id}>{m.id}</option>
             ))}
           </select>
+          <div className="side-note">
+            {mode === "paid"
+              ? me?.paid_available
+                ? `paying ${me.price} ${me.currency} per turn`
+                : "paid path unavailable"
+              : me?.has_key
+                ? "spending your own Venice key"
+                : "no key yet — add one up top"}
+          </div>
         </div>
       </aside>
 
@@ -604,7 +564,21 @@ export default function Page() {
           <span className="topbar-title">{active?.title ?? "venice"}</span>
           <div className="spacer" />
           {status && <span className="thinking"><span className="orb" />{status}</span>}
-          <ThemePicker />
+          <ThemePicker compact />
+          <Account
+            address={address || ""}
+            idKind={idKind}
+            me={me}
+            mode={mode}
+            setMode={setMode}
+            keyInput={keyInput}
+            setKeyInput={setKeyInput}
+            onSaveKey={saveKey}
+            onRemoveKey={removeKey}
+            onSignOut={signOut}
+            onForget={forgetIdentity}
+            busy={busy}
+          />
         </div>
 
         {error && <div className="banner err"><Pix name="cross" /> {error}</div>}
@@ -673,7 +647,11 @@ export default function Page() {
             <Pix name="image" size={18} />
           </label>
           <textarea
-            placeholder={me?.has_key || me?.paid_available ? "Message venice…  (text, images, video)" : "add a key or enable paid to chat"}
+            placeholder={
+              me?.has_key || me?.paid_available
+                ? "Message venice…  (text, images, video)"
+                : "add your Venice key up top to chat"
+            }
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }}

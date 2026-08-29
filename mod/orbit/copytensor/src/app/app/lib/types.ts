@@ -215,6 +215,74 @@ export type CopyConfig = {
   last_sync_block: number | null;
   created_at: string | null;
   updated_at: string | null;
+  /** The TAO behind this trader — lifted out of `config`. */
+  alloc_tao: number;
+  target_info?: {
+    ss58: string;
+    label: string | null;
+    total_stake_tao: number;
+    num_subnets: number;
+    pnl_tao: number;
+    pnl_pct: number;
+  } | null;
+};
+
+// ── portfolio: every sleeve, one book ──
+// Copies do not each own a portfolio. They blend into ONE desired book, and
+// this is that book — what each trader asked for, and the trades that would
+// close the gap.
+
+export type Sleeve = {
+  copy_id: string;
+  target_ss58: string;
+  label: string | null;
+  alloc_tao: number;
+  /** After scaling for what the wallet can actually back. */
+  effective_tao: number;
+  pct_of_book: number;
+  subnets: number;
+  stale: boolean;
+  note: string | null;
+};
+
+export type PlanRow = {
+  netuid: number;
+  subnet_name: string;
+  action: "stake" | "unstake" | "hold";
+  desired_tao: number;
+  current_tao: number;
+  amount_tao: number;
+  drift_tao: number;
+  /** copy_id -> TAO this sleeve wants here. */
+  contributors: Record<string, number>;
+  reason: string;
+};
+
+export type PortfolioPlan = {
+  our_ss58: string | null;
+  staked_tao: number;
+  free_tao: number;
+  requested_tao: number;
+  deployable_tao: number;
+  /** <1 when the sleeves ask for more than the wallet can back. */
+  scale: number;
+  band_tao: number;
+  threshold_pct: number;
+  sleeves: Sleeve[];
+  rows: PlanRow[];
+  trades: number;
+  /** Set when the pass must not trade at all; every row is held. */
+  blocked: string | null;
+  notes: string[];
+  executed: boolean;
+  results: {
+    action: string;
+    netuid: number;
+    amount_tao: number;
+    status: string;
+    tx_hash?: string | null;
+    error?: string | null;
+  }[];
 };
 
 export type Trade = {
@@ -228,6 +296,8 @@ export type Trade = {
   tx_hash: string | null;
   status: string;
   error: string | null;
+  /** Which sleeves paid for this move — one trade can serve several copies. */
+  contributors?: Record<string, number> | null;
 };
 
 export type AccountWatch = {
@@ -293,6 +363,12 @@ export type IndexTrader = {
   label?: string | null;
   weight: number; // any positive number; UI normalizes to sum=1
   enabled?: boolean; // default true
+  /**
+   * Absolute TAO behind this trader. When set it IS the allocation — the
+   * live engine sizes the sleeve by it and the backtest weights by it — and
+   * `weight` is kept in step for baskets still sized by share.
+   */
+  alloc_tao?: number | null;
 };
 
 export type SavedIndex = {
@@ -300,6 +376,8 @@ export type SavedIndex = {
   name: string;
   traders: IndexTrader[];
   our_hotkey?: string;
+  /** Per-trader TAO, rather than weight × capital. */
+  sizing?: "split" | "tao";
   max_tao_per_tx?: number;
   daily_limit_tao?: number;
   rebalance_threshold_pct?: number;
@@ -328,6 +406,8 @@ export type ProposedTrader = {
   ss58: string;
   label?: string | null;
   weight: number;
+  /** The TAO behind this trader — always resolved, whichever way it was sized. */
+  alloc_tao: number;
   share_pct: number;
   why?: string | null;
   tracked: boolean;
@@ -342,6 +422,7 @@ export type StratProposal = {
   name: string;
   thesis: string;
   traders: ProposedTrader[];
+  sizing?: "split" | "tao";
   capital_tao: number;
   max_tao_per_tx: number;
   rebalance_threshold_pct: number;
@@ -381,6 +462,7 @@ export type ServerStrat = {
   owner_fingerprint: string | null;
   traders: IndexTrader[];
   our_hotkey?: string | null;
+  sizing?: "split" | "tao";
   max_tao_per_tx?: number | null;
   daily_limit_tao?: number | null;
   rebalance_threshold_pct?: number | null;
@@ -399,6 +481,7 @@ export type StratWrite = {
   visibility?: StratVisibility;
   whitelist?: string[];
   our_hotkey?: string | null;
+  sizing?: "split" | "tao";
   max_tao_per_tx?: number | null;
   daily_limit_tao?: number | null;
   rebalance_threshold_pct?: number | null;

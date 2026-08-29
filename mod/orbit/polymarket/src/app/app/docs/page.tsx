@@ -84,8 +84,8 @@ const STRAT_MODES = [
   {
     name: "price momentum origination",
     kind: "history-driven",
-    desc: "Set `momentum: {…}` to trade the market's OWN odds — no watchlist needed. The engine feeds CLOB price history for markets matching `momentum.query` (default: marketQuery, else \"bitcoin\"); the strat BUYs the outcome that rose ≥ minRiseCents over the lookback (BTC-up going 50¢→60¢ = ride it) inside the price band, and SELLs a held outcome once it falls exitDropCents. Markets resolving within minMinutesToClose are skipped — sub-hour Up/Down markets are HFT-bot turf.",
-    params: "momentum.query · momentum.lookbackMinutes · momentum.minRiseCents · momentum.exitDropCents · momentum.minPrice/maxPrice · momentum.maxPositions · momentum.maxMarkets · momentum.minMinutesToClose",
+    desc: "Set `momentum: {…}` to trade the market's OWN odds — no watchlist needed. The engine feeds CLOB price history for markets matching `momentum.query` (default: marketQuery, else \"bitcoin\"), and a comma-separated query is SEARCHED PER GROUP and merged, so \"bitcoin, ethereum, solana\" covers three assets in one strat — always comma-separate a multi-asset query, since one string of coin names is ranked as a phrase and finds markets naming all of them instead of each coin's own markets. The strat BUYs the outcome that rose ≥ minRiseCents over the lookback (BTC-up going 50¢→60¢ = ride it) inside the price band, and SELLs a held outcome once it falls exitDropCents. `confirmMinutes` adds a second, shorter window an ENTRY must also be intact over — that's what separates a move still running from one that already peaked. Markets resolving within minMinutesToClose are skipped — sub-hour Up/Down markets are HFT-bot turf.",
+    params: "momentum.query · momentum.lookbackMinutes · momentum.minRiseCents · momentum.confirmMinutes · momentum.exitDropCents · momentum.minPrice/maxPrice · momentum.maxPositions · momentum.maxMarkets · momentum.minMinutesToClose",
   },
 ];
 
@@ -116,6 +116,129 @@ class MyStrat extends Strat {
     return base * (1 + Math.log1p(flowInMarket) / 10);
   }
 }`;
+
+// The COPY DESK's own surface. These are the routes the browser desk calls
+// AND the routes the pm_copy_* MCP tools call — listed first because they are
+// the ones you reach for.
+const COPY_ENDPOINTS: Endpoint[] = [
+  {
+    method: "GET",
+    path: "/copy/book",
+    description:
+      "The desk: every copied trader with their allocation, plus (when ?eoa is given) that " +
+      "wallet's session per trader — running, TEST vs LIVE, orders placed, " +
+      "realized P&L, last fill — and the roll-up totals.",
+    params: [
+      { name: "eoa", type: "0x…", desc: "Wallet whose sessions to report. Omit for the book alone." },
+    ],
+    example: "GET /api/polymarket/copy/book?eoa=0x89bc…",
+  },
+  {
+    method: "POST",
+    path: "/copy/allocations",
+    description:
+      "Copy a trader with a given number of dollars — or change the amount if they're already " +
+      "on the desk. Idempotent by address: one leader, one allocation, one session. A running " +
+      "session is reconfigured in place, keeping its execution mode. Nothing is placed.",
+    body: [
+      { name: "address", type: "0x…", desc: "The trader to copy." },
+      { name: "allocationUsd", type: "number", desc: "Dollars behind them. This IS the position sizing — the engine budgets against it and the backtest replays with it." },
+      { name: "label", type: "string?", desc: "Display name. Absent ⇒ a short address." },
+      { name: "notes", type: "string?", desc: "Why you're copying them." },
+      { name: "enabled", type: "boolean?", desc: "false pauses them without forgetting them." },
+      { name: "params", type: "object?", desc: "Per-trader overrides on the identity template (minTrade, maxTrade, maxPerCycle, maxOpenPositions, pollMinutes, backtestDays, sizing, turnover, stopLoss, takeProfit, minMinutesToClose, maxTradeAgeSec, marketQuery, tradeFilters). A PATCH — omitted knobs keep their value. The GATE pair is marketQuery (which markets, by title — commas OR, spaces AND) + tradeFilters ({sides, minPrice, maxPrice, minNotional, maxNotional}: which trades inside them); the sentence box on /copy/trades compiles plain language into exactly that pair." },
+    ],
+    example: `POST /copy/allocations {"address":"0xab…","allocationUsd":250}`,
+  },
+  {
+    method: "POST",
+    path: "/copy/allocations/{address}  (DELETE)",
+    description:
+      "Stop copying a trader: ends their session (when ?eoa is given) and drops them from the " +
+      "book. Their realized P&L survives in the engine ledger.",
+    params: [{ name: "eoa", type: "0x…", desc: "Wallet whose session to stop." }],
+  },
+  {
+    method: "POST",
+    path: "/copy/rebalance",
+    description:
+      "Split a bankroll across every ENABLED trader. Running sessions pick up their new size " +
+      "immediately; paused traders are left alone.",
+    body: [
+      { name: "bankroll", type: "number", desc: "Total dollars to split." },
+      { name: "mode", type: "string", desc: "\"equal\" (default) — everyone the same. \"weighted\" — rescale the amounts you already set, so conviction survives a deposit." },
+    ],
+  },
+  {
+    method: "POST",
+    path: "/copy/start",
+    description:
+      "Start copying — one trader with `address`, or every enabled trader without it. " +
+      "DEFAULTS TO TEST: every mirror is computed and none is placed. The trading wallet is " +
+      "derived from the EOA's backend signer unless you name one.",
+    body: [
+      { name: "eoa", type: "0x…", desc: "Wallet to run under." },
+      { name: "address", type: "0x…?", desc: "One trader. Omit for the whole desk." },
+      { name: "autoExecute", type: "boolean", desc: "true = LIVE — REAL orders with real money. Omitted ⇒ false ⇒ TEST. (The response still spells the mode \"DRY RUN\" for older clients.)" },
+      { name: "proxyAddress", type: "0x…?", desc: "Override the derived trading wallet." },
+    ],
+  },
+  {
+    method: "POST",
+    path: "/copy/stop",
+    description: "Stop one trader's session, or the whole desk. The allocation and the ledger survive.",
+    body: [
+      { name: "eoa", type: "0x…", desc: "Wallet." },
+      { name: "address", type: "0x…?", desc: "One trader. Omit for every session on the desk." },
+    ],
+  },
+  {
+    method: "POST",
+    path: "/polymarket/api/basket",
+    description:
+      "THE BASKET — replay a SET of traders, each on its OWN capital, as one portfolio. Runs " +
+      "on the Next app (not the Rust API), out of the background worker's feed store, so a " +
+      "call costs CPU rather than a burst of upstream walks. It places nothing and writes " +
+      "nothing: sizing a basket is not committing to it.",
+    body: [
+      { name: "legs", type: "array", desc: "[{address, allocationUsd, label?, params?}] — params is the same per-allocation patch /copy/allocations takes, so a leg can carry its own gates." },
+      { name: "fromDesk", type: "boolean?", desc: "Replay the copy desk as it stands instead of naming legs." },
+      { name: "days", type: "number", desc: "Window, 1–30 (default 7)." },
+      { name: "total", type: "number?", desc: "Rescale the legs to this total, keeping their proportions." },
+      { name: "split", type: "string?", desc: "\"equal\" divides `total` evenly instead of keeping proportions." },
+      { name: "compare", type: "boolean?", desc: "Also replay the same total divided EVENLY and report the edge — did choosing different amounts pay?" },
+      { name: "floors", type: "boolean?", desc: "Also find the smallest amount at which each leg trades at all. null ⇒ that leg never trades at any size on the ladder." },
+      { name: "ladder", type: "number[]?", desc: "Also replay the whole split at these totals — copying is not linear in the money." },
+    ],
+    example: `POST /polymarket/api/basket {"legs":[{"address":"0xab…","allocationUsd":700},{"address":"0xcd…","allocationUsd":300}],"days":7,"compare":true}`,
+  },
+  {
+    method: "GET",
+    path: "/polymarket/api/copytrades",
+    description:
+      "MY COPY TRADES — every trade the desk's leaders made, joined to every on-chain fill of " +
+      "mine. Nothing upstream links them (a fill carries no leader tag), so the join is " +
+      "inferred: same market, same side, my fill at or after theirs inside the match window, " +
+      "nearest wins, one leader trade claimed once. Answers with coverage (what share of their " +
+      "flow actually landed), median lag, signed slippage in cents, a per-leader roll-up, and " +
+      "the rows. Fills with no leader behind them are reported as `unattributed` rather than " +
+      "credited to somebody. Runs on the Next app, out of the worker's feed store.",
+    params: [
+      { name: "days", type: "number", desc: "Window, 1–30 (default 7)." },
+      { name: "q", type: "string?", desc: "Plain-language filter — \"big buys on crypto under 30c\", \"missed longshots\", \"politics, not candles\". The answer echoes how it was read (`query.chips`) and the enforceable gate it compiles to (`query.gate`)." },
+      { name: "matchMinutes", type: "number?", desc: "How long after a leader's trade a fill may still count as mirroring it (default 30)." },
+    ],
+    example: "GET /polymarket/api/copytrades?days=7&q=missed+longshots",
+  },
+  {
+    method: "GET",
+    path: "/copy/strats",
+    description:
+      "The book as identity strats — the exact objects the live engine runs. The background " +
+      "backtest worker reads this every pass, which is why a leader added over MCP gets a " +
+      "backtest card without a browser ever opening.",
+  },
+];
 
 const ENDPOINTS: Endpoint[] = [
   {
@@ -353,7 +476,48 @@ function FieldTable({ rows, cols }: { rows: { name: string; type: string; desc: 
 
 // ── Page ─────────────────────────────────────────────────────────
 
+// The pm_copy_* half of the MCP server — src/mcp.py. Documented here because
+// "what can an agent do to my money" deserves an answer on the same page as
+// what the buttons do.
+const MCP_TOOLS = [
+  {
+    name: "pm_copy_book",
+    writes: false,
+    desc: "The desk: who is copied, with how much, running or not, TEST or LIVE, orders placed, realized P&L. The place to start.",
+  },
+  {
+    name: "pm_copy_backtest",
+    writes: false,
+    desc: "Replay copying ONE trader over a window. Returns pnl/roi/trades, the walk-forward verdict (only \"held\" means it worked in the prior window AND this one) and the funnel (how many of their entries this desk could actually copy, and which gate blocked the rest).",
+  },
+  {
+    name: "pm_copy_trades",
+    writes: false,
+    desc: "What the desk's leaders traded against what actually landed in my wallet: coverage (their trades I got), median lag, signed slippage, per-leader roll-up, and every missed trade. `q` filters it in plain language and returns the gate that sentence compiles to, ready for pm_copy_allocate params:{marketQuery, tradeFilters}.",
+  },
+  {
+    name: "pm_copy_basket",
+    writes: false,
+    desc: "Size a SET of traders against each other: a different amount per name, replayed as one portfolio. Reports legsTrading/legs and idleUsd (how much of the money never traded), optionally the smallest amount each leg needs (floors) and how the split scores against dividing the total evenly (compare).",
+  },
+  {
+    name: "pm_copy_allocate",
+    writes: true,
+    desc: "Copy a trader with N dollars, or change the amount. Adds intent — places nothing.",
+  },
+  { name: "pm_copy_remove", writes: true, desc: "Stop copying a trader and drop them from the book." },
+  { name: "pm_copy_rebalance", writes: true, desc: "Split a bankroll across the enabled traders (equal | weighted)." },
+  {
+    name: "pm_copy_start",
+    writes: true,
+    desc: "Start copying. TEST by default. autoExecute=true means LIVE — real orders — and is REFUSED unless the deployment sets POLYMARKET_MCP_ALLOW_LIVE=1; otherwise a human flips the TEST|LIVE switch here in the browser.",
+  },
+  { name: "pm_copy_stop", writes: true, desc: "Stop a session, or the whole desk. Always permitted — it only reduces exposure." },
+];
+
 const NAV = [
+  ["#copy", "COPY DESK"],
+  ["#agents", "AGENTS / MCP"],
   ["#strategy", "STRATEGY CLASS"],
   ["#sizing", "COPY SIZING"],
   ["#engine", "LIVE ENGINE"],
@@ -383,7 +547,7 @@ export default function DocsPage() {
                 Documentation
               </span>
               <span className="text-pixel-gray text-[10px] tracking-widest leading-tight">
-                POLYMARKET · STRAT ENGINE
+                POLYMARKET · COPY DESK
               </span>
             </div>
           </div>
@@ -403,7 +567,388 @@ export default function DocsPage() {
           <div className="text-[12px] text-pixel-white tracking-wider">OVERVIEW</div>
           <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
             <p>
-              This module is a strategy engine over Polymarket. A <span className="text-pixel-white">strategy is ONE class</span>:
+              This module copies individual Polymarket traders.{" "}
+              <span className="text-pixel-white">You put a dollar amount against a name</span>, the
+              engine mirrors that trader&apos;s fills with it, and the ledger tells you what each
+              name made. That list of names and amounts is the{" "}
+              <Link href="#copy" className="text-green-400">COPY BOOK</Link>.
+            </p>
+            <p>
+              Everything below the desk is machinery in service of it. The rest of this page
+              documents that machinery — the strategy class each allocation materializes into, how
+              a mirror is sized, what the live engine does per cycle — because when a leader
+              isn&apos;t being copied, the answer is always in there.
+            </p>
+          </div>
+        </div>
+
+        {/* ── COPY DESK ── */}
+        <div className="space-y-4">
+          <SectionTitle id="copy">COPY DESK</SectionTitle>
+
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
+              <p>
+                One row per trader. The number on the row is the whole position-sizing model:
+                the live engine budgets against it and the backtest replays with it, so changing
+                it changes both. Nothing about a row is stored in your browser — the book lives on
+                the server, in the open, which is what lets an{" "}
+                <Link href="#agents" className="text-green-400">agent</Link> read and change the
+                same desk you&apos;re looking at.
+              </p>
+              <p>
+                <span className="text-pixel-white">The loop:</span> pick a{" "}
+                <span className="text-pixel-white">market type</span> (BITCOIN, ELECTIONS, or any
+                topic you type) → read the traders it returns, ranked on{" "}
+                <span className="text-pixel-white">that flow alone</span> → put an amount against
+                one → run them in <span className="text-pixel-white">TEST</span> to confirm they
+                produce entries this desk can actually copy → flip the switch to{" "}
+                <span className="text-pixel-white">LIVE</span>. Pasting an address still works,
+                and skips the first step.
+              </p>
+              <p>
+                <span className="text-pixel-white">FIND TRADERS BY MARKET</span> is not a search
+                box over a fixed leaderboard. The market type filters each trader&apos;s{" "}
+                <span className="text-pixel-white">trades</span> first, and their P&amp;L, trade
+                count, win rate and Sharpe are recomputed from{" "}
+                <span className="text-pixel-white">only the trades that survive</span>; a trader
+                with no trades in those markets isn&apos;t on the list at all. A $400k lifetime
+                P&amp;L earned in someone&apos;s election book is not evidence about copying them
+                in bitcoin, and this is the screen that refuses to present it as such. When the
+                server can only answer from its disk cache — which carries no per-market
+                breakdown — the panel says the numbers are lifetime instead of quietly showing
+                them as if they were scoped.
+              </p>
+              <p>
+                It also only offers you traders who are{" "}
+                <span className="text-pixel-white">still trading</span>:{" "}
+                <span className="text-pixel-white">ACTIVE 6H</span> is on by default, here and on
+                the TRADERS board (<span className="text-pixel-white">LAST TRADE ≤ HRS</span> in
+                FILTERS). A wallet that stopped yesterday keeps its excellent 7-day record —
+                those trades already closed — and copying it fills nothing, so it ranks above
+                people you can copy while contributing no fills. The filter runs on the server
+                against the same cached leaderboard the rows come from, so it narrows the whole
+                board and its count without costing a re-sync; turn it off to see the dormant
+                names, and the panel tells you how many it hid.
+              </p>
+              <p>
+                <span className="text-pixel-white">THE BASKET</span> (
+                <Link href="/copy/basket" className="text-green-400">/copy/basket</Link>) is the
+                desk&apos;s other half: several traders at once, with a{" "}
+                <span className="text-pixel-white">different amount against each</span>, replayed
+                over the same window as one portfolio. Each leg runs on its{" "}
+                <span className="text-pixel-white">own capital</span> — which is exactly what the
+                deployment does, one allocation being one session with its own budget — so a
+                leg&apos;s number never depends on what the others did. What the basket adds over
+                reading N per-trader backtests is the arithmetic of the{" "}
+                <span className="text-pixel-white">split</span>: which legs never traded at all
+                (an underfunded leg does not take a small position, it takes{" "}
+                <span className="text-pixel-white">no</span> position, because its proportional
+                mirror lands under the order floor), how many dollars are sitting idle in them,
+                the smallest amount each of those legs would need, and whether your amounts beat
+                simply dividing the total evenly. Nothing there is committed until{" "}
+                <span className="text-pixel-white">APPLY TO DESK</span>.
+              </p>
+              <p>
+                The query that found a trader becomes their{" "}
+                <span className="text-pixel-white">gate</span>: the{" "}
+                <span className="text-pixel-white">COPIES</span> line on their row. The live
+                engine and the backtest both refuse their entries outside it, so the row goes on
+                meaning what the search meant. Clear it and you copy everything they trade —
+                which is what every row did before the gate existed.
+              </p>
+            </div>
+          </div>
+
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[12px] text-pixel-white tracking-wider">
+              THE IDENTITY TEMPLATE
+            </div>
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
+              <p>
+                An allocation isn&apos;t a special kind of thing. It is materialized into an{" "}
+                <span className="text-pixel-white">IDENTITY STRAT</span> — an ordinary strategy
+                whose watchlist is exactly that one trader at weight 1 — and from there it runs on
+                the same engine, the same backtest and the same ledger as everything else on this
+                page. Its id is derived from the address (<code className="text-pixel-white">copy-&lt;address&gt;</code>),
+                so the session key, the ledger bucket and the backtest card agree without a lookup
+                table, and adding a trader twice updates one allocation instead of starting two
+                sessions.
+              </p>
+              <p>
+                The template exists in two languages —{" "}
+                <code className="text-pixel-white">api/src/copy.rs</code> for the live engine and{" "}
+                <code className="text-pixel-white">app/lib/identityStrat.ts</code> for the browser
+                and the worker — pinned against each other by{" "}
+                <code className="text-pixel-white">identity.fixture.json</code>. Change a default
+                on one side and the other side&apos;s tests go red. That is deliberate: a backtest
+                card promising something the live session doesn&apos;t do is the bug class this
+                whole arrangement exists to close.
+              </p>
+            </div>
+            <table className="pixel-table wrap-prose">
+              <thead>
+                <tr>
+                  <th>DEFAULT</th>
+                  <th>VALUE</th>
+                  <th>WHY</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="text-pixel-white font-mono">sizing</td>
+                  <td className="text-pixel-gray">flow</td>
+                  <td className="text-pixel-gray-light">
+                    Copy the leader&apos;s CONVICTION — your allocation spread across the capital
+                    they deployed — not their bankroll fraction. A small desk copying a whale
+                    places real orders under <code>flow</code> and nothing at all under{" "}
+                    <code>bankroll</code>: their 0.1%-of-net-worth bet is $2,000 of theirs and 25¢
+                    of yours, below every floor there is.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">minMinutesToClose</td>
+                  <td className="text-pixel-gray">60</td>
+                  <td className="text-pixel-gray-light">
+                    Refuse markets resolving sooner than an hour. Sub-hour Up/Down candles resolve
+                    before a poller can react — copying them is a measured loss, not a strategy.
+                    This is the gate that blocks most high-frequency leaders; the funnel says so
+                    when it fires.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">maxTradeAgeSec</td>
+                  <td className="text-pixel-gray">300</td>
+                  <td className="text-pixel-gray-light">
+                    Never mirror a stale fill. After a fetch outage the backlog would enter at
+                    prices the leader never paid.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">stopLoss / takeProfit</td>
+                  <td className="text-pixel-gray">0.75 / 0.99</td>
+                  <td className="text-pixel-gray-light">
+                    Sell at 75% of entry rather than riding a market to zero; liquidate anything
+                    that runs to the top tick instead of leaving capital dead until resolution.
+                    Explicit <code>0</code> turns either off — it is a value, not an absence.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">pollMinutes</td>
+                  <td className="text-pixel-gray">0.5</td>
+                  <td className="text-pixel-gray-light">
+                    30 seconds. Fast enough to reach a fill while the price is near the
+                    leader&apos;s, slow enough not to draw rate limits. The backtest aggregates at
+                    the same cadence, so it can&apos;t promise fills the engine never sees.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">minTrade / maxTrade</td>
+                  <td className="text-pixel-gray">$1 / $100</td>
+                  <td className="text-pixel-gray-light">
+                    Order floor and per-order ceiling. The CLOB&apos;s own hard floor is $1.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">marketQuery</td>
+                  <td className="text-pixel-gray">unset</td>
+                  <td className="text-pixel-gray-light">
+                    The row&apos;s market gate — the <span className="text-pixel-white">COPIES</span>{" "}
+                    line. Set from the market type that found the trader, editable afterwards, and
+                    empty means every market they trade. Matching is OR across comma-separated
+                    groups and AND within a group, against the market title:{" "}
+                    <code className="text-pixel-white">bitcoin, btc</code> is either spelling,{" "}
+                    <code className="text-pixel-white">price of bitcoin</code> is one phrase. It
+                    gates <span className="text-pixel-white">entries only</span> — an exit is
+                    never blocked, or changing the gate would strand an open position.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[12px] text-pixel-white tracking-wider">
+              READING A ROW
+            </div>
+            <table className="pixel-table wrap-prose">
+              <thead>
+                <tr>
+                  <th>WHAT</th>
+                  <th>MEANS</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="text-pixel-white font-mono">TEST</td>
+                  <td className="text-pixel-gray-light">
+                    Running, computing every mirror, placing none. This is the default and it is
+                    the answer to most &quot;why did nothing trade&quot; questions — check it
+                    first, before any other theory.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">LIVE</td>
+                  <td className="text-pixel-gray-light">Placing real orders with real money.</td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">PAUSED</td>
+                  <td className="text-pixel-gray-light">
+                    On the desk with its allocation and history intact, but not started and not
+                    backtested. Pausing is not removing.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">REALIZED</td>
+                  <td className="text-pixel-gray-light">
+                    Booked P&amp;L only — sells and redemptions. Open positions are deliberately
+                    excluded: a mark reads high, because leaders sell their winners and let losers
+                    expire quietly.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">verdict</td>
+                  <td className="text-pixel-gray-light">
+                    The walk-forward result on the backtest chip. The same trader replayed over
+                    the window BEFORE the card&apos;s, with no knowledge of what came after.{" "}
+                    <span className="text-pixel-white">held</span> is the only pass — profitable
+                    then, and profitable since. <span className="text-pixel-white">faded</span>{" "}
+                    made money once. A row ranked on its P&amp;L alone is ranked on one window.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">unsettled</td>
+                  <td className="text-pixel-gray-light">
+                    How much of that P&amp;L was still open at the window&apos;s end, valued at
+                    the last observed price rather than a real resolution. A large number makes
+                    the result a hypothesis.
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-pixel-white font-mono">funnel</td>
+                  <td className="text-pixel-gray-light">
+                    Entries observed → entries copied, with the gate that blocked each of the
+                    rest. &quot;Flat&quot; is usually &quot;blocked&quot;: a leader whose whole
+                    flow is gated cannot be copied whatever their own P&amp;L says.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className="space-y-3">
+            {COPY_ENDPOINTS.map((ep, i) => (
+              <div key={i} className="pixel-panel p-4 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <MethodBadge method={ep.method} />
+                  <code className="text-[11px] text-pixel-white font-mono break-all">{ep.path}</code>
+                </div>
+                <div className="text-[11px] text-pixel-gray-light leading-relaxed">
+                  {ep.description}
+                </div>
+                {ep.params && ep.params.length > 0 && (
+                  <table className="pixel-table wrap-prose">
+                    <thead>
+                      <tr><th>QUERY</th><th>TYPE</th><th>DESCRIPTION</th></tr>
+                    </thead>
+                    <tbody>
+                      {ep.params.map((p, j) => (
+                        <tr key={j}>
+                          <td className="text-pixel-white font-mono">{p.name}</td>
+                          <td className="text-pixel-gray">{p.type}</td>
+                          <td className="text-pixel-gray-light">{p.desc}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                {ep.body && ep.body.length > 0 && (
+                  <table className="pixel-table wrap-prose">
+                    <thead>
+                      <tr><th>BODY</th><th>TYPE</th><th>DESCRIPTION</th></tr>
+                    </thead>
+                    <tbody>
+                      {ep.body.map((b, j) => (
+                        <tr key={j}>
+                          <td className="text-pixel-white font-mono">{b.name}</td>
+                          <td className="text-pixel-gray">{b.type}</td>
+                          <td className="text-pixel-gray-light">{b.desc}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                {ep.example && (
+                  <code className="block text-[10px] text-pixel-gray-light font-mono bg-pixel-black/50 p-2 border border-pixel-border break-all">
+                    {ep.example}
+                  </code>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Agents / MCP ── */}
+        <div className="space-y-4">
+          <SectionTitle id="agents">AGENTS / MCP</SectionTitle>
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
+              <p>
+                The desk has an MCP server in front of it (<code className="text-pixel-white">src/mcp.py</code>,
+                stdio or HTTP on <code className="text-pixel-white">:50092/mcp</code>), and it is
+                not a mirror of the console — it calls the same{" "}
+                <code className="text-pixel-white">/copy/*</code> routes the screen does. Ask an
+                agent to &quot;put $50 on 0xab…&quot; and it appears here at the next poll; move a
+                number here and that is what the agent reads next.
+              </p>
+              <p>
+                <span className="text-pixel-white">There is no order-placing tool, and there
+                won&apos;t be.</span> The one thing that can spend money is{" "}
+                <code className="text-pixel-white">pm_copy_start</code> with{" "}
+                <code className="text-pixel-white">autoExecute: true</code>, and it is refused
+                unless the deployment sets{" "}
+                <code className="text-pixel-white">POLYMARKET_MCP_ALLOW_LIVE=1</code>. Without it
+                an agent can research, backtest, allocate and run in TEST — and a human flips
+                the TEST|LIVE switch in this console. Stopping is always allowed: it only reduces exposure.
+              </p>
+            </div>
+            <table className="pixel-table wrap-prose">
+              <thead>
+                <tr><th>TOOL</th><th>WRITES</th><th>WHAT IT DOES</th></tr>
+              </thead>
+              <tbody>
+                {MCP_TOOLS.map((t) => (
+                  <tr key={t.name}>
+                    <td className="text-pixel-white font-mono">{t.name}</td>
+                    <td className={t.writes ? "text-amber-400" : "text-pixel-gray"}>
+                      {t.writes ? "yes" : "read"}
+                    </td>
+                    <td className="text-pixel-gray-light">{t.desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed">
+              Alongside them: <code className="text-pixel-white">pm_top_traders</code> /{" "}
+              <code className="text-pixel-white">pm_trader</code> to find and vet a leader,{" "}
+              <code className="text-pixel-white">pm_live_sessions</code> /{" "}
+              <code className="text-pixel-white">pm_live_gates</code> for why a running session
+              isn&apos;t filling, and <code className="text-pixel-white">pm_markets</code>,{" "}
+              <code className="text-pixel-white">pm_health</code>,{" "}
+              <code className="text-pixel-white">pm_strats</code>,{" "}
+              <code className="text-pixel-white">pm_backtests</code>.
+            </div>
+          </div>
+        </div>
+
+        {/* ── The machinery under the desk ── */}
+        <div className="pixel-panel p-4 space-y-3">
+          <div className="text-[12px] text-pixel-white tracking-wider">
+            UNDER THE DESK — THE STRATEGY ENGINE
+          </div>
+          <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
+            <p>
+              A <span className="text-pixel-white">strategy is ONE class</span>:
               the engine constructs <code className="text-pixel-white">new Strat(params)</code> and drives it through five hooks.
               Every hook receives the full observed history of the data — trades across the watchlist, per-trader stats, open
               positions, balance — so a strategy can <span className="text-pixel-white">score</span> candidate trades or{" "}
@@ -588,8 +1133,9 @@ export default function DocsPage() {
               </tbody>
             </table>
             <div className="text-[10px] text-pixel-gray leading-relaxed">
-              Execution is DRY RUN until enabled — toggle live execution in the LIVE tab. Resolved positions can&apos;t be
-              sold (no order book): cash out via REDEEM.
+              A session runs in TEST until you flip the TEST|LIVE switch (desk row, or the TRADE
+              tab&apos;s engine header). Resolved positions can&apos;t be sold (no order book): cash
+              out via REDEEM.
             </div>
           </div>
         </div>

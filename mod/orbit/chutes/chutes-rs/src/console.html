@@ -3,129 +3,824 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>chutes — rust mcp backend</title>
+<title>CHUTES ARCADE — chutes.ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
 <style>
+/* ─────────────────────────────────────────────────────────────────────────
+   CHUTES ARCADE — one 8-bit cabinet over chutes.ai serverless GPU.
+   No build step, no framework: the whole console is this file, embedded in
+   the Rust binary with include_str!.
+   ───────────────────────────────────────────────────────────────────────── */
 :root{
-  --bg:#07090f; --panel:rgba(255,255,255,.035); --line:rgba(255,255,255,.08);
-  --text:#dbe4f0; --dim:#7d8ba1; --acc:#7c6cff; --acc2:#3ddc97; --err:#ff6b81;
-  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --bg:#0a0616; --deep:#05030d; --panel:#150c28; --panel2:#1d1138;
+  --edge:#3a2168; --ink:#efe9ff; --dim:#8a7ab8; --shadow:#000;
+  --p1:#3ddc97; --p2:#61d4ff; --p3:#ff5c7a;
+  --gold:#ffcf3d; --bad:#ff4d6d; --acc:var(--p1);
+  --px:'Press Start 2P',ui-monospace,'Courier New',monospace;
+  --term:'VT323',ui-monospace,'Courier New',monospace;
 }
-*{box-sizing:border-box;margin:0}
-body{background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,'Inter',system-ui,sans-serif;min-height:100vh}
-body::before{content:'';position:fixed;inset:0;pointer-events:none;
-  background:radial-gradient(700px 400px at 15% -5%,rgba(124,108,255,.14),transparent 60%),
-             radial-gradient(600px 380px at 95% 0%,rgba(61,220,151,.08),transparent 55%)}
-.wrap{max-width:980px;margin:0 auto;padding:36px 20px 60px;position:relative}
-header{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
-h1{font-size:22px;letter-spacing:.5px}
-h1 b{color:var(--acc)}
-.tag{font:11px var(--mono);color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:2px 10px}
-.sub{color:var(--dim);margin-bottom:24px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media(max-width:760px){.grid{grid-template-columns:1fr}}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;backdrop-filter:blur(8px)}
-.card h2{font-size:12px;text-transform:uppercase;letter-spacing:1.4px;color:var(--dim);margin-bottom:12px}
-.full{grid-column:1/-1}
-.kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.05);font-family:var(--mono);font-size:12px}
-.kv:last-child{border-bottom:0}
-.kv .k{color:var(--dim)}
-.tool{padding:8px 0;border-bottom:1px dashed rgba(255,255,255,.05)}
-.tool:last-child{border-bottom:0}
-.tool .n{font-family:var(--mono);font-size:12.5px;color:var(--acc2)}
-.tool .d{color:var(--dim);font-size:12px}
-textarea,input{width:100%;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:9px;color:var(--text);padding:9px 11px;font:12.5px var(--mono);outline:none}
-textarea:focus,input:focus{border-color:var(--acc)}
-textarea{resize:vertical;min-height:64px}
-.row{display:flex;gap:8px;margin-top:8px}
-button{background:linear-gradient(135deg,var(--acc),#5a4bd8);border:0;border-radius:9px;color:#fff;padding:9px 18px;font-weight:600;cursor:pointer;font-size:13px}
-button:hover{filter:brightness(1.12)}
-button:disabled{opacity:.5;cursor:wait}
-pre{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:9px;padding:11px;font:12px var(--mono);white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto;margin-top:10px}
-.ok{color:var(--acc2)} .bad{color:var(--err)}
-.hint{font-size:11.5px;color:var(--dim);margin-top:8px;font-family:var(--mono)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--px);
+  font-size:10px; line-height:1.9; letter-spacing:.5px;
+  image-rendering:pixelated; overflow-x:hidden;
+  background-image:
+    linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);
+  background-size:32px 32px;
+}
+/* CRT: scanlines + vignette + a slow flicker. Purely decorative. */
+body::after{
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:9999;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.28) 0 1px,transparent 1px 3px);
+  mix-blend-mode:multiply; animation:flick 5s steps(30) infinite;
+}
+body::before{
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:9998;
+  background:radial-gradient(120% 90% at 50% 50%,transparent 45%,rgba(0,0,0,.55) 100%);
+}
+@keyframes flick{0%,97%{opacity:.85}98%{opacity:.6}99%{opacity:.95}100%{opacity:.85}}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes rise{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:1}}
+@keyframes marquee{from{background-position:0 0}to{background-position:64px 0}}
+@keyframes shake{0%,100%{transform:none}25%{transform:translate(-2px,1px)}75%{transform:translate(2px,-1px)}}
+
+a{color:var(--p2);text-decoration:none;border-bottom:2px solid rgba(97,212,255,.35)}
+a:hover{color:var(--gold);border-color:var(--gold)}
+::selection{background:var(--gold);color:#000}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:var(--deep)}
+::-webkit-scrollbar-thumb{background:var(--edge);border:2px solid var(--deep)}
+
+.wrap{max-width:1180px;margin:0 auto;padding:18px 14px 70px}
+
+/* ── chunky pixel frame ── */
+.frame{
+  background:var(--panel); border:4px solid var(--edge);
+  box-shadow:0 0 0 4px #000, 8px 8px 0 0 rgba(0,0,0,.55);
+  padding:14px; position:relative;
+}
+.frame.acc{border-color:var(--acc);box-shadow:0 0 0 4px #000, 8px 8px 0 0 rgba(0,0,0,.55), 0 0 22px -4px var(--acc)}
+.frame h3{
+  font-size:9px;color:var(--dim);letter-spacing:2px;margin-bottom:10px;
+  display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;
+}
+
+/* ── marquee header ── */
+header{margin-bottom:14px}
+.cab{
+  border:4px solid var(--edge); box-shadow:0 0 0 4px #000, 8px 8px 0 rgba(0,0,0,.55);
+  background:linear-gradient(180deg,#20123c,#0e0722); padding:14px 16px;
+}
+h1{
+  font-size:20px;line-height:1.5;letter-spacing:2px;
+  color:var(--gold);
+  text-shadow:0 3px 0 #b6791a, 0 6px 0 #000, 4px 6px 0 rgba(0,0,0,.5);
+}
+.logo{vertical-align:-4px;image-rendering:pixelated}
+h1 .sm{font-size:10px;color:var(--p1);text-shadow:0 3px 0 #000;display:block;margin-top:8px;letter-spacing:1px}
+.hudrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
+.hud{border:3px solid var(--edge);background:var(--deep);padding:5px 8px;font-size:8px;color:var(--dim)}
+.hud b{color:var(--ink)}
+.hud.gold b{color:var(--gold)}
+.coin{color:var(--gold);animation:blink 1.1s steps(1) infinite}
+
+/* ── cabinet status card ── */
+.cabinet{
+  background:var(--panel);border:4px solid var(--acc);padding:10px 12px;margin:14px 0;
+  box-shadow:0 0 0 4px #000, 6px 6px 0 rgba(0,0,0,.5), 0 0 26px -6px var(--acc);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 18px;
+}
+.cabinet .cell .tagn{font-size:8px;color:var(--dim);letter-spacing:2px}
+.cabinet .cell .val{font-size:10px;color:var(--acc);margin-top:6px;word-break:break-all;line-height:1.8}
+.cabinet .cell .val.ink{color:var(--ink)}
+.led{display:inline-block;width:8px;height:8px;background:var(--bad);box-shadow:0 0 8px var(--bad);vertical-align:middle;margin-right:5px}
+.led.on{background:var(--p1);box-shadow:0 0 8px var(--p1)}
+
+/* ── tabs ── */
+nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+nav button{
+  font:inherit;font-size:9px;color:var(--dim);background:var(--panel);border:4px solid var(--edge);
+  padding:8px 12px;cursor:pointer;box-shadow:0 0 0 3px #000,4px 4px 0 rgba(0,0,0,.5);letter-spacing:1px;
+}
+nav button:hover{color:var(--ink)}
+nav button.on{color:#000;background:var(--acc);border-color:var(--acc);text-shadow:none}
+nav button .k{opacity:.6;font-size:7px}
+
+/* ── controls ── */
+button.btn{
+  font:inherit;font-size:9px;letter-spacing:1px;cursor:pointer;color:#000;background:var(--acc);
+  border:4px solid #000;padding:9px 14px;box-shadow:4px 4px 0 rgba(0,0,0,.6);
+}
+button.btn:active{transform:translate(4px,4px);box-shadow:none}
+button.btn:disabled{background:var(--edge);color:var(--dim);cursor:not-allowed;box-shadow:4px 4px 0 rgba(0,0,0,.6)}
+button.btn.ghost{background:var(--panel2);color:var(--ink);border-color:var(--edge)}
+button.btn.gold{background:var(--gold)}
+button.btn.sm{font-size:8px;padding:6px 9px;border-width:3px;box-shadow:3px 3px 0 rgba(0,0,0,.6)}
+input,textarea,select{
+  font-family:var(--px);font-size:9px;color:var(--ink);background:var(--deep);
+  border:3px solid var(--edge);padding:9px 10px;width:100%;outline:none;letter-spacing:.5px;
+}
+input:focus,textarea:focus,select:focus{border-color:var(--acc);box-shadow:0 0 14px -4px var(--acc)}
+textarea{resize:vertical;min-height:70px;line-height:1.8;font-family:var(--term);font-size:17px}
+select{appearance:none;cursor:pointer}
+label.lbl{display:block;font-size:8px;color:var(--dim);letter-spacing:1.5px;margin:10px 0 5px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>*{flex:0 0 auto}
+.grow{flex:1 1 220px;min-width:0}
+input[type=range]{-webkit-appearance:none;appearance:none;background:var(--deep);height:16px;padding:0;border:3px solid var(--edge)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:10px;background:var(--acc);border:0;cursor:pointer}
+input[type=range]::-moz-range-thumb{width:14px;height:10px;background:var(--acc);border:0;border-radius:0;cursor:pointer}
+
+/* ── chat ── */
+.screen{
+  background:var(--deep);border:4px solid var(--edge);padding:14px;min-height:300px;max-height:52vh;
+  overflow-y:auto;font-family:var(--term);font-size:18px;line-height:1.5;letter-spacing:.4px;
+}
+.msg{margin-bottom:14px;animation:rise .12s steps(3)}
+.msg .who{font-family:var(--px);font-size:8px;letter-spacing:1.5px;margin-bottom:5px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.msg .who .stat{color:var(--dim)}
+.msg.you .who{color:var(--gold)}
+.msg.them .who{color:var(--acc)}
+.msg .body{white-space:pre-wrap;word-break:break-word;color:var(--ink)}
+.msg.you .body{color:#cfc3ff}
+.msg.err .body{color:var(--bad)}
+.caret{display:inline-block;width:9px;height:15px;background:var(--acc);vertical-align:-2px;animation:blink .8s steps(1) infinite}
+.empty{color:var(--dim);font-family:var(--px);font-size:9px;text-align:center;padding:52px 10px;line-height:2.6}
+.empty b{color:var(--gold);animation:blink 1.1s steps(1) infinite}
+
+/* ── tables ── */
+table{width:100%;border-collapse:collapse;font-size:8px}
+th{color:var(--dim);text-align:left;padding:7px 6px;border-bottom:3px solid var(--edge);letter-spacing:1px;
+   cursor:pointer;white-space:nowrap}
+th:hover{color:var(--gold)}
+td{padding:7px 6px;border-bottom:2px solid rgba(58,33,104,.45);vertical-align:middle}
+tr:hover td{background:rgba(255,255,255,.035)}
+.pill{display:inline-block;font-size:7px;padding:3px 6px;border:2px solid currentColor;letter-spacing:1px;margin-right:3px}
+.mono{font-family:var(--term);font-size:15px;letter-spacing:0}
+.bar{height:8px;background:var(--deep);border:2px solid var(--edge);min-width:56px;position:relative}
+.bar i{display:block;height:100%;background:var(--acc)}
+.tblwrap{max-height:56vh;overflow:auto;border:3px solid var(--edge);background:var(--deep)}
+
+/* ── VS mode ── */
+.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-top:12px}
+.lane{background:var(--deep);border:4px solid var(--edge);padding:10px;position:relative;min-height:150px}
+.lane.win{border-color:var(--gold);box-shadow:0 0 26px -6px var(--gold);animation:rise .2s steps(3)}
+.lane.ko{border-color:var(--bad);animation:shake .18s steps(2) 2}
+.lane .top{display:flex;justify-content:space-between;gap:6px;font-size:8px;margin-bottom:8px;flex-wrap:wrap}
+.lane .out{font-family:var(--term);font-size:16px;line-height:1.45;white-space:pre-wrap;word-break:break-word;max-height:230px;overflow:auto}
+.ribbon{position:absolute;right:-4px;top:-4px;background:var(--gold);color:#000;font-size:7px;padding:4px 7px;letter-spacing:1px}
+.timer{font-family:var(--term);font-size:20px;color:var(--gold)}
+
+/* ── misc ── */
+.imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:12px}
+.imgs figure{border:4px solid var(--edge);background:var(--deep);padding:6px}
+.imgs img{width:100%;display:block;image-rendering:auto}
+pre.out{
+  background:var(--deep);border:3px solid var(--edge);padding:11px;font-family:var(--term);font-size:15px;
+  white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto;color:#bfe9d5;
+}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:840px){.cols{grid-template-columns:1fr}}
+.dim{color:var(--dim)}
+.gold{color:var(--gold)}
+.ok{color:var(--p1)}
+.bad{color:var(--bad)}
+.hide{display:none !important}
+.toast{
+  position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:10000;
+  background:var(--gold);color:#000;border:4px solid #000;padding:10px 16px;font-size:9px;
+  box-shadow:6px 6px 0 rgba(0,0,0,.6);animation:rise .1s steps(3)
+}
+footer{margin-top:20px;font-size:8px;color:var(--dim);line-height:2.4;text-align:center}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header><h1>⛰ chutes <b>· rust mcp</b></h1><span class="tag" id="ver">…</span></header>
-  <p class="sub">Serverless GPU inference (chutes.ai) behind a Rust MCP server — every call below is a JSON-RPC <span style="font-family:var(--mono)">tools/call</span> to <span style="font-family:var(--mono)">/mcp</span>.</p>
 
-  <div class="grid">
-    <div class="card">
-      <h2>Server</h2>
-      <div id="infobox"><div class="kv"><span class="k">status</span><span>loading…</span></div></div>
-    </div>
-
-    <div class="card">
-      <h2>MCP tools</h2>
-      <div id="toolbox">loading…</div>
-    </div>
-
-    <div class="card full">
-      <h2>Chat · tools/call → chat</h2>
-      <input id="key" type="password" placeholder="x-api-key (chutes.ai API key — kept in this tab only)">
-      <div class="row">
-        <input id="model" placeholder="model (blank = server default)">
+  <header>
+    <div class="cab">
+      <h1><svg class="logo" viewBox="0 0 16 16" width="26" height="26" aria-hidden="true"><rect x="7" y="2" width="2" height="2" fill="#3ddc97"/><rect x="6" y="4" width="4" height="2" fill="#3ddc97"/><rect x="5" y="6" width="6" height="2" fill="#61d4ff"/><rect x="4" y="8" width="8" height="2" fill="#61d4ff"/><rect x="3" y="10" width="10" height="2" fill="#ff5c7a"/><rect x="2" y="12" width="12" height="2" fill="#ff5c7a"/></svg> CHUTES ARCADE
+        <span class="sm">SERVERLESS GPU · ONE CABINET · api.chutes.ai</span>
+      </h1>
+      <div class="hudrow">
+        <div class="hud">VER <b id="hVer">…</b></div>
+        <div class="hud">MCP <b id="hMcp">…</b></div>
+        <div class="hud gold">CALLS <b id="hCalls">0</b></div>
+        <div class="hud gold">TOKENS <b id="hTok">0</b></div>
+        <div class="hud gold">SPENT <b id="hCost">$0.0000</b></div>
+        <div class="hud">PING <b id="hPing">--</b></div>
+        <button class="btn sm ghost" id="sfxBtn" title="blips">SFX ON</button>
+        <span class="coin" style="font-size:8px">* INSERT COIN</span>
       </div>
-      <div class="row"><textarea id="msg" placeholder="Say something…">Say "ok" and nothing else.</textarea></div>
-      <div class="row"><button id="send">tools/call</button><button id="ping" style="background:rgba(255,255,255,.08)">ping /mcp</button></div>
-      <pre id="out">—</pre>
-      <div class="hint">stdio: <span class="ok">chutes-api --stdio</span> · claude mcp add chutes -- &lt;path&gt;/chutes-api --stdio</div>
     </div>
+  </header>
+
+  <div class="cabinet" id="cabinet">
+    <div class="cell"><div class="tagn">KEY</div><div class="val ink" id="cKey">…</div></div>
+    <div class="cell"><div class="tagn">DEFAULT CHUTE</div><div class="val" id="cModel">…</div></div>
+    <div class="cell"><div class="tagn">CATALOG</div><div class="val ink" id="cModels">…</div></div>
+    <div class="cell"><div class="tagn">UPSTREAM</div><div class="val ink" id="cBase">…</div></div>
   </div>
+
+  <nav id="tabs"></nav>
+
+  <!-- ══ CHAT ══ -->
+  <section data-tab="CHAT">
+    <div class="frame acc">
+      <h3><span>▶ CHAT — <span id="chatWho">…</span></span>
+        <span class="row">
+          <button class="btn sm ghost" id="pickModel">MODEL ></button>
+          <button class="btn sm ghost" id="clearChat">CLEAR</button>
+        </span>
+      </h3>
+      <div class="screen" id="log"></div>
+      <label class="lbl">MESSAGE <span class="dim">— ENTER sends · SHIFT+ENTER newline</span></label>
+      <textarea id="msg" placeholder="say something to the machine…"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="send">▶ SEND</button>
+        <button class="btn ghost sm" id="stop" disabled>■ STOP</button>
+        <span class="dim" style="font-size:8px">CHUTE</span>
+        <input class="grow" id="model" placeholder="(default chute)">
+        <span class="dim" style="font-size:8px">TEMP <b id="tempV" class="gold">0.7</b></span>
+        <input type="range" id="temp" min="0" max="2" step="0.1" value="0.7" style="width:120px">
+        <label style="font-size:8px;color:var(--dim);display:flex;gap:6px;align-items:center">
+          <input type="checkbox" id="stream" checked style="width:auto"> STREAM
+        </label>
+      </div>
+      <label class="lbl">SYSTEM PROMPT</label>
+      <input id="system" placeholder="(none)">
+    </div>
+  </section>
+
+  <!-- ══ MODELS ══ -->
+  <section data-tab="MODELS" class="hide">
+    <div class="frame">
+      <h3><span>▶ CHUTE SELECT</span><span id="mCount" class="dim">…</span></h3>
+      <div class="row">
+        <select id="mKind" style="width:auto">
+          <option value="chat">CHAT</option><option value="image">IMAGE</option>
+          <option value="embedding">EMBED</option><option value="any">ALL KINDS</option>
+        </select>
+        <input class="grow" id="mSearch" placeholder="search chutes…">
+        <button class="btn sm" id="mGo">SEARCH</button>
+        <button class="btn sm ghost" id="mRefresh">[R] REFRESH</button>
+      </div>
+      <div class="tblwrap" style="margin-top:12px">
+        <table id="mTable"><thead><tr>
+          <th data-sort="name">CHUTE</th><th data-sort="in_price">IN $/M</th>
+          <th data-sort="out_price">OUT $/M</th><th data-sort="invocations">CALLS</th><th>KIND</th><th>TAGS</th><th></th>
+        </tr></thead><tbody><tr><td colspan="7" class="dim">loading…</td></tr></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ VS ══ -->
+  <section data-tab="VS" class="hide">
+    <div class="frame">
+      <h3><span>▶ VS MODE — same prompt, several chutes, one winner</span><span id="vsWin" class="gold"></span></h3>
+      <div id="vsTargets"></div>
+      <label class="lbl">PROMPT</label>
+      <textarea id="vsMsg" placeholder="one prompt, many fighters…">In one sentence: what is a serverless GPU?</textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="btn gold" id="vsGo">>> FIGHT!</button>
+        <button class="btn sm ghost" id="vsAdd">+ LANE</button>
+        <span class="dim" style="font-size:8px">MAX TOKENS</span>
+        <input id="vsMax" value="300" style="width:90px">
+      </div>
+      <div class="lanes" id="lanes"></div>
+    </div>
+  </section>
+
+  <!-- ══ IMAGE ══ -->
+  <section data-tab="IMAGE" class="hide">
+    <div class="frame">
+      <h3><span>▶ PIXEL FORGE — text → image</span><span class="dim">diffusion chutes</span></h3>
+      <div class="row">
+        <input class="grow" id="iModel" placeholder="diffusion chute name (see MODELS > IMAGE)">
+        <select id="iSize" style="width:auto">
+          <option>1024x1024</option><option>1024x1536</option><option>1536x1024</option><option>512x512</option>
+        </select>
+      </div>
+      <label class="lbl">PROMPT</label>
+      <textarea id="iPrompt" placeholder="a neon mountain range, 8-bit pixel art, CRT glow"></textarea>
+      <div class="row" style="margin-top:10px"><button class="btn" id="iGo">>> GENERATE</button><span id="iStat" class="dim" style="font-size:8px"></span></div>
+      <div class="imgs" id="iOut"></div>
+    </div>
+  </section>
+
+  <!-- ══ KEYS ══ -->
+  <section data-tab="KEYS" class="hide">
+    <div class="frame">
+      <h3><span>▶ KEY VAULT</span><span class="dim">browser-only · sent per request · never written to disk</span></h3>
+      <div id="keyCard"></div>
+      <p class="dim" style="font-size:8px;margin-top:14px;line-height:2.2">
+        A key typed here lives in this browser's localStorage and rides along as an
+        <span class="gold">x-chutes-key</span> header. For a server-side key the whole box shares, drop it in
+        <span class="gold">~/.mod/chutes/api_key</span> or export <span class="gold">CHUTES_API_KEY</span> — the backend resolves
+        explicit → env → <span class="gold">api_key</span> → <span class="gold">key.json</span> →
+        <span class="gold">~/.mod/model/chutes/apikeys.json</span>, and reports which without ever echoing the key.
+        <span class="gold">~/.mod/chutes/defaults.json</span> can name the default chute, and list stand-ins to
+        fall through to when it can't answer.
+      </p>
+    </div>
+  </section>
+
+  <!-- ══ MCP ══ -->
+  <section data-tab="MCP" class="hide">
+    <div class="frame">
+      <h3><span>▶ MCP CONSOLE — the backend IS the MCP server</span><span class="dim" id="toolCount"></span></h3>
+      <div class="cols">
+        <div>
+          <label class="lbl">TOOL</label>
+          <select id="tName"></select>
+          <label class="lbl">ARGUMENTS (JSON)</label>
+          <textarea id="tArgs" style="font-size:15px;min-height:150px">{}</textarea>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" id="tGo">▶ tools/call</button>
+            <button class="btn ghost sm" id="tPing">ping</button>
+            <button class="btn ghost sm" id="tList">tools/list</button>
+          </div>
+          <div id="tDesc" class="dim" style="font-size:8px;margin-top:10px;line-height:2"></div>
+        </div>
+        <div>
+          <label class="lbl">RESULT</label>
+          <pre class="out" id="tOut">—</pre>
+          <label class="lbl">CONNECT</label>
+          <pre class="out" id="connect"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <svg class="logo" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="7" y="2" width="2" height="2" fill="#3ddc97"/><rect x="6" y="4" width="4" height="2" fill="#3ddc97"/><rect x="5" y="6" width="6" height="2" fill="#61d4ff"/><rect x="4" y="8" width="8" height="2" fill="#61d4ff"/><rect x="3" y="10" width="10" height="2" fill="#ff5c7a"/><rect x="2" y="12" width="12" height="2" fill="#ff5c7a"/></svg> mod/chutes · rust axum + MCP 2025-06-18 · api.chutes.ai<br>
+    key: explicit → env → ~/.mod/chutes/api_key → ~/.mod/model/chutes/apikeys.json · 1-6 switches tabs
+  </footer>
 </div>
+
 <script>
-const base = location.pathname.replace(/\/$/,'');
-let rpcId = 0;
-async function rpc(method, params, key){
-  const headers = {'content-type':'application/json'};
-  if(key) headers['x-api-key'] = key;
-  const r = await fetch(base + '/mcp', {method:'POST', headers,
-    body: JSON.stringify({jsonrpc:'2.0', id: ++rpcId, method, params: params||{}})});
-  return r.json();
+/* ═══════════════════════════════════════════════════════════════════════════
+   State — one localStorage key (this origin is shared with every other mod,
+   so we keep the footprint to a single small blob).
+   ═══════════════════════════════════════════════════════════════════════════ */
+const BASE = location.pathname.replace(/\/+$/,'');
+const LS = 'chutes.arcade.v2';
+const TABS = ['CHAT','MODELS','VS','IMAGE','KEYS','MCP'];
+const S = {
+  tab:'CHAT', model:'', system:'', temp:0.7, stream:true,
+  key:'', sfx:true, hud:{calls:0, tokens:0, cost:0}, history:[],
+};
+try{ Object.assign(S, JSON.parse(localStorage.getItem(LS)||'{}')); }catch(e){}
+// v1 blob (multi-provider cabinet): carry the chutes key over, drop the rest.
+try{
+  const v1 = JSON.parse(localStorage.getItem('chutes.arcade.v1')||'null');
+  if(v1){ if(!S.key && v1.keys && v1.keys.chutes) S.key = v1.keys.chutes; localStorage.removeItem('chutes.arcade.v1'); }
+}catch(e){}
+const save = () => { try{ localStorage.setItem(LS, JSON.stringify({
+  tab:S.tab, model:S.model, system:S.system, temp:S.temp,
+  stream:S.stream, key:S.key, sfx:S.sfx, hud:S.hud,
+})); }catch(e){} };
+
+let STATUS = {};      // from /status
+let CATALOG = null;   // normalized rows
+let TOOLS = [];
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const defaultModel = () => STATUS.default_model || '';
+
+/* ── blips: square-wave arcade SFX, no assets ── */
+let AC;
+function beep(freq=440, ms=60, type='square', vol=.045){
+  if(!S.sfx) return;
+  try{
+    AC = AC || new (window.AudioContext||window.webkitAudioContext)();
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.value = vol; o.connect(g); g.connect(AC.destination);
+    o.start(); o.stop(AC.currentTime + ms/1000);
+  }catch(e){}
 }
-function kv(k,v,cls){return `<div class="kv"><span class="k">${k}</span><span class="${cls||''}">${v}</span></div>`}
-
-(async()=>{
-  try{
-    const info = await fetch(base + '/info').then(r=>r.json());
-    document.getElementById('ver').textContent = 'v' + info.version;
-    document.getElementById('infobox').innerHTML =
-      kv('status', info.status, 'ok') + kv('backend', info.backend) +
-      kv('protocol', info.protocol) + kv('upstream', info.upstream) +
-      kv('mcp', 'POST ' + base + '/mcp');
-  }catch(e){ document.getElementById('infobox').innerHTML = kv('status','unreachable','bad'); }
-  try{
-    const t = await rpc('tools/list');
-    document.getElementById('toolbox').innerHTML = (t.result.tools||[]).map(x=>
-      `<div class="tool"><div class="n">${x.name}</div><div class="d">${x.description}</div></div>`).join('');
-  }catch(e){ document.getElementById('toolbox').textContent = 'tools/list failed'; }
-})();
-
-document.getElementById('ping').onclick = async ()=>{
-  const out = document.getElementById('out');
-  out.textContent = 'ping…';
-  try{ out.textContent = JSON.stringify(await rpc('ping'), null, 2); }
-  catch(e){ out.textContent = String(e); }
+const sfx = {
+  move:()=>beep(660,40), pick:()=>beep(880,70), send:()=>{beep(520,50);setTimeout(()=>beep(780,60),55)},
+  done:()=>{beep(700,50);setTimeout(()=>beep(1040,90),60)}, err:()=>{beep(150,180,'sawtooth',.05)},
+  win:()=>{[660,880,1180].forEach((f,i)=>setTimeout(()=>beep(f,110),i*90))},
 };
-document.getElementById('send').onclick = async ()=>{
-  const btn = document.getElementById('send'), out = document.getElementById('out');
-  btn.disabled = true; out.textContent = 'calling…';
+
+function toast(text, bad){
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = text;
+  if(bad){ t.style.background = 'var(--bad)'; t.style.color = '#fff'; }
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 2200);
+}
+
+/* ── transport ── */
+function headers(extra){
+  const h = Object.assign({'content-type':'application/json'}, extra||{});
+  if(S.key) h['x-chutes-key'] = S.key;
+  return h;
+}
+async function api(path, opts){
+  const r = await fetch(BASE + path, Object.assign({headers:headers()}, opts||{}));
+  const text = await r.text();
+  let data; try{ data = JSON.parse(text); }catch(e){ data = {error:text.slice(0,400)}; }
+  if(!r.ok && !data.error) data.error = 'HTTP ' + r.status;
+  return data;
+}
+let rpcId = 0;
+const rpc = (method, params) => api('/mcp', {method:'POST', body:JSON.stringify({jsonrpc:'2.0', id:++rpcId, method, params:params||{}})});
+
+/* ── HUD ── */
+function hud(){
+  $('#hCalls').textContent = S.hud.calls;
+  $('#hTok').textContent = S.hud.tokens > 9999 ? (S.hud.tokens/1000).toFixed(1)+'k' : S.hud.tokens;
+  $('#hCost').textContent = '$' + (S.hud.cost||0).toFixed(4);
+}
+function score(usage, cost){
+  S.hud.calls++;
+  if(usage && usage.total_tokens) S.hud.tokens += usage.total_tokens;
+  if(cost) S.hud.cost += cost;
+  hud(); save();
+}
+
+/* ═══════════════════════════ cabinet status ═══════════════════════════ */
+function renderCabinet(){
+  const hasKey = !!(STATUS.key || S.key);
+  $('#cKey').innerHTML = `<span class="led ${hasKey?'on':''}"></span>` +
+    (STATUS.key ? 'SERVER · ' + esc(String(STATUS.key_source||'').toUpperCase()) : (S.key ? 'BROWSER' : 'NO KEY — see KEYS'));
+  const stand = (STATUS.default_models||[]).length > 1 ? ` <span class="dim">+${STATUS.default_models.length-1} stand-in</span>` : '';
+  $('#cModel').innerHTML = esc(defaultModel() || '?') + stand;
+  $('#cModels').textContent = STATUS.models != null ? STATUS.models + ' CHUTES' : '?';
+  $('#cBase').textContent = STATUS.base_url || '—';
+  $('#chatWho').textContent = S.model || defaultModel() || 'default chute';
+}
+
+/* ═══════════════════════════ tabs ═══════════════════════════ */
+function renderTabs(){
+  $('#tabs').innerHTML = TABS.map((t,i)=>`<button data-t="${t}" class="${t===S.tab?'on':''}">${t} <span class="k">${i+1}</span></button>`).join('');
+  $$('#tabs button').forEach(b => b.onclick = () => go(b.dataset.t));
+  $$('section[data-tab]').forEach(s => s.classList.toggle('hide', s.dataset.tab !== S.tab));
+}
+function go(tab){
+  S.tab = tab; sfx.move(); renderTabs(); save();
+  if(tab === 'MODELS' && !CATALOG) loadModels();
+  if(tab === 'KEYS') renderKeys();
+}
+document.addEventListener('keydown', e => {
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
+  const i = parseInt(e.key,10);
+  if(i >= 1 && i <= TABS.length) go(TABS[i-1]);
+});
+
+/* ═══════════════════════════ CHAT ═══════════════════════════ */
+function addMsg(kind, body, stats){
+  const el = document.createElement('div');
+  el.className = 'msg ' + kind;
+  el.innerHTML = `<div class="who">
+      <span>${kind==='you'?'> YOU':'< CHUTES'}</span>
+      <span class="stat">${stats||''}</span></div><div class="body"></div>`;
+  el.querySelector('.body').textContent = body || '';
+  const log = $('#log');
+  if(log.querySelector('.empty')) log.innerHTML = '';
+  log.appendChild(el); log.scrollTop = log.scrollHeight;
+  return el;
+}
+function emptyLog(){
+  $('#log').innerHTML = `<div class="empty"><svg class="logo" viewBox="0 0 16 16" width="40" height="40" aria-hidden="true"><rect x="7" y="2" width="2" height="2" fill="#3ddc97"/><rect x="6" y="4" width="4" height="2" fill="#3ddc97"/><rect x="5" y="6" width="6" height="2" fill="#61d4ff"/><rect x="4" y="8" width="8" height="2" fill="#61d4ff"/><rect x="3" y="10" width="10" height="2" fill="#ff5c7a"/><rect x="2" y="12" width="12" height="2" fill="#ff5c7a"/></svg><br>PRESS <b>SEND</b> TO START<br><span style="font-size:8px">${esc(S.model||defaultModel()||'default chute')}</span></div>`;
+}
+let ABORT = null;
+async function send(){
+  const text = $('#msg').value.trim();
+  if(!text) return;
+  addMsg('you',text);
+  $('#msg').value = '';
+  sfx.send();
+  $('#send').disabled = true; $('#stop').disabled = false;
+  const el = addMsg('them', '', 'thinking…');
+  const bodyEl = el.querySelector('.body'), statEl = el.querySelector('.stat');
+  const caret = document.createElement('span'); caret.className = 'caret';
+  bodyEl.appendChild(caret);
+  const t0 = performance.now();
+  S.history.push({role:'user', content:text});
+  const payload = {
+    messages: S.history.slice(-12),
+    model: S.model || undefined, system: S.system || undefined,
+    temperature: S.temp, max_tokens: 2048, stream: S.stream,
+  };
   try{
-    const args = { message: document.getElementById('msg').value };
-    const model = document.getElementById('model').value.trim();
-    if(model) args.model = model;
-    const resp = await rpc('tools/call', {name:'chat', arguments:args}, document.getElementById('key').value.trim());
-    const res = resp.result || resp;
-    if(res.isError){ out.innerHTML = `<span class="bad">${(res.content?.[0]?.text)||'error'}</span>`; }
-    else {
-      const sc = res.structuredContent;
-      const text = sc?.choices?.[0]?.message?.content;
-      out.textContent = text ? text : JSON.stringify(res, null, 2);
+    if(S.stream){
+      ABORT = new AbortController();
+      const r = await fetch(BASE + '/chat', {method:'POST', headers:headers(), body:JSON.stringify(payload), signal:ABORT.signal});
+      if(!r.ok || !r.body){
+        const t = await r.text();
+        throw new Error(t.slice(0,300));
+      }
+      const answered = r.headers.get('x-model') || S.model || defaultModel();
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let buf = '', out = '';
+      while(true){
+        const {done, value} = await reader.read();
+        if(done) break;
+        buf += dec.decode(value, {stream:true});
+        const lines = buf.split('\n'); buf = lines.pop();
+        for(const line of lines){
+          const s = line.trim();
+          if(!s.startsWith('data:')) continue;
+          const d = s.slice(5).trim();
+          if(d === '[DONE]') continue;
+          let j; try{ j = JSON.parse(d); }catch(e){ continue; }
+          const delta = j.choices?.[0]?.delta?.content || '';
+          if(delta){ out += delta; caret.remove(); bodyEl.textContent = out; bodyEl.appendChild(caret); $('#log').scrollTop = 1e9; }
+          if(j.usage) el._usage = j.usage;
+        }
+      }
+      caret.remove();
+      const ms = Math.round(performance.now()-t0);
+      statEl.textContent = `${ms}ms · ${esc(answered)}`;
+      S.history.push({role:'assistant', content:out});
+      score(el._usage, 0);
+      sfx.done();
+    } else {
+      const d = await api('/chat', {method:'POST', body:JSON.stringify(payload)});
+      caret.remove();
+      if(d.error) throw new Error(d.error);
+      const out = d.choices?.[0]?.message?.content ?? JSON.stringify(d, null, 1);
+      bodyEl.textContent = out;
+      const bits = [ (d._latency_ms||Math.round(performance.now()-t0)) + 'ms', esc(d._model||S.model||'') ];
+      if(d.usage?.total_tokens) bits.push(d.usage.total_tokens + ' tok');
+      if(d._cost_usd) bits.push('$' + d._cost_usd.toFixed(5));
+      statEl.textContent = bits.join(' · ');
+      S.history.push({role:'assistant', content:out});
+      score(d.usage, d._cost_usd);
+      sfx.done();
     }
-  }catch(e){ out.textContent = String(e); }
-  btn.disabled = false;
+  }catch(e){
+    caret.remove();
+    el.classList.add('err');
+    bodyEl.textContent = (e.name === 'AbortError') ? '— stopped —' : ('X ' + e.message);
+    statEl.textContent = 'FAILED';
+    if(e.name !== 'AbortError') sfx.err();
+  }
+  ABORT = null;
+  $('#send').disabled = false; $('#stop').disabled = true;
+  save();
+}
+
+/* ═══════════════════════════ MODELS ═══════════════════════════ */
+let mSort = {key:'in_price', dir:1};
+async function loadModels(refresh){
+  const tb = $('#mTable tbody');
+  tb.innerHTML = `<tr><td colspan="7" class="dim">SCANNING CHUTES…</td></tr>`;
+  const q = new URLSearchParams({kind:$('#mKind').value, limit:'400'});
+  if($('#mSearch').value.trim()) q.set('q', $('#mSearch').value.trim());
+  if(refresh) q.set('refresh','1');
+  const d = await api('/models?' + q);
+  if(d.error){ tb.innerHTML = `<tr><td colspan="7" class="bad">${esc(d.error)}</td></tr>`; sfx.err(); return; }
+  CATALOG = d.items || [];
+  $('#mCount').textContent = `${CATALOG.length} SHOWN / ${d.total} MATCHED`;
+  renderModels();
+}
+function renderModels(onPick){
+  const rows = (CATALOG||[]).slice();
+  const k = mSort.key;
+  rows.sort((a,b)=>{
+    let x = a[k], y = b[k];
+    if(typeof x === 'string') return mSort.dir * String(x).localeCompare(String(y));
+    // unpriced rows (0) sink to the bottom on price sorts
+    if(k.endsWith('price')){ x = x || 1e9; y = y || 1e9; }
+    return mSort.dir * ((x||0) - (y||0));
+  });
+  const max = Math.max(...rows.map(r=>r.in_price||0), .0001);
+  $('#mTable tbody').innerHTML = rows.slice(0,400).map(m=>{
+    const price = m.in_price ? '$'+(m.in_price<1 ? m.in_price.toFixed(3) : m.in_price.toFixed(2)) : '—';
+    const calls = m.invocations ? (m.invocations>=1e6 ? (m.invocations/1e6).toFixed(1)+'M' : m.invocations>=1000 ? Math.round(m.invocations/1000)+'k' : m.invocations) : '—';
+    return `<tr>
+      <td class="mono" style="max-width:340px;word-break:break-all">${esc(m.id)}</td>
+      <td class="gold">${price}<div class="bar" style="margin-top:3px"><i style="width:${Math.min(100,(m.in_price/max)*100)}%"></i></div></td>
+      <td class="dim">${m.out_price ? '$'+m.out_price.toFixed(3) : '—'}</td>
+      <td class="dim">${calls}</td>
+      <td class="dim">${esc(m.kind)}</td>
+      <td>${(m.tags||[]).map(t=>`<span class="pill ${t==='tee'?'ok':t==='hot'?'gold':'dim'}">${esc(t)}</span>`).join('')}</td>
+      <td><button class="btn sm" data-use="${esc(m.id)}">USE</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" class="dim">no matches</td></tr>';
+  $$('#mTable button[data-use]').forEach(b => b.onclick = () => {
+    S.model = b.dataset.use;
+    $('#model').value = S.model; $('#iModel').value = S.model;
+    sfx.pick(); renderCabinet(); save();
+    toast('> ' + S.model.slice(0,40));
+    if(onPick) onPick(); else go('CHAT');
+  });
+}
+$$('#mTable th[data-sort]').forEach(th => th.onclick = () => {
+  const k = th.dataset.sort;
+  mSort = {key:k, dir: (mSort.key === k ? -mSort.dir : (k === 'invocations' ? -1 : 1))};
+  sfx.move(); renderModels();
+});
+
+/* ═══════════════════════════ VS ═══════════════════════════ */
+let LANES = 3;
+function renderTargets(){
+  const have = $$('[data-vsm]').map(i => i.value);
+  const fill = i => have[i] || '';
+  $('#vsTargets').innerHTML = `<label class="lbl">FIGHTERS <span class="dim">— chute names · blank lanes sit out · all blank = the default list</span></label>` +
+    Array.from({length:LANES}, (_,i)=>`
+    <div class="row" style="margin-bottom:6px">
+      <span style="font-size:8px;color:var(--acc);width:70px">LANE ${i+1}</span>
+      <input class="grow" data-vsm="${i}" placeholder="${esc(i===0 ? (defaultModel()||'chute name') : 'chute name')}" value="${esc(fill(i))}">
+    </div>`).join('');
+}
+async function fight(){
+  const models = $$('[data-vsm]').map(i => i.value.trim()).filter(Boolean);
+  const msg = $('#vsMsg').value.trim();
+  if(!msg){ toast('enter a prompt', true); return; }
+  const shown = models.length ? models : (STATUS.default_models || [defaultModel()]);
+  $('#vsGo').disabled = true; $('#vsWin').textContent = '';
+  sfx.send();
+  const t0 = performance.now();
+  $('#lanes').innerHTML = shown.map((m,i)=>`
+    <div class="lane" style="border-color:var(--acc)">
+      <div class="top"><span style="color:var(--acc);word-break:break-all">${esc(m)}</span>
+        <span class="timer" data-timer="${i}">0.0s</span></div>
+      <div class="out dim">…fighting…</div>
+    </div>`).join('');
+  const tick = setInterval(()=>{
+    const s = ((performance.now()-t0)/1000).toFixed(1)+'s';
+    $$('[data-timer]').forEach(e => { if(!e.dataset.done) e.textContent = s; });
+  }, 100);
+  const body = {message: msg, system: S.system || undefined, temperature: S.temp, max_tokens: parseInt($('#vsMax').value,10) || 300};
+  if(models.length) body.models = models;
+  const d = await api('/compare', {method:'POST', body:JSON.stringify(body)});
+  clearInterval(tick);
+  $('#vsGo').disabled = false;
+  if(d.error){ $('#lanes').innerHTML = `<div class="lane ko"><div class="out bad">${esc(d.error)}</div></div>`; sfx.err(); return; }
+  $('#lanes').innerHTML = (d.results||[]).map(r=>{
+    const bits = [r.latency_ms+'ms'];
+    if(r.usage?.total_tokens) bits.push(r.usage.total_tokens+' tok');
+    if(r.cost_usd) bits.push('$'+r.cost_usd.toFixed(5));
+    score(r.usage, r.cost_usd);
+    return `<div class="lane ${r.winner?'win':''} ${r.error?'ko':''}" style="${r.winner||r.error?'':'border-color:var(--acc)'}">
+      ${r.winner?'<span class="ribbon">* FASTEST</span>':''}
+      <div class="top">
+        <span style="color:var(--acc);word-break:break-all">${esc(r.model||'')}</span>
+        <span class="dim">${esc(bits.join(' · '))}</span>
+      </div>
+      <div class="out ${r.error?'bad':''}">${esc(r.error ? 'KO — '+r.error : r.text)}</div>
+    </div>`;
+  }).join('');
+  if(d.fastest){ $('#vsWin').textContent = 'WINNER: ' + d.fastest; sfx.win(); }
+  else sfx.err();
+}
+
+/* ═══════════════════════════ IMAGE ═══════════════════════════ */
+async function forge(){
+  const prompt = $('#iPrompt').value.trim();
+  if(!prompt){ toast('enter a prompt', true); return; }
+  $('#iGo').disabled = true; $('#iStat').textContent = 'RENDERING…'; sfx.send();
+  const t0 = performance.now();
+  const body = {prompt, size:$('#iSize').value, n:1};
+  if($('#iModel').value.trim()) body.model = $('#iModel').value.trim();
+  const d = await api('/images', {method:'POST', body:JSON.stringify(body)});
+  $('#iGo').disabled = false;
+  if(d.error){ $('#iStat').innerHTML = `<span class="bad">${esc(d.error).slice(0,300)}</span>`; sfx.err(); return; }
+  const items = d.data || d.images || [];
+  const srcs = items.map(i => i.url || (i.b64_json ? 'data:image/png;base64,'+i.b64_json : null)).filter(Boolean);
+  if(!srcs.length){
+    $('#iStat').innerHTML = '<span class="bad">no image in response</span>';
+    $('#iOut').innerHTML = `<pre class="out">${esc(JSON.stringify(d,null,1).slice(0,1200))}</pre>`;
+    sfx.err(); return;
+  }
+  $('#iStat').textContent = Math.round(performance.now()-t0) + 'ms';
+  $('#iOut').innerHTML = srcs.map(s=>`<figure><img src="${esc(s)}" alt=""></figure>`).join('') + $('#iOut').innerHTML;
+  S.hud.calls++; hud(); save(); sfx.done();
+}
+
+/* ═══════════════════════════ KEYS ═══════════════════════════ */
+function renderKeys(){
+  const p = STATUS;
+  $('#keyCard').innerHTML = `
+    <div class="frame" style="border-color:var(--acc)">
+      <h3><span style="color:var(--acc)">CHUTES.AI</span>
+        <span class="${p.key?'ok':'dim'}">${p.key?('SERVER KEY · '+esc(String(p.key_source||'').toUpperCase())):'NO SERVER KEY'}</span></h3>
+      <div class="dim" style="font-size:8px;line-height:2.2;margin-bottom:8px">
+        BASE ${esc(p.base_url||'')}<br>ENV ${esc(p.key_env||'CHUTES_API_KEY')}<br>FILE ${esc(p.key_file||'~/.mod/chutes/api_key')}<br>
+        <a href="${esc(p.signup||'https://chutes.ai')}" target="_blank" rel="noopener">get a key ></a>
+      </div>
+      <input type="password" id="keyIn" placeholder="paste chutes key (this browser only)" value="${esc(S.key||'')}">
+      <div class="row" style="margin-top:8px">
+        <button class="btn sm" id="keySave">SAVE</button>
+        <button class="btn sm ghost" id="keyTest">TEST</button>
+        <button class="btn sm ghost" id="keyClear">CLEAR</button>
+        <span class="dim" style="font-size:8px" id="keyStat"></span>
+      </div>
+    </div>`;
+  $('#keySave').onclick = () => {
+    S.key = $('#keyIn').value.trim();
+    save(); sfx.pick(); toast(S.key ? 'KEY SAVED' : 'KEY CLEARED'); renderCabinet();
+  };
+  $('#keyClear').onclick = () => { S.key = ''; save(); renderKeys(); renderCabinet(); toast('KEY CLEARED'); };
+  $('#keyTest').onclick = async () => {
+    const stat = $('#keyStat');
+    S.key = $('#keyIn').value.trim() || S.key;
+    stat.textContent = 'TESTING…'; stat.className = 'dim';
+    const t0 = performance.now();
+    const d = await api('/chat', {method:'POST', body:JSON.stringify({message:'ping', max_tokens:5})});
+    if(d.error){ stat.innerHTML = `<span class="bad">X ${esc(d.error).slice(0,90)}</span>`; sfx.err(); }
+    else { stat.innerHTML = `<span class="ok">OK ${Math.round(performance.now()-t0)}ms · ${esc(d._model||'')}</span>`; sfx.done(); }
+  };
+}
+
+/* ═══════════════════════════ MCP ═══════════════════════════ */
+function renderTools(){
+  $('#tName').innerHTML = TOOLS.map(t=>`<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
+  $('#toolCount').textContent = TOOLS.length + ' TOOLS';
+  const url = location.origin + BASE + '/mcp';
+  $('#connect').textContent =
+    'streamable http:\n  ' + url +
+    '\n\nstdio:\n  claude mcp add chutes -- \\\n    <mod>/orbit/chutes/chutes-rs/target/release/chutes-api --stdio' +
+    '\n\ncurl:\n  curl -s ' + location.origin + BASE + '/models?q=qwen\\&kind=chat';
+  showToolDesc();
+}
+function showToolDesc(){
+  const t = TOOLS.find(x => x.name === $('#tName').value);
+  if(!t) return;
+  $('#tDesc').textContent = t.description;
+  const props = t.inputSchema?.properties || {};
+  const sample = {};
+  for(const [k,v] of Object.entries(props)){
+    if(v.default !== undefined) sample[k] = v.default;
+  }
+  if(props.message) sample.message = 'hello from the arcade';
+  if(props.prompt) sample.prompt = 'neon mountain, pixel art';
+  if(props.model && S.model) sample.model = S.model;
+  $('#tArgs').value = JSON.stringify(sample, null, 1);
+}
+
+/* ═══════════════════════════ boot ═══════════════════════════ */
+async function boot(){
+  emptyLog(); hud();
+  $('#temp').value = S.temp; $('#tempV').textContent = S.temp;
+  $('#model').value = S.model; $('#system').value = S.system;
+  $('#stream').checked = S.stream;
+  $('#sfxBtn').textContent = 'SFX ' + (S.sfx ? 'ON' : 'OFF');
+
+  const t0 = performance.now();
+  const info = await api('/info');
+  $('#hVer').textContent = 'v' + (info.version || '?');
+  $('#hMcp').textContent = info.protocol || '—';
+  $('#hPing').textContent = Math.round(performance.now()-t0) + 'ms';
+
+  STATUS = await api('/status?counts=1');
+  if(STATUS.error) STATUS = {};
+  renderCabinet(); renderTargets(); emptyLog();
+
+  const tl = await rpc('tools/list');
+  TOOLS = tl.result?.tools || [];
+  renderTools();
+  renderTabs();
+  if(S.tab === 'MODELS') loadModels();
+  if(S.tab === 'KEYS') renderKeys();
+}
+
+/* ── wiring ── */
+$('#send').onclick = send;
+$('#stop').onclick = () => { if(ABORT) ABORT.abort(); };
+$('#msg').addEventListener('keydown', e => {
+  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+});
+$('#clearChat').onclick = () => { S.history = []; emptyLog(); save(); sfx.move(); };
+$('#model').oninput = e => { S.model = e.target.value.trim(); renderCabinet(); save(); };
+$('#system').oninput = e => { S.system = e.target.value; save(); };
+$('#temp').oninput = e => { S.temp = parseFloat(e.target.value); $('#tempV').textContent = S.temp.toFixed(1); save(); };
+$('#stream').onchange = e => { S.stream = e.target.checked; save(); };
+$('#pickModel').onclick = () => { go('MODELS'); loadModels(); };
+$('#sfxBtn').onclick = () => { S.sfx = !S.sfx; $('#sfxBtn').textContent = 'SFX ' + (S.sfx?'ON':'OFF'); save(); if(S.sfx) sfx.pick(); };
+$('#mGo').onclick = () => loadModels();
+$('#mRefresh').onclick = () => loadModels(true);
+$('#mKind').onchange = () => loadModels();
+$('#mSearch').addEventListener('keydown', e => { if(e.key === 'Enter') loadModels(); });
+$('#vsGo').onclick = fight;
+$('#vsAdd').onclick = () => { LANES = Math.min(LANES+1, 8); renderTargets(); sfx.move(); };
+$('#iGo').onclick = forge;
+$('#tName').onchange = showToolDesc;
+$('#tPing').onclick = async () => { $('#tOut').textContent = JSON.stringify(await rpc('ping'), null, 1); sfx.move(); };
+$('#tList').onclick = async () => { $('#tOut').textContent = JSON.stringify(await rpc('tools/list'), null, 1); sfx.move(); };
+$('#tGo').onclick = async () => {
+  let args; try{ args = JSON.parse($('#tArgs').value || '{}'); }
+  catch(e){ $('#tOut').innerHTML = '<span class="bad">bad JSON: ' + esc(e.message) + '</span>'; sfx.err(); return; }
+  $('#tOut').textContent = 'calling…'; sfx.send();
+  const d = await rpc('tools/call', {name:$('#tName').value, arguments:args});
+  const res = d.result || d;
+  $('#tOut').textContent = JSON.stringify(res.structuredContent ?? res, null, 1).slice(0, 40000);
+  res.isError ? sfx.err() : sfx.done();
 };
+
+boot();
 </script>
 </body>
 </html>

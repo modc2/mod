@@ -32,6 +32,7 @@
 //     so a mostly-MARKED number is biased upward. `settlement` rides along.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import { runBacktest, stratFromIndex, stratBacktestParams, type BacktestResult } from "../lib/backtest";
 import {
@@ -43,6 +44,7 @@ import {
 import { fetchTraderBankrolls } from "../lib/liveSessions";
 import { fetchResolvedLegs } from "../lib/hubCache";
 import { describeMarketQuery } from "../lib/marketTypes";
+import { addToDraft, inDraft } from "../lib/basketDraft";
 import { marketMatchesQuery } from "../lib/marketQuery";
 import { settlementConfidence } from "../lib/backtest";
 import type { PolymarketPosition, PolymarketTrade, SavedIndex, TradeFilters, SizingModel } from "../lib/types";
@@ -138,6 +140,12 @@ export default function CopySimPanel({
   const [showLadder, setShowLadder] = useState(true);
   const [busy, setBusy] = useState(false);
   const [added, setAdded] = useState(false);
+  // Shortlisted, not committed. One profile answers "what would $N behind THIS
+  // trader have done"; the basket answers "and how does that compare with the
+  // other five I like, if I split $2,000 across them" — so the amount and the
+  // gate you just simulated ride over there instead of being retyped.
+  const [basketed, setBasketed] = useState(false);
+  useEffect(() => { setBasketed(inDraft(address)); }, [address]);
 
   // The knobs the copy would run under. Defaults ARE the identity template —
   // edit them and both the replay and the allocation you commit change
@@ -652,8 +660,24 @@ export default function CopySimPanel({
                   ? `UPDATE TO $${amount.toLocaleString("en-US")}`
                   : `COPY WITH $${amount.toLocaleString("en-US")}`}
           </button>
+          <button
+            onClick={() => {
+              addToDraft({ address, allocationUsd: amount, enabled: true, params });
+              setBasketed(true);
+            }}
+            disabled={!(amount > 0)}
+            className={`pixel-btn text-[12px] py-1 tracking-wider disabled:opacity-40 ${
+              basketed ? "border-pixel-green text-pixel-green" : ""
+            }`}
+            title="Shortlist them at this amount, with these knobs — the basket sizes several traders against each other and replays the whole split before anything is committed"
+          >
+            {basketed ? "✓ IN BASKET" : "+ BASKET"}
+          </button>
+          <Link href="/copy/basket" className="font-mono text-[11px] text-pixel-gray hover:text-pixel-green">
+            open the basket ↗
+          </Link>
           <span className="font-mono text-[11px] text-pixel-gray">
-            {`writes the amount, the ${gate} gate and these knobs to the copy book — nothing is placed until you start the session`}
+            {`COPY writes the amount, the ${gate} gate and these knobs to the copy book — nothing is placed until you start the session. BASKET commits nothing at all.`}
           </span>
         </div>
       )}

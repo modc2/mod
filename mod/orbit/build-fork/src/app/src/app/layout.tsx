@@ -3,7 +3,7 @@ import "./globals.css";
 import Tooltip from "../components/Tooltip";
 
 export const metadata: Metadata = {
-  title: "Build-Fork ✦ Orbit Console",
+  title: "Build ✦ Orbit Console",
   description: "Programmable AI developer console — powered by Claude",
 };
 
@@ -12,7 +12,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 5,
   viewportFit: "cover",
-  themeColor: "#5c94fc",
+  themeColor: "#9bbc0f",
 };
 
 export default function RootLayout({
@@ -21,12 +21,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    // data-theme is rendered server-side (mario default — it's-a World 1-1)
-    // and corrected for any saved theme by the blocking script below, so the
+    // data-theme is rendered server-side (gameboy default — DMG-01) and
+    // corrected for any saved theme by the blocking script below, so the
     // first paint already has the final palette — no theme flip after
-    // hydration. The id list here must track THEMES in page.tsx (light-base
-    // ids in the L set drive data-base).
-    <html lang="en" data-theme="mario" data-base="light" suppressHydrationWarning>
+    // hydration. The id lists here must track THEMES in page.tsx: light-base
+    // ids in L drive data-base, square-corner ids in P drive data-skin.
+    // data-font is the same story for the typeface axis (FONTS in page.tsx).
+    <html lang="en" data-theme="gameboy" data-base="light" data-skin="pixel" data-font="default" suppressHydrationWarning>
       <head>
         {/* globals.css styles the whole console in Inter + JetBrains Mono;
             without these links neither ever loads and every machine falls
@@ -53,7 +54,7 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html:
-              'try{var t=localStorage.getItem("buildfork_jobs_theme"),A=["dark","light","matrix","neon","ember","abyss","paper","win95","mario","warp"],L=["light","paper","win95","mario"];if(t&&A.indexOf(t)>=0){var d=document.documentElement;d.setAttribute("data-theme",t);d.setAttribute("data-base",L.indexOf(t)>=0?"light":"dark")}}catch(e){}',
+              'try{var d=document.documentElement,t=localStorage.getItem("buildfork_jobs_theme"),A=["dark","light","matrix","neon","ember","abyss","paper","win95","mario","warp","gameboy","drive","vapor","disco","babe","surf"],L=["light","paper","win95","mario","gameboy","surf"],P=["gameboy","mario","warp","win95"];if(t&&A.indexOf(t)>=0){d.setAttribute("data-theme",t);d.setAttribute("data-base",L.indexOf(t)>=0?"light":"dark");d.setAttribute("data-skin",P.indexOf(t)>=0?"pixel":"soft")}var f=localStorage.getItem("buildfork_jobs_font");if(f&&["default","zoodmantra","antireal"].indexOf(f)>=0)d.setAttribute("data-font",f)}catch(e){}',
           }}
         />
         {/* Deploy-skew recovery. A rebuild landing mid-load can 404 this

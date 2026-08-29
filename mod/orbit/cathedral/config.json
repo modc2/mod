@@ -181,5 +181,5 @@
         "CATHEDRAL_TRUSTED_KEYS": "where the API gateway pins Cathedral's receipt-signing keys (default ~/.mod/cathedral/trusted-keys.json)"
     },
     "key": "cathedral",
-    "schema": "QmPwFQPLVtaaanNEJjyVCjYagLqe8SZAVCeV2usXYyK8kj"
+    "schema": "QmRtMnPKJWuFacUHsrwXUyHn31mQexcPVzhWXS2w3TGaEb"
 }

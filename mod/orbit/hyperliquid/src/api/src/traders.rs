@@ -74,6 +74,65 @@ pub struct TopTrader {
     pub last_active: i64,   // ms
 }
 
+/// What "top" means. `Roi` is the default board (best return on equity);
+/// `Pnl` is HL's own leaderboard order (biggest dollar winners); `Volume` is
+/// the most active books. All three select AND sort on the same metric, so a
+/// board is literally the top-`pool` of the scrape by that metric.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Rank { Roi, Pnl, Volume }
+
+impl Rank {
+    pub fn parse(s: &str) -> Option<Rank> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "" | "roi" => Some(Rank::Roi),
+            "pnl" => Some(Rank::Pnl),
+            "volume" | "vlm" | "vol" => Some(Rank::Volume),
+            _ => None,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self { Rank::Roi => "roi", Rank::Pnl => "pnl", Rank::Volume => "volume" }
+    }
+}
+
+/// Liveness gate. `Day` = traded in the last 24h (the strict default — a
+/// dormant book can't be copied). `Window` = traded at some point inside the
+/// ranking window, which is what HL's own leaderboard implies and what keeps a
+/// weekend-quiet whale on the 7d/30d PnL board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Active { Day, Window }
+
+impl Active {
+    pub fn parse(s: &str) -> Option<Active> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "" | "24h" | "day" | "1d" => Some(Active::Day),
+            "window" | "any" => Some(Active::Window),
+            _ => None,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self { Active::Day => "24h", Active::Window => "window" }
+    }
+}
+
+/// Cache key for one computed board.
+pub fn board_key(days: u32, rank: Rank, active: Active) -> String {
+    format!("{days}:{}:{}", rank.as_str(), active.as_str())
+}
+
+/// Inverse of `board_key` — the prewarm loop uses it to keep refreshing any
+/// board a visitor has asked for, not only the standard set.
+pub fn parse_board_key(key: &str) -> Option<(u32, Rank, Active)> {
+    let mut it = key.split(':');
+    let days = it.next()?.parse::<u32>().ok()?;
+    let rank = Rank::parse(it.next()?)?;
+    let active = Active::parse(it.next()?)?;
+    if it.next().is_some() { return None; }
+    Some((days, rank, active))
+}
+
 // Pick the leaderboard window key whose meaning is closest to the user's
 // requested days. The stats CDN exposes "day", "week", "month", "allTime".
 fn window_for_days(days: u32) -> &'static str {
@@ -109,11 +168,20 @@ struct LbRow {
     account_value: f64,
 }
 
+impl LbRow {
+    fn metric(&self, rank: Rank) -> f64 {
+        match rank { Rank::Roi => self.roi, Rank::Pnl => self.pnl, Rank::Volume => self.vlm }
+    }
+    fn is_active(&self, active: Active) -> bool {
+        match active { Active::Day => self.day_vlm > 0.0, Active::Window => self.vlm > 0.0 }
+    }
+}
+
 // Parse the stats-CDN leaderboard. We rank candidates by the chosen window's
-// ROI (HL publishes a time-weighted `roi` per window) and, separately, read the
-// "day" window's volume so we can keep only accounts that actually traded in
-// the last 24h. pnl/vlm/accountValue ride along for display.
-fn parse_lb_ranked(v: &Value, window: &str) -> Vec<(String, LbRow)> {
+// metric (`rank`: HL's time-weighted `roi`, or `pnl`, or `vlm`) and, separately,
+// read the "day" window's volume so the `active` gate can keep only accounts
+// that actually traded recently. pnl/vlm/accountValue ride along for display.
+fn parse_lb_ranked(v: &Value, window: &str, rank: Rank, active: Active) -> Vec<(String, LbRow)> {
     let rows = v.get("leaderboardRows").and_then(|x| x.as_array());
     let mut scored: Vec<(String, LbRow)> = Vec::new();
     if let Some(rows) = rows {
@@ -147,14 +215,15 @@ fn parse_lb_ranked(v: &Value, window: &str) -> Vec<(String, LbRow)> {
             scored.push((addr.to_lowercase(), data));
         }
     }
-    scored.sort_by(|a, b| b.1.roi.partial_cmp(&a.1.roi).unwrap_or(std::cmp::Ordering::Equal));
-    // Keep accounts that (a) have ranking-window ROI data, (b) clear the dust
-    // floor, and (c) traded in the last 24h — day-window volume > 0 is the
-    // user-requested liveness gate. A dormant book is uncopyable no matter how
-    // good its trailing ROI looks.
+    // Keep accounts that (a) have ranking-window data, (b) clear the dust
+    // floor, and (c) pass the liveness gate — last-24h volume by default, or
+    // any volume inside the window. A book with zero volume in every window is
+    // a holder, not a trader (the $1B+ "top PnL" rows on HL's raw leaderboard
+    // are exactly that), and can't be copied no matter how big its PnL.
     scored.retain(|(_, d)| {
-        d.roi > f64::NEG_INFINITY && d.account_value >= MIN_ACCOUNT_VALUE && d.day_vlm > 0.0
+        d.roi > f64::NEG_INFINITY && d.account_value >= MIN_ACCOUNT_VALUE && d.is_active(active)
     });
+    scored.sort_by(|a, b| b.1.metric(rank).partial_cmp(&a.1.metric(rank)).unwrap_or(std::cmp::Ordering::Equal));
     scored
 }
 
@@ -215,7 +284,8 @@ pub struct BoardEntry {
 
 pub struct BoardCache {
     path: std::path::PathBuf,
-    boards: Mutex<std::collections::HashMap<u32, BoardEntry>>,
+    // Keyed by `board_key(days, rank, active)`.
+    boards: Mutex<std::collections::HashMap<String, BoardEntry>>,
 }
 
 impl BoardCache {
@@ -226,17 +296,22 @@ impl BoardCache {
             .unwrap_or_default();
         Self { path, boards: Mutex::new(boards) }
     }
-    pub fn get(&self, days: u32) -> Option<BoardEntry> {
-        self.boards.lock().get(&days).cloned()
+    pub fn get(&self, days: u32, rank: Rank, active: Active) -> Option<BoardEntry> {
+        self.boards.lock().get(&board_key(days, rank, active)).cloned()
     }
-    pub fn put(&self, days: u32, pool: usize, traders: Vec<TopTrader>) {
+    /// Every board currently held, decoded — the refresher walks this so any
+    /// combination a visitor asked for once keeps getting refreshed.
+    pub fn keys(&self) -> Vec<(u32, Rank, Active)> {
+        self.boards.lock().keys().filter_map(|k| parse_board_key(k)).collect()
+    }
+    pub fn put(&self, days: u32, rank: Rank, active: Active, pool: usize, traders: Vec<TopTrader>) {
         let entry = BoardEntry {
             updated_at: chrono::Utc::now().timestamp_millis(),
             pool,
             traders,
         };
         let mut g = self.boards.lock();
-        g.insert(days, entry);
+        g.insert(board_key(days, rank, active), entry);
         if let Ok(s) = serde_json::to_string(&*g) {
             let _ = std::fs::write(&self.path, s);
         }
@@ -250,24 +325,25 @@ pub async fn top_traders(
     pool: usize,
     extra_addrs: Vec<String>,
 ) -> anyhow::Result<Vec<TopTrader>> {
-    top_traders_with_progress(hl, days, min_per_day, pool, extra_addrs, None).await
+    top_traders_with_progress(hl, days, min_per_day, pool, extra_addrs, None, Rank::Roi, Active::Day).await
 }
 
 pub async fn top_traders_with_progress(
     hl: Arc<Client>,
     days: u32,
-    _min_per_day: f64,   // retired: liveness is now "traded in last 24h" (see parse_lb_ranked)
+    _min_per_day: f64,   // retired: liveness is the `active` gate (see parse_lb_ranked)
     pool: usize,
     extra_addrs: Vec<String>,
     progress: Option<Arc<ProgressTracker>>,
+    rank: Rank,
+    active: Active,
 ) -> anyhow::Result<Vec<TopTrader>> {
     let lb = hl.leaderboard().await.unwrap_or(Value::Null);
-    // Whole-universe leaderboard, ranked by ROI and already filtered to
-    // accounts that traded in the last 24h. This IS the source of truth for the
-    // board — every row's ROI/PnL/volume comes from here, so "top `pool`" means
-    // literally the top `pool` of the scrape, not a sample of whatever we could
-    // scan.
-    let ranked = parse_lb_ranked(&lb, window_for_days(days));
+    // Whole-universe leaderboard, ranked by `rank` and already filtered by the
+    // `active` gate. This IS the source of truth for the board — every row's
+    // ROI/PnL/volume comes from here, so "top `pool`" means literally the top
+    // `pool` of the scrape, not a sample of whatever we could scan.
+    let ranked = parse_lb_ranked(&lb, window_for_days(days), rank, active);
     let lb_by_addr: std::collections::HashMap<String, LbRow> =
         ranked.iter().cloned().collect();
     let mut addrs: Vec<String> = ranked.into_iter().map(|(a, _)| a).collect();
@@ -347,8 +423,9 @@ pub async fn top_traders_with_progress(
         }
         out.push(t);
     }
-    // Rank the board by ROI — the same metric we selected the cohort on.
-    out.sort_by(|a, b| b.roi.partial_cmp(&a.roi).unwrap_or(std::cmp::Ordering::Equal));
+    // Rank the board by the same metric we selected the cohort on.
+    let metric = |t: &TopTrader| match rank { Rank::Roi => t.roi, Rank::Pnl => t.pnl, Rank::Volume => t.volume };
+    out.sort_by(|a, b| metric(b).partial_cmp(&metric(a)).unwrap_or(std::cmp::Ordering::Equal));
     Ok(out)
 }
 
@@ -385,4 +462,106 @@ pub async fn analyze(hl: Arc<Client>, addr: &str, days: u32) -> anyhow::Result<V
         "open_orders": open,
         "fills": fills_v,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // A miniature stats-CDN leaderboard: one row per archetype.
+    fn fixture() -> Value {
+        let row = |addr: &str, acct: &str, day: (&str, &str, &str), week: (&str, &str, &str)| json!({
+            "ethAddress": addr, "accountValue": acct,
+            "windowPerformances": [
+                ["day",  {"pnl": day.0,  "roi": day.1,  "vlm": day.2}],
+                ["week", {"pnl": week.0, "roi": week.1, "vlm": week.2}],
+            ]
+        });
+        json!({"leaderboardRows": [
+            // small account, huge ROI, traded today — the classic ROI-board row
+            row("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2000",
+                ("500", "0.30", "1000"), ("1800", "7.2", "9000")),
+            // whale, low ROI, biggest PnL, traded today
+            row("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "90000000",
+                ("100000", "0.001", "5000000"), ("5600000", "0.067", "22000000")),
+            // whale, traded this week but NOT in the last 24h
+            row("0xcccccccccccccccccccccccccccccccccccccccc", "77000000",
+                ("0", "0", "0"), ("4800000", "0.066", "83000")),
+            // holder: $1B, big PnL, zero volume in every window → never a trader
+            row("0xdddddddddddddddddddddddddddddddddddddddd", "1100000000",
+                ("43000000", "0.041", "0"), ("55000000", "0.051", "0")),
+            // dust: $50 account, +100% — below the equity floor
+            row("0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "50",
+                ("50", "1.0", "100"), ("50", "1.0", "100")),
+        ]})
+    }
+
+    fn addrs(v: Vec<(String, LbRow)>) -> Vec<char> {
+        v.into_iter().map(|(a, _)| a.chars().nth(2).unwrap()).collect()
+    }
+
+    #[test]
+    fn roi_board_is_the_old_behaviour() {
+        let r = parse_lb_ranked(&fixture(), "week", Rank::Roi, Active::Day);
+        // a (7.2) > b (0.067); c dropped (no 24h volume); d dropped (holder); e dropped (dust)
+        assert_eq!(addrs(r), vec!['a', 'b']);
+    }
+
+    #[test]
+    fn pnl_board_puts_the_whale_first_and_never_the_holder() {
+        let r = parse_lb_ranked(&fixture(), "week", Rank::Pnl, Active::Day);
+        assert_eq!(addrs(r), vec!['b', 'a']);
+        let r = parse_lb_ranked(&fixture(), "week", Rank::Pnl, Active::Window);
+        // window liveness admits c (traded this week), holder d still excluded
+        assert_eq!(addrs(r), vec!['b', 'c', 'a']);
+    }
+
+    #[test]
+    fn volume_board_sorts_by_window_volume() {
+        let r = parse_lb_ranked(&fixture(), "week", Rank::Volume, Active::Window);
+        assert_eq!(addrs(r), vec!['b', 'c', 'a']);
+        let r = parse_lb_ranked(&fixture(), "day", Rank::Volume, Active::Day);
+        assert_eq!(addrs(r), vec!['b', 'a']);
+    }
+
+    #[test]
+    fn rank_and_active_parse_leniently_and_roundtrip() {
+        assert_eq!(Rank::parse(""), Some(Rank::Roi));
+        assert_eq!(Rank::parse("PnL"), Some(Rank::Pnl));
+        assert_eq!(Rank::parse("vol"), Some(Rank::Volume));
+        assert_eq!(Rank::parse("sharpe"), None);
+        assert_eq!(Active::parse("24h"), Some(Active::Day));
+        assert_eq!(Active::parse("window"), Some(Active::Window));
+        assert_eq!(Active::parse("never"), None);
+        for days in [1u32, 7, 30] {
+            for rank in [Rank::Roi, Rank::Pnl, Rank::Volume] {
+                for active in [Active::Day, Active::Window] {
+                    let k = board_key(days, rank, active);
+                    assert_eq!(parse_board_key(&k), Some((days, rank, active)), "{k}");
+                }
+            }
+        }
+        // legacy boards.json keys (bare day counts) are ignored, not misread
+        assert_eq!(parse_board_key("7"), None);
+        assert_eq!(parse_board_key("7:roi:24h:extra"), None);
+    }
+
+    #[test]
+    fn board_cache_keys_are_independent_per_axis() {
+        let dir = std::env::temp_dir().join(format!("hl-boards-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let c = BoardCache::load(dir.to_str().unwrap());
+        c.put(7, Rank::Roi, Active::Day, 10, vec![]);
+        assert!(c.get(7, Rank::Roi, Active::Day).is_some());
+        assert!(c.get(7, Rank::Pnl, Active::Day).is_none());
+        assert!(c.get(7, Rank::Roi, Active::Window).is_none());
+        c.put(7, Rank::Pnl, Active::Window, 10, vec![]);
+        let mut keys = c.keys(); keys.sort_by_key(|k| board_key(k.0, k.1, k.2));
+        assert_eq!(keys, vec![(7, Rank::Pnl, Active::Window), (7, Rank::Roi, Active::Day)]);
+        // survives a reload from disk
+        let c2 = BoardCache::load(dir.to_str().unwrap());
+        assert_eq!(c2.keys().len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

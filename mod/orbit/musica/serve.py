@@ -12,7 +12,7 @@ is all client side and the Spotify calls are stateless:
     /api/musica/*       → the API (prefix stripped by the gateway, so the
                           protocol routes land at the root)
 
-    python3 serve.py [--port 50480] [--host 0.0.0.0]
+    python3 serve.py [--port 50780] [--host 0.0.0.0]
 """
 
 import argparse
@@ -193,7 +193,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--port', type=int, default=int(os.environ.get('PORT', 50480)))
+    ap.add_argument('--port', type=int, default=int(os.environ.get("PORT", 50780)))
     ap.add_argument('--host', default=os.environ.get('HOST', '0.0.0.0'))
     args = ap.parse_args()
 

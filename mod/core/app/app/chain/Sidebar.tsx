@@ -8,6 +8,7 @@ import { useState, useRef } from 'react'
 import { toast } from 'react-toastify'
 import { TERM_FONT, ACCENT, READ, useIsMobile } from './shared'
 import { Btn, Input, panelStyle } from './ui'
+import { PIXEL, PX } from './arcade'
 import {
   isContract, isTest, newProjectFiles, uniqueName, STARTER_CONTRACT, STARTER_TEST, stem,
 } from './projects'
@@ -42,7 +43,7 @@ function Row({
         onClick={onClick}
         title={title || label}
         style={{
-          flex: 1, textAlign: 'left', fontFamily: TERM_FONT, fontSize: tall ? '13px' : '12px',
+          flex: 1, textAlign: 'left', fontFamily: TERM_FONT, fontSize: tall ? '14px' : '13px',
           padding: `${pad} 8px ${pad} ${indent ? '18px' : '8px'}`,
           border: 'none', borderLeft: `2px solid ${active ? ACCENT : 'transparent'}`,
           background: active ? `${ACCENT}14` : 'transparent',
@@ -57,7 +58,7 @@ function Row({
           onClick={onDelete}
           title="delete"
           style={{
-            fontFamily: TERM_FONT, fontSize: '11px', padding: tall ? '0 14px' : '0 8px', border: 'none',
+            fontFamily: TERM_FONT, fontSize: '13px', padding: tall ? '0 14px' : '0 8px', border: 'none',
             background: 'transparent', color: 'var(--text-tertiary)', cursor: 'pointer', opacity: 0.7,
           }}
         >
@@ -72,7 +73,7 @@ export function Heading({ children, action }: { children: React.ReactNode; actio
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '10px 8px 6px', fontFamily: TERM_FONT, fontSize: '10px',
+      padding: '11px 8px 7px', fontFamily: PIXEL, fontSize: PX.xs,
       letterSpacing: '0.14em', color: 'var(--text-tertiary)',
     }}>
       <span>{children}</span>
@@ -180,7 +181,7 @@ export function Sidebar({ projects, address, onNavigate }: {
   const fileRows = (label: string, list: string[], color: string) => list.length > 0 && (
     <>
       <div style={{
-        fontFamily: TERM_FONT, fontSize: '10px', letterSpacing: '0.12em',
+        fontFamily: TERM_FONT, fontSize: '13px', letterSpacing: '0.12em',
         color, padding: '8px 8px 3px', opacity: 0.8,
       }}>
         {label}
@@ -247,7 +248,7 @@ export function Sidebar({ projects, address, onNavigate }: {
             <Btn size="sm" active={false} onClick={() => setAdding(null)}>✕</Btn>
           </div>
           <div style={{
-            fontFamily: TERM_FONT, fontSize: '10px', color: 'var(--text-tertiary)',
+            fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)',
             marginTop: '6px', lineHeight: 1.5,
           }}>
             .sol / .js / .ts / .json / .md
@@ -270,11 +271,11 @@ export function Sidebar({ projects, address, onNavigate }: {
       />
 
       {projects.loading && projects.list.length === 0 ? (
-        <div style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)', padding: '4px 10px' }}>
+        <div className="arc-pulse" style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', padding: '4px 10px 10px' }}>
           loading…
         </div>
       ) : projects.list.length === 0 ? (
-        <div style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)', padding: '4px 10px 10px', lineHeight: 1.5 }}>
+        <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', padding: '4px 10px 10px', lineHeight: 1.5 }}>
           No projects yet. Hit <span style={{ color: ACCENT }}>+</span> to start one,
           {' '}<span style={{ color: ACCENT }}>↑</span> to upload one, or fork one from SHARED below.
         </div>
@@ -328,7 +329,7 @@ export function Sidebar({ projects, address, onNavigate }: {
           {fileRows('OTHER', other, 'var(--text-tertiary)')}
 
           <div style={{
-            fontFamily: TERM_FONT, fontSize: '10px', color: 'var(--text-tertiary)',
+            fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)',
             padding: '10px 10px 12px', borderTop: '1px solid var(--border-color)', marginTop: '8px',
           }}>
             {projects.saving ? 'saving…' : projects.dirty ? 'unsaved changes' : 'saved'}

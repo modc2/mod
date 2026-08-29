@@ -1,17 +1,27 @@
-//! Build-Fork Jobs Server — background Claude CLI task manager
+//! Build Jobs Server — background Claude CLI task manager
 //!
 //! Manages background Claude CLI processes, persists jobs in SQLite,
 //! and exposes an HTTP API + SSE streaming for live output.
 //! Authentication via MetaMask signature verification.
 
+// The MCP tool table is one big json! literal — a schema per tool blows the
+// default macro recursion budget.
+#![recursion_limit = "512"]
+
 mod agent_auth;
+mod arena;
 mod auth;
+mod keys;
 mod autosnap;
+mod mcp;
+mod costs;
 mod credits;
+mod audits;
 mod jobs;
 mod api;
 mod snapshots;
 mod merge;
+mod suggestions;
 mod github;
 mod privacy;
 mod screenshots;
@@ -28,13 +38,27 @@ use tracing_subscriber;
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    // MCP over stdio. This is a bridge to the running HTTP server rather than
+    // a second copy of the API: one job database, one auth gate, one set of
+    // running processes — two servers over the same SQLite file would race.
+    if args.iter().any(|a| a == "--stdio") {
+        // Still needed here: $BUILD_FORK_TOKEN is validated in-process before any
+        // request goes out, and that reads the same HMAC secret the server
+        // signed it with. Without this, presenting a token panics.
+        auth::init_secret();
+        mcp::run_stdio().await;
+        return;
+    }
+
     tracing_subscriber::fmt::init();
 
     // Init HMAC signing secret for bearer tokens
     auth::init_secret();
 
-    let port: u16 = std::env::args()
-        .nth(1)
+    let port: u16 = args
+        .get(1)
         .and_then(|p| p.parse().ok())
         .unwrap_or(8894);
 
@@ -54,7 +78,7 @@ async fn main() {
     // that has no registry CID yet, so hub cards never sit at "no cid".
     autosnap::spawn();
 
-    println!("Build-Fork Jobs server starting on port {}", port);
+    println!("Build Jobs server starting on port {}", port);
     api::serve(manager, port).await;
 }
 

@@ -1,0 +1,4 @@
+fastapi>=0.110
+uvicorn>=0.27
+web3>=7.0
+eth-account>=0.13

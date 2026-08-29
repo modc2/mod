@@ -137,6 +137,9 @@ shared auth module (`m.mod('auth')`, 1h TTL):
 
 ```bash
 m git/token                          # mint a token (paste into the app's ACCESS tab)
+m git/session days=30                # …trade it for a session that outlives the hour
+m git/sessions                       # who's signed in, from where, until when
+m git/sign_out id=…                  # end one (no id: all of that key's)
 m git/grant 0xADDR role=write        # track/untrack/pull/push + connect their own GitHub
 m git/grant 0xADDR role=admin        # + grant/revoke, the OAuth app, other keys' GitHub
 m git/revoke 0xADDR
@@ -155,15 +158,25 @@ too — no grant to give yourself. The address comes from `$GIT_OWNER`, else
 Press **⬡ sign in with wallet** on the ACCESS tab and MetaMask signs a token for
 your own address (EIP-191 `personal_sign` over the compact `{"data":…,"time":…}`
 — exactly what `m git/token` signs with the box key), so you can commit and push
-your changes straight from the app. Tokens last an hour; sign again after that.
+your changes straight from the app.
+
+**Sign once, push all month.** A signature is only good for an hour, which used
+to mean re-signing before every push. Signing in now trades it for a *session*:
+`POST /api/session` hands back an opaque `gits.<id>.<secret>` the app keeps in
+`localStorage`, and pushing next week opens no wallet. Only the SHA-256 of the
+secret is stored (`~/.mod/git/sessions.json`, 0600), and the role is never baked
+in — every call re-reads the ACL, so `m git/revoke` ends that key's sessions on
+the spot. A session dies on `m git/sign_out`, on **end** in the ACCESS tab, or
+after 30 days (`days=` up to a year). If one is revoked mid-use, the app
+re-signs once by itself and finishes the push.
 
 ## API
 
 | method | endpoint | auth |
 |---|---|---|
-| GET | `/api/info` `/api/changes` `/api/diff` `/api/commits` `/api/show` `/api/repos` `/api/branches` `/api/search` `/api/github` `/api/github/repos` `/api/oauth` `/api/access` `/api/whoami` | open |
+| GET | `/api/info` `/api/changes` `/api/diff` `/api/commits` `/api/show` `/api/repos` `/api/branches` `/api/search` `/api/github` `/api/github/repos` `/api/oauth` `/api/access` `/api/whoami` `/api/sessions` | open (`/api/sessions` answers for the caller's key only) |
 | GET | `/api/oauth/callback?code&state` | state |
-| POST | `/api/track` `/api/untrack` `/api/pull` `/api/message` `/api/commit` `/api/push` `/api/connect` `/api/disconnect` `/api/oauth/start` `/api/oauth/poll` `/api/oauth/url` | write |
+| POST | `/api/track` `/api/untrack` `/api/pull` `/api/message` `/api/commit` `/api/push` `/api/connect` `/api/disconnect` `/api/oauth/start` `/api/oauth/poll` `/api/oauth/url` `/api/session` `/api/signout` | write |
 | POST | `/api/oauth/app` `/api/grant` `/api/revoke` | admin |
 
 `/api/commits` takes `n`, `skip`, `stat=0`, `search`, `author`, `branch`, `repo`;

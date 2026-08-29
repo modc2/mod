@@ -5,8 +5,9 @@
 //! needs something a tab should not have: an API key, or an origin that will
 //! not answer a cross-site request.
 //!
-//!     model      any OpenAI-compatible /chat/completions endpoint — OpenRouter
-//!                by default, but a local gateway or ollama works unchanged
+//!     model      any OpenAI-compatible /chat/completions endpoint — the
+//!                `liquidai` module on this box by default, so a match costs
+//!                nothing; OpenRouter, a local gateway or ollama work unchanged
 //!     agent_mod  an agent in this fleet's `agent` module, over POST /run
 //!     http       any endpoint that takes a view and hands back a move
 //!
@@ -18,12 +19,16 @@
 //! anything committed.
 
 use crate::blobs;
+use crate::liquidai;
 use crate::store::Player;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-pub const KINDS: [&str; 5] = ["wasm", "model", "agent_mod", "http", "human"];
+/// `wasm` and `class` are the two that execute: one in a wasm engine, one in a
+/// python subprocess. Both are entered the same way — `config.module` — and
+/// both move in the execution layer rather than on the server.
+pub const KINDS: [&str; 6] = ["wasm", "class", "model", "agent_mod", "http", "human"];
 
 const OPENROUTER: &str = "https://openrouter.ai/api/v1";
 const AGENT_MOD_BASE: &str = "http://127.0.0.1:50117";
@@ -71,7 +76,11 @@ fn api_key(p: &Player, provider: &str) -> Option<String> {
 /// the right one is picked without the player having to say.
 fn provider_for(base: &str) -> &'static str {
     let b = base.to_lowercase();
-    if b.contains("openrouter") {
+    if liquidai::is_local(&b) {
+        // not a key anyone bought: liquidai's is a session token, and the arena
+        // mints its own from this box's secret (see liquidai::token)
+        "liquidai"
+    } else if b.contains("openrouter") {
         "openrouter"
     } else if b.contains("venice") {
         "venice"
@@ -90,6 +99,41 @@ pub struct Answer {
     pub raw: String,
     pub note: String,
     pub meta: Value,
+    /// What the player was asked, verbatim — the brief around this turn's
+    /// view. Kept on the turn so a match transcript shows the question next
+    /// to the answer, not just the move that was read out of it.
+    pub prompt: String,
+}
+
+/// The user-turn prompt this player gets for a view: its own `brief` (if it
+/// set one) wrapped around the position by `brief()`.
+pub fn prompt_of(p: &Player, view: &str, seat: usize) -> String {
+    brief(view, seat, cfg(p, "brief").unwrap_or(""))
+}
+
+/// The standing instruction a server-driven player carries into every move:
+/// a model's `system`, an agent's `prompt`. None for kinds that move in the
+/// execution layer, where there is no prompt at all.
+pub fn system_of(p: &Player) -> Option<String> {
+    match p.kind.trim().to_lowercase().as_str() {
+        "model" | "llm" => cfg(p, "system").map(str::to_string),
+        "agent_mod" | "agent" => cfg(p, "prompt").map(str::to_string),
+        _ => None,
+    }
+}
+
+/// What this player is asked, shown as a template: the system line, then the
+/// per-move prompt with `{view}` standing in for the position. This is the
+/// exact text `play()` sends, with only the view left blank.
+pub fn prompt_card(p: &Player) -> Option<Value> {
+    match p.kind.trim().to_lowercase().as_str() {
+        "model" | "llm" | "agent_mod" | "agent" | "http" | "webhook" => Some(json!({
+            "system": system_of(p),
+            "brief": cfg(p, "brief").unwrap_or(""),
+            "template": prompt_of(p, "{view}", 0).replace("You are seat 0.", "You are seat {seat}."),
+        })),
+        _ => None,
+    }
 }
 
 /// The brief wrapped around a game's view. The game says what the position is;
@@ -197,7 +241,7 @@ pub async fn play(p: &Player, view: &str, seat: usize) -> Result<Answer, String>
         "model" | "llm" => model(p, view, seat).await,
         "agent_mod" | "agent" => agent_mod(p, view, seat).await,
         "http" | "webhook" => http(p, view, seat).await,
-        "wasm" | "human" => Err(format!(
+        "wasm" | "class" | "human" => Err(format!(
             "a `{}` player moves in the execution layer, not on the server",
             p.kind
         )),
@@ -207,17 +251,40 @@ pub async fn play(p: &Player, view: &str, seat: usize) -> Result<Answer, String>
 
 /// Any OpenAI-compatible chat endpoint.
 ///
-/// config: { model, base?, key?, system?, temperature?, max_tokens? }
+/// Naming neither `base` nor `model` is the free seat: the liquidai module on
+/// this box runs LFM weights here, so an arena anyone can play in doesn't ask
+/// for a key first. It is only ever a default — `base` and `model` win, and if
+/// nothing local is serving this falls back to OpenRouter as it always did.
+///
+/// config: { model?, base?, key?, system?, temperature?, max_tokens? }
 async fn model(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
-    let base = cfg(p, "base").unwrap_or(OPENROUTER).trim_end_matches('/').to_string();
-    let name = cfg(p, "model").ok_or("a model player needs config.model")?;
+    let asked = cfg(p, "base").map(|b| b.trim_end_matches('/').to_string());
+    // probe only when the answer could be local: a player pointed at OpenRouter
+    // shouldn't wait on a health check for a module it isn't calling
+    let local = match asked.as_deref() {
+        Some(b) if !liquidai::is_local(b) => None,
+        _ => liquidai::serving(client()).await,
+    };
+    let base = asked.unwrap_or_else(|| {
+        if local.is_some() { liquidai::base() } else { OPENROUTER.to_string() }
+    });
+    let name = match cfg(p, "model") {
+        Some(n) => n.to_string(),
+        None if liquidai::is_local(&base) => {
+            local.clone().unwrap_or_else(|| liquidai::DEFAULT_MODEL.to_string())
+        }
+        None => return Err("a model player needs config.model — or leave `base` \
+                            unset to play on the liquidai model running on this box"
+            .into()),
+    };
+    let name = name.as_str();
     let prompt = brief(view, seat, cfg(p, "brief").unwrap_or(""));
 
     let mut messages = vec![];
     if let Some(sys) = cfg(p, "system") {
         messages.push(json!({ "role": "system", "content": sys }));
     }
-    messages.push(json!({ "role": "user", "content": prompt }));
+    messages.push(json!({ "role": "user", "content": &prompt }));
 
     let mut body = json!({
         "model": name,
@@ -228,8 +295,14 @@ async fn model(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
         body["max_tokens"] = json!(max);
     }
 
+    let provider = provider_for(&base);
+    let key = api_key(p, provider).or_else(|| {
+        // liquidai takes a session token rather than a bought key, and the box
+        // it runs on can mint one for itself
+        (provider == "liquidai").then(liquidai::token).flatten()
+    });
     let mut req = client().post(format!("{base}/chat/completions")).json(&body);
-    if let Some(key) = api_key(p, provider_for(&base)) {
+    if let Some(key) = key {
         req = req.bearer_auth(key);
     }
     // OpenRouter attributes traffic by these; harmless everywhere else.
@@ -266,9 +339,12 @@ async fn model(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
         raw,
         note: String::new(),
         meta: json!({
-            "driver": "model", "model": name, "base": base,
+            "driver": "model", "model": name, "base": base, "provider": provider,
+            "free": provider == "liquidai",
             "usage": out.get("usage").cloned().unwrap_or(Value::Null),
+            "system": cfg(p, "system"),
         }),
+        prompt,
     })
 }
 
@@ -331,7 +407,9 @@ async fn agent_mod(p: &Player, view: &str, seat: usize) -> Result<Answer, String
         mv: extract_move(&raw),
         raw,
         note: String::new(),
-        meta: json!({ "driver": "agent_mod", "base": base, "agent": cfg(p, "agent").unwrap_or("") }),
+        meta: json!({ "driver": "agent_mod", "base": base, "agent": cfg(p, "agent").unwrap_or(""),
+                      "system": cfg(p, "prompt") }),
+        prompt: prompt_of(p, view, seat),
     })
 }
 
@@ -380,6 +458,7 @@ async fn http(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
         raw: text,
         note: String::new(),
         meta: json!({ "driver": "http", "url": url }),
+        prompt: prompt_of(p, view, seat),
     })
 }
 
@@ -438,5 +517,6 @@ mod tests {
         assert_eq!(provider_for("https://openrouter.ai/api/v1"), "openrouter");
         assert_eq!(provider_for("https://api.venice.ai/api/v1"), "venice");
         assert_eq!(provider_for("http://127.0.0.1:11434/v1"), "arena");
+        assert_eq!(provider_for("http://127.0.0.1:50460/v1"), "liquidai");
     }
 }

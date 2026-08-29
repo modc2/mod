@@ -1,19 +1,19 @@
 {
     "name": "musica",
     "version": "0.1.0",
-    "description": "A DJ booth and a pattern studio in one browser tab. Two decks with beatmatch, EQ, filters and loops; a step sequencer and piano roll in the FL Studio idiom; and a Spotify search panel for planning a set. Every sample is decoded and mixed client-side through Web Audio \u2014 the module serves the console and answers the Spotify half from your own API keys.",
-    "icon": "\ud83c\udf9b\ufe0f",
+    "description": "A DJ booth and a pattern studio in one browser tab. Two decks with beatmatch, EQ, filters and loops; a step sequencer and piano roll in the FL Studio idiom; and a Spotify search panel for planning a set. Every sample is decoded and mixed client-side through Web Audio — the module serves the console and answers the Spotify half from your own API keys.",
+    "icon": "🎛️",
     "color": "#c8ff2e",
     "anchor": "mod.py",
     "network": "testnet",
-    "port": 50480,
-    "app_port": 50480,
-    "gateway_port": 50480,
+    "port": 50780,
+    "app_port": 50780,
+    "gateway_port": 50780,
     "base_path": "/musica",
     "route": true,
     "urls": {
-        "app": "http://localhost:50480/musica",
-        "api": "http://localhost:50480"
+        "app": "http://localhost:50780/musica",
+        "api": "http://localhost:50780"
     },
     "fns": [
         "forward",
@@ -58,7 +58,7 @@
         "spotify_status"
     ],
     "endpoints": {
-        "/info": "Null call \u2014 what this module is and what it exposes",
+        "/info": "Null call — what this module is and what it exposes",
         "/health": "Liveness",
         "/decks": "The mixer's signal chain, deck by deck",
         "/kit": "The synthesised drum kit and synth voices the sequencer ships with",
@@ -69,5 +69,5 @@
         "/playlist": "A Spotify playlist's tracks"
     },
     "key": "musica",
-    "schema": "QmRJ2ncaTvA3MTQh7D3EJKmrZmPUUvS2p7ESFc4EZoQUWs"
+    "schema": "QmY9iRcauByZL9ZUW5kso2RRF3WgT5rTCU75SPM4zjV8kv"
 }

@@ -81,6 +81,19 @@ def test_config_declares_the_mcp_endpoint():
     assert mcp["endpoint"] == "POST /mcp"
     assert mcp["schema"] == "GET /mcp/schema"
     assert mcp["tool_prefix"] == "hl_"
+    # Every transport a client might arrive on is advertised, not just one.
+    for transport in ("streamable-http", "/sse", "--stdio"):
+        assert transport in mcp["transport"], f"{transport} is not advertised"
+
+
+def test_mcp_config_covers_every_transport():
+    """`mcp_config` is what a caller pastes into a client — an omitted
+    transport is a client that cannot connect."""
+    cfg = hyperliquid_class()(api_url="http://localhost:1").mcp_config()
+    assert cfg["http"]["url"].endswith("/mcp")
+    assert cfg["sse"]["url"].endswith("/sse")
+    assert cfg["stdio"]["args"] == ["--stdio"]
+    assert "--transport http" in cfg["add_cmd"]
 
 
 def test_mod_py_and_config_declare_the_same_fns():
@@ -188,6 +201,115 @@ def test_unknown_tool_is_reported_as_a_tool_error():
     r = rpc("tools/call", {"name": "hl_nope", "arguments": {}})["result"]
     assert r["isError"] is True
     assert "unknown tool" in r["content"][0]["text"]
+
+
+@needs_api
+def test_a_batch_answers_every_request_in_it():
+    """A client that pipelines two calls into one POST must get two responses
+    back — answering only the first leaves it waiting on an id forever."""
+    r = requests.post(f"{API_URL}/mcp", timeout=30, json=[
+        {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+    ])
+    r.raise_for_status()
+    out = r.json()
+    assert [m["id"] for m in out] == [1, 2], "notifications must draw no response"
+    assert len(out[1]["result"]["tools"]) == len(rust_tools())
+
+
+@needs_api
+def test_a_client_that_only_takes_a_stream_gets_one():
+    r = requests.post(f"{API_URL}/mcp", timeout=30,
+                      headers={"Accept": "text/event-stream"},
+                      json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    r.raise_for_status()
+    assert r.headers["content-type"].startswith("text/event-stream")
+    assert '"id":1' in r.text
+
+
+# ── live: the HTTP+SSE transport (GET /sse → POST /messages) ────────────
+
+def sse_session(timeout=30):
+    """Open GET /sse and return (response, line iterator, endpoint URL) once
+    the stream has named where to post.
+
+    The iterator is handed back rather than re-derived per read on purpose:
+    abandoning a half-consumed `iter_lines` generator makes requests release
+    the connection, which closes the stream and reaps the session.
+    """
+    r = requests.get(f"{API_URL}/sse", stream=True, timeout=timeout,
+                     headers={"Accept": "text/event-stream"})
+    r.raise_for_status()
+    lines = r.iter_lines(decode_unicode=True)
+    event = None
+    for raw in lines:
+        if not raw:
+            continue
+        if raw.startswith("event: "):
+            event = raw[7:]
+        elif raw.startswith("data: "):
+            assert event == "endpoint", f"first event was {event}, not endpoint"
+            # Relative by design, so it resolves behind the gateway prefix too.
+            assert not raw[6:].startswith("/"), "endpoint must be relative"
+            return r, lines, f"{API_URL}/{raw[6:].lstrip('/')}"
+    raise AssertionError("stream closed before naming an endpoint")
+
+
+def sse_next(lines):
+    """Next `message` event's payload off an open stream."""
+    event = None
+    for raw in lines:
+        if not raw:
+            continue
+        if raw.startswith("event: "):
+            event = raw[7:]
+        elif raw.startswith("data: ") and event == "message":
+            return json.loads(raw[6:])
+    raise AssertionError("stream closed before answering")
+
+
+@needs_api
+def test_sse_transport_handshakes_and_calls_a_tool():
+    stream, lines, endpoint = sse_session()
+    try:
+        post = requests.post(endpoint, timeout=30, json={
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                       "clientInfo": {"name": "pytest", "version": "1"}}})
+        # Responses ride the stream, so the POST itself just gets accepted.
+        assert post.status_code == 202
+        hello = sse_next(lines)["result"]
+        assert hello["serverInfo"]["name"] == "hyperliquid"
+        assert hello["protocolVersion"] == "2024-11-05"
+
+        requests.post(endpoint, timeout=30,
+                      json={"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                            "params": {"name": "hl_status", "arguments": {}}})
+        called = sse_next(lines)
+        assert called["id"] == 2
+        assert called["result"]["isError"] is False
+    finally:
+        stream.close()
+
+
+@needs_api
+def test_sse_messages_without_a_live_session_are_refused():
+    """Posting to a dead session must fail loudly — a 202 would strand the
+    client waiting on a stream that will never carry its answer."""
+    r = requests.post(f"{API_URL}/messages?sessionId=not-a-session", timeout=15,
+                      json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    assert r.status_code == 404
+    r = requests.post(f"{API_URL}/messages", timeout=15,
+                      json={"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    assert r.status_code == 400
+
+
+@needs_api
+def test_schema_advertises_all_three_transports():
+    doc = requests.get(f"{API_URL}/mcp/schema", timeout=10).json()
+    kinds = {t["type"] for t in doc["mcp"]["transports"]}
+    assert kinds == {"streamable-http", "sse", "stdio"}
 
 
 @needs_api

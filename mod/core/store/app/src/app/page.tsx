@@ -40,6 +40,32 @@ import {
   TermsResponse,
 } from "@/lib/api";
 import { storageGet, storageRemove, storageSet } from "@/lib/safeStorage";
+import {
+  Ico,
+  MarketIcon,
+  StackIcon,
+  PlusIcon,
+  ShareIcon,
+  PinIcon,
+  PoolIcon,
+  GraphIcon,
+  ServerIcon,
+  TagIcon,
+  FreeIcon,
+  LockIcon,
+  UnlockIcon,
+  GlobeIcon,
+  ClockIcon,
+  CopyIcon,
+  BoltIcon,
+  TrashIcon,
+  GavelIcon,
+  SemIcon,
+  FileIcon,
+  TextIcon,
+  JsonIcon,
+  ImageIcon,
+} from "@/components/icons";
 
 const TOKEN_KEY = "store:token";
 const ADDR_KEY = "store:addr";
@@ -101,6 +127,39 @@ function fmtBytes(n: number | null | undefined): string {
   return `${v.toFixed(1)} ${units[i]}`;
 }
 
+/* ── screenshots ──────────────────────────────────────────────────────────── */
+
+const IMAGE_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/bmp": "bmp",
+  "image/svg+xml": "svg",
+};
+
+/** Extensions the object page knows how to render inline. */
+const IMAGE_KEY_RE = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
+
+/** screenshot-2026-08-27-143012.png — sortable, unique, and it keeps the
+ *  extension the viewer needs to show the thing as an image later. */
+function screenshotName(type: string): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  const stamp =
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-` +
+    `${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `screenshot-${stamp}.${IMAGE_EXT[type] || "png"}`;
+}
+
+/** Clipboard images arrive as "image.png" (or nameless) whatever they are, so a
+ *  pasted screenshot gets a timestamped name; real files keep theirs. */
+function namedImage(f: File): File {
+  const generic = !f.name || /^image\.(png|jpe?g|gif|webp)$/i.test(f.name);
+  if (!generic) return f;
+  return new File([f], screenshotName(f.type), { type: f.type });
+}
+
 function fmtDuration(secs: number | null): string {
   if (secs === null) return "no expiry";
   if (secs <= 0) return "expired";
@@ -144,9 +203,10 @@ function identiconStyle(addr: string): React.CSSProperties {
 const LogoMark = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
     <defs>
+      {/* the brand gradient follows the active theme, not a fixed pair */}
       <linearGradient id="lg-brand" x1="0" y1="0" x2="24" y2="24">
-        <stop offset="0" stopColor="#ffffff" />
-        <stop offset="1" stopColor="#5b8cff" />
+        <stop offset="0" stopColor="var(--grad-a)" />
+        <stop offset="1" stopColor="var(--grad-b)" />
       </linearGradient>
     </defs>
     <path d="M12 2.6 20.6 7.4v9.2L12 21.4 3.4 16.6V7.4L12 2.6Z" stroke="url(#lg-brand)" strokeWidth="1.5" strokeLinejoin="round" />
@@ -228,6 +288,10 @@ export default function Page() {
   const [jsonText, setJsonText] = useState("");
   const [jsonName, setJsonName] = useState("");
   const [jsonErr, setJsonErr] = useState<string | null>(null);
+  const [imgName, setImgName] = useState("");
+  const [imgUrl, setImgUrl] = useState<string | null>(null);
+  const [imgDims, setImgDims] = useState<{ w: number; h: number } | null>(null);
+  const [dropHot, setDropHot] = useState(false);
   const [backend, setBackend] = useState<Backend>("localfs");
   const [bkStatus, setBkStatus] = useState<Record<string, BackendStatus> | null>(null);
   const [makePublic, setMakePublic] = useState(false);
@@ -450,6 +514,60 @@ export default function Page() {
     setHasLocal(hasLocalKey());
   };
 
+  /** Take an image from anywhere — clipboard, drag & drop, file picker — and
+   *  park it in the Add-data form, ready to store. */
+  const acceptImage = useCallback(
+    (f: File | null | undefined) => {
+      if (!f || !f.type.startsWith("image/")) return false;
+      const named = namedImage(f);
+      setError(null);
+      setFile(named);
+      setImgName(named.name);
+      setUploadKind("image");
+      setView("add");
+      return true;
+    },
+    []
+  );
+
+  /* live preview of whatever image is staged — object URL dies with the file */
+  useEffect(() => {
+    if (!file || !file.type.startsWith("image/")) {
+      setImgUrl(null);
+      setImgDims(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setImgUrl(url);
+    setImgDims(null);
+    const probe = new window.Image();
+    probe.onload = () => setImgDims({ w: probe.naturalWidth, h: probe.naturalHeight });
+    probe.src = url;
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  /* ⌘V / Ctrl+V anywhere in the app drops a screenshot into the upload form */
+  useEffect(() => {
+    if (!token || !canStore || !termsSigned) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const cd = e.clipboardData;
+      if (!cd) return;
+      const el = e.target as HTMLElement | null;
+      const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      // pasting text into a field always wins — only hijack a pure image paste
+      if (typing && Array.from(cd.types || []).some((t) => t === "text/plain")) return;
+      const item = Array.from(cd.items || []).find(
+        (it) => it.kind === "file" && it.type.startsWith("image/")
+      );
+      const f = item?.getAsFile();
+      if (!f) return;
+      e.preventDefault();
+      if (acceptImage(f)) setSuccess(`screenshot pasted (${fmtBytes(f.size)}) — hit Store to keep it`);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [token, canStore, termsSigned, acceptImage]);
+
   const upload = async () => {
     if (!token) return;
     let payload: File | null = file;
@@ -470,12 +588,27 @@ export default function Page() {
       const name = (jsonName.trim() || `data-${Date.now()}`).replace(/[^\w.\-]/g, "_");
       payload = new File([jsonText], name.endsWith(".json") ? name : `${name}.json`, { type: "application/json" });
     }
+    if (uploadKind === "image" && payload) {
+      // a renamed screenshot keeps its extension — that's what makes it render
+      // as an image on its object page instead of "binary content".
+      const want = imgName.trim().replace(/[^\w.\-]/g, "_");
+      if (want && want !== payload.name) {
+        const ext = IMAGE_EXT[payload.type] || "png";
+        payload = new File([payload], IMAGE_KEY_RE.test(want) ? want : `${want}.${ext}`, { type: payload.type });
+      }
+    }
     if (!payload) return;
     setError(null);
     setSuccess(null);
     setBusy(`storing to ${backend}…`);
     try {
-      const r = await api.put(token, payload, backend, { public: makePublic, pool: uploadPool || undefined });
+      const r = await api.put(token, payload, backend, {
+        public: makePublic,
+        pool: uploadPool || undefined,
+        // screenshots name themselves — keep that name as the object key instead
+        // of the upload-cache one (which carries an epoch-ms prefix).
+        key: uploadKind === "image" ? payload.name : undefined,
+      });
       const cids = Object.entries(r.results)
         .map(([b, v]) => (v.cid ? `${b}: ${v.cid.slice(0, 16)}…` : `${b}: error — ${v.error}`))
         .join("  •  ");
@@ -486,6 +619,7 @@ export default function Page() {
       setTextName("");
       setJsonText("");
       setJsonName("");
+      setImgName("");
       await refreshFiles(token);
       await refreshMe(token);
       if (uploadPool) await refreshPools(token);
@@ -689,7 +823,7 @@ export default function Page() {
                   <span className={`dot ${me?.authorized ? "ok" : "warn"}`} />
                 </span>
                 {me?.admin && <span className="pill admin">owner</span>}
-                {!me?.admin && me?.via === "bloctime" && <span className="pill bloctime">⏱ bloctime</span>}
+                {!me?.admin && me?.via === "bloctime" && <span className="pill bloctime"><ClockIcon /> bloctime</span>}
                 {!me?.admin && me?.via !== "bloctime" && me?.authorized && <span className="pill">member</span>}
                 {me && !me.authorized && <span className="pill private">view-only</span>}
                 {mode === "local" && <span className="pill">local key</span>}
@@ -726,17 +860,18 @@ export default function Page() {
           <nav className="navbar">
             {(
               [
-                ["market", "🛒 Market", null],
-                ["files", "Your objects", objects.length],
-                ["add", "＋ Add data", null],
-                ["shared", "Shared with you", sharedObjects.length],
-                ["pins", "Pins", pins.length],
-                ["pools", "Pools", pools.length],
-                ["graph", "🕸 Graph", null],
-                ["backends", "🗄 Backends", bkStatus ? Object.values(bkStatus).filter((s) => s.needs_key).length || null : null],
-              ] as [View, string, number | null][]
-            ).map(([v, label, n]) => (
+                ["market", "Market", <MarketIcon key="i" />, null],
+                ["files", "Your objects", <StackIcon key="i" />, objects.length],
+                ["add", "Add data", <PlusIcon key="i" />, null],
+                ["shared", "Shared", <ShareIcon key="i" />, sharedObjects.length],
+                ["pins", "Pins", <PinIcon key="i" />, pins.length],
+                ["pools", "Pools", <PoolIcon key="i" />, pools.length],
+                ["graph", "Graph", <GraphIcon key="i" />, null],
+                ["backends", "Backends", <ServerIcon key="i" />, bkStatus ? Object.values(bkStatus).filter((s) => s.needs_key).length || null : null],
+              ] as [View, string, JSX.Element, number | null][]
+            ).map(([v, label, icon, n]) => (
               <button key={v} className={`navtab ${view === v ? "active" : ""}`} onClick={() => setView(v)}>
+                {icon}
                 {label}
                 {n !== null && n > 0 && <span className="navtab-n">{n}</span>}
               </button>
@@ -790,7 +925,7 @@ export default function Page() {
             No wallet extension? <strong>{hasLocal ? "Sign in with local key" : "Continue without a wallet"}</strong>{" "}
             {hasLocal ? "uses the keypair already in this browser" : "mints a keypair right here in your browser"} — it
             signs the same way a wallet does, so you can browse the market and hold an address immediately. Back the key
-            up from the 🔑 button once you&apos;re in; clearing site data destroys it.
+            up from the key button once you&apos;re in; clearing site data destroys it.
           </p>
         </div>
       )}
@@ -806,7 +941,7 @@ export default function Page() {
       {token && canStore && !termsSigned && (
         <div className="gate-card">
           <div className="gate-glow" />
-          <h2>✍️ One signature to start storing</h2>
+          <h2>One signature to start storing</h2>
           <p className="muted">
             Before your first upload, sign the <strong>terms of service</strong>{" "}
             <span className="pill">v{me?.terms?.version}</span> — you own what you store and are responsible
@@ -825,7 +960,7 @@ export default function Page() {
           <div className="tabs">
             {(["file", "text", "json", "image"] as const).map((k) => (
               <button key={k} className={`tab ${uploadKind === k ? "active" : ""}`} onClick={() => setUploadKind(k)}>
-                {k === "file" ? "📄 File" : k === "text" ? "✍️ Text" : k === "json" ? "🧩 JSON" : "🖼️ Image"}
+                {k === "file" ? <><FileIcon /> File</> : k === "text" ? <><TextIcon /> Text</> : k === "json" ? <><JsonIcon /> JSON</> : <><ImageIcon /> Screenshot</>}
               </button>
             ))}
           </div>
@@ -833,7 +968,59 @@ export default function Page() {
             <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} disabled={!!busy} />
           )}
           {uploadKind === "image" && (
-            <input type="file" accept="image/*" capture="environment" onChange={(e) => setFile(e.target.files?.[0] ?? null)} disabled={!!busy} />
+            <div className="col">
+              <div
+                className={`shot-zone ${dropHot ? "hot" : ""} ${imgUrl ? "filled" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); setDropHot(true); }}
+                onDragLeave={() => setDropHot(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDropHot(false);
+                  if (!acceptImage(e.dataTransfer.files?.[0])) setError("that drop wasn't an image");
+                }}
+              >
+                {imgUrl ? (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img className="shot-preview" src={imgUrl} alt={imgName || "screenshot"} />
+                    <div className="row shot-facts">
+                      <span className="muted">
+                        {imgDims ? `${imgDims.w}×${imgDims.h}` : "…"} · {fmtBytes(file?.size)} · {file?.type || "image"}
+                      </span>
+                      <button className="ghost" onClick={() => { setFile(null); setImgName(""); }} disabled={!!busy}>
+                        clear
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="shot-empty">
+                    <span className="shot-key">⌘V</span>
+                    <p style={{ margin: 0 }}>
+                      Paste a screenshot — anywhere in the app. Or drop an image here.
+                    </p>
+                    <label className="btn-link" style={{ cursor: "pointer" }}>
+                      choose an image…
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: "none" }}
+                        disabled={!!busy}
+                        onChange={(e) => { acceptImage(e.target.files?.[0]); e.target.value = ""; }}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+              {imgUrl && (
+                <input
+                  type="text"
+                  placeholder="name (keeps the extension, e.g. bug-report.png)"
+                  value={imgName}
+                  onChange={(e) => setImgName(e.target.value)}
+                  disabled={!!busy}
+                />
+              )}
+            </div>
           )}
           {uploadKind === "text" && (
             <div className="col">
@@ -978,7 +1165,7 @@ export default function Page() {
                 onTicket={() => setTicketFor(o)}
                 onInfo={() => setInfoFor(o.cid)}
                 onRemove={me?.admin ? () => doRemove(o, true) : undefined}
-                removeLabel="⚖️ take down"
+                removeLabel={<><GavelIcon /> take down</>}
               />
             ))}
           </ul>
@@ -997,13 +1184,13 @@ export default function Page() {
                 <div className="object-meta">
                   <div className="row">
                     <span className={`pill ${p.backend}`}>{p.backend}</span>
-                    {p.visibility && <span className={`pill ${p.visibility}`}>{p.visibility === "private" ? "🔒" : "🌐"} {p.visibility}</span>}
+                    {p.visibility && <span className={`pill ${p.visibility}`}>{p.visibility === "private" ? <LockIcon /> : <GlobeIcon />} {p.visibility}</span>}
                     {p.key && <span className="muted">{p.key}</span>}
                     {p.size != null && <span className="muted">{fmtBytes(p.size)}</span>}
                   </div>
                   <button className="cid-btn" onClick={() => copyText(p.cid, `pin-${p.cid}`)}>
                     <span className="cid">{p.cid}</span>
-                    <span className="muted"> {copied === `pin-${p.cid}` ? "✓ copied" : "⧉"}</span>
+                    <span className="muted"> {copied === `pin-${p.cid}` ? "✓ copied" : <CopyIcon />}</span>
                   </button>
                   <div className="row">
                     <Link href={`/o/${encodeURIComponent(p.cid)}`} className="btn-link">view</Link>
@@ -1071,7 +1258,7 @@ export default function Page() {
             setSellFor(null);
             setView("market");
             setMarketBump((n) => n + 1);
-            setSuccess(`“${title}” is live on the market 🔥`);
+            setSuccess(`“${title}” is live on the market`);
           }}
           setError={setError}
         />
@@ -1116,7 +1303,7 @@ export default function Page() {
             wallet-signed session proof.
           </p>
           <div className="row">
-            <button className="primary" onClick={signTerms} disabled={!!busy}>✍️ Sign &amp; accept</button>
+            <button className="primary" onClick={signTerms} disabled={!!busy}>Sign &amp; accept</button>
             <button className="ghost" onClick={() => setTermsDoc(null)} disabled={!!busy}>not now</button>
           </div>
         </Modal>
@@ -1166,7 +1353,7 @@ function BackendKeyPrompt({
   if (!admin) {
     return (
       <p className="muted hint">
-        🔑 <strong>{backend}</strong> needs an API key before uploads work — ask the store owner to add one
+        <KeyIcon /> <strong>{backend}</strong> needs an API key before uploads work — ask the store owner to add one
         in the Backends tab.
       </p>
     );
@@ -1201,7 +1388,7 @@ function BackendKeyPrompt({
   return (
     <div className="key-prompt">
       <p className="muted hint" style={{ margin: "0 0 8px" }}>
-        🔑 <strong>{backend}</strong> needs credentials.{" "}
+        <KeyIcon /> <strong>{backend}</strong> needs credentials.{" "}
         {backend === "lighthouse" ? (
           <>Create an API key at <a href="https://files.lighthouse.storage" target="_blank" rel="noreferrer">files.lighthouse.storage</a> and paste it here — it is stored off-chain on the server (<code>~/.mod/lighthouse/</code>), never in the repo.</>
         ) : (
@@ -1294,7 +1481,7 @@ function BackendsView({
         {names.map((b) => (
           <button key={b} className={`tab ${tab === b ? "active" : ""}`} onClick={() => setTab(b)}>
             {b}
-            {(probed?.[b] ?? bkStatus?.[b])?.needs_key && <span className="tab-warn"> 🔑</span>}
+            {(probed?.[b] ?? bkStatus?.[b])?.needs_key && <span className="tab-warn"> <KeyIcon /></span>}
           </button>
         ))}
       </div>
@@ -1304,7 +1491,7 @@ function BackendsView({
       <div className="row" style={{ margin: "8px 0" }}>
         <span className={`pill ${tab}`}>{tab}</span>
         {st?.needs_key ? (
-          <span className="pill error">🔑 needs API key</span>
+          <span className="pill error"><LockIcon /> needs API key</span>
         ) : (
           <span className="pill public">ready</span>
         )}
@@ -1357,46 +1544,53 @@ function ObjectRow({
   onPin?: () => void;
   onSell?: () => void;
   onRemove?: () => void;
-  removeLabel?: string;
+  removeLabel?: React.ReactNode;
 }) {
   const priv = o.visibility === "private";
+  const thumb = IMAGE_KEY_RE.test(o.key || "") ? api.getUrl(o.cid, o.backend, priv ? token : null) : null;
   return (
     <li className="object-card compact">
+      {thumb && (
+        <Link href={`/o/${encodeURIComponent(o.cid)}`} className="obj-thumb" title={o.key || "image"}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={thumb} alt={o.key || o.cid} loading="lazy" />
+        </Link>
+      )}
       <div className="object-meta">
         <div className="row">
           {o.backend && <span className={`pill ${o.backend}`}>{o.backend}</span>}
           {o.scheme && o.scheme !== "ipfs" && <span className="pill">{o.scheme}</span>}
-          {o.visibility && <span className={`pill ${priv ? "private" : "public"}`}>{priv ? "🔒 private" : "🌐 public"}</span>}
+          {o.visibility && <span className={`pill ${priv ? "private" : "public"}`}>{priv ? <><LockIcon /> private</> : <><GlobeIcon /> public</>}</span>}
           {o.shared_via && <span className="pill">via {o.shared_via}</span>}
           {o.similarity != null && <span className="pill sim">{Math.round(o.similarity * 100)}% match</span>}
           {o.key && <span className="muted">{o.key}</span>}
           {o.size != null && <span className="muted">{fmtBytes(o.size)}</span>}
           {!!o.timestamp && (
             <span className="muted" title={`uploaded ${fmtDate(o.timestamp)} · ${fmtAgo(o.timestamp)}`}>
-              🕗 {fmtStamp(o.timestamp)}
+              <ClockIcon /> {fmtStamp(o.timestamp)}
             </span>
           )}
         </div>
         <button className="cid-btn" title="Copy CID" onClick={() => onCopy(o.cid, o.cid)}>
           <span className="cid">{o.cid}</span>
-          <span className="muted"> {copied === o.cid ? "✓ copied" : "⧉"}</span>
+          <span className="muted"> {copied === o.cid ? "✓ copied" : <CopyIcon />}</span>
         </button>
         {o.semhash && (
           <button className="sem-chip" title="1-bit semantic hash (click to copy)" onClick={() => onCopy(o.semhash!, `sem-${o.cid}`)}>
-            🧠 <span className="mono">{o.semhash}</span>
+            <SemIcon /> <span className="mono">{o.semhash}</span>
             <span className="muted"> {copied === `sem-${o.cid}` ? "✓" : ""}</span>
           </button>
         )}
         <div className="row actions">
           <Link href={`/o/${encodeURIComponent(o.cid)}`} className="btn-link" title="Open this object's page">view</Link>
-          <button onClick={onTicket} disabled={busy} title="One-time QR / link for your phone">📱 QR</button>
+          <button onClick={onTicket} disabled={busy} title="One-time QR / link for your phone"><PhoneIcon /> QR</button>
           <a href={api.getUrl(o.cid, o.backend, priv ? token : null)} target="_blank" rel="noreferrer">download</a>
           <button onClick={onInfo} disabled={busy}>info</button>
           {!shared && onShare && <button onClick={onShare} disabled={busy}>share</button>}
           {!shared && onPublish && <button onClick={onPublish} disabled={busy}>{priv ? "make public" : "make private"}</button>}
           {!shared && onPin && <button onClick={onPin} disabled={busy}>pin</button>}
           {!shared && onSell && <button onClick={onSell} disabled={busy} title="List it on the market — free or priced in BlocTime">🏷 sell</button>}
-          {onRemove && <button className="danger" onClick={onRemove} disabled={busy} title="Delete the stored object">{removeLabel ?? "🗑 remove"}</button>}
+          {onRemove && <button className="danger" onClick={onRemove} disabled={busy} title="Delete the stored object">{removeLabel ?? <><TrashIcon /> remove</>}</button>}
         </div>
       </div>
     </li>
@@ -1511,7 +1705,7 @@ function CidSearch({
               </button>
             )}
             <button className="ghost" onClick={() => { onSemantic(); setOpen(false); }} title="Rank your objects by semantic similarity (1-bit hash)">
-              🧠 semantic
+              <SemIcon /> semantic
             </button>
             {fetchable && (
               <>
@@ -1650,7 +1844,7 @@ function InfoModal({
                 <span className="muted">Size</span><span>{fmtBytes(info.size)}</span>
                 <span className="muted">Backends</span><span>{info.backends.join(", ") || "—"}</span>
                 <span className="muted">Scheme</span><span>{info.scheme}</span>
-                <span className="muted">Visibility</span><span>{info.visibility === "private" ? "🔒 private" : "🌐 public"}</span>
+                <span className="muted">Visibility</span><span>{info.visibility === "private" ? <><LockIcon /> private</> : <><GlobeIcon /> public</>}</span>
                 <span className="muted">Pinned</span><span>{info.pinned ? "yes" : "no"}</span>
                 <span className="muted">Semantic hash</span><span className="mono" style={{ wordBreak: "break-all" }}>{info.semhash || "—"}</span>
                 {info.external_url && (<><span className="muted">External</span><span><a href={info.external_url} target="_blank" rel="noreferrer">{info.external_url}</a></span></>)}
@@ -2480,10 +2674,22 @@ function fmtAgo(secs: number): string {
   return `${Math.floor(d / (86400 * 30))}mo ago`;
 }
 
-const SORTS: { key: "hot" | "new" | "top"; label: string }[] = [
-  { key: "hot", label: "🔥 hot" },
-  { key: "new", label: "✨ new" },
-  { key: "top", label: "👑 top" },
+const SORTS: { key: "hot" | "new" | "top"; label: string; icon: JSX.Element }[] = [
+  {
+    key: "hot",
+    label: "hot",
+    icon: <Ico><path d="M12 3.2c2.6 3 3.6 5 3 6.3 1.2-.4 2-1.4 2.3-2.9 1.6 1.9 2.5 4 2.5 5.9a7.8 7.8 0 1 1-15.6 0c0-3 2.2-6.3 7.8-9.3Z" /></Ico>,
+  },
+  {
+    key: "new",
+    label: "new",
+    icon: <Ico><path d="M12 3.5 13.7 9l5.8.3-4.5 3.6 1.5 5.6L12 15.4 7.5 18.5 9 12.9 4.5 9.3 10.3 9 12 3.5Z" /></Ico>,
+  },
+  {
+    key: "top",
+    label: "top",
+    icon: <Ico><path d="M3.5 7.5 7 11l5-6.5 5 6.5 3.5-3.5-1.6 10H5.1L3.5 7.5Z" /><path d="M5 20.5h14" /></Ico>,
+  },
 ];
 
 function MarketView({
@@ -2542,7 +2748,7 @@ function MarketView({
     setBusy(l.cid);
     try {
       await api.marketAcquire(token, l.cid);
-      setSuccess(l.price_bloc > 0 ? `unlocked “${l.title}” — your BlocTime is the ticket 🎫` : `“${l.title}” is yours ⚡`);
+      setSuccess(l.price_bloc > 0 ? `unlocked “${l.title}” — your BlocTime is the ticket` : `“${l.title}” is yours`);
       onAcquired();
       await load();
     } catch (e) {
@@ -2590,6 +2796,8 @@ function MarketView({
   };
 
   const tags = data ? Object.entries(data.tags) : [];
+  // free listings in the current result set — the hero's third number
+  const freeCount = data ? data.listings.filter((l) => l.price_bloc <= 0).length : null;
 
   return (
     <>
@@ -2600,14 +2808,21 @@ function MarketView({
           <p className="market-tag">
             content-addressed drops <i>·</i> own it by CID <i>·</i> free or unlocked by <strong>BlocTime</strong> you hold on-chain
           </p>
+          {!token && <p className="muted hint">sign in to cop, like &amp; sell</p>}
+        </div>
+        {/* the numbers and the CTA claim the right half, so the band is never
+            a title floating in empty space on a wide screen */}
+        <div className="market-hero-side">
           <div className="market-hero-stats">
-            <span><strong>{data?.count ?? "…"}</strong> live drops</span>
-            <span><strong>{tags.length}</strong> tags</span>
-            {canSell && (
-              <button className="primary sell-cta" onClick={onSell}>🏷 Drop something</button>
-            )}
-            {!token && <span className="muted">sign in to cop, like &amp; sell</span>}
+            <span className="mk-stat"><strong>{data?.count ?? "…"}</strong><i>live drops</i></span>
+            <span className="mk-stat"><strong>{freeCount ?? "…"}</strong><i>free</i></span>
+            <span className="mk-stat"><strong>{tags.length}</strong><i>tags</i></span>
           </div>
+          {canSell && (
+            <button className="primary sell-cta" onClick={onSell}>
+              <span className="btn-ico"><TagIcon /></span> Drop something
+            </button>
+          )}
         </div>
       </div>
 
@@ -2623,11 +2838,11 @@ function MarketView({
           <div className="sort-seg">
             {SORTS.map((s) => (
               <button key={s.key} className={`seg ${sort === s.key ? "active" : ""}`} onClick={() => setSort(s.key)}>
-                {s.label}
+                {s.icon} {s.label}
               </button>
             ))}
             <button className={`seg ${freeOnly ? "active" : ""}`} onClick={() => setFreeOnly((f) => !f)} title="Free drops only">
-              💸 free
+              <FreeIcon /> free
             </button>
           </div>
         </div>
@@ -2652,7 +2867,11 @@ function MarketView({
             <p className="muted">
               {q || tag || seller || freeOnly ? "Nothing matches — loosen the filters." : "No drops yet. Be the first — list an object and set the tone."}
             </p>
-            {canSell && !q && !tag && <button className="primary" onClick={onSell}>🏷 List the first drop</button>}
+            {canSell && !q && !tag && (
+              <button className="primary" onClick={onSell}>
+                <span className="btn-ico"><TagIcon /></span> List the first drop
+              </button>
+            )}
           </div>
         )}
 
@@ -2705,10 +2924,10 @@ function MarketCard({
       <div className="mk-body">
         <div className="mk-top">
           <span className={`price-badge ${free ? "free" : "bloc"}`}>
-            {free ? "FREE" : `⏱ ${l.price_bloc} BLOC`}
+            {free ? "FREE" : <><ClockIcon /> {l.price_bloc} BLOC</>}
           </span>
-          {l.visibility === "private" && !unlocked && <span className="pill private">🔒 locked</span>}
-          {l.visibility === "private" && unlocked && !mine && <span className="pill public">✓ unlocked</span>}
+          {l.visibility === "private" && !unlocked && <span className="pill private"><LockIcon /> locked</span>}
+          {l.visibility === "private" && unlocked && !mine && <span className="pill public"><UnlockIcon /> unlocked</span>}
           {mine && <span className="pill admin">your drop</span>}
           <button
             className={`like-btn ${l.liked ? "liked" : ""}`}
@@ -2754,13 +2973,13 @@ function MarketCard({
             </>
           ) : (
             <button className={`primary ${free ? "" : "unlock"}`} onClick={onAcquire} disabled={working}>
-              {working ? "…" : free ? "⚡ Get it" : `🔓 Unlock · ${l.price_bloc} BLOC`}
+              {working ? "…" : free ? <><BoltIcon /> Get it</> : <><UnlockIcon s={13} /> Unlock · {l.price_bloc} BLOC</>}
             </button>
           )}
           {token && <button onClick={onInfo} disabled={working}>info</button>}
           {token && (mine || admin) && (
             <button className="danger" onClick={onDelist} disabled={working}>
-              {mine ? "delist" : "⚖️ take down"}
+              {mine ? "delist" : <><GavelIcon /> take down</>}
             </button>
           )}
         </div>
@@ -2860,7 +3079,7 @@ function SellModal({
         </p>
         <div className="row" style={{ marginTop: 6 }}>
           <button className="primary" onClick={submit} disabled={busy || !cid || !title.trim()}>
-            🔥 List it
+            <TagIcon /> List it
           </button>
           <button className="ghost" onClick={onClose} disabled={busy}>cancel</button>
         </div>

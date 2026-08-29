@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark light">
+<title>store</title>
+<!--
+  The page a share link lands on — /v/<code> for a one-time code, /p/<id> for a
+  published picture. One file, because the two differ in about six sentences.
+
+  IT IS INERT ON PURPOSE. Fetching this page claims nothing: it peeks (which
+  never spends a code) and then waits for a person to press the button. That is
+  what makes the QR code safe to put in a chat message or a link preview — the
+  bots that follow URLs render a page about a picture, and the code is still
+  good when the person it was meant for arrives.
+
+  It is also the only screen most people will ever see of this module, and it
+  is being read on a phone held at arm's length, so: one thing per screen, and
+  the sentence that matters is the biggest text on it.
+-->
+<style>
+:root{
+  --bg:#0b0d11; --panel:#151821; --line:#252a36; --ink:#e9edf5; --dim:#8d97a9;
+  --accent:#6ee7b7; --accent-ink:#04130c; --warn:#fbbf24; --bad:#f87171;
+  --shadow:0 24px 60px -22px #000c;
+}
+:root[data-theme=light]{
+  --bg:#f4f6fa; --panel:#fff; --line:#e2e6ef; --ink:#131722; --dim:#5f6982;
+  --accent:#0d9a6c; --accent-ink:#fff; --warn:#a86a00; --bad:#c33;
+  --shadow:0 20px 44px -24px #4a566e66;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:
+   radial-gradient(1100px 620px at 50% -12%, color-mix(in srgb,var(--accent) 12%,transparent), transparent 70%),
+   var(--bg);
+  color:var(--ink);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  display:flex;flex-direction:column;align-items:center;
+  padding:max(18px,env(safe-area-inset-top)) 18px 34px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+a{color:var(--accent)}
+header{width:100%;max-width:520px;display:flex;align-items:center;gap:9px;
+  padding:6px 2px 20px;color:var(--dim);font-size:13px}
+header .mark{width:22px;height:22px;border-radius:7px;background:var(--accent);
+  color:var(--accent-ink);display:grid;place-items:center;font-size:13px;font-weight:700}
+header .spacer{margin-left:auto}
+.theme{background:none;border:1px solid var(--line);color:var(--dim);
+  border-radius:99px;width:30px;height:30px;cursor:pointer;font-size:13px;line-height:1}
+main{width:100%;max-width:520px;background:var(--panel);border:1px solid var(--line);
+  border-radius:20px;box-shadow:var(--shadow);overflow:hidden}
+.pad{padding:26px 24px}
+h1{margin:0 0 8px;font-size:27px;line-height:1.18;letter-spacing:-.01em}
+p{margin:0 0 12px;color:var(--dim);font-size:14.5px}
+p.tight{margin-bottom:0}
+.hero{text-align:center}
+.clock{font-size:56px;font-weight:750;letter-spacing:-.03em;line-height:1;
+  font-variant-numeric:tabular-nums;margin:6px 0 4px}
+.clock.low{color:var(--warn)} .clock.out{color:var(--bad)}
+.bar{height:5px;border-radius:99px;background:var(--line);overflow:hidden;margin:16px 0 4px}
+.bar i{display:block;height:100%;background:var(--accent);width:100%;
+  transition:width .25s linear}
+.bar i.low{background:var(--warn)}
+button.go{display:block;width:100%;margin-top:20px;padding:16px;border:0;
+  border-radius:13px;background:var(--accent);color:var(--accent-ink);
+  font:600 16px/1 inherit;cursor:pointer}
+button.go:active{transform:translateY(1px)}
+button.go:disabled{opacity:.5;cursor:progress}
+.ghost{display:inline-flex;align-items:center;gap:7px;padding:10px 14px;
+  border:1px solid var(--line);border-radius:11px;background:none;color:var(--ink);
+  font:500 13.5px/1 inherit;cursor:pointer;text-decoration:none}
+.ghost:hover{border-color:var(--dim)}
+.acts{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}
+figure{margin:0;background:#000;display:grid;place-items:center;min-height:180px}
+:root[data-theme=light] figure{background:#0d1016}
+figure img{max-width:100%;max-height:62vh;display:block}
+.banner{display:flex;gap:9px;align-items:flex-start;padding:13px 16px;
+  font-size:13.5px;border-bottom:1px solid var(--line)}
+.banner.spent{background:color-mix(in srgb,var(--warn) 14%,transparent);color:var(--ink)}
+.banner.open{background:color-mix(in srgb,var(--accent) 13%,transparent)}
+.banner b{font-weight:650}
+.meta{display:flex;gap:8px;flex-wrap:wrap;color:var(--dim);font-size:12.5px;
+  padding:14px 24px;border-top:1px solid var(--line)}
+.meta span+span:before{content:"·";margin-right:8px}
+.link{display:block;margin-top:14px;padding:11px 13px;background:var(--bg);
+  border:1px solid var(--line);border-radius:11px;font-size:12px;
+  word-break:break-all;color:var(--dim)}
+.big{font-size:34px;margin-bottom:10px}
+footer{max-width:520px;color:var(--dim);font-size:12px;text-align:center;
+  padding:20px 6px 0;line-height:1.6}
+footer a{color:var(--dim)}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:10px 16px;font-size:13px;display:none;box-shadow:var(--shadow)}
+.spin{width:20px;height:20px;border:2px solid var(--line);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .7s linear infinite;margin:24px auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:420px){.pad{padding:22px 18px}h1{font-size:24px}}
+</style>
+</head>
+<body>
+<header>
+  <span class="mark">&#9713;</span><span>store</span>
+  <span class="spacer"></span>
+  <button class="theme" id="theme" title="Light or dark">&#9681;</button>
+</header>
+
+<main id="card"><div class="spin"></div></main>
+<footer id="foot"></footer>
+<div id="toast"></div>
+
+<script>
+// ── where am I, and what am I looking at ─────────────────────────────
+// Served two ways: /store/v/<code> from the console, and /v/<code> straight
+// from the API when only that half is running. Everything below is derived
+// from the path so the same file works under either prefix.
+const PARTS = location.pathname.split('/').filter(Boolean);
+const KIND  = PARTS[PARTS.length - 2] || '';          // 'v' or 'p'
+const KEY   = decodeURIComponent(PARTS[PARTS.length - 1] || '');
+const ROOT  = '/' + PARTS.slice(0, -2).join('/');     // '/store' or '/'
+const PRE   = ROOT === '/' ? '' : ROOT;
+const API   = PRE + (PRE ? '/_api' : '');
+const el = (id) => document.getElementById(id);
+const card = el('card');
+
+const THEME_KEY = 'store.theme';
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  try{ localStorage.setItem(THEME_KEY, t); }catch(e){}
+  el('theme').textContent = t === 'light' ? '◕' : '◑';
+}
+setTheme((() => { try{ return localStorage.getItem(THEME_KEY) || 'dark'; }
+                  catch(e){ return 'dark'; } })());
+el('theme').onclick = () => setTheme(
+  document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+
+function toast(message){
+  const box = el('toast');
+  box.textContent = message; box.style.display = 'block';
+  clearTimeout(box._t); box._t = setTimeout(() => box.style.display = 'none', 2400);
+}
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function bytes(n){
+  const units = ['B','KB','MB','GB']; let i = 0;
+  while(n >= 1024 && i < units.length - 1){ n /= 1024; i++; }
+  return `${n < 10 && i ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
+}
+function clock(seconds){
+  seconds = Math.max(0, Math.round(seconds));
+  if(seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60), s = seconds % 60;
+  if(m < 60) return `${m}:${String(s).padStart(2,'0')}`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+async function api(path){
+  const response = await fetch(API + path, {headers:{'Accept':'application/json'}});
+  const data = await response.json().catch(() => ({}));
+  if(!response.ok) throw Object.assign(new Error(data.error || `HTTP ${response.status}`),
+                                       {status: response.status});
+  return data;
+}
+function copy(text){
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+    .then(() => toast('Link copied.'), () => toast(text));
+}
+function state(html, footer){
+  card.innerHTML = html;
+  el('foot').innerHTML = footer || '';
+}
+
+// ── a one-time code: /v/<code> ───────────────────────────────────────
+// The order matters. Peek first (which spends nothing), render what the code
+// IS, and let the person decide to spend it. Nothing on this path claims until
+// the button is pressed.
+let TIMER = null;
+
+async function grantPage(){
+  let grant;
+  try{
+    grant = await api(`/grant?code=${encodeURIComponent(KEY)}`);
+  }catch(error){
+    return state(`<div class="pad hero">
+      <div class="big">&#10005;</div>
+      <h1>No such link</h1>
+      <p>This code isn't one this store has ever issued &mdash; check for a
+         typo, or ask for a new one.</p>
+      <p class="link mono">${esc(KEY.slice(0, 24))}${KEY.length > 24 ? '&hellip;' : ''}</p>
+    </div>`);
+  }
+  if(grant.claimed) return spentPage(grant);
+  if(!grant.live)   return expiredPage(grant);
+  livePage(grant);
+}
+
+function livePage(grant){
+  const total = Math.max(1, grant.ttl || grant.seconds_left);
+  state(`
+    <div class="banner open"><span>&#9673;</span>
+      <span><b>One person, one time.</b> Opening this page didn't use the link
+      up &mdash; pressing the button does.</span></div>
+    <div class="pad hero">
+      <h1>A picture is waiting for you</h1>
+      <p class="tight">It stops working after one look, or when the timer runs
+        out &mdash; whichever comes first.</p>
+      <div class="clock" id="clock">&mdash;</div>
+      <div class="bar"><i id="bar"></i></div>
+      <p class="tight mono" style="font-size:11.5px">expires either way</p>
+      <button class="go" id="reveal">Show me the picture</button>
+    </div>`,
+    'Save it as soon as you see it. There is no second look.');
+
+  const deadline = Date.now() + grant.seconds_left * 1000;
+  const tick = () => {
+    const left = Math.max(0, (deadline - Date.now()) / 1000);
+    const low = left <= Math.min(15, total * 0.25);
+    el('clock').textContent = clock(left);
+    el('clock').classList.toggle('low', low && left > 0);
+    el('bar').style.width = `${Math.max(0, Math.min(100, left / total * 100))}%`;
+    el('bar').classList.toggle('low', low);
+    if(left <= 0){ clearInterval(TIMER); expiredPage(grant); }
+  };
+  tick(); clearInterval(TIMER); TIMER = setInterval(tick, 250);
+
+  el('reveal').onclick = async (event) => {
+    // This is the claim. One fetch, and the grant is gone whatever happens
+    // next — so the bytes are held in this tab and offered for download
+    // rather than left to a reload that cannot work.
+    event.target.disabled = true;
+    event.target.textContent = 'Opening…';
+    clearInterval(TIMER);
+    try{
+      const response = await fetch(`${PRE}/g/${encodeURIComponent(KEY)}`);
+      if(!response.ok){
+        const said = await response.json().catch(() => ({}));
+        if(response.status === 410) return spentPage(grant, said.error);
+        throw new Error(said.error || `HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      shownPage(URL.createObjectURL(blob), blob);
+    }catch(error){
+      state(`<div class="pad hero"><div class="big">&#10005;</div>
+        <h1>That didn't arrive</h1><p>${esc(error.message)}</p>
+        <p class="tight">If the picture never appeared, the code may still be
+          good. Try the link once more.</p></div>`);
+    }
+  };
+}
+
+function shownPage(url, blob){
+  const name = `store-${KEY.slice(0, 8)}.${(blob.type.split('/')[1] || 'png')
+    .replace('jpeg','jpg')}`;
+  state(`
+    <div class="banner spent"><span>&#10003;</span>
+      <span><b>Yours, and now spent.</b> This link is used up &mdash; a second
+      open, by anyone including you, gets nothing. Save it if you want to keep
+      it.</span></div>
+    <figure><img src="${url}" alt="the shared picture"></figure>
+    <div class="pad" style="padding-top:16px">
+      <div class="acts">
+        <a class="ghost" id="save" download="${esc(name)}" href="${url}">&#8595; Save the picture</a>
+        <a class="ghost" href="${url}" target="_blank" rel="noopener">Open full size</a>
+      </div>
+      <p style="margin-top:16px" class="tight">It is only in this tab now.
+        Closing the page without saving loses it.</p>
+    </div>
+    <div class="meta"><span>${bytes(blob.size)}</span><span>${esc(blob.type)}</span>
+      <span>one-time link</span></div>`,
+    'Shared with a code that worked once. Nothing was kept between here and you.');
+}
+
+function spentPage(grant, message){
+  const when = grant.claimed_at
+    ? new Date(grant.claimed_at * 1000).toLocaleString() : null;
+  state(`<div class="pad hero">
+    <div class="big">&#9679;</div>
+    <h1>Somebody already opened this</h1>
+    <p>${esc(message || 'This link was good for exactly one look, and that look has happened.')}
+       ${when ? `It was opened on ${esc(when)}.` : ''}</p>
+    <p class="tight">That is the difference from a broken link: this code was
+      real, and it worked &mdash; once. Ask whoever sent it for a new one.</p>
+  </div>`, 'A used code says "used", not "not found", so you can tell the two apart.');
+}
+
+function expiredPage(grant){
+  state(`<div class="pad hero">
+    <div class="big">&#9675;</div>
+    <h1>This link ran out of time</h1>
+    <p>It was good for ${clock(grant.ttl || 0)} and nobody opened it in time
+      &mdash; so it expired on its own, unseen.</p>
+    <p class="tight">A code nobody scans is exactly as safe as one scanned
+      once. Ask for another.</p>
+  </div>`, 'Time and use are separate limits. This one hit the clock.');
+}
+
+// ── a published picture: /p/<id> ─────────────────────────────────────
+async function publicPage(){
+  let image;
+  try{
+    image = await api(`/image?id=${encodeURIComponent(KEY)}`);
+  }catch(error){
+    return state(`<div class="pad hero">
+      <div class="big">&#10005;</div>
+      <h1>Nothing published here</h1>
+      <p>This picture either doesn't exist or was never made public &mdash;
+        those two answer the same way on purpose, so this page can't be used to
+        find out which.</p></div>`);
+  }
+  const src = `${PRE}/i/${encodeURIComponent(KEY)}`;
+  const here = location.href;
+  state(`
+    <figure><img src="${src}" alt="${esc(image.name)}"></figure>
+    <div class="pad" style="padding-top:18px">
+      <h1 style="font-size:20px">${esc(image.name)}</h1>
+      <p class="tight">A published picture: this link is permanent, open, and
+        has no expiry. Anyone who ever sees it sees this.</p>
+      <div class="acts">
+        <button class="ghost" id="copy">Copy this link</button>
+        <a class="ghost" href="${src}" download="${esc(image.name)}">&#8595; Download</a>
+        <a class="ghost" href="${src}" target="_blank" rel="noopener">Open full size</a>
+      </div>
+      <div class="link mono">${esc(here)}</div>
+    </div>
+    <div class="meta">
+      <span>${bytes(image.size || 0)}</span>
+      ${image.width ? `<span>${image.width}&times;${image.height}</span>` : ''}
+      <span>${esc(image.mime || '')}</span>
+      ${image.created ? `<span>${esc(new Date(image.created * 1000).toLocaleDateString())}</span>` : ''}
+    </div>`,
+    'Published &mdash; permanent and open. For one person instead, ask for a one-time code.');
+  el('copy').onclick = () => copy(here);
+}
+
+// ── go ───────────────────────────────────────────────────────────────
+document.title = KIND === 'p' ? 'store — a picture' : 'store — a one-time link';
+if(KIND === 'v') grantPage();
+else if(KIND === 'p') publicPage();
+else state(`<div class="pad hero"><h1>Nothing to show</h1>
+  <p>This address doesn't point at a picture or a code.</p>
+  <p class="tight"><a href="${PRE || '/'}/">Go to the store</a></p></div>`);
+</script>
+</body>
+</html>

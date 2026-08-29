@@ -1,0 +1,693 @@
+/* eth console — a chain is a ledger, so the palette is ink and one live colour.
+   Light and dark are one palette with the ramp inverted; nothing is hard-coded
+   to a background, so a screenshot in either theme reads the same. */
+
+:root {
+  --void:   #0a0d12;
+  --slab:   #11161d;
+  --edge:   #1d2732;
+  --ink:    #e7edf4;
+  --dim:    #7f93a6;
+  --live:   #7c9cff;   /* the one live colour: chain, links, primaries */
+  --live-d: #5a7ae8;
+  --good:   #3fbf8f;
+  --warn:   #e6a23c;
+  --bad:    #e5484d;
+  --gold:   #d9a441;   /* real money */
+  --radius: 10px;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+[data-theme="light"] {
+  --void: #f4f6f9;
+  --slab: #ffffff;
+  --edge: #dde4ec;
+  --ink:  #131b24;
+  --dim:  #5a6b7c;
+  --live: #3355dd;
+  --live-d: #2440b8;
+  --gold: #9a6f10;
+  --grid: 14%;
+}
+
+* { box-sizing: border-box; }
+/* Half this chrome is a pill with its own display rule; `hidden` has to win. */
+[hidden] { display: none !important; }
+
+:focus-visible { outline: 2px solid color-mix(in srgb, var(--live) 70%, transparent);
+                 outline-offset: 2px; border-radius: 8px; }
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+
+body {
+  margin: 0;
+  background: var(--void);
+  color: var(--ink);
+  font: 15px/1.5 var(--sans);
+  min-height: 100vh;
+  /* A ledger's own graph paper: a 28px dot grid at 3% under two soft glows.
+     It is there to stop a mostly-empty dark page reading as a dead one, and
+     it is faint enough that a screenshot of a contract is still a screenshot
+     of a contract. */
+  background-image:
+    radial-gradient(1100px 320px at 12% -8%, color-mix(in srgb, var(--live) 13%, transparent), transparent 70%),
+    radial-gradient(900px 380px at 92% 4%, color-mix(in srgb, var(--good) 8%, transparent), transparent 72%),
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--dim) var(--grid, 26%), transparent) 1px, transparent 0);
+  background-size: auto, auto, 28px 28px;
+  background-attachment: fixed, fixed, fixed;
+}
+
+a { color: var(--live); }
+h3 { margin: 0 0 8px; font: 600 12px var(--mono); letter-spacing: .1em;
+     text-transform: uppercase; color: var(--dim); }
+
+/* ── the bar ─────────────────────────────────────────────────────────
+   One sticky chrome: identity and chain on the right, sections underneath,
+   both of them still there after you scroll a 400-line contract. Everything
+   in it is a fixed-height pill, so a long address or a long chain name
+   truncates instead of pushing the bar into a second row. */
+
+.bar {
+  position: sticky; top: 0; z-index: 20;
+  background: color-mix(in srgb, var(--slab) 78%, transparent);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border-bottom: 1px solid var(--edge);
+}
+/* A hairline of the live colour along the bottom edge — the one place the
+   page admits it is a chain tool before you have read a word of it. */
+.bar::after {
+  content: ''; position: absolute; inset: auto 0 -1px 0; height: 1px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--live) 75%, transparent),
+    color-mix(in srgb, var(--good) 45%, transparent) 38%, transparent 72%);
+}
+.bar-inner {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  max-width: 1560px; margin: 0 auto; width: 100%; padding: 11px 20px;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0;
+         text-decoration: none; color: inherit; }
+.mark { width: 19px; height: 22px; flex: 0 0 auto; color: var(--live);
+        filter: drop-shadow(0 2px 9px color-mix(in srgb, var(--live) 45%, transparent)); }
+.mark svg { width: 100%; height: 100%; display: block; }
+.mark path { fill: currentColor; }
+.mark .f1 { opacity: .5; }
+.mark .f2 { opacity: .78; }
+.mark .f3 { opacity: 1; }
+.brand:hover .mark { filter: drop-shadow(0 2px 14px color-mix(in srgb, var(--live) 70%, transparent)); }
+.name { font: 600 16px var(--mono); letter-spacing: .02em; color: var(--ink); }
+
+.brand-tag {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  margin-left: 4px; padding-left: 13px; border-left: 1px solid var(--edge);
+  color: var(--dim); font: 11.5px var(--mono); white-space: nowrap; overflow: hidden;
+}
+.brand-tag b { font-weight: 400; }
+.brand-tag i { font-style: normal; color: color-mix(in srgb, var(--live) 65%, transparent); }
+
+.bar-right { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; }
+
+/* the chain picker — a pill that says which chain and whether it is real */
+.chain {
+  display: flex; align-items: center; gap: 8px; height: 34px; flex: 0 0 auto;
+  padding: 0 11px; border: 1px solid var(--edge); border-radius: 999px;
+  background: var(--void); transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.chain:hover, .chain:focus-within {
+  border-color: color-mix(in srgb, var(--live) 55%, var(--edge));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--live) 12%, transparent);
+}
+.chain .net {
+  appearance: none; -webkit-appearance: none; background: transparent; border: 0;
+  padding: 0; height: 100%; max-width: 150px; cursor: pointer;
+  font: 13px var(--mono); color: var(--ink); text-overflow: ellipsis;
+}
+.chain .net:focus { outline: none; }
+.chain .chev { width: 13px; height: 13px; flex: 0 0 auto; margin-left: -3px;
+               fill: none; stroke: var(--dim); stroke-width: 2;
+               stroke-linecap: round; stroke-linejoin: round; }
+.chain .kind {
+  font: 9.5px var(--mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--gold); padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--gold) 55%, transparent);
+}
+/* Spending real money is a state of the whole control, not a footnote in it. */
+.chain[data-kind="real"] {
+  border-color: color-mix(in srgb, var(--gold) 60%, transparent);
+  background: color-mix(in srgb, var(--gold) 9%, var(--void));
+}
+.chain[data-kind="real"]:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 15%, transparent); }
+
+/* the heartbeat — the chain moving, in the chrome, without being asked.
+   A console for a live ledger that shows nothing until you click something
+   feels dead; a block number that ticks is the cheapest proof it is not. */
+.pulse {
+  display: flex; align-items: baseline; gap: 9px; flex: 0 0 auto;
+  font: 11.5px var(--mono); color: var(--dim); padding-right: 3px;
+}
+.pulse .p-block { color: var(--ink); transition: color .2s; }
+.pulse .p-block.tick { color: var(--good);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--good) 70%, transparent); }
+@media (max-width: 1000px) { .pulse { display: none; } }
+
+.chain .dot { transition: box-shadow .2s; }
+.chain .dot.ok { box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 18%, transparent); }
+.chain .dot.bad { box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 20%, transparent); }
+
+/* icon buttons: theme, sign out */
+.icon-btn {
+  display: grid; place-items: center; width: 34px; height: 34px; padding: 0;
+  flex: 0 0 auto; border-radius: 999px; border: 1px solid var(--edge);
+  background: var(--void); color: var(--dim);
+  transition: color .12s, border-color .12s, background .12s, transform .12s;
+}
+.icon-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor;
+                stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.icon-btn:hover { color: var(--ink); background: color-mix(in srgb, var(--live) 12%, var(--void));
+                  border-color: color-mix(in srgb, var(--live) 55%, var(--edge)); }
+.icon-btn:active { transform: scale(.94); }
+#theme .i-moon, [data-theme="light"] #theme .i-sun { display: none; }
+[data-theme="light"] #theme .i-moon { display: block; }
+#signout:hover { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, var(--void));
+                 border-color: color-mix(in srgb, var(--bad) 55%, var(--edge)); }
+
+/* who you are — the address, and a picture of it you can recognise at a glance */
+.ident { display: flex; align-items: center; gap: 8px; }
+.who {
+  display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 11px 0 6px;
+  border-radius: 999px; border: 1px solid var(--edge); background: var(--void);
+  font: 12px var(--mono); color: var(--ink); white-space: nowrap;
+  transition: border-color .12s, background .12s;
+}
+.who:hover { border-color: color-mix(in srgb, var(--live) 55%, var(--edge));
+             background: color-mix(in srgb, var(--live) 8%, var(--void)); }
+.who .pic {
+  width: 22px; height: 22px; border-radius: 50%; flex: 0 0 auto;
+  background: conic-gradient(from var(--a, 0deg), var(--c1, #7c9cff), var(--c2, #3fbf8f),
+                             var(--c3, #d9a441), var(--c1, #7c9cff));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent),
+              0 0 0 2px color-mix(in srgb, var(--live) 14%, transparent);
+}
+.who .i-copy { width: 13px; height: 13px; flex: 0 0 auto; fill: none; stroke: var(--dim);
+               stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+               opacity: 0; transition: opacity .12s; }
+.who:hover .i-copy { opacity: 1; }
+.sign { height: 34px; border-radius: 999px; padding: 0 17px;
+        box-shadow: 0 4px 16px color-mix(in srgb, var(--live) 32%, transparent); }
+.sign:hover { box-shadow: 0 4px 20px color-mix(in srgb, var(--live) 45%, transparent); }
+
+/* ── sections ────────────────────────────────────────────────────────
+   In the bar, not under it: the tab you are on stays visible while the
+   pane below it scrolls, and the ink bar slides rather than jumping. */
+
+.tabs {
+  position: relative; display: flex; gap: 2px; width: 100%;
+  max-width: 1560px; margin: 0 auto; padding: 0 20px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  border: 0; background: transparent; color: var(--dim); white-space: nowrap;
+  padding: 8px 13px 11px; border-radius: 9px 9px 0 0;
+  font: 13px var(--sans); transition: color .14s, background .14s;
+}
+.tab:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.tab.on { color: var(--ink); font-weight: 600; }
+.tab-ink {
+  position: absolute; bottom: 0; left: 0; width: 0; height: 2px;
+  border-radius: 2px 2px 0 0; pointer-events: none;
+  background: linear-gradient(90deg, var(--live),
+              color-mix(in srgb, var(--live) 55%, var(--good)));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--live) 75%, transparent);
+  transition: left .24s cubic-bezier(.4, 0, .2, 1), width .24s cubic-bezier(.4, 0, .2, 1);
+}
+
+@media (max-width: 1180px) { .brand-tag { display: none; } }
+@media (max-width: 700px) {
+  .bar-inner { padding: 10px 14px; gap: 10px; }
+  .tabs { padding: 0 10px; }
+  .chain .net { max-width: 104px; }
+}
+@media (max-width: 520px) { .who .addr, .who .i-copy { display: none; }
+                            .who { padding: 0 6px; } .name { display: none; } }
+
+/* ── controls ────────────────────────────────────────────────── */
+
+button {
+  font: 13px var(--sans); padding: 7px 14px; border-radius: 8px;
+  border: 1px solid var(--edge); background: transparent; color: var(--ink);
+  cursor: pointer; transition: border-color .12s, background .12s;
+}
+button:hover { border-color: var(--live); }
+button:disabled { opacity: .45; cursor: not-allowed; border-color: var(--edge); }
+.primary { background: var(--live); border-color: var(--live); color: #0a0d12; font-weight: 600; }
+.primary:hover { background: var(--live-d); border-color: var(--live-d); color: #fff; }
+.ghost { color: var(--dim); }
+.tiny { padding: 4px 9px; font-size: 12px; }
+
+input, textarea, select {
+  font: 13px var(--mono); color: var(--ink); background: var(--void);
+  border: 1px solid var(--edge); border-radius: 8px; padding: 8px 10px;
+  flex: 1 1 170px; min-width: 0;
+}
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--live); }
+textarea { width: 100%; resize: vertical; line-height: 1.45; }
+select { cursor: pointer; }
+.net { flex: 0 0 auto; max-width: 190px; }
+.narrow { flex: 0 0 140px; }
+.grow { flex: 1 1 200px; }
+.check { display: flex; align-items: center; gap: 6px; color: var(--dim);
+         font-size: 13px; white-space: nowrap; flex: 0 0 auto; }
+.check input { flex: none; accent-color: var(--live); }
+.check.danger { color: var(--gold); }
+.check.danger input { accent-color: var(--gold); }
+
+/* ── layout ──────────────────────────────────────────────────── */
+
+main { max-width: 1560px; margin: 0 auto; padding: 16px 20px 48px;
+       display: grid; gap: 16px; width: 100%; }
+.pane { display: none; gap: 16px; }
+.pane.on { display: grid; }
+/* Every pane but the bench is a reading width; the bench wants the room. */
+.pane:not(#pane-build) { max-width: 1080px; width: 100%; margin: 0 auto; }
+.grid { display: grid; gap: 16px; }
+.two { grid-template-columns: 1fr 1fr; }
+@media (max-width: 820px) { .two { grid-template-columns: 1fr; } }
+
+.card {
+  position: relative; background: var(--slab); border: 1px solid var(--edge);
+  border-radius: var(--radius); padding: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18), 0 10px 30px -22px rgba(0, 0, 0, .7);
+}
+/* One hairline of light along the top edge: enough for a panel to sit on the
+   page rather than be cut out of it, in either theme. */
+.card::before, .rail::before, .bench::before, .results::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 1px;
+  border-radius: var(--radius) var(--radius) 0 0; pointer-events: none;
+  background: linear-gradient(90deg, transparent,
+              color-mix(in srgb, var(--ink) 14%, transparent) 22%,
+              color-mix(in srgb, var(--ink) 14%, transparent) 78%, transparent);
+}
+.card h2 {
+  margin: 0 0 12px; font: 600 12px var(--mono); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--dim);
+  display: flex; align-items: center; gap: 8px;
+}
+.head-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+            flex-wrap: wrap; }
+.head-row h2 { margin: 0; flex: 0 0 auto; }
+
+.row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.row.wrap { flex-wrap: wrap; }
+.hint { color: var(--dim); font-size: 12.5px; margin: 10px 0 0; }
+.hint code { font: 12px var(--mono); color: var(--live); }
+
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim);
+       flex: 0 0 auto; }
+.dot.ok { background: var(--good); }
+.dot.warn { background: var(--warn); }
+.dot.bad { background: var(--bad); }
+
+.badge { font: 10px var(--mono); letter-spacing: .1em; padding: 2px 7px;
+         border-radius: 999px; border: 1px solid var(--edge); color: var(--dim); }
+.badge.test { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+.badge.real { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 55%, transparent); }
+
+/* ── data ────────────────────────────────────────────────────── */
+
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px;
+     margin: 0; font-size: 13px; }
+dt { color: var(--dim); font: 12px var(--mono); }
+dd { margin: 0; font: 12.5px var(--mono); overflow-wrap: anywhere; }
+
+.rows { display: grid; gap: 8px; }
+.item {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 11px; border: 1px solid var(--edge); border-radius: 8px;
+  background: var(--void); font: 12.5px var(--mono);
+  transition: border-color .14s, background .14s;
+}
+.item:hover { border-color: color-mix(in srgb, var(--live) 40%, var(--edge)); }
+.item .grow { flex: 1 1 auto; }
+.item .muted { color: var(--dim); }
+.item .amount { color: var(--live); }
+.item.bad { border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.item.ok { border-color: color-mix(in srgb, var(--good) 35%, transparent); }
+
+.out { margin-top: 12px; font: 12px var(--mono); color: var(--dim);
+       white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px;
+       overflow: auto; }
+.out:empty { display: none; }
+.out .ok { color: var(--good); }
+.out .err { color: var(--bad); }
+.code { background: var(--void); border: 1px solid var(--edge); border-radius: 8px;
+        padding: 12px; font: 12px var(--mono); overflow: auto; color: var(--dim);
+        max-height: 240px; }
+
+/* ── generated forms ─────────────────────────────────────────── */
+
+.fn { border: 1px solid var(--edge); border-radius: 8px; padding: 10px;
+      margin-bottom: 8px; background: var(--void); }
+.fn-name { font: 12.5px var(--mono); color: var(--ink); display: flex;
+           justify-content: space-between; gap: 8px; align-items: center; }
+.fn-name .sig { color: var(--dim); font-size: 11px; }
+.fn .args { display: grid; gap: 6px; margin-top: 8px; }
+.fn .args input { font-size: 12px; padding: 6px 8px; }
+.fn .result { margin-top: 8px; font: 12px var(--mono); color: var(--good);
+              overflow-wrap: anywhere; }
+.fn .result.err { color: var(--bad); }
+.ctor { margin-top: 10px; }
+.ctor .args { display: grid; gap: 6px; }
+
+.tools { display: grid; gap: 8px; margin-top: 12px; }
+.tool { border: 1px solid var(--edge); border-radius: 8px; padding: 10px;
+        background: var(--void); }
+.tool summary { cursor: pointer; font: 12.5px var(--mono); color: var(--ink); }
+.tool p { margin: 8px 0 0; font-size: 12.5px; color: var(--dim); }
+.tool .auth { font: 10px var(--mono); color: var(--dim); float: right; }
+
+/* ── toast ───────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px);
+  background: var(--slab); border: 1px solid var(--edge); color: var(--ink);
+  padding: 10px 16px; border-radius: 8px; font: 13px var(--sans);
+  opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s;
+  max-width: 90vw; z-index: 20;
+}
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+.toast { padding-left: 26px; box-shadow: 0 16px 40px -12px rgba(0, 0, 0, .6); }
+.toast::before { content: ''; position: absolute; left: 10px; top: 50%;
+                 width: 6px; height: 6px; margin-top: -3px; border-radius: 50%;
+                 background: var(--good);
+                 box-shadow: 0 0 10px color-mix(in srgb, var(--good) 80%, transparent); }
+.toast.bad { border-color: var(--bad); }
+.toast.bad::before { background: var(--bad);
+                     box-shadow: 0 0 10px color-mix(in srgb, var(--bad) 80%, transparent); }
+
+
+/* ═══ the build bench ═════════════════════════════════════════════════
+   Three columns in the order of the work: what you have, what you are
+   writing, what happened. On a narrow screen they stack in that same
+   order, which is why the rail is markup-first rather than floated. */
+
+.bench-grid {
+  display: grid; gap: 14px;
+  grid-template-columns: 268px minmax(0, 1fr) 400px;
+  /* Stretch, not start: three panels of different content lengths still read
+     as one surface, and the results column has somewhere to put a long test
+     report without the page growing a second scrollbar. */
+  align-items: stretch;
+}
+@media (max-width: 1360px) { .bench-grid { grid-template-columns: 240px minmax(0,1fr); }
+                             .results { grid-column: 1 / -1; } }
+
+/* Stacked, the order flips: the code is what somebody came for, so it goes
+   first and the rail — which is navigation, not work — goes last. A page that
+   opens on a paragraph about content addressing has buried its own editor. */
+@media (max-width: 900px) {
+  .bench-grid { grid-template-columns: minmax(0, 1fr); }
+  .bench   { order: 1; }
+  .results { order: 2; }
+  .rail    { order: 3; }
+  .editor-host { min-height: 52vh; }
+}
+
+.rail, .bench, .results {
+  position: relative; background: var(--slab); border: 1px solid var(--edge);
+  border-radius: var(--radius); padding: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18), 0 10px 30px -22px rgba(0, 0, 0, .7);
+}
+.rail { display: grid; gap: 8px; align-content: start; }
+.rail-head { display: flex; align-items: center; justify-content: space-between;
+             gap: 8px; margin-top: 4px; }
+.rail-head h3 { margin: 0; }
+.rail .row input { font-size: 11.5px; }
+.rail-list { display: grid; gap: 6px; max-height: 42vh; overflow: auto; }
+
+.pj {
+  display: grid; gap: 3px; text-align: left; padding: 9px 10px;
+  border: 1px solid var(--edge); border-radius: 8px; background: var(--void);
+  cursor: pointer; width: 100%;
+}
+.pj { transition: border-color .14s, background .14s, transform .14s; }
+.pj:hover { border-color: var(--live-d); transform: translateY(-1px);
+            background: color-mix(in srgb, var(--live) 5%, var(--void)); }
+.pj.on { border-color: var(--live);
+         background: color-mix(in srgb, var(--live) 8%, var(--void)); }
+.pj-name { font: 600 13px var(--sans); color: var(--ink); }
+.pj-meta { font: 11px var(--mono); color: var(--dim);
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-tags { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 2px; }
+
+.tag { font: 10px var(--mono); letter-spacing: .04em; padding: 1px 6px;
+       border-radius: 999px; border: 1px solid var(--edge); color: var(--dim); }
+.tag.pub  { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+.tag.cid  { color: var(--live); border-color: color-mix(in srgb, var(--live) 40%, transparent); }
+.tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+
+.note { display: grid; gap: 3px; padding: 9px 10px; border-radius: 8px;
+        border: 1px solid var(--edge); background: var(--void); margin-top: 8px; }
+.note b { font: 600 12px var(--mono); letter-spacing: .04em; }
+.note .hint { margin: 0; font-size: 11.5px; }
+.note.ok   { border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+.note.ok b { color: var(--good); }
+.note.warn { border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.note.warn b { color: var(--warn); }
+.note.bad  { border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.note.bad b { color: var(--bad); }
+.note button { justify-self: start; margin-top: 4px; }
+
+/* ── the middle column ───────────────────────────────────────── */
+
+.bench { display: flex; flex-direction: column; gap: 10px; }
+/* The editor absorbs whatever height the other two columns claim, so the
+   three panels end level instead of leaving a hole under the code. */
+.editor-host { flex: 1 1 auto; }
+.bench-head { display: flex; align-items: center; gap: 8px; }
+.title-input {
+  font: 600 16px var(--sans); background: transparent; border: 1px solid transparent;
+  padding: 5px 8px; flex: 1 1 auto;
+}
+.title-input:hover { border-color: var(--edge); }
+.urgent { border-color: var(--live); color: var(--ink); }
+
+.files { display: flex; gap: 4px; flex-wrap: wrap; }
+.file {
+  font: 12px var(--mono); padding: 5px 10px; border-radius: 7px 7px 0 0;
+  border: 1px solid var(--edge); border-bottom-color: transparent;
+  color: var(--dim); background: var(--void);
+  display: inline-flex; align-items: center; gap: 7px;
+}
+.file.on { color: var(--ink); border-color: var(--live);
+           background: color-mix(in srgb, var(--live) 10%, var(--void)); }
+.file .x { color: var(--dim); font-size: 13px; line-height: 1; }
+.file .x:hover { color: var(--bad); }
+.file.add { color: var(--dim); padding: 5px 11px; }
+
+.bench-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.bench-bar.act { padding-top: 8px; border-top: 1px solid var(--edge); }
+.gold { background: var(--gold); border-color: var(--gold); color: #16110a;
+        font-weight: 600; }
+.gold:hover { filter: brightness(1.1); border-color: var(--gold); }
+.icon { padding: 6px 10px; }
+.net-wrap { display: flex; align-items: center; gap: 7px; }
+.net-test { color: var(--good); }
+.net-real { color: var(--gold); }
+
+.ctor { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ctor:empty { display: none; }
+.ctor-label { font: 11px var(--mono); letter-spacing: .1em; color: var(--dim);
+              text-transform: uppercase; flex: 0 0 auto; }
+.ctor input { flex: 1 1 150px; }
+
+/* ── the editor ──────────────────────────────────────────────── */
+
+.editor-host { min-height: 44vh; }
+.suite-host  { height: 200px; margin-bottom: 4px; }
+
+.editor {
+  display: flex; border: 1px solid var(--edge); border-radius: 0 8px 8px 8px;
+  background: var(--void); overflow: hidden; height: 100%;
+  font: 12.5px/1.55 var(--mono);
+}
+.editor:focus-within { border-color: var(--live); }
+.ed-gutter {
+  flex: 0 0 auto; padding: 10px 8px 10px 12px; text-align: right;
+  color: color-mix(in srgb, var(--dim) 60%, transparent);
+  background: color-mix(in srgb, var(--edge) 25%, transparent);
+  overflow: hidden; user-select: none; display: grid;
+  grid-auto-rows: calc(12.5px * 1.55);
+}
+.ed-scroll { position: relative; flex: 1 1 auto; min-width: 0; }
+.ed-paint, .ed-input {
+  position: absolute; inset: 0; margin: 0; padding: 10px 12px;
+  font: inherit; white-space: pre; overflow: auto;
+  border: 0; tab-size: 2;
+}
+.ed-paint { pointer-events: none; color: var(--ink); }
+.ed-input {
+  background: transparent; color: transparent; caret-color: var(--live);
+  resize: none; outline: none; width: 100%; height: 100%;
+}
+.ed-input::selection { background: color-mix(in srgb, var(--live) 32%, transparent); }
+.editor.ro .ed-input { caret-color: transparent; }
+
+.tok-comment { color: color-mix(in srgb, var(--dim) 85%, transparent); font-style: italic; }
+.tok-string  { color: var(--good); }
+.tok-number  { color: var(--gold); }
+.tok-key     { color: var(--live); }
+.tok-type    { color: #c792ea; }
+.tok-global  { color: var(--warn); }
+[data-theme="light"] .tok-type { color: #7c3fbf; }
+
+/* ── the results column ──────────────────────────────────────── */
+
+.results { display: grid; gap: 10px; align-content: start; }
+.res-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--edge);
+            padding-bottom: 6px; }
+.res-tab { border-color: transparent; color: var(--dim); padding: 5px 11px; }
+.res-tab.on { color: var(--ink);
+              background: color-mix(in srgb, var(--live) 12%, transparent);
+              border-color: color-mix(in srgb, var(--live) 35%, transparent); }
+.res { display: none; }
+.res.on { display: grid; gap: 8px; }
+.res-head { display: flex; align-items: center; gap: 8px; }
+.res-head h3 { margin: 0; flex: 1 1 auto; }
+.res .out { margin-top: 0; max-height: 44vh; }
+.res .out.has-error { color: var(--bad); }
+
+.facts { font-size: 12.5px; }
+.facts dd.wrap { overflow-wrap: anywhere; }
+.mono { font-family: var(--mono); }
+.warn-t { color: var(--warn); }
+.running { color: var(--dim); font-size: 12.5px; }
+
+.report { display: grid; gap: 8px; }
+.verdict {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 11px; border-radius: 8px; font: 12.5px var(--mono);
+  border: 1px solid var(--edge); background: var(--void);
+}
+.verdict b { font-size: 14px; }
+.verdict.passed { border-color: color-mix(in srgb, var(--good) 50%, transparent); }
+.verdict.passed b { color: var(--good); }
+.verdict.failed { border-color: color-mix(in srgb, var(--bad) 50%, transparent); }
+.verdict.failed b { color: var(--bad); }
+.verdict span { color: var(--dim); }
+
+.suite { border: 1px solid var(--edge); border-radius: 8px; overflow: hidden; }
+.suite-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+              background: var(--void); font: 12px var(--mono); flex-wrap: wrap; }
+.suite .hint { margin: 0; padding: 0 10px 8px; }
+.case { display: flex; align-items: baseline; gap: 8px; padding: 6px 10px;
+        border-top: 1px solid var(--edge); font: 12px var(--mono); }
+.dot-case { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto;
+            background: var(--good); align-self: center; }
+.case.bad .dot-case { background: var(--bad); }
+.case-name { color: var(--ink); flex: 0 0 auto; }
+.case-why { color: var(--dim); flex: 1 1 auto; overflow-wrap: anywhere; }
+.case.bad .case-why { color: var(--bad); }
+
+.run { cursor: pointer; text-align: left; }
+.run:hover { border-color: var(--live); }
+
+
+/* ── contrast fixes the light ramp needs ─────────────────────────────
+   The dark theme's filled buttons are a light colour with near-black text.
+   Inverted, that same rule paints dark text on a dark blue — legible on a
+   good monitor and not at all on a laptop at an angle, which is exactly the
+   moment somebody is deciding whether to press "deploy". */
+
+[data-theme="light"] .primary { color: #fff; }
+[data-theme="light"] .primary:hover { color: #fff; }
+[data-theme="light"] .gold { color: #fff; }
+[data-theme="light"] .res-tab.on { color: var(--live); }
+
+/* Inside a filled button the network name has to inherit its colour — a
+   green word on a blue button is unreadable in either theme. The chain's
+   testnet/mainnet status is carried by the badge on the overview tab, the
+   header dot and the confirm box, none of which are load-bearing here. */
+.primary .net-test, .primary .net-real { color: inherit; }
+.primary .net-real { text-decoration: underline; font-weight: 700; }
+
+
+/* ── state you can see ───────────────────────────────────────────────
+   The bench head answers three questions without being asked: what is this
+   called, is it saved, and can anybody else open it. */
+
+.chips { display: flex; align-items: center; gap: 5px; flex: 0 0 auto;
+         flex-wrap: wrap; }
+.chips:empty { display: none; }
+.chip {
+  font: 10.5px var(--mono); letter-spacing: .04em; padding: 2px 8px;
+  border-radius: 999px; border: 1px solid var(--edge); color: var(--dim);
+  white-space: nowrap;
+}
+.chip.live { color: var(--live); border-color: color-mix(in srgb, var(--live) 40%, transparent); }
+.chip.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+.chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.chip.gold { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 50%, transparent); }
+button.chip { cursor: pointer; }
+button.chip:hover { border-color: var(--live); color: var(--live); }
+.spacer { flex: 1 1 auto; }
+
+/* ── the banner over the bench ───────────────────────────────────────
+   Whose code is on screen is not a detail to put in a side panel: it decides
+   whether "save" means writing to your own project or starting a copy. */
+
+.banner-slot:empty { display: none; }
+.banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 12px; border-radius: 8px; font-size: 12.5px;
+  border: 1px solid color-mix(in srgb, var(--live) 40%, transparent);
+  background: color-mix(in srgb, var(--live) 9%, transparent);
+}
+.banner b { font: 600 12.5px var(--mono); color: var(--ink); }
+.banner .why { color: var(--dim); flex: 1 1 200px; min-width: 0; }
+.banner .mono { font: 11.5px var(--mono); color: var(--live); }
+.banner.gold { border-color: color-mix(in srgb, var(--gold) 45%, transparent);
+               background: color-mix(in srgb, var(--gold) 10%, transparent); }
+.banner.gold b { color: var(--gold); }
+
+/* ── what came back from a deploy ────────────────────────────────────
+   An address on its own is a thing to copy; an address with the two next
+   moves attached — go look at it, go call it — is the end of the workflow. */
+
+.deployed:empty { display: none; }
+.deployed {
+  display: grid; gap: 8px; padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--good) 45%, transparent);
+  border-radius: 8px; background: color-mix(in srgb, var(--good) 7%, transparent);
+}
+.deployed.failed { border-color: color-mix(in srgb, var(--bad) 50%, transparent);
+                   background: color-mix(in srgb, var(--bad) 7%, transparent); }
+.deployed .top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.deployed .top b { font: 600 13px var(--mono); }
+.deployed .addr { font: 12.5px var(--mono); color: var(--ink);
+                  overflow-wrap: anywhere; }
+.deployed .meta { font: 11.5px var(--mono); color: var(--dim);
+                  overflow-wrap: anywhere; }
+.deployed .row { margin-top: 0; flex-wrap: wrap; }
+
+/* A chain that is not a testnet says so on the bar that spends the money,
+   not only in a badge on another tab. */
+.bench-bar.act.real {
+  border-top-color: color-mix(in srgb, var(--gold) 55%, transparent);
+  background: color-mix(in srgb, var(--gold) 6%, transparent);
+  border-radius: 0 0 8px 8px; padding: 8px; margin: 0 -2px -2px;
+}
+
+/* The share panel: a link somebody can actually take away. */
+.share-link { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.share-link input { font-size: 11.5px; }
+.big-cid { font: 12px var(--mono); color: var(--live); overflow-wrap: anywhere;
+           padding: 9px 11px; border-radius: 8px; background: var(--void);
+           border: 1px solid color-mix(in srgb, var(--live) 30%, transparent); }
+.steps { display: grid; gap: 6px; margin: 0; padding-left: 18px;
+         color: var(--dim); font-size: 12.5px; }
+.steps b { color: var(--ink); font-weight: 600; }

@@ -370,8 +370,18 @@ async def stats():
     bt_addr, ntv_addr, deploy = _load_deploy_info()
     pot = _pot_info(contract)
 
+    # The lock cap travels with the stats poll: the stake form needs it on
+    # every render to keep its presets inside what the contract will accept.
+    try:
+        prm = contract.functions.params().call()
+        max_lock, dist_pct = prm[0], prm[1]
+    except Exception:
+        max_lock, dist_pct = 0, 0
+
     return {"result": {
         "pot": pot,
+        "maxLockBlocks": max_lock,
+        "distributionPercentage": dist_pct,
         "totalBlocTime": str(total_bt),
         "totalSupply": str(supply),
         "totalStakes": next_id,
@@ -778,16 +788,31 @@ async def contract_write(req: AbiCallReq):
 # ── Factory: deploy-your-own kit ─────────────────────────────────────────
 
 # Mirrors scripts/deploy.js so wallet deploys match the canonical recipe.
+#
+# Blocks are 2s on Base, so a day is 43,200 blocks — the same unit the
+# inflation epoch uses. A year is 365 days (1,460 epochs is the halving
+# interval, i.e. 4 years), and the lock is capped at 8 of them.
+BLOCKS_PER_DAY = 43200
+BLOCKS_PER_YEAR = BLOCKS_PER_DAY * 365          # 15,768,000
+MAX_LOCK_BLOCKS = BLOCKS_PER_YEAR * 8           # 126,144,000 — the 8-year cap
+
+# The curve is a straight line: 1x at no lock, 8x at the 8-year cap, +8750 bps
+# per year in between. The points below are year marks ON that line, not bends
+# in it — they exist so the UI has readable presets, and getMultiplier()
+# interpolates the same value it would with a single 0 → 8y segment.
+LINEAR_POINTS = [
+    {"blocks": 0, "multiplier": 10000},                     # 1.000x
+    {"blocks": BLOCKS_PER_YEAR, "multiplier": 18750},       # 1y — 1.875x
+    {"blocks": BLOCKS_PER_YEAR * 2, "multiplier": 27500},   # 2y — 2.750x
+    {"blocks": BLOCKS_PER_YEAR * 4, "multiplier": 45000},   # 4y — 4.500x
+    {"blocks": MAX_LOCK_BLOCKS, "multiplier": 80000},       # 8y — 8.000x
+]
+
 DEPLOY_DEFAULTS = {
     "initialSupply": "1000000",
-    "maxLockBlocks": 100000,
+    "maxLockBlocks": MAX_LOCK_BLOCKS,
     "distributionPercentage": 5000,
-    "points": [
-        {"blocks": 0, "multiplier": 10000},
-        {"blocks": 10000, "multiplier": 15000},
-        {"blocks": 50000, "multiplier": 20000},
-        {"blocks": 100000, "multiplier": 30000},
-    ],
+    "points": LINEAR_POINTS,
     "inflation": {
         "initialRewardPerEpoch": "50",
         "halvingInterval": 1460,

@@ -1,0 +1,13 @@
+{
+  "name": "mlp",
+  "kind": "wasm",
+  "lang": "wasm",
+  "anchor": "mod.wasm",
+  "description": "A 2-2-1 neural network computing XOR, weights and all, nine parameters. A model is just another module here.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "model"
+  ],
+  "protocol": "modarena/1.0"
+}

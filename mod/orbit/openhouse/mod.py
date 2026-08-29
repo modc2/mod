@@ -1,21 +1,28 @@
 """
 OpenHouse — Collective Asset Ownership Platform.
 
-Rent-to-own property, on-chain. Renters pay monthly; the protocol takes 1–5%
-(the owner picks the number, the band is hard-capped in the contract) and the
-rest stays with the property — split between the renter's equity and the
-owner's rent income by an owner-chosen rent-to-own model.
+Rent-to-own property, on-chain. Renters pay monthly; the protocol takes 0–5%
+(the owner picks the number — zero included — and the ceiling is hard-capped in
+the contract) and the rest stays with the property, split between the renter's
+equity and the owner's rent income by an owner-chosen rent-to-own model.
+
+Whatever the fee does collect is not kept. It pools, and every quarter the pool
+is handed back by BLOCTIME — dollars x seconds of liquidity locked in the
+protocol — so the money goes to whoever left their money in, in proportion to
+how long they left it.
 
 Flow:
   1. Deploy contract  — deploy(network, key, property_details, total_shares, share_price)
-  2. Set the deal     — set_terms(model=, fee_pct=, credit_pct=, owner=)
+  2. Set the deal     — set_terms(model=, fee_pct=, credit_pct=, owner=)   [fee_pct=0 is legal]
   3. Pay rent         — pay_rent(renter, amount)  → fee / equity / owner income
   4. Query equity     — equity(address), rent_ledger()
+  5. Watch the pool   — pool(), bloctime(address)
+  6. Every 90 days    — close_quarter() → pool_claim(address)
 
 Also supports the original fractional-share float: purchase(), distribute().
 
 On-chain: OpenHouse contract on Base Sepolia.
-Storage:  ~/.openhouse/{shareholders,properties,dividends,terms,rent}.json
+Storage:  ~/.openhouse/{shareholders,properties,dividends,terms,rent,pool}.json
 """
 
 import json
@@ -29,12 +36,14 @@ import mod as m
 
 
 class Mod:
-    description = "Rent-to-own, on-chain — the protocol takes 1–5% (owner-set), the rest stays with the property as renter equity and owner income."
+    description = "Rent-to-own, on-chain — the protocol takes 0–5% (owner-set, zero allowed), the rest stays with the property, and the fee pool is paid back quarterly by dollars x time locked."
 
     # ── The protocol take ──────────────────────────────────────────
     # Mirrors MIN_FEE_BPS / MAX_FEE_BPS in contracts/OpenHouse.sol. The owner
-    # picks a number inside this band; nothing can widen it.
-    MIN_FEE_PCT = 1.0
+    # picks a number inside this band; nothing can widen it. The floor is 0 —
+    # an owner who wants to run the protocol at cost is allowed to, and the
+    # rent-to-own split doesn't change when they do.
+    MIN_FEE_PCT = 0.0
     MAX_FEE_PCT = 5.0
 
     # ── Rent-to-own models ─────────────────────────────────────────
@@ -116,6 +125,7 @@ class Mod:
         self.dividends_path = self.store_dir / 'dividends.json'
         self.terms_path = self.store_dir / 'terms.json'
         self.rent_path = self.store_dir / 'rent.json'
+        self.pool_path = self.store_dir / 'pool.json'
         self.peers_cache_path = self.store_dir / 'peers_cache.json'
 
         # Config
@@ -192,7 +202,9 @@ class Mod:
         """
         return {
             'models': self.MODELS,
-            'fee_band': {'min_pct': self.MIN_FEE_PCT, 'max_pct': self.MAX_FEE_PCT},
+            'fee_band': {'min_pct': self.MIN_FEE_PCT, 'max_pct': self.MAX_FEE_PCT,
+                         'note': 'Zero is inside the band. Whatever is taken above it '
+                                 'pools and is paid back quarterly by bloctime.'},
             'benchmarks': self.BENCHMARKS,
         }
 
@@ -207,6 +219,9 @@ class Mod:
         t['owner_pct_of_rent'] = round(to_property - t['equity_pct_of_rent'], 4)
         t['to_property_pct'] = round(to_property, 4)
         t['fee_band'] = {'min_pct': self.MIN_FEE_PCT, 'max_pct': self.MAX_FEE_PCT}
+        # Zero is a position, not a missing value: no pool, nothing to hand back.
+        t['zero_fee'] = fee_pct == 0.0
+        t['quarter_seconds'] = self.QUARTER_SECONDS
         m_ = self._model(t.get('model'))
         t['model_name'] = m_['name'] if m_ else 'Custom'
         t['custom'] = bool(m_ and abs(credit_pct - m_['credit_pct']) > 1e-9)
@@ -219,7 +234,8 @@ class Mod:
 
         Args:
             model:          preset id (full_credit | hybrid | classic | lease)
-            fee_pct:        protocol take, 1–5 (rejected outside the band)
+            fee_pct:        protocol take, 0–5 (rejected outside the band; 0 means
+                            no fee and no pool — the rest of the deal is unchanged)
             credit_pct:     share of the post-fee payment credited as equity, 0–100
             option_fee_pct: upfront option fee, % of home price
             home_price:     price to own outright
@@ -417,6 +433,345 @@ class Mod:
             'home_price': price,
         }
 
+    # ━━ The pool ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    #
+    # The protocol fee is not a skim. The owner may set it to 0% and run the
+    # thing at cost; whatever is set above that lands in a pool that is handed
+    # back every quarter to the people whose money was locked in the protocol,
+    # weighted by BLOCTIME — dollars x seconds, measured on block time.
+    #
+    # Three kinds of liquidity are locked here and all three earn:
+    #   renter       principal credited toward the home, locked the moment it lands
+    #   shareholder  capital paid into the float
+    #   owner        the part of the home nobody has bought out yet
+    # A dollar locked for a whole quarter earns twice what a dollar locked for
+    # half of it; a dollar that arrived yesterday earns almost nothing. Nobody
+    # earns for capital they didn't leave in.
+    #
+    # Mirrors QUARTER / bloctime accrual in contracts/OpenHouse.sol.
+
+    QUARTER_SECONDS = 90 * 24 * 3600     # the cadence, same constant as the contract
+    DAY_SECONDS = 24 * 3600              # weights are shown in dollar-days
+
+    def _load_pool(self):
+        return self._load_json(self.pool_path, {'genesis': 0, 'quarters': []})
+
+    def _save_pool(self, data):
+        self._save_json(self.pool_path, data)
+
+    def _first_lock(self) -> int:
+        """The earliest moment anything was locked — the epoch's natural zero."""
+        stamps = [int(r.get('timestamp', 0) or 0) for r in self._load_rent()]
+        stamps += [int(s.get('joined', 0) or 0) for s in self._load_shareholders().values()]
+        stamps = [t for t in stamps if t > 0]
+        return min(stamps) if stamps else 0
+
+    def _quarter_window(self, pool=None):
+        """``(index, start, ends_at)`` for the quarter now accruing.
+
+        A quarter starts when the one before it was closed, not on a wall
+        clock — the same rule as ``lastRedistribution = block.timestamp``
+        in the contract. Close late and the next quarter simply runs from
+        the late close; no bloctime is created or lost at the seam.
+        """
+        pool = self._load_pool() if pool is None else pool
+        closed = pool.get('quarters') or []
+        if closed:
+            start = int(closed[-1]['end'])
+            idx = int(closed[-1]['quarter']) + 1
+        else:
+            start = int(pool.get('genesis') or self._first_lock() or time.time())
+            idx = 0
+        return idx, start, start + self.QUARTER_SECONDS
+
+    def _bloctime_window(self, start: int, end: int) -> dict:
+        """Dollar-seconds of locked liquidity accrued by each address in a window.
+
+            weight(addr) = ∫ locked(addr, t) dt   over [start, end]
+
+        Renter principal only ever goes up, so its integral is a sum of
+        ``credit x (end - max(credited_at, start))``. The owner's stake is the
+        home price minus the principal bought out so far, so their integral is
+        ``price x span`` minus the renters' — the two always sum to the whole
+        house, which is why the owner needs no separate bookkeeping.
+        """
+        start = int(start)
+        end = max(int(end), start)
+        span = end - start
+        weights, kinds, locked_now = {}, {}, {}
+
+        def add(addr, kind, weight, locked):
+            # A position with no bloctime yet still exists — it was locked a
+            # second ago. Weight of zero is a fact about the clock, not a
+            # reason to leave someone off the table.
+            addr = (addr or '').strip()
+            if not addr or (weight <= 0 and locked <= 0):
+                return
+            weights[addr] = weights.get(addr, 0.0) + weight
+            kinds.setdefault(addr, {})
+            kinds[addr][kind] = kinds[addr].get(kind, 0.0) + weight
+            locked_now[addr] = locked_now.get(addr, 0.0) + locked
+
+        renter_weight = 0.0
+        for r in self._load_rent():
+            credit = float(r.get('credit', 0) or 0)
+            ts = int(r.get('timestamp', 0) or 0)
+            if credit <= 0 or ts >= end:
+                continue
+            w = credit * (end - max(ts, start))
+            add(r.get('renter', ''), 'renter', w, credit)
+            renter_weight += w
+
+        for addr, info in self._load_shareholders().items():
+            contribution = float(info.get('contribution', 0) or 0)
+            joined = int(info.get('joined', 0) or 0)
+            if contribution <= 0 or joined >= end:
+                continue
+            add(addr, 'shareholder', contribution * (end - max(joined, start)), contribution)
+
+        t = self.terms()
+        price = float(t.get('home_price') or 0)
+        # What the owner still has in the deal: the house, less what's been bought out.
+        owner_weight = max(price * span - renter_weight, 0.0)
+        owner_locked = max(price - self._principal_paid_total(), 0.0)
+        add(t.get('owner', ''), 'owner', owner_weight, owner_locked)
+
+        return {
+            'start': start, 'end': end, 'seconds': span,
+            'weights': weights, 'kinds': kinds, 'locked': locked_now,
+            'total_weight': sum(weights.values()),
+            'total_locked': sum(locked_now.values()),
+        }
+
+    def _fees_since(self, index: int) -> float:
+        """Fees collected after the ledger position a close was cut at.
+
+        Attribution is by ledger position, not timestamp: a payment landing in
+        the same second as a close would otherwise fall between two quarters
+        or into both.
+        """
+        return sum(float(r.get('fee', 0) or 0) for r in self._load_rent()[int(index):])
+
+    def _positions(self, w: dict, amount: float) -> list:
+        """Turn a weight map into a payout table, biggest stake first."""
+        total = w['total_weight']
+        rows = []
+        for addr, weight in w['weights'].items():
+            share = weight / total if total > 0 else 0.0
+            rows.append({
+                'address': addr,
+                'kinds': sorted(w['kinds'].get(addr, {}), key=lambda k: -w['kinds'][addr][k]),
+                'locked': round(w['locked'].get(addr, 0.0), 8),
+                'weight': round(weight, 6),
+                'weight_days': round(weight / self.DAY_SECONDS, 6),
+                'share_pct': round(share * 100, 6),
+                'amount': round(amount * share, 8),
+            })
+        rows.sort(key=lambda r: -r['weight'])
+        return rows
+
+    def pool(self) -> dict:
+        """The quarter now accruing: what's in the pool and who it's owed to.
+
+        Everything here is live — the pool is what the fee has collected since
+        the last close, and the shares are the bloctime earned so far. Nothing
+        is owed until :meth:`close_quarter` freezes it.
+        """
+        state = self._load_pool()
+        closed = state.get('quarters') or []
+        idx, start, ends_at = self._quarter_window(state)
+        now = int(time.time())
+        ledger_from = int(closed[-1]['ledger_to']) if closed else 0
+
+        w = self._bloctime_window(start, now)
+        amount = self._fees_since(ledger_from)
+        t = self.terms()
+        elapsed = max(now - start, 0)
+        distributed = sum(float(q.get('pool', 0) or 0) for q in closed)
+        unclaimed = sum(float(a.get('amount', 0) or 0)
+                        for q in closed for a in q.get('allocations', [])
+                        if not a.get('claimed'))
+
+        return {
+            'quarter': idx,
+            'start': start,
+            'ends_at': ends_at,
+            'now': now,
+            'elapsed': elapsed,
+            'quarter_seconds': self.QUARTER_SECONDS,
+            'progress_pct': round(min(elapsed / self.QUARTER_SECONDS, 1.0) * 100, 4),
+            'ready': now >= ends_at,
+            'ready_in': max(ends_at - now, 0),
+            'pool': round(amount, 8),
+            'fee_pct': t['fee_pct'],
+            # 0% is a real answer: no fee, no pool, and the split is untouched.
+            'zero_fee': float(t['fee_pct']) == 0.0,
+            'total_locked': round(w['total_locked'], 8),
+            'total_weight': round(w['total_weight'], 6),
+            'total_weight_days': round(w['total_weight'] / self.DAY_SECONDS, 6),
+            'positions': self._positions(w, amount),
+            'quarters_closed': len(closed),
+            'distributed': round(distributed, 8),
+            'unclaimed': round(unclaimed, 8),
+            'basis': 'bloctime — dollars x seconds of liquidity locked in the protocol',
+        }
+
+    def pool_history(self) -> list:
+        """Every closed quarter, newest first."""
+        return list(reversed((self._load_pool().get('quarters') or [])))
+
+    def close_quarter(self, caller: str = '', force: bool = False) -> dict:
+        """Close the quarter and freeze the split by bloctime.
+
+        Permissionless once the 90 days are up — anyone can call it, the same
+        as ``redistribute()`` on-chain, because the numbers are fixed by then
+        and only the calling costs the caller anything.
+
+        Args:
+            caller: address closing it (recorded; required to force)
+            force:  cut the quarter early — owner only, and stamped ``forced``
+                    in the record so nobody mistakes it for the cadence
+        """
+        state = self._load_pool()
+        closed = state.get('quarters') or []
+        idx, start, ends_at = self._quarter_window(state)
+        now = int(time.time())
+
+        if now < ends_at:
+            if not force:
+                return {'error': f'Quarter {idx} is not over — {ends_at - now}s '
+                                 f'({(ends_at - now) // self.DAY_SECONDS}d) still to run',
+                        'ready_in': ends_at - now, 'ends_at': ends_at}
+            owner = (self.terms().get('owner') or '').lower()
+            if owner and (caller or '').strip().lower() != owner:
+                return {'error': 'Only the property owner can cut a quarter short'}
+
+        ledger_from = int(closed[-1]['ledger_to']) if closed else 0
+        ledger_to = len(self._load_rent())
+        w = self._bloctime_window(start, now)
+        amount = self._fees_since(ledger_from)
+        if w['total_weight'] <= 0:
+            return {'error': 'Nothing was locked this quarter — no bloctime to split'}
+
+        record = {
+            'quarter': idx,
+            'start': start,
+            'end': now,
+            'seconds': now - start,
+            'ledger_from': ledger_from,
+            'ledger_to': ledger_to,
+            'pool': round(amount, 8),
+            'total_weight': round(w['total_weight'], 6),
+            'total_weight_days': round(w['total_weight'] / self.DAY_SECONDS, 6),
+            'total_locked': round(w['total_locked'], 8),
+            'allocations': [{**p, 'claimed': False, 'claimed_at': 0}
+                            for p in self._positions(w, amount)],
+            'closed_by': (caller or '').strip(),
+            'closed_at': now,
+            'forced': bool(now < ends_at),
+        }
+        state['genesis'] = int(state.get('genesis') or start)
+        state.setdefault('quarters', []).append(record)
+        self._save_pool(state)
+        return {'success': True, 'quarter': record}
+
+    def pool_claim(self, address: str, quarter=None) -> dict:
+        """Claim an address's share of one closed quarter, or of all of them.
+
+        Pull, not push — the same shape as the contract, where a payout nobody
+        asks for can't strand a distribution.
+        """
+        address = (address or '').strip()
+        if not address:
+            return {'error': 'Address required'}
+        state = self._load_pool()
+        quarters = state.get('quarters') or []
+        if not quarters:
+            return {'error': 'No quarter has closed yet'}
+        if quarter is not None:
+            quarter = int(quarter)
+            if not any(q['quarter'] == quarter for q in quarters):
+                return {'error': f'Quarter {quarter} has not closed'}
+
+        now, claimed, total = int(time.time()), [], 0.0
+        for q in quarters:
+            if quarter is not None and q['quarter'] != quarter:
+                continue
+            for a in q.get('allocations', []):
+                if a['address'].lower() != address.lower() or a.get('claimed'):
+                    continue
+                if a['amount'] <= 0:
+                    continue
+                a['claimed'] = True
+                a['claimed_at'] = now
+                total += float(a['amount'])
+                claimed.append({'quarter': q['quarter'], 'amount': a['amount'],
+                                'share_pct': a['share_pct'], 'weight_days': a['weight_days']})
+        if not claimed:
+            return {'error': f'Nothing to claim for {address}'}
+        self._save_pool(state)
+        return {'success': True, 'address': address,
+                'claimed': round(total, 8), 'quarters': claimed}
+
+    def bloctime(self, address: str) -> dict:
+        """One address's locked liquidity and the bloctime it has earned.
+
+        ``this_quarter`` is what they are on track to be paid at the next
+        close; ``lifetime`` is every dollar-second since the epoch began,
+        which is the number that says who actually carried the protocol.
+        """
+        address = (address or '').strip()
+        if not address:
+            return {'error': 'Address required'}
+        state = self._load_pool()
+        closed = state.get('quarters') or []
+        idx, start, ends_at = self._quarter_window(state)
+        now = int(time.time())
+        genesis = int(state.get('genesis') or self._first_lock() or start)
+
+        live = self._bloctime_window(start, now)
+        life = self._bloctime_window(genesis, now)
+        ledger_from = int(closed[-1]['ledger_to']) if closed else 0
+        amount = self._fees_since(ledger_from)
+
+        def slice_(w, key):
+            weight = w['weights'].get(key, 0.0)
+            total = w['total_weight']
+            return weight, (weight / total if total > 0 else 0.0)
+
+        key = next((a for a in live['weights'] if a.lower() == address.lower()), address)
+        w_now, share_now = slice_(live, key)
+        key_life = next((a for a in life['weights'] if a.lower() == address.lower()), address)
+        w_life, share_life = slice_(life, key_life)
+
+        paid = [{'quarter': q['quarter'], 'amount': a['amount'], 'claimed': a['claimed'],
+                 'share_pct': a['share_pct'], 'weight_days': a['weight_days']}
+                for q in closed for a in q.get('allocations', [])
+                if a['address'].lower() == address.lower()]
+
+        return {
+            'address': address,
+            'kinds': sorted(live['kinds'].get(key, {}), key=lambda k: -live['kinds'][key][k]),
+            'locked': round(live['locked'].get(key, 0.0), 8),
+            'this_quarter': {
+                'quarter': idx, 'start': start, 'ends_at': ends_at,
+                'weight': round(w_now, 6),
+                'weight_days': round(w_now / self.DAY_SECONDS, 6),
+                'share_pct': round(share_now * 100, 6),
+                'projected': round(amount * share_now, 8),
+                'pool': round(amount, 8),
+            },
+            'lifetime': {
+                'since': genesis,
+                'weight': round(w_life, 6),
+                'weight_days': round(w_life / self.DAY_SECONDS, 6),
+                'share_pct': round(share_life * 100, 6),
+            },
+            'earned': round(sum(float(p['amount']) for p in paid), 8),
+            'unclaimed': round(sum(float(p['amount']) for p in paid if not p['claimed']), 8),
+            'quarters': paid,
+        }
+
     # ━━ The landscape ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _peers_mod(self):
@@ -467,10 +822,15 @@ class Mod:
         total_shares = int(prop.get('total_shares', 0)) if deployed else 0
 
         rent = self.rent_stats()
+        pool = self.pool()
         return {
             'deployed': deployed,
             'terms': self.terms(),
             'rent': rent,
+            'pool': {k: pool[k] for k in (
+                'quarter', 'pool', 'ready', 'ready_in', 'ends_at', 'progress_pct',
+                'total_locked', 'total_weight_days', 'zero_fee', 'quarters_closed',
+                'distributed', 'unclaimed')},
             'shareholders': len(shareholders),
             'total_shares': total_shares,
             'shares_sold': total_shares_sold,
@@ -740,7 +1100,7 @@ class Mod:
             home_price: price to own the home outright
             monthly_rent: scheduled monthly payment
             model: rent-to-own model id (see models())
-            fee_pct: protocol take, 1–5
+            fee_pct: protocol take, 0–5
             owner: address that owns the deal terms
         """
         # Save property info locally
@@ -783,6 +1143,8 @@ class Mod:
          'Module logic — shares, dividends, governance, serving.'),
         ('api/api.py', 'python',
          'FastAPI REST surface over the module.'),
+        ('api/mcp_server.py', 'python',
+         'MCP tool server — the same protocol, driveable by an agent.'),
     ]
 
     def source(self):
@@ -975,6 +1337,11 @@ class Mod:
             rent_ledger        - Payment history (renter=)
             equity             - A renter's stake (address=)
             rent_stats         - Where the rent went
+            pool               - The quarter now accruing + who the pool is owed to
+            pool_history       - Every closed quarter, newest first
+            close_quarter      - Freeze the quarter and split it by bloctime (caller=, force=)
+            pool_claim         - Claim a share of a closed quarter (address=, quarter=)
+            bloctime           - One address's locked liquidity + dollar-days (address=)
             peers              - Other on-chain housing projects (refresh=)
             compare            - OpenHouse against the field (refresh=)
             property           - Property details
@@ -1027,6 +1394,17 @@ class Mod:
             'rent_ledger': lambda: self.rent_ledger(kwargs.get('renter', '')),
             'equity': lambda: self.equity(kwargs.get('address', '')),
             'rent_stats': lambda: self.rent_stats(),
+            'pool': lambda: self.pool(),
+            'pool_history': lambda: self.pool_history(),
+            'close_quarter': lambda: self.close_quarter(
+                caller=kwargs.get('caller', kwargs.get('address', '')),
+                force=bool(kwargs.get('force')),
+            ),
+            'pool_claim': lambda: self.pool_claim(
+                kwargs.get('address', ''),
+                quarter=kwargs.get('quarter'),
+            ),
+            'bloctime': lambda: self.bloctime(kwargs.get('address', '')),
             'peers': lambda: self.peers(refresh=bool(kwargs.get('refresh'))),
             'compare': lambda: self.compare(refresh=bool(kwargs.get('refresh'))),
             'property': lambda: self.property(),

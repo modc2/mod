@@ -75,7 +75,9 @@ class Copytensor(m.Mod):
         "ask", "agent_status",
         # copy management (needs wallet)
         "create_copy", "list_copies", "pause_copy", "resume_copy",
-        "delete_copy", "sync_copy",
+        "delete_copy", "sync_copy", "resize_copy",
+        # the blended book
+        "portfolio", "sync_portfolio",
         # wallet
         "set_wallet", "wallet_balance",
         # default
@@ -584,6 +586,11 @@ class Copytensor(m.Mod):
         r.raise_for_status()
         return r.json()
 
+    def _put(self, path: str, body: Optional[Dict] = None) -> Any:
+        r = requests.put(f"{self.api_url}{path}", json=body or {}, timeout=30)
+        r.raise_for_status()
+        return r.json()
+
     def _delete(self, path: str) -> Any:
         r = requests.delete(f"{self.api_url}{path}", timeout=30)
         r.raise_for_status()
@@ -677,19 +684,34 @@ class Copytensor(m.Mod):
 
     # copies
     def create_copy(self, target_ss58: str, our_hotkey: str,
+                    alloc_tao: Optional[float] = None,
                     label: Optional[str] = None,
                     max_tao_per_tx: Optional[float] = None,
                     daily_limit_tao: Optional[float] = None,
-                    rebalance_threshold_pct: Optional[float] = None) -> Any:
+                    rebalance_threshold_pct: Optional[float] = None,
+                    poll_interval_sec: Optional[int] = None) -> Any:
+        """Copy one trader with `alloc_tao` TAO behind them.
+
+        Copies compose: every active one contributes its trader's shape at
+        its own size, and the engine blends them into a single book. Run this
+        once per trader to copy a set of them.
+        """
         body = {
             "target_ss58": target_ss58,
             "our_hotkey": our_hotkey,
+            "alloc_tao": alloc_tao,
             "label": label,
             "max_tao_per_tx": max_tao_per_tx,
             "daily_limit_tao": daily_limit_tao,
             "rebalance_threshold_pct": rebalance_threshold_pct,
+            "poll_interval_sec": poll_interval_sec,
         }
         return self._post("/copy", {k: v for k, v in body.items() if v is not None})
+
+    def resize_copy(self, copy_id: str, alloc_tao: float) -> Any:
+        """Change the TAO behind one trader. The next pass rebalances to it —
+        the position is re-weighted, not exited and re-entered."""
+        return self._put(f"/copy/{copy_id}", {"alloc_tao": alloc_tao})
 
     def list_copies(self) -> Any:
         return self._get("/copies")
@@ -704,7 +726,19 @@ class Copytensor(m.Mod):
         return self._delete(f"/copy/{copy_id}")
 
     def sync_copy(self, copy_id: str) -> Any:
+        """Rebalance now. Runs the whole book — a sleeve applied on its own
+        would drag every other trader's money with it."""
         return self._post(f"/copy/{copy_id}/sync")
+
+    def portfolio(self) -> Any:
+        """The blended book: every trader you copy, the TAO behind each, and
+        the trades that would close the gap. Pure read."""
+        return self._get("/portfolio")
+
+    def sync_portfolio(self, dry_run: bool = False) -> Any:
+        """Run a portfolio pass now. `dry_run=True` returns the same plan
+        without signing anything."""
+        return self._post(f"/portfolio/sync?dry_run={str(bool(dry_run)).lower()}")
 
     # the strat agent
     def agent_status(self) -> Any:

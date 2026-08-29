@@ -1,14 +1,17 @@
 import json
 import os
+import re
 import time
+import hmac
 import hashlib
 import signal
 import subprocess
 import threading
 import urllib.request
 import urllib.error
+import urllib.parse
 from pathlib import Path
-from typing import Optional, Dict, Any, Union, List
+from typing import Callable, Optional, Dict, Any, Union, List
 import mod as m
 
 
@@ -33,6 +36,139 @@ WHAT GOOD LOOKS LIKE
 Ship it clean. Make Steve proud."""
 
 
+# ── harness trace ────────────────────────────────────────────────────
+# The job server streams one rendered line at a time (`⚡ Bash`, `$ ls`, the
+# EDIT diff block, `[VERSION] … cid …`). JobTrace reads that stream back into
+# the step dicts the fleet speaks — {'tool', 'params', 'result'|'error'} — so a
+# job run by this module renders in another module's console exactly like a
+# native one. It is the mirror of the Rust StreamParser in api/src/jobs.rs;
+# the two move together.
+
+HARNESS_TIMEOUT = 3600          # wall-clock cap on one harness run
+
+_TOOL_LINE = re.compile(r"^⚡\s*(\S+)\s*(.*)$")
+_DETAIL_LINE = re.compile(r"^(\$ |┌|│|└|→)")
+
+# CLI tool names -> the fleet's skill names (unknown tools just lowercase)
+_TOOLS = {
+    "Bash": "bash", "Read": "read", "Write": "write", "Edit": "edit",
+    "MultiEdit": "edit", "NotebookEdit": "edit", "Glob": "glob",
+    "Grep": "grep", "Task": "task", "WebFetch": "fetch",
+    "WebSearch": "search", "TodoWrite": "todo",
+}
+
+
+class JobTrace:
+    """One job's output stream, translated into steps. Line in, steps out."""
+
+    MAX_RESULT = 4000
+
+    def __init__(self):
+        self._held: Optional[str] = None    # narration waiting to be flushed
+        self._tool: Optional[dict] = None   # tool step collecting its detail lines
+        self._detail: List[str] = []
+        self.cids: Dict[str, str] = {}      # {'version': cid, 'task': cid}
+        self.done = False                   # the server said [DONE]
+
+    @classmethod
+    def clip(cls, text: str) -> str:
+        return text if len(text) <= cls.MAX_RESULT else \
+            text[:cls.MAX_RESULT] + f"\n… [{len(text) - cls.MAX_RESULT} more chars]"
+
+    # An agent's prose is only a narration step once something follows it: the
+    # last thing it says is the answer, and that belongs in finish.
+    def hold(self, text: str) -> List[dict]:
+        out = self.flush()
+        self._held = (text or "").strip() or None
+        return out
+
+    def flush(self) -> List[dict]:
+        out = self._close_tool()
+        text, self._held = self._held, None
+        if text:
+            out.append({"tool": "response", "params": {}, "result": text})
+        return out
+
+    @property
+    def summary(self) -> str:
+        """The last thing the agent said — the answer."""
+        return self._held or ""
+
+    def line(self, text: str) -> List[dict]:
+        """Translate one line of job output into zero or more steps."""
+        stripped = text.strip()
+        if not stripped:
+            return []
+        if stripped == "[DONE]":
+            self.done = True
+            return []
+        if stripped.startswith("[VERSION]") or stripped.startswith("[STORE]"):
+            kind = "version" if stripped.startswith("[VERSION]") else "task"
+            cid = stripped.rsplit(" ", 1)[-1]
+            self.cids[kind] = cid
+            # a trailer the server appends after the run — it must not flush the
+            # held message, which is the agent's answer and belongs in finish
+            return self._close_tool() + [{"tool": "snapshot", "params": {"kind": kind},
+                                          "result": cid}]
+        if stripped.startswith("[ERROR]"):
+            return self.flush() + [{"tool": "error", "params": {},
+                                    "error": stripped[7:].strip()}]
+        if stripped.startswith("⏳"):
+            return []                       # session banner, not a step
+        if stripped.startswith("💭"):
+            return self.flush() + [{"tool": "think",
+                                    "params": {"thought": self.clip(stripped[1:].strip())}}]
+        tool = _TOOL_LINE.match(stripped)
+        if tool:
+            out = self.flush()
+            name, rest = tool.group(1), tool.group(2).strip()
+            self._tool = {"tool": _TOOLS.get(name, name.lower()), "params": {}}
+            self._detail = []
+            if rest:
+                self._detail.append(rest)
+            return out
+        if self._tool is not None and _DETAIL_LINE.match(text):
+            self._detail.append(text.rstrip())
+            return []
+        # anything else is the agent talking
+        return self.hold(stripped)
+
+    def _close_tool(self) -> List[dict]:
+        """Emit the tool step that was collecting detail lines."""
+        if self._tool is None:
+            return []
+        step, detail = self._tool, "\n".join(self._detail).strip()
+        self._tool, self._detail = None, []
+        params = step["params"]
+        # pull the shapes the server renders into real params; the rest of the
+        # block (a diff, a command's description) stays as the step's result
+        first = detail.split("\n", 1)[0] if detail else ""
+        if first.startswith("$ "):
+            params["command"] = first[2:].split(" # ", 1)[0]
+        elif first.startswith("┌─ EDIT: ") or first.startswith("┌─ WRITE: "):
+            params["file_path"] = first.split(": ", 1)[1].split(" (", 1)[0]
+        elif first.startswith("glob:") or first.startswith("grep:"):
+            params["pattern"] = first.split(":", 1)[1]
+        elif first.startswith("→ "):
+            params["description"] = first[2:]
+        elif first:
+            params["file_path" if step["tool"] in ("read", "write", "edit") else "detail"] = first
+        if detail:
+            step["result"] = self.clip(detail)
+        return [step]
+
+    def close(self, status: str, error: str = None) -> List[dict]:
+        """Terminal step, from the job's final state."""
+        out = self._close_tool()
+        text, self._held = self._held, None
+        if status == "completed":
+            params = {"summary": text or ""}
+            params.update({f"{k}_cid": v for k, v in self.cids.items()})
+            return out + [{"tool": "finish", "params": params}]
+        return out + [{"tool": "error", "params": {},
+                       "error": error or text or f"job {status}"}]
+
+
 class Mod:
     """
     Build module — programmable AI developer interface.
@@ -49,13 +185,13 @@ class Mod:
     endpoints = [
         'forward', 'ask', 'submit', 'jobs', 'job', 'cancel', 'guide', 'tail',
         'create_module', 'edit_module', 'import_module', 'delete_module',
-        'fork_module', 'analyze_code', 'generate_code',
+        'rename_module', 'fork_module', 'analyze_code', 'generate_code',
         'refactor', 'debug', 'edit_file', 'run_task', 'batch_process',
         'bg', 'bg_status', 'bg_list', 'snapshot', 'changelog',
-        'get_version', 'restore_version', 'health', 'modules',
+        'get_version', 'restore_version', 'can_revert', 'health', 'modules',
         'folders', 'suggest_folders',
         'set_owner', 'get_owner', 'is_owner', 'is_bloctime_owner',
-        'is_trusted', 'is_whitelisted', 'editors', 'add_editor', 'remove_editor',
+        'is_trusted', 'is_whitelisted', 'is_root_owner', 'editors', 'add_editor', 'remove_editor',
         'register_onchain', 'permissions', 'ensure_env',
         'default_prompt', 'save_prompt', 'list_prompts', 'get_prompt',
         'import_prompt', 'share_prompt', 'delete_prompt',
@@ -229,6 +365,54 @@ class Mod:
             return True
         return self.is_bloctime_owner(addr)
 
+    def _co_owners(self) -> List[str]:
+        """The owner's other wallets (~/.mod/build-fork/owners.json) — same file the
+        Rust API reads. [] if absent or malformed."""
+        path = Path(os.path.expanduser('~/.mod/build-fork/owners.json'))
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text())
+        except Exception:
+            return []
+        arr = data if isinstance(data, list) else data.get('addresses', [])
+        return [str(a).lower() for a in arr if isinstance(a, str)]
+
+    def is_root_owner(self, key=None) -> bool:
+        """True only for the owner's OWN key — the address in config.json plus
+        the co-owner wallets in ~/.mod/build-fork/owners.json.
+
+        Deliberately narrower than `is_owner`, which also admits BlocTime
+        holders. It gates one power: undoing changes. Editors (whitelisted,
+        invited, BlocTime) may write the module; only the owner may decide a
+        change does not stand and roll it back.
+        """
+        if not self._owner:
+            return True
+        addr = self._resolve_address(key)
+        if not addr:
+            return False
+        addr = addr.lower()
+        return addr == self._owner.lower() or addr in self._co_owners()
+
+    def can_revert(self, key=None) -> bool:
+        """Does this caller hold revert authority? (Alias of is_root_owner —
+        the console asks this by name.)"""
+        return self.is_root_owner(key)
+
+    def require_root_owner(self, key=None, operation: str = "reverting"):
+        """Raise PermissionError unless the caller is the owner themselves."""
+        if not self.is_root_owner(key):
+            caller = self._format_address(self._resolve_address(key))
+            owner = self._format_address(self._owner) if self._owner else 'none'
+            trusted = self.is_trusted(key)
+            raise PermissionError(
+                f"Permission denied: '{operation}' answers only to the owner's key.\n"
+                + ("  you may edit this module, but only the owner may revert it.\n" if trusted else "")
+                + f"  caller: {caller}\n"
+                f"  owner:  {owner}"
+            )
+
     # ── whitelist (off-chain trusted editors) ─────────────────────
     # Everything in the orbit belongs to the host owner. The whitelist is the
     # owner's explicit delegation of edit rights to other addresses. It lives
@@ -395,11 +579,14 @@ class Mod:
     def permissions(self, key=None) -> dict:
         """Check what the caller is allowed to edit.
 
-        Returns role ('owner', 'editor', or 'user'), address, and allowed modules.
-        Owner and whitelisted editors can edit all modules. Everyone else can only
-        edit portal/{address}/ modules.
+        Returns role ('owner', 'editor', or 'user'), address, allowed modules,
+        and `can_revert`. Owner and whitelisted editors can edit all modules;
+        everyone else can only edit portal/{address}/ modules. Reverting is
+        separate from all of that — see `is_root_owner`: a BlocTime owner or a
+        whitelisted editor writes freely and still cannot roll a module back.
         """
         addr = self._resolve_address(key)
+        can_revert = self.is_root_owner(key)
         if self.is_owner(key):
             is_config_owner = bool(self._owner) and addr and addr.lower() == self._owner.lower()
             return {
@@ -408,6 +595,7 @@ class Mod:
                 'can_edit': 'all',
                 'scope': ['orbit/*', 'core/*', 'portal/*'],
                 'via': 'config' if is_config_owner else ('open' if not self._owner else 'bloctime'),
+                'can_revert': can_revert,
             }
         if self.is_whitelisted(key):
             # Whitelisted editor — owner-delegated edit access to the whole orbit.
@@ -417,6 +605,7 @@ class Mod:
                 'can_edit': 'all',
                 'scope': ['orbit/*', 'core/*', 'portal/*'],
                 'via': 'whitelist',
+                'can_revert': can_revert,
             }
         allowed = self._user_allowed_modules(addr)
         return {
@@ -425,6 +614,7 @@ class Mod:
             'can_edit': 'portal_only',
             'portal': self._portal_dir(addr),
             'modules': allowed,
+            'can_revert': can_revert,
         }
 
     # ── HTTP helpers ──────────────────────────────────────────────
@@ -560,7 +750,7 @@ class Mod:
                 with self._idle_lock:
                     idle = time.time() - self._last_activity
                 if idle >= self._idle_timeout:
-                    print(f"[build] API idle for {int(idle)}s — shutting down")
+                    print(f"[build-fork] API idle for {int(idle)}s — shutting down")
                     self._stop_api()
                     return
         self._idle_thread = threading.Thread(target=_monitor, daemon=True)
@@ -571,9 +761,9 @@ class Mod:
         self._touch_activity()
         if self._server_available():
             return True
-        print("[build] API not running — starting automatically...")
+        print("[build-fork] API not running — starting automatically...")
         if self._start_api():
-            print(f"[build] API started on port {self._api_port()} (idle timeout: {self._idle_timeout}s)")
+            print(f"[build-fork] API started on port {self._api_port()} (idle timeout: {self._idle_timeout}s)")
             return True
         raise ConnectionError(
             f"Failed to auto-start API on port {self._api_port()}. "
@@ -633,7 +823,7 @@ class Mod:
         # fall back to global
         result = subprocess.run(["which", "claude"], capture_output=True, text=True)
         if result.returncode != 0:
-            raise RuntimeError("claude CLI not found — install with: m build/install")
+            raise RuntimeError("claude CLI not found — install with: m build-fork/install")
         return result.stdout.strip()
 
     def _run_cli(self, query: str, path: str = None, model: str = "sonnet",
@@ -755,6 +945,7 @@ class Mod:
     def submit(self, prompt: str, model: str = "sonnet", work_dir: str = None,
                module_name: str = None, creation_mode: str = None,
                github_url: str = None, anchor_dir: str = None,
+               system_prompt: str = None, agent_type: str = None,
                key: str = None, **kwargs) -> dict:
         """Submit a background job to the Rust server."""
         data = {"prompt": prompt, "model": model}
@@ -769,7 +960,19 @@ class Mod:
             data["github_url"] = github_url
         if anchor_dir:
             data["anchor_dir"] = anchor_dir
-        return self._request("POST", "/jobs", data)
+        if system_prompt:
+            data["system_prompt"] = system_prompt
+        if agent_type:
+            data["agent_type"] = agent_type
+        # The server reads the caller's identity off the token, not the body —
+        # sign the request so a submit works against a deployed API too, not
+        # only a local one. Unsignable key? Let the server decide (local mode
+        # still accepts it; a deployed one answers 401).
+        try:
+            headers = self._auth_headers(key)
+        except Exception:
+            headers = None
+        return self._request("POST", "/jobs", data, headers=headers)
 
     def jobs(self) -> list:
         """List all background jobs."""
@@ -779,9 +982,13 @@ class Mod:
         """Get job details."""
         return self._request("GET", f"/jobs/{job_id}")
 
-    def cancel(self, job_id: str) -> dict:
+    def cancel(self, job_id: str, key=None) -> dict:
         """Cancel a running job."""
-        return self._request("POST", f"/jobs/{job_id}/cancel")
+        try:
+            headers = self._auth_headers(key)
+        except Exception:
+            headers = None
+        return self._request("POST", f"/jobs/{job_id}/cancel", headers=headers)
 
     def guide(self, job_id: str, message: str) -> dict:
         """Guide a RUNNING job mid-task: the message is injected into the
@@ -858,6 +1065,121 @@ class Mod:
         """Get job output text."""
         return self._request("GET", f"/jobs/{job_id}").get("output", "")
 
+    # ── harness: hand a whole run to this module ──────────────────
+    # Other modules (orbit/agent) treat build as an agent they can hand a run
+    # to. The contract is two calls — harness() and run() — the same pair the
+    # CLI harness modules answer (orbit/claudecode, orbit/codexcli). What's
+    # different is what backs it: a job here is sandboxed per caller, snapshots
+    # the module tree it touched into a CID, and lands in the public ledger.
+
+    def harness(self) -> dict:
+        """Harness card: who this is and whether it can run here."""
+        up = self._server_available()
+        return {
+            "name": "buildforkmod",
+            "label": "Build-Fork Console",
+            "description": "This module's job server — Claude Code with per-caller "
+                           "sandboxing, snapshot CIDs and a public task ledger",
+            "available": up or bool(self._find_claude_safe()),
+            "server": up,
+            "install": "m build-fork/serve",
+            "api": self.api_url,
+            "module": "build-fork",
+        }
+
+    def _find_claude_safe(self) -> Optional[str]:
+        try:
+            return self._find_claude()
+        except Exception:
+            return None
+
+    def run(self, query: str, path: str = None, goal: str = None,
+            model: str = None, timeout: int = HARNESS_TIMEOUT,
+            on_step: Callable[[dict], None] = None, key=None,
+            **kwargs) -> List[dict]:
+        """Run a job here and return its step trace.
+
+        Submits the job, follows its live output, and translates it into the
+        step dicts every agent run in the fleet emits. Blocks until the job
+        reaches a terminal state; the job itself survives independently — its
+        id is on every step's `job` field, so a caller that gives up can still
+        follow, steer or cancel it.
+
+        Args:
+            query: the task, handed to the job as its prompt
+            path: work_dir for the job (a non-owner caller is confined to
+                  their own workspace by the server, whatever this says)
+            goal: system prompt for the run
+            model: model for the job; empty lets the server pick its default
+            timeout: wall-clock cap; the job is cancelled when it expires
+            on_step: called with each step as it happens (live progress)
+            key: caller identity — decides ownership, sandbox and ledger entry
+        """
+        # No identity given? Reaching this API in-process means being on its
+        # host, so the run is the owner's — otherwise every module-to-module
+        # run would land in a peer sandbox belonging to the local keypair.
+        # A caller that hands over a `key` gets exactly that caller's scope.
+        identity = key or self.get_owner()
+        # No model named? Hand the server an empty one so normalize_model picks
+        # this module's default — the caller's provider model id (an agent
+        # console picks one for its own loop) means nothing to the CLI.
+        job = self.submit(query, model=model or "", work_dir=path,
+                          system_prompt=goal, key=identity)
+        job_id = job.get("id")
+        if not job_id:
+            raise RuntimeError(f"job was not accepted: {job.get('error') or job}")
+
+        trace = JobTrace()
+        steps: List[dict] = []
+
+        def emit(step: dict):
+            step.setdefault("params", {})
+            step["job"] = job_id
+            steps.append(step)
+            if on_step:
+                try:
+                    on_step(step)
+                except Exception:
+                    pass
+
+        deadline = time.time() + timeout
+        try:
+            for line in self._stream_lines(f"/jobs/{job_id}/stream", deadline):
+                for step in trace.line(line):
+                    emit(step)
+                if trace.done:
+                    break
+        except Exception as e:
+            # the stream broke, the job didn't — fall through to its final state
+            emit({"tool": "harness", "params": {}, "result": f"stream ended: {e}"})
+
+        expired = time.time() >= deadline
+        if expired and not trace.done:
+            self.cancel(job_id, key=identity)
+        final = self.job(job_id) or {}
+        status = (final.get("status") or "").lower()
+        if expired and status not in ("completed", "failed"):
+            status, error = "timeout", f"exceeded {timeout}s — job {job_id} cancelled"
+        else:
+            error = final.get("error")
+        for step in trace.close(status or "unknown", error):
+            emit(step)
+        return steps
+
+    def _stream_lines(self, path: str, deadline: float):
+        """Yield the job's output lines from the SSE stream until it ends."""
+        url = f"{self.api_url}{path}"
+        req = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
+        with urllib.request.urlopen(req, timeout=max(1, deadline - time.time())) as resp:
+            for raw in resp:
+                if time.time() >= deadline:
+                    return
+                text = raw.decode("utf-8", errors="replace").rstrip("\n")
+                if text.startswith("data:"):
+                    payload = text[5:]
+                    # SSE writes "data: <line>" — the space is framing, not content
+                    yield payload[1:] if payload.startswith(" ") else payload
+
     def tail(self, job_id: str) -> None:
         """Live-stream job output via SSE. Ctrl-C to detach."""
         print(f"Streaming job {job_id[:8]}...")
@@ -931,11 +1253,37 @@ class Mod:
     # Module creation and deletion are owner-only end to end: the API rejects
     # non-owner tokens, and these helpers sign with the local owner key so the
     # whole lifecycle (import/fork/delete/snapshot/restore) is drivable from
-    # the terminal — `m build/import_module`, `m build/delete_module`.
+    # the terminal — `m build-fork/import_module`, `m build-fork/delete_module`.
 
     def _auth_headers(self, key=None) -> dict:
-        """Bearer token headers signed by the given key (default: owner)."""
-        return {'Authorization': f'Bearer {self.token(key=key)}'}
+        """Bearer token headers for the API, as the given key (default: owner).
+
+        Prefers the API's own session token, which is what its Bearer path
+        actually validates; the core signed token is the fallback for the
+        endpoints that accept it.
+        """
+        address = self._resolve_address(key)
+        token = self._session_token(address) or self.token(key=key)
+        return {'Authorization': f'Bearer {token}'}
+
+    def _session_token(self, address: str) -> Optional[str]:
+        """Mint an API session token — `address:time:hmac` under the server
+        secret, the same shape the API hands a signed-in browser.
+
+        Only possible on the API's own host: the secret is 0600 in
+        ~/.mod/build-fork/. That is exactly where module-to-module calls come
+        from, so a sibling module can talk to the job server as itself
+        without a wallet round-trip. Returns None anywhere else.
+        """
+        try:
+            secret = Path(os.path.expanduser('~/.mod/build-fork/server.secret')).read_bytes()
+        except OSError:
+            return None
+        if len(secret) != 32:
+            return None
+        payload = f"{address.lower()}:{int(time.time())}"
+        sig = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+        return f"{payload}:{sig}"
 
     def _sudo_message(self, action: str, target: str, time_s: int, nonce: str) -> str:
         """The exact sudo message. MUST stay byte-for-byte in sync with the
@@ -979,8 +1327,8 @@ class Mod:
                       category: str = 'orbit', key=None) -> dict:
         """Import a new module from a GitHub repo or snapshot CID. Owner-only.
 
-        m build/import_module mymod github=https://github.com/user/repo
-        m build/import_module mymod cid=Qm...
+        m build-fork/import_module mymod github=https://github.com/user/repo
+        m build-fork/import_module mymod cid=Qm...
         """
         self.require_owner(key, operation="import_module")
         if not github and not cid:
@@ -1001,13 +1349,46 @@ class Mod:
         """Delete a module directory. Owner-only; signs the sudo authorization
         with the local owner key (deleting anything but build requires it).
 
-        m build/delete_module mymod
+        m build-fork/delete_module mymod
         """
         self.require_owner(key, operation="delete_module")
         headers = self._auth_headers(key)
         if name != 'build-fork':
             headers.update(self._sudo_header('delete', name, key))
         return self._request('DELETE', f'/modules/{name}', headers=headers)
+
+    def rename_module(self, name: str, new_name: str, refs: str = 'paths',
+                      dry_run: bool = False, restart: bool = True,
+                      reroute: bool = True, key=None) -> dict:
+        """Rename a module and everything wired to its name. Owner-only.
+
+        Moves the directory, rewrites the references inside it, re-files the
+        host state kept under the old name (~/.mod/<name>, version log, github
+        link, screenshots), fixes the router override, the activator lists and
+        every sibling that names it in `deps`, then stops and restarts it so
+        it comes back up as itself.
+
+        refs: how far to chase the name through the module's own files —
+              'paths' (default) rewrites only the wiring (tree paths, routes,
+              state dirs, pm2 names), 'all' also replaces whole-word prose,
+              'none' moves the directory and edits nothing inside it.
+
+        m build-fork/rename_module mymod new_name=betterName dry_run=True
+        m build-fork/rename_module mymod new_name=betterName
+        """
+        self.require_owner(key, operation="rename_module")
+        headers = self._auth_headers(key)
+        if not dry_run:
+            headers.update(self._sudo_header('rename', name, key))
+        data = {
+            'new_name': new_name,
+            'refs': refs,
+            'dry_run': bool(dry_run),
+            'restart': bool(restart),
+            'reroute': bool(reroute),
+        }
+        return self._request('PUT', f'/modules/{name}/rename', data,
+                             timeout=300, headers=headers)
 
     def fork_module(self, name: str, cid: str, target_name: str = None, key=None) -> dict:
         """Fork a module from a snapshot CID into the portal tree. Owner-only."""
@@ -1027,7 +1408,7 @@ class Mod:
     def mr_fork(self, module: str, refresh: bool = False, key=None) -> dict:
         """Fork a module into your workspace, pinned to a base CID.
 
-        m build/mr_fork polymarket
+        m build-fork/mr_fork polymarket
         """
         return self._request('POST', f'/modules/{module}/mr-fork',
                              {'refresh': refresh}, timeout=120,
@@ -1038,8 +1419,8 @@ class Mod:
                 message: str = '', key=None) -> dict:
         """Open a merge request from your fork (or from raw snapshot CIDs).
 
-        m build/mr_open polymarket title="fix fee calc"
-        m build/mr_open polymarket title="import" head_cid=<cid>
+        m build-fork/mr_open polymarket title="fix fee calc"
+        m build-fork/mr_open polymarket title="import" head_cid=<cid>
         """
         data = {'title': title, 'description': description, 'message': message}
         if head_cid:
@@ -1066,7 +1447,7 @@ class Mod:
     def mr_comment(self, id: str, body: str = '', action: str = None, key=None) -> dict:
         """Comment on an MR. action=approve|request_changes needs a trusted reviewer.
 
-        m build/mr_comment mr_ab12 body="nice" action=approve
+        m build-fork/mr_comment mr_ab12 body="nice" action=approve
         """
         data = {'body': body}
         if action:
@@ -1092,7 +1473,7 @@ class Mod:
         semantic merge of base/head/live; auto-snapshot first). Signs the
         sudo authorization when the target module isn't build.
 
-        m build/mr_merge mr_ab12 instructions="keep the new fee tests"
+        m build-fork/mr_merge mr_ab12 instructions="keep the new fee tests"
         """
         self.require_owner(key, operation="mr_merge")
         headers = self._auth_headers(key)
@@ -1106,6 +1487,94 @@ class Mod:
             data['model'] = model
         return self._request('POST', f'/merge-requests/{id}/merge',
                              data or {}, timeout=120, headers=headers)
+
+    # ── suggestions: collaborate without forking ──────────────────
+    # An MR needs someone who can write the code. A suggestion needs only
+    # someone with an opinion: any signed-in caller files one in words, and
+    # the module's admin either triages it away or PLAYS it — hands it to the
+    # agent as an edit job running on the admin's own account.
+
+    def suggest(self, module: str, title: str, body: str = '', key=None) -> dict:
+        """Suggest an edit to a module, in words. Any signed-in caller.
+
+        m build-fork/suggest polymarket title="show fees in the ledger"
+        """
+        return self._request('POST', f'/modules/{module}/suggestions',
+                             {'title': title, 'body': body},
+                             headers=self._auth_headers(key))
+
+    def suggestions(self, module: str = None, status: str = None,
+                    author: str = None) -> dict:
+        """List suggestions (all, or for one module). Public ledger.
+
+        m build-fork/suggestions polymarket
+        m build-fork/suggestions status=open
+        """
+        if module and not (status or author):
+            return self._request('GET', f'/modules/{module}/suggestions')
+        q = {k: v for k, v in
+             (('module', module), ('status', status), ('author', author)) if v}
+        qs = ('?' + urllib.parse.urlencode(q)) if q else ''
+        return self._request('GET', f'/suggestions{qs}')
+
+    def suggestion(self, id: str) -> dict:
+        """Get one suggestion (folds in a finished play job)."""
+        return self._request('GET', f'/suggestions/{id}')
+
+    def suggestion_comments(self, id: str) -> dict:
+        """The ENTIRE discussion on a suggestion, oldest first.
+
+        Lists carry only the tail of a thread — commenting takes no account,
+        so threads grow — and this is the call that holds the whole of one.
+
+        m build-fork/suggestion_comments sg_ab12
+        """
+        return self._request('GET', f'/suggestions/{id}/comments')
+
+    def suggestion_comment(self, id: str, body: str, key=None) -> dict:
+        """Comment on a suggestion. Open to anyone — no wallet, no whitelist,
+        no association with the module; unsigned callers post under a stable
+        anon: handle. Returns the whole refreshed thread.
+        """
+        try:
+            headers = self._auth_headers(key)
+        except Exception:
+            headers = None  # no key, no wallet, no problem — that's the point
+        return self._request('POST', f'/suggestions/{id}/comment',
+                             {'body': body}, headers=headers)
+
+    def suggestion_vote(self, id: str, key=None) -> dict:
+        """Second a suggestion, or take it back. Toggles."""
+        return self._request('POST', f'/suggestions/{id}/vote', {},
+                             headers=self._auth_headers(key))
+
+    def play_suggestion(self, id: str, instructions: str = None,
+                        prompt: str = None, model: str = None, key=None) -> dict:
+        """Play a suggestion as an edit: submits an agent job in the live
+        module, on YOUR account. Admin-only. Returns the job.
+
+        m build-fork/play_suggestion sg_ab12 instructions="keep the ledger format"
+        """
+        data = {k: v for k, v in
+                (('instructions', instructions), ('prompt', prompt), ('model', model)) if v}
+        return self._request('POST', f'/suggestions/{id}/play', data or {},
+                             timeout=120, headers=self._auth_headers(key))
+
+    def triage_suggestion(self, id: str, status: str, note: str = None, key=None) -> dict:
+        """Move a suggestion to open | rejected | done. Admin-only.
+
+        m build-fork/triage_suggestion sg_ab12 rejected note="already possible"
+        """
+        data = {'status': status}
+        if note:
+            data['note'] = note
+        return self._request('POST', f'/suggestions/{id}/status', data,
+                             headers=self._auth_headers(key))
+
+    def delete_suggestion(self, id: str, key=None) -> dict:
+        """Delete a suggestion. Admin, or its author while it's unplayed."""
+        return self._request('DELETE', f'/suggestions/{id}',
+                             headers=self._auth_headers(key))
 
     # ── read-only helpers (API endpoints) ─────────────────────────
 
@@ -1195,6 +1664,82 @@ class Mod:
     def owner(self) -> dict:
         """Get owner info. Works offline too."""
         return {"owner": self._owner, "has_owner": bool(self._owner)}
+
+    # ── MCP ──────────────────────────────────────────────────────
+    #
+    # The server IS an MCP server (Streamable HTTP at /mcp, stdio via
+    # `build-fork-jobs --stdio`). These are thin: one JSON-RPC round trip each, so
+    # a script and an MCP client reach the same tools by the same route.
+
+    def _rpc(self, method: str, params: dict = None, key=None) -> dict:
+        body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+        resp = self._request("POST", "/mcp", body, timeout=120,
+                             headers=self._auth_headers(key))
+        if "error" in resp and "jsonrpc" in resp:
+            return {"error": resp["error"].get("message", "JSON-RPC error")}
+        return resp.get("result", resp)
+
+    def mcp(self, tool: str = None, key=None, **args) -> dict:
+        """Call one MCP tool. With no tool, describes the server."""
+        if not tool:
+            return {
+                "http": f"{self.api_url}/mcp",
+                "stdio": "build-fork-jobs --stdio",
+                "tools": [t["name"] for t in self.mcp_tools()],
+            }
+        result = self._rpc("tools/call", {"name": tool, "arguments": args}, key=key)
+        if result.get("isError"):
+            text = (result.get("content") or [{}])[0].get("text", "the tool failed")
+            return {"error": text}
+        return result.get("structuredContent", result)
+
+    def mcp_tools(self, key=None) -> list:
+        """Every MCP tool, with its description and input schema."""
+        return self._rpc("tools/list", key=key).get("tools", [])
+
+    # ── arenas ───────────────────────────────────────────────────
+
+    def arenas(self, refresh: bool = False, key=None) -> list:
+        """Every arena/1.0 module on this fleet, and whether it's answering."""
+        return self.mcp("arena_list", refresh=refresh, key=key).get("arenas", [])
+
+    def arena_tools(self, arena: str, key=None) -> dict:
+        """One arena's own tool list — arenas share a protocol, not a vocabulary."""
+        return self.mcp("arena_tools", arena=arena, key=key)
+
+    def arena_call(self, arena: str, tool: str, key=None, **args) -> dict:
+        """Call any tool on any arena."""
+        return self.mcp("arena_call", arena=arena, tool=tool, arguments=args, key=key)
+
+    def arena_enter(self, arena: str, name: str = None, role: str = "auto",
+                    model: str = None, callback_base: str = None, key=None) -> dict:
+        """Enter this console in an arena as an `http` competitor (owner only).
+
+        Switches /arena/solve and /arena/play on and mints the shared key they
+        require. From then on that arena can spend money here, one agent job
+        per call — which is why it's off until you ask for it.
+        """
+        args = {"arena": arena, "role": role}
+        for k, v in (("name", name), ("model", model), ("callback_base", callback_base)):
+            if v:
+                args[k] = v
+        return self.mcp("arena_enter", key=key, **args)
+
+    def arena_withdraw(self, arena: str = None, key=None) -> dict:
+        """Leave one arena, or all of them. Owner only."""
+        return self.mcp("arena_withdraw", key=key, **({"arena": arena} if arena else {}))
+
+    def arena_status(self, key=None) -> dict:
+        """Where this console is entered. Never returns the shared key."""
+        return self.mcp("arena_status", key=key)
+
+    def arena_match(self, arena: str, subject: str, *entrants, key=None) -> dict:
+        """Run a match. Two or more entrants makes it rated."""
+        names = []
+        for e in entrants:
+            names.extend(e.split(",") if isinstance(e, str) else e)
+        return self.mcp("arena_match", arena=arena, subject=subject,
+                        entrants=[n.strip() for n in names if n.strip()], key=key)
 
     # ── IPFS versioning ──────────────────────────────────────────
 
@@ -1303,8 +1848,17 @@ class Mod:
         return None
 
     def restore_version(self, version: str = None, cid: str = None,
-                        dry_run: bool = True) -> dict:
-        """Restore the module to a previous version from IPFS."""
+                        dry_run: bool = True, key=None) -> dict:
+        """Restore the module to a previous version from IPFS.
+
+        Owner-only, and owner means the owner's own key: `require_root_owner`,
+        not `require_owner`. Whitelisted editors and BlocTime holders can edit
+        this module — reverting it is the owner's last word over what they
+        wrote, so it is not part of the delegated edit surface. `dry_run`
+        (the default) only previews the file list and stays open.
+        """
+        if not dry_run:
+            self.require_root_owner(key, operation="restore_version")
         entry = self.get_version(version=version, cid=cid)
         if not entry:
             return {"error": f"Version not found: {version or cid}"}
@@ -1544,8 +2098,8 @@ class Mod:
         With host: installs on remote host over SSH.
 
         Usage:
-            m build/install              # local install + auth setup
-            m build/install user@myserver # remote install
+            m build-fork/install              # local install + auth setup
+            m build-fork/install user@myserver # remote install
         """
         if not host:
             return self._install_local(**kwargs)
@@ -1580,11 +2134,11 @@ class Mod:
             key_path: path to SSH key (optional, uses default if omitted)
 
         Usage:
-            m build/setup user@myserver
-            m build/setup user@myserver key_path=~/.ssh/id_ed25519
+            m build-fork/setup user@myserver
+            m build-fork/setup user@myserver key_path=~/.ssh/id_ed25519
         """
         if not host:
-            return {'error': 'host required — e.g. m build/setup user@myserver'}
+            return {'error': 'host required — e.g. m build-fork/setup user@myserver'}
 
         results = {'host': host, 'steps': []}
 
@@ -1692,7 +2246,7 @@ class Mod:
             print('[install] no credentials found. pick one:')
             print('')
             print('  1) paste auth token  — from a machine already logged in:')
-            print('     run `m build/_authtoken` on that machine, copy the token')
+            print('     run `m build-fork/_authtoken` on that machine, copy the token')
             print('')
             print('  2) set API key       — paste your ANTHROPIC_API_KEY')
             print('     (get one at https://console.anthropic.com/settings/keys)')
@@ -1737,8 +2291,8 @@ class Mod:
         With token arg: writes the token to keychain.
 
         Usage:
-            m build/_authtoken               # show current token
-            m build/_authtoken <token>       # set token from another machine
+            m build-fork/_authtoken               # show current token
+            m build-fork/_authtoken <token>       # set token from another machine
         """
         if token:
             ok = self._write_keychain_token(token)
@@ -1804,19 +2358,19 @@ class Mod:
         cargo_bin = os.path.expanduser('~/.cargo/bin/cargo')
         if os.path.exists(cargo_bin):
             return cargo_bin
-        print('[build] cargo missing — installing rustup (this may take a minute)')
+        print('[build-fork] cargo missing — installing rustup (this may take a minute)')
         try:
             r = subprocess.run(
                 ['sh', '-c', 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal'],
                 capture_output=True, text=True, timeout=600,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-            print(f'[build] rustup install failed: {e}')
+            print(f'[build-fork] rustup install failed: {e}')
             return None
         if r.returncode != 0 or not os.path.exists(cargo_bin):
-            print(f'[build] rustup install failed: {r.stderr[-200:]}')
+            print(f'[build-fork] rustup install failed: {r.stderr[-200:]}')
             return None
-        print('[build] rustup installed')
+        print('[build-fork] rustup installed')
         return cargo_bin
 
     def ensure_env(self, app_dir: str = None, api_dir: str = None):
@@ -1833,7 +2387,7 @@ class Mod:
         # ── App: node_modules ──
         if (app_dir / 'package.json').exists():
             if not (app_dir / 'node_modules').is_dir():
-                print('[build] node_modules missing — running npm install')
+                print('[build-fork] node_modules missing — running npm install')
                 try:
                     r = subprocess.run(
                         ['npm', 'install'], cwd=str(app_dir),
@@ -1841,14 +2395,14 @@ class Mod:
                     )
                 except FileNotFoundError:
                     results['app_install'] = {'ok': False, 'error': 'npm not found in PATH'}
-                    print('[build] npm install failed: npm not found in PATH')
+                    print('[build-fork] npm install failed: npm not found in PATH')
                 else:
                     if r.returncode != 0:
                         results['app_install'] = {'ok': False, 'error': r.stderr[-500:]}
-                        print(f'[build] npm install failed: {r.stderr[-200:]}')
+                        print(f'[build-fork] npm install failed: {r.stderr[-200:]}')
                     else:
                         results['app_install'] = {'ok': True}
-                        print('[build] npm install done')
+                        print('[build-fork] npm install done')
             else:
                 results['app_install'] = {'ok': True, 'cached': True}
 
@@ -1865,7 +2419,7 @@ class Mod:
             if not cargo:
                 results['api_build'] = {'ok': False, 'error': 'cargo not found and rustup install failed'}
             else:
-                print('[build] API binary missing — running cargo build --release')
+                print('[build-fork] API binary missing — running cargo build --release')
                 try:
                     r = subprocess.run(
                         [cargo, 'build', '--release'], cwd=str(api_dir),
@@ -1873,14 +2427,14 @@ class Mod:
                     )
                 except FileNotFoundError:
                     results['api_build'] = {'ok': False, 'error': 'cargo not found in PATH'}
-                    print('[build] cargo build failed: cargo not found in PATH')
+                    print('[build-fork] cargo build failed: cargo not found in PATH')
                 else:
                     if r.returncode != 0:
                         results['api_build'] = {'ok': False, 'error': r.stderr[-500:]}
-                        print(f'[build] cargo build failed: {r.stderr[-200:]}')
+                        print(f'[build-fork] cargo build failed: {r.stderr[-200:]}')
                     else:
                         results['api_build'] = {'ok': True}
-                        print('[build] cargo build done')
+                        print('[build-fork] cargo build done')
         else:
             results['api_build'] = {'ok': True, 'cached': True}
 
@@ -1930,14 +2484,14 @@ class Mod:
             return False
         # Ensure the API binary exists (pm2 runs it directly — no build-on-start).
         if not api_bin.exists():
-            print('[build] building API binary for pm2…')
+            print('[build-fork] building API binary for pm2…')
             build = subprocess.run(
                 ['cargo', 'build', '--release'],
                 cwd=str(module_dir / 'src' / 'api'),
                 capture_output=True, text=True,
             )
             if build.returncode != 0 or not api_bin.exists():
-                print('[build] API build failed — falling back to start.sh')
+                print('[build-fork] API build failed — falling back to start.sh')
                 return False
         env = os.environ.copy()
         env['BUILD_FORK_MODE'] = 'dev' if dev else 'prod'
@@ -1950,13 +2504,13 @@ class Mod:
         proc = subprocess.run(['pm2', 'start', str(eco)], cwd=str(module_dir),
                               env=env, capture_output=True, text=True)
         if proc.returncode != 0:
-            print(f'[build] pm2 start failed: {proc.stderr[-300:]}')
+            print(f'[build-fork] pm2 start failed: {proc.stderr[-300:]}')
             return False
         subprocess.run(['pm2', 'save'], capture_output=True, text=True)
         results['api'] = f'http://localhost:{api_port}'
         results['app'] = f'http://localhost:{app_port}'
         results['pm2'] = True
-        print(f'[build] pm2: build-fork-api :{api_port}  build-fork-app :{app_port}')
+        print(f'[build-fork] pm2: build-fork-api :{api_port}  build-fork-app :{app_port}')
         return True
 
     def serve(self, api_port=None, app_port=None, dev=True):
@@ -2025,11 +2579,11 @@ class Mod:
             if not api_live:
                 tail = self._tail_log(str(log_dir / 'api.log'))
                 checks['api']['error'] = tail
-                print(f'[build] API failed to start on :{api_port}')
+                print(f'[build-fork] API failed to start on :{api_port}')
                 if tail:
                     print(tail[-300:])
             else:
-                print(f'[build] API live on :{api_port}')
+                print(f'[build-fork] API live on :{api_port}')
 
         if 'app' in results:
             app_live = self._check_service(f'{app_url}/build-fork')
@@ -2037,12 +2591,12 @@ class Mod:
             if not app_live:
                 tail = self._tail_log(str(log_dir / 'app.log'))
                 checks['app']['error'] = tail
-                print(f'[build] App failed to start on :{app_port}')
+                print(f'[build-fork] App failed to start on :{app_port}')
                 # ── Auto-recover: reinstall deps and retry once ──
                 if not env_result.get('app_install', {}).get('cached'):
                     pass  # already freshly installed, don't retry
                 else:
-                    print('[build] retrying — reinstalling node_modules')
+                    print('[build-fork] retrying — reinstalling node_modules')
                     import shutil
                     nm = app_dir / 'node_modules'
                     if nm.is_dir():
@@ -2060,13 +2614,13 @@ class Mod:
                     checks['app']['retry'] = True
                     checks['app']['live'] = app_live
                     if app_live:
-                        print(f'[build] App recovered on :{app_port}')
+                        print(f'[build-fork] App recovered on :{app_port}')
                     else:
                         tail = self._tail_log(str(log_dir / 'app.log'))
                         checks['app']['error'] = tail
-                        print(f'[build] App still failing after retry')
+                        print(f'[build-fork] App still failing after retry')
             else:
-                print(f'[build] App live on :{app_port}')
+                print(f'[build-fork] App live on :{app_port}')
 
         results['checks'] = checks
 
@@ -2077,16 +2631,16 @@ class Mod:
             registry.reg_app('build-fork', app_url,
                              owner=self.key.address, api_url=api_url)
         except Exception as e:
-            print(f'[build] namespace registration failed: {e}')
+            print(f'[build-fork] namespace registration failed: {e}')
 
         # ── Register in on-chain Registry (chain mod) ──
         if self.config.get('onchain_registry', False):
             try:
                 res = self.register_onchain(data=api_url)
                 results['onchain'] = res
-                print(f"[build] on-chain registry: {res.get('status')}")
+                print(f"[build-fork] on-chain registry: {res.get('status')}")
             except Exception as e:
-                print(f'[build] on-chain registration failed: {e}')
+                print(f'[build-fork] on-chain registration failed: {e}')
 
         # ── Snapshot + update CID in registry ──
         all_live = all(c.get('live') for c in checks.values())
@@ -2099,9 +2653,9 @@ class Mod:
                     reg.register('build-fork', {'schema': cid, 'urls': {'api': api_url, 'app': app_url}},
                                  storage='ipfs')
                     results['cid'] = cid
-                    print(f'[build] CID registered: {cid[:16]}...')
+                    print(f'[build-fork] CID registered: {cid[:16]}...')
             except Exception as e:
-                print(f'[build] CID registration skipped: {e}')
+                print(f'[build-fork] CID registration skipped: {e}')
 
         # ── Save urls to config ──
         try:
@@ -2258,10 +2812,13 @@ class Mod:
 
         # 8: submit + fetch job (real integration test)
         def t_job_lifecycle():
+            # as the owner: the self-test runs on the API's own host, and a
+            # server with its gate on refuses a write from any other key
             job = self.submit(
                 prompt="echo hello from test — respond with just 'test_ok'",
                 model="haiku",
-                work_dir=os.path.expanduser('~/mod')
+                work_dir=os.path.expanduser('~/mod'),
+                key=self.get_owner(),
             )
             assert 'id' in job, f"submit should return job id, got {job}"
             job_id = job['id']
@@ -2275,7 +2832,7 @@ class Mod:
             assert job_id in ids, f"job {job_id} should appear in jobs list"
             # clean up — cancel then delete
             if detail.get('status') in ('pending', 'running'):
-                self.cancel(job_id)
+                self.cancel(job_id, key=self.get_owner())
             self.delete_job(job_id)
         self._run_test(results, "job_lifecycle", t_job_lifecycle)
 
@@ -2321,8 +2878,8 @@ You MUST output ONLY a JSON object (no markdown, no explanation) with this exact
         """
         Run a security scan on a module or repo using Claude CLI.
 
-        Usage: m build/scan bridge
-               m build/scan path=/some/repo
+        Usage: m build-fork/scan bridge
+               m build-fork/scan path=/some/repo
 
         Args:
             mod: module name to scan (e.g. 'bridge', 'agent')

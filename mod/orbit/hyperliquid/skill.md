@@ -77,19 +77,30 @@ local dev.
 ## MCP tool server
 
 The whole fn surface is also an MCP server — 53 tools, one per mod fn,
-named `hl_<fn>`. Transports: `POST /mcp` (Streamable HTTP, JSON-RPC 2.0,
-one message per POST) and stdio.
+named `hl_<fn>`. Three transports, so a client connects with whatever it
+already speaks:
+
+| transport | how | for |
+| --- | --- | --- |
+| streamable HTTP | `POST /mcp` — one JSON-RPC message *or batch* per POST | current clients |
+| HTTP+SSE | `GET /sse` → its first event names `POST /messages?sessionId=…` | the 2024-11-05 transport many agent frameworks still ship |
+| stdio | `hyperliquid-api --stdio` | child-process clients, no network hop |
 
 ```bash
+claude mcp add --transport http hyperliquid https://<host>/api/hyperliquid/mcp
+claude mcp add --transport sse  hyperliquid https://<host>/api/hyperliquid/sse
 claude mcp add hyperliquid -- src/api/target/release/hyperliquid-api --stdio
-# or point an HTTP MCP client at  /api/hyperliquid/mcp
 ```
+
+The `/hyperliquid/mcp` page in the app is the connect surface for humans:
+live endpoints for the origin you are on, paste-ready config per client
+(optionally carrying your own token), and the searchable tool list.
 
 ```python
 hl.mcp()                     # tool schema + the mod-protocol mapping
 hl.mcp_tools()               # [{name, fn, route, public, bound}, …]
 hl.mcp_call('hl_top_traders', days=7, pool=50)
-hl.mcp_config()              # client config snippets (stdio / http / gateway)
+hl.mcp_config()              # client config snippets (http / sse / stdio / gateway)
 ```
 
 `GET /mcp/schema` is the bridge between the two protocols: every tool
@@ -169,12 +180,43 @@ hl.update_isolated_margin(eoa, 'ETH', is_buy=True, amount_usd=50)
 hl.schedule_cancel(eoa, time_ms=int(time.time()*1000) + 3600_000)  # dead-man switch
 ```
 
-## Transfers / bridging
+## Funding: getting money in from another chain
+
+Hyperliquid's own bridge only credits USDC on Arbitrum, but LI.FI exposes
+Hyperliquid Core as a routing destination — so **one** signed transaction on
+Ethereum, Arbitrum, Base, OP Mainnet, Polygon, BNB Chain or Avalanche lands
+as USDC in the perps account. No Arbitrum layover, no second wallet prompt.
+
+`/deposit/balances` scans every chain in a single Multicall3 call each and
+returns a flat `sources[]` of spendable (chain, token) pairs — USDC, USDT,
+DAI, WETH/WBTC and the chain's native coin — priced off Hyperliquid's own
+mids and sorted richest first. `max` already reserves native gas. A token
+whose price can't be read comes back `priceUsd: null`, never `0`, so it
+stays selectable.
+
+```python
+hl.deposit_chains()                    # chains + the tokens accepted on each
+hl.deposit_balances(eoa)               # {'sources': [...], 'chains': [...]}
+q = hl.deposit_quote(from_chain_id=8453, token='usdc', amount='250', eoa=eoa)
+#  → {'toUsdc': 249.9, 'feeUsd': .06, 'gasUsd': .01, 'durationSec': 1080,
+#     'landsOnHyperliquid': True, 'approvalAddress': ..., 'transactionRequest': {...}}
+# the wallet signs transactionRequest (approving `approvalAddress` first for
+# an ERC-20 source); nothing moves until it does.
+hl.deposit_status(tx_hash, from_chain_id=8453)   # PENDING → DONE + receivedUsdc
+```
+
+`token` takes `"usdc"`, `"native"`, a symbol (`"WETH"`) or a token address.
+USDC already on Arbitrum skips the router entirely — the browser sends a
+plain ERC-20 transfer to the bridge, which costs nothing extra. Set
+`to_chain_id` to reverse the direction: that quotes Arbitrum USDC out to
+another chain, which is how withdrawals reach anywhere but Arbitrum.
+
+## Transfers on Hyperliquid
 
 ```python
 hl.usd_class_transfer(eoa, amount='100', to_perp=True)   # spot → perp
 hl.vault_transfer(eoa, vault='0xvault...', is_deposit=True, amount_usd=100)
-hl.withdraw(eoa, destination='0xL1addr', amount='50')
+hl.withdraw(eoa, destination='0xL1addr', amount='50')    # pays out on Arbitrum
 hl.usd_send(eoa, destination='0xanotherUser', amount='10')
 hl.spot_send(eoa, destination='0x...', token='PURR:0x...', amount='1.5')
 ```

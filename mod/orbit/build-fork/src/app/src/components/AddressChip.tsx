@@ -6,6 +6,9 @@ import { copyToClipboard } from "../utils/wallet";
 
 /** EIP-55 checksum casing, so one address reads the same everywhere it shows
     up — and so a parent's `uppercase` class can't render it as "0XD779". */
+/** EIP-55 checksum an EVM address. Solana and Substrate addresses are base58,
+    where case IS the key — `getAddress` rejects them, and the catch hands them
+    back untouched, which is exactly right. */
 export function checksumAddress(addr: string): string {
   try {
     return ethers.getAddress(addr);
@@ -14,11 +17,79 @@ export function checksumAddress(addr: string): string {
   }
 }
 
-/** Middle-truncated form: 0xD779…996F. */
+/** Middle-truncated form: 0xD779…996F, or 5GrwvaEF…utQY for base58. */
 export function shortAddress(addr: string, head = 6, tail = 4): string {
   const a = checksumAddress(addr);
   if (a.length <= head + tail + 1) return a;
   return `${a.slice(0, head)}…${a.slice(-tail)}`;
+}
+
+/**
+ * Square copy-to-clipboard button, sized to sit in a toolbar row next to other
+ * icon buttons.
+ *
+ * Use this instead of <AddressChip> when the address belongs to a larger click
+ * target — the title-bar account chip opens the account panel, and a
+ * copy-on-click address inside it steals that click.
+ */
+export function CopyButton({
+  value,
+  label = "Copy",
+  box = 20,
+  icon = 12,
+  className = "",
+}: {
+  value: string;
+  /** Tooltip / aria text, e.g. "Copy address". */
+  label?: string;
+  /** Button edge in px. */
+  box?: number;
+  /** Glyph size in px. */
+  icon?: number;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  const copy = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!(await copyToClipboard(value))) return;
+    setCopied(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), 1600);
+  }, [value]);
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className={`shrink-0 flex items-center justify-center transition-all focus-ring ${className}`}
+      title={copied ? "Copied" : label}
+      aria-label={label}
+      style={{
+        width: box,
+        height: box,
+        borderRadius: 4,
+        color: copied ? "var(--crt-green)" : "var(--text-tertiary)",
+        border: `1px solid ${copied ? "color-mix(in srgb, var(--crt-green) 45%, transparent)" : "transparent"}`,
+        background: copied ? "color-mix(in srgb, var(--crt-green) 10%, transparent)" : "transparent",
+      }}
+    >
+      {copied ? (
+        <svg viewBox="0 0 24 24" width={icon} height={icon} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M4 12.5 9 17.5 20 6.5" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" width={icon} height={icon} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <rect x="9" y="9" width="11" height="11" rx="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      )}
+    </button>
+  );
 }
 
 interface AddressChipProps {
@@ -141,7 +212,9 @@ export default function AddressChip({
             className="shrink-0"
             style={{ fontSize: Math.max(8, size - 3), letterSpacing: "0.1em", opacity: 0.95 }}
           >
-            ✓ COPIED
+            {/* In a toolbar row the badge swaps in place of the icon — the word
+                would widen the chip and shove its neighbours for 1.6s. */}
+            {height ? "✓" : "✓ COPIED"}
           </span>
         ) : (
           <svg

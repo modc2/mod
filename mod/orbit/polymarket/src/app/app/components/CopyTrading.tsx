@@ -8,6 +8,7 @@ import {
   formatVolume, formatPnl, TopTrader,
   CategorySlug, CATEGORIES,
   matchTraderSearch, matchTraderCategory,
+  DEFAULT_ACTIVE_HOURS,
 } from "../lib/polymarket";
 import { traderMatchesMarketQuery, marketQueryMatchCount } from "../lib/marketQuery";
 import { shortAddress } from "@/lib/auth";
@@ -183,7 +184,11 @@ export default function CopyTrading({
   const [streamedAll, setStreamedAll] = useState<TopTrader[]>([]);
   const [totalTraders, setTotalTraders] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [traderSort, setTraderSort] = useState<TraderSort>("pnl");
+  // Default sort is SCORE, which is Sharpe out of the box (DEFAULT_FORMULA)
+  // and pages server-side as `sort=sharpe`. P&L ranked the whale who risked
+  // $2M to make 3% above the trader compounding a real edge on $5k — the
+  // wrong end of a leaderboard you copy PROPORTIONALLY from.
+  const [traderSort, setTraderSort] = useState<TraderSort>("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
   const [cacheWarm, setCacheWarm] = useState(false);
@@ -268,14 +273,18 @@ export default function CopyTrading({
   // MIN TRADES 24H — drops traders below this 24h activity floor. Defaults
   // to "1" so the leaderboard hides dormants by default (matches the spirit
   // of "don't pick inactive traders"). Lives outside FiltersContext because
-  // trades24h ships per-row and filtering is pure client-side.
+  // it's an activity floor, not a scoring window.
   const [minTrades24h, setMinTrades24h] = useState("1");
   // LAST TRADE ≤ HRS — drops traders whose most recent trade is older than
-  // this many hours. Defaults to "24" so the leaderboard only surfaces traders
-  // active in the last day out of the box. Like minTrades24h it's a pure
-  // client-side filter on the per-row `lastTradeTs` (unix seconds); blank/0
-  // disables it. Lives outside FiltersContext for the same reason.
-  const [maxLastTradeHrs, setMaxLastTradeHrs] = useState("24");
+  // this many hours. Defaults to DEFAULT_ACTIVE_HOURS: the board you land on
+  // is traders who are trading NOW, because that is the only kind you can
+  // actually copy. Blank/0 disables it. Both floors go to the server with the
+  // page request, so they narrow the WHOLE cached board (and its row count),
+  // not the 50 rows that already came back.
+  const [maxLastTradeHrs, setMaxLastTradeHrs] = useState(String(DEFAULT_ACTIVE_HOURS));
+  // How many traders the two floors above removed, straight from the server.
+  // An empty board means something different depending on it.
+  const [activityDropped, setActivityDropped] = useState(0);
   const [stratAddrs, setStratAddrs] = useState<Set<string>>(new Set());
   const [stratName, setStratName] = useState<string | null>(null);
   const inFlightRef = useRef(false);
@@ -321,6 +330,11 @@ export default function CopyTrading({
           minTrades: Number(minTrades) || undefined,
           minBuyVolume: Number(minBuyVolume) || undefined,
           minSellVolume: Number(minSellVolume) || undefined,
+          // Activity floors run server-side against the same cached aggregate
+          // the page comes from — so `total` counts the traders you can
+          // actually see, and the board stays a cache read.
+          minTrades24h: Number(minTrades24h) || undefined,
+          maxLastTradeHrs: Number(maxLastTradeHrs) || undefined,
           force: opts.force,
         });
         if (result.cold) {
@@ -329,6 +343,7 @@ export default function CopyTrading({
         }
         setTraders(result.traders);
         setTotalTraders(result.total);
+        setActivityDropped(result.activityDropped ?? 0);
         setSource(result.source as "memory" | "disk" | "fresh");
         setCacheWarm(true);
         setHasLoaded(true);
@@ -345,7 +360,8 @@ export default function CopyTrading({
       }
     },
     [days, minTradesPerDay, traderSort, sortDir, search, category, marketQuery,
-     minVolume, minPnl, minTrades, minBuyVolume, minSellVolume],
+     minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
+     minTrades24h, maxLastTradeHrs],
   );
 
   // Streaming load — used for cold cache (pipeline needs to run) AND
@@ -369,6 +385,10 @@ export default function CopyTrading({
       setRateInfo(null);
       rateSamplesRef.current = [];
       setSource(null);
+      // The streamed path filters client-side, so the server's drop count no
+      // longer describes what's on screen — clear it rather than explain an
+      // empty board with a number from the last paged read.
+      setActivityDropped(0);
       try {
         const { traders: data, source: src, syncedAt: streamSyncedAt } = await fetchTopTradersStream(
           2000,
@@ -507,7 +527,8 @@ export default function CopyTrading({
       }
     })();
   }, [cacheWarm, page, traderSort, sortDir, search, category, marketQuery,
-      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume]);
+      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
+      minTrades24h, maxLastTradeHrs]);
 
   // Background staleness check. Re-fetches current page silently once data
   // crosses MAX_STALENESS_MS so the leaderboard never gets older than this
@@ -628,12 +649,14 @@ export default function CopyTrading({
   const clientView = useMemo(() => {
     // Use client-side filtering when cache is cold OR when stratFilter needs
     // the full dataset (server pagination can't filter by address list).
-    // Also force client-side when MIN TRADES 24H is active — server pagination
-    // doesn't know about trades24h, so the only way to honor it is to filter
-    // the in-memory streamed dataset.
-    const needs24hFilter = minTrades24h !== "" && Number(minTrades24h) > 0;
-    const needsRecencyFilter = maxLastTradeHrs !== "" && Number(maxLastTradeHrs) > 0;
-    if (cacheWarm && !stratFilter && !needs24hFilter && !needsRecencyFilter) return null;
+    // The activity floors used to ask for this path too, back when only the
+    // client knew about them — but on a warm cache there is no streamed
+    // dataset to filter, so the request fell through to a per-page filter and
+    // the two paths disagreed: board-wide after a cold sync, page-only
+    // otherwise. They're server parameters now, applied to the same cached
+    // aggregate the page comes from; this path only mirrors them while the
+    // stream is the only data there is.
+    if (cacheWarm && !stratFilter) return null;
     if (!stratFilter && streamedAll.length === 0) return null;
 
     // When STRAT is on, anchor the list to the strat's address set so traders
@@ -731,7 +754,8 @@ export default function CopyTrading({
 
   // Reset page on filter/sort change
   useEffect(() => { setPage(0); }, [search, category, marketQuery, traderSort, sortDir,
-    minVolume, minPnl, minTrades, minBuyVolume, minSellVolume, stratFilter]);
+    minVolume, minPnl, minTrades, minBuyVolume, minSellVolume, stratFilter,
+    minTrades24h, maxLastTradeHrs]);
 
   const totalPages = Math.max(1, Math.ceil(visibleTotal / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -773,24 +797,14 @@ export default function CopyTrading({
   }, [stratFilter]);
 
   const pageTraders = useMemo(() => {
-    // Apply MIN TRADES 24H here as a final filter so it works regardless of
-    // which load path (warm-paged or streamed) produced sortedTraders. The
-    // alternative — pushing it server-side — requires pipeline changes;
-    // client-side filter on a 50-row page is cheap enough to ship today.
-    const m24 = Number(minTrades24h);
-    const apply24h = minTrades24h !== "" && Number.isFinite(m24) && m24 > 0;
-    const mlh = Number(maxLastTradeHrs);
-    const applyRecency = maxLastTradeHrs !== "" && Number.isFinite(mlh) && mlh > 0;
-    let list = sortedTraders;
-    if (apply24h) {
-      list = list.filter((t) => (t.trades24h ?? 0) >= m24);
-    }
-    if (applyRecency) {
-      list = list.filter((t) => !!t.lastTradeTs && Date.now() / 1000 - t.lastTradeTs <= mlh * 3600);
-    }
+    // The activity floors are already applied — server-side for the warm-paged
+    // path, in `clientView` for the streamed one — so this only narrows to the
+    // strat's address set. Re-filtering the page here is what made a 50-row
+    // page render as five rows under a pager still counting the full board.
+    const list = sortedTraders;
     if (!stratFilter || stratAddrs.size === 0) return list;
     return list.filter(t => stratAddrs.has(t.address.toLowerCase()));
-  }, [sortedTraders, stratFilter, stratAddrs, minTrades24h, maxLastTradeHrs]);
+  }, [sortedTraders, stratFilter, stratAddrs]);
 
   // Pre-lowercase the selected set so the ✓ / + ADD toggle compares
   // case-insensitively — different code paths persist addresses in mixed cases.
@@ -799,11 +813,20 @@ export default function CopyTrading({
     [selectedAddresses],
   );
 
-  const columns: { key: TraderSort; label: string }[] = [
-    { key: "score", label: "SCORE" },
-    { key: "pnl", label: "P&L" },
-    { key: "volume", label: "VOL" },
-    { key: "positions", label: "TRADES" },
+  // The ranking column names what it actually holds: on the default formula
+  // that IS the Sharpe ratio, and "SCORE" hid the one number the board is
+  // sorted by. Any edit to the formula turns it back into a generic SCORE.
+  const columns: { key: TraderSort; label: string; hint: string }[] = [
+    {
+      key: "score",
+      label: formula.trim() === DEFAULT_FORMULA ? "SHARPE" : "SCORE",
+      hint: formula.trim() === DEFAULT_FORMULA
+        ? "Sharpe ratio over the window — mean per-trade return ÷ its stdev. Consistency, not size: it ranks the trader compounding a real edge above the whale who risked millions for 3%."
+        : `Custom score = ${formula}`,
+    },
+    { key: "pnl", label: "P&L", hint: "Realized profit over the window — a size story, not a skill one" },
+    { key: "volume", label: "VOL", hint: "USDC traded in the window" },
+    { key: "positions", label: "TRADES", hint: "Positions taken in the window" },
   ];
 
   // Filter input helpers
@@ -848,6 +871,20 @@ export default function CopyTrading({
   const staleAgeMs = staleStamp ? nowTick - staleStamp : 0;
   const isStale = staleStamp != null && staleAgeMs >= sourceStalenessMs;
   const showSyncingBanner = isStale && (autoSyncActive || loading || refreshing);
+
+  // Why the board is empty. Under the default 6h lens the answer is almost
+  // never "no good traders in this window" — it's "everyone good has been
+  // quiet", or, when the snapshot itself is older than the window, "this data
+  // predates the question", which no amount of relaxing the other filters
+  // fixes. Say which, and name the knob.
+  const recencyHrs = Number(maxLastTradeHrs);
+  const snapshotOlderThanWindow =
+    Number.isFinite(recencyHrs) && recencyHrs > 0 && staleAgeMs > recencyHrs * 3600_000;
+  const activityHint = activityDropped > 0
+    ? `${activityDropped.toLocaleString()} hidden by LAST TRADE ≤ ${maxLastTradeHrs}H` +
+      (Number(minTrades24h) > 0 ? ` / MIN TRADES 24H ≥ ${minTrades24h}` : "") +
+      (snapshotOlderThanWindow ? ` — and this snapshot is ${formatAgo(staleAgeMs)} old, so ↻ SYNC first` : "")
+    : null;
 
   return (
     <div className="space-y-3">
@@ -1083,8 +1120,9 @@ export default function CopyTrading({
                 // hidden out of the box (user explicitly asked to not see them).
                 { label: "MIN TRADES 24H", value: minTrades24h, onChange: onDec(setMinTrades24h), ph: "1" },
                 // Recency floor — hide traders whose last trade is older than
-                // this many hours. Defaults to 24h; blank/0 disables.
-                { label: "LAST TRADE ≤ HRS", value: maxLastTradeHrs, onChange: onDec(setMaxLastTradeHrs), ph: "24" },
+                // this many hours. Defaults to DEFAULT_ACTIVE_HOURS; blank/0
+                // disables. Widen it to see the dormant-but-profitable names.
+                { label: "LAST TRADE ≤ HRS", value: maxLastTradeHrs, onChange: onDec(setMaxLastTradeHrs), ph: String(DEFAULT_ACTIVE_HOURS) },
                 { label: "MIN BUY VOL", value: minBuyVolume, onChange: onDec(setMinBuyVolume), ph: "any" },
                 { label: "MIN SELL VOL", value: minSellVolume, onChange: onDec(setMinSellVolume), ph: "any" },
                 { label: "MIN P&L", value: minPnl, onChange: onDec(setMinPnl), ph: "any" },
@@ -1202,6 +1240,7 @@ export default function CopyTrading({
                   {columns.map((col) => (
                     <th key={col.key}
                       className={`sortable num ${traderSort === col.key ? "sorted" : ""} text-right`}
+                      title={col.hint}
                       onClick={() => handleSort(col.key)}>
                       {col.label}
                       <SortArrow active={traderSort === col.key} dir={sortDir} />
@@ -1223,6 +1262,9 @@ export default function CopyTrading({
                   <tr>
                     <td colSpan={10} className="text-center py-8 text-[13px] text-pixel-gray">
                       ALL ROWS HIDDEN BY ACTIVE FILTERS — try switching LIVE off or relaxing FILTERS
+                      {activityHint && (
+                        <div className="mt-1 text-[12px] text-pixel-gray-light">{activityHint}</div>
+                      )}
                     </td>
                   </tr>
                 )}
@@ -1399,6 +1441,9 @@ export default function CopyTrading({
       ) : hasLoaded && !loading ? (
         <div className="pixel-panel p-8 text-center text-[14px] text-pixel-gray">
           NO TRADERS MATCH CURRENT FILTERS
+          {activityHint && (
+            <div className="mt-2 text-[12px] text-pixel-gray-light">{activityHint}</div>
+          )}
         </div>
       ) : null}
     </div>

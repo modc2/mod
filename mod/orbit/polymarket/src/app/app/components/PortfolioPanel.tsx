@@ -17,6 +17,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { getOwnerAddress } from "../lib/access";
 import { fetchPositions, fetchUserTrades, type GlobalTrade } from "../lib/polymarket";
+import { fetchLiveSessions } from "../lib/liveSessions";
+import { loadIndexes } from "../lib/indexStore";
 import { computeFifoTrades } from "../lib/pnlEngine";
 import type { PolymarketPosition, PolymarketTrade } from "../lib/types";
 import { type EquitySnapshot, type EquityMarker } from "./EquityChart";
@@ -182,6 +184,11 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
   const [feedOrder, setFeedOrder] = useState<"newest" | "oldest">("newest");
   // In-flight guard so the auto-redeem effect can't stack requests.
   const redeemBusy = useRef(false);
+  // tokenId → strategyId that opened it, across EVERY session on this wallet.
+  // The positions list below is the deposit WALLET's, and one wallet funds
+  // several strats — so without this the table shows another strat's trades
+  // under this strat's header with nothing to say so.
+  const [posOwners, setPosOwners] = useState<Record<string, string>>({});
 
   // Owner-only console: the funded wallet is the signed-in owner (from the
   // access token), which is authoritative. Fall back to the connected wallet
@@ -284,6 +291,22 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         setLastError(`positions: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+
+    // 2c) Who opened what. Every session's ledger tags its positions with the
+    // strat that bought them (live_engine.rs `OpenPosition.strategy_id`);
+    // a position adopted from the chain carries no tag and stays unlabelled.
+    // Best-effort — a failed read just leaves the rows unbadged.
+    try {
+      const sessions = await fetchLiveSessions(eoa);
+      const owners: Record<string, string> = {};
+      for (const s of sessions) {
+        for (const [tokenId, p] of Object.entries(s.state?.positions ?? {})) {
+          const owner = p.strategyId || s.strategyId;
+          if (owner) owners[tokenId] = owner;
+        }
+      }
+      setPosOwners(owners);
+    } catch { /* rows render without the badge */ }
 
     // Split realizable vs not. Hidden = no bid on the book AND not
     // redeemable — a SELL there can never fill, so we neither list it nor
@@ -534,6 +557,23 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
       .sort((a, b) => a.forwardEP - b.forwardEP || b.pnlUsd - a.pnlUsd);
   }, [positions, strategyId]);
 
+  // Label a row with the strat that opened it — but ONLY when that isn't the
+  // strat whose panel this is. Badging every row would just be noise; the
+  // question this answers is "which of my strats made this trade?", and it
+  // only comes up for the rows this one didn't make.
+  const ownerBadge = useCallback(
+    (tokenId: string): { label: string; title: string } | undefined => {
+      const owner = posOwners[tokenId];
+      if (!owner || owner === strategyId) return undefined;
+      const name = loadIndexes().find((s) => s.id === owner)?.name ?? owner;
+      return {
+        label: name,
+        title: `Opened by your ${name} strat, not this one. Strats share one deposit wallet, so its positions show up here too — check that strat's TRADE tab for why it bought this.`,
+      };
+    },
+    [posOwners, strategyId],
+  );
+
   if (!auth.connected) return null;
 
   return (
@@ -570,11 +610,12 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         pnlUsd: p.pnlUsd,
         badge: p.redeemable ? "REDEEM" : undefined,
         badgeTitle: "Market resolved — cash out via REDEEM, not SELL",
+        owner: ownerBadge(p.tokenId),
         rowTitle: `${p.market} · ${p.outcome}${p.tracked ? ` · fwd EP $${p.forwardEP.toFixed(2)}` : " · not opened by the engine (rotates first)"}`,
       }))}
       positionsNote={
-        <span title="Rows are in rotation order — the engine sells the lowest forward expected profit first to fund new buys.">
-          rotation order · ▸ = sold first
+        <span title="Every strat on this wallet trades out of one deposit wallet, so this lists the WALLET's holdings — rows another strat opened carry its name. Order is the rotation order: the engine sells the lowest forward expected profit first to fund new buys.">
+          whole wallet · rotation order · ▸ = sold first
         </span>
       }
       footer={<>

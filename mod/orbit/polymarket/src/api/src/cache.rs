@@ -245,11 +245,27 @@ const DISK_MAX_AGE: Duration = Duration::from_secs(86400); // 24h — keep disk 
 /// and the warmup writes one per window (1/7/10/14/30d) — keeping them all
 /// resident duplicated the whole disk cache in RAM. Disk is authoritative;
 /// memory is a hot tier for the window(s) actually being browsed.
-const MEM_ENTRIES_MAX: usize = 2;
+///
+/// It must cover EVERY warmed window, though, and at 2 it did not. The
+/// per-market breakdown is `#[serde(skip)]` — it is far too big to persist —
+/// so it exists only in the memory tier, and it is the only thing that lets a
+/// market filter recompute a trader's stats from the matching markets
+/// (`apply_pagination`). The warmup writes 1D, 7D, 14D and 30D in that order;
+/// with room for two, the first two were evicted the moment the last two were
+/// written, and every filtered request for the windows people actually browse
+/// fell back to the disk copy and answered with LIFETIME numbers. Four is
+/// `warmup_cycle`'s combo count: one hot entry per warmed window, so
+/// "traders in bitcoin" means their bitcoin record on all of them.
+const MEM_ENTRIES_MAX: usize = 4;
 
 struct PipelineCacheEntry {
     payload: AggPayload,
+    /// When this aggregate was computed — the TTL clock. Never bumped by a
+    /// read, or a busy window would serve indefinitely stale traders.
     created_at: Instant,
+    /// When it was last served — the EVICTION clock. Separate on purpose:
+    /// staleness is about the data, residency is about who is asking. */
+    last_access: Instant,
 }
 
 pub struct PipelineCache {
@@ -267,10 +283,14 @@ impl PipelineCache {
         }
     }
 
+    /// A write lock for a read: serving a hit already clones a 30MB payload,
+    /// so the cost of taking the exclusive lock is noise next to it, and it is
+    /// what lets a read record itself for the eviction order below.
     pub fn get(&self, key: &str) -> Option<AggPayload> {
-        let entries = self.entries.read();
-        if let Some(entry) = entries.get(key) {
+        let mut entries = self.entries.write();
+        if let Some(entry) = entries.get_mut(key) {
             if entry.created_at.elapsed() < AGG_TTL {
+                entry.last_access = Instant::now();
                 return Some(entry.payload.clone());
             }
         }
@@ -285,9 +305,11 @@ impl PipelineCache {
         // Disk fallback
         if let Some(payload) = self.load_from_disk(key) {
             let mut entries = self.entries.write();
+            let now = Instant::now();
             entries.insert(key.to_string(), PipelineCacheEntry {
                 payload: payload.clone(),
-                created_at: Instant::now(),
+                created_at: now,
+                last_access: now,
             });
             Self::evict_over_cap(&mut entries);
             return Some((payload, "disk"));
@@ -298,9 +320,11 @@ impl PipelineCache {
     pub fn set(&self, key: &str, payload: AggPayload) {
         // Memory
         let mut entries = self.entries.write();
+        let now = Instant::now();
         entries.insert(key.to_string(), PipelineCacheEntry {
             payload: payload.clone(),
-            created_at: Instant::now(),
+            created_at: now,
+            last_access: now,
         });
         Self::evict_over_cap(&mut entries);
         drop(entries);
@@ -308,14 +332,21 @@ impl PipelineCache {
         self.save_to_disk(key, &payload);
     }
 
-    /// Drop the oldest entries until the memory tier fits MEM_ENTRIES_MAX.
-    /// Evicted windows reload from disk on next request via get_or_disk.
+    /// Drop the least recently USED entries until the memory tier fits
+    /// MEM_ENTRIES_MAX. Evicted windows reload from disk on the next request
+    /// via get_or_disk — but WITHOUT their per-market breakdown, which is the
+    /// difference between a market-filtered leaderboard showing a trader's
+    /// bitcoin record and showing their lifetime one. So residency should
+    /// follow what is being browsed: evicting by insertion order instead meant
+    /// one off-cadence window (a `days=10` probe, a small-pool debug request)
+    /// pushed out the window the console was actually reading, and it came
+    /// back metric-less.
     fn evict_over_cap(entries: &mut HashMap<String, PipelineCacheEntry>) {
         while entries.len() > MEM_ENTRIES_MAX {
-            let oldest = entries.iter()
-                .min_by_key(|(_, v)| v.created_at)
+            let coldest = entries.iter()
+                .min_by_key(|(_, v)| v.last_access)
                 .map(|(k, _)| k.clone());
-            match oldest {
+            match coldest {
                 Some(k) => { entries.remove(&k); }
                 None => break,
             }
@@ -370,6 +401,50 @@ impl PipelineCache {
             Some(payload)
         } else {
             None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::AggPayload;
+
+    fn payload(days: u32) -> AggPayload {
+        AggPayload {
+            count: 0,
+            candidate_pool: 2000,
+            days_window: days,
+            min_trades_per_day: 0.0,
+            synced_at: 0,
+            traders: vec![],
+        }
+    }
+
+    /// The memory tier has to hold every WARMED window, because the per-market
+    /// breakdown a market filter needs exists only there. So a fifth key must
+    /// evict whichever window nobody is reading — not the one being read.
+    #[test]
+    fn eviction_drops_the_least_recently_read_window() {
+        let cache = PipelineCache::new();
+        // Unique keys: the disk tier is a shared temp dir, and a bare "1:0:2000"
+        // would clobber the real cache of whatever is running on this box.
+        let k = |n: u32| format!("test_lru_{}_{}", std::process::id(), n);
+
+        for n in 1..=4 {
+            cache.set(&k(n), payload(n));
+        }
+        // Read 1 — it is now the most recently used, and 2 the least.
+        assert!(cache.get(&k(1)).is_some());
+
+        cache.set(&k(5), payload(5));
+
+        assert!(cache.get(&k(1)).is_some(), "the window being read was evicted");
+        assert!(cache.get(&k(2)).is_none(), "the coldest window should have gone");
+        assert!(cache.get(&k(5)).is_some());
+
+        for n in 1..=5 {
+            std::fs::remove_file(cache.disk_path(&k(n))).ok();
         }
     }
 }

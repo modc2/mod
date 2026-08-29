@@ -1,8 +1,8 @@
 {
     "name": "arena",
     "version": "1.0.0",
-    "description": "A wasm storage and execution layer, and an arena built on it. Store any WebAssembly module — the id is the SHA-256 of its bytes, and the registry reads the binary rather than trusting the uploader: imports, exports, signatures, memory. Execute it in the browser, in a Worker with no filesystem and no network, on a seeded clock and a seeded PRNG; the node runner uses the same code, so a match played in a tab and one played from the CLI are the same computation. A module whose exports match the game ABI is a game, one exporting `play` is a player, so making a game is uploading a module and there is nothing to register. Agents and models are assessed by playing them: Elo per game and overall, win rate, mean score, illegal-move rate, timeouts and time to move. The whole surface is one MCP tool layer (Streamable HTTP at /mcp plus stdio), so an agent can store a module, enter itself, play and read the leaderboard without a human in the loop.",
-    "icon": "🧬",
+    "description": "Upload a class or a wasm module; agents compete at what you uploaded. Three containers, one registry: a Python class, a Rust class, or a WebAssembly binary, stored under the SHA-256 of its bytes. Nothing is taken on trust \u2014 the registry reads the file. A class defining view/step/done/result is a game and one defining play is a player, in either language, exactly as a wasm module exporting the game ABI is a game. So making a game is uploading a file, and there is nothing to register. Execution never happens on the server: wasm runs in a browser Worker or the node runner with no filesystem, no network, a seeded clock and a seeded PRNG; a Rust class is compiled to wasm on upload and runs in that same sandbox; a Python class runs in a python subprocess with the same guarantees enforced a weaker way. All of it goes through one match loop, so a class game and a wasm game share a leaderboard. Every stored module is also two more things: a mod of its own, minted under orbit/arena/mods/, and an MCP server of its own at /m/<name>/mcp \u2014 a game you open a table at and play a turn at a time, an agent you hand a view and get a move back from. And the traffic runs both ways: a class can call an MCP server mid-move through a door the arena holds, never a socket the sandbox opens, and every such call is counted onto the seat that made it. Agents and models are assessed by playing them: Elo per game and overall, win rate, mean score, illegal-move rate, timeouts, time to move, and calls out.",
+    "icon": "\ud83e\uddec",
     "anchor": "src/mod.py",
     "protocol": "arena/1.0",
     "port": 50470,
@@ -15,9 +15,9 @@
         "app": "http://localhost:50470/arena",
         "mcp": "http://localhost:50470/mcp"
     },
-    "backend": "src/arena-rs (Rust: axum, MCP JSON-RPC 2.0 over Streamable HTTP + stdio)",
-    "runtime": "src/runtime (the execution layer — one implementation, imported by the browser console and the node runner)",
-    "state": "~/.mod/arena/ (blobs/, registry.json, keys.json)",
+    "backend": "src/arena-rs (Rust: axum, MCP JSON-RPC 2.0 over Streamable HTTP + stdio, one server for the arena and one per stored module)",
+    "runtime": "src/runtime (the execution layer \u2014 one implementation, imported by the browser console and the node runner; host.mjs runs wasm, host.py + pyhost.mjs run a Python class, mcpsync.mjs is the door a sandbox calls out through)",
+    "state": "~/.mod/arena/ (blobs/, registry.json \u2014 ids, cids and sources \u2014, keys.json, rustc/, mcp_servers.json, store_token if you set one)",
     "executes_in": [
         "browser",
         "node"
@@ -26,47 +26,123 @@
         "game",
         "player",
         "command",
+        "class",
         "wasm"
     ],
     "player_kinds": [
+        "class",
         "wasm",
         "model",
         "agent_mod",
+        "mcp",
         "http",
         "human"
     ],
     "abi": {
-        "strings": "the module exports alloc(i32)->i32; anything it returns is one i64 packed as (ptr << 32) | len",
-        "game": [
-            "game_init",
-            "game_view",
-            "game_step",
-            "game_done",
-            "game_result"
-        ],
-        "game_optional": [
-            "game_info",
-            "game_turn"
-        ],
-        "player": [
-            "play"
-        ]
+        "class": {
+            "state": "self \u2014 the object is built once per match with __init__(self, seed) and kept",
+            "game": [
+                "view",
+                "step",
+                "done",
+                "result"
+            ],
+            "game_optional": [
+                "__init__",
+                "turn",
+                "info",
+                "name",
+                "players",
+                "max_turns"
+            ],
+            "player": [
+                "play"
+            ],
+            "runs_in": [
+                "node"
+            ],
+            "sandbox": "a python subprocess: no filesystem, no network, no clock, seeded random, 512 MiB, 30 CPU seconds, per-move timeout",
+            "mcp": "self.mcp(server, tool, args) \u2014 mediated by the host, off by default"
+        },
+        "wasm": {
+            "strings": "the module exports alloc(i32)->i32; anything it returns is one i64 packed as (ptr << 32) | len",
+            "game": [
+                "game_init",
+                "game_view",
+                "game_step",
+                "game_done",
+                "game_result"
+            ],
+            "game_optional": [
+                "game_info",
+                "game_turn"
+            ],
+            "player": [
+                "play"
+            ],
+            "runs_in": [
+                "browser",
+                "node"
+            ]
+        },
+        "rust": {
+            "state": "self \u2014 the struct is built once per match with new(seed) and kept",
+            "game": [
+                "view",
+                "step",
+                "done",
+                "result"
+            ],
+            "game_optional": [
+                "new",
+                "turn",
+                "NAME",
+                "DESCRIPTION",
+                "PLAYERS",
+                "MAX_TURNS"
+            ],
+            "player": [
+                "play"
+            ],
+            "prelude": [
+                "Moves",
+                "Step",
+                "Outcome",
+                "arena::log",
+                "arena::random",
+                "arena::mcp"
+            ],
+            "runs_in": [
+                "browser",
+                "node"
+            ],
+            "sandbox": "compiled to wasm32-unknown-unknown on upload and run in a wasm engine \u2014 the target has no filesystem, no socket and no wall clock to name",
+            "mcp": "arena::mcp(server, tool, args_json) \u2014 the same door, synchronously"
+        }
     },
     "endpoints": {
         "mcp": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
         "modules": "GET /modules | POST /modules | GET /modules/:id | DELETE /modules/:id",
         "blob": "GET /blob/:id",
-        "inspect": "POST /inspect {bytes}",
-        "players": "GET /players | POST /players | GET /players/:id | DELETE /players/:id",
+        "inspect": "POST /inspect {bytes|text}",
+        "players": "GET /players | POST /players | GET /players/:id (the full sheet: by_game with faults and form, opponents, streak) | DELETE /players/:id",
         "play": "POST /play {player, view, seat}",
-        "matches": "GET /matches | POST /matches | GET /matches/:id",
+        "matches": "GET /matches?game=&player= | POST /matches | GET /matches/:id",
         "run": "POST /run {game, players[]}",
         "leaderboard": "GET /leaderboard?game=",
-        "abi": "GET /abi?role=game",
-        "runtime": "GET /runtime/host.mjs",
+        "abi": "GET /abi?role=game&lang=wasm|class|rust",
+        "runtime": "GET /runtime/host.mjs | /runtime/host.py | /runtime/prelude.rs",
         "forward": "POST /forward {action, ...args}",
         "tools": "GET /tools",
-        "console": "GET /arena (browser)"
+        "console": "GET /arena (browser)",
+        "classes": "GET /classes | POST /classes {source}",
+        "wasm": "GET /wasm/:id (the compiled form \u2014 a Rust class is built here, once)",
+        "module_mcp": "POST /m/:name/mcp (one MCP server per stored module)",
+        "module_card": "GET /m/:name | GET /m/:name/tools",
+        "servers": "GET /servers (every module, its endpoint and its mod name)",
+        "mcp_out": "POST /mcp/call {server, tool, arguments} | GET /mcp/servers",
+        "toolchain": "GET /toolchain (can this box compile a Rust class)",
+        "store": "GET /store (the bridge to the store module) | POST /store/sync {force?, verify?}"
     },
     "tools": [
         "arena_info",
@@ -74,6 +150,7 @@
         "list_modules",
         "get_module",
         "put_module",
+        "put_class",
         "inspect_module",
         "delete_module",
         "list_players",
@@ -86,7 +163,14 @@
         "list_matches",
         "get_match",
         "leaderboard",
-        "plant_examples"
+        "plant_examples",
+        "module_servers",
+        "module_tool",
+        "mcp_servers",
+        "mcp_call",
+        "rust_toolchain",
+        "store_status",
+        "store_sync"
     ],
     "fns": [
         "forward",
@@ -94,9 +178,13 @@
         "health",
         "readme",
         "abi",
+        "template",
         "modules",
+        "classes",
         "module",
+        "source",
         "put",
+        "upload",
         "inspect",
         "rm",
         "examples",
@@ -116,7 +204,38 @@
         "build",
         "serve",
         "kill",
-        "test"
+        "test",
+        "prelude",
+        "toolchain",
+        "compiled",
+        "servers",
+        "tool",
+        "mcp_servers",
+        "ask_mcp",
+        "mint",
+        "mods",
+        "publish",
+        "games",
+        "game",
+        "unpublish",
+        "register",
+        "code",
+        "hashes",
+        "store_status",
+        "store_sync"
     ],
-    "schema": "QmYboewBGMDaa3re8XyfhuCMeK4b4sDBNJdGfvgk2yy6ZJ"
+    "schema": "QmXJutRD5fMNJRR71BBrwiqhzNy34xwDzY44Y1gerjATsm",
+    "langs": [
+        "wasm",
+        "python",
+        "rust"
+    ],
+    "compiler": "src/rustclass/prelude.rs + src/arena-rs/src/rustc.rs \u2014 a Rust class is compiled to wasm32-unknown-unknown on upload and cached under its own id",
+    "mods": "mods/ \u2014 every stored module, minted as a nested mod: `m arena.<name>`",
+    "store": {
+        "module": "store",
+        "url": "http://127.0.0.1:9000/api/store",
+        "key": "arena/<sha256>",
+        "what": "every stored module is pushed to the store module as a public object \u2014 the same bytes, hashed there into a CID and kept beside the SHA-256 in the registry; a wasm example's Rust source goes too, under its own hash. ARENA_STORE_URL=off turns it off (the tests run that way); ARENA_STORE_TOKEN or ~/.mod/arena/store_token overrides the token the box's own key would sign."
+    }
 }

@@ -508,11 +508,30 @@ class Polymarket(m.Mod):
     def events(self, limit: int = 20) -> Any:
         return self._get("/", endpoint="events", _limit=str(limit), active="true")
 
-    def active_traders(self, days: int = 7, pool: int = 2000) -> Any:
+    def active_traders(self, days: int = 7, pool: int = 2000,
+                       active_hours: float = 6, limit: int = 50) -> Any:
+        """The leaderboard, from cache: best traders over `days`, ranked by Sharpe.
+
+        m polymarket/active_traders                  → top 50, traded in the last 6h
+        m polymarket/active_traders active_hours=0   → the whole board, dormants too
+        m polymarket/active_traders days=30 limit=10 → top 10 of the 30-day window
+        """
         # pool=2000 matches the background warmup's cache key, so the default
         # call returns the pre-aggregated payload instantly instead of
-        # forcing a fresh multi-minute pipeline run.
-        return self._get("/active-traders", days=str(days), pool=str(pool))
+        # forcing a fresh multi-minute pipeline run. `paged=1` keeps it that
+        # way — it answers `cold` rather than aggregating — and lets the
+        # recency filter and the row cap run server-side over the cached
+        # payload. A trader who hasn't traded in 6h isn't one to copy.
+        params = {"days": str(days), "pool": str(pool), "paged": "1",
+                  "pageSize": str(max(1, min(int(limit), 100))), "page": "0",
+                  "sort": "sharpe", "order": "desc"}
+        if active_hours and float(active_hours) > 0:
+            params["maxLastTradeHrs"] = str(active_hours)
+        r = self._get("/active-traders", **params)
+        if isinstance(r, dict) and r.get("cold"):
+            # Nothing cached for this window yet — pay for it once.
+            return self._get("/active-traders", days=str(days), pool=str(pool))
+        return r
 
     # ── background sync schedule ─────────────────────────────────
 

@@ -3,128 +3,865 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>x — rust mcp backend</title>
+<title>x — X client</title>
 <style>
 :root{
-  --bg:#000; --panel:rgba(255,255,255,.04); --line:rgba(255,255,255,.1);
-  --text:#e7e9ea; --dim:#71767b; --acc:#1d9bf0; --acc2:#00ba7c; --err:#f4212e;
+  --bg:#000; --elev:#16181c; --panel:rgba(255,255,255,.03); --line:#2f3336;
+  --text:#e7e9ea; --dim:#71767b; --acc:#1d9bf0; --acc-dim:rgba(29,155,240,.1);
+  --ok:#00ba7c; --err:#f4212e; --warn:#ffd400; --like:#f91880; --rt:#00ba7c;
   --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',system-ui,sans-serif;
 }
-*{box-sizing:border-box;margin:0}
-body{background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,'Inter',system-ui,sans-serif;min-height:100vh}
-body::before{content:'';position:fixed;inset:0;pointer-events:none;
-  background:radial-gradient(700px 400px at 12% -5%,rgba(29,155,240,.16),transparent 60%),
-             radial-gradient(600px 380px at 96% 0%,rgba(0,186,124,.07),transparent 55%)}
-.wrap{max-width:980px;margin:0 auto;padding:36px 20px 60px;position:relative}
-header{display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
-h1{font-size:22px;letter-spacing:.5px}
-h1 b{color:var(--acc)}
-.tag{font:11px var(--mono);color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:2px 10px}
-.sub{color:var(--dim);margin-bottom:24px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media(max-width:760px){.grid{grid-template-columns:1fr}}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;backdrop-filter:blur(8px)}
-.card h2{font-size:12px;text-transform:uppercase;letter-spacing:1.4px;color:var(--dim);margin-bottom:12px}
-.full{grid-column:1/-1}
-.kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed rgba(255,255,255,.06);font-family:var(--mono);font-size:12px}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font:15px/1.45 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,textarea,select{font:inherit;color:var(--text);background:var(--elev);border:1px solid var(--line);
+  border-radius:8px;padding:9px 12px;outline:none;width:100%}
+input:focus,textarea:focus,select:focus{border-color:var(--acc)}
+textarea{resize:vertical;font:inherit;line-height:1.4}
+::placeholder{color:var(--dim)}
+
+/* shell */
+.app{display:grid;grid-template-columns:238px minmax(0,1fr) 330px;max-width:1400px;margin:0 auto;min-height:100vh}
+nav{border-right:1px solid var(--line);padding:12px 10px;position:sticky;top:0;height:100vh;
+  display:flex;flex-direction:column;gap:2px}
+.brand{display:flex;align-items:center;gap:9px;padding:10px 12px 16px}
+.brand .glyph{font:700 26px/1 var(--sans)}
+.brand .sub{font:10px var(--mono);color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
+nav a.item{display:flex;align-items:center;gap:13px;padding:11px 14px;border-radius:99px;color:var(--text);
+  font-size:15px;font-weight:500}
+nav a.item:hover{background:rgba(255,255,255,.06);text-decoration:none}
+nav a.item.on{background:var(--acc-dim);color:var(--acc);font-weight:700}
+nav a.item .ico{width:20px;text-align:center;font:600 13px var(--mono);opacity:.9}
+nav .spacer{flex:1}
+.authpills{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px}
+.pill{font:10px var(--mono);letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line);
+  border-radius:99px;padding:3px 9px;color:var(--dim);white-space:nowrap}
+.pill.yes{color:var(--ok);border-color:rgba(0,186,124,.4)}
+.pill.no{color:var(--dim)}
+.pill.warn{color:var(--warn);border-color:rgba(255,212,0,.35)}
+
+main{border-right:1px solid var(--line);min-width:0}
+.head{position:sticky;top:0;z-index:5;background:rgba(0,0,0,.72);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line);padding:12px 16px}
+.head h1{font-size:19px;font-weight:800;letter-spacing:-.01em}
+.head .crumb{font:11px var(--mono);color:var(--dim);margin-top:2px}
+.body{padding:0 0 80px}
+aside{padding:14px 12px;position:sticky;top:0;height:100vh;overflow:auto}
+@media(max-width:1180px){.app{grid-template-columns:72px minmax(0,1fr) 300px}
+  nav a.item span.lbl,.brand .txt,.authpills{display:none}nav a.item{justify-content:center}}
+@media(max-width:900px){.app{grid-template-columns:1fr}nav{position:static;height:auto;flex-direction:row;
+  overflow:auto;border-right:0;border-bottom:1px solid var(--line)}aside{display:none}
+  nav a.item span.lbl{display:inline}.brand{display:none}main{border-right:0}}
+
+/* cards */
+.card{border:1px solid var(--line);border-radius:14px;padding:14px 16px;background:var(--panel);margin:12px 16px}
+.card h2,.sec{font:11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-bottom:10px}
+.post{display:flex;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.post:hover{background:rgba(255,255,255,.022)}
+.av{width:44px;height:44px;border-radius:50%;background:var(--elev);flex:none;object-fit:cover;
+  border:1px solid var(--line)}
+.av.sm{width:34px;height:34px}
+.pmain{min-width:0;flex:1}
+.pwho{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;font-size:14.5px}
+.pwho .nm{font-weight:700;color:var(--text)}
+.pwho .hd,.pwho .dot,.pwho .tm{color:var(--dim);font-size:13.5px}
+.ptext{margin-top:3px;white-space:pre-wrap;word-wrap:break-word;font-size:15px;line-height:1.42}
+.ptext a{color:var(--acc)}
+.pmeta{display:flex;gap:18px;margin-top:10px;color:var(--dim);font:12px var(--mono);flex-wrap:wrap}
+.act{display:flex;align-items:center;gap:5px;padding:3px 7px;border-radius:99px;transition:.12s}
+.act:hover{background:rgba(255,255,255,.08);color:var(--text)}
+.act.like:hover{color:var(--like)}
+.act.rt:hover{color:var(--rt)}
+.act.on{color:var(--like)}
+.act.rt.on{color:var(--rt)}
+.badge{font:9.5px var(--mono);border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:var(--dim);
+  text-transform:uppercase;letter-spacing:.06em}
+.badge.syn{color:var(--warn);border-color:rgba(255,212,0,.3)}
+
+/* profile */
+.prof{padding:16px;border-bottom:1px solid var(--line)}
+.prof .top{display:flex;gap:14px;align-items:flex-start}
+.prof .av{width:72px;height:72px}
+.prof h2.nm{font-size:20px;font-weight:800;margin:0}
+.prof .hd{color:var(--dim);font-size:14px}
+.prof .bio{margin-top:10px;white-space:pre-wrap;font-size:14.5px}
+.prof .stats{display:flex;gap:18px;margin-top:12px;font-size:13.5px;color:var(--dim);flex-wrap:wrap}
+.prof .stats b{color:var(--text)}
+.tabs{display:flex;border-bottom:1px solid var(--line);overflow:auto}
+.tabs a{flex:1;text-align:center;padding:14px 8px;color:var(--dim);font-weight:600;font-size:14px;
+  white-space:nowrap;border-bottom:2px solid transparent}
+.tabs a:hover{background:rgba(255,255,255,.04);text-decoration:none}
+.tabs a.on{color:var(--text);border-bottom-color:var(--acc)}
+
+/* bits */
+.row{display:flex;gap:8px;align-items:center}
+.row.wrap{flex-wrap:wrap}
+.grow{flex:1;min-width:0}
+.btn{background:var(--acc);color:#fff;font-weight:700;border-radius:99px;padding:9px 18px;font-size:14px;
+  white-space:nowrap}
+.btn:hover{filter:brightness(1.12)}
+.btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:600}
+.btn.ghost:hover{background:rgba(255,255,255,.07);filter:none}
+.btn.sm{padding:6px 13px;font-size:13px}
+.btn.danger{background:var(--err);border-color:var(--err)}
+.chip{font:11.5px var(--mono);border:1px solid var(--line);border-radius:99px;padding:5px 11px;color:var(--dim)}
+.chip:hover{color:var(--text);border-color:var(--dim)}
+.chip.on{color:var(--acc);border-color:var(--acc)}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px dashed rgba(255,255,255,.07);
+  font:12px var(--mono)}
 .kv:last-child{border-bottom:0}
 .kv .k{color:var(--dim)}
-.ok{color:var(--acc2)} .no{color:var(--err)}
-.tool{padding:8px 0;border-bottom:1px dashed rgba(255,255,255,.06)}
+.kv .v{text-align:right;word-break:break-all}
+pre{background:#0a0a0a;border:1px solid var(--line);border-radius:10px;padding:11px 12px;
+  font:11.5px/1.5 var(--mono);color:#c9d3e0;overflow:auto;max-height:420px;white-space:pre-wrap;word-break:break-word}
+code{font:12px var(--mono);background:var(--elev);border-radius:5px;padding:1px 5px}
+.hint{color:var(--dim);font-size:13px;line-height:1.5}
+.empty{padding:44px 20px;text-align:center;color:var(--dim)}
+.empty .big{font-size:17px;color:var(--text);font-weight:700;margin-bottom:6px}
+.err{border:1px solid rgba(244,33,46,.4);background:rgba(244,33,46,.07);border-radius:12px;
+  padding:13px 15px;margin:12px 16px;color:#ffb3b8;font-size:13.5px;line-height:1.5}
+.err b{color:#fff;display:block;margin-bottom:3px;font:11px var(--mono);letter-spacing:.1em;text-transform:uppercase}
+.load{padding:30px;text-align:center;color:var(--dim);font:12px var(--mono);letter-spacing:.1em}
+.spark{display:flex;align-items:flex-end;gap:2px;height:56px;margin-top:8px}
+.spark i{flex:1;background:var(--acc);opacity:.55;border-radius:2px 2px 0 0;min-height:2px}
+.spark i:hover{opacity:1}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--acc);color:#fff;
+  font-weight:600;font-size:14px;padding:11px 20px;border-radius:99px;z-index:50;box-shadow:0 8px 30px rgba(0,0,0,.6)}
+.toast.bad{background:var(--err)}
+.ulist{display:flex;gap:11px;padding:11px 16px;border-bottom:1px solid var(--line);align-items:flex-start}
+.tool{border-bottom:1px solid var(--line);padding:10px 0}
 .tool:last-child{border-bottom:0}
-.tool .n{font-family:var(--mono);font-size:12.5px;color:var(--acc)}
-.tool .d{color:var(--dim);font-size:12px}
-input{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:99px;color:var(--text);padding:10px 14px;font:12.5px var(--mono);outline:none}
-input:focus{border-color:var(--acc)}
-.row{display:flex;gap:8px;margin-top:8px}
-button{background:var(--acc);border:0;border-radius:99px;color:#fff;padding:9px 20px;font-weight:700;cursor:pointer;font-size:13px}
-button.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:600}
-button:disabled{opacity:.5;cursor:default}
-pre{margin-top:12px;background:rgba(0,0,0,.5);border:1px solid var(--line);border-radius:12px;padding:12px;
-  font:11.5px/1.5 var(--mono);color:#c9d3e0;max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-word}
-a{color:var(--acc);text-decoration:none}
-footer{margin-top:26px;color:var(--dim);font-size:12px}
+.tool .n{font:12.5px var(--mono);color:var(--acc)}
+.tool .d{color:var(--dim);font-size:12.5px;margin-top:2px}
+.rt-table{width:100%;border-collapse:collapse;font:11.5px var(--mono)}
+.rt-table td{padding:5px 8px 5px 0;border-bottom:1px dashed rgba(255,255,255,.07);vertical-align:top}
+.rt-table .m{color:var(--ok);width:52px}
+.rt-table .p{color:var(--text);white-space:nowrap}
+.rt-table .s{color:var(--dim)}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header><h1><b>x</b> · rust mcp backend</h1><span class="tag" id="ver">…</span></header>
-  <p class="sub">X API v2 exposed as MCP tools — Streamable HTTP at <code>/mcp</code>, stdio via <code>x-api --stdio</code>.</p>
-
-  <div class="grid">
-    <div class="card">
-      <h2>Server</h2>
-      <div id="stat"></div>
+<div class="app">
+  <nav>
+    <div class="brand"><span class="glyph">X</span>
+      <span class="txt"><div style="font-weight:800;line-height:1.1">x</div><div class="sub">mod · mcp</div></span>
     </div>
+    <a class="item" data-nav="search" href="#/search"><span class="ico">SR</span><span class="lbl">Search</span></a>
+    <a class="item" data-nav="post"   href="#/post"><span class="ico">PO</span><span class="lbl">Post</span></a>
+    <a class="item" data-nav="user"   href="#/user"><span class="ico">@</span><span class="lbl">Profile</span></a>
+    <a class="item" data-nav="mentions" href="#/mentions"><span class="ico">ME</span><span class="lbl">Mentions</span></a>
+    <a class="item" data-nav="compose" href="#/compose"><span class="ico">+</span><span class="lbl">Compose</span></a>
+    <a class="item" data-nav="api"    href="#/api"><span class="ico">{}</span><span class="lbl">API &amp; MCP</span></a>
+    <a class="item" data-nav="auth"   href="#/auth"><span class="ico">KY</span><span class="lbl">Auth</span></a>
+    <div class="spacer"></div>
+    <div class="authpills" id="pills"></div>
+  </nav>
 
-    <div class="card">
-      <h2>Try it</h2>
-      <input id="q" placeholder="search query — e.g. bittensor -is:retweet" value="bittensor -is:retweet">
-      <div class="row">
-        <button id="go">search</button>
-        <button class="ghost" id="tools-btn">tools/list</button>
-      </div>
-      <input id="pid" style="margin-top:8px" placeholder="post id or x.com URL (keyless)" value="20">
-      <div class="row"><button class="ghost" id="getpost">get_post</button></div>
-    </div>
+  <main>
+    <div class="head"><h1 id="title">x</h1><div class="crumb" id="crumb"></div></div>
+    <div class="body" id="view"><div class="load">loading…</div></div>
+  </main>
 
-    <div class="card full">
-      <h2>MCP tools</h2>
-      <div id="tools">loading…</div>
-    </div>
-
-    <div class="card full">
-      <h2>Output</h2>
-      <pre id="out">—</pre>
-    </div>
-  </div>
-
-  <footer>
-    <code>m x/serve</code> · <code>claude mcp add x -- x-api --stdio</code> ·
-    credentials live in <code>~/.mod/x/credentials.json</code>
-  </footer>
+  <aside id="rail"></aside>
 </div>
 
 <script>
-const $ = id => document.getElementById(id);
-const show = v => $('out').textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
-const bool = b => `<span class="${b ? 'ok' : 'no'}">${b ? 'yes' : 'no'}</span>`;
+'use strict';
+/* ── helpers ─────────────────────────────────────────────── */
+const $ = s => document.querySelector(s);
+const el = (t, a = {}, ...kids) => {
+  const n = document.createElement(t);
+  for (const [k, v] of Object.entries(a)) {
+    if (v == null || v === false) continue;
+    if (k === 'html') n.innerHTML = v;
+    else if (k === 'text') n.textContent = v;
+    else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null) n.append(k.nodeType ? k : String(k));
+  return n;
+};
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const num = n => n == null ? '—' :
+  n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M' :
+  n >= 1e3 ? (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'K' : String(n);
+const ls = {
+  get: (k, d) => { try { return localStorage.getItem('x:' + k) ?? d; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem('x:' + k, v); } catch {} },
+};
 
-async function j(url, opts) {
-  const r = await fetch(url, opts);
-  return r.json();
+function ago(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return '';
+  const s = (Date.now() - t) / 1000;
+  if (s < 60) return Math.max(0, Math.floor(s)) + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm';
+  if (s < 86400) return Math.floor(s / 3600) + 'h';
+  if (s < 86400 * 365) return Math.floor(s / 86400) + 'd';
+  return new Date(t).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 }
 
+let toastTimer;
+function toast(msg, bad) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const t = el('div', { class: 'toast' + (bad ? ' bad' : ''), text: msg });
+  document.body.append(t);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.remove(), 3400);
+}
+
+/** Every call to our own REST API goes through here, so an upstream 401 always
+ *  arrives as an Error carrying .status and the server's own explanation. */
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  const text = await r.text();
+  let body;
+  try { body = text ? JSON.parse(text) : {}; } catch { body = { error: text }; }
+  if (!r.ok) throw Object.assign(new Error(body.error || r.statusText), { status: r.status, body });
+  return body;
+}
+const jpost = (path, obj) => api(path, {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj || {}),
+});
+
+const S = { auth: { reads: false, writes: false }, me: null, info: null };
+
+/* ── post rendering ──────────────────────────────────────── */
+
+/** X hands back tweets and their authors in separate arrays; the keyless
+ *  syndication path inlines the author instead. Normalise both to one shape. */
+function authorOf(tweet, includes) {
+  if (tweet.author) {
+    const a = tweet.author;
+    return {
+      id: a.id_str || a.id, name: a.name, username: a.screen_name || a.username,
+      profile_image_url: a.profile_image_url_https || a.profile_image_url, verified: a.verified,
+    };
+  }
+  const users = (includes && includes.users) || [];
+  return users.find(u => u.id === tweet.author_id) || null;
+}
+
+/** Linkify post text. Escaped FIRST, then t.co links swapped for their display
+ *  form out of entities, then @handles and #tags turned into app links. */
+function linkify(text, entities) {
+  let out = esc(text || '');
+  for (const u of (entities && entities.urls) || []) {
+    if (!u.url) continue;
+    const label = esc(u.display_url || u.expanded_url || u.url);
+    const href = esc(u.expanded_url || u.url);
+    out = out.split(esc(u.url)).join('<a href="' + href + '" target="_blank" rel="noopener">' + label + '</a>');
+  }
+  out = out.replace(/(^|[\s(])(https?:\/\/[^\s<"]+)/g,
+    (m, pre, u) => pre + '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>');
+  out = out.replace(/(^|[\s(])@([A-Za-z0-9_]{1,15})\b/g,
+    (m, pre, h) => pre + '<a href="#/user/' + h + '">@' + h + '</a>');
+  out = out.replace(/(^|[\s(])#(\w{1,60})/g,
+    (m, pre, t) => pre + '<a href="#/search?q=%23' + encodeURIComponent(t) + '">#' + t + '</a>');
+  return out;
+}
+
+function metric(icon, n, cls, onclick, title) {
+  const b = el('button', { class: 'act ' + (cls || ''), title: title || '' },
+    el('span', { text: icon }), el('span', { text: n == null ? '' : num(n) }));
+  if (onclick) b.addEventListener('click', onclick); else b.style.cursor = 'default';
+  return b;
+}
+
+function postCard(tweet, includes, opts) {
+  opts = opts || {};
+  const a = authorOf(tweet, includes) || {};
+  const m = tweet.public_metrics || {};
+  const handle = a.username ? '@' + a.username : (tweet.author_id ? 'id:' + tweet.author_id : '');
+  const url = a.username ? 'https://x.com/' + a.username + '/status/' + tweet.id
+                         : 'https://x.com/i/status/' + tweet.id;
+  const refs = tweet.referenced_tweets || [];
+
+  const who = el('div', { class: 'pwho' },
+    a.name ? el('span', { class: 'nm', text: a.name }) : null,
+    handle ? el('a', { class: 'hd', href: a.username ? '#/user/' + a.username : '#/post/' + tweet.id, text: handle }) : null,
+    el('span', { class: 'dot', text: '·' }),
+    el('a', { class: 'tm', href: '#/post/' + tweet.id, title: tweet.created_at || '',
+              text: ago(tweet.created_at) || 'open' }),
+    refs.some(r => r.type === 'retweeted') ? el('span', { class: 'badge', text: 'repost' }) : null,
+    refs.some(r => r.type === 'replied_to') ? el('span', { class: 'badge', text: 'reply' }) : null,
+    refs.some(r => r.type === 'quoted') ? el('span', { class: 'badge', text: 'quote' }) : null,
+    opts.source ? el('span', { class: 'badge syn', text: 'keyless' }) : null);
+
+  const acts = el('div', { class: 'pmeta' },
+    metric('reply', m.reply_count, '', () => { location.hash = '#/compose?reply=' + tweet.id; }, 'reply to this'),
+    metric('repost', m.retweet_count, 'rt', async e => {
+      const b = e.currentTarget;
+      try { await jpost('/posts/' + tweet.id + '/repost'); b.classList.add('on'); toast('reposted'); }
+      catch (err) { toast(err.message, true); }
+    }, 'repost'),
+    metric('like', m.like_count, 'like', async e => {
+      const b = e.currentTarget;
+      try { await jpost('/posts/' + tweet.id + '/like'); b.classList.add('on'); toast('liked'); }
+      catch (err) { toast(err.message, true); }
+    }, 'like'),
+    m.quote_count != null ? metric('quotes', m.quote_count, '', null, 'quotes') : null,
+    m.impression_count != null ? metric('views', m.impression_count, '', null, 'impressions') : null,
+    el('a', { class: 'act', href: url, target: '_blank', rel: 'noopener', text: 'x.com', title: 'open on x.com' }),
+    el('button', {
+      class: 'act', text: 'id', title: tweet.id,
+      onclick: () => { if (navigator.clipboard) navigator.clipboard.writeText(tweet.id); toast('id ' + tweet.id + ' copied'); },
+    }));
+
+  const av = el('img', { class: 'av', alt: '' });
+  if (a.profile_image_url) av.src = a.profile_image_url.replace('_normal', '_x96');
+
+  return el('article', { class: 'post' }, av,
+    el('div', { class: 'pmain' }, who,
+      el('div', { class: 'ptext', html: linkify(tweet.text, tweet.entities) }), acts));
+}
+
+function userRow(u) {
+  const pm = u.public_metrics || {};
+  const av = el('img', { class: 'av sm', alt: '' });
+  if (u.profile_image_url) av.src = u.profile_image_url;
+  return el('div', { class: 'ulist' }, av,
+    el('div', { class: 'pmain' },
+      el('div', { class: 'pwho' },
+        el('span', { class: 'nm', text: u.name || '' }),
+        el('a', { class: 'hd', href: '#/user/' + u.username, text: '@' + u.username })),
+      u.description ? el('div', { class: 'hint', style: 'margin-top:2px', text: u.description }) : null,
+      el('div', { class: 'pmeta' },
+        el('span', { text: num(pm.followers_count) + ' followers' }),
+        el('span', { text: num(pm.tweet_count) + ' posts' }))));
+}
+
+/** Every list route answers with { data, includes, meta } — render or explain. */
+function renderList(payload, kind) {
+  const rows = payload.data || [];
+  if (!rows.length) {
+    return el('div', { class: 'empty' }, el('div', { class: 'big', text: 'Nothing here' }),
+      'X returned no ' + kind + '.');
+  }
+  const frag = document.createDocumentFragment();
+  for (const row of rows) frag.append(kind === 'accounts' ? userRow(row) : postCard(row, payload.includes));
+  if (payload.meta && payload.meta.result_count != null) {
+    frag.append(el('div', { class: 'load', text: payload.meta.result_count + ' result(s)' }));
+  }
+  return frag;
+}
+
+function errBox(e) {
+  const box = el('div', { class: 'err' },
+    el('b', { text: 'error' + (e.status ? ' ' + e.status : '') }),
+    el('div', { text: e.message }));
+  if (e.status === 401) {
+    box.append(el('div', { style: 'margin-top:9px' },
+      el('a', { href: '#/auth', class: 'btn sm', text: 'Set up credentials' })));
+  }
+  return box;
+}
+
+/* ── routing ─────────────────────────────────────────────── */
+const ROUTES = {};
+function route() {
+  const raw = location.hash.replace(/^#\/?/, '') || 'search';
+  const parts = raw.split('?');
+  const seg = parts[0].split('/').filter(Boolean).map(decodeURIComponent);
+  const q = new URLSearchParams(parts[1] || '');
+  const name = seg[0] || 'search';
+  document.querySelectorAll('nav a.item').forEach(a => a.classList.toggle('on', a.dataset.nav === name));
+  const view = ROUTES[name] || ROUTES.search;
+  $('#view').replaceChildren(el('div', { class: 'load', text: '· · ·' }));
+  $('#rail').replaceChildren();
+  Promise.resolve(view(seg.slice(1), q)).catch(e => $('#view').replaceChildren(errBox(e)));
+}
+const setHead = (t, c) => { $('#title').textContent = t; $('#crumb').textContent = c || ''; };
+const render = (...nodes) => $('#view').replaceChildren(...nodes.filter(Boolean));
+const rail = (...nodes) => $('#rail').replaceChildren(...nodes.filter(Boolean));
+
+/* ── view: search ────────────────────────────────────────── */
+const PRESETS = ['from:jack', '#bittensor -is:retweet', 'mcp lang:en -is:retweet',
+                 '"model context protocol"', 'is:verified rust'];
+
+ROUTES.search = async (seg, q) => {
+  const query = q.get('q') != null ? q.get('q') : ls.get('q', '');
+  setHead('Search', 'GET /search?q= · last 7 days · full X query syntax');
+
+  const input = el('input', { placeholder: 'from:jack #ai -is:retweet lang:en', value: query });
+  const sort = el('select', { style: 'width:auto' },
+    el('option', { value: 'recency', text: 'recent' }), el('option', { value: 'relevancy', text: 'relevant' }));
+  const count = el('select', { style: 'width:auto' },
+    ...[10, 25, 50, 100].map(n => el('option', { value: n, text: n + ' posts' })));
+  sort.value = q.get('sort') || 'recency';
+  count.value = q.get('n') || '25';
+
+  const go = () => {
+    const v = input.value.trim();
+    if (!v) return;
+    ls.set('q', v);
+    const next = '#/search?q=' + encodeURIComponent(v) + '&sort=' + sort.value + '&n=' + count.value;
+    if (location.hash === next) route(); else location.hash = next;
+  };
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+
+  const results = el('div');
+  render(el('div', { class: 'card' },
+    el('div', { class: 'row' }, el('div', { class: 'grow' }, input),
+      el('button', { class: 'btn', text: 'Search', onclick: go })),
+    el('div', { class: 'row wrap', style: 'margin-top:9px' }, sort, count,
+      ...PRESETS.map(p => el('button', { class: 'chip', text: p,
+        onclick: () => { input.value = p; go(); } })))), results);
+
+  if (!query) {
+    results.replaceChildren(el('div', { class: 'empty' },
+      el('div', { class: 'big', text: 'Search X' }),
+      'Recent search covers the last 7 days. Operators: ',
+      el('code', { text: 'from: to: #tag -is:retweet is:verified lang: url:' })));
+    return;
+  }
+
+  results.replaceChildren(el('div', { class: 'load', text: 'searching…' }));
+  try {
+    const p = new URLSearchParams({ q: query, sort_order: sort.value, max_results: count.value });
+    results.replaceChildren(renderList(await api('/search?' + p), 'posts'));
+    volumeRail(query);
+  } catch (e) {
+    results.replaceChildren(errBox(e));
+  }
+};
+
+/** The counts endpoint drawn as bars — cheap context for whatever was searched. */
+async function volumeRail(query) {
+  const box = el('div', { class: 'card', style: 'margin:0 0 12px' },
+    el('h2', { text: 'volume · 7d' }), el('div', { class: 'load', text: '…' }));
+  rail(box);
+  try {
+    const c = await api('/counts?' + new URLSearchParams({ q: query, granularity: 'day' }));
+    const rows = c.data || [];
+    const max = Math.max(1, ...rows.map(r => r.tweet_count));
+    box.replaceChildren(el('h2', { text: 'volume · 7d' }),
+      el('div', { class: 'spark' }, ...rows.map(r => el('i', {
+        style: 'height:' + Math.max(3, (r.tweet_count / max) * 100) + '%',
+        title: new Date(r.start).toLocaleDateString() + ' — ' + r.tweet_count,
+      }))),
+      el('div', { class: 'kv' }, el('span', { class: 'k', text: 'total' }),
+        el('span', { class: 'v', text: num((c.meta || {}).total_tweet_count) })),
+      el('div', { class: 'kv' }, el('span', { class: 'k', text: 'buckets' }),
+        el('span', { class: 'v', text: rows.length + ' days' })));
+  } catch (e) {
+    box.replaceChildren(el('h2', { text: 'volume · 7d' }), el('div', { class: 'hint', text: e.message }));
+  }
+}
+
+/* ── view: single post ───────────────────────────────────── */
+ROUTES.post = async (seg, q) => {
+  const id = seg[0] || q.get('id') || '';
+  setHead('Post', 'GET /posts/:id · the one route that works with no credentials');
+
+  const input = el('input', { placeholder: 'post id or https://x.com/…/status/…', value: id });
+  const go = () => {
+    const v = input.value.trim();
+    if (v) location.hash = '#/post/' + encodeURIComponent(v.split('?')[0].split('/').filter(Boolean).pop());
+  };
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+
+  const out = el('div');
+  render(el('div', { class: 'card' },
+    el('div', { class: 'row' }, el('div', { class: 'grow' }, input),
+      el('button', { class: 'btn', text: 'Fetch', onclick: go })),
+    el('div', { class: 'hint', style: 'margin-top:8px' },
+      'No credentials? This still works — it falls back to the public syndication CDN. Try ',
+      el('a', { href: '#/post/20', text: 'post 20' }), ' (@jack, 2006).')), out);
+
+  if (!id) return;
+  out.replaceChildren(el('div', { class: 'load', text: 'fetching…' }));
+  try {
+    const p = await api('/posts/' + encodeURIComponent(id));
+    out.replaceChildren(postCard(p.data, p.includes, { source: p.source }));
+    rail(el('div', { class: 'card', style: 'margin:0 0 12px' }, el('h2', { text: 'raw' }),
+      p.source ? el('div', { class: 'hint', style: 'margin-bottom:8px', text: p.source }) : null,
+      el('pre', { text: JSON.stringify(p, null, 2) })));
+  } catch (e) {
+    out.replaceChildren(errBox(e));
+  }
+};
+
+/* ── view: profile ───────────────────────────────────────── */
+ROUTES.user = async (seg, q) => {
+  const handle = (seg[0] || q.get('handle') || ls.get('handle', '')).replace(/^@/, '');
+  const tab = q.get('tab') || 'posts';
+  setHead(handle ? '@' + handle : 'Profile', 'GET /users/:handle · timeline · mentions · followers · following');
+
+  const input = el('input', { placeholder: '@handle or numeric id', value: handle });
+  const go = () => {
+    const v = input.value.trim().replace(/^@/, '');
+    if (v) { ls.set('handle', v); location.hash = '#/user/' + encodeURIComponent(v); }
+  };
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  const finder = el('div', { class: 'card' }, el('div', { class: 'row' },
+    el('div', { class: 'grow' }, input), el('button', { class: 'btn', text: 'Look up', onclick: go })));
+
+  if (!handle) {
+    return render(finder, el('div', { class: 'empty' },
+      el('div', { class: 'big', text: 'Look up an account' }),
+      'Profile, posts, mentions, followers and following.'));
+  }
+
+  const slot = el('div', { class: 'load', text: 'loading @' + handle + '…' });
+  render(finder, slot);
+
+  let u;
+  try {
+    u = (await api('/users/' + encodeURIComponent(handle))).data;
+  } catch (e) {
+    // Keep the finder on screen — a failed lookup is the moment you most want
+    // to type a different handle.
+    return slot.replaceWith(errBox(e));
+  }
+  const pm = u.public_metrics || {};
+  const av = el('img', { class: 'av', alt: '' });
+  if (u.profile_image_url) av.src = u.profile_image_url.replace('_normal', '_x96');
+
+  const header = el('div', { class: 'prof' },
+    el('div', { class: 'top' }, av,
+      el('div', { class: 'grow' },
+        el('h2', { class: 'nm' }, u.name || '',
+          u.verified ? el('span', { class: 'badge', text: 'verified', style: 'margin-left:7px' }) : null),
+        el('div', { class: 'hd', text: '@' + u.username + '  ·  id ' + u.id })),
+      el('button', { class: 'btn', text: 'Follow', onclick: async e => {
+        const b = e.currentTarget;
+        try { await jpost('/users/' + u.username + '/follow'); b.textContent = 'Following'; toast('followed @' + u.username); }
+        catch (err) { toast(err.message, true); }
+      } })),
+    u.description ? el('div', { class: 'bio', html: linkify(u.description) }) : null,
+    el('div', { class: 'stats' },
+      el('span', {}, el('b', { text: num(pm.following_count) }), ' following'),
+      el('span', {}, el('b', { text: num(pm.followers_count) }), ' followers'),
+      el('span', {}, el('b', { text: num(pm.tweet_count) }), ' posts'),
+      u.location ? el('span', { text: u.location }) : null,
+      u.created_at ? el('span', { text: 'joined ' + new Date(u.created_at)
+        .toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) }) : null,
+      el('a', { href: 'https://x.com/' + u.username, target: '_blank', rel: 'noopener', text: 'x.com' })));
+
+  const TABS = [['posts', 'Posts'], ['replies', 'Posts & replies'], ['mentions', 'Mentions'],
+                ['followers', 'Followers'], ['following', 'Following']];
+  const tabs = el('div', { class: 'tabs' }, ...TABS.map(([id, label]) => el('a', {
+    class: tab === id ? 'on' : '', href: '#/user/' + u.username + '?tab=' + id, text: label })));
+
+  const list = el('div', { class: 'load', text: '· · ·' });
+  slot.replaceWith(el('div', {}, header, tabs, list));
+
+  rail(el('div', { class: 'card', style: 'margin:0 0 12px' }, el('h2', { text: 'account' }),
+    ...Object.entries({
+      id: u.id, handle: '@' + u.username, followers: num(pm.followers_count),
+      following: num(pm.following_count), posts: num(pm.tweet_count), listed: num(pm.listed_count),
+      location: u.location || '—', url: u.url || '—',
+    }).map(([k, v]) => el('div', { class: 'kv' },
+      el('span', { class: 'k', text: k }), el('span', { class: 'v', text: v })))));
+
+  const PATHS = {
+    posts: ['/users/' + u.username + '/timeline?max_results=25&exclude=replies', 'posts'],
+    replies: ['/users/' + u.username + '/timeline?max_results=25', 'posts'],
+    mentions: ['/users/' + u.username + '/mentions?max_results=25', 'posts'],
+    followers: ['/users/' + u.username + '/followers?max_results=50', 'accounts'],
+    following: ['/users/' + u.username + '/following?max_results=50', 'accounts'],
+  };
+  const [path, kind] = PATHS[tab] || PATHS.posts;
+  try {
+    list.replaceWith(renderList(await api(path), kind));
+  } catch (e) {
+    list.replaceWith(errBox(e));
+  }
+};
+
+/* ── view: mentions ──────────────────────────────────────── */
+ROUTES.mentions = async () => {
+  setHead('Mentions', 'GET /mentions · the authenticated account · needs user context');
+  try {
+    render(renderList(await api('/mentions?max_results=50'), 'posts'));
+  } catch (e) {
+    render(errBox(e), el('div', { class: 'hint', style: 'padding:0 16px' },
+      'Mentions read the account you are signed in as, so this rail needs the four OAuth 1.0a keys.'));
+  }
+};
+
+/* ── view: compose ───────────────────────────────────────── */
+ROUTES.compose = async (seg, q) => {
+  setHead('Compose', 'POST /posts · publishes as the authenticated account');
+
+  const text = el('textarea', { rows: 5, placeholder: "What's happening?" });
+  const reply = el('input', { placeholder: 'reply to post id (optional)', value: q.get('reply') || '' });
+  const quote = el('input', { placeholder: 'quote post id (optional)', value: q.get('quote') || '' });
+  const pollInputs = [0, 1, 2, 3].map(i => el('input', {
+    placeholder: 'choice ' + (i + 1) + (i < 2 ? '' : ' (optional)'), style: 'margin-top:6px' }));
+  const pollMins = el('input', { type: 'number', value: '1440', style: 'margin-top:6px' });
+  const pollWrap = el('div', { style: 'display:none' },
+    el('div', { class: 'sec', style: 'margin-top:12px', text: 'poll' }), ...pollInputs,
+    el('div', { class: 'hint', style: 'margin-top:6px', text: 'duration (minutes)' }), pollMins);
+
+  // X counts every URL as 23 characters, whatever its real length.
+  const counter = el('span', { class: 'chip' });
+  const weigh = s => Array.from(s.replace(/https?:\/\/\S+/g, 'x'.repeat(23))).length;
+  const send = el('button', { class: 'btn', text: 'Post' });
+  const tick = () => {
+    const n = weigh(text.value);
+    counter.textContent = n + ' / 280';
+    counter.style.color = n > 280 ? 'var(--err)' : n > 260 ? 'var(--warn)' : '';
+    send.disabled = !text.value.trim() || n > 280;
+  };
+  text.addEventListener('input', tick);
+
+  const out = el('div');
+  send.addEventListener('click', async () => {
+    const opts = pollInputs.map(i => i.value.trim()).filter(Boolean);
+    const body = { text: text.value };
+    if (reply.value.trim()) body.reply_to = reply.value.trim();
+    if (quote.value.trim()) body.quote_post_id = quote.value.trim();
+    if (opts.length >= 2) { body.poll_options = opts; body.poll_duration_minutes = +pollMins.value || 1440; }
+    send.disabled = true;
+    send.textContent = 'posting…';
+    try {
+      const r = await jpost('/posts', body);
+      const id = (r.data || {}).id;
+      toast('posted' + (id ? ' · ' + id : ''));
+      out.replaceChildren(el('div', { class: 'card' }, el('h2', { text: 'published' }),
+        el('div', { class: 'row wrap' },
+          el('a', { class: 'btn sm ghost', href: '#/post/' + id, text: 'open in app' }),
+          el('a', { class: 'btn sm ghost', target: '_blank', rel: 'noopener',
+                    href: 'https://x.com/i/status/' + id, text: 'open on x.com' })),
+        el('pre', { style: 'margin-top:10px', text: JSON.stringify(r, null, 2) })));
+      text.value = '';
+      pollInputs.forEach(i => { i.value = ''; });
+    } catch (e) {
+      out.replaceChildren(errBox(e));
+    }
+    send.textContent = 'Post';
+    tick();
+  });
+
+  render(el('div', { class: 'card' },
+    !S.auth.writes ? el('div', { class: 'hint', style: 'margin-bottom:10px' },
+      'No user-context credentials configured — posting will fail with 401. ',
+      el('a', { href: '#/auth', text: 'Add keys' })) : null,
+    text,
+    el('div', { class: 'row wrap', style: 'margin-top:10px' }, counter,
+      el('button', { class: 'chip', text: '+ poll', onclick: e => {
+        const on = pollWrap.style.display === 'none';
+        pollWrap.style.display = on ? '' : 'none';
+        e.currentTarget.classList.toggle('on', on);
+      } }),
+      el('div', { class: 'grow' }), send),
+    el('div', { class: 'sec', style: 'margin-top:14px', text: 'in reply to / quoting' }),
+    el('div', { class: 'row' }, reply, quote),
+    pollWrap), out);
+  tick();
+  text.focus();
+
+  if (S.me) {
+    const av = el('img', { class: 'av sm', alt: '' });
+    if (S.me.profile_image_url) av.src = S.me.profile_image_url;
+    rail(el('div', { class: 'card', style: 'margin:0 0 12px' }, el('h2', { text: 'posting as' }),
+      el('div', { class: 'row' }, av,
+        el('div', {}, el('div', { style: 'font-weight:700', text: S.me.name || '' }),
+          el('a', { class: 'hd', href: '#/user/' + S.me.username, text: '@' + S.me.username })))));
+  }
+};
+
+/* ── view: api & mcp ─────────────────────────────────────── */
+ROUTES.api = async () => {
+  setHead('API & MCP', 'one tool layer · REST at /openapi.json · JSON-RPC at /mcp');
+  const info = S.info || (S.info = await api('/health'));
+  const tools = (await api('/tools')).tools;
+
+  const table = el('table', { class: 'rt-table' }, ...info.endpoints.map(e =>
+    el('tr', {}, el('td', { class: 'm', text: e.method }),
+      el('td', { class: 'p' }, el('code', { text: e.path })),
+      el('td', { class: 's', text: e.summary }))));
+
+  // A runner over /forward — the same generic adapter the mod protocol uses.
+  const pick = el('select', {}, ...tools.map(t => el('option', { value: t.name, text: t.name })));
+  const args = el('textarea', { rows: 4, style: 'margin-top:8px;font-family:var(--mono);font-size:12px' });
+  const out = el('pre', { style: 'margin-top:10px', text: '—' });
+  const schemaBox = el('pre', { style: 'margin-top:8px;max-height:170px' });
+  const showSchema = () => {
+    const t = tools.find(t => t.name === pick.value);
+    schemaBox.textContent = JSON.stringify(t.inputSchema, null, 2);
+    const props = Object.keys(t.inputSchema.properties || {});
+    const req = t.inputSchema.required || [];
+    args.value = JSON.stringify(Object.fromEntries(props.filter(p => req.includes(p)).map(p => [p, ''])), null, 2);
+  };
+  pick.addEventListener('change', showSchema);
+  showSchema();
+
+  render(
+    el('div', { class: 'card' }, el('h2', { text: 'rest api · every tool has a route' }), table,
+      el('div', { class: 'row wrap', style: 'margin-top:11px' },
+        el('a', { class: 'btn sm ghost', href: '/openapi.json', target: '_blank', text: 'openapi.json' }),
+        el('a', { class: 'btn sm ghost', href: '/health', target: '_blank', text: 'health' }),
+        el('a', { class: 'btn sm ghost', href: '/tools', target: '_blank', text: 'tools' }))),
+
+    el('div', { class: 'card' }, el('h2', { text: 'run a tool' }),
+      el('div', { class: 'row' }, pick, el('button', { class: 'btn', text: 'Run', onclick: async () => {
+        out.textContent = 'running…';
+        try {
+          const body = JSON.parse(args.value || '{}');
+          const clean = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== ''));
+          out.textContent = JSON.stringify(await jpost('/forward',
+            Object.assign({ action: pick.value }, clean)), null, 2);
+        } catch (e) { out.textContent = (e.status ? e.status + ' · ' : '') + e.message; }
+      } })),
+      args, el('div', { class: 'sec', style: 'margin-top:10px', text: 'inputSchema' }), schemaBox, out),
+
+    el('div', { class: 'card' }, el('h2', { text: 'mcp tools · ' + tools.length }),
+      ...tools.map(t => el('div', { class: 'tool' },
+        el('div', { class: 'n', text: t.name }), el('div', { class: 'd', text: t.description })))));
+
+  const snip = (label, cmd) => el('div', { style: 'margin-bottom:10px' },
+    el('div', { class: 'sec', text: label }),
+    el('pre', { text: cmd, style: 'cursor:pointer', onclick: () => {
+      if (navigator.clipboard) navigator.clipboard.writeText(cmd);
+      toast('copied');
+    } }));
+  rail(el('div', { class: 'card', style: 'margin:0 0 12px' }, el('h2', { text: 'connect a client' }),
+    snip('claude code (stdio)', 'claude mcp add x -- x-api --stdio'),
+    snip('streamable http', location.origin + '/mcp'),
+    snip('curl', "curl -s '" + location.origin + "/posts/20'"),
+    el('div', { class: 'hint' }, 'protocol ', el('code', { text: info.protocol }),
+      ' · upstream ', el('code', { text: info.upstream }))));
+};
+
+/* ── view: auth ──────────────────────────────────────────── */
+const FIELDS = [
+  ['bearer_token', 'Bearer token', 'App-only token — unlocks every read: search, counts, profiles, timelines.'],
+  ['api_key', 'API key', 'OAuth 1.0a consumer key.'],
+  ['api_secret', 'API secret', 'OAuth 1.0a consumer secret.'],
+  ['access_token', 'Access token', 'Identifies the account this server acts as.'],
+  ['access_token_secret', 'Access token secret', ''],
+];
+
+ROUTES.auth = async () => {
+  setHead('Auth', 'two rails · stored at ~/.mod/x/credentials.json (0600)');
+  const st = await api('/auth');
+  const inputs = {};
+  const fieldRow = ([key, label, hint]) => {
+    const i = el('input', { type: 'password', placeholder: key, autocomplete: 'off' });
+    inputs[key] = i;
+    return el('div', { style: 'margin-bottom:12px' },
+      el('div', { class: 'row', style: 'margin-bottom:4px' },
+        el('span', { style: 'font-weight:600;font-size:13.5px', text: label }),
+        el('span', { class: 'grow' }),
+        el('button', { class: 'chip', text: 'show', onclick: e => {
+          i.type = i.type === 'password' ? 'text' : 'password';
+          e.currentTarget.textContent = i.type === 'password' ? 'show' : 'hide';
+        } })),
+      i, hint ? el('div', { class: 'hint', style: 'margin-top:3px', text: hint }) : null);
+  };
+
+  const save = async only => {
+    const body = {};
+    for (const [k, i] of Object.entries(inputs)) {
+      if (only && only.indexOf(k) < 0) continue;
+      if (i.value.trim()) body[k] = i.value.trim();
+    }
+    if (!Object.keys(body).length) return toast('nothing to save', true);
+    try {
+      const r = await jpost('/auth/keys', body);
+      Object.values(inputs).forEach(i => { i.value = ''; });
+      toast('saved: ' + r.set.join(', '));
+      await boot();
+      route();
+    } catch (e) { toast(e.message, true); }
+  };
+  const clear = async keys => {
+    if (!confirm('Clear ' + keys.join(', ') + ' from ~/.mod/x/credentials.json?')) return;
+    try {
+      await jpost('/auth/keys', Object.fromEntries(keys.map(k => [k, ''])));
+      toast('cleared');
+      await boot();
+      route();
+    } catch (e) { toast(e.message, true); }
+  };
+
+  render(
+    el('div', { class: 'card' }, el('h2', { text: 'status' }),
+      el('div', { class: 'kv' }, el('span', { class: 'k', text: 'reads (bearer)' }),
+        el('span', { class: 'v', style: 'color:' + (st.reads ? 'var(--ok)' : 'var(--err)'),
+                     text: st.reads ? 'configured' : 'missing' })),
+      el('div', { class: 'kv' }, el('span', { class: 'k', text: 'writes (oauth 1.0a user context)' }),
+        el('span', { class: 'v', style: 'color:' + (st.writes ? 'var(--ok)' : 'var(--err)'),
+                     text: st.writes ? 'configured' : 'missing' })),
+      el('div', { class: 'kv' }, el('span', { class: 'k', text: 'keyless fallback' }),
+        el('span', { class: 'v', text: (st.keyless_fallback || []).join(', ') })),
+      el('div', { class: 'hint', style: 'margin-top:10px' },
+        'Precedence per field: request header or tool arg, then environment, then the credentials file. ',
+        'Keys are re-read per request, so saving here takes effect immediately — nothing to restart.')),
+
+    el('div', { class: 'card' }, el('h2', { text: 'read rail' }),
+      fieldRow(FIELDS[0]),
+      el('div', { class: 'row wrap' },
+        el('button', { class: 'btn sm', text: 'Save bearer', onclick: () => save(['bearer_token']) }),
+        st.bearer ? el('button', { class: 'btn sm ghost', text: 'Clear',
+          onclick: () => clear(['bearer_token']) }) : null)),
+
+    el('div', { class: 'card' }, el('h2', { text: 'write rail · acts as your account' }),
+      el('div', { class: 'hint', style: 'margin-bottom:12px' },
+        'All four legs from ',
+        el('a', { href: 'https://developer.x.com/en/portal/dashboard', target: '_blank', rel: 'noopener',
+                  text: 'developer.x.com' }),
+        ' — the app needs Read and Write permissions, and the access token has to be regenerated after ',
+        'changing them, or writes keep failing with 403.'),
+      ...FIELDS.slice(1).map(fieldRow),
+      el('div', { class: 'row wrap' },
+        el('button', { class: 'btn sm', text: 'Save user context',
+          onclick: () => save(['api_key', 'api_secret', 'access_token', 'access_token_secret']) }),
+        st.user_context ? el('button', { class: 'btn sm danger', text: 'Clear all four',
+          onclick: () => clear(['api_key', 'api_secret', 'access_token', 'access_token_secret']) }) : null)),
+
+    el('div', { class: 'card' }, el('h2', { text: 'where these go' }),
+      el('pre', { text: '~/.mod/x/credentials.json   # 0600, off-tree, never committed' }),
+      el('div', { class: 'hint', style: 'margin-top:9px' },
+        'POST /auth/keys only accepts loopback requests — these keys let the server post as you. ',
+        'The same thing from a shell:'),
+      el('pre', { style: 'margin-top:8px',
+        text: 'm x/set_keys bearer_token=AAAA... persist=True\nm x/auth_status' })));
+
+  rail(el('div', { class: 'card', style: 'margin:0 0 12px' }, el('h2', { text: 'what each rail unlocks' }),
+    el('div', { class: 'hint' },
+      el('p', {}, el('b', { text: 'Nothing configured — ' }),
+        'one post by id, through the public syndication CDN.'),
+      el('p', { style: 'margin-top:8px' }, el('b', { text: 'Bearer — ' }),
+        'search, counts, profiles, timelines, followers, following.'),
+      el('p', { style: 'margin-top:8px' }, el('b', { text: 'User context — ' }),
+        'me, mentions, post, delete, like, repost, follow.'))));
+};
+
+/* ── boot ────────────────────────────────────────────────── */
 async function boot() {
-  const info = await j('/health');
-  $('ver').textContent = 'v' + info.version;
-  $('stat').innerHTML = [
-    ['upstream', info.upstream],
-    ['protocol', info.protocol],
-    ['reads (bearer)', bool(info.auth.reads)],
-    ['writes (user ctx)', bool(info.auth.writes)],
-  ].map(([k, v]) => `<div class="kv"><span class="k">${k}</span><span>${v}</span></div>`).join('');
+  try {
+    S.info = await api('/health');
+    S.auth = S.info.auth || S.auth;
+  } catch (e) { /* leave the pills honest about not knowing */ }
 
-  const { tools } = await j('/tools');
-  $('tools').innerHTML = tools.map(t =>
-    `<div class="tool"><div class="n">${t.name}</div><div class="d">${t.description}</div></div>`).join('');
+  S.me = null;
+  if (S.auth.writes) {
+    try { S.me = (await api('/me')).data; } catch (e) {}
+  }
+
+  const pills = [
+    el('span', { class: 'pill ' + (S.auth.reads ? 'yes' : 'no'), text: 'reads ' + (S.auth.reads ? 'on' : 'off') }),
+    el('span', { class: 'pill ' + (S.auth.writes ? 'yes' : 'no'), text: 'writes ' + (S.auth.writes ? 'on' : 'off') }),
+  ];
+  if (S.me) pills.push(el('a', { class: 'pill yes', href: '#/user/' + S.me.username, text: '@' + S.me.username }));
+  if (!S.auth.reads) pills.push(el('a', { class: 'pill warn', href: '#/auth', text: 'add keys' }));
+  if (S.info) pills.push(el('span', { class: 'pill', text: 'v' + S.info.version }));
+  $('#pills').replaceChildren(...pills);
 }
 
-$('go').onclick = async () => {
-  show('searching…');
-  show(await j('/search?q=' + encodeURIComponent($('q').value)));
-};
-$('getpost').onclick = async () => {
-  show('fetching…');
-  show(await j('/posts/' + encodeURIComponent($('pid').value.trim())));
-};
-$('tools-btn').onclick = async () => show(await j('/mcp', {
-  method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-}));
-
-boot().catch(e => show(String(e)));
+window.addEventListener('hashchange', route);
+boot().then(route);
 </script>
 </body>
 </html>

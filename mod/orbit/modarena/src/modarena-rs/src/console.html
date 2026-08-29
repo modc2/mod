@@ -1,0 +1,1043 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>arena — wasm storage and execution</title>
+<style>
+  /* One palette, two themes, no framework. The console is a single file so
+     that the thing which executes untrusted wasm has no supply chain. */
+  :root {
+    --bg: #0b0d10; --panel: #12151a; --line: #232833; --ink: #e6e9ef;
+    --dim: #8b94a7; --accent: #6ee7b7; --warn: #fbbf24; --bad: #f87171;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  [data-theme="light"] {
+    --bg: #f7f8fa; --panel: #fff; --line: #e2e5ea; --ink: #14171c;
+    --dim: #626b7d; --accent: #0d9488; --warn: #b45309; --bad: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 var(--mono);
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { margin: 0; font-size: 15px; letter-spacing: .14em; text-transform: uppercase; }
+  header .sub { color: var(--dim); font-size: 12px; flex: 1; min-width: 200px; }
+  nav { display: flex; gap: 2px; flex-wrap: wrap; padding: 0 18px; border-bottom: 1px solid var(--line);
+        background: var(--panel); position: sticky; top: 51px; z-index: 9; }
+  nav button {
+    background: none; border: 0; border-bottom: 2px solid transparent; color: var(--dim);
+    font: inherit; padding: 9px 12px; cursor: pointer;
+  }
+  nav button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+  main { padding: 18px; max-width: 1100px; }
+  section[hidden] { display: none; }
+  h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+       margin: 0 0 10px; font-weight: 500; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+          padding: 14px; margin-bottom: 14px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1; min-width: 160px; }
+  button.act, .drop label {
+    background: var(--accent); color: var(--bg); border: 0; border-radius: 6px;
+    font: inherit; font-weight: 600; padding: 7px 14px; cursor: pointer;
+  }
+  button.ghost { background: none; color: var(--ink); border: 1px solid var(--line);
+                 border-radius: 6px; font: inherit; padding: 6px 12px; cursor: pointer; }
+  button:disabled { opacity: .45; cursor: default; }
+  input, select, textarea {
+    background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; font: inherit; padding: 6px 9px; min-width: 0;
+  }
+  textarea { width: 100%; resize: vertical; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--dim); font-weight: 500; padding: 6px 8px;
+       border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr.pick { cursor: pointer; }
+  tr.pick:hover td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .tag { display: inline-block; border: 1px solid var(--line); border-radius: 999px;
+         padding: 0 8px; font-size: 11px; color: var(--dim); }
+  .tag.game { border-color: var(--accent); color: var(--accent); }
+  .tag.player { border-color: var(--warn); color: var(--warn); }
+  .id { color: var(--dim); font-size: 12px; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+        padding: 10px; overflow: auto; max-height: 380px; font-size: 12px; margin: 0; }
+  .bad { color: var(--bad); }
+  .ok { color: var(--accent); }
+  .dim { color: var(--dim); }
+  .drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 20px; text-align: center;
+          color: var(--dim); transition: border-color .15s; }
+  .drop.over { border-color: var(--accent); color: var(--ink); }
+  .drop input[type=file] { display: none; }
+  .turn { border-left: 2px solid var(--line); padding: 4px 0 4px 10px; margin-bottom: 8px; }
+  .turn.illegal { border-left-color: var(--bad); }
+  #toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+           background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+           padding: 9px 16px; max-width: 90vw; z-index: 50; }
+  #toast[hidden] { display: none; }
+  @media (max-width: 640px) { main { padding: 12px; } header, nav { padding-inline: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>modarena</h1>
+  <span class="sub" id="banner">loading…</span>
+  <button class="ghost" id="theme">theme</button>
+</header>
+
+<nav>
+  <button data-tab="registry" aria-selected="true">registry</button>
+  <button data-tab="write">write a mod</button>
+  <button data-tab="make">generate</button>
+  <button data-tab="run">run</button>
+  <button data-tab="players">players</button>
+  <button data-tab="match">match</button>
+  <button data-tab="board">leaderboard</button>
+  <button data-tab="abi">abi</button>
+</nav>
+
+<main>
+  <!-- ── registry ─────────────────────────────────────────────────────── -->
+  <section id="tab-registry">
+    <div class="card drop" id="drop">
+      <input type="file" id="file" accept=".wasm,.py,.rs,.json,.md,.txt" multiple>
+      <input type="file" id="dir" webkitdirectory directory multiple hidden>
+      <label for="file">choose a mod folder&rsquo;s files</label>
+      <button class="ghost" id="pick-dir" style="margin-left:8px">or a whole folder</button>
+      <div style="margin-top:8px">or drop one here — a mod is a folder: a
+        <code>config.json</code> and an anchor (<code>mod.py</code>, <code>mod.rs</code>,
+        <code>mod.wasm</code>). Drop one file on its own and a folder is written around it.</div>
+    </div>
+    <div class="card" id="preview" hidden>
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0" class="grow" id="up-title">before you store it</h2>
+        <button class="act" id="up-store">store</button>
+        <button class="ghost" id="up-cancel">cancel</button>
+      </div>
+      <div id="up-checks"></div>
+      <pre id="up-info"></pre>
+    </div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0" class="grow">stored mods</h2>
+        <select id="filter-role">
+          <option value="">every role</option>
+          <option value="game">games</option>
+          <option value="player">players</option>
+          <option value="command">commands</option>
+          <option value="class">not playable yet</option>
+          <option value="wasm">plain wasm</option>
+        </select>
+        <select id="filter-lang">
+          <option value="">every language</option>
+          <option value="python">python</option>
+          <option value="rust">rust</option>
+          <option value="wasm">wasm</option>
+        </select>
+        <input id="filter-q" placeholder="search">
+      </div>
+      <table><thead><tr>
+        <th>name</th><th>role</th><th>folder</th><th>size</th><th>defines</th><th>id</th><th></th>
+      </tr></thead><tbody id="modules"></tbody></table>
+    </div>
+
+    <div class="card" id="detail" hidden>
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0" class="grow" id="detail-name"></h2>
+        <button class="ghost" id="detail-smoke">make it answer</button>
+        <button class="ghost" id="detail-run">run it</button>
+        <button class="ghost" id="detail-close">close</button>
+      </div>
+      <div id="detail-files"></div>
+      <pre id="detail-body"></pre>
+    </div>
+  </section>
+
+  <!-- ── write a class ────────────────────────────────────────────────── -->
+  <section id="tab-write" hidden>
+    <div class="card">
+      <div class="row" style="margin-bottom:6px">
+        <h2 style="margin:0" class="grow">write a mod</h2>
+        <select id="w-kind">
+          <option value="game">a game</option>
+          <option value="player">a player</option>
+        </select>
+        <select id="w-lang">
+          <option value="python">python</option>
+          <option value="rust">rust</option>
+        </select>
+        <button class="ghost" id="w-tpl">load the template</button>
+      </div>
+      <p class="dim" style="margin-top:0">
+        A mod is a folder: a <code>config.json</code> saying what it is, and an anchor —
+        <code>mod.py</code> or <code>mod.rs</code> — that runs. The config is a claim and the
+        anchor is the fact; <b>verify</b> runs the registry&rsquo;s own checks over both, and the
+        one that matters is <code>kind_matches_anchor</code>: what your anchor defines has to be
+        what your config says it is. Nothing is stored until it passes.
+      </p>
+      <div class="row" style="margin-bottom:6px">
+        <select id="w-file"></select>
+        <button class="ghost" id="w-add">add a file</button>
+        <span class="grow"></span>
+        <button class="ghost" id="w-check">verify</button>
+        <button class="act" id="w-store">upload</button>
+      </div>
+      <textarea id="w-src" rows="22" spellcheck="false"
+                style="width:100%;font-family:inherit;font-size:12px"></textarea>
+      <div id="w-checks" style="margin-top:10px"></div>
+      <pre id="w-out" class="dim" style="margin-top:10px">—</pre>
+    </div>
+  </section>
+
+  <!-- ── generate ─────────────────────────────────────────────────────── -->
+  <section id="tab-make" hidden>
+    <div class="card">
+      <div class="row" style="margin-bottom:6px">
+        <h2 style="margin:0" class="grow">have the agent write one</h2>
+        <span class="dim" id="g-agent">checking for an agent…</span>
+      </div>
+      <p class="dim" style="margin-top:0">
+        The Claude agent on this box is handed the template, the ABI and the check list, and
+        answers with a folder. It is then put through the same verifier every upload goes
+        through, and — if it passes — loaded in the sandbox and asked to play. A folder that
+        fails either gate goes back with the failed checks attached, up to three times.
+        Nothing is stored until it passes both. The agent runs with no tools and no MCP
+        servers: it can answer, and nothing else.
+      </p>
+      <textarea id="g-prompt" rows="4" spellcheck="false" style="width:100%"
+                placeholder="what should it be? e.g. a two-player game of Kayles on a row of 12 pins, with a view that shows the row and the legal moves"></textarea>
+      <div class="row" style="margin-top:10px">
+        <select id="g-kind">
+          <option value="game">a game</option>
+          <option value="player">a player</option>
+        </select>
+        <select id="g-lang">
+          <option value="python">python</option>
+          <option value="rust">rust</option>
+        </select>
+        <input id="g-name" placeholder="name (optional)" style="width:180px">
+        <select id="g-model">
+          <option value="sonnet">sonnet</option>
+          <option value="opus">opus</option>
+          <option value="haiku">haiku</option>
+        </select>
+        <span class="grow"></span>
+        <button class="act" id="g-go">write it</button>
+      </div>
+      <div id="g-steps" style="margin-top:12px"></div>
+      <pre id="g-out" class="dim" style="margin-top:10px">—</pre>
+    </div>
+  </section>
+
+  <!-- ── run ──────────────────────────────────────────────────────────── -->
+  <section id="tab-run" hidden>
+    <div class="card">
+      <h2>execute</h2>
+      <p class="dim" style="margin-top:0">
+        The module runs in this tab, inside a Worker with no filesystem and no network,
+        on a seeded clock and a seeded PRNG. Nothing is sent to the server.
+        A module that hangs is terminated — that is what the worker is for.
+      </p>
+      <div class="row">
+        <select id="run-module" class="grow"></select>
+        <input id="run-entry" placeholder="entry (blank = _start)" style="width:200px">
+        <input id="run-args" placeholder="args, comma separated" style="width:200px">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="run-seed" type="number" value="1" style="width:110px" title="seed">
+        <input id="run-timeout" type="number" value="5000" style="width:120px" title="timeout ms">
+        <button class="act" id="run-go">run</button>
+      </div>
+      <textarea id="run-stdin" rows="2" placeholder="stdin" style="margin-top:8px"></textarea>
+    </div>
+    <div class="card"><h2>output</h2><pre id="run-out">—</pre></div>
+  </section>
+
+  <!-- ── players ──────────────────────────────────────────────────────── -->
+  <section id="tab-players" hidden>
+    <div class="card">
+      <h2>enter a player</h2>
+      <div class="row">
+        <input id="p-name" class="grow" placeholder="name">
+        <select id="p-kind">
+          <option value="model">model</option>
+          <option value="class">class</option>
+          <option value="wasm">wasm</option>
+          <option value="agent_mod">agent_mod</option>
+          <option value="http">http</option>
+        </select>
+        <button class="act" id="p-add">enter</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="p-config" class="grow" placeholder='config, e.g. {"model":"anthropic/claude-opus-5"}'>
+      </div>
+      <p class="dim" id="p-hint" style="margin-bottom:0"></p>
+    </div>
+    <div class="card">
+      <h2>entered</h2>
+      <table><thead><tr>
+        <th>name</th><th>kind</th><th>elo</th><th>w/d/l</th><th>illegal</th><th>ms/move</th><th></th>
+      </tr></thead><tbody id="players"></tbody></table>
+    </div>
+  </section>
+
+  <!-- ── match ────────────────────────────────────────────────────────── -->
+  <section id="tab-match" hidden>
+    <div class="card">
+      <h2>play a match</h2>
+      <div class="row">
+        <select id="m-game" class="grow"></select>
+        <input id="m-seed" type="number" placeholder="seed" style="width:130px">
+        <button class="act" id="m-go">play</button>
+      </div>
+      <div id="m-seats" style="margin-top:10px"></div>
+      <p class="dim" style="margin-bottom:0">
+        Wasm players run here. Models, fleet agents and endpoints are asked for through
+        the server, which holds the keys. Every move is recorded, so the match can be replayed.
+      </p>
+    </div>
+    <div class="card"><h2>transcript</h2><div id="m-live" class="dim">—</div></div>
+  </section>
+
+  <!-- ── leaderboard ──────────────────────────────────────────────────── -->
+  <section id="tab-board" hidden>
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <h2 style="margin:0" class="grow">standings</h2>
+        <select id="b-game"><option value="">overall</option></select>
+      </div>
+      <table><thead><tr>
+        <th>#</th><th>player</th><th>kind</th><th>elo</th><th>matches</th><th>w/d/l</th><th>avg score</th>
+      </tr></thead><tbody id="board"></tbody></table>
+    </div>
+    <div class="card">
+      <h2>recent matches</h2>
+      <table><thead><tr>
+        <th>when</th><th>game</th><th>result</th><th>where</th><th></th>
+      </tr></thead><tbody id="matches"></tbody></table>
+    </div>
+  </section>
+
+  <!-- ── abi ──────────────────────────────────────────────────────────── -->
+  <section id="tab-abi" hidden>
+    <div class="card">
+      <h2>make a game</h2>
+      <p class="dim" style="margin-top:0">
+        A game is a Python class defining four methods, or a wasm module exporting five
+        functions. There is nothing to register and nothing to ask permission for: upload it
+        and it is a game, because the role is read out of what you uploaded. The same is true
+        of a player, which needs one method or one export.
+      </p>
+      <div class="row"><button class="ghost" id="abi-class-game">class · game</button>
+                       <button class="ghost" id="abi-class-player">class · player</button>
+                       <button class="ghost" id="abi-game">wasm · game</button>
+                       <button class="ghost" id="abi-player">wasm · player</button></div>
+      <pre id="abi-body" style="margin-top:10px"></pre>
+    </div>
+  </section>
+</main>
+
+<div id="toast" hidden></div>
+
+<script type="module">
+// The console talks to the server over the same REST surface the MCP tools
+// use, and executes wasm with the same runtime the node runner uses. It adds
+// no behaviour of its own — if something can be done here it can be done from
+// an MCP client, and the other way round.
+
+// Served at /arena behind the fleet router and at / standalone. Both worlds
+// answer on /api/modarena, so the only question is whether there is a prefix.
+const API = location.pathname.startsWith("/modarena") ? "/api/modarena" : "";
+const RUNTIME = `${API}/runtime`;
+
+const { makeApi, runMatch } = await import(`${RUNTIME}/match.mjs`);
+const api = makeApi(API);
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, kids = []) => {
+  const n = Object.assign(document.createElement(tag), props);
+  for (const k of [].concat(kids)) n.append(k);
+  return n;
+};
+
+let toastTimer;
+function toast(msg, bad = false) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = bad ? "bad" : "";
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.hidden = true), bad ? 6000 : 2500);
+}
+
+async function call(path, init) {
+  const r = await fetch(API + path, init);
+  const body = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
+  if (!r.ok) throw new Error(body.error || `${r.status}`);
+  return body;
+}
+
+const post = (path, body) =>
+  call(path, { method: "POST", headers: { "content-type": "application/json" },
+               body: JSON.stringify(body) });
+
+// ── state ────────────────────────────────────────────────────────────────
+let modules = [];
+let players = [];
+let pending = null;   // a dropped file, inspected but not stored
+
+// ── tabs ─────────────────────────────────────────────────────────────────
+document.querySelectorAll("nav button").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll("nav button").forEach((x) =>
+      x.setAttribute("aria-selected", String(x === b)));
+    document.querySelectorAll("main section").forEach((s) =>
+      (s.hidden = s.id !== `tab-${b.dataset.tab}`));
+    if (b.dataset.tab === "board") refreshBoard();
+  };
+});
+
+$("theme").onclick = () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem("arena_theme", next);
+};
+document.documentElement.dataset.theme = localStorage.getItem("arena_theme") || "dark";
+
+// ── registry ─────────────────────────────────────────────────────────────
+const b64 = (bytes) => {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
+};
+
+/** The check list, as the console shows it: one line per check, red only where
+ *  it actually failed. This is the same report the API returns and the same one
+ *  the agent is handed to repair against — three readers, one text. */
+function renderChecks(into, report) {
+  const box = $(into);
+  if (!report || !report.checks) { box.replaceChildren(); return; }
+  box.replaceChildren(...report.checks.map((c) => el("div", {
+    className: c.ok ? "dim" : (c.level === "error" ? "bad" : ""),
+    style: "font-size:12px",
+    textContent: `${c.ok ? "\u2713" : (c.level === "error" ? "\u2717" : "!")} ${c.check} — ${c.detail}`,
+  })));
+}
+
+/** Files picked or dropped, assembled into one candidate folder. */
+async function offer(files) {
+  const list = [...files];
+  if (!list.length) return;
+  const draft = {};
+  for (const f of list) {
+    // A folder picker hands back paths; a file picker hands back names.
+    const path = (f.webkitRelativePath || f.name).split("/").slice(-2).join("/");
+    const flat = path.includes("/") ? path.split("/").pop() : path;
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    draft[flat] = flat.endsWith(".wasm") ? { b64: b64(bytes) } : new TextDecoder().decode(bytes);
+  }
+  try {
+    // One file on its own is not a folder yet — ask what it would become.
+    const paths = Object.keys(draft);
+    const single = paths.length === 1 && paths[0] !== "config.json";
+    let report;
+    if (single) {
+      const only = draft[paths[0]];
+      const body = typeof only === "string" ? { text: only } : { bytes: only.b64 };
+      const seen = await post("/inspect", { ...body, name: paths[0].replace(/\.[^.]+$/, "") });
+      pending = { one: body, name: paths[0] };
+      $("up-title").textContent = `${paths[0]} — a ${seen.role}, and a folder will be written around it`;
+      $("up-info").textContent = JSON.stringify(seen.as_folder ?? seen, null, 2);
+      renderChecks("up-checks", null);
+      $("preview").hidden = false;
+      return;
+    }
+    report = await post("/verify", { files: draft });
+    pending = { files: draft, report };
+    $("up-title").textContent = report.ok
+      ? `${report.name} — a ${report.role}, ${report.files.length} files, and it matches the template`
+      : `${report.name || "this folder"} — ${report.summary}`;
+    renderChecks("up-checks", report);
+    $("up-info").textContent = "";
+    $("preview").hidden = false;
+    $("preview").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+$("file").onchange = (e) => offer(e.target.files);
+$("dir").onchange = (e) => offer(e.target.files);
+$("pick-dir").onclick = () => $("dir").click();
+const drop = $("drop");
+["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => {
+  e.preventDefault(); drop.classList.add("over");
+}));
+["dragleave", "drop"].forEach((t) => drop.addEventListener(t, () => drop.classList.remove("over")));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  offer(e.dataTransfer.files);
+});
+
+$("up-cancel").onclick = () => { pending = null; $("preview").hidden = true; };
+$("up-store").onclick = async () => {
+  if (!pending) return;
+  try {
+    const m = await post("/modules", pending.files
+      ? { files: pending.files }
+      : { ...pending.one, name: pending.name.replace(/\.[^.]+$/, "") });
+    toast(`stored ${m.name} as a ${m.role}`);
+    pending = null;
+    $("preview").hidden = true;
+    await refreshModules();
+  } catch (e) { toast(e.message, true); }
+};
+
+$("filter-role").onchange = $("filter-lang").onchange =
+  $("filter-q").oninput = () => renderModules();
+
+async function refreshModules() {
+  modules = (await call("/modules")).modules;
+  renderModules();
+  fillSelects();
+}
+
+function renderModules() {
+  const role = $("filter-role").value;
+  const lang = $("filter-lang").value;
+  const q = $("filter-q").value.toLowerCase();
+  const rows = modules
+    .filter((m) => !role || m.role === role)
+    .filter((m) => !lang || (m.lang || "wasm") === lang)
+    .filter((m) => !q || m.name.toLowerCase().includes(q) || m.description.toLowerCase().includes(q));
+
+  $("modules").replaceChildren(...rows.map((m) => {
+    const tr = el("tr", { className: "pick" });
+    tr.append(
+      el("td", {}, [
+        el("strong", { textContent: m.name }),
+        // Which container it is, said once, where the eye already is.
+        el("span", { className: "dim", style: "margin-left:6px", textContent: m.lang }),
+      ]),
+      el("td", {}, el("span", { className: `tag ${m.role}`, textContent: m.role })),
+      el("td", { className: "dim",
+                 textContent: `${m.files?.length ?? 1} \u00b7 ${m.anchor || "?"}` }),
+      el("td", { textContent: `${(m.size / 1024).toFixed(1)}k` }),
+      el("td", { className: "dim", textContent: m.exports.slice(0, 4).join(" ") || "—" }),
+      el("td", {}, el("span", { className: "id", textContent: m.short })),
+    );
+    const del = el("button", { className: "ghost", textContent: "×", title: "delete" });
+    del.onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm(`delete ${m.name}? the bytes go too.`)) return;
+      try { await call(`/modules/${m.id}`, { method: "DELETE" }); await refreshModules(); }
+      catch (err) { toast(err.message, true); }
+    };
+    tr.append(el("td", {}, del));
+    tr.onclick = () => showModule(m.id);
+    return tr;
+  }));
+  if (!rows.length) {
+    $("modules").replaceChildren(el("tr", {}, el("td", {
+      colSpan: 7, className: "dim", textContent: "nothing stored yet",
+    })));
+  }
+}
+
+async function showModule(id) {
+  const m = await call(`/modules/${id}`);
+  $("detail-name").textContent =
+    `${m.name} — ${m.role} · ${m.lang} · ${m.files?.length ?? 1} file(s)`;
+  // The folder, not the card: a mod is its files, and the anchor first is the
+  // order anyone reads them in.
+  const folder = m.files_text ?? {};
+  const order = Object.keys(folder).sort((a, b) =>
+    (a === m.anchor ? -1 : b === m.anchor ? 1 : a.localeCompare(b)));
+  const { source, files_text, ...card } = m;
+  const show = (path) => {
+    const body = folder[path];
+    $("detail-body").textContent = typeof body === "string"
+      ? body
+      : `${path} is ${(m.files.find((f) => f.path === path)?.size ?? 0)} bytes of binary — ` +
+        `fetch it from ${API}/mods/${m.id}/file/${path}`;
+  };
+  const picker = el("div", { className: "row", style: "margin-bottom:8px" },
+    order.map((path) => {
+      const b = el("button", {
+        className: path === m.anchor ? "act" : "ghost",
+        textContent: path + (path === m.anchor ? "  (anchor)" : ""),
+      });
+      b.onclick = () => show(path);
+      return b;
+    }));
+  const cardBtn = el("button", { className: "ghost", textContent: "the card" });
+  cardBtn.onclick = () => ($("detail-body").textContent = JSON.stringify(card, null, 2));
+  picker.append(cardBtn);
+  $("detail-files").replaceChildren(picker);
+  if (order.length) show(order[0]); else $("detail-body").textContent = JSON.stringify(card, null, 2);
+  $("detail").hidden = false;
+  $("detail-run").hidden = m.lang === "python";
+  $("detail-run").onclick = () => {
+    $("run-module").value = m.id;
+    document.querySelector('nav button[data-tab="run"]').click();
+  };
+  $("detail-smoke").onclick = async () => {
+    $("detail-body").textContent = "loading it in the sandbox and asking it to play…";
+    try {
+      const out = await post("/forward", { action: "smoke_mod", module: m.id });
+      $("detail-body").textContent = JSON.stringify(out, null, 2);
+    } catch (e) { $("detail-body").textContent = e.message; }
+  };
+  $("detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+$("detail-close").onclick = () => ($("detail").hidden = true);
+
+// ── write a mod ──────────────────────────────────────────────────────────
+// The editor is the shortest path from "I have an idea for a game" to a thing
+// on the leaderboard: load the template for the kind and language you want,
+// edit the files, verify, upload. The template comes from the server, so it is
+// the same one `m modarena/template` prints and the same one the agent is
+// briefed with — it cannot drift from the rule it is checked against.
+
+let draft = {};          // path → text, the folder being written
+let draftPath = "";      // the file in the textarea
+
+function draftFiles() {
+  $("w-file").replaceChildren(...Object.keys(draft).sort().map((p) =>
+    el("option", { value: p, textContent: p, selected: p === draftPath })));
+}
+
+function openFile(path) {
+  if (draftPath && draftPath in draft) draft[draftPath] = $("w-src").value;
+  draftPath = path;
+  $("w-src").value = draft[path] ?? "";
+  draftFiles();
+}
+
+async function loadTemplate() {
+  const kind = $("w-kind").value;
+  const lang = $("w-lang").value;
+  const t = await call(`/template?kind=${kind}&lang=${lang}`);
+  draft = {};
+  for (const [path, body] of Object.entries(t.files)) {
+    if (typeof body === "string") draft[path] = body;
+  }
+  draftPath = "";
+  openFile(t.anchor || "config.json");
+  $("w-out").textContent = t.note;
+  $("w-out").className = "dim";
+  renderChecks("w-checks", t.verify);
+}
+$("w-tpl").onclick = () => loadTemplate().catch((e) => toast(e.message, true));
+$("w-file").onchange = (e) => openFile(e.target.value);
+$("w-add").onclick = () => {
+  const path = prompt("a file in this folder — README.md, board.py, notes.txt");
+  if (!path) return;
+  draft[path] = "";
+  openFile(path);
+};
+
+function currentDraft() {
+  if (draftPath) draft[draftPath] = $("w-src").value;
+  return draft;
+}
+
+async function verifyDraft() {
+  const files = currentDraft();
+  if (!Object.keys(files).length) throw new Error("nothing written yet — load a template");
+  const report = await post("/verify", { files });
+  renderChecks("w-checks", report);
+  $("w-out").textContent = report.summary;
+  $("w-out").className = report.ok ? "dim" : "bad";
+  return report;
+}
+
+$("w-check").onclick = async () => {
+  try { await verifyDraft(); } catch (e) {
+    $("w-out").textContent = e.message;
+    $("w-out").className = "bad";
+  }
+};
+
+$("w-store").onclick = async () => {
+  try {
+    const report = await verifyDraft();
+    if (!report.ok) { toast("it does not match the template yet", true); return; }
+    const m = await post("/modules", { files: currentDraft() });
+    toast(`stored ${m.name} as a ${m.role}`);
+    await refreshModules();
+    document.querySelector('nav button[data-tab="registry"]').click();
+    await showModule(m.id);
+  } catch (e) {
+    $("w-out").textContent = e.message;
+    $("w-out").className = "bad";
+  }
+};
+
+// ── generate ─────────────────────────────────────────────────────────────
+// The agent writes a folder; the registry decides whether it is a mod. Both
+// halves are shown, because "the model made me a game" is only interesting
+// with the checks next to it.
+
+call("/agent").then((a) => {
+  $("g-agent").textContent = a.available
+    ? `agent: ${a.version}`
+    : `no agent on this box — ${a.error ?? ""}`;
+  $("g-agent").className = a.available ? "dim" : "bad";
+  $("g-go").disabled = !a.available;
+}).catch(() => { $("g-agent").textContent = ""; });
+
+function renderAttempts(out) {
+  const box = $("g-steps");
+  const kids = [];
+  for (const a of out.attempts ?? []) {
+    kids.push(el("div", {
+      className: a.ok ? "" : "bad",
+      style: "margin-top:6px",
+      textContent: `attempt ${a.attempt}: ${a.ok ? "passed" : (a.error || a.summary || "refused")}`,
+    }));
+    for (const f of a.failed ?? []) {
+      kids.push(el("div", { className: "dim", style: "font-size:12px;margin-left:14px",
+                            textContent: `\u2717 ${f.check} — ${f.detail}` }));
+    }
+    for (const st of a.smoke?.steps ?? []) {
+      kids.push(el("div", { className: st.ok ? "dim" : "bad", style: "font-size:12px;margin-left:14px",
+                            textContent: `${st.ok ? "\u2713" : "\u2717"} ${st.step}${st.error ? " — " + st.error : ""}` }));
+    }
+  }
+  for (const st of out.smoke?.steps ?? []) {
+    kids.push(el("div", { className: st.ok ? "dim" : "bad", style: "font-size:12px",
+                          textContent: `${st.ok ? "\u2713" : "\u2717"} it answered: ${st.step}` }));
+  }
+  box.replaceChildren(...kids);
+}
+
+$("g-go").onclick = async () => {
+  const prompt = $("g-prompt").value.trim();
+  if (!prompt) { toast("say what it should be", true); return; }
+  $("g-go").disabled = true;
+  $("g-out").textContent = "the agent is writing it — this takes a minute or two…";
+  $("g-out").className = "dim";
+  $("g-steps").replaceChildren();
+  try {
+    const out = await post("/generate", {
+      prompt,
+      kind: $("g-kind").value,
+      lang: $("g-lang").value,
+      name: $("g-name").value.trim() || undefined,
+      model: $("g-model").value,
+    });
+    renderAttempts(out);
+    if (out.ok && out.mod) {
+      $("g-out").textContent = Object.entries(out.files ?? {})
+        .map(([path, body]) => `--- ${path} ---\n${typeof body === "string" ? body : "(binary)"}`)
+        .join("\n\n");
+      $("g-out").className = "dim";
+      toast(`stored ${out.mod.name} — ${out.tries} attempt(s)`);
+      await refreshModules();
+    } else {
+      $("g-out").textContent = out.error || "it never matched the template";
+      $("g-out").className = "bad";
+    }
+  } catch (e) {
+    $("g-out").textContent = e.message;
+    $("g-out").className = "bad";
+  } finally {
+    $("g-go").disabled = false;
+  }
+};
+
+// ── run ──────────────────────────────────────────────────────────────────
+// A Worker is the sandbox. It is the only way to stop a module that decided
+// not to come back, and uploaded modules are other people's code.
+function runInWorker(message, timeoutMs, onEvent) {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(`${RUNTIME}/worker.mjs`, { type: "module" });
+    const timer = timeoutMs > 0 && setTimeout(() => {
+      w.terminate();
+      reject(new Error(`terminated after ${timeoutMs}ms — the module did not return`));
+    }, timeoutMs);
+    w.onmessage = (e) => {
+      const msg = e.data;
+      if (msg.type === "event") return onEvent?.(msg.event);
+      clearTimeout(timer);
+      w.terminate();
+      msg.type === "done" ? resolve(msg.result) : reject(new Error(msg.error));
+    };
+    w.onerror = (e) => {
+      clearTimeout(timer);
+      w.terminate();
+      reject(new Error(e.message || "the worker failed to start"));
+    };
+    w.postMessage(message);
+  });
+}
+
+$("run-go").onclick = async () => {
+  const id = $("run-module").value;
+  if (!id) return toast("nothing to run", true);
+
+  // A class needs a python process, which a tab cannot start. Say so, with the
+  // command that does work, rather than handing the worker something that is
+  // not wasm and letting it fail in the engine's words instead of ours.
+  const card = modules.find((m) => m.id === id);
+  if (card?.lang === "python") {
+    const how = card.role === "game"
+      ? `    m modarena/play game=${card.name} players=<two entered players>`
+      : `    m modarena/run module=${card.name} entry=play --arg "<a view>" --arg 0`;
+    $("run-out").textContent =
+      `${card.name} is a class, and a browser tab cannot start python.\n\n` +
+      `From the runner instead:\n${how}\n\n` +
+      `Matches are not affected — the match tab plays class games through the ` +
+      `runner for you.`;
+    return;
+  }
+  $("run-out").textContent = "running…";
+  try {
+    const [bytes, meta] = await Promise.all([api.blob(id), api.module(id)]);
+    const args = $("run-args").value.split(",").map((s) => s.trim()).filter(Boolean);
+    const result = await runInWorker({
+      type: "run",
+      bytes,
+      opts: {
+        info: meta.info,
+        entry: $("run-entry").value.trim() || undefined,
+        args: [meta.name, ...args],
+        stdin: $("run-stdin").value,
+        seed: Number($("run-seed").value) || 1,
+        callArgs: args.map(Number).filter(Number.isFinite),
+      },
+    }, Number($("run-timeout").value) || 0);
+    $("run-out").textContent = JSON.stringify(result, null, 2);
+  } catch (e) {
+    $("run-out").textContent = e.message;
+    $("run-out").className = "bad";
+    setTimeout(() => ($("run-out").className = ""), 3000);
+  }
+};
+
+// ── players ──────────────────────────────────────────────────────────────
+const HINTS = {
+  model: 'config: {"model":"anthropic/claude-opus-5"} — any OpenAI-compatible endpoint; add "base" and "key" for another provider.',
+  wasm: 'config: {"module":"<id of a module that exports play>"} — it runs in this tab.',
+  class: 'config: {"module":"<a class that defines play(self, view, seat)>"} — it runs in a sandboxed python process, so its matches go through the runner rather than this tab.',
+  agent_mod: 'config: {"agent":"name"} or {"model":"…","free":true} — an agent in the fleet\'s agent module.',
+  http: 'config: {"url":"https://…"} — posted the view, expected to answer {"move":"…"}.',
+};
+$("p-kind").onchange = () => ($("p-hint").textContent = HINTS[$("p-kind").value] || "");
+$("p-kind").onchange();
+
+$("p-add").onclick = async () => {
+  const raw = $("p-config").value.trim();
+  let config = {};
+  if (raw) {
+    try { config = JSON.parse(raw); }
+    catch { return toast("config is not JSON", true); }
+  }
+  try {
+    await post("/players", { name: $("p-name").value.trim(), kind: $("p-kind").value, config });
+    $("p-name").value = $("p-config").value = "";
+    await refreshPlayers();
+    toast("entered");
+  } catch (e) { toast(e.message, true); }
+};
+
+async function refreshPlayers() {
+  players = (await call("/players")).players;
+  $("players").replaceChildren(...players.map((p) => {
+    const tr = el("tr");
+    const out = el("button", { className: "ghost", textContent: "×", title: "withdraw" });
+    out.onclick = async () => {
+      if (!confirm(`withdraw ${p.name}?`)) return;
+      await call(`/players/${p.id}`, { method: "DELETE" });
+      await refreshPlayers();
+    };
+    tr.append(
+      el("td", {}, el("strong", { textContent: p.name })),
+      el("td", { className: "dim", textContent: p.model || p.kind }),
+      el("td", { textContent: p.elo }),
+      el("td", { textContent: `${p.wins}/${p.draws}/${p.losses}` }),
+      el("td", { className: p.illegal_rate > 0.1 ? "bad" : "",
+                 textContent: `${(p.illegal_rate * 100).toFixed(0)}%` }),
+      el("td", { className: "dim", textContent: p.avg_move_ms }),
+      el("td", {}, out),
+    );
+    return tr;
+  }));
+  if (!players.length) {
+    $("players").replaceChildren(el("tr", {}, el("td", {
+      colSpan: 7, className: "dim", textContent: "nobody entered yet",
+    })));
+  }
+  fillSelects();
+}
+
+// ── match ────────────────────────────────────────────────────────────────
+function fillSelects() {
+  const games = modules.filter((m) => m.role === "game");
+  const opt = (m) => el("option", { value: m.id, textContent: `${m.name} · ${m.short}` });
+
+  $("run-module").replaceChildren(...modules.map((m) =>
+    el("option", { value: m.id,
+                   textContent: `${m.name} · ${m.role}${m.lang === "python" ? " · class" : ""}` })));
+  $("m-game").replaceChildren(...games.map(opt));
+  $("b-game").replaceChildren(
+    el("option", { value: "", textContent: "overall" }),
+    ...games.map(opt));
+  renderSeats();
+}
+
+$("m-game").onchange = () => renderSeats();
+
+function renderSeats() {
+  const seats = 2;   // every shipped game seats two; a game that seats more shows more
+  $("m-seats").replaceChildren(...Array.from({ length: seats }, (_, i) => {
+    const sel = el("select", { id: `m-seat-${i}` });
+    sel.replaceChildren(...players.map((p) =>
+      el("option", { value: p.id, textContent: `${p.name} · ${p.kind}` })));
+    if (players[i]) sel.value = players[i].id;
+    return el("div", { className: "row", style: "margin-bottom:6px" },
+      [el("span", { className: "dim", style: "width:60px", textContent: `seat ${i}` }), sel]);
+  }));
+}
+
+$("m-go").onclick = async () => {
+  const game = $("m-game").value;
+  const seated = [0, 1].map((i) => players.find((p) => p.id === $(`m-seat-${i}`)?.value))
+                       .filter(Boolean);
+  if (!game || seated.length < 2) return toast("pick a game and two players", true);
+
+  const live = $("m-live");
+  const seed = Number($("m-seed").value) || Math.floor(Math.random() * 1e9);
+
+  // A class runs in a python process, and a tab cannot start one. So a match
+  // with a class anywhere in it is played by the runner instead — the same
+  // match loop, the same leaderboard, just on the other side of the wire.
+  const gameCard = modules.find((m) => m.id === game);
+  const byRunner = gameCard?.lang === "python" || seated.some((p) => p.kind === "class");
+
+  live.replaceChildren(el("div", { className: "dim",
+    textContent: byRunner ? "playing — in the runner, because a class cannot run in a tab…"
+                          : "playing…" }));
+
+  try {
+    if (byRunner) {
+      const saved = await post("/run", { game, players: seated.map((p) => p.name), seed });
+      const full = await call(`/matches/${saved.id}`);
+      live.replaceChildren(...(full.turns ?? []).map((t) => turnRow(t, seated)));
+      live.append(el("div", { className: "card", style: "margin-top:12px" },
+        el("pre", { textContent: JSON.stringify(saved, null, 2) })));
+      toast(saved.summary || "match played");
+      await Promise.all([refreshPlayers(), refreshBoard()]);
+      return;
+    }
+
+    const record = await runInWorker(
+      { type: "match", base: API, game, players: seated, seed },
+      120_000,
+      (e) => {
+        if (e.type !== "turn") return;
+        if (live.firstChild?.className === "dim") live.firstChild.remove();
+        live.append(turnRow(e, seated));
+        live.scrollTop = live.scrollHeight;
+      });
+
+    const saved = await api.record(record);
+    live.append(el("div", { className: "card", style: "margin-top:12px" },
+      el("pre", { textContent: JSON.stringify(saved, null, 2) })));
+    toast(record.summary || "match played");
+    await Promise.all([refreshPlayers(), refreshBoard()]);
+  } catch (e) {
+    live.append(el("div", { className: "bad", textContent: e.message }));
+  }
+};
+
+/** One turn, however it got here — live from the worker or read back off a
+ *  match the runner recorded. */
+function turnRow(t, seated) {
+  const name = seated[t.seat]?.name ?? `seat ${t.seat}`;
+  return el("div", { className: `turn ${t.legal ? "" : "illegal"}` }, [
+    el("div", {}, [
+      el("strong", { textContent: name }),
+      el("span", { className: "dim", textContent: `  seat ${t.seat} · turn ${t.turn} · ${t.ms}ms` }),
+      t.legal ? "" : el("span", { className: "bad", textContent: "  refused" }),
+    ]),
+    el("div", { textContent: t.mv || "(no move)" }),
+    t.note ? el("div", { className: "dim", textContent: t.note }) : "",
+  ]);
+}
+
+// ── leaderboard ──────────────────────────────────────────────────────────
+$("b-game").onchange = () => refreshBoard();
+
+async function refreshBoard() {
+  const game = $("b-game").value;
+  const board = await call(`/leaderboard${game ? `?game=${game}` : ""}`);
+  $("board").replaceChildren(...board.players.map((p, i) => el("tr", {}, [
+    el("td", { className: "dim", textContent: String(i + 1) }),
+    el("td", {}, el("strong", { textContent: p.name })),
+    el("td", { className: "dim", textContent: p.kind || "" }),
+    el("td", {}, el("strong", { textContent: p.elo })),
+    el("td", { textContent: p.matches }),
+    el("td", { textContent: `${p.wins}/${p.draws}/${p.losses}` }),
+    el("td", { textContent: p.avg_score }),
+  ])));
+  if (!board.players.length) {
+    $("board").replaceChildren(el("tr", {}, el("td", {
+      colSpan: 7, className: "dim", textContent: "no rated matches yet",
+    })));
+  }
+
+  const { matches } = await call("/matches?limit=15");
+  $("matches").replaceChildren(...matches.map((m) => {
+    const tr = el("tr", { className: "pick" });
+    const line = m.seats.map((s) => `${s.player_name} ${s.score}`).join("  ·  ");
+    tr.append(
+      el("td", { className: "dim", textContent: new Date(m.created * 1000).toLocaleTimeString() }),
+      el("td", { textContent: m.game_name }),
+      el("td", { textContent: line }),
+      el("td", { className: "dim", textContent: m.runtime }),
+      el("td", { className: "dim", textContent: m.rated ? "" : "practice" }),
+    );
+    tr.onclick = async () => {
+      const full = await call(`/matches/${m.id}`);
+      alert(JSON.stringify(full.seats, null, 2));
+    };
+    return tr;
+  }));
+}
+
+// ── abi ──────────────────────────────────────────────────────────────────
+const showAbi = async (role, lang = "wasm") =>
+  ($("abi-body").textContent =
+    JSON.stringify(await call(`/abi?role=${role}&lang=${lang}`), null, 2));
+$("abi-game").onclick = () => showAbi("game");
+$("abi-player").onclick = () => showAbi("player");
+$("abi-class-game").onclick = () => showAbi("game", "class");
+$("abi-class-player").onclick = () => showAbi("player", "class");
+
+// ── boot ─────────────────────────────────────────────────────────────────
+try {
+  const info = await call("/info");
+  $("banner").textContent =
+    `${info.modules} modules · ${info.classes} classes · ${info.games} games · ` +
+    `${info.players} players · ${info.matches} matches`;
+  await Promise.all([refreshModules(), refreshPlayers()]);
+  await Promise.all([showAbi("game", "class"), template("game")]);
+} catch (e) {
+  $("banner").textContent = `cannot reach the server: ${e.message}`;
+  $("banner").className = "sub bad";
+}
+</script>
+</body>
+</html>

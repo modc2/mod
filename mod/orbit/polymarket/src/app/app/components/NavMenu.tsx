@@ -1,14 +1,18 @@
 "use client";
 
-// Global nav in the top header — replaces the old LeftNav rail. Every
-// destination (STRAT / TRADERS / MARKETS / DOCS) is laid out inline as tabs
-// along the header, to the RIGHT of the active-strat readout. There is no
-// dropdown fallback: when the header runs out of room the labels drop and the
-// tabs become icons, which still fit on a phone and still show you where you
-// are — a menu you have to open to learn what page you're on is worse.
-// The global fills tape (/trades) is no longer a nav destination — fills live
-// in the STRAT page's TRADES tab. Wallet + trading-wallet chrome is NOT here
-// either — it's a WALLET tab inside the STRAT page.
+// Global nav in the top header. Every destination (COPY / TRADERS / MARKETS /
+// DOCS) is laid out inline as tabs along the header. There is no dropdown
+// fallback: when the header runs out of room the labels drop and the tabs
+// become icons, which still fit on a phone and still show you where you are —
+// a menu you have to open to learn what page you're on is worse.
+//
+// There is no STRAT destination. The console copies INDIVIDUAL TRADERS and
+// nothing else: COPY is the desk, and a row on it opens that one leader's
+// workspace at /copy/<address>. The multi-trader strat hub, its template
+// gallery and its public shelf are archived under `src/_archive` — see that
+// directory's README. The global fills tape (/trades) is not a destination
+// either; fills live in the leader's LIVE tab, next to the engine that made
+// them.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -33,13 +37,27 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   {
-    href: "/strats",
-    label: "STRAT",
+    // The front door, and the console's only trading surface: one leader, one
+    // allocation.
+    href: "/copy",
+    label: "COPY",
     icon: (
       <svg className={ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="12" cy="12" r="8" />
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+        <rect x="8" y="3" width="12" height="14" rx="1.5" />
+        <path d="M16 21H5.5A1.5 1.5 0 014 19.5V7" />
+      </svg>
+    ),
+  },
+  {
+    // What the copying actually DID: their trades against my fills, and the
+    // coverage number that says how much of the flow I got.
+    href: "/copy/trades",
+    label: "TRADES",
+    icon: (
+      <svg className={ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M3 17l5-6 4 3 5-7" />
+        <path d="M17 7h4v4" />
+        <path d="M3 21h18" />
       </svg>
     ),
   },
@@ -85,7 +103,14 @@ export default function NavMenu() {
   // Split-screen iframe panes stay lightweight — no global nav.
   if (embedded) return null;
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
+  // Exact-then-prefix, with one carve-out: /copy/trades is its own tab, so
+  // /copy must not also light up for it (a nested route that has its own tab
+  // is the only case where the prefix rule is wrong).
+  const isActive = (href: string) => {
+    if (pathname === href) return true;
+    if (!pathname.startsWith(href + "/")) return false;
+    return !NAV.some((t) => t.href !== href && (pathname === t.href || pathname.startsWith(t.href + "/")));
+  };
 
   return (
     <nav className="flex items-center gap-0.5 min-w-0">

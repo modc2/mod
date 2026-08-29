@@ -28,8 +28,10 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from latexhub.mod import Mod as LatexHub
 
+# /docs is a module route (list documents), so Swagger moves aside to /swagger.
 app = FastAPI(title="LatexHub API", version="1.0.0",
-              description="Local filesystem LaTeX document storage and management")
+              description="Local filesystem LaTeX document storage and management",
+              docs_url="/swagger", redoc_url="/redoc")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 hub = LatexHub()

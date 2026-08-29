@@ -39,6 +39,10 @@ from .models import (
     ConfigSetRequest,
     CopyRequest,
     CopyResponse,
+    CopyUpdate,
+    PlanRowResponse,
+    PortfolioPlanResponse,
+    SleeveResponse,
     LeaderboardEntryResponse,
     MarketStatsResponse,
     PnlResponse,
@@ -313,10 +317,25 @@ async def lifespan(app: FastAPI):
     # each track reads the chain once, so do it off the event loop.
     threading.Thread(target=_mirror_watchlist, daemon=True).start()
 
+    # Bring the copy loop back up. Before this, active copies survived a
+    # restart in the DB but nothing was polling them: the console showed a
+    # live basket that hadn't rebalanced since the last boot. The loop is a
+    # no-op until a wallet is set, and reads its membership from the DB every
+    # tick, so it is safe to start unconditionally.
+    _copy_engine.start_portfolio()
+    active = _db.list_copies(status="active")
+    if active:
+        log.info("portfolio loop resumed: %d sleeve(s), %.4fτ allocated",
+                 len(active),
+                 sum(float((c.get("config") or {}).get("alloc_tao") or 0)
+                     for c in active))
+
     log.info("copytensor API started (network=%s, watched=%d, reads=%s)",
              network, len(_db.list_accounts()),
              "bt" if (_bt and _bt.available()) else "rpc")
     yield
+    if _copy_engine:
+        _copy_engine.stop_portfolio()
     if _snapshot_mgr:
         _snapshot_mgr.stop()
     log.info("copytensor API stopped")
@@ -377,6 +396,9 @@ def status():
         "block_height": h.get("block", 0),
         "tracked_accounts": len(accounts),
         "active_copies": len(active),
+        "allocated_tao": round(sum(
+            float((c.get("config") or {}).get("alloc_tao") or 0) for c in active), 6),
+        "copy_loop": bool(_copy_engine and _copy_engine.status()["running"]),
         "wallet_set": _wallet is not None,
         "reads": "bt" if bt_info else "rpc",
         "bt": {"url": _bt.url, "available": bt_info is not None,
@@ -1189,7 +1211,11 @@ def _get_target_info(target_ss58: str, days: int = 7) -> Optional[TargetTraderIn
 def _enrich_copy(copy: Dict) -> CopyResponse:
     """Build CopyResponse with embedded target trader details."""
     target_info = _get_target_info(copy["target_ss58"])
-    return CopyResponse(**copy, target_info=target_info)
+    return CopyResponse(
+        **copy,
+        target_info=target_info,
+        alloc_tao=float((copy.get("config") or {}).get("alloc_tao") or 0.0),
+    )
 
 
 # ── copy trading ─────────────────────────────────────────────────
@@ -1198,9 +1224,23 @@ def _enrich_copy(copy: Dict) -> CopyResponse:
 def create_copy(req: CopyRequest):
     if not _wallet:
         raise HTTPException(400, "wallet not set — POST /wallet/set first")
+    if not is_valid_ss58(req.target_ss58):
+        raise HTTPException(400, f"not a valid ss58 address: {req.target_ss58}")
+
+    # `alloc_tao` is the whole point of a copy: it's the money behind this
+    # trader. Old clients sent only a daily spend cap, which the engine never
+    # used for sizing — fall back to it so they keep working, and so the
+    # number they meant as "spend" at least becomes the sleeve they intended.
+    alloc = req.alloc_tao
+    if alloc is None:
+        alloc = req.daily_limit_tao
+    if alloc is None or alloc <= 0:
+        raise HTTPException(
+            400, "alloc_tao required — how much TAO should follow this trader?")
 
     copy_config = {
         "our_hotkey": req.our_hotkey,
+        "alloc_tao": float(alloc),
         "max_tao_per_tx": req.max_tao_per_tx or _config.get("max_tao_per_tx", 10),
         "daily_limit_tao": req.daily_limit_tao or _config.get("daily_limit_tao", 100),
         "min_balance_tao": req.min_balance_tao or _config.get("min_balance_tao", 1),
@@ -1216,18 +1256,33 @@ def create_copy(req: CopyRequest):
         label=req.label,
     )
 
-    # Start the copy loop
-    cc = CopyConfig(
-        id=copy_id,
-        target_ss58=req.target_ss58,
-        our_hotkey=req.our_hotkey,
-        rebalance_threshold_pct=copy_config["rebalance_threshold_pct"],
-        poll_interval_sec=copy_config["poll_interval_sec"],
-    )
-    _copy_engine.start_copy(cc)
+    # One loop covers every sleeve — it reads the active set from the DB on
+    # each tick, so this just makes sure it's up.
+    _copy_engine.start_portfolio()
 
     copy = _db.get_copy(copy_id)
     return _enrich_copy(copy)
+
+
+@app.put("/copy/{copy_id}", response_model=CopyResponse)
+def update_copy(copy_id: str, req: CopyUpdate):
+    """Re-size a live copy. Changing `alloc_tao` re-weights the blended book
+    on the next pass — no stop/start, no re-entering the position."""
+    copy = _db.get_copy(copy_id)
+    if not copy:
+        raise HTTPException(404, "copy not found")
+
+    cfg = dict(copy["config"])
+    fields = req.model_dump(exclude_none=True) if hasattr(req, "model_dump") \
+        else req.dict(exclude_none=True)
+    label = fields.pop("label", None)
+    if "alloc_tao" in fields and fields["alloc_tao"] < 0:
+        raise HTTPException(400, "alloc_tao cannot be negative")
+    cfg.update(fields)
+    _db.update_copy_config(copy_id, cfg)
+    if label is not None:
+        _db.update_copy(copy_id, label=label)
+    return _enrich_copy(_db.get_copy(copy_id))
 
 
 @app.get("/copies", response_model=List[CopyResponse])
@@ -1260,14 +1315,7 @@ def resume_copy(copy_id: str):
     if not copy:
         raise HTTPException(404, "copy not found")
     _db.update_copy(copy_id, status="active")
-    cc = CopyConfig(
-        id=copy_id,
-        target_ss58=copy["target_ss58"],
-        our_hotkey=copy["config"]["our_hotkey"],
-        rebalance_threshold_pct=copy["config"].get("rebalance_threshold_pct", 5),
-        poll_interval_sec=copy["config"].get("poll_interval_sec", 300),
-    )
-    _copy_engine.start_copy(cc)
+    _copy_engine.start_portfolio()
     return {"id": copy_id, "status": "active"}
 
 
@@ -1280,21 +1328,19 @@ def delete_copy(copy_id: str):
 
 @app.post("/copy/{copy_id}/sync")
 def sync_copy(copy_id: str):
+    """Apply now. Sleeves only add up when they're diffed against the book
+    together, so this runs the whole portfolio — syncing one copy alone would
+    drag every other trader's money with it."""
     copy = _db.get_copy(copy_id)
     if not copy:
         raise HTTPException(404, "copy not found")
     if not _wallet:
         raise HTTPException(400, "wallet not set")
 
-    cc = CopyConfig(
-        id=copy_id,
-        target_ss58=copy["target_ss58"],
-        our_hotkey=copy["config"]["our_hotkey"],
-        rebalance_threshold_pct=copy["config"].get("rebalance_threshold_pct", 5),
-    )
-    trades = _copy_engine.sync_once(cc)
+    trades = _copy_engine.sync_portfolio()
     return {
         "synced": True,
+        "scope": "portfolio",
         "trades": [
             {"action": t.action, "netuid": t.netuid,
              "amount_tao": t.amount_tao, "status": t.status,
@@ -1302,6 +1348,87 @@ def sync_copy(copy_id: str):
             for t in trades
         ],
     }
+
+
+# ── portfolio: every sleeve, one book ────────────────────────────
+
+def _plan_response(plan, executed: bool = False, results=None) -> PortfolioPlanResponse:
+    """Shape a Plan for the wire, naming subnets so the rows read as trades
+    rather than as netuids."""
+    names: Dict[int, str] = {}
+    try:
+        for sn in _client.get_all_subnet_info():
+            names[sn.netuid] = sn.name
+    except Exception:
+        pass
+
+    total_effective = sum(s.alloc_tao * plan.scale for s in plan.sleeves if s.live)
+    sleeves = []
+    for s in plan.sleeves:
+        eff = s.alloc_tao * plan.scale if s.live else 0.0
+        sleeves.append(SleeveResponse(
+            copy_id=s.copy_id, target_ss58=s.target_ss58, label=s.label,
+            alloc_tao=round(s.alloc_tao, 6), effective_tao=round(eff, 6),
+            pct_of_book=round(eff / total_effective * 100, 4) if total_effective else 0.0,
+            subnets=len(s.shares), stale=s.stale, note=s.error,
+        ))
+
+    book = _copy_engine.our_book()
+    return PortfolioPlanResponse(
+        our_ss58=book.get("ss58"),
+        staked_tao=round(float(book.get("staked_tao") or 0), 6),
+        free_tao=round(float(book.get("free_tao") or 0), 6),
+        requested_tao=plan.requested_tao,
+        deployable_tao=plan.deployable_tao,
+        scale=plan.scale,
+        band_tao=plan.band_tao,
+        sleeves=sleeves,
+        rows=[PlanRowResponse(
+            netuid=r.netuid, subnet_name=names.get(r.netuid, f"SN{r.netuid}"),
+            action=r.action, desired_tao=round(r.desired_tao, 6),
+            current_tao=round(r.current_tao, 6), amount_tao=round(r.amount_tao, 6),
+            drift_tao=round(r.drift_tao, 6), contributors=r.contributors,
+            reason=r.reason,
+        ) for r in plan.rows],
+        trades=len(plan.trades),
+        blocked=plan.blocked,
+        notes=plan.notes,
+        executed=executed,
+        results=results or [],
+    )
+
+
+@app.get("/portfolio", response_model=PortfolioPlanResponse)
+def portfolio_plan():
+    """The blended book: every sleeve, what it asks for, and the trades that
+    would close the gap. Pure read — nothing is sent to the chain."""
+    return _plan_response(_copy_engine.plan_portfolio())
+
+
+@app.post("/portfolio/sync", response_model=PortfolioPlanResponse)
+def portfolio_sync(dry_run: bool = Query(False)):
+    """Run a portfolio pass now. `dry_run=true` is identical to GET /portfolio
+    — the same plan object is what gets executed, so the preview cannot drift
+    from the thing it previews."""
+    if dry_run:
+        return _plan_response(_copy_engine.plan_portfolio())
+    if not _wallet:
+        raise HTTPException(400, "wallet not set — POST /wallet/set first")
+    results = _copy_engine.sync_portfolio()
+    plan = _copy_engine._last_plan or _copy_engine.plan_portfolio()
+    return _plan_response(plan, executed=True, results=[
+        {"action": t.action, "netuid": t.netuid, "amount_tao": t.amount_tao,
+         "status": t.status, "tx_hash": t.tx_hash, "error": t.error}
+        for t in results
+    ])
+
+
+@app.get("/portfolio/status")
+def portfolio_status():
+    """Is the loop up, how many sleeves, how much τ allocated."""
+    st = _copy_engine.status()
+    st["limits"] = _safety.get_limits()
+    return st
 
 
 # ── trades ───────────────────────────────────────────────────────
@@ -1367,6 +1494,7 @@ def _strat_payload(req: StratWrite) -> Dict:
     return {
         "traders": [t.model_dump() for t in req.traders],
         "our_hotkey": req.our_hotkey,
+        "sizing": req.sizing,
         "max_tao_per_tx": req.max_tao_per_tx,
         "daily_limit_tao": req.daily_limit_tao,
         "rebalance_threshold_pct": req.rebalance_threshold_pct,
@@ -1389,11 +1517,18 @@ def backtest_strat(req: BacktestRequest):
     """Replay a basket over the last `days`. Takes the basket inline so the
     picker can re-run it on every edit, saved or not."""
     hours = max(1, min(int(req.days), 365)) * 24
+    rows = [t.model_dump() for t in req.traders]
+    # If the basket is sized in τ, the capital IS the sum of the sleeves —
+    # replaying 40τ+10τ against a leftover 100τ default would misreport every
+    # number in money terms.
+    sleeved = sum(float(t.get("alloc_tao") or 0) for t in rows
+                  if t.get("enabled") is not False)
+    capital = sleeved if sleeved > 0 else req.capital_tao
     return backtest_basket(
-        [t.model_dump() for t in req.traders],
+        rows,
         hours=hours,
         fetch_history=lambda ss58, h: _require_bt().trader_history(ss58, hours=h),
-        capital_tao=req.capital_tao,
+        capital_tao=capital,
     )
 
 

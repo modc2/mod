@@ -25,13 +25,17 @@ function base({ size = 14, ...rest }: IconProps): SVGProps<SVGSVGElement> {
   };
 }
 
-/** APP — a window with a live spark inside. */
+/** APP — a browser window: frame, title bar, three buttons. The old mark
+ *  put a sparkle in the pane, which read as "magic" rather than "the live
+ *  screen"; a window with its chrome is the thing everyone already knows. */
 export function AppIcon(props: IconProps) {
   return (
     <svg {...base(props)}>
-      <rect x="3" y="4" width="18" height="16" rx="2.5" />
-      <path d="M3 8.5h18" />
-      <path d="M12 11l1.1 2.4 2.4 1.1-2.4 1.1L12 18l-1.1-2.4-2.4-1.1 2.4-1.1z" fill="currentColor" stroke="none" />
+      <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+      <path d="M3 9h18" />
+      <circle cx="6.4" cy="6.75" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="9.4" cy="6.75" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="12.4" cy="6.75" r="0.9" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -57,12 +61,27 @@ export function CodeIcon(props: IconProps) {
   );
 }
 
-/** OVERVIEW — a compass: ring + needle. */
+/** INFO — the letter i in a ring. It used to be a compass, which nobody
+ *  reads as "read about this module": ⓘ is the one glyph that needs no
+ *  tooltip. */
 export function OverviewIcon(props: IconProps) {
   return (
     <svg {...base(props)}>
       <circle cx="12" cy="12" r="9" />
-      <path d="M15.5 8.5l-2 5-5 2 2-5z" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="7.9" r="1.15" fill="currentColor" stroke="none" />
+      <path d="M12 11.2v5.4" />
+    </svg>
+  );
+}
+
+/** IDEAS — a lightbulb with its filament and base. Replaces the bare
+ *  diamond, which said nothing about suggestions. */
+export function IdeaIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M9 17.2a6.2 6.2 0 1 1 6 0" />
+      <path d="M9.6 17.5h4.8" />
+      <path d="M10.4 20.3h3.2" />
     </svg>
   );
 }
@@ -243,41 +262,30 @@ export function SpinnerIcon({
 }
 
 /**
- * The console's signature mark: a four-point star caught in an orbit ring.
- * Rendered with a gradient stroke so it pops as a *logo* rather than one
- * more icon; scales from the header brand down to a favicon.
+ * The mod protocol's mark: the CUBE. Same solid every module in the fleet
+ * wears (core/app draws it with heroicons' `CubeIcon`), redrawn here on the
+ * console's own 24×24 stroke grid so it inherits `currentColor` and sits at
+ * the same weight as the chips beside it. This is the console's brand — the
+ * orbit-star that used to hold that job is gone; a module in the protocol
+ * should read as one of the protocol's, not as its own species.
  */
-export function ClaudeMark({ size = 18, ...rest }: IconProps) {
+export function ModCube({ size = 18, strokeWidth = 1.5, ...rest }: IconProps & { strokeWidth?: number }) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 24 24"
       fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden
       {...rest}
     >
-      <defs>
-        <linearGradient id="claude-mark-grad" x1="3" y1="21" x2="21" y2="3" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="var(--crt-green, #34d399)" />
-          <stop offset="55%" stopColor="var(--crt-amber, #fbbf24)" />
-          <stop offset="100%" stopColor="#cc785c" />
-        </linearGradient>
-      </defs>
-      {/* orbit ring, tilted */}
-      <ellipse
-        cx="12" cy="12" rx="10" ry="4.4"
-        transform="rotate(-24 12 12)"
-        stroke="url(#claude-mark-grad)"
-        strokeWidth="1.6"
-      />
-      {/* the star */}
-      <path
-        d="M12 5.6l1.7 4.7 4.7 1.7-4.7 1.7L12 18.4l-1.7-4.7-4.7-1.7 4.7-1.7z"
-        fill="url(#claude-mark-grad)"
-      />
-      {/* companion moon on the ring */}
-      <circle cx="20.4" cy="8.2" r="1.5" fill="var(--crt-green, #34d399)" />
+      {/* heroicons/24/outline "cube" — the protocol's own solid, unmodified
+          so the mark matches the one on the mod app's home. */}
+      <path d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
     </svg>
   );
 }

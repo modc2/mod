@@ -32,9 +32,22 @@ export interface PolymarketTrade {
   /// `minutesToCloseFromTrade`. Absent on rows the data-api didn't slug.
   slug?: string;
   conditionId: string;
+  /// CTF outcome-token id (the activity row's `asset`) — the Yes leg and the
+  /// No leg of one condition are different tokens, which is what makes fill
+  /// aggregation able to tell two legs of one transaction apart. Absent on
+  /// rows stored before this was carried.
+  asset?: string;
   side: "BUY" | "SELL";
   price: number;
   size: number;
+  /// USDC that actually moved, as reported by the data-api's `usdcSize`.
+  /// NOT `price * size`: Polymarket charges a sell-side fee (observed as
+  /// `k · price · (1-price) · shares`, k in 4–7%), so on a SELL the gross and
+  /// the proceeds differ — ~46% of a live roster's SELL rows carried one,
+  /// worth ~0.5% of sell notional. Absent on rows fetched before this field
+  /// existed; callers that need money should prefer it and fall back to
+  /// `price * size`.
+  usdcSize?: number;
   pnl: number;
   timestamp: number;
   outcome?: string;
@@ -110,6 +123,11 @@ export interface TraderRoiStats {
   // Cash deployed in the window (sum of BUY notional). Surfaces
   // "is this a real trader" to the UI.
   cashDeployed: number;
+  // Ms-epoch timestamp of the trader's most recent in-window trade — the
+  // freshness the `maxStaleHours` gate reads. 0/undefined = no trade seen in
+  // the window (which the gate treats as stale, not as unknown-but-fine).
+  // Mirrors `last_trade_at` on the Rust TraderRoiStats.
+  lastTradeAt?: number;
   syncedAt: number;
 }
 
@@ -185,6 +203,18 @@ export interface TraderFilter {
   /** Traders with fewer closed trades than this in the 30d window are
       unrankable and cut (their stats are noise). Default 0 = off. */
   minSamples?: number;
+  /** FRESHNESS gate — drop any trader whose most recent trade is older than
+      this many hours. Undefined/0 = off.
+
+      Unlike `minScore`/`minSamples` (quality thresholds applied AFTER the
+      ranking), staleness is an ELIGIBILITY gate: stale traders sort below
+      every fresh one, so they never occupy a top-N slot that a trader who is
+      still trading could fill. A watchlist where the four best 30d scores
+      went quiet a week ago would otherwise copy nobody.
+
+      A trader with no known last trade (`lastTradeAt` 0/absent) counts as
+      stale — asking for freshness and getting silence is the same answer. */
+  maxStaleHours?: number;
 }
 
 /** Price-momentum origination params. Setting `momentum` (even `{}`) turns
@@ -197,7 +227,18 @@ export interface TraderFilter {
     reference it without an import cycle. */
 export interface MomentumParams {
   /** Market search query for candidate markets. Default: the strat's
-      `marketQuery`, else "bitcoin". */
+      `marketQuery`, else "bitcoin".
+
+      Comma/pipe-separated groups are searched SEPARATELY and the results
+      merged (deduped by condition id) — "bitcoin, ethereum, solana" is three
+      searches, not one. Gamma ranks a multi-word query by whole-phrase
+      relevance, so asking it for five coins at once returns the one event
+      family that happens to NAME five coins ("Will X be the top performing
+      crypto this week?") and not one of the coins' own price markets.
+      Measured on the five-coin query: 50 markets whose top 20 by volume total
+      ~$315k, against 250 markets / ~$53M for the same five as separate
+      searches, with ZERO overlap between the two sets. Groups past
+      `MAX_MOMENTUM_QUERIES` are dropped. */
   query?: string;
   /** Window (minutes) the rise is measured over. Default 60. */
   lookbackMinutes?: number;
@@ -207,6 +248,22 @@ export interface MomentumParams {
   /** Exit: sell a held outcome once its price FALLS this many cents over
       the lookback. Default = minRiseCents. */
   exitDropCents?: number;
+  /** ENTRY confirmation window (minutes): the rise must still be intact over
+      the last `confirmMinutes`, i.e. the outcome may not have given ground
+      inside that sub-window. 0 / undefined ⇒ off (the single-lookback
+      behavior).
+
+      Why it exists: `minRiseCents` compares two points — the price now
+      against the price one lookback ago — and says nothing about the shape in
+      between. A market that ran 55¢ → 70¢ in the first ten minutes of the
+      hour and has been sliding back since still reads as "+10¢ over 60m" and
+      gets bought at the worst moment of the move. Confirming against a short
+      recent window is the cheapest way to tell a move that is still going
+      from one that already happened.
+
+      Only ENTRIES are confirmed. Exits stay on the raw lookback: a gate whose
+      job is to make us slower to buy must never make us slower to sell. */
+  confirmMinutes?: number;
   /** Entry price band — don't chase near-resolved (or dead) markets.
       Defaults 0.5 / 0.85: entries stick to the likely-to-win side by
       default (momentum rides the favorite side; the copy path has no floor);

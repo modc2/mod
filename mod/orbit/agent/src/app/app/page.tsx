@@ -6,6 +6,7 @@ import Library from './components/Library'
 import type { LibItem } from './components/Library'
 import Market from './components/Market'
 import Builder from './components/Builder'
+import AgentEditor from './components/AgentEditor'
 import CreditsSidebar, { CreditsInfo } from './components/Credits'
 import Select from './components/Select'
 import Tools from './components/Tools'
@@ -26,10 +27,32 @@ type Message = { role: 'user' | 'agent' | 'system'; text: string; steps?: any[];
 type TaskEntry = { id: number; query: string; status: 'running' | 'done' | 'error'; stepCount?: number; messages: Message[]; agent_type?: string; startedAt?: number; finishedAt?: number; uid?: string; cid?: string; synced?: boolean }
 
 const genUid = () => `c-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+
+// The console session — one id per browser, kept forever. It rides along with
+// every run so the agent's memory module can file the exchange and read the
+// earlier ones back into the next prompt: a signed-in visitor is remembered by
+// their address across devices, an anonymous one by this id alone. Each run is
+// its own conversation in the UI, so without this the agent would meet the
+// same person as a stranger every single message.
+const SESSION_KEY = 'agent_session_v1'
+const sessionId = (): string => {
+  try {
+    const saved = localStorage.getItem(SESSION_KEY)
+    if (saved) return saved
+    const fresh = `s-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+    localStorage.setItem(SESSION_KEY, fresh)
+    return fresh
+  } catch {
+    return 's-ephemeral'    // private mode: this tab remembers, nothing else
+  }
+}
 type Tab = 'tasks' | 'output' | 'tools' | 'memory' | 'deltas'
 // the TOOLS tab answers two questions: what did this run call, and what can
 // the agent call at all
 type ToolPane = 'trace' | 'registry'
+// the three shelves inside HUB — the things a chat pulls from, and the runs
+// it left going, all under one top-level tab
+type HubPane = 'agents' | 'library' | 'tasks'
 
 // an image staged in the composer, not yet sent
 type Attachment = { id: string; name: string; url: string; thumb: string }
@@ -70,9 +93,6 @@ const toAttachment = async (file: File): Promise<Attachment> => ({
   thumb: await scaleImage(file, THUMB_EDGE, 0.6),
 })
 
-// the console is a bottom dock (like a terminal panel): min = compose only,
-// normal = resizable transcript, max = fills the workspace
-type DockMode = 'min' | 'normal' | 'max'
 type SidebarSide = 'left' | 'right'
 // the rail holds two lists: the chats you've had and the agents you can run as
 type RailPane = 'chats' | 'agents'
@@ -82,10 +102,13 @@ type FileEntry = { path: string; content: string; action: 'read' | 'created' | '
 // ── Provider key metadata + missing-key detection ───────────────────
 // Shared by the KeyPanel modal and the inline "key needed" banner so the
 // console can turn a raw "No X API key found" error into a one-click fix.
-type ProviderMeta = { label: string; hint: string; keysUrl: string; placeholder: string }
+// topUpUrl: where credits are bought. Neither provider sells them over an
+// API (OpenRouter's Coinbase endpoint answers 410 Gone), so a top-up is
+// always a trip to their page — the owner's treasury panel books what lands.
+type ProviderMeta = { label: string; hint: string; keysUrl: string; placeholder: string; topUpUrl?: string }
 const PROVIDER_META: Record<string, ProviderMeta> = {
-  openrouter: { label: 'openrouter', hint: 'openrouter.ai/keys', keysUrl: 'https://openrouter.ai/keys', placeholder: 'sk-or-v1-…' },
-  venice: { label: 'venice', hint: 'venice.ai → settings → API', keysUrl: 'https://venice.ai/settings/api', placeholder: 'venice API key…' },
+  openrouter: { label: 'openrouter', hint: 'openrouter.ai/keys', keysUrl: 'https://openrouter.ai/keys', placeholder: 'sk-or-v1-…', topUpUrl: 'https://openrouter.ai/settings/credits' },
+  venice: { label: 'venice', hint: 'venice.ai → settings → API', keysUrl: 'https://venice.ai/settings/api', placeholder: 'venice API key…', topUpUrl: 'https://venice.ai/settings/api' },
 }
 
 // Sniff a task/system error for a "missing API key" condition and, if so,
@@ -121,6 +144,43 @@ const DEFAULT_AGENTS: AgentOption[] = [
   { value: "refactorer", label: "Refactorer", icon: "⟳", builtin: true },
   { value: "claude-code", label: "Claude Code", icon: "⬡", builtin: true, harness: "claude" },
   { value: "codex", label: "Codex", icon: "◇", builtin: true, harness: "codex" },
+]
+
+// ── Empty-console starters ──────────────────────────────────────────
+// The three things a coding agent is asked to do first. Clicking one only
+// fills the composer — the run is still yours to press — so the label is
+// the prompt verbatim rather than a summary of one.
+
+const STARTERS: { q: string; s: string; icon: JSX.Element }[] = [
+  {
+    q: 'map this codebase',
+    s: 'walk the tree, name what lives where',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 5h6l1.5 2H20v12H4z" />
+        <path d="M9 12h7M9 16h4" />
+      </svg>
+    ),
+  },
+  {
+    q: 'find and fix a bug',
+    s: 'reproduce it first, then patch it',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="11" cy="11" r="6" />
+        <path d="M20 20l-4.5-4.5M9 11h4" />
+      </svg>
+    ),
+  },
+  {
+    q: 'write tests for recent changes',
+    s: 'cover what the last commits touched',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 6L9 17l-5-5" />
+      </svg>
+    ),
+  },
 ]
 
 // ── Sign-in (mod protocol-auth token) ───────────────────────────────
@@ -197,9 +257,13 @@ type KeyBalance = {
 }
 
 export default function Home() {
-  // top-level view: the agent console, the visual agent builder, the arena
-  // board, the library market, or the tasks page
-  const [view, setView] = useState<'console' | 'builder' | 'arena' | 'library' | 'tasks'>('console')
+  // top-level view: three places, not five. CHAT is the console you talk to an
+  // agent in. HUB is everything you keep — the agents you wired, the library
+  // you pull from, the runs still going — behind one door instead of three
+  // tabs competing with the one that matters. ARENA is the ranked board.
+  const [view, setView] = useState<'chat' | 'hub' | 'arena'>('chat')
+  // which shelf of the hub is open
+  const [hubPane, setHubPane] = useState<HubPane>('agents')
   // the look: palette + skin, persisted and applied to <html>
   const [theme, setTheme] = useTheme()
   const [query, setQuery] = useState('')
@@ -211,7 +275,10 @@ export default function Home() {
   const [toolPane, setToolPane] = useState<ToolPane>('trace')
   // {total, custom} from /tools — feeds the header's tool count
   const [toolCounts, setToolCounts] = useState<{ total: number; custom: number } | null>(null)
-  const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({})
+  // which tool calls are open, keyed by where they're drawn — the same step
+  // appears inline in the transcript and again in the trace, and opening one
+  // shouldn't open the other
+  const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({})
   const [composeFocused, setComposeFocused] = useState(false)
   // images staged in the composer + the group open in the viewer
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -239,6 +306,10 @@ export default function Home() {
   const [agentOptions, setAgentOptions] = useState<AgentOption[]>(DEFAULT_AGENTS)
   // agent to preload on the visual builder canvas (null = fresh canvas)
   const [builderAgent, setBuilderAgent] = useState<string | null>(null)
+  // the rail's inline agent editor: null = the list, {name: null} = a new
+  // agent, {name} = editing that one. Creating and changing an agent is a
+  // sidebar job — the canvas is where you go for the wiring, not the naming.
+  const [agentEdit, setAgentEdit] = useState<{ name: string | null } | null>(null)
 
   // persona picker: run with a library prompt as system prompt + memory notes as context
   const [libPrompts, setLibPrompts] = useState<LibPrompt[]>([])
@@ -288,6 +359,15 @@ export default function Home() {
   const [authErr, setAuthErr] = useState<string | null>(null)
   const [showUserMenu, setShowUserMenu] = useState(false)
 
+  // Escape closes the account menu. The click-catcher behind it already
+  // handled the pointer; the keyboard had no way out.
+  useEffect(() => {
+    if (!showUserMenu) return
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowUserMenu(false) }
+    document.addEventListener('keydown', esc)
+    return () => document.removeEventListener('keydown', esc)
+  }, [showUserMenu])
+
   // credits — prepaid USDT/USDC balance spent on the module's public key
   const [creditsInfo, setCreditsInfo] = useState<CreditsInfo | null>(null)
   const [showCredits, setShowCredits] = useState(false)
@@ -323,8 +403,6 @@ export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [sidebarSide, setSidebarSide] = useState<SidebarSide>('left')
   const [railPane, setRailPane] = useState<RailPane>('chats')
-  const [dock, setDock] = useState<DockMode>('normal')
-  const [dockHeight, setDockHeight] = useState(400)
   const [chatSearch, setChatSearch] = useState('')
   const [agentSearch, setAgentSearch] = useState('')
 
@@ -360,26 +438,27 @@ export default function Home() {
   // file viewer state
   const [viewingFile, setViewingFile] = useState<FileEntry | null>(null)
 
-  // draggable rail width / dock height
+  // draggable rail width
   const [sidebarWidth, setSidebarWidth] = useState(280)
+  // a rail narrower than its default cannot hold the header's counts as well
+  // as the two pane names and the three buttons — below this it sheds the
+  // counts, which are the only part of that row nothing depends on
+  const tightRail = sidebarWidth < 280
   const isDragging = useRef(false)
   const dragStartX = useRef(0)
   const dragStartWidth = useRef(280)
-  const dragStartY = useRef(0)
-  const dragStartHeight = useRef(400)
 
   // restore the workspace geometry the user last dragged into place
   useEffect(() => {
     try {
       const w = Number(localStorage.getItem('agent_rail_w'))
-      if (w >= 200) setSidebarWidth(w)
-      const h = Number(localStorage.getItem('agent_dock_h'))
-      if (h >= 120) setDockHeight(h)
-      const d = localStorage.getItem('agent_dock') as DockMode | null
-      if (d === 'min' || d === 'normal' || d === 'max') setDock(d)
+      // a width stored before the floor moved is raised to it, not honoured
+      if (w >= 100) setSidebarWidth(Math.max(244, w))
       setSidebarCollapsed(localStorage.getItem('agent_rail_closed') === '1')
       const pane = localStorage.getItem('agent_rail_pane')
       if (pane === 'chats' || pane === 'agents') setRailPane(pane)
+      const hp = localStorage.getItem('agent_hub_pane')
+      if (hp === 'agents' || hp === 'library' || hp === 'tasks') setHubPane(hp)
       const mw = Number(localStorage.getItem('agent_market_w'))
       if (mw >= 220) setMarketWidth(mw)
       // open on a first visit — collapsed only if it was collapsed on purpose.
@@ -398,19 +477,12 @@ export default function Home() {
       if (pp) setPromptPos(clampPromptPos(JSON.parse(pp), pwv))
       if (localStorage.getItem('agent_prompt_float') === '1' && pp) setPromptFloat(true)
       if (window.matchMedia('(max-width: 767px)').matches) {
-        // phones: the rail is a drawer (start closed) and, unless the user
-        // picked a dock size, the console fills the screen — chat-app feel,
-        // prompt at the very bottom
+        // phones: both rails start as drawers so the console has the screen
         setSidebarCollapsed(true)
         setMarketOpen(false)
-        if (!d) setDock('max')
       }
     } catch {}
   }, [])
-  const setDockPersist = (d: DockMode) => {
-    setDock(d)
-    try { localStorage.setItem('agent_dock', d) } catch {}
-  }
 
   // rail drag resize (horizontal) — pointer events so touch drags work too
   const onDragStart = useCallback((e: React.PointerEvent) => {
@@ -428,7 +500,10 @@ export default function Home() {
         ? ev.clientX - dragStartX.current
         : dragStartX.current - ev.clientX
       const maxWidth = Math.floor(window.innerWidth * 0.5)
-      last = Math.max(200, Math.min(maxWidth, dragStartWidth.current + delta))
+      // 244 is a measurement, not a taste: below it the header's own two pane
+      // names stop fitting beside its buttons, and a rail whose tabs read
+      // "CH… AGE…" is narrower than the thing it is a rail for
+      last = Math.max(244, Math.min(maxWidth, dragStartWidth.current + delta))
       setSidebarWidth(last)
     }
     const onPointerUp = () => {
@@ -470,34 +545,6 @@ export default function Home() {
     document.addEventListener('pointermove', onPointerMove)
     document.addEventListener('pointerup', onPointerUp)
   }, [marketWidth, marketSide])
-
-  // dock drag resize (vertical — drag the console's top edge)
-  const onDockDragStart = useCallback((e: React.PointerEvent) => {
-    e.preventDefault()
-    isDragging.current = true
-    dragStartY.current = e.clientY
-    dragStartHeight.current = dockHeight
-    document.body.style.cursor = 'row-resize'
-    document.body.style.userSelect = 'none'
-
-    let last = dockHeight
-    const onPointerMove = (ev: PointerEvent) => {
-      if (!isDragging.current) return
-      const maxHeight = Math.floor(window.innerHeight * 0.85)
-      last = Math.max(140, Math.min(maxHeight, dragStartHeight.current + (dragStartY.current - ev.clientY)))
-      setDockHeight(last)
-    }
-    const onPointerUp = () => {
-      isDragging.current = false
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      try { localStorage.setItem('agent_dock_h', String(last)) } catch {}
-      document.removeEventListener('pointermove', onPointerMove)
-      document.removeEventListener('pointerup', onPointerUp)
-    }
-    document.addEventListener('pointermove', onPointerMove)
-    document.addEventListener('pointerup', onPointerUp)
-  }, [dockHeight])
 
   // ── floating prompt: undock, drag, resize ─────────────────────────
   const togglePromptFloat = useCallback(() => {
@@ -562,21 +609,16 @@ export default function Home() {
     return () => window.removeEventListener('resize', onResize)
   }, [promptFloat, promptW])
 
-  // console maximize toggle (dock fills the workspace)
-  const toggleDockMax = useCallback(() => {
-    setDockPersist(dock === 'max' ? 'normal' : 'max')
-  }, [dock])
-
-  // keyboard shortcut: Escape closes the prompt picker, else leaves a maximized console
+  // keyboard shortcut: Escape closes the prompt picker, then the file viewer
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (showPicker) { setShowPicker(false); return }
-      if (dock === 'max') setDockPersist('normal')
+      setViewingFile(null)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [dock, showPicker])
+  }, [showPicker])
 
   const [apiStatus, setApiStatus] = useState<'ok' | 'down' | 'loading'>('loading')
 
@@ -633,7 +675,7 @@ export default function Home() {
   // the library page can create and delete anything — refetch on the way back
   const prevView = useRef(view)
   useEffect(() => {
-    if (prevView.current !== view && view === 'console') { libChanged(); fetchLibrary() }
+    if (prevView.current !== view && view === 'chat') { libChanged(); fetchLibrary() }
     prevView.current = view
   }, [view, libChanged, fetchLibrary])
 
@@ -652,6 +694,8 @@ export default function Home() {
       setPersonaErr(null)
       libChanged()
       if (p.kind === 'agent') {
+        // an editor open on what just went is a form that can't save
+        setAgentEdit(e => e && e.name === p.id ? null : e)
         if (agentType === p.id) selectAgent(defaultAgent)
         fetchAgents(auth?.token)
       } else {
@@ -663,11 +707,33 @@ export default function Home() {
     }
   }
 
-  // jump to the visual builder canvas, optionally preloading an agent to edit
+  // open the hub on one of its shelves. Everything that used to be its own
+  // top-level tab comes through here, so a caller still says where it wants to
+  // land — it just lands inside HUB instead of beside it.
+  const openHub = (pane: HubPane) => {
+    if (pane === 'tasks') fetchServerTasks()
+    setHubPane(pane)
+    setView('hub')
+    try { localStorage.setItem('agent_hub_pane', pane) } catch {}
+  }
+
+  // jump to the AGENTS canvas, optionally preloading an agent to edit
   const openBuilder = (name?: string | null) => {
     setBuilderAgent(name || null)
     setShowPicker(false)
-    setView('builder')
+    openHub('agents')
+  }
+
+  // open the rail's inline editor — the sidebar is where an agent is made and
+  // changed, so every ✎ and + lands here rather than on the canvas. Called
+  // from the rail itself and from the console's persona dropdown, so it puts
+  // the rail on screen and on the right pane first.
+  const openAgentEditor = (name?: string | null) => {
+    setShowPicker(false)
+    setView('chat')
+    setRailClosed(false)
+    setPane('agents')
+    setAgentEdit({ name: name || null })
   }
 
   const selectAgent = (v: string) => {
@@ -720,6 +786,13 @@ export default function Home() {
   // API be the gate (a refusal shows up in the picker footer). The host owns
   // anything nobody else does — including the shipped agents.
   const isHost = auth ? auth.isOwner || owner === '' : true
+  // Running a harness agent is a different question from managing one, and it
+  // can't be answered optimistically: the run leaves this loop for a CLI on
+  // the host's own shell, so the server allows the module owner and nobody
+  // else. Signed out with an owner on record, we already know the answer is
+  // no — saying so up front beats offering a run that comes back a refusal.
+  // `owner` is null until /owner answers; unknown stays permissive.
+  const canRunHarness = owner === null || owner === '' || !!auth?.isOwner
   const ownedByMe = (p: Owned) =>
     !!auth && p.owner_source === 'item' &&
     (p.owner || '').toLowerCase() === auth.address.toLowerCase()
@@ -733,8 +806,8 @@ export default function Home() {
       : p.owner ? `owned by ${p.owner}` : 'no owner'
 
   const editPersona = (p: Persona) => {
-    if (p.kind === 'agent') openBuilder(p.id)
-    else { setShowPicker(false); setView('library') }
+    if (p.kind === 'agent') openAgentEditor(p.id)
+    else { setShowPicker(false); openHub('library') }
   }
 
   // one row for an agent or a library prompt — the dropdown picker and the
@@ -755,29 +828,27 @@ export default function Home() {
         }`}>
         <div className="flex items-center gap-2">
           <span className={`w-5 text-center shrink-0 ${p.kind === 'prompt' ? 'text-amber-300/80' : ''}`}>{p.icon}</span>
-          <span className="truncate">{p.label}</span>
-          <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 ${
-            p.kind === 'prompt' ? 'bg-amber-400/10 text-amber-300/90' : 'bg-white/[0.06] text-gray-500'
-          }`}>{p.kind}</span>
-          {p.harness && (
-            <span className="text-[9px] px-1 py-0.5 rounded shrink-0 bg-violet-400/10 border border-violet-400/25 text-violet-300/90"
-              title={`runs on the ${p.harness} CLI installed on this host — host owner only`}>
-              {p.harness}
-            </span>
-          )}
-          <span className="ml-auto flex items-center gap-1 shrink-0">
+          {/* the name owns the line. It used to sit between two shrink-0 chips
+              in a narrow rail, and since `truncate` lets a flex item collapse
+              to zero it was the one thing that disappeared. Nothing else that
+              is not the name may hold width here while the rail is idle: the
+              harness chip moved down to the meta line, and the row's buttons
+              are display:none until the row is hovered — as `opacity-0` they
+              were invisible and still ate 40px of every name. */}
+          <span className="truncate flex-1 min-w-0" title={p.label}>{p.label}</span>
+          <span className="flex items-center gap-1 shrink-0">
             {canManage(p) && (
               <>
                 <button title={`Edit this ${p.kind}`}
                   onClick={e => { e.stopPropagation(); editPersona(p) }}
-                  className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition">
+                  className="hidden group-hover:flex group-focus-within:flex w-5 h-5 items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition">
                   ✎
                 </button>
                 <button title={p.builtin
                   ? `Delete built-in agent "${p.label}" — host only`
                   : `Delete this ${p.kind}`}
                   onClick={e => { e.stopPropagation(); deletePersona(p) }}
-                  className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition">
+                  className="hidden group-hover:flex group-focus-within:flex w-5 h-5 items-center justify-center rounded text-[10px] text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition">
                   ✕
                 </button>
               </>
@@ -786,6 +857,33 @@ export default function Home() {
           </span>
         </div>
         <div className="flex items-center gap-1.5 mt-0.5 pl-7">
+          {/* kind sits here rather than beside the name: it's what the row IS,
+              not what it's called, and the picker mixes both kinds in one list */}
+          <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 ${
+            p.kind === 'prompt' ? 'bg-amber-400/10 text-amber-300/90' : 'bg-white/[0.06] text-gray-500'
+          }`}>{p.kind}</span>
+          {/* the harness belongs with the kind — both say what the row is, not
+              what it is called — and down here it costs the name nothing */}
+          {p.harness && (
+            <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 flex items-center gap-0.5 ${
+              canRunHarness
+                ? 'bg-violet-400/10 border border-violet-400/25 text-violet-300/90'
+                : 'bg-white/[0.03] border border-white/[0.08] text-gray-600'
+            }`}
+              title={canRunHarness
+                ? `runs on the ${p.harness} CLI installed on this host — host owner only`
+                : `runs on the ${p.harness} CLI on the host's own shell — only the host can start it`}>
+              {/* a padlock rather than a word: the chip is already the name of
+                  the CLI, and there is no emoji font on this host */}
+              {!canRunHarness && (
+                <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                  <rect x="4" y="11" width="16" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+              )}
+              {p.harness}
+            </span>
+          )}
           {/* every persona shows who owns it — unowned means the host does */}
           <span className={`text-[9px] font-mono shrink-0 ${
             mine ? 'text-emerald-300/80' : p.owner_source === 'host' ? 'text-gray-600' : 'text-violet-300/80'
@@ -811,7 +909,11 @@ export default function Home() {
   const fetchBalance = useCallback(() => {
     fetch(`${API_URL}/balance?provider=${encodeURIComponent(provider)}`, { signal: AbortSignal.timeout(15000) })
       .then(r => r.json())
-      .then(d => setBalance(d))
+      // the first load asks twice — once for the provider this component
+      // started on, then again for the one the server actually defaults to —
+      // and the slower answer used to win, leaving a hosted balance pinned to
+      // a local provider ("-$0.15" beside weights that can't be billed)
+      .then(d => setBalance(b => (d && d.provider && d.provider !== provider) ? b : d))
       .catch(() => {})
   }, [provider])
 
@@ -1256,7 +1358,6 @@ export default function Home() {
     setSelectedTask(id)
     setActiveTab('output')
     setViewingFile(null)
-    if (dock === 'min') setDockPersist('normal')
 
     const patchTask = (patch: Partial<TaskEntry> | ((tk: TaskEntry) => TaskEntry)) => {
       setTasks(t => t.map(tk => tk.id === id
@@ -1308,6 +1409,9 @@ export default function Home() {
         const bodyText = libPrompts.find(p => p.id === promptSel.id)?.body || promptSel.body
         if (bodyText) body.prompt = bodyText
       }
+      // the conversation this run belongs to — the memory module keys the
+      // remembered exchange off it (and off the signed-in address, if any)
+      body.session = sessionId()
       if (memSel.length) body.memory_ids = memSel
       if (toolSel.length) body.tool_ids = toolSel
       // guests pick how runs are powered: spend credits on the module's
@@ -1454,8 +1558,8 @@ export default function Home() {
     inputRef.current?.focus()
   }
 
-  const toggleStep = (idx: number) => {
-    setExpandedSteps(s => ({ ...s, [idx]: !s[idx] }))
+  const toggleStep = (key: string) => {
+    setExpandedSteps(s => ({ ...s, [key]: !s[key] }))
   }
 
   // ── composer attachments — paste, drop, or pick an image ───────────
@@ -1619,14 +1723,34 @@ export default function Home() {
     )
   })()
 
+  // where this provider's compute lives, and who pays for it. The console
+  // defaults to a local one, so the difference has to be visible at a glance
+  // rather than buried in the key panel.
+  const activeProvider = providers.find(p => p.key === provider) || null
+  const isFree = !!activeProvider?.free
+  const providerOptions = (providers.length
+    ? providers
+    : [{ key: 'openrouter' }, { key: 'venice' }] as ProviderInfo[]
+  ).map(p => ({
+    value: p.key,
+    label: p.key,
+    // ⌂ the weights are here (this box, or your tab) · ⬢ someone's API
+    icon: p.free ? '⌂' : '⬢',
+    ...(p.free ? { badge: 'free' } : {}),
+    ...(p.hint ? { hint: p.hint } : {}),
+  }))
+
   // provider + model selectors (used in both sidebar and fullscreen bars)
   const modelControls = (
     <div className="flex items-center gap-1.5 min-w-0 flex-1">
       <Select
-        accent="emerald" className="shrink-0" title="LLM provider"
+        accent="emerald" className="shrink-0"
+        title={isFree
+          ? `${provider}: ${activeProvider?.hint || 'runs locally'} — never billed`
+          : `${provider}: hosted, billed at cost`}
         value={provider}
         onChange={onProviderChange}
-        options={(providers.length ? providers.map(p => p.key) : ['openrouter', 'venice']).map(k => ({ value: k, label: k, icon: '⬢' }))} />
+        options={providerOptions} />
       <Select
         accent="emerald" className="min-w-0 flex-1 max-w-[220px]" title={model || 'Model'}
         value={model}
@@ -1634,7 +1758,13 @@ export default function Home() {
         options={
           providerModels.length === 0 && !model
             ? [{ value: '', label: 'default' }]
-            : (model && !providerModels.includes(model) ? [model, ...providerModels] : providerModels).map(mn => ({ value: mn, label: mn }))
+            : (model && !providerModels.includes(model) ? [model, ...providerModels] : providerModels).map(mn => ({
+                value: mn,
+                // the repo id carries the whole story; the vendor prefix is
+                // the same for every row, so it only costs width
+                label: mn.includes('/') ? mn.split('/').slice(1).join('/') : mn,
+                ...(mn === activeProvider?.default_model ? { badge: 'default' } : {}),
+              }))
         } />
       {browserPill}
     </div>
@@ -1648,7 +1778,8 @@ export default function Home() {
     if (vaultLocked) return 'locked'
     if (!b.configured) return 'no key'
     if (typeof b.balance !== 'number') return b.error ? '$ ?' : '···'
-    return `$${b.balance.toFixed(2)}`
+    // the sign belongs outside the unit — "$-0.15" reads as a broken number
+    return b.balance < 0 ? `-$${Math.abs(b.balance).toFixed(2)}` : `$${b.balance.toFixed(2)}`
   }
   const lockGlyph = (open: boolean) => (
     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
@@ -1685,8 +1816,7 @@ export default function Home() {
 
   // the tool registry lives in the console's TOOLS tab — open it from anywhere
   const openToolRegistry = () => {
-    setView('console'); setActiveTab('tools'); setToolPane('registry')
-    if (dock === 'min') setDockPersist('normal')
+    setView('chat'); setActiveTab('tools'); setToolPane('registry')
   }
 
   const balancePill = (
@@ -1706,14 +1836,16 @@ export default function Home() {
   const keyStripButton = (
     <button
       onClick={() => openKeyPanel(provider)}
-      className={`w-8 py-1 flex flex-col items-center gap-0.5 rounded-md border font-mono transition ${keyTone}`}
+      className={`w-9 py-1 flex flex-col items-center gap-0.5 rounded-md border font-mono transition overflow-hidden ${keyTone}`}
       title={keyTitle}
     >
       {lockGlyph(!vaultLocked)}
-      <span className="text-[8px] leading-none">
+      <span className="text-[8px] leading-none max-w-full truncate tracking-tighter">
         {!balance ? '·' : vaultLocked ? 'lock'
           : !balance.configured ? 'add'
           : typeof balance.balance !== 'number' ? 'key'
+          /* same sign convention as the pill — `$-0.1` reads as a broken number */
+          : balance.balance < 0 ? `-$${Math.abs(balance.balance).toFixed(2)}`
           : balance.balance >= 10 ? `$${Math.round(balance.balance)}` : `$${balance.balance.toFixed(1)}`}
       </span>
     </button>
@@ -1724,7 +1856,7 @@ export default function Home() {
   const keyErrorBanner = (prov: string) => {
     const meta = PROVIDER_META[prov] || PROVIDER_META.openrouter
     return (
-      <div className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3">
+      <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3">
         <div className="flex items-start gap-2.5">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5 text-amber-300">
             <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3" />
@@ -1751,6 +1883,123 @@ export default function Home() {
         </div>
       </div>
     )
+  }
+
+  // A "you're not allowed to run this" wall, said as a sentence with the way
+  // through it attached. The raw form — `Permission denied: 'run' requires
+  // admin access.` — is the server telling itself off; it tells the visitor
+  // nothing about what to do, and there are exactly three things to do.
+  const accessBanner = (text: string) => {
+    const action = text.match(/'([^']+)'/)?.[1] || 'this'
+    const ownerOnly = /owner[-\s]only/i.test(text)
+    return (
+      <div className="rounded-lg border border-violet-400/25 bg-violet-400/[0.06] p-3">
+        <div className="flex items-start gap-2.5">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5 text-violet-300">
+            <rect x="4" y="11" width="16" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-violet-100">
+              {ownerOnly ? `“${action}” is the host's to run` : `You don't have access to “${action}” yet`}
+            </div>
+            <div className="text-xs text-violet-200/70 mt-0.5 leading-relaxed">
+              {ownerOnly
+                ? 'This one touches the host itself, so only the module owner can call it. Everything else in the console is open to you.'
+                : !auth
+                ? 'Runs are billed to whoever made them. Sign in with your wallet, then add credits — or ask the owner to grant your address access.'
+                : 'Your address is signed in but has no credit and no grant. Top up to run on the module\'s key, or ask the owner to grant you access.'}
+            </div>
+          </div>
+        </div>
+        {!ownerOnly && (
+          <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+            {!auth ? (
+              <button onClick={signIn} disabled={authBusy}
+                className="px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-60 transition">
+                {authBusy ? 'Signing in…' : 'Sign in'}
+              </button>
+            ) : (
+              <button onClick={() => setShowCredits(true)}
+                className="px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/25 transition">
+                Add credits
+              </button>
+            )}
+            {auth && (
+              <button onClick={() => { try { navigator.clipboard?.writeText(auth.address) } catch {} }}
+                title="Copy your address — the owner needs it to grant you access"
+                className="px-3 py-1.5 rounded-md text-xs font-mono border border-white/10 text-gray-300 hover:text-white hover:border-white/25 transition">
+                {shortAddr(auth.address)} ⧉
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // A harness agent refused. This is the one wall with nothing behind it to
+  // buy or sign up for: the run would leave this module for a CLI on the
+  // host's own shell, and no amount of credit changes who owns that shell.
+  // So the way through is a different agent, offered as a button.
+  // Both wordings are matched — chats live in localStorage, so transcripts
+  // written before the server said it this way are still on screen.
+  const HARNESS_REFUSAL = /hands the run to the .+ CLI|runs a coding CLI on this host/i
+
+  const harnessBanner = (text: string) => {
+    const said = text.match(/'([^']+)' hands the run to the (\S+) CLI/)
+    const picked = said?.[1]
+    const label = (picked && agentOptions.find(a => a.value === picked)?.label) || picked
+    const cli = said?.[2]
+    // the console's own fallback matches the server's: an unnamed run lands on
+    // the native default, so that is what we offer to switch to
+    const fallback = agentOptions.find(a => a.value === 'default' && !a.harness)
+      || agentOptions.find(a => !a.harness)
+    return (
+      <div className="rounded-lg border border-violet-400/25 bg-violet-400/[0.06] p-3">
+        <div className="flex items-start gap-2.5">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5 text-violet-300">
+            <rect x="4" y="11" width="16" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-violet-100">
+              {label ? `“${label}” runs on the host's own machine` : 'That agent runs on the host\'s own machine'}
+            </div>
+            <div className="text-xs text-violet-200/70 mt-0.5 leading-relaxed">
+              It hands the whole run to the {cli || 'agent'} CLI installed on this
+              host — that CLI brings its own tools and answers to nobody here, so
+              only the module owner can start one. Every other agent runs on this
+              module&apos;s own loop, sandboxed to your directory, and is open to you.
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+          {fallback && (
+            <button onClick={() => selectAgent(fallback.value)}
+              className="px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/25 transition">
+              Switch to {fallback.label}
+            </button>
+          )}
+          {!auth && (
+            <button onClick={signIn} disabled={authBusy}
+              className="px-3 py-1.5 rounded-md text-xs font-medium border border-white/10 text-gray-300 hover:text-white hover:border-white/25 disabled:opacity-60 transition">
+              {authBusy ? 'Signing in…' : "I'm the host — sign in"}
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // What a system message actually means, when we can tell. Anything we can't
+  // read stays exactly as the server said it — nothing is ever swallowed.
+  const runNotice = (text?: string) => {
+    const prov = detectKeyError(text)
+    if (prov) return keyErrorBanner(prov)
+    if (text && HARNESS_REFUSAL.test(text)) return harnessBanner(text)
+    if (text && /permission denied|requires admin access|owner[-\s]only/i.test(text)) return accessBanner(text)
+    return null
   }
 
   // --- Background tasks — live server-side registry, visible from anywhere ---
@@ -1832,10 +2081,16 @@ export default function Home() {
 
         <div className="mt-4 space-y-1.5 pb-10">
           {visibleServerTasks.length === 0 ? (
-            <div className="text-sm text-gray-600 text-center py-24 border border-dashed border-white/[0.06] rounded-xl">
-              {serverTasks.length === 0
-                ? 'No tasks yet — runs show up here, even ones started elsewhere'
-                : 'Nothing matches this filter'}
+            <div className="text-center py-24 border border-dashed border-white/[0.06] rounded-xl space-y-2">
+              <p className="text-sm text-gray-500">
+                {serverTasks.length === 0 ? 'No tasks yet' : 'Nothing matches this filter'}
+              </p>
+              {serverTasks.length === 0 && (
+                <p className="text-xs text-gray-600 max-w-[380px] mx-auto leading-relaxed">
+                  Every run lands here — the ones started in the console, and the ones started
+                  somewhere else against this module.
+                </p>
+              )}
             </div>
           ) : visibleServerTasks.map(t => {
             const expanded = !!expandedServerTasks[t.id]
@@ -1923,7 +2178,44 @@ export default function Home() {
     </div>
   )
 
+  // --- Host row — who runs this module. Every agent and prompt shows its
+  // owner; the host that owns everything unowned was the one address the
+  // console never named. null = the API hasn't answered, '' = no owner set.
+  const hostRow = owner === null ? null : (
+    <div className="pop__foot">
+      <span className="text-[10px] text-gray-600 uppercase tracking-wider shrink-0">host</span>
+      {owner ? (
+        <button
+          onClick={() => { navigator.clipboard?.writeText(owner).catch(() => {}) }}
+          title={`This module is hosted by ${owner} — click to copy. The host owns every agent, prompt and note nobody else made.`}
+          className="min-w-0 flex items-center gap-1.5 font-mono text-[10px] text-gray-400 hover:text-gray-200 transition"
+        >
+          <span className="truncate">{shortAddr(owner)}</span>
+          {auth && auth.address.toLowerCase() === owner.toLowerCase() && (
+            <span className="text-[9px] px-1 py-px rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 uppercase tracking-wider shrink-0">
+              you
+            </span>
+          )}
+        </button>
+      ) : (
+        <span className="font-mono text-[10px] text-gray-600" title="No owner recorded — this module is unowned, so everyone is the host">
+          unowned
+        </span>
+      )}
+    </div>
+  )
+
   // --- User chip — sign-in state, top-right corner ---
+  // The menu's furniture: an icon tile per way in, and the chevron that says
+  // the row goes somewhere. Stroked so they take the row's colour on hover.
+  const svg = (d: React.ReactNode) => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
+  )
+  const iconWallet = svg(<><rect x="2.5" y="5.5" width="19" height="14" rx="2.5" /><path d="M2.5 10h19" /><circle cx="17.5" cy="14.5" r="1.2" /></>)
+  const iconKey = svg(<><circle cx="8" cy="14" r="4" /><path d="M11 11.5 20 3" /><path d="M17 6l2.5 2.5" /></>)
+  const chevron = <span className="pop__go">{svg(<polyline points="9 6 15 12 9 18" />)}</span>
+
   const userChip = (
     <div className="relative">
       {auth ? (
@@ -1953,44 +2245,60 @@ export default function Home() {
       {showUserMenu && !auth && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-          <div className="absolute right-0 top-full mt-1 w-72 bg-surface-2 border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
-            <div className="p-1.5">
+          <div className="pop" role="menu" aria-label="Sign in">
+            {/* the head says what this menu is for — the two rows below only
+                made sense once you knew runs are billed to whoever signs. */}
+            <div className="pop__head">
+              sign in
+              <span className="pop__note">Runs are billed to the address you sign in with.</span>
+            </div>
+            <div className="pop__body">
               <button
                 onClick={signInWallet}
-                disabled={authBusy}
-                className="w-full text-left px-2.5 py-2 rounded-md text-xs hover:bg-emerald-500/[0.06] disabled:opacity-60 transition"
+                disabled={authBusy || !eth()}
+                role="menuitem"
+                title={eth() ? 'Sign a message with your browser wallet' : 'Install MetaMask (or another EIP-1193 wallet) to use this'}
+                className="pop__item"
               >
-                <div className="text-gray-200">Browser wallet</div>
-                <div className="text-[10px] text-gray-500 mt-0.5">
-                  {eth() ? 'sign with your MetaMask address' : 'no wallet extension found'}
-                </div>
+                <span className="pop__i">{iconWallet}</span>
+                <span className="min-w-0">
+                  <span className="pop__t">Browser wallet</span>
+                  <span className="pop__s">
+                    {eth() ? 'sign a message with your MetaMask address' : 'no wallet extension found in this browser'}
+                  </span>
+                </span>
+                {eth() && chevron}
               </button>
               <button
                 onClick={signInLocal}
                 disabled={authBusy}
-                className="w-full text-left px-2.5 py-2 rounded-md text-xs hover:bg-emerald-500/[0.06] disabled:opacity-60 transition"
+                role="menuitem"
+                className="pop__item"
               >
-                <div className="text-gray-200">Local wallet</div>
-                <div className="text-[10px] text-gray-500 mt-0.5">
-                  {(() => {
-                    const id = loadLocalIdentity()
-                    return id ? `resume ${shortAddr(id.address)} — key stays in this browser`
-                      : 'generate a key in this browser — no extension, no chain link'
-                  })()}
-                </div>
+                <span className="pop__i">{iconKey}</span>
+                <span className="min-w-0">
+                  <span className="pop__t">{loadLocalIdentity() ? 'Local wallet' : 'Create a local wallet'}</span>
+                  <span className="pop__s">
+                    {(() => {
+                      const id = loadLocalIdentity()
+                      return id ? `resume ${shortAddr(id.address)} — key stays in this browser`
+                        : 'generate a key in this browser — no extension, no chain link'
+                    })()}
+                  </span>
+                </span>
+                {chevron}
               </button>
             </div>
-            {authErr && (
-              <div className="px-3 py-2 border-t border-white/[0.06] text-[10px] text-red-400/90">{authErr}</div>
-            )}
+            {hostRow}
+            {authErr && <div className="pop__err">{authErr}</div>}
           </div>
         </>
       )}
       {showUserMenu && auth && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-          <div className="absolute right-0 top-full mt-1 w-72 bg-surface-2 border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/[0.06] flex items-center gap-3">
+          <div className="pop" role="menu" aria-label="Account">
+            <div className="pop__id">
               <span className="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-mono border shrink-0 bg-emerald-500/20 border-emerald-500/35 text-emerald-200">
                 {auth.address.slice(2, 4).toUpperCase()}
               </span>
@@ -2001,35 +2309,50 @@ export default function Home() {
                 </div>
               </div>
             </div>
-            <div className="p-1.5">
+            {/* balance first — it's the one number that decides whether the
+                next run happens, so it gets the card rather than a text row */}
+            <div className="pop__body">
               <button
+                role="menuitem"
                 onClick={() => { setShowCredits(true); setShowUserMenu(false) }}
-                className="w-full flex items-center px-2.5 py-2 rounded-md text-xs text-gray-400 hover:bg-emerald-500/[0.06] hover:text-emerald-200 transition">
-                <span className="text-emerald-400/80 mr-2">◈</span>
-                Credits &amp; top-up
-                <span className="ml-auto font-mono text-emerald-300">
-                  ${(creditsInfo?.account?.balance ?? 0).toFixed(2)}
+                className="pop__item">
+                <span className="pop__i text-[13px] leading-none">◈</span>
+                {/* the balance rides the title line, not the row's right edge:
+                    parked outside, it collided with the wrapped second line */}
+                <span className="min-w-0 flex-1">
+                  <span className="pop__t pop__t--line">
+                    Credits
+                    <span className="pop__amt">
+                      ${(creditsInfo?.account?.balance ?? 0).toFixed(2)}
+                    </span>
+                  </span>
+                  <span className="pop__s">top up, or see what runs have cost</span>
                 </span>
               </button>
+            </div>
+            <div className="px-1.5 pb-1.5 flex flex-col gap-px">
               <button
+                role="menuitem"
                 onClick={() => { navigator.clipboard?.writeText(auth.address).catch(() => {}); setShowUserMenu(false) }}
-                className="w-full text-left px-2.5 py-2 rounded-md text-xs text-gray-400 hover:bg-white/[0.04] hover:text-gray-200 transition">
+                className="pop__row">
                 Copy address
               </button>
-              <button
-                onClick={signOut}
-                className="w-full text-left px-2.5 py-2 rounded-md text-xs text-red-400/90 hover:bg-red-500/10 hover:text-red-300 transition">
+              {/* Sign out is neutral — you sign back in. Only forgetting the
+                  key is destructive, so only that one wears the red. */}
+              <button role="menuitem" onClick={signOut} className="pop__row">
                 Sign out
               </button>
               {auth.local && (
                 <button
+                  role="menuitem"
                   onClick={() => { clearLocalIdentity(); signOut() }}
                   title="Delete the browser-held key — this identity (and anything stored under it) is gone for good"
-                  className="w-full text-left px-2.5 py-2 rounded-md text-xs text-red-400/90 hover:bg-red-500/10 hover:text-red-300 transition">
+                  className="pop__row pop__row--warn">
                   Forget local wallet
                 </button>
               )}
             </div>
+            {hostRow}
           </div>
         </>
       )}
@@ -2095,13 +2418,13 @@ export default function Home() {
           <div className="fixed inset-0 z-40" onClick={() => setShowPicker(false)} />
           <div className="absolute left-0 top-full mt-1 w-80 max-h-[65vh] flex flex-col bg-surface-2 border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
             {/* tabs */}
-            <div className="flex items-center gap-0.5 px-1.5 pt-1.5 border-b border-white/[0.06] shrink-0">
+            <div className="tab-strip gap-0.5 px-1.5 pt-1.5 border-b border-white/[0.06] shrink-0">
               {([
                 ['prompts', `prompts ${personas.length}`],
                 ['memory', memSel.length ? `memory ${memSel.length}/${memNotes.length}` : `memory ${memNotes.length}`],
               ] as const).map(([t, label]) => (
                 <button key={t} onClick={() => setPickerTab(t)}
-                  className={`px-2.5 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors relative ${
+                  className={`tab-btn px-2.5 py-2 font-medium uppercase tracking-wider transition-colors relative ${
                     pickerTab === t ? 'text-white' : 'text-gray-600 hover:text-gray-400'
                   }`}>
                   {label}
@@ -2125,9 +2448,9 @@ export default function Home() {
                 .map(p => personaRow(p, () => setShowPicker(false)))}
               {pickerTab === 'prompts' && (
                 <button
-                  onClick={() => openBuilder()}
+                  onClick={() => openAgentEditor()}
                   className="w-full text-left px-2.5 py-2 rounded-md text-xs transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
-                  <span className="w-5 text-center shrink-0">+</span> build a new agent
+                  <span className="w-5 text-center shrink-0">+</span> new agent
                 </button>
               )}
 
@@ -2175,11 +2498,11 @@ export default function Home() {
                     clear
                   </button>
                 )}
-                <button onClick={() => { setShowPicker(false); setView('builder') }}
+                <button onClick={() => { setShowPicker(false); openHub('agents') }}
                   className="text-[10px] text-violet-300/90 hover:text-violet-200 transition">
-                  builder →
+                  agents →
                 </button>
-                <button onClick={() => { setShowPicker(false); setView('library') }}
+                <button onClick={() => { setShowPicker(false); openHub('library') }}
                   className="text-[10px] text-emerald-300/90 hover:text-emerald-200 transition">
                   library →
                 </button>
@@ -2202,6 +2525,23 @@ export default function Home() {
         ? 'border-emerald-500/40 bg-white/[0.04] shadow-[0_0_0_3px_rgb(var(--glow)/0.08)]'
         : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.14]'
     }`}>
+      {/* The selected agent runs on a CLI this visitor can't start. Say so on
+          the composer, before a prompt gets written into a refusal. */}
+      {!promptSel && currentAgentDef?.harness && !canRunHarness && (
+        <div className="flex items-center gap-2 pb-2 text-[11px] text-violet-200/70">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-violet-300/80">
+            <rect x="4" y="11" width="16" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+          <span className="min-w-0 truncate">
+            {currentAgentDef.label} runs on the host&apos;s own {currentAgentDef.harness} CLI — host only.
+          </span>
+          <button onClick={() => selectAgent('default')}
+            className="shrink-0 px-1.5 py-0.5 rounded border border-violet-400/25 text-violet-200/90 hover:bg-violet-400/10 transition">
+            use a native agent
+          </button>
+        </div>
+      )}
       {/* staged images — paste, drop, or pick them; they ride with the next run */}
       {(attachments.length > 0 || attachErr) && (
         <div className="flex items-center gap-1.5 flex-wrap pb-2">
@@ -2238,9 +2578,9 @@ export default function Home() {
         onPaste={onPasteCompose}
         onFocus={() => setComposeFocused(true)}
         onBlur={() => setComposeFocused(false)}
-        placeholder={`Ask ${promptSel ? promptSel.name : (currentAgentDef?.label || 'agent')}...`}
-        rows={2}
-        className="flex-1 bg-transparent border-none outline-none text-[15px] resize-none placeholder:text-gray-600 py-1 leading-relaxed min-w-0"
+        placeholder={`Ask ${promptSel ? promptSel.name : (currentAgentDef?.label || 'agent')}…`}
+        rows={1}
+        className="flex-1 bg-transparent border-none outline-none text-[15px] resize-none placeholder:text-gray-600 py-1.5 leading-relaxed min-w-0 overflow-y-auto"
         disabled={loading}
       />
       <button onClick={togglePromptFloat}
@@ -2282,6 +2622,20 @@ export default function Home() {
         </button>
       )}
       </div>
+      {/* the keys, once you're actually typing — an idle composer stays clean */}
+      {(composeFocused || query.trim()) && !loading && (
+        <div className="compose-hint">
+          <span><kbd>↵</kbd> run</span>
+          <span><kbd>⇧↵</kbd> newline</span>
+          {/* no key chip here — the paste chord differs per platform, and the
+              point is that pasting works at all, not which key does it */}
+          <span className="hidden sm:inline">· images paste straight in</span>
+          <span className="ml-auto truncate pl-2">
+            {promptSel ? promptSel.name : (currentAgentDef?.label || agentType)}
+            {model ? ` · ${model.split('/').pop()}` : ''}
+          </span>
+        </div>
+      )}
     </div>
   )
 
@@ -2332,6 +2686,55 @@ export default function Home() {
     </div>
   ) : null
 
+  // What a step was aimed at — the one argument worth putting on the row
+  // itself, so a call reads as "read foo.ts" and not just "read". The
+  // distinguishing argument wins: a search is its pattern, a shell call its
+  // command, and only a tool with neither falls back to the path it touched.
+  const stepTarget = (step: any) =>
+    step?.params?.pattern || step?.params?.query || step?.params?.command ||
+    step?.params?.url || step?.params?.path || step?.params?.file_path || ''
+
+  // One tool call, drawn the same way wherever it appears: a row you can open
+  // for the arguments it went out with and what came back. `n` numbers it in
+  // the trace; the transcript leaves it off and leads with the tool name.
+  const stepRow = (step: any, key: string, n?: number) => {
+    const target = stepTarget(step)
+    const open = !!expandedSteps[key]
+    return (
+      <div key={key} className={`text-xs rounded-md border transition ${
+        step.error ? 'bg-red-500/[0.04] border-red-500/15' : 'bg-white/[0.02] border-white/[0.05] hover:border-white/[0.1]'
+      }`}>
+        <button className="w-full text-left flex items-center gap-2 px-2.5 py-1.5" onClick={() => toggleStep(key)}
+          title={open ? 'Hide the arguments and the result' : 'Show the arguments and the result'}>
+          {n != null
+            ? <span className="text-gray-700 w-6 shrink-0 font-mono text-[10px]">{String(n).padStart(2, '0')}</span>
+            : <span className="text-emerald-400/50 shrink-0 text-[10px]">⚙</span>}
+          <span className="text-gray-600 shrink-0">{open ? '▼' : '▶'}</span>
+          <span className="text-emerald-300 font-mono shrink-0">{step.tool}</span>
+          {target && <span className="text-gray-600 truncate font-mono">{shortPath(String(target))}</span>}
+          {step.error && <span className="text-red-400 ml-auto shrink-0">err</span>}
+        </button>
+        {open && (
+          <div className="px-2.5 pb-2 space-y-1">
+            {step.params && Object.keys(step.params).length > 0 && (
+              <pre className="text-gray-500 overflow-x-auto max-h-40 text-[11px] leading-relaxed border-l border-white/[0.06] pl-2">
+                {JSON.stringify(step.params, null, 2)}
+              </pre>
+            )}
+            {step.result != null && step.result !== '' && (
+              <pre className="text-gray-400 overflow-x-auto max-h-72 text-[11px] leading-relaxed border-l border-emerald-500/20 pl-2">
+                {typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2)}
+              </pre>
+            )}
+            {step.error && (
+              <pre className="text-red-400 overflow-x-auto max-h-40 text-[11px] leading-relaxed border-l border-red-500/30 pl-2">{step.error}</pre>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // --- Tool trace — every step the run took, params and result in full ---
   const traceBody = (
     <div className="p-3 max-w-4xl mx-auto w-full">
@@ -2346,40 +2749,7 @@ export default function Home() {
         )
         return (
           <div className="space-y-0.5">
-            {steps.map((step: any, j: number) => {
-              const target = step.params?.path || step.params?.file_path || step.params?.pattern || step.params?.command || ''
-              const open = !!expandedSteps[j]
-              return (
-                <div key={j} className={`text-xs rounded-md border transition ${
-                  step.error ? 'bg-red-500/[0.04] border-red-500/15' : 'bg-white/[0.02] border-white/[0.05] hover:border-white/[0.1]'
-                }`}>
-                  <button className="w-full text-left flex items-center gap-2 px-2.5 py-2" onClick={() => toggleStep(j)}>
-                    <span className="text-gray-700 w-6 shrink-0 font-mono text-[10px]">{String(j + 1).padStart(2, '0')}</span>
-                    <span className="text-gray-600">{open ? '▼' : '▶'}</span>
-                    <span className="text-emerald-300 font-mono shrink-0">{step.tool}</span>
-                    {target && <span className="text-gray-600 truncate font-mono">{shortPath(String(target))}</span>}
-                    {step.error && <span className="text-red-400 ml-auto shrink-0">err</span>}
-                  </button>
-                  {open && (
-                    <div className="px-2.5 pb-2 space-y-1">
-                      {step.params && Object.keys(step.params).length > 0 && (
-                        <pre className="text-gray-500 overflow-x-auto max-h-40 text-[11px] leading-relaxed border-l border-white/[0.06] pl-2">
-                          {JSON.stringify(step.params, null, 2)}
-                        </pre>
-                      )}
-                      {step.result != null && step.result !== '' && (
-                        <pre className="text-gray-400 overflow-x-auto max-h-72 text-[11px] leading-relaxed border-l border-emerald-500/20 pl-2">
-                          {typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2)}
-                        </pre>
-                      )}
-                      {step.error && (
-                        <pre className="text-red-400 overflow-x-auto max-h-40 text-[11px] leading-relaxed border-l border-red-500/30 pl-2">{step.error}</pre>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+            {steps.map((step: any, j: number) => stepRow(step, `trace-${j}`, j + 1))}
           </div>
         )
       })()}
@@ -2417,7 +2787,7 @@ export default function Home() {
   const transcript = (
     <div className="h-full overflow-y-auto min-h-0">
       {activeTab === 'tools' ? toolTrace : activeTab === 'memory' ? (
-        <MemoryPanel token={auth?.token} memSel={memSel} onToggleMem={toggleNote}
+        <MemoryPanel token={auth?.token} session={sessionId()} memSel={memSel} onToggleMem={toggleNote}
           onNotesChanged={() => { fetchLibrary(); libChanged() }} />
       ) : activeTab === 'deltas' ? (
         <div className="p-3 max-w-4xl mx-auto w-full">
@@ -2435,7 +2805,7 @@ export default function Home() {
                     onClick={() => {
                       const files = getTaskFiles(currentTask)
                       const file = files.find(f => f.path === d.file)
-                      if (file) { setViewingFile(file); if (dock === 'max') setDockPersist('normal') }
+                      if (file) setViewingFile(file)
                     }}>
                     <span className={`font-mono text-xs w-16 shrink-0 ${
                       d.action === 'created' ? 'text-emerald-400' :
@@ -2451,51 +2821,117 @@ export default function Home() {
           })()}
         </div>
       ) : !currentTask ? (
-        <div className="h-full flex flex-col items-center justify-center text-center text-gray-600 px-4 py-6">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/[0.06] border border-emerald-500/20 hero-logo flex items-center justify-center mb-4">
-            <span className="text-emerald-300 font-mono text-sm select-none">{'>'}<span className="caret-blink">_</span></span>
-          </div>
-          <p className="text-sm text-gray-400 font-medium">
-            {tasks.length === 0 ? 'What should we build?' : 'New chat — ask below, or pick one from the rail'}
-          </p>
-          <div className="mt-4 flex gap-1.5 justify-center flex-wrap max-w-[520px]">
-            {['map this codebase', 'find and fix a bug', 'write tests for recent changes'].map(ex => (
-              <button key={ex} onClick={() => { setQuery(ex); inputRef.current?.focus() }}
-                className="px-3 py-1.5 rounded-full text-xs bg-white/5 border border-white/[0.06] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08] transition">
-                {ex}
+        // Auto margins, not justify-center: a centred flex child overflows in
+        // BOTH directions when it outgrows the box, and the half above the fold
+        // is unreachable — which is how a short window ate the question.
+        <div className="h-full overflow-y-auto flex flex-col items-center px-5">
+          <div className="hero my-auto flex flex-col items-center text-center">
+            <div className="hero-halo">
+              <div className="hero-mark rounded-2xl bg-emerald-500/[0.06] border border-emerald-500/20 hero-logo flex items-center justify-center relative">
+                <span className="text-emerald-300 font-mono select-none">{'>'}<span className="caret-blink">_</span></span>
+              </div>
+            </div>
+
+            <h2 className="hero-q">
+              {tasks.length === 0 ? 'What should we build?' : 'New chat'}
+            </h2>
+            <p className="hero-sub max-w-[440px]">
+              {isFree
+                ? 'This run generates on weights that never leave the box — no key, no bill. Every step it takes is kept in the trace beside this transcript.'
+                : 'Every step the run takes is kept in the trace beside this transcript.'}
+            </p>
+
+            {/* what the next run is carrying — and the way back to each of them */}
+            <div className="hero-ctx flex items-center justify-center gap-1.5 flex-wrap">
+              <button className="ctx-chip" onClick={() => setShowPicker(true)}
+                title="Change the agent or prompt this runs as">
+                <span className="ctx-chip__d bg-emerald-400/70" />
+                <span className="ctx-chip__n">{promptSel?.name || currentAgentDef?.label || agentType}</span>
               </button>
-            ))}
-            <button onClick={() => setView('library')}
-              className="px-3 py-1.5 rounded-full text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/15 transition">
-              browse library →
-            </button>
+              <button className="ctx-chip" onClick={() => { setActiveTab('tools'); setToolPane('registry') }}
+                title="The tools this run gets — open the registry">
+                <span className="ctx-chip__n">{toolSel.length || toolCounts?.total || ''}</span>
+                {toolSel.length ? 'tools' : toolCounts?.total ? 'tools' : 'full toolbox'}
+              </button>
+              {memSel.length > 0 && (
+                <button className="ctx-chip" onClick={() => setActiveTab('memory')}
+                  title="Memory notes riding along with this run">
+                  <span className="ctx-chip__d bg-sky-400/70" />
+                  <span className="ctx-chip__n">{memSel.length}</span>
+                  note{memSel.length > 1 ? 's' : ''}
+                </button>
+              )}
+              {model && (
+                <button className="ctx-chip" onClick={() => openKeyPanel(provider)}
+                  title={isFree
+                    ? `${provider} · ${model} — ${activeProvider?.hint || 'local compute'}, never billed`
+                    : `${provider} · ${model} — hosted, billed at cost`}>
+                  {isFree && <span className="ctx-chip__d bg-emerald-400/70" />}
+                  {model.split('/').pop()}
+                  <span className="ctx-chip__n">{isFree ? 'free' : provider}</span>
+                </button>
+              )}
+            </div>
+
+            {/* four ways in */}
+            <div className="suggest">
+              {STARTERS.map(s => (
+                <button key={s.q} className="suggest-card" onClick={() => { setQuery(s.q); inputRef.current?.focus() }}>
+                  <span className="suggest-card__i">{s.icon}</span>
+                  <span className="min-w-0">
+                    <span className="suggest-card__t block">{s.q}</span>
+                    <span className="suggest-card__s block">{s.s}</span>
+                  </span>
+                </button>
+              ))}
+              <button className="suggest-card suggest-card--go" onClick={() => openHub('library')}>
+                <span className="suggest-card__i">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 19.5V5a2 2 0 0 1 2-2h13v18H6a2 2 0 0 1-2-2z" />
+                    <path d="M9 3v14" />
+                  </svg>
+                </span>
+                <span className="min-w-0">
+                  <span className="suggest-card__t block">browse the library →</span>
+                  <span className="suggest-card__s block">prompts, tools, memory, agents</span>
+                </span>
+              </button>
+            </div>
+
+            <p className="hero-foot">
+              <span className="text-emerald-400/50">⬡</span>
+              {auth ? 'your chats are pinned to localfs and follow your wallet'
+                    : 'sign in to keep chats in localfs across devices'}
+            </p>
           </div>
-          <p className="mt-4 text-[10px] text-gray-600 flex items-center gap-1">
-            <span className="text-emerald-400/50">⬡</span>
-            {auth ? 'your chats are pinned to localfs and follow your wallet'
-                  : 'sign in to keep chats in localfs across devices'}
-          </p>
         </div>
       ) : (
         <div className="p-3 space-y-2 max-w-4xl mx-auto w-full">
           {currentTask.messages.map((msg, i) => {
-            // the transcript is the conversation, not the trace: tool calls are
-            // one line here and the whole story in the TOOLS tab
+            // the transcript carries the calls themselves — each one a row you
+            // can open right here; the TOOLS tab is the same steps end to end,
+            // numbered, without the conversation between them
             // show the thumbnails, open the full-size copy — after a reload
             // only the thumbnails survived, so they stand in for both
             const shots = msg.thumbs || msg.images || []
             const full = msg.images || msg.thumbs || []
-            const lastStep = msg.steps?.[msg.steps.length - 1]
+            // a system message we can read gets said properly, and the server's
+            // own words move under a disclosure rather than leading with them
+            const notice = msg.role === 'system' ? runNotice(msg.text) : null
             return (
             <div key={i} className={`${msg.role === 'user' ? 'ml-auto max-w-[85%]' : 'max-w-full'}`}>
               <div className={`rounded-lg px-3 py-2.5 msg-in ${
                 msg.role === 'user' ? 'bg-emerald-500/10 border border-emerald-500/20' :
-                msg.role === 'system' ? 'bg-red-500/10 border border-red-500/15' :
+                msg.role === 'system' ? notice ? 'bg-white/[0.02] border border-white/[0.07]'
+                                              : 'bg-red-500/10 border border-red-500/15' :
                 'bg-white/[0.03] border border-white/[0.06]'
               }`}>
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-xs text-gray-500">{msg.role}</span>
-                </div>
+                {/* a notice names itself — "system" above it is just noise */}
+                {!notice && (
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs text-gray-500">{msg.role}</span>
+                  </div>
+                )}
                 {shots.length > 0 && (
                   <div className="flex gap-1.5 flex-wrap mb-1.5">
                     {shots.map((src, k) => (
@@ -2505,23 +2941,46 @@ export default function Home() {
                     ))}
                   </div>
                 )}
-                <div className="whitespace-pre-wrap text-sm text-gray-300 leading-relaxed">
-                  {msg.text ? renderText(msg.text) : msg.live ? (
-                    <span className="text-gray-600 shimmer-text">
-                      {lastStep ? `${lastStep.tool}${lastStep.params?.path || lastStep.params?.file_path ? ` ${shortPath(lastStep.params.path || lastStep.params.file_path)}` : ''}…` : 'thinking…'}
-                    </span>
-                  ) : null}
-                </div>
-                {msg.role === 'system' && detectKeyError(msg.text) && keyErrorBanner(detectKeyError(msg.text)!)}
+                {notice ? (
+                  <>
+                    {notice}
+                    <details className="mt-2 group/raw">
+                      <summary className="text-[10px] text-gray-600 hover:text-gray-400 cursor-pointer select-none transition list-none">
+                        <span className="inline-block w-3 group-open/raw:rotate-90 transition-transform">▸</span>
+                        what the server said
+                      </summary>
+                      <pre className="mt-1.5 pl-2 border-l border-white/[0.08] text-[11px] leading-relaxed text-gray-500 whitespace-pre-wrap">{msg.text}</pre>
+                    </details>
+                  </>
+                ) : (
+                  <div className="whitespace-pre-wrap text-sm text-gray-300 leading-relaxed">
+                    {msg.text ? renderText(msg.text)
+                      : msg.live && !msg.steps?.length ? (
+                        <span className="text-gray-600 shimmer-text">thinking…</span>
+                      ) : null}
+                  </div>
+                )}
+                {/* the calls themselves, in the transcript. What the agent
+                    reached for is half of what it did, and it used to be a
+                    count you had to leave the conversation to read. */}
                 {msg.steps && msg.steps.length > 0 && (
-                  <button onClick={() => setActiveTab('tools')}
-                    title="Open the tool trace"
-                    className="mt-1.5 inline-flex items-center gap-1.5 text-[10px] text-gray-600 hover:text-emerald-300 transition">
-                    <span className="text-emerald-400/60">⚙</span>
-                    {msg.steps.length} tool call{msg.steps.length === 1 ? '' : 's'}
-                    {msg.steps.some((s: any) => s.error) && <span className="text-red-400/80">· errors</span>}
-                    <span className="text-gray-700">→</span>
-                  </button>
+                  <div className="mt-2 space-y-0.5">
+                    {msg.steps.map((step: any, j: number) => stepRow(step, `m${i}-${j}`))}
+                    {/* still going: the next call hasn't landed yet */}
+                    {msg.live && (
+                      <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                        <span className="text-gray-600 shimmer-text">working…</span>
+                      </div>
+                    )}
+                    <button onClick={() => setActiveTab('tools')}
+                      title="Open the full trace"
+                      className="inline-flex items-center gap-1.5 pt-0.5 px-2.5 text-[10px] text-gray-600 hover:text-emerald-300 transition">
+                      {msg.steps.length} call{msg.steps.length === 1 ? '' : 's'}
+                      {msg.steps.some((s: any) => s.error) && <span className="text-red-400/80">· errors</span>}
+                      <span className="text-gray-700">· full trace →</span>
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -2538,7 +2997,6 @@ export default function Home() {
     setSelectedTask(null)
     setViewingFile(null)
     setActiveTab('output')
-    if (dock === 'min') setDockPersist('normal')
     setTimeout(() => inputRef.current?.focus(), 40)
   }
 
@@ -2577,7 +3035,7 @@ export default function Home() {
       key={t.id}
       role="button"
       tabIndex={0}
-      onClick={() => { setSelectedTask(t.id); setActiveTab('output'); setViewingFile(null); if (dock === 'min') setDockPersist('normal') }}
+      onClick={() => { setSelectedTask(t.id); setActiveTab('output'); setViewingFile(null) }}
       onKeyDown={e => { if (e.key === 'Enter') { setSelectedTask(t.id); setActiveTab('output') } }}
       className={`w-full text-left px-2.5 py-2 rounded-lg text-sm transition group cursor-pointer border ${
         selectedTask === t.id
@@ -2636,7 +3094,11 @@ export default function Home() {
       <div className="min-w-0 flex-1">
         <div className="text-xs text-gray-300 font-mono truncate"
           title={auth ? `signed in as ${auth.address}` : 'not signed in — sign in to save your work under your address'}>
-          {auth ? shortAddr(auth.address) : 'not signed in'}
+          {/* "signed out" rather than "not signed in": three characters
+              shorter, which is the difference between a word and "not sig…"
+              in a rail at its floor, and the button beside it already says
+              what to do about it */}
+          {auth ? shortAddr(auth.address) : 'signed out'}
         </div>
         <div className="text-[10px] text-gray-600 truncate flex items-center gap-1.5">
           <button onClick={openToolRegistry} className="hover:text-emerald-300 transition" title="Open the tool registry">
@@ -2663,7 +3125,25 @@ export default function Home() {
   )
 
   // --- Agents pane — the personas you can run as, beside the chats ---
-  const agentsPane = (
+  // Two states in one pane: the list, and the editor for whichever agent you
+  // opened. Making one never leaves the console — you write it here, hit
+  // "save + use", and the next message runs as it.
+  const agentsPane = agentEdit ? (
+    <AgentEditor
+      key={agentEdit.name || 'new'}
+      name={agentEdit.name}
+      token={auth?.token}
+      isHost={isHost}
+      onSaved={(name) => { fetchAgents(auth?.token); libChanged(); setAgentEdit({ name }) }}
+      onClose={() => setAgentEdit(null)}
+      onOpenCanvas={(name) => { setAgentEdit(null); openBuilder(name) }}
+      onUse={(name) => {
+        selectAgent(name)
+        setAgentEdit(null)
+        setTimeout(() => inputRef.current?.focus(), 60)
+      }}
+    />
+  ) : (
     <>
       <div className="px-2.5 py-2 border-b border-white/[0.06] shrink-0">
         <input
@@ -2697,10 +3177,19 @@ export default function Home() {
           })
         })()}
       </div>
-      <div className="px-2 pb-2 shrink-0">
+      {/* new agent — written right here; the canvas is one click further on
+          for the graph view of the same thing */}
+      {/* a top edge, like the identity footer below it — without one the row
+          the list happens to be cut through bleeds straight into these buttons */}
+      <div className="px-2 py-2 shrink-0 flex items-center gap-1.5 border-t border-white/[0.06]">
+        <button onClick={() => setAgentEdit({ name: null })}
+          className="flex-1 min-w-0 text-left px-2.5 py-2 rounded-md text-xs whitespace-nowrap transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
+          <span className="w-5 text-center shrink-0">+</span> new agent
+        </button>
         <button onClick={() => openBuilder()}
-          className="w-full text-left px-2.5 py-2 rounded-md text-xs transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
-          <span className="w-5 text-center shrink-0">+</span> build a new agent
+          title="Open the canvas — wire an agent as a graph"
+          className="px-2 py-2 rounded-md text-[10px] uppercase tracking-wider transition border border-white/[0.08] text-gray-500 hover:text-violet-300 hover:border-violet-400/30 shrink-0">
+          canvas
         </button>
       </div>
     </>
@@ -2710,20 +3199,25 @@ export default function Home() {
     <div className="flex flex-col h-full min-h-0">
       {/* rail header — two panes: the chats you've had, the agents you can be */}
       <div className="px-2 py-2 border-b border-white/[0.06] flex items-center gap-1 shrink-0">
-        <div className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-md p-0.5 min-w-0">
+        {/* the two pane names are the header's floor — the counts beside them
+            are not, so a rail dragged down near its minimum drops the counts
+            rather than growing wider than the rail and sliding underneath the
+            buttons on the right, which is what it used to do */}
+        <div className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-md p-0.5 min-w-0 overflow-hidden">
           {([['chats', tasks.length], ['agents', personas.length]] as const).map(([pane, n]) => (
-            <button key={pane} onClick={() => setPane(pane as RailPane)}
-              className={`px-2 py-1 rounded text-[10px] uppercase tracking-wider transition ${
+            <button key={pane} onClick={() => { setPane(pane as RailPane); if (pane === 'agents') setAgentEdit(null) }}
+              title={`${n} ${pane}`}
+              className={`px-2 py-1 rounded text-[10px] uppercase tracking-wider whitespace-nowrap truncate min-w-0 transition ${
                 railPane === pane ? 'bg-emerald-500/15 text-emerald-200' : 'text-gray-500 hover:text-gray-300'
               }`}>
-              {pane} <span className="opacity-60 font-mono">{n || ''}</span>
+              {pane}{n && !tightRail ? <span className="opacity-60 font-mono"> {n}</span> : null}
             </button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-0.5">
-          <button onClick={() => railPane === 'chats' ? newChat() : openBuilder()}
+        <div className="ml-auto flex items-center gap-0.5 shrink-0">
+          <button onClick={() => railPane === 'chats' ? newChat() : setAgentEdit({ name: null })}
             className="w-6 h-6 flex items-center justify-center rounded-md text-emerald-300/90 hover:bg-emerald-500/10 border border-emerald-500/25 transition text-sm leading-none"
-            title={railPane === 'chats' ? 'New chat' : 'Build a new agent'}>+</button>
+            title={railPane === 'chats' ? 'New chat' : 'New agent'}>+</button>
           <button onClick={() => setSidebarSide(s => s === 'left' ? 'right' : 'left')}
             className="w-6 h-6 flex items-center justify-center rounded-md text-gray-600 hover:text-gray-300 hover:bg-white/5 transition"
             title={`Swap sides — rail to the ${sidebarSide === 'left' ? 'right' : 'left'}, market opposite`}>
@@ -2756,14 +3250,26 @@ export default function Home() {
       )}
 
       {/* the list */}
-      <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
+      <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5 flex flex-col">
         {visibleChats.length === 0 ? (
-          <div className="text-center text-gray-600 py-10 px-3">
-            <p className="text-xs text-gray-500">{tasks.length === 0 ? 'No chats yet' : 'Nothing matches'}</p>
+          /* centred rather than pinned to the top of an empty column — the rail
+             is the full height of the window and a card floating at the top of
+             it read as a layout that had failed */
+          <div className="my-auto px-4 py-6 text-center flex flex-col items-center gap-2">
+            <div className="w-9 h-9 rounded-xl border border-white/[0.07] bg-white/[0.02] flex items-center justify-center text-gray-700 text-sm font-mono">
+              {tasks.length === 0 ? '>_' : '⌕'}
+            </div>
+            <p className="text-xs text-gray-400">{tasks.length === 0 ? 'No chats yet' : 'Nothing matches'}</p>
+            <p className="text-[10px] text-gray-600 leading-relaxed max-w-[190px]">
+              {tasks.length === 0
+                ? 'Every run in the console lands here, and each one is its own chat.'
+                : 'No chat in this history matches that filter.'}
+            </p>
             {tasks.length === 0 && (
-              <p className="text-[10px] text-gray-600 mt-1.5 leading-relaxed">
-                Ask something in the console below — every run lands here.
-              </p>
+              <button onClick={newChat}
+                className="mt-1 px-2.5 py-1.5 rounded-md text-[10px] uppercase tracking-wider border border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 transition">
+                Start one
+              </button>
             )}
           </div>
         ) : (['today', 'yesterday', 'earlier'] as const).map(bucket => {
@@ -2779,183 +3285,91 @@ export default function Home() {
       </div>
       </>}
 
-      {/* library + builder shortcuts, then who you are */}
-      <div className="px-2 py-1.5 border-t border-white/[0.06] shrink-0 flex items-center gap-1.5">
-        <button onClick={() => setView('library')}
-          className="flex-1 px-2 py-1.5 rounded-md text-[10px] uppercase tracking-wider text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/[0.07] border border-white/[0.06] transition">
-          library
-        </button>
-        <button onClick={() => openBuilder()}
-          className="flex-1 px-2 py-1.5 rounded-md text-[10px] uppercase tracking-wider text-gray-500 hover:text-violet-300 hover:bg-violet-500/[0.07] border border-white/[0.06] transition">
-          builder
-        </button>
-      </div>
+      {/* no LIBRARY / AGENTS pair down here — both are tabs in the header two
+          rows up, and the second one collided with this rail's own AGENTS pane,
+          which opens something else entirely. Who you are is the only thing the
+          foot of the rail owes you. */}
       {identityFooter}
     </div>
   )
 
-  // --- Workspace — files touched by the selected run, above the console ---
-  const filesPanel = (
-    <div className="flex-1 flex flex-col min-h-0 bg-surface-1">
-      <div className="border-b border-white/[0.06] px-4 py-2 flex items-center gap-2 shrink-0">
-        {viewingFile ? (
-          <>
-            <button onClick={() => setViewingFile(null)}
-              className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500 hover:text-gray-300 transition">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-              files
-            </button>
-            <span className={`text-[10px] font-mono ml-2 ${extColor(fileExt(viewingFile.path))}`}>
-              .{fileExt(viewingFile.path)}
+  // --- File viewer — one file the run touched, opened from the DELTAS tab.
+  //     It takes over the console body rather than owning a panel of its own:
+  //     an empty file list is not worth half a screen. ---
+  const fileViewer = viewingFile && (
+    <div className="h-full flex flex-col min-h-0">
+      <div className="border-b border-white/[0.06] px-3 py-2 flex items-center gap-2 shrink-0 bg-surface-1">
+        <button onClick={() => setViewingFile(null)}
+          className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500 hover:text-gray-200 transition"
+          title="Back to the run (Esc)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          back
+        </button>
+        <span className={`text-[10px] font-mono ml-1 ${extColor(fileExt(viewingFile.path))}`}>
+          .{fileExt(viewingFile.path)}
+        </span>
+        <span className="text-xs text-gray-400 font-mono truncate min-w-0">{shortPath(viewingFile.path)}</span>
+        {(() => {
+          const b = actionBadge(viewingFile.action)
+          return (
+            <span className={`text-[9px] px-1.5 py-0.5 rounded-md border ${b.bg} ${b.text} shrink-0 ml-auto uppercase tracking-wider`}>
+              {viewingFile.action}
             </span>
-            <span className="text-xs text-gray-400 font-mono truncate">{shortPath(viewingFile.path)}</span>
-            {(() => {
-              const b = actionBadge(viewingFile.action)
-              return (
-                <span className={`text-[9px] px-1.5 py-0.5 rounded-md border ${b.bg} ${b.text} shrink-0`}>
-                  {viewingFile.action}
-                </span>
-              )
-            })()}
-          </>
-        ) : (
-          <>
-            <span className="text-[10px] font-medium uppercase tracking-wider text-gray-400">files</span>
-            {currentTask && (
-              <span className="text-[10px] text-gray-600 font-mono">
-                {getTaskFiles(currentTask).length} touched
-              </span>
-            )}
-            {currentTask && (
-              <span className="text-xs text-gray-600 truncate ml-2 min-w-0">{currentTask.query}</span>
-            )}
-          </>
-        )}
+          )
+        })()}
       </div>
-
       <div className="flex-1 overflow-y-auto min-h-0">
-        {!currentTask ? (
-          <div className="flex items-center justify-center h-full text-gray-600">
-            <div className="flex flex-col items-center text-center">
-              <div className="w-14 h-14 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mb-4">
-                <span className="text-emerald-400/70 font-mono select-none">{'>'}<span className="caret-blink">_</span></span>
+        <pre className="text-[12px] leading-[1.6] font-mono text-gray-300 p-3 whitespace-pre-wrap">
+          {viewingFile.content ? (
+            viewingFile.content.split('\n').map((line, i) => (
+              <div key={i} className="flex hover:bg-white/[0.02] transition-colors">
+                <span className="text-gray-700 select-none w-12 shrink-0 text-right pr-4 text-[11px]">{i + 1}</span>
+                <span className="flex-1 min-w-0">{line || ' '}</span>
               </div>
-              <p className="text-xs text-gray-600">Run a task in the console below to see file changes</p>
-            </div>
-          </div>
-        ) : viewingFile ? (
-          <pre className="text-[12px] leading-[1.6] font-mono text-gray-300 p-4 whitespace-pre-wrap">
-            {viewingFile.content ? (
-              viewingFile.content.split('\n').map((line, i) => (
-                <div key={i} className="flex hover:bg-white/[0.02] transition-colors">
-                  <span className="text-gray-700 select-none w-12 shrink-0 text-right pr-4 text-[11px]">{i + 1}</span>
-                  <span className="flex-1 min-w-0">{line || ' '}</span>
-                </div>
-              ))
-            ) : (
-              <span className="text-gray-600">No content available</span>
-            )}
-          </pre>
-        ) : (
-          <div className="p-4">
-            {(() => {
-              const files = getTaskFiles(currentTask)
-              if (files.length === 0) return (
-                <div className="flex items-center justify-center h-64 text-gray-600">
-                  <div className="text-center">
-                    <p className="text-xs">No files touched yet</p>
-                    {currentTask.status === 'running' && (
-                      <div className="flex items-center gap-2 mt-3 justify-center">
-                        <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                        <span className="text-[10px] text-gray-500">Agent working...</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-              return (
-                <div className="space-y-1 max-w-3xl">
-                  {files.map((f, i) => {
-                    const b = actionBadge(f.action)
-                    return (
-                      <button key={i}
-                        onClick={() => setViewingFile(f)}
-                        className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/[0.04] transition group border border-transparent hover:border-white/[0.06]">
-                        <span className={`text-sm ${extColor(fileExt(f.path))}`}>
-                          {fileExt(f.path) === 'py' ? '◆' : fileExt(f.path) === 'ts' || fileExt(f.path) === 'tsx' ? '◇' : '○'}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs text-gray-300 group-hover:text-gray-200 font-mono truncate">
-                            {f.path.split('/').pop()}
-                          </div>
-                          <div className="text-[10px] text-gray-600 font-mono truncate mt-0.5">
-                            {shortPath(f.path)}
-                          </div>
-                        </div>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded-md border ${b.bg} ${b.text} shrink-0`}>
-                          {f.action}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )
-            })()}
-          </div>
-        )}
+            ))
+          ) : (
+            <span className="text-gray-600">No content available</span>
+          )}
+        </pre>
       </div>
     </div>
   )
 
-  // --- The console dock — bottom of the screen, full width, resizable ---
+  // --- The console — the workspace itself, full height ---
   const consoleDock = (
-    <div
-      className={`relative flex flex-col min-h-0 bg-surface-0 border-t border-white/[0.06] ${dock === 'max' ? 'flex-1' : 'shrink-0'}`}
-      style={dock === 'normal' ? { height: dockHeight } : undefined}
-    >
-      {/* drag the console's top edge to resize; double-click to maximize */}
-      {dock === 'normal' && (
-        <div
-          className="absolute -top-[5px] left-0 right-0 h-[10px] z-20 cursor-row-resize touch-none group"
-          onPointerDown={onDockDragStart}
-          onDoubleClick={toggleDockMax}
-        >
-          <div className="w-full h-[1px] mt-[4px] bg-transparent group-hover:bg-emerald-500/60 group-active:bg-emerald-500 transition-colors" />
-          <div className="absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none flex gap-[3px]">
-            <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
-            <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
-            <div className="w-[3px] h-[3px] rounded-full bg-emerald-400/60" />
-          </div>
-        </div>
-      )}
-
-      {/* dock header — two lines: tabs + what's running on top, the run
-          controls (persona, model, credit) on their own line below, so neither
-          crowds the other in a narrow window. */}
+    <div className="relative flex-1 flex flex-col min-h-0 console-bg">
+      {/* console header — one line where it fits: the panes on the left, what's
+          running in the middle, the run controls (persona, model, credit) on
+          the right. It was always two rows, which stacked a third bar of
+          chrome under the top bar for no gain on a normal window; wrapping
+          means the narrow case still gets its own line, and only then. */}
       <div className="border-b border-white/[0.06] shrink-0 min-w-0">
-      <div className="px-2 flex items-center gap-x-2 py-0.5 min-w-0">
-        <div className="flex items-center shrink-0">
+      <div className="px-2 flex flex-wrap items-center gap-x-2 gap-y-1 py-1 min-w-0">
+        <div className="tab-strip shrink-0 max-w-full">
           {(['output', 'tools', 'memory', 'deltas'] as Tab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`tab-btn px-3 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors relative ${
+              className={`tab-btn px-3 py-2 font-medium uppercase tracking-wider transition-colors relative ${
                 activeTab === tab ? 'text-white' : 'text-gray-600 hover:text-gray-400'
               }`}
             >
-              {tab === 'output' ? 'console' : tab}
+              {/* "console" here sat directly under CONSOLE in the view
+                  switcher — same word, two different scopes. This pane is the
+                  transcript, and the rail beside it already calls those chats. */}
+              {tab === 'output' ? 'chat' : tab}
               {tab === 'tools' && (currentTask && getSteps(currentTask).length > 0 ? (
-                <span className="ml-1 text-[9px] text-emerald-400/80 normal-case">{getSteps(currentTask).length}</span>
+                <span className="tab-badge ml-1 text-emerald-400/80 normal-case">{getSteps(currentTask).length}</span>
               ) : toolCounts ? (
-                <span className="ml-1 text-[9px] text-gray-600 normal-case">{toolCounts.total}</span>
+                <span className="tab-badge ml-1 text-gray-600 normal-case">{toolCounts.total}</span>
               ) : null)}
               {tab === 'memory' && memSel.length > 0 && (
-                <span className="ml-1 text-[9px] text-sky-400/80 normal-case">{memSel.length}</span>
+                <span className="tab-badge ml-1 text-sky-400/80 normal-case">{memSel.length}</span>
               )}
               {tab === 'deltas' && currentTask && getDeltas(currentTask).length > 0 && (
-                <span className="ml-1 text-[9px] text-amber-400/80 normal-case">{getDeltas(currentTask).length}</span>
+                <span className="tab-badge ml-1 text-amber-400/80 normal-case">{getDeltas(currentTask).length}</span>
               )}
               {activeTab === tab && (
                 <span className="absolute bottom-0 left-1 right-1 h-[1.5px] bg-emerald-500 rounded-full" />
@@ -2990,52 +3404,22 @@ export default function Home() {
           ) : null}
         </div>
 
-        {/* dock size controls */}
-        <div className="flex items-center gap-0.5 shrink-0 pl-1">
-          <button
-            onClick={() => setDockPersist(dock === 'min' ? 'normal' : 'min')}
-            className={`w-6 h-6 flex items-center justify-center rounded transition ${
-              dock === 'min' ? 'text-emerald-300 bg-emerald-500/10' : 'text-gray-600 hover:text-gray-300 hover:bg-white/5'
-            }`}
-            title={dock === 'min' ? 'Show the transcript' : 'Collapse the console'}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points={dock === 'min' ? '18 15 12 9 6 15' : '6 9 12 15 18 9'} />
-            </svg>
-          </button>
-          <button
-            onClick={toggleDockMax}
-            className={`w-6 h-6 flex items-center justify-center rounded transition ${
-              dock === 'max' ? 'text-emerald-300 bg-emerald-500/10' : 'text-gray-600 hover:text-gray-300 hover:bg-white/5'
-            }`}
-            title={dock === 'max' ? 'Restore the split (Esc)' : 'Maximize the console'}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              {dock === 'max' ? (
-                <>
-                  <polyline points="4 14 10 14 10 20" />
-                  <polyline points="20 10 14 10 14 4" />
-                </>
-              ) : (
-                <>
-                  <polyline points="15 3 21 3 21 9" />
-                  <polyline points="9 21 3 21 3 15" />
-                </>
-              )}
-            </svg>
-          </button>
+        {/* run controls, boxed so they read as one thing: what the next run
+            runs as. `ml-auto` holds them at the right edge on a wide dock;
+            when the tabs and the title leave no room, the box wraps whole
+            onto its own line instead of scrolling a control out of reach. */}
+        <div className="runbar shrink-0 ml-auto max-w-full overflow-x-auto no-scrollbar">
+          {personaPicker}
+          <span className="runbar__sep" />
+          {modelControls}
+          <span className="runbar__sep" />
+          {balancePill}
         </div>
-      </div>
 
-      {/* second line — run controls */}
-      <div className="px-2 pb-1 flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
-        {personaPicker}
-        {modelControls}
-        {balancePill}
       </div>
       </div>
 
-      {dock !== 'min' && <div className="flex-1 min-h-0">{transcript}</div>}
+      <div className="flex-1 min-h-0">{viewingFile ? fileViewer : transcript}</div>
       {composeBar}
     </div>
   )
@@ -3185,7 +3569,7 @@ export default function Home() {
             onToggleMemory={toggleNote}
             onToggleTool={(id) => setToolSel(prev =>
               prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])}
-            onOpenLibrary={() => setView('library')}
+            onOpenLibrary={() => openHub('library')}
             onClose={() => setMarketOpenPersist(false)}
             onCreated={(kind) => { if (kind === 'agent') fetchAgents(auth?.token); fetchLibrary(); libChanged() }}
             onSignIn={signIn}
@@ -3214,20 +3598,102 @@ export default function Home() {
     </div>
   )
 
-  // workspace: files on top, console docked along the bottom
+  // workspace: the console, floor to ceiling, between the two rails
   const workspace = (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
-      {dock !== 'max' && <div className="flex-1 min-h-0 flex flex-col">{filesPanel}</div>}
       {consoleDock}
+    </div>
+  )
+
+  // --- Hub: the agents canvas — the graph an agent is wired on, and the
+  //     TASK mode that writes what agents are scored on. The rail's AGENTS
+  //     pane covers making and editing one; this is the graph view of it. ---
+  const agentsCanvas = (
+    <div className="flex-1 min-h-0">
+      <Builder
+        key={builderAgent || 'new'}
+        initialAgent={builderAgent}
+        onUseAgent={(name, memoryIds) => {
+          selectAgent(name)
+          if (memoryIds.length) {
+            setMemSel(memoryIds)
+            try { localStorage.setItem('agent_mem_sel', JSON.stringify(memoryIds)) } catch {}
+          }
+          setView('chat')
+          setTimeout(() => inputRef.current?.focus(), 60)
+        }}
+        onRunAgent={(name, prompt, memoryIds) => {
+          selectAgent(name)
+          if (memoryIds.length) {
+            setMemSel(memoryIds)
+            try { localStorage.setItem('agent_mem_sel', JSON.stringify(memoryIds)) } catch {}
+          }
+          setQuery(prompt)
+          setView('chat')
+          setTimeout(() => inputRef.current?.focus(), 60)
+        }}
+        onAgentsChanged={() => { fetchAgents(auth?.token); libChanged() }}
+        onManageKey={(p) => { setKeyPanelProvider(p); setShowKeyPanel(true) }}
+        keyVersion={keyVersion}
+        token={auth?.token}
+        isHost={isHost}
+        onSignIn={signIn}
+        address={auth?.address}
+        onOpenArena={() => setView('arena')}
+      />
+    </div>
+  )
+
+  // --- Hub: the library market — prompts, tools, memory and agents, each of
+  //     which lands back in the chat when you take it ---
+  const libraryPage = (
+    <div className="flex-1 min-h-0">
+      <Library
+        onUsePrompt={(text) => {
+          setView('chat')
+          setQuery(text)
+          setTimeout(() => inputRef.current?.focus(), 60)
+        }}
+        onSelectAgent={(name) => {
+          selectAgent(name)
+          setView('chat')
+          setTimeout(() => inputRef.current?.focus(), 60)
+        }}
+        onSelectPrompt={(item) => {
+          selectPrompt({ id: item.id, name: item.name, description: item.description || '',
+            body: item.body || '', tags: item.tags || [],
+            owner: item.owner ?? null, owner_source: (item.owner_source ?? null) as OwnerSource })
+          setView('chat')
+          setTimeout(() => inputRef.current?.focus(), 60)
+        }}
+        onUseMemory={(id) => {
+          toggleNote(id)
+          setView('chat')
+          setTimeout(() => inputRef.current?.focus(), 60)
+        }}
+        onUseTool={(id) => {
+          setToolSel(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])
+          setView('chat')
+          setTimeout(() => inputRef.current?.focus(), 60)
+        }}
+        onAgentsChanged={() => { fetchAgents(auth?.token); libChanged() }}
+        onSignIn={signIn}
+        auth={auth}
+        host={owner}
+      />
     </div>
   )
 
   return (
     <main className="h-screen flex flex-col bg-surface-0">
-      {/* top bar — the four views and who you are. Everything else lives where
+      {/* top bar — the three views and who you are. Everything else lives where
           it's used: the rails carry their own collapse, the dock its own size,
           the key and the tool count sit in the rail's foot. */}
-      <header className="border-b border-white/[0.06] px-3 h-11 flex items-center gap-3 shrink-0 bg-surface-0">
+      {/* The view switcher is the one thing that must always be readable in
+          full, so below lg it drops to its own row (order-last + basis-full)
+          rather than being squeezed or scrolled off behind the sign-in
+          cluster — the bar grows a line instead of hiding a tab. */}
+      <header className="border-b border-white/[0.06] px-3 min-h-12 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 shrink-0 bg-surface-0">
         <div className="flex items-center gap-2.5 shrink-0" title="Agent — mod framework">
           <div className="brand-mark w-7 h-7 flex items-center justify-center shrink-0">
             <span className="select-none">{'>'}_</span>
@@ -3237,23 +3703,30 @@ export default function Home() {
           <span className="title-gradient uppercase select-none hidden sm:block">agent</span>
         </div>
 
-        <nav className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
-          {(['console', 'builder', 'arena', 'library', 'tasks'] as const).map(v => (
+        <nav className="tab-strip order-last basis-full lg:order-none lg:basis-auto gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
+          {(['chat', 'hub', 'arena'] as const).map(v => (
             <button key={v}
-              onClick={() => { if (v === 'tasks' && view !== 'tasks') fetchServerTasks(); setView(v) }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium uppercase tracking-wider transition ${
+              onClick={() => { if (v === 'hub') openHub(hubPane); else setView(v) }}
+              className={`tab-btn flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium uppercase tracking-wider transition ${
                 view === v ? 'bg-emerald-500/15 text-emerald-200' : 'text-gray-500 hover:text-gray-300'
               }`}
-              title={v === 'tasks' && runningCount > 0 ? `${runningCount} running in the background` : undefined}>
+              title={v === 'hub'
+                ? runningCount > 0
+                  ? `Agents, library and the ${runningCount} runs still going`
+                  : 'Agents, library and background runs'
+                : v === 'chat' ? 'The console — talk to an agent'
+                : 'Every agent on the same tasks, one ranked board'}>
               {v}
-              {v === 'tasks' && runningCount > 0 && (
+              {/* the hub is where a background run lives now, so its dot is the
+                  only thing the top bar still has to say about one */}
+              {v === 'hub' && runningCount > 0 && (
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               )}
             </button>
           ))}
         </nav>
 
-        <div className="flex items-center gap-3 ml-auto">
+        <div className="flex items-center gap-3 ml-auto shrink-0">
           {loading && (
             <span className="flex items-center gap-1.5 text-xs text-emerald-300">
               <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
@@ -3272,8 +3745,39 @@ export default function Home() {
 
       {/* layout body */}
       <div className="flex-1 flex min-h-0">
-        {/* background tasks — full page */}
-        {view === 'tasks' && tasksPage}
+        {/* HUB — the agents canvas, the library and the background runs, one
+            shelf strip instead of three tabs crowding the chat */}
+        {view === 'hub' && (
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="border-b border-white/[0.06] px-3 py-1.5 shrink-0 flex items-center gap-1.5 flex-wrap">
+              {(['agents', 'library', 'tasks'] as HubPane[]).map(p => (
+                <button key={p} onClick={() => openHub(p)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider transition border ${
+                    hubPane === p ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
+                                  : 'bg-white/[0.03] border-white/[0.06] text-gray-600 hover:text-gray-300'
+                  }`}>
+                  {p}
+                  {p === 'tasks' && runningCount > 0 && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  )}
+                </button>
+              ))}
+              {/* the tasks shelf says this in its own header a line down, so
+                  the strip stays quiet there */}
+              {hubPane !== 'tasks' && (
+                <span className="ml-auto text-[10px] text-gray-600 hidden sm:block">
+                  {hubPane === 'agents' ? 'wire an agent — nodes, tools, model'
+                    : 'prompts, tools, memory, agents — pull one into a chat'}
+                </span>
+              )}
+            </div>
+            <div className="flex-1 min-h-0 flex">
+              {hubPane === 'tasks' && tasksPage}
+              {hubPane === 'agents' && agentsCanvas}
+              {hubPane === 'library' && libraryPage}
+            </div>
+          </div>
+        )}
 
         {/* arena — every agent on the same tasks, one ranked board */}
         {view === 'arena' && (
@@ -3282,79 +3786,9 @@ export default function Home() {
           </div>
         )}
 
-        {/* visual agent builder */}
-        {view === 'builder' && (
-          <div className="flex-1 min-h-0">
-            <Builder
-              key={builderAgent || 'new'}
-              initialAgent={builderAgent}
-              onUseAgent={(name, memoryIds) => {
-                selectAgent(name)
-                if (memoryIds.length) {
-                  setMemSel(memoryIds)
-                  try { localStorage.setItem('agent_mem_sel', JSON.stringify(memoryIds)) } catch {}
-                }
-                setView('console')
-                if (dock === 'min') setDockPersist('normal')
-                setTimeout(() => inputRef.current?.focus(), 60)
-              }}
-              onAgentsChanged={() => { fetchAgents(auth?.token); libChanged() }}
-              onManageKey={(p) => { setKeyPanelProvider(p); setShowKeyPanel(true) }}
-              keyVersion={keyVersion}
-              token={auth?.token}
-              isHost={isHost}
-              onSignIn={signIn}
-            />
-          </div>
-        )}
-
-        {/* library market view */}
-        {view === 'library' && (
-          <div className="flex-1 min-h-0">
-            <Library
-              onUsePrompt={(text) => {
-                setView('console')
-                setQuery(text)
-                if (dock === 'min') setDockPersist('normal')
-                setTimeout(() => inputRef.current?.focus(), 60)
-              }}
-              onSelectAgent={(name) => {
-                selectAgent(name)
-                setView('console')
-                if (dock === 'min') setDockPersist('normal')
-                setTimeout(() => inputRef.current?.focus(), 60)
-              }}
-              onSelectPrompt={(item) => {
-                selectPrompt({ id: item.id, name: item.name, description: item.description || '',
-                  body: item.body || '', tags: item.tags || [],
-                  owner: item.owner ?? null, owner_source: (item.owner_source ?? null) as OwnerSource })
-                setView('console')
-                if (dock === 'min') setDockPersist('normal')
-                setTimeout(() => inputRef.current?.focus(), 60)
-              }}
-              onUseMemory={(id) => {
-                toggleNote(id)
-                setView('console')
-                if (dock === 'min') setDockPersist('normal')
-                setTimeout(() => inputRef.current?.focus(), 60)
-              }}
-              onUseTool={(id) => {
-                setToolSel(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id])
-                setView('console')
-                if (dock === 'min') setDockPersist('normal')
-                setTimeout(() => inputRef.current?.focus(), 60)
-              }}
-              onAgentsChanged={() => { fetchAgents(auth?.token); libChanged() }}
-              onSignIn={signIn}
-              auth={auth}
-              host={owner}
-            />
-          </div>
-        )}
-
         {/* console: chats + agents rail on one side, the market on the other,
             console docked at the bottom */}
-        {view === 'console' && (
+        {view === 'chat' && (
           sidebarSide === 'left'
             ? <>{railPanel}{workspace}{marketPanel}</>
             : <>{marketPanel}{workspace}{railPanel}</>
@@ -3518,10 +3952,10 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
         </div>
 
         {/* provider tabs */}
-        <div className="px-5 pt-3 flex items-center gap-1.5">
+        <div className="tab-strip px-5 pt-3 gap-1.5">
           {tabs.map(p => (
             <button key={p} onClick={() => setTab(p)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition border ${
+              className={`tab-btn px-3 py-1.5 rounded-lg font-medium transition border ${
                 tab === p
                   ? 'bg-emerald-500/12 border-emerald-500/35 text-emerald-200'
                   : 'bg-white/[0.03] border-white/[0.07] text-gray-500 hover:text-gray-300 hover:border-white/20'
@@ -3545,6 +3979,18 @@ function KeyPanel({ initialProvider, onClose, onSaved }: {
                     {typeof info.balance === 'number' ? `$${info.balance.toFixed(2)}` : '—'}
                   </span>
                   <span className="text-[10px] text-gray-600 uppercase tracking-wider">remaining</span>
+                  {/* an empty key is the usual reason a run just failed —
+                      the place to fix it belongs next to the number */}
+                  {PROVIDER_META[tab]?.topUpUrl && (
+                    <a href={PROVIDER_META[tab].topUpUrl} target="_blank" rel="noreferrer"
+                      className={`text-[10px] px-1.5 py-0.5 rounded border transition ${
+                        typeof info.balance === 'number' && info.balance <= 0
+                          ? 'border-amber-500/40 text-amber-200 hover:bg-amber-500/10'
+                          : 'border-white/10 text-gray-500 hover:text-gray-300 hover:border-white/20'
+                      }`}>
+                      top up ↗
+                    </a>
+                  )}
                   <span className="ml-auto flex items-center gap-1">
                     {info.encrypted && (
                       <span className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded font-mono uppercase tracking-wider border ${

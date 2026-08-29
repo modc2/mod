@@ -199,8 +199,10 @@ def verify_now(payload: Dict[str, Any] = Body(...)):
 def prove(payload: Dict[str, Any] = Body(...)):
     """Make a proof, for the systems whose prover fits in this module.
 
-    schnorr, dleq and merkle are a hash and a couple of multiplications, so they
-    are proved here. The snark systems need a proving key and a compiled
+    schnorr, dleq, pedersen and merkle are a hash and a couple of
+    multiplications, so they are proved here — which is every system on this box
+    whose prover does not need a trusted setup, and it means the PROVE tab can
+    make a listing for each of them. The snark systems need a proving key and a compiled
     circuit; send them as base64 (`zkey`, `wasm`) with the witness `inputs` and
     snarkjs does the work.
     """
@@ -215,6 +217,9 @@ def prove(payload: Dict[str, Any] = Body(...)):
             made = native.prove_merkle(payload['leaves'], int(payload.get('index', 0)),
                                        payload.get('hash', 'sha256'),
                                        bool(payload.get('sorted', False)))
+        elif system == 'pedersen':
+            made = native.prove_pedersen(payload['value'], payload.get('blinding'),
+                                         payload.get('context', ''), payload.get('H'))
         elif system in ('groth16', 'plonk', 'fflonk'):
             import base64
             zkey = payload.get('zkey')
@@ -228,7 +233,8 @@ def prove(payload: Dict[str, Any] = Body(...)):
             made['statement'] = snarkjs.export_vkey(zkey_bytes)
         else:
             raise HTTPException(400, f'cannot prove {system!r} here — '
-                                     'schnorr, dleq, merkle, groth16, plonk, fflonk')
+                                     'schnorr, dleq, pedersen, merkle, '
+                                     'groth16, plonk, fflonk')
     except HTTPException:
         raise
     except Exception as e:

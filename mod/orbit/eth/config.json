@@ -1,6 +1,457 @@
 {
     "name": "eth",
-    "description": "eth",
-    "version": "0.1.0",
-    "schema": "QmP8EtPXwpMxkmrbc55ea4iDbscuR5HYrfH5pxtKuQvkGD"
+    "version": "1.0.0",
+    "description": "Write, test, share and deploy Ethereum smart contracts \u2014 a Solidity bench with a real editor, projects stored in the store module and identified by CID (sharing a contract is handing somebody a CID), a test runner that deploys to a testnet and asserts against real receipts, plus keystore accounts, balances, transfers, ERC-20s and event logs across 14 EVM chains. One engine behind four faces: a console, a REST API, a CLI and 42 MCP tools. Compiles with solc it finds or fetches, records every ABI against its address, and refuses to spend on a non-testnet chain without an explicit confirm.",
+    "icon": "\u29eb",
+    "anchor": "mod.py",
+    "protocol": "eth/1.0",
+    "port": 50730,
+    "app_port": 50731,
+    "base_path": "/eth",
+    "route": true,
+    "urls": {
+        "api": "http://localhost:50730",
+        "app": "http://localhost:50731/eth",
+        "same_origin_api": "http://localhost:50731/eth/_api",
+        "mcp": "http://localhost:50730/mcp",
+        "gateway_api": "https://modc2.com/api/eth",
+        "gateway_app": "https://modc2.com/eth",
+        "gateway_mcp": "https://modc2.com/api/eth/mcp"
+    },
+    "backend": "api/api.py (FastAPI \u2014 the API, :50730)",
+    "frontend": "app/server.py (stdlib \u2014 the console at /eth on :50731; proxies /eth/_api to the API)",
+    "auth": "mod-protocol",
+    "deps": [
+        "auth",
+        "store"
+    ],
+    "engine": {
+        "chains.py": "the network registry \u2014 14 built-in EVM chains, owner-added ones, env overrides",
+        "wallet.py": "keystore-v3 accounts namespaced by the signing address; bounded in-memory unlocks",
+        "compiler.py": "solc over standard JSON \u2014 found on the box or fetched and checksummed",
+        "catalog.py": "the nine shipped contract templates, described from their own source",
+        "ledger.py": "sqlite: deployments, attached ABIs, and every transaction this module sent",
+        "ops.py": "the chain operations themselves \u2014 every face calls these",
+        "store_link.py": "the bridge to the store module \u2014 every call carries the CALLER'S token, so the store's whitelist, quota and terms apply to whoever asked",
+        "projects.py": "contract projects: bytes to the store (a CID per version), an index here",
+        "harness.py": "the test runner \u2014 deploy to a chain, send real transactions, assert on what came back"
+    },
+    "fns": [
+        "forward",
+        "status",
+        "whoami",
+        "networks",
+        "network_add",
+        "network_remove",
+        "accounts",
+        "account",
+        "import_account",
+        "export_account",
+        "delete_account",
+        "unlock",
+        "lock",
+        "sign",
+        "verify",
+        "balance",
+        "portfolio",
+        "block",
+        "tx",
+        "wait",
+        "gas",
+        "nonce",
+        "code",
+        "logs",
+        "estimate",
+        "call",
+        "send",
+        "send_raw",
+        "templates",
+        "compile",
+        "deploy",
+        "contracts",
+        "contract",
+        "attach",
+        "read",
+        "write",
+        "token",
+        "transfer",
+        "approve",
+        "history",
+        "mcp",
+        "mcp_tools",
+        "mcp_call",
+        "serve",
+        "stop",
+        "app",
+        "api",
+        "readme",
+        "projects",
+        "project",
+        "save",
+        "share",
+        "unshare",
+        "open",
+        "fork",
+        "forget_project",
+        "store",
+        "store_terms",
+        "test",
+        "generate_tests",
+        "tests",
+        "report"
+    ],
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness probe"
+        },
+        "/status": {
+            "method": "GET",
+            "auth": "optional",
+            "docs": "Default network reachability, solc versions, templates, auth mode, and the caller's accounts when a token is sent"
+        },
+        "/me": {
+            "method": "GET",
+            "auth": true,
+            "docs": "Caller address, owner flag, accounts, live unlocks and index counts"
+        },
+        "/endpoints": {
+            "method": "GET",
+            "auth": false,
+            "docs": "This table"
+        },
+        "/networks": {
+            "method": "GET/POST/DELETE",
+            "auth": "GET none; POST/DELETE owner",
+            "docs": "The chain registry; ?check=1 pings each. POST adds a custom rpc, DELETE removes one"
+        },
+        "/accounts": {
+            "method": "GET/POST",
+            "auth": true,
+            "docs": "GET your accounts; POST creates one (or imports with `secret`)"
+        },
+        "/accounts/{name}": {
+            "method": "DELETE",
+            "auth": true,
+            "docs": "Delete a keystore (needs confirm=true)"
+        },
+        "/accounts/{name}/unlock": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Hold the key in memory for a bounded ttl"
+        },
+        "/accounts/{name}/lock": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Forget it now"
+        },
+        "/accounts/{name}/export": {
+            "method": "POST",
+            "auth": true,
+            "docs": "The raw private key \u2014 password plus confirm=true"
+        },
+        "/accounts/{name}/keystore": {
+            "method": "POST",
+            "auth": true,
+            "docs": "The encrypted keystore file, safe to back up"
+        },
+        "/sign": {
+            "method": "POST",
+            "auth": true,
+            "docs": "EIP-191 personal_sign with one of your accounts"
+        },
+        "/verify": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Recover the address behind a message signature"
+        },
+        "/balance": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Native or ERC-20 balance of an address, account name or ENS name"
+        },
+        "/portfolio": {
+            "method": "GET",
+            "auth": true,
+            "docs": "Your accounts across several chains at once"
+        },
+        "/block": {
+            "method": "GET",
+            "auth": false,
+            "docs": "A block by number, hash or tag"
+        },
+        "/tx": {
+            "method": "GET",
+            "auth": false,
+            "docs": "A transaction and its receipt (?wait=1 to block until mined)"
+        },
+        "/gas": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Base fee, tip, max fee and what a plain transfer costs right now"
+        },
+        "/nonce": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Pending and confirmed nonce for an address"
+        },
+        "/code": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Is there a contract there, and is its ABI known"
+        },
+        "/logs": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Event logs, decoded when the ABI is known"
+        },
+        "/estimate": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Gas and cost for a transaction, without sending it"
+        },
+        "/call": {
+            "method": "POST",
+            "auth": false,
+            "docs": "eth_call with raw calldata"
+        },
+        "/send": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Send the native currency; confirm=true required off a testnet"
+        },
+        "/send/raw": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Broadcast a transaction signed elsewhere"
+        },
+        "/templates": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The nine shipped contracts; /templates/{name} for ABI, constructor and source"
+        },
+        "/compile": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Solidity in, ABI + bytecode out. Nothing is sent anywhere"
+        },
+        "/deploy": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Compile and deploy in one step; the ABI is recorded against the address"
+        },
+        "/contracts": {
+            "method": "GET/POST",
+            "auth": true,
+            "docs": "GET your deployments and attached ABIs; POST attaches an ABI to an address"
+        },
+        "/contracts/{address}": {
+            "method": "GET/DELETE",
+            "auth": "optional",
+            "docs": "GET the interface (reads, writes, events); DELETE forgets the row"
+        },
+        "/contracts/{address}/read": {
+            "method": "POST",
+            "auth": false,
+            "docs": "A view call"
+        },
+        "/contracts/{address}/write": {
+            "method": "POST",
+            "auth": true,
+            "docs": "A state-changing call; confirm=true required off a testnet"
+        },
+        "/tokens/{address}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "ERC-20 metadata, plus a holder balance with ?holder="
+        },
+        "/tokens/{address}/transfer": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Move ERC-20 tokens"
+        },
+        "/tokens/{address}/approve": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Set an ERC-20 allowance ('max' for unlimited)"
+        },
+        "/history": {
+            "method": "GET",
+            "auth": true,
+            "docs": "Every transaction this module sent for you, and how each ended"
+        },
+        "/mcp": {
+            "method": "GET/POST",
+            "auth": "GET none; POST per tool",
+            "docs": "MCP. GET is the whole schema as a document; POST is the Streamable HTTP JSON-RPC 2.0 transport"
+        },
+        "/mcp/tools": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Just the tools: name, description, inputSchema, annotations, auth"
+        },
+        "/mcp/config": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Client config for this deployment, with the url as the caller reached it"
+        },
+        "/projects": {
+            "method": "GET/POST",
+            "auth": true,
+            "docs": "GET your contract projects (with the store's view of you); POST creates one \u2014 the bytes go to the store and the CID comes back. `origin_cid` on the body records the CID a copy came from"
+        },
+        "/projects/{project}": {
+            "method": "GET/PUT/DELETE",
+            "auth": true,
+            "docs": "One project by id, slug or CID. PUT saves a new version (a new CID; the old one still resolves). DELETE drops it here, and from the store only with ?from_store=true"
+        },
+        "/projects/{project}/share": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Publish it in the store. The CID is the share link"
+        },
+        "/projects/{project}/unshare": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Make it private again \u2014 anyone already holding the CID keeps what they fetched"
+        },
+        "/open": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Read a shared project out of the store by CID. No account needed for a public one"
+        },
+        "/fork": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Copy a shared project into your own workspace, recording where it came from"
+        },
+        "/store": {
+            "method": "GET",
+            "auth": "optional",
+            "docs": "Where storage stands for you: is the store up, may you upload, have you signed its terms, quota left"
+        },
+        "/store/terms": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Sign-accept the store's terms with your own token"
+        },
+        "/test": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Deploy to a chain and run a suite against it \u2014 real transactions, real receipts. Refuses a non-testnet without confirm=true. The report is stored and gets a CID"
+        },
+        "/test/generate": {
+            "method": "POST",
+            "auth": false,
+            "docs": "A starter suite read off the ABI \u2014 every zero-argument getter, no invented expectations"
+        },
+        "/tests": {
+            "method": "GET",
+            "auth": true,
+            "docs": "Past test runs"
+        },
+        "/tests/{run_id}": {
+            "method": "GET",
+            "auth": true,
+            "docs": "One run in full \u2014 every case and the hash behind each write"
+        }
+    },
+    "safety": {
+        "mainnet": "any write on a chain with testnet=false is refused unless the request carries confirm=true \u2014 an argument, not a setting",
+        "estimation": "every write is gas-estimated first, so a transaction that would revert is never broadcast",
+        "keys": "keystore-v3, scrypt, namespaced by the signing address; usable only while unlocked or when the password is supplied",
+        "scoping": "accounts and the deployment index are private per address; an ABI looked up by address is not, because an interface is public"
+    },
+    "networks": [
+        "local (anvil/hardhat :8545)",
+        "mainnet",
+        "sepolia",
+        "holesky",
+        "base",
+        "base-sepolia",
+        "optimism",
+        "op-sepolia",
+        "arbitrum",
+        "arbitrum-sepolia",
+        "polygon",
+        "polygon-amoy",
+        "bsc",
+        "avalanche"
+    ],
+    "templates": [
+        "counter",
+        "token",
+        "nft",
+        "storage",
+        "anchor",
+        "vault",
+        "escrow",
+        "splitter",
+        "multisig"
+    ],
+    "mcp": {
+        "protocol": "2025-06-18 (also speaks 2025-03-26 and 2024-11-05)",
+        "transports": {
+            "http": "POST /mcp on the API \u2014 schema at GET /mcp",
+            "stdio": "python3 mcp.py \u2014 runs as this box's own identity"
+        },
+        "auth": "the caller's mod-protocol token as Authorization: Bearer; every read tool needs none",
+        "tools": [
+            "eth_status",
+            "eth_networks",
+            "eth_balance",
+            "eth_portfolio",
+            "eth_block",
+            "eth_tx",
+            "eth_gas",
+            "eth_code",
+            "eth_nonce",
+            "eth_logs",
+            "eth_estimate",
+            "eth_accounts",
+            "eth_new_account",
+            "eth_import_account",
+            "eth_unlock",
+            "eth_lock",
+            "eth_sign",
+            "eth_send",
+            "eth_deploy",
+            "eth_write",
+            "eth_read",
+            "eth_contract",
+            "eth_contracts",
+            "eth_attach",
+            "eth_templates",
+            "eth_compile",
+            "eth_token",
+            "eth_transfer",
+            "eth_approve",
+            "eth_history"
+        ]
+    },
+    "env": {
+        "ETH_DIR": "State dir: accounts, sqlite index, solc cache, networks (default ~/.mod/eth)",
+        "ETH_NETWORK": "Default network name (default 'local')",
+        "ETH_RPC_<NAME>": "Override one chain's rpc, e.g. ETH_RPC_MAINNET=https://\u2026/v2/<key>",
+        "ETH_RPC_TIMEOUT": "Seconds to wait on an rpc call (default 30)",
+        "ETH_PRIVATE_KEY": "A key exposed as the account 'env' \u2014 for a headless box that is deliberately trusted",
+        "ETH_MAX_UNLOCK": "Ceiling on an unlock ttl in seconds (default 900)",
+        "ETH_SOLC_DOWNLOAD": "0 = never fetch a compiler; only use what is on the box",
+        "ETH_SOLC_TIMEOUT": "Seconds a compile may take (default 180)",
+        "ETH_WAIT_TIMEOUT": "Default seconds to wait for a receipt (default 180)",
+        "ETH_API_PORT": "API port (default 50730)",
+        "ETH_APP_PORT": "Console port (default 50731)",
+        "ETH_OPEN": "1 = treat every caller as one local identity (local development only)",
+        "ETH_OWNER": "Fallback owner address when ~/.mod/eth/owner.json is absent"
+    },
+    "state": "~/.mod/eth \u2014 accounts/ (keystore v3), eth.db (sqlite), networks.json, owner.json, solc/",
+    "schema": "QmTDcn1WnYV8wBoAXCmPiXTjCGbqwqcRRfYC3fytfZDKFP",
+    "storage": {
+        "module": "store",
+        "what": "project bundles (sources + suites) and every test report, as JSON objects addressed by CID",
+        "auth": "the caller's own mod-protocol token, forwarded verbatim \u2014 this module holds no store credentials and cannot reach an object the caller could not",
+        "fallback": "a project the store refuses is still kept in the local index with its bytes cached; it has no CID and cannot be shared until the store accepts it",
+        "url_env": "ETH_STORE_URL (default http://127.0.0.1:50152)"
+    }
 }

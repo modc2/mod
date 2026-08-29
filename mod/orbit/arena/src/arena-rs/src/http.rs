@@ -1,12 +1,13 @@
-//! HTTP surface: MCP Streamable HTTP at /mcp, REST adapters that dispatch
-//! through the same MCP tool layer, the blob endpoint the execution layer
-//! fetches modules from, and the console.
+//! HTTP surface: MCP Streamable HTTP at /mcp, one more MCP server per stored
+//! module at /m/<name>/mcp, REST adapters that dispatch through the same tool
+//! layer, the blob and wasm endpoints the execution layer fetches modules
+//! from, and the console.
 //!
 //! Behind the fleet router the API is reachable at /api/arena (prefix
 //! stripped) and the console at /arena (prefix kept), so both are served here
 //! and one console works in both places.
 
-use crate::{arena, mcp};
+use crate::{arena, mcp, mcpout, modmcp, rustc, store, storelink};
 use axum::{
     body::Body,
     extract::{Path, Query, Request},
@@ -22,12 +23,23 @@ use tower_http::cors::CorsLayer;
 const CONSOLE_HTML: &str = include_str!("console.html");
 
 /// The execution layer, served to the browser from the same binary that
-/// stores the modules — so a tab needs nothing but this port.
-const RUNTIME: [(&str, &str); 4] = [
+/// stores the modules — so a tab needs nothing but this port. `pyhost.mjs` and
+/// `host.py` are here to be read rather than imported: a tab cannot start a
+/// python process, and serving them is how the console can show what the
+/// sandbox a class runs in actually does.
+const RUNTIME: [(&str, &str); 9] = [
     ("host.mjs", include_str!("../../runtime/host.mjs")),
     ("abi.mjs", include_str!("../../runtime/abi.mjs")),
     ("match.mjs", include_str!("../../runtime/match.mjs")),
     ("worker.mjs", include_str!("../../runtime/worker.mjs")),
+    ("mcpsync.mjs", include_str!("../../runtime/mcpsync.mjs")),
+    ("pyhost.mjs", include_str!("../../runtime/pyhost.mjs")),
+    ("syncfetch.mjs", include_str!("../../runtime/syncfetch.mjs")),
+    ("host.py", include_str!("../../runtime/host.py")),
+    // Not imported by anything in a tab — served so the console can show what
+    // a Rust class is actually compiled against, which is the only honest way
+    // to document a prelude.
+    ("prelude.rs", include_str!("../../rustclass/prelude.rs")),
 ];
 
 fn info() -> Value {
@@ -38,17 +50,19 @@ fn info() -> Value {
     v["endpoints"] = json!({
         "mcp": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
         "modules": "GET /modules | POST /modules | GET /modules/:id | DELETE /modules/:id",
+        "classes": "GET /classes — the Python classes | POST /classes {source} — upload one as text",
         "blob": "GET /blob/:id — the module bytes, immutable (the id is their hash)",
-        "inspect": "POST /inspect {bytes}",
+        "inspect": "POST /inspect {bytes|text}",
         "players": "GET /players | POST /players | GET /players/:id | DELETE /players/:id",
         "play": "POST /play {player, view, seat} — one move from a server-driven player",
         "matches": "GET /matches | POST /matches (record one) | GET /matches/:id",
         "run": "POST /run {game, players[]} — play one headlessly via the node runner",
         "leaderboard": "GET /leaderboard?game=",
-        "abi": "GET /abi?role=game — the contract a module implements",
-        "runtime": "GET /runtime/host.mjs — the execution layer itself",
+        "abi": "GET /abi?role=game&lang=wasm|class — the contract a module implements",
+        "runtime": "GET /runtime/host.mjs — the execution layer itself, host.py included",
         "forward": "POST /forward {action, ...args}",
         "tools": "GET /tools",
+        "store": "GET /store — the bridge to the store module | POST /store/sync {force?, verify?}",
         "console": "GET /arena (browser)"
     });
     v["stdio"] = json!("arena-api --stdio");
@@ -101,12 +115,27 @@ async fn list_modules(Query(q): Query<HashMap<String, String>>) -> Response {
     via_tool("list_modules", json!(q)).await
 }
 
+/// The class half of the registry. Exactly `/modules?lang=python`, named for
+/// what people come looking for.
+async fn list_classes(Query(q): Query<HashMap<String, String>>) -> Response {
+    let mut args = json!(q);
+    args["lang"] = json!("python");
+    via_tool("list_modules", args).await
+}
+
 async fn put_module(Json(body): Json<Value>) -> Response {
     via_tool("put_module", body).await
 }
 
-async fn get_module(Path(id): Path<String>) -> Response {
-    via_tool("get_module", json!({ "module": id })).await
+/// A class, as text — the same store, without making anyone base64 a file
+/// they are looking at in an editor.
+async fn put_class(Json(body): Json<Value>) -> Response {
+    via_tool("put_class", body).await
+}
+
+async fn get_module(Path(id): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
+    let with_source = q.get("source").map(|v| v != "0" && v != "false").unwrap_or(true);
+    via_tool("get_module", json!({ "module": id, "source": with_source })).await
 }
 
 async fn delete_module(Path(id): Path<String>) -> Response {
@@ -119,11 +148,120 @@ async fn inspect(Json(body): Json<Value>) -> Response {
 
 /// The bytes. Content-addressed, so this can be cached forever — the id
 /// changing *is* the invalidation.
+/// The wasm a module runs as. For a Rust class this compiles it, which is
+/// slow exactly once — the artefact is cached under the id, and the id is the
+/// hash of the source, so the cache cannot go stale.
+async fn wasm(Path(id): Path<String>) -> Response {
+    // A compile is CPU work with a process in it; off the async runtime it
+    // goes, or one slow class stalls every other request on this server.
+    let out = tokio::task::spawn_blocking(move || arena::compiled(&id))
+        .await
+        .unwrap_or_else(|e| Err(format!("the compile task failed: {e}")));
+    match out {
+        Ok((id, bytes)) => (
+            [
+                (header::CONTENT_TYPE, "application/wasm".to_string()),
+                (header::CACHE_CONTROL, "public, max-age=31536000, immutable".to_string()),
+                (header::ETAG, format!("\"{id}\"")),
+            ],
+            Body::from(bytes),
+        )
+            .into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// The outward door, as an endpoint. Both sandboxes end here — the wasm one
+/// through a spawned synchronous fetch, the python one through its line
+/// protocol — and so can anything else that would rather have this arena make
+/// a call than make it itself.
+async fn mcp_call(Json(body): Json<Value>) -> Response {
+    Json(mcpout::call(&body).await).into_response()
+}
+
+async fn mcp_servers() -> Json<Value> {
+    Json(mcpout::list())
+}
+
+/// One module's own MCP server. Same JSON-RPC, a different and much smaller
+/// world: this game, or this agent, and nothing else in the arena.
+async fn module_mcp(Path(name): Path<String>, Json(msg): Json<Value>) -> Response {
+    match modmcp::handle_message(&name, &msg).await {
+        Some(reply) => Json(reply).into_response(),
+        None => StatusCode::ACCEPTED.into_response(),
+    }
+}
+
+async fn module_card(Path(name): Path<String>) -> Response {
+    match modmcp::call_tool(&name, "about", &json!({})).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn module_tools(Path(name): Path<String>) -> Response {
+    match modmcp::module_of(&name) {
+        Ok(m) => Json(json!({
+            "module": m.name, "role": m.role,
+            "mcp": format!("{}/m/{}/mcp", mcp::base(), m.name),
+            "tools": modmcp::tools_for(&m.role),
+        }))
+        .into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// Every module, with the endpoint and the mod name each one answers to. The
+/// index for the whole "one module, one server, one mod" idea.
+async fn servers() -> Json<Value> {
+    let base = mcp::base();
+    let list = store::read(|s| {
+        s.module_list()
+            .into_iter()
+            .map(|m| {
+                json!({
+                    "name": m.name,
+                    "role": m.role,
+                    "lang": m.lang(),
+                    "id": m.short(),
+                    "description": m.description,
+                    "mod": format!("arena.{}", m.name),
+                    "mcp": format!("{base}/m/{}/mcp", m.name),
+                    "tools": modmcp::tools_for(&m.role).as_array()
+                        .map(|a| a.iter().filter_map(|t| t["name"].as_str())
+                            .collect::<Vec<_>>()).unwrap_or_default(),
+                })
+            })
+            .collect::<Vec<_>>()
+    });
+    Json(json!({
+        "count": list.len(),
+        "arena": format!("{base}/mcp"),
+        "servers": list,
+        "how": "every stored module is also an MCP server of its own and a mod of its own \
+                under orbit/arena/mods/. `m arena/mint` writes the directories; the servers \
+                are here whether or not anybody minted anything.",
+    }))
+}
+
+async fn toolchain() -> Json<Value> {
+    Json(rustc::toolchain())
+}
+
 async fn blob(Path(id): Path<String>) -> Response {
     match arena::module_bytes(&id) {
         Ok((id, bytes)) => (
             [
-                (header::CONTENT_TYPE, "application/wasm".to_string()),
+                (
+                    header::CONTENT_TYPE,
+                    // The bytes say which they are, the same way the registry
+                    // decided what to call them in the first place.
+                    if bytes.starts_with(b"\0asm") {
+                        "application/wasm".to_string()
+                    } else {
+                        "text/plain; charset=utf-8".to_string()
+                    },
+                ),
                 (header::CACHE_CONTROL, "public, max-age=31536000, immutable".to_string()),
                 (header::ETAG, format!("\"{id}\"")),
             ],
@@ -192,6 +330,14 @@ async fn plant() -> Response {
     via_tool("plant_examples", json!({})).await
 }
 
+async fn store_status() -> Response {
+    via_tool("store_status", json!({})).await
+}
+
+async fn store_sync(body: Option<Json<Value>>) -> Response {
+    via_tool("store_sync", body.map(|Json(v)| v).unwrap_or_else(|| json!({}))).await
+}
+
 /// Generic escape hatch — any tool by name, the same shape as the mod
 /// protocol's `forward`.
 async fn forward(Json(mut body): Json<Value>) -> Response {
@@ -213,8 +359,15 @@ async fn health() -> Json<Value> {
 
 async fn runtime_file(Path(name): Path<String>) -> Response {
     match RUNTIME.iter().find(|(n, _)| *n == name) {
-        Some((_, body)) => (
-            [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        Some((n, body)) => (
+            [(
+                header::CONTENT_TYPE,
+                if n.ends_with(".py") {
+                    "text/plain; charset=utf-8"
+                } else {
+                    "text/javascript; charset=utf-8"
+                },
+            )],
             *body,
         )
             .into_response(),
@@ -241,8 +394,30 @@ fn api_routes() -> Router {
             }),
         )
         .route("/modules", get(list_modules).post(put_module))
+        .route("/classes", get(list_classes).post(put_class))
         .route("/modules/:id", get(get_module).delete(delete_module))
         .route("/blob/:id", get(blob))
+        .route("/wasm/:id", get(wasm))
+        .route("/toolchain", get(toolchain))
+        .route("/store", get(store_status))
+        .route("/store/sync", post(store_sync))
+        .route("/mcp/call", post(mcp_call))
+        .route("/mcp/servers", get(mcp_servers))
+        .route("/servers", get(servers))
+        .route("/m/:name", get(module_card))
+        .route("/m/:name/tools", get(module_tools))
+        .route(
+            "/m/:name/mcp",
+            post(module_mcp).get(|Path(name): Path<String>| async move {
+                (
+                    StatusCode::METHOD_NOT_ALLOWED,
+                    Json(json!({
+                        "error": format!("POST JSON-RPC messages to /m/{name}/mcp"),
+                        "tools": format!("GET /m/{name}/tools to see what it offers"),
+                    })),
+                )
+            }),
+        )
         .route("/inspect", post(inspect))
         .route("/players", get(list_players).post(enter_player))
         .route("/players/:id", get(get_player).delete(remove_player))
@@ -265,6 +440,9 @@ pub async fn serve(port: u16) {
         "arena: {} example module(s) in the registry",
         planted["planted"].as_u64().unwrap_or(0)
     );
+    // From here on an upload pushes itself to the store; what was planted
+    // before now, and anything older without a cid, goes in one pass.
+    storelink::backfill_later();
 
     let app = Router::new()
         .route("/", get(root))

@@ -4,14 +4,14 @@ networks:
     name: modnet
 
 services:
-  build:
+  build-fork:
     build:
       context: .
       args:
         BUILD_FORK_CID: "${BUILD_FORK_CID:-}"
         BUILD_FORK_TIME: "${BUILD_FORK_TIME:-}"
-    container_name: build
-    image: build:latest
+    container_name: build-fork
+    image: build-fork:latest
     ports:
       - "8895:8895"
     restart: unless-stopped

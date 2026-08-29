@@ -13,9 +13,26 @@ actually finished", efficiency is how much of the step budget it left unspent.
 Agents are then rated against each other pairwise, per task, with Elo (K split
 across the field), so the board ranks them instead of listing percentages.
 
-Tasks come from the eval registry next door — an eval task is an arena task,
-with `checks` (substrings) or `scorers` (scorer specs) saying what passing
-means, and an optional `setup.files` map seeded into the scratch dir first.
+Tasks come from three places. The eval registry next door ships suites of them —
+an eval task is an arena task, with `checks` (substrings) or `scorers` (scorer
+specs) saying what passing means, and an optional `setup.files` map seeded into
+the scratch dir first. The next are written by hand in the Builder and kept in
+tasks.json here; they carry the address that wrote them and play in the same
+rounds, under the suite name `custom`.
+
+The third are the openarena module's, under the suite `openarena` — a statement
+plus graded test cases, some of them hidden, where what is scored is the program
+the agent wrote rather than the trace it left. Those are graded by openarena's
+own sandbox (see openarena.py next to this file): the same task, the same
+hidden cases and the same judge its own competitors face, so a rating earned
+here means the same thing there.
+
+The board ranks agents. The same match log answers a second question — which
+*model* was underneath, what it scored, how long it took and what it burned —
+and models.py next to this file reads it back that way. A round plays one model
+across the whole field, so that board is a record of one model until somebody
+runs a gauntlet: the same agent, the same tasks, one model after another, which
+is the only shape that makes "this model beat that one" mean anything.
 
 Two things run without anyone asking, both in Scheduler (a daemon thread the
 API starts at boot):
@@ -29,10 +46,13 @@ rating table in state.json, and every match as a line of matches.jsonl.
 Usage:
     arena = Arena(runner=mod.arena_run, agents=mod.agents)
     arena.tasks()                       # the task pool
+    arena.add_task({...}, owner="0x..")  # a hand-written task joins the pool
     arena.run_match("builder", "code/python#0")
     arena.run_round(reason="manual")    # everyone x the round's tasks
+    arena.run_gauntlet(["a", "b"])      # one agent, one task set, N models
     arena.qualify("mynewagent")         # newcomer vs the incumbents
     arena.leaderboard()                 # ranked board
+    arena.model_board()                 # the same matches, ranked by model
     arena.forward()                     # mod protocol entry point
 """
 import json
@@ -46,14 +66,20 @@ from typing import Any, Callable, Dict, List, Optional
 
 try:
     from src.evals.mod import Evals
-    from src.evals.scorers import run_scorer, steps_of
+    from src.evals.scorers import run_scorer, steps_of, SCORERS
     from src.agents.mod import Agents
+    from src.arena import openarena as oa
+    from src.arena import drills as dr
+    from src.arena import models as mb
 except ImportError:  # running the arena standalone
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from src.evals.mod import Evals
-    from src.evals.scorers import run_scorer, steps_of
+    from src.evals.scorers import run_scorer, steps_of, SCORERS
     from src.agents.mod import Agents
+    from src.arena import openarena as oa
+    from src.arena import drills as dr
+    from src.arena import models as mb
 
 
 # scoring weights — correctness dominates, but a run that errors out or burns
@@ -73,6 +99,13 @@ DEFAULTS = {
     # zero-cost models by default: the board runs itself on a timer, so it
     # must not quietly spend the host's provider credits
     "free": True,
+    # …and on a hosted catalog, because "free" and "local" are different
+    # cheapnesses: a run costs the host nothing either way, but LFM weights on
+    # this box are minutes per step, and a round is dozens of matches. The
+    # module's own default is local (Mod.default_provider); the board says
+    # otherwise on purpose. Set it to `liquidai` for a board that never leaves
+    # the box, or None to follow the module.
+    "provider": "openrouter",
     "model": None,           # None = the agent's own model, then provider default
     "steps": 8,
     "period_hours": 24,
@@ -88,6 +121,21 @@ DEFAULTS = {
     "agents": None,          # None = every eligible agent
     "suites": None,          # None = every eval suite
     "retries": 1,            # a voided match is replayed this many times
+    # the openarena module's tasks, graded by its sandbox (openarena.py)
+    "openarena": True,       # pull them into the pool at all
+    # a 500-task benchmark import is a fine thing to hold and a bad thing to
+    # make every round walk through — newest N join the pool, 0 = all of them
+    "openarena_tasks": 24,
+    # a program task is write-then-check, so it gets more room than `steps`
+    "openarena_steps": oa.DEFAULT_STEPS,
+    # the arena module's drill games (drills.py), graded by its own sandbox
+    "arena": True,           # pull them into the pool at all
+    # how many rounds of each drill, spread across its difficulty ramp. Five
+    # drills x 2 rounds is ten tasks, which is a pool and not a benchmark
+    "arena_rounds": dr.DEFAULT_ROUNDS,
+    "arena_seed": dr.DEFAULT_SEED,
+    # one question, one answer — no file to compile, no test to run
+    "arena_steps": dr.DEFAULT_STEPS,
 }
 
 # how long to wait before replaying a match the provider voided — a free model
@@ -96,9 +144,32 @@ RETRY_PAUSE = 20.0
 
 MAX_MATCH_LINES = 5000
 
+# hand-written tasks: the suite they play under, and the ceilings that keep one
+# author's task from turning every round into an expensive one
+CUSTOM_SUITE = "custom"
+MAX_TASK_PROMPT = 4000     # characters
+MAX_TASK_FILES = 10        # fixture files seeded into the scratch dir
+MAX_TASK_BYTES = 40_000    # total fixture size, characters
+MAX_TASK_SCORERS = 12
+MAX_TASK_STEPS = 30        # every agent on the board plays this budget
+# the keys a scorer spec may carry — anything else is dropped on the way in
+SCORER_FIELDS = ("type", "path", "text", "pattern", "name", "n", "case", "any")
+
 
 def _now() -> float:
     return time.time()
+
+
+# what a bench import/preview may be told, straight through to openarena —
+# everything else in the call (key, action, address) is ours and stays here
+BENCH_OPTS = ("limit", "offset", "url", "dataset", "config", "split", "style",
+              "map", "hide_after", "max_cases", "timeout_ms", "language",
+              "split_asserts", "tags", "slug_prefix", "refresh", "dry_run")
+
+
+def _bench_opts(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: v for k, v in kwargs.items()
+            if k in BENCH_OPTS and v not in (None, "")}
 
 
 def _tokens_of(usage: Dict[str, Any]) -> int:
@@ -202,6 +273,9 @@ class Arena:
 
         Harness agents (Claude Code, Codex) hand the run to a CLI on the host
         with its approval prompts off, so they stay out unless the host opts in.
+        An agent that declares `arena = False` stays out too: the board ranks
+        coding, and an agent built for another job would sit at the bottom of
+        it forever, taking every incumbent's rating with it.
         """
         cfg = self.config()
         picked = cfg.get("agents")
@@ -212,6 +286,8 @@ class Arena:
             except Exception:
                 continue
             if info.get("harness") and not cfg.get("harnesses"):
+                continue
+            if info.get("arena") is False:
                 continue
             names.append(name)
         if picked:
@@ -261,7 +337,7 @@ class Arena:
         }
 
     def tasks(self) -> List[Dict[str, Any]]:
-        """The whole task pool, flattened across eval suites."""
+        """The whole task pool: every eval suite, plus the hand-written ones."""
         cfg = self.config()
         want = cfg.get("suites")
         out = []
@@ -274,12 +350,254 @@ class Arena:
                 continue
             for i, task in enumerate(spec.get("tasks", [])):
                 out.append(self._normalize(suite, i, task))
+        if not want or CUSTOM_SUITE in want:
+            out.extend(self.custom_tasks())
+        if (not want or oa.SUITE in want) and cfg.get("openarena", True):
+            out.extend(self.openarena_tasks())
+        if (not want or dr.SUITE in want) and cfg.get("arena", True):
+            out.extend(self.arena_tasks())
         return out
+
+    # ── arena drills (the other arena, graded by its own sandbox) ──
+
+    def arena_tasks(self) -> List[Dict[str, Any]]:
+        """The arena module's drills as arena tasks. Never raises: a neighbour
+        that is down means no drill tasks this round, not a round that fell
+        over."""
+        cfg = self.config()
+        return dr.pool(rounds=int(cfg.get("arena_rounds", dr.DEFAULT_ROUNDS) or 1),
+                       seed=int(cfg.get("arena_seed", dr.DEFAULT_SEED) or 0),
+                       steps=int(cfg.get("arena_steps", dr.DEFAULT_STEPS) or 0) or None)
+
+    def arena_status(self) -> Dict[str, Any]:
+        """Whether the arena is up and which drills it holds. Kept out of
+        status() for the same reason openarena_status is — a dead neighbour
+        must not add its timeout to every poll of this board."""
+        cfg = self.config()
+        out = dict(dr.status())
+        out["enabled"] = bool(cfg.get("arena", True))
+        out["rounds"] = int(cfg.get("arena_rounds", dr.DEFAULT_ROUNDS) or 1)
+        out["seed"] = int(cfg.get("arena_seed", dr.DEFAULT_SEED) or 0)
+        out["steps"] = int(cfg.get("arena_steps", dr.DEFAULT_STEPS) or 0)
+        return out
+
+    # ── openarena tasks (the module next door, graded by its sandbox) ──
+
+    def openarena_tasks(self) -> List[Dict[str, Any]]:
+        """openarena's tasks as arena tasks. Never raises: a neighbour that is
+        down means no openarena tasks this round, not a round that fell over."""
+        cfg = self.config()
+        return oa.pool(limit=int(cfg.get("openarena_tasks", 24) or 0),
+                       steps=int(cfg.get("openarena_steps", oa.DEFAULT_STEPS) or 0)
+                       or None)
+
+    def openarena_status(self) -> Dict[str, Any]:
+        """Whether the neighbour is up and what it holds — one call, for the
+        console. Kept out of status() so a module that is down cannot slow the
+        board's own polling down to its timeout."""
+        cfg = self.config()
+        out = dict(oa.status())
+        out["enabled"] = bool(cfg.get("openarena", True))
+        out["limit"] = int(cfg.get("openarena_tasks", 24) or 0)
+        out["steps"] = int(cfg.get("openarena_steps", oa.DEFAULT_STEPS) or 0)
+        if out.get("available"):
+            try:
+                out["entrants"] = oa.entrants()
+            except Exception:
+                out["entrants"] = []
+            out["pool"] = [{**t["openarena"], "key": t["key"], "title": t["title"],
+                            "steps": t["steps"]}
+                           for t in self.openarena_tasks()]
+        else:
+            out["entrants"], out["pool"] = [], []
+        return out
+
+    # ── hand-written tasks (the Builder's task mode) ───────────────
+    #
+    # A suite is a python file in the tree, which is not something a signed-in
+    # visitor gets to write. These live in a JSON file instead: same shape once
+    # normalized, same rounds, same scoring — but owned, editable and
+    # removable by whoever wrote them.
+
+    @property
+    def _tasks_path(self) -> Path:
+        return self.root / "tasks.json"
+
+    def _load_tasks(self) -> Dict[str, Any]:
+        try:
+            if self._tasks_path.exists():
+                data = json.loads(self._tasks_path.read_text())
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+        return {}
+
+    def _save_tasks(self, data: Dict[str, Any]) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        tmp = self._tasks_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        tmp.replace(self._tasks_path)
+
+    def custom(self) -> List[Dict[str, Any]]:
+        """The stored specs, newest first — what an editor loads."""
+        return sorted(self._load_tasks().values(),
+                      key=lambda t: -float(t.get("updated") or 0))
+
+    def custom_tasks(self) -> List[Dict[str, Any]]:
+        """The stored specs as arena tasks, ready to play."""
+        out = []
+        for spec in self.custom():
+            task = self._normalize(CUSTOM_SUITE, spec["slug"], spec)
+            task["owner"] = spec.get("owner")
+            task["description"] = spec.get("description", "")
+            task["custom"] = True
+            out.append(task)
+        return out
+
+    @staticmethod
+    def slugify(text: str) -> str:
+        out = "".join(c if c.isalnum() else "-" for c in str(text).lower())
+        while "--" in out:
+            out = out.replace("--", "-")
+        return out.strip("-")[:48]
+
+    def validate_task(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        """Check a hand-written task and return it in stored form.
+
+        Everything here is a limit on what one task may cost the host to run:
+        a task is played by every agent on the board, so an unbounded fixture
+        or a 200-step budget is not the author's cost, it's the module's.
+        """
+        title = str(spec.get("title") or "").strip()
+        prompt = str(spec.get("prompt") or "").strip()
+        if not title:
+            raise ValueError("a task needs a title")
+        if len(prompt) < 12:
+            raise ValueError("a task needs a prompt — describe what the agent must do")
+        if len(prompt) > MAX_TASK_PROMPT:
+            raise ValueError(f"prompt is too long (max {MAX_TASK_PROMPT} characters)")
+
+        files = spec.get("setup", {}).get("files") if isinstance(spec.get("setup"), dict) else None
+        files = files or {}
+        if not isinstance(files, dict):
+            raise ValueError("setup.files must be a map of filename -> contents")
+        if len(files) > MAX_TASK_FILES:
+            raise ValueError(f"too many fixture files (max {MAX_TASK_FILES})")
+        clean_files = {}
+        for name, body in files.items():
+            name = str(name).strip().lstrip("/")
+            if not name:
+                continue
+            if ".." in name or name.startswith("~"):
+                raise ValueError(f"fixture path escapes the scratch dir: {name}")
+            clean_files[name] = str(body)
+        if sum(len(v) for v in clean_files.values()) > MAX_TASK_BYTES:
+            raise ValueError(f"fixture files are too big (max {MAX_TASK_BYTES} characters total)")
+
+        scorers = spec.get("scorers") or []
+        if not isinstance(scorers, list) or not scorers:
+            raise ValueError("a task needs at least one check — otherwise every "
+                             "agent scores the same and the match says nothing")
+        if len(scorers) > MAX_TASK_SCORERS:
+            raise ValueError(f"too many checks (max {MAX_TASK_SCORERS})")
+        clean_scorers = []
+        for s in scorers:
+            if not isinstance(s, dict):
+                raise ValueError("each check must be an object with a `type`")
+            kind = str(s.get("type") or "").strip()
+            if kind not in SCORERS:
+                raise ValueError(f"unknown check type: {kind or '(none)'} — "
+                                 f"pick one of {', '.join(sorted(SCORERS))}")
+            clean = {k: v for k, v in s.items() if k in SCORER_FIELDS and v not in (None, "")}
+            clean["type"] = kind
+            if kind.startswith("file_") and not clean.get("path"):
+                raise ValueError(f"{kind} needs a `path`")
+            if kind in ("contains", "regex", "file_contains", "file_not_contains",
+                        "file_regex") and not (clean.get("text") or clean.get("pattern")):
+                raise ValueError(f"{kind} needs `text` or `pattern`")
+            if str(clean.get("path", "")).startswith("/"):
+                raise ValueError("check paths are relative to the scratch dir")
+            clean_scorers.append(clean)
+
+        steps = int(spec.get("steps") or 0) or None
+        if steps is not None:
+            steps = max(1, min(steps, MAX_TASK_STEPS))
+        return {
+            "title": title[:120],
+            "description": str(spec.get("description") or "").strip()[:280],
+            "prompt": prompt,
+            "steps": steps,
+            "setup": {"files": clean_files} if clean_files else {},
+            "scorers": clean_scorers,
+        }
+
+    def add_task(self, spec: Dict[str, Any], owner: str = None,
+                 slug: str = None) -> Dict[str, Any]:
+        """Store a hand-written task. Editing one keeps its key, so the
+        ratings already recorded against it stay attached."""
+        clean = self.validate_task(spec)
+        store = self._load_tasks()
+        # naming the slug is what makes this an edit — a new task that happens
+        # to share a title is a different task, not a replacement for the one
+        # already there (whose author may not even be this caller)
+        requested = slug or spec.get("slug")
+        slug = self.slugify(requested or clean["title"])
+        if not slug:
+            raise ValueError("could not make a key out of that title")
+        existing = store.get(slug) if requested else None
+        if existing is None:
+            # a new task with a taken name gets a suffix rather than silently
+            # overwriting somebody else's
+            base, n = slug, 2
+            while slug in store:
+                slug, n = f"{base}-{n}", n + 1
+        clean.update({
+            "slug": slug,
+            "owner": (existing or {}).get("owner") if existing else (owner or None),
+            "created": (existing or {}).get("created") or _now(),
+            "updated": _now(),
+        })
+        store[slug] = clean
+        self._save_tasks(store)
+        return {**self._normalize(CUSTOM_SUITE, slug, clean),
+                "owner": clean["owner"], "custom": True,
+                "description": clean["description"]}
+
+    def get_custom(self, slug: str) -> Optional[Dict[str, Any]]:
+        return self._load_tasks().get(self.slugify(slug))
+
+    def remove_task(self, slug: str) -> Dict[str, Any]:
+        slug = self.slugify(slug)
+        store = self._load_tasks()
+        if slug not in store:
+            raise KeyError(f"no such task: {slug}")
+        store.pop(slug)
+        self._save_tasks(store)
+        # the ratings keep the task's history: a task can come back, and a
+        # record of a match that was really played is not ours to rewrite
+        return {"removed": f"{CUSTOM_SUITE}#{slug}", "remaining": len(store)}
 
     def task(self, key: str) -> Dict[str, Any]:
         for t in self.tasks():
             if t["key"] == key:
                 return t
+        # an openarena task is playable by name even when the pool is capped
+        # below it: naming one is asking for it, not browsing
+        if str(key).startswith(f"{oa.SUITE}#"):
+            cfg = self.config()
+            slug = str(key).split("#", 1)[1]
+            return oa.as_arena_task(
+                oa.get_task(slug),
+                steps=int(cfg.get("openarena_steps", oa.DEFAULT_STEPS) or 0) or None)
+        # …and the same for a drill round the pool did not happen to include
+        if str(key).startswith(f"{dr.SUITE}#"):
+            cfg = self.config()
+            found = dr.task(str(key),
+                            seed=int(cfg.get("arena_seed", dr.DEFAULT_SEED) or 0),
+                            steps=int(cfg.get("arena_steps", dr.DEFAULT_STEPS) or 0) or None)
+            if found:
+                return found
         raise KeyError(f"task not found: {key}")
 
     def round_tasks(self, n: int = None) -> List[Dict[str, Any]]:
@@ -327,11 +645,19 @@ class Arena:
 
     def score(self, trace, task: Dict[str, Any], workdir: Path,
               limit: int = None) -> Dict[str, Any]:
-        """Score one trace against a task. Pure — no model, no network."""
+        """Score one trace against a task. No model, no judge with an opinion.
+
+        Correctness is the mean of what the checks reported, and a check reports
+        a fraction rather than a verdict when it has one to give: every scorer
+        over the trace and the disk is pass/fail and scores 1 or 0, while an
+        openarena task is graded case by case, so 7 of 10 cases is 0.7 and not
+        a zero. A near-miss should not rank with a blank page.
+        """
         workdir = Path(workdir)
         checks = [run_scorer(self._resolve_spec(s, workdir), trace)
                   for s in task.get("scorers", [])]
-        correct = (sum(1 for c in checks if c.get("passed")) / len(checks)) if checks else 0.0
+        correct = (sum(float(c.get("score", float(bool(c.get("passed")))))
+                       for c in checks) / len(checks)) if checks else 0.0
 
         clean = run_scorer({"type": "no_errors"}, trace)
         done = run_scorer({"type": "finished"}, trace)
@@ -344,6 +670,11 @@ class Arena:
         efficient = max(0.0, 1 - used / max(1, limit)) if done["passed"] else 0.0
 
         total = W_CORRECT * correct + W_RELIABLE * reliable + W_EFFICIENT * efficient
+        # a check that could not run at all — openarena's judge unreachable —
+        # is the same kind of nothing as a provider outage: whatever the agent
+        # did, this match did not measure it
+        unscoreable = next((str(c.get("reason"))[:200] for c in checks
+                            if c.get("void")), None)
         return {
             "score": round(total, 4),
             # the loop emits a bare `error` step only when the model call itself
@@ -351,7 +682,7 @@ class Arena:
             # code, so the match is void rather than lost. A tool that errored
             # is a real step and still counts against reliability.
             "void_reason": next((str(s.get("error"))[:200] for s in steps_of(trace)
-                                 if s.get("tool") == "error"), None),
+                                 if s.get("tool") == "error"), None) or unscoreable,
             "correct": round(correct, 4),
             "reliable": round(reliable, 4),
             "efficient": round(efficient, 4),
@@ -422,26 +753,37 @@ class Arena:
         return d
 
     def run_match(self, agent: str, task: str, model: str = None, steps: int = None,
-                  free: bool = None, reason: str = "manual") -> Dict[str, Any]:
+                  free: bool = None, reason: str = "manual", provider: str = None,
+                  rate: bool = True) -> Dict[str, Any]:
         """Run one agent on one task and score it. Records the match.
 
         A match the provider voided (rate limit, endpoint down, no key) is
         replayed up to `retries` times. If it is still void, it is recorded as
         void: kept on the log so the failure is visible, kept out of the rating
         so a free endpoint's bad afternoon doesn't read as an agent regression.
+
+        `rate=False` keeps a real match off the agent's record. A gauntlet is
+        one agent playing the same task on six models: those scores say
+        something about the models and nothing about the agent, and folding
+        them in would move its averages — and, worse, overwrite the per-task
+        score a newcomer's qualifier is rated against — on the strength of
+        whichever model happened to go last.
         """
         spec = self.task(task) if isinstance(task, str) else task
         cfg = self.config()
         attempts = max(1, int(cfg.get("retries", 1)) + 1)
         for attempt in range(attempts):
             match = self._play(agent, spec, model=model, steps=steps, free=free,
-                               reason=reason, attempt=attempt)
+                               reason=reason, attempt=attempt, provider=provider)
             if not match["void"] or attempt + 1 >= attempts:
                 break
             time.sleep(RETRY_PAUSE)
         self._append_match(match)
         if not match["void"]:
-            self._record(agent, match)
+            if rate:
+                self._record(agent, match)
+            else:
+                self._mark_seen(agent)
         else:
             self._mark_seen(agent)   # it showed up, even if it couldn't play
             self._rating(agent)["voids"] = self._rating(agent).get("voids", 0) + 1
@@ -450,11 +792,12 @@ class Arena:
 
     def _play(self, agent: str, spec: Dict[str, Any], model: str = None,
               steps: int = None, free: bool = None, reason: str = "manual",
-              attempt: int = 0) -> Dict[str, Any]:
+              attempt: int = 0, provider: str = None) -> Dict[str, Any]:
         """One attempt at a match: fresh scratch dir, run, score, clean up."""
         cfg = self.config()
         model = model if model is not None else cfg.get("model")
         free = cfg.get("free", True) if free is None else free
+        provider = provider or cfg.get("provider")
         limit = int(steps or spec.get("steps") or cfg.get("steps", 8))
 
         mid = uuid.uuid4().hex[:12]
@@ -471,8 +814,13 @@ class Arena:
             # relative paths against the API's own cwd, so a task that says
             # "write notes.txt" would land somewhere nobody scores
             prompt = spec["prompt"].replace("{workdir}", str(workdir))
+            # a model id only means something on the catalog it came from, so a
+            # gauntlet names the provider too. Passed only when there is one:
+            # the runner's signature predates it
+            extra = {"provider": provider} if provider else {}
             trace, usage = self._runner(prompt=prompt, agent=agent, model=model,
-                                        steps=limit, free=free, path=str(workdir))
+                                        steps=limit, free=free, path=str(workdir),
+                                        **extra)
         except Exception as e:
             error = str(e)
         seconds = round(_now() - t0, 2)
@@ -487,7 +835,11 @@ class Arena:
             "task": spec["key"],
             "suite": spec["suite"],
             "title": spec["title"],
+            # what actually ran, not what was asked for: FREE MODE resolves its
+            # own model, and the board is only worth reading if the id on the
+            # row is the id that answered
             "model": (usage or {}).get("model") or model,
+            "provider": (usage or {}).get("provider") or provider,
             "seconds": seconds,
             "cost": round(float((usage or {}).get("cost", 0.0) or 0.0), 6),
             # what the match actually burned. On free models cost is 0, so
@@ -498,8 +850,17 @@ class Arena:
             "attempt": attempt,
             **{k: scored[k] for k in ("score", "correct", "reliable", "efficient",
                                       "passed", "steps")},
-            "checks": [{"type": c.get("type"), "passed": c.get("passed"),
-                        "reason": c.get("reason")} for c in scored["checks"]],
+            # the check log carries a fraction only when the check had one, and
+            # the case list only when a judge produced one — a match record is
+            # read by humans and kept on one line
+            "checks": [{k: v for k, v in
+                        (("type", c.get("type")), ("passed", c.get("passed")),
+                         ("reason", c.get("reason")),
+                         ("score", round(float(c["score"]), 4)
+                          if c.get("score") not in (None, 1.0, 0.0) else None),
+                         ("cases", c.get("cases")))
+                        if v is not None}
+                       for c in scored["checks"]],
         }
         # a run that never reached the model competed in name only
         match["void_reason"] = error or scored["void_reason"]
@@ -636,6 +997,86 @@ class Arena:
         finally:
             self._lock.release()
 
+    def run_gauntlet(self, models: List[Any], agent: str = None,
+                     tasks: List[str] = None, steps: int = None,
+                     free: bool = False, reason: str = "gauntlet") -> Dict[str, Any]:
+        """One agent, one set of tasks, every model in turn.
+
+        This is the round the model board needs. A daily round plays the whole
+        field on a single model, which produces no comparison between models at
+        all; here the agent, the task, the fixture and the step budget are all
+        held still and the model is the only thing that moves — so the scores
+        can be rated against each other (see models.py).
+
+        `models` takes ids, or {model, provider} for a catalog that isn't the
+        module's default. FREE MODE is off by default and cannot be on for a
+        named model: it resolves its own zero-cost pick and would run six
+        entries of the same thing.
+        """
+        if not self._lock.acquire(blocking=False):
+            return {"error": "a round is already running", "running": self._running}
+        try:
+            entries = []
+            for spec in models or []:
+                if isinstance(spec, str):
+                    entries.append({"model": spec, "provider": None})
+                elif isinstance(spec, dict) and spec.get("model"):
+                    entries.append({"model": str(spec["model"]),
+                                    "provider": spec.get("provider") or None})
+            if len(entries) < 2:
+                return {"error": "a gauntlet needs at least two models — one "
+                                 "model playing alone is a round"}
+            field = self.subjects()
+            agent = agent or (field[0] if field else None)
+            if not agent:
+                return {"error": "no agent to play the gauntlet"}
+            pool = [self.task(t) for t in tasks] if tasks else self.round_tasks()
+            if not pool:
+                return {"error": "no tasks to play"}
+
+            cfg = self.config()
+            budget = int(cfg.get("max_matches", 40))
+            token_cap = int(cfg.get("max_tokens", 0) or 0)
+            played, tokens, capped_by = [], 0, None
+            season = int(self._state.get("season", 0))
+            for spec in pool:
+                if capped_by:
+                    break
+                for entry in entries:
+                    if len(played) >= budget:
+                        capped_by = "max_matches"
+                        break
+                    if token_cap and tokens >= token_cap:
+                        capped_by = "max_tokens"
+                        break
+                    match = self.run_match(agent, spec, model=entry["model"],
+                                           provider=entry["provider"], steps=steps,
+                                           free=free, reason=reason,
+                                           # the agent is the constant here, not
+                                           # the subject — see run_match(rate=)
+                                           rate=False)
+                    played.append(match)
+                    tokens += int(match.get("tokens", 0))
+            summary = {
+                "reason": reason,
+                "ts": _now(),
+                "season": season,
+                "agent": agent,
+                "models": [e["model"] for e in entries],
+                "tasks": [t["key"] for t in pool],
+                "matches": len(played),
+                "tokens": tokens,
+                "cost": round(sum(float(m.get("cost") or 0.0) for m in played), 6),
+                "capped_by": capped_by,
+                # a gauntlet doesn't advance the season: the models it just ran
+                # are compared inside this one, and bumping it would put every
+                # future match in a bucket of its own
+                "results": played,
+            }
+            return summary
+        finally:
+            self._lock.release()
+
     def qualify(self, agent: str, reason: str = None) -> Dict[str, Any]:
         """Score a newcomer against the incumbents without re-running them.
 
@@ -715,6 +1156,48 @@ class Arena:
             row["rank"] = i
         return rows
 
+    # ── the same matches, read by model ────────────────────────────
+    #
+    # Nothing below runs anything or keeps any state of its own: the match log
+    # already carries the model, the wall clock, the tokens and the bill, so
+    # these are views over it (models.py). That also means they are honest for
+    # free — a model's rank is recomputed from the matches that exist right
+    # now, and a match that was pruned off the log stops counting.
+
+    def all_matches(self) -> List[Dict[str, Any]]:
+        """Every match still on the log, newest first."""
+        return self.matches(limit=MAX_MATCH_LINES * 2)
+
+    def model_board(self, min_matches: int = 1) -> List[Dict[str, Any]]:
+        return mb.board(self.all_matches(), min_matches=min_matches)
+
+    def model_card(self, model: str) -> Dict[str, Any]:
+        titles = {t["key"]: t["title"] for t in self.tasks()}
+        return mb.card(self.all_matches(), model, titles=titles)
+
+    def task_board(self) -> List[Dict[str, Any]]:
+        titles = {t["key"]: t["title"] for t in self.tasks()}
+        return mb.task_board(self.all_matches(), titles=titles)
+
+    def models_status(self) -> Dict[str, Any]:
+        """The model board plus what it took to build: how many matches are
+        controlled head-to-heads, and which model the daily round is on."""
+        rows = self.model_board()
+        cfg = self.config()
+        return {
+            "models": rows,
+            "rated": sum(1 for r in rows if r["rated"]),
+            "matches": sum(r["matches"] for r in rows),
+            # what a scheduled round will play on — None means each agent's own
+            # model, and `free` overrides both with a zero-cost pick
+            "round_model": cfg.get("model"),
+            "free": bool(cfg.get("free", True)),
+            "agents": self.subjects(),
+            "tasks": [{"key": t["key"], "title": t["title"], "suite": t["suite"]}
+                      for t in self.tasks()],
+            "running": self._running,
+        }
+
     def card(self, agent: str) -> Dict[str, Any]:
         """One agent's record: rating, per-task scores, recent matches."""
         r = self._rating(agent)
@@ -743,9 +1226,17 @@ class Arena:
 
     def status(self) -> Dict[str, Any]:
         cfg = self.config()
+        pool = self.tasks()
+        suites: Dict[str, int] = {}
+        for t in pool:
+            suites[t["suite"]] = suites.get(t["suite"], 0) + 1
         return {
             "enabled": bool(cfg.get("enabled")),
             "config": cfg,
+            # how the pool breaks down, so the board can say where a task came
+            # from without a second call. openarena's own health is a separate
+            # action — see openarena_status()
+            "suites_count": suites,
             "season": self._state.get("season", 0),
             "last_round": self._state.get("last_round", 0),
             "next_round": self.next_run(),
@@ -754,7 +1245,7 @@ class Arena:
             "scheduler": self.scheduler.status() if self.scheduler else {"alive": False},
             "subjects": self.subjects(),
             "newcomers": self.newcomers(),
-            "tasks": len(self.tasks()),
+            "tasks": len(pool),
             "round_tasks": [t["key"] for t in self.round_tasks()],
             "rounds": (self._state.get("rounds") or [])[-5:],
             "matches": sum(r.get("matches", 0)
@@ -773,13 +1264,38 @@ class Arena:
         forward('matches', limit=, agent=, task=)  -> recent matches
         forward('card', agent=)                    -> one agent's record
         forward('run', agent=, task=)              -> one match, or a full round
+
+        The same matches, read by model rather than by agent:
+        forward('models')                          -> the model board
+        forward('model', model=)                   -> one model's record
+        forward('task_board')                      -> per task, model by model
+        forward('gauntlet', models=[], agent=)     -> play them against each other
+
         forward('qualify', agent=)                 -> score a newcomer
         forward('config', enabled=, free=, ...)    -> update the knobs
+        forward('task_add', spec=, owner=, slug=)  -> store a hand-written task
+        forward('task_rm', slug=)                  -> drop one
+
+        The arena module's drills — one generated question, graded over there:
+        forward('arena')                           -> is it up, which drills
+        forward('drill', game=, round=, seed=)     -> the view, unplayed
+
+        The openarena schema — statement plus graded cases, judged next door:
+        forward('openarena')                       -> is it up, what it holds
+        forward('oa_task_add', spec=, author=)     -> upload one there
+        forward('oa_task_rm', slug=)               -> delete one there
+        forward('oa_import', source=, limit=)      -> a published benchmark in
+        forward('oa_preview', source=, limit=)     -> ...converted, kept nowhere
+        forward('oa_enter', agent=)                -> our agent on their board
+
+        Ownership is not checked here — the caller (mod.forward) resolves the
+        address and decides. This class only knows about tasks and scores.
         """
         if action in (None, "board", "leaderboard"):
             return {"leaderboard": self.leaderboard(), "status": self.status()}
         if action == "tasks":
-            return {"tasks": self.tasks(), "round": [t["key"] for t in self.round_tasks()]}
+            return {"tasks": self.tasks(), "round": [t["key"] for t in self.round_tasks()],
+                    "scorers": sorted(SCORERS), "custom": self.custom()}
         if action == "matches":
             return {"matches": self.matches(int(kwargs.get("limit", 50)),
                                             kwargs.get("agent"), kwargs.get("task"))}
@@ -798,8 +1314,59 @@ class Arena:
                                   reason=kwargs.get("reason", "manual"))
         if action == "qualify":
             return self.qualify(kwargs.get("agent", ""))
+        if action in ("models", "model_board"):
+            return self.models_status()
+        if action == "model":
+            return self.model_card(kwargs.get("model", ""))
+        if action in ("task_board", "tasks_board"):
+            return {"tasks": self.task_board()}
+        if action == "gauntlet":
+            return self.run_gauntlet(kwargs.get("models") or [],
+                                     agent=kwargs.get("agent"),
+                                     tasks=kwargs.get("tasks"),
+                                     steps=kwargs.get("steps"),
+                                     free=bool(kwargs.get("free", False)),
+                                     reason=kwargs.get("reason", "gauntlet"))
         if action == "config":
             return self.set_config(**{k: v for k, v in kwargs.items() if k in DEFAULTS})
+        if action == "task_add":
+            return self.add_task(kwargs.get("spec") or {}, owner=kwargs.get("owner"),
+                                 slug=kwargs.get("slug"))
+        if action == "task_rm":
+            return self.remove_task(kwargs.get("slug", ""))
+        # ── the arena module's drills ─────────────────────────────
+        if action in ("arena", "drills"):
+            return self.arena_status()
+        if action in ("drill", "arena_sheet"):
+            # the view a seat is shown, without playing anything — what the
+            # console puts on the card, and what a task's prompt is built from
+            return {"game": kwargs.get("game", ""),
+                    "round": int(kwargs.get("round", 0) or 0),
+                    "seed": int(kwargs.get("seed", dr.DEFAULT_SEED) or 0),
+                    "view": dr.sheet(kwargs.get("game", ""),
+                                     seed=int(kwargs.get("seed", dr.DEFAULT_SEED) or 0),
+                                     round=int(kwargs.get("round", 0) or 0))}
+        # ── the openarena schema ──────────────────────────────────
+        if action in ("openarena", "oa"):
+            return self.openarena_status()
+        if action in ("oa_task_add", "openarena_task_add"):
+            return oa.create_task(kwargs.get("spec") or {},
+                                  author=kwargs.get("author"))
+        if action in ("oa_task_rm", "openarena_task_rm"):
+            return oa.delete_task(kwargs.get("slug", ""))
+        if action in ("oa_sources", "openarena_sources"):
+            return oa.bench_sources()
+        if action in ("oa_preview", "openarena_preview"):
+            return oa.bench_preview(kwargs.get("source", ""),
+                                    **_bench_opts(kwargs))
+        if action in ("oa_import", "openarena_import"):
+            return oa.bench_import(kwargs.get("source", ""),
+                                   **_bench_opts(kwargs))
+        if action in ("oa_enter", "openarena_enter"):
+            return oa.enter(kwargs.get("agent", ""), name=kwargs.get("name"),
+                            model=kwargs.get("model"),
+                            steps=kwargs.get("steps"),
+                            free=kwargs.get("free"))
         raise KeyError(f"unknown arena action: {action}")
 
 

@@ -106,12 +106,14 @@ button.on { background: var(--accent); border-color: var(--accent); color: #1417
 .pane { display: none; height: calc(100vh - 46px); overflow: auto; }
 .pane.on { display: block; }
 
-#booth {
+/* Scoped to .on: a bare #booth is an ID selector and outranks `.pane
+   { display: none }`, which left the booth painted under every other tab. */
+#booth.on {
   display: grid; grid-template-columns: 1fr 210px 1fr;
   gap: 10px; padding: 10px; overflow: hidden;
 }
 @media (max-width: 1000px) {
-  #booth { grid-template-columns: 1fr; overflow: auto; }
+  #booth.on { grid-template-columns: 1fr; overflow: auto; }
 }
 
 /* ── deck ──────────────────────────────────────────────────────────── */
@@ -143,8 +145,11 @@ canvas.wave-full, canvas.wave-zoom {
   border: 1px solid var(--line); border-radius: 3px; cursor: pointer;
   touch-action: none;
 }
+/* The zoom view takes whatever height the deck has left, so a tall window is
+   more waveform to beatmatch on rather than dead panel. */
+canvas.wave-zoom { flex: 1 1 auto; min-height: 96px; }
 
-.deck-controls { display: grid; gap: 8px; }
+.deck-controls { display: grid; gap: 8px; margin-top: auto; }
 .cues, .loops { display: flex; gap: 4px; }
 .cues button, .loops button { flex: 1; font-size: 10px; padding: 5px 0; }
 .cue-btn.set { color: var(--accent); border-color: var(--accent-dim); }

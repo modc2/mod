@@ -4,9 +4,10 @@ import { useEffect, useRef } from 'react'
 import maplibregl, { Map as MLMap } from 'maplibre-gl'
 import type { Catalog, Choropleth, LayerDef } from '@/lib/api'
 import {
-  classExpression, divergingExpression, mapPalette, seriesColor, sizeExpression,
+  classExpression, divergingExpression, seriesColor, sizeExpression,
   stepExpression, type MapPalette,
 } from '@/lib/palette'
+import { usePalette } from './ThemeProvider'
 import type { BasemapId, ThemeBase } from '@/lib/theme'
 
 /** Bounding box of the amalgamated city, used to frame the opening view. */
@@ -69,7 +70,10 @@ export default function MapView({
   catalog, active, opacity, crime, crimeMetric, layerData,
   basemap, base, flyTo, onFeatureClick, onMapReady,
 }: Props) {
-  const pal = mapPalette(base)
+  // Straight from the provider, not rebuilt from `base` — the surface alone
+  // can't say which of the ten themes is on, and the magnitude ramps differ
+  // per theme. Taking it here is what makes a theme change repaint the map.
+  const pal = usePalette()
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<MLMap | null>(null)
   const ready = useRef(false)
@@ -149,10 +153,13 @@ export default function MapView({
   }, [basemap])
 
   // ── redraw on any data/selection change ─────────────────────────────────
+  // `pal` rather than `base`: two themes can share a surface (GLASS and MATRIX
+  // are both dark) but not their ramps, and it is the ramp that the paint
+  // expressions are built from. Keying on the surface repainted neither.
   useEffect(() => {
     redraw()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog, active, opacity, crime, crimeMetric, layerData, base])
+  }, [catalog, active, opacity, crime, crimeMetric, layerData, pal])
 
   useEffect(() => {
     if (!flyTo || !map.current) return

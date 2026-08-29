@@ -1,5 +1,5 @@
 #!/bin/bash
-PORT="${1:-8895}"
+PORT="${1:-8893}"
 
 pids=$(lsof -ti:"$PORT" 2>/dev/null || true)
 if [ -n "$pids" ]; then

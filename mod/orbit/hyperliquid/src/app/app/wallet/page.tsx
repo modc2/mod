@@ -140,8 +140,9 @@ export default function WalletPage() {
       )}
 
       <div className="grid md:grid-cols-2 gap-4">
-        {/* Deposit — cross-chain on mainnet (Ethereum/Base/Polygon/Arbitrum via
-            LI.FI bridge), plain Arbitrum USDC form on testnet. */}
+        {/* Deposit — on mainnet, one transaction from any of seven chains
+            and any token held there (LI.FI routes straight into the HL
+            account); plain Arbitrum USDC form on testnet. */}
         {cfg && !cfg.testnet ? (
           <DepositPanel wallet={wallet} cfg={cfg} eoa={eoa} canSign={canSign}
             onDone={(m) => { setMsg(m); setErr(null); refresh(); }} />

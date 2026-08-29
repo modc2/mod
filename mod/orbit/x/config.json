@@ -1,7 +1,7 @@
 {
     "name": "x",
-    "version": "0.2.0",
-    "description": "X (Twitter) API v2 \u2014 Rust MCP server backend",
+    "version": "0.3.0",
+    "description": "X (Twitter) API v2 \u2014 Rust MCP server, REST API and browser app off one tool layer",
     "port": 50350,
     "route": false,
     "urls": {
@@ -9,13 +9,26 @@
         "app": "http://localhost:50350"
     },
     "endpoints": {
+        "app": "GET /",
         "mcp": "POST /mcp",
+        "openapi": "GET /openapi.json",
         "search": "GET /search?q=",
+        "counts": "GET /counts?q=",
         "get_post": "GET /posts/:id",
         "post": "POST /posts",
         "delete_post": "DELETE /posts/:id",
+        "like": "POST /posts/:id/like",
+        "repost": "POST /posts/:id/repost",
         "user": "GET /users/:handle",
         "timeline": "GET /users/:handle/timeline",
+        "user_mentions": "GET /users/:handle/mentions",
+        "followers": "GET /users/:handle/followers",
+        "following": "GET /users/:handle/following",
+        "follow": "POST /users/:handle/follow",
+        "me": "GET /me",
+        "mentions": "GET /mentions",
+        "auth": "GET /auth",
+        "set_keys": "POST /auth/keys (loopback only)",
         "forward": "POST /forward",
         "tools": "GET /tools"
     },
@@ -38,6 +51,9 @@
         "auth_status",
         "set_keys",
         "credentials",
+        "openapi",
+        "endpoints",
+        "app",
         "tools",
         "mcp_call",
         "mcp_config",
@@ -46,8 +62,8 @@
         "kill",
         "test"
     ],
-    "backend": "x-rs (Rust: axum MCP server, JSON-RPC 2.0 Streamable HTTP + stdio)",
+    "backend": "x-rs (Rust: axum \u2014 MCP JSON-RPC 2.0 over Streamable HTTP + stdio, REST, embedded app)",
     "secrets": "~/.mod/x/credentials.json",
-    "schema": "QmfJCnNiaKN3LKs6HYCT3S6eX7PkNJkXDJAAxPp7347yqd",
+    "schema": "QmS8CDDdep9cTJf8711Hucio2FCyNjDsnDtsimLePb2XYJ",
     "gateway_port": 50350
 }

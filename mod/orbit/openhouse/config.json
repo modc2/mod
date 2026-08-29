@@ -61,6 +61,12 @@
         "register",
         "deregister"
     ],
-    "schema": "QmPmi8U4wdbt86hBpvCTmGVZZZwJzai3PDoNYjDQDGKsoK",
+    "mcp": {
+        "url": "http://localhost:50130/mcp",
+        "transport": "streamable-http",
+        "auth": "none",
+        "docs": "Model Context Protocol (JSON-RPC 2.0 over Streamable HTTP) tool server for LLM agents \u2014 POST /mcp on the API. Reads: openhouse_terms, openhouse_quote, openhouse_models, openhouse_status, openhouse_property, openhouse_rent_stats, openhouse_rent_ledger, openhouse_equity, openhouse_shareholders, openhouse_portfolio, openhouse_dividends, openhouse_landscape, openhouse_source. Writes (testnet bookkeeping, no signed transactions): openhouse_pay_rent, openhouse_purchase, openhouse_set_terms, openhouse_claim_owner."
+    },
+    "schema": "QmXQ7FtJ3pNfyvbc8kPwWvynuouomY1euQkEd42FqKS6Fx",
     "gateway_port": 50131
 }

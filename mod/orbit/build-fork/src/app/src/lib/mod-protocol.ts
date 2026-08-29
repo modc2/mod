@@ -166,7 +166,7 @@ export class ModProtocol {
   private token: string | null = null;
   private config: ModConfig | null = null;
 
-  constructor(baseUrl: string = "http://localhost:8894") {
+  constructor(baseUrl: string = "http://localhost:8890") {
     this.baseUrl = baseUrl.replace(/\/$/, "");
   }
 
@@ -302,8 +302,26 @@ export class ModProtocol {
     return this.del(`/modules/${name}`, true);
   }
 
-  async renameModule(name: string, newName: string): Promise<{ ok: boolean }> {
-    return this.put(`/modules/${name}/rename`, { new_name: newName }, true);
+  /// Rename a module and everything filed under its name (route, ~/.mod
+  /// state, pm2 entries, sibling deps). `dry_run` returns the same report
+  /// without moving anything; `refs` picks how far the old name is chased
+  /// through the module's own files.
+  async renameModule(
+    name: string,
+    newName: string,
+    opts: { dryRun?: boolean; refs?: "paths" | "all" | "none"; restart?: boolean; reroute?: boolean } = {},
+  ): Promise<any> {
+    return this.put(
+      `/modules/${name}/rename`,
+      {
+        new_name: newName,
+        dry_run: !!opts.dryRun,
+        refs: opts.refs ?? "paths",
+        restart: opts.restart ?? true,
+        reroute: opts.reroute ?? true,
+      },
+      true,
+    );
   }
 
   // ── Files ──────────────────────────────────────────────────────────
@@ -498,7 +516,7 @@ export class ModProtocol {
   static generateHtmlPage(
     forms: HtmlFormSchema[],
     config: ModConfig,
-    apiUrl: string = "http://localhost:8894"
+    apiUrl: string = "http://localhost:8890"
   ): string {
     const formBlocks = forms.map((form) => ModProtocol.renderFormHtml(form)).join("\n");
 

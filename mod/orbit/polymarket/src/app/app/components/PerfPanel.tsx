@@ -65,6 +65,11 @@ export interface PerfCosts {
       hypothesis, and the panel has to say so rather than quoting the P&L with
       the same confidence as a verified one. */
   settled?: { resolved: number; marked: number; markedUsd: number };
+  /** ORIGINATION replays only: how much price tape the replay stood on
+      ("96/288 CANDLES"), and the long form for the tooltip. A momentum strat
+      replayed over the tail of its window must say so — the alternative is a
+      P&L that reads as a full day's evidence and isn't. */
+  tape?: { label: string; title: string; partial: boolean };
 }
 
 export interface PerfPosition {
@@ -80,6 +85,14 @@ export interface PerfPosition {
   badge?: string;
   badgeTitle?: string;
   rowTitle?: string;
+  /** The strat that actually opened this position, when it ISN'T the one
+      whose panel you're reading.
+      One wallet funds several strats and they all trade out of the same
+      deposit wallet, so this table — which lists the WALLET's holdings — will
+      show rows another strat bought. Unlabelled, under a strat-scoped header,
+      that reads as "my BTC strat bought a tennis match". It didn't; the copy
+      strat next to it did. */
+  owner?: { label: string; title: string };
 }
 
 type ChartMode = "line" | "pie";
@@ -261,6 +274,14 @@ function PositionsTable({
                     title={p.badgeTitle}
                   >
                     {p.badge}
+                  </span>
+                )}
+                {p.owner && (
+                  <span
+                    className="ml-1.5 text-[9px] px-1 py-px rounded-full border border-pixel-border text-pixel-muted font-sans font-semibold tracking-wide"
+                    title={p.owner.title}
+                  >
+                    {p.owner.label}
                   </span>
                 )}
               </span>
@@ -454,6 +475,17 @@ export default function PerfPanel({
                 }
               >
                 {costs.settled.resolved}/{costs.settled.resolved + costs.settled.marked} SETTLED
+              </span>
+            </>
+          )}
+          {costs.tape && (
+            <>
+              <Dot />
+              <span
+                className={`text-[12px] tracking-wider ${costs.tape.partial ? "text-amber-400/80" : "text-pixel-gray/70"}`}
+                title={costs.tape.title}
+              >
+                {costs.tape.label}
               </span>
             </>
           )}

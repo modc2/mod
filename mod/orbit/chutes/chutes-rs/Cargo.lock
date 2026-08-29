@@ -133,7 +133,7 @@ dependencies = [
 
 [[package]]
 name = "chutes-rs"
-version = "2.0.0"
+version = "4.0.0"
 dependencies = [
  "axum",
  "futures-util",
@@ -141,6 +141,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tower",
  "tower-http 0.5.2",
 ]
 

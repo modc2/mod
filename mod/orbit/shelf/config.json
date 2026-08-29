@@ -1,0 +1,88 @@
+{
+    "name": "shelf",
+    "version": "1.0.0",
+    "description": "One lens over everything the fleet keeps. Seventy-two modules write their state into ~/.mod/<name> by convention and without supervision, and it is 31 gigabytes; the shared store under ~/.mod/store is the fleet's actual database, holding wasmland's artifacts, listings, runs and ledger and the blobs/ prefix the arena reads from. Nothing could see any of it. shelf accounts for the space (which module, what inside it, which single files), browses and greps the shared store, and rehashes every content-addressed file to check that the bytes still prove the name they are filed under \u2014 the one check a content-addressed store cannot skip, and which nothing was doing. It also finds blobs no record refers to, the same bytes filed in two places, and freezes a root under a deterministic CID that can be inspected and restored. It reads: gc, restore and rm are dry runs until confirmed, and it holds no index, cache or database of its own, so it cannot go stale or disagree with the disk. Redaction lives on the read path \u2014 secret files are never opened, secret fields come back as fingerprints that reveal whether two modules share a key without revealing the key \u2014 and both halves bind loopback with route false, because a state browser on a public port is a credential exfiltrator with a console.",
+    "icon": "\u25a4",
+    "anchor": "mod.py",
+    "protocol": "shelf/1.0",
+    "port": 50570,
+    "app_port": 50571,
+    "base_path": "/shelf",
+    "route": false,
+    "route_note": "deliberately unrouted: this reads every module's private state, including key material. Reach it over an SSH tunnel, not the gateway.",
+    "bind": "127.0.0.1",
+    "urls": {
+        "api": "http://127.0.0.1:50570",
+        "app": "http://127.0.0.1:50571/shelf",
+        "same_origin_api": "http://127.0.0.1:50571/shelf/_api"
+    },
+    "backend": "src/api/api.py (stdlib http.server \u2014 no framework, so the diagnostic still starts when the box is unwell)",
+    "frontend": "src/app/server.py (stdlib \u2014 serves the console at /shelf on :50571 and proxies /shelf/_api to the API)",
+    "reads": "~/.mod \u2014 every module's state directory, and the shared store at ~/.mod/store",
+    "state": "none. Every answer is computed from the directory when it is asked; there is no index, cache or database, so this module cannot disagree with the disk.",
+    "writes": {
+        "gc": "deletes orphaned blobs \u2014 dry until confirm=True, and age-gated even then",
+        "rm": "deletes one key \u2014 dry until confirm=True, and never a secret file",
+        "restore": "unpacks a snapshot \u2014 dry until confirm=True, never overwrites unless told"
+    },
+    "redaction": {
+        "where": "src/redact.py, on the API read path \u2014 not in the page, which would be one curl from irrelevant",
+        "files": "server.secret, owner.json, *.pem, .env and anything under vault/ keys/ wallets/ .ssh/ are never opened",
+        "fields": "names containing secret, token, key, password, seed, mnemonic, auth\u2026 return sha256:xxxxxxxx (Nb)",
+        "why_a_fingerprint": "it answers 'do two modules share this key' and 'did it rotate' without the bytes leaving the box"
+    },
+    "endpoints": {
+        "info": "GET /",
+        "health": "GET /health",
+        "space": "GET /space",
+        "usage": "GET /usage/{module}",
+        "big": "GET /big",
+        "roots": "GET /roots",
+        "prefixes": "GET /prefixes",
+        "keys": "GET /keys?prefix=&search=",
+        "read": "GET /read?key=",
+        "grep": "GET /grep?q=",
+        "verify": "GET /verify",
+        "orphans": "GET /orphans",
+        "strays": "GET /strays",
+        "gc": "GET plans, POST {confirm:true} deletes",
+        "rm": "POST {key, confirm:true}",
+        "snapshot": "POST /snapshot; GET /snapshot/{cid} inspects",
+        "restore": "POST /restore {cid, confirm:true}"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "space",
+        "usage",
+        "big",
+        "roots",
+        "prefixes",
+        "keys",
+        "read",
+        "grep",
+        "rm",
+        "verify",
+        "orphans",
+        "strays",
+        "gc",
+        "snapshot",
+        "inspect",
+        "restore",
+        "serve",
+        "stop",
+        "test"
+    ],
+    "services": [
+        "shelf-api",
+        "shelf-app"
+    ],
+    "depends": {
+        "localfs": "optional \u2014 snapshots pin to it. Every other verb works without it.",
+        "store": "core/store writes the directory this reads; shelf is a lens, not a second store"
+    },
+    "not_the_store_mod": "core/store is the store. This is named shelf because module names are path-derived and core overwrites orbit in the tree, so anything at orbit/store resolves to core/store and is unreachable dead code.",
+    "schema": "Qmf2ojJrRQvntYsRq5k133fqTa4ijhakuU62q5Y8M23861"
+}

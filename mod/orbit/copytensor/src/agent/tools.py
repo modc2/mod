@@ -235,14 +235,24 @@ def propose_strat(name: str, thesis: str, traders: List[Dict],
         if ss58 in seen:
             continue
         seen.add(ss58)
-        weight = float(t.get("weight", 1) or 0)
+        # A basket can be sized either way. `alloc_tao` is an explicit sleeve
+        # (the unit the live engine deploys in); `weight` is a relative share
+        # of the pot. Whichever is given becomes the weight here, and the τ is
+        # resolved below once the total is known.
+        alloc = t.get("alloc_tao")
+        alloc = float(alloc) if alloc not in (None, "") else None
+        if alloc is not None and alloc < 0:
+            raise ValueError(f"alloc_tao must be >= 0 for {ss58[:8]}")
+        weight = alloc if alloc else float(t.get("weight", 1) or 0)
         if weight <= 0:
-            raise ValueError(f"weight must be > 0 for {ss58[:8]}")
+            raise ValueError(
+                f"give {ss58[:8]} either a weight > 0 or an alloc_tao > 0")
         b = board.get(ss58) or {}
         rows.append({
             "ss58": ss58,
             "label": t.get("label") or b.get("label"),
             "weight": round(weight, 6),
+            "alloc_tao": round(alloc, 6) if alloc else None,
             "why": (t.get("why") or "").strip() or None,
             # Live stats so the card can render the basket without a second
             # round-trip, and so the agent sees what it actually picked.
@@ -254,13 +264,24 @@ def propose_strat(name: str, thesis: str, traders: List[Dict],
         })
 
     total = sum(r["weight"] for r in rows)
+    # If every leg carries its own τ, the pot IS their sum — otherwise the
+    # card would show a capital figure the sleeves don't add up to.
+    sleeved = sum(r["alloc_tao"] or 0 for r in rows)
+    if sleeved > 0 and all(r["alloc_tao"] for r in rows):
+        capital_tao = sleeved
     for r in rows:
         r["share_pct"] = round(r["weight"] / total * 100, 2)
+        # Resolve the τ for every leg, so the card always says what each
+        # trader gets in money — not only when the agent thought in τ.
+        if not r["alloc_tao"]:
+            r["alloc_tao"] = round(
+                max(1.0, float(capital_tao)) * r["weight"] / total, 6)
 
     strat = {
         "name": name.strip() or "Agent strat",
         "thesis": thesis.strip(),
         "traders": rows,
+        "sizing": "tao" if sleeved > 0 else "split",
         "capital_tao": max(1.0, float(capital_tao)),
         "max_tao_per_tx": max(0.1, float(max_tao_per_tx)),
         "rebalance_threshold_pct": max(0.1, float(rebalance_threshold_pct)),
@@ -357,7 +378,10 @@ TOOLS: List[Tool] = [
          "Deliver a finished strat: a weighted basket of traders to mirror. "
          "Call this once you have picked the traders and can justify each "
          "one. It does NOT go live — it renders as a card the human saves and "
-         "activates. Weights are relative; they get normalised to shares.",
+         "activates. Size it either way: give every trader an `alloc_tao` "
+         "(the TAO behind them, which is what the live engine deploys) or "
+         "relative `weight`s that get normalised against capital_tao. Use "
+         "alloc_tao when the human names amounts.",
          {"name": _p("string", "Short name for the strat."),
           "thesis": _p("string", "One or two sentences: what this basket is "
                        "betting on and why these traders express it."),
@@ -365,11 +389,13 @@ TOOLS: List[Tool] = [
               "type": "object",
               "properties": {
                   "ss58": {"type": "string", "description": "Coldkey SS58."},
-                  "weight": {"type": "number", "description": "Relative weight, > 0."},
+                  "weight": {"type": "number", "description": "Relative weight, > 0. Ignored when alloc_tao is set."},
+                  "alloc_tao": {"type": "number", "description": "Absolute TAO behind this trader. Use this when the human names amounts."},
                   "why": {"type": "string", "description": "One line: why this trader."},
               },
-              "required": ["ss58", "weight"]}),
-          "capital_tao": _p("number", "Total TAO the basket may deploy per day.",
+              "required": ["ss58"]}),
+          "capital_tao": _p("number", "Total TAO behind the basket. Ignored "
+                            "when every trader carries its own alloc_tao.",
                             default=100),
           "max_tao_per_tx": _p("number", "Ceiling on any single stake/unstake.",
                                default=10),

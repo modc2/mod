@@ -1,6 +1,11 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+/* ZOODMANTRA's pair — only pulled by the font axis at the end of this file. */
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400..800&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+/* ANTIREAL's pair — same deal. Martian Mono is asked for across its width
+ * axis so the code rules can pick the condensed cut. */
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Martian+Mono:wdth,wght@75..112.5,400..700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -332,8 +337,12 @@
   --bg-primary: #5c94fc;
   --bg-secondary: #f4efdc;
   --bg-tint: rgba(196,36,0,0.06);
-  --glass-bg: rgba(255, 253, 242, 0.90);
-  --glass-bg-strong: rgba(255, 253, 242, 0.97);
+  /* Flat paint, no translucency: at 90% the level bled through every card,
+     so a cloud drifting behind the hub wall surfaced as a pale rectangle
+     inside a module tile and read as a rendering fault. Sky belongs in the
+     gutters — panels are solid blocks sitting on top of it. */
+  --glass-bg: #fffdf2;
+  --glass-bg-strong: #fffdf2;
   --glass-border: rgba(28, 28, 40, 0.45);
   --glass-border-strong: rgba(22, 22, 31, 0.85);
   --glass-highlight: rgba(255, 255, 255, 0.75);
@@ -372,8 +381,9 @@
   --bg-primary: #050712;
   --bg-secondary: #0b1024;
   --bg-tint: rgba(47,177,240,0.06);
-  --glass-bg: rgba(11, 16, 36, 0.86);
-  --glass-bg-strong: rgba(16, 23, 54, 0.95);
+  /* see mario — solid blocks, nothing bleeds through */
+  --glass-bg: #0b1024;
+  --glass-bg-strong: #101736;
   --glass-border: rgba(61, 74, 148, 0.45);
   --glass-border-strong: rgba(85, 100, 180, 0.75);
   --glass-highlight: rgba(143, 216, 255, 0.07);
@@ -393,18 +403,414 @@
   --sheet-shadow: 4px 4px 0 rgba(0,0,0,0.45);
 }
 
+/* GAMEBOY — DMG-01 in the kiwi shell. Green all the way through: the panels
+   are the screen (#9bbc0f field, #0f380f ink), the gutters are the shell's
+   pale sage plastic — green all the way through, so the console never breaks
+   character. The two greens are deliberately different materials: the case
+   is desaturated and a touch lighter, which is what lets the saturated LCD
+   read as a lit window instead of one more wall of green. (Light on purpose,
+   too — the ink ramp below has to stay legible on it.) Every signal collapses
+   onto the green ramp the way
+   MATRIX collapses onto phosphor — the hardware had four values, so a red
+   error pill would be a lie — but each stays far enough apart in hue and
+   dark enough to clear WCAG AA (≥4.5:1) on the #9bbc0f field. The one
+   pigment off the ramp is the A/B-button magenta, and it lives in the DOT
+   MATRIX skin at the end of file where it belongs: on a button, not under
+   type.
+
+   Every value below is measured against the LCD field, and the whole ramp
+   sits in the dark half on purpose: the field is bright (L*≈0.43), so ink
+   only has ~5:1 of headroom to spend before it stops being readable. That
+   is also why the muted ranks are separate INKS and not alpha — see the
+   alpha-flatten rule in DOT MATRIX for why a faded label can't work here. */
+:root[data-theme="gameboy"] {
+  --pixel-border: 2px;
+  /* see mario — drop the shell so the html plastic shows in the gutters */
+  --shell-bg: transparent;
+  --crt-green: #0f380f;   /* 6.0:1 */
+  --crt-amber: #453a05;   /* 5.2:1 — olive, was #6b5a08 at 3.1:1 */
+  --crt-blue: #103c34;    /* 5.6:1 — teal, was #14483f at 4.7:1 */
+  --crt-red: #5a2a0c;     /* 5.4:1 — rust, was #6d3410 at 4.5:1 */
+  /* The JSX asks for --crt-purple wherever a CID is printed and falls back
+     to a #c084fc lavender no theme defines. On the LCD that fallback lands
+     at 1.2:1 — the CID lines under every hub card were the single least
+     readable thing in the console. There is no purple on a DMG, so CIDs
+     rank by ink instead: one step off the body ink, still 5.1:1. */
+  --crt-purple: #1b4410;  /* 5.1:1 */
+  --crt-dark: #9bbc0f;
+  --text-primary: #0f380f;   /* 6.0:1 */
+  --text-secondary: #163e10; /* 5.5:1 */
+  --text-tertiary: #1e4713;  /* 4.9:1 — was #2b5216, under AA at 4.1:1 */
+  --accent-color: #0f380f;
+  --accent-color-2: #306230;
+  /* Two materials, and the split is the whole idea: PLASTIC for chrome
+     (header, rails, toolbars — everything that on the real console is
+     shell) and SCREEN for content. bg-secondary is the chrome surface,
+     glass-bg the panel, so the console reads as LCD windows cut into a
+     DMG rather than one wall of green. */
+  --bg-primary: #b4c4ab;
+  --bg-secondary: #c0cfb7;
+  --bg-tint: rgba(15,56,15,0.07);
+  /* Flat paint, no translucency — an LCD doesn't let the shell through. */
+  --glass-bg: #9bbc0f;
+  --glass-bg-strong: #a8cc16;
+  /* The third shade, and the one this theme was missing. A DMG drew with
+     four values; the console was spending one, so a text field, a card
+     header and the panel behind them were all the same sheet of lit green
+     and the only thing telling them apart was a hairline. --lcd-inset is
+     everything RECESSED — inputs, wells, segmented tracks, card heads —
+     one stop down from the lit panel, which is exactly the step the
+     hardware used to sink a row. Ink still clears AA on it (secondary
+     4.6:1, primary 6.9:1), so recessed never means less readable. */
+  --lcd-inset: #8bac0f;
+  --glass-border: rgba(15, 56, 15, 0.45);
+  --glass-border-strong: #0f380f;
+  --glass-highlight: rgba(196, 216, 79, 0.55);
+  --border-color: rgba(15,56,15,0.45);
+  --border-color-strong: #0f380f;
+  --shadow-sm: 2px 2px 0 rgba(15,56,15,0.22);
+  --shadow-md: 3px 3px 0 rgba(15,56,15,0.26);
+  --shadow-lg: 5px 5px 0 rgba(15,56,15,0.30);
+  --shadow-glow: 0 0 0 2px rgba(15,56,15,0.55);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --sheet-bg: #9bbc0f;
+  --sheet-bg-solid: #9bbc0f;
+  --sheet-border: #0f380f;
+  --sheet-shadow: 4px 4px 0 rgba(15,56,15,0.24);
+}
+
+/* ── The night shift ───────────────────────────────────────────────────
+   Five more skins, four of them built for a dark room. They share the
+   soft (rounded-glass) geometry with GLASS/NEON/ABYSS and differ only in
+   pigment, so the rule that keeps them apart is HUE, not structure: each
+   one owns a different corner of the wheel for its backdrop AND its
+   accent pair, or it just reads as NEON with the saturation nudged.
+     DRIVE  pink + gold on midnight navy
+     VAPOR  aqua + orchid on grape
+     DISCO  violet + gold on aubergine
+     BABE   the whole wheel on near-black plum
+     SURF   teal + coral on sand (the one light one)
+   Every ink below is measured against that theme's own --glass-bg (the
+   panel, not the gutter) and clears WCAG AA — 4.5:1 for body text,
+   ≥4.0:1 for the signal colors, which mostly carry 10px bold labels. */
+
+/* DRIVE — the long drive home: LA at 2am, wet asphalt, hot-pink signage
+   and sodium-gold streetlight. Pink is the accent and gold is the
+   answer; there is deliberately NO cyan here, because cyan is what NEON
+   is for. The blue signal stays dim and cold so it reads as distance. */
+:root[data-theme="drive"] {
+  --pixel-border: 1px;
+  /* Every theme in this batch paints its backdrop ONCE, into --backdrop,
+     and hands the same stack to the shell and to body. The shell is what
+     you actually see — it's an opaque box over the whole viewport (see
+     .app-shell's inline background in page.tsx), so a wash applied only
+     to `body` is a wash nobody ever sees. body keeps a copy for the
+     surfaces that render outside the shell. */
+  --shell-bg: var(--backdrop);
+  --backdrop:
+    /* sodium streetlight pooling on the road */
+    radial-gradient(ellipse 90% 45% at 50% 104%, rgba(255,196,77,0.14), transparent 62%),
+    /* the sign, off to the left */
+    radial-gradient(ellipse 55% 45% at 10% -8%,  rgba(255,47,142,0.18), transparent 62%),
+    radial-gradient(ellipse 45% 40% at 92% 6%,   rgba(120,60,220,0.16), transparent 60%),
+    /* one hairline of far-off neon at the horizon */
+    linear-gradient(180deg, transparent 0 61.8%, rgba(255,47,142,0.16) 61.8% 62.1%, transparent 62.1% 100%),
+    #07080f;
+  --crt-green: #4fe0a8;
+  --crt-amber: #ffc44d;
+  --crt-blue: #6f9dff;
+  --crt-red: #ff4f6d;
+  --crt-purple: #ff8fc4;
+  --crt-dark: #07080f;
+  --text-primary: #fdf3f7;
+  --text-secondary: #d3c6d8;
+  --text-tertiary: #8d7f9c;
+  --accent-color: #ff2f8e;
+  --accent-color-2: #ffc44d;
+  --bg-primary: #07080f;
+  --bg-secondary: #0f101d;
+  --bg-tint: rgba(255,47,142,0.06);
+  --glass-bg: rgba(20, 20, 38, 0.70);
+  --glass-bg-strong: rgba(30, 28, 52, 0.86);
+  --glass-border: rgba(255, 47, 142, 0.16);
+  --glass-border-strong: rgba(255, 196, 77, 0.30);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
+  --border-color: rgba(255,47,142,0.16);
+  --border-color-strong: rgba(255,196,77,0.32);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.55);
+  --shadow-md: 0 8px 24px rgba(4,2,12,0.62);
+  --shadow-lg: 0 24px 60px rgba(4,2,12,0.72);
+  --shadow-glow: 0 0 0 1px rgba(255,47,142,0.32), 0 8px 32px rgba(255,47,142,0.20);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
+/* VAPOR — mall-atrium vaporwave: pastel aqua and orchid floating on
+   grape. The pastels are pushed to ~65% saturation and kept LIGHT so
+   they survive on the dark panel; the backdrop carries the horizon grid
+   (see the backdrop section below), which is where the retro lives. */
+:root[data-theme="vapor"] {
+  --pixel-border: 1px;
+  --shell-bg: var(--backdrop);
+  /* The horizon grid, done entirely in background layers — no extra
+     element, no transform, nothing to repaint. The floor's VERTICALS are
+     a repeating conic gradient with its origin at the vanishing point,
+     which is what a perspective grid's converging lines actually are.
+     The HORIZONTALS can't converge on their own, so their stops are
+     hand-placed at 1/depth (…, 100/8, 100/6, 100/4, 100/2, 100) — dense
+     at the horizon, wide open at your feet. Both layers are sized to the
+     bottom 40% and pinned there, so the grid is a floor and not a
+     wallpaper. */
+  --backdrop:
+    linear-gradient(180deg,
+      transparent 0 1.5%,     rgba(232,143,224,0.16) 1.5% 1.9%,
+      transparent 1.9% 3%,    rgba(232,143,224,0.16) 3% 3.4%,
+      transparent 3.4% 5%,    rgba(232,143,224,0.16) 5% 5.5%,
+      transparent 5.5% 7.5%,  rgba(232,143,224,0.16) 7.5% 8.1%,
+      transparent 8.1% 11%,   rgba(232,143,224,0.16) 11% 11.7%,
+      transparent 11.7% 15.5%,rgba(232,143,224,0.16) 15.5% 16.3%,
+      transparent 16.3% 21%,  rgba(232,143,224,0.16) 21% 21.9%,
+      transparent 21.9% 28%,  rgba(232,143,224,0.16) 28% 29%,
+      transparent 29% 37%,    rgba(232,143,224,0.16) 37% 38.1%,
+      transparent 38.1% 48%,  rgba(232,143,224,0.16) 48% 49.2%,
+      transparent 49.2% 62%,  rgba(232,143,224,0.16) 62% 63.4%,
+      transparent 63.4% 79%,  rgba(232,143,224,0.16) 79% 80.5%,
+      transparent 80.5% 100%) center bottom / 100% 24% no-repeat,
+    repeating-conic-gradient(from 180deg at 50% 100%,
+      rgba(126,246,216,0.13) 0deg 0.35deg, transparent 0.35deg 7deg)
+      center bottom / 100% 24% no-repeat,
+    radial-gradient(ellipse 80% 45% at 50% 96%,  rgba(232,143,224,0.16), transparent 62%),
+    radial-gradient(ellipse 60% 45% at 50% -6%,  rgba(126,246,216,0.10), transparent 60%),
+    #120a24;
+  --crt-green: #7ef6d8;
+  --crt-amber: #ffd98e;
+  --crt-blue: #9db6ff;
+  --crt-red: #ff8fb8;
+  --crt-purple: #d3a4ff;
+  --crt-dark: #120a24;
+  --text-primary: #f6ecff;
+  --text-secondary: #cfc0ea;
+  --text-tertiary: #9182b4;
+  --accent-color: #7ef6d8;
+  --accent-color-2: #e88fe0;
+  --bg-primary: #120a24;
+  --bg-secondary: #1c1038;
+  --bg-tint: rgba(126,246,216,0.06);
+  /* Solid panels, and the grid is exactly why — see the same note in the
+     MARIO block. A translucent card over a STRUCTURED backdrop doesn't
+     read as depth, it reads as a bug: grid lines ran straight through
+     the agent rows and looked like torn rendering. A smooth wash can
+     bleed (DRIVE and BABE both do); a pattern cannot. Floor is in the
+     gutters, panels sit on top of it. */
+  --glass-bg: #241442;
+  --glass-bg-strong: #30195a;
+  --glass-border: rgba(126, 246, 216, 0.16);
+  --glass-border-strong: rgba(232, 143, 224, 0.32);
+  --glass-highlight: rgba(255, 255, 255, 0.07);
+  --border-color: rgba(126,246,216,0.16);
+  --border-color-strong: rgba(232,143,224,0.34);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.45);
+  --shadow-md: 0 8px 24px rgba(12,4,32,0.58);
+  --shadow-lg: 0 24px 60px rgba(12,4,32,0.68);
+  --shadow-glow: 0 0 0 1px rgba(126,246,216,0.28), 0 8px 32px rgba(232,143,224,0.20);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
+/* DISCO — 1977, mirrorball over an aubergine room. Violet leads, gold
+   answers; the reds and greens are warm and slightly dirty so nothing
+   looks like a status LED from this decade. Gold is the one color
+   allowed to be loud — it's the light bouncing off the ball. */
+:root[data-theme="disco"] {
+  --pixel-border: 1px;
+  --shell-bg: var(--backdrop);
+  /* Mirrorball: two tiled fields of pinprick highlights at different
+     scales, drifting on different beats (the drift is a background-
+     position animation further down — backgrounds paint under every
+     child, so nothing floats over your text). */
+  --backdrop:
+    radial-gradient(circle, rgba(255,236,190,0.26) 0.8px, transparent 1.9px) 0 0 / 76px 76px repeat,
+    radial-gradient(circle, rgba(192,79,240,0.20) 0.8px, transparent 1.9px) 40px 60px / 118px 118px repeat,
+    radial-gradient(ellipse 55% 45% at 50% -10%, rgba(192,79,240,0.20), transparent 62%) 0 0 / auto no-repeat,
+    radial-gradient(ellipse 85% 40% at 50% 106%, rgba(255,209,102,0.12), transparent 62%) 0 0 / auto no-repeat,
+    #150b1c;
+  --crt-green: #5fd6a4;
+  --crt-amber: #ffd166;
+  --crt-blue: #8ab6ff;
+  --crt-red: #ff6b8a;
+  --crt-purple: #c98bff;
+  --crt-dark: #150b1c;
+  --text-primary: #fdf1ff;
+  --text-secondary: #d9c3e2;
+  --text-tertiary: #9b83a8;
+  --accent-color: #c04ff0;
+  --accent-color-2: #ffd166;
+  --bg-primary: #150b1c;
+  --bg-secondary: #22112c;
+  --bg-tint: rgba(192,79,240,0.06);
+  /* Solid, same reason as VAPOR: the mirrorball's pinpricks showing
+     through a card don't read as sparkle, they read as dead pixels in
+     the middle of your text. */
+  --glass-bg: #2b1638;
+  --glass-bg-strong: #3a1e4c;
+  --glass-border: rgba(192, 79, 240, 0.18);
+  --glass-border-strong: rgba(255, 209, 102, 0.30);
+  --glass-highlight: rgba(255, 236, 180, 0.07);
+  --border-color: rgba(192,79,240,0.18);
+  --border-color-strong: rgba(255,209,102,0.32);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 8px 24px rgba(14,4,20,0.60);
+  --shadow-lg: 0 24px 60px rgba(14,4,20,0.70);
+  --shadow-glow: 0 0 0 1px rgba(192,79,240,0.30), 0 8px 32px rgba(255,209,102,0.18);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
+/* BABE RAINBOW — the night twin of the light RAINBOW skin. Same
+   psychedelia, black-light instead of daylight: an oil-slick plum floor
+   with the full spectrum sitting on top of it. This is the one theme
+   that does NOT collapse its signals toward the accent — the point is
+   that every hue is present at once, so green/amber/blue/red each keep
+   their own saturated identity and the backdrop carries a slow conic
+   rainbow (below) that the accents borrow from. */
+:root[data-theme="babe"] {
+  --pixel-border: 1px;
+  --shell-bg: var(--backdrop);
+  /* The slick: one band of the entire spectrum, three viewports wide and
+     tiling, that slides sideways forever (background-position again, so
+     it stays under the content). First and last stop are the same red,
+     which is what makes a 300% shift loop without a seam. Alphas stay
+     ≤0.18 — this is a tint on the gutters, not a light show. */
+  --backdrop:
+    linear-gradient(100deg,
+      rgba(255,95,109,0.30), rgba(255,195,113,0.26), rgba(253,255,143,0.22),
+      rgba(123,255,176,0.26), rgba(108,199,255,0.30), rgba(177,140,255,0.34),
+      rgba(255,140,225,0.30), rgba(255,95,109,0.30)) 0 0 / 300% 100% repeat,
+    radial-gradient(ellipse 70% 50% at 50% -10%, rgba(255,110,199,0.14), transparent 62%) 0 0 / auto no-repeat,
+    radial-gradient(ellipse 60% 50% at 90% 104%, rgba(97,232,255,0.12), transparent 62%) 0 0 / auto no-repeat,
+    #0b0614;
+  --crt-green: #3dfabf;
+  --crt-amber: #ffd93d;
+  --crt-blue: #59c6ff;
+  --crt-red: #ff5d8f;
+  --crt-purple: #c79bff;
+  --crt-dark: #0b0614;
+  --text-primary: #fdf2ff;
+  --text-secondary: #d6c6ee;
+  --text-tertiary: #907fb2;
+  --accent-color: #ff6ec7;
+  --accent-color-2: #61e8ff;
+  --bg-primary: #0b0614;
+  --bg-secondary: #150c26;
+  --bg-tint: rgba(255,110,199,0.06);
+  --glass-bg: rgba(30, 16, 52, 0.66);
+  --glass-bg-strong: rgba(44, 24, 74, 0.85);
+  --glass-border: rgba(255, 110, 199, 0.18);
+  --glass-border-strong: rgba(97, 232, 255, 0.32);
+  --glass-highlight: rgba(255, 255, 255, 0.08);
+  --border-color: rgba(255,110,199,0.18);
+  --border-color-strong: rgba(97,232,255,0.34);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 8px 24px rgba(8,2,20,0.60);
+  --shadow-lg: 0 24px 60px rgba(8,2,20,0.70);
+  --shadow-glow: 0 0 0 1px rgba(255,110,199,0.30), 0 8px 32px rgba(97,232,255,0.20);
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+}
+
+/* SURF — the one daylight skin in this batch: a 60s board-shop wall.
+   Sun-bleached sand paper, woody teal ink, coral for anything urgent.
+   Distinct from PAPER (which is sepia/brown all the way down) by being
+   cool-inked on a warm sheet. Every ink is darkened for the pale panel
+   — the light-base floor rules above force these opaque, so a 35%-alpha
+   label renders at FULL strength and has to be legible at full strength. */
+:root[data-theme="surf"] {
+  --pixel-border: 1px;
+  --shell-bg: var(--backdrop);
+  /* Sun in the top-right corner, water along the bottom, and a few
+     swells rolling through it — the swells are a repeating gradient
+     confined to the bottom third, so the top of the page stays a clean
+     sheet of sand to read on. */
+  --backdrop:
+    radial-gradient(ellipse 55% 42% at 84% -8%,  rgba(255,168,40,0.42), transparent 62%) 0 0 / auto no-repeat,
+    radial-gradient(ellipse 100% 46% at 50% 108%, rgba(13,127,140,0.32), transparent 64%) 0 0 / auto no-repeat,
+    repeating-linear-gradient(0deg,
+      rgba(13,127,140,0.12) 0 1px, transparent 1px 14px) center bottom / 100% 34% no-repeat,
+    linear-gradient(180deg, #fdf3dd 0%, #f2e7cd 100%) 0 0 / auto no-repeat;
+  --crt-green: #0f7d6b;
+  --crt-amber: #b45f06;
+  --crt-blue: #1263a3;
+  --crt-red: #c2381f;
+  --crt-purple: #7c4bbf;
+  --crt-dark: #fdf5e3;
+  --text-primary: #14313a;
+  --text-secondary: #2c4f59;
+  --text-tertiary: #5c7a83;
+  --accent-color: #0d7f8c;
+  --accent-color-2: #e2553d;
+  --bg-primary: #fdf5e3;
+  --bg-secondary: #f7ead1;
+  --bg-tint: rgba(13,127,140,0.06);
+  --glass-bg: rgba(255, 251, 240, 0.78);
+  --glass-bg-strong: rgba(255, 252, 244, 0.94);
+  --glass-border: rgba(20, 49, 58, 0.16);
+  --glass-border-strong: rgba(20, 49, 58, 0.30);
+  --glass-highlight: rgba(255, 255, 255, 0.70);
+  --border-color: rgba(20,49,58,0.16);
+  --border-color-strong: rgba(20,49,58,0.30);
+  --shadow-sm: 0 1px 3px rgba(20,49,58,0.10);
+  --shadow-md: 0 6px 18px rgba(20,49,58,0.12), 0 2px 8px rgba(226,85,61,0.08);
+  --shadow-lg: 0 16px 44px rgba(20,49,58,0.16), 0 6px 18px rgba(226,85,61,0.10);
+  --shadow-glow: 0 0 0 1px rgba(13,127,140,0.30), 0 8px 32px rgba(13,127,140,0.16);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
 /* Floor opacity-styled text on ANY light-base theme so the common
-   `text-crt-*/30..40` utilities don't render as ghost text on white.
-   Colors come from the theme's own tokens now (was hardcoded per-theme). */
-:root[data-base="light"] [class*="text-crt-green/"] { color: var(--crt-green) !important; opacity: 1 !important; }
-:root[data-base="light"] [class*="text-crt-amber/"] { color: var(--crt-amber) !important; opacity: 1 !important; }
-:root[data-base="light"] [class*="text-crt-blue/"]  { color: var(--crt-blue) !important; opacity: 1 !important; }
-:root[data-base="light"] [class*="text-crt-red/"]   { color: var(--crt-red) !important; opacity: 1 !important; }
+   text-crt-{color}/30..40 utilities don't render as ghost text on white.
+   Colors come from the theme's own tokens now (was hardcoded per-theme).
+
+   Do not write that utility pattern with a star in this comment: the star
+   and the slash spell a comment terminator, everything after it parses as
+   garbage, and the parser eats the first rule below while recovering. That
+   is not hypothetical — it silently killed the green line (and only the
+   green line) until 2026-08-06, which is why the QR chips on the hub cards
+   were still rendering as 1.1:1 lavender-on-lime.
+
+   :not(opacity-0) because the reveal-on-hover chips ride an opacity-0
+   class, and an unconditional `opacity: 1` here pins them open. */
+:root[data-base="light"] [class*="text-crt-green/"]:not([class*="opacity-0"]) { color: var(--crt-green) !important; opacity: 1 !important; }
+:root[data-base="light"] [class*="text-crt-amber/"]:not([class*="opacity-0"]) { color: var(--crt-amber) !important; opacity: 1 !important; }
+:root[data-base="light"] [class*="text-crt-blue/"]:not([class*="opacity-0"])  { color: var(--crt-blue) !important; opacity: 1 !important; }
+:root[data-base="light"] [class*="text-crt-red/"]:not([class*="opacity-0"])   { color: var(--crt-red) !important; opacity: 1 !important; }
+/* The hidden ones still need the color — just not the opacity. */
+:root[data-base="light"] [class*="text-crt-green/"][class*="opacity-0"] { color: var(--crt-green) !important; }
+:root[data-base="light"] [class*="text-crt-amber/"][class*="opacity-0"] { color: var(--crt-amber) !important; }
+:root[data-base="light"] [class*="text-crt-blue/"][class*="opacity-0"]  { color: var(--crt-blue) !important; }
+:root[data-base="light"] [class*="text-crt-red/"][class*="opacity-0"]   { color: var(--crt-red) !important; }
 
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+/* Same stack as the `font-code` Tailwind utility (tailwind.config.ts), as a
+ * token so plain CSS rules can match it without repeating the list.
+ * --font-ui is its sans twin (the html/body stack below); --font-mono is an
+ * older alias a handful of call sites already reach for. All three are
+ * re-pointed wholesale by the font axis at the end of this file. */
+:root {
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-code: "JetBrains Mono", "SF Mono", Monaco, "Cascadia Code", "Fira Code", "Courier New", monospace;
+  --font-mono: var(--font-code);
 }
 
 html, body {
@@ -1050,13 +1456,23 @@ body {
   height: 1px;
   background: linear-gradient(90deg, var(--glass-border), transparent);
 }
+.vtl-day .n {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
 
 .vtl-row {
+  position: relative;
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto;
   gap: 10px;
-  align-items: center;
-  padding: 6px 10px 6px 2px;
+  /* start, not center: the dot and the time track the message's first
+     line, so a two-line message doesn't drag them into the gap */
+  align-items: start;
+  padding: 7px 10px 7px 2px;
   border-radius: 10px;
   transition: background 130ms ease;
 }
@@ -1073,20 +1489,23 @@ body {
   position: relative;
   align-self: stretch;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  padding-top: 6px; /* line the dot up with the message's cap height */
 }
 .vtl-rail::before {
   content: "";
   position: absolute;
   left: 50%;
-  top: -6px;
-  bottom: -6px;
+  top: -9px;
+  bottom: -9px;
   width: 1px;
-  background: var(--glass-border);
+  background: var(--glass-border-strong, var(--glass-border));
+  opacity: 0.75;
 }
-.vtl-items .vtl-row:first-child .vtl-rail::before { top: 50%; }
-.vtl-items .vtl-row:last-child  .vtl-rail::before { bottom: 50%; }
+/* the spine stops at the first/last dot rather than dangling past it */
+.vtl-items .vtl-row:first-child .vtl-rail::before { top: 10px; }
+.vtl-items .vtl-row:last-child  .vtl-rail::before { bottom: calc(100% - 10px); }
 .vtl-items .vtl-row:only-child  .vtl-rail::before { display: none; }
 .vtl-dot {
   position: relative;
@@ -1096,22 +1515,64 @@ body {
   border-radius: 999px;
   flex: 0 0 auto;
 }
+/* the tip of the history gets a soft halo so the eye lands there first */
+.vtl-row.head .vtl-dot::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  color: var(--accent-color);
+  opacity: 0.45;
+  animation: soft-pulse 2.4s ease-in-out infinite;
+}
+.vtl-row.auto .vtl-dot { opacity: 0.6; }
 
 .vtl-main {
   min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   overflow: hidden;
 }
+.vtl-line {
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+/* Two lines, not one hard truncation — the message IS the content here.
+   Row actions float over the right edge on hover instead of reserving
+   width, so at rest the text gets the whole row. */
 .vtl-msg {
   font-size: 14px;
   font-weight: 600;
+  line-height: 1.35;
   color: var(--text-primary);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
 }
+.vtl-cid {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-tertiary);
+  background: none;
+  border: 0;
+  padding: 0;
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+.vtl-row:hover .vtl-cid { opacity: 0.85; }
+.vtl-cid:hover { color: var(--accent-color); opacity: 1; }
+.vtl-cid.copied { color: var(--crt-green); opacity: 1; }
 .vtl-row.auto .vtl-msg {
   color: var(--text-secondary);
   font-weight: 500;
@@ -1119,6 +1580,7 @@ body {
 }
 .vtl-tag {
   flex: 0 0 auto;
+  margin-top: 2px; /* optically centre on the message's first line */
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   font-weight: 700;
@@ -1138,6 +1600,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding-top: 3px; /* sit on the message's first line, not the row's middle */
 }
 .vtl-time {
   font-family: 'JetBrains Mono', monospace;
@@ -1147,27 +1610,44 @@ body {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+/* Floated over the row's right edge (with a fade-out scrim) rather than
+   sitting in the grid — hidden buttons used to reserve ~340px of every
+   row, which is what truncated the messages so early. */
 .vtl-acts {
+  position: absolute;
+  right: 74px;
+  top: 50%;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 5px;
+  padding-left: 44px;
+  background: linear-gradient(90deg,
+    transparent, var(--glass-bg-strong, var(--bg-secondary)) 40px);
   opacity: 0;
-  transform: translateX(6px);
+  pointer-events: none;
+  transform: translateY(-50%) translateX(6px);
   transition: opacity 140ms ease, transform 140ms ease;
 }
 .vtl-row:hover .vtl-acts,
-.vtl-row.head .vtl-acts,
 .vtl-acts:focus-within {
   opacity: 1;
-  transform: none;
+  pointer-events: auto;
+  transform: translateY(-50%);
 }
 @media (hover: none) {
-  .vtl-acts { opacity: 1; transform: none; }
+  .vtl-acts {
+    position: static;
+    opacity: 1;
+    pointer-events: auto;
+    padding-left: 0;
+    background: none;
+    transform: none;
+  }
 }
-/* compact chips/buttons inside timeline rows (globals bump these with
+/* compact buttons inside timeline rows (globals bump these with
    !important, so these must be !important too to win the cascade) */
 .vtl-row .glass-btn { font-size: 12px !important; padding: 4px 10px !important; }
-.vtl-row .cid-chip  { font-size: 11px !important; padding: 3px 9px !important; }
 
 /* status / error notes */
 .vtl-note {
@@ -1211,6 +1691,36 @@ body {
 }
 
 /* snap composer — joined pill input + button */
+/* Version-panel action bar: the owner's undo sits beside the snap pill, not
+   inside it. Themed with the same glass vars as everything else — a hardcoded
+   accent went unreadable the moment the console changed skin. */
+.snap-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.undo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(251, 191, 36, 0.38);
+  border-radius: 999px;
+  padding: 7px 15px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+  background: rgba(251, 191, 36, 0.10);
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, transform 100ms ease;
+}
+.undo-btn:hover:not(:disabled) {
+  border-color: rgba(251, 191, 36, 0.75);
+  background: rgba(251, 191, 36, 0.20);
+}
+.undo-btn:active:not(:disabled) { transform: translateY(1px); }
+.undo-btn:disabled { opacity: 0.42; cursor: not-allowed; }
+
 .snap-bar {
   display: flex;
   align-items: center;
@@ -1301,34 +1811,82 @@ body {
   .restart-toast-spin { animation: none; }
 }
 
-/* Ask bar minimize — the bar shrinks UP into the header's ASK chip and
-   unfolds back out of it, so the chip reads as where it went. Transform and
-   opacity only: the dock publishes its measured height as --composer-dock-h
-   and a layout-affecting animation would make that jitter. */
-.composer-collapsing {
-  animation: composer-collapse 170ms cubic-bezier(0.4, 0, 1, 1) both;
-  transform-origin: top center;
-  pointer-events: none;
-}
-@keyframes composer-collapse {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to   { opacity: 0; transform: translateY(-10px) scale(0.965); }
-}
-.composer-restoring {
-  animation: composer-restore 200ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-  transform-origin: top center;
-}
-@keyframes composer-restore {
-  from { opacity: 0; transform: translateY(-8px) scale(0.975); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .composer-collapsing, .composer-restoring { animation: none; }
-  .composer-collapsing { opacity: 0; }
-}
-
 .soft-pulse {
   animation: soft-pulse 1.6s ease-in-out infinite;
+}
+
+/* ── Rail task bubbles ──────────────────────────────────────────────
+   One task = one soft card. The status colour is carried by the card's
+   own tint + border (set inline, since it varies per row), so all this
+   layer does is the motion: a gentle lift on hover, a press, and a
+   breathing ring while the job is live. */
+.task-bubble {
+  transition:
+    transform 160ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease;
+}
+.task-bubble:hover {
+  transform: translateY(-1px);
+}
+.task-bubble:active {
+  transform: translateY(0) scale(0.988);
+}
+/* The live ring rides on ::after so it can breathe without touching the
+   card's own inline background/border. */
+.task-bubble--live::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid currentColor;
+  color: var(--task-glow, var(--crt-green));
+  opacity: 0.35;
+  pointer-events: none;
+  animation: task-breathe 2.6s ease-in-out infinite;
+}
+@keyframes task-breathe {
+  0%, 100% { opacity: 0.4; box-shadow: 0 0 0 0 color-mix(in srgb, var(--task-glow, var(--crt-green)) 26%, transparent); }
+  50%      { opacity: 0.15; box-shadow: 0 0 0 4px color-mix(in srgb, var(--task-glow, var(--crt-green)) 0%, transparent); }
+}
+/* Indeterminate progress hairline along the foot of a running task — a card
+   with work happening inside it should never look like a still one. */
+.task-sweep {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--task-glow, var(--crt-green)) 14%, transparent);
+}
+.task-sweep::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, var(--task-glow, var(--crt-green)), transparent);
+  animation: task-sweep 2s ease-in-out infinite;
+}
+@keyframes task-sweep {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(360%); }
+}
+/* Each new tool call replaces the live line — React remounts it (keyed by its
+   own text), so the animation replays and the change is legible. */
+.task-now {
+  animation: task-now-in 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes task-now-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-bubble, .task-bubble:hover, .task-bubble:active { transform: none; }
+  .task-bubble--live::after { animation: none; }
+  .task-sweep::after { animation: none; opacity: 0.45; }
+  .task-now { animation: none; }
 }
 
 /* Hairline borders that adapt to theme via currentColor mix */
@@ -1637,8 +2195,21 @@ pre.font-code,
   box-shadow: var(--shadow-md);
 }
 
-/* Animated LED dot — currently `led-pulse` keyframes only fade opacity.
- * Add a subtle glow halo so the "ONLINE" badge actually reads as alive. */
+/* Animated LED dot — `led-pulse` fades opacity; the halo below makes the
+ * "ONLINE" badge actually read as alive.
+ *
+ * The halo has to follow what the LED IS. A box-shadow paints the
+ * element's BOX, and most LEDs here are a text glyph (the ● on a hub
+ * card, the ONLINE badge) whose span is a 9x15 rectangle — so the glow
+ * blinked a pale rectangle around the dot instead of a halo around it,
+ * 50+ of them at once across the hub wall. Real round-dot elements
+ * (w-2 h-2 rounded-full) keep the box halo; glyph LEDs glow through
+ * text-shadow, which follows the glyph, and in currentColor so a red or
+ * amber LED stops glowing green.
+ *
+ * Both run on the SAME 2s clock as led-pulse: a 2.2s halo against a 2s
+ * fade drifted in and out of phase, so the dots never pulsed twice the
+ * same way — that beat is what read as an odd flicker. */
 @keyframes led-glow {
   0%, 100% {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--crt-green) 60%, transparent),
@@ -1649,8 +2220,15 @@ pre.font-code,
                 0 0 10px color-mix(in srgb, var(--crt-green) 70%, transparent);
   }
 }
+@keyframes led-glow-text {
+  0%, 100% { text-shadow: 0 0 3px color-mix(in srgb, currentColor 55%, transparent); }
+  50%      { text-shadow: 0 0 7px color-mix(in srgb, currentColor 80%, transparent); }
+}
 .led-pulse {
-  animation: led-glow 2.2s ease-in-out infinite, led-pulse 2s ease-in-out infinite;
+  animation: led-glow-text 2s ease-in-out infinite, led-pulse 2s ease-in-out infinite;
+}
+.led-pulse.rounded-full {
+  animation: led-glow 2s ease-in-out infinite, led-pulse 2s ease-in-out infinite;
 }
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -1734,6 +2312,162 @@ pre.font-code,
 
 .section-card__body {
   padding: 12px 14px 14px 18px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Share Access form primitives.
+ *
+ * The invite form is a security decision made in a narrow sidebar, so it
+ * gets real controls instead of a stack of loose buttons: one segmented
+ * switch for scope, tick-pills for duration, a shared input skin, and a
+ * tinted note for the "this is everything" warning. Each element carries
+ * its tint via --sa-accent so the same markup serves the clay (invite)
+ * and green (my devices) halves of the card.
+ * ──────────────────────────────────────────────────────────────────────*/
+.sa-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-tertiary);
+}
+
+/* Segmented switch — one track, the live option riding inside it. */
+.sa-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+.sa-seg__opt {
+  padding: 4px 11px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-tertiary);
+  transition: color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+.sa-seg__opt:hover { color: var(--text-secondary); }
+.sa-seg__opt[data-on="true"] {
+  color: var(--bg-primary);
+  background: var(--sa-accent, var(--accent-color));
+  box-shadow: 0 1px 7px color-mix(in srgb, var(--sa-accent, var(--accent-color)) 38%, transparent);
+}
+
+/* Tick-pill — a preset value (durations, quick picks). */
+.sa-tick {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-color);
+  background: transparent;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+.sa-tick:hover {
+  color: var(--sa-accent, var(--accent-color));
+  border-color: color-mix(in srgb, var(--sa-accent, var(--accent-color)) 45%, transparent);
+}
+.sa-tick[data-on="true"] {
+  color: var(--sa-accent, var(--accent-color));
+  border-color: color-mix(in srgb, var(--sa-accent, var(--accent-color)) 55%, transparent);
+  background: color-mix(in srgb, var(--sa-accent, var(--accent-color)) 12%, transparent);
+}
+
+/* Shared input skin — quiet until focused, then lit in the section tint. */
+.sa-input {
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.sa-input::placeholder { color: var(--text-tertiary); opacity: 0.7; }
+.sa-input:focus {
+  border-color: color-mix(in srgb, var(--sa-accent, var(--accent-color)) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sa-accent, var(--accent-color)) 12%, transparent);
+}
+
+/* Terms strip — the fine print as a row of chips instead of a paragraph.
+   Two or three words each, the sentence that used to be there living in
+   the tooltip for whoever actually wants it. */
+.sa-terms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.sa-term {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  line-height: 1.6;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  cursor: help;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+.sa-term:hover {
+  color: var(--text-secondary);
+  border-color: color-mix(in srgb, var(--sa-accent, var(--accent-color)) 40%, var(--border-color));
+}
+.sa-term > span:first-child { opacity: 0.95; }
+
+/* Tinted note — used for the "everything, including this console" warning. */
+.sa-note {
+  display: flex;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--sa-note, var(--crt-amber)) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sa-note, var(--crt-amber)) 26%, transparent);
+  color: color-mix(in srgb, var(--sa-note, var(--crt-amber)) 62%, var(--text-secondary));
+}
+
+/* Primary action — the one button that actually hands access out. */
+.sa-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  color: var(--bg-primary);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--sa-accent, var(--accent-color)) 92%, #fff),
+    var(--sa-accent, var(--accent-color)));
+  border: 1px solid var(--sa-accent, var(--accent-color));
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--sa-accent, var(--accent-color)) 30%, transparent);
+  transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+.sa-cta:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--sa-accent, var(--accent-color)) 42%, transparent);
+}
+.sa-cta:active:not(:disabled) { transform: translateY(0); }
+.sa-cta:disabled { opacity: 0.45; box-shadow: none; }
+.sa-cta__label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.sa-cta__sub {
+  font-size: 9px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  opacity: 0.78;
 }
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -1910,6 +2644,15 @@ pre.font-code,
 .sheet--tabs {
   background: var(--sheet-bg-solid, var(--sheet-bg));
   border-bottom: 1px solid color-mix(in srgb, var(--sheet-border) 55%, transparent);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+}
+
+/* The header rides the same sticky dock as the tabs, so it needs the same
+ * opaque material — at the translucent 0.86 the log underneath reads straight
+ * through the prompt. */
+.sheet--pinned {
+  background: var(--sheet-bg-solid, var(--sheet-bg));
   backdrop-filter: blur(10px) saturate(140%);
   -webkit-backdrop-filter: blur(10px) saturate(140%);
 }
@@ -2104,34 +2847,6 @@ pre.font-code,
   letter-spacing: 0.04em;
 }
 
-/* "Add a module" tile — gradient dashed invite that glows on approach */
-.hub-add-card {
-  position: relative;
-  border-radius: 16px;
-  border: 1.5px dashed color-mix(in srgb, var(--accent-color) 45%, transparent);
-  background: linear-gradient(135deg,
-    color-mix(in srgb, var(--accent-color) 7%, transparent),
-    color-mix(in srgb, var(--accent-color-2, var(--crt-blue)) 5%, transparent));
-  animation: hub-in 340ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-  transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease, background 200ms ease;
-}
-.hub-add-card:hover {
-  transform: translateY(-3px);
-  border-color: var(--accent-color);
-  background: linear-gradient(135deg,
-    color-mix(in srgb, var(--accent-color) 13%, transparent),
-    color-mix(in srgb, var(--accent-color-2, var(--crt-blue)) 9%, transparent));
-  box-shadow: 0 12px 30px -12px color-mix(in srgb, var(--accent-color) 45%, transparent);
-}
-.hub-add-card__plus {
-  background: linear-gradient(135deg, var(--accent-color), var(--accent-color-2, var(--crt-blue)));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-.hub-add-card:hover .hub-add-card__plus { transform: scale(1.18) rotate(90deg); }
-
 /* Aurora backdrop for the HUB — two slow-drifting color blobs behind the
  * card wall. Pure transform animation (GPU-cheap), pointer-transparent. */
 .hub-aurora {
@@ -2175,6 +2890,189 @@ pre.font-code,
 :root[data-theme="light"] .hub-aurora::before,
 :root[data-theme="light"] .hub-aurora::after { opacity: 0.09; }
 
+/* ── HUB toolbar ───────────────────────────────────────────────────────
+ * Two rows: identity + search + add on top, filters below. Every filter is
+ * the same segmented control (.hub-seg), so the row reads as one instrument
+ * panel instead of three competing pill styles. */
+.hub-toolbar {
+  border-bottom: 1px solid var(--border-color);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--crt-green) 7%, transparent),
+    color-mix(in srgb, var(--crt-green) 2%, transparent)
+  );
+}
+.hub-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-code, ui-monospace, monospace);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--crt-green);
+}
+.hub-tally {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-code, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.hub-tally b { color: var(--text-secondary); font-weight: 700; }
+.hub-tally__live { color: var(--crt-green); }
+.hub-tally__live b { color: var(--crt-green); }
+/* The third count: how much of the fleet an agent can drive over MCP. */
+.hub-tally__mcp { color: var(--crt-purple, #c084fc); }
+.hub-tally__mcp b { color: var(--crt-purple, #c084fc); }
+/* Dot separator instead of a middot glyph — keeps the two counts from
+ * reading as one run-on string at 11px. */
+.hub-tally__sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+/* Recessed track; the selected option is the only thing raised out of it. */
+.hub-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--border-color) 20%, transparent);
+}
+.hub-seg__label {
+  padding: 0 4px 0 6px;
+  font-family: var(--font-code, ui-monospace, monospace);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-tertiary);
+  opacity: 0.75;
+}
+.hub-seg__btn,
+.hub-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: max(3px, calc(var(--radius-sm) - 3px));
+  font-family: var(--font-code, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  background: transparent;
+  transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+.hub-seg__btn:hover,
+.hub-toggle:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--crt-green) 9%, transparent);
+}
+.hub-seg__btn[data-on],
+.hub-seg__btn[data-on]:hover,
+.hub-toggle[data-on],
+.hub-toggle[data-on]:hover {
+  color: var(--crt-green);
+  border-color: color-mix(in srgb, var(--crt-green) 34%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--crt-green) 20%, transparent),
+    color-mix(in srgb, var(--crt-green) 9%, transparent)
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--glass-highlight) 70%, transparent);
+}
+.hub-seg__count {
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  line-height: 14px;
+  color: inherit;
+  opacity: 0.7;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+/* Standalone toggle (auto-restart) — same pill, its own outline when off. */
+.hub-toggle {
+  padding: 4px 9px;
+  border-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+}
+
+.hub-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 4px;
+  background: color-mix(in srgb, var(--border-color) 80%, transparent);
+}
+
+.hub-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 85%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--glass-bg);
+  color: var(--text-tertiary);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.hub-search:focus-within {
+  border-color: color-mix(in srgb, var(--crt-green) 50%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--crt-green) 12%, transparent);
+}
+.hub-search input {
+  width: 168px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-code, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--text-primary);
+}
+.hub-search input::placeholder { color: var(--text-tertiary); opacity: 0.75; }
+.hub-search button {
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px;
+  color: var(--text-tertiary);
+  transition: color 140ms ease;
+}
+.hub-search button:hover { color: var(--crt-red); }
+
+/* The one call to action up here, so it gets the only filled surface.
+ * (Was an accent→accent-2 gradient, which on the earthy skins mixed brown
+ * into indigo and read as mud.) */
+.hub-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-code, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: linear-gradient(180deg, color-mix(in srgb, #fff 16%, var(--accent-color)), var(--accent-color));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 8px 18px -10px var(--accent-color);
+  transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+}
+.hub-add:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 12px 24px -10px var(--accent-color);
+}
+.hub-add:active { transform: translateY(0); }
+
 /* Home-hero badge: a slow breathing glow so the landing view feels alive.
  * Animates box-shadow only (the badge is a single small element, cheap). */
 @keyframes hero-breathe {
@@ -2185,11 +3083,13 @@ pre.font-code,
 
 /* Respect users who asked the OS for less motion. */
 @media (prefers-reduced-motion: reduce) {
-  .hub-card, .hub-add-card { animation: none; }
+  .hub-card { animation: none; }
   .hub-card:hover::after { transition: none; opacity: 0; }
   .hub-aurora::before, .hub-aurora::after { animation: none; }
-  .hub-add-card:hover .hub-add-card__plus { transform: none; }
+  .hub-add:hover { transform: none; }
   .hero-glow-breathe { animation: none; }
+  /* 50+ dots pulsing at once is the loudest motion on this screen. */
+  .led-pulse, .led-pulse.rounded-full { animation: none; }
 }
 
 /* Reusable status pill that picks up an accent via --pill-accent. Used by
@@ -2251,6 +3151,21 @@ pre.font-code,
 .wallet-ctl__caret { transition: transform 140ms ease; }
 .wallet-ctl[aria-expanded="true"] .wallet-ctl__caret { transform: rotate(180deg); }
 
+/* EDIT · FORK · NEW. Three bare glyphs with no box around them, so hover has
+   to carry all of the "this is a button" the border used to: the idle two
+   come back to full strength and pick up a faint disc in their own colour
+   (currentColor — each op is a different hue and the rule shouldn't have to
+   know which). See components/ModuleOps.tsx. */
+.omni-op__btn:hover {
+  opacity: 1 !important;
+  background: color-mix(in srgb, currentColor 15%, transparent) !important;
+}
+.omni-op__btn:active { transform: scale(0.92); }
+.omni-op__btn:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, currentColor 70%, transparent) !important;
+}
+
 /* Themed hover tooltip. components/Tooltip.tsx draws every `title=` (and the
    older hand-rolled `data-tip`) as this bubble — the gray OS chrome clashes
    hard with the dark console and lands a second late. One node portalled to
@@ -2310,10 +3225,6 @@ pre.font-code,
 /* Header control cluster — HUB · TASKS · ASK · PARAMS · theme · SPLIT ·
    fold. Symbol-only buttons, so the name lives in the data-tip. */
 .hdr-chip:hover { filter: brightness(1.3); }
-@media (max-width: 767px) {
-  /* Thumb-sized on a phone, where the tab strip side-scrolls. */
-  .hdr-chip { height: 30px !important; min-width: 34px !important; }
-}
 
 /* ──────────────────────────────────────────────────────────────────────
  * Mobile header vibe — two slim strips: a title bar (orbit mark +
@@ -2331,17 +3242,73 @@ pre.font-code,
       inset 0 -1px 0 color-mix(in srgb, var(--crt-green) 12%, transparent);
   }
 
-  /* Title bar breathing room. */
+  /* Title bar — ONE 36px line for every control on it. The omnibox pill,
+     the EDIT/FORK/NEW ops and the account chip each sized themselves off
+     their own padding and came out at three different heights; pin them
+     all to the same rail so the strip reads as one instrument cluster. */
   .hdr-account-row { padding-top: 8px !important; padding-bottom: 8px !important; }
-
-  /* APP / CODE / INFO — symbol only, so the glyph carries the tab: a
-     bigger icon inside a thumb-sized box, thick active bar. */
-  .mod-tab {
-    padding: 10px 14px !important;
-    border-bottom-width: 3px !important;
-    margin-bottom: -1px !important;
+  .hdr-account-row .omni-pill {
+    height: 36px;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
   }
-  .mod-tab svg { width: 19px !important; height: 19px !important; }
+  /* The ops control is a three-segment pill (edit · fork · new), not the
+     single 36px circle this rule was written for — pinning it to a 36px
+     square squeezes three hit targets into one thumb's worth of room.
+     Height rides the rail; width is whatever the segments need. */
+  .hdr-account-row .omni-op {
+    height: 36px !important;
+    width: auto !important;
+  }
+  .hdr-account-row .acct-chip {
+    height: 36px;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    border-radius: 999px !important;
+  }
+
+  /* Tab strip — one 38px rail, one box language. APP/CODE/INFO used to be
+     naked underline tabs riding items-stretch next to 30px boxed console
+     chips and a chunky fold button, so the row read as three unrelated
+     control kinds at three heights. Everything becomes the same rounded
+     36–38px box on the row's centre line; the active tab keeps its accent
+     as a tinted box (the inline background) + a border in its own color. */
+  .nav-tabs-mobile-scroll {
+    align-items: center !important;
+    gap: 6px !important;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+  .hdr-chip {
+    height: 38px !important;
+    min-width: 44px !important;
+    border-radius: 8px !important;
+  }
+  .mod-tab {
+    height: 38px !important;
+    padding: 0 13px !important;
+    margin-bottom: 0 !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+  }
+  .mod-tab[aria-selected="true"] {
+    border-color: color-mix(in srgb, currentColor 60%, transparent) !important;
+  }
+  .mod-tab:not([aria-selected="true"]) { opacity: 0.78 !important; }
+  .mod-tab svg { width: 20px !important; height: 20px !important; }
+  .hdr-fold {
+    height: 38px !important;
+    min-width: 40px;
+    margin: 0 !important;
+    border-radius: 8px !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* Sticky — the strip scrolls under it. An opaque gutter on its left
+       edge masks whatever slides beneath, so chips disappear cleanly
+       instead of poking out from behind the button. */
+    box-shadow: -9px 0 0 0 var(--bg-secondary);
+  }
 }
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -2512,6 +3479,92 @@ pre.font-code,
   background-size: 200% 100%;
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+ * ☾ BABE RAINBOW — the same trip after dark ☾
+ *
+ * Everything the light RAINBOW block does, re-aimed at a black-light
+ * room: the ramps above are already cyclical and already bright, and
+ * bright is exactly what a dark page wants, so BABE reuses --rainbow and
+ * rainbow-pan verbatim and only changes what the light theme did FOR the
+ * light: the header veil goes dark instead of white, titles take the
+ * saturated ramp rather than the darkened --rainbow-ink, and the hairline
+ * runs hotter because there's no pale sheet washing it out.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+/* Header band — spectrum under a smoked veil, so the chips on top of it
+ * keep their contrast. (Inline style pins --bg-secondary; needs the
+ * !important to win, same as the light one.) */
+:root[data-theme="babe"] .console-header {
+  background:
+    linear-gradient(180deg, rgba(11,6,20,0.82), rgba(11,6,20,0.90)),
+    var(--rainbow) !important;
+  background-size: 100% 100%, 300% 100% !important;
+  animation: rainbow-pan 30s linear infinite;
+  box-shadow: 0 1px 0 rgba(255,110,199,0.22), 0 8px 28px -18px rgba(97,232,255,0.35) !important;
+}
+
+/* Cards get the prism hairline along their top edge. */
+:root[data-theme="babe"] .bento::before {
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  animation: rainbow-pan 12s linear infinite;
+  opacity: 0.75;
+}
+:root[data-theme="babe"] .bento:hover::before { opacity: 1; }
+
+/* Titles in gradient ink — the full-strength ramp, since it's sitting on
+ * a near-black panel and has all the contrast it needs. */
+:root[data-theme="babe"] .bento-title,
+:root[data-theme="babe"] .section-card__title {
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent;
+  animation: rainbow-pan 9s linear infinite;
+}
+
+/* Prismatic primary actions. White ink over the spectrum, same as light. */
+:root[data-theme="babe"] .glass-btn.primary,
+:root[data-theme="babe"] .snap-btn {
+  background: var(--rainbow);
+  background-size: 300% 100%;
+  animation: rainbow-pan 8s linear infinite;
+  border-color: transparent;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(30,0,40,0.45);
+  box-shadow: 0 6px 20px -6px rgba(255,45,149,0.55);
+}
+:root[data-theme="babe"] .glass-btn.primary:hover,
+:root[data-theme="babe"] .snap-btn:hover {
+  filter: saturate(1.25) brightness(1.08);
+  box-shadow: 0 8px 26px -6px rgba(97,232,255,0.55);
+}
+
+/* Rainbow scrollbar + hot-pink selection, dark-side edition. */
+:root[data-theme="babe"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ff6ec7, #ffc371, #7bffb0, #61e8ff, #b18cff);
+  background-clip: padding-box;
+}
+:root[data-theme="babe"] ::selection {
+  background: rgba(255,110,199,0.35);
+  color: #fdf2ff;
+}
+
+/* Two aurora blobs at opposite ends of the wheel — the lava lamp is a
+ * big part of why this reads as rainbow and not just as pink. */
+:root[data-theme="babe"] .hub-aurora::before {
+  background: radial-gradient(circle, #ff6ec7, transparent 65%);
+  opacity: 0.34;
+}
+:root[data-theme="babe"] .hub-aurora::after {
+  background: radial-gradient(circle, #61e8ff, transparent 65%);
+  opacity: 0.30;
+}
+
 /* ── Per-theme backdrop flavor ─────────────────────────────────────────
  * The token blocks up top carry the palette; these add each theme's
  * signature wash behind the glass tiles. */
@@ -2560,11 +3613,47 @@ pre.font-code,
     linear-gradient(180deg, #f7f2e9 0%, #f2ead9 100%);
   background-attachment: fixed;
 }
-/* Win95 goes all the way: no rounded corners anywhere. Inline styles pin
- * fixed radii (borderRadius: 999 etc.), so tokens alone can't win — the
- * blanket !important is the only lever, and it's visual-only. */
+/* The night-shift five carry their whole backdrop in --backdrop (see the
+ * token blocks up top) so the shell and body can't drift apart. */
+:root[data-theme="drive"] body,
+:root[data-theme="vapor"] body,
+:root[data-theme="disco"] body,
+:root[data-theme="babe"] body,
+:root[data-theme="surf"] body {
+  background: var(--backdrop);
+  background-attachment: fixed;
+}
+
+/* The two moving ones. Both animate BACKGROUND-POSITION rather than a
+ * transform on an overlay element: a background paints below every child
+ * of the box, so there is no way for the motion to end up over your
+ * text, and no extra layer to composite. Keyframes have to restate a
+ * position for every layer in the stack — the washes are placed inside
+ * their own gradient functions, so those entries just hold at 0 0. */
+:root[data-theme="disco"] .app-shell,
+:root[data-theme="disco"] body {
+  animation: disco-drift 40s linear infinite;
+}
+@keyframes disco-drift {
+  /* four image layers (the flat #150b1c underneath is a color, not a
+     layer) — one position each, in stack order */
+  from { background-position: 0 0,        40px 60px,    0 0, 0 0; }
+  to   { background-position: 76px 76px,  158px 178px,  0 0, 0 0; }
+}
+:root[data-theme="babe"] .app-shell,
+:root[data-theme="babe"] body {
+  animation: babe-slick 54s linear infinite;
+}
+@keyframes babe-slick {
+  /* three image layers; 300% is exactly one tile of the spectrum band,
+     so the loop point lands on the same red it started from */
+  from { background-position: 0 0,    0 0, 0 0; }
+  to   { background-position: 300% 0, 0 0, 0 0; }
+}
+
+/* Win95 goes all the way: flat gray, and no soft type. (Square corners
+ * come from the shared pixel skin at the end of file.) */
 :root[data-theme="win95"] body { background: #c0c0c0; }
-:root[data-theme="win95"] * { border-radius: 0 !important; }
 :root[data-theme="win95"] * { text-shadow: none !important; }
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -2692,6 +3781,19 @@ pre.font-code,
   :root[data-theme="light"] .glass-btn.primary,
   :root[data-theme="light"] .snap-btn,
   :root[data-theme="light"] .pixel-btn,
+  /* BABE's chrome rides the same rainbow-pan the light theme's does. */
+  :root[data-theme="babe"] .console-header,
+  :root[data-theme="babe"] .bento::before,
+  :root[data-theme="babe"] .bento-title,
+  :root[data-theme="babe"] .section-card__title,
+  :root[data-theme="babe"] .glass-btn.primary,
+  :root[data-theme="babe"] .snap-btn,
+  /* DISCO's mirrorball and BABE's slick stop dead too — the palette is
+     the theme, the drift was only ever garnish. */
+  :root[data-theme="disco"] .app-shell,
+  :root[data-theme="disco"] body,
+  :root[data-theme="babe"] .app-shell,
+  :root[data-theme="babe"] body,
   .theme-toggle::before {
     animation: none;
   }
@@ -2719,12 +3821,20 @@ pre.font-code,
 :root[data-theme="mario"] {
   background:
     repeating-linear-gradient(0deg, transparent 0 3px, #0000000d 3px 4px),
-    linear-gradient(#fffdf2, #fffdf2) 12% 74px / 42px 14px no-repeat,
-    linear-gradient(#fffdf2, #fffdf2) 12% 88px / 78px 14px no-repeat,
-    linear-gradient(#fffdf2, #fffdf2) 52% 40px / 34px 12px no-repeat,
-    linear-gradient(#fffdf2, #fffdf2) 52% 52px / 64px 12px no-repeat,
-    linear-gradient(#fffdf2, #fffdf2) 88% 110px / 46px 14px no-repeat,
-    linear-gradient(#fffdf2, #fffdf2) 88% 124px / 86px 14px no-repeat,
+    /* Clouds — three stacked rows each (bump / body / base) so they read as
+       SMB sprites rather than the two loose bars they were, with a shaded
+       bottom row for the sprite's underlight. Placed by PERCENT of viewport
+       height, spread down the sky: pinned near the top in px, they surfaced
+       as cream slivers right under the header and read as render glitches. */
+    linear-gradient(#fffdf2, #fffdf2) 9% 17% / 34px 12px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 9% calc(17% + 12px) / 62px 12px no-repeat,
+    linear-gradient(#dceaff, #dceaff) 9% calc(17% + 24px) / 86px 10px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 47% 41% / 28px 10px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 47% calc(41% + 10px) / 52px 10px no-repeat,
+    linear-gradient(#dceaff, #dceaff) 47% calc(41% + 20px) / 70px 8px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 86% 63% / 38px 12px no-repeat,
+    linear-gradient(#fffdf2, #fffdf2) 86% calc(63% + 12px) / 68px 12px no-repeat,
+    linear-gradient(#dceaff, #dceaff) 86% calc(63% + 24px) / 94px 10px no-repeat,
     linear-gradient(90deg, #16161f 0 2px, #98e698 2px 10px, #43b047 10px 40px, #186a18 40px 46px, #16161f 46px 48px) right 7% bottom calc(var(--world-floor) + 64px) / 48px 14px no-repeat,
     linear-gradient(90deg, #16161f 0 2px, #98e698 2px 8px, #43b047 8px 33px, #186a18 33px 38px, #16161f 38px 40px) right calc(7% + 4px) bottom calc(var(--world-floor) + 28px) / 40px 36px no-repeat,
     linear-gradient(#4ab04a, #4ab04a) left 30% bottom calc(var(--world-floor) + 40px) / 44px 12px no-repeat,
@@ -2758,8 +3868,7 @@ pre.font-code,
 }
 :root[data-theme="warp"] body { background: transparent; }
 
-/* No rounded corners on an 8-bit console; sprites render pixelated. */
-:root[data-theme="mario"] *, :root[data-theme="warp"] * { border-radius: 0 !important; }
+/* Sprites render pixelated. (Square corners: shared pixel skin, below.) */
 :root[data-theme="mario"] img, :root[data-theme="warp"] img { image-rendering: pixelated; }
 
 /* Coin-flash selection. */
@@ -2771,7 +3880,10 @@ pre.font-code,
  * need !important to beat the readability-bump overrides above. */
 :root[data-theme="mario"] .bento-title,   :root[data-theme="warp"] .bento-title,
 :root[data-theme="mario"] .section-card__title, :root[data-theme="warp"] .section-card__title,
-:root[data-theme="mario"] .label-muted,   :root[data-theme="warp"] .label-muted {
+:root[data-theme="mario"] .label-muted,   :root[data-theme="warp"] .label-muted,
+:root[data-theme="gameboy"] .bento-title,
+:root[data-theme="gameboy"] .section-card__title,
+:root[data-theme="gameboy"] .label-muted {
   font-family: 'Press Start 2P', 'JetBrains Mono', monospace;
   font-size: 10px !important;
   letter-spacing: 0.06em !important;
@@ -2781,29 +3893,26 @@ pre.font-code,
 :root[data-theme="mario"] .status-pill,  :root[data-theme="warp"] .status-pill,
 :root[data-theme="mario"] .task-chip,    :root[data-theme="warp"] .task-chip,
 :root[data-theme="mario"] .task-action,  :root[data-theme="warp"] .task-action,
-:root[data-theme="mario"] .vtl-tag,      :root[data-theme="warp"] .vtl-tag {
+:root[data-theme="mario"] .vtl-tag,      :root[data-theme="warp"] .vtl-tag,
+:root[data-theme="gameboy"] .ui-chip,
+:root[data-theme="gameboy"] .status-pill,
+:root[data-theme="gameboy"] .task-chip,
+:root[data-theme="gameboy"] .task-action,
+:root[data-theme="gameboy"] .vtl-tag {
   font-family: 'Press Start 2P', 'JetBrains Mono', monospace;
   font-size: 8px !important;
   letter-spacing: 0.06em;
   line-height: 1.9;
 }
-:root[data-theme="mario"] .theme-menu__item, :root[data-theme="warp"] .theme-menu__item {
+:root[data-theme="mario"] .theme-menu__item, :root[data-theme="warp"] .theme-menu__item,
+:root[data-theme="gameboy"] .theme-menu__item {
   font-family: 'Press Start 2P', 'JetBrains Mono', monospace;
   font-size: 9px;
   line-height: 1.8;
 }
 
-/* Sprite outlines: thicken the big surfaces to 2px cartoon borders. */
-:root[data-theme="mario"] .bento,         :root[data-theme="warp"] .bento,
-:root[data-theme="mario"] .section-card,  :root[data-theme="warp"] .section-card,
-:root[data-theme="mario"] .task-card,     :root[data-theme="warp"] .task-card,
-:root[data-theme="mario"] .hub-card,      :root[data-theme="warp"] .hub-card,
-:root[data-theme="mario"] .theme-menu,    :root[data-theme="warp"] .theme-menu {
-  border-width: 2px;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-/* The sheet is outlined like a sprite too — but only on the sides it
+/* (Sprite outlines on the big surfaces: shared pixel skin, below.)
+   The sheet is outlined like a sprite too — but only on the sides it
    actually shows, so the three stacked boxes still read as one page. */
 :root[data-theme="mario"] .sheet, :root[data-theme="warp"] .sheet {
   border-left-width: 2px;
@@ -2814,20 +3923,51 @@ pre.font-code,
 :root[data-theme="mario"] .sheet--head, :root[data-theme="warp"] .sheet--head { border-top-width: 2px; }
 :root[data-theme="mario"] .sheet--body, :root[data-theme="warp"] .sheet--body { border-bottom-width: 2px; }
 
-/* Task cards are blocks sitting ON the level, so they get opaque paint and
-   a hard drop shadow instead of the glass wash — and they press in on
-   hover the way every other 8-bit control does, no float. */
+/* The hub's filter row is the level's HUD: an opaque cloud-cream band under
+   the header, ruled off with a sprite line. It shipped as a 4%-tint wash,
+   which over the sky meant its 11px labels (counts, sort, status) sat as
+   near-navy type on level blue — the one place in the skin you couldn't
+   read. !important because the tint is an inline style. */
+:root[data-skin="pixel"] .hub-toolbar {
+  background: var(--bg-secondary) !important;
+  border-bottom: 2px solid var(--sheet-border) !important;
+}
+
+/* The ask dock is sky, not a panel: drop its gradient so the level shows
+   through, and stand it off the viewport floor far enough to clear the brick
+   ground (28px) and the scenery on it (pipe/hill/bush top out at 64px). The
+   ground strip is painted on html at the viewport bottom, so before this the
+   dock sat flat on top of it and the level had no visible floor at all —
+   which is also why the bar now reads as a platform hanging over the world.
+   !important: the dock's background and padding are inline styles. */
+:root[data-theme="mario"] .composer-dock, :root[data-theme="warp"] .composer-dock {
+  background: transparent !important;
+  border-top: 0 !important;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 68px) !important;
+}
+@media (max-width: 767px) {
+  /* Phone: just the brick course — 68px of level is a third of the keyboard. */
+  :root[data-theme="mario"] .composer-dock, :root[data-theme="warp"] .composer-dock {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 32px) !important;
+  }
+}
+
+/* The ask band is a block you type into, not frosted glass: flat cloud paint,
+   sprite outline, hard shadow. Translucent white over the sky came out
+   periwinkle and blurred the level behind it into mush. */
+:root[data-skin="pixel"] .ask-band {
+  background: var(--sheet-bg-solid) !important;
+  border: 2px solid var(--sheet-border) !important;
+  box-shadow: var(--sheet-shadow) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Task cards are blocks sitting ON the level, so they get opaque paint
+   instead of the glass wash. (Outline, bevel and the press-in on hover
+   come from the shared pixel skin at the end of file.) */
 :root[data-theme="mario"] .task-card { background: #fffdf2; }
 :root[data-theme="warp"]  .task-card { background: #0b1024; }
-:root[data-theme="mario"] .task-card, :root[data-theme="warp"] .task-card {
-  border-color: var(--sheet-border);
-  box-shadow: var(--sheet-shadow);
-}
-:root[data-theme="mario"] .task-card:hover, :root[data-theme="warp"] .task-card:hover {
-  transform: translate(2px, 2px);
-  border-color: var(--sheet-border);
-  box-shadow: 1px 1px 0 color-mix(in srgb, var(--sheet-border) 30%, transparent);
-}
 /* Accent bar reads as a sprite stripe: full-bleed, 4px, flat paint. */
 :root[data-theme="mario"] .task-card::before, :root[data-theme="warp"] .task-card::before {
   top: 0;
@@ -2858,8 +3998,9 @@ pre.font-code,
   filter: none;
   box-shadow: inset 2px 2px 0 #ff7261, inset -2px -2px 0 #8c100d, var(--shadow-sm);
 }
-:root[data-theme="mario"] button:active:not(:disabled),
-:root[data-theme="warp"]  button:active:not(:disabled) {
+/* Every square-corner theme presses its buttons INTO the page instead of
+   floating them — a block you stomp, a key you push. */
+:root[data-skin="pixel"] button:active:not(:disabled) {
   transform: translate(2px, 2px);
   box-shadow: none;
 }
@@ -2882,14 +4023,7 @@ pre.font-code,
   50% { transform: scaleX(0.12); }
 }
 
-/* Kill the purple-tinted glass washes; blocks are flat paint. */
-:root[data-theme="mario"] .bento.accent, :root[data-theme="warp"] .bento.accent {
-  background: var(--glass-bg);
-  border-color: var(--border-color-strong);
-}
-:root[data-theme="mario"] .bento::before, :root[data-theme="warp"] .bento::before {
-  display: none;
-}
+/* (Flat paint on the accent tiles: shared pixel skin, below.) */
 
 /* Theme toggle: the round portal becomes a ? block. */
 :root[data-theme="mario"] .theme-toggle, :root[data-theme="warp"] .theme-toggle {
@@ -2980,4 +4114,625 @@ pre.font-code,
   :root[data-theme="warp"] .status-pill__dot.soft-pulse,
   :root[data-theme="mario"] .cid-chip:hover,
   :root[data-theme="warp"] .cid-chip:hover { animation: none; }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * ▩ PIXEL PANELS — one square box, shared by every square-corner theme
+ *
+ * MARIO, WARP, WIN95 and GAMEBOY all opt in through data-skin="pixel"
+ * (set beside data-theme in layout.tsx + page.tsx), so the geometry lives
+ * here once instead of once per theme. A square div is only as good as
+ * its edges: before this the cards were flat rectangles with a hairline
+ * and a soft glass shadow, which on a hard-cornered theme reads as an
+ * unfinished box. Now every panel is a physical object —
+ *
+ *   · a 2px ink outline, the color the theme uses for its darkest line
+ *   · a 2px bevel INSIDE that outline: light edge top-left, shade edge
+ *     bottom-right, so the box catches a light from the upper left
+ *   · a hard offset shadow with zero blur — a sprite's drop shadow, not
+ *     a blur; it's what makes the box sit ON the page rather than in it
+ *   · a press on hover (the box slides into its own shadow) instead of
+ *     the glass lift, and a 2-step transition so even the motion is
+ *     quantized
+ *
+ * GAMEBOY inverts the bevel: its panels are LCD windows sunk into the
+ * shell, so the shade edge is on top. Colors all come from tokens, so a
+ * future square theme gets the treatment by joining the P list.
+ * ──────────────────────────────────────────────────────────────────────*/
+:root[data-skin="pixel"] {
+  --pixel-tl: rgba(255,255,255,0.55);      /* lit edge   — top + left    */
+  --pixel-br: rgba(0,0,0,0.20);            /* shade edge — bottom + right*/
+  --pixel-edges:
+    inset 0 2px 0 var(--pixel-tl), inset 2px 0 0 var(--pixel-tl),
+    inset 0 -2px 0 var(--pixel-br), inset -2px 0 0 var(--pixel-br);
+  --pixel-drop: 4px 4px 0 var(--pixel-drop-ink, rgba(0,0,0,0.22));
+  --pixel-drop-press: 1px 1px 0 var(--pixel-drop-ink, rgba(0,0,0,0.22));
+}
+:root[data-theme="mario"] {
+  --pixel-tl: rgba(255,255,255,0.85);
+  --pixel-br: rgba(28,28,40,0.16);
+  --pixel-drop-ink: rgba(28,28,40,0.30);
+}
+:root[data-theme="warp"] {
+  --pixel-tl: rgba(143,216,255,0.14);
+  --pixel-br: rgba(0,0,0,0.40);
+  --pixel-drop-ink: rgba(0,0,0,0.50);
+}
+:root[data-theme="win95"] {
+  --pixel-tl: #ffffff;                     /* the one true Win95 bevel */
+  --pixel-br: #808080;
+  --pixel-drop-ink: rgba(0,0,0,0.35);
+}
+:root[data-theme="gameboy"] {
+  --pixel-tl: rgba(15,56,15,0.28);         /* inverted: the screen is sunk */
+  --pixel-br: rgba(214,232,120,0.65);
+  --pixel-drop-ink: rgba(15,56,15,0.24);
+  /* An LCD leaks light into the plastic around it, so the sprite drop
+     shadow carries a green bloom with it. Riding the token means the bloom
+     survives the hover/press rules instead of blinking off under them. */
+  --pixel-drop: 4px 4px 0 var(--pixel-drop-ink), 0 0 18px rgba(155,188,15,0.45);
+  --pixel-drop-press: 1px 1px 0 var(--pixel-drop-ink), 0 0 12px rgba(155,188,15,0.38);
+}
+
+/* Inline styles pin fixed radii (borderRadius: 999 etc.), so tokens alone
+   can't square the corners — the blanket !important is the only lever,
+   and it's visual-only. */
+:root[data-skin="pixel"] * { border-radius: 0 !important; }
+
+:root[data-skin="pixel"] .bento,
+:root[data-skin="pixel"] .section-card,
+:root[data-skin="pixel"] .task-card,
+:root[data-skin="pixel"] .hub-card,
+:root[data-skin="pixel"] .filter-bar,
+:root[data-skin="pixel"] .theme-menu {
+  border-width: 2px;
+  border-style: solid;
+  border-color: var(--border-color-strong);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--pixel-edges), var(--pixel-drop);
+  transition: transform 90ms steps(2), box-shadow 90ms steps(2), border-color 120ms ease;
+}
+
+/* Static panels hold still — only the ones you can actually click press. */
+:root[data-skin="pixel"] .bento:not(.interactive):hover,
+:root[data-skin="pixel"] .section-card:hover,
+:root[data-skin="pixel"] .filter-bar:hover {
+  transform: none;
+  box-shadow: var(--pixel-edges), var(--pixel-drop);
+}
+/* The intro animations (hub-in, task-in) fill BOTH, so their final frame
+   keeps applying forever — and an animated property beats any plain
+   declaration, which is what silently swallowed the hover transform.
+   Backwards fill still covers the pre-animation flash. */
+:root[data-skin="pixel"] .hub-card,
+:root[data-skin="pixel"] .task-card {
+  animation-fill-mode: backwards;
+}
+:root[data-skin="pixel"] .bento.interactive:hover,
+:root[data-skin="pixel"] .task-card:hover,
+:root[data-skin="pixel"] .hub-card:hover {
+  transform: translate(3px, 3px);
+  border-color: var(--border-color-strong);
+  box-shadow: var(--pixel-edges), var(--pixel-drop-press);
+}
+:root[data-skin="pixel"] .bento.interactive:active,
+:root[data-skin="pixel"] .hub-card:active {
+  transform: translate(4px, 4px);
+  box-shadow: var(--pixel-edges);
+}
+
+/* No glass washes on a square box: the gradient sheen and the tinted
+   accent fill both fight the bevel, which is now doing that job. */
+:root[data-skin="pixel"] .bento::before { display: none; }
+:root[data-skin="pixel"] .bento.accent {
+  background: var(--glass-bg);
+  border-color: var(--border-color-strong);
+}
+
+/* The card's own accent stripe becomes a full-bleed sprite bar, flush
+   inside the outline instead of floating as a rounded 2px sliver. */
+:root[data-skin="pixel"] .section-card__bar {
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: var(--card-accent);
+  opacity: 1;
+}
+:root[data-skin="pixel"] .section-card__head {
+  border-bottom-width: 2px;
+  border-bottom-color: var(--border-color-strong);
+}
+:root[data-skin="pixel"] .section-card__glyph {
+  border-width: 2px;
+  border-color: var(--card-accent);
+  background: transparent;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * ▩ DOT MATRIX — the GAMEBOY skin (with stereo sound)
+ *
+ * The console IS a DMG-01 in the kiwi shell: green plastic in the gutters,
+ * the screens' backlight bleeding up into it, speaker grille slanting
+ * across the bottom-right corner, power lamp glowing at the bottom-left,
+ * and every panel an LCD window cut into it — right down to the pixel grid
+ * dusted over the green. Palette tokens live in the theme block up top;
+ * this is the hardware.
+ * ──────────────────────────────────────────────────────────────────────*/
+:root[data-theme="gameboy"] {
+  background:
+    /* shell ridge — the light rolls off the top of the plastic */
+    linear-gradient(180deg, rgba(255,255,255,0.30), transparent 180px),
+    /* backlight: the screens throw a little of their own green onto the
+       case. Kept faint — push it and the shell turns into more screen,
+       which is the one thing this theme is built not to do. */
+    radial-gradient(130% 70% at 50% 0%,
+      rgba(155,188,15,0.24), rgba(155,188,15,0.07) 50%, transparent 76%),
+    /* speaker grille: six slots, bounded to their own tile by no-repeat */
+    repeating-linear-gradient(115deg,
+      rgba(15,56,15,0.20) 0 5px, transparent 5px 14px) right 26px bottom 26px / 78px 78px no-repeat,
+    /* power lamp */
+    radial-gradient(circle,
+      #e0574f 0 3px, #7d1f1a 3px 5px, transparent 5px) left 26px bottom 34px / 22px 22px no-repeat,
+    linear-gradient(180deg, #c4d3ba, #a9b9a0) 0 0 / 100% 100% no-repeat,
+    var(--bg-primary);
+  background-attachment: fixed;
+}
+:root[data-theme="gameboy"] body { background: transparent; }
+:root[data-theme="gameboy"] img { image-rendering: pixelated; }
+
+/* Every panel is the screen: flat LCD green under a 3px dot grid, the
+   same grid the real display couldn't hide. Kept at 6% ink so it reads
+   as texture at arm's length and never as lines through the type. */
+:root[data-theme="gameboy"] .bento,
+:root[data-theme="gameboy"] .section-card,
+:root[data-theme="gameboy"] .task-card,
+:root[data-theme="gameboy"] .hub-card,
+:root[data-theme="gameboy"] .filter-bar,
+:root[data-theme="gameboy"] .sheet,
+:root[data-theme="gameboy"] .ask-band {
+  background-color: var(--glass-bg);
+  /* !important because the pixel skin paints .ask-band's background with
+     one — without it the console's biggest surface is the only panel
+     with no grid on it. */
+  background-image:
+    repeating-linear-gradient(0deg,  rgba(15,56,15,0.06) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(15,56,15,0.06) 0 1px, transparent 1px 3px) !important;
+}
+
+/* Chrome is shell: the header sits on the plastic with an ink rule under
+   it, the way the bezel meets the case. (bg-secondary is already the
+   plastic; this beats the header's own !important gradient.) */
+:root[data-theme="gameboy"] .console-header {
+  background: var(--bg-secondary) !important;
+  border-bottom: 2px solid #0f380f;
+  box-shadow: 0 2px 0 rgba(15,56,15,0.18) !important;
+}
+
+/* Chrome buttons carry hardcoded accent hexes inline (#60a5fa, #fbbf24,
+   #f472b6 …) that no token can reach, and a lone pastel pill on a DMG
+   reads as a bug. Pushing them through the screen's own transform lands
+   them back on the ramp — same trip the shots take, one declaration
+   instead of a hunt through 19k lines of JSX. The theme picker is exempt:
+   its swatches ARE the other themes' colors, and greening them out would
+   leave ten identical buttons. */
+:root[data-theme="gameboy"] .console-header button:not([aria-label^="Theme"]),
+:root[data-theme="gameboy"] .composer-dock button,
+:root[data-theme="gameboy"] .ask-band button {
+  /* brightness last, and low: those hexes were picked to glow on a dark
+     console, and a straight hue swap leaves them as ghosts on the pale
+     screen. The LCD only ever drew type by going DARKER. */
+  filter: grayscale(1) sepia(1) hue-rotate(25deg) saturate(2.6) brightness(0.5) contrast(1.3);
+}
+:root[data-theme="gameboy"] .console-header [data-theme-menu] button { filter: none; }
+/* The fold button is the one chrome control with an OPAQUE background (it's
+   sticky — tabs scroll under it), and the screen filter turns that plastic
+   into a dark slab. It carries no accent hexes, so it never needed the trip. */
+:root[data-theme="gameboy"] .console-header button.hdr-fold { filter: none; }
+
+/* The same hexes leak OUTSIDE the chrome — the rail's status glyphs, the
+   model and agent chips, the composer's tool pills all read their color out
+   of a JS table (STATUS_COLOR_DARK, MODEL_OPTIONS, COMPOSER_TOOLS …) that
+   builds borders by string-concatenating alpha onto the hex, so those tables
+   can't become CSS vars. The trip above can't help either: it's a filter, and
+   these are single glyphs sitting on the LCD, where filtering the glyph and
+   not its field just makes a dark blob.
+   So map the palette itself. Both spellings of every hex are listed because
+   the two halves of the app disagree on how a style attribute is written:
+   server-rendered markup keeps the authored `#60a5fa`, anything React has
+   touched since hydration has been through the CSSOM and reads back as
+   `rgb(96, 165, 250)`. Matching one and not the other fixes half a console.
+   Color only — the 10–25% alpha fills these chips build stay as they are,
+   because at that strength they read as a tint of the field, not a pigment.
+
+   Each group skips `var(--crt-{name}, #hex)`: those sites already resolve
+   through the token and need no table. Skipping them is not tidiness — a
+   substring match can't tell a fill from a foreground, and the rail's count
+   badge paints that same var as its BACKGROUND, so mapping it turned the
+   number the exact color of the pill it sits in (1.00:1, a solid dot). */
+/* blue — running, ✎ edit, the agent mod, git/cid tools */
+:root[data-theme="gameboy"] :is(
+  [style*="#60a5fa"], [style*="rgb(96, 165, 250)"],
+  [style*="#3b82f6"], [style*="rgb(59, 130, 246)"],
+  [style*="#22d3ee"], [style*="rgb(34, 211, 238)"],
+  [style*="#38bdf8"], [style*="rgb(56, 189, 248)"],
+  [style*="#8be9fd"], [style*="rgb(139, 233, 253)"]
+):not([style*="var(--crt-blue"]) { color: var(--crt-blue) !important; }
+
+/* amber — queued, ⑂ fork */
+:root[data-theme="gameboy"] :is(
+  [style*="#fbbf24"], [style*="rgb(251, 191, 36)"],
+  [style*="#ffb000"], [style*="rgb(255, 176, 0)"],
+  [style*="#fbd000"], [style*="rgb(251, 208, 0)"],
+  [style*="#f1e05a"], [style*="rgb(241, 224, 90)"]
+):not([style*="var(--crt-amber"]) { color: var(--crt-amber) !important; }
+
+/* green — complete, ✧ new */
+:root[data-theme="gameboy"] :is(
+  [style*="#34d399"], [style*="rgb(52, 211, 153)"],
+  [style*="#4ade80"], [style*="rgb(74, 222, 128)"],
+  [style*="#10b981"], [style*="rgb(16, 185, 129)"],
+  [style*="#10a37f"], [style*="rgb(16, 163, 127)"],
+  [style*="#059669"], [style*="rgb(5, 150, 105)"],
+  [style*="#50fa7b"], [style*="rgb(80, 250, 123)"]
+):not([style*="var(--crt-green"]) { color: var(--crt-green) !important; }
+
+/* red — failed, cancelled */
+:root[data-theme="gameboy"] :is(
+  [style*="#f87171"], [style*="rgb(248, 113, 113)"],
+  [style*="#ef4444"], [style*="rgb(239, 68, 68)"],
+  [style*="#cb171e"], [style*="rgb(203, 23, 30)"]
+):not([style*="var(--crt-red"]) { color: var(--crt-red) !important; }
+
+/* violet + pink — CIDs, the opus/claude and fable accents */
+:root[data-theme="gameboy"] :is(
+  [style*="#c084fc"], [style*="rgb(192, 132, 252)"],
+  [style*="#a78bfa"], [style*="rgb(167, 139, 250)"],
+  [style*="#a074c4"], [style*="rgb(160, 116, 196)"],
+  [style*="#9f7aea"], [style*="rgb(159, 122, 234)"],
+  [style*="#c4b5fd"], [style*="rgb(196, 181, 253)"],
+  [style*="#ddd6fe"], [style*="rgb(221, 214, 254)"],
+  [style*="#f472b6"], [style*="rgb(244, 114, 182)"]
+):not([style*="var(--crt-purple"]) { color: var(--crt-purple) !important; }
+
+/* slate — the neutral half of those tables */
+:root[data-theme="gameboy"] :is(
+  [style*="#94a3b8"], [style*="rgb(148, 163, 184)"],
+  [style*="#64748b"], [style*="rgb(100, 116, 139)"],
+  [style*="#cccccc"], [style*="rgb(204, 204, 204)"],
+  [style*="#555555"], [style*="rgb(85, 85, 85)"]
+) { color: var(--text-tertiary) !important; }
+
+/* ── Alpha is not a rank on a lit screen ───────────────────────────────
+   Everywhere else in this console the muted ranks are ink at 40–70%
+   opacity, and on a dark theme that is exactly right: fading toward a
+   black field means fading toward MORE contrast against the type around
+   it. Here the field is the brightest thing on the page, so the same fade
+   runs the other way — measured on the LCD, the ink ramp lands at 6:1 flat,
+   3.3:1 at 0.7 alpha, and 2.2:1 at 0.5, which is where the timestamps,
+   owner addresses and CID lines were living. No panel color fixes this:
+   alpha over a bright field always loses, and no fade at all can hold AA
+   below ~0.75.
+   The hardware never faded type either — a DMG dropped a label a whole
+   shade, which is what the ink ramp above is for. So flatten the alpha on
+   the small type and let --text-secondary / --text-tertiary / --crt-purple
+   do the ranking they were measured for.
+   Scoped to the meta sizes (≤11px, which is every muted label in the app
+   and nothing that animates) so panel fades and sheet transitions keep
+   working, and never applied to something parked at opacity-0 — those are
+   the reveal-on-hover chips, and pinning them open puts a QR button on
+   every card in the hub. */
+:root[data-theme="gameboy"] :is(
+  [class*="text-[8px]"], [class*="text-[9px]"],
+  [class*="text-[10px]"], [class*="text-[11px]"],
+  /* …and the meta type that sets its size inline instead of by class —
+     the dropdown carets, mostly. */
+  [style*="font-size:10px"], [style*="font-size: 10px"],
+  [style*="font-size:11px"], [style*="font-size: 11px"]
+):not([class*="opacity-0"]) { opacity: 1 !important; }
+
+/* Anything already at 0.75+ is a nudge, not a rank — it just costs the
+   last half-stop of contrast. Take it back; nothing that animates or
+   scrims lives up here. */
+:root[data-theme="gameboy"] :is(
+  [style*="opacity:0.75"], [style*="opacity: 0.75"],
+  [style*="opacity:0.8"],  [style*="opacity: 0.8"],
+  [class*="opacity-75"], [class*="opacity-80"], [class*="opacity-90"]
+) { opacity: 1 !important; }
+
+/* The two ranks a hub card fades rather than colors: the path it shows in
+   place of a missing description, and the `orbit/` on the front of the
+   title. Same trade as everywhere else — drop the fade, drop a shade. */
+:root[data-theme="gameboy"] .hub-card :is(
+  [style*="opacity:0.4"], [style*="opacity: 0.4"],
+  [style*="opacity:0.45"], [style*="opacity: 0.45"]
+) { opacity: 1 !important; color: var(--text-tertiary) !important; }
+
+/* The same story in CSS: the hub's filter bar labels and counts are ranked
+   with opacity by their own rules. Rank them with ink instead. */
+:root[data-theme="gameboy"] .hub-seg__label,
+:root[data-theme="gameboy"] .hub-seg__count { opacity: 1; color: var(--text-secondary); }
+:root[data-theme="gameboy"] .hub-seg__count { color: var(--text-tertiary); }
+
+/* Module shots go through the screen: four-ish shades of green, the same
+   trip a photo takes when a DMG has to draw it. */
+:root[data-theme="gameboy"] .hub-shot__img {
+  filter: grayscale(1) contrast(1.2) sepia(1) hue-rotate(25deg) saturate(2.6) brightness(0.95);
+}
+
+/* The dock is shell, not screen — and it stands off the floor far enough
+   to clear the grille and the power lamp painted down there. */
+:root[data-theme="gameboy"] .composer-dock {
+  background: transparent !important;
+  border-top: 0 !important;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 40px) !important;
+}
+
+/* Primary actions are inverted LCD: ink fill, screen-green type. This is
+   exactly how the hardware drew a selected menu row. */
+:root[data-theme="gameboy"] .glass-btn.primary,
+:root[data-theme="gameboy"] .snap-btn,
+:root[data-theme="gameboy"] .pixel-btn:not(.pixel-btn-amber):not(.pixel-btn-blue) {
+  background: #0f380f;
+  border: 2px solid #0f380f;
+  color: #9bbc0f;
+  text-shadow: none;
+  box-shadow: inset 0 2px 0 rgba(155,188,15,0.22), inset 0 -2px 0 rgba(0,0,0,0.35), var(--shadow-sm);
+}
+:root[data-theme="gameboy"] .glass-btn.primary:hover,
+:root[data-theme="gameboy"] .snap-btn:hover,
+:root[data-theme="gameboy"] .pixel-btn:not(:disabled):hover {
+  background: #306230;
+  transform: none;
+  filter: none;
+}
+
+/* ── The recessed shade at work ────────────────────────────────────────
+   Fields first, and they need the !important: the generic light-base rule
+   paints every input rgba(255,255,255,0.85), which on a DMG is a hole
+   punched through the screen. A field here is a well — one shade down,
+   ink border, and a hard inset shadow instead of a glow. */
+:root[data-theme="gameboy"] textarea,
+:root[data-theme="gameboy"] input[type="text"],
+:root[data-theme="gameboy"] input[type="password"],
+:root[data-theme="gameboy"] input[type="number"],
+:root[data-theme="gameboy"] input[type="search"],
+:root[data-theme="gameboy"] input:not([type]),
+:root[data-theme="gameboy"] select,
+:root[data-theme="gameboy"] .hub-search {
+  background: var(--lcd-inset) !important;
+  background-color: var(--lcd-inset) !important;
+  color: var(--text-primary);
+  border: 2px solid var(--border-color-strong);
+  box-shadow: inset 2px 2px 0 rgba(15,56,15,0.20);
+}
+:root[data-theme="gameboy"] textarea:focus,
+:root[data-theme="gameboy"] input:focus,
+:root[data-theme="gameboy"] .hub-search:focus-within {
+  border-color: #0f380f;
+  box-shadow: inset 2px 2px 0 rgba(15,56,15,0.20), 0 0 0 2px rgba(15,56,15,0.35);
+}
+/* Placeholders rank by ink, not by fade — 0.6 alpha over the well is
+   2.6:1, and a placeholder you can't read is just an empty box. */
+:root[data-theme="gameboy"] ::placeholder,
+:root[data-theme="gameboy"] .hub-search input::placeholder {
+  color: var(--text-secondary) !important;
+  opacity: 1 !important;
+}
+
+/* Segmented controls: the track sinks, the live segment INVERTS. The tinted
+   `--crt-green 20%` fill the base rule uses is 4% of a value step once the
+   token is ink on a lit field — you cannot see which one is on. The DMG's
+   own answer to "this row is selected" was to flip it. */
+:root[data-theme="gameboy"] .hub-seg {
+  background: var(--lcd-inset);
+  border-color: var(--border-color-strong);
+}
+:root[data-theme="gameboy"] .hub-seg__btn[data-on],
+:root[data-theme="gameboy"] .hub-seg__btn[data-on]:hover,
+:root[data-theme="gameboy"] .hub-toggle[data-on],
+:root[data-theme="gameboy"] .hub-toggle[data-on]:hover {
+  background: #0f380f;
+  border-color: #0f380f;
+  color: #9bbc0f;
+  box-shadow: inset 0 2px 0 rgba(155,188,15,0.20);
+}
+:root[data-theme="gameboy"] .hub-seg__btn:hover,
+:root[data-theme="gameboy"] .hub-toggle:hover { background: #9bbc0f; }
+
+/* Card heads band off their body the way the screen's status row did. */
+:root[data-theme="gameboy"] .section-card__head {
+  background: var(--lcd-inset);
+}
+
+/* The recessed shade costs about 0.9:1, and the tertiary rank doesn't have
+   it to spend — 4.1:1 on the well against 4.9:1 on the lit panel. So the
+   sunken surfaces carry secondary ink and up. Nothing muted enough to need
+   the bottom rank belongs in a header or a control track anyway. The
+   attribute match is for the labels that name the token inline; the
+   cascade can't reach those any other way. */
+/* …and the count badge drops its 14%-of-currentColor pill while it's at
+   it: on the sunken track that fill is a third shade under the type and
+   pulls it to 3.8:1. The track already frames the number. */
+:root[data-theme="gameboy"] .hub-seg__count { background: transparent; }
+:root[data-theme="gameboy"] .hub-seg__count,
+:root[data-theme="gameboy"] .hub-seg__label,
+:root[data-theme="gameboy"] .section-card__head,
+:root[data-theme="gameboy"] .section-card__head [style*="--text-tertiary"],
+:root[data-theme="gameboy"] .hub-seg [style*="--text-tertiary"] {
+  color: var(--text-secondary) !important;
+}
+
+/* Same argument, everywhere else a control says "this one is on": the tab
+   strips and header chips mark selection with a 10–15% ink wash, which on
+   the shell is about a third of a value step — the console's own USER /
+   ACCESS tabs were the proof. A DMG had one way to say selected and it was
+   loud: flip the row. background-image too, because the tab strips paint
+   their wash as a gradient and background-color alone leaves it on top.
+   The theme picker is held out the way it is from the filter trip above:
+   its swatches ARE the other themes' colors. It marks its live row some
+   other way today so the guard is currently a no-op, but the day it grows
+   an aria-pressed is not the day to discover that. */
+:root[data-theme="gameboy"] :is([aria-selected="true"], [aria-pressed="true"]):not(.hub-seg__btn):not(.hub-toggle):not([data-theme-menu] *) {
+  background-image: none !important;
+  background-color: #0f380f !important;
+  border-color: #0f380f !important;
+  color: #9bbc0f !important;
+}
+/* Anything inside an inverted row is on the ink now, so the ramp has to
+   flip with it — a mapped-to-ink glyph on an ink fill is a hole. */
+:root[data-theme="gameboy"] :is([aria-selected="true"], [aria-pressed="true"]):not(.hub-seg__btn):not(.hub-toggle):not([data-theme-menu] *) * {
+  color: #9bbc0f !important;
+}
+
+/* No white on a Game Boy — the one primary action that still had some. */
+:root[data-theme="gameboy"] .hub-add { color: #9bbc0f; }
+
+/* CID chips are the same inverted screen row, at chip size. */
+:root[data-theme="gameboy"] .cid-chip {
+  background: #0f380f;
+  border: 2px solid #0f380f;
+  color: #9bbc0f;
+}
+:root[data-theme="gameboy"] .cid-chip:hover { background: #306230; }
+
+/* The theme toggle is the A button — the one piece of the console that
+   was never green. */
+:root[data-theme="gameboy"] .theme-toggle {
+  background: #9d3557;
+  border: 2px solid #3f1626;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,0.30), inset 0 -3px 0 rgba(0,0,0,0.35);
+}
+:root[data-theme="gameboy"] .theme-toggle:hover { transform: none; }
+:root[data-theme="gameboy"] .theme-toggle::before { display: none; }
+
+/* A running job blinks the way a DMG sprite blinks: two frames, no tween. */
+:root[data-theme="gameboy"] .status-pill__dot.soft-pulse {
+  animation: lcd-blink 0.9s steps(1) infinite;
+  box-shadow: none;
+}
+@keyframes lcd-blink {
+  0%, 49%  { background: #0f380f; }
+  50%, 100% { background: #8bac0f; }
+}
+
+/* Ink-on-screen selection, a screen-green scrollbar brick, and a focus
+   ring dark enough to see against both the shell and the LCD. */
+:root[data-theme="gameboy"] ::selection { background: #0f380f; color: #9bbc0f; }
+:root[data-theme="gameboy"] ::-webkit-scrollbar-thumb {
+  background: #306230;
+  border: 2px solid #0f380f;
+}
+:root[data-theme="gameboy"] :focus-visible {
+  outline: 3px solid #0f380f;
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="gameboy"] .status-pill__dot.soft-pulse { animation: none; }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+ * ⌘ FONT AXIS — typeface, orthogonal to palette and box geometry
+ * ════════════════════════════════════════════════════════════════════
+ * data-theme picks the colors, data-skin picks the corners, data-font
+ * picks the letters. Unset (or "default") is the house Inter + JetBrains
+ * Mono; each named style below re-points the three font tokens and then
+ * forces them past the inline `fontFamily` styles scattered through
+ * page.tsx — which no ordinary rule can outrank.
+ *
+ * The two blanket rules are a pair, and the order matters less than the
+ * specificity: the code selector carries a class (via :is) so it beats
+ * `body *` everywhere it applies. Add a style by copying the pair.
+ *
+ * ZOODMANTRA — Syne over Space Mono. Wide, slightly occult grotesque for
+ * the chrome; a retro typewriter mono for everything that is code. Reads
+ * like a zine about a compiler.
+ */
+:root[data-font="zoodmantra"] {
+  --font-ui: 'Syne', 'Inter', -apple-system, sans-serif;
+  --font-code: 'Space Mono', 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+  --font-mono: var(--font-code);
+}
+
+/* [data-font-sample] opts out: the picker's own chips preview the face
+ * they select, so they must keep their inline fontFamily. */
+:root[data-font="zoodmantra"] body,
+:root[data-font="zoodmantra"] body *:not([data-font-sample]) {
+  font-family: var(--font-ui) !important;
+}
+
+/* Everything that is, or edits, source text stays monospaced. */
+:root[data-font="zoodmantra"] body :is(
+  code, pre, kbd, samp, textarea, input,
+  .font-code, .font-mono, .cid-chip, .terminal-line
+) {
+  font-family: var(--font-code) !important;
+}
+
+/* Syne is drawn wide and rides high; the console's default −0.005em tuck
+ * and Inter's stylistic sets (cv02/cv03/…) are Inter-specific, so drop
+ * both rather than let them apply to a face that never declared them. */
+:root[data-font="zoodmantra"] body {
+  letter-spacing: 0;
+  font-feature-settings: normal;
+}
+
+/* …and it sets ~20% wider than Inter, enough that the theme/font picker
+ * clips its own labels at the 260px it asks for inline. */
+:root[data-font="zoodmantra"] [data-theme-menu] {
+  min-width: 320px !important;
+}
+
+/* ANTIREAL — Chakra Petch over Martian Mono. Squared-off, HUD-drawn
+ * letters with cut corners: type that looks rendered rather than
+ * written. Nothing here is a human hand. */
+:root[data-font="antireal"] {
+  --font-ui: 'Chakra Petch', 'Inter', -apple-system, sans-serif;
+  --font-code: 'Martian Mono', 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+  --font-mono: var(--font-code);
+}
+
+:root[data-font="antireal"] body,
+:root[data-font="antireal"] body *:not([data-font-sample]) {
+  font-family: var(--font-ui) !important;
+}
+
+:root[data-font="antireal"] body :is(
+  code, pre, kbd, samp, textarea, input,
+  .font-code, .font-mono, .cid-chip, .terminal-line
+) {
+  font-family: var(--font-code) !important;
+  /* Martian Mono runs far wider per glyph than JetBrains Mono; the
+   * condensed cut plus a small step down keeps terminal lines and CID
+   * chips inside the boxes they were measured for. */
+  font-stretch: condensed;
+  font-size: 0.92em;
+  letter-spacing: -0.02em;
+}
+
+/* Chakra Petch sits narrow and upright, so it takes a touch of air back;
+ * Inter's stylistic sets (cv02/cv03/…) mean nothing to it. */
+:root[data-font="antireal"] body {
+  letter-spacing: 0.01em;
+  font-feature-settings: normal;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Module tab labels — APP / CODE / IDEAS / INFO
+ *
+ * The strip used to be four bare glyphs, which is a guessing game: a
+ * diamond and a compass tell you nothing about "suggestions" and "the
+ * module's profile". Every tab now carries its word. The word only hides
+ * in the narrow desktop band (769–1200px), where the header still has to
+ * fit the module cluster, the console chips and the account chip on one
+ * row; on a phone the strip side-scrolls, so the labels stay.
+ */
+.mod-tab__label {
+  color: inherit;
+  white-space: nowrap;
+  padding-left: 1px;
+}
+@media (min-width: 769px) and (max-width: 1200px) {
+  .mod-tab__label { display: none; }
 }

@@ -9,6 +9,7 @@ import { count, percent, rate } from '@/lib/format'
 import AddData from './components/AddData'
 import Chat from './components/Chat'
 import Housing from './components/Housing'
+import Mcp from './components/Mcp'
 import CrimeControls from './components/CrimeControls'
 import Inspector, { type Selection } from './components/Inspector'
 import LayerPanel from './components/LayerPanel'
@@ -35,7 +36,7 @@ const BASEMAPS: { id: BasemapId; label: string }[] = [
 ]
 
 /** The right-hand dock holds one panel at a time. */
-type Dock = 'chat' | 'data' | 'housing' | null
+type Dock = 'chat' | 'data' | 'housing' | 'mcp' | null
 
 export default function Page() {
   const { theme, base } = useTheme()
@@ -261,6 +262,14 @@ export default function Page() {
             >
               Ask
             </button>
+            <button
+              onClick={() => setDock((d) => (d === 'mcp' ? null : 'mcp'))}
+              aria-pressed={dock === 'mcp'}
+              className="chip px-2 py-1 text-[11px]"
+              title="The MCP server behind this map"
+            >
+              MCP
+            </button>
           </div>
           <ThemePicker />
         </div>
@@ -271,6 +280,8 @@ export default function Page() {
         <aside className="panel absolute bottom-3 right-3 top-[68px] z-30 flex w-[340px] flex-col overflow-hidden">
           {dock === 'chat' ? (
             <Chat onAction={applyAction} onClose={() => setDock(null)} />
+          ) : dock === 'mcp' ? (
+            <Mcp onAction={applyAction} onClose={() => setDock(null)} />
           ) : dock === 'housing' ? (
             <Housing
               active={active}

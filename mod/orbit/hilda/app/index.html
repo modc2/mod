@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<!--
+  HILDA+ console — eight-bit.
+
+  One file, no build, no dependencies. Everything is drawn on canvases with
+  image smoothing off and hard-edged rectangles, which is what makes it look
+  the way it looks.
+
+  The whole 60-year classified record arrives as one gzipped binary blob
+  (~1 MB) from ./api/grid.bin, so scrubbing the timeline and toggling classes
+  never touches the network. The automaton runs server-side in numpy and
+  returns its frames the same way.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HILDA+ // LAND USE 1960-2019</title>
+<style>
+  :root {
+    --bg:#0a0e18; --panel:#111827; --ink:#e8f0ff; --dim:#7c8db5;
+    --line:#26324d; --hi:#ffd23f; --accent:#3ddc97; --warn:#ff3b47;
+    --urban:#ff3b47; --cropland:#ffb02e; --pasture:#b5763a;
+    --forest:#1e9e57; --grassland:#8fd14f; --sparse:#9aa4b0; --water:#2f6bd8;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+    font-family:'Courier New',ui-monospace,monospace; font-size:13px;
+    letter-spacing:.06em; -webkit-font-smoothing:none; overflow:hidden; }
+  body::after {           /* scanlines */
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:99;
+    background:repeating-linear-gradient(180deg,rgba(0,0,0,.16) 0 1px,transparent 1px 3px);
+    mix-blend-mode:multiply; }
+  button,select,input { font:inherit; letter-spacing:inherit; color:inherit; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:var(--line); }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  .px { border:2px solid var(--line); box-shadow:3px 3px 0 #05070d; }
+  .btn { background:var(--panel); border:2px solid var(--line); color:var(--dim);
+    padding:5px 10px; cursor:pointer; text-transform:uppercase; box-shadow:2px 2px 0 #05070d; }
+  .btn:hover { color:var(--ink); border-color:var(--dim); }
+  .btn.on { background:var(--hi); color:#0a0e18; border-color:var(--hi); font-weight:bold; }
+  .btn:active { transform:translate(2px,2px); box-shadow:none; }
+  .btn[disabled] { opacity:.35; cursor:not-allowed; }
+
+  #app { display:grid; grid-template-rows:auto 1fr; height:100%; }
+  header { display:flex; align-items:center; gap:14px; padding:8px 14px;
+    border-bottom:2px solid var(--line); background:var(--panel); }
+  header h1 { margin:0; font-size:15px; letter-spacing:.22em; color:var(--hi); }
+  header .sub { color:var(--dim); font-size:11px; }
+  header .spacer { flex:1; }
+  .led { display:inline-block; width:8px; height:8px; background:var(--warn);
+    margin-right:5px; vertical-align:middle; }
+  .led.ok { background:var(--accent); animation:blink 2.4s steps(1) infinite; }
+  @keyframes blink { 0%,92%{opacity:1} 93%,100%{opacity:.25} }
+
+  main { display:grid; grid-template-columns:56px 1fr 300px; min-height:0; }
+  nav { border-right:2px solid var(--line); background:var(--panel);
+    display:flex; flex-direction:column; }
+  nav button { writing-mode:vertical-rl; padding:16px 0; background:none;
+    border:none; border-bottom:2px solid var(--line); color:var(--dim);
+    cursor:pointer; letter-spacing:.3em; font-size:12px; }
+  nav button.on { color:#0a0e18; background:var(--hi); font-weight:bold; }
+  nav button:hover:not(.on) { color:var(--ink); background:#182136; }
+
+  section.stage { display:none; min-width:0; min-height:0; overflow:auto;
+    padding:12px; }
+  section.stage.on { display:block; }
+  aside { border-left:2px solid var(--line); background:var(--panel);
+    overflow:auto; padding:10px; }
+
+  h2 { font-size:11px; letter-spacing:.24em; color:var(--hi); margin:0 0 6px;
+    text-transform:uppercase; }
+  .box { border:2px solid var(--line); padding:8px; margin-bottom:10px;
+    background:#0d1322; }
+  .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .kv { display:flex; justify-content:space-between; gap:8px; padding:1px 0;
+    font-size:11px; }
+  .kv b { color:var(--ink); font-weight:normal; }
+  .kv span { color:var(--dim); }
+  .muted { color:var(--dim); font-size:11px; line-height:1.5; }
+  a { color:var(--accent); }
+
+  canvas { image-rendering:pixelated; display:block; }
+  #mapwrap { position:relative; border:2px solid var(--line); background:#05070d;
+    box-shadow:3px 3px 0 #05070d; }
+  #map { width:100%; height:auto; cursor:crosshair; }
+  #xhair { position:absolute; inset:0; pointer-events:none; }
+  #tip { position:absolute; z-index:20; background:#05070d; border:2px solid var(--hi);
+    padding:5px 7px; font-size:11px; pointer-events:none; display:none;
+    white-space:pre; box-shadow:3px 3px 0 rgba(0,0,0,.6); }
+
+  .legend { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr));
+    gap:4px; }
+  .chip { display:flex; align-items:center; gap:6px; padding:3px 5px; cursor:pointer;
+    border:2px solid transparent; font-size:11px; }
+  .chip:hover { border-color:var(--line); }
+  .chip.off { opacity:.3; }
+  .chip.solo { border-color:var(--hi); }
+  .sw { width:12px; height:12px; flex:none; box-shadow:inset 0 0 0 1px rgba(0,0,0,.45); }
+
+  input[type=range] { -webkit-appearance:none; appearance:none; height:14px;
+    background:#0d1322; border:2px solid var(--line); flex:1; min-width:80px; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:12px;
+    height:18px; background:var(--hi); cursor:pointer; }
+  input[type=range]::-moz-range-thumb { width:12px; height:18px; background:var(--hi);
+    border:0; border-radius:0; cursor:pointer; }
+  input[type=number],select { background:#0d1322; border:2px solid var(--line);
+    padding:3px 5px; }
+  table { border-collapse:collapse; width:100%; font-size:11px; }
+  th,td { border:1px solid var(--line); padding:3px 5px; text-align:right; }
+  th { color:var(--hi); text-align:left; font-weight:normal; }
+  td:first-child,th:first-child { text-align:left; }
+  .pos { color:var(--accent); } .neg { color:var(--warn); }
+  .bar { height:9px; background:var(--line); position:relative; }
+  .bar i { position:absolute; inset:0 auto 0 0; display:block; }
+  #boot { position:fixed; inset:0; background:var(--bg); z-index:200;
+    display:flex; align-items:center; justify-content:center; text-align:center; }
+  #boot div { max-width:560px; line-height:1.8; }
+</style>
+</head>
+<body>
+<div id="boot"><div>
+  <div style="color:var(--hi);font-size:18px;letter-spacing:.3em">H I L D A +</div>
+  <div class="muted" id="bootmsg" style="margin-top:14px">LOADING 60 YEARS OF LAND…</div>
+</div></div>
+
+<div id="app">
+<header>
+  <h1>HILDA+</h1>
+  <span class="sub" id="hdrspan">—</span>
+  <span class="spacer"></span>
+  <span class="sub"><span class="led" id="led"></span><span id="hdrstate">BOOT</span></span>
+</header>
+<main>
+  <nav id="nav"></nav>
+
+  <!-- ══ MAP ══════════════════════════════════════════════════════════ -->
+  <section class="stage on" id="stage-map">
+    <div class="row" style="margin-bottom:8px">
+      <button class="btn" id="play">▶ PLAY</button>
+      <b id="yearlabel" style="color:var(--hi);font-size:16px;min-width:56px">1960</b>
+      <input type="range" id="year" min="0" max="59" value="0" style="flex:1">
+      <select id="region"></select>
+      <button class="btn" id="zoom1km" title="fetch this view at the full 1 km source resolution">1KM</button>
+    </div>
+    <div id="mapwrap">
+      <canvas id="map" width="720" height="360"></canvas>
+      <canvas id="xhair" width="720" height="360"></canvas>
+      <div id="tip"></div>
+    </div>
+    <div class="box" style="margin-top:10px">
+      <h2>Classes — click to solo, shift-click to hide</h2>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="box">
+      <h2>Turnover 1961-2019 — gross change per cell</h2>
+      <img id="churn" style="width:100%;image-rendering:pixelated;border:2px solid var(--line)" alt="turnover map">
+      <div class="muted" id="churnnote">…</div>
+    </div>
+  </section>
+
+  <!-- ══ TIME ═════════════════════════════════════════════════════════ -->
+  <section class="stage" id="stage-time">
+    <div class="row" style="margin-bottom:8px">
+      <span class="muted">REGION</span>
+      <select id="tregion"></select>
+      <button class="btn on" id="mode-abs">AREA</button>
+      <button class="btn" id="mode-idx">INDEX 1960=100</button>
+    </div>
+    <div class="box">
+      <h2 id="stacktitle">Stacked land use — million km²</h2>
+      <canvas id="stack" width="900" height="330" style="width:100%"></canvas>
+      <div class="muted">Each band is a class's area. Hover the map tab's legend
+        colours to match. Area is cos-latitude weighted on the sphere.</div>
+    </div>
+    <div class="box">
+      <h2>Net change over the record</h2>
+      <canvas id="deltas" width="900" height="200" style="width:100%"></canvas>
+    </div>
+    <div class="box">
+      <h2>Gross vs net — the headline finding</h2>
+      <div id="grossnet" class="muted">…</div>
+    </div>
+    <div class="box">
+      <h2>Where it flowed — largest class-to-class transfers</h2>
+      <table id="flows"><tbody></tbody></table>
+    </div>
+  </section>
+
+  <!-- ══ AUTOMATA ═════════════════════════════════════════════════════ -->
+  <section class="stage" id="stage-ca">
+    <div class="box">
+      <h2>Cellular automaton</h2>
+      <div class="muted" style="margin-bottom:8px">
+        Every cell holds six fractions. Each year, flow(i→j) = share of i
+        × the observed annual rate i→j × neighbourhood pressure for j.
+        Rates are counted from the HILDA+ transition layers — not fitted.
+        Only the neighbourhood weight and the scenario dials are free.
+      </div>
+      <div class="row">
+        <span class="muted">FROM</span><input type="number" id="castart" value="1960" min="1960" max="2018" style="width:70px">
+        <span class="muted">TO</span><input type="number" id="caend" value="2019" min="1961" max="2100" style="width:70px">
+        <span class="muted">NEIGHBOURHOOD W</span>
+        <input type="range" id="caw" min="0" max="100" value="50" style="max-width:140px">
+        <b id="cawval" style="color:var(--hi)">0.50</b>
+        <button class="btn" id="carun">▶ RUN</button>
+        <button class="btn" id="cacal">CALIBRATE</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <span class="muted">SCENARIO ×</span>
+        <span id="scenario" class="row"></span>
+        <button class="btn" id="careset">RESET</button>
+      </div>
+    </div>
+    <div class="box">
+      <h2 id="catitle">Simulated vs observed</h2>
+      <div class="row" style="align-items:flex-start;gap:10px">
+        <div style="flex:1;min-width:220px">
+          <div class="muted">SIMULATED <b id="casimyear"></b></div>
+          <canvas id="casim" width="720" height="360" style="width:100%;border:2px solid var(--line)"></canvas>
+        </div>
+        <div style="flex:1;min-width:220px">
+          <div class="muted">OBSERVED</div>
+          <canvas id="caobs" width="720" height="360" style="width:100%;border:2px solid var(--line)"></canvas>
+        </div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="caplay">▶ PLAY RUN</button>
+        <input type="range" id="cayear" min="0" max="1" value="0" style="flex:1">
+        <span class="muted" id="caproj"></span>
+      </div>
+    </div>
+    <div class="box">
+      <h2>Skill — against a world where nothing changes</h2>
+      <div id="caskill" class="muted">Run the model.</div>
+    </div>
+    <div class="box">
+      <h2>Observed annual transition matrix — % of class per year</h2>
+      <table id="ratetbl"></table>
+    </div>
+  </section>
+
+  <!-- ══ DATA ═════════════════════════════════════════════════════════ -->
+  <section class="stage" id="stage-data">
+    <div class="box"><h2>Dataset</h2><div id="dsinfo" class="muted"></div></div>
+    <div class="box"><h2>Classes</h2><table id="clstbl"></table></div>
+    <div class="box"><h2>Cube on disk</h2><div id="cubeinfo" class="muted"></div></div>
+    <div class="box"><h2>Regions</h2><table id="regtbl"></table></div>
+    <div class="box"><h2>API</h2><div id="apilist" class="muted"></div></div>
+  </section>
+
+  <!-- ══ PANEL ════════════════════════════════════════════════════════ -->
+  <aside>
+    <div class="box">
+      <h2>Readout</h2>
+      <div id="readout"></div>
+    </div>
+    <div class="box">
+      <h2 id="celltitle">Cell</h2>
+      <canvas id="cellchart" width="280" height="120" style="width:100%"></canvas>
+      <div id="cellinfo" class="muted">Click the map to pin a cell.</div>
+    </div>
+    <div class="box">
+      <h2>Since 1960</h2>
+      <div id="headline"></div>
+    </div>
+    <div class="box">
+      <h2>Source</h2>
+      <div class="muted" id="attrib"></div>
+    </div>
+  </aside>
+</main>
+</div>
+
+<script>
+'use strict';
+const API = './api';
+const $ = s => document.querySelector(s);
+const el = (t, c, x) => { const n = document.createElement(t); if (c) n.className = c;
+  if (x !== undefined) n.textContent = x; return n; };
+const fmt = (v, d = 2) => (v === null || v === undefined || isNaN(v)) ? '—'
+  : Number(v).toLocaleString('en', { maximumFractionDigits: d, minimumFractionDigits: d });
+const Mkm2 = v => fmt(v / 1e6, 2);
+const sign = v => (v > 0 ? '+' : '') + fmt(v / 1e6, 3);
+
+const ST = {
+  info: null, palette: [], byIndex: {}, rgb: new Uint8Array(256 * 3),
+  years: [], grids: null, h: 360, w: 720,     // the classified cube
+  yi: 0, playing: 0, hidden: new Set(), solo: null,
+  region: 'global', view: null,               // view = [w,s,e,n]
+  series: null, summary: null, pin: null,
+  ca: null, caYears: [], caGrids: null, caPlaying: 0, caIdx: 0,
+  scenario: {}, mode: 'abs'
+};
+
+async function jget(path) {
+  const r = await fetch(API + path);
+  const j = await r.json().catch(() => ({ error: 'bad json from ' + path }));
+  if (!r.ok) throw new Error(j.error || (r.status + ' ' + path));
+  return j;
+}
+
+/* ── boot ─────────────────────────────────────────────────────────────── */
+
+async function boot() {
+  const msg = $('#bootmsg');
+  try {
+    msg.textContent = 'HANDSHAKE…';
+    ST.info = await jget('/info');
+    buildPalette(ST.info.classes);
+    if (!ST.info.ready) return bootFail(
+      'THE CUBE IS EMPTY.\n\nRun  m hilda/bootstrap  on the host to fetch and '
+      + 'reduce HILDA+.\nAbout fifteen minutes and 2.5 GB of transfer, once.');
+    msg.textContent = 'PULLING 60 YEARS OF GRID…';
+    await loadGrid();
+    msg.textContent = 'READING THE RECORD…';
+    [ST.summary, ST.series] = await Promise.all([
+      jget('/summary'), jget('/series')
+    ]);
+    initNav(); initLegend(); initRegions(); initScenario(); initCA();
+    drawMap(); drawPanel(); drawTime(); drawData();
+    $('#churn').src = API + '/change.png?scale=2';
+    $('#churnnote').textContent =
+      'Brighter cells converted more often. Values are gross: a cell cleared '
+      + 'and regrown counts twice.';
+    $('#hdrspan').textContent =
+      ST.years[0] + '–' + ST.years[ST.years.length - 1] + ' · '
+      + ST.years.length + ' YEARS · ' + ST.w + '×' + ST.h + ' CELLS · 0.5°';
+    $('#hdrstate').textContent = 'READY';
+    $('#led').classList.add('ok');
+    $('#boot').remove();
+  } catch (e) {
+    bootFail(String(e && e.message || e));
+  }
+}
+
+function bootFail(text) {
+  $('#bootmsg').style.color = 'var(--warn)';
+  $('#bootmsg').style.whiteSpace = 'pre-wrap';
+  $('#bootmsg').textContent = text;
+  $('#hdrstate').textContent = 'NO DATA';
+}
+
+function buildPalette(classes) {
+  ST.palette = classes;
+  for (let i = 0; i < 256; i++) {       // default everything to ocean
+    ST.rgb[i * 3] = 0x0a; ST.rgb[i * 3 + 1] = 0x0e; ST.rgb[i * 3 + 2] = 0x18;
+  }
+  classes.forEach(c => {
+    ST.byIndex[c.index] = c;
+    const n = parseInt(c.color.slice(1), 16);
+    ST.rgb[c.index * 3] = n >> 16 & 255;
+    ST.rgb[c.index * 3 + 1] = n >> 8 & 255;
+    ST.rgb[c.index * 3 + 2] = n & 255;
+  });
+}
+
+/* The binary grid: 'HILD' u16 ver, u16 n, u16 h, u16 w, f32 deg, then n int16
+   years (offset from 1900) and n*h*w classified bytes. */
+async function loadGrid() {
+  const buf = await (await fetch(API + '/grid.bin')).arrayBuffer();
+  const dv = new DataView(buf);
+  const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1),
+    dv.getUint8(2), dv.getUint8(3));
+  if (magic !== 'HILD') throw new Error('grid payload is not HILDA (' + magic + ')');
+  const n = dv.getUint16(6, true), h = dv.getUint16(8, true), w = dv.getUint16(10, true);
+  ST.h = h; ST.w = w; ST.years = [];
+  let p = 16;
+  for (let i = 0; i < n; i++, p += 2) ST.years.push(1900 + dv.getInt16(p, true));
+  ST.grids = new Uint8Array(buf, p, n * h * w);
+  ST.yi = n - 1;
+  const s = $('#year'); s.max = n - 1; s.value = ST.yi;
+}
+
+/* ── nav ──────────────────────────────────────────────────────────────── */
+
+const TABS = [['map', 'MAP'], ['time', 'TIME'], ['ca', 'AUTOMATA'], ['data', 'DATA']];
+function initNav() {
+  const nav = $('#nav');
+  TABS.forEach(([id, label], i) => {
+    const b = el('button', i === 0 ? 'on' : '', label);
+    b.onclick = () => {
+      nav.querySelectorAll('button').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      TABS.forEach(([t]) => $('#stage-' + t).classList.toggle('on', t === id));
+      if (id === 'time') drawTime();
+    };
+    nav.appendChild(b);
+  });
+}
+
+/* ── map ──────────────────────────────────────────────────────────────── */
+
+function viewRect() {
+  const v = ST.view;
+  if (!v) return { c0: 0, r0: 0, cw: ST.w, ch: ST.h };
+  const deg = 360 / ST.w;
+  const c0 = Math.max(0, Math.floor((v[0] + 180) / deg));
+  const c1 = Math.min(ST.w, Math.ceil((v[2] + 180) / deg));
+  const r0 = Math.max(0, Math.floor((90 - v[3]) / deg));
+  const r1 = Math.min(ST.h, Math.ceil((90 - v[1]) / deg));
+  return { c0, r0, cw: Math.max(1, c1 - c0), ch: Math.max(1, r1 - r0) };
+}
+
+function paint(canvas, grid, rect) {
+  const { c0, r0, cw, ch } = rect;
+  canvas.width = cw; canvas.height = ch;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(cw, ch);
+  const d = img.data, hide = ST.hidden, solo = ST.solo;
+  for (let y = 0; y < ch; y++) {
+    let src = (r0 + y) * ST.w + c0, dst = y * cw * 4;
+    for (let x = 0; x < cw; x++, src++, dst += 4) {
+      const v = grid[src];
+      const off = (solo !== null && v !== solo) || hide.has(v);
+      const i = v * 3;
+      if (off) {                       // dim, do not delete: keeps the coast
+        d[dst] = ST.rgb[i] * .17 + 10; d[dst + 1] = ST.rgb[i + 1] * .17 + 14;
+        d[dst + 2] = ST.rgb[i + 2] * .17 + 24;
+      } else {
+        d[dst] = ST.rgb[i]; d[dst + 1] = ST.rgb[i + 1]; d[dst + 2] = ST.rgb[i + 2];
+      }
+      d[dst + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+function frameAt(i) {
+  const n = ST.h * ST.w;
+  return ST.grids.subarray(i * n, i * n + n);
+}
+
+function drawMap() {
+  const rect = viewRect();
+  paint($('#map'), frameAt(ST.yi), rect);
+  const x = $('#xhair'); x.width = rect.cw; x.height = rect.ch;
+  $('#yearlabel').textContent = ST.years[ST.yi];
+  $('#year').value = ST.yi;
+  drawXhair(rect);
+  drawReadout();
+}
+
+function drawXhair(rect) {
+  if (!ST.pin) return;
+  const ctx = $('#xhair').getContext('2d');
+  ctx.clearRect(0, 0, rect.cw, rect.ch);
+  const cx = ST.pin.col - rect.c0, cy = ST.pin.row - rect.r0;
+  if (cx < 0 || cy < 0 || cx >= rect.cw || cy >= rect.ch) return;
+  ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 1;
+  ctx.strokeRect(cx - 1.5, cy - 1.5, 4, 4);
+}
+
+$('#year').oninput = e => { ST.yi = +e.target.value; drawMap(); };
+$('#play').onclick = () => {
+  if (ST.playing) { clearInterval(ST.playing); ST.playing = 0; $('#play').textContent = '▶ PLAY'; return; }
+  $('#play').textContent = '■ STOP';
+  ST.playing = setInterval(() => {
+    ST.yi = (ST.yi + 1) % ST.years.length; drawMap();
+  }, 120);
+};
+
+function initLegend() {
+  const box = $('#legend'); box.innerHTML = '';
+  ST.palette.filter(c => c.index !== 255).forEach(c => {
+    const chip = el('div', 'chip');
+    const sw = el('span', 'sw'); sw.style.background = c.color;
+    chip.append(sw, el('span', '', c.name.toUpperCase()));
+    chip.onclick = ev => {
+      if (ev.shiftKey) {
+        ST.hidden.has(c.index) ? ST.hidden.delete(c.index) : ST.hidden.add(c.index);
+      } else {
+        ST.solo = (ST.solo === c.index) ? null : c.index;
+      }
+      syncLegend(); drawMap();
+    };
+    chip.dataset.index = c.index;
+    box.appendChild(chip);
+  });
+}
+
+function syncLegend() {
+  $('#legend').querySelectorAll('.chip').forEach(chip => {
+    const i = +chip.dataset.index;
+    chip.classList.toggle('off', ST.hidden.has(i) || (ST.solo !== null && ST.solo !== i));
+    chip.classList.toggle('solo', ST.solo === i);
+  });
+}
+
+function initRegions() {
+  const opts = ST.info.regions.map(r =>
+    `<option value="${r.key}">${r.name.toUpperCase()}</option>`).join('');
+  $('#region').innerHTML = opts;
+  $('#tregion').innerHTML = opts;
+  $('#region').onchange = e => {
+    const r = ST.info.regions.find(x => x.key === e.target.value);
+    ST.view = r.key === 'global' ? null : r.bbox;
+    drawMap();
+  };
+  $('#tregion').onchange = async e => {
+    ST.region = e.target.value;
+    ST.series = await jget('/series?region=' + ST.region);
+    drawTime();
+  };
+}
+
+/* hover + pin */
+const map = $('#map');
+map.addEventListener('mousemove', ev => {
+  const rect = viewRect(), b = map.getBoundingClientRect();
+  const col = rect.c0 + Math.floor((ev.clientX - b.left) / b.width * rect.cw);
+  const row = rect.r0 + Math.floor((ev.clientY - b.top) / b.height * rect.ch);
+  const deg = 360 / ST.w;
+  const lon = -180 + (col + .5) * deg, lat = 90 - (row + .5) * deg;
+  const v = frameAt(ST.yi)[row * ST.w + col];
+  const c = ST.byIndex[v] || { name: 'Ocean' };
+  const tip = $('#tip');
+  tip.style.display = 'block';
+  tip.style.left = Math.min(ev.clientX - b.left + 12, b.width - 150) + 'px';
+  tip.style.top = (ev.clientY - b.top + 12) + 'px';
+  tip.textContent = `${lat.toFixed(2)}° ${lon.toFixed(2)}°\n${c.name.toUpperCase()}\n${ST.years[ST.yi]}`;
+});
+map.addEventListener('mouseleave', () => { $('#tip').style.display = 'none'; });
+map.addEventListener('click', async ev => {
+  const rect = viewRect(), b = map.getBoundingClientRect();
+  const col = rect.c0 + Math.floor((ev.clientX - b.left) / b.width * rect.cw);
+  const row = rect.r0 + Math.floor((ev.clientY - b.top) / b.height * rect.ch);
+  const deg = 360 / ST.w;
+  const lon = -180 + (col + .5) * deg, lat = 90 - (row + .5) * deg;
+  ST.pin = { row, col, lon, lat };
+  drawMap();
+  try { drawCell(await jget(`/cell?lon=${lon}&lat=${lat}`)); }
+  catch (e) { $('#cellinfo').textContent = String(e.message); }
+});
+
+$('#zoom1km').onclick = () => {
+  const v = ST.view || [-180, -90, 180, 90];
+  const span = Math.abs(v[2] - v[0]) * Math.abs(v[3] - v[1]);
+  if (span > 2500) {
+    alert('Pick a smaller region first — the 1 km reader is capped at 2500 '
+      + 'square degrees.\n\nThis view is ' + Math.round(span) + '.');
+    return;
+  }
+  window.open(API + `/window.png?bbox=${v.join(',')}&year=${ST.years[ST.yi]}`, '_blank');
+};
+
+/* ── right panel ──────────────────────────────────────────────────────── */
+
+function drawReadout() {
+  const y = ST.years[ST.yi], s = ST.series;
+  const i = s.years.indexOf(y);
+  const box = $('#readout'); box.innerHTML = '';
+  box.appendChild(kv('YEAR', String(y)));
+  box.appendChild(kv('REGION', (s.region || 'global').toUpperCase()));
+  if (i < 0) return;
+  ST.palette.filter(c => c.index < 6).forEach(c => {
+    const v = s.km2[c.key][i];
+    const row = el('div', 'kv');
+    row.append(el('span', '', c.short), el('b', '', Mkm2(v) + ' M'));
+    box.appendChild(row);
+    const bar = el('div', 'bar'); const fill = el('i');
+    fill.style.background = c.color;
+    fill.style.width = (v / s.land_km2[i] * 100).toFixed(1) + '%';
+    bar.appendChild(fill); bar.style.marginBottom = '4px';
+    box.appendChild(bar);
+  });
+}
+
+function kv(k, v) {
+  const r = el('div', 'kv'); r.append(el('span', '', k), el('b', '', v)); return r;
+}
+
+function drawPanel() {
+  const box = $('#headline'); box.innerHTML = '';
+  ST.summary.headline.forEach(h => {
+    const c = ST.palette.find(p => p.key === h.class);
+    const r = el('div', 'kv');
+    const v = el('b', h.delta_km2 >= 0 ? 'pos' : 'neg',
+      sign(h.delta_km2) + ' M km²  ' + (h.pct >= 0 ? '+' : '') + fmt(h.pct, 1) + '%');
+    const label = el('span'); label.textContent = c.short;
+    label.style.color = c.color;
+    r.append(label, v); box.appendChild(r);
+  });
+  const a = ST.info.source;
+  $('#attrib').innerHTML =
+    `${a.dataset}<br><a href="${a.landing}" target="_blank">PANGAEA ${a.doi.split('/').pop()}</a>
+     · <a href="${a.ceos}" target="_blank">CEOS</a><br>
+     ${a.license} — Winkler, Fuchs, Rounsevell &amp; Herold`;
+}
+
+function drawCell(c) {
+  $('#celltitle').textContent = `Cell ${c.lat.toFixed(2)}° ${c.lon.toFixed(2)}°`;
+  const cv = $('#cellchart'), ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
+  const n = c.years.length, bw = W / n;
+  const keys = ST.palette.filter(p => p.index < 6).map(p => p.key);
+  for (let i = 0; i < n; i++) {              // stacked fractions per year
+    let y = H;
+    keys.forEach(k => {
+      const f = c.fraction[k][i];
+      const hgt = f * H;
+      ctx.fillStyle = ST.palette.find(p => p.key === k).color;
+      ctx.fillRect(Math.floor(i * bw), Math.floor(y - hgt),
+        Math.ceil(bw), Math.ceil(hgt));
+      y -= hgt;
+    });
+  }
+  const info = $('#cellinfo'); info.innerHTML = '';
+  info.appendChild(kv('DOMINANT ' + c.years[c.years.length - 1],
+    (c.dominant || '—').toUpperCase()));
+  info.appendChild(kv('CELL AREA', fmt(c.cell_km2, 0) + ' km²'));
+  info.appendChild(kv('LAND', (c.land_fraction * 100).toFixed(0) + '%'));
+  if (c.turnover) {
+    const t = c.turnover.fraction.reduce((a, b) => a + b, 0);
+    info.appendChild(kv('TURNOVER', (t * 100).toFixed(1) + '% of cell'));
+  }
+}
+
+/* ── time ─────────────────────────────────────────────────────────────── */
+
+$('#mode-abs').onclick = () => { ST.mode = 'abs'; syncMode(); drawTime(); };
+$('#mode-idx').onclick = () => { ST.mode = 'idx'; syncMode(); drawTime(); };
+function syncMode() {
+  $('#mode-abs').classList.toggle('on', ST.mode === 'abs');
+  $('#mode-idx').classList.toggle('on', ST.mode === 'idx');
+  $('#stacktitle').textContent = ST.mode === 'abs'
+    ? 'Stacked land use — million km²' : 'Each class indexed to 1960 = 100';
+}
+
+function drawTime() {
+  if (!ST.series) return;
+  const s = ST.series, keys = ST.palette.filter(p => p.index < 6).map(p => p.key);
+  const cv = $('#stack'), ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height, PAD = 34;
+  ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
+  const n = s.years.length, bw = (W - PAD) / n;
+
+  if (ST.mode === 'abs') {
+    const max = Math.max(...s.land_km2) * 1.02;
+    for (let i = 0; i < n; i++) {
+      let y = H - 16;
+      keys.forEach(k => {
+        const hgt = s.km2[k][i] / max * (H - 26);
+        ctx.fillStyle = ST.palette.find(p => p.key === k).color;
+        ctx.fillRect(Math.floor(PAD + i * bw), Math.floor(y - hgt),
+          Math.ceil(bw), Math.ceil(hgt));
+        y -= hgt;
+      });
+    }
+    axisY(ctx, PAD, H, max / 1e6);
+  } else {
+    const lo = 60, hi = 160;
+    gridY(ctx, PAD, W, H, lo, hi);
+    keys.forEach(k => {
+      const base = s.km2[k][0] || 1;
+      ctx.strokeStyle = ST.palette.find(p => p.key === k).color;
+      ctx.lineWidth = 2; ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const v = s.km2[k][i] / base * 100;
+        const y = (H - 16) - (Math.min(Math.max(v, lo), hi) - lo) / (hi - lo) * (H - 26);
+        const x = PAD + i * bw + bw / 2;
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+      ctx.stroke();
+    });
+  }
+  axisX(ctx, PAD, W, H, s.years);
+
+  /* deltas */
+  const dv = $('#deltas'), dc = dv.getContext('2d');
+  dc.fillStyle = '#05070d'; dc.fillRect(0, 0, dv.width, dv.height);
+  const deltas = keys.map(k => ({ k, v: s.change[k].delta, pct: s.change[k].pct }));
+  const amax = Math.max(...deltas.map(d => Math.abs(d.v))) || 1;
+  const mid = dv.height / 2, bh = 22;
+  deltas.forEach((d, i) => {
+    const x = 90 + i * ((dv.width - 110) / keys.length);
+    const bwid = (dv.width - 130) / keys.length;
+    // Leave room for the class name under the axis and the value label
+    // outside the bar, or a tall negative bar writes over both.
+    const hgt = Math.abs(d.v) / amax * (mid - 42);
+    dc.fillStyle = ST.palette.find(p => p.key === d.k).color;
+    dc.fillRect(x, d.v >= 0 ? mid - hgt : mid, bwid, hgt);
+    dc.fillStyle = '#7c8db5'; dc.font = '12px monospace';
+    dc.fillText(d.k.slice(0, 9).toUpperCase(), x, dv.height - 5);
+    dc.fillStyle = '#e8f0ff';
+    dc.fillText(sign(d.v), x, d.v >= 0 ? mid - hgt - 6 : mid + hgt + 13);
+  });
+  dc.strokeStyle = '#26324d'; dc.beginPath();
+  dc.moveTo(60, mid); dc.lineTo(dv.width - 10, mid); dc.stroke();
+  dc.fillStyle = '#7c8db5'; dc.fillText('M km²', 8, mid - 6);
+
+  /* gross vs net + flows */
+  const sm = ST.summary;
+  if (sm.gross_km2) {
+    $('#grossnet').innerHTML =
+      `<div class="kv"><span>GROSS CHANGE ${s.span[0]}–${s.span[1]}</span>
+        <b>${Mkm2(sm.gross_km2)} M km²</b></div>
+       <div class="kv"><span>NET CHANGE</span><b>${Mkm2(sm.net_km2)} M km²</b></div>
+       <div class="kv"><span>RATIO</span><b style="color:var(--hi)">
+        ${fmt(sm.gross_over_net, 1)}× </b></div>
+       <div style="margin-top:6px">Land changed hands far more often than the net
+       figures suggest — cropland abandoned here and cleared there cancels out on
+       paper but not on the ground. Global only; the transition layers are stored
+       as one matrix per year.</div>`;
+    const tb = $('#flows').querySelector('tbody'); tb.innerHTML = '';
+    (sm.top_flows || []).forEach(f => {
+      const tr = el('tr');
+      tr.append(el('td', '', f.from.toUpperCase() + ' → ' + f.to.toUpperCase()),
+        el('td', '', Mkm2(f.km2) + ' M km²'));
+      tb.appendChild(tr);
+    });
+  } else {
+    $('#grossnet').textContent =
+      'No transition cube yet — run  m hilda/ingest kind=transitions';
+  }
+}
+
+function axisY(ctx, PAD, H, max) {
+  ctx.fillStyle = '#7c8db5'; ctx.font = '11px monospace';
+  for (let i = 0; i <= 4; i++) {
+    const y = (H - 16) - i / 4 * (H - 26);
+    ctx.fillText((max * i / 4).toFixed(0), 2, y + 4);
+    ctx.strokeStyle = '#1a2338'; ctx.beginPath();
+    ctx.moveTo(PAD, y); ctx.lineTo(ctx.canvas.width, y); ctx.stroke();
+  }
+  // No unit label here: it would sit on top of the highest tick, and the
+  // panel heading already says which unit this is.
+}
+
+function gridY(ctx, PAD, W, H, lo, hi) {
+  ctx.fillStyle = '#7c8db5'; ctx.font = '11px monospace';
+  for (let v = lo; v <= hi; v += 20) {
+    const y = (H - 16) - (v - lo) / (hi - lo) * (H - 26);
+    ctx.strokeStyle = v === 100 ? '#3a4a6d' : '#1a2338';
+    ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W, y); ctx.stroke();
+    ctx.fillText(String(v), 2, y + 4);
+  }
+}
+
+function axisX(ctx, PAD, W, H, years) {
+  ctx.fillStyle = '#7c8db5'; ctx.font = '11px monospace';
+  const n = years.length, bw = (W - PAD) / n;
+  years.forEach((y, i) => {
+    if (y % 10) return;
+    ctx.fillText(String(y), PAD + i * bw - 12, H - 3);
+  });
+}
+
+/* ── automaton ────────────────────────────────────────────────────────── */
+
+function initScenario() {
+  const box = $('#scenario');
+  ST.palette.filter(p => p.index < 6).forEach(c => {
+    const wrap = el('span', 'row');
+    wrap.style.gap = '3px';
+    const tag = el('span', '', c.short); tag.style.color = c.color;
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.step = '0.25'; inp.min = '0'; inp.max = '5';
+    inp.value = '1'; inp.style.width = '52px'; inp.dataset.key = c.key;
+    inp.oninput = () => {
+      const v = parseFloat(inp.value);
+      if (v === 1 || isNaN(v)) delete ST.scenario[c.key]; else ST.scenario[c.key] = v;
+    };
+    wrap.append(tag, inp); box.appendChild(wrap);
+  });
+  $('#careset').onclick = () => {
+    ST.scenario = {};
+    box.querySelectorAll('input').forEach(i => i.value = '1');
+  };
+}
+
+async function initCA() {
+  $('#caw').oninput = e => { $('#cawval').textContent = (e.target.value / 100).toFixed(2); };
+  $('#carun').onclick = runCA;
+  $('#cacal').onclick = calibrateCA;
+  $('#cayear').oninput = e => { ST.caIdx = +e.target.value; drawCAFrame(); };
+  $('#caplay').onclick = () => {
+    if (ST.caPlaying) { clearInterval(ST.caPlaying); ST.caPlaying = 0;
+      $('#caplay').textContent = '▶ PLAY RUN'; return; }
+    if (!ST.caGrids) return;
+    $('#caplay').textContent = '■ STOP';
+    ST.caPlaying = setInterval(() => {
+      ST.caIdx = (ST.caIdx + 1) % ST.caYears.length;
+      $('#cayear').value = ST.caIdx; drawCAFrame();
+    }, 120);
+  };
+  const y0 = ST.years[0], y1 = ST.years[ST.years.length - 1];
+  $('#castart').min = y0; $('#castart').max = y1 - 1;
+  // Start halfway rather than at y0: a run from the first year has no prior
+  // years to train on, so it would open on an in-sample score.
+  $('#castart').value = ST.years[Math.floor(ST.years.length / 2)];
+  $('#caend').value = y1; $('#caend').min = y0 + 1;
+  try { drawRates(await jget('/ca/rates')); }
+  catch (e) { $('#ratetbl').innerHTML = `<tr><td class="muted">${e.message}</td></tr>`; }
+}
+
+function drawRates(r) {
+  const t = $('#ratetbl');
+  const head = '<tr><th>from / to</th>' +
+    r.classes.map(k => `<th style="text-align:right">${k.slice(0, 4).toUpperCase()}</th>`).join('')
+    + '</tr>';
+  const rows = r.classes.map((k, i) => {
+    const cells = r.annual_probability[i].map((v, j) => {
+      const pct = v * 100;
+      const bg = i === j ? 'transparent'
+        : `rgba(255,210,63,${Math.min(1, pct / 0.35) * .8})`;
+      const txt = i === j ? `<span class="muted">${pct.toFixed(1)}</span>`
+        : (pct < 0.005 ? '·' : pct.toFixed(3));
+      return `<td style="background:${bg}">${txt}</td>`;
+    }).join('');
+    const c = ST.palette.find(p => p.key === k);
+    return `<tr><th style="color:${c.color}">${k.toUpperCase()}</th>${cells}</tr>`;
+  }).join('');
+  t.innerHTML = head + rows;
+  t.insertAdjacentHTML('afterend', '');
+}
+
+async function runCA() {
+  const btn = $('#carun'); btn.disabled = true; btn.textContent = '… RUNNING';
+  try {
+    const q = new URLSearchParams({
+      start: $('#castart').value, end: $('#caend').value,
+      weight: ($('#caw').value / 100).toFixed(2), frames: 'true'
+    });
+    const scen = Object.entries(ST.scenario).map(([k, v]) => `${k}=${v}`).join(',');
+    if (scen) q.set('scenario', scen);
+    const r = await jget('/ca/run?' + q);
+    ST.ca = r;
+    unpackCAFrames(r.frames);
+    $('#caproj').textContent = r.projection
+      ? 'PROJECTION — past 2019 there is nothing to check against' : '';
+    drawCAFrame(); drawSkill(r);
+  } catch (e) {
+    $('#caskill').innerHTML = `<span class="neg">${e.message}</span>`;
+  } finally { btn.disabled = false; btn.textContent = '▶ RUN'; }
+}
+
+function unpackCAFrames(f) {
+  if (!f) { ST.caGrids = null; return; }
+  const bin = atob(f.grid_b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  // The payload is gzip(pack_grid); DecompressionStream is the only gunzip a
+  // browser gives us, and it is async, so this returns through a promise.
+  const ds = new DecompressionStream('gzip');
+  new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer()
+    .then(buf => {
+      const dv = new DataView(buf);
+      const n = dv.getUint16(6, true), h = dv.getUint16(8, true), w = dv.getUint16(10, true);
+      ST.caYears = []; let p = 16;
+      for (let i = 0; i < n; i++, p += 2) ST.caYears.push(1900 + dv.getInt16(p, true));
+      ST.caGrids = new Uint8Array(buf, p, n * h * w);
+      ST.caIdx = n - 1;
+      const s = $('#cayear'); s.max = n - 1; s.value = ST.caIdx;
+      drawCAFrame();
+    });
+}
+
+function drawCAFrame() {
+  if (!ST.caGrids) return;
+  const n = ST.h * ST.w, year = ST.caYears[ST.caIdx];
+  const sim = ST.caGrids.subarray(ST.caIdx * n, ST.caIdx * n + n);
+  const rect = { c0: 0, r0: 0, cw: ST.w, ch: ST.h };
+  paint($('#casim'), sim, rect);
+  $('#casimyear').textContent = year;
+  const oi = ST.years.indexOf(year);
+  const obsCanvas = $('#caobs');
+  if (oi >= 0) paint(obsCanvas, frameAt(oi), rect);
+  else {
+    const ctx = obsCanvas.getContext('2d');
+    ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, ST.w, ST.h);
+    ctx.fillStyle = '#7c8db5'; ctx.font = '16px monospace';
+    ctx.fillText('NO OBSERVATION FOR ' + year, 200, 180);
+  }
+}
+
+function drawSkill(r) {
+  const box = $('#caskill');
+  if (!r.skill) {
+    box.innerHTML = `<div>Projection to ${r.end} — no observed map to score against.
+      Rates from ${r.rates_source}.</div>`;
+    return;
+  }
+  const s = r.skill, pc = v => (v * 100).toFixed(1) + '%';
+  const col = v => v > 0 ? 'var(--accent)' : 'var(--warn)';
+  let html = `
+    <div class="kv"><span>AREA SKILL — global trajectory</span>
+      <b style="color:${col(s.area_skill)}">${pc(s.area_skill)}</b></div>
+    <div class="kv"><span>ALLOCATION SKILL — which cells</span>
+      <b style="color:${col(s.allocation_skill)}">${pc(s.allocation_skill)}</b></div>
+    <div class="kv"><span>TRAINED ON</span><b>${r.trained_on.join('–')}
+      ${r.out_of_sample ? '(out of sample)' : '(IN SAMPLE)'}</b></div>
+    <div style="margin:6px 0">Share of the do-nothing baseline's error removed;
+      negative is worse than assuming nothing moved. The model pins global
+      totals for the classes whose regime holds — urban and cropland below —
+      and does <b>not</b> beat persistence on placement at half a degree.
+      Both numbers are shown on purpose. Rates from ${r.rates_source}.</div>
+    <table><tr><th>class</th><th>area skill</th><th>alloc skill</th>
+      <th>model err</th><th>baseline</th></tr>`;
+  Object.entries(s.per_class).forEach(([k, v]) => {
+    const c = ST.palette.find(p => p.key === k);
+    html += `<tr><th style="color:${c.color}">${k.toUpperCase()}</th>
+      <td class="${v.area_skill > 0 ? 'pos' : 'neg'}">${pc(v.area_skill)}</td>
+      <td class="${v.skill > 0 ? 'pos' : 'neg'}">${pc(v.skill)}</td>
+      <td>${Mkm2(v.model_err_km2)}</td><td>${Mkm2(v.persistence_err_km2)}</td></tr>`;
+  });
+  box.innerHTML = html + '</table>';
+}
+
+async function calibrateCA() {
+  const btn = $('#cacal'); btn.disabled = true; btn.textContent = '… SWEEPING';
+  try {
+    const r = await jget(`/ca/calibrate?start=${$('#castart').value}&end=${$('#caend').value}`);
+    $('#caw').value = Math.round(r.best.weight * 100);
+    $('#cawval').textContent = r.best.weight.toFixed(2);
+    const rows = r.trials.map(t =>
+      `<tr><td>w = ${t.weight.toFixed(2)}</td>
+        <td class="${t.skill > 0 ? 'pos' : 'neg'}">${(t.skill * 100).toFixed(2)}%</td>
+        <td>${(t.area_skill * 100).toFixed(1)}%</td></tr>`).join('');
+    $('#caskill').innerHTML =
+      `<div>Best neighbourhood weight <b style="color:var(--hi)">${r.best.weight.toFixed(2)}</b>
+       at ${(r.best.skill * 100).toFixed(1)}% allocation skill. ${r.note}</div>
+       <div style="margin:6px 0">Area skill does not move with the weight, and
+       should not: the demand step pins global totals to the observed rates
+       however the automaton chooses to place them.</div>
+       <table><tr><th>weight</th><th>alloc skill</th><th>area skill</th></tr>${rows}</table>`;
+  } catch (e) {
+    $('#caskill').innerHTML = `<span class="neg">${e.message}</span>`;
+  } finally { btn.disabled = false; btn.textContent = 'CALIBRATE'; }
+}
+
+/* ── data tab ─────────────────────────────────────────────────────────── */
+
+function drawData() {
+  const i = ST.info, a = i.source;
+  $('#dsinfo').innerHTML = `
+    <div class="kv"><span>DATASET</span><b>${a.dataset}</b></div>
+    <div class="kv"><span>COVERAGE</span><b>${i.years} annual</b></div>
+    <div class="kv"><span>SOURCE GRID</span><b>${i.grid.source_grid.join(' × ')} @ ${i.grid.source_deg}°</b></div>
+    <div class="kv"><span>THIS GRID</span><b>${i.grid.shape[1]} × ${i.grid.shape[0]} @ ${i.grid.deg}°</b></div>
+    <div class="kv"><span>CRS</span><b>${i.grid.crs}</b></div>
+    <div class="kv"><span>LICENSE</span><b>${a.license}</b></div>
+    <div style="margin-top:8px">${a.citation}</div>
+    <div style="margin-top:6px">${a.paper}</div>
+    <div style="margin-top:6px"><a href="${a.landing}" target="_blank">${a.landing}</a><br>
+      <a href="${a.ceos}" target="_blank">${a.ceos}</a></div>`;
+
+  $('#clstbl').innerHTML = '<tr><th>class</th><th>code</th><th>index</th></tr>' +
+    i.classes.map(c => `<tr><th><span class="sw" style="display:inline-block;background:${c.color}"></span>
+      ${c.name}</th><td>${c.code}</td><td>${c.index}</td></tr>`).join('');
+
+  const st = i.cache;
+  $('#cubeinfo').innerHTML =
+    `<div class="kv"><span>HOME</span><b>${st.home}</b></div>` +
+    st.grids.map(g => `<div class="kv"><span>${(g.kind || '?').toUpperCase()} @ ${g.deg}°</span>
+      <b>${g.years} yr ${g.span ? g.span.join('–') : ''} · ${(g.bytes / 1048576).toFixed(1)} MB</b></div>`
+      + (g.gaps && g.gaps.length
+        ? `<div class="kv"><span>GAPS</span><b class="neg">${g.gaps.map(x => x.join('–')).join(', ')}</b></div>`
+        : '')).join('') +
+    `<div class="kv"><span>CACHED RASTERS</span><b>${st.rasters.files} files ·
+      ${(st.rasters.bytes / 1048576).toFixed(0)} MB</b></div>`;
+
+  $('#regtbl').innerHTML = '<tr><th>region</th><th>w,s,e,n</th></tr>' +
+    i.regions.map(r => `<tr><th>${r.name}</th><td>${r.bbox.join(', ')}</td></tr>`).join('');
+
+  $('#apilist').innerHTML = [
+    ['/info', 'module, grid, classes, cache state'],
+    ['/summary', 'headline change since 1960'],
+    ['/series?region=amazon', 'area per class per year'],
+    ['/areas?year=2019', 'one year, every class'],
+    ['/net?y0=1960&y1=2019', 'net change per class'],
+    ['/transitions', 'gross class-to-class flows'],
+    ['/hotspots?n=20', 'cells that churned most'],
+    ['/cell?lon=-60&lat=-3', 'one cell, every year'],
+    ['/grid.bin', 'the whole classified record, binary'],
+    ['/grid.png?year=2019', 'classified world as an image'],
+    ['/layer.png?year=2019&class=urban', 'one class as an eight-step ramp'],
+    ['/change.png', 'gross turnover per cell'],
+    ['/window.png?bbox=-63,-10,-58,-5', 'full 1 km detail for a box'],
+    ['/ca/run?weight=0.5&frames=true', 'run the automaton'],
+    ['/ca/calibrate', 'sweep the neighbourhood weight'],
+    ['/ca/validate', 'hindcast scorecard'],
+    ['/ca/rates', 'observed annual transition matrix'],
+  ].map(([p, d]) => `<div class="kv"><span><a href="${API}${p}" target="_blank">${p}</a></span>
+      <b style="color:var(--dim)">${d}</b></div>`).join('');
+}
+
+boot();
+</script>
+</body>
+</html>

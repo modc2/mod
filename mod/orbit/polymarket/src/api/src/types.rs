@@ -147,6 +147,17 @@ pub struct ActiveTradersQuery {
     pub min_buy_volume: Option<f64>,
     #[serde(rename = "minSellVolume")]
     pub min_sell_volume: Option<f64>,
+    /// Activity floor: drop traders with fewer than this many trades in the
+    /// last 24h. Reads `trades24h` off the cached row — no re-aggregation.
+    #[serde(rename = "minTrades24h")]
+    pub min_trades_24h: Option<u32>,
+    /// Recency floor: drop traders whose most recent trade is older than this
+    /// many hours (a trader who went dark is not one you can copy). Reads
+    /// `lastTradeTs` off the cached row, so it filters the WHOLE board from
+    /// the warm cache instead of thinning one already-paginated page — which
+    /// is what the console did while this lived client-side. 0/absent = off.
+    #[serde(rename = "maxLastTradeHrs")]
+    pub max_last_trade_hrs: Option<f64>,
     pub status: Option<String>,
 }
 

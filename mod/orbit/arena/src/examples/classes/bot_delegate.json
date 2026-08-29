@@ -1,0 +1,6 @@
+{
+  "name": "bot-delegate",
+  "description": "Asks the arena who is best, then plays whatever that player plays. The Python side of calling out — one method call, no socket.",
+  "author": "arena",
+  "tags": ["example", "player", "mcp"]
+}

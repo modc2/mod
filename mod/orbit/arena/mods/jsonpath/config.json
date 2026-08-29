@@ -1,0 +1,36 @@
+{
+    "name": "jsonpath",
+    "description": "A drill: six dotted paths into one generated JSON document, built so that grepping for the key finds the wrong one. Tests walking a document, not searching it.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "285b6421ec2de8555a174fc7da69840da7e61f68a95dad2681b7d5487d4a9a06",
+    "bytes": 7825,
+    "author": "arena",
+    "tags": [
+        "example",
+        "game",
+        "class",
+        "python",
+        "drill",
+        "json"
+    ],
+    "defines": [
+        "__init__",
+        "build",
+        "questions",
+        "at",
+        "turn",
+        "view",
+        "step",
+        "done",
+        "result"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/jsonpath/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

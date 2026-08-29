@@ -4,12 +4,17 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createCopy } from "../lib/api";
 
+/**
+ * One trader, one sleeve. The τ you allocate here is the size of the
+ * position: it joins whatever other copies are running and the server blends
+ * them into one book, so adding a trader here doesn't disturb the others.
+ */
 export default function CopyForm({ defaultTarget }: { defaultTarget?: string }) {
   const router = useRouter();
   const [target, setTarget] = useState(defaultTarget || "");
   const [hotkey, setHotkey] = useState("");
+  const [allocTao, setAllocTao] = useState("10");
   const [maxPerTx, setMaxPerTx] = useState("10");
-  const [dailyLimit, setDailyLimit] = useState("100");
   const [threshold, setThreshold] = useState("5");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -19,11 +24,13 @@ export default function CopyForm({ defaultTarget }: { defaultTarget?: string }) 
     setError("");
     setSubmitting(true);
     try {
+      const alloc = parseFloat(allocTao);
+      if (!(alloc > 0)) throw new Error("allocate some τ to this trader first");
       await createCopy({
         target_ss58: target,
         our_hotkey: hotkey,
+        alloc_tao: alloc,
         max_tao_per_tx: parseFloat(maxPerTx),
-        daily_limit_tao: parseFloat(dailyLimit),
         rebalance_threshold_pct: parseFloat(threshold),
       });
       router.push("/strats");
@@ -66,20 +73,25 @@ export default function CopyForm({ defaultTarget }: { defaultTarget?: string }) 
         />
       </Field>
 
-      <div className="grid grid-cols-3 gap-3">
+      <Field
+        label="allocate (τ)"
+        hint="The money that follows this trader. Their book gives the shape; this gives the size."
+      >
+        <input
+          required
+          type="number" step="0.5" min="0.05"
+          value={allocTao}
+          onChange={(e) => setAllocTao(e.target.value)}
+          className="pixel-input w-full font-mono"
+        />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-3">
         <Field label="max τ / tx">
           <input
             type="number" step="0.1" min="0"
             value={maxPerTx}
             onChange={(e) => setMaxPerTx(e.target.value)}
-            className="pixel-input w-full font-mono"
-          />
-        </Field>
-        <Field label="daily limit (τ)">
-          <input
-            type="number" step="1" min="0"
-            value={dailyLimit}
-            onChange={(e) => setDailyLimit(e.target.value)}
             className="pixel-input w-full font-mono"
           />
         </Field>

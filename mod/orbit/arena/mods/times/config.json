@@ -1,0 +1,36 @@
+{
+    "name": "times",
+    "description": "A drill: six products, more digits each round, with two rounds of three small factors. Multiplication fails all at once, so this one separates a confident answerer from a correct one.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "412c9770b0be3bd6bace992ce1249f85007bcbff245bf88b66f1ce65e4f3ac3e",
+    "bytes": 4035,
+    "author": "arena",
+    "tags": [
+        "example",
+        "game",
+        "class",
+        "python",
+        "drill",
+        "arithmetic"
+    ],
+    "defines": [
+        "__init__",
+        "deal",
+        "question",
+        "answer",
+        "turn",
+        "view",
+        "step",
+        "done",
+        "result"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/times/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

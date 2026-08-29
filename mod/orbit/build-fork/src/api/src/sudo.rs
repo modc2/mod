@@ -133,6 +133,25 @@ pub fn verify_sudo(headers: &HeaderMap, action: &str, target: &str) -> Result<St
     Ok(addr)
 }
 
+/// Verify sudo AND require the authorizing key to be the owner's own — the
+/// configured owner (or a co-owner wallet), never a sudo-whitelisted delegate.
+/// Used by the revert path: delegates may edit, only the owner may undo.
+pub fn verify_sudo_owner(
+    headers: &HeaderMap,
+    action: &str,
+    target: &str,
+) -> Result<String, String> {
+    let addr = verify_sudo(headers, action, target)?;
+    if !auth::is_root_owner(&addr) {
+        return Err(
+            "Sudo denied: reverting answers only to the owner's own key — delegated sudo can edit, \
+             but cannot undo the owner's history"
+                .to_string(),
+        );
+    }
+    Ok(addr)
+}
+
 /// Verify a fresh `x-sudo` signature ONLY — never satisfied by a session. Used
 /// for operations that must re-prove key possession (e.g. editing the sudo
 /// policy itself). Does not open a session.
@@ -526,6 +545,38 @@ mod tests {
         let headers = make_header("write", "/a/b.rs", now, "n3", &attacker);
         let r = verify_sudo(&headers, "write", "/a/b.rs");
         assert!(r.unwrap_err().contains("not the owner"));
+    }
+
+    /// A sudo-whitelisted delegate passes every ordinary owner gate, and must
+    /// still be refused the one power the owner does not delegate: undoing.
+    #[test]
+    fn sudo_delegate_cannot_revert() {
+        let _g = test_lock();
+        let owner = SigningKey::random(&mut rand::thread_rng());
+        let delegate = SigningKey::random(&mut rand::thread_rng());
+        let home = setup_owner(&owner);
+        std::fs::write(
+            home.path().join(".mod").join("build-fork").join("whitelist.json"),
+            serde_json::json!([
+                { "address": address_of(&delegate).to_lowercase(), "access": "sudo" }
+            ])
+            .to_string(),
+        )
+        .unwrap();
+        let now = chrono::Utc::now().timestamp();
+
+        // The delegate's own signature: good enough for a plain sudo op…
+        let headers = make_header("write", "/a/b.rs", now, "d1", &delegate);
+        assert!(verify_sudo(&headers, "write", "/a/b.rs").is_ok());
+
+        // …and refused for a revert.
+        let headers = make_header("restore", "venice", now, "d2", &delegate);
+        let err = verify_sudo_owner(&headers, "restore", "venice").unwrap_err();
+        assert!(err.contains("owner's own key"), "unexpected: {err}");
+
+        // The owner's own signature passes the same gate.
+        let headers = make_header("restore", "venice", now, "o1", &owner);
+        assert!(verify_sudo_owner(&headers, "restore", "venice").is_ok());
     }
 
     #[test]

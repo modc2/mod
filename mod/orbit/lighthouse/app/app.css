@@ -1,0 +1,250 @@
+/* lighthouse console — a beam, a rock, and two states worth telling apart.
+   Light and dark are one palette with the ramp inverted; nothing is hard-coded
+   to a background, so a screenshot in either theme reads the same. */
+
+:root {
+  --sea:    #0b1015;
+  --rock:   #121a22;
+  --edge:   #1e2a35;
+  --ink:    #e6edf3;
+  --dim:    #8296a8;
+  --beam:   #ffc24b;   /* the light itself */
+  --beam-d: #b8802a;
+  --good:   #43c59e;
+  --warn:   #e8a33d;
+  --bad:    #e5484d;
+  --radius: 10px;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+[data-theme="light"] {
+  --sea:  #f4f6f8;
+  --rock: #ffffff;
+  --edge: #dbe2e9;
+  --ink:  #16202a;
+  --dim:  #5b6b7b;
+  --beam: #c8891a;
+  --beam-d: #a06c10;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--sea);
+  color: var(--ink);
+  font: 15px/1.5 var(--sans);
+  /* the beam, thrown once across the top */
+  background-image: radial-gradient(1200px 320px at 12% -8%,
+                    rgba(255, 194, 75, .10), transparent 70%);
+}
+
+a { color: var(--beam); }
+
+/* ── bar ─────────────────────────────────────────────────────── */
+
+.bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 12px 20px;
+  border-bottom: 1px solid var(--edge);
+  background: color-mix(in srgb, var(--rock) 80%, transparent);
+  position: sticky; top: 0; z-index: 5; backdrop-filter: blur(8px);
+}
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.name { font: 600 16px var(--mono); letter-spacing: .04em; }
+.tag { color: var(--dim); font-size: 12px; white-space: nowrap;
+       overflow: hidden; text-overflow: ellipsis; }
+.beam {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--beam); align-self: center;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--beam) 22%, transparent);
+}
+.bar-right { display: flex; align-items: center; gap: 10px; }
+.who { font: 12px var(--mono); color: var(--dim); }
+
+/* ── controls ────────────────────────────────────────────────── */
+
+button {
+  font: 13px var(--sans); padding: 7px 14px; border-radius: 8px;
+  border: 1px solid var(--edge); background: transparent; color: var(--ink);
+  cursor: pointer; transition: border-color .12s, background .12s;
+}
+button:hover { border-color: var(--beam); }
+button:disabled { opacity: .45; cursor: not-allowed; border-color: var(--edge); }
+.primary { background: var(--beam); border-color: var(--beam); color: #14181c; font-weight: 600; }
+.primary:hover { background: var(--beam-d); border-color: var(--beam-d); color: #fff; }
+.ghost { color: var(--dim); }
+
+input, textarea {
+  font: 13px var(--mono); color: var(--ink); background: var(--sea);
+  border: 1px solid var(--edge); border-radius: 8px; padding: 8px 10px;
+  flex: 1 1 180px; min-width: 0;
+}
+input:focus, textarea:focus { outline: none; border-color: var(--beam); }
+textarea { width: 100%; resize: vertical; }
+.check { display: flex; align-items: center; gap: 6px; color: var(--dim);
+         font-size: 13px; white-space: nowrap; flex: 0 0 auto; }
+.check input { flex: none; accent-color: var(--beam); }
+
+/* ── layout ──────────────────────────────────────────────────── */
+
+main { max-width: 980px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+.grid { display: grid; gap: 16px; }
+.two { grid-template-columns: 1fr 1fr; }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--rock); border: 1px solid var(--edge);
+  border-radius: var(--radius); padding: 16px;
+}
+.card.faint { background: transparent; }
+.card h2 {
+  margin: 0 0 12px; font: 600 12px var(--mono); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--dim);
+  display: flex; align-items: center; gap: 8px;
+}
+.head-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.head-row h2 { margin: 0; }
+.head-row .tabs { margin: 0 auto 0 0; }
+
+.row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.row.wrap { flex-wrap: wrap; }
+.hint { color: var(--dim); font-size: 12.5px; margin: 10px 0 0; }
+.hint code { font: 12px var(--mono); color: var(--beam); }
+
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+.dot.ok { background: var(--good); }
+.dot.warn { background: var(--warn); }
+.dot.bad { background: var(--bad); }
+
+/* ── fact lists ──────────────────────────────────────────────── */
+
+dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; }
+dt { color: var(--dim); font-size: 12px; }
+dd { margin: 0; font: 12.5px var(--mono); overflow-wrap: anywhere; }
+dd.ok { color: var(--good); }
+dd.bad { color: var(--bad); }
+
+.blocker {
+  margin-top: 10px; padding: 8px 10px; font-size: 12.5px;
+  border-left: 2px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent);
+  display: flex; gap: 10px; align-items: center; justify-content: space-between;
+}
+
+/* ── tabs / panes ────────────────────────────────────────────── */
+
+.tabs { display: flex; gap: 4px; }
+.tab { padding: 5px 12px; font-size: 12.5px; color: var(--dim); border-color: transparent; }
+.tab.on { color: var(--ink); border-color: var(--edge); background: var(--sea); }
+.pane { display: none; margin-top: 12px; }
+.pane.on { display: block; }
+
+.drop {
+  display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--edge); border-radius: var(--radius);
+  padding: 26px; color: var(--dim); font-size: 13px; cursor: pointer;
+  text-align: center;
+}
+.drop:hover, .drop.over { border-color: var(--beam); color: var(--ink); }
+
+/* ── results ─────────────────────────────────────────────────── */
+
+.out:empty { display: none; }
+.out {
+  margin-top: 12px; border: 1px solid var(--edge); border-radius: var(--radius);
+  padding: 12px; background: var(--sea); font: 12.5px var(--mono);
+}
+.out .line { display: flex; gap: 10px; padding: 2px 0; }
+.out .k { color: var(--dim); min-width: 96px; }
+.out .v { overflow-wrap: anywhere; }
+.out.err { border-color: var(--bad); color: var(--bad); }
+
+.objects { display: grid; gap: 8px; }
+.obj {
+  display: grid; grid-template-columns: 1fr auto; gap: 6px 12px;
+  border: 1px solid var(--edge); border-radius: 8px; padding: 10px 12px;
+  background: var(--sea);
+}
+.obj .cid { font: 12px var(--mono); color: var(--beam); overflow-wrap: anywhere; }
+.obj .meta { color: var(--dim); font-size: 12px; }
+.obj .acts { display: flex; gap: 6px; align-self: center; }
+.obj button { padding: 4px 9px; font-size: 12px; }
+.pill {
+  font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 999px; border: 1px solid var(--edge); color: var(--dim);
+}
+.pill.pub { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+
+/* ── mcp: a schema you can read without running a client ─────── */
+
+.code {
+  margin: 0; padding: 10px 12px; background: var(--sea);
+  border: 1px solid var(--edge); border-radius: 8px;
+  font: 12px/1.45 var(--mono); color: var(--ink);
+  overflow-x: auto; white-space: pre;
+}
+#mcp-auth code { color: var(--beam); font: 12px var(--mono); }
+
+.tools { display: grid; gap: 6px; margin-top: 12px; }
+.tool {
+  border: 1px solid var(--edge); border-radius: 8px; background: var(--sea);
+}
+.tool > summary {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px 12px; cursor: pointer; list-style: none;
+}
+.tool > summary::-webkit-details-marker { display: none; }
+.tool > summary::before {
+  content: "▸"; color: var(--dim); font-size: 11px; flex: none;
+}
+.tool[open] > summary::before { content: "▾"; }
+.tool > summary:hover { color: var(--beam); }
+.tool > summary code { font: 12.5px var(--mono); color: var(--beam); }
+.tool .tsum {
+  color: var(--dim); font-size: 12px; flex: 1 1 220px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Open, the full description is right below — a truncated copy of its first
+   sentence in the summary would just be the same words twice. */
+.tool[open] .tsum { display: none; }
+.tool .tdesc { margin: 0 12px 10px; color: var(--dim); font-size: 12.5px; }
+.pill.wr { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.pill.loc { color: var(--beam); border-color: color-mix(in srgb, var(--beam) 45%, transparent); }
+
+.args { display: grid; gap: 2px; margin: 0 12px 10px; }
+.arg {
+  display: grid; grid-template-columns: 130px 130px 1fr; gap: 10px;
+  padding: 4px 0; border-top: 1px solid var(--edge); font-size: 12px;
+}
+.arg.none { grid-template-columns: 1fr; color: var(--dim); font-style: italic; }
+.arg .an { font: 12px var(--mono); overflow-wrap: anywhere; }
+.arg .an em { color: var(--bad); font-style: normal; }
+.arg .at { font: 11.5px var(--mono); color: var(--warn); overflow-wrap: anywhere; }
+.arg .ad { color: var(--dim); }
+@media (max-width: 640px) {
+  .arg { grid-template-columns: 1fr; gap: 2px; }
+}
+
+.raw { margin: 0 12px 12px; }
+.raw > summary {
+  cursor: pointer; color: var(--dim); font: 11px var(--mono);
+  letter-spacing: .08em; text-transform: uppercase;
+}
+.raw > summary:hover { color: var(--beam); }
+.raw .code { margin-top: 8px; max-height: 320px; overflow: auto; }
+
+/* ── toast ───────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 20px);
+  background: var(--rock); border: 1px solid var(--edge); color: var(--ink);
+  padding: 10px 16px; border-radius: 8px; font: 13px var(--sans);
+  opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s;
+  max-width: 90vw; z-index: 20;
+}
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+.toast.bad { border-color: var(--bad); color: var(--bad); }
+
+.owner-only { display: none; }
+.owner .owner-only { display: flex; }

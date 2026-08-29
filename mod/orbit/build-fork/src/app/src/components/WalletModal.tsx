@@ -14,10 +14,11 @@ import {
 } from "../utils/wallet";
 import { qrSvg } from "../app/lib/qr";
 import AddressChip from "./AddressChip";
+import { KEY_TYPES, keyTypeInfo, type WalletType } from "../utils/keytypes";
 
 interface WalletModalProps {
   address: string;
-  walletType: "metamask" | "subwallet" | "local" | "password" | null;
+  walletType: WalletType;
   onClose: () => void;
   onDisconnect: () => void;
   inline?: boolean;
@@ -29,11 +30,6 @@ interface WalletModalProps {
       internal scroll/`h-full`, so it can flow inside a parent's single scroll
       container (e.g. the merged account sidebar). */
   flow?: boolean;
-  /** When true the component renders as one contracted header-height strip —
-      balance · address · QR · network · refresh · disconnect — sized to sit
-      in the account sidebar's header zone on a phone. The QR / network /
-      secrets panels still expand below the strip on demand. Implies inline. */
-  compact?: boolean;
   onNetworkChange?: () => void;
 }
 
@@ -42,6 +38,8 @@ interface WalletModalProps {
 const WALLET_KINDS: Record<string, { label: string; path: string }> = {
   metamask: { label: "Browser wallet", path: "M3 7a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM16 12h4" },
   subwallet: { label: "SubWallet", path: "M12 3l8 9-8 9-8-9z" },
+  phantom: { label: "Phantom — Solana", path: "M4 14a8 8 0 0 1 16 0v4a2 2 0 0 1-3.5 1.3A2 2 0 0 1 13 19a2 2 0 0 1-3.5 1.3A2 2 0 0 1 6 19a2 2 0 0 1-2-2zM9 12h.01M15 12h.01" },
+  polkadot: { label: "Substrate wallet", path: "M12 3l8 9-8 9-8-9z" },
   password: { label: "Password key — throwaway", path: "M9.5 14.5a3.5 3.5 0 1 1-2.5-6 3.5 3.5 0 0 1 2.5 6zM10 12l9-9M17 5l2 2M15 7l2 2" },
   local: { label: "Seed phrase on this device — throwaway", path: "M4 6h16v12H4zM7 9h.01M7 15h9" },
 };
@@ -63,7 +61,6 @@ export default function WalletModal({
   inline = false,
   embedded = false,
   flow = false,
-  compact = false,
   onNetworkChange,
 }: WalletModalProps) {
   const [balance, setBalance] = useState<string>("0.00");
@@ -81,6 +78,16 @@ export default function WalletModal({
   const [showTestnets, setShowTestnets] = useState(false);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
+  const [showNetworks, setShowNetworks] = useState(false);
+  /** Everything that isn't the strip — key type, secrets, refresh, disconnect
+      — lives behind this one disclosure, shut on arrival. */
+  const [showMore, setShowMore] = useState(false);
+
+  // What curve this identity is on. Only a secp256k1 key has an EVM balance,
+  // an EVM explorer or a chain to switch — a Solana or Substrate key gets the
+  // same card with its own networks and none of the EVM machinery.
+  const keyInfo = keyTypeInfo(address, walletType);
+  const isEvm = !keyInfo || keyInfo.id === "secp256k1";
 
   // Load wallet data
   useEffect(() => {
@@ -97,6 +104,9 @@ export default function WalletModal({
 
   const loadWalletData = async () => {
     if (address === "local") return;
+    // Non-EVM keys have no ethers provider to ask; the card shows the key
+    // type and its networks instead of a balance it cannot read.
+    if (!isEvm) { setLoadedOnce(true); return; }
 
     setLoading(true);
     try {
@@ -277,8 +287,10 @@ export default function WalletModal({
       </div>
       )}
 
-      {/* Content — single view: the identity card. */}
-      <div className={flow ? "p-3 space-y-3" : "flex-1 overflow-y-auto p-3 space-y-3"}>
+      {/* Content — single view: the identity card. Flowing inside the account
+          sidebar it drops its bottom padding: the block below supplies its
+          own, and two paddings stacked read as a gap nothing lives in. */}
+      <div className={flow ? "px-4 pt-3 space-y-2" : "flex-1 overflow-y-auto p-3 space-y-3"}>
         {loading && !loadedOnce && (
           <div className="text-center py-16">
             <div className="inline-flex items-center gap-3">
@@ -293,11 +305,15 @@ export default function WalletModal({
 
         {(!loading || loadedOnce) && (
           <>
-            {/* Identity Card — one row, read left to right: who you are (wallet
-                kind) · what you hold · which address · the controls that act on
-                it. Every control is a .wallet-ctl so the row lines up. */}
+            {/* Identity strip — ONE line, never two: who you are (wallet kind)
+                · what you hold · which address · the controls that act on it.
+                It used to wrap onto a second row in the sidebar, which read as
+                two panels; nothing here may grow wide enough to wrap again, so
+                the key-type badge and the network's name moved into tooltips
+                and the panels they open. Every control is a .wallet-ctl so the
+                row lines up. */}
             <div
-              className="flex flex-wrap items-center gap-2 px-3 py-2.5"
+              className="flex flex-nowrap items-center gap-2 px-3 py-2"
               style={{
                 border: "1px solid color-mix(in srgb, var(--crt-green) 14%, var(--border-color))",
                 background:
@@ -308,11 +324,11 @@ export default function WalletModal({
             >
               <span
                 className="shrink-0 flex items-center justify-center"
-                title={wallet.label}
+                title={keyInfo ? `${wallet.label} · ${keyInfo.label} key (${keyInfo.family})` : wallet.label}
                 style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 9,
+                  width: 26,
+                  height: 26,
+                  borderRadius: 8,
                   color: "var(--text-tertiary)",
                   background: "var(--bg-secondary)",
                   border: "1px solid var(--border-color)",
@@ -322,6 +338,7 @@ export default function WalletModal({
                   <path d={wallet.path} />
                 </svg>
               </span>
+              {isEvm && (
               <span
                 className="shrink-0 flex items-baseline gap-1 transition-opacity"
                 title={`${balance} ${nativeSymbol} on ${network}`}
@@ -341,21 +358,51 @@ export default function WalletModal({
                   {nativeSymbol}
                 </span>
               </span>
-              <span className="shrink-0 w-px h-5" style={{ background: "var(--border-color)" }} />
+              )}
+              {/* Which chain that balance is on. Only embedded: there the
+                  address chip is gone, so the row has the width for it — and
+                  the middle of the strip was reading as blank space where the
+                  one fact the balance needs to be read was missing. */}
+              {embedded && isEvm && network !== "Unknown" && (
+                <span
+                  className="min-w-0 truncate text-[10px] tracking-[0.06em]"
+                  style={{ color: "var(--text-tertiary)" }}
+                  title={`Chain ${chainId}`}
+                >
+                  {network}
+                </span>
+              )}
               {/* Address — the chip copies, the ↗ beside it opens the address on
-                  the current network's explorer. */}
+                  the current network's explorer. Which curve the key is on is
+                  in its tooltip and spelled out under MORE.
+
+                  EMBEDDED omits it: the account panel's own header, one row
+                  above, already IS the address chip (plus the curve bubble and
+                  the QR). Repeating it here made the sidebar open on two
+                  identity panels saying the same thing. What is left in this
+                  strip is only what the header does not say — the balance and
+                  the chain. The chip is shrinkable (min-w-0, not shrink-0): on
+                  the narrowest sidebar it truncates rather than pushing the
+                  row onto a second line. */}
+              {!embedded && (
               <AddressChip
                 address={address}
                 size={11}
-                height={30}
+                height={26}
                 color="var(--text-primary)"
-                label={`${network} address`}
-                explorerUrl={chainId ? `${EVM_NETWORKS.find(n => n.chainId === chainId)?.explorer || "https://etherscan.io"}/address/${address}` : undefined}
-                className="shrink-0"
+                label={isEvm
+                  ? `${network} address · ${keyInfo?.label || "secp256k1"} key`
+                  : `${keyInfo?.family} address (${keyInfo?.addressFormat})`}
+                explorerUrl={isEvm && chainId ? `${EVM_NETWORKS.find(n => n.chainId === chainId)?.explorer || "https://etherscan.io"}/address/${address}` : undefined}
+                className="min-w-0"
               />
+              )}
               {/* Controls, anchored right — the row breathes in the middle
                   instead of stretching the address across it. */}
               <div className="ml-auto shrink-0 flex items-center gap-1.5">
+                {/* QR — embedded, the panel header's QR button opens the same
+                    code, so this one would be the second of two. */}
+                {!embedded && (
                 <button
                   onClick={() => setShowQr(!showQr)}
                   title="Show address QR code"
@@ -370,6 +417,24 @@ export default function WalletModal({
                     <path d="M14 14h3v3h-3zM20 14h1M14 20h1M20 20h1" />
                   </svg>
                 </button>
+                )}
+                {/* Explorer — embedded this is the one thing the dropped
+                    address chip carried that the panel header does not. */}
+                {embedded && isEvm && chainId > 0 && (
+                  <a
+                    href={`${EVM_NETWORKS.find(n => n.chainId === chainId)?.explorer || "https://etherscan.io"}/address/${address}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Open on the ${network} explorer`}
+                    aria-label={`Open on the ${network} explorer`}
+                    className="wallet-ctl square focus-ring"
+                  >
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+                    </svg>
+                  </a>
+                )}
+                {isEvm ? (
                 <button
                   onClick={() => setShowNetworkSelector(!showNetworkSelector)}
                   title={`${network} · chain ${chainId} — switch network`}
@@ -384,14 +449,87 @@ export default function WalletModal({
                       __html: `<svg viewBox="0 0 24 24" width="14" height="14">${NETWORK_LOGOS[chainId]?.svg || '<circle cx="12" cy="12" r="8" fill="currentColor" opacity="0.3"/>'}</svg>`
                     }}
                   />
-                  <span className="text-[10px] font-bold tracking-wide">{network}</span>
                   <span className="wallet-ctl__caret text-[8px]" style={{ opacity: 0.7 }}>▾</span>
+                </button>
+                ) : (
+                  /* No chain to switch — an ed25519 or sr25519 key is not
+                     bound to one network the way an EVM session is. Show what
+                     the key reaches instead. */
+                  <button
+                    onClick={() => setShowNetworks(!showNetworks)}
+                    title={`Networks this ${keyInfo?.label} key works on: ${keyInfo?.networks.join(", ")}`}
+                    aria-expanded={showNetworks}
+                    className="wallet-ctl focus-ring"
+                    style={{ "--ctl-accent": keyInfo?.color, color: keyInfo?.color } as React.CSSProperties}
+                  >
+                    <span className="text-[10px] font-bold tracking-wide">{keyInfo?.networks.length}</span>
+                    <span className="wallet-ctl__caret text-[8px]" style={{ opacity: 0.7 }}>▾</span>
+                  </button>
+                )}
+                {/* MORE — the disclosure below opens from here rather than
+                    from a row of its own. It held one word and a curve name
+                    the panel header already says. */}
+                <button
+                  onClick={() => setShowMore(!showMore)}
+                  aria-expanded={showMore}
+                  title={showMore ? "Hide key type, secrets and disconnect" : "Key type, secrets, refresh and disconnect"}
+                  className="wallet-ctl focus-ring"
+                  style={{ color: showMore ? "var(--text-secondary)" : "var(--text-tertiary)" }}
+                >
+                  <span className="text-[9px] font-bold tracking-[0.14em]">MORE</span>
+                  <span className="wallet-ctl__caret text-[8px]" style={{ opacity: 0.7 }}>{showMore ? "▴" : "▾"}</span>
                 </button>
               </div>
             </div>
 
             {/* Address QR — rendered locally (qrSvg), never sent to a third-party service */}
             {showQr && qrPanel}
+
+            {/* COMPATIBLE NETWORKS — for non-EVM keys, where this identity is
+                usable. Read-only: the key already works on all of them, there
+                is nothing to switch. */}
+            {!isEvm && showNetworks && keyInfo && (
+              <div
+                className="p-4 space-y-3"
+                style={{
+                  border: `1px solid color-mix(in srgb, ${keyInfo.color} 14%, var(--border-color))`,
+                  background: `linear-gradient(180deg, color-mix(in srgb, ${keyInfo.color} 2.5%, transparent), transparent 55%), color-mix(in srgb, var(--glass-bg) 92%, transparent)`,
+                  borderRadius: "14px",
+                }}
+              >
+                <div className="text-[9px] tracking-[2px] flex items-center justify-between" style={{ color: "var(--text-tertiary)" }}>
+                  <span>COMPATIBLE NETWORKS</span>
+                  <button
+                    onClick={() => setShowNetworks(false)}
+                    className="text-[9px] px-2 py-0.5 transition-all"
+                    style={{ color: keyInfo.color, border: `1px solid color-mix(in srgb, ${keyInfo.color} 15%, transparent)`, borderRadius: "8px" }}
+                  >
+                    CLOSE
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {keyInfo.networks.map((n) => (
+                    <span
+                      key={n}
+                      className="px-2.5 py-1.5 text-[10px] font-bold tracking-wide"
+                      style={{
+                        color: keyInfo.color,
+                        background: `color-mix(in srgb, ${keyInfo.color} 8%, transparent)`,
+                        border: `1px solid color-mix(in srgb, ${keyInfo.color} 25%, transparent)`,
+                        borderRadius: 10,
+                      }}
+                    >
+                      {n}
+                    </span>
+                  ))}
+                </div>
+                <div className="text-[10px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                  One {keyInfo.label} key signs for all of them — addresses are{" "}
+                  {keyInfo.addressFormat}. Balances are not read here: this console
+                  only needs the signature.
+                </div>
+              </div>
+            )}
 
             {/* Inline Network Selector */}
             {showNetworkSelector && (
@@ -405,7 +543,10 @@ export default function WalletModal({
                 }}
               >
                 <div className="text-[9px] tracking-[2px] flex items-center justify-between" style={{ color: "var(--text-tertiary)" }}>
-                  <span>SELECT NETWORK</span>
+                  {/* The strip's network button is a logo, so the name it stands
+                      for is stated here — this panel is what you open to read
+                      or change it. */}
+                  <span>NETWORK · {network.toUpperCase()}</span>
                   <button
                     onClick={() => setShowNetworkSelector(false)}
                     className="text-[9px] px-2 py-0.5 transition-all"
@@ -501,6 +642,30 @@ export default function WalletModal({
                     {networkError}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* MORE — one disclosure, shut by default, holding everything that
+                isn't the strip: what kind of key this is, the throwaway
+                secrets, refresh and disconnect. It opens from the strip's own
+                MORE control, so shut it costs no row at all. */}
+            {showMore && (
+            <>
+            {/* What this identity is, in words — the badge that used to sit in
+                the strip and push it onto a second line. */}
+            {keyInfo && (
+              <div
+                className="px-3 py-2 text-[10px] leading-relaxed"
+                style={{
+                  border: `1px solid color-mix(in srgb, ${keyInfo.color} 14%, var(--border-color))`,
+                  background: `color-mix(in srgb, ${keyInfo.color} 4%, transparent)`,
+                  borderRadius: "10px",
+                  color: "var(--text-tertiary)",
+                }}
+              >
+                <span className="font-mono font-bold" style={{ color: keyInfo.color }}>{keyInfo.label}</span>{" "}
+                key · {keyInfo.family} · addresses are {keyInfo.addressFormat} ·{" "}
+                {wallet.label.toLowerCase()}
               </div>
             )}
 
@@ -641,12 +806,13 @@ export default function WalletModal({
               </div>
             )}
 
-            {/* Actions */}
+            {/* Actions. Embedded, REFRESH is on its own — a full-width slab
+                for one rarely-pressed button was a lot of panel for it. */}
             <div className="flex gap-3 pt-1">
               <button
                 onClick={loadWalletData}
                 disabled={loading}
-                className="flex-1 py-2.5 text-[10px] transition-all tracking-[1.5px]"
+                className={`${embedded ? "px-5" : "flex-1"} py-2 text-[10px] transition-all tracking-[1.5px]`}
                 style={{
                   opacity: loading ? 0.6 : 1,
                   background: "var(--crt-blue)",
@@ -661,6 +827,10 @@ export default function WalletModal({
               >
                 {loading ? "REFRESHING…" : "REFRESH"}
               </button>
+              {/* Embedded, the account panel's header carries sign-out (⎋) for
+                  every session kind — a second DISCONNECT here was the same
+                  action twice, three rows apart. */}
+              {!embedded && (
               <button
                 onClick={onDisconnect}
                 className="flex-1 py-2.5 text-[10px] transition-all tracking-[1.5px]"
@@ -682,7 +852,10 @@ export default function WalletModal({
               >
                 DISCONNECT
               </button>
+              )}
             </div>
+            </>
+            )}
           </>
         )}
       </div>

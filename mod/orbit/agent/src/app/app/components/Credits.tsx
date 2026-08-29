@@ -34,6 +34,12 @@ export type CreditsInfo = {
 type ProviderView = {
   balance: number | null; topups: number; error?: string
   metered?: { actual: number; billed: number; ratio: number | null; since: number }
+  // where credits are bought, and what the key's own meter says has landed
+  // since the last booked top-up (`pending`)
+  topup?: {
+    url: string | null; meter: string | null; exact: boolean
+    mark: number | null; now: number | null; pending: number
+  }
 }
 
 export type Treasury = {
@@ -43,8 +49,9 @@ export type Treasury = {
   topups: Record<string, number>; topups_total: number; float: number
   user_credits: number; funding_required: number; accounts: number
   provider_balance: number | null; topup_needed: number | null
+  topup_pending: number | null       // bought on a key, not yet in the books
   providers: Record<string, ProviderView>
-  ledger: { time: number; type: string; provider?: string; amount: number; ref?: string; note?: string }[]
+  ledger: { time: number; type: string; provider?: string; amount: number; ref?: string; note?: string; verified?: boolean }[]
 }
 
 type Props = {
@@ -88,6 +95,12 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
   const [topProvider, setTopProvider] = useState('openrouter')
   const [topAmount, setTopAmount] = useState('')
   const [topRef, setTopRef] = useState('')
+  // a purchase happens on the provider's own page — neither OpenRouter nor
+  // Venice sells credits over an API — so the console opens that page and
+  // then watches the key until the money lands, booking what actually arrived
+  const [watch, setWatch] = useState<{ provider: string; until: number } | null>(null)
+  const [topMsg, setTopMsg] = useState<string | null>(null)
+  const [manualLog, setManualLog] = useState(false)
   const [feeInput, setFeeInput] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [bookMsg, setBookMsg] = useState<string | null>(null)
@@ -131,6 +144,52 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
       setBusy(null)
     }
   }
+
+  // Confirm a purchase by re-reading the provider key: the server compares
+  // the key's own meter against the mark it stood at when we last booked one
+  // and records the difference, so the books never rest on a typed amount.
+  const verifyTopup = useCallback(async (provider: string, quiet = false) => {
+    if (!auth?.isOwner) return null
+    if (!quiet) { setBusy('check'); setTopMsg(null) }
+    try {
+      const res = await fetch(`${API_URL}/credits/topup/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, key: auth.token }),
+        signal: AbortSignal.timeout(30000),
+      })
+      const data = await res.json()
+      if (data.error) { setTopMsg(data.error); return null }
+      if (data.booked > 0) {
+        setTopMsg(`${fmtUsd(data.booked)} landed on ${provider} — booked`)
+        setWatch(null)
+        await loadTreasury(); onRefresh()
+      } else if (!quiet) {
+        setTopMsg(data.reason || 'nothing new on the key yet')
+      }
+      return data
+    } catch (e: any) {
+      if (!quiet) setTopMsg(e?.message || 'check failed')
+      return null
+    } finally {
+      if (!quiet) setBusy(null)
+    }
+  }, [auth, loadTreasury, onRefresh])
+
+  // while a purchase is in flight, poll the key instead of making the owner
+  // press anything — a card payment can take a minute to clear
+  useEffect(() => {
+    if (!watch) return
+    const id = setInterval(() => {
+      if (Date.now() > watch.until) {
+        setWatch(null)
+        setTopMsg('nothing landed yet — press check once the purchase clears')
+        return
+      }
+      verifyTopup(watch.provider, true)
+    }, 8000)
+    return () => clearInterval(id)
+  }, [watch, verifyTopup])
 
   const depositAddr = info?.deposit?.address || null
   const networks = Object.keys(info?.deposit?.networks || { base: 1, ethereum: 1 })
@@ -406,6 +465,19 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
                       model time owed; the keys hold{' '}
                       {book.provider_balance === null ? '—' : fmtUsd(book.provider_balance)}.
                     </div>
+                    {(book.topup_pending ?? 0) > 0 && (
+                      <div className="mt-1.5 text-[10px] text-emerald-300/90">
+                        {fmtUsd(book.topup_pending || 0)} bought on a key isn&apos;t in the books yet —{' '}
+                        {Object.entries(book.providers)
+                          .filter(([, p]) => (p.topup?.pending || 0) > 0)
+                          .map(([name]) => (
+                            <button key={name} onClick={() => verifyTopup(name)}
+                              className="underline underline-offset-2 hover:text-emerald-200 transition">
+                              book {name}
+                            </button>
+                          ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* per-provider: live balance, what we've sent, estimate drift */}
@@ -413,8 +485,12 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
                     {Object.entries(book.providers).map(([name, p]) => (
                       <div key={name} className="flex items-center gap-2 px-1.5 py-1 rounded bg-white/[0.02]">
                         <span className="text-[10px] text-gray-300 capitalize w-[70px] shrink-0">{name}</span>
-                        <span className="text-[10px] font-mono text-emerald-300/90 w-[64px] shrink-0">
-                          {p.error ? '—' : p.balance === null || p.balance === undefined ? '—' : fmtUsd(p.balance)}
+                        {/* an exhausted key is the reason a run fails — say so
+                            in the colour, not just the number */}
+                        <span className={`text-[10px] font-mono w-[64px] shrink-0 ${
+                          typeof p.balance === 'number' && p.balance <= 0 ? 'text-amber-300' : 'text-emerald-300/90'}`}>
+                          {p.error ? '—' : p.balance === null || p.balance === undefined ? '—'
+                            : p.balance < 0 ? `-${fmtUsd(Math.abs(p.balance))}` : fmtUsd(p.balance)}
                         </span>
                         <span className="text-[9px] text-gray-600 truncate flex-1"
                           title={p.error || (p.metered
@@ -429,35 +505,97 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
                     ))}
                   </div>
 
-                  {/* record a purchase of provider credits out of the float */}
-                  <div className="space-y-1.5">
-                    <div className="text-[9px] text-gray-500 uppercase tracking-wider">Record a top-up</div>
-                    <div className="flex items-center gap-1.5">
-                      <select value={topProvider} onChange={e => setTopProvider(e.target.value)}
-                        className="bg-white/[0.04] border border-white/[0.08] rounded-md px-1.5 py-1.5 text-[10px] text-gray-200 outline-none">
-                        {Object.keys(book.providers).map(n => <option key={n} value={n}>{n}</option>)}
-                      </select>
-                      <input value={topAmount} onChange={e => setTopAmount(e.target.value)} placeholder="$"
-                        className="w-14 bg-white/[0.04] border border-white/[0.08] rounded-md px-2 py-1.5 text-[11px] font-mono text-gray-200 outline-none placeholder:text-gray-600 focus:border-amber-500/40 transition" />
-                      <input value={topRef} onChange={e => setTopRef(e.target.value)} placeholder="receipt"
-                        className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-md px-2 py-1.5 text-[11px] text-gray-200 outline-none placeholder:text-gray-600 focus:border-amber-500/40 transition" />
-                      <button
-                        onClick={async () => {
-                          const amount = parseFloat(topAmount)
-                          if (!isFinite(amount) || amount <= 0) return
-                          const d = await post('/credits/topup',
-                            { provider: topProvider, amount, ref: topRef }, 'top-up')
-                          if (d && !d.error) { setTopAmount(''); setTopRef('') }
-                        }}
-                        disabled={busy === 'top-up' || !topAmount.trim()}
-                        className="px-2.5 py-1.5 rounded-md text-[10px] font-medium border border-amber-500/30 text-amber-200 hover:bg-amber-500/10 disabled:opacity-40 transition shrink-0">
-                        {busy === 'top-up' ? '…' : 'Log'}
-                      </button>
-                    </div>
-                    <div className="text-[9px] text-gray-600">
-                      Buy the credits at the provider, then log what you sent — the float is guests&apos; money.
-                    </div>
-                  </div>
+                  {/* buy provider credits: the purchase is made on the
+                      provider's page (neither sells credits over an API), and
+                      the amount is booked by reading it back off the key */}
+                  {(() => {
+                    const prov = book.providers[topProvider]
+                    const url = prov?.topup?.url
+                    const pending = prov?.topup?.pending || 0
+                    const typed = parseFloat(topAmount)
+                    const suggested = Math.max(5, Math.ceil(book.topup_needed || 0))
+                    const buy = isFinite(typed) && typed > 0 ? typed : suggested
+                    return (
+                      <div className="space-y-1.5">
+                        <div className="text-[9px] text-gray-500 uppercase tracking-wider">Top up a provider key</div>
+                        <div className="flex items-center gap-1.5">
+                          <select value={topProvider}
+                            onChange={e => { setTopProvider(e.target.value); setTopMsg(null); setWatch(null) }}
+                            className="bg-white/[0.04] border border-white/[0.08] rounded-md px-1.5 py-1.5 text-[10px] text-gray-200 outline-none">
+                            {Object.keys(book.providers).map(n => <option key={n} value={n}>{n}</option>)}
+                          </select>
+                          <input value={topAmount} onChange={e => setTopAmount(e.target.value)}
+                            placeholder={`${suggested}`} inputMode="decimal"
+                            className="w-14 bg-white/[0.04] border border-white/[0.08] rounded-md px-2 py-1.5 text-[11px] font-mono text-gray-200 outline-none placeholder:text-gray-600 focus:border-amber-500/40 transition" />
+                          <button
+                            onClick={() => {
+                              if (url) window.open(url, '_blank', 'noopener,noreferrer')
+                              setWatch({ provider: topProvider, until: Date.now() + 5 * 60_000 })
+                              setTopMsg(`waiting for ${fmtUsd(buy)} to land on the ${topProvider} key…`)
+                            }}
+                            disabled={!url}
+                            className="flex-1 px-2.5 py-1.5 rounded-md text-[10px] font-medium border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/10 disabled:opacity-40 transition">
+                            Buy {fmtUsd(buy)} at {topProvider} ↗
+                          </button>
+                        </div>
+
+                        {/* the money is sent over there; this end just has to
+                            notice it arrived */}
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => verifyTopup(topProvider)}
+                            disabled={busy === 'check'}
+                            className="px-2 py-1 rounded-md text-[10px] border border-white/10 text-gray-300 hover:border-emerald-500/30 hover:text-emerald-200 disabled:opacity-40 transition">
+                            {busy === 'check' ? 'checking…' : watch ? 'check now' : "I've paid — check"}
+                          </button>
+                          {watch && (
+                            <span className="text-[9px] text-emerald-300/70 animate-pulse">
+                              watching the {watch.provider} key
+                            </span>
+                          )}
+                          {!watch && pending > 0 && (
+                            <span className="text-[9px] text-amber-300/80">
+                              {fmtUsd(pending)} on the key, unbooked
+                            </span>
+                          )}
+                          <button onClick={() => setManualLog(v => !v)}
+                            className="ml-auto text-[9px] text-gray-600 hover:text-gray-400 transition">
+                            {manualLog ? 'hide' : 'log by hand'}
+                          </button>
+                        </div>
+                        {topMsg && (
+                          <div className={`text-[10px] ${topMsg.includes('landed') ? 'text-emerald-300' : 'text-gray-500'}`}>
+                            {topMsg}
+                          </div>
+                        )}
+                        <div className="text-[9px] text-gray-600 leading-relaxed">
+                          {url
+                            ? <>Credits are bought on {topProvider}&apos;s own page — there is no API to buy
+                                them with. The books record what the key says arrived
+                                {prov?.topup?.exact ? '' : ', read off its remaining balance'}.</>
+                            : <>No purchase page known for {topProvider} — log the top-up by hand.</>}
+                        </div>
+
+                        {/* fallback: a purchase the key's meter can't show us */}
+                        {manualLog && (
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <input value={topRef} onChange={e => setTopRef(e.target.value)} placeholder="receipt"
+                              className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-md px-2 py-1.5 text-[11px] text-gray-200 outline-none placeholder:text-gray-600 focus:border-amber-500/40 transition" />
+                            <button
+                              onClick={async () => {
+                                if (!isFinite(typed) || typed <= 0) { setTopMsg('enter the amount you sent'); return }
+                                const d = await post('/credits/topup',
+                                  { provider: topProvider, amount: typed, ref: topRef }, 'top-up')
+                                if (d && !d.error) { setTopAmount(''); setTopRef(''); setTopMsg(null) }
+                              }}
+                              disabled={busy === 'top-up' || !topAmount.trim()}
+                              className="px-2.5 py-1.5 rounded-md text-[10px] font-medium border border-amber-500/30 text-amber-200 hover:bg-amber-500/10 disabled:opacity-40 transition shrink-0">
+                              {busy === 'top-up' ? '…' : `Log ${topAmount.trim() ? fmtUsd(typed || 0) : ''}`}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
 
                   {/* the books */}
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-1">

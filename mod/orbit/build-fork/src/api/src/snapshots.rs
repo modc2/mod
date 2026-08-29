@@ -38,7 +38,7 @@ pub struct VersionRecord {
     pub parent: Option<String>,
     /// The mod-protocol api registry CID — `None` if api module unreachable
     /// at the time of the change (we degrade gracefully). When present, every
-    /// change in build-fork's local log is also a node in the global registry chain.
+    /// change in build's local log is also a node in the global registry chain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry_cid: Option<String>,
     /// The previous registry CID (for git-like linked-list traversal).

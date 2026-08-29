@@ -23,7 +23,7 @@ pub fn set_base(url: String) {
     let _ = BASE.set(url);
 }
 
-fn base() -> String {
+pub fn base() -> String {
     BASE.get().cloned().unwrap_or_else(|| "http://127.0.0.1:50470".into())
 }
 
@@ -43,19 +43,24 @@ pub fn tool_list() -> Value {
         },
         {
             "name": "game_abi",
-            "description": "The contract a wasm module implements to become a game or a player here, with a worked example. Read this before writing one — it is the whole specification, and it is short.",
+            "description": "The contract a module implements to become a game or a player here, with a worked example. Two containers implement it: a wasm binary (lang=wasm) or a Python class (lang=class). Read this before writing one — it is the whole specification, and it is short.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "role": { "type": "string", "enum": ["game", "player"], "default": "game" } }
+                "properties": {
+                    "role": { "type": "string", "enum": ["game", "player"], "default": "game" },
+                    "lang": { "type": "string", "enum": ["wasm", "class", "rust"], "default": "wasm",
+                              "description": "`class` for the Python-class form and `rust` for the Rust-class form — the methods to define, rather than the exports to compile" }
+                }
             }
         },
         {
             "name": "list_modules",
-            "description": "Every wasm module in the registry, oldest first. Filter by role (game, player, command, wasm), tag or free text.",
+            "description": "Every module in the registry, oldest first — wasm binaries and Python classes alike. Filter by role (game, player, command, class, wasm), by lang (wasm, python), by tag or by free text.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "role": { "type": "string", "enum": ["game", "player", "command", "wasm"] },
+                    "role": { "type": "string", "enum": ["game", "player", "command", "class", "wasm"] },
+                    "lang": { "type": "string", "enum": ["wasm", "python", "rust"] },
                     "q": { "type": "string" },
                     "tag": { "type": "string" }
                 }
@@ -63,20 +68,25 @@ pub fn tool_list() -> Value {
         },
         {
             "name": "get_module",
-            "description": "One module in full: its imports and exports with signatures, the host namespaces it needs, its memory, and the URL its bytes are served from.",
+            "description": "One module in full. For wasm: imports and exports with signatures, the host namespaces it needs, its memory. For a class: the classes it defines, their methods and signatures, what it imports — and, unless you pass source=false, the source itself.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "module": { "type": "string", "description": "id, id prefix, or name" } },
+                "properties": {
+                    "module": { "type": "string", "description": "id, id prefix, or name" },
+                    "source": { "type": "boolean", "default": true,
+                                "description": "include the source of a class module" }
+                },
                 "required": ["module"]
             }
         },
         {
             "name": "put_module",
-            "description": "Store a wasm module. The id is the SHA-256 of the bytes, so storing the same module twice updates its metadata and never duplicates it. The role is read out of the exports, not taken on trust: a module exporting the game ABI becomes a game, one exporting `play` becomes a player, one exporting `_start` is a command, anything else is stored as plain wasm and still runs.",
+            "description": "Store a module — a wasm binary or a Python class. The id is the SHA-256 of the bytes, so storing the same thing twice updates its metadata and never duplicates it. The role is read out of the bytes, not taken on trust: exporting the game ABI (or defining view/step/done/result) makes a game, exporting `play` (or defining `play`) makes a player, `_start` makes a command, anything else is stored and still runs. To send a class as plain text rather than base64, use put_class.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "bytes": { "type": "string", "description": "The module, base64 (a data: URL is fine) or hex" },
+                    "source_text": { "type": "string", "description": "For a wasm binary: the code it was built from, as plain text, kept beside the bytes under its own hash and shown as the module's code" },
                     "name": { "type": "string" },
                     "description": { "type": "string" },
                     "author": { "type": "string" },
@@ -87,11 +97,29 @@ pub fn tool_list() -> Value {
         },
         {
             "name": "inspect_module",
-            "description": "Describe wasm bytes without storing them — imports, exports, memory, and the role they would take. What the console shows the moment a file is dropped on it.",
+            "description": "Describe bytes without storing them — for wasm, its imports, exports and memory; for a class, the classes and methods it defines and whether the sandbox will allow its imports. Either way, the role they would take. What the console shows the moment a file is dropped on it.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "bytes": { "type": "string", "description": "base64 or hex" } },
-                "required": ["bytes"]
+                "properties": {
+                    "bytes": { "type": "string", "description": "base64 or hex" },
+                    "text": { "type": "string", "description": "class source, as plain text" }
+                }
+            }
+        },
+        {
+            "name": "put_class",
+            "description": "Upload a class and it is playable. Pass the source as plain text, in Python or in Rust. Python: a class defining `view`, `step`, `done`, `result` is a game, one defining `play(self, view, seat)` is a player. Rust: a struct whose impl block defines the same four is a game, one defining `play` is a player. Same registry, same ids, same leaderboard as wasm. What differs is where it runs — a Python class runs in a sandboxed python subprocess (no filesystem, no network, seeded random) through the node runner, while a Rust class is compiled to wasm on upload and runs in the wasm sandbox, in a browser tab as happily as in the runner. Call game_abi with lang=class or lang=rust for the contract.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string", "description": "The class, as Python or Rust source — which it is, is read off the source" },
+                    "lang": { "type": "string", "enum": ["python", "rust"], "description": "Only a tie-break; a file that is plainly one is that one however it was labelled" },
+                    "name": { "type": "string", "description": "What to call it. Defaults to the class name." },
+                    "description": { "type": "string" },
+                    "author": { "type": "string" },
+                    "tags": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["source"]
             }
         },
         {
@@ -108,7 +136,7 @@ pub fn tool_list() -> Value {
             "description": "Everyone entered, strongest first, with the numbers that assess them: Elo, win rate, mean score, illegal-move rate, timeouts and mean time to move.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "kind": { "type": "string", "enum": ["wasm", "model", "agent_mod", "http", "human"] } }
+                "properties": { "kind": { "type": "string", "enum": ["wasm", "class", "model", "agent_mod", "mcp", "http", "human"] } }
             }
         },
         {
@@ -122,12 +150,12 @@ pub fn tool_list() -> Value {
         },
         {
             "name": "enter_player",
-            "description": "Enter a player. `model` calls any OpenAI-compatible /chat/completions endpoint (config: model, base?, key?, system?, temperature?) — OpenRouter by default. `wasm` plays with a stored module that exports `play` (config: module). `agent_mod` runs an agent from this fleet's agent module (config: agent?, model?, base?, steps?, free?). `http` posts the view to config.url and reads a move back. `human` is asked in the console. Entering a name that already exists updates it and keeps its record.",
+            "description": "Enter a player. `model` calls any OpenAI-compatible /chat/completions endpoint (config: model, base?, key?, system?, temperature?) — OpenRouter by default. `wasm` plays with a stored module that exports `play` (config: module). `agent_mod` runs an agent from this fleet's agent module (config: agent?, model?, base?, steps?, free?). `mcp` seats an MCP server — anything with a tool that takes a view and returns a move, including another module's own /m/<name>/mcp (config: server, tool?). `http` posts the view to config.url and reads a move back. `human` is asked in the console. Entering a name that already exists updates it and keeps its record.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "name": { "type": "string" },
-                    "kind": { "type": "string", "enum": ["model", "wasm", "agent_mod", "http", "human"], "default": "model" },
+                    "kind": { "type": "string", "enum": ["model", "wasm", "class", "agent_mod", "mcp", "http", "human"], "default": "model" },
                     "config": { "type": "object", "description": "Driver settings — see the description" },
                     "owner": { "type": "string" },
                     "note": { "type": "string" }
@@ -154,6 +182,11 @@ pub fn tool_list() -> Value {
                     "players": { "type": "array", "items": { "type": "string" }, "description": "Player ids or names, in seat order" },
                     "seed": { "type": "integer", "description": "Replay handle — the same seed and moves replay the match" },
                     "turns": { "type": "integer", "description": "Cap the turns; defaults to the game's own limit" },
+                    "mcp": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "MCP servers the classes in this match may call out to, by name. Left out, they have no way out at all — which is the default, and the only setting under which a move is a function of its view alone. See mcp_servers."
+                    },
                     "timeout_ms": { "type": "integer", "default": 300000 }
                 },
                 "required": ["game", "players"]
@@ -204,12 +237,13 @@ pub fn tool_list() -> Value {
         },
         {
             "name": "list_matches",
-            "description": "Recent matches, newest first, with the scoreboard of each.",
+            "description": "Recent matches, newest first, with the scoreboard of each. Name a game, a player, or both to narrow it.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "limit": { "type": "integer", "default": 20 },
-                    "game": { "type": "string" }
+                    "game": { "type": "string" },
+                    "player": { "type": "string", "description": "a player id or name — only matches it sat in" }
                 }
             }
         },
@@ -236,6 +270,66 @@ pub fn tool_list() -> Value {
         {
             "name": "plant_examples",
             "description": "Re-read the example pack from disk and store anything new. Idempotent — ids are content, so nothing is duplicated.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "module_servers",
+            "description": "Every stored module with the MCP server it answers on and the mod name it goes by. Each game and each agent here is a server of its own at /m/<name>/mcp — a game you can `open` a table at and play a turn at a time, an agent you can hand a view and get a move back from. This is the index of them.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "role": { "type": "string", "enum": ["game", "player", "class", "command", "wasm"] } }
+            }
+        },
+        {
+            "name": "module_tool",
+            "description": "Call a tool on one module's own server without opening a second MCP connection to it. `module_tool module=nim tool=open` sits you down at nim; `tool=move` plays. Exactly what /m/<name>/mcp does, from here.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "module": { "type": "string", "description": "id, prefix or name" },
+                    "tool": { "type": "string", "description": "about, source, open, view, move, state, play, run…" },
+                    "arguments": { "type": "object" }
+                },
+                "required": ["module", "tool"]
+            }
+        },
+        {
+            "name": "mcp_servers",
+            "description": "The MCP servers a class running here is allowed to call out to. A class names one of these — never a URL — and this server makes the call for it, so the sandbox never grows a socket and the credentials never reach the code that uses them. Configure the list in ~/.mod/arena/mcp_servers.json.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "mcp_call",
+            "description": "Call a tool on one of those servers. This is the same door a class goes through — `arena::mcp(server, tool, args)` in Rust, `self.mcp(...)` in Python — exposed so you can try a call before writing a class that depends on it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "server": { "type": "string", "description": "A name from mcp_servers, not a URL" },
+                    "tool": { "type": "string", "description": "Leave empty or pass __tools__ to list what it offers" },
+                    "arguments": { "type": "object" }
+                },
+                "required": ["server"]
+            }
+        },
+        {
+            "name": "store_status",
+            "description": "The bridge to the store module. Every module here is pushed to the fleet's store as a public object, so it has two hashes of the same bytes — the arena's SHA-256 (its id) and the store's CID — and a page anyone can read it from. This says where the store is, which address the copies are recorded under, and how many modules have a CID yet.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "store_sync",
+            "description": "Push every module that has no store CID yet (force=true re-pushes all of them), and with verify=true read each store copy back and check that it still hashes to the module id. Pushes also happen on their own — after every upload and at startup — so this is for seeing that they did, or making them.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "force": { "type": "boolean", "default": false },
+                    "verify": { "type": "boolean", "default": false }
+                }
+            }
+        },
+        {
+            "name": "rust_toolchain",
+            "description": "Whether this box can compile a Rust class: the rustc it would use, the target, and where the compiled artefacts are cached. A Rust class needs rustc and the wasm32-unknown-unknown target; a Python class needs neither.",
             "inputSchema": { "type": "object", "properties": {} }
         }
     ])
@@ -267,8 +361,200 @@ fn list_of(args: &Value, key: &str) -> Vec<String> {
     }
 }
 
+/// The class ABI: the same game, written the way Python is written.
+fn class_abi(role: &str) -> Value {
+    let common = json!({
+        "container": "one .py file holding a class. Upload it with put_class (source as text) \
+                      or put_module (base64) — the registry reads the `def`s and decides what \
+                      it is, exactly as it reads a wasm module's exports.",
+        "state": "`self`. The object is built once per match and kept, so a class is written \
+                  the way you would write it anywhere else — no packed pointers, no state \
+                  string threaded through every call.",
+        "replay": "the process starts from the match seed and is fed the recorded moves in \
+                   order, so a transcript still replays.",
+        "sandbox": {
+            "runs_in": "a python subprocess started by the node runner — never in the server, \
+                        and never in a browser tab (a tab cannot start python)",
+            "filesystem": "none — `open` is not defined and RLIMIT_FSIZE is 0",
+            "network": "none — socket, urllib, http and subprocess are not importable",
+            "clock": "none — `time` and `datetime` are not importable, so replays cannot drift",
+            "random": "`random` is imported for you and seeded from the match seed",
+            "limits": "512 MiB of address space, 30 CPU seconds, and a per-move timeout",
+            "honest_warning": "this is a convenience sandbox, not the wasm one. CPython can be \
+                               talked out of a restricted namespace by someone who knows how. \
+                               Upload wasm for code you do not trust.",
+        },
+        "printing": "anything the class prints goes into the match transcript",
+    });
+    if role == "player" {
+        return json!({
+            "role": "player",
+            "lang": "class",
+            "required_methods": {
+                "play(self, view, seat) -> str": "the move, as text — the same question a model \
+                                                  in that seat is asked, and the same answer",
+            },
+            "optional": { "name": "a class attribute, what to call it" },
+            "template": crate::klass::PLAYER_TEMPLATE,
+            "then": "m arena/upload path=bot.py, then \
+                     m arena/enter name=bot kind=class config='{\"module\":\"bot\"}' \
+                     — or drop the file on the console's registry tab",
+            "example": "src/examples/classes/bot_center.py reads a board out of the view; \
+                        bot_lucky.py is the eight-line baseline.",
+            "abi": common,
+        });
+    }
+    json!({
+        "role": "game",
+        "lang": "class",
+        "required_methods": {
+            "view(self, seat) -> str": "what that seat can see. Show it only what it is \
+                                        entitled to and hidden information works. Say \
+                                        `Legal moves: …` somewhere in it — every player, \
+                                        model or bot, has only this text to go on.",
+            "step(self, moves) -> dict": "apply one round. `moves` is {seat: \"text\"}, keyed by \
+                                          both int and str. Return {seat: was_it_legal}, and add \
+                                          \"note\": \"…\" to put a line in the transcript. Return \
+                                          nothing and every move counted as legal.",
+            "done(self) -> bool": "True when the match is over",
+            "result(self) -> dict": "{\"scores\": [one per seat], \"summary\": \"…\"} — higher is better, \
+                                     and the ratings are computed from the order",
+        },
+        "optional_methods": {
+            "__init__(self, seed)": "the opening position. The seed is the match seed.",
+            "turn(self) -> int | [int]": "who moves now. Return several seats for a simultaneous \
+                                          game — they are asked at once and neither sees the other. \
+                                          Leave it out and seats alternate.",
+            "info(self) -> dict": "override the card below entirely",
+        },
+        "class_attributes": {
+            "name": "what to call the game",
+            "players": "seats — an int, or [min, max]",
+            "max_turns": "the turn cap (default 200)",
+        },
+        "template": crate::klass::GAME_TEMPLATE,
+        "illegal_moves": "whatever `step` marks False is counted against that player for good. \
+                          That number is most of what separates a model that can play from one \
+                          that can only talk about playing.",
+        "example": "src/examples/classes/connect4.py — a whole game in ninety lines. \
+                    src/examples/classes/blotto.py — the simultaneous, hidden-information case.",
+        "abi": common,
+    })
+}
+
+/// The Rust class ABI: the same class, with a compiler in the way.
+///
+/// It is worth being clear about what that compiler buys, because it is not
+/// speed. A Python class is interpreted in a sandbox that is a convenience; a
+/// Rust class is compiled to wasm and runs in a sandbox that is a guarantee.
+/// The language people would reach for to write something fast is here the
+/// language to reach for to run something you did not write.
+fn rust_abi(role: &str) -> Value {
+    let common = json!({
+        "container": "one .rs file holding a struct and its impl block. Upload it with \
+                      put_class (source as text) or put_module (base64) — the registry \
+                      reads the `fn`s in the impl and decides what it is, exactly as it \
+                      reads a wasm module's exports.",
+        "state": "`self`. The struct is built once per match with `new(seed)` and kept.",
+        "compiled": "on upload, to wasm32-unknown-unknown: the prelude, then your file \
+                     unedited, then a generated shim that exports the wasm game ABI. \
+                     Cached under the module id, which is the hash of the source, so it \
+                     compiles once. Errors come back with your file's line numbers.",
+        "no_crates": "one file, rustc direct — no Cargo, no registry, no dependencies. \
+                      std, core and alloc resolve and nothing else does.",
+        "sandbox": {
+            "runs_in": "a wasm engine — the browser (a Worker) or the node runner. A Rust \
+                        class is the only class that plays in a tab.",
+            "filesystem": "none, and not by policy: wasm32-unknown-unknown has no syscall \
+                           to name one with",
+            "network": "the same — except `arena::mcp`, which is not a socket but a request \
+                        this server makes on the class's behalf",
+            "clock": "`arena::elapsed_ms` is milliseconds since the instance started. \
+                      `std::time` compiles and then does nothing, so replays cannot drift.",
+            "random": "`arena::random()` is seeded from the match seed",
+        },
+        "prelude": {
+            "Moves": "moves.get(seat) -> &str, .lower(seat), .number(seat) -> Option<i64>, \
+                      .seats() -> Vec<usize>",
+            "Step": "Step::ok(), Step::legal(&[bool]), .seat(n, false), .note(\"…\")",
+            "Outcome": "Outcome::points(&[i64]), ::scores(&[f64]), ::winner(Some(seat), seats), \
+                        .summary(\"…\")",
+            "arena::log": "a line in the transcript. `log!(\"…\")` is the format! version.",
+            "arena::random / below(n) / choice(&[T])": "seeded from the match seed",
+            "arena::mcp(server, tool, args_json) -> String": "call a tool on an MCP server \
+                        this arena knows. `arena::ask` is the same with the error unwrapped, \
+                        `arena::tools(server)` lists what it offers.",
+            "read_it": "GET /runtime/prelude.rs — the whole file, which is the specification",
+        },
+        "printing": "arena::log goes into the match transcript",
+    });
+    if role == "player" {
+        return json!({
+            "role": "player",
+            "lang": "rust",
+            "required_methods": {
+                "fn play(&mut self, view: &str, seat: usize) -> String": "the move, as text — \
+                    the same question a model in that seat is asked, and the same answer",
+            },
+            "optional": {
+                "fn new(seed: i64) -> Self": "otherwise Default::default() is used",
+                "const NAME: &'static str": "what to call it",
+            },
+            "template": crate::rsklass::PLAYER_TEMPLATE,
+            "then": "m arena/upload path=bot.rs, then \
+                     m arena/enter name=bot kind=class config='{\"module\":\"bot\"}' \
+                     — or drop the file on the console's registry tab",
+            "example": "src/examples/rust/bot_greedy.rs, and bot_oracle.rs for one that \
+                        asks another server what to play.",
+            "abi": common,
+        });
+    }
+    json!({
+        "role": "game",
+        "lang": "rust",
+        "required_methods": {
+            "fn view(&self, seat: usize) -> String": "what that seat can see. Show it only \
+                what it is entitled to and hidden information works. Say `Legal moves: …` \
+                somewhere — every player, model or bot, has only this text to go on.",
+            "fn step(&mut self, moves: &Moves) -> Step": "apply one round. Return Step::ok(), \
+                or mark a seat false; .note(…) puts a line in the transcript.",
+            "fn done(&self) -> bool": "true when the match is over",
+            "fn result(&self) -> Outcome": "higher is better; the ratings come out of the order",
+        },
+        "optional_methods": {
+            "fn new(seed: i64) -> Self": "the opening position. Without it, Default::default().",
+            "fn turn(&self) -> Vec<usize>": "who moves now. Several seats makes it simultaneous \
+                — they are asked at once and neither sees the other. Leave it out and seats \
+                alternate.",
+        },
+        "consts": {
+            "NAME": "&'static str — what to call the game",
+            "DESCRIPTION": "&'static str",
+            "PLAYERS / MIN_PLAYERS / MAX_PLAYERS": "usize — seats",
+            "MAX_TURNS": "usize — the turn cap (default 200)",
+        },
+        "forgiving_returns": "`step` may return Step, bool, [bool; N] or (); `result` may \
+                              return Outcome, [i64; N] or Vec<f64>; `turn` may return one \
+                              seat or many. The prelude's IntoStep / IntoOutcome / IntoTurn \
+                              are how — write the obvious thing and it compiles.",
+        "template": crate::rsklass::GAME_TEMPLATE,
+        "illegal_moves": "whatever `step` marks false is counted against that player for good. \
+                          That number is most of what separates a model that can play from one \
+                          that can only talk about playing.",
+        "example": "src/examples/rust/nim.rs — a whole game in fifty lines, no unsafe, \
+                    no pointers, no build step you have to run.",
+        "abi": common,
+    })
+}
+
 /// The ABI, as documentation an agent can read at run time.
-fn game_abi(role: &str) -> Value {
+fn game_abi(role: &str, lang: &str) -> Value {
+    if matches!(lang, "class" | "python" | "py" | "classes") {
+        return class_abi(role);
+    }
+    if matches!(lang, "rust" | "rs") {
+        return rust_abi(role);
+    }
     let common = json!({
         "strings": "The module exports `alloc(i32) -> i32`. The host writes UTF-8 there. \
                     Anything the module returns is one i64 packed as (ptr << 32) | len.",
@@ -310,42 +596,38 @@ fn game_abi(role: &str) -> Value {
         },
         "example": "src/examples/rps/ — thirty lines of Rust, compiled with \
                     `cargo build --target wasm32-unknown-unknown --release`",
+        "also": "call this with lang=class for the same game written as a Python class, or \
+                 lang=rust for it as a Rust class — no pointers either way, and the same \
+                 leaderboard for all three",
         "abi": common,
     })
 }
 
-/// Play a match by spawning the node runner — the same execution layer the
-/// browser uses, so a match run from an MCP client and a match run in a tab
-/// are the same computation.
-async fn run_match(args: &Value) -> Result<Value, String> {
-    let game = s(args, "game");
-    let names = list_of(args, "players");
-    if game.is_empty() || names.is_empty() {
-        return Err("run_match needs `game` and at least one player in `players`".into());
-    }
+/// Spawn the node runner and read its JSON back.
+///
+/// Everything that executes goes through here: a match, one turn of a table on
+/// a game's own MCP server, one question put to an agent. The server never
+/// runs a module itself, so this one function is the whole of how it makes
+/// anything happen — and because the runner is the same file the browser
+/// console imports, what happens is the same computation either way.
+pub async fn runner(args: &[String]) -> Result<Value, String> {
     let runner = runner_path();
     if !runner.exists() {
         return Err(format!("no runner at {} — set ARENA_RUNNER", runner.display()));
     }
-
     let mut cmd = tokio::process::Command::new("node");
-    cmd.arg(&runner)
-        .arg("match")
-        .args(["--base", &base()])
-        .args(["--game", &game])
-        .args(["--players", &names.join(",")])
-        .arg("--quiet");
-    if let Some(seed) = args.get("seed").and_then(|v| v.as_i64()) {
-        cmd.args(["--seed", &seed.to_string()]);
-    }
-    if let Some(turns) = args.get("turns").and_then(|v| v.as_u64()) {
-        cmd.args(["--turns", &turns.to_string()]);
-    }
+    cmd.arg(&runner).args(args).args(["--base", &base()]);
 
-    let timeout = std::time::Duration::from_millis(u(args, "timeout_ms", 300_000).clamp(1_000, 3_600_000));
+    let timeout = std::time::Duration::from_millis(
+        std::env::var("ARENA_RUNNER_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(300_000u64)
+            .clamp(1_000, 3_600_000),
+    );
     let out = tokio::time::timeout(timeout, cmd.output())
         .await
-        .map_err(|_| format!("the match ran past {timeout:?} and was abandoned"))?
+        .map_err(|_| format!("the runner ran past {timeout:?} and was abandoned"))?
         .map_err(|e| format!("could not start node: {e} — the runner needs node on PATH"))?;
 
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -360,11 +642,46 @@ async fn run_match(args: &Value) -> Result<Value, String> {
         .map_err(|e| format!("the runner returned unreadable output ({e}): {}", stdout.trim()))
 }
 
+/// Play a match by spawning the node runner — the same execution layer the
+/// browser uses, so a match run from an MCP client and a match run in a tab
+/// are the same computation.
+async fn run_match(args: &Value) -> Result<Value, String> {
+    let game = s(args, "game");
+    let names = list_of(args, "players");
+    if game.is_empty() || names.is_empty() {
+        return Err("run_match needs `game` and at least one player in `players`".into());
+    }
+    let mut argv = vec![
+        "match".to_string(),
+        "--game".into(),
+        game,
+        "--players".into(),
+        names.join(","),
+        "--quiet".into(),
+    ];
+    if let Some(seed) = args.get("seed").and_then(|v| v.as_i64()) {
+        argv.push("--seed".into());
+        argv.push(seed.to_string());
+    }
+    if let Some(turns) = args.get("turns").and_then(|v| v.as_u64()) {
+        argv.push("--turns".into());
+        argv.push(turns.to_string());
+    }
+    // Opt-in, per match, and named: the classes in this match may call these
+    // servers and no others. Left out, they have no way out at all.
+    let allow = list_of(args, "mcp");
+    if !allow.is_empty() {
+        argv.push("--mcp".into());
+        argv.push(allow.join(","));
+    }
+    runner(&argv).await
+}
+
 /// The one place an arena capability is implemented.
 pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
     match name {
         "arena_info" => Ok(arena::info()),
-        "game_abi" => Ok(game_abi(&s(args, "role"))),
+        "game_abi" => Ok(game_abi(&s(args, "role"), &s(args, "lang"))),
 
         "list_modules" => Ok(arena::list_modules(args)),
         "get_module" => {
@@ -372,9 +689,11 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
             if key.is_empty() {
                 return Err("get_module requires `module`".into());
             }
-            arena::get_module(&key)
+            let with_source = args.get("source").and_then(|v| v.as_bool()).unwrap_or(true);
+            arena::get_module(&key, with_source)
         }
         "put_module" => arena::put_module(args),
+        "put_class" => arena::put_class(args),
         "inspect_module" => arena::inspect(args),
         "delete_module" => {
             let key = s(args, "module");
@@ -421,6 +740,53 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
         }
         "leaderboard" => arena::leaderboard(args),
         "plant_examples" => Ok(arena::plant_examples()),
+
+        "module_servers" => {
+            let role = s(args, "role").to_lowercase();
+            let base = base();
+            Ok(crate::store::read(|st| {
+                let list = st
+                    .module_list()
+                    .into_iter()
+                    .filter(|m| role.is_empty() || m.role == role)
+                    .map(|m| {
+                        json!({
+                            "name": m.name, "role": m.role, "lang": m.lang(),
+                            "id": m.short(), "description": m.description,
+                            "mod": format!("arena.{}", m.name),
+                            "mcp": format!("{base}/m/{}/mcp", m.name),
+                            "tools": crate::modmcp::tools_for(&m.role).as_array()
+                                .map(|a| a.iter().filter_map(|t| t["name"].as_str())
+                                    .collect::<Vec<_>>()).unwrap_or_default(),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                json!({ "count": list.len(), "arena": format!("{base}/mcp"), "servers": list })
+            }))
+        }
+        "module_tool" => {
+            let key = s(args, "module");
+            let tool = s(args, "tool");
+            if key.is_empty() || tool.is_empty() {
+                return Err("module_tool requires `module` and `tool` — call module_servers \
+                            to see which modules there are and what each one offers"
+                    .into());
+            }
+            let inner = args.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            crate::modmcp::call_tool(&key, &tool, &inner).await
+        }
+
+        "mcp_servers" => Ok(crate::mcpout::list()),
+        "mcp_call" => {
+            if s(args, "server").is_empty() {
+                return Err("mcp_call requires `server` — a name from mcp_servers, never a URL"
+                    .into());
+            }
+            Ok(crate::mcpout::call(args).await)
+        }
+        "rust_toolchain" => Ok(crate::rustc::toolchain()),
+        "store_status" => Ok(crate::storelink::status().await),
+        "store_sync" => Ok(crate::storelink::sync(args).await),
 
         other => Err(format!(
             "unknown tool: {other} — this arena stores wasm, seats {:?} at modules that \

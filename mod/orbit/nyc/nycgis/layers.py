@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 from . import prices as P
 from . import rents as R
 from . import sources as S
+from . import traffic as TR
 
 WEEK = 7 * S.DAY
 
@@ -456,6 +457,39 @@ LAYERS: List[Dict[str, Any]] = [
         'source': _src('Hurricane Evacuation Zones', 'epne-qv9x'),
     },
 
+    # ── Traffic ──────────────────────────────────────────────────────────
+    {
+        'id': 'traffic_speeds',
+        'title': 'Live traffic speeds',
+        'category': 'Traffic',
+        'kind': 'line',
+        'geometry': 'line',
+        'default_on': False,
+        'live': True,
+        # Refetched behind the scenes on this cadence, and the browser is told
+        # to hold the response only this long — a live layer served with the
+        # catalogue's hour-long cache would sit frozen on screen.
+        'refresh_seconds': TR.SPEED_TTL,
+        'description': ('How fast traffic is moving right now, from DOT sensors '
+                        'on the highways and major arterials.'),
+        'style': {'color_by': 'band', 'width': 2.6},
+        'endpoint': '/layers/traffic_speeds',
+        'source': _src('NYC DOT Real-Time Traffic Speeds', 'i4gi-tjb9'),
+    },
+    {
+        'id': 'traffic_volume',
+        'title': 'Traffic volume by hour',
+        'category': 'Traffic',
+        'kind': 'point',
+        'geometry': 'point',
+        'default_on': False,
+        'description': ('DOT count locations sized by daily traffic. Click one '
+                        'for its 24-hour profile and the calmest hour to drive it.'),
+        'style': {'color': '#22d3ee', 'size_by': 'daily'},
+        'endpoint': '/layers/traffic_volume',
+        'source': _src('NYC DOT Automated Traffic Volume Counts', '7ym2-wayt'),
+    },
+
     # ── Safety ───────────────────────────────────────────────────────────
     {
         'id': 'collisions',
@@ -507,6 +541,8 @@ LOADERS: Dict[str, Callable[[], dict]] = {
     'parks': parks,
     'evacuation_zones': evacuation_zones,
     'collisions': collisions,
+    'traffic_speeds': TR.speeds,
+    'traffic_volume': TR.volume,
     'affordable_housing': affordable_housing,
     'affordable_rents': affordable_rents,
     'boroughs': boroughs,
@@ -531,6 +567,22 @@ def catalog() -> Dict[str, Any]:
             {'name': 'OpenStreetMap contributors', 'url': 'https://www.openstreetmap.org/copyright'},
         ],
     }
+
+
+def cache_control(layer_id: str, default: str) -> str:
+    """
+    The ``Cache-Control`` a layer's response should carry.
+
+    Most layers move daily at most and are worth an hour in the browser. A
+    layer that declares ``refresh_seconds`` is live, and gets a matching
+    lifetime instead — otherwise the browser would keep showing an hour-old
+    "live" reading no matter how often the server refreshed it.
+    """
+    for layer in LAYERS:
+        if layer['id'] == layer_id and layer.get('refresh_seconds'):
+            n = int(layer['refresh_seconds'])
+            return f'public, max-age={n}, stale-while-revalidate={n * 4}'
+    return default
 
 
 def get(layer_id: str) -> dict:

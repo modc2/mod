@@ -31,6 +31,10 @@ function safeLabel(v: unknown): string {
 const badPort = () =>
   NextResponse.json({ ok: false, error: "port must be an integer 1-65535" }, { status: 400 });
 
+// Ceiling on one batch probe — the fleet is under a hundred modules, two ports
+// each, and every port costs a bind/close.
+const MAX_BATCH_PORTS = 256;
+
 function findFreePort(start: number, end: number): Promise<number> {
   return new Promise((resolve, reject) => {
     let port = start;
@@ -181,7 +185,19 @@ export async function POST(req: NextRequest) {
 // Read-only port probe — the console shows a running/stopped dot for every
 // module's app, including for signed-out visitors, so this stays open. It
 // reveals only whether a local port answers; the pid list is owner-only.
+//
+// `ports=` takes a comma list and answers them all in one round trip. The hub
+// probes every module's app AND api port on a timer; one request per port put
+// ~170 fetches on an 8s loop, so the batch form is what the grid uses.
 export async function GET(req: NextRequest) {
+  const many = req.nextUrl.searchParams.get("ports");
+  if (many !== null) {
+    const parsed = many.split(",").map((s) => s.trim()).filter(Boolean).slice(0, MAX_BATCH_PORTS).map(parsePort);
+    if (parsed.some((p) => p === null)) return badPort();
+    const unique = [...new Set(parsed as number[])];
+    const results = await Promise.all(unique.map(async (p) => [p, await isPortInUse(p)] as const));
+    return NextResponse.json({ ok: true, ports: Object.fromEntries(results) });
+  }
   const port = parsePort(req.nextUrl.searchParams.get("port"));
   if (!port) return badPort();
   const inUse = await isPortInUse(port);

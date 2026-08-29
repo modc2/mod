@@ -1,10 +1,10 @@
 """x — the X (Twitter) API v2, backed by a Rust MCP server.
 
-The backend is x-rs/ (axum): an MCP server speaking JSON-RPC 2.0 over
-Streamable HTTP at /mcp plus --stdio for MCP clients like Claude Code. Every
-REST route on the server dispatches through the same MCP tool layer, so there
-is exactly one definition of each X capability — and this Python mod is a thin
-client over it.
+The backend is x-rs/ (axum), and it serves three faces of one tool layer:
+an MCP server (JSON-RPC 2.0 over Streamable HTTP at /mcp, plus --stdio for
+clients like Claude Code), a REST API where every tool has a route (described
+at /openapi.json), and a browser app at / that drives all of it. Each X
+capability is defined exactly once; this Python mod is a thin client over it.
 
 Credentials never live in the repo: ~/.mod/x/credentials.json (0600), env, or
 per-call override.
@@ -30,9 +30,10 @@ CRED_FIELDS = tuple(ENV_NAMES)
 class Mod:
     description = """
     X (Twitter) API v2 - search, read and post.
-    Rust MCP server backend (x-rs): search, get_post, user, timeline, mentions,
-    followers, following, me, post, delete_post, like, repost, follow exposed
-    as MCP tools over Streamable HTTP (/mcp) and stdio.
+    Rust backend (x-rs): search, get_post, user, timeline, mentions, followers,
+    following, me, post, delete_post, like, repost, follow — exposed three ways
+    off one tool layer: MCP (/mcp, stdio), REST (/openapi.json) and a browser
+    app at /.
     """
 
     def __init__(self, bearer_token: str = None, server_url: str = None, **kwargs):
@@ -144,6 +145,28 @@ class Mod:
     def tools(self):
         """The MCP tool registry served by the backend."""
         return requests.get(f'{self.server_url}/tools', timeout=10).json()['tools']
+
+    def openapi(self):
+        """The REST surface as an OpenAPI 3.1 document (generated from the tool schemas)."""
+        return requests.get(f'{self.server_url}/openapi.json', timeout=10).json()
+
+    def endpoints(self):
+        """Every REST route and the MCP tool it projects."""
+        return requests.get(f'{self.server_url}/health', timeout=10).json()['endpoints']
+
+    def app(self):
+        """Where the browser app lives, and what it can do at the current auth level."""
+        auth = self.auth_status()
+        return {
+            'app': self.server_url + '/',
+            'openapi': f'{self.server_url}/openapi.json',
+            'mcp': f'{self.server_url}/mcp',
+            'views': ['search', 'post', 'user', 'mentions', 'compose', 'api', 'auth'],
+            'reads': auth['reads'],
+            'writes': auth['writes'],
+            'hint': ('open it and add keys under Auth' if not auth['reads']
+                     else 'ready — search, profiles and timelines are live'),
+        }
 
     def mcp_config(self):
         """MCP client config snippets (stdio + Streamable HTTP)."""

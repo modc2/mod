@@ -339,7 +339,12 @@ async fn enrich_trader_with_url(
     // larger page size turns EVERY fetch into an error and the whole
     // leaderboard into zero-stat husks.
     const PAGE: u32 = 500;
-    const MAX_PAGES: u32 = 40; // 20k trades max
+    // 11 pages, not 40. data-api 400s on `offset > 5000` ("max historical
+    // activity offset of 5000 exceeded"), so pages 12..40 could only ever
+    // return an error object — which `json::<Vec<Value>>` fails to parse and
+    // this loop then breaks on. Same result, one wasted upstream request per
+    // heavy trader, on precisely the traders the leaderboard is made of.
+    const MAX_PAGES: u32 = 11; // 5500 activity rows — the upstream ceiling
     let mut all_trades: Vec<Value> = Vec::new();
     for page in 0..MAX_PAGES {
         let url = format!(

@@ -327,15 +327,17 @@ body {
  * a menu of every theme with swatch dots sampled from its own tokens.
  * ──────────────────────────────────────────────────────────────────────*/
 
+/* A bare glyph read as decoration, so nobody found the ten themes behind it.
+   The control now says what it is and wears the current theme's name. */
 .theme-toggle {
   position: relative;
-  width: 28px;
   height: 28px;
+  padding: 0 9px 0 8px;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
   border-radius: 999px;
-  font-size: 14px;
+  font-size: 11px;
   line-height: 1;
   cursor: pointer;
   color: var(--ink);
@@ -343,8 +345,32 @@ body {
   background: var(--fill);
   transition: transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
+
+.theme-toggle__glyph {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.theme-toggle__label {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+/* The live palette, so the control shows what a theme *is* before you open it. */
+.theme-toggle__swatch {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.theme-toggle__swatch i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+/* No rotation now that it carries type — a spinning label is unreadable. */
 .theme-toggle:hover {
-  transform: translateY(-1px) rotate(10deg) scale(1.06);
+  transform: translateY(-1px);
 }
 .theme-toggle:active {
   transform: scale(0.94);

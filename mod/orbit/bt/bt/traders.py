@@ -64,6 +64,10 @@ def _db() -> sqlite3.Connection:
         side TEXT, alpha REAL, price REAL, tao_value REAL,
         PRIMARY KEY (ss58, ts, netuid))''')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_flows_ts ON trader_flows(ts)')
+    # snaps are keyed (ss58, ts), so anything asking a time question —
+    # MAX(ts), COUNT(*), a window scan — reads the whole 10 GB table
+    # without this. Building it on an existing index costs one pass.
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_snaps_ts ON trader_snaps(ts)')
     # columns added after the first release — widen in place
     for table in ('trader_snaps', 'trader_flows'):
         have = {r[1] for r in conn.execute(f'PRAGMA table_info({table})')}

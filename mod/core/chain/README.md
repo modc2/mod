@@ -19,8 +19,8 @@ concern, composed into a single protocol and operated from one console.
   here with solc 0.8.26, then deploy it from your own wallet. Starter templates
   in `src/build/templates/`; upload your own project (hardhat *or* foundry
   layouts — `lib/openzeppelin-contracts/…` imports are remapped onto the
-  installed packages) or fork one out of the shared gallery (BlocTime ships in
-  it); the console for it is the app's `/chain` page, and it works on a phone.
+  installed packages) or fork one out of the shared gallery — every fleet module ships in it,
+  tests included, plus `protocol` (all of them in one project); the console for it is the app's `/chain` page, and it works on a phone.
 - **Wallets**: MetaMask (automatic chain switch/add on send) or a
   browser-local keypair — reads never need a wallet.
 

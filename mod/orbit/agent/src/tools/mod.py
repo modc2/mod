@@ -32,10 +32,23 @@ class Tools:
     """Built-in tools, custom shell tools and the fleet, as one registry."""
     description = "Tool registry - built-in tools, custom shell tools, and the fleet"
 
-    def __init__(self, path: str = None, **kwargs):
-        self.builtin = Builtins()
+    def __init__(self, path: str = None, context=None, **kwargs):
+        self.builtin = Builtins(context=context)
         self.custom = CustomTools(builtin=self.builtin, path=path)
         self.mods = ModTools()
+        self.context = context
+
+    def bind(self, context) -> "Tools":
+        """Attach the agent these tools belong to.
+
+        A tool that acts on one of the agent's own sub-components — recall and
+        remember on its memory module, toolbox on its loadout — has to reach
+        the live one. Binding is how the box hands itself to the tools inside
+        it, and it is why those three are tools at all rather than API calls.
+        """
+        self.context = context
+        self.builtin.bind(context)
+        return self
 
     # ── names ────────────────────────────────────────────────────────
 

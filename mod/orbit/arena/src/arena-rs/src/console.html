@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>arena — wasm storage and execution</title>
+<title>arena — games and players</title>
 <style>
   /* One palette, two themes, no framework. The console is a single file so
      that the thing which executes untrusted wasm has no supply chain. */
@@ -22,22 +22,23 @@
     font: 14px/1.55 var(--mono);
     -webkit-text-size-adjust: 100%;
   }
+  /* One line: title, tabs, the counts, the two buttons. The tabs live in the
+     header rather than under it, so the chrome is a single 44px strip. */
   header {
-    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-    padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--panel);
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 6px 18px; border-bottom: 1px solid var(--line); background: var(--panel);
     position: sticky; top: 0; z-index: 10;
   }
   header h1 { margin: 0; font-size: 15px; letter-spacing: .14em; text-transform: uppercase; }
-  header .sub { color: var(--dim); font-size: 12px; flex: 1; min-width: 200px; }
-  nav { display: flex; gap: 2px; flex-wrap: wrap; padding: 0 18px; border-bottom: 1px solid var(--line);
-        background: var(--panel); position: sticky; top: 51px; z-index: 9; }
+  header .sub { color: var(--dim); font-size: 12px; flex: 1; min-width: 160px; }
+  nav { display: flex; gap: 2px; margin-left: 6px; }
   nav button {
     background: none; border: 0; border-bottom: 2px solid transparent; color: var(--dim);
-    font: inherit; padding: 9px 12px; cursor: pointer;
+    font: inherit; padding: 6px 10px; cursor: pointer;
   }
   nav button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
   main { padding: 18px; max-width: 1100px; }
-  section[hidden] { display: none; }
+  section[hidden], [hidden] { display: none; }
   h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
        margin: 0 0 10px; font-weight: 500; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
@@ -50,6 +51,9 @@
   }
   button.ghost { background: none; color: var(--ink); border: 1px solid var(--line);
                  border-radius: 6px; font: inherit; padding: 6px 12px; cursor: pointer; }
+  button.link { background: none; border: 0; color: var(--dim); font: inherit;
+                padding: 0; cursor: pointer; }
+  button.link:hover { color: var(--ink); }
   button:disabled { opacity: .45; cursor: default; }
   input, select, textarea {
     background: var(--bg); color: var(--ink); border: 1px solid var(--line);
@@ -78,177 +82,289 @@
   .drop input[type=file] { display: none; }
   .turn { border-left: 2px solid var(--line); padding: 4px 0 4px 10px; margin-bottom: 8px; }
   .turn.illegal { border-left-color: var(--bad); }
+  /* A game is a card you open, and what is inside it is a leaderboard. The
+     card says who is winning, because that is the only thing worth saying
+     about a game from the outside. */
+  .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+  .cards .card { margin: 0; cursor: pointer; transition: border-color .15s; }
+  .cards .card:hover { border-color: var(--accent); }
+  .cards h3 { margin: 0 0 4px; font-size: 15px; }
+  .cards p { margin: 0 0 10px; color: var(--dim); font-size: 12px; }
+  .lead { display: flex; justify-content: space-between; gap: 8px; font-size: 12px;
+          border-top: 1px solid var(--line); padding-top: 8px; }
+  .rank { color: var(--dim); width: 22px; display: inline-block; }
+  /* A player card says who it is and how it plays; the sheet on its page says
+     the same thing in full. Every number on it is one the match loop counted. */
+  .cards .who { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; }
+  .cards .who h3 { margin: 0; }
+  .stats { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+  .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 17px; font-weight: 600; line-height: 1.2; }
+  .stat span { color: var(--dim); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+  .strip { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; border-top: 1px solid var(--line);
+           padding-top: 8px; color: var(--dim); }
+  .strip b { color: var(--ink); font-weight: 600; }
+  .form { letter-spacing: .12em; font-weight: 600; }
+  .form .W { color: var(--accent); } .form .D { color: var(--dim); } .form .L { color: var(--bad); }
+  /* Two hashes of the same bytes, on every game and player page: the arena's
+     SHA-256 (the id) and the store module's CID (where anyone reads it back). */
+  .hash { display: flex; gap: 10px; align-items: baseline; font-size: 12px; margin-bottom: 4px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+  .hash > span:first-child { flex: none; width: 84px; font-family: inherit; }
+  .hash a { color: var(--accent); text-decoration: none; }
+  .hash a:hover { text-decoration: underline; }
+  .hash .link { flex: none; font-size: 11px; }
+  .crumb { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .crumb h2 { margin: 0; font-size: 17px; letter-spacing: 0; text-transform: none; color: var(--ink); }
   #toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
            background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
            padding: 9px 16px; max-width: 90vw; z-index: 50; }
   #toast[hidden] { display: none; }
-  @media (max-width: 640px) { main { padding: 12px; } header, nav { padding-inline: 12px; } }
+  @media (max-width: 640px) { main { padding: 12px; } header { padding-inline: 12px; } }
 </style>
 </head>
 <body>
 <header>
   <h1>arena</h1>
+  <nav>
+    <button data-tab="games" aria-selected="true">games</button>
+    <button data-tab="players">players</button>
+    <button data-tab="servers">servers</button>
+  </nav>
   <span class="sub" id="banner">loading…</span>
+  <button class="ghost" id="add-open">+ add</button>
   <button class="ghost" id="theme">theme</button>
 </header>
 
-<nav>
-  <button data-tab="registry" aria-selected="true">registry</button>
-  <button data-tab="run">run</button>
-  <button data-tab="players">players</button>
-  <button data-tab="match">match</button>
-  <button data-tab="board">leaderboard</button>
-  <button data-tab="abi">abi</button>
-</nav>
-
 <main>
-  <!-- ── registry ─────────────────────────────────────────────────────── -->
-  <section id="tab-registry">
-    <div class="card drop" id="drop">
-      <input type="file" id="file" accept=".wasm,application/wasm" multiple>
-      <label for="file">choose a .wasm</label>
-      <div style="margin-top:8px">or drop one here — it is inspected before anything is stored</div>
+  <!-- ── add ──────────────────────────────────────────────────────────────
+       One door in. A file is read before anything is stored, and what it
+       defines is what it becomes: a game goes to the games list, a player is
+       entered and goes to the players list. There is nothing to declare. -->
+  <div class="card" id="add" hidden>
+    <div class="row" style="margin-bottom:10px">
+      <h2 class="grow" style="margin:0">add a game or a player</h2>
+      <button class="link" id="add-close">close</button>
     </div>
-    <div class="card" id="preview" hidden>
-      <h2>before you store it</h2>
-      <div class="row" style="margin-bottom:10px">
+
+    <div class="drop" id="drop">
+      <input type="file" id="file" accept=".wasm,.py,.rs,application/wasm,text/x-python,text/rust" multiple>
+      <label for="file">choose a .wasm, a .py class or a .rs class</label>
+      <p style="margin:10px 0 0">or drop one here, or write one below — it is read before
+        anything is stored, and what it defines is what it becomes</p>
+    </div>
+
+    <details style="margin-top:12px">
+      <summary class="dim" style="cursor:pointer">write one</summary>
+      <div class="row" style="margin:10px 0">
+        <select id="w-lang" title="which language to write it in">
+          <option value="class">python</option>
+          <option value="rust">rust</option>
+        </select>
+        <button class="ghost" id="w-tpl-game">game template</button>
+        <button class="ghost" id="w-tpl-player">player template</button>
+        <span class="dim" id="w-lang-note">a game defines view/step/done/result · a player defines play</span>
+      </div>
+      <textarea id="w-src" rows="16" spellcheck="false" placeholder="class MyGame: ..."></textarea>
+      <div class="row" style="margin-top:8px">
+        <input id="w-name" placeholder="name (blank = the class name)" style="width:240px">
+        <input id="w-desc" class="grow" placeholder="description">
+        <button class="act" id="w-store">upload</button>
+      </div>
+      <pre id="w-out" class="dim" style="margin-top:10px">—</pre>
+    </details>
+
+    <div id="preview" hidden style="margin-top:12px">
+      <div class="row" style="margin-bottom:8px">
         <input id="up-name" class="grow" placeholder="name">
-        <input id="up-tags" class="grow" placeholder="tags, comma separated">
+        <input id="up-desc" class="grow" placeholder="description">
         <button class="act" id="up-store">store</button>
         <button class="ghost" id="up-cancel">cancel</button>
       </div>
-      <input id="up-desc" style="width:100%;margin-bottom:10px" placeholder="description">
       <pre id="up-info"></pre>
     </div>
 
+    <p class="dim" id="add-other" style="margin:12px 0 0"></p>
+  </div>
+
+  <!-- ── servers ───────────────────────────────────────────────────────
+       Every stored module is an MCP server of its own and a mod of its own.
+       This is the index of them: what to point a client at, and what each
+       one offers when you get there. -->
+  <section id="view-servers" hidden>
     <div class="card">
-      <div class="row" style="margin-bottom:10px">
-        <h2 style="margin:0" class="grow">stored modules</h2>
-        <select id="filter-role">
-          <option value="">every role</option>
-          <option value="game">games</option>
-          <option value="player">players</option>
-          <option value="command">commands</option>
-          <option value="wasm">plain wasm</option>
-        </select>
-        <input id="filter-q" placeholder="search">
-      </div>
+      <h2>one server per module</h2>
+      <p class="dim" style="margin-top:-4px">
+        <code id="s-arena"></code> is the whole arena. Each row below is that
+        module alone — a game you can <code>open</code> a table at and play a
+        turn at a time, an agent you can hand a view to. The same modules are
+        mods: <code>m arena/mint</code> writes them under
+        <code>orbit/arena/mods/</code>.
+      </p>
       <table><thead><tr>
-        <th>name</th><th>role</th><th>size</th><th>exports</th><th>id</th><th></th>
-      </tr></thead><tbody id="modules"></tbody></table>
+        <th>name</th><th>role</th><th>lang</th><th>mod</th><th>tools</th><th>endpoint</th>
+      </tr></thead><tbody id="servers"></tbody></table>
     </div>
 
-    <div class="card" id="detail" hidden>
-      <div class="row" style="margin-bottom:10px">
-        <h2 style="margin:0" class="grow" id="detail-name"></h2>
-        <button class="ghost" id="detail-run">run it</button>
-        <button class="ghost" id="detail-close">close</button>
-      </div>
-      <pre id="detail-body"></pre>
+    <div class="card">
+      <h2>what a class may call out to</h2>
+      <p class="dim" style="margin-top:-4px">
+        A class has no network. It names one of these servers — never a URL —
+        and this arena makes the call for it, so the credentials never reach
+        the code that uses them. Run a match with MCP on and the calls are
+        counted onto the seat that made them.
+      </p>
+      <table><thead><tr>
+        <th>name</th><th>description</th><th>auth</th><th>on</th>
+      </tr></thead><tbody id="outward"></tbody></table>
     </div>
   </section>
 
-  <!-- ── run ──────────────────────────────────────────────────────────── -->
-  <section id="tab-run" hidden>
-    <div class="card">
-      <h2>execute</h2>
-      <p class="dim" style="margin-top:0">
-        The module runs in this tab, inside a Worker with no filesystem and no network,
-        on a seeded clock and a seeded PRNG. Nothing is sent to the server.
-        A module that hangs is terminated — that is what the worker is for.
-      </p>
-      <div class="row">
-        <select id="run-module" class="grow"></select>
-        <input id="run-entry" placeholder="entry (blank = _start)" style="width:200px">
-        <input id="run-args" placeholder="args, comma separated" style="width:200px">
-      </div>
-      <div class="row" style="margin-top:8px">
-        <input id="run-seed" type="number" value="1" style="width:110px" title="seed">
-        <input id="run-timeout" type="number" value="5000" style="width:120px" title="timeout ms">
-        <button class="act" id="run-go">run</button>
-      </div>
-      <textarea id="run-stdin" rows="2" placeholder="stdin" style="margin-top:8px"></textarea>
+  <!-- ── games ────────────────────────────────────────────────────────── -->
+  <section id="view-games">
+    <div class="cards" id="games"></div>
+  </section>
+
+  <!-- ── one game: its leaderboard ────────────────────────────────────── -->
+  <section id="view-game" hidden>
+    <div class="crumb">
+      <button class="link" id="g-back">← games</button>
+      <h2 id="g-name"></h2>
+      <span class="tag" id="g-lang"></span>
+      <span class="grow"></span>
+      <button class="link" id="g-delete">delete</button>
     </div>
-    <div class="card"><h2>output</h2><pre id="run-out">—</pre></div>
+    <p class="dim" id="g-desc" style="margin-top:-6px"></p>
+
+    <div class="card">
+      <h2>leaderboard</h2>
+      <table><thead><tr>
+        <th></th><th>player</th><th>kind</th><th>elo</th><th>matches</th><th>w/d/l</th><th>avg score</th>
+      </tr></thead><tbody id="g-board"></tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>play</h2>
+      <div id="g-seats"></div>
+      <div class="row" style="margin-top:8px">
+        <input id="g-count" type="number" value="1" min="1" max="50" style="width:80px" title="how many matches">
+        <input id="g-seed" type="number" placeholder="seed" style="width:130px">
+        <button class="act" id="g-play">play</button>
+        <span class="dim" id="g-note"></span>
+      </div>
+      <div id="g-live" class="dim" style="margin-top:12px">—</div>
+    </div>
+
+    <div class="card">
+      <h2>matches</h2>
+      <table><thead><tr>
+        <th>when</th><th>seats</th><th>turns</th><th>where</th><th></th>
+      </tr></thead><tbody id="g-matches"></tbody></table>
+    </div>
+
+    <!-- The code, and the two hashes that name it. A game is the bytes it is,
+         and there is no reason a player should have to take that on trust. -->
+    <div class="card">
+      <div class="row" style="margin-bottom:8px">
+        <h2 class="grow" style="margin:0">code</h2>
+        <span class="dim" id="g-code-lang" style="font-size:12px"></span>
+      </div>
+      <div id="g-hashes" style="margin-bottom:10px"></div>
+      <pre id="g-code" style="max-height:560px"></pre>
+    </div>
+
+    <details class="card"><summary class="dim" style="cursor:pointer">what this game is</summary>
+      <pre id="g-body" style="margin-top:10px"></pre>
+    </details>
   </section>
 
   <!-- ── players ──────────────────────────────────────────────────────── -->
-  <section id="tab-players" hidden>
+  <section id="view-players" hidden>
+    <div class="cards" id="players" style="margin-bottom:14px"></div>
+
     <div class="card">
       <h2>enter a player</h2>
       <div class="row">
         <input id="p-name" class="grow" placeholder="name">
         <select id="p-kind">
           <option value="model">model</option>
-          <option value="wasm">wasm</option>
-          <option value="agent_mod">agent_mod</option>
-          <option value="http">http</option>
+          <option value="wasm">wasm module</option>
+          <option value="class">python class</option>
+          <option value="agent_mod">agent</option>
+          <option value="http">http endpoint</option>
         </select>
-        <button class="act" id="p-add">enter</button>
-      </div>
-      <div class="row" style="margin-top:8px">
         <input id="p-config" class="grow" placeholder='config, e.g. {"model":"anthropic/claude-opus-5"}'>
+        <button class="act" id="p-add">enter</button>
       </div>
       <p class="dim" id="p-hint" style="margin-bottom:0"></p>
     </div>
-    <div class="card">
-      <h2>entered</h2>
-      <table><thead><tr>
-        <th>name</th><th>kind</th><th>elo</th><th>w/d/l</th><th>illegal</th><th>ms/move</th><th></th>
-      </tr></thead><tbody id="players"></tbody></table>
-    </div>
   </section>
 
-  <!-- ── match ────────────────────────────────────────────────────────── -->
-  <section id="tab-match" hidden>
-    <div class="card">
-      <h2>play a match</h2>
-      <div class="row">
-        <select id="m-game" class="grow"></select>
-        <input id="m-seed" type="number" placeholder="seed" style="width:130px">
-        <button class="act" id="m-go">play</button>
+  <!-- ── one player: who it is, and every number the match loop counted ── -->
+  <section id="view-player" hidden>
+    <div class="crumb">
+      <button class="link" id="pl-back">← players</button>
+      <h2 id="pl-name"></h2>
+      <span class="tag player" id="pl-kind"></span>
+      <span class="grow"></span>
+      <button class="link" id="pl-out">withdraw</button>
+    </div>
+    <p class="dim" id="pl-note" style="margin-top:-6px"></p>
+    <p class="dim" id="pl-meta" style="margin-top:-4px;font-size:12px"></p>
+
+    <!-- What the player is asked. A board that rates models has to be able to
+         show the question, or the numbers are about nothing. Hidden for wasm
+         and class players: they read the view directly and get no prompt. -->
+    <div class="card" id="pl-prompt-card" hidden>
+      <h2>prompt</h2>
+      <p class="dim" style="font-size:12px;margin-top:-4px">what this player is sent every move — {view} is the position, {seat} its seat</p>
+      <div id="pl-system-wrap" hidden>
+        <div class="dim" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">system</div>
+        <pre id="pl-system" style="margin:4px 0 10px;white-space:pre-wrap"></pre>
+        <div class="dim" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase">each move</div>
       </div>
-      <div id="m-seats" style="margin-top:10px"></div>
-      <p class="dim" style="margin-bottom:0">
-        Wasm players run here. Models, fleet agents and endpoints are asked for through
-        the server, which holds the keys. Every move is recorded, so the match can be replayed.
-      </p>
+      <pre id="pl-prompt" style="margin-top:4px;white-space:pre-wrap"></pre>
     </div>
-    <div class="card"><h2>transcript</h2><div id="m-live" class="dim">—</div></div>
-  </section>
 
-  <!-- ── leaderboard ──────────────────────────────────────────────────── -->
-  <section id="tab-board" hidden>
     <div class="card">
-      <div class="row" style="margin-bottom:10px">
-        <h2 style="margin:0" class="grow">standings</h2>
-        <select id="b-game"><option value="">overall</option></select>
+      <h2>stats</h2>
+      <div class="stats" id="pl-stats"></div>
+    </div>
+
+    <div class="card">
+      <h2>by game</h2>
+      <table><thead><tr>
+        <th>game</th><th>rank</th><th>elo</th><th>matches</th><th>w/d/l</th><th>win rate</th>
+        <th>avg score</th><th>illegal</th><th>timeouts</th><th>ms/move</th><th>form</th>
+      </tr></thead><tbody id="pl-games"></tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>opponents</h2>
+      <table><thead><tr>
+        <th>opponent</th><th>matches</th><th>w/d/l</th><th>win rate</th>
+      </tr></thead><tbody id="pl-rivals"></tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>matches</h2>
+      <table><thead><tr>
+        <th>when</th><th>game</th><th>result</th><th>seats</th><th>elo</th><th>faults</th><th>where</th>
+      </tr></thead><tbody id="pl-matches"></tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom:8px">
+        <h2 class="grow" style="margin:0">code</h2>
+        <span class="dim" id="pl-code-lang" style="font-size:12px"></span>
       </div>
-      <table><thead><tr>
-        <th>#</th><th>player</th><th>kind</th><th>elo</th><th>matches</th><th>w/d/l</th><th>avg score</th>
-      </tr></thead><tbody id="board"></tbody></table>
+      <div id="pl-hashes" style="margin-bottom:10px"></div>
+      <pre id="pl-code" style="max-height:560px"></pre>
     </div>
-    <div class="card">
-      <h2>recent matches</h2>
-      <table><thead><tr>
-        <th>when</th><th>game</th><th>result</th><th>where</th><th></th>
-      </tr></thead><tbody id="matches"></tbody></table>
-    </div>
-  </section>
 
-  <!-- ── abi ──────────────────────────────────────────────────────────── -->
-  <section id="tab-abi" hidden>
-    <div class="card">
-      <h2>make a game</h2>
-      <p class="dim" style="margin-top:0">
-        A game is a wasm module that exports five functions. There is nothing to register and
-        nothing to ask permission for: store the module and it is a game, because the role is
-        read from the exports. The same is true of a player, which exports one.
-      </p>
-      <div class="row"><button class="ghost" id="abi-game">game abi</button>
-                       <button class="ghost" id="abi-player">player abi</button></div>
-      <pre id="abi-body" style="margin-top:10px"></pre>
-    </div>
+    <details class="card"><summary class="dim" style="cursor:pointer">what this player is</summary>
+      <pre id="pl-body" style="margin-top:10px"></pre>
+    </details>
   </section>
 </main>
 
@@ -259,13 +375,16 @@
 // use, and executes wasm with the same runtime the node runner uses. It adds
 // no behaviour of its own — if something can be done here it can be done from
 // an MCP client, and the other way round.
+//
+// There are two nouns: games and players. A game is a leaderboard you can
+// play into; a player is a row on every board it has ever appeared on.
 
 // Served at /arena behind the fleet router and at / standalone. Both worlds
 // answer on /api/arena, so the only question is whether there is a prefix.
 const API = location.pathname.startsWith("/arena") ? "/api/arena" : "";
 const RUNTIME = `${API}/runtime`;
 
-const { makeApi, runMatch } = await import(`${RUNTIME}/match.mjs`);
+const { makeApi } = await import(`${RUNTIME}/match.mjs`);
 const api = makeApi(API);
 
 const $ = (id) => document.getElementById(id);
@@ -297,20 +416,27 @@ const post = (path, body) =>
                body: JSON.stringify(body) });
 
 // ── state ────────────────────────────────────────────────────────────────
-let modules = [];
-let players = [];
-let pending = null;   // a dropped file, inspected but not stored
+let modules = [];          // everything stored
+let players = [];          // everyone entered
+let boards = new Map();    // game id → its leaderboard rows
+let pending = null;        // a dropped file, inspected but not stored
+let openGame = null;       // the game being looked at
 
-// ── tabs ─────────────────────────────────────────────────────────────────
-document.querySelectorAll("nav button").forEach((b) => {
-  b.onclick = () => {
-    document.querySelectorAll("nav button").forEach((x) =>
-      x.setAttribute("aria-selected", String(x === b)));
-    document.querySelectorAll("main section").forEach((s) =>
-      (s.hidden = s.id !== `tab-${b.dataset.tab}`));
-    if (b.dataset.tab === "board") refreshBoard();
-  };
-});
+const games = () => modules.filter((m) => m.role === "game");
+
+// ── views ────────────────────────────────────────────────────────────────
+function show(view) {
+  for (const s of document.querySelectorAll("main section")) s.hidden = s.id !== `view-${view}`;
+  const tab = view === "players" || view === "player" ? "players"
+            : view === "servers" ? "servers" : "games";
+  document.querySelectorAll("nav button").forEach((b) =>
+    b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
+  if (view === "servers") renderServers();
+  window.scrollTo({ top: 0 });
+}
+document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => show(b.dataset.tab)));
+$("g-back").onclick = () => show("games");
+$("pl-back").onclick = () => show("players");
 
 $("theme").onclick = () => {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
@@ -319,115 +445,145 @@ $("theme").onclick = () => {
 };
 document.documentElement.dataset.theme = localStorage.getItem("arena_theme") || "dark";
 
-// ── registry ─────────────────────────────────────────────────────────────
-const b64 = (bytes) => {
-  let s = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-  }
-  return btoa(s);
-};
-
-async function offer(file) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  try {
-    const info = await post("/inspect", { bytes: b64(bytes) });
-    pending = { bytes, info };
-    $("up-name").value = file.name.replace(/\.wasm$/, "");
-    $("up-info").textContent = JSON.stringify(info, null, 2);
-    $("preview").hidden = false;
-    $("preview").scrollIntoView({ behavior: "smooth", block: "nearest" });
-    toast(`${file.name} reads as a ${info.role}${info.stored ? " — already stored" : ""}`);
-  } catch (e) {
-    toast(`${file.name}: ${e.message}`, true);
+// ── games ────────────────────────────────────────────────────────────────
+async function refresh() {
+  [modules, players] = await Promise.all([
+    call("/modules").then((r) => r.modules),
+    call("/players").then((r) => r.players),
+  ]);
+  // A game's board is the only thing its card has to say, so the cards and
+  // the boards are one fetch each, done once.
+  boards = new Map(await Promise.all(games().map(async (g) => {
+    try { return [g.id, (await call(`/leaderboard?game=${g.id}`)).players]; }
+    catch { return [g.id, []]; }
+  })));
+  renderGames();
+  renderPlayers();
+  renderOther();
+  const info = await call("/info").catch(() => null);
+  if (info) {
+    $("banner").textContent =
+      `${info.games} games · ${info.players} players · ${info.matches} matches`;
+    $("banner").className = "sub";
   }
 }
 
-$("file").onchange = (e) => { for (const f of e.target.files) offer(f); };
-const drop = $("drop");
-["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => {
-  e.preventDefault(); drop.classList.add("over");
-}));
-["dragleave", "drop"].forEach((t) => drop.addEventListener(t, () => drop.classList.remove("over")));
-drop.addEventListener("drop", (e) => {
-  e.preventDefault();
-  for (const f of e.dataTransfer.files) offer(f);
-});
+function renderGames() {
+  const rows = games().map((g) => {
+    const board = boards.get(g.id) || [];
+    const card = el("div", { className: "card" }, [
+      el("h3", {}, [
+        g.name,
+        el("span", { className: "dim", style: "margin-left:8px;font-size:12px",
+                     textContent: langLabel(g.lang) }),
+      ]),
+      el("p", { textContent: g.description || "no description" }),
+    ]);
+    if (board.length) {
+      board.slice(0, 3).forEach((p, i) => card.append(el("div", { className: "lead" }, [
+        el("span", {}, [el("span", { className: "rank", textContent: String(i + 1) }), p.name]),
+        el("span", { className: "dim", textContent: `${p.elo}` }),
+      ])));
+    } else {
+      card.append(el("div", { className: "lead dim", textContent: "nobody has played it yet" }));
+    }
+    card.append(el("div", { className: "lead dim", style: "border:0;padding-top:6px" }, [
+      el("span", { textContent: `${g.runs} matches` }),
+      el("span", { title: g.cid ? `in the store as ${g.cid}` : "not in the store yet",
+                   textContent: `sha ${g.id.slice(0, 10)}${g.cid ? " · stored" : ""}` }),
+    ]));
+    card.onclick = () => openGamePage(g.id);
+    return card;
+  });
+  $("games").replaceChildren(...(rows.length ? rows : [
+    el("p", { className: "dim", textContent: "no games yet — add one and it becomes a leaderboard" }),
+  ]));
+}
 
-$("up-cancel").onclick = () => { pending = null; $("preview").hidden = true; };
-$("up-store").onclick = async () => {
-  if (!pending) return;
+async function openGamePage(id) {
+  const g = await call(`/modules/${id}`);
+  openGame = g;
+  show("game");
+  $("g-name").textContent = g.name;
+  $("g-lang").textContent = langLabel(g.lang);
+  $("g-desc").textContent = g.description || "";
+  codeCard("g", g);
+  const { source, ...rest } = g;
+  $("g-body").textContent = JSON.stringify(rest, null, 2);
+  $("g-note").textContent = g.lang === "python"
+    ? "a class game is played by the runner — a tab cannot start python"
+    : "";
+  $("g-live").replaceChildren(el("span", { className: "dim", textContent: "—" }));
+  renderSeats();
+  await Promise.all([renderBoard(), renderGameMatches()]);
+}
+
+$("g-delete").onclick = async () => {
+  if (!openGame) return;
+  if (!confirm(`delete ${openGame.name}? the bytes go too, the matches stay.`)) return;
   try {
-    const m = await post("/modules", {
-      bytes: b64(pending.bytes),
-      name: $("up-name").value.trim(),
-      description: $("up-desc").value.trim(),
-      tags: $("up-tags").value.split(",").map((s) => s.trim()).filter(Boolean),
-    });
-    toast(`stored ${m.name} as a ${m.role}`);
-    pending = null;
-    $("preview").hidden = true;
-    $("up-desc").value = $("up-tags").value = "";
-    await refreshModules();
+    await call(`/modules/${openGame.id}`, { method: "DELETE" });
+    show("games");
+    await refresh();
   } catch (e) { toast(e.message, true); }
 };
 
-$("filter-role").onchange = $("filter-q").oninput = () => renderModules();
-
-async function refreshModules() {
-  modules = (await call("/modules")).modules;
-  renderModules();
-  fillSelects();
-}
-
-function renderModules() {
-  const role = $("filter-role").value;
-  const q = $("filter-q").value.toLowerCase();
-  const rows = modules
-    .filter((m) => !role || m.role === role)
-    .filter((m) => !q || m.name.toLowerCase().includes(q) || m.description.toLowerCase().includes(q));
-
-  $("modules").replaceChildren(...rows.map((m) => {
+async function renderBoard() {
+  const rows = (await call(`/leaderboard?game=${openGame.id}`)).players;
+  boards.set(openGame.id, rows);
+  $("g-board").replaceChildren(...rows.map((p, i) => {
     const tr = el("tr", { className: "pick" });
     tr.append(
-      el("td", {}, el("strong", { textContent: m.name })),
-      el("td", {}, el("span", { className: `tag ${m.role}`, textContent: m.role })),
-      el("td", { textContent: `${(m.size / 1024).toFixed(1)}k` }),
-      el("td", { className: "dim", textContent: m.exports.slice(0, 4).join(" ") || "—" }),
-      el("td", {}, el("span", { className: "id", textContent: m.short })),
+      el("td", { className: "rank", textContent: String(i + 1) }),
+      el("td", {}, el("strong", { textContent: p.name })),
+      el("td", { className: "dim", textContent: p.kind || "" }),
+      el("td", {}, el("strong", { textContent: p.elo })),
+      el("td", { textContent: p.matches }),
+      el("td", { textContent: `${p.wins}/${p.draws}/${p.losses}` }),
+      el("td", { textContent: p.avg_score }),
     );
-    const del = el("button", { className: "ghost", textContent: "×", title: "delete" });
-    del.onclick = async (e) => {
-      e.stopPropagation();
-      if (!confirm(`delete ${m.name}? the bytes go too.`)) return;
-      try { await call(`/modules/${m.id}`, { method: "DELETE" }); await refreshModules(); }
-      catch (err) { toast(err.message, true); }
-    };
-    tr.append(el("td", {}, del));
-    tr.onclick = () => showModule(m.id);
+    tr.onclick = () => openPlayerPage(p.id);
     return tr;
   }));
   if (!rows.length) {
-    $("modules").replaceChildren(el("tr", {}, el("td", {
-      colSpan: 6, className: "dim", textContent: "nothing stored yet",
+    $("g-board").replaceChildren(el("tr", {}, el("td", {
+      colSpan: 7, className: "dim", textContent: "nobody has played it yet — play one below",
     })));
   }
 }
 
-async function showModule(id) {
-  const m = await call(`/modules/${id}`);
-  $("detail-name").textContent = `${m.name} — ${m.role}`;
-  $("detail-body").textContent = JSON.stringify(m, null, 2);
-  $("detail").hidden = false;
-  $("detail-run").onclick = () => {
-    $("run-module").value = m.id;
-    document.querySelector('nav button[data-tab="run"]').click();
-  };
-  $("detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
+async function renderGameMatches() {
+  const { matches } = await call(`/matches?game=${openGame.id}&limit=15`);
+  $("g-matches").replaceChildren(...matches.map((m) => matchRow(m)));
+  if (!matches.length) {
+    $("g-matches").replaceChildren(el("tr", {}, el("td", {
+      colSpan: 5, className: "dim", textContent: "no matches yet",
+    })));
+  }
 }
-$("detail-close").onclick = () => ($("detail").hidden = true);
 
-// ── run ──────────────────────────────────────────────────────────────────
+function matchRow(m) {
+  const tr = el("tr", { className: "pick" });
+  const line = m.seats.map((s) => `${s.player_name} ${s.score}`).join("  ·  ");
+  tr.append(
+    el("td", { className: "dim", textContent: new Date(m.created * 1000).toLocaleTimeString() }),
+    el("td", { textContent: line }),
+    el("td", { className: "dim", textContent: m.turns }),
+    el("td", { className: "dim", textContent: m.runtime }),
+    el("td", { className: "dim", textContent: m.rated ? "" : "practice" }),
+  );
+  // A match opens where it was played — the transcript pane on this page.
+  tr.onclick = async () => {
+    const full = await call(`/matches/${m.id}`);
+    $("g-live").replaceChildren(
+      el("div", { className: "dim", textContent: `${m.id} — ${m.summary || ""}` }),
+      ...(full.turns ?? []).map((t) => turnRow(t, full.seats.map((s) => ({ name: s.player_name })))));
+    $("g-live").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+  return tr;
+}
+
+// ── playing ──────────────────────────────────────────────────────────────
 // A Worker is the sandbox. It is the only way to stop a module that decided
 // not to come back, and uploaded modules are other people's code.
 function runInWorker(message, timeoutMs, onEvent) {
@@ -453,37 +609,109 @@ function runInWorker(message, timeoutMs, onEvent) {
   });
 }
 
-$("run-go").onclick = async () => {
-  const id = $("run-module").value;
-  if (!id) return toast("nothing to run", true);
-  $("run-out").textContent = "running…";
+function renderSeats() {
+  const seats = 2;   // every shipped game seats two; a game that seats more shows more
+  $("g-seats").replaceChildren(...Array.from({ length: seats }, (_, i) => {
+    const sel = el("select", { id: `g-seat-${i}` });
+    sel.replaceChildren(...players.map((p) =>
+      el("option", { value: p.id, textContent: `${p.name} · ${p.kind}` })));
+    if (players[i]) sel.value = players[i].id;
+    return el("div", { className: "row", style: "margin-bottom:6px" },
+      [el("span", { className: "dim", style: "width:60px", textContent: `seat ${i}` }), sel]);
+  }));
+  if (!players.length) {
+    $("g-seats").replaceChildren(el("p", { className: "dim", style: "margin:0",
+      textContent: "nobody is entered yet — enter a player first" }));
+  }
+}
+
+$("g-play").onclick = async () => {
+  if (!openGame) return;
+  const seated = [0, 1].map((i) => players.find((p) => p.id === $(`g-seat-${i}`)?.value))
+                       .filter(Boolean);
+  if (seated.length < 2) return toast("pick two players", true);
+
+  const live = $("g-live");
+  const count = Math.min(Math.max(Number($("g-count").value) || 1, 1), 50);
+  const base = Number($("g-seed").value) || 0;
+
+  $("g-play").disabled = true;
   try {
-    const [bytes, meta] = await Promise.all([api.blob(id), api.module(id)]);
-    const args = $("run-args").value.split(",").map((s) => s.trim()).filter(Boolean);
-    const result = await runInWorker({
-      type: "run",
-      bytes,
-      opts: {
-        info: meta.info,
-        entry: $("run-entry").value.trim() || undefined,
-        args: [meta.name, ...args],
-        stdin: $("run-stdin").value,
-        seed: Number($("run-seed").value) || 1,
-        callArgs: args.map(Number).filter(Number.isFinite),
-      },
-    }, Number($("run-timeout").value) || 0);
-    $("run-out").textContent = JSON.stringify(result, null, 2);
+    for (let n = 0; n < count; n++) {
+      const seed = base ? base + n : Math.floor(Math.random() * 1e9);
+      live.replaceChildren(el("div", { className: "dim",
+        textContent: count > 1 ? `playing ${n + 1} of ${count}…` : "playing…" }));
+      const saved = await playOnce(seated, seed, live);
+      toast(`${saved.summary || "match played"}${count > 1 ? ` (${n + 1}/${count})` : ""}`);
+    }
+    // The whole console moved: this board, this game's card, every player's
+    // record and the count in the header.
+    await refresh();
+    await Promise.all([renderBoard(), renderGameMatches()]);
   } catch (e) {
-    $("run-out").textContent = e.message;
-    $("run-out").className = "bad";
-    setTimeout(() => ($("run-out").className = ""), 3000);
+    live.append(el("div", { className: "bad", textContent: e.message }));
+  } finally {
+    $("g-play").disabled = false;
   }
 };
+
+/** One match, played wherever it can be played, then recorded. */
+async function playOnce(seated, seed, live) {
+  // A *Python* class runs in a python process, and a tab cannot start one, so
+  // a match with one anywhere in it is played by the runner instead — the same
+  // match loop, the same leaderboard, just on the other side of the wire. A
+  // Rust class was compiled to wasm on upload and plays right here.
+  const needsPython = (m) => modules.find((x) => x.id === m || x.name === m)?.lang === "python";
+  const byRunner = openGame.lang === "python"
+    || seated.some((p) => p.kind === "class" && needsPython(p.module ?? p.config?.module));
+  if (byRunner) {
+    const saved = await post("/run",
+      { game: openGame.id, players: seated.map((p) => p.name), seed });
+    const full = await call(`/matches/${saved.id}`);
+    live.replaceChildren(...(full.turns ?? []).map((t) => turnRow(t, seated)));
+    return saved;
+  }
+  const record = await runInWorker(
+    { type: "match", base: API, game: openGame.id, players: seated, seed },
+    120_000,
+    (e) => {
+      if (e.type !== "turn") return;
+      if (live.firstChild?.className === "dim") live.firstChild.remove();
+      live.append(turnRow(e, seated));
+      live.scrollTop = live.scrollHeight;
+    });
+  return await api.record(record);
+}
+
+/** One turn, however it got here — live from the worker or read back off a
+ *  match the runner recorded. */
+function turnRow(t, seated) {
+  const name = seated[t.seat]?.name ?? `seat ${t.seat}`;
+  return el("div", { className: `turn ${t.legal ? "" : "illegal"}` }, [
+    el("div", {}, [
+      el("strong", { textContent: name }),
+      el("span", { className: "dim", textContent: `  seat ${t.seat} · turn ${t.turn} · ${t.ms}ms` }),
+      t.legal ? "" : el("span", { className: "bad", textContent: "  refused" }),
+    ]),
+    el("div", { textContent: t.mv || "(no move)" }),
+    t.note ? el("div", { className: "dim", textContent: t.note }) : "",
+    // The question and the whole answer, for a player that was asked one.
+    // Wasm/class turns have no prompt: they read the view, they don't get told.
+    t.prompt ? el("details", { className: "dim", style: "font-size:12px;margin-top:4px" }, [
+      el("summary", { style: "cursor:pointer", textContent: t.raw && t.raw.trim() !== (t.mv || "").trim() ? "prompt · reply" : "prompt" }),
+      el("pre", { style: "margin:6px 0 0;white-space:pre-wrap", textContent: t.prompt }),
+      t.raw && t.raw.trim() !== (t.mv || "").trim()
+        ? el("pre", { style: "margin:6px 0 0;padding-top:6px;border-top:1px solid var(--line);white-space:pre-wrap", textContent: t.raw })
+        : "",
+    ]) : "",
+  ]);
+}
 
 // ── players ──────────────────────────────────────────────────────────────
 const HINTS = {
   model: 'config: {"model":"anthropic/claude-opus-5"} — any OpenAI-compatible endpoint; add "base" and "key" for another provider.',
   wasm: 'config: {"module":"<id of a module that exports play>"} — it runs in this tab.',
+  class: 'config: {"module":"<a class that defines play(self, view, seat)>"} — it runs in a sandboxed python process, so its matches go through the runner rather than this tab.',
   agent_mod: 'config: {"agent":"name"} or {"model":"…","free":true} — an agent in the fleet\'s agent module.',
   http: 'config: {"url":"https://…"} — posted the view, expected to answer {"move":"…"}.',
 };
@@ -500,163 +728,456 @@ $("p-add").onclick = async () => {
   try {
     await post("/players", { name: $("p-name").value.trim(), kind: $("p-kind").value, config });
     $("p-name").value = $("p-config").value = "";
-    await refreshPlayers();
+    await refreshPlayersOnly();
+    renderSeats();
     toast("entered");
   } catch (e) { toast(e.message, true); }
 };
 
-async function refreshPlayers() {
+async function refreshPlayersOnly() {
   players = (await call("/players")).players;
-  $("players").replaceChildren(...players.map((p) => {
-    const tr = el("tr");
-    const out = el("button", { className: "ghost", textContent: "×", title: "withdraw" });
-    out.onclick = async () => {
-      if (!confirm(`withdraw ${p.name}?`)) return;
-      await call(`/players/${p.id}`, { method: "DELETE" });
-      await refreshPlayers();
-    };
-    tr.append(
-      el("td", {}, el("strong", { textContent: p.name })),
-      el("td", { className: "dim", textContent: p.model || p.kind }),
-      el("td", { textContent: p.elo }),
-      el("td", { textContent: `${p.wins}/${p.draws}/${p.losses}` }),
-      el("td", { className: p.illegal_rate > 0.1 ? "bad" : "",
-                 textContent: `${(p.illegal_rate * 100).toFixed(0)}%` }),
-      el("td", { className: "dim", textContent: p.avg_move_ms }),
-      el("td", {}, out),
-    );
-    return tr;
-  }));
-  if (!players.length) {
-    $("players").replaceChildren(el("tr", {}, el("td", {
-      colSpan: 7, className: "dim", textContent: "nobody entered yet",
-    })));
+  renderPlayers();
+}
+
+const pct = (x) => `${Math.round((x || 0) * 100)}%`;
+const wdl = (r) => `${r.wins}/${r.draws}/${r.losses}`;
+const formEl = (f) => el("span", { className: "form" },
+  f ? [...f].map((c) => el("span", { className: c, textContent: c })) : [el("span", { className: "dim", textContent: "—" })]);
+const when = (t) => t ? new Date(t * 1000).toLocaleString() : "never";
+
+/** The players tab is cards, like the games tab: each says who the player is
+ *  and how it plays — rating, record, and the faults that matter for a model. */
+function renderPlayers() {
+  const rows = players.map((p) => {
+    const card = el("div", { className: "card" }, [
+      el("div", { className: "who" }, [
+        el("h3", { textContent: p.name }),
+        el("span", { className: "dim", style: "font-size:12px", textContent: p.model || p.kind }),
+      ]),
+      el("p", { textContent: p.note || (p.matches ? `${p.matches} matches across ${p.games_played} games`
+                                                   : "has not played yet") }),
+      // A server-driven player is asked something each move; say what, in a
+      // line. The card carries `system` (null or text) only for those kinds.
+      "system" in p ? el("p", { className: "dim", style: "font-size:12px;white-space:pre-wrap", title: "open the player to read the whole prompt" },
+        [el("b", { textContent: "prompt " }), (p.system || p.brief || "").trim()
+          ? (p.system || p.brief).trim().replace(/\s+/g, " ").slice(0, 140) + ((p.system || p.brief).trim().length > 140 ? "…" : "")
+          : "default brief — seat, the view, and “reply with your move and nothing else”"]) : "",
+      el("div", { className: "strip" }, [
+        el("span", {}, [el("b", { textContent: p.elo }), " elo"]),
+        el("span", {}, [el("b", { textContent: pct(p.win_rate) }), " wins"]),
+        el("span", {}, [el("b", { textContent: wdl(p) }), " w/d/l"]),
+      ]),
+      el("div", { className: "strip", style: "border:0;padding-top:6px" }, [
+        el("span", {}, [el("b", { className: p.illegal_rate > 0.1 ? "bad" : "", textContent: pct(p.illegal_rate) }), " illegal"]),
+        el("span", {}, [el("b", { className: p.timeouts ? "bad" : "", textContent: p.timeouts }), " timeouts"]),
+        el("span", {}, [el("b", { textContent: p.avg_move_ms }), " ms/move"]),
+        p.mcp ? el("span", {}, [el("b", { textContent: p.mcp }), " calls out"]) : "",
+      ]),
+    ]);
+    card.onclick = () => openPlayerPage(p.id);
+    return card;
+  });
+  $("players").replaceChildren(...(rows.length ? rows : [
+    el("p", { className: "dim", textContent: "nobody entered yet — add a player above, or enter one below" }),
+  ]));
+}
+
+function stat(label, value, cls = "") {
+  return el("div", { className: "stat" }, [
+    el("b", { className: cls, textContent: value }),
+    el("span", { textContent: label }),
+  ]);
+}
+
+async function openPlayerPage(id) {
+  let p;
+  try { p = await call(`/players/${id}`); }
+  catch (e) { return toast(e.message, true); }
+  show("player");
+  $("pl-name").textContent = p.name;
+  $("pl-kind").textContent = p.model || p.kind;
+  $("pl-note").textContent = p.note || "";
+  const meta = [`id ${p.id}`, `entered ${when(p.created)}`, `last played ${when(p.last_played)}`];
+  if (p.owner) meta.push(`owner ${p.owner}`);
+  if (p.module) meta.push(`module ${p.module.slice(0, 12)}…`);
+  $("pl-meta").textContent = meta.join(" · ");
+
+  // The prompt, exactly as play() will send it — only the view left blank.
+  const pc = p.prompt;
+  $("pl-prompt-card").hidden = !pc;
+  if (pc) {
+    $("pl-system-wrap").hidden = !pc.system;
+    $("pl-system").textContent = pc.system || "";
+    $("pl-prompt").textContent = pc.template || "";
   }
-  fillSelects();
+
+  // The assessment: who won, and beyond that — the illegal-move rate, the
+  // timeouts, the pace, the calls out. Every number is one the loop counted.
+  $("pl-stats").replaceChildren(
+    stat("elo", p.elo),
+    stat("win rate", pct(p.win_rate)),
+    stat("w/d/l", wdl(p)),
+    stat("matches", p.matches),
+    stat("games played", p.games_played),
+    stat("avg score", p.avg_score),
+    stat("illegal moves", `${pct(p.illegal_rate)} (${p.illegal})`, p.illegal_rate > 0.1 ? "bad" : ""),
+    stat("timeouts", p.timeouts, p.timeouts ? "bad" : ""),
+    stat("ms / move", p.avg_move_ms),
+    stat("moves", p.moves),
+    stat("calls out", p.mcp),
+    stat("best game", p.best_game || "—"),
+    el("div", { className: "stat" }, [el("b", {}, formEl(p.form)),
+                                      el("span", { textContent: `form · streak ${p.streak || "—"}` })]),
+  );
+
+  // A player is the same boards read the other way: where it stands on each
+  // game it has actually played, and how cleanly it played there.
+  const rows = p.by_game.map((r) => {
+    const board = boards.get(r.game) || [];
+    const at = board.findIndex((x) => x.id === p.id);
+    const tr = el("tr", { className: "pick" });
+    tr.append(
+      el("td", {}, el("strong", { textContent: r.game_name })),
+      el("td", { className: "dim", textContent: at < 0 ? "—" : `${at + 1} of ${board.length}` }),
+      el("td", {}, el("strong", { textContent: r.elo })),
+      el("td", { textContent: r.matches }),
+      el("td", { textContent: wdl(r) }),
+      el("td", { textContent: pct(r.win_rate) }),
+      el("td", { textContent: r.avg_score }),
+      el("td", { className: r.illegal_rate > 0.1 ? "bad" : "", textContent: `${pct(r.illegal_rate)}` }),
+      el("td", { className: r.timeouts ? "bad" : "dim", textContent: r.timeouts }),
+      el("td", { className: "dim", textContent: r.avg_move_ms }),
+      el("td", {}, formEl(r.form)),
+    );
+    tr.onclick = () => openGamePage(r.game);
+    return tr;
+  });
+  $("pl-games").replaceChildren(...(rows.length ? rows : [
+    el("tr", {}, el("td", { colSpan: 11, className: "dim", textContent: "has not played a game yet" })),
+  ]));
+
+  const rivals = (p.opponents || []).map((o) => {
+    const tr = el("tr", { className: "pick" });
+    tr.append(
+      el("td", {}, el("strong", { textContent: o.name })),
+      el("td", { textContent: o.matches }),
+      el("td", { textContent: wdl(o) }),
+      el("td", { className: o.win_rate >= 0.5 ? "ok" : "bad", textContent: pct(o.win_rate) }),
+    );
+    tr.onclick = () => openPlayerPage(o.id);
+    return tr;
+  });
+  $("pl-rivals").replaceChildren(...(rivals.length ? rivals : [
+    el("tr", {}, el("td", { colSpan: 4, className: "dim", textContent: "has not met anyone yet" })),
+  ]));
+
+  const { matches } = await call(`/matches?player=${p.id}&limit=25`);
+  $("pl-matches").replaceChildren(...(matches.length ? matches.map((m) => playerMatchRow(m, p)) : [
+    el("tr", {}, el("td", { colSpan: 7, className: "dim", textContent: "no matches yet" })),
+  ]));
+
+  // What the player is: a class shows its source, a wasm module its card, a
+  // model or endpoint its (redacted) config.
+  let body = JSON.stringify({ kind: p.kind, config: p.config }, null, 2);
+  let mod = null;
+  if (p.module) {
+    try {
+      mod = await call(`/modules/${p.module}`);
+      const { source, ...rest } = mod;
+      body = JSON.stringify(rest, null, 2);
+    } catch { /* the module may have been deleted from under the player */ }
+  }
+  if (mod) {
+    codeCard("pl", mod);
+  } else {
+    // A model, an agent or an endpoint has no bytes here to hash: the arena
+    // drives it. What it is, is its config — shown with the key redacted.
+    $("pl-hashes").replaceChildren(el("div", { className: "dim", style: "font-size:12px", textContent:
+      p.module ? "its module is gone — deleted from under it"
+               : `no bytes to hash — a ${p.model || p.kind} player is driven by the arena, not stored in it` }));
+    $("pl-code-lang").textContent = p.kind;
+    $("pl-code").textContent = body;
+  }
+  $("pl-body").textContent = body;
+
+  $("pl-out").onclick = async () => {
+    if (!confirm(`withdraw ${p.name}?`)) return;
+    await call(`/players/${p.id}`, { method: "DELETE" });
+    show("players");
+    await refresh();
+  };
 }
 
-// ── match ────────────────────────────────────────────────────────────────
-function fillSelects() {
-  const games = modules.filter((m) => m.role === "game");
-  const opt = (m) => el("option", { value: m.id, textContent: `${m.name} · ${m.short}` });
-
-  $("run-module").replaceChildren(...modules.map((m) =>
-    el("option", { value: m.id, textContent: `${m.name} · ${m.role}` })));
-  $("m-game").replaceChildren(...games.map(opt));
-  $("b-game").replaceChildren(
-    el("option", { value: "", textContent: "overall" }),
-    ...games.map(opt));
-  renderSeats();
+/** One match as this player saw it: its result, its rating move, its faults. */
+function playerMatchRow(m, p) {
+  const me = m.seats.find((s) => s.player_id === p.id) || {};
+  const top = Math.max(...m.seats.map((s) => s.score));
+  const tied = m.seats.filter((s) => s.score === top).length > 1;
+  const result = me.score < top ? "L" : tied ? "D" : "W";
+  const faults = [me.illegal ? `${me.illegal} illegal` : "", me.timeouts ? `${me.timeouts} timeouts` : "",
+                  me.error ? "error" : ""].filter(Boolean).join(", ");
+  const tr = el("tr", { className: "pick" });
+  tr.append(
+    el("td", { className: "dim", style: "white-space:nowrap",
+               textContent: new Date(m.created * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) }),
+    el("td", { textContent: m.game_name }),
+    el("td", {}, el("span", { className: "form" }, el("span", { className: result, textContent: result }))),
+    el("td", { textContent: m.seats.map((s) => `${s.player_name} ${s.score}`).join("  ·  ") }),
+    el("td", { className: m.rated ? (me.delta >= 0 ? "ok" : "bad") : "dim",
+               textContent: m.rated ? `${me.delta >= 0 ? "+" : ""}${me.delta}` : "practice" }),
+    el("td", { className: faults ? "bad" : "dim", textContent: faults || "clean" }),
+    el("td", { className: "dim", textContent: m.runtime }),
+  );
+  tr.onclick = () => openGamePage(m.game);
+  return tr;
 }
 
-$("m-game").onchange = () => renderSeats();
+// ── add ──────────────────────────────────────────────────────────────────
+const b64 = (bytes) => {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(s);
+};
 
-function renderSeats() {
-  const seats = 2;   // every shipped game seats two; a game that seats more shows more
-  $("m-seats").replaceChildren(...Array.from({ length: seats }, (_, i) => {
-    const sel = el("select", { id: `m-seat-${i}` });
-    sel.replaceChildren(...players.map((p) =>
-      el("option", { value: p.id, textContent: `${p.name} · ${p.kind}` })));
-    if (players[i]) sel.value = players[i].id;
-    return el("div", { className: "row", style: "margin-bottom:6px" },
-      [el("span", { className: "dim", style: "width:60px", textContent: `seat ${i}` }), sel]);
-  }));
-}
+$("add-open").onclick = () => {
+  const a = $("add");
+  a.hidden = !a.hidden;
+  if (!a.hidden) a.scrollIntoView({ behavior: "smooth", block: "nearest" });
+};
+$("add-close").onclick = () => ($("add").hidden = true);
 
-$("m-go").onclick = async () => {
-  const game = $("m-game").value;
-  const seated = [0, 1].map((i) => players.find((p) => p.id === $(`m-seat-${i}`)?.value))
-                       .filter(Boolean);
-  if (!game || seated.length < 2) return toast("pick a game and two players", true);
-
-  const live = $("m-live");
-  live.replaceChildren(el("div", { className: "dim", textContent: "playing…" }));
-  const seed = Number($("m-seed").value) || Math.floor(Math.random() * 1e9);
-
+async function offer(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
   try {
-    const record = await runInWorker(
-      { type: "match", base: API, game, players: seated, seed },
-      120_000,
-      (e) => {
-        if (e.type !== "turn") return;
-        if (live.firstChild?.className === "dim") live.firstChild.remove();
-        const name = seated[e.seat]?.name ?? `seat ${e.seat}`;
-        live.append(el("div", { className: `turn ${e.legal ? "" : "illegal"}` }, [
-          el("div", {}, [
-            el("strong", { textContent: name }),
-            el("span", { className: "dim", textContent: `  seat ${e.seat} · turn ${e.turn} · ${e.ms}ms` }),
-            e.legal ? "" : el("span", { className: "bad", textContent: "  refused" }),
-          ]),
-          el("div", { textContent: e.mv || "(no move)" }),
-          e.note ? el("div", { className: "dim", textContent: e.note }) : "",
-        ]));
-        live.scrollTop = live.scrollHeight;
-      });
-
-    const saved = await api.record(record);
-    live.append(el("div", { className: "card", style: "margin-top:12px" },
-      el("pre", { textContent: JSON.stringify(saved, null, 2) })));
-    toast(record.summary || "match played");
-    await Promise.all([refreshPlayers(), refreshBoard()]);
+    const info = await post("/inspect", { bytes: b64(bytes) });
+    pending = { bytes, info };
+    $("up-name").value = file.name.replace(/\.(wasm|py|rs)$/, "");
+    $("up-info").textContent = JSON.stringify(info, null, 2);
+    $("preview").hidden = false;
+    const how = info.lang === "wasm" ? "wasm" : `${info.lang} class ${info.class}`;
+    toast(`${file.name} reads as a ${info.role} (${how})${info.stored ? " — already stored" : ""}`);
   } catch (e) {
-    live.append(el("div", { className: "bad", textContent: e.message }));
+    toast(`${file.name}: ${e.message}`, true);
+  }
+}
+
+$("file").onchange = (e) => { for (const f of e.target.files) offer(f); };
+const drop = $("drop");
+["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => {
+  e.preventDefault(); drop.classList.add("over");
+}));
+["dragleave", "drop"].forEach((t) => drop.addEventListener(t, () => drop.classList.remove("over")));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  for (const f of e.dataTransfer.files) offer(f);
+});
+
+$("up-cancel").onclick = () => { pending = null; $("preview").hidden = true; };
+$("up-store").onclick = async () => {
+  if (!pending) return;
+  try {
+    const m = await post("/modules", {
+      bytes: b64(pending.bytes),
+      name: $("up-name").value.trim(),
+      description: $("up-desc").value.trim(),
+    });
+    pending = null;
+    $("preview").hidden = true;
+    $("up-desc").value = "";
+    await landed(m);
+  } catch (e) { toast(e.message, true); }
+};
+
+/** What a stored module becomes: a game is a board, a player is entered so it
+ *  can be sat down at one, and anything else is just bytes we keep. */
+async function landed(m) {
+  if (m.role === "player") {
+    try {
+      await post("/players", {
+        name: m.name,
+        kind: m.lang === "wasm" ? "wasm" : "class",
+        config: { module: m.id },
+      });
+      toast(`${m.name} is a player — entered`);
+    } catch (e) { toast(`stored ${m.name}, but not entered: ${e.message}`, true); }
+    $("add").hidden = true;
+    await refresh();
+    return show("players");
+  }
+  await refresh();
+  if (m.role === "game") {
+    toast(`${m.name} is a game — here is its leaderboard`);
+    $("add").hidden = true;
+    return openGamePage(m.id);
+  }
+  toast(`stored ${m.name} — it defines neither a game nor a player`);
+}
+
+// ── servers ──────────────────────────────────────────────────────────────
+//
+// The index of the other half of this thing. Everything stored here answers
+// on its own MCP endpoint, so a model with an MCP client can sit down at a
+// game without any of this console, and an agent can be asked for a move by
+// anything at all — including another agent in the next seat.
+
+async function renderServers() {
+  const [list, outward] = await Promise.all([
+    call("/servers").catch((e) => ({ error: e.message, servers: [] })),
+    call("/mcp/servers").catch((e) => ({ error: e.message, servers: [] })),
+  ]);
+  $("s-arena").textContent = list.arena || `${API}/mcp`;
+
+  $("servers").replaceChildren(...(list.servers ?? []).map((s) =>
+    el("tr", {}, [
+      el("td", {}, [el("b", { textContent: s.name }),
+                    el("div", { className: "dim", textContent: s.description || "" })]),
+      el("td", {}, [el("span", { className: "tag", textContent: s.role })]),
+      el("td", { className: "dim", textContent: langLabel(s.lang) }),
+      el("td", {}, [el("code", { textContent: s.mod })]),
+      el("td", { className: "dim", textContent: (s.tools ?? []).join(" ") }),
+      el("td", {}, [el("code", { className: "dim", textContent: s.mcp })]),
+    ])));
+
+  $("outward").replaceChildren(...(outward.servers ?? []).map((s) =>
+    el("tr", {}, [
+      el("td", {}, [el("b", { textContent: s.name })]),
+      el("td", { className: "dim", textContent: s.description || s.url }),
+      el("td", { className: "dim", textContent: s.authenticated ? "a key is held here" : "none" }),
+      el("td", {}, [el("span", { className: "tag",
+                                 textContent: s.enabled ? "on" : "off" })]),
+    ])));
+  if (!(outward.servers ?? []).length) {
+    $("outward").replaceChildren(el("tr", {}, [
+      el("td", { colSpan: 4, className: "dim",
+                 textContent: `nothing configured — add one to ${outward.config ?? "~/.mod/arena/mcp_servers.json"}` }),
+    ]));
+  }
+}
+
+/** What to call a container, in the two words a table has room for. */
+function langLabel(lang) {
+  return lang === "wasm" ? "wasm" : lang === "rust" ? "rust class" : "class";
+}
+
+/** The code of a stored module and the two hashes that name it — the same
+ *  card on a game page and on a player page. sha256 is the arena's id for
+ *  the bytes; cid is the store module's name for the same bytes, and links
+ *  to its page there, which needs nothing from this arena to read. */
+function codeCard(prefix, m) {
+  const pagePrefix = m.store ? m.store.page.slice(0, m.store.page.lastIndexOf("/") + 1) : "";
+  const rows = [["sha256", m.sha256 || m.id, `${API}/blob/${m.id}`, "the bytes, from this arena"]];
+  if (m.store) {
+    rows.push(["cid", m.store.cid, m.store.page, "the same bytes in the store module — open its page"]);
+  } else {
+    rows.push(["cid", "not in the store yet — it is pushed in the background", null, ""]);
+  }
+  if (m.src_cid) rows.push(["source cid", m.src_cid, pagePrefix + m.src_cid, "the code, in the store module"]);
+  $(`${prefix}-hashes`).replaceChildren(...rows.map(([k, v, href, title]) => el("div", { className: "hash" }, [
+    el("span", { className: "dim", textContent: k }),
+    href ? el("a", { href, target: "_blank", rel: "noopener", textContent: v, title })
+         : el("span", { className: "dim", textContent: v }),
+    ...(href ? [el("button", { className: "link", textContent: "copy", onclick: (e) => {
+      e.stopPropagation();
+      navigator.clipboard?.writeText(v).then(() => toast(`copied ${k}`));
+    } })] : []),
+  ])));
+  const lang = m.source_lang === "python" ? "python"
+             : m.source_lang === "rust" ? (m.lang === "wasm" ? "rust, built to this wasm" : "rust class")
+             : m.lang;
+  $(`${prefix}-code-lang`).textContent = m.source ? `${lang} · ${m.size} bytes stored` : `${m.size} bytes`;
+  $(`${prefix}-code`).textContent = m.source
+    || `compiled wasm — no source was uploaded with these bytes.\n`
+     + `exports: ${(m.exports || []).join(", ") || "none"}\n`
+     + `upload it again with source_text to keep the code beside the binary.`;
+  $(`${prefix}-code`).scrollTop = 0;   // a long file opens at its top, whatever was shown before
+}
+
+async function template(role) {
+  const lang = $("w-lang").value;
+  const abi = await call(`/abi?role=${role}&lang=${lang}`);
+  $("w-src").value = abi.template || "";
+  $("w-out").textContent = "—";
+  $("w-out").className = "dim";
+}
+$("w-tpl-game").onclick = () => template("game");
+$("w-tpl-player").onclick = () => template("player");
+$("w-lang").onchange = () => {
+  const rust = $("w-lang").value === "rust";
+  $("w-lang-note").textContent = rust
+    ? "a struct whose impl defines view/step/done/result · compiled to wasm on upload"
+    : "a game defines view/step/done/result · a player defines play";
+  $("w-src").placeholder = rust ? "pub struct MyGame { … }" : "class MyGame: ...";
+};
+
+$("w-store").onclick = async () => {
+  try {
+    const source = $("w-src").value;
+    if (!source.trim()) throw new Error("nothing written yet");
+    const info = await post("/inspect", { text: source });
+    const blocked = (info.imports || []).filter((i) => !i.allowed).map((i) => i.module);
+    $("w-out").textContent = [
+      `class ${info.class} — ${info.role}`,
+      `defines ${(info.exports || []).map((e) => e.name).join(", ") || "nothing"}`,
+      info.role === "class" ? `not playable yet — it still needs ${(info.missing || []).join(", ")}` : "",
+      blocked.length ? `the sandbox will refuse: ${blocked.join(", ")}` : "",
+    ].filter(Boolean).join("\n");
+    $("w-out").className = info.role === "class" || blocked.length ? "bad" : "dim";
+    if (info.role === "class" || blocked.length) return;
+
+    const m = await post("/classes", {
+      source,
+      lang: $("w-lang").value === "rust" ? "rust" : "python",
+      name: $("w-name").value.trim() || undefined,
+      description: $("w-desc").value.trim(),
+      tags: ["class"],
+    });
+    // A Rust class is compiled on the way in. Ask for the wasm now rather
+    // than letting a class that will not build sit in the registry looking
+    // playable until somebody seats it.
+    if (m.lang === "rust") {
+      const built = await fetch(`${API}/wasm/${m.id}`);
+      if (!built.ok) {
+        const why = await built.json().catch(() => ({}));
+        $("w-out").textContent = why.error || "it did not compile";
+        $("w-out").className = "bad";
+        return;
+      }
+    }
+    await landed(m);
+  } catch (e) {
+    $("w-out").textContent = e.message;
+    $("w-out").className = "bad";
+    toast(e.message, true);
   }
 };
 
-// ── leaderboard ──────────────────────────────────────────────────────────
-$("b-game").onchange = () => refreshBoard();
-
-async function refreshBoard() {
-  const game = $("b-game").value;
-  const board = await call(`/leaderboard${game ? `?game=${game}` : ""}`);
-  $("board").replaceChildren(...board.players.map((p, i) => el("tr", {}, [
-    el("td", { className: "dim", textContent: String(i + 1) }),
-    el("td", {}, el("strong", { textContent: p.name })),
-    el("td", { className: "dim", textContent: p.kind || "" }),
-    el("td", {}, el("strong", { textContent: p.elo })),
-    el("td", { textContent: p.matches }),
-    el("td", { textContent: `${p.wins}/${p.draws}/${p.losses}` }),
-    el("td", { textContent: p.avg_score }),
-  ])));
-  if (!board.players.length) {
-    $("board").replaceChildren(el("tr", {}, el("td", {
-      colSpan: 7, className: "dim", textContent: "no rated matches yet",
-    })));
-  }
-
-  const { matches } = await call("/matches?limit=15");
-  $("matches").replaceChildren(...matches.map((m) => {
-    const tr = el("tr", { className: "pick" });
-    const line = m.seats.map((s) => `${s.player_name} ${s.score}`).join("  ·  ");
-    tr.append(
-      el("td", { className: "dim", textContent: new Date(m.created * 1000).toLocaleTimeString() }),
-      el("td", { textContent: m.game_name }),
-      el("td", { textContent: line }),
-      el("td", { className: "dim", textContent: m.runtime }),
-      el("td", { className: "dim", textContent: m.rated ? "" : "practice" }),
-    );
-    tr.onclick = async () => {
-      const full = await call(`/matches/${m.id}`);
-      alert(JSON.stringify(full.seats, null, 2));
+/** Everything stored that is neither a game nor a player. It is not nothing —
+ *  it is bytes someone uploaded — but it does not need a tab of its own. */
+function renderOther() {
+  const rest = modules.filter((m) => m.role !== "game" && m.role !== "player");
+  const p = $("add-other");
+  if (!rest.length) return (p.textContent = "");
+  p.replaceChildren(el("span", { textContent:
+    `${rest.length} stored module${rest.length > 1 ? "s" : ""} that ${rest.length > 1 ? "are" : "is"} neither — run with \`m arena/run\`: ` }));
+  rest.forEach((m, i) => {
+    if (i) p.append(", ");
+    p.append(m.name);
+    const x = el("button", { className: "link", textContent: "×", style: "margin-left:5px",
+                             title: `delete ${m.name}` });
+    x.onclick = async () => {
+      if (!confirm(`delete ${m.name}? the bytes go too.`)) return;
+      await call(`/modules/${m.id}`, { method: "DELETE" });
+      await refresh();
     };
-    return tr;
-  }));
+    p.append(x);
+  });
 }
-
-// ── abi ──────────────────────────────────────────────────────────────────
-const showAbi = async (role) =>
-  ($("abi-body").textContent = JSON.stringify(await call(`/abi?role=${role}`), null, 2));
-$("abi-game").onclick = () => showAbi("game");
-$("abi-player").onclick = () => showAbi("player");
 
 // ── boot ─────────────────────────────────────────────────────────────────
 try {
-  const info = await call("/info");
-  $("banner").textContent =
-    `${info.modules} modules · ${info.games} games · ${info.players} players · ` +
-    `${info.matches} matches · executes in ${info.executes_in.join(" and ")}`;
-  await Promise.all([refreshModules(), refreshPlayers()]);
-  await showAbi("game");
+  await refresh();
 } catch (e) {
   $("banner").textContent = `cannot reach the server: ${e.message}`;
   $("banner").className = "sub bad";

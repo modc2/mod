@@ -6,8 +6,13 @@ bt.server — HTTP surface for the bt module on one port (:50280).
   GET  /api/tools   MCP-shaped tool listing
   GET  /api/docs    grouped tool docs for the Docs section
   POST /api/call    {"tool": name, "args": {...}} -> {"ok", "result"|"error"}
-  GET  /api/agent   ask-the-network agent status (auth, model, tool count)
-  POST /api/ask     {"question": ...} -> SSE stream of agent events
+  GET  /api/agent/card    the agent card (also at /.well-known/agent.json)
+  GET  /api/agent/status  auth, model, tool count, runs in flight
+  GET  /api/agent/tools   the agent's toolbox, grouped
+  GET  /api/agent/chats   conversations · /api/agent/chats/{id} one, with messages
+  POST /api/agent/chat    {"message", "chat", "context"} -> SSE run
+  POST /api/agent/ask     the same turn, run to completion, one JSON reply
+  POST /api/agent/stop    {"chat"} -> kill the run in flight
   POST /mcp         MCP streamable-HTTP endpoint (same JSON-RPC as stdio)
 
 Run:  python3 -m bt.server   (or pm2: bt-app)
@@ -22,7 +27,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from . import agent, history, tools, traders
+from . import agent, chats, history, tools, traders
 from .mcp_server import PROTOCOL_VERSION, SERVER_INFO
 
 PORT = int(os.environ.get('BT_PORT', '50280'))
@@ -52,7 +57,9 @@ def _info():
         'tools': len(tools.TOOLS),
         'block': history.stats().get('block'),   # what the index is synced to
         'traders': traders.stats(),
-        'agent': {'ready': agent.status()['ready'], 'model': agent.MODEL},
+        'agent': {'ready': agent.status()['ready'], 'model': agent.MODEL,
+                  'card': '/api/agent/card', 'chat': '/api/agent/chat'},
+        'chats': chats.stats(),
         'mcp': {'http': '/bt/mcp', 'stdio': 'python3 -m bt.mcp_server'},
         'time': int(time.time()),
     }
@@ -89,23 +96,86 @@ def api_call(body: dict):
 
 
 @app.get('/api/agent')
+@app.get('/api/agent/status')
 def api_agent():
     return agent.status()
 
 
-@app.post('/api/ask')
-def api_ask(body: dict):
-    question = (body.get('question') or '').strip()
-    if not question:
-        return JSONResponse(status_code=400, content={
-            'ok': False, 'error': 'question required'})
+@app.get('/api/agent/card')
+@app.get('/.well-known/agent.json')
+@app.get('/api/.well-known/agent.json')
+def api_agent_card():
+    """Who the agent is and how to talk to it — the discovery document."""
+    return agent.card()
 
+
+@app.get('/api/agent/tools')
+def api_agent_tools():
+    """The toolbox the chat plays, grouped — the console's help, too."""
+    return {'groups': tools.docs(), 'count': len(tools.TOOLS),
+            'allowed': len(agent.ALLOWED_TOOLS),
+            'denied': [n.replace('mcp__bittensor__', '')
+                       for n in agent.DISALLOWED_TOOLS]}
+
+
+@app.get('/api/agent/chats')
+def api_chats(limit: int = 50):
+    return {'chats': chats.list_chats(limit=limit), 'stats': chats.stats()}
+
+
+@app.get('/api/agent/chats/{chat_id}')
+def api_chat(chat_id: str):
+    got = chats.get(chat_id)
+    if got is None:
+        return JSONResponse(status_code=404, content={
+            'ok': False, 'error': f'no such chat: {chat_id}'})
+    return got
+
+
+@app.post('/api/agent/chats/{chat_id}/rename')
+def api_chat_rename(chat_id: str, body: dict):
+    return chats.rename(chat_id, str(body.get('title') or ''))
+
+
+@app.delete('/api/agent/chats/{chat_id}')
+def api_chat_delete(chat_id: str):
+    return chats.delete(chat_id)
+
+
+def _sse(events):
     def gen():
-        for ev in agent.ask(question):
+        for ev in events:
             yield 'data: ' + json.dumps(ev, default=str) + '\n\n'
     return StreamingResponse(gen(), media_type='text/event-stream',
                              headers={'cache-control': 'no-cache',
                                       'x-accel-buffering': 'no'})
+
+
+@app.post('/api/agent/chat')
+@app.post('/api/ask')          # the pre-2.4 name, same stream
+def api_agent_chat(body: dict):
+    message = (body.get('message') or body.get('question') or '').strip()
+    if not message:
+        return JSONResponse(status_code=400, content={
+            'ok': False, 'error': 'message required'})
+    return _sse(agent.chat(message, chat_id=body.get('chat'),
+                           context=body.get('context')))
+
+
+@app.post('/api/agent/ask')
+def api_agent_ask(body: dict):
+    """One turn, run to completion — for callers that cannot read a stream."""
+    message = (body.get('message') or body.get('question') or '').strip()
+    if not message:
+        return JSONResponse(status_code=400, content={
+            'ok': False, 'error': 'message required'})
+    return agent.ask(message, chat_id=body.get('chat'),
+                     context=body.get('context'))
+
+
+@app.post('/api/agent/stop')
+def api_agent_stop(body: dict):
+    return agent.stop(str(body.get('chat') or ''))
 
 
 # ------------------------------------------------------------ MCP over HTTP

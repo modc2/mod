@@ -1,8 +1,8 @@
 {
     "name": "build-fork",
     "title": "Build-Fork \u2726 Orbit Console",
-    "version": "2.2.0",
-    "description": "Fork of the build console \u2014 Python SDK, Rust Job Server, Next.js Terminal UI, IPFS versioning",
+    "version": "2.8.1",
+    "description": "Programmable AI developer console \u2014 Python SDK, Rust job server, Next.js terminal UI, IPFS versioning, and a full MCP server that also enters this console into the fleet's arenas.",
     "port": 8894,
     "app_port": 8895,
     "route": true,
@@ -15,8 +15,16 @@
     "color": "#cc785c",
     "deps": [
         "chain",
-        "store"
+        "store",
+        "logo"
     ],
+    "logo_module": {
+        "module": "orbit/logo",
+        "api": "http://127.0.0.1:50760",
+        "why": "the mark in this console's header is not build-fork's state \u2014 it belongs to whoever owns this module, so it lives in the logo module and every change is a signature by the address in the `owner` field above. This process forwards that signature and cannot mint one.",
+        "read": "GET /build-fork/api/logo \u2014 public, cached at ~/.mod/build-fork/logo-cache.json so a sleeping logo module cannot blank the header",
+        "write": "POST /build-fork/api/logo with `x-mod-token: <mod-protocol token>` alongside the console bearer"
+    },
     "fns": [
         "forward",
         "ask",
@@ -59,6 +67,15 @@
         "mr_update",
         "mr_close",
         "mr_merge",
+        "suggest",
+        "suggestions",
+        "suggestion",
+        "suggestion_comments",
+        "suggestion_comment",
+        "suggestion_vote",
+        "play_suggestion",
+        "triage_suggestion",
+        "delete_suggestion",
         "default_prompt",
         "save_prompt",
         "list_prompts",
@@ -90,9 +107,18 @@
         "install",
         "setup",
         "scan",
-        "fix"
+        "fix",
+        "mcp",
+        "mcp_tools",
+        "arenas",
+        "arena_tools",
+        "arena_call",
+        "arena_enter",
+        "arena_withdraw",
+        "arena_status",
+        "arena_match"
     ],
-    "schema": "QmRSJfCL3y5VzJ9Stgwf7AvWwWMTinGn7d2Jfwmyu5Jcwy",
+    "schema": "QmNPjLt4W11E6WP8NGyuM85tTMSA4FH7t8XH5KQAaQS93m",
     "endpoints": {
         "/health": {
             "method": "GET",
@@ -254,6 +280,52 @@
             "sudo": "non-build-fork",
             "docs": "AGENTIC MERGE (owner-only): auto-snapshots the live tree, stages base+head from their CIDs, and submits an agent job that three-way merges base/head/live semantically. Body {instructions?, model?}. The job's completion snapshot becomes merged_cid."
         },
+        "/suggestions": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Every suggestion across the orbit (public ledger, minus private modules). Filters: ?module=&status=&author=."
+        },
+        "/modules/{name}/suggestions": {
+            "method": [
+                "GET",
+                "POST"
+            ],
+            "auth": "GET: false, POST: true",
+            "docs": "One module's suggestion queue (public) or file a suggestion: {title, body?}. Any signed-in caller \u2014 no fork, no CID, no diff. Capped at 20 open per author per module."
+        },
+        "/suggestions/{id}": {
+            "method": [
+                "GET",
+                "DELETE"
+            ],
+            "auth": "GET: false, DELETE: true",
+            "docs": "Get one suggestion (folds in a finished play job) or delete it \u2014 an admin of the module, or its author while it is still unplayed."
+        },
+        "/suggestions/{id}/comments": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The ENTIRE discussion on one suggestion, oldest first. List responses carry only the last 20 comments of a thread plus `comment_count` \u2014 commenting needs no account, so threads grow without a gate \u2014 and this is the call that holds one whole. No paging and no `since`: a reader refreshes the lot."
+        },
+        "/suggestions/{id}/comment": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Add to a suggestion's discussion: {body}. Open to ANYONE \u2014 no wallet, no whitelist, no association with the module; unsigned callers post under a stable anon: handle derived from their IP. The weakest write on this API: it appends text an admin must read and act on, and cannot vote, triage or reach the tree. Returns the whole refreshed thread. The discussion rides along in the brief if the suggestion is ever played, marked as untrusted and length-capped."
+        },
+        "/suggestions/{id}/vote": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Second a suggestion, or take it back \u2014 a toggle, so the count is people. The open queue sorts by it."
+        },
+        "/suggestions/{id}/status": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Triage: {status: open|rejected|done, note?}. Admin of the module only (owner or scoped editor). playing/played are set by playing it."
+        },
+        "/suggestions/{id}/play": {
+            "method": "POST",
+            "auth": true,
+            "docs": "PLAY IT AS AN EDIT (admin-only): submits an agent job in the live module under the ADMIN's own account and credentials, with the suggestion as its brief. Body {instructions?, prompt?, model?} \u2014 instructions ride on top of the suggestion and outrank it; prompt replaces the generated brief. No sudo signature: it is the same power as typing the edit yourself, so the contributor's text never writes to the tree by itself. Snapshots + rolls back like any other edit."
+        },
         "/agent/auth": {
             "method": "GET",
             "auth": true,
@@ -265,7 +337,7 @@
                 "DELETE"
             ],
             "auth": true,
-            "docs": "Connect (POST {token}) or forget (DELETE) the caller's own session for one agent. For claude, paste the sk-ant-oat\u2026 output of `claude setup-token` (or an sk-ant-api\u2026 key); jobs the caller submits then run on their account instead of the server's. Stored per-wallet in ~/.mod/build-fork/agent_auth/ (0600)."
+            "docs": "Connect (POST {token, refresh_token?, expires_at?, source?}) or forget (DELETE) the caller's own session for one agent. Jobs the caller submits then run on their account instead of the server's. For claude there are two ways in: the console's \"Log in with Claude\" button (claude.ai OAuth, run by the app's /api/credentials/oauth route, which posts the result here \u2014 those sessions carry a refresh token and are renewed by the job runner), or pasting the sk-ant-oat\u2026 output of `claude setup-token` (an sk-ant-api\u2026 key works too). Stored per-wallet in ~/.mod/build-fork/agent_auth/ (0600)."
         },
         "/whitelist": {
             "method": [
@@ -289,11 +361,68 @@
             "method": "GET",
             "auth": false,
             "docs": "Get a specific version entry"
+        },
+        "/mcp": {
+            "method": [
+                "POST",
+                "GET"
+            ],
+            "auth": "inherits the caller's bearer token",
+            "docs": "MCP Streamable HTTP, JSON-RPC 2.0. initialize / tools/list / tools/call / resources/* / prompts/*, single messages or batches. Every tool re-enters the REST surface carrying this request's own Authorization header, so MCP and the browser get the same gate and the same errors \u2014 anonymous callers get exactly the [public] tools. GET returns the tool list and transport notes."
+        },
+        "/arena": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Where this console is entered as a competitor, and every arena/1.0 module it can see. Never returns the shared key."
+        },
+        "/arena/solve": {
+            "method": "POST",
+            "auth": "x-arena-key",
+            "docs": "What a coding arena calls when this console is entered: {task|prompt, language?, mode?} in, {code, language} out. Runs a real agent job per call, so it is default-deny \u2014 refused with 403 until the owner runs arena_enter, and 401 without the key minted at that moment."
+        },
+        "/arena/play": {
+            "method": "POST",
+            "auth": "x-arena-key",
+            "docs": "What a game arena calls: {view, seat?, prompt?} in, {move} out. Same gate as /arena/solve. One agent job per move \u2014 expect seconds per turn."
         }
     },
     "urls": {
         "api": "http://localhost:8894",
-        "app": "http://localhost:8895"
+        "app": "http://localhost:8895",
+        "mcp": "http://localhost:8894/mcp"
     },
-    "gateway_port": 3000
+    "gateway_port": 3000,
+    "protocol": "mcp/2025-06-18",
+    "mcp": {
+        "http": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
+        "stdio": "build-fork-jobs --stdio  (bridges to the running API; BUILD_FORK_TOKEN acts as you)",
+        "protocol_version": "2025-06-18",
+        "capabilities": [
+            "tools",
+            "resources",
+            "prompts"
+        ],
+        "auth": "the same Authorization: Bearer token the REST routes take; without one you get the tools tagged [public]"
+    },
+    "arena": {
+        "speaks": "arena/1.0",
+        "discovery": "every module on this fleet whose config.json declares protocol arena/*",
+        "outbound": [
+            "arena_list",
+            "arena_tools",
+            "arena_call",
+            "arena_enter",
+            "arena_withdraw",
+            "arena_status",
+            "arena_leaderboard",
+            "arena_match"
+        ],
+        "inbound": {
+            "solve": "POST /arena/solve \u2014 {task|prompt, language?, mode?} \u2192 {code, language}",
+            "play": "POST /arena/play \u2014 {view, seat?, prompt?} \u2192 {move}"
+        },
+        "enters_as": "http",
+        "state": "~/.mod/build-fork/arena.json (0600 \u2014 holds the shared key)",
+        "default": "off; owner runs arena_enter, which mints the key and switches the endpoints on"
+    }
 }

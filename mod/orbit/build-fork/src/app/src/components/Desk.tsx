@@ -1,8 +1,9 @@
 "use client";
 
-// Desk — a browser-OS window manager for module apps, docked under the
-// console header (it splits the mod views; the header stays on top).
-// Each window iframes a
+// Desk — a browser-OS window manager for module apps. It takes the FULL
+// viewport (both axes) so a split screen is a workspace you can actually
+// work in; ✕ EXIT on the taskbar (or Esc) returns to the console with every
+// pane still running. Each window iframes a
 // gateway /{mod} app. Drag a titlebar to the screen edges for Windows-style
 // snap zones (halves at the sides, quarters at the corners, maximize at the
 // top), pick a cell from the ⊞ snap-layout popup, or use snap-assist: after
@@ -73,7 +74,7 @@ const sameFrac = (a: Frac | null, b: Frac | null) =>
   !!a && !!b && Math.abs(a.x - b.x) < 0.001 && Math.abs(a.y - b.y) < 0.001 &&
   Math.abs(a.w - b.w) < 0.001 && Math.abs(a.h - b.h) < 0.001;
 
-const STORE_KEY = "buildfork.desk.v1";
+const STORE_KEY = "build.desk.v1";
 
 type DragState = {
   id: string;
@@ -542,11 +543,11 @@ export default function Desk({
     <div
       style={{
         position: "fixed",
-        // Dock BELOW the console header (--header-h, published by the page's
-        // header ResizeObserver): a split divides the MOD VIEWS, it doesn't
-        // swallow the console. The address bar, tabs and SPLIT picker stay
-        // reachable at the top while the panes run underneath.
-        top: "var(--header-h, 0px)",
+        // FULL AXIS: the Desk takes the whole viewport, not the slice under
+        // the console header. A split screen is a workspace you RUN IN, so
+        // the panes get every pixel of both axes; the console is one ✕ EXIT
+        // (or Esc) away on the taskbar.
+        top: 0,
         left: 0,
         right: 0,
         bottom: 0,

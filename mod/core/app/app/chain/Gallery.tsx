@@ -9,6 +9,7 @@ import { toast } from 'react-toastify'
 import { TERM_FONT, ACCENT, chainApi, short } from './shared'
 import { Btn, Input, panelStyle } from './ui'
 import { Heading } from './Sidebar'
+import { NEON } from './arcade'
 import { uniqueName, type ProjectsApi } from './projects'
 
 export interface SharedEntry {
@@ -28,6 +29,8 @@ export function Gallery({ projects, address, onNavigate }: {
   onNavigate?: () => void
 }) {
   const [entries, setEntries] = useState<SharedEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
   const [publishing, setPublishing] = useState(false)
   const [description, setDescription] = useState('')
   const [busy, setBusy] = useState('')
@@ -36,7 +39,11 @@ export function Gallery({ projects, address, onNavigate }: {
   const proj = projects.project
 
   const load = useCallback(() => {
-    chainApi('/build/shared').then(d => setEntries(d.shared || [])).catch(() => {})
+    setLoading(true)
+    chainApi('/build/shared')
+      .then(d => { setEntries(d.shared || []); setErr('') })
+      .catch(e => setErr(e?.message || 'could not load the gallery'))
+      .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -103,7 +110,7 @@ export function Gallery({ projects, address, onNavigate }: {
 
       {publishing && proj && (
         <div style={{ padding: '0 8px 8px' }}>
-          <div style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '5px' }}>
+          <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '5px' }}>
             share <span style={{ color: ACCENT }}>{proj.name}</span>
           </div>
           <Input value={description} onChange={setDescription} placeholder="what it does" />
@@ -112,15 +119,24 @@ export function Gallery({ projects, address, onNavigate }: {
             <Btn size="sm" active={false} onClick={() => { setPublishing(false); setDescription('') }}>CANCEL</Btn>
           </div>
           {!address && (
-            <div style={{ fontFamily: TERM_FONT, fontSize: '10px', color: '#f59e0b', marginTop: '6px', lineHeight: 1.4 }}>
+            <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: '#f59e0b', marginTop: '6px', lineHeight: 1.4 }}>
               sign in with a wallet to share
             </div>
           )}
         </div>
       )}
 
-      {entries.length === 0 ? (
-        <div style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)', padding: '4px 10px 10px', lineHeight: 1.5 }}>
+      {err ? (
+        <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: NEON.dead, padding: '4px 10px 10px', lineHeight: 1.5 }}>
+          {err}
+        </div>
+      ) : loading && entries.length === 0 ? (
+        <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', padding: '4px 10px 10px' }}
+          className="arc-pulse">
+          loading…
+        </div>
+      ) : entries.length === 0 ? (
+        <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', padding: '4px 10px 10px', lineHeight: 1.5 }}>
           Nothing shared yet.
         </div>
       ) : entries.map(entry => (
@@ -135,10 +151,10 @@ export function Gallery({ projects, address, onNavigate }: {
               color: 'var(--text-secondary)', cursor: busy ? 'wait' : 'pointer', overflow: 'hidden',
             }}
           >
-            <div style={{ fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {busy === entry.id ? 'forking…' : entry.name}
             </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-tertiary)', opacity: 0.8 }}>
+            <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', opacity: 0.8 }}>
               {entry.builtin ? 'fleet' : entry.author === me ? 'you' : short(entry.author, 6, 4)}
               {' · '}{entry.files.length} file{entry.files.length === 1 ? '' : 's'}
             </div>
@@ -148,7 +164,7 @@ export function Gallery({ projects, address, onNavigate }: {
               onClick={() => unshare(entry)}
               title="unshare"
               style={{
-                fontFamily: TERM_FONT, fontSize: '11px', padding: '0 8px', border: 'none',
+                fontFamily: TERM_FONT, fontSize: '13px', padding: '0 8px', border: 'none',
                 background: 'transparent', color: 'var(--text-tertiary)', cursor: 'pointer', opacity: 0.7,
               }}
             >
@@ -159,7 +175,7 @@ export function Gallery({ projects, address, onNavigate }: {
       ))}
 
       <div style={{
-        fontFamily: TERM_FONT, fontSize: '10px', color: 'var(--text-tertiary)',
+        fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)',
         padding: '8px 10px 10px', borderTop: '1px solid var(--border-color)', marginTop: '8px',
         lineHeight: 1.5,
       }}>

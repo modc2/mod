@@ -18,6 +18,7 @@ use crate::catalog::{AddError, Catalog};
 use crate::chain::ChainClient;
 use crate::embed::Semantic;
 use crate::owner::OwnerAuth;
+use crate::staking::{BackRequest, Staking};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -25,6 +26,8 @@ pub struct AppState {
     pub chain: Arc<ChainClient>,
     pub semantic: Arc<Semantic>,
     pub owner: Arc<OwnerAuth>,
+    /// Wallet-signed module backing (BlocTime staked to a module).
+    pub staking: Arc<Staking>,
     pub version: &'static str,
 }
 
@@ -40,6 +43,10 @@ pub fn router(state: AppState) -> Router {
         .route("/stats", get(stats))
         .route("/search", get(search))
         .route("/registry", get(registry))
+        // BlocTime backing — the wallet half of per-module staking. Static
+        // segments win over `/mods/:name`, so these never shadow a module.
+        .route("/mods/stakes", get(stakes_all).post(stake_mod))
+        .route("/mods/:name/stakes", get(stakes_one))
         .route("/graph", get(graph))
         // Owner-gated: grow the catalog by importing a GitHub repo.
         .route("/owner/verify", post(owner_verify))
@@ -374,4 +381,47 @@ async fn search(
         "query": params.q,
         "results": results,
     }))
+}
+
+// ── BlocTime backing ────────────────────────────────────────────────────────
+//
+// `GET /mods/stakes` is shaped like the chain module's endpoint of the same
+// name (wei totals per module) because the catalog grid ranks on it — the
+// difference is that this one MERGES the chain module's key-signed ledger with
+// the wallet-signed one this module owns.
+
+async fn stakes_all(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.staking.totals().await)
+}
+
+#[derive(serde::Deserialize)]
+struct StakesQuery {
+    /// Viewer address — adds their position, balance and headroom.
+    #[serde(default)]
+    address: Option<String>,
+}
+
+async fn stakes_one(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(q): Query<StakesQuery>,
+) -> impl IntoResponse {
+    Json(state.staking.module(&name, q.address.as_deref()).await)
+}
+
+/// Stake/unstake BlocTime to a module with a browser wallet. The body carries
+/// the `personal_sign` signature over the message the wallet displayed; the
+/// signer is recovered here, so no key or session is involved.
+async fn stake_mod(
+    State(state): State<AppState>,
+    Json(body): Json<BackRequest>,
+) -> impl IntoResponse {
+    match state.staking.apply(&body).await {
+        Ok(res) => (StatusCode::OK, Json(serde_json::json!(res))).into_response(),
+        Err((code, msg)) => (
+            StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST),
+            Json(serde_json::json!({ "error": msg })),
+        )
+            .into_response(),
+    }
 }

@@ -51,10 +51,16 @@ type Props = {
   /** Fires when the menu opens — the hook for lazy-loading options. */
   onOpen?: () => void;
   searchPlaceholder?: string;
+  /** Stacking layer for the portaled menu (and its click-away scrim). The
+      default clears the console chrome; a picker used INSIDE a modal has to
+      be raised above that modal's own backdrop or its menu opens underneath
+      it — invisible and unclickable. */
+  menuZ?: number;
   "aria-label"?: string;
 };
 
 const MENU_MAX_HEIGHT = 320;
+const MENU_Z = 200;
 
 /** Accents arrive as hex ("#f472b6") or as CSS vars — color-mix handles both. */
 const tint = (color: string, pct: number) => `color-mix(in srgb, ${color} ${pct}%, transparent)`;
@@ -74,6 +80,7 @@ export function PillSelect({
   onSearch,
   onOpen,
   searchPlaceholder,
+  menuZ = MENU_Z,
   "aria-label": ariaLabel,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -192,7 +199,7 @@ export function PillSelect({
 
       {open && anchor && createPortal(
         <>
-          <div className="fixed inset-0 z-[200]" onClick={() => close(false)} />
+          <div className="fixed inset-0" style={{ zIndex: menuZ }} onClick={() => close(false)} />
           <div
             ref={menuRef}
             role="listbox"
@@ -205,8 +212,9 @@ export function PillSelect({
               else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
               else if (e.key === "Enter" || (e.key === " " && !searchable)) { e.preventDefault(); const o = visible[cursor]; if (o) pick(o); }
             }}
-            className="fixed z-[201] rounded-xl overflow-y-auto py-1 outline-none"
+            className="fixed rounded-xl overflow-y-auto py-1 outline-none"
             style={{
+              zIndex: menuZ + 1,
               left: Math.max(8, Math.min(anchor.x, (typeof window !== "undefined" ? window.innerWidth : 1e4) - (menuWidth ?? Math.max(anchor.w, 180)) - 8)),
               [anchor.up ? "bottom" : "top"]: anchor.up
                 ? (typeof window !== "undefined" ? window.innerHeight : 0) - anchor.y

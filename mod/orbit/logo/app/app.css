@@ -1,0 +1,211 @@
+/* The logo console. Same terminal register as the rest of the fleet's
+   consoles: dark ground, one accent, monospace everywhere. */
+:root {
+  --bg: #0b0d0c;
+  --bg-2: #111513;
+  --line: #1f2a24;
+  --fg: #d6e6dd;
+  --dim: #6d8a7c;
+  --green: #4ade80;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* -- header ---------------------------------------------------------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.cube { color: var(--green); flex: 0 0 auto; }
+.name { font-weight: 700; letter-spacing: 0.16em; color: var(--green); }
+.tag { color: var(--dim); font-size: 11px; }
+.who { display: flex; align-items: center; gap: 8px; }
+.addr { color: var(--dim); font-size: 11px; }
+.addr.on { color: var(--green); }
+
+.pill {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--red) 45%, transparent);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+}
+
+.hidden { display: none; }
+
+/* -- layout ---------------------------------------------------------- */
+
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px;
+  align-items: start;
+}
+
+@media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+  padding: 14px 16px 16px;
+  min-width: 0;
+}
+
+h2 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--green);
+}
+
+.hint { margin: 0 0 12px; color: var(--dim); font-size: 11px; }
+code { color: var(--fg); }
+
+/* -- form ------------------------------------------------------------ */
+
+.field { display: block; margin-bottom: 10px; }
+.field > span:first-child {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 3px;
+}
+.row { display: flex; gap: 6px; }
+
+input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 8px;
+  outline: none;
+}
+input:focus { border-color: color-mix(in srgb, var(--green) 50%, transparent); }
+input[type="file"] { padding: 4px; color: var(--dim); }
+
+.btn {
+  flex: 0 0 auto;
+  background: color-mix(in srgb, var(--green) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
+  color: var(--green);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.btn:hover { background: color-mix(in srgb, var(--green) 16%, transparent); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn.warn {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 35%, transparent);
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+}
+
+/* -- the mark -------------------------------------------------------- */
+
+.preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.mark {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--green);
+  font-size: 24px;
+  overflow: hidden;
+}
+.mark img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+
+.meta { color: var(--dim); font-size: 11px; min-width: 0; word-break: break-all; }
+.owner { font-size: 11px; color: var(--dim); margin-bottom: 10px; word-break: break-all; }
+.owner b { color: var(--fg); font-weight: 600; }
+.owner .yes { color: var(--green); }
+.owner .no { color: var(--amber); }
+
+.msg { font-size: 11px; min-height: 16px; margin-top: 6px; word-break: break-word; }
+.msg.ok { color: var(--green); }
+.msg.err { color: var(--red); }
+.limits { font-size: 10px; color: var(--dim); margin-top: 4px; }
+
+/* -- the wall -------------------------------------------------------- */
+
+.marks { display: flex; flex-direction: column; gap: 6px; }
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  background: transparent;
+  text-align: left;
+  font-family: var(--mono);
+  color: var(--fg);
+}
+.card:hover { border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+.card .mark { width: 30px; height: 30px; font-size: 16px; }
+.card .who2 { font-size: 10px; color: var(--dim); }
+.card .mod { font-size: 12px; }
+
+footer {
+  border-top: 1px solid var(--line);
+  padding: 8px 16px 20px;
+  color: var(--dim);
+  font-size: 10px;
+}
+footer a { color: var(--dim); }
+.sep { opacity: 0.5; margin: 0 6px; }

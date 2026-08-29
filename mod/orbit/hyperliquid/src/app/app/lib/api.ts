@@ -237,16 +237,36 @@ export type WalletNetConfig = {
 };
 export const walletConfig = () => j<WalletNetConfig>(`/wallet/config`);
 
-// ── cross-chain deposit (Ethereum / Base / Polygon → Arbitrum → HL) ──
+// ── cross-chain deposit: 7 chains → Hyperliquid, in one transaction ──
+export type DepositToken = {
+  symbol: string; address: string; decimals: number; native: boolean;
+};
 export type DepositChain = {
   key: string; name: string; chainId: number; chainIdHex: string;
   rpcUrl: string; explorerUrl: string; usdcAddress: string;
   nativeSymbol: string; gasReserve: number; direct: boolean;
+  tokens: DepositToken[];
 };
 export type DepositChains = {
-  testnet: boolean; toChainId: number; toUsdc: string;
+  testnet: boolean;
+  /** Where deposits land — Hyperliquid Core itself (LI.FI chain id 1337). */
+  toChainId: number; toUsdc: string;
+  /** Withdrawals still exit via Arbitrum. */
+  arbitrumChainId: number; arbitrumUsdc: string;
   minDepositUsd: number; chains: DepositChain[];
 };
+/** One spendable (chain, token) pair the wallet actually holds. */
+export type DepositSourceRow = {
+  chainKey: string; chainName: string; chainId: number;
+  symbol: string; address: string; decimals: number; native: boolean;
+  balance: number; max: number;
+  /** null when no price is available — the balance is still depositable. */
+  priceUsd: number | null; usd: number | null;
+  gasReserve: number;
+  /** USDC on Arbitrum: goes to Hyperliquid's own bridge, no router. */
+  direct: boolean;
+};
+export type DepositSource = DepositSourceRow & { chain: DepositChain };
 export type DepositBalance = {
   key: string; chainId: number; name: string; ok: boolean;
   native: { symbol: string; balance: number; usd: number; priceUsd: number; gasReserve: number };
@@ -254,22 +274,31 @@ export type DepositBalance = {
 };
 export type DepositQuote = {
   tool: string | null;
-  fromChainId: number; fromToken: string; fromAmountUnits: string;
-  toUsdc: number; toUsdcMin: number; durationSec: number;
+  fromChainId: number; fromChainName: string;
+  fromToken: string; fromSymbol: string; fromAmountUnits: string;
+  toChainId: number; toChainName: string;
+  /** true when the route ends inside the Hyperliquid account — no follow-up tx. */
+  landsOnHyperliquid: boolean;
+  toUsdc: number; toUsdcMin: number;
+  gasUsd: number; feeUsd: number; durationSec: number;
   approvalAddress: string | null;
   transactionRequest: { to: string; data: string; value?: string; gasLimit?: string; gasPrice?: string } | null;
 };
 export type DepositStatus = {
   status: "NOT_FOUND" | "INVALID" | "PENDING" | "DONE" | "FAILED";
   substatus?: string | null; substatusMessage?: string | null;
-  receivedUsdc?: number | null;
+  receivedUsdc?: number | null; receivingTxHash?: string | null;
 };
 
 export const depositChains = () => j<DepositChains>(`/deposit/chains`);
 export const depositBalances = (eoa: string) =>
-  j<{ eoa: string; chains: DepositBalance[] }>(`/deposit/balances?eoa=${encodeURIComponent(eoa)}`);
+  j<{ eoa: string; chains: DepositBalance[]; sources: DepositSourceRow[] }>(
+    `/deposit/balances?eoa=${encodeURIComponent(eoa)}`);
 export const depositQuote = (b: {
-  from_chain_id: number; token: "usdc" | "native"; amount: string; eoa: string;
+  from_chain_id: number;
+  /** "usdc", "native", a symbol, or a token address. */
+  token: string;
+  amount: string; eoa: string;
   to_chain_id?: number; to_address?: string; // withdrawals bridge Arbitrum → elsewhere
 }) =>
   j<DepositQuote>(`/deposit/quote`, { method: "POST", body: JSON.stringify(b) });
@@ -323,6 +352,45 @@ export const liveStop = (eoa: string) =>
   j<any>(`/live/stop`, { method: "POST", body: JSON.stringify({ eoa }) });
 export const liveStatus = (eoa: string) =>
   j<{ eoa: string; config: any; state: any }>(`/live/status?eoa=${encodeURIComponent(eoa)}`);
+
+// ── MCP (`/mcp/schema`) ──
+// The tool surface this module exposes to agents, and the mod-protocol fn +
+// REST route behind each tool. Public — the connect page renders it signed-out.
+export type McpTool = {
+  name: string;
+  fn: string;
+  method: string;
+  path: string;
+  public: boolean;
+  description: string;
+  inputSchema: { properties?: Record<string, any>; required?: string[] };
+};
+export type McpTransport = {
+  type: string;
+  endpoint?: string;
+  messages?: string;
+  command?: string;
+  note?: string;
+};
+export type McpSchema = {
+  name: string;
+  version: string;
+  testnet: boolean;
+  mcp: {
+    endpoint: string;
+    protocolVersion: string;
+    supportedVersions: string[];
+    auth: string;
+    instructions: string;
+    transports: McpTransport[];
+  };
+  tools: McpTool[];
+};
+export const fetchMcpSchema = () => j<McpSchema>(`/mcp/schema`);
+
+/** Absolute URL of an API path — what an external agent must be pointed at. */
+export const apiUrl = (path: string) =>
+  typeof window === "undefined" ? path : new URL(`${BASE}${path}`, window.location.origin).toString();
 
 // ── agent (`/ask`) ──
 // The agent answers only out of MCP tool calls against this same API, so it

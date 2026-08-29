@@ -1,7 +1,7 @@
 {
     "name": "taox",
     "version": "0.1.0",
-    "description": "Convert ETH, SOL, USDC, USDT (Ethereum or Solana) into native TAO. Rust (axum) API + Next.js frontend. MetaMask (Ethereum sources) and SubWallet (Solana sources / TAO destination).",
+    "description": "Bridge into TAO from Solana, Base or Ethereum. Compares every available route \u2014 instant-swap desks, Wormhole/Sunrise, TaoFi (Hyperlane), TaoBridge wTAO, CEX \u2014 with live key-free quotes, plus a custodial swap desk. Rust (axum) API + Next.js frontend.",
     "port": 8870,
     "app_port": 3870,
     "urls": {
@@ -95,8 +95,11 @@
         "orders",
         "deposit_address",
         "rates",
+        "bridge_quote",
+        "bridge_assets",
+        "bridges",
         "serve",
         "kill"
     ],
-    "schema": "QmPYcDaR1PpBai7bhmS2m1hyLb3qYYxmF1RH1bGsaze4Lu"
+    "schema": "QmR1Uw7DPsv7xKZgPN5gyyAHxA9UzuB6maSDnQuc2J2Bgm"
 }

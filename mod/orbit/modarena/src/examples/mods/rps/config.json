@@ -1,0 +1,14 @@
+{
+  "name": "rps",
+  "kind": "game",
+  "lang": "wasm",
+  "anchor": "mod.wasm",
+  "description": "Rock, paper, scissors \u2014 best of five, both seats throwing at once. The simplest game with simultaneous moves.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "game"
+  ],
+  "protocol": "modarena/1.0",
+  "players": 2
+}

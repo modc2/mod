@@ -99,6 +99,7 @@ async fn main() -> anyhow::Result<()> {
     let share = polymarket_api::ShareStore::from_env();
     tracing::info!(backend = %share.label(), "strat share store");
     let sync = polymarket_api::SyncSchedule::from_env();
+    let copy_book = polymarket_api::CopyBookStore::from_env();
     let state = AppState {
         http: http.clone(),
         proxy_cache: proxy_cache.clone(),
@@ -109,6 +110,7 @@ async fn main() -> anyhow::Result<()> {
         user_strats,
         share,
         sync: sync.clone(),
+        copy_book,
     };
 
     // Background warmup: traders pipeline. 5-MINUTE cadence by default — the

@@ -51,8 +51,12 @@ console — Hub / Interact / Contracts / Control / Protocol / Owner / Docs).
   deployed by one project can be driven from another with nothing but a CID.
 - **Project gallery**: upload a project off your machine, or publish one you
   built so anybody can fork it (`~/.mod/chain/build/shared.json`, keyed
-  `<author>/<name>`). BlocTime ships in the gallery read-only — fork it and its
-  13 tests run as-is.
+  `<author>/<name>`). Every fleet module ships in the gallery read-only —
+  `fleet/token`, `oracle`, `registry`, `perms`, `tokengate`, `bloctime`,
+  `treasury`, `market`, `debit`, `safe`, `defi` — each laid out as a Hardhat
+  project with the contracts it depends on, its README and its own tests, and
+  `fleet/protocol` bundles all of them with every test. Fork one and the tests
+  run as-is.
 - **Owner-only host readout**: per-core CPU, memory, swap, disk, per-interface
   network traffic, socket census and the top processes of the machine the API
   runs on. Gated by a wallet signature from an address in
@@ -132,7 +136,7 @@ curl -X POST localhost:8800/call -H 'Content-Type: application/json' \
 | POST | `/build/compile` | `{source, filename?, optimize?, runs?}` → deployable `{name, abi, bytecode, size, constructor}` + errors/warnings |
 | GET | `/build/templates` | Starter contracts |
 | GET/POST/DELETE | `/build/projects` — GET `/build/projects/{name}` | Per-address projects (a named bag of files) |
-| GET/POST/DELETE | `/build/shared` — GET `/build/shared/{id}` | Shared project gallery; publish yours, fork anyone's. Ships `fleet/bloctime` read-only |
+| GET/POST/DELETE | `/build/shared` — GET `/build/shared/{id}` | Shared project gallery; publish yours, fork anyone's. Ships every fleet module read-only (`fleet/<module>`, `fleet/protocol` = all of them) |
 | GET/POST/DELETE | `/build/drafts` | Per-address source drafts |
 | GET/POST | `/build/deployments` | Per-address record of wallet-signed builds; POST stores the ABI + source and returns their CIDs |
 | GET | `/build/abi/{cid}` | One ABI out of the store, parsed |
@@ -158,8 +162,6 @@ Used by `hardhat.config.js` / deploy tooling (all optional; sane defaults):
 - `src/app/` — Next.js console; `src/app/start.sh` (`DEV=0` → build + start)
 - `src/contracts/<module>/` — Solidity sources, one README per module
 - `src/build/compile.js` + `src/build/templates/` — contract builder toolchain
-- `src/build/shared/` — fixtures the shipped gallery entries need (BlocTime's
-  staking `Token.sol`), kept out of the compiled contracts tree
 - `src/api/host.py` — /proc reader behind `/system/stats` (stdlib only)
 - `~/.mod/chain/build/` — builder drafts + recorded user deployments (off-tree)
 - `~/.mod/chain/owners.json` — who may read the host (0600, seeded from the

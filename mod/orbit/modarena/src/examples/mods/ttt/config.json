@@ -1,0 +1,14 @@
+{
+  "name": "ttt",
+  "kind": "game",
+  "lang": "wasm",
+  "anchor": "mod.wasm",
+  "description": "Tic-tac-toe. Solved, so a perfect opponent exists and a loss is a mistake rather than bad luck.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "game"
+  ],
+  "protocol": "modarena/1.0",
+  "players": 2
+}

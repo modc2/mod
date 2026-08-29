@@ -28,6 +28,7 @@ reached.
 
 ```bash
 m 0xprof/prove system=schnorr secret=42 context=demo      # also dleq, merkle
+m 0xprof/prove system=pedersen value=1000 context=demo    # blinding= to pin r
 m 0xprof/prove system=groth16 zkey=circuit.zkey wasm=circuit.wasm inputs=input.json
 ```
 
@@ -65,6 +66,16 @@ returns a message naming that proof, and `POST /proofs/{id}/verify` takes
 says its verifiers think, under a name, so it is signed. The signature is bound
 to that one proof, expires in ten minutes, and buys exactly one run — the check
 log is the replay list.
+
+## Signing in without a wallet
+
+The console's SIGN IN offers two doors: a wallet extension, or a secp256k1 key
+it generates in the tab (`src/app/keys.js`, `src/app/account.js` — keccak-256
+and the curve in BigInt, zero dependencies). Both sign the same
+`/auth/challenge` message with the same `personal_sign`, so `identity.py` has
+one code path and no notion of an "anonymous" session — an address is an
+address. The key is kept in `localStorage` under `zkprof_key`, shown and
+exportable on the WALLET tab, and clearing site data destroys that account.
 
 ## Which method can check what
 

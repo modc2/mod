@@ -156,6 +156,21 @@ body {
   background-size: 10px 10px;
 }
 
+/* ── inline code ───────────────────────────────────────────────────────
+   For an identifier sitting inside a sentence on the docs page. It borrows the
+   coin colour from the block code samples but stays on the panel rather than
+   punching a black hole through a line of prose, and it wraps: an MCP URL in
+   the middle of a paragraph must not push the column wider on a phone. */
+.code {
+  padding: 0.1em 0.35em;
+  border: 2px solid #000;
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--nes-coin);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
 /* ── coin ──────────────────────────────────────────────────────────────
    The busy indicator. A spinning coin is the one loading spinner every player
    already knows, and it squashes on its vertical axis exactly like the sprite

@@ -332,7 +332,17 @@ const server = http.createServer(async (req, res) => {
     host: "127.0.0.1", port: r.port, method: req.method,
     path: proxyPath(req.url, r.strip), headers: req.headers,
   };
-  const up = http.request(opts, (ur) => { res.writeHead(ur.statusCode, ur.headers); ur.pipe(res); });
+  const up = http.request(opts, (ur) => {
+    res.writeHead(ur.statusCode, ur.headers);
+    ur.pipe(res);
+    // pipe() does not propagate a close backwards, so a client that hangs up
+    // mid-response would leave the upstream socket established forever. On a
+    // streaming route (SSE) that means the module can never look idle, and
+    // the app behind it keeps a dead session. Take the upstream down with the
+    // client. On a normal completion `ur` has already ended, so this is a
+    // no-op.
+    res.on("close", () => { ur.destroy(); up.destroy(); });
+  });
   up.on("error", (e) => { if (!res.headersSent) res.writeHead(502); res.end(`activator: upstream error ${e.code || e.message}\n`); });
   req.pipe(up);
 });

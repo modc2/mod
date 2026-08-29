@@ -24,6 +24,7 @@ import type { TraderTrade as StratTraderTrade, StratHistory, SizingModel } from 
 import { marketMatchesQuery } from "./marketQuery";
 import { legKey, legOutcome } from "./leg";
 import { computeFifoTrades, aggregateToRebalanceWindows } from "./pnlEngine";
+import { mergeSims, runOriginationSim, type PriceTape } from "./originationBacktest";
 // Type-only: the sim reports its wallet in the same row shapes the LIVE panel
 // renders, so one component draws both (never fork the markup).
 import type { EquitySnapshot, EquityMarker } from "../components/EquityChart";
@@ -217,6 +218,15 @@ export interface BacktestInput {
   samplePct?: number;
   /** Preview the unconstrained mirror — lifts every sizing/position gate. */
   showAllTrades?: boolean;
+  /** Historical price tape for an ORIGINATING strat (lib/momentumTape.ts).
+   *
+   *  A momentum strat places trades the leader replay below can never produce:
+   *  it has no watchlist at all, and originates from a market's own odds via
+   *  `strat.propose()`. Without a tape such a strat backtests as an empty sim
+   *  while its live session trades all day — the parity gap this closes. Fetch
+   *  it (`tapeFor`) and pass it, and `runBacktest` replays the origination
+   *  cycle loop too (lib/originationBacktest.ts). Undefined for copy strats. */
+  tape?: PriceTape;
   /** True while trader data is still loading — the sim returns empty. */
   loading?: boolean;
   /** Leg key (see lib/leg.ts) → the price that leg RESOLVED at, 1 or 0.
@@ -255,6 +265,9 @@ export interface BacktestResult {
   history: StratHistory;
   keptBuyIds: Set<string>;
   sim: BacktestSim;
+  /** The origination half, when the strat has one — kept separate so a
+      surface can say how much of the result came from originated trades. */
+  origination?: BacktestSim;
 }
 
 /** Sum of the weights of the traders actually being copied. */
@@ -294,6 +307,13 @@ export function computeTraderStats(
     const annotated = computeFifoTrades(trades, positions, sharpeCutoffMs);
     const inWin = annotated.filter((t) => t.timestamp >= sharpeCutoffMs);
     let cashDeployed = 0;
+    // Freshness the FILTER's staleness gate reads — the most recent trade of
+    // ANY side (a trader still buying is active even with no closed trade in
+    // the window), measured off `trades` rather than `inWin` so a trader whose
+    // only activity predates the 30d window still reports their true age
+    // instead of "never".
+    let lastTradeAt = 0;
+    for (const t of trades) if (t.timestamp > lastTradeAt) lastTradeAt = t.timestamp;
     const returns: number[] = [];
     for (const t of inWin) {
       if (t.side === "BUY") cashDeployed += t.price * t.size;
@@ -307,6 +327,7 @@ export function computeTraderStats(
       windowDays: 30,
       ...statsFromReturns(returns),
       cashDeployed,
+      lastTradeAt,
       syncedAt: asOf,
     });
   }
@@ -1037,7 +1058,15 @@ export function runBacktestSim(
 }
 
 /** The whole pipeline in one call — every stage returned, because the console
-    renders the intermediates (trader stats, capital plan) alongside the sim. */
+    renders the intermediates (trader stats, capital plan) alongside the sim.
+ *
+ *  TWO replays live behind this one call, because a live engine cycle does two
+ *  things: it mirrors what the watchlist did, and it originates trades of its
+ *  own from `strat.propose()`. The copy replay is the leader walk below; the
+ *  origination replay is the cycle loop in lib/originationBacktest.ts, and it
+ *  runs whenever the strat originates AND a price tape was supplied. Strats
+ *  that only mirror never touch it; strats that only originate (the two BTC
+ *  templates) used to return an empty sim from here and now return a real one. */
 export function runBacktest(input: BacktestInput): BacktestResult {
   const traderStats = computeTraderStats(
     input.watchlist, input.traderTrades, input.traderPositions, input.marketQuery,
@@ -1046,8 +1075,26 @@ export function runBacktest(input: BacktestInput): BacktestResult {
   const copyRatio = computeCopyRatios(input);
   const history = buildStratHistory(input, traderStats, copyRatio);
   const { kept: keptBuyIds, funnel } = computeKeptBuyIds(input, traderStats, copyRatio, history);
-  const sim = runBacktestSim(input, traderStats, copyRatio, history, keptBuyIds, funnel);
-  return { traderStats, copyRatio, history, keptBuyIds, sim };
+  const copySim = runBacktestSim(input, traderStats, copyRatio, history, keptBuyIds, funnel);
+
+  let origination: BacktestSim | undefined;
+  if (input.tape && input.tape.series.length > 0 && input.strat.proposes() && !input.loading) {
+    origination = runOriginationSim({
+      strat: input.strat,
+      tape: input.tape,
+      capital: input.capital,
+      minTrade: input.minTrade,
+      maxTrade: input.maxTrade,
+      maxOpenPositions: input.maxOpenPositions,
+      stopLossPct: input.stopLossPct,
+      takeProfitFrac: input.takeProfitFrac,
+      pollMinutes: input.pollMinutes,
+      days: input.days,
+      asOf: windowEnd(input),
+    });
+  }
+  const sim = origination ? mergeSims(copySim, origination, input.capital) : copySim;
+  return { traderStats, copyRatio, history, keptBuyIds, sim, origination };
 }
 
 /** The runnable Strat a SavedIndex means. ONE place where a saved strat

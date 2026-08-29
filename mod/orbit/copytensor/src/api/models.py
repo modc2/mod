@@ -16,11 +16,26 @@ class CopyRequest(BaseModel):
     target_ss58: str
     our_hotkey: str
     label: Optional[str] = None
+    # The money behind this trader. Sleeves from every active copy blend into
+    # ONE desired book, so this is what actually decides how much of your
+    # stake follows them — `daily_limit_tao` below is a spend cap, not a size.
+    alloc_tao: Optional[float] = None
     max_tao_per_tx: Optional[float] = None
     daily_limit_tao: Optional[float] = None
     min_balance_tao: Optional[float] = None
     subnet_allowlist: Optional[List[int]] = None
     subnet_denylist: Optional[List[int]] = None
+    rebalance_threshold_pct: Optional[float] = None
+    poll_interval_sec: Optional[int] = None
+
+
+class CopyUpdate(BaseModel):
+    """Re-size or re-label a live copy. Everything is optional; only what you
+    send changes, and the next portfolio pass picks it up."""
+    alloc_tao: Optional[float] = None
+    label: Optional[str] = None
+    our_hotkey: Optional[str] = None
+    max_tao_per_tx: Optional[float] = None
     rebalance_threshold_pct: Optional[float] = None
     poll_interval_sec: Optional[int] = None
 
@@ -212,11 +227,66 @@ class CopyResponse(BaseModel):
     created_at: Optional[str]
     updated_at: Optional[str]
     target_info: Optional[TargetTraderInfo] = None
+    # Lifted out of `config` so a client never has to dig for the one number
+    # that decides the size of this position.
+    alloc_tao: float = 0.0
+
+
+# ── portfolio (many sleeves, one book) ───────────────────────────
+
+class SleeveResponse(BaseModel):
+    """One trader you're copying and the τ behind them."""
+    copy_id: str
+    target_ss58: str
+    label: Optional[str] = None
+    alloc_tao: float = 0.0
+    # After scaling for what the wallet can actually back.
+    effective_tao: float = 0.0
+    pct_of_book: float = 0.0
+    subnets: int = 0
+    stale: bool = False
+    note: Optional[str] = None
+
+
+class PlanRowResponse(BaseModel):
+    netuid: int
+    subnet_name: str = ""
+    action: str
+    desired_tao: float
+    current_tao: float
+    amount_tao: float
+    drift_tao: float
+    contributors: Dict[str, float] = {}
+    reason: str = ""
+
+
+class PortfolioPlanResponse(BaseModel):
+    """What the next pass would do, before it does it."""
+    our_ss58: Optional[str] = None
+    staked_tao: float = 0
+    free_tao: float = 0
+    requested_tao: float = 0
+    deployable_tao: float = 0
+    scale: float = 1.0
+    band_tao: float = 0
+    threshold_pct: float = 5.0
+    sleeves: List[SleeveResponse] = []
+    rows: List[PlanRowResponse] = []
+    trades: int = 0
+    # Set when the pass must not trade at all (a target we couldn't read, or
+    # no copies configured). Every row is `hold` and this says why.
+    blocked: Optional[str] = None
+    notes: List[str] = []
+    executed: bool = False
+    results: List[Dict] = []
 
 
 class TradeResponse(BaseModel):
     id: str
     copy_id: str
+    # Which sleeves paid for this move, and for how much. One blended trade
+    # per subnet can belong to several copies at once.
+    contributors: Optional[Dict[str, float]] = None
     block: Optional[int]
     timestamp: str
     action: str
@@ -234,6 +304,10 @@ class StratTrader(BaseModel):
     label: Optional[str] = None
     weight: float = 1.0
     enabled: bool = True
+    # Absolute τ for this trader. When set it IS the allocation and the
+    # weight is derived from it; when absent the basket falls back to
+    # weight × capital. Going live always resolves to a τ sleeve either way.
+    alloc_tao: Optional[float] = None
 
 
 class BacktestRequest(BaseModel):
@@ -252,6 +326,10 @@ class StratWrite(BaseModel):
     visibility: Optional[str] = None          # private | public | whitelist
     whitelist: Optional[List[str]] = None     # viewer fingerprints
     our_hotkey: Optional[str] = None
+    # How the basket was sized: "split" (a pot cut by weight) or "tao" (a
+    # figure typed per trader). Both resolve to `alloc_tao` per leg; this is
+    # only so reopening the basket lands in the mode it was built in.
+    sizing: Optional[str] = None
     max_tao_per_tx: Optional[float] = None
     daily_limit_tao: Optional[float] = None
     rebalance_threshold_pct: Optional[float] = None

@@ -36,6 +36,31 @@ class PrefiTestBase(unittest.TestCase):
     def _market(self, symbol='WETH', source='coingecko'):
         return self.prefi.add_market(f'0x{symbol}', symbol, 3000, source)
 
+    def _fake_hl(self, mids=None, perps=None, spot=None, tokens=None,
+                 ctxs=None, spot_ctxs=None):
+        """Stand in for the whole Hyperliquid feed.
+
+        The universe is assembled from three calls (allMids, the perp meta, the
+        spot meta); patching them together is the only way to test the join
+        that turns an '@index' key into a pair name.
+        """
+        mids = mids if mids is not None else {}
+        payloads = {
+            'allMids': mids,
+            'metaAndAssetCtxs': [{'universe': perps or []}, ctxs or []],
+            'spotMetaAndAssetCtxs': [{'universe': spot or [], 'tokens': tokens or []},
+                                     spot_ctxs or []],
+        }
+
+        def post(body, *a, **kw):
+            try:
+                return payloads[body['type']]
+            except KeyError:
+                raise RuntimeError(f"unexpected info call {body}")
+
+        return (patch.object(Mod, '_hl_mod_get', return_value=None),
+                patch.object(Mod, '_hl_post', side_effect=post))
+
     def _fund(self, address, prefi_amount):
         """Give an address PREFI the only way it exists — a winning trade"""
         positions = self.prefi._load_json(self.prefi.positions_path, [])
@@ -197,24 +222,27 @@ class TestMarkets(PrefiTestBase):
         self.assertIn('error', self.prefi.add_market('0xX', 'X', 3000, 'oracle-vibes'))
 
     def test_add_hl_market_verifies_against_the_universe(self):
-        with patch.object(Mod, '_hl_mids', return_value={'SOL': 74.0}):
+        mod_get, post = self._fake_hl(mids={'SOL': 74.0}, perps=[{'name': 'SOL'}])
+        with mod_get, post:
             ok = self.prefi.add_hl_market('sol')
             self.assertEqual(ok['status'], 'added')
             self.assertEqual(ok['market']['token'], 'hl:SOL')
             self.assertEqual(ok['market']['source'], 'hyperliquid')
+            self.assertEqual(ok['market']['hl_kind'], 'perp')
             self.assertIn('error', self.prefi.add_hl_market('NOTACOIN'))
 
     def test_add_hl_market_reports_an_unreachable_feed(self):
-        with patch.object(Mod, '_hl_mids', return_value={}):
+        mod_get, post = self._fake_hl(mids={})
+        with mod_get, post:
             self.assertIn('error', self.prefi.add_hl_market('SOL'))
 
     def test_hl_assets_flags_already_listed(self):
-        with patch.object(Mod, '_hl_mids', return_value={'SOL': 74.0, 'BTC': 64000.0}), \
-             patch.object(Mod, '_hl_post', return_value={'universe': [
-                 {'name': 'SOL', 'maxLeverage': 20},
-                 {'name': 'BTC', 'maxLeverage': 40},
-                 {'name': 'OLD', 'maxLeverage': 5, 'isDelisted': True},
-             ]}), patch.object(Mod, '_hl_mod_get', return_value=None):
+        mod_get, post = self._fake_hl(
+            mids={'SOL': 74.0, 'BTC': 64000.0},
+            perps=[{'name': 'SOL', 'maxLeverage': 20},
+                   {'name': 'BTC', 'maxLeverage': 40},
+                   {'name': 'OLD', 'maxLeverage': 5, 'isDelisted': True}])
+        with mod_get, post:
             self.prefi.add_hl_market('SOL')
             assets = {a['coin']: a for a in self.prefi.hl_assets()}
             self.assertTrue(assets['SOL']['listed'])
@@ -226,10 +254,219 @@ class TestMarkets(PrefiTestBase):
         with patch.object(Mod, '_hl_mids', return_value={'SOL': 74.0}):
             self.assertEqual(self.prefi._get_token_price('SOL'), 74.0)
 
-    def test_hl_named_drops_spot_and_index_legs(self):
+    def test_hl_named_keeps_spot_pairs_and_drops_prediction_legs(self):
+        # Spot pairs are quoted under an '@index' key and are perfectly
+        # tradeable; '#10010' is an event leg, which is odds, not a price.
         named = Mod._hl_named({'BTC': '64000', '0G': '0.14', '@1': '16.4',
                                '#10010': '0.97', 'BAD': 'x', 'ZERO': '0'})
-        self.assertEqual(set(named), {'BTC', '0G'})
+        self.assertEqual(set(named), {'BTC', '0G', '@1'})
+
+
+
+class TestHyperliquidUniverse(PrefiTestBase):
+    """Every pair Hyperliquid quotes — perps and spot — is listable here.
+
+    Spot is the half that needs the work: HL quotes a spot pair under an
+    '@index' key and only the spot meta says which token that index is, so a
+    market listed as 'HYPE/USDC' has to remember it is '@107' to the feed.
+    """
+
+    MIDS = {'BTC': 64000.0, 'SOL': 74.0, 'DEAD': 3.0,
+            '@1': 21.0, '@7': 0.5, '@9': 1.25, 'PURR/USDC': 0.11,
+            '#10010': 0.97}
+    PERPS = [{'name': 'BTC', 'maxLeverage': 40}, {'name': 'SOL', 'maxLeverage': 20},
+             {'name': 'DEAD', 'maxLeverage': 5, 'isDelisted': True}]
+    TOKENS = [{'index': 0, 'name': 'USDC'}, {'index': 1, 'name': 'PURR'},
+              {'index': 2, 'name': 'HYPE'}, {'index': 3, 'name': 'FUN'}]
+    SPOT = [{'name': 'PURR/USDC', 'tokens': [1, 0], 'index': 0},
+            {'name': '@1', 'tokens': [2, 0], 'index': 1},
+            {'name': '@7', 'tokens': [3, 0], 'index': 7}]
+    CTXS = [{'dayNtlVlm': '1000', 'prevDayPx': '60000', 'markPx': '64000'},
+            {'dayNtlVlm': '9000', 'prevDayPx': '80', 'markPx': '74'}]
+    # Spot contexts are keyed by coin, not by position — that is the exchange's
+    # own shape, and the '@9' pair deliberately has none.
+    SPOT_CTXS = [{'coin': 'PURR/USDC', 'dayNtlVlm': '1'},
+                 {'coin': '@1', 'dayNtlVlm': '5000'},
+                 {'coin': '@7', 'dayNtlVlm': '10'}]
+
+    def _feed(self):
+        return self._fake_hl(mids=self.MIDS, perps=self.PERPS, spot=self.SPOT,
+                             tokens=self.TOKENS, ctxs=self.CTXS,
+                             spot_ctxs=self.SPOT_CTXS)
+
+    def test_universe_carries_perps_and_spot_under_one_shape(self):
+        mod_get, post = self._feed()
+        with mod_get, post:
+            rows = {a['coin']: a for a in self.prefi.hl_assets(limit=0)}
+        self.assertEqual(rows['SOL']['kind'], 'perp')
+        self.assertEqual(rows['HYPE/USDC']['key'], '@1')
+        self.assertEqual(rows['HYPE/USDC']['kind'], 'spot')
+        self.assertEqual(rows['HYPE/USDC']['price'], 21.0)
+        self.assertEqual(rows['PURR/USDC']['key'], 'PURR/USDC')
+        self.assertNotIn('DEAD', rows)        # delisted: quoted, not tradeable
+        self.assertNotIn('#10010', rows)      # an event leg is not a pair
+
+    def test_spot_pairs_the_meta_does_not_name_stay_addressable(self):
+        """HL quotes ~700 spot pairs and names ~330. Dropping the rest would
+        make a priceable, settleable pair unreachable."""
+        mod_get, post = self._feed()
+        with mod_get, post:
+            rows = {a['coin']: a for a in self.prefi.hl_assets(limit=0)}
+            self.assertIn('@9', rows)
+            self.assertFalse(rows['@9']['named'])
+            listed = self.prefi.add_hl_market('@9')
+        self.assertEqual(listed['market']['hl_key'], '@9')
+
+    def test_kind_filter_and_limit(self):
+        mod_get, post = self._feed()
+        with mod_get, post:
+            perps = self.prefi.hl_assets(kind='perp', limit=0)
+            spot = self.prefi.hl_assets(kind='spot', limit=0)
+            self.assertEqual({a['coin'] for a in perps}, {'BTC', 'SOL'})
+            self.assertEqual(len(spot), 4)
+            self.assertEqual(len(self.prefi.hl_assets(limit=2)), 2)
+
+    def test_rows_come_back_liquid_end_first(self):
+        mod_get, post = self._feed()
+        with mod_get, post:
+            perps = self.prefi.hl_assets(kind='perp', limit=0)
+        self.assertEqual([a['coin'] for a in perps], ['SOL', 'BTC'])   # 9000 > 1000
+        self.assertEqual(perps[0]['change_24h'], -7.5)
+
+    def test_search_matches_the_pair_name_or_the_hl_key(self):
+        mod_get, post = self._feed()
+        with mod_get, post:
+            self.assertEqual([a['coin'] for a in self.prefi.hl_assets(search='hype')],
+                             ['HYPE/USDC'])
+            self.assertEqual([a['coin'] for a in self.prefi.hl_assets(search='@7')],
+                             ['FUN/USDC'])
+
+    def test_a_spot_market_prices_and_settles_under_its_hl_key(self):
+        mod_get, post = self._feed()
+        with mod_get, post:
+            self.prefi.add_hl_market('HYPE/USDC')
+            market = self.prefi._market('HYPE/USDC')
+            self.assertEqual(market['hl_key'], '@1')
+            self.assertEqual(self.prefi._get_token_price('HYPE/USDC'), 21.0)
+
+        ts = time.time() - 90000
+        bucket = int(ts // 3600 * 3600) * 1000
+        seen = {}
+
+        def candles(path, timeout=10):
+            seen['path'] = path
+            return [{'t': bucket, 'c': '19.5'}]
+
+        with patch.object(Mod, '_hl_mod_get', side_effect=candles):
+            quote = self.prefi._price_at('HYPE/USDC', ts, 'hyperliquid')
+        self.assertEqual(quote, {'price': 19.5, 'mode': 'historical'})
+        self.assertIn('%401', seen['path'])   # '@1', not 'HYPE/USDC'
+
+    def test_a_bare_token_resolves_to_its_canonical_pair(self):
+        mod_get, post = self._feed()
+        with mod_get, post:
+            self.assertEqual(self.prefi.add_hl_market('fun')['market']['symbol'],
+                             'FUN/USDC')
+
+    def test_a_perp_wins_a_name_it_shares_with_a_spot_token(self):
+        """'BTC' is a perp and could also be a spot base token — the perp is
+        what someone typing BTC means."""
+        mod_get, post = self._fake_hl(
+            mids={'BTC': 64000.0, '@3': 63000.0},
+            perps=[{'name': 'BTC'}],
+            spot=[{'name': '@3', 'tokens': [1, 0], 'index': 3}],
+            tokens=[{'index': 0, 'name': 'USDC'}, {'index': 1, 'name': 'BTC'}])
+        with mod_get, post:
+            self.assertEqual(self.prefi._hl_find('BTC')['kind'], 'perp')
+            self.assertEqual(self.prefi._hl_find('BTC/USDC')['key'], '@3')
+
+    def test_a_stale_list_beats_an_empty_one_when_the_feed_429s(self):
+        mod_get, post = self._feed()
+        with mod_get, post:
+            warm = len(self.prefi.hl_assets(limit=0))
+
+        cold = Mod({})                       # fresh process, cold memory cache
+        cold.store_dir = self.prefi.store_dir
+        cold.markets_path = self.prefi.markets_path
+        with patch.object(Mod, '_hl_mod_get', return_value=None), \
+             patch.object(Mod, '_hl_post', side_effect=RuntimeError('429')):
+            self.assertEqual(len(cold.hl_assets(limit=0)), warm)
+            self.assertFalse(cold.hl_stats()['reachable'] is None)
+
+    def test_seed_lists_the_busiest_pairs_in_one_call(self):
+        """Standing a pool up should not mean 20 clicks through a 900-row list."""
+        mod_get, post = self._feed()
+        with mod_get, post:
+            out = self.prefi.seed_hl(limit=3)
+            listed = [m['symbol'] for m in self.prefi.list_markets()]
+        self.assertEqual(out['added'], ['SOL', 'BTC', 'HYPE/USDC'])  # by volume
+        self.assertEqual(listed, ['SOL', 'BTC', 'HYPE/USDC'])
+
+    def test_seed_is_idempotent_and_can_be_narrowed(self):
+        """`limit` is the top of the ranking, not a count of new listings."""
+        mod_get, post = self._feed()
+        with mod_get, post:
+            self.prefi.seed_hl(limit=2)
+            again = self.prefi.seed_hl(limit=2)
+            self.assertEqual(again['added'], [])
+            self.assertEqual(again['existing'], ['SOL', 'BTC'])
+            spot = self.prefi.seed_hl(limit=2, kind='spot')
+            self.assertEqual(spot['added'], ['HYPE/USDC', 'FUN/USDC'])
+
+    def test_seed_skips_pairs_under_a_volume_floor(self):
+        mod_get, post = self._feed()
+        with mod_get, post:
+            out = self.prefi.seed_hl(limit=10, kind='perp', min_volume=5000)
+        self.assertEqual(out['added'], ['SOL'])   # BTC trades $1000
+
+    def test_seed_reports_an_unreachable_feed_rather_than_listing_nothing(self):
+        with patch.object(Mod, '_hl_mod_get', return_value=None), \
+             patch.object(Mod, '_hl_post', side_effect=RuntimeError('429')):
+            self.assertIn('error', self.prefi.seed_hl())
+
+    def test_stats_counts_what_is_quoted_and_what_is_listed(self):
+        mod_get, post = self._feed()
+        with mod_get, post:
+            self.prefi.add_hl_market('SOL')
+            stats = self.prefi.hl_stats()
+        self.assertEqual(stats['perps'], 2)
+        self.assertEqual(stats['spot'], 4)
+        self.assertEqual(stats['pairs'], 6)
+        self.assertEqual(stats['listed'], 1)
+        self.assertTrue(stats['reachable'])
+
+    def test_the_module_is_asked_before_the_public_endpoint(self):
+        """One HL client per box: the local hyperliquid module answers first,
+        and only a miss falls through to the rate-limited public API."""
+        with patch.object(Mod, '_hl_mod_get', return_value={'BTC': '64000'}) as mod_get, \
+             patch.object(Mod, '_hl_post', side_effect=AssertionError('public API used')):
+            self.assertEqual(self.prefi._hl_mids(), {'BTC': 64000.0})
+        mod_get.assert_called_with('/mids')
+
+    def test_the_activator_door_is_tried_when_the_direct_port_is_dead(self):
+        """The hyperliquid module is scale-to-zero: a refused call on its own
+        port means asleep, and only the activator hop wakes it."""
+        seen = []
+
+        class Resp:
+            status_code = 200
+            def raise_for_status(self): pass
+            def json(self): return {'BTC': '64000'}
+
+        def get(url, timeout=None):
+            seen.append(url)
+            if url.startswith(Mod.HL_MOD_URL):
+                raise ConnectionError('refused')
+            return Resp()
+
+        with patch('mod.requests.get', side_effect=get):
+            self.assertEqual(self.prefi._hl_mod_get('/mids'), {'BTC': '64000'})
+        self.assertEqual(len(seen), 2)
+        self.assertTrue(seen[1].startswith(Mod.HL_WAKE_URL))
+        # ...and the door that answered is the one tried first next time.
+        with patch('mod.requests.get', side_effect=get):
+            self.prefi._hl_mod_get('/mids')
+        self.assertTrue(seen[2].startswith(Mod.HL_WAKE_URL))
 
 
 class TestHistoricalPrice(PrefiTestBase):
@@ -458,6 +695,141 @@ class TestPredictions(PrefiTestBase):
         everyone = self.prefi.get_predictions()
         self.assertEqual(len(everyone), 2)
         self.assertGreaterEqual(everyone[0]['created_at'], everyone[1]['created_at'])
+
+
+class TestFreePredictions(PrefiTestBase):
+    """A free call costs nothing, is scored identically, and still mints"""
+
+    def setUp(self):
+        super().setUp()
+        self._market('WETH')
+        self.price_patch = patch.object(Mod, '_get_token_price', return_value=2000.0)
+        self.price_patch.start()
+        self.addCleanup(self.price_patch.stop)
+
+    def _settle_at(self, actual):
+        preds = self.prefi._load_json(self.prefi.predictions_path, [])
+        for p in preds:
+            p['resolve_at'] = time.time() - 10
+        self.prefi._save_json(self.prefi.predictions_path, preds)
+        with patch.object(Mod, '_price_at',
+                          return_value={'price': actual, 'mode': 'historical'}):
+            return self.prefi.resolve_predictions()
+
+    def test_a_broke_address_can_still_predict(self):
+        """The whole point — no PREFI, no trade history, still a forecaster"""
+        self.assertEqual(self.prefi.prefi_balance('0xNew')['available'], 0.0)
+        r = self.prefi.predict('WETH', 2050.0, address='0xNew')
+        self.assertEqual(r['status'], 'open')
+        self.assertTrue(r['free'])
+        self.assertEqual(r['burned'], 0)
+
+    def test_a_free_call_never_touches_the_balance(self):
+        self.prefi.predict('WETH', 2050.0, address='0xNew')
+        b = self.prefi.prefi_balance('0xNew')
+        self.assertEqual(b['burned'], 0)
+        self.assertEqual(b['available'], 0.0)
+        self.assertEqual(self.prefi.treasury()['total_prefi_burned'], 0)
+
+    def test_a_good_free_call_mints_free_payout(self):
+        self.prefi.predict('WETH', 2000.0, address='0xNew')
+        self._settle_at(2000.0)
+        p = self.prefi.get_predictions('0xNew')[0]
+        self.assertEqual(p['score'], 1.0)
+        self.assertEqual(p['payout'], scoring.DEFAULT_PARAMS['free_payout'])
+        b = self.prefi.prefi_balance('0xNew')
+        self.assertEqual(b['from_free'], 1.0)
+        self.assertEqual(b['available'], 1.0)
+
+    def test_a_bad_free_call_costs_nothing(self):
+        self.prefi.set_scoring(model='linear', tolerance=0.01)
+        self.prefi.predict('WETH', 3000.0, address='0xNew')
+        self._settle_at(2000.0)
+        p = self.prefi.get_predictions('0xNew')[0]
+        self.assertEqual(p['payout'], 0.0)
+        self.assertEqual(p['net'], 0.0)
+        self.assertEqual(self.prefi.prefi_balance('0xNew')['available'], 0.0)
+
+    def test_free_payout_scales_with_the_score(self):
+        self.prefi.set_scoring(free_payout=10.0)
+        self.prefi.predict('WETH', 2050.0, address='0xNew')
+        self._settle_at(2000.0)
+        p = self.prefi.get_predictions('0xNew')[0]
+        self.assertAlmostEqual(p['payout'], 10.0 * p['score'], places=6)
+
+    def test_the_allowance_runs_out(self):
+        for _ in range(scoring.DEFAULT_PARAMS['free_per_day']):
+            self.assertNotIn('error', self.prefi.predict('WETH', 2050.0, address='0xNew'))
+        self.assertIn('error', self.prefi.predict('WETH', 2050.0, address='0xNew'))
+        self.assertEqual(self.prefi.free_quota('0xNew')['remaining'], 0)
+
+    def test_the_allowance_is_per_address(self):
+        for _ in range(scoring.DEFAULT_PARAMS['free_per_day']):
+            self.prefi.predict('WETH', 2050.0, address='0xNew')
+        self.assertNotIn('error', self.prefi.predict('WETH', 2050.0, address='0xOther'))
+
+    def test_the_allowance_is_case_insensitive_on_address(self):
+        for _ in range(scoring.DEFAULT_PARAMS['free_per_day']):
+            self.prefi.predict('WETH', 2050.0, address='0xAbC')
+        self.assertIn('error', self.prefi.predict('WETH', 2050.0, address='0xabc'))
+
+    def test_the_window_rolls_rather_than_resetting_at_midnight(self):
+        self.prefi.set_scoring(free_per_day=1)
+        self.prefi.predict('WETH', 2050.0, address='0xNew')
+        self.assertIn('error', self.prefi.predict('WETH', 2050.0, address='0xNew'))
+
+        preds = self.prefi._load_json(self.prefi.predictions_path, [])
+        preds[0]['created_at'] = time.time() - scoring.FREE_WINDOW - 1
+        self.prefi._save_json(self.prefi.predictions_path, preds)
+        self.assertEqual(self.prefi.free_quota('0xNew')['remaining'], 1)
+        self.assertNotIn('error', self.prefi.predict('WETH', 2050.0, address='0xNew'))
+
+    def test_quota_reports_when_the_next_one_lands(self):
+        self.prefi.predict('WETH', 2050.0, address='0xNew')
+        q = self.prefi.free_quota('0xNew')
+        self.assertEqual(q['used'], 1)
+        self.assertEqual(q['remaining'], scoring.DEFAULT_PARAMS['free_per_day'] - 1)
+        self.assertAlmostEqual(q['seconds_until_reset'], scoring.FREE_WINDOW, delta=5)
+
+    def test_a_fresh_address_has_the_full_allowance(self):
+        q = self.prefi.free_quota('0xNobody')
+        self.assertTrue(q['enabled'])
+        self.assertEqual(q['used'], 0)
+        self.assertEqual(q['remaining'], q['limit'])
+        self.assertIsNone(q['resets_at'])
+
+    def test_free_can_be_switched_off_entirely(self):
+        self.prefi.set_scoring(free_per_day=0)
+        self.assertFalse(self.prefi.free_quota('0xNew')['enabled'])
+        r = self.prefi.predict('WETH', 2050.0, address='0xNew')
+        self.assertIn('error', r)
+        self.assertIn('off', r['error'])
+
+    def test_a_burn_below_the_minimum_is_still_rejected(self):
+        """Free is burn == 0 exactly — a token burn doesn't sneak past min_burn"""
+        self._fund('0xA', 500.0)
+        self.prefi.set_scoring(min_burn=5.0)
+        self.assertIn('error', self.prefi.predict('WETH', 2050.0, 1.0, '0xA'))
+
+    def test_a_negative_burn_is_rejected(self):
+        self.assertIn('error', self.prefi.predict('WETH', 2050.0, -5.0, '0xNew'))
+
+    def test_free_calls_are_marked_on_the_board(self):
+        self.prefi.predict('WETH', 2000.0, address='0xNew')
+        self._settle_at(2000.0)
+        row = [r for r in self.prefi.prediction_board() if r['address'] == '0xNew'][0]
+        self.assertEqual(row['free_calls'], 1)
+        self.assertEqual(row['total_burned'], 0.0)
+        self.assertEqual(row['avg_score'], 1.0)
+
+    def test_free_calls_are_counted_in_status(self):
+        self.prefi.predict('WETH', 2050.0, address='0xNew')
+        self.assertEqual(self.prefi.status()['predictions_free'], 1)
+
+    def test_free_through_the_cli(self):
+        r = self.prefi.forward('predict', asset='WETH', price=2050, address='0xNew')
+        self.assertTrue(r['free'])
+        self.assertEqual(self.prefi.forward('free', address='0xNew')['used'], 1)
 
 
 class TestPredictionBoard(PrefiTestBase):

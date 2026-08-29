@@ -419,3 +419,13 @@ html[data-theme="light"] {
 }
 html[data-theme="light"] button.primary { color: #ffffff; }
 html[data-theme="light"] .scrim, html[data-theme="light"] .sheet { background: #1a1c2a5c; }
+
+/* ── result rows (web search, public directories) ─────────────────── */
+/* A search result is prose, not a tool name — the mono/accent treatment
+   .tool .name gets would read as code. */
+.tool .t { font-size: 14px; font-weight: 550; color: var(--ink); }
+.tool .t:hover { color: var(--accent-ink); text-decoration: underline; }
+.tool .src { font-size: 11.5px; color: var(--ink-faint); word-break: break-all; }
+/* the action on a result row keeps its place; the title yields instead */
+.tool .t { flex: 1 1 auto; min-width: 0; }
+.tool .row > button.sm { flex: 0 0 auto; }

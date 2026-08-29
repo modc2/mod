@@ -1,4 +1,4 @@
-//! Per-role filesystem confinement for the build-fork API.
+//! Per-role filesystem confinement for the build API.
 //!
 //! Policy tiers (single chokepoint = `resolve_path`):
 //!   • OWNER  → confined to the module tree `~/mod/mod` (orbit + core). The owner

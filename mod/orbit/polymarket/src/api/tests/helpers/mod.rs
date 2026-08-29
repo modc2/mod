@@ -42,6 +42,7 @@ pub fn test_app() -> Router {
         user_strats,
         share,
         sync: polymarket_api::SyncSchedule::from_env(),
+        copy_book: polymarket_api::CopyBookStore::from_env(),
     };
 
     let cors = CorsLayer::new()

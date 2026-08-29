@@ -248,7 +248,11 @@ fn default_auto_markets_per_tag() -> usize { 8 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MomentumParams {
     /// Market search query for candidate markets. Default: the strat's
-    /// `marketQuery`, else "bitcoin".
+    /// `marketQuery`, else "bitcoin". Comma/pipe-separated groups are searched
+    /// SEPARATELY and merged (deduped by condition id) — gamma ranks a
+    /// multi-word query by whole-phrase relevance, so one search for five
+    /// coins returns the event family that NAMES five coins rather than the
+    /// coins' own markets. See `fetch_momentum_series`.
     #[serde(default)]
     pub query: Option<String>,
     /// Window (minutes) the rise is measured over. Default 60.
@@ -262,6 +266,15 @@ pub struct MomentumParams {
     /// the lookback. Default = `min_rise_cents`.
     #[serde(rename = "exitDropCents", default)]
     pub exit_drop_cents: Option<f64>,
+    /// ENTRY confirmation window (minutes): the rise must still be intact over
+    /// the last `confirm_minutes` — the outcome may not have given ground back
+    /// inside that sub-window. 0/absent ⇒ off. `min_rise_cents` compares two
+    /// points a lookback apart and is blind to the shape between them, so a
+    /// market that ran early and has been sliding since still reads as a rise;
+    /// this is what tells a move still going from one that already happened.
+    /// ENTRIES only — exits stay on the raw lookback.
+    #[serde(rename = "confirmMinutes", default)]
+    pub confirm_minutes: Option<u64>,
     /// Entry price band — don't chase near-resolved (or dead) markets.
     /// Defaults 0.5 / 0.85 — momentum rides a leader crossing toward
     /// resolution. This one IS a default; the copy path has none.
@@ -490,23 +503,27 @@ pub struct EngineConfig {
 /// `trade_passes_filters` exactly like app/lib/tradeFilters.ts
 /// `tradeMatchesFilters` — keep the three in sync. Every set dimension is
 /// AND-ed; an unset dimension passes everything.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TradeFilters {
+    // Unset dimensions are OMITTED on the wire, not sent as null: an
+    // allocation's filters round-trip through the copy book and through
+    // identity.fixture.json, where they are compared key for key against the
+    // browser's object (app/lib/identityStrat.ts), which omits them too.
     /// "buy" | "sell" | "both"/None (no side restriction).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sides: Option<String>,
     /// Leader fill-price band (0–1 probability).
-    #[serde(rename = "minPrice", default)]
+    #[serde(rename = "minPrice", default, skip_serializing_if = "Option::is_none")]
     pub min_price: Option<f64>,
-    #[serde(rename = "maxPrice", default)]
+    #[serde(rename = "maxPrice", default, skip_serializing_if = "Option::is_none")]
     pub max_price: Option<f64>,
     /// Leader trade USD notional band (price × size).
-    #[serde(rename = "minNotional", default)]
+    #[serde(rename = "minNotional", default, skip_serializing_if = "Option::is_none")]
     pub min_notional: Option<f64>,
-    #[serde(rename = "maxNotional", default)]
+    #[serde(rename = "maxNotional", default, skip_serializing_if = "Option::is_none")]
     pub max_notional: Option<f64>,
     /// Category slugs the market title must match at least ONE of.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub categories: Option<Vec<String>>,
 }
 
@@ -575,6 +592,12 @@ pub struct TraderFilter {
     /// Minimum closed trades in the 30d window before a trader is rankable.
     #[serde(rename = "minSamples", default)]
     pub min_samples: Option<usize>,
+    /// FRESHNESS gate — cut any trader whose most recent trade is older than
+    /// this many hours. None/0 = off. Unlike the quality thresholds this one
+    /// runs BEFORE the sort (stale traders never occupy a top-N slot), and a
+    /// trader with no known last trade counts as stale.
+    #[serde(rename = "maxStaleHours", default)]
+    pub max_stale_hours: Option<f64>,
 }
 
 /// Default watchlist cut when a strat sets `filter` without a `topN`.
@@ -611,39 +634,101 @@ pub struct RankedTrader {
     pub kept: bool,
     /// Why it was cut — empty when kept.
     pub reason: String,
+    /// Age of the trader's most recent trade at ranking time (ms).
+    /// `f64::INFINITY` when no trade is known.
+    pub age_ms: f64,
+    /// Failed the `max_stale_hours` gate. Always false when the gate is off.
+    pub stale: bool,
+}
+
+/// Age (ms) of a trader's most recent trade — mirror of `traderAgeMs` in
+/// strat.ts. No known last trade ⇒ infinitely old, never "fresh by default".
+pub fn trader_age_ms(stats: &TraderRoiStats, now_ms: i64) -> f64 {
+    if stats.last_trade_at <= 0 {
+        return f64::INFINITY;
+    }
+    ((now_ms - stats.last_trade_at).max(0)) as f64
+}
+
+/// "6h" / "17d" / "never" — mirror of `formatAgeShort` in strat.ts, so the
+/// engine's cut reasons read identically to the console's.
+fn format_age_short(age_ms: f64) -> String {
+    if !age_ms.is_finite() {
+        return "never".to_string();
+    }
+    let sec = (age_ms / 1000.0).floor() as i64;
+    if sec < 60 { return format!("{sec}s"); }
+    let min = sec / 60;
+    if min < 60 { return format!("{min}m"); }
+    let hr = min / 60;
+    if hr < 24 { return format!("{hr}h"); }
+    format!("{}d", hr / 24)
+}
+
+/// Format a stale-gate threshold the way TS template-interpolates a number:
+/// `6` not `6.0`, but `1.5` keeps its fraction.
+fn fmt_hours(h: f64) -> String {
+    if h.fract() == 0.0 { format!("{}", h as i64) } else { format!("{h}") }
 }
 
 /// Rank a watchlist and decide who gets copied — mirror of `rankTraders` in
 /// strat.ts, down to the address tie-break, so the console's preview and the
 /// live engine never disagree about who is in the top N.
+///
+/// `now_ms` is the cycle clock, passed in for the staleness gate (and so this
+/// stays pure/testable).
 pub fn select_top_traders(
     traders: &[(String, TraderRoiStats)],
     filter: &TraderFilter,
+    now_ms: i64,
 ) -> Vec<RankedTrader> {
     let metric = filter.metric.as_deref().unwrap_or("score");
     let top_n = filter.top_n.unwrap_or(DEFAULT_FILTER_TOP_N);
     let min_samples = filter.min_samples.unwrap_or(0);
+    let stale_hours = filter.max_stale_hours.unwrap_or(0.0);
+    let max_age_ms = if stale_hours > 0.0 { stale_hours * 3_600_000.0 } else { f64::INFINITY };
     let mut rows: Vec<RankedTrader> = traders
         .iter()
-        .map(|(addr, stats)| RankedTrader {
-            address: addr.to_lowercase(),
-            score: trader_score(stats, metric),
-            sample_size: stats.sample_size,
-            rank: 0,
-            kept: true,
-            reason: String::new(),
+        .map(|(addr, stats)| {
+            let age_ms = trader_age_ms(stats, now_ms);
+            RankedTrader {
+                address: addr.to_lowercase(),
+                score: trader_score(stats, metric),
+                sample_size: stats.sample_size,
+                rank: 0,
+                kept: true,
+                reason: String::new(),
+                age_ms,
+                stale: stale_hours > 0.0 && age_ms > max_age_ms,
+            }
         })
         .collect();
+    // Stale first (false < true), then score, then byte-order address.
     rows.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        a.stale
+            .cmp(&b.stale)
+            .then_with(|| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .then_with(|| a.address.cmp(&b.address))
     });
     let total = rows.len();
     for (i, r) in rows.iter_mut().enumerate() {
         r.rank = i + 1;
-        if min_samples > 0 && r.sample_size < min_samples {
+        if r.stale {
+            r.kept = false;
+            r.reason = if r.age_ms.is_finite() {
+                format!(
+                    "last trade {} ago > {}h max",
+                    format_age_short(r.age_ms),
+                    fmt_hours(stale_hours),
+                )
+            } else {
+                format!("no trade seen — needs one inside {}h", fmt_hours(stale_hours))
+            };
+        } else if min_samples > 0 && r.sample_size < min_samples {
             r.kept = false;
             r.reason = format!("{} closed trades < {} required", r.sample_size, min_samples);
         } else if filter.min_score.map_or(false, |floor| r.score < floor) {
@@ -1578,6 +1663,8 @@ impl EngineRegistry {
             fetch_held_positions(&self.http, &wallet),
             crate::relayer::usdc_balance(&self.http, &wallet),
         );
+        // Taken before any state lock — see `sibling_claimed_tokens`.
+        let sibling_claimed = self.sibling_claimed_tokens(&cfg.eoa, &cfg.strategy_id);
 
         // None = fetch/derivation failed — keep the ledger as-is rather than
         // reading an outage as "everything was sold".
@@ -1664,8 +1751,16 @@ impl EngineRegistry {
             // buy. Tokens the engine just SOLD are skipped for the cooldown
             // window — the data-api still lists them until the fill settles,
             // and re-adopting one re-fires its exit (double sell).
+            //
+            // Orphaned is the whole point: a holding another LIVE session on
+            // this wallet already claims has an owner, and adopting it makes
+            // two strats manage one position off two ledgers (see
+            // `sibling_claimed_tokens`). Only genuinely unowned tokens are
+            // adopted; if that sibling stops, its claim goes with it and the
+            // next cycle picks the position up as intended.
             for h in held {
                 if s.exited_recently.contains_key(&h.token_id) { continue; }
+                if sibling_claimed.contains(&h.token_id) { continue; }
                 if h.size > 0.0 && !s.positions.contains_key(&h.token_id) {
                     s.positions.insert(h.token_id.clone(), OpenPosition {
                         token_id: h.token_id.clone(),
@@ -1838,6 +1933,37 @@ impl EngineRegistry {
             .iter()
             .find(|e| e.key().starts_with(&prefix))
             .map(|e| e.key().clone())
+    }
+
+    /// Token ids the OTHER live sessions on this EOA's deposit wallet already
+    /// claim in their ledgers.
+    ///
+    /// One EOA derives ONE deposit wallet, so every session for it reads the
+    /// same on-chain holdings. Adoption (below, in `reconcile_and_value`) is
+    /// what turns an unclaimed holding into a managed position — and with two
+    /// sessions running it fired both ways: the BTC copy strat bought a tennis
+    /// market, and the general strat's next cycle adopted it as its own,
+    /// tagged `strategy_id: ""`. That is not a cosmetic mislabel. The adopting
+    /// session then counts the position in its `accountValue` (so one dollar
+    /// of exposure is banked twice across the wallet, and every proportional
+    /// mirror is sized off the inflated number), defends it with its own
+    /// stop-loss/take-profit, and can rotate it out to fund an unrelated
+    /// entry — one strat trading another strat's book.
+    ///
+    /// Read WITHOUT holding our own state lock: two sessions reconciling at
+    /// once would otherwise each hold a write lock while waiting to read the
+    /// other's, which deadlocks.
+    fn sibling_claimed_tokens(&self, eoa: &str, strategy_id: &str) -> HashSet<String> {
+        let own = session_key(eoa, strategy_id);
+        let prefix = format!("{}::", eoa.to_lowercase());
+        let mut claimed = HashSet::new();
+        for e in self.engines.iter() {
+            if !e.key().starts_with(&prefix) || e.key() == &own {
+                continue;
+            }
+            claimed.extend(e.value().state.read().positions.keys().cloned());
+        }
+        claimed
     }
 
     pub fn status_of(&self, eoa: &str, strategy_id: Option<&str>) -> Option<EngineState> {
@@ -2547,10 +2673,17 @@ impl EngineRegistry {
                         // Parse the trader's full recent activity once, then use
                         // it both for the proportional copyRatio (volume over the
                         // window) and for new-trade detection.
-                        let parsed: Vec<ObservedTrade> = items
-                            .iter()
-                            .filter_map(|v| parse_activity_trade(v, &trader.address))
-                            .collect();
+                        // Fills first, then collapsed to one trade per leader
+                        // action — see `aggregate_fills`. Volume accounting
+                        // below is unaffected (the sums are identical); what
+                        // changes is that the copy loop can no longer drop the
+                        // 2nd..Nth fill of a book-walking order.
+                        let parsed: Vec<ObservedTrade> = aggregate_fills(
+                            items
+                                .iter()
+                                .filter_map(|v| parse_activity_trade(v, &trader.address))
+                                .collect(),
+                        );
 
                         // Fallback sizing denominator: traderVol =
                         // max(buyVol, sellVol, 1) over the window, counting ONLY
@@ -2685,7 +2818,8 @@ impl EngineRegistry {
             // bought copying them, and dropping their exit would leave that
             // position with nothing left to close it.
             let filter_note: Option<String> = cfg.filter.as_ref().map(|f| {
-                let ranked = select_top_traders(&cycle_trader_stats, f);
+                let ranked =
+                    select_top_traders(&cycle_trader_stats, f, chrono::Utc::now().timestamp_millis());
                 let kept: HashSet<String> =
                     ranked.iter().filter(|r| r.kept).map(|r| r.address.clone()).collect();
                 let before = mirror_candidates.len();
@@ -2693,25 +2827,40 @@ impl EngineRegistry {
                     .retain(|c| c.trade.side == "SELL" || kept.contains(&c.trade.trader.to_lowercase()));
                 let dropped = before - mirror_candidates.len();
                 let metric = f.metric.as_deref().unwrap_or("score");
+                // Stale traders read as "·0x1234…abcd 17d" — the roster is the
+                // only place an operator sees WHY a name stopped being copied,
+                // and "score 0.081, not copied" without the age is a mystery.
                 let roster = ranked
                     .iter()
                     .take(8)
                     .map(|r| {
-                        format!(
-                            "{}{} {:.3}",
-                            if r.kept { "✓" } else { "·" },
-                            short_addr(&r.address),
-                            r.score,
-                        )
+                        if r.stale {
+                            format!("·{} {}", short_addr(&r.address), format_age_short(r.age_ms))
+                        } else {
+                            format!(
+                                "{}{} {:.3}",
+                                if r.kept { "✓" } else { "·" },
+                                short_addr(&r.address),
+                                r.score,
+                            )
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join(" ");
+                let stale_note = match f.max_stale_hours {
+                    Some(h) if h > 0.0 => {
+                        let n = ranked.iter().filter(|r| r.stale).count();
+                        format!(" · {} stale (>{}h)", n, fmt_hours(h))
+                    }
+                    _ => String::new(),
+                };
                 format!(
-                    "FILTER · top {} by {} · {}/{} traders copied · {} candidate(s) dropped · {}",
+                    "FILTER · top {} by {} · {}/{} traders copied{} · {} candidate(s) dropped · {}",
                     f.top_n.unwrap_or(DEFAULT_FILTER_TOP_N),
                     metric,
                     kept.len(),
                     ranked.len(),
+                    stale_note,
                     dropped,
                     roster,
                 )
@@ -4351,6 +4500,11 @@ const MOMENTUM_SERIES_TTL_MS: i64 = 2 * 60_000;
 /// lives ~5 minutes end to end; the 2-minute TTL above would hand momentum
 /// the same frozen series for half the candle's life.
 const CANDLE_SERIES_TTL_MS: i64 = 15_000;
+/// Browser parity: MAX_MOMENTUM_QUERIES in strats/strat.ts. How many of the
+/// momentum query's OR-groups are actually searched — each is one gamma
+/// request per feed refresh, so this is what stops a 30-coin query from
+/// turning one cycle into 30 round-trips against an API that 429s.
+const MAX_MOMENTUM_QUERIES: usize = 6;
 
 /// One market's observed price series. Prices are the FIRST outcome's
 /// (index 0); the second outcome's price is its complement (binary
@@ -4431,32 +4585,71 @@ async fn fetch_momentum_series(
         .filter(|q| !q.trim().is_empty())
         .or(market_query.filter(|q| !q.trim().is_empty()))
         .unwrap_or("bitcoin");
-    let resp = http
-        .get(format!("{}/public-search", GAMMA_API))
-        .query(&[("q", query), ("_limit", "60")])
-        .send()
-        .await
-        .context("public-search GET")?;
-    let status = resp.status();
-    let text = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(anyhow::anyhow!("public-search HTTP {}: {}", status, text));
-    }
-    let raw: Value = serde_json::from_str(&text).context("public-search parse")?;
-    // Search returns {events: [{..., markets: [...]}]} — flatten to markets;
-    // an event without embedded markets may itself be market-shaped.
+    // One search PER OR-GROUP of the query, merged. Gamma ranks a multi-word
+    // query by whole-phrase relevance, so a single search for five coins lands
+    // on the event family that NAMES five coins ("top performing crypto this
+    // week") instead of the coins' own markets — measured, 50 markets with
+    // $315k of top-20 volume against 250 markets and $53M for the same query
+    // fanned out, the two sets sharing not one market. That fan-out is what
+    // lets one momentum strat trade a whole asset class. Mirror of
+    // copyEngine.ts `assembleMarketPrices` and momentumTape.ts `queryTape`.
+    let groups: Vec<&str> = {
+        let g: Vec<&str> = query
+            .split([',', '|'])
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .take(MAX_MOMENTUM_QUERIES)
+            .collect();
+        if g.is_empty() { vec![query] } else { g }
+    };
     let mut markets: Vec<Value> = Vec::new();
-    let events = raw
-        .get("events")
-        .and_then(|e| e.as_array())
-        .cloned()
-        .or_else(|| raw.as_array().cloned())
-        .unwrap_or_default();
-    for evt in events {
-        match evt.get("markets").and_then(|m| m.as_array()) {
-            Some(ms) => markets.extend(ms.iter().cloned()),
-            None => markets.push(evt),
+    let mut errors: Vec<String> = Vec::new();
+    for (gi, group) in groups.iter().enumerate() {
+        if gi > 0 {
+            tokio::time::sleep(Duration::from_millis(inter_request_delay_ms)).await;
         }
+        // A failing group is skipped, not fatal — momentum works off whatever
+        // slice of the feed resolved, and losing Solana must not cost Bitcoin.
+        // Only if EVERY group fails does the caller hear about it.
+        let fetched = async {
+            let resp = http
+                .get(format!("{}/public-search", GAMMA_API))
+                .query(&[("q", *group), ("_limit", "60")])
+                .send()
+                .await
+                .context("public-search GET")?;
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            if !status.is_success() {
+                return Err(anyhow::anyhow!("public-search HTTP {}: {}", status, text));
+            }
+            serde_json::from_str::<Value>(&text).context("public-search parse")
+        }
+        .await;
+        let raw = match fetched {
+            Ok(raw) => raw,
+            Err(e) => {
+                errors.push(format!("\"{}\": {}", group, e));
+                continue;
+            }
+        };
+        // Search returns {events: [{..., markets: [...]}]} — flatten to markets;
+        // an event without embedded markets may itself be market-shaped.
+        let events = raw
+            .get("events")
+            .and_then(|e| e.as_array())
+            .cloned()
+            .or_else(|| raw.as_array().cloned())
+            .unwrap_or_default();
+        for evt in events {
+            match evt.get("markets").and_then(|m| m.as_array()) {
+                Some(ms) => markets.extend(ms.iter().cloned()),
+                None => markets.push(evt),
+            }
+        }
+    }
+    if markets.is_empty() && errors.len() == groups.len() {
+        return Err(anyhow::anyhow!("public-search failed for every query group — {}", errors.join("; ")));
     }
 
     struct Candidate {
@@ -4467,6 +4660,9 @@ async fn fetch_momentum_series(
         volume: f64,
         end_date_ms: Option<i64>,
     }
+    // Groups overlap — "bitcoin" and "btc" return the same markets — so the
+    // merged pool is deduped by condition id before anything is ranked.
+    let mut seen_cids: HashSet<String> = HashSet::new();
     let mut candidates: Vec<Candidate> = markets
         .iter()
         .filter_map(|m| {
@@ -4480,6 +4676,9 @@ async fn fetch_momentum_series(
                 .unwrap_or("")
                 .to_string();
             if condition_id.is_empty() {
+                return None;
+            }
+            if !seen_cids.insert(condition_id.to_lowercase()) {
                 return None;
             }
             let token_ids = json_string_array(m.get("clobTokenIds"));
@@ -4689,8 +4888,9 @@ fn series_momentum(points: &[(i64, f64)], now: i64, lookback_ms: i64) -> Option<
 
 /// Port of strat.ts `proposeMomentum`: ENTRIES buy the outcome that rose ≥
 /// minRiseCents inside the price band, in markets not already held and not
-/// about to resolve; EXITS sell a held outcome once its own price fell ≥
-/// exitDropCents over the window. Binary markets: outcomes[1] moves by the
+/// about to resolve, and (with `confirm_minutes` set) whose rise is still
+/// intact over that shorter recent window; EXITS sell a held outcome once its
+/// own price fell ≥ exitDropCents over the window. Binary markets: outcomes[1] moves by the
 /// complement of the tracked series, so both sides are candidates.
 /// `positions` is the engine's ledger keyed by token id.
 fn propose_momentum(
@@ -4709,6 +4909,8 @@ fn propose_momentum(
     let lookback_ms = (mo.lookback_minutes.unwrap_or(60) as i64) * 60_000;
     let min_rise = mo.min_rise_cents.unwrap_or(5.0) / 100.0;
     let exit_drop = mo.exit_drop_cents.or(mo.min_rise_cents).unwrap_or(5.0) / 100.0;
+    // Recent-window confirmation, ENTRIES only — see `MomentumParams::confirm_minutes`.
+    let confirm_ms = mo.confirm_minutes.unwrap_or(0) as i64 * 60_000;
     // Entry floor defaults to the favorite side (≥50¢): momentum rides a
     // leader crossing toward resolution, not sub-50¢ longshots.
     let min_price = mo.min_price.unwrap_or(0.5);
@@ -4731,6 +4933,15 @@ fn propose_momentum(
     for s in series {
         let Some((m_then, m_now, m_rise)) = series_momentum(&s.points, now, lookback_ms) else {
             continue;
+        };
+        // The same series over the short confirmation window. None = no point
+        // at or before that window's start (market younger than the window, or
+        // a tape too coarse to resolve it) — unconfirmable, which blocks the
+        // entry rather than waving it through.
+        let confirm = if confirm_ms > 0 {
+            series_momentum(&s.points, now, confirm_ms)
+        } else {
+            None
         };
         // Holding EITHER side blocks new entries in this market — when a held
         // Yes decays, the No side reads as "rising" the same cycle, and buying
@@ -4772,10 +4983,21 @@ fn propose_momentum(
                 }
             }
 
-            // ENTRY candidate — rising, in band, market not held, not near
-            // resolution.
+            // ENTRY candidate — rising, still rising, in band, market not
+            // held, not near resolution.
             if held_in_market || rise < min_rise {
                 continue;
+            }
+            if confirm_ms > 0 {
+                // outcomes[1] moves by the complement here too. `< 0`, not
+                // `<= 0`: a flat recent window is a move that paused, and
+                // pausing on the way to resolution is the normal shape — only
+                // giving ground back disqualifies it.
+                let recent = confirm.map(|(_, _, r)| if idx == 0 { r } else { -r });
+                match recent {
+                    Some(r) if r >= 0.0 => {}
+                    _ => continue,
+                }
             }
             if p_now < min_price || p_now > max_price {
                 continue;
@@ -4980,6 +5202,12 @@ pub struct TraderRoiStats {
     /// (exactly 0.5 with no closed trades). Mirrors `statsFromReturns` in
     /// app/lib/strats/strat.ts; the parity fixture test pins the two.
     pub success_prob: f64,
+    /// Ms-epoch of the trader's most recent in-window trade — freshness for
+    /// the `max_stale_hours` gate. 0 = nothing seen in the window, which the
+    /// gate reads as infinitely stale. Not produced by `stats_from_returns`
+    /// (which only sees a returns series); `compute_trader_roi_stats` stamps
+    /// it. Mirrors `lastTradeAt` on the TS TraderRoiStats.
+    pub last_trade_at: i64,
 }
 
 /// The ONE stats formula — everything downstream of a returns series
@@ -5005,7 +5233,9 @@ pub fn stats_from_returns(returns: &[f64]) -> TraderRoiStats {
     // dispersion is ≥1e-3; anything under 1e-6 is degenerate → 0.
     let sharpe = if n >= 3 && stdev > 1e-6 { roi / stdev } else { 0.0 };
     let success_prob = (wins as f64 + 2.0) / (n as f64 + 4.0);
-    TraderRoiStats { roi, stdev, sharpe, sample_size: n, wins, success_prob }
+    // `last_trade_at` isn't derivable from a returns series — the caller that
+    // has the trades stamps it.
+    TraderRoiStats { roi, stdev, sharpe, sample_size: n, wins, success_prob, last_trade_at: 0 }
 }
 
 /// Compute a trader's 30d ROI/Sharpe stats from their raw `/activity` items.
@@ -5039,6 +5269,9 @@ pub fn compute_trader_roi_stats(
     // token/condition key → (size, cost) cost-basis book.
     let mut book: HashMap<String, (f64, f64)> = HashMap::new();
     let mut returns: Vec<f64> = Vec::new();
+    // Freshest trade of ANY side inside the window — a trader still buying is
+    // active even with no closed trade to show for it.
+    let mut last_trade_at: i64 = 0;
 
     for t in trades {
         let raw_ts = t.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -5054,6 +5287,9 @@ pub fn compute_trader_roi_stats(
         let side = t.get("side").and_then(|v| v.as_str()).unwrap_or("").to_uppercase();
         if !price.is_finite() || !size.is_finite() || size <= 0.0 {
             continue;
+        }
+        if ts_ms >= cutoff_ms && ts_ms > last_trade_at {
+            last_trade_at = ts_ms;
         }
         let pos = book.entry(key).or_insert((0.0, 0.0));
         if side == "BUY" {
@@ -5071,7 +5307,7 @@ pub fn compute_trader_roi_stats(
         }
     }
 
-    stats_from_returns(&returns)
+    TraderRoiStats { last_trade_at, ..stats_from_returns(&returns) }
 }
 
 /// Rank score for one candidate: `P(success) × trader ROI × rawMirrorNotional`,
@@ -5114,6 +5350,16 @@ fn parse_activity_trade(v: &Value, trader: &str) -> Option<ObservedTrade> {
     let timestamp_ms = if raw_ts > 1_000_000_000_000 { raw_ts } else { raw_ts * 1000 };
     let id = v.get("transactionHash").and_then(|h| h.as_str()).unwrap_or("").to_string();
     let side = v.get("side").and_then(|s| s.as_str()).unwrap_or("BUY").to_uppercase();
+    // `usdcSize` is the USDC that actually moved; `price * size` is the gross
+    // before Polymarket's sell-side fee (`k · p · (1-p) · shares`, k observed
+    // at 4–7%). Measured on a live roster: ~46% of SELL rows carry one, worth
+    // ~0.5% of sell notional — booked as gross it shows up as PnL that never
+    // hit the wallet. pipeline.rs already prefers `usdcSize`; this is parity.
+    let usdc_size = v
+        .get("usdcSize")
+        .and_then(|u| u.as_f64().or_else(|| u.as_str().and_then(|s| s.parse().ok())))
+        .filter(|u: &f64| u.is_finite() && *u > 0.0)
+        .unwrap_or(price * size);
     Some(ObservedTrade {
         id,
         timestamp: timestamp_ms,
@@ -5123,12 +5369,81 @@ fn parse_activity_trade(v: &Value, trader: &str) -> Option<ObservedTrade> {
         side,
         size,
         price,
-        notional: price * size,
+        notional: usdc_size,
         token_id: v.get("asset").and_then(|s| s.as_str()).unwrap_or("").to_string(),
         outcome: v.get("outcome").and_then(|s| s.as_str()).unwrap_or("").to_string(),
         score: 0.0,                          // stamped later once the trader's
         success_prob: default_success_prob(), // ROI/win-rate stats are known
     })
+}
+
+/// Collapse the fills of one leader action into one trade.
+///
+/// A data-api `/activity` row is a FILL, not an order. A leader who walks the
+/// book gets one row per price level — one observed transaction carried nine
+/// BUYs of the same token at 80.5¢→81.3¢ in a live sample. Every row shares
+/// the transaction hash, and `id` is the transaction hash, so the copy loop's
+/// `copied_ids` check (`if copied_ids.contains(&trade.id) { continue }`)
+/// mirrored the FIRST fill and dropped the other eight: the leader bought 306
+/// shares, the engine copied 22. Measured against upstream, 6.5% of a busy
+/// leader's fills were being thrown away this way, and the loss is biased
+/// toward exactly the aggressive order-walking traders a strat wants to copy.
+///
+/// Aggregating rather than making each fill its own candidate is deliberate:
+/// nine mirror orders for one leader action would each be sized at a ninth,
+/// and most would land under `min_order_size` and be rejected outright. One
+/// order at the fill-weighted average price is what the leader actually did.
+///
+/// Grouped by `(tx hash, token, side)` — a transaction that touches two
+/// tokens is two actions. The FIRST group keeps the bare hash as its id so
+/// ids already persisted in `copied_ids` still match and an engine restart
+/// after this change can't re-copy what it already mirrored; extra groups get
+/// a `#n` suffix in first-seen order.
+fn aggregate_fills(fills: Vec<ObservedTrade>) -> Vec<ObservedTrade> {
+    // (hash, token, side) → index into `out`, plus per-hash group counter.
+    let mut slot: std::collections::HashMap<(String, String, String), usize> =
+        std::collections::HashMap::new();
+    let mut groups_per_hash: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    // Fill-weighted price accumulator, parallel to `out`.
+    let mut px_notional: Vec<f64> = Vec::new();
+    let mut out: Vec<ObservedTrade> = Vec::new();
+
+    for f in fills {
+        let key = (f.id.clone(), f.token_id.clone(), f.side.clone());
+        match slot.get(&key) {
+            Some(&i) => {
+                px_notional[i] += f.price * f.size;
+                out[i].size += f.size;
+                out[i].notional += f.notional;
+                // Same transaction, so these are equal in practice; taking the
+                // newest keeps the cursor honest if upstream ever staggers them.
+                out[i].timestamp = out[i].timestamp.max(f.timestamp);
+            }
+            None => {
+                let n = groups_per_hash.entry(f.id.clone()).or_insert(0);
+                let suffix = *n;
+                *n += 1;
+                slot.insert(key, out.len());
+                px_notional.push(f.price * f.size);
+                let mut t = f;
+                if suffix > 0 {
+                    t.id = format!("{}#{}", t.id, suffix);
+                }
+                out.push(t);
+            }
+        }
+    }
+
+    for (i, t) in out.iter_mut().enumerate() {
+        if t.size > 0.0 {
+            // Fill-weighted average of the PRICES paid, not `notional / size`:
+            // notional is fee-adjusted, and `price` still has to mean "the
+            // level the leader traded at" for the gates and the mirror order.
+            t.price = px_notional[i] / t.size;
+        }
+    }
+    out
 }
 
 fn push_log(log: &mut Vec<LogEntry>, entry: LogEntry) {
@@ -5155,6 +5470,93 @@ fn restrict_perms(_path: &PathBuf) {}
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A book-walking BUY arrives as N rows sharing one transaction hash. The
+    /// copy loop dedupes on `id`, so before aggregation it mirrored the first
+    /// row and dropped the rest — the leader's 306 shares became 22.
+    #[test]
+    fn fills_of_one_transaction_collapse_into_one_action() {
+        let rows: Vec<ObservedTrade> = [(0.805, 100.0), (0.81, 100.0), (0.815, 106.0)]
+            .iter()
+            .map(|(p, s)| {
+                parse_activity_trade(
+                    &json!({
+                        "type": "TRADE", "price": p, "size": s,
+                        "timestamp": 1_700_000_000i64,
+                        "transactionHash": "0xdead", "asset": "tok1",
+                        "conditionId": "0xcond", "side": "BUY", "outcome": "Yes",
+                        "title": "Texas governor",
+                    }),
+                    "0xtrader",
+                )
+                .unwrap()
+            })
+            .collect();
+
+        let agg = aggregate_fills(rows);
+        assert_eq!(agg.len(), 1, "one transaction, one token, one side = one action");
+        assert_eq!(agg[0].size, 306.0, "every fill's shares are kept");
+        // 0.805·100 + 0.81·100 + 0.815·106 = 247.89, over 306 shares.
+        assert!((agg[0].notional - 247.89).abs() < 1e-6, "notional is the sum, got {}", agg[0].notional);
+        assert!((agg[0].price - 247.89 / 306.0).abs() < 1e-9, "price is the VWAP, got {}", agg[0].price);
+        // The bare hash survives so ids already in `copied_ids` still match.
+        assert_eq!(agg[0].id, "0xdead");
+    }
+
+    /// One transaction can touch two tokens — that's two leader actions, and
+    /// collapsing them would lose one entirely.
+    #[test]
+    fn one_transaction_across_two_tokens_stays_two_actions() {
+        let mk = |asset: &str, side: &str| {
+            parse_activity_trade(
+                &json!({
+                    "type": "TRADE", "price": 0.5, "size": 10.0,
+                    "timestamp": 1_700_000_000i64,
+                    "transactionHash": "0xbeef", "asset": asset,
+                    "conditionId": "0xcond", "side": side, "outcome": "Yes",
+                    "title": "m",
+                }),
+                "0xtrader",
+            )
+            .unwrap()
+        };
+        let agg = aggregate_fills(vec![mk("tokA", "BUY"), mk("tokB", "BUY"), mk("tokA", "BUY")]);
+        assert_eq!(agg.len(), 2);
+        assert_eq!(agg[0].size, 20.0);
+        assert_eq!(agg[1].size, 10.0);
+        // First group keeps the legacy id; the second is disambiguated.
+        assert_eq!(agg[0].id, "0xbeef");
+        assert_eq!(agg[1].id, "0xbeef#1");
+    }
+
+    /// `usdcSize` is the money that moved. On a SELL it is below `price*size`
+    /// by Polymarket's fee, and booking the gross is PnL that never landed.
+    #[test]
+    fn sell_notional_comes_from_usdc_size_not_gross() {
+        let t = parse_activity_trade(
+            &json!({
+                "type": "TRADE", "price": 0.81, "size": 20.0, "usdcSize": 16.07688,
+                "timestamp": 1_700_000_000i64, "transactionHash": "0x1",
+                "conditionId": "0xc", "side": "SELL", "title": "m",
+            }),
+            "0xtrader",
+        )
+        .unwrap();
+        assert!((t.notional - 16.07688).abs() < 1e-6, "got {}", t.notional);
+        assert_eq!(t.price, 0.81, "the fill price itself is untouched");
+
+        // No usdcSize upstream (older rows, and every BUY) → gross.
+        let b = parse_activity_trade(
+            &json!({
+                "type": "TRADE", "price": 0.5, "size": 10.0,
+                "timestamp": 1_700_000_000i64, "transactionHash": "0x2",
+                "conditionId": "0xc", "side": "BUY", "title": "m",
+            }),
+            "0xtrader",
+        )
+        .unwrap();
+        assert_eq!(b.notional, 5.0);
+    }
 
     #[test]
     fn parse_activity_trade_happy_path() {
@@ -5322,6 +5724,64 @@ mod tests {
     }
 
     #[test]
+    fn roi_stats_stamp_last_trade_of_any_side() {
+        let now = 2_000_000_000_000i64;
+        let d = 86_400_000i64;
+        // The freshest activity is a BUY with nothing sold against it yet —
+        // the trader is plainly active, so freshness must NOT be read off the
+        // closed-trade series (which stops 4 days ago).
+        let items = vec![
+            trade_item("m1", "BUY", 0.50, 10.0, now - 5 * d),
+            trade_item("m1", "SELL", 0.60, 10.0, now - 4 * d),
+            trade_item("m2", "BUY", 0.30, 10.0, now - 2 * 3_600_000),
+        ];
+        let s = compute_trader_roi_stats(&items, now, None);
+        assert_eq!(s.last_trade_at, now - 2 * 3_600_000);
+        assert!(trader_age_ms(&s, now) < 3.0 * 3_600_000.0);
+
+        // Everything outside the window ⇒ 0, which the gate reads as
+        // infinitely stale rather than "unknown, let them through".
+        let old = vec![trade_item("m1", "BUY", 0.50, 10.0, now - 41 * d)];
+        let s_old = compute_trader_roi_stats(&old, now, None);
+        assert_eq!(s_old.last_trade_at, 0);
+        assert!(trader_age_ms(&s_old, now).is_infinite());
+    }
+
+    #[test]
+    fn stale_traders_never_hold_a_top_n_slot() {
+        let now = 2_000_000_000_000i64;
+        let h = 3_600_000i64;
+        // The best scorer went quiet 48h ago; two mediocre names are active.
+        let stats = |roi: f64, last: i64| TraderRoiStats {
+            roi,
+            success_prob: 0.6,
+            last_trade_at: last,
+            ..neutral_stats()
+        };
+        let traders = vec![
+            ("0xaaa".to_string(), stats(0.50, now - 48 * h)),
+            ("0xbbb".to_string(), stats(0.20, now - 1 * h)),
+            ("0xccc".to_string(), stats(0.10, now - 2 * h)),
+        ];
+        // No gate: the dormant trader wins the only slot.
+        let f = TraderFilter { top_n: Some(1), ..Default::default() };
+        let ranked = select_top_traders(&traders, &f, now);
+        assert_eq!(ranked[0].address, "0xaaa");
+        assert!(ranked[0].kept);
+
+        // With a 6h gate: they sort last, and the slot goes to a live trader.
+        let f = TraderFilter { top_n: Some(1), max_stale_hours: Some(6.0), ..Default::default() };
+        let ranked = select_top_traders(&traders, &f, now);
+        let kept: Vec<&str> =
+            ranked.iter().filter(|r| r.kept).map(|r| r.address.as_str()).collect();
+        assert_eq!(kept, vec!["0xbbb"]);
+        let dormant = ranked.iter().find(|r| r.address == "0xaaa").unwrap();
+        assert!(dormant.stale && !dormant.kept);
+        assert_eq!(dormant.rank, 3, "stale rows rank below every fresh one");
+        assert!(dormant.reason.contains("2d ago > 6h max"), "reason was {}", dormant.reason);
+    }
+
+    #[test]
     fn candidate_score_is_prob_weighted_expected_edge() {
         // score = P(success) × roi × rawMirrorNotional.
         // 6 wins / 8 closed → P = (6+2)/(8+4) = 2/3; roi 0.20, raw 12.5 →
@@ -5422,14 +5882,23 @@ mod tests {
         // Trader FILTER — WHO gets copied. The console previews this ranking
         // while the engine enforces it, so a drift makes the preview a lie.
         {
+            let now_ms = fx["traderFilterNowMs"].as_i64().expect("traderFilterNowMs");
             let traders: Vec<(String, TraderRoiStats)> = fx["traderFilterTraders"]
                 .as_array()
                 .expect("traderFilterTraders")
                 .iter()
                 .map(|t| {
+                    // null = never traded ⇒ last_trade_at 0, which the
+                    // freshness gate reads as infinitely stale.
+                    let last_trade_at = t["lastTradeMinutesAgo"]
+                        .as_i64()
+                        .map_or(0, |m| now_ms - m * 60_000);
                     (
                         t["address"].as_str().unwrap().to_string(),
-                        stats_from_returns(&floats(&t["returns"])),
+                        TraderRoiStats {
+                            last_trade_at,
+                            ..stats_from_returns(&floats(&t["returns"]))
+                        },
                     )
                 })
                 .collect();
@@ -5437,7 +5906,7 @@ mod tests {
                 let name = case["name"].as_str().unwrap_or("?");
                 let filter: TraderFilter =
                     serde_json::from_value(case["filter"].clone()).expect("filter parses");
-                let ranked = select_top_traders(&traders, &filter);
+                let ranked = select_top_traders(&traders, &filter, now_ms);
                 let order: Vec<String> = ranked.iter().map(|r| r.address.clone()).collect();
                 let kept: Vec<String> = ranked
                     .iter()
@@ -5528,6 +5997,95 @@ mod tests {
                         "sizing[{name}]: limit {limit} want {want_limit}"
                     );
                 }
+            }
+        }
+
+        // ORIGINATION parity — `propose_momentum` against the same tape the TS
+        // `Strat.propose` replays. This is the path the console's origination
+        // backtest (app/lib/originationBacktest.ts) runs cycle by cycle, so
+        // drift here is drift between what a card promises and what this engine
+        // places. Two real divergences were found writing these: the exit was
+        // sized off the position's stale reported value in TS, and the TS entry
+        // floor ignored the CLOB's per-price minimum.
+        for case in fx["momentumCases"].as_array().expect("momentumCases") {
+            let name = case["name"].as_str().unwrap_or("?");
+            let now = case["now"].as_i64().unwrap();
+            let mo: MomentumParams =
+                serde_json::from_value(case["momentum"].clone()).expect("momentum params");
+            let series: Vec<MarketPriceSeries> = case["series"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| {
+                    let outcomes = json_string_array(s.get("outcomes"));
+                    let tokens = json_string_array(s.get("tokenIds"));
+                    MarketPriceSeries {
+                        condition_id: s["conditionId"].as_str().unwrap().to_string(),
+                        market: s["market"].as_str().unwrap_or("").to_string(),
+                        outcomes: [outcomes[0].clone(), outcomes[1].clone()],
+                        token_ids: [tokens[0].clone(), tokens[1].clone()],
+                        end_date_ms: s["endDateMs"].as_i64(),
+                        points: s["points"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|p| (p["t"].as_i64().unwrap(), p["p"].as_f64().unwrap()))
+                            .collect(),
+                    }
+                })
+                .collect();
+            let mut held: HashMap<String, OpenPosition> = HashMap::new();
+            for p in case["positions"].as_array().unwrap() {
+                let cid = p["conditionId"].as_str().unwrap();
+                let idx = p["outcomeIndex"].as_u64().unwrap() as usize;
+                let s = series.iter().find(|s| s.condition_id == cid).expect("series for position");
+                held.insert(
+                    s.token_ids[idx].clone(),
+                    OpenPosition {
+                        token_id: s.token_ids[idx].clone(),
+                        condition_id: cid.to_string(),
+                        market: s.market.clone(),
+                        size: p["size"].as_f64().unwrap(),
+                        entry_price: p["entryPrice"].as_f64().unwrap(),
+                        entry_score: 0.0,
+                        opened_at: now,
+                        strategy_id: "s1".into(),
+                        leader: String::new(),
+                    },
+                );
+            }
+            let got = propose_momentum(
+                &mo,
+                &series,
+                &held,
+                now,
+                case["userFloor"].as_f64().unwrap(),
+                case["userCeiling"].as_f64().unwrap(),
+                case["minShares"].as_f64().unwrap(),
+                case["capital"].as_f64().unwrap(),
+            );
+            let want = case["expected"].as_array().unwrap();
+            assert_eq!(got.len(), want.len(), "momentum[{name}]: proposal count — got {got:?}");
+            for (g, w) in got.iter().zip(want) {
+                let cid = w["conditionId"].as_str().unwrap();
+                let idx = w["outcomeIndex"].as_u64().unwrap() as usize;
+                let s = series.iter().find(|s| s.condition_id == cid).unwrap();
+                assert_eq!(g.side, w["side"].as_str().unwrap(), "momentum[{name}]: side");
+                assert_eq!(g.condition_id, cid, "momentum[{name}]: market");
+                assert_eq!(g.outcome, s.outcomes[idx], "momentum[{name}]: outcome");
+                assert_eq!(g.token_id, s.token_ids[idx], "momentum[{name}]: token");
+                let want_notional = w["notional"].as_f64().unwrap();
+                let want_limit = w["limitPrice"].as_f64().unwrap();
+                assert!(
+                    close(g.notional, want_notional),
+                    "momentum[{name}]: notional {} want {want_notional}",
+                    g.notional
+                );
+                assert!(
+                    close(g.limit_price, want_limit),
+                    "momentum[{name}]: limit {} want {want_limit}",
+                    g.limit_price
+                );
             }
         }
 
@@ -5810,7 +6368,7 @@ mod tests {
         let s = mo_series(vec![(now - lookback - 1000, 0.50), (now, 0.60)]);
         let mo = MomentumParams {
             query: None, lookback_minutes: None, min_rise_cents: None,
-            exit_drop_cents: None, min_price: None, max_price: None,
+            exit_drop_cents: None, confirm_minutes: None, min_price: None, max_price: None,
             max_positions: None, max_markets: None, min_minutes_to_close: None, candles: None,
         };
         let props = propose_momentum(&mo, &[s], &HashMap::new(), now, 5.0, f64::INFINITY, 5.0, 1000.0);
@@ -5839,7 +6397,7 @@ mod tests {
         let lookback = 60 * 60_000i64;
         let mo = MomentumParams {
             query: None, lookback_minutes: None, min_rise_cents: None,
-            exit_drop_cents: None, min_price: None, max_price: None,
+            exit_drop_cents: None, confirm_minutes: None, min_price: None, max_price: None,
             max_positions: None, max_markets: None, min_minutes_to_close: None, candles: None,
         };
         // Above the default 85¢ band → no chase.
@@ -5883,7 +6441,7 @@ mod tests {
         });
         let mo = MomentumParams {
             query: None, lookback_minutes: None, min_rise_cents: None,
-            exit_drop_cents: None, min_price: None, max_price: None,
+            exit_drop_cents: None, confirm_minutes: None, min_price: None, max_price: None,
             max_positions: None, max_markets: None, min_minutes_to_close: None, candles: None,
         };
         let props = propose_momentum(&mo, &[s], &held, now, 5.0, f64::INFINITY, 5.0, 1000.0);
@@ -5915,6 +6473,51 @@ mod tests {
         // remaining dots can't traverse out of the data dir.
         assert!(!stem.contains('/'), "unsanitized strat id in filename: {stem}");
         assert_eq!(stem, "0x89bc__.._.._etc_passwd");
+    }
+
+    #[test]
+    fn a_siblings_position_is_not_adopted_by_the_other_strat() {
+        // The bug this pins: one EOA derives ONE deposit wallet, so both of a
+        // wallet's sessions read the same holdings. The BTC copy strat bought
+        // a tennis market; the general strat's reconcile saw a token its own
+        // ledger didn't know and adopted it — double-banking the exposure in
+        // two accountValues and handing two strats' exit logic one position.
+        let reg = EngineRegistry::new(reqwest::Client::new(), Arc::new(SignerStore::new()));
+        let eoa = "0x89bc";
+
+        let mut owner_state = EngineState::empty();
+        owner_state.positions.insert("tokTennis".into(), OpenPosition {
+            token_id: "tokTennis".into(),
+            condition_id: "0xcid".into(),
+            market: "Augsburg: Cezar Cretu vs Niels McDonald".into(),
+            size: 25.0,
+            entry_price: 0.48,
+            entry_score: 0.034,
+            opened_at: 0,
+            strategy_id: "btc".into(),
+            leader: "0xf148".into(),
+        });
+        for (sid, st) in [("btc", owner_state), ("general", EngineState::empty())] {
+            let cfg: EngineConfig = serde_json::from_value(json!({
+                "eoa": eoa, "strategyId": sid, "address": eoa,
+                "traders": [], "capital": 100.0, "intervalMs": 30000
+            })).unwrap();
+            reg.engines.insert(session_key(eoa, sid), Arc::new(EngineHandle {
+                config: RwLock::new(cfg),
+                state: Arc::new(RwLock::new(st)),
+                cancel: Arc::new(AtomicBool::new(false)),
+                task: parking_lot::Mutex::new(None),
+            }));
+        }
+
+        // The general strat sees the token as spoken for and leaves it alone.
+        assert!(reg.sibling_claimed_tokens(eoa, "general").contains("tokTennis"));
+        // The strat that BOUGHT it doesn't count its own hold as a sibling's —
+        // otherwise reconcile would drop it from the only ledger tracking it.
+        assert!(!reg.sibling_claimed_tokens(eoa, "btc").contains("tokTennis"));
+        // A different wallet shares nothing: separate deposit wallet, separate
+        // holdings, and its unowned tokens must still be adoptable.
+        assert!(reg.sibling_claimed_tokens("0xd779", "general").is_empty());
     }
 
     #[test]

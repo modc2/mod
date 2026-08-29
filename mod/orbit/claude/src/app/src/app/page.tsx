@@ -1354,6 +1354,29 @@ export default function Home() {
   const [agentAuthBusy, setAgentAuthBusy] = useState(false);
   const [agentAuthErr, setAgentAuthErr] = useState<string | null>(null);
 
+  // The Claude *session* itself — the subscription login (~/.claude/.credentials.json)
+  // the CLI runs under, read from the app's own GET /api/credentials. `null`
+  // means "not fetched yet"; loggedIn:false means there is no usable session and
+  // the connect flow below is the way in.
+  const [claudeSession, setClaudeSession] = useState<{
+    loggedIn: boolean;
+    expired?: boolean;
+    expiresAt?: number;
+    remainingMinutes?: number | null;
+    subscriptionType?: string | null;
+    tokenPreview?: string;
+    source?: string;
+    reason?: string;
+  } | null>(null);
+  // "Log in with Claude" (OAuth PKCE, manual-code variant): the server hands us
+  // an authorize URL to click plus the verifier/state we must echo back with the
+  // code claude.ai shows on the redirect page.
+  const [claudeLogin, setClaudeLogin] = useState<{ url: string; verifier: string; state: string } | null>(null);
+  const [claudeLoginCode, setClaudeLoginCode] = useState("");
+  const [claudeLoginBusy, setClaudeLoginBusy] = useState(false);
+  const [claudeLoginErr, setClaudeLoginErr] = useState<string | null>(null);
+  const [claudeLoginOk, setClaudeLoginOk] = useState<string | null>(null);
+
   // Kill process dialog state (host key: Cmd+K)
   const [showKillDialog, setShowKillDialog] = useState(false);
   const [killInput, setKillInput] = useState("");
@@ -4002,6 +4025,37 @@ export default function Home() {
     }
   };
 
+  // The credentials routes are the app's OWN Next routes (they must run in the
+  // same process/user as the job runner to write the file the CLI reads), so
+  // they sit under the basePath rather than behind the API gateway path — but
+  // they're owner-gated all the same, so carry the console bearer.
+  const appFetch = useCallback(
+    (path: string, opts: RequestInit = {}) => {
+      const headers: Record<string, string> = {
+        ...((opts.headers as Record<string, string>) || {}),
+        "Content-Type": "application/json",
+      };
+      if (token && token !== "local") headers["Authorization"] = `Bearer ${token}`;
+      return fetch(`${DEFAULT_BASE_PATH}${path}`, { ...opts, headers });
+    },
+    [token]
+  );
+
+  // Read the live Claude session (subscription login) status.
+  const fetchClaudeSession = useCallback(async () => {
+    try {
+      const res = await appFetch("/api/credentials");
+      const d = await res.json().catch(() => null);
+      if (!res.ok) {
+        setClaudeSession({ loggedIn: false, reason: d?.error || `status ${res.status}` });
+        return;
+      }
+      if (d) setClaudeSession(d);
+    } catch (e: any) {
+      setClaudeSession({ loggedIn: false, reason: e?.message || "could not read session" });
+    }
+  }, [appFetch]);
+
   // Agent auth: refresh status whenever the owner opens the account panel.
   useEffect(() => {
     if (!showOwnerSidebar || !isOwner || !token) return;
@@ -4009,8 +4063,60 @@ export default function Home() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setAgentAuth(d); })
       .catch(() => {});
+    fetchClaudeSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showOwnerSidebar, isOwner, token]);
+
+  // Step 1 of "Log in with Claude": ask the server for an authorize URL, then
+  // open it. The link is also rendered so it can be opened/copied by hand when
+  // the popup is blocked or the console is being driven from another device.
+  const startClaudeLogin = async () => {
+    if (claudeLoginBusy) return;
+    setClaudeLoginBusy(true);
+    setClaudeLoginErr(null);
+    setClaudeLoginOk(null);
+    try {
+      const res = await appFetch("/api/credentials/oauth");
+      const d = await res.json().catch(() => ({} as any));
+      if (!res.ok || !d?.url) throw new Error(d?.error || "could not start login");
+      setClaudeLogin({ url: d.url, verifier: d.verifier, state: d.state });
+      setClaudeLoginCode("");
+      window.open(d.url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      setClaudeLoginErr(e?.message || "could not start login");
+    } finally {
+      setClaudeLoginBusy(false);
+    }
+  };
+
+  // Step 2: exchange the code claude.ai showed for tokens and persist them.
+  const finishClaudeLogin = async () => {
+    const code = claudeLoginCode.trim();
+    if (!claudeLogin || !code || claudeLoginBusy) return;
+    setClaudeLoginBusy(true);
+    setClaudeLoginErr(null);
+    try {
+      const res = await appFetch("/api/credentials/oauth", {
+        method: "POST",
+        body: JSON.stringify({ code, verifier: claudeLogin.verifier, state: claudeLogin.state }),
+      });
+      const d = await res.json().catch(() => ({} as any));
+      if (!res.ok || !d?.ok) throw new Error(d?.error || "login failed");
+      setClaudeLogin(null);
+      setClaudeLoginCode("");
+      setClaudeLoginOk(`Connected${d.subscriptionType ? ` — ${d.subscriptionType}` : ""}.`);
+      await fetchClaudeSession();
+      // The active credential source may have flipped to `subscription`.
+      authFetch("/agent/auth")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((s) => { if (s) setAgentAuth(s); })
+        .catch(() => {});
+    } catch (e: any) {
+      setClaudeLoginErr(e?.message || "login failed");
+    } finally {
+      setClaudeLoginBusy(false);
+    }
+  };
 
   const saveAgentAuth = async () => {
     const tok = agentAuthInput.trim();
@@ -15225,6 +15331,170 @@ export default function Home() {
                           )}{" "}
                           Paste the output of <span className="font-mono" style={{ color: "var(--text-secondary)" }}>claude setup-token</span> (sk-ant-oat…)
                           or an API key (sk-ant-api…) to set or replace it.
+                        </div>
+
+                        {/* ── Claude session ──────────────────────────────
+                            The subscription login itself. When there isn't one,
+                            this is the click-a-link-and-connect path: open the
+                            authorize URL, paste back the code claude.ai shows. */}
+                        <div
+                          className="flex flex-col gap-1.5 px-2 py-2 rounded"
+                          style={{
+                            background: "var(--bg-secondary)",
+                            border: `1px solid ${
+                              claudeSession && !claudeSession.loggedIn
+                                ? "color-mix(in srgb, var(--crt-red) 35%, transparent)"
+                                : "var(--border-color)"
+                            }`,
+                          }}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[9px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>
+                              Claude session
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="text-[9px] font-bold uppercase tracking-[0.12em]"
+                                style={{
+                                  color: !claudeSession
+                                    ? "var(--text-tertiary)"
+                                    : claudeSession.loggedIn
+                                    ? "var(--crt-green)"
+                                    : "var(--crt-red)",
+                                }}
+                              >
+                                {!claudeSession
+                                  ? "checking…"
+                                  : claudeSession.loggedIn
+                                  ? "connected"
+                                  : claudeSession.expired
+                                  ? "expired"
+                                  : "not connected"}
+                              </span>
+                              <button
+                                onClick={fetchClaudeSession}
+                                className="text-[9px] uppercase tracking-wider transition-colors"
+                                style={{ color: "var(--text-tertiary)" }}
+                                title="Re-read the session file"
+                              >
+                                refresh
+                              </button>
+                            </div>
+                          </div>
+
+                          {claudeSession?.loggedIn ? (
+                            <div className="text-[10px] font-mono leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                              {claudeSession.subscriptionType || "claude.ai"} · {claudeSession.tokenPreview}
+                              {typeof claudeSession.remainingMinutes === "number" && (
+                                <>
+                                  {" · "}
+                                  {claudeSession.remainingMinutes >= 60
+                                    ? `${Math.floor(claudeSession.remainingMinutes / 60)}h ${claudeSession.remainingMinutes % 60}m left`
+                                    : `${Math.max(claudeSession.remainingMinutes, 0)}m left`}
+                                </>
+                              )}
+                              {claudeSession.source && (
+                                <span style={{ color: "var(--text-tertiary)" }}> · {claudeSession.source}</span>
+                              )}
+                            </div>
+                          ) : claudeSession ? (
+                            <div className="text-[10px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                              {claudeSession.expired
+                                ? "The session on this host has expired."
+                                : "You are not in a Claude session on this host."}
+                              {claudeSession.reason ? ` (${claudeSession.reason})` : ""} Connect your
+                              claude.ai account to sign the agent in.
+                            </div>
+                          ) : null}
+
+                          {/* Connect / reconnect — always available, primary
+                              (and red-accented) when there is no session. */}
+                          {claudeSession && !claudeLogin && (
+                            <button
+                              onClick={startClaudeLogin}
+                              disabled={claudeLoginBusy}
+                              className="self-start px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors"
+                              style={{
+                                color: claudeSession.loggedIn ? "var(--text-secondary)" : "var(--crt-green)",
+                                border: `1px solid color-mix(in srgb, ${
+                                  claudeSession.loggedIn ? "var(--text-tertiary)" : "var(--crt-green)"
+                                } 40%, transparent)`,
+                                background: claudeSession.loggedIn
+                                  ? "transparent"
+                                  : "color-mix(in srgb, var(--crt-green) 10%, transparent)",
+                                opacity: claudeLoginBusy ? 0.5 : 1,
+                              }}
+                            >
+                              {claudeLoginBusy
+                                ? "…"
+                                : claudeSession.loggedIn
+                                ? "Reconnect Claude account"
+                                : "Connect Claude account →"}
+                            </button>
+                          )}
+
+                          {/* Login in flight: the clickable authorize link plus
+                              the code field claude.ai's redirect page feeds. */}
+                          {claudeLogin && (
+                            <div className="flex flex-col gap-1.5">
+                              <div className="text-[10px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                                1. Approve access at{" "}
+                                <a
+                                  href={claudeLogin.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline break-all"
+                                  style={{ color: "var(--crt-green)" }}
+                                >
+                                  claude.ai/oauth/authorize
+                                </a>{" "}
+                                (opens in a new tab). 2. Paste the code it shows back here.
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  value={claudeLoginCode}
+                                  onChange={(e) => setClaudeLoginCode(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === "Enter") finishClaudeLogin(); }}
+                                  placeholder="code#state from claude.ai"
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  className="flex-1 min-w-0 px-2 py-1.5 rounded text-[11px] font-mono focus-ring"
+                                  style={{
+                                    background: "var(--bg-primary)",
+                                    border: "1px solid var(--border-color)",
+                                    color: "var(--text-primary)",
+                                  }}
+                                />
+                                <button
+                                  onClick={finishClaudeLogin}
+                                  disabled={claudeLoginBusy || !claudeLoginCode.trim()}
+                                  className="px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors"
+                                  style={{
+                                    color: "var(--crt-green)",
+                                    border: "1px solid color-mix(in srgb, var(--crt-green) 35%, transparent)",
+                                    background: "color-mix(in srgb, var(--crt-green) 8%, transparent)",
+                                    opacity: claudeLoginBusy || !claudeLoginCode.trim() ? 0.5 : 1,
+                                  }}
+                                >
+                                  {claudeLoginBusy ? "…" : "Connect"}
+                                </button>
+                                <button
+                                  onClick={() => { setClaudeLogin(null); setClaudeLoginCode(""); setClaudeLoginErr(null); }}
+                                  className="text-[10px] uppercase tracking-wider"
+                                  style={{ color: "var(--text-tertiary)" }}
+                                >
+                                  cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {claudeLoginErr && (
+                            <div className="text-[10px]" style={{ color: "var(--crt-red)" }}>{claudeLoginErr}</div>
+                          )}
+                          {claudeLoginOk && !claudeLoginErr && (
+                            <div className="text-[10px]" style={{ color: "var(--crt-green)" }}>{claudeLoginOk}</div>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5">
                           <input

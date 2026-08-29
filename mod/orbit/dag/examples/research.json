@@ -1,0 +1,18 @@
+{
+  "name": "research",
+  "title": "Search the web, then read the top results at once",
+  "description": "Uses only the hub's own keyless tools, so it runs anywhere the hub does. The fan-out is the point: five pages fetched in parallel cost one page's worth of waiting.",
+  "inputs": {
+    "q": {"required": true, "description": "what to search for"},
+    "n": {"default": 5, "description": "how many results to read"}
+  },
+  "steps": [
+    {"id": "hits", "tool": "web_search",
+     "args": {"q": "${inputs.q}", "count": "${inputs.n}"}},
+    {"id": "urls", "use": "expr", "value": "${hits.results}", "limit": "${inputs.n}"},
+    {"id": "pages", "foreach": "${urls}", "tool": "web_fetch",
+     "args": {"url": "${item.url}", "max_chars": 4000},
+     "continue_on_error": true, "retries": 1}
+  ],
+  "output": {"query": "${inputs.q}", "found": "${urls.title}", "pages": "${pages}"}
+}

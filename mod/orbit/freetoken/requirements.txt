@@ -1,0 +1,13 @@
+# The client half — boxes, probes, catalog, chat — is stdlib. Nothing here is
+# needed to drive an engine that is already running somewhere.
+
+# This module's own API. The console (src/app.py) is stdlib.
+fastapi>=0.100
+uvicorn>=0.23
+
+# FreeToken itself is NOT a dependency of this module, and must not be one: it
+# pins torch>=2.11,<2.12 plus two exact kernel packages, and it is Linux +
+# NVIDIA + CUDA 13 only. `m freetoken/install` puts it in a venv of its own at
+# ~/.mod/freetoken/venv, which is the only safe place for those pins.
+#
+#   uv pip install "freetoken[accel]"

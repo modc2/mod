@@ -613,3 +613,70 @@ def test_a_building_explanation_agrees_with_the_map():
     # The explain view must not quietly switch to the in-sample model.
     assert abs(one['predicted'] - worst['predicted']) < 0.11
     assert one['drivers'] and all('label' in d for d in one['drivers'])
+
+
+# ── mcp ─────────────────────────────────────────────────────────────────────
+#
+# The stdio and HTTP transports both dispatch through mcp_server.rpc, so these
+# test the protocol once and the HTTP envelope separately.
+
+def test_mcp_initialize_advertises_tools_and_echoes_protocol():
+    from tdotgis import mcp_server as MCP
+    r = MCP.rpc({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+                 'params': {'protocolVersion': '2024-11-05'}})
+    assert r['result']['serverInfo']['name'] == 'tdot'
+    assert 'tools' in r['result']['capabilities']
+    # A server that ignores the client's version breaks older clients.
+    assert r['result']['protocolVersion'] == '2024-11-05'
+
+
+def test_mcp_lists_every_tool_with_a_schema():
+    from tdotgis import mcp_server as MCP
+    from tdotgis import tools as T
+    tools = MCP.rpc({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})['result']['tools']
+    assert len(tools) == len(T.TOOLS)
+    for t in tools:
+        assert t['name'] and t['description']
+        assert t['inputSchema']['type'] == 'object'
+
+
+def test_mcp_notification_gets_no_reply():
+    from tdotgis import mcp_server as MCP
+    # A notification has no id; replying to one corrupts the stream.
+    assert MCP.rpc({'jsonrpc': '2.0', 'method': 'notifications/initialized'}) is None
+
+
+def test_mcp_unknown_method_is_a_jsonrpc_error():
+    from tdotgis import mcp_server as MCP
+    r = MCP.rpc({'jsonrpc': '2.0', 'id': 3, 'method': 'resources/list'})
+    assert r['error']['code'] == -32601
+
+
+def test_mcp_tool_failure_is_content_not_transport_error():
+    from tdotgis import mcp_server as MCP
+    r = MCP.rpc({'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call',
+                 'params': {'name': 'tdot_layer_summary', 'arguments': {}}})
+    # The model has to be able to read why it failed and try again, so a tool
+    # that raised comes back as isError content rather than a JSON-RPC error.
+    assert 'error' not in r
+    assert r['result']['isError'] is True
+    assert r['result']['content'][0]['text']
+
+
+def test_map_driving_tools_are_flagged_and_carry_an_action():
+    from tdotgis import tools as T
+    drivers = [t for t in T.TOOLS if t.drives_map]
+    assert {'tdot_show_layers', 'tdot_fly_to'} <= {t.name for t in drivers}
+    # The console applies result['__map__']; a tool flagged as driving the map
+    # that returns no action would silently do nothing.
+    out = T.call_tool('tdot_show_layers', {'layers': ['crime']})
+    assert out['__map__']['show'] == ['crime']
+
+
+def test_mod_publishes_a_config_for_both_transports():
+    import mod as m
+    cfg = m.mod('tdot')().mcp()
+    assert cfg['tools'] > 0
+    servers = cfg['mcpServers']
+    assert servers['tdot']['args'] == ['-m', 'tdotgis.mcp_server']
+    assert servers['tdot-http']['url'].endswith('/mcp')

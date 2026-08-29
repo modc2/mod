@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>spotify — one deck</title>
+<style>
+  :root{
+    --bg:#070b08; --panel:#0d130f; --line:#1b2a1f; --ink:#dbe7dd; --dim:#6f8574;
+    --hot:#1db954; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+  header{display:flex;align-items:baseline;gap:14px;padding:14px 18px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:9}
+  h1{font-size:15px;margin:0;letter-spacing:.14em}
+  h1 b{color:var(--hot)}
+  .sub{color:var(--dim);font-size:11px}
+  nav{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap}
+  nav button{background:none;border:1px solid var(--line);color:var(--dim);
+             padding:5px 12px;cursor:pointer;font:inherit;font-size:11px;letter-spacing:.1em}
+  nav button.on{color:#04150a;background:var(--hot);border-color:var(--hot)}
+  main{padding:16px 18px;max-width:1200px}
+  section{display:none} section.on{display:block}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  input,select{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+               padding:6px 9px;font:inherit;min-width:110px}
+  input:focus,select:focus{outline:none;border-color:var(--hot)}
+  button.go{background:var(--hot);color:#04150a;border:none;padding:7px 16px;
+            cursor:pointer;font:inherit;font-weight:600;letter-spacing:.08em}
+  button.ghost{background:none;border:1px solid var(--line);color:var(--ink);
+               padding:4px 10px;cursor:pointer;font:inherit;font-size:11px}
+  button.ghost:hover{border-color:var(--hot);color:var(--hot)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:var(--dim);font-weight:400;border-bottom:1px solid var(--line);
+     padding:6px 8px;font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+  td{padding:6px 8px;border-bottom:1px solid #101a13;vertical-align:top}
+  tr:hover td{background:#0d1510}
+  .card{background:var(--panel);border:1px solid var(--line);padding:12px;margin-bottom:12px}
+  .card h3{margin:0 0 6px;font-size:12px;letter-spacing:.1em;color:var(--dim)}
+  .np{font-size:16px} .np b{color:var(--hot)}
+  .row{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--dim);padding:2px 0}
+  pre{background:var(--panel);border:1px solid var(--line);padding:12px;overflow:auto;
+      font-size:11px;max-height:56vh;white-space:pre-wrap;word-break:break-word}
+  .note{color:var(--dim);font-size:11px;margin:8px 0}
+  .flash{color:var(--warn);font-size:11px;min-height:16px;margin-left:auto}
+  a{color:var(--hot)}
+</style>
+</head>
+<body>
+<header>
+  <h1>♫ <b>SPOTIFY</b></h1>
+  <span class="sub" id="who">—</span>
+  <nav>
+    <button data-tab="now" class="on">NOW</button>
+    <button data-tab="search">SEARCH</button>
+    <button data-tab="library">LIBRARY</button>
+    <button data-tab="auth">AUTH</button>
+    <button data-tab="mcp">MCP</button>
+  </nav>
+  <span class="flash" id="flash"></span>
+</header>
+<main>
+
+<section id="now" class="on">
+  <div class="card">
+    <h3>NOW PLAYING</h3>
+    <div class="np" id="np">—</div>
+    <div class="row"><span id="npdev">device —</span><span id="npctx"></span></div>
+  </div>
+  <div class="bar">
+    <button class="ghost" onclick="cmd('previous')">⏮</button>
+    <button class="ghost" onclick="cmd('play')">▶</button>
+    <button class="ghost" onclick="cmd('pause')">⏸</button>
+    <button class="ghost" onclick="cmd('next')">⏭</button>
+    <input id="vol" type="number" min="0" max="100" placeholder="vol" style="min-width:70px">
+    <button class="ghost" onclick="cmd('volume',{percent:+vol.value})">SET VOL</button>
+    <button class="ghost" onclick="cmd('shuffle',{state:true})">SHUFFLE</button>
+    <button class="ghost" onclick="cmd('repeat',{state:'off'})">REPEAT OFF</button>
+    <button class="ghost" onclick="load()">REFRESH</button>
+  </div>
+  <div class="card">
+    <h3>DEVICES</h3>
+    <div id="devices" class="note">—</div>
+  </div>
+  <div class="card">
+    <h3>UP NEXT</h3>
+    <div id="upnext" class="note">—</div>
+  </div>
+</section>
+
+<section id="search">
+  <div class="bar">
+    <input id="q" placeholder="artist - title, or a spotify link" style="flex:1;min-width:280px">
+    <select id="stype">
+      <option>track</option><option>album</option><option>artist</option>
+      <option>playlist</option><option>show</option><option>episode</option>
+    </select>
+    <button class="go" onclick="search()">SEARCH</button>
+  </div>
+  <table><thead><tr><th></th><th>name</th><th>artists</th><th>album</th><th></th></tr></thead>
+  <tbody id="hits"></tbody></table>
+</section>
+
+<section id="library">
+  <div class="bar">
+    <button class="ghost" onclick="show('/top?type=tracks&limit=25')">TOP TRACKS</button>
+    <button class="ghost" onclick="show('/top?type=artists&limit=25')">TOP ARTISTS</button>
+    <button class="ghost" onclick="show('/recent?limit=25')">RECENT</button>
+    <button class="ghost" onclick="show('/saved?limit=25')">SAVED</button>
+    <button class="ghost" onclick="show('/playlists')">PLAYLISTS</button>
+  </div>
+  <pre id="lib">pick one.</pre>
+</section>
+
+<section id="auth">
+  <div class="card">
+    <h3>APP CREDENTIALS — developer.spotify.com/dashboard</h3>
+    <div class="bar">
+      <input id="cid" placeholder="client_id" style="min-width:260px">
+      <input id="csec" placeholder="client_secret (optional under PKCE)" style="min-width:260px">
+      <button class="go" onclick="setKey()">SAVE</button>
+    </div>
+    <div class="note">Stored 0600 in ~/.mod/spotify/keys.json — never in config.json.
+      Add this redirect URI to the app, exactly: <b id="cb">—</b></div>
+  </div>
+  <div class="card">
+    <h3>SESSION</h3>
+    <div class="bar">
+      <button class="go" onclick="login()">CONNECT SPOTIFY</button>
+      <button class="ghost" onclick="post('/logout').then(load)">LOG OUT</button>
+    </div>
+    <pre id="authstate">—</pre>
+  </div>
+</section>
+
+<section id="mcp">
+  <div class="note">Point any MCP client at this server, or run it over stdio.</div>
+  <pre id="tools">—</pre>
+</section>
+
+</main>
+<script>
+// Mounted at /spotify behind the gateway, or bare at :50610 — ask our own path.
+const BASE = location.pathname.replace(/\/+$/,'').endsWith('/spotify')
+  ? location.pathname.replace(/\/+$/,'') + '/_api' : '/_api';
+const $ = id => document.getElementById(id);
+const flash = (m, bad) => { $('flash').textContent = m || '';
+  $('flash').style.color = bad ? 'var(--bad)' : 'var(--warn)'; };
+
+async function get(p){ const r = await fetch(BASE + p); const j = await r.json();
+  if (!r.ok) throw new Error(j.error + (j.hint ? ' — ' + j.hint : '')); return j; }
+async function post(p, body){ const r = await fetch(BASE + p, {method:'POST',
+  headers:{'content-type':'application/json'}, body: JSON.stringify(body || {})});
+  const j = await r.json(); if (!r.ok) throw new Error(j.error + (j.hint ? ' — ' + j.hint : ''));
+  return j; }
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+});
+
+async function cmd(action, body){
+  try { flash(action + '…'); await post('/' + action, body || {}); await load(); flash(''); }
+  catch (e) { flash(e.message, true); }
+}
+
+async function load(){
+  try {
+    const s = await get('/status');
+    $('who').textContent = s.logged_in
+      ? (s.user ? s.user.name + ' · ' + (s.user.product || '') : 'connected')
+      : 'not connected — see AUTH';
+    $('authstate').textContent = JSON.stringify(s, null, 2);
+    $('cb').textContent = location.origin + '/callback';
+    const np = s.now_playing || {};
+    $('np').innerHTML = np.item
+      ? `<b>${np.item.name}</b> — ${np.item.artists || ''} <span class="sub">${np.item.duration || ''}</span>`
+      : (np.note || '—');
+    $('npdev').textContent = 'device ' + ((np.device && np.device.name) || '—')
+      + (np.playing ? ' · playing' : ' · paused');
+    $('npctx').textContent = np.progress ? 'at ' + np.progress : '';
+    $('devices').innerHTML = (s.devices || []).map(d =>
+      `${d.active ? '● ' : '○ '}${d.name} <span class="sub">(${d.kind || ''} ${d.volume ?? ''}%)</span>
+       <button class="ghost" onclick="cmd('transfer',{device:'${d.id}'})">USE</button>`).join('<br>')
+      || 'no device is awake — open Spotify anywhere';
+    if (s.logged_in) get('/queue?limit=8').then(q => $('upnext').innerHTML =
+      (q.next || []).map(t => `${t.name} — ${t.artists || ''}`).join('<br>') || 'queue empty');
+  } catch (e) { flash(e.message, true); }
+}
+
+async function search(){
+  try {
+    const j = await get('/search?type=' + $('stype').value + '&limit=20&q=' + encodeURIComponent($('q').value));
+    const rows = Object.values(j).filter(Array.isArray).flat();
+    $('hits').innerHTML = rows.map(t => `<tr>
+      <td><button class="ghost" onclick="cmd('play',{uri:'${t.uri}'})">▶</button></td>
+      <td>${t.name || ''}</td><td>${t.artists || t.owner || ''}</td>
+      <td>${t.album || t.type}</td>
+      <td><button class="ghost" onclick="cmd('queue',{uri:'${t.uri}'})">QUEUE</button></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="note">no hits</td></tr>';
+  } catch (e) { flash(e.message, true); }
+}
+
+async function show(path){
+  try { $('lib').textContent = JSON.stringify(await get(path), null, 2); }
+  catch (e) { $('lib').textContent = e.message; }
+}
+
+async function setKey(){
+  try { await post('/keys', {client_id: $('cid').value.trim(),
+                             client_secret: $('csec').value.trim(),
+                             redirect_uri: location.origin + '/callback'});
+        flash('saved'); load(); }
+  catch (e) { flash(e.message, true); }
+}
+
+async function login(){
+  try { const j = await get('/login?redirect_uri=' + encodeURIComponent(location.origin + '/callback'));
+        window.open(j.url, '_blank'); flash('approve in the new tab, then REFRESH'); }
+  catch (e) { flash(e.message, true); }
+}
+
+get('/tools').then(j => $('tools').textContent =
+  j.instructions + '\n\n' + j.tools.map(t => '  ' + t.name + ' — ' + t.description).join('\n\n')
+  + '\n\nhttp: POST ' + location.origin + '/mcp');
+load();
+setInterval(() => { if ($('now').classList.contains('on')) load(); }, 15000);
+</script>
+</body>
+</html>

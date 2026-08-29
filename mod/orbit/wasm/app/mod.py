@@ -1,9 +1,13 @@
 import os
 import mod as m
 
+
 class Mod:
-    description = """app"""
-    path = r'/Users/broski/mod/mod/orbit/wasm/app'
+    description = """wasm"""
+    # Resolve from this file, not a baked absolute path — the module is
+    # served from wherever it is checked out, and a hardcoded one made every
+    # fn that touched it (info, readme) raise on a foreign host.
+    path = os.path.dirname(os.path.abspath(__file__))
 
     def forward(self, **kwargs):
         """Default entry point."""
@@ -12,10 +16,10 @@ class Mod:
     def info(self):
         """Return module info."""
         return {
-            'name': 'app',
+            'name': 'wasm',
             'description': self.description,
             'path': self.path,
-            'files': os.listdir(self.path),
+            'files': sorted(os.listdir(self.path)),
         }
 
     def readme(self):

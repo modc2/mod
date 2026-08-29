@@ -23,6 +23,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import os
 import time
 import zipfile
@@ -155,6 +156,81 @@ def socrata_geojson(dataset: str, domain: str = NYC, timeout: int = 180) -> dict
     if fc.get('type') != 'FeatureCollection':
         raise ValueError(f'{dataset}: expected FeatureCollection, got {fc.get("type")!r}')
     return fc
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NY State Plane → WGS84
+#
+# DOT's traffic-count file publishes location as WKT in EPSG:2263 (NAD83 / New
+# York Long Island, US survey feet) rather than lat/lng, so it has to be
+# unprojected before anything can be drawn. That is a Lambert Conformal Conic
+# inverse, done here in the stdlib: pulling in pyproj (and its PROJ database)
+# to convert a few hundred points would be the largest dependency in the
+# module by an order of magnitude.
+#
+# The datum shift from NAD83 to WGS84 is under a metre in NYC and is ignored —
+# it is far below the precision the counts themselves are located to.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SP_A = 6378137.0                       # GRS80 semi-major axis, metres
+_SP_E = math.sqrt(2 / 298.257222101 - (1 / 298.257222101) ** 2)
+_SP_FT = 1200.0 / 3937.0                # US survey foot, exactly
+_SP_LAT1 = math.radians(40 + 40 / 60)          # standard parallels
+_SP_LAT2 = math.radians(41 + 2 / 60 + 20 / 3600)
+_SP_LAT0 = math.radians(40 + 10 / 60)          # latitude of origin
+_SP_LON0 = math.radians(-74.0)                 # central meridian
+_SP_FE = 984250.0 * _SP_FT                     # false easting, metres
+
+
+def _sp_m(phi: float) -> float:
+    return math.cos(phi) / math.sqrt(1 - _SP_E ** 2 * math.sin(phi) ** 2)
+
+
+def _sp_t(phi: float) -> float:
+    s = _SP_E * math.sin(phi)
+    return math.tan(math.pi / 4 - phi / 2) / ((1 - s) / (1 + s)) ** (_SP_E / 2)
+
+
+_SP_N = (math.log(_sp_m(_SP_LAT1) / _sp_m(_SP_LAT2))
+         / math.log(_sp_t(_SP_LAT1) / _sp_t(_SP_LAT2)))
+_SP_F = _sp_m(_SP_LAT1) / (_SP_N * _sp_t(_SP_LAT1) ** _SP_N)
+_SP_RHO0 = _SP_A * _SP_F * _sp_t(_SP_LAT0) ** _SP_N
+
+
+def state_plane_to_wgs84(x_ft: float, y_ft: float) -> Tuple[float, float]:
+    """EPSG:2263 easting/northing in US survey feet → ``(lng, lat)`` degrees."""
+    x = x_ft * _SP_FT - _SP_FE
+    y = y_ft * _SP_FT
+    rho = math.copysign(math.hypot(x, _SP_RHO0 - y), _SP_N)
+    t = (rho / (_SP_A * _SP_F)) ** (1 / _SP_N)
+    lon = math.atan2(x, _SP_RHO0 - y) / _SP_N + _SP_LON0
+    # Latitude has no closed form; the series converges in a handful of passes.
+    phi = math.pi / 2 - 2 * math.atan(t)
+    for _ in range(12):
+        s = _SP_E * math.sin(phi)
+        nxt = math.pi / 2 - 2 * math.atan(t * ((1 - s) / (1 + s)) ** (_SP_E / 2))
+        if abs(nxt - phi) < 1e-12:
+            phi = nxt
+            break
+        phi = nxt
+    return math.degrees(lon), math.degrees(phi)
+
+
+def wkt_point_to_lnglat(wkt: str) -> Optional[Tuple[float, float]]:
+    """Unproject a ``POINT (x y)`` in state-plane feet. None if unparseable."""
+    if not wkt or 'POINT' not in wkt.upper():
+        return None
+    try:
+        inner = wkt[wkt.index('(') + 1:wkt.index(')')]
+        x_str, y_str = inner.replace(',', ' ').split()[:2]
+        lng, lat = state_plane_to_wgs84(float(x_str), float(y_str))
+    except (ValueError, IndexError, ZeroDivisionError, OverflowError):
+        return None
+    # A count location outside the city's envelope means the row was projected
+    # from something other than state-plane feet; drop it rather than draw it.
+    if not (-74.30 <= lng <= -73.68) or not (40.47 <= lat <= 40.93):
+        return None
+    return round(lng, 5), round(lat, 5)
 
 
 def points_from_rows(rows: Iterable[dict], lat_key: str, lng_key: str,

@@ -154,6 +154,19 @@ export async function startLiveSession(
   capital: number,
   opts?: { inheritExecution?: boolean },
 ): Promise<boolean> {
+  return (await startLiveSessionDetailed(eoa, strat, capital, opts)).ok;
+}
+
+/** Same call, with the server's refusal text kept. Funding several strats in
+ *  one action needs it: "3 of 5 armed" is only useful if the other two can say
+ *  WHY, and the engine's messages ("give them dollars before starting", "no
+ *  signer for this wallet") are written to be read by a person. */
+export async function startLiveSessionDetailed(
+  eoa: string,
+  strat: SavedIndex,
+  capital: number,
+  opts?: { inheritExecution?: boolean },
+): Promise<{ ok: boolean; error?: string }> {
   // Clamp to the engine's rate-limit floor here too — this path starts a
   // session without the LIVE panel, so nothing else would catch a strat
   // carrying a stale sub-30s cadence.
@@ -203,8 +216,10 @@ export async function startLiveSession(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    return res.ok;
-  } catch {
-    return false;
+    if (res.ok) return { ok: true };
+    const j = (await res.json().catch(() => null)) as { error?: string } | null;
+    return { ok: false, error: j?.error || `engine refused the session (HTTP ${res.status})` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "could not reach the engine" };
   }
 }

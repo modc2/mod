@@ -174,14 +174,19 @@ export function getNativeSymbol(chainId: number): string {
 export function getStoredChainId(): number {
   try {
     const stored = localStorage.getItem("buildfork_jobs_chain_id");
-    return stored ? parseInt(stored, 10) : 84532; // default Base Sepolia
+    const cid = stored ? parseInt(stored, 10) : NaN;
+    return Number.isFinite(cid) ? cid : 1; // default Ethereum mainnet
   } catch {
-    return 84532;
+    return 1;
   }
 }
 
 export function setStoredChainId(chainId: number): void {
-  localStorage.setItem("buildfork_jobs_chain_id", chainId.toString());
+  try {
+    localStorage.setItem("buildfork_jobs_chain_id", chainId.toString());
+  } catch {
+    /* private mode / quota — the selection just doesn't survive the reload */
+  }
 }
 
 /**

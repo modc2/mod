@@ -1,5 +1,5 @@
 import { BrowserProvider, Contract, JsonRpcProvider, formatUnits, type JsonRpcSigner } from "ethers";
-import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, TraderRoiStats, TradeFilters, TraderFilter, MomentumParams } from "./types";
+import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, PolymarketMarket, TraderRoiStats, TradeFilters, TraderFilter, MomentumParams } from "./types";
 import { placeOrder, detectSigType, ClobOrderResult } from "./clobClient";
 import { fetchWalletTradesUntil, fetchWalletTradesIncremental, fetchPositions, fetchTraderRoiStats, searchMarkets, fetchPriceHistory, fetchPriceHistoryLive, fetchMidpointLive, fetchMarketBySlug } from "./polymarket";
 import { getTradeCache } from "./cache";
@@ -18,9 +18,10 @@ import {
   POLYMARKET_MIN_SHARES,
   successProbability,
   copyRatioFor,
+  MAX_MOMENTUM_QUERIES,
   type SizingModel,
 } from "./strats/strat";
-import { marketMatchesQuery } from "./marketQuery";
+import { marketMatchesQuery, marketQueryGroups } from "./marketQuery";
 import { tradeMatchesFilters } from "./tradeFilters";
 import { networkById, ensureChain, withRpcFallback } from "./networks";
 import { USDC_E } from "./polymarketContracts";
@@ -2031,8 +2032,36 @@ export class CopyEngine {
     }
 
     const query = mo.query || this.strat.params.marketQuery || "bitcoin";
-    const markets = await searchMarkets(query, 60);
-    const candidates = markets
+    // One search PER OR-group, merged — "bitcoin, ethereum, solana" is three
+    // requests. Gamma ranks a multi-word query by whole-phrase relevance, so
+    // the one-request version lands on the event family that NAMES several
+    // coins ("top performing crypto this week") instead of the coins' own
+    // markets: measured, 50 markets with $315k of top-20 volume against 250
+    // and $53M for the same query fanned out, sharing not one market. A group
+    // that fails is skipped, not fatal: momentum works off whatever slice of
+    // the feed resolved, and losing Solana shouldn't cost us Bitcoin.
+    const groups = marketQueryGroups(query).slice(0, MAX_MOMENTUM_QUERIES);
+    const pool: PolymarketMarket[] = [];
+    const seen = new Set<string>();
+    for (const g of groups.length > 0 ? groups : [query]) {
+      let found: PolymarketMarket[] = [];
+      try {
+        found = await searchMarkets(g, 60);
+      } catch {
+        continue;
+      }
+      for (const m of found) {
+        const cid = m.conditionId?.toLowerCase();
+        if (!cid || seen.has(cid)) continue;
+        seen.add(cid);
+        pool.push(m);
+      }
+    }
+    // No title re-filter on the results: `marketMatchesQuery` is a substring
+    // test, and the tickers a crypto query wants ("eth", "sol") are substrings
+    // of ordinary English ("whether", "sold"). Gamma's own relevance is the
+    // scope; the volume sort below is what keeps the tracked set serious.
+    const candidates = pool
       .filter((m) =>
         m.active &&
         m.conditionId &&

@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<base href="/store/">
+<title>store — share a picture</title>
+<!--
+  The console. Four screens, and the order is the order of the work: put a
+  picture in, decide who gets to see it, watch the codes you have out, and read
+  what the thing actually does.
+
+  The share dialog is the one screen worth arguing about. It mints nothing
+  until a duration is chosen, because every mint is a live credential and a
+  dialog that issues one on open leaves them lying around whenever somebody
+  changes their mind. Once minted it shows the PAGE link — the same URL the QR
+  encodes — never the raw bytes URL, which the first thing to touch it spends.
+-->
+<style>
+:root{
+  --bg:#0b0d11; --panel:#141821; --panel2:#0f1219; --line:#242936; --ink:#e9edf5;
+  --dim:#8d97a9; --accent:#6ee7b7; --accent-ink:#04130c; --warn:#fbbf24;
+  --bad:#f87171; --radius:14px; --shadow:0 24px 60px -24px #000d;
+}
+:root[data-theme=light]{
+  --bg:#f5f7fb; --panel:#fff; --panel2:#f0f3f8; --line:#e3e7ef; --ink:#141824;
+  --dim:#5f6982; --accent:#0d9a6c; --accent-ink:#fff; --warn:#a86a00;
+  --bad:#c33; --shadow:0 20px 44px -26px #4a566e55;
+}
+*{box-sizing:border-box}
+body{margin:0;background:
+  radial-gradient(900px 500px at 82% -10%, color-mix(in srgb,var(--accent) 10%,transparent), transparent 65%),
+  var(--bg);color:var(--ink);
+  font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+a{color:var(--accent)}
+
+/* ── chrome ─────────────────────────────────────────────────────── */
+header{border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--panel) 70%,transparent);
+  backdrop-filter:blur(8px);position:sticky;top:0;z-index:5}
+.bar{max-width:1080px;margin:0 auto;padding:15px 22px;display:flex;
+  align-items:center;gap:13px;flex-wrap:wrap}
+.mark{width:28px;height:28px;border-radius:9px;background:var(--accent);
+  color:var(--accent-ink);display:grid;place-items:center;font-size:15px;font-weight:700}
+h1{margin:0;font-size:17px;letter-spacing:-.01em}
+.tag-line{color:var(--dim);font-size:13px}
+.bar .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.pill{border:1px solid var(--line);border-radius:99px;padding:4px 11px;
+  font-size:12px;color:var(--dim)}
+.icon-btn{background:none;border:1px solid var(--line);color:var(--dim);
+  border-radius:99px;width:31px;height:31px;cursor:pointer;font-size:13px}
+.icon-btn:hover{color:var(--ink);border-color:var(--dim)}
+nav{max-width:1080px;margin:0 auto;padding:0 22px;display:flex;gap:2px}
+nav button{background:none;border:0;border-bottom:2px solid transparent;
+  color:var(--dim);padding:10px 13px;font:500 13.5px/1 inherit;cursor:pointer}
+nav button:hover{color:var(--ink)}
+nav button.on{color:var(--ink);border-bottom-color:var(--accent)}
+main{max-width:1080px;margin:0 auto;padding:24px 22px 60px}
+.screen{display:none} .screen.on{display:block}
+
+/* ── bits ───────────────────────────────────────────────────────── */
+section{background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--radius);padding:20px;margin-bottom:18px}
+h2{margin:0 0 4px;font-size:15px;letter-spacing:-.01em}
+h2+.sub{margin:0 0 16px;color:var(--dim);font-size:13px}
+.sub{color:var(--dim);font-size:13px}
+button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+  border-radius:9px;padding:7px 12px;font:500 13px/1.3 inherit;cursor:pointer}
+button:hover{border-color:var(--dim)}
+button.go{background:var(--accent);color:var(--accent-ink);border-color:transparent;
+  font-weight:600}
+button.go:hover{filter:brightness(1.06)}
+button.bad{color:var(--bad)}
+button:disabled{opacity:.45;cursor:not-allowed}
+input[type=text],input[type=number],select{background:var(--panel2);color:var(--ink);
+  border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:13px inherit}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.drop{border:1.5px dashed var(--line);border-radius:var(--radius);padding:30px 20px;
+  text-align:center;color:var(--dim);cursor:pointer;transition:.15s}
+.drop:hover{border-color:var(--dim)}
+.drop.hot{border-color:var(--accent);color:var(--accent);
+  background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.drop b{display:block;color:var(--ink);font-size:15px;margin-bottom:4px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:15px}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+  overflow:hidden;display:flex;flex-direction:column;transition:.15s}
+.card:hover{border-color:var(--dim)}
+.card .thumb{aspect-ratio:4/3;background:#0a0c10 center/cover no-repeat;cursor:zoom-in;
+  position:relative}
+.card .thumb.empty{display:grid;place-items:center;color:#39404f;font-size:22px}
+.card .meta{padding:10px 12px 8px;display:flex;flex-direction:column;gap:4px}
+.card .name{font-size:13.5px;word-break:break-word;line-height:1.35}
+.card .facts{color:var(--dim);font-size:11.5px}
+.card .acts{display:flex;gap:6px;padding:0 12px 12px;flex-wrap:wrap;margin-top:auto}
+.card .acts button{padding:6px 9px;font-size:12px}
+.tag{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:99px;
+  font-size:11px;border:1px solid var(--line);color:var(--dim);width:fit-content}
+.tag.pub{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+.tag:before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.empty-note{color:var(--dim);font-size:13px;padding:14px 0}
+.line{display:flex;gap:12px;align-items:center;padding:12px 0;
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.line:last-child{border-bottom:0}
+.line .grow{flex:1;min-width:130px}
+.mini-bar{height:4px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:6px}
+.mini-bar i{display:block;height:100%;background:var(--accent)}
+.mini-bar i.low{background:var(--warn)}
+.dead{color:var(--dim);opacity:.7}
+
+/* ── docs ───────────────────────────────────────────────────────── */
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:15px}
+.way{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px}
+.way h3{margin:0 0 6px;font-size:14px}
+.way .who{color:var(--accent);font-size:12.5px;margin-bottom:9px}
+.way dl{margin:0;font-size:12.5px;color:var(--dim);display:grid;
+  grid-template-columns:auto 1fr;gap:6px 14px;align-items:baseline}
+.way dt{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.07em}
+.way dd{margin:0;color:var(--ink);text-align:right;word-break:break-word}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--dim);font-weight:500;font-size:11px;
+  text-transform:uppercase;letter-spacing:.08em;padding:0 10px 8px 0;
+  border-bottom:1px solid var(--line)}
+td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+td.verb{width:60px;color:var(--dim)}
+tr:last-child td{border-bottom:0}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:11px;
+  padding:14px;overflow:auto;font-size:12px;margin:0}
+.tool{border:1px solid var(--line);border-radius:11px;padding:13px 14px;
+  background:var(--panel2);margin-bottom:9px}
+.tool .n{font-size:13px;font-weight:600}
+.tool .d{color:var(--dim);font-size:12.5px;margin-top:4px}
+.tool .args{margin-top:8px;font-size:11.5px;color:var(--dim);display:flex;
+  gap:6px;flex-wrap:wrap}
+.arg{border:1px solid var(--line);border-radius:6px;padding:2px 7px}
+.arg.req{color:var(--ink);border-color:var(--dim)}
+#docs h3{margin:0 0 7px;font-size:11px;color:var(--dim);font-weight:600;
+  text-transform:uppercase;letter-spacing:.08em}
+
+/* ── dialogs ────────────────────────────────────────────────────── */
+dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);
+  border-radius:18px;padding:0;max-width:400px;width:92vw;box-shadow:var(--shadow)}
+dialog::backdrop{background:#000a;backdrop-filter:blur(3px)}
+dialog .pad{padding:22px}
+dialog h3{margin:0 0 6px;font-size:17px}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}
+.chip{padding:7px 12px;border-radius:99px;border:1px solid var(--line);
+  background:none;font-size:13px;cursor:pointer}
+.chip.on{border-color:var(--accent);color:var(--accent);
+  background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.qr{background:#fff;border-radius:12px;padding:14px;display:grid;place-items:center}
+.qr svg,.qr img{width:100%;height:auto;display:block}
+.count{font-size:31px;font-weight:750;text-align:center;font-variant-numeric:tabular-nums;
+  margin:14px 0 2px;letter-spacing:-.02em}
+.count.low{color:var(--warn)} .count.out{color:var(--bad)}
+.url{word-break:break-all;color:var(--dim);font-size:11.5px;text-align:center;
+  background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px}
+.hint{color:var(--dim);font-size:12.5px;text-align:center;margin:12px 0 0}
+#lightbox{border:0;background:none;max-width:96vw;padding:0}
+#lightbox img{max-width:96vw;max-height:88vh;border-radius:12px;display:block}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:10px 17px;font-size:13px;display:none;box-shadow:var(--shadow);z-index:9}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <span class="mark">&#9713;</span>
+    <h1>store</h1>
+    <span class="tag-line">a picture for everyone, or a picture for one person once</span>
+    <span class="right">
+      <span class="pill" id="stats">&hellip;</span>
+      <span class="pill mono" id="who">&hellip;</span>
+      <button class="icon-btn" id="theme" title="Light or dark">&#9681;</button>
+    </span>
+  </div>
+  <nav>
+    <button class="on" data-screen="library">Library</button>
+    <button data-screen="codes">Codes <span id="liveCount"></span></button>
+    <button data-screen="public">Published</button>
+    <button data-screen="docs">Docs &amp; MCP</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ── library ──────────────────────────────────────────────── -->
+  <div class="screen on" id="screen-library">
+    <section>
+      <div class="drop" id="drop">
+        <b>Drop a picture here, paste one, or click to choose</b>
+        <span class="mono" style="font-size:12px">png &middot; jpeg &middot; gif &middot; webp &middot; bmp
+          &mdash; sniffed from the bytes, not the filename</span>
+      </div>
+      <input type="file" id="file" accept="image/*" hidden>
+      <div class="row" style="margin-top:13px;justify-content:space-between">
+        <label class="row sub" style="gap:7px;cursor:pointer">
+          <input type="checkbox" id="pub"> publish it straight away (permanent, open to anyone)
+        </label>
+        <span class="sub mono" id="uploadNote"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Your pictures</h2>
+      <p class="sub">Private until you say otherwise. Nothing here is reachable
+        without either publishing it or minting a code for it.</p>
+      <div class="grid" id="mine"></div>
+      <div class="empty-note" id="mineEmpty">Nothing stored yet.</div>
+    </section>
+  </div>
+
+  <!-- ── codes ────────────────────────────────────────────────── -->
+  <div class="screen" id="screen-codes">
+    <section>
+      <h2>Codes you have out</h2>
+      <p class="sub">Each is good for one look and dies on the clock either
+        way. Revoking one is instant &mdash; do it the moment the screen
+        showing it walks out of the room.</p>
+      <div id="grants"></div>
+    </section>
+    <section>
+      <h2>What happened to the others</h2>
+      <p class="sub">Spent and expired codes are kept for a week so a dead link
+        can say <em>which</em> kind of dead it is.</p>
+      <div id="history"></div>
+    </section>
+  </div>
+
+  <!-- ── published ────────────────────────────────────────────── -->
+  <div class="screen" id="screen-public">
+    <section>
+      <h2>Published on this box</h2>
+      <p class="sub">Everything anyone here has made public. These links are
+        permanent, need no credential and have no audience &mdash; unpublishing
+        stops new readers but recalls nothing.</p>
+      <div class="grid" id="feed"></div>
+      <div class="empty-note" id="feedEmpty">Nothing published yet.</div>
+    </section>
+  </div>
+
+  <!-- ── docs ─────────────────────────────────────────────────── -->
+  <div class="screen" id="screen-docs">
+    <section>
+      <h2>The manual</h2>
+      <p class="sub">Everything below is rendered from the API's own
+        <span class="mono">/docs</span>, so a route that changes is wrong in one
+        place rather than right here and stale there. The same document is a
+        standalone page, plain JSON, and an MCP tool.</p>
+      <div class="row">
+        <a href="docs" target="_blank"><button>Open as a page &nearr;</button></a>
+        <a href="_api/docs" target="_blank"><button>Read it as JSON &nearr;</button></a>
+        <a href="mcp/schema" target="_blank"><button>MCP schema &nearr;</button></a>
+      </div>
+    </section>
+    <div id="docs"><p class="sub">Loading&hellip;</p></div>
+  </div>
+</main>
+
+<!-- ── share dialog ───────────────────────────────────────────── -->
+<dialog id="share"><div class="pad" id="shareBody"></div></dialog>
+<dialog id="lightbox"><img id="lightboxImg" alt=""></dialog>
+<div id="toast"></div>
+
+<script>
+const API = '_api';
+const SITE = location.origin + '/store';   // one origin for every share link
+const el = (id) => document.getElementById(id);
+let CURRENT = null, TICK = null, DOCS = null;
+
+// ── theme, shared with the share pages ───────────────────────────────
+const THEME_KEY = 'store.theme';
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  try{ localStorage.setItem(THEME_KEY, t); }catch(e){}
+  el('theme').textContent = t === 'light' ? '◕' : '◑';
+}
+setTheme((() => { try{ return localStorage.getItem(THEME_KEY) || 'dark'; }
+                  catch(e){ return 'dark'; } })());
+el('theme').onclick = () => setTheme(
+  document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+
+// ── plumbing ─────────────────────────────────────────────────────────
+function toast(message, ms = 2600){
+  const box = el('toast');
+  box.textContent = message; box.style.display = 'block';
+  clearTimeout(box._t); box._t = setTimeout(() => box.style.display = 'none', ms);
+}
+async function call(path, options = {}){
+  const response = await fetch(`${API}${path}`, options);
+  const type = response.headers.get('content-type') || '';
+  const data = type.includes('json') ? await response.json() : await response.text();
+  if(!response.ok) throw new Error((data && data.error) || `HTTP ${response.status}`);
+  return data;
+}
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtBytes(n){
+  const units = ['B','KB','MB','GB']; let i = 0;
+  while(n >= 1024 && i < units.length - 1){ n /= 1024; i++; }
+  return `${n < 10 && i ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
+}
+function fmtSeconds(s){
+  s = Math.max(0, Math.round(s));
+  if(s < 60) return `${s}s`;
+  if(s < 3600) return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+  return `${Math.floor(s/3600)}h ${Math.floor(s%3600/60)}m`;
+}
+function copy(text, said = 'Link copied.'){
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+    .then(() => toast(said), () => prompt('Copy this:', text));
+}
+
+// ── screens ──────────────────────────────────────────────────────────
+// The screen lives in the URL hash, so a reload keeps your place, the back
+// button means what it looks like it means, and "the docs tab" is something
+// you can send somebody rather than describe to them.
+const SCREENS = ['library', 'codes', 'public', 'docs'];
+
+function show(name, push){
+  if(!SCREENS.includes(name)) name = 'library';
+  document.querySelectorAll('nav button').forEach(b =>
+    b.classList.toggle('on', b.dataset.screen === name));
+  document.querySelectorAll('.screen').forEach(s =>
+    s.classList.toggle('on', s.id === `screen-${name}`));
+  if(push && location.hash.slice(1) !== name) location.hash = name;
+  if(name === 'public') loadFeed();
+  if(name === 'codes') loadGrants(true);
+  if(name === 'docs') loadDocs();
+}
+
+document.querySelectorAll('nav button').forEach(button => {
+  button.onclick = () => show(button.dataset.screen, true);
+});
+addEventListener('hashchange', () => show(location.hash.slice(1), false));
+
+// ── uploading ────────────────────────────────────────────────────────
+// The body is the raw file: the API sniffs the format itself, so there is
+// nothing a multipart encoding would add except a parser.
+async function upload(file){
+  if(!file) return;
+  if(!file.type.startsWith('image/') && !confirm(
+      `${file.name} doesn't look like an image. Try anyway?`)) return;
+  el('uploadNote').textContent = `uploading ${file.name}…`;
+  try{
+    const query = `?name=${encodeURIComponent(file.name)}&public=${el('pub').checked}`;
+    const record = await call(`/upload${query}`,
+      {method:'POST', body:file,
+       headers:{'Content-Type': file.type || 'application/octet-stream'}});
+    el('uploadNote').textContent = '';
+    toast(record.public ? 'Stored and published.' : 'Stored, and private.');
+    loadMine();
+  }catch(error){
+    el('uploadNote').textContent = '';
+    toast(error.message, 5200);
+  }
+}
+el('drop').onclick = () => el('file').click();
+el('file').onchange = (event) => { upload(event.target.files[0]); event.target.value = ''; };
+['dragenter','dragover'].forEach(name => el('drop').addEventListener(name, (event) => {
+  event.preventDefault(); el('drop').classList.add('hot');
+}));
+['dragleave','drop'].forEach(name => el('drop').addEventListener(name, (event) => {
+  event.preventDefault(); el('drop').classList.remove('hot');
+}));
+el('drop').addEventListener('drop', (event) => upload(event.dataTransfer.files[0]));
+// A screenshot in the clipboard is the commonest thing anyone wants to hand to
+// one person once, and it has no filename to drag.
+document.addEventListener('paste', (event) => {
+  const item = [...(event.clipboardData?.items || [])]
+    .find(i => i.type.startsWith('image/'));
+  if(item) upload(item.getAsFile());
+});
+
+// ── the library ──────────────────────────────────────────────────────
+function cardFor(image, mine){
+  const src = mine ? `${API}/b/${image.id}` : `i/${image.id}`;
+  return `<div class="card">
+    <div class="thumb" style="background-image:url('${src}')"
+      onclick="zoom('${src}')"></div>
+    <div class="meta">
+      <span class="name">${esc(image.name)}</span>
+      <span class="facts">${fmtBytes(image.size)}${image.width
+        ? ` &middot; ${image.width}&times;${image.height}` : ''}</span>
+      <span class="tag ${image.public ? 'pub' : ''}">${
+        image.public ? 'published' : 'private'}</span>
+    </div>
+    <div class="acts">${mine ? `
+      <button class="go" onclick="openShare('${image.id}')">Share once</button>
+      <button onclick="toggle('${image.id}', ${!image.public})">${
+        image.public ? 'Unpublish' : 'Publish'}</button>
+      ${image.public ? `<button onclick="copy(SITE + '/p/${image.id}')">Copy link</button>` : ''}
+      <button class="bad" onclick="remove('${image.id}')">Delete</button>` : `
+      <button onclick="location.href='p/${image.id}'">Open page</button>
+      <button onclick="copy(SITE + '/p/${image.id}')">Copy link</button>`}
+    </div>
+  </div>`;
+}
+
+async function loadMe(){
+  try{
+    const me = await call('/me');
+    el('who').textContent = me.address.length > 14
+      ? `${me.address.slice(0,6)}…${me.address.slice(-4)}` : me.address;
+    el('who').title = me.address;
+  }catch(error){ el('who').textContent = 'not signed in'; }
+  try{
+    const info = await call('/');
+    el('stats').textContent =
+      `${info.stats.images} pictures · ${info.stats.published} published · ${fmtBytes(info.stats.bytes)}`;
+  }catch(error){ el('stats').textContent = 'api down'; }
+}
+
+async function loadMine(){
+  let images = [];
+  try{ images = (await call('/images?limit=200')).images; }
+  catch(error){ toast(error.message, 5200); }
+  el('mineEmpty').style.display = images.length ? 'none' : 'block';
+  el('mine').innerHTML = images.map(i => cardFor(i, true)).join('');
+  loadMe();
+}
+
+async function loadFeed(){
+  let images = [];
+  try{ images = (await call('/public?limit=200')).images; }catch(error){}
+  el('feedEmpty').style.display = images.length ? 'none' : 'block';
+  el('feed').innerHTML = images.map(i => cardFor(i, false)).join('');
+}
+
+function zoom(src){
+  el('lightboxImg').src = src;
+  el('lightbox').showModal();
+}
+el('lightbox').onclick = () => el('lightbox').close();
+
+async function toggle(id, makePublic){
+  if(makePublic && !confirm(
+    'Publishing gives this picture a permanent public link with no credential ' +
+    'and no expiry. Anyone who ever sees the link sees the picture. Continue?')) return;
+  try{
+    await call(makePublic ? '/publish' : '/unpublish',
+      {method:'POST', headers:{'Content-Type':'application/json'},
+       body: JSON.stringify({id, public: makePublic})});
+    toast(makePublic ? 'Published — the link is open to anyone.'
+                     : 'Private again. Copies already made stay made.');
+    loadMine();
+  }catch(error){ toast(error.message, 5200); }
+}
+
+async function remove(id){
+  if(!confirm('Delete this picture and every code pointing at it?')) return;
+  try{ await call(`/image?id=${id}`, {method:'DELETE'}); toast('Deleted.'); loadMine(); }
+  catch(error){ toast(error.message, 5200); }
+}
+
+// ── codes ────────────────────────────────────────────────────────────
+async function loadGrants(withHistory){
+  let live = [];
+  try{ live = (await call('/grants')).grants; }catch(error){ return; }
+  el('liveCount').textContent = live.length ? `(${live.length})` : '';
+  el('grants').innerHTML = live.length ? live.map(grant => `
+    <div class="line" data-code="${grant.code}" data-left="${grant.seconds_left}"
+         data-ttl="${grant.ttl}">
+      <div class="grow">
+        <span class="mono" style="font-size:12px">${grant.code.slice(0,12)}…</span>
+        <div class="mini-bar"><i style="width:${grant.seconds_left / grant.ttl * 100}%"></i></div>
+      </div>
+      <span class="mono left" style="font-size:12.5px;min-width:58px;text-align:right">${
+        fmtSeconds(grant.seconds_left)}</span>
+      <button onclick="reopen('${grant.code}')">Show the QR</button>
+      <button onclick="copy(SITE + '/v/${grant.code}')">Copy link</button>
+      <button class="bad" onclick="revoke('${grant.code}')">Revoke</button>
+    </div>`).join('')
+    : '<div class="empty-note">No live codes. Mint one from a picture in your library.</div>';
+
+  if(!withHistory) return;
+  let all = [];
+  try{ all = (await call('/grants?all=true&limit=40')).grants; }catch(error){ return; }
+  const dead = all.filter(g => !g.live);
+  el('history').innerHTML = dead.length ? dead.map(grant => `
+    <div class="line dead">
+      <span class="mono grow" style="font-size:12px">${grant.code.slice(0,12)}…</span>
+      <span style="font-size:12.5px">${grant.claimed
+        ? `opened ${new Date(grant.claimed_at * 1000).toLocaleString()}`
+        : `expired unseen after ${fmtSeconds(grant.ttl)}`}</span>
+    </div>`).join('') : '<div class="empty-note">Nothing has expired or been used yet.</div>';
+}
+
+// The countdown runs off the page's own clock between polls, so a row does not
+// sit at a stale number for five seconds at a time.
+setInterval(() => {
+  document.querySelectorAll('#grants .line').forEach(line => {
+    const left = Math.max(0, Number(line.dataset.left) - 1);
+    line.dataset.left = left;
+    line.querySelector('.left').textContent = fmtSeconds(left);
+    const bar = line.querySelector('.mini-bar i');
+    bar.style.width = `${left / Number(line.dataset.ttl) * 100}%`;
+    bar.classList.toggle('low', left <= Math.min(15, line.dataset.ttl * 0.25));
+    if(left <= 0) line.classList.add('dead');
+  });
+}, 1000);
+
+// ── the share dialog ─────────────────────────────────────────────────
+// Nothing is minted until a duration is picked: a code is a live credential,
+// and a dialog that issues one just for opening leaves them scattered behind
+// every change of mind.
+const TTLS = [[15,'15 seconds'],[60,'a minute'],[300,'5 minutes'],
+              [3600,'an hour'],[86400,'a day']];
+let CHOSEN = 60;
+
+function openShare(id){
+  CURRENT = null;
+  el('shareBody').innerHTML = `
+    <h3>Hand this to one person</h3>
+    <p class="sub">A code good for exactly one look. Whoever opens the link
+      first gets the picture; everyone after that, including them again, gets
+      nothing.</p>
+    <p class="sub" style="margin-top:10px">How long should it stay good?</p>
+    <div class="chips" id="chips">${TTLS.map(([s, label]) =>
+      `<button class="chip${s === CHOSEN ? ' on' : ''}" data-ttl="${s}">${label}</button>`
+      ).join('')}</div>
+    <p class="sub" style="font-size:12px">It dies on the clock whether or not
+      anybody scans it &mdash; so a short one is not a smaller share, it is a
+      smaller window in which to lose it.</p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px">
+      <button onclick="share.close()">Cancel</button>
+      <button class="go" id="mintBtn">Mint the code</button>
+    </div>`;
+  el('chips').querySelectorAll('.chip').forEach(chip => chip.onclick = () => {
+    CHOSEN = Number(chip.dataset.ttl);
+    el('chips').querySelectorAll('.chip').forEach(c => c.classList.remove('on'));
+    chip.classList.add('on');
+  });
+  el('mintBtn').onclick = () => mint(id);
+  el('share').showModal();
+}
+
+async function mint(id){
+  el('mintBtn').disabled = true;
+  try{
+    const grant = await call('/grant', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id, ttl_seconds: CHOSEN})});
+    showCode(grant, grant.qr_svg);
+    loadGrants();
+  }catch(error){ toast(error.message, 5200); el('mintBtn').disabled = false; }
+}
+
+function showCode(grant, qrHtml){
+  CURRENT = grant;
+  const url = grant.page_url || grant.url;
+  el('shareBody').innerHTML = `
+    <h3>Point a camera at this</h3>
+    <p class="sub">It opens a page that explains the code and asks before
+      spending it &mdash; so a preview or a prefetch can't use it up on the way.</p>
+    <div class="qr" style="margin-top:14px">${qrHtml ||
+      '<p style="color:#666;font-size:12px;padding:22px;text-align:center">No QR encoder installed on this box (pip install segno). The link below still works.</p>'}</div>
+    <p class="count" id="count">&mdash;</p>
+    <p class="url mono">${esc(url)}</p>
+    <p class="hint">One look, or the timer &mdash; whichever comes first.</p>
+    <div class="row" style="justify-content:center;margin-top:14px">
+      <button onclick="copy(CURRENT.page_url || CURRENT.url)">Copy link</button>
+      <button onclick="window.open(CURRENT.page_url || CURRENT.url, '_blank')">Open it</button>
+      <button class="bad" onclick="revokeCurrent()">Revoke</button>
+      <button onclick="share.close()">Done</button>
+    </div>`;
+  clearInterval(TICK);
+  const deadline = Date.now() + grant.seconds_left * 1000;
+  const total = grant.ttl || grant.seconds_left;
+  const tick = () => {
+    const left = Math.max(0, (deadline - Date.now()) / 1000);
+    const node = el('count');
+    if(!node) return clearInterval(TICK);
+    node.textContent = left ? fmtSeconds(left) : 'expired';
+    node.classList.toggle('low', left > 0 && left <= Math.min(15, total * 0.25));
+    node.classList.toggle('out', left <= 0);
+    if(left <= 0) clearInterval(TICK);
+  };
+  tick(); TICK = setInterval(tick, 250);
+}
+
+async function reopen(code){
+  try{
+    const grant = await call(`/grant?code=${code}`);
+    // Peeking never returns the QR (rendering one is the API's job and
+    // rendering it does not spend anything) so point an <img> at that route.
+    showCode({...grant, code, page_url: `${SITE}/v/${code}`},
+             `<img src="g/${code}/qr" alt="QR code">`);
+    el('share').showModal();
+  }catch(error){ toast(error.message, 5200); }
+}
+
+async function revokeCurrent(){ if(CURRENT){ await revoke(CURRENT.code); el('share').close(); } }
+async function revoke(code){
+  try{ await call(`/grant?code=${code}`, {method:'DELETE'}); toast('Revoked — that code is dead.'); loadGrants(true); }
+  catch(error){ toast(error.message, 5200); }
+}
+el('share').addEventListener('close', () => clearInterval(TICK));
+
+// ── docs ─────────────────────────────────────────────────────────────
+// Rendered from the API's own /docs, so a route that changes is wrong in one
+// place rather than right in the code and stale on the page.
+async function loadDocs(){
+  if(DOCS) return;
+  try{ DOCS = await call('/docs'); }
+  catch(error){ el('docs').innerHTML = `<section><p class="sub">${esc(error.message)}</p></section>`; return; }
+  const d = DOCS;
+  el('docs').innerHTML = `
+    <section>
+      <h2>${esc(d.sharing.title)}</h2>
+      <p class="sub">${esc(d.sharing.summary)}</p>
+      <div class="two">${d.sharing.ways.map(way => `
+        <div class="way">
+          <h3>${esc(way.name)}</h3>
+          <div class="who">${esc(way.audience)}</div>
+          <dl>
+            <dt>page</dt><dd class="mono">${esc(way.page)}</dd>
+            <dt>bytes</dt><dd class="mono">${esc(way.bytes)}</dd>
+            <dt>credential</dt><dd>${esc(way.credential)}</dd>
+            <dt>expiry</dt><dd>${esc(way.expiry)}</dd>
+          </dl>
+          <p class="sub" style="margin-top:10px">${esc(way.note)}</p>
+        </div>`).join('')}</div>
+      <p class="sub" style="margin-top:15px">${esc(d.sharing.page_vs_bytes)}</p>
+      <p class="sub" style="margin-top:10px">${esc(d.sharing.one_time_mechanism)}</p>
+    </section>
+
+    <section>
+      <h2>${esc(d.naming.title)}</h2>
+      <p class="sub">Every place below that wants a picture takes any of these.
+        Two matches is an error naming both, never a guess.</p>
+      <table><tbody>${d.naming.a_picture.map(row => `<tr>
+        <td class="mono">${esc(row.example)}</td>
+        <td>${esc(row.form)}<br><span class="sub">${esc(row.note || '')}</span></td>
+      </tr>`).join('')}</tbody></table>
+      <p class="sub" style="margin-top:14px">And a duration is
+        ${d.naming.a_duration.map(row => `<span class="mono">${esc(row.example)}</span>`).join(' or ')}
+        &mdash; ${esc(d.naming.duration_bounds)}.</p>
+      <p class="sub" style="margin-top:10px">${esc(d.naming.a_code)}</p>
+    </section>
+
+    <section>
+      <h2>MCP</h2>
+      <p class="sub">The same store, for an agent. ${d.mcp.tools.length} tools over
+        JSON-RPC 2.0 &mdash; POST to <span class="mono">${esc(d.mcp.http)}</span>,
+        or run it on stdio. The schema is served live at
+        <a href="${esc(d.mcp.schema_url)}" target="_blank">/mcp/schema</a>.</p>
+      <pre id="mcpConfig">${esc(JSON.stringify(d.mcp.client_config, null, 2))}</pre>
+      <div class="row" style="margin:12px 0 18px">
+        <button onclick="copy(el('mcpConfig').textContent, 'Config copied.')">Copy config</button>
+        <button onclick="copy(SITE + '/mcp', 'Endpoint copied.')">Copy HTTP endpoint</button>
+      </div>
+      <p class="sub" style="margin-bottom:12px">${esc(d.mcp.instructions)}</p>
+      ${d.mcp.tools.map(tool => `
+        <div class="tool">
+          <div class="n mono">${esc(tool.name)}</div>
+          <div class="d">${esc(tool.description)}</div>
+          <div class="args">${Object.entries(tool.inputSchema.properties || {})
+            .map(([name, spec]) => `<span class="arg${
+              (tool.inputSchema.required || []).includes(name) ? ' req' : ''}"
+              title="${esc(spec.description || '')}">${esc(name)}</span>`).join('')
+            || '<span class="arg">no arguments</span>'}</div>
+        </div>`).join('')}
+
+      <h3 style="margin-top:22px">Resources</h3>
+      <p class="sub">Nouns rather than verbs, for a client that lets somebody
+        attach context by hand. Your pictures are listed one per URI, so a model
+        can look at one without spending a tool call on it.</p>
+      <table><tbody>${(d.mcp.resources || []).map(r => `<tr>
+        <td class="mono">${esc(r.uriTemplate)}</td><td>${esc(r.description)}</td>
+      </tr>`).join('')}</tbody></table>
+
+      <h3 style="margin-top:22px">Prompts</h3>
+      <p class="sub">Two, because there are two ways to share and picking the
+        wrong one is the mistake this module exists to make hard.</p>
+      <table><tbody>${(d.mcp.prompts || []).map(p => `<tr>
+        <td class="mono">${esc(p.name)}</td><td>${esc(p.description)}</td>
+      </tr>`).join('')}</tbody></table>
+
+      <p class="sub" style="margin-top:18px">${esc(d.mcp.pictures_come_back_as_pictures || '')}</p>
+      <p class="sub" style="margin-top:10px">${esc(d.mcp.batching || '')}</p>
+    </section>
+
+    <section>
+      <h2>HTTP</h2>
+      <p class="sub">Reachable at <span class="mono">${esc(d.share_base)}</span> and,
+        directly, on the API port. Anything marked <em>yours</em> needs a signed
+        protocol token unless you are on this machine.</p>
+      <table><thead><tr><th>Method</th><th>Path</th><th>What</th></tr></thead><tbody>
+        ${d.endpoints.map(e => `<tr>
+          <td class="verb mono">${esc(e.method)}</td>
+          <td class="mono">${esc(e.path)}</td>
+          <td>${esc(e.what)}${e.auth ? ' <span class="tag">yours</span>' : ''}</td>
+        </tr>`).join('')}
+      </tbody></table>
+    </section>
+
+    <section>
+      <h2>Command line</h2>
+      <p class="sub">Same rules, same state, no server needed &mdash; this
+        module is not reachable as <span class="mono">m store/fn</span>, because
+        that name belongs to core/store.</p>
+      <table><tbody>${d.cli.map(c => `<tr>
+        <td class="mono" style="width:47%">${esc(c.command)}</td>
+        <td>${esc(c.what)}</td></tr>`).join('')}</tbody></table>
+    </section>
+
+    <section>
+      <h2>What it refuses</h2>
+      <table><tbody>${Object.entries(d.safety).map(([key, value]) => `<tr>
+        <td class="mono" style="width:24%">${esc(key)}</td>
+        <td>${esc(value)}</td></tr>`).join('')}</tbody></table>
+    </section>
+
+    <section>
+      <h2>Environment</h2>
+      <table><thead><tr><th>Variable</th><th>What</th><th>Now</th></tr></thead><tbody>
+        ${d.env.map(v => `<tr><td class="mono">${esc(v.name)}</td><td>${esc(v.what)}</td>
+          <td class="mono">${esc(v.value)}</td></tr>`).join('')}
+      </tbody></table>
+    </section>`;
+}
+
+// ── go ───────────────────────────────────────────────────────────────
+loadMine();
+loadGrants(true);
+show(location.hash.slice(1) || 'library', false);
+setInterval(() => loadGrants(false), 8000);
+</script>
+</body>
+</html>

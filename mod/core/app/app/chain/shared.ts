@@ -72,7 +72,22 @@ export function removeCustomNetwork(key: string) {
   safeSet(LS_NETWORKS, JSON.stringify(all))
 }
 
-export const allNetworks = (): Record<string, NetworkInfo> => ({ ...NETWORKS, ...customNetworks() })
+/**
+ * Every chain the console knows. A saved entry under a builtin key is an
+ * *override* — a different RPC for Base Sepolia, say — so it inherits the
+ * builtin's flags (fleet/testnet) rather than losing them.
+ */
+export const allNetworks = (): Record<string, NetworkInfo> => {
+  const out: Record<string, NetworkInfo> = { ...NETWORKS }
+  for (const [k, n] of Object.entries(customNetworks())) out[k] = { ...NETWORKS[k], ...n }
+  return out
+}
+
+/** True when this key ships with the console — an override of it can be reverted. */
+export const isBuiltinNetwork = (key: string) => key in NETWORKS
+
+/** True when the saved entry differs from the builtin it shadows. */
+export const isOverridden = (key: string) => isBuiltinNetwork(key) && key in customNetworks()
 
 /** Network by key — builtin or custom. Never undefined, so callers can just read it. */
 export function netInfo(key: string): NetworkInfo {
@@ -120,35 +135,85 @@ export function useIsMobile(max = MOBILE_MAX): boolean {
 }
 
 // ── chain API ───────────────────────────────────────────────────────────────
-// /api/chain/* is proxied to the chain module's API by app/api/chain/[...path].
+// /chain/api/* is proxied to the chain module's API by app/chain/api/[...path].
+// NOT /api/chain — the fleet gateway on :3000 sends every /api/* request to the
+// protocol API and Next never sees it, which 405'd every call on the public
+// host while working fine against :3001.
+
+export const CHAIN_API_BASE = '/chain/api'
 
 export async function chainApi(path: string, init?: { method?: string; body?: any }) {
   const method = init?.method || (init?.body ? 'POST' : 'GET')
-  const res = await fetch(`/api/chain${path}`, {
-    method,
-    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
-    body: init?.body ? JSON.stringify(init.body) : undefined,
-    cache: 'no-store',
-  })
+  let res: Response
+  try {
+    res = await fetch(`${CHAIN_API_BASE}${path}`, {
+      method,
+      headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+      body: init?.body ? JSON.stringify(init.body) : undefined,
+      cache: 'no-store',
+    })
+  } catch (e: any) {
+    // The browser never reached the app at all — offline, or the app is down.
+    noteApi(false, `can't reach ${CHAIN_API_BASE}${path} — ${e?.message || e}`)
+    throw e
+  }
   const text = await res.text()
   let data: any = null
   try { data = text ? JSON.parse(text) : null } catch { data = { detail: text } }
+  // A 4xx from the chain module is an *answer* (bad args, unknown contract).
+  // These statuses mean the bridge itself is broken — nobody is home behind it,
+  // so every panel would sit empty with nothing to explain why.
+  const bridgeDown = [0, 404, 405, 500, 502, 503, 504].includes(res.status)
+  noteApi(!bridgeDown, bridgeDown ? `${CHAIN_API_BASE}${path} → HTTP ${res.status}` : '')
   if (!res.ok) throw new Error(data?.detail || `chain api ${res.status}`)
   return data
 }
 
+// ── is the chain API actually answering? ────────────────────────────────────
+//
+// Every panel here loads through chainApi and most of them swallow their own
+// errors — which is fine per panel and awful in aggregate: when the bridge is
+// down you get a console full of empty boxes and no idea why. So calls report
+// their fate here and the page draws one banner over the lot.
+
+export interface ApiHealth { down: boolean; detail: string }
+
+let health: ApiHealth = { down: false, detail: '' }
+const healthSubs = new Set<(h: ApiHealth) => void>()
+
+function noteApi(ok: boolean, detail: string) {
+  if (ok === !health.down && (ok || detail === health.detail)) return
+  health = { down: !ok, detail: ok ? '' : detail }
+  healthSubs.forEach(fn => fn(health))
+}
+
+export function useApiHealth(): ApiHealth {
+  const [h, setH] = useState<ApiHealth>(health)
+  useEffect(() => {
+    setH(health)
+    healthSubs.add(setH)
+    return () => { healthSubs.delete(setH) }
+  }, [])
+  return h
+}
+
 // ── wallet ──────────────────────────────────────────────────────────────────
 //
-// Two ways to sign, both first-class:
-//   local   — a private key held in this browser. Reuses the key derived from
-//             the app sign-in password when you're signed in, otherwise mints
-//             a builder key so you can deploy to ganache/testnet right away.
-//   browser — an injected wallet (MetaMask & friends); we switch/add the chain.
+// Two ways to sign, both first-class, and each one is a *roster* rather than
+// a single key:
+//   local   — private keys held in this browser. The app sign-in key (when
+//             signed in), a builder key minted on first use, and anything you
+//             generate or paste in after that.
+//   browser — an injected wallet (MetaMask & friends). Every account it has
+//             permitted for this site is selectable; we switch/add the chain.
 
 export type WalletKind = 'local' | 'browser'
 
 const LS_KIND = 'chain_wallet_kind'
 const LS_LOCAL_PK = 'chain_local_pk'
+const LS_LOCAL_KEYS = 'chain_local_keys'
+const LS_LOCAL_SEL = 'chain_local_key_sel'
+const LS_BROWSER_SEL = 'chain_browser_addr'
 const LS_SIGNED_OUT = 'chain_wallet_signed_out'
 
 const safeGet = (k: string) => { try { return localStorage.getItem(k) } catch { return null } }
@@ -166,16 +231,22 @@ export const setSignedOut = (off: boolean) =>
 
 export const hasInjected = () => typeof window !== 'undefined' && !!(window as any).ethereum
 
-/** True when the local key comes from the app sign-in (not a minted builder key). */
-export const localKeyIsAccount = () => !!safeGet('wallet_password')
+// ── local keys ──
 
-/**
- * The local signing key: the app account's key when signed in, else a builder
- * key minted once and kept in this browser.
- */
-export function localPrivateKey(): string {
-  const password = safeGet('wallet_password')
-  if (password) return blake2AsHex(password, 256)
+export interface LocalKey {
+  id: string
+  label: string
+  pk: string
+  address: string
+  /** account = derived from the app sign-in; builder = minted once for this
+      browser; imported = pasted or generated by hand */
+  source: 'account' | 'builder' | 'imported'
+}
+
+const addrOf = (pk: string) => { try { return new ethers.Wallet(pk).address } catch { return '' } }
+
+/** The builder key — minted the first time anyone asks for it. */
+function builderPk(): string {
   let pk = safeGet(LS_LOCAL_PK)
   if (!pk) {
     pk = ethers.Wallet.createRandom().privateKey
@@ -184,10 +255,150 @@ export function localPrivateKey(): string {
   return pk
 }
 
-export const localAddress = () => new ethers.Wallet(localPrivateKey()).address
+const extraKeys = (): { id: string; label: string; pk: string }[] => {
+  try { return JSON.parse(safeGet(LS_LOCAL_KEYS) || '[]') } catch { return [] }
+}
+
+/** Every local key this browser can sign with, in display order. */
+export function localKeys(): LocalKey[] {
+  const out: LocalKey[] = []
+  const password = safeGet('wallet_password')
+  if (password) {
+    const pk = blake2AsHex(password, 256)
+    out.push({ id: 'account', label: 'APP ACCOUNT', pk, address: addrOf(pk), source: 'account' })
+  }
+  const b = builderPk()
+  out.push({ id: 'builder', label: 'BUILDER', pk: b, address: addrOf(b), source: 'builder' })
+  for (const k of extraKeys()) {
+    const address = addrOf(k.pk)
+    if (address) out.push({ id: k.id, label: k.label, pk: k.pk, address, source: 'imported' })
+  }
+  return out
+}
+
+/** Generate (no pk) or import a key. Returns the roster entry. */
+export function addLocalKey(label: string, pk?: string): LocalKey {
+  const key = pk ? (pk.startsWith('0x') ? pk : `0x${pk}`) : ethers.Wallet.createRandom().privateKey
+  const address = addrOf(key)
+  if (!address) throw new Error('not a private key')
+  const all = extraKeys()
+  const dupe = all.find(k => addrOf(k.pk).toLowerCase() === address.toLowerCase())
+  if (dupe) return { ...dupe, address, source: 'imported' }
+  const id = `k_${Date.now().toString(36)}`
+  const name = label.trim() || `KEY ${all.length + 1}`
+  safeSet(LS_LOCAL_KEYS, JSON.stringify([...all, { id, label: name, pk: key }]))
+  return { id, label: name, pk: key, address, source: 'imported' }
+}
+
+export function renameLocalKey(id: string, label: string) {
+  safeSet(LS_LOCAL_KEYS, JSON.stringify(extraKeys().map(k => (k.id === id ? { ...k, label } : k))))
+}
+
+/** Only imported keys can be dropped — the account and builder keys are structural. */
+export function removeLocalKey(id: string) {
+  safeSet(LS_LOCAL_KEYS, JSON.stringify(extraKeys().filter(k => k.id !== id)))
+  if (safeGet(LS_LOCAL_SEL) === id) safeDel(LS_LOCAL_SEL)
+}
+
+/** The local key that signs: the selected one, else the account key, else the builder. */
+export function selectedLocalKey(): LocalKey {
+  const keys = localKeys()
+  const sel = safeGet(LS_LOCAL_SEL)
+  return keys.find(k => k.id === sel) || keys[0]
+}
+
+export const selectLocalKey = (id: string) => safeSet(LS_LOCAL_SEL, id)
+
+/** True when the signing local key comes from the app sign-in (not a minted key). */
+export const localKeyIsAccount = () => selectedLocalKey().source === 'account'
+
+export const localPrivateKey = () => selectedLocalKey().pk
+
+export const localAddress = () => selectedLocalKey().address
+
+// ── browser accounts ──
+
+/** Which of the wallet's permitted accounts we sign with (it may expose several). */
+export const savedBrowserAddress = () => safeGet(LS_BROWSER_SEL) || ''
+export const saveBrowserAddress = (addr: string) =>
+  addr ? safeSet(LS_BROWSER_SEL, addr) : safeDel(LS_BROWSER_SEL)
+
+/** Every account the injected wallet has already permitted for this site. */
+export async function browserAccounts(): Promise<string[]> {
+  if (!hasInjected()) return []
+  try {
+    const accs: string[] = await (window as any).ethereum.request({ method: 'eth_accounts' })
+    return (accs || []).map(a => ethers.getAddress(a))
+  } catch { return [] }
+}
+
+/**
+ * Ask the wallet to expose more accounts. MetaMask opens its account picker
+ * for `wallet_requestPermissions`; wallets that don't know it fall back to a
+ * plain connect prompt.
+ */
+export async function requestBrowserAccounts(): Promise<string[]> {
+  if (!hasInjected()) throw new Error('No browser wallet found — install MetaMask')
+  const eth = (window as any).ethereum
+  try {
+    await eth.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] })
+  } catch (e: any) {
+    if (e?.code === 4001) throw e
+    await eth.request({ method: 'eth_requestAccounts' })
+  }
+  return browserAccounts()
+}
 
 export function readProvider(network: string) {
   return new ethers.JsonRpcProvider(netInfo(network).rpc, undefined, { staticNetwork: true })
+}
+
+// ── chain health ────────────────────────────────────────────────────────────
+
+export interface NetProbe {
+  /** the RPC answered */
+  up: boolean
+  block?: number
+  /** what the RPC says its chain id is — not what we recorded */
+  chainId?: number
+  /** round trip in ms */
+  ms: number
+  error?: string
+}
+
+/**
+ * Ask an RPC two questions: what block are you on, and who are you. The second
+ * one matters — a copy-pasted RPC that points at the wrong chain deploys your
+ * contract somewhere you never meant, and nothing else in the console notices.
+ *
+ * `staticNetwork` would answer the chain id from our own config, so this sends
+ * the raw calls instead.
+ */
+export async function probeNetwork(network: string, timeoutMs = 6000): Promise<NetProbe> {
+  const net = netInfo(network)
+  const started = Date.now()
+  if (!net.rpc) return { up: false, ms: 0, error: 'no RPC url' }
+  const provider = new ethers.JsonRpcProvider(net.rpc, undefined, { staticNetwork: true })
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('timed out')), timeoutMs))
+  try {
+    const [block, chainId] = await Promise.race([
+      Promise.all([
+        provider.send('eth_blockNumber', []),
+        provider.send('eth_chainId', []),
+      ]),
+      timeout,
+    ])
+    return {
+      up: true, ms: Date.now() - started,
+      block: parseInt(block, 16),
+      chainId: parseInt(chainId, 16),
+    }
+  } catch (e: any) {
+    return { up: false, ms: Date.now() - started, error: e?.shortMessage || e?.message || 'unreachable' }
+  } finally {
+    provider.destroy()
+  }
 }
 
 /** Ask an injected wallet to move to `network`, adding the chain if unknown. */
@@ -216,12 +427,14 @@ export async function ensureChain(network: string) {
 }
 
 /** Signer for the selected wallet + network. */
-export async function getSigner(kind: WalletKind, network: string): Promise<ethers.Signer> {
+export async function getSigner(kind: WalletKind, network: string, address?: string): Promise<ethers.Signer> {
   if (kind === 'browser') {
     if (!hasInjected()) throw new Error('No browser wallet found — install MetaMask')
     await (window as any).ethereum.request({ method: 'eth_requestAccounts' })
     await ensureChain(network)
-    return new ethers.BrowserProvider((window as any).ethereum).getSigner()
+    // a permitted account other than the wallet's "selected" one still signs —
+    // the wallet just prompts for that account instead
+    return new ethers.BrowserProvider((window as any).ethereum).getSigner(address || undefined)
   }
   return new ethers.Wallet(localPrivateKey(), readProvider(network))
 }

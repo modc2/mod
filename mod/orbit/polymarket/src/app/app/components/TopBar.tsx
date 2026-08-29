@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
 import NavMenu from "./NavMenu";
-import StratSidebar from "./StratSidebar";
+import UserSidebar from "./UserSidebar";
 import WalletChip from "./WalletChip";
 import ThemePicker from "./ThemePicker";
 
@@ -105,16 +105,22 @@ export default function TopBar({
         <div className="flex items-center gap-1 min-w-0">
           <NavMenu />
         </div>
-        {/* ── Theme picker + who/what — top-right corner. The active strat
-            readout and the wallet chip sit side by side because they open the
-            same right-hand sidebar: strat selection (global, indexStore) and
-            the account switcher are one column. The picker yields on tiny
-            screens so the pair never gets shoved under the left cluster. ── */}
+        {/* ── Theme picker + the user column's handle + wallet chip —
+            top-right corner. There is no strat readout beside them: the
+            console copies one trader at a time, so "which strat am I on" is
+            answered by the page you're on (/copy/<address>), not by a global
+            picker whose selection could disagree with it. What IS there is the
+            copy book itself (UserSidebar) — the leaders, their dollars and
+            their backtests — opened from the same corner as the wallet that
+            funds them, and from the wallet chip, which has always dispatched
+            OPEN_ACCOUNTS_EVENT asking for exactly this column. The picker
+            yields on tiny screens so the pair never gets shoved under the left
+            cluster. ── */}
         <div className="flex items-center gap-2 min-w-0">
           <div className="hidden min-[480px]:block">
             <ThemePicker />
           </div>
-          <StratSidebar />
+          <UserSidebar />
           <WalletChip />
         </div>
       </div>

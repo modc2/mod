@@ -1,0 +1,158 @@
+{
+    "name": "costmarket",
+    "title": "Cost Market",
+    "version": "1.0.0",
+    "description": "Monthly prediction market on the average AI cost per user of the build console \u2014 pay a monthly minimum, stake it on where the month lands, parimutuel payout settled against build's published cost oracle",
+    "anchor": "mod.py",
+    "port": 50490,
+    "app_port": 50491,
+    "gateway_port": 50491,
+    "route": true,
+    "icon": "\u25d1",
+    "color": "#22d3ee",
+    "deps": [
+        "build"
+    ],
+    "urls": {
+        "api": "http://localhost:50490",
+        "app": "http://localhost:50491"
+    },
+    "oracle": {
+        "module": "build",
+        "url": "http://localhost:8890",
+        "endpoint": "/costs/epoch/{month}",
+        "field": "avg_usd6_per_user",
+        "docs": "The settlement figure: total metered task spend divided by distinct users, per UTC calendar month. Only read when the endpoint reports final=true."
+    },
+    "market": {
+        "min_subscription_usd": 10,
+        "fee_bps": 500,
+        "close_fraction": 0.5,
+        "bucket_edges_usd": [
+            0.25,
+            0.5,
+            1,
+            2,
+            5,
+            10,
+            25
+        ],
+        "treasury": "",
+        "docs": "close_fraction 0.5 = betting shuts at the midpoint of the month. bucket_edges_usd are the boundaries; N edges make N+1 buckets, the last one open-ended."
+    },
+    "chain": {
+        "network": "base",
+        "rpc": "",
+        "token": "",
+        "token_decimals": 6,
+        "docs": "Set rpc + token + market.treasury to verify subscription payments on-chain. Left empty, subscriptions are recorded on trust (local play) and flagged unverified."
+    },
+    "fns": [
+        "forward",
+        "health",
+        "status",
+        "oracle",
+        "epoch",
+        "epochs",
+        "book",
+        "set_buckets",
+        "subscribe",
+        "confirm_subscription",
+        "is_member",
+        "account",
+        "bet",
+        "settle",
+        "withdraw",
+        "leaderboard",
+        "treasury_report",
+        "is_owner",
+        "set_owner",
+        "serve",
+        "serve_api",
+        "serve_app",
+        "kill"
+    ],
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Health check"
+        },
+        "/status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Current epoch, phase, pool, membership counts"
+        },
+        "/oracle": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Passthrough to build's /costs/epoch/{month} \u2014 the number this market settles on"
+        },
+        "/epochs": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Recent epochs with their books"
+        },
+        "/epoch/{month}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "One epoch: buckets, stake per bucket, implied odds, phase"
+        },
+        "/book/{month}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Every bet in an epoch (public book)"
+        },
+        "/subscribe": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Pay the monthly minimum: {address, amount_usd?, tx_hash?, month?}. The amount paid becomes that month's stake budget."
+        },
+        "/bet": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Stake into a bucket: {address, bucket, amount_usd?, month?}. Requires an active membership; spends from the month's stake budget; refused once betting closes."
+        },
+        "/account/{address}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "One member's memberships, bets, balance"
+        },
+        "/leaderboard": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Members ranked by net profit"
+        },
+        "/treasury": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Subscriptions collected, fees earned, balances owed"
+        },
+        "/withdraw": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Claim settled winnings: {address, amount_usd?}. Records a claim; the owner settles it."
+        },
+        "/settle": {
+            "method": "POST",
+            "auth": "owner",
+            "docs": "Resolve a finished epoch against the oracle and pay the winning bucket: {month, key}. Refuses an unfinished month or a non-final oracle reading."
+        },
+        "/confirm": {
+            "method": "POST",
+            "auth": "owner",
+            "docs": "Confirm a subscription the chain check couldn't verify: {address, month, key}"
+        },
+        "/buckets": {
+            "method": "POST",
+            "auth": "owner",
+            "docs": "Redraw an epoch's buckets before it has any bets: {month, edges, key}"
+        },
+        "/forward": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Generic dispatch: {action, ...}"
+        }
+    },
+    "schema": "QmZsYaNscf7v9KcdMWJYbjBocCtgihWNsaEPp84wDD8etH"
+}

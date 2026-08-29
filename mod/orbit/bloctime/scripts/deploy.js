@@ -10,7 +10,10 @@ async function main() {
   console.log(`NativeToken deployed to: ${nativeTokenAddress}`);
 
   // BlocTime params
-  const maxLockBlocks = 100000;
+  // Blocks are 2s on Base: 43,200 a day, 15,768,000 a year (365 days) — the
+  // same unit the inflation epoch counts in. Locks are capped at 8 years.
+  const BLOCKS_PER_YEAR = 43200 * 365;
+  const maxLockBlocks = BLOCKS_PER_YEAR * 8; // 126,144,000
   const distributionPercentage = 5000; // 50%
 
   // Deploy BlocTime
@@ -24,15 +27,19 @@ async function main() {
   const blocTimeAddress = await blocTime.getAddress();
   console.log(`BlocTime deployed to: ${blocTimeAddress}`);
 
-  // Set default multiplier curve
+  // Set default multiplier curve — a straight line from 1x at no lock to 8x
+  // at the 8-year cap (+8750 bps per year). The points are year marks ON that
+  // line, not bends in it: they give the UI readable presets while
+  // getMultiplier() returns exactly what one 0 → 8y segment would.
   const points = [
-    { blocks: 0, multiplier: 10000 },       // 0 blocks = 1.0x
-    { blocks: 10000, multiplier: 15000 },    // 10k blocks = 1.5x
-    { blocks: 50000, multiplier: 20000 },    // 50k blocks = 2.0x
-    { blocks: 100000, multiplier: 30000 },   // 100k blocks = 3.0x
+    { blocks: 0, multiplier: 10000 },                    // no lock = 1.000x
+    { blocks: BLOCKS_PER_YEAR, multiplier: 18750 },      // 1 year  = 1.875x
+    { blocks: BLOCKS_PER_YEAR * 2, multiplier: 27500 },  // 2 years = 2.750x
+    { blocks: BLOCKS_PER_YEAR * 4, multiplier: 45000 },  // 4 years = 4.500x
+    { blocks: maxLockBlocks, multiplier: 80000 },        // 8 years = 8.000x
   ];
   await blocTime.setPoints(points);
-  console.log("Multiplier curve set");
+  console.log("Multiplier curve set (linear, 1x → 8x over 8 years)");
 
   // Set Bitcoin-style inflation params
   // 50 BLOC/epoch, halving every 1460 epochs (~4 years), min 0, epoch = 43200 blocks (~1 day)

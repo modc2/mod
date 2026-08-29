@@ -15,6 +15,8 @@ import json
 import re
 import subprocess
 import signal
+import threading
+import time
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
@@ -26,13 +28,18 @@ except ImportError:
 
 from .agents.mod import Agents
 from .memory.mod import Memory
+from .memory.registry import Memories, DEFAULT as DEFAULT_MEMORY
 from .library.mod import Library
 from .toolbox.mod import Toolboxes
 from .tools.mod import Tools
 from .credits import Credits
 from .billing import Meter
 from .liquid import BROWSER, CATALOG, BrowserModel, LiquidModel
+from .prompt import render as render_prompt
+from .steps import (THINK as THINK_BLOCK, normalize as normalize_step,
+                    parse as parse_calls)
 from .vaults.mod import Vaults
+from .privacy.mod import Privacy, SealError
 from .discover.mod import Discover
 from .harness.mod import Harness, DEFAULT_TIMEOUT as HARNESS_TIMEOUT
 from .arena.mod import Arena, Scheduler
@@ -43,6 +50,13 @@ from .identity import Identity
 
 WRITE_TOOLS = ('write', 'edit', 'patch')
 
+# Tools that only look. Running one twice with the same params inside one run
+# is the model going in a circle, so the second call is answered from the
+# first one's result (see run_plan). Everything else — bash, git, the fleet —
+# may change the workspace, so its repeats are real calls.
+READONLY_TOOLS = ('read', 'tree', 'glob', 'grep', 'symbols', 'context',
+                  'diff', 'recall')
+
 # ── repeat-call guard ──────────────────────────────────────────────
 
 # How many times one identical (tool, params) call may fail before the loop
@@ -51,6 +65,31 @@ WRITE_TOOLS = ('write', 'edit', 'patch')
 # answer. Successful calls are never blocked: re-reading a file after an
 # edit is the same call with a legitimately different result.
 MAX_IDENTICAL_FAILURES = 2
+
+# ── circling guard ─────────────────────────────────────────────────
+
+# How many steps in a row may be calls the run had already made before the
+# loop gives up on tool use and goes to write the answer, and the temperature
+# the step after a repeat is sampled at. A greedy decode re-derives the same
+# call from the same task forever; sampling is what gives it another branch.
+MAX_REPEAT_STEPS = 3
+REPEAT_TEMPERATURE = 0.7
+
+# How many steps in a row may use the same tool — with different params, so
+# it is not a repeat — before the loop says so. Advisory only: reading six
+# files in a row is exactly what a good run looks like.
+SAME_TOOL_STREAK = 3
+
+# ── what one step is allowed to cost a local model ──────────────────
+
+# A step is one small JSON object, but the default cap is sized for a hosted
+# model writing a long finish summary. On CPU weights that difference is the
+# whole run: a model that doesn't stop cleanly generates to the cap, and 8192
+# tokens on this box is ten minutes for one step. Capped only for the models
+# that need it (Agent.compact_prompt); the answer gets a little more room
+# because it is the one turn that is prose.
+LOCAL_STEP_TOKENS = 512
+LOCAL_ANSWER_TOKENS = 768
 
 
 def _call_sig(name: str, params: dict) -> str:
@@ -242,6 +281,13 @@ RULES:
     LOCAL_RUNTIMES = {'liquidai': 'server', 'liquidai-cloud': 'cloud',
                       'browser': 'browser'}
 
+    # the order default_provider() tries. Weights on this box first — no key,
+    # no bill, no tab required. `browser` is deliberately not in here: it can
+    # only generate while the console is open, so it is a choice, not a default.
+    LOCAL_FIRST = ('liquidai', 'liquidai-cloud')
+    # …and where it lands when nothing local is serving
+    HOSTED_FALLBACK = ('openrouter', 'venice')
+
     # one line each for a UI that has to explain a provider with no key field.
     # 'no key' is not the same claim for all three: the cloud runtime does take
     # a key, it just isn't ours to hold.
@@ -255,6 +301,13 @@ RULES:
         'model.openrouter': 'anthropic/claude-opus-5',
         'openrouter': 'anthropic/claude-opus-5',
         'venice': 'deepseek-v3.2',
+        # A run is tool calls *and* the answer that ends it, so the default is
+        # the generalist rather than the tool-calling fine-tune beside it:
+        # measured on this box LFM2-1.2B-Tool makes the cleaner call and then
+        # hands back a shell snippet where the answer should be, while the
+        # instruct build answers in words every time. Both are in the list,
+        # along with LFM2.5-2.6B, which is better than either and minutes per
+        # step on CPU.
         'liquidai': 'LiquidAI/LFM2.5-1.2B-Instruct',
         'liquidai-cloud': 'lfm-2.5-8b-a1b',
         'browser': 'LiquidAI/LFM2.5-350M-ONNX',
@@ -290,6 +343,8 @@ RULES:
         # the server loads and what a tab downloads.
         'liquidai': [
             'LiquidAI/LFM2.5-1.2B-Instruct',
+            'LiquidAI/LFM2.5-2.6B',
+            'LiquidAI/LFM2-1.2B-Tool',
             'LiquidAI/LFM2.5-1.2B-Thinking',
             'LiquidAI/LFM2.5-350M',
             'LiquidAI/LFM2.5-230M',
@@ -308,6 +363,15 @@ RULES:
         ],
     }
 
+    # Models that read the compact prompt (prompt.py). Everything running on
+    # LFM weights is small by definition, and everything else that names its
+    # own size in the billions announces itself: `LFM2.5-1.2B`, `-350M`,
+    # `qwen3-4b`. A dash or a word boundary has to come first, so `gemma-4-31b`
+    # and `llama-3.3-70b` — big models — are not caught by the `1b`/`0b` inside
+    # them. Being wrong here costs prompt quality, never correctness: the
+    # compact prompt says the same things in fewer tokens.
+    SMALL_MODEL_RE = re.compile(r'(?:\b|-)(?:\d{1,3}m|[0-4](?:\.\d)?b)\b', re.I)
+
     # FREE MODE ranking. The agent loop needs a model that can hold a long
     # transcript and emit well-formed step anchors, which rules out most of
     # the tiny free tiers — so prefer the big ones, biggest first.
@@ -320,48 +384,68 @@ RULES:
     }
 
     output_format = """
-        Respond with exactly ONE step per iteration inside anchors.
-        The params must be valid JSON.
-        <PLAN>
-        <STEP>{"tool": "<tool_name>", "params": {...}}</STEP>
-        </PLAN>
-        When finished:
-        <PLAN>
+        Reply with ONE step and nothing else — no commentary around it:
+        <STEP>{"tool": "TOOL_NAME", "params": {"ARG": "VALUE"}}</STEP>
+        Use a tool name from the list above, its own parameter names, and
+        valid JSON. Call one tool per reply and wait for its result.
+        When the work is done — or the question needed no tools at all —
+        reply with the step that ends the run:
         <STEP>{"tool": "finish", "params": {"summary": "your answer, written to the user"}}</STEP>
-        </PLAN>
         The summary is shown to the user as your response — write the actual
         answer there, not a description of what you did.
     """
 
     def __init__(self,
-                 model: str = 'model.openrouter',
+                 # unset: the provider is resolved on first use, and resolves
+                 # local (default_provider). Naming one here still pins it.
+                 model: str = None,
                  provider: str = None,
-                 memory: str = 'agent.memory',
+                 memory: str = DEFAULT_MEMORY,
                  goal: str = None,
                  tools: list = None,
                  **kwargs):
         self.agents = Agents()
         # images attached to the current run (data URLs or http urls)
         self._images: List[str] = []
+        # ── the sub-components this box is made of ──
+        # An agent is not one object: it is a prompt, a model, a toolbox, a
+        # tool registry and a memory module, held together here. Each one is
+        # its own mod with its own registry, and each is swappable — which is
+        # what makes an agent something you compose rather than something you
+        # fork. parts() is the whole box in one view.
+        #
         # the whole tool surface in one registry: the tools shipped here, the
         # shell tools added from the console, and every mod in the fleet
         self.tools = Tools()
         # toolboxes: named tool bundles that snap onto this agent
         self.toolboxes = Toolboxes(tools=self.tools)
         self._snapped: List[str] = []
-        self.memory = m.mod(memory)() if m else Memory()
+        # memory: one of the pluggable memory modules (memory/registry.py).
+        # A dotted name ('agent.memory') still resolves through the framework,
+        # so an agent can be built with a memory that lives in another mod.
+        self.memories = Memories()
+        # per-thread overrides of the components a single run may swap — see
+        # the `memory` property and _bind_memory
+        self._local = threading.local()
+        self.memory = self.memories.make(memory)
+        # the tools that act on those sub-components (recall, remember,
+        # toolbox) need the live box, not a second copy of it
+        self.tools.bind(self)
         # session keys: provider shortname -> API key decrypted from the vault,
         # held IN MEMORY ONLY (never written to disk in plaintext)
         self._session_keys: Dict[str, str] = {}
         # resolve provider: shorthand ('venice', 'openrouter') or full module path
         provider = provider or model
-        self._provider = self.PROVIDERS.get(provider, provider)
         # one live client per provider path, built on demand — a run holds its
         # own so concurrent runs never trade clients (see _client)
         self._clients: Dict[str, Any] = {}
         # why a provider has no client, when it isn't a missing key (see run)
         self._client_why: Dict[str, str] = {}
-        self.model = self._client()
+        # Named none, the provider is resolved on first use rather than here:
+        # default_provider() probes the local runtime, and a module must not
+        # do that while it is still being constructed (see _client).
+        self._provider = self.PROVIDERS.get(provider, provider) if provider else None
+        self.model = self._client() if self._provider else None
         # prices each model call from the provider's live catalog, so a guest's
         # credits pay for the provider spend their run actually creates
         self.meter = Meter()
@@ -369,9 +453,53 @@ RULES:
             self.goal = goal
         self._tool_names = tools  # optional filter
 
+    # ── the memory a run thinks with ─────────────────────────────────
+    #
+    # Behind the API this module is one Mod for the whole host, and working
+    # memory — the dict the prompt is built from — used to be one dict on it.
+    # Two runs at once then wrote the same scratchpad: the console's question
+    # was compiled with an arena match's task, tools and history, and came
+    # back answering the arena's task. (That is not hypothetical; it is what
+    # this comment was written from.)
+    #
+    # So each run binds its own memory instance to its own thread — the same
+    # pattern the meter uses for its tally (billing.py) and the browser bridge
+    # for its session (liquid.py). The durable layers are files, so a per-run
+    # instance still reads and writes the same episodes, facts and turns; only
+    # the scratchpad is private. Unbound, every reader gets the module's own.
+
+    @property
+    def memory(self):
+        return getattr(getattr(self, '_local', None), 'memory', None) or self._memory
+
+    @memory.setter
+    def memory(self, value):
+        """Setting it sets the module's default — that is what a caller doing
+        `agent.memory = …` outside a run means."""
+        self._memory = value
+
+    def _bind_memory(self, memory=None) -> None:
+        """Give this thread its own memory for the run about to start.
+
+        Named one is used as-is (an agent built with `ephemeral`, a caller's
+        override). Otherwise the run gets a fresh instance of the module's own
+        kind: same durable stores, its own scratchpad.
+        """
+        if memory is None:
+            try:
+                memory = self.memories.make(
+                    self.memories.name_of(self._memory), fresh=True)
+            except Exception:
+                return          # no registry to make one from: share, as before
+        self._local.memory = memory
+
+    def _unbind_memory(self) -> None:
+        if hasattr(getattr(self, '_local', None), 'memory'):
+            del self._local.memory
+
     def _provider_short(self, provider_path: str = None) -> str:
         """Map a provider module path back to its shortname ('model.openrouter' -> 'openrouter')."""
-        provider_path = provider_path or self._provider
+        provider_path = provider_path or self._provider or self.default_provider()
         for short, path in self.PROVIDERS.items():
             if path == provider_path:
                 return short
@@ -425,7 +553,13 @@ RULES:
         and one provider gets the other's model id ("No model matching
         'nvidia/...:free' found on Venice"). Resolving per run kills that race.
         """
-        path = self.PROVIDERS.get(provider, provider) if provider else self._provider
+        if provider:
+            path = self.PROVIDERS.get(provider, provider)
+        else:
+            # nobody has picked one yet: local, and remembered from here on
+            self._provider = self._provider or \
+                self.PROVIDERS.get(self.default_provider(), self.default_provider())
+            path = self._provider
         if self._clients.get(path) is None:
             self._clients[path] = self._make_model(path)
         return self._clients[path]
@@ -454,6 +588,43 @@ RULES:
                 if pref in mid:
                     return mid
         return free[0] if free else None
+
+    def default_provider(self) -> str:
+        """The provider a caller who named none runs on.
+
+        Local first, and not as a preference: the alternative spends real
+        money on somebody's key for a question that a model on this box can
+        often answer. So a run defaults to the LFM weights running here
+        (liquidai), and only falls back to a hosted provider when nothing
+        local is actually serving — a default that costs nothing is only a
+        good default while it works.
+
+        Anyone who wants Opus asks for Opus: the console's picker, the
+        agent's own saved model, and the `provider` argument all still win.
+        Cached briefly because /providers, /params and every run ask.
+        """
+        cached = getattr(self, '_default_provider', None)
+        if cached and time.time() - cached[0] < 60:
+            return cached[1]
+        pick = None
+        for short in self.LOCAL_FIRST:
+            try:
+                if self._client(short) is not None and self.provider_models(short):
+                    pick = short
+                    break
+            except Exception:
+                continue
+        if not pick:
+            # nothing local is serving — the hosted provider whose key is
+            # actually configured, since a default that can't run is no default
+            def ready(short: str) -> bool:
+                try:                      # key_info is Mod's; Agent alone has none
+                    return bool(self.key_info(short).get('configured'))
+                except Exception:
+                    return self._client(short) is not None
+            pick = next((p for p in self.HOSTED_FALLBACK if ready(p)), 'openrouter')
+        self._default_provider = (time.time(), pick)
+        return pick
 
     def is_free_provider(self, provider: str = None) -> bool:
         """True when a run on this provider can't cost the module anything.
@@ -642,10 +813,99 @@ RULES:
             return self.toolboxes.resolve(self._snapped)
         return None
 
+    def use_toolbox(self, name: str) -> Dict[str, Any]:
+        """Snap a toolbox on from inside a run — what the `toolbox` tool calls.
+
+        A run starts with the loadout it was given, and that is usually the
+        right one; but an agent that discovers halfway through that it needs
+        version control shouldn't have to fail and be re-run with a bigger
+        box. So it can ask for one, and the tools appear in its schema on the
+        next step.
+
+        This deliberately edits the run's working memory rather than the
+        module's loadout: `select()` is module-wide state, and a run that
+        widened it would leave every later run wider. Sandboxed runs can't
+        pull the fleet in this way — the same rule run_plan enforces, applied
+        before the model is even told those tools exist.
+        """
+        box = self.toolboxes.get(name)          # KeyError if there is no such box
+        sandboxed = getattr(self, '_allowed_paths', None) is not None
+        add = [t for t in box.tools if self.tools.exists(t)]
+        blocked = []
+        if sandboxed:
+            blocked = [t for t in add if self.tools.kind(t) not in ('builtin', 'custom')]
+            add = [t for t in add if t not in blocked]
+        have = self.memory.get('tools') or {}
+        if not isinstance(have, dict):          # a caller passed a bare list
+            have = self.tool_schema(list(have))
+        added = [t for t in add if t not in have]
+        if added:
+            self.memory.add('tools', {**have, **self.tool_schema(add)})
+        if name not in self._snapped:
+            self._snapped.append(name)
+        return {
+            'toolbox': name,
+            'description': box.description,
+            'added': added,
+            'tools': sorted(set(have) | set(add)),
+            **({'blocked': blocked,
+                'note': 'fleet tools are host-only and were left out of this box'}
+               if blocked else {}),
+        }
+
+    # ── the box: every sub-component in one view ─────────────────────
+
+    def parts(self) -> Dict[str, Any]:
+        """What this agent is made of, component by component.
+
+        One call answers "what is in the box" for the console, the builder and
+        anyone auditing a run: which memory module is attached, which tools it
+        can reach, which bundles exist, which model it will call. Each entry
+        names the sub-registry it came from, so a UI can offer the swap.
+        """
+        active = self.active_tools()
+        return {
+            'model': {
+                'provider': self._provider_short(),
+                'model': self.DEFAULT_MODELS.get(self._provider_short()),
+                'ready': self.has_model(),
+                'options': list(self.PROVIDERS.keys()),
+            },
+            'memory': {
+                'module': self.memories.name_of(self.memory),
+                'options': self.memories.items(),
+                'state': self.memory.status() if hasattr(self.memory, 'status')
+                         else self.memory.summary(),
+            },
+            'toolbox': {
+                'snapped': list(self._snapped),
+                'boxes': self.toolboxes.ls(),
+                'source': self.snapped()['source'],
+            },
+            'tools': {
+                'active': active if active is not None else self.all_tools(),
+                'filtered': active is not None,
+                'total': len(self.all_tools()),
+                'fleet': True,
+            },
+            'prompt': {'goal': self.goal},
+        }
+
     # ── memory ───────────────────────────────────────────────────────
 
     def init_memory(self, **kwargs):
-        kwargs['goal'] = self.goal
+        """Start a run's working memory from nothing.
+
+        Working memory is the prompt being built, and behind the API this
+        module is one process-wide singleton — so whatever the last run put in
+        that dict was still there for the next one. A run that carried library
+        notes, an attached tool document or a stale hint left them in the
+        prompt of every run after it, on somebody else's question. The durable
+        layers (episodes, facts, dialogue) are separate stores and are not
+        touched: this clears the scratchpad, not the memory.
+        """
+        self.memory.clear()
+        kwargs.setdefault('goal', self.goal)      # a run may carry its own
         kwargs['output_format'] = self.output_format
         for k, v in kwargs.items():
             self.memory.add(k, v)
@@ -657,6 +917,8 @@ RULES:
     def run(self,
             query: str = 'help me with this',
             *extra_text,
+            goal: str = None,
+            memory=None,
             model: Optional[str] = None,
             provider: str = None,
             path: str = None,
@@ -676,10 +938,20 @@ RULES:
             on_step=None,
             images: list = None,
             budget=None,
+            session: str = None,
+            # named so it stays out of **kwargs, which is compiled into the
+            # prompt — the agent's name is for the memory record, not context
+            agent_type: str = None,
             **kwargs) -> List[Dict[str, Any]]:
         """Run the agent loop: query -> LLM -> parse step -> execute tool -> repeat.
 
         Args:
+            goal: the system prompt for this run only — an agent's persona, or
+                  a prompt the caller picked. The module's own `goal` is the
+                  default and is never overwritten by a run (see _bind_memory
+                  for why that matters on a shared module).
+            memory: a memory module instance for this run only, bound to this
+                  thread. Defaults to the module's.
             model: model name on the provider (e.g. 'anthropic/claude-opus-5' for openrouter,
                    'deepseek-v3.2' for venice). Defaults to provider's default model.
             provider: LLM provider — 'openrouter', 'venice', or any module path. Switches at runtime.
@@ -696,10 +968,18 @@ RULES:
                     module holding the overrun.
             images: image URLs (http or data:) the user attached to the query —
                     sent to the model as a leading multimodal turn.
+            session: the console conversation this run belongs to. Passing one
+                    makes the run a remembered exchange: the memory module
+                    compiles this caller's earlier turns into the prompt, and
+                    files this turn away when the run ends. A run with no
+                    session (an arena match, a tool call) is not conversation,
+                    and leaves the dialogue layer untouched.
         """
         # everything provider-shaped is run-local: the module is shared by every
         # concurrent run, so nothing here may read or write self.model
-        prov = self.PROVIDERS.get(provider, provider) if provider else self._provider
+        self._bind_memory(memory)
+        provider = provider or self._provider or self.default_provider()
+        prov = self.PROVIDERS.get(provider, provider)
         short = self._provider_short(prov)
         client = self._client(prov)
         if client is None:
@@ -727,15 +1007,31 @@ RULES:
         self._allowed_paths = allowed_paths
         query = query + ' ' + ' '.join(extra_text) if extra_text else query
         path = path or (m.dp(mod) if m and mod else os.getcwd())
+        # …and kept on the box, because it is where the run's relative paths
+        # resolve from (see _resolve_paths), not just something to print
+        self._path = path
         # per-run toolbox snap: explicit tools list wins, then toolbox union
         if not tools and toolbox:
             tools = self.toolboxes.resolve(toolbox)
-        # semantic recall: durable facts from past runs ride into the prompt
+        # memory recall: the caller's earlier turns and the durable facts past
+        # runs left behind ride into the prompt. Scoped to whoever is asking —
+        # the address when they are signed in, the console session when they
+        # are not — so one visitor's conversation never surfaces in another's.
+        who = None
+        if session:
+            try:
+                who = self.identity.addr(key)
+            except Exception:
+                who = None
+        # who the run is for, kept on the box so the recall tool scopes its
+        # retrieval the same way the compiled prompt was scoped
+        self._session, self._who = session, who
         recalled = None
         if hasattr(self.memory, 'compile'):
-            recalled = self.memory.compile(query) or None
+            recalled = self.memory.compile(query, session=session, who=who) or None
         self.init_memory(
             query=query,
+            goal=goal or self.goal,
             tools=self.tool_schema(tools),
             path=path,
             steps=steps,
@@ -746,9 +1042,20 @@ RULES:
         )
         history = []
         consecutive_errors = 0
+        # consecutive steps that were calls the run had already made, and the
+        # temperature the next step is sampled at (raised to break a loop)
+        repeats, step_temp = 0, temperature
+        # …and the looser version of the same failure: one tool, over and over
+        prev_tool, streak = None, 0
+        # how the prompt is rendered for this run's model (see prompt.py), and
+        # how much it may write per step (see LOCAL_STEP_TOKENS)
+        compact = self.compact_prompt(short, model)
+        step_tokens = min(max_tokens, LOCAL_STEP_TOKENS) if compact else max_tokens
         # per-run tally of identical calls that failed, so the loop can stop
-        # replaying a dead end (see MAX_IDENTICAL_FAILURES)
+        # replaying a dead end (see MAX_IDENTICAL_FAILURES) — and of the
+        # read-only ones that worked, so it can stop replaying those too
         self._failed_calls: Dict[str, Dict[str, Any]] = {}
+        self._done_calls: Dict[str, Any] = {}
         # start this thread's cost tally — whoever bills the run reads it back
         # with meter.take() once forward() returns
         self.meter.open(provider=short, model=model)
@@ -759,14 +1066,18 @@ RULES:
                 self.memory.add('hint', 'Multiple errors in a row. Use think to reflect on what is going wrong and try a different approach.')
                 consecutive_errors = 0
             try:
-                context = str(self.memory.get())
+                context = self.context(compact=compact)
+                # a hint is for the step it was written for. Left in place it
+                # accumulates — a run that recovered on step 3 was still being
+                # told about step 2's malformed JSON on step 20.
+                self.memory.rm('hint')
                 output = self.meter.watch(
                     client.forward(
                         context,
                         stream=True,
                         model=model,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
+                        max_tokens=step_tokens,
+                        temperature=step_temp,
                         free=free,
                         **({'history': self._image_turn()} if self._images else {}),
                     ),
@@ -803,6 +1114,33 @@ RULES:
                 consecutive_errors += 1
             else:
                 consecutive_errors = 0
+            # ── a run going in circles ──
+            # Every step was a call the run had already made. A hint says so,
+            # but a small model at temperature 0 re-derives the same call from
+            # the same task and loops until the budget is gone, so: sample the
+            # next step instead of taking the argmax, and if that doesn't break
+            # it either, stop and go write the answer. Nothing is lost — a
+            # repeat produces no new information by definition.
+            if plan and all(s.get('repeat') for s in plan):
+                repeats += 1
+                step_temp = max(temperature, REPEAT_TEMPERATURE)
+                if repeats >= MAX_REPEAT_STEPS:
+                    print('Agent stopped: repeating itself')
+                    break
+            else:
+                repeats, step_temp = 0, temperature
+            # …and the softer version of the same thing: the same tool over and
+            # over with slightly different params ("let me list the files
+            # first", four times). Reading six files in a row is legitimate, so
+            # this only says so — it doesn't stop the run.
+            last = plan[-1].get('tool') if plan else None
+            streak = streak + 1 if last and last == prev_tool else 1
+            prev_tool = last
+            if streak >= SAME_TOOL_STREAK:
+                self.memory.add('hint', (
+                    f"You have used {last} {streak} times in a row. If you already "
+                    f"have what you need, do something else with it — a different "
+                    f"tool, or finish and write the answer."))
         # a run that used tools must still end with words: if the loop stopped
         # without a finish summary or response text (steps ran out, or finish
         # came back empty), make one last tools-off call for the actual answer
@@ -813,9 +1151,47 @@ RULES:
                                         temperature=temperature, free=free)
             if answer:
                 history[-1] = history[-1] + [answer]
+        # the exchange goes to the memory module, which is where the next run
+        # reads it back from — a failed run is still a turn that happened
+        if session:
+            self._remember_exchange(query, history, session=session, who=who,
+                                    agent=agent_type)
         if save and m and mod:
             return m.fn('api/reg')(mod=mod, key=key, comment=query)
         return history[-1] if history else []
+
+    def _remember_exchange(self, query: str, history: List[list], session: str,
+                           who: str = None, agent: str = None) -> None:
+        """File one finished user↔agent turn in the memory subsystem.
+
+        Never raises: memory is context, and a memory write that failed is not
+        a reason to lose the answer the user is waiting on.
+        """
+        try:
+            answer = self._answer_text(history)
+            if answer:
+                self.memory.exchange(query, answer, session=session,
+                                     who=who, agent=agent)
+        except Exception as e:
+            print(f"Memory write failed: {e}")
+
+    @staticmethod
+    def _answer_text(history: List[list]) -> str:
+        """The text the user actually read — the last finish summary or
+        response in the run, which is the agent's half of the exchange."""
+        for plan in reversed(history or []):
+            for s in reversed(plan or []):
+                if not isinstance(s, dict):
+                    continue
+                if s.get('tool') == 'finish':
+                    text = str((s.get('params') or {}).get('summary') or '').strip()
+                    if text:
+                        return text
+                if s.get('tool') == 'response':
+                    text = str(s.get('result') or '').strip()
+                    if text:
+                        return text
+        return ''
 
     # ── plan parsing & execution ─────────────────────────────────────
 
@@ -851,11 +1227,15 @@ RULES:
         answer the user reads. Returns a response step, or None if it fails.
 
         Takes the run's own client — see _client for why self.model is wrong here."""
-        self.memory.add('hint', 'Tool use is over. Using everything in the history '
-                                'above, write your final answer to the user now as '
-                                'plain text — answer what they asked. No tools, no anchors.')
+        self.memory.rm('hint')
+        compact = self.compact_prompt(short, model)
+        if compact:
+            max_tokens = min(max_tokens, LOCAL_ANSWER_TOKENS)
         try:
-            context = str(self.memory.get())
+            # the answer prompt withholds the tools and the step format: shown
+            # them again, a small model writes one more call instead of the
+            # answer, and the user reads nothing at all
+            context = self.context(compact=compact, answer=True)
             out = self.meter.watch(
                 client.forward(
                     context,
@@ -879,6 +1259,11 @@ RULES:
             if not text:
                 text = self._strip_anchors(raw)
             if not text:
+                # asked for prose, it wrote another tool call and nothing else.
+                # Say so in the loop's own voice rather than handing the user an
+                # empty bubble — the trail is the honest answer to what happened.
+                text = self._trail_summary()
+            if not text:
                 return None
             step = {'tool': 'response', 'params': {}, 'result': text}
             self._emit_step(step)
@@ -886,6 +1271,24 @@ RULES:
         except Exception as e:
             print(f"Final-answer error: {e}")
             return None
+
+    def _trail_summary(self) -> str:
+        """What the run did, in one line, when the model wrote no answer.
+
+        This is the module talking, not the model, so it says only what it can
+        see: the steps that ran and the last thing one of them returned.
+        """
+        trail = [e for e in (self.memory.get('history') or []) for e in
+                 (e if isinstance(e, list) else [e]) if isinstance(e, dict)]
+        if not trail:
+            return ''
+        names = [s.get('tool') for s in trail if s.get('tool')]
+        last = next((s.get('result') for s in reversed(trail) if s.get('result')), '')
+        line = (f"The run ended without writing an answer — its model kept calling "
+                f"tools instead. It took {len(names)} step(s): {', '.join(names[-8:])}.")
+        if last:
+            line += f"\n\nThe last result was:\n{str(last)[:800]}"
+        return line
 
     def _emit_step(self, step):
         """Notify the live-progress callback (if any) and record the step as an
@@ -903,16 +1306,87 @@ RULES:
                 pass
 
     def _strip_anchors(self, text: str) -> str:
-        """Drop plan/step scaffolding from text meant for the user's eyes."""
+        """Drop plan/step scaffolding from text meant for the user's eyes.
+
+        Reasoning blocks go with it: a thinking model's scratchpad is the
+        working, not the answer, and it opens mid-sentence in the second
+        person ("The user wants me to…"), which reads as the agent talking
+        about the reader rather than to them.
+        """
         import re
         text = re.sub(r'<STEP>.*?</STEP>', '', text, flags=re.S)
+        text = THINK_BLOCK.sub('', text)
+        text = re.sub(r'<\|[^|]{0,40}\|>', '', text)   # tool_call_start & co
         for tag in (*self.anchors['plan'], *self.anchors['tool']):
             text = text.replace(tag, '')
         return text.strip()
 
+    # ── the prompt, and the calls that come back ─────────────────────
+
+    def compact_prompt(self, provider: str = None, model: str = None) -> bool:
+        """Does this run's model get the compact prompt? (see prompt.py)
+
+        Every LFM provider is small compute by definition — weights on this
+        box, or in a tab — and anything else that names a size under 5B is
+        telling us the same thing.
+        """
+        if self._provider_short(provider) in self.LOCAL_PROVIDERS:
+            return True
+        return bool(model and self.SMALL_MODEL_RE.search(model))
+
+    def context(self, compact: bool = False, answer: bool = False) -> str:
+        """Working memory as the text the model actually reads.
+
+        This used to be `str(memory.get())` — a Python dict repr, tool schemas
+        and all. Frontier models read through that; a 1.2B model answers the
+        shape it recognises instead, which is chat, and the run ends in a
+        paragraph rather than a tool call. prompt.py renders the same state as
+        sections, and a shorter prompt is a cheaper prompt on every provider.
+
+        `answer` is the run's closing prompt — no tools, no step format, just
+        the history and the instruction to write the user their answer.
+        """
+        text = render_prompt(self.memory.get(), compact=compact, answer=answer)
+        import os as _os
+        if _os.environ.get('AGENT_PROMPT_DUMP'):
+            with open(_os.environ['AGENT_PROMPT_DUMP'], 'a') as _f:
+                _f.write('\n===== PROMPT =====\n' + text + '\n')
+        return text
+
+    def _schemas(self) -> Optional[Dict[str, Dict]]:
+        """The tool schemas this run was compiled with — what a returned call
+        is checked against. None when the loadout isn't a schema dict."""
+        tools = self.memory.get('tools')
+        return tools if isinstance(tools, dict) and tools else None
+
+    def _fix_step(self, raw: dict) -> Optional[dict]:
+        """One parsed step mapped onto tools this registry actually has.
+
+        A model that calls `read_file(path=…)` means `read(file_path=…)`, and
+        failing that call teaches it nothing — it was a correct decision typed
+        in another harness's dialect. steps.normalize does the mapping; a name
+        that resolves to nothing at all is passed through untouched so the
+        registry's own "tool not found" reaches the model as the error.
+        """
+        fixed = normalize_step(raw, schemas=self._schemas())
+        if fixed:
+            extra = {k: v for k, v in raw.items()
+                     if k not in ('tool', 'params', 'name', 'arguments')}
+            return {**extra, **fixed}
+        return raw if isinstance(raw.get('tool'), str) else None
+
     def plan(self, output: str, safety: bool = False) -> list:
         """Parse LLM output into steps and execute them."""
         steps, raw_text = self.parse_steps(output)
+        if not steps and raw_text.strip():
+            # no anchored step: read the whole response for a call written in
+            # some other convention — a fenced JSON block, <tool_call>, a
+            # pythonic `[bash(command="ls")]`. Models trained by another
+            # harness reach for its format under pressure, and the decision in
+            # there is as good as an anchored one (see steps.py).
+            steps = [s for s in (self._fix_step(c) for c in
+                                 parse_calls(raw_text, schemas=self._schemas()))
+                     if s]
         if not steps and raw_text.strip():
             if self.anchors['tool'][0] in raw_text:
                 # the model tried to call a tool and the step didn't parse —
@@ -999,14 +1473,21 @@ RULES:
             step = self._repair_json(raw)
         if not isinstance(step, dict):
             return None
-        tool = step.get('tool')
+        tool = step.get('tool') or step.get('name')
         if not isinstance(tool, str) or not tool.strip():
             return None      # run_plan calls .lower() on this — it must be a name
         step['tool'] = tool.strip()
         params = step.get('params')
         if isinstance(params, str):              # double-encoded params
-            params = self._repair_json(params)
-        step['params'] = params if isinstance(params, dict) else {}
+            # a string that isn't JSON at all is kept: for a one-parameter
+            # tool it is that parameter's value, which normalize places
+            step['params'] = self._repair_json(params) or params
+        # an anchored step is still written in whatever dialect the model
+        # knows: map its name and parameters onto this registry's before it
+        # is run (see _fix_step)
+        step = self._fix_step(step) or step
+        if not isinstance(step.get('params'), dict):
+            step['params'] = {}
         return step
 
     @staticmethod
@@ -1082,6 +1563,41 @@ RULES:
                 return parsed
         return None
 
+    # params whose value is a filesystem path, and so is meant relative to the
+    # run's own directory rather than to whatever directory this server was
+    # started in. `cwd` is here too: bash inherits the run's directory unless
+    # the model says otherwise.
+    PATH_PARAMS = ('file_path', 'path', 'cwd', 'log_file', 'file', 'file_a', 'file_b')
+
+    def _resolve_paths(self, name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Anchor a step's paths to the run's working directory.
+
+        The model is told the directory the run is in and writes `a.txt`
+        meaning the file in it — but a tool resolves that against the *server
+        process's* cwd, which is somewhere else entirely, so the read failed
+        (or, worse, quietly read a different a.txt). Small models write
+        relative paths constantly, so this is most of the difference between a
+        local run that works and one that doesn't.
+
+        The same reasoning fills in a `path` the model left out: `tree()` with
+        no argument means "here", and here is the run's directory, not the
+        directory this server happened to start in.
+        """
+        base = getattr(self, '_path', None)
+        if not base or not isinstance(params, dict):
+            return params
+        out = dict(params)
+        for key in self.PATH_PARAMS:
+            value = out.get(key)
+            if isinstance(value, str) and value and not os.path.isabs(value) \
+                    and not value.startswith('~'):
+                out[key] = os.path.normpath(os.path.join(base, value))
+        schema = (self._schemas() or {}).get(name) or {}
+        for key in ('path', 'cwd'):
+            if key in (schema.get('params') or {}) and not out.get(key):
+                out[key] = base
+        return out
+
     def run_plan(self, plan: List[Dict[str, Any]], safety: bool = False) -> List[Dict[str, Any]]:
         """Execute parsed steps using tools. Enforces path sandboxing via _allowed_paths."""
         if safety and plan:
@@ -1092,9 +1608,13 @@ RULES:
         failed = getattr(self, '_failed_calls', None)
         if failed is None:
             failed = self._failed_calls = {}
+        done = getattr(self, '_done_calls', None)
+        if done is None:
+            done = self._done_calls = {}
         for i, step in enumerate(plan):
             name = step['tool'].lower()
-            params = step.get('params', {})
+            params = self._resolve_paths(name, step.get('params', {}))
+            step['params'] = params
             if name in ('finish', 'review'):
                 print(f"[{i+1}/{len(plan)}] {name}")
                 self._emit_step(step)
@@ -1115,6 +1635,34 @@ RULES:
                     f"unchanged will fail again — change the params, try a "
                     f"different tool, or finish with what you already know.")
                 print(f"[{i+1}/{len(plan)}] {name} -> blocked (repeat of a failed call)")
+                self._emit_step(plan[i])
+                continue
+
+            # ── the same guard for a call that *worked* ──
+            # A small model that gets a good result often answers the next
+            # prompt with the same call again, and again, until the step budget
+            # is gone — it read the task, not the trail. The cached result comes
+            # straight back with a line saying so, which is the only signal that
+            # reliably breaks the loop. Read-only tools only, and the cache is
+            # dropped the moment anything writes (see below), so re-reading a
+            # file after an edit still really re-reads it.
+            cached = done.get(sig)
+            if cached is not None:
+                plan[i]['result'] = cached
+                plan[i]['repeat'] = True
+                plan[i]['note'] = (
+                    f"you already ran {name} with exactly these params earlier in "
+                    f"this run — that is its result above, not a new one. Use it: "
+                    f"take the next step, or finish and write the answer.")
+                # …and again where the model is looking hardest. The history
+                # note alone does not turn a small model around; a direct
+                # instruction in the hint slot does.
+                self.memory.add('hint', (
+                    f"You have already called {name} with those exact parameters "
+                    f"and its result is in the history above. Do NOT call it "
+                    f"again. Your next step must be a different tool, or finish "
+                    f"with the answer written out of what you already have."))
+                print(f"[{i+1}/{len(plan)}] {name} -> cached (identical earlier call)")
                 self._emit_step(plan[i])
                 continue
 
@@ -1160,6 +1708,12 @@ RULES:
             if _step_failed(plan[i]):
                 failed[sig] = {'n': (seen['n'] + 1) if seen else 1,
                                'result': plan[i].get('result') or plan[i].get('error')}
+            elif name in READONLY_TOOLS:
+                done[sig] = plan[i].get('result')
+            if name not in READONLY_TOOLS:
+                # something ran that could have changed the workspace, so every
+                # cached look at it is now stale
+                done.clear()
             self._emit_step(plan[i])
         return plan
 
@@ -1253,6 +1807,12 @@ class Mod(Agent):
         # through the mod store module under ~/.mod/agent/vaults/
         self.vaults = Vaults()
 
+        # module visibility for the whole fleet. Public by default and
+        # readable by anyone — a module you can't read is a module you can't
+        # trust — with an owner switch that seals a module into ciphertext
+        # before it can reach a public remote. State: ~/.mod/agent/privacy/
+        self.privacy = Privacy()
+
         # internet-wide tool aggregator: scans GitHub, npm, the MCP
         # registry, Glama and curated lists for installable tool documents
         self.discover = Discover()
@@ -1275,18 +1835,41 @@ class Mod(Agent):
                                 'tool_import', 'tool_uninstall',
                                 'toolboxes', 'toolbox', 'snapped', 'tools', 'tool',
                                 'mods',
-                                'recall', 'episodes', 'facts', 'memory_state',
+                                # what the agent is made of, and the memory
+                                # modules one can be built with
+                                'parts', 'memories', 'mcp',
+                                'recall', 'retrieve', 'episodes', 'facts',
+                                'memory_state',
+                                # self-scoped: you get your own turns, nobody else's
+                                'exchanges',
                                 # the board is public — a ranking nobody can
                                 # read is not a ranking
                                 'arena', 'arena_tasks', 'arena_matches',
                                 'arena_card', 'arena_status',
+                                # the same matches read by model: what each one
+                                # scored, how fast it was, what it burned
+                                'arena_models', 'arena_model', 'arena_task_board',
                                 'key_info', 'balance',
                                 'credits', 'credit_deposit',
                                 # vaults self-scope to the caller's verified
                                 # address (Vaults raises without a sign-in)
                                 'vaults', 'vaults_get', 'vaults_set',
                                 'vaults_add', 'vaults_rm', 'vaults_key_rm',
-                                'vaults_public'}
+                                'vaults_public',
+                                # auditing the fleet is the whole point of a
+                                # public module — no sign-in, no key
+                                'modules', 'module_tree', 'module_file',
+                                # arena tasks: listed by anyone, but writing one
+                                # takes a sign-in and editing one takes owning
+                                # it — each of these enforces that itself, and
+                                # a draft additionally answers to run policy
+                                'arena_task_draft', 'arena_task_add', 'arena_task_rm',
+                                # the openarena schema: the board next door is
+                                # public too, and each write here enforces its
+                                # own sign-in / authorship
+                                'openarena', 'openarena_task', 'openarena_sources',
+                                'openarena_task_add', 'openarena_task_rm',
+                                'openarena_preview', 'openarena_import'}
         self._admin_actions = {'run', 'plan', 'serve', 'kill',
                                'test', 'grant', 'revoke', 'acl',
                                'agent_save', 'agent_install', 'set_key',
@@ -1297,8 +1880,20 @@ class Mod(Agent):
                                # a round spends real steps on a provider key
                                'arena_run', 'arena_qualify', 'arena_config',
                                'arena_scheduler',
+                               # ...and a gauntlet spends them on a named model,
+                               # which is the one place the board runs paid ones
+                               'arena_gauntlet',
+                               # our agent on openarena's board: they run it on
+                               # our key, so the host decides
+                               'openarena_enter',
                                'credit_grant', 'treasury', 'credit_topup',
-                               'credit_withdraw', 'credit_config'}
+                               'credit_verify', 'credit_withdraw', 'credit_config',
+                               # visibility + sealing are owner-only: they
+                               # decide what the world can read (see below,
+                               # each one calls require_owner itself)
+                               'module_visibility', 'modules_visibility',
+                               'module_seal', 'module_unseal', 'module_restore',
+                               'privacy_key'}
 
     # ── permissions (Claude module interface) ────────────────────────────
 
@@ -1451,6 +2046,58 @@ class Mod(Agent):
             'admin_actions': sorted(self._admin_actions),
         }
 
+    # ── module visibility (public audit / private seal) ──────────────
+    #
+    # Reading a public module is open (see the `modules`, `module_tree` and
+    # `module_file` actions). Everything that CHANGES what the world can read
+    # is owner-only, and says so here rather than trusting the caller.
+
+    def module_visibility(self, name: str, visibility: str,
+                          passphrase: str = None, key=None) -> dict:
+        """Flip one module public/private. Private seals it. Owner only."""
+        self.require_owner(key, 'module_visibility')
+        return self.privacy.set(name, visibility, passphrase)
+
+    def modules_visibility(self, visibility: str, passphrase: str = None,
+                           key=None) -> dict:
+        """Flip the whole fleet, and the default new modules inherit. Owner only."""
+        self.require_owner(key, 'modules_visibility')
+        return self.privacy.set_all(visibility, passphrase)
+
+    def module_seal(self, name: str, passphrase: str = None, key=None) -> dict:
+        """Re-seal a private module after editing it. Owner only."""
+        self.require_owner(key, 'module_seal')
+        return self.privacy.seal(name, passphrase)
+
+    def module_unseal(self, name: str, key=None) -> dict:
+        """Drop a module's blob and put its tree back under git. Owner only."""
+        self.require_owner(key, 'module_unseal')
+        return self.privacy.unseal(name)
+
+    def module_restore(self, name: str, passphrase: str = None,
+                       force: bool = False, key=None) -> dict:
+        """Unpack a sealed blob back into source — the clone side. Owner only."""
+        self.require_owner(key, 'module_restore')
+        return self.privacy.restore(name, passphrase, force)
+
+    def privacy_key(self, op: str = 'state', passphrase: str = None,
+                    current: str = None, key_b64: str = None, key=None) -> dict:
+        """The fleet key: state / export / import / passphrase. Owner only.
+
+        Export exists because the key is the only thing that opens a sealed
+        push — lose it and the blob is noise. It never leaves this method
+        without an owner signature.
+        """
+        self.require_owner(key, 'privacy_key')
+        if op == 'export':
+            return {'key': self.privacy.key_export(passphrase),
+                    'warning': 'anyone holding this opens every sealed module'}
+        if op == 'import':
+            return self.privacy.key_import(key_b64 or '', passphrase)
+        if op == 'passphrase':
+            return self.privacy.key_passphrase(passphrase, current)
+        return self.privacy.key_state()
+
     # ── credits (prepaid public-key usage) ───────────────────────────
 
     def credits_info(self, key: str = None) -> dict:
@@ -1504,6 +2151,9 @@ class Mod(Agent):
                 continue
             out[name] = {'balance': bal.get('balance'),
                          'usage': bal.get('total_usage'),
+                         # credits ever bought on the key — only OpenRouter
+                         # reports it, and it is what makes a top-up exact
+                         'purchased': bal.get('total_credits'),
                          'configured': bal.get('configured', False),
                          'key_source': bal.get('source')}
             if bal.get('error'):
@@ -1524,6 +2174,25 @@ class Mod(Agent):
         """Record credits bought at a provider out of the deposit float. Owner only."""
         self.require_owner(key, 'credit_topup')
         return self.credits.record_topup(provider, amount, ref=ref, note=note)
+
+    def credit_topup_verify(self, provider: str = 'openrouter', key: str = None) -> dict:
+        """Book a top-up by reading it off the provider key. Owner only.
+
+        Neither provider sells credits over an API (OpenRouter's Coinbase
+        endpoint answers 410 Gone, Venice never had one), so the money is
+        always sent on the provider's own page — `credits.PROVIDER_TOPUP`
+        holds the link the console opens. This closes the loop: it re-reads
+        the key and books whatever arrived, so the books record what landed
+        instead of an amount typed from memory.
+        """
+        self.require_owner(key, 'credit_topup_verify')
+        provider = (provider or 'openrouter').strip().lower()
+        bal = self.balance(provider)
+        live = {'balance': bal.get('balance'), 'purchased': bal.get('total_credits'),
+                'error': bal.get('error')}
+        out = self.credits.verify_topup(provider, live)
+        out['balance'] = bal.get('balance')
+        return out
 
     def credit_withdraw(self, amount: float, note: str = '', key: str = None) -> dict:
         """Take earned margin out of the float. Owner only."""
@@ -1919,8 +2588,10 @@ class Mod(Agent):
           Public (anyone):
             status, health, schema, agents, agent, chains, harnesses,
             toolboxes, toolbox, snapped, tools, tool, mods,
-            recall, episodes, facts, memory_state,
-            arena, arena_tasks, arena_matches, arena_card, arena_status
+            recall, episodes, facts, exchanges, memory_state,
+            arena, arena_tasks, arena_matches, arena_card, arena_status,
+            arena_models, arena_model, arena_task_board,
+            openarena, openarena_task, openarena_sources
 
           Signed-in (self-scoped to the caller's verified address):
             vaults      - List your key-value vaults
@@ -1945,10 +2616,25 @@ class Mod(Agent):
             forget      - Remove a fact (id=)
             memory_serve- Start the memory service as its own process (:50119)
             memory_kill - Stop the memory service
+            arena_task_draft - Draft a task with the task-builder agent
+                               (description=, schema=agent|openarena)
+            arena_task_add   - Store a hand-written arena task (spec=, slug=)
+            arena_task_rm    - Remove one of your tasks (slug=)
+            openarena        - The openarena bridge: is it up, what it holds
+            openarena_task   - One openarena task in full (slug=)
+            openarena_sources- Benchmarks it can pull off the web
+            openarena_task_add - Upload a task in the openarena schema (spec=)
+            openarena_task_rm  - Delete one you wrote there (slug=)
+            openarena_preview  - Convert a benchmark, keep nothing (source=, limit=)
+            openarena_import   - ...and keep it (source=, limit=, offset=)
             arena_run   - Play a match (agent=, task=) or a whole round
+            arena_gauntlet - Rank models against each other: one agent, one
+                              task set, N models (models=, agent=, tasks=)
             arena_qualify - Score a newcomer against the incumbents (agent=)
             arena_config  - Set the board's knobs (enabled=, free=, period_hours=…)
             arena_scheduler - Start/stop the background board process (on=)
+            openarena_enter - Enter one of our agents on openarena's own board
+                              (agent=, name=, model=, steps=, free=)
             plan        - Parse and execute a single LLM output
             tool_run    - Run a single tool (built-in, custom, or mod.<module>)
             serve       - Start API + app
@@ -1961,6 +2647,7 @@ class Mod(Agent):
             acl         - View current access control list
             treasury    - Deposits in, provider credits out, margin kept (live=)
             credit_topup- Record credits bought at a provider (provider=, amount=, ref=)
+            credit_verify - Book a top-up read off the provider key (provider=)
             credit_withdraw - Take earned margin out of the float (amount=)
             credit_config   - Set fee_rate / price_per_step / cost_multiplier
         """
@@ -2011,10 +2698,32 @@ class Mod(Agent):
             'tool': lambda: self.tools.get(kwargs.get('name', '')),
             'mods': lambda: self.tools.mods.forward(q=kwargs.get('q', ''),
                                                     limit=kwargs.get('limit')),
+            # the agent box and every sub-component in it
+            'parts': lambda: self.parts(),
+            # the same API, spoken as Model Context Protocol (src/mcp.py)
+            'mcp': lambda: self.mcp(tools=bool(kwargs.get('tools'))),
+            # the memory modules an agent can be built with
+            'memories': lambda: self.memories.forward(kwargs.get('name')),
             # memory subsystem (working/episodic/semantic layers, own process)
             'memory_state': lambda: self.memory.forward('status') if hasattr(self.memory, 'status') else self.memory.summary(),
             'recall': lambda: self.memory.recall(kwargs.get('query', kwargs.get('q', '')), kwargs.get('k', 5)),
+            # retrieval across every layer at once, scoped to the caller —
+            # the same call the recall tool makes from inside a run
+            'retrieve': lambda: {
+                'query': kwargs.get('query', kwargs.get('q', '')),
+                'module': self.memories.name_of(self.memory),
+                'hits': self.memory.retrieve(
+                    kwargs.get('query', kwargs.get('q', '')),
+                    k=int(kwargs.get('k', 5)),
+                    layers=kwargs.get('layers'),
+                    session=kwargs.get('session'),
+                    min_score=kwargs.get('min_score'),
+                    who=self.identity.addr(key))},
             'episodes': lambda: self.memory.episodes(kwargs.get('n', 50), kwargs.get('session')),
+            # the caller's own conversation history, as the memory module has it
+            'exchanges': lambda: {'exchanges': self.memory.history(
+                int(kwargs.get('n', 20)), kwargs.get('session'),
+                self.identity.addr(key))},
             'facts': lambda: self.memory.facts(),
             # arena: every agent on the same tasks, one ranked board
             'arena': lambda: self.arena.forward(),
@@ -2024,6 +2733,39 @@ class Mod(Agent):
                                                         task=kwargs.get('task')),
             'arena_card': lambda: self.arena.forward('card', agent=kwargs.get('agent', '')),
             'arena_status': lambda: self.arena.forward('status'),
+            # the same board keyed on the model — and the catalog a gauntlet
+            # can pick from, so the console never has to guess an id
+            'arena_models': lambda: {**self.arena.forward('models'),
+                                     'catalog': self.arena_model_options()},
+            'arena_model': lambda: self.arena.forward('model',
+                                                      model=kwargs.get('model', '')),
+            'arena_task_board': lambda: self.arena.forward('task_board'),
+            # hand-written tasks: draft one with the task-builder agent, store
+            # it under your address, remove your own
+            'arena_task_draft': lambda: self.arena_task_draft(
+                kwargs.get('description', ''), model=kwargs.get('model'),
+                provider=kwargs.get('provider'), free=bool(kwargs.get('free')),
+                steps=kwargs.get('steps', 4), key=key),
+            'arena_task_add': lambda: self.arena_task_add(
+                kwargs.get('spec') or {}, slug=kwargs.get('slug'), key=key),
+            'arena_task_rm': lambda: self.arena_task_rm(kwargs.get('slug', ''), key=key),
+            # the openarena schema: a statement plus graded cases, stored and
+            # judged next door (see arena/openarena.py)
+            'openarena': lambda: self.arena.forward('openarena'),
+            'openarena_task': lambda: self.arena_oa_task(kwargs.get('slug', '')),
+            'openarena_sources': lambda: self.arena.forward('oa_sources'),
+            'openarena_task_add': lambda: self.arena_oa_task_add(
+                kwargs.get('spec') or {}, key=key),
+            'openarena_task_rm': lambda: self.arena_oa_task_rm(
+                kwargs.get('slug', ''), key=key),
+            'openarena_preview': lambda: self.arena_oa_import(
+                kwargs.get('source', 'humaneval'), preview=True, key=key,
+                **{k: v for k, v in kwargs.items()
+                   if k not in ('source', 'preview', 'key')}),
+            'openarena_import': lambda: self.arena_oa_import(
+                kwargs.get('source', 'humaneval'), preview=bool(kwargs.get('preview')),
+                key=key, **{k: v for k, v in kwargs.items()
+                            if k not in ('source', 'preview', 'key')}),
             'key_info': lambda: self.key_info(kwargs.get('provider', 'openrouter')),
             'balance': lambda: self.balance(kwargs.get('provider', 'openrouter')),
             # credits (prepaid public-key usage)
@@ -2039,6 +2781,8 @@ class Mod(Agent):
                                                       kwargs.get('amount', 0),
                                                       kwargs.get('ref', ''),
                                                       kwargs.get('note', ''), key),
+            'credit_verify': lambda: self.credit_topup_verify(
+                kwargs.get('provider', 'openrouter'), key),
             'credit_withdraw': lambda: self.credit_withdraw(kwargs.get('amount', 0),
                                                             kwargs.get('note', ''), key),
             'credit_config': lambda: self.credit_config(
@@ -2066,6 +2810,26 @@ class Mod(Agent):
                                                           kwargs.get('entry', '')),
             'vaults_public': lambda: self.vaults.public(kwargs.get('address', ''),
                                                         kwargs.get('name', '')),
+            # module visibility — the audit side is open to anyone
+            'modules': lambda: self.privacy.ls(kwargs.get('q', '')),
+            'module_tree': lambda: self.privacy.tree(kwargs.get('name', '')),
+            'module_file': lambda: self.privacy.read(kwargs.get('name', ''),
+                                                     kwargs.get('path', '')),
+            # …and the switches are the owner's alone
+            'module_visibility': lambda: self.module_visibility(
+                kwargs.get('name', ''), kwargs.get('visibility', ''),
+                kwargs.get('passphrase'), key=key),
+            'modules_visibility': lambda: self.modules_visibility(
+                kwargs.get('visibility', ''), kwargs.get('passphrase'), key=key),
+            'module_seal': lambda: self.module_seal(kwargs.get('name', ''),
+                                                    kwargs.get('passphrase'), key=key),
+            'module_unseal': lambda: self.module_unseal(kwargs.get('name', ''), key=key),
+            'module_restore': lambda: self.module_restore(
+                kwargs.get('name', ''), kwargs.get('passphrase'),
+                bool(kwargs.get('force')), key=key),
+            'privacy_key': lambda: self.privacy_key(
+                kwargs.get('op', 'state'), kwargs.get('passphrase'),
+                kwargs.get('current'), kwargs.get('key_b64'), key=key),
             # admin (owner + granted)
             'set_key': lambda: self.set_api_key(kwargs.get('api_key', ''),
                                                 kwargs.get('provider', 'openrouter'),
@@ -2113,6 +2877,19 @@ class Mod(Agent):
                                                     free=kwargs.get('free'),
                                                     reason=kwargs.get('reason', 'manual')),
             'arena_qualify': lambda: self.arena.forward('qualify', agent=kwargs.get('agent', '')),
+            # a gauntlet names its models, so unlike a round it can spend on
+            # paid ones — the host's call, and the host's key
+            'arena_gauntlet': lambda: self.arena.forward(
+                'gauntlet', models=kwargs.get('models') or [],
+                agent=kwargs.get('agent'), tasks=kwargs.get('tasks'),
+                steps=kwargs.get('steps'), free=bool(kwargs.get('free', False)),
+                reason=kwargs.get('reason', 'gauntlet')),
+            # openarena calls back into /run to make our entrant play, which
+            # spends the host's key — so entering one is the host's call
+            'openarena_enter': lambda: self.arena_oa_enter(
+                kwargs.get('agent', ''), name=kwargs.get('name'),
+                model=kwargs.get('model'), steps=kwargs.get('steps'),
+                free=kwargs.get('free'), key=key),
             'arena_config': lambda: self.arena.forward('config', **kwargs),
             'arena_scheduler': lambda: self.arena_scheduler(kwargs.get('on', True)),
             # owner only
@@ -2154,17 +2931,26 @@ class Mod(Agent):
         agent_model = kwargs.get('model')
         agent_provider = kwargs.get('provider')
         agent_harness = None
+        # the memory module this run thinks with: what the caller asked for,
+        # else what the agent was built with, else the default one
+        agent_memory = kwargs.get('memory')
 
         if agent_type and agent_type in self.agents.ls():
             agent_config = self.agents.get(agent_type)
             if agent_config.get('goal'):
                 agent_goal = agent_config['goal']
+            if agent_config.get('memory') and not agent_memory:
+                agent_memory = agent_config['memory']
             # `skills` is the pre-rename key — agent configs saved back then
             # still carry it, so it's read as a fallback
             saved_tools = agent_config.get('tools') or agent_config.get('skills')
             if saved_tools and not kwargs.get('tools'):
                 agent_tools = saved_tools
-            if agent_config.get('model'):
+            # the agent's saved model is a default, not an override: a caller
+            # that named one — the console's picker, an arena gauntlet ranking
+            # six models on the same agent — asked for that model and would
+            # otherwise silently get whatever the agent was built with
+            if agent_config.get('model') and not agent_model:
                 agent_model = agent_config['model']
             agent_harness = agent_config.get('harness')
 
@@ -2199,13 +2985,24 @@ class Mod(Agent):
                 extra['tool_docs'] = '\n\n'.join(
                     f"[tool: {d['name']}]\n{d.get('body', '')}" for d in docs)
 
-        # swap goal temporarily if agent has a custom one
-        original_goal = self.goal
-        if agent_goal:
-            self.goal = agent_goal
+        # The agent's prompt and memory module belong to this run, not to the
+        # module: behind the API there is one Mod for the whole host, and two
+        # runs overlapping on it used to swap these on the object and restore
+        # them out of order — leaving a persona's prompt bound to every run
+        # after it (the console spent a day answering as an agent called
+        # `broski`, whose whole system prompt is the word "broski"). Passed in
+        # per run instead; `run` binds them for its own thread.
+        run_memory = None
+        if agent_memory and agent_memory != self.memories.name_of(self.memory):
+            try:
+                run_memory = self.memories.make(agent_memory)
+            except Exception as e:
+                print(f"[agent] memory module {agent_memory!r} unavailable: {e}")
         try:
             return self.run(
                 query=kwargs.get('query', 'help me with this'),
+                goal=agent_goal,
+                memory=run_memory,
                 model=agent_model,
                 provider=agent_provider,
                 path=kwargs.get('path'),
@@ -2223,10 +3020,12 @@ class Mod(Agent):
                 on_step=kwargs.get('on_step'),
                 images=kwargs.get('images'),
                 budget=kwargs.get('budget'),
+                session=kwargs.get('session'),
+                agent_type=agent_type,
                 **extra,
             )
         finally:
-            self.goal = original_goal
+            self._unbind_memory()
 
     # ── harness runs (external agent CLIs) ───────────────────────────
 
@@ -2265,9 +3064,14 @@ class Mod(Agent):
         which is sandboxed to their portal directory.
         """
         if not self.is_owner(kwargs.get('key')):
+            # name the agent that was picked, not the harness behind it — the
+            # caller chose "Build Console", and being told about "buildmod"
+            # sends them looking for something they never asked for
+            agent = kwargs.get('agent_type') or kwargs.get('agent') or name
             raise PermissionError(
-                f"the {name} agent runs a coding CLI on this host — owner only. "
-                f"Pick a native agent to run on this module's own sandboxed loop.")
+                f"'{agent}' hands the run to the {name} CLI on this host's own "
+                f"shell, so it is owner-only. Pick a native agent to run on "
+                f"this module's own loop, sandboxed to your directory.")
         path = kwargs.get('path') or (m.dp(kwargs['mod']) if m and kwargs.get('mod')
                                       else os.getcwd())
         # reuse the native step sink: live progress for the console, and the
@@ -2283,10 +3087,230 @@ class Mod(Agent):
             on_step=self._emit_step,
         )
 
+    # ── arena tasks (hand-written, and drafted by an agent) ──────────
+
+    TASK_BUILDER = 'task-builder'
+
+    def arena_task_add(self, spec: Dict[str, Any], slug: str = None, key=None) -> dict:
+        """Store a hand-written arena task under the caller's address.
+
+        Writing a task is creating something the whole board plays, so it takes
+        a sign-in; editing one takes being its author (or the host).
+        """
+        self.identity.require_signed_in(key, operation="write an arena task")
+        addr = self.identity.addr(key)
+        if slug:
+            existing = self.arena.get_custom(slug)
+            if existing:
+                self.identity.require(owner=existing.get('owner'), key=key,
+                                      operation=f"edit task '{slug}'")
+        return self.arena.forward('task_add', spec=spec, owner=addr, slug=slug)
+
+    def arena_task_rm(self, slug: str, key=None) -> dict:
+        """Drop a hand-written task. Its author or the host."""
+        existing = self.arena.get_custom(slug)
+        if not existing:
+            raise KeyError(f"no such task: {slug}")
+        self.identity.require(owner=existing.get('owner'), key=key,
+                              operation=f"remove task '{slug}'")
+        return self.arena.forward('task_rm', slug=slug)
+
+    # ── arena tasks in the openarena schema ──────────────────────────
+    #
+    # A statement plus graded test cases, stored in the openarena module and
+    # judged by its sandbox. They are not copied here: writing one from this
+    # console puts it on openarena's board too, which is the point — one task,
+    # one set of hidden cases, one judge, two front doors.
+
+    def arena_oa_task(self, slug: str) -> dict:
+        """One openarena task in full, as an entrant may see it — the hidden
+        cases keep their names and give up nothing else. Public: reading the
+        exam is not cheating on it."""
+        from src.arena import openarena as oa
+        if not str(slug or '').strip():
+            raise ValueError("name the task")
+        return oa.get_task(slug, cached=False)
+
+    def arena_oa_task_add(self, spec: Dict[str, Any], key=None) -> dict:
+        """Upload a task in the openarena schema, filed under the caller."""
+        self.identity.require_signed_in(key, operation="write an openarena task")
+        return self.arena.forward('oa_task_add', spec=spec,
+                                  author=self.identity.addr(key))
+
+    def arena_oa_task_rm(self, slug: str, key=None) -> dict:
+        """Delete an openarena task. Its author, or the host.
+
+        openarena's own API is open — the gate is here, because here is where
+        an address is verified. A seeded or benchmark-imported task has no
+        address for an author, so only the host can remove one.
+        """
+        from src.arena import openarena as oa
+        try:
+            task = oa.get_task(slug, cached=False)
+        except Exception as e:
+            raise KeyError(f"no such openarena task: {slug} ({e})")
+        author = str(task.get('author') or '')
+        self.identity.require(owner=author if author.startswith('0x') else None,
+                              key=key, operation=f"remove openarena task '{slug}'")
+        return self.arena.forward('oa_task_rm', slug=slug)
+
+    def arena_oa_import(self, source: str, preview: bool = False, key=None,
+                        **opts) -> dict:
+        """Pull a published benchmark in as tasks — HumanEval, MBPP, a
+        HuggingFace dataset, a JSON url, a scraped problem page.
+
+        `preview` converts and keeps nothing, which is the call to make first:
+        a benchmark nobody looked at becomes tasks nobody read.
+        """
+        self.identity.require_signed_in(
+            key, operation="import a benchmark into the arena")
+        action = 'oa_preview' if preview else 'oa_import'
+        return self.arena.forward(action, source=source, **opts)
+
+    def arena_oa_enter(self, agent: str, name: str = None, model: str = None,
+                       steps: int = None, free: bool = None, key=None) -> dict:
+        """Enter one of our agents as a competitor on openarena's own board.
+
+        The other direction of the same bridge: openarena will call this
+        module's /run to make it play, which spends the host's provider key —
+        so entering an agent is the host's call, not a visitor's.
+        """
+        self.require_owner(key, 'enter an agent in openarena')
+        return self.arena.forward('oa_enter', agent=agent, name=name,
+                                  model=model, steps=steps, free=free)
+
+    def arena_task_draft(self, description: str, model: str = None,
+                         provider: str = None, free: bool = False,
+                         steps: int = 4, schema: str = 'agent', key=None) -> dict:
+        """Hand a plain description to the task-builder agent and read a task
+        spec back out of its answer.
+
+        `schema` picks which kind of task it drafts: 'agent' scores the trace
+        and the files left behind, 'openarena' scores a program against graded
+        test cases. Both come back in the shape their own form edits.
+
+        The draft is returned, not saved: a task nobody looked at is exactly the
+        kind of thing that quietly makes every round meaningless. The caller
+        reviews it in the Builder and saves it themselves.
+        """
+        self.identity.require_signed_in(key, operation="draft a task")
+        # a draft is a model run on somebody's key, so it answers to the same
+        # policy a run does: the host, a granted address, or credits on hand
+        self.require_allowed(key, 'run')
+        description = str(description or '').strip()
+        if len(description) < 8:
+            raise ValueError("describe the task in a sentence or two first")
+        oa_schema = str(schema or 'agent').lower() in ('openarena', 'oa', 'program')
+        query = (f"Write an OPENARENA task for this:\n\n{description}\n\n"
+                 f"Use the OPENARENA schema — statement, mode, language, tests. "
+                 f"Compute every `expect` exactly."
+                 if oa_schema else
+                 f"Write an arena task for this:\n\n{description}")
+        trace = self._run(
+            query=query,
+            agent_type=self.TASK_BUILDER, model=model, provider=provider,
+            steps=max(2, min(int(steps or 4), 8)), free=free, key=key,
+            # the agent has no file tools, but a stray write must not land in
+            # whatever directory the API happens to be running from
+            path=str(Path.home() / '.mod' / 'agent' / 'arena'),
+        )
+        answer = self._answer_text([trace] if trace and isinstance(trace, list) else [])
+        spec = self._parse_task_json(answer, openarena=oa_schema)
+        if spec is None:
+            return {"error": "the task-builder did not return a task spec — "
+                             "try describing the task more concretely",
+                    "answer": answer}
+        if oa_schema:
+            from src.arena import openarena as oa
+            try:
+                clean = oa.validate(spec)
+            except ValueError as e:
+                return {"draft": spec, "answer": answer, "invalid": str(e),
+                        "schema": "openarena"}
+            return {"draft": {**clean, "slug": self.arena.slugify(clean['title'])},
+                    "answer": answer, "schema": "openarena"}
+        try:
+            clean = self.arena.validate_task(spec)
+        except ValueError as e:
+            # a draft that doesn't validate is still worth showing: the form it
+            # fills is editable, and the message says what to fix
+            return {"draft": spec, "answer": answer, "invalid": str(e)}
+        return {"draft": {**clean, "slug": self.arena.slugify(clean['title'])},
+                "answer": answer, "schema": "agent"}
+
+    @staticmethod
+    def _parse_task_json(text: str, openarena: bool = False) -> Optional[Dict[str, Any]]:
+        """The JSON object out of a model's answer — fenced block first, then
+        the outermost braces. None when there isn't one.
+
+        The two schemas are told apart by the field that cannot be missing from
+        either: an agent task is a `prompt`, an openarena task is `tests`.
+        """
+        text = str(text or '')
+        blocks = re.findall(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.S)
+        candidates = list(blocks)
+        start, end = text.find('{'), text.rfind('}')
+        if start != -1 and end > start:
+            candidates.append(text[start:end + 1])
+        for raw in candidates:
+            try:
+                out = json.loads(raw)
+            except Exception:
+                continue
+            if not isinstance(out, dict):
+                continue
+            if openarena:
+                if out.get('tests'):
+                    return out
+            elif out.get('prompt'):
+                return out
+        return None
+
     # ── arena (one runner, every match) ──────────────────────────────
 
+    def arena_model_options(self) -> List[Dict[str, Any]]:
+        """The models a gauntlet can be pointed at, per provider.
+
+        Free ones first and flagged: they are what a board that runs itself on
+        a timer is allowed to spend, and the difference between "$0" and "the
+        host's credits" is the only thing about this list a console has to say
+        out loud. A provider with no key is listed anyway with `ready: false` —
+        an empty picker looks like a broken feature, not an unset key.
+        """
+        out: List[Dict[str, Any]] = []
+        order = ('openrouter', 'venice', 'liquidai-cloud', 'liquidai')
+        for short in order:
+            path = self.PROVIDERS.get(short, short)
+            ready = self.has_model(short)
+            free_ids = set()
+            if ready:
+                try:
+                    client = self._client(short)
+                    if getattr(client, 'is_free', False):
+                        free_ids = set(self.provider_models(short))
+                    elif hasattr(client, 'free_models'):
+                        free_ids = set(client.free_models() or [])
+                except Exception as e:
+                    print(f"[agent] free model list for {short} failed: {e}")
+            ids = list(self.provider_models(short))
+            # a free id the catalog offers but the curated list doesn't name is
+            # still the most useful thing here — it costs nothing to rank
+            for mid in sorted(free_ids):
+                if mid not in ids:
+                    ids.append(mid)
+            for mid in ids:
+                out.append({'model': mid, 'provider': short, 'ready': ready,
+                            'free': mid in free_ids,
+                            'hint': self.LOCAL_HINTS.get(short)})
+        # a key that works before one that doesn't, then provider order — the
+        # hosted catalogs first, because a gauntlet on this box's own LFM
+        # runtime is a hundred repos of noise in a picker
+        out.sort(key=lambda o: (not o['ready'], order.index(o['provider']),
+                                not o['free'], o['model']))
+        return out
+
     def arena_run(self, prompt: str, agent: str, model: str = None, steps: int = 8,
-                  free: bool = True, path: str = None):
+                  free: bool = True, path: str = None, provider: str = None):
         """Run one arena match and hand back its trace and what it cost.
 
         There is no caller behind a match — the board runs itself — so the run
@@ -2300,7 +3324,7 @@ class Mod(Agent):
         trace: List[Dict[str, Any]] = []
         try:
             last = self._run(query=prompt, agent_type=agent, model=model, steps=steps,
-                             free=free, path=path,
+                             free=free, path=path, provider=provider,
                              allowed_paths=[path] if path else None, key=None,
                              on_step=trace.append)
         finally:
@@ -2453,7 +3477,24 @@ class Mod(Agent):
                 'app': self.app_port,
                 'memory': getattr(self.memory, '_port', None),
             },
+            'mcp': self.mcp(),
         }
+
+    def mcp(self, tools: bool = False) -> dict:
+        """How to connect an MCP client to this module, and what it gets.
+
+        The server is not a second API: src/mcp.py calls the same handlers the
+        REST routes call, so the tool list here and the endpoint list there
+        cannot describe different modules.
+        """
+        try:
+            from src import mcp as mcp_server
+        except Exception as e:
+            return {'available': False, 'error': f'{type(e).__name__}: {e}'}
+        out = mcp_server.info(f'http://localhost:{self.api_port}')
+        if tools:
+            out['schema'] = mcp_server.tool_list()
+        return out
 
     def test(self):
         """Test the agent module"""
@@ -2467,6 +3508,17 @@ class Mod(Agent):
             results['passed'] += 1
         except Exception as e:
             results['tests'].append({'name': 'tools_loaded', 'passed': False, 'error': str(e)})
+            results['failed'] += 1
+
+        # module visibility: the crypto round trip and the audit guards, run
+        # in a throwaway directory so this never touches the real fleet
+        try:
+            r = self.privacy.test()
+            assert r.get('ok'), r
+            results['tests'].append({'name': 'privacy', 'passed': True, **r})
+            results['passed'] += 1
+        except Exception as e:
+            results['tests'].append({'name': 'privacy', 'passed': False, 'error': str(e)})
             results['failed'] += 1
 
         # test the fleet is reachable as tools

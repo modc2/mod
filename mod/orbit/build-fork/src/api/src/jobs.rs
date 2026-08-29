@@ -70,6 +70,17 @@ pub struct ClaudeJob {
     /// "agent" (orbit/agent module over HTTP).
     #[serde(default = "default_agent_name")]
     pub agent: String,
+    /// What this task cost, as a decimal dollar string — None until the agent
+    /// reports usage. See costs.rs: for the claude CLI this is the figure the
+    /// CLI itself reports, otherwise it is priced from token counts.
+    #[serde(default)]
+    pub cost_usd: Option<String>,
+    #[serde(default)]
+    pub tokens_in: i64,
+    #[serde(default)]
+    pub tokens_out: i64,
+    #[serde(default)]
+    pub duration_ms: i64,
     /// Read-side only (never a DB column): this task's content is sealed by
     /// its author's vault, and — for everyone but that author, unlocked —
     /// what you're reading is the masked form. Set by vault::unmask_job.
@@ -138,6 +149,15 @@ pub struct SubmitRequest {
     /// described by its GET /params schema.
     #[serde(default)]
     pub agent_params: Option<serde_json::Value>,
+    /// ↻ Replay in place: re-run an EXISTING card instead of minting a new
+    /// one. The row keeps its id and its place in the ledger; prompt, model,
+    /// module and backend are overwritten with this request and every result
+    /// column (output, error, cost, cid) is wiped back to `pending`, so the
+    /// card the user pressed ↻ on is the card that visibly re-runs. Validated
+    /// in the API layer — only the task's own author (or the console owner)
+    /// may redo a card, and never one that is still running.
+    #[serde(default)]
+    pub replace_job_id: Option<String>,
     /// Set by the API layer from the auth token — not from client input
     #[serde(default)]
     pub user_address: Option<String>,
@@ -217,6 +237,25 @@ impl JobStore {
             [],
         )
         .ok();
+
+        // Migration: per-task cost metering (existing DBs). NULL cost means
+        // "never measured" — a pre-feature row — which reads differently from
+        // a measured zero, so these stay nullable rather than defaulting to 0.
+        for col in [
+            "cost_usd6 INTEGER",
+            "tokens_in INTEGER",
+            "tokens_out INTEGER",
+            "tokens_cached INTEGER",
+            "duration_ms INTEGER",
+            "cost_source TEXT",
+        ] {
+            conn.execute(&format!("ALTER TABLE claude_jobs ADD COLUMN {col}"), [])
+                .ok();
+        }
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_user_created ON claude_jobs(user_address, created_at DESC);",
+        )
+        .ok();
     }
 
     fn insert(&self, job: &ClaudeJob) {
@@ -237,6 +276,34 @@ impl JobStore {
         .expect("SQLite insert failed");
     }
 
+    /// ↻ Redo an existing card in place: the same row, re-armed for another
+    /// run. Everything the new run is about to produce is cleared (output,
+    /// error, pid, cost, tokens, duration, and the bundle CID — which
+    /// described the OLD result and would otherwise resolve a replay QR to a
+    /// run that no longer exists), and what it runs under is overwritten from
+    /// the replay draft. `created_at` deliberately survives: this is the same
+    /// task being redone, so it keeps its place in the ledger instead of
+    /// jumping the queue as if it were new work.
+    fn reset_for_replay(&self, job: &ClaudeJob) {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE claude_jobs SET prompt = ?1, model = ?2, work_dir = ?3, agent = ?4,
+                status = 'pending', output = '', error = NULL, pid = NULL, cid = NULL,
+                cost_usd6 = NULL, tokens_in = NULL, tokens_out = NULL, tokens_cached = NULL,
+                duration_ms = NULL, cost_source = NULL, updated_at = ?5
+             WHERE id = ?6",
+            params![
+                crate::vault::seal_for_job(&job.id, &job.prompt),
+                job.model,
+                job.work_dir,
+                job.agent,
+                job.updated_at,
+                job.id
+            ],
+        )
+        .ok();
+    }
+
     fn update_status(&self, id: &str, status: &JobStatus, error: Option<&str>) {
         let conn = self.conn();
         let now = Utc::now().timestamp();
@@ -254,6 +321,28 @@ impl JobStore {
         conn.execute(
             "UPDATE claude_jobs SET pid = ?1, status = 'running', updated_at = ?2 WHERE id = ?3",
             params![pid, now, id],
+        )
+        .ok();
+    }
+
+    /// Record what a task cost. Written once, when the agent reports usage —
+    /// not on every chunk — so this is a plain overwrite, and a job that
+    /// reports twice (codex, one event per turn) is merged by the caller
+    /// before it gets here.
+    fn update_cost(&self, id: &str, cost: &crate::costs::TaskCost) {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE claude_jobs SET cost_usd6 = ?1, tokens_in = ?2, tokens_out = ?3,
+                    tokens_cached = ?4, duration_ms = ?5, cost_source = ?6 WHERE id = ?7",
+            params![
+                cost.usd6 as i64,
+                cost.usage.total_input() as i64,
+                cost.usage.output as i64,
+                cost.usage.cache_read as i64,
+                cost.duration_ms as i64,
+                cost.source,
+                id
+            ],
         )
         .ok();
     }
@@ -299,7 +388,7 @@ impl JobStore {
     fn get(&self, id: &str) -> Option<ClaudeJob> {
         let conn = self.conn();
         let mut stmt = conn
-            .prepare("SELECT id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address, cid, agent FROM claude_jobs WHERE id = ?1")
+            .prepare("SELECT id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address, cid, agent, cost_usd6, tokens_in, tokens_out, duration_ms FROM claude_jobs WHERE id = ?1")
             .ok()?;
 
         stmt.query_row(params![id], |row| {
@@ -317,6 +406,13 @@ impl JobStore {
                 user_address: row.get::<_, String>(10).unwrap_or_default(),
                 cid: row.get::<_, Option<String>>(11).unwrap_or(None),
                 agent: row.get::<_, String>(12).unwrap_or_else(|_| "claude".to_string()),
+                cost_usd: row
+                    .get::<_, Option<i64>>(13)
+                    .unwrap_or(None)
+                    .map(|c| crate::credits::fmt_usd(c.max(0) as u128)),
+                tokens_in: row.get::<_, Option<i64>>(14).unwrap_or(None).unwrap_or(0),
+                tokens_out: row.get::<_, Option<i64>>(15).unwrap_or(None).unwrap_or(0),
+                duration_ms: row.get::<_, Option<i64>>(16).unwrap_or(None).unwrap_or(0),
                 encrypted: false,
                 locked: false,
             })
@@ -330,7 +426,7 @@ impl JobStore {
     fn get_by_cid(&self, cid: &str) -> Option<ClaudeJob> {
         let conn = self.conn();
         let mut stmt = conn
-            .prepare("SELECT id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address, cid, agent FROM claude_jobs WHERE cid = ?1 LIMIT 1")
+            .prepare("SELECT id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address, cid, agent, cost_usd6, tokens_in, tokens_out, duration_ms FROM claude_jobs WHERE cid = ?1 LIMIT 1")
             .ok()?;
 
         stmt.query_row(params![cid], |row| {
@@ -348,6 +444,13 @@ impl JobStore {
                 user_address: row.get::<_, String>(10).unwrap_or_default(),
                 cid: row.get::<_, Option<String>>(11).unwrap_or(None),
                 agent: row.get::<_, String>(12).unwrap_or_else(|_| "claude".to_string()),
+                cost_usd: row
+                    .get::<_, Option<i64>>(13)
+                    .unwrap_or(None)
+                    .map(|c| crate::credits::fmt_usd(c.max(0) as u128)),
+                tokens_in: row.get::<_, Option<i64>>(14).unwrap_or(None).unwrap_or(0),
+                tokens_out: row.get::<_, Option<i64>>(15).unwrap_or(None).unwrap_or(0),
+                duration_ms: row.get::<_, Option<i64>>(16).unwrap_or(None).unwrap_or(0),
                 encrypted: false,
                 locked: false,
             })
@@ -358,7 +461,7 @@ impl JobStore {
     fn list(&self) -> Vec<ClaudeJob> {
         let conn = self.conn();
         let mut stmt = conn
-            .prepare("SELECT id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address, cid, agent FROM claude_jobs ORDER BY created_at DESC LIMIT 100")
+            .prepare("SELECT id, prompt, model, work_dir, status, output, error, pid, created_at, updated_at, user_address, cid, agent, cost_usd6, tokens_in, tokens_out, duration_ms FROM claude_jobs ORDER BY created_at DESC LIMIT 100")
             .unwrap();
 
         stmt.query_map([], |row| {
@@ -376,6 +479,13 @@ impl JobStore {
                 user_address: row.get::<_, String>(10).unwrap_or_default(),
                 cid: row.get::<_, Option<String>>(11).unwrap_or(None),
                 agent: row.get::<_, String>(12).unwrap_or_else(|_| "claude".to_string()),
+                cost_usd: row
+                    .get::<_, Option<i64>>(13)
+                    .unwrap_or(None)
+                    .map(|c| crate::credits::fmt_usd(c.max(0) as u128)),
+                tokens_in: row.get::<_, Option<i64>>(14).unwrap_or(None).unwrap_or(0),
+                tokens_out: row.get::<_, Option<i64>>(15).unwrap_or(None).unwrap_or(0),
+                duration_ms: row.get::<_, Option<i64>>(16).unwrap_or(None).unwrap_or(0),
                 encrypted: false,
                 locked: false,
             })
@@ -541,8 +651,23 @@ impl ClaudeJobManager {
     }
 
     pub async fn submit(&self, req: SubmitRequest) -> ClaudeJob {
-        let id = Uuid::new_v4().to_string();
+        // A replay-in-place reuses the card it was launched from: same id, so
+        // the row, the task URL, the stream and the rail entry all stay put
+        // and simply flip back to RUNNING. Anything else mints a new id.
+        // (The API layer already checked the caller may overwrite this card
+        // and that it isn't mid-run.)
+        let prior = req
+            .replace_job_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .and_then(|s| self.store.get(s));
+        let replacing = prior.as_ref().map(|p| p.id.clone());
+        let id = replacing.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().timestamp();
+        // A redone card keeps the moment it was first asked for — only the
+        // run is new — so it holds its position in the ledger.
+        let created_at = prior.as_ref().map(|p| p.created_at).unwrap_or(now);
 
         // Determine anchor directory
         let anchor_dir = expand_tilde(&req.anchor_dir.unwrap_or_else(|| {
@@ -726,11 +851,15 @@ impl ClaudeJobManager {
             output: String::new(),
             error: None,
             pid: None,
-            created_at: now,
+            created_at,
             updated_at: now,
             user_address: req.user_address.clone().unwrap_or_default(),
             cid: None,
             agent: backend.clone(),
+            cost_usd: None,
+            tokens_in: 0,
+            tokens_out: 0,
+            duration_ms: 0,
             encrypted: false,
             locked: false,
         };
@@ -739,7 +868,15 @@ impl ClaudeJobManager {
         // first write, so everything it ever stores is sealed — and so it
         // keeps sealing to the end even if they sign out mid-task.
         crate::vault::bind_job(&job.id, &job.user_address);
-        self.store.insert(&job);
+        if replacing.is_some() {
+            // A card that was cancelled may still be listed as cancelled; if
+            // that marker survived, the fresh run would file itself under the
+            // old cancel and never report its own result.
+            self.cancelled.write().await.remove(&id);
+            self.store.reset_for_replay(&job);
+        } else {
+            self.store.insert(&job);
+        }
 
         // Create broadcast channel for live streaming
         let (tx, _) = broadcast::channel::<String>(4096);
@@ -801,10 +938,13 @@ impl ClaudeJobManager {
 
         // A session the submitter connected in the AGENT sidebar tab beats
         // every server-side credential: their job runs on THEIR account.
-        let user_cred = crate::agent_auth::user_token(
+        // (`resolve_token`, not `user_token`: a claude session connected with
+        // the OAuth button is renewed here if it has aged out.)
+        let user_cred = crate::agent_auth::resolve_token(
             if job_user.is_empty() { "local" } else { &job_user },
             &backend,
-        );
+        )
+        .await;
 
         if backend == "agent" {
             // The orbit/agent module executes the run in ITS process — there
@@ -827,6 +967,7 @@ impl ClaudeJobManager {
                     module_note.as_deref(),
                     agent_params,
                     &work_dir,
+                    sandbox,
                     user_cred,
                     store,
                     streams,
@@ -1171,6 +1312,7 @@ async fn run_agent_module(
     module_note: Option<&str>,
     agent_params: Option<serde_json::Value>,
     work_dir: &str,
+    sandbox: Option<(u32, u32)>,
     user_cred: Option<String>,
     store: Arc<JobStore>,
     streams: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
@@ -1223,13 +1365,52 @@ async fn run_agent_module(
     if !combined_system.is_empty() && !body.contains_key("prompt") {
         body.insert("prompt".into(), serde_json::json!(combined_system));
     }
-    if let Some(key) = user_cred {
-        body.insert("key".into(), serde_json::json!(key));
-    }
+    // Credentials. The agent module authenticates with a SIGNED, expiring
+    // envelope, so `user_cred` is already None when the session the submitter
+    // connected has aged out (agent_auth::user_token drops it rather than
+    // send something the verifier will refuse).
+    //
+    // With nothing usable, a TRUSTED job falls back to the console's own
+    // signed identity — the same deal ⬡ jobs get from root's claude
+    // subscription. A sandboxed peer has no fallback: running on the host's
+    // identity would spend the host's agent credits and inherit its grants,
+    // so they are told to connect instead, in words that name the fix.
+    let (cred, on_server_identity) = match user_cred {
+        Some(k) => (Some(k), false),
+        None if sandbox.is_none() => (
+            tokio::task::spawn_blocking(crate::agent_auth::server_agent_token)
+                .await
+                .ok()
+                .flatten(),
+            true,
+        ),
+        None => (None, false),
+    };
+    let Some(cred) = cred else {
+        let err = if sandbox.is_none() {
+            "no orbit/agent credential — connect your wallet session in ACCOUNT ▸ AGENT ▸ AUTH (the ✦ slot's CONNECT button), or install src/api/agent_bridge.py so this console can sign as itself".to_string()
+        } else {
+            "your orbit/agent session is missing or expired — reconnect it in ACCOUNT ▸ AGENT ▸ AUTH (✦ tokens are signatures over a timestamp and stop verifying after 24h)".to_string()
+        };
+        store.update_status(job_id, &JobStatus::Failed, Some(&err));
+        let text = format!("✗ {}\n", err);
+        store.append_output(job_id, &text);
+        tx.send(text).ok();
+        tx.send("[DONE]\n".to_string()).ok();
+        crate::vault::release_job(job_id);
+        stdin_gates.write().await.remove(job_id);
+        streams.write().await.remove(job_id);
+        return;
+    };
+    body.insert("key".into(), serde_json::json!(cred));
 
     store.update_status(job_id, &JobStatus::Running, None);
     let base = agent_api_base();
-    let intro = format!("⏳ Session started · orbit/agent @ {}\n", base);
+    let intro = format!(
+        "⏳ Session started · orbit/agent @ {}{}\n",
+        base,
+        if on_server_identity { " · signed as this console" } else { "" }
+    );
     store.append_output(job_id, &intro);
     tx.send(intro).ok();
 
@@ -1318,13 +1499,31 @@ async fn run_agent_module(
                 }
             }
             Some(e) => {
+                // The agent module answers an unrecognized caller with
+                // "requires admin access", which sounds like a grant is
+                // missing even when the real cause is an identity it has
+                // never been told about. Say which identity was used, so the
+                // fix is one `agent.grant(<address>)` away.
+                let e = if e.contains("requires admin access") || e.contains("Permission denied") {
+                    format!(
+                        "{} — this run was signed {}. Ask the agent module's owner to grant that address, or top up its credits.",
+                        e,
+                        if on_server_identity { "as this console (see /agent/auth → agent.server_default)" } else { "with your own connected wallet" }
+                    )
+                } else {
+                    e.clone()
+                };
                 let text = format!("✗ {}\n", e);
                 store.append_output(job_id, &text);
                 tx.send(text).ok();
-                store.update_status(job_id, &JobStatus::Failed, Some(e));
+                store.update_status(job_id, &JobStatus::Failed, Some(&e));
             }
         }
     }
+
+    // Meter the run before it is published, so the task bundle and the
+    // credit ledger agree on what it cost.
+    settle_cost(job_id, &store, &tx).await;
 
     if task_cids_enabled() {
         let store_pub = Arc::clone(&store);
@@ -1464,6 +1663,26 @@ async fn run_codex_process(
         crate::vault::release_job(job_id); // job over — drop its vault key handle
         return;
     }
+
+    // Preflight the credential. Spawned without one, codex retries a
+    // websocket handshake seven times and leaves the job log a wall of
+    // "401 Unauthorized" with an exit code — technically the truth, useless
+    // as an instruction. A sandboxed job has no server fallback at all, so
+    // for it "nothing connected" is already decisive.
+    let server_cred = crate::agent_auth::server_codex_default();
+    if user_cred.is_none() && (sandbox.is_some() || !server_cred) {
+        let err = "no codex credential — connect one in ACCOUNT ▸ AGENT ▸ AUTH (an OpenAI sk-… key, or the contents of ~/.codex/auth.json after `codex login`)".to_string();
+        store.update_status(job_id, &JobStatus::Failed, Some(&err));
+        let text = format!("✗ {}\n", err);
+        store.append_output(job_id, &text);
+        tx.send(text).ok();
+        tx.send("[DONE]\n".to_string()).ok();
+        crate::vault::release_job(job_id);
+        stdin_gates.write().await.remove(job_id);
+        streams.write().await.remove(job_id);
+        return;
+    }
+
     if let Some((uid, gid)) = sandbox {
         chown_tree(std::path::Path::new(work_dir), uid, gid, 0);
     }
@@ -1641,11 +1860,19 @@ async fn run_codex_process(
     let store_out = Arc::clone(&store);
     let tx_out = tx.clone();
     let id_out = job_id.to_string();
+    let cost_model = m.to_string();
     let stdout_task = tokio::spawn(async move {
+        // codex reports token counts per turn and never a dollar figure, so
+        // every turn is priced from the table and added up.
+        let mut total = crate::costs::TaskCost::default();
         while let Ok(Some(line)) = stdout_reader.next_line().await {
             let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
                 continue; // non-JSON chatter (banner lines) — not log-worthy
             };
+            if let Some(cost) = crate::costs::from_codex_turn(&v, &cost_model) {
+                total.merge(&cost);
+                store_out.update_cost(&id_out, &total);
+            }
             if let Some(text) = render_codex_event(&v) {
                 store_out.append_output(&id_out, &text);
                 tx_out.send(text).ok();
@@ -1693,6 +1920,10 @@ async fn run_codex_process(
             }
         }
     }
+
+    // Meter the run before it is published, so the task bundle and the
+    // credit ledger agree on what it cost.
+    settle_cost(job_id, &store, &tx).await;
 
     if task_cids_enabled() {
         let store_pub = Arc::clone(&store);
@@ -1951,8 +2182,12 @@ async fn run_claude_process(
     let id_out = job_id.to_string();
     let gates_out = Arc::clone(&stdin_gates);
 
+    let cost_model = model.to_string();
     let stdout_task = tokio::spawn(async move {
         let mut parser = StreamParser::new();
+        // The turn's `result` event carries what it cost. A steered job can
+        // produce several, so costs accumulate rather than overwrite.
+        let mut total = crate::costs::TaskCost::default();
         while let Ok(Some(line)) = stdout_reader.next_line().await {
             // A `result` event ends the turn: drop the stdin gate so the
             // writer closes stdin and the CLI exits. (Guidance injected
@@ -1961,11 +2196,19 @@ async fn run_claude_process(
             // message raced in just before the result still drains to stdin
             // before EOF and runs as one final turn.)
             if line.contains("\"type\":\"result\"") {
-                let is_result = serde_json::from_str::<serde_json::Value>(&line)
-                    .ok()
+                let parsed = serde_json::from_str::<serde_json::Value>(&line).ok();
+                let is_result = parsed
+                    .as_ref()
                     .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(|t| t == "result"))
                     .unwrap_or(false);
                 if is_result {
+                    if let Some(cost) = parsed
+                        .as_ref()
+                        .and_then(|v| crate::costs::from_claude_result(v, &cost_model))
+                    {
+                        total.merge(&cost);
+                        store_out.update_cost(&id_out, &total);
+                    }
                     gates_out.write().await.remove(&id_out);
                 }
             }
@@ -2033,6 +2276,10 @@ async fn run_claude_process(
     // becomes a content-addressed object: the bundle (prompt + output + meta)
     // is put into localfs and registered in the store module's index via the
     // python store bridge, so the TASKS ledger is visible in store.
+    // Meter the run before it is published, so the task bundle and the
+    // credit ledger agree on what it cost.
+    settle_cost(job_id, &store, &tx).await;
+
     if task_cids_enabled() {
         let store_pub = Arc::clone(&store);
         let id_pub = job_id.to_string();
@@ -2168,6 +2415,84 @@ fn snapshot_after_job(
 /// the returned localfs CID on the job row, and returns it. Every failure is
 /// non-fatal: the task itself already finished, and the startup backfill
 /// retries anything left without a CID.
+/// Charge a finished task to whoever ran it, and print what it cost into the
+/// job log so the number is visible where the work is.
+///
+/// Metering and gating are separate on purpose. The gate (in the API layer)
+/// decides who may *start* a task; this decides what a task that already ran
+/// costs. A debit that overdraws is recorded as a note rather than dropped —
+/// the work happened, the money was spent, and a ledger that quietly forgets
+/// overspend is worse than one that shows it.
+async fn settle_cost(job_id: &str, store: &JobStore, tx: &broadcast::Sender<String>) {
+    let policy = crate::costs::policy();
+    if !policy.metering {
+        return;
+    }
+    let Some(job) = store.get(job_id) else { return };
+    let Some(usd) = job.cost_usd.clone() else { return };
+    let raw = crate::credits::parse_usd(&usd).unwrap_or(0);
+    if raw == 0 {
+        return;
+    }
+    let billed = crate::costs::billable_usd6(raw);
+
+    let identity = if job.user_address.is_empty() {
+        crate::auth::get_owner_address().unwrap_or_default()
+    } else {
+        job.user_address.clone()
+    };
+    let mut line = format!(
+        "\n[COST] ${} · {} in / {} out · {}\n",
+        usd, job.tokens_in, job.tokens_out, job.model
+    );
+    if !identity.is_empty() {
+        if let Err(e) =
+            crate::credits::debit(&identity, billed, &format!("task {}", job_id)).await
+        {
+            line.push_str(&format!("[COST] not charged — {}\n", e));
+        }
+    }
+    store.append_output(job_id, &line);
+    tx.send(line).ok();
+}
+
+/// Put an arbitrary JSON object into localfs via the store bridge and return
+/// its CID. The task bundle and the audit report both need this; the bridge
+/// call is identical, only the payload differs.
+pub fn put_blob(body: &serde_json::Value, key: &str, owner: &str) -> Option<String> {
+    use std::io::Write;
+    use std::process::{Command as StdCommand, Stdio};
+
+    let owner = if owner.is_empty() || owner == "local" {
+        crate::auth::get_owner_address().unwrap_or_default()
+    } else {
+        owner.to_string()
+    };
+    let envelope = serde_json::json!({ "task": body, "owner": owner, "key": key });
+    let bridge = store_bridge_path()?;
+
+    let mut child = StdCommand::new("python3")
+        .arg(&bridge)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    child
+        .stdin
+        .take()?
+        .write_all(envelope.to_string().as_bytes())
+        .ok()?;
+    let out = child.wait_with_output().ok()?;
+    String::from_utf8_lossy(&out.stdout).lines().rev().find_map(|l| {
+        serde_json::from_str::<serde_json::Value>(l.trim())
+            .ok()?
+            .get("cid")?
+            .as_str()
+            .map(|s| s.to_string())
+    })
+}
+
 fn publish_task_to_store(job_id: &str, store: &JobStore) -> Option<String> {
     use std::io::Write;
     use std::process::{Command as StdCommand, Stdio};
@@ -2260,6 +2585,12 @@ pub fn task_bundle_json(
         "updated_at": job.updated_at,
         "module": module,
         "module_version_cid": version_cid,
+        // What the run cost, carried in the content-addressed object itself —
+        // a shared task should say what it spent, not just what it did.
+        "cost_usd": job.cost_usd,
+        "tokens_in": job.tokens_in,
+        "tokens_out": job.tokens_out,
+        "duration_ms": job.duration_ms,
     })
 }
 

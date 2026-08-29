@@ -203,18 +203,18 @@ export function InteractTab({
             <Label>ADDRESS</Label>
             <Input value={manualAddr} onChange={setManualAddr} placeholder="0x…" />
 
-            <Label style={{ marginTop: '14px', color: READ }}>ABI CID — from the store</Label>
+            <Label style={{ marginTop: '14px', color: READ }} note="from the store">ABI CID</Label>
             <Input value={manualCid} onChange={setManualCid} placeholder="Qm…" onEnter={loadCid} />
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap' }}>
               <Btn size="sm" color={READ} onClick={loadCid} disabled={fetchingCid || !manualCid.trim()}>
                 {fetchingCid ? 'LOADING…' : 'LOAD FROM CID'}
               </Btn>
-              <span style={{ fontFamily: TERM_FONT, fontSize: '10px', color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+              <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
                 every deploy stores its ABI — the CID is on the build
               </span>
             </div>
 
-            <Label style={{ marginTop: '14px' }}>…or paste the ABI (JSON)</Label>
+            <Label style={{ marginTop: '14px' }} note="paste the JSON instead">OR ABI</Label>
             <textarea
               value={manualAbi}
               onChange={e => setManualAbi(e.target.value)}
@@ -224,7 +224,7 @@ export function InteractTab({
               placeholder='[{"type":"function","name":"…"}]'
               style={{
                 width: '100%', height: '120px', fontFamily: TERM_FONT,
-                fontSize: mobile ? '16px' : '12px',
+                fontSize: mobile ? '16px' : '14px',
                 padding: '8px', border: '1px solid var(--border-color)', background: 'transparent',
                 color: 'var(--text-primary)', outline: 'none', resize: 'vertical',
               }}
@@ -244,11 +244,11 @@ export function InteractTab({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-primary)' }}>{target.name}</div>
-                <div style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)', wordBreak: 'break-all' }}>
+                <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', wordBreak: 'break-all' }}>
                   {target.address}
                 </div>
                 {target.abiCid && (
-                  <div style={{ fontFamily: TERM_FONT, fontSize: '10px', color: READ, wordBreak: 'break-all', marginTop: '3px' }}>
+                  <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: READ, wordBreak: 'break-all', marginTop: '3px' }}>
                     abi {target.abiCid}
                   </div>
                 )}
@@ -265,15 +265,15 @@ export function InteractTab({
                 {explorerUrl(network, target.address) && (
                   <a href={explorerUrl(network, target.address)} target="_blank" rel="noreferrer"
                     style={{
-                      fontFamily: TERM_FONT, fontSize: '11px', padding: '4px 8px',
+                      fontFamily: TERM_FONT, fontSize: '13px', padding: '4px 8px',
                       border: '1px solid var(--border-color)', color: 'var(--text-tertiary)', textDecoration: 'none',
-                    }}>↗</a>
+                    }}>EXPLORER ↗</a>
                 )}
               </div>
             </div>
           </Panel>
 
-          <Label>METHODS <span style={{ color: READ }}>○ read</span> · <span style={{ color: WRITE }}>● write</span></Label>
+          <Label note={<><span style={{ color: READ }}>○ read</span> · <span style={{ color: WRITE }}>● write</span></>}>METHODS</Label>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '16px' }}>
             {fns.map(f => (
               <Btn key={f.name} size="sm" color={isRead(f) ? READ : WRITE} active={fn === f.name}
@@ -293,7 +293,7 @@ export function InteractTab({
                     const key = inp.name || `arg${i}`
                     return (
                       <div key={key} style={{ marginBottom: '10px' }}>
-                        <div style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>
+                        <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '4px' }}>
                           {inp.name || `arg${i}`} <span style={{ opacity: 0.6 }}>({inp.type})</span>
                         </div>
                         <Input
@@ -314,14 +314,14 @@ export function InteractTab({
                 </Btn>
                 {current.stateMutability === 'payable' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)' }}>VALUE</span>
+                    <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)' }}>VALUE</span>
                     <div style={{ width: '120px' }}>
                       <Input value={value} onChange={setValue} placeholder="0.0 ETH" />
                     </div>
                   </div>
                 )}
                 {!isRead(current) && !wallet.kind && (
-                  <span style={{ fontFamily: TERM_FONT, fontSize: '11px', color: WRITE }}>sign in above to send</span>
+                  <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: WRITE }}>sign in above to send</span>
                 )}
               </div>
             </>
@@ -329,7 +329,7 @@ export function InteractTab({
 
           {error && (
             <div style={{
-              fontFamily: TERM_FONT, fontSize: '12.5px', color: DANGER,
+              fontFamily: TERM_FONT, fontSize: '14px', color: DANGER,
               border: `1px solid ${DANGER}`, padding: '12px', background: 'rgba(239,68,68,0.05)',
             }}>
               {error}
@@ -340,7 +340,7 @@ export function InteractTab({
             <div style={{ ...panelStyle, padding: '12px' }}>
               <Label style={{ color: ACCENT }}>RESULT</Label>
               <pre style={{
-                fontFamily: TERM_FONT, fontSize: '12.5px', color: 'var(--text-primary)',
+                fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-primary)',
                 whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0,
               }}>
                 {typeof result === 'string' ? result : jsonify(result)}
@@ -348,7 +348,7 @@ export function InteractTab({
               {result?.tx_hash && txUrl(network, result.tx_hash) && (
                 <a href={txUrl(network, result.tx_hash)} target="_blank" rel="noreferrer"
                   style={{
-                    display: 'inline-block', marginTop: '10px', fontFamily: TERM_FONT, fontSize: '11px',
+                    display: 'inline-block', marginTop: '10px', fontFamily: TERM_FONT, fontSize: '13px',
                     padding: '4px 8px', border: '1px solid var(--border-color)',
                     color: 'var(--text-tertiary)', textDecoration: 'none',
                   }}>

@@ -86,6 +86,16 @@ export function addressFromBearer(header: string | null | undefined): string | n
   return address.toLowerCase();
 }
 
+/// The address behind this request's bearer token, or null when it carries
+/// none (or an invalid one). Weaker than `isOwnerRequest` on purpose: some
+/// routes act on the CALLER'S OWN account — connecting their Claude session,
+/// say — where being signed in at all is the whole gate. Local mode has one
+/// identity and no signing, matching what the Rust side calls the caller.
+export function signedInAddress(req: { headers: Headers }): string | null {
+  if (localMode()) return "local";
+  return addressFromBearer(req.headers.get("authorization"));
+}
+
 /// True when this request carries proof that the caller is the host owner.
 export function isOwnerRequest(req: { headers: Headers }): boolean {
   if (localMode()) return true;

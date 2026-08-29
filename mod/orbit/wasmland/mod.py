@@ -14,7 +14,7 @@ step is the product; everything else exists to make it possible.
     m wasmland/run listing=thing-a1b2 input=hi  # run it here, get a receipt
     m wasmland/verify <run id>                  # replay it and attest
     m wasmland/to_arena listing=snake-c3d4      # a game becomes its own mod
-    m wasmland/serve                            # API + console on :50480
+    m wasmland/serve                            # API :50480, console :50481
 
 WHAT MAKES A RESULT WORTH ANYTHING
     A run is a claim until an independent party replays it and agrees. Both
@@ -46,7 +46,8 @@ import time
 from pathlib import Path
 
 DIR = Path(__file__).resolve().parent
-PORT = 50480
+PORT = 50480       # the API
+APP_PORT = 50481   # the console
 
 sys.path.insert(0, str(DIR))
 from src import engines, games, identity, market, receipts, sandbox, storage  # noqa: E402
@@ -70,7 +71,8 @@ class Mod:
             'verification': 'independent replay; two agreeing runs verify a receipt',
             'storage': storage.stats(),
             'arena': games.available(),
-            'app': f'http://localhost:{PORT}/wasmland',
+            'api': f'http://localhost:{PORT}',
+            'app': f'http://localhost:{APP_PORT}/wasmland',
             'counts': {
                 'listings': len(market.listings(limit=1000)),
                 'runs': len(receipts.runs(limit=1000)),
@@ -240,32 +242,57 @@ class Mod:
     # ── serving ──────────────────────────────────────────────────
 
     def app(self, gateway: str = None):
-        base = f'{gateway.rstrip("/")}/wasmland' if gateway else f'http://localhost:{PORT}/wasmland'
-        return {'app': base, 'same_origin_api': base + '/_api',
-                'api': f'http://localhost:{PORT}', 'path': str(DIR / 'src' / 'app')}
+        base = f'{gateway.rstrip("/")}/wasmland' if gateway else f'http://localhost:{APP_PORT}/wasmland'
+        api = f'{gateway.rstrip("/")}/api/wasmland' if gateway else f'http://localhost:{PORT}'
+        return {'app': base, 'same_origin_api': base + '/_api', 'api': api,
+                'path': str(DIR / 'src' / 'app')}
 
-    def serve(self, port: int = PORT, host: str = '0.0.0.0'):
-        """Run the API and the console — one process, one port, under pm2."""
-        cmd = ['python3', '-m', 'uvicorn', 'api:app', '--host', host,
-               '--port', str(port), '--app-dir', str(DIR / 'src' / 'api')]
+    def _pm2(self, name: str, cmd: list) -> bool:
+        subprocess.run(['pm2', 'delete', name], capture_output=True)
+        r = subprocess.run(['pm2', 'start', cmd[0], '--name', name,
+                            '--cwd', str(DIR), '--'] + cmd[1:],
+                           capture_output=True, text=True)
+        return r.returncode == 0
+
+    def serve(self, port: int = PORT, app_port: int = APP_PORT, host: str = '0.0.0.0'):
+        """Run both halves: the API on `port`, the console on `app_port`.
+
+        Two processes, the fleet's convention, so the router can send
+        /api/wasmland to one and /wasmland to the other — and so a restart of
+        the API doesn't take the page down with it. The console reaches the API
+        through its own origin at /wasmland/_api, which src/app/server.py
+        forwards; nothing in the page knows where the API actually lives.
+        """
+        api_cmd = ['python3', '-m', 'uvicorn', 'api:app', '--host', host,
+                   '--port', str(port), '--app-dir', str(DIR / 'src' / 'api')]
+        app_cmd = ['python3', str(DIR / 'src' / 'app' / 'server.py'),
+                   '--port', str(app_port), '--host', host,
+                   '--api', f'http://127.0.0.1:{port}']
         if shutil.which('pm2'):
-            subprocess.run(['pm2', 'delete', 'wasmland-api'], capture_output=True)
-            r = subprocess.run(['pm2', 'start', cmd[0], '--name', 'wasmland-api',
-                                '--cwd', str(DIR), '--'] + cmd[1:],
-                               capture_output=True, text=True)
-            ok = r.returncode == 0
+            ok = self._pm2('wasmland-api', api_cmd) and self._pm2('wasmland-app', app_cmd)
         else:
-            subprocess.Popen(cmd, cwd=str(DIR))
+            subprocess.Popen(api_cmd, cwd=str(DIR))
+            subprocess.Popen(app_cmd, cwd=str(DIR))
             ok = True
         return {'ok': ok, 'api': f'http://localhost:{port}',
-                'app': f'http://localhost:{port}/wasmland'}
+                'app': f'http://localhost:{app_port}/wasmland',
+                'services': ['wasmland-api', 'wasmland-app']}
+
+    def restart(self):
+        if shutil.which('pm2'):
+            subprocess.run(['pm2', 'restart', 'wasmland-api', 'wasmland-app'],
+                           capture_output=True)
+            return {'restarted': ['wasmland-api', 'wasmland-app']}
+        return self.serve()
 
     def kill(self):
         if shutil.which('pm2'):
-            subprocess.run(['pm2', 'delete', 'wasmland-api'], capture_output=True)
+            subprocess.run(['pm2', 'delete', 'wasmland-api', 'wasmland-app'],
+                           capture_output=True)
         else:
             subprocess.run(['pkill', '-f', f'uvicorn api:app --host 0.0.0.0 --port {PORT}'])
-        return {'killed': ['wasmland-api']}
+            subprocess.run(['pkill', '-f', 'wasmland/src/app/server.py'])
+        return {'killed': ['wasmland-api', 'wasmland-app']}
 
     def test(self, **kwargs):
         """Run the module's own test suite."""

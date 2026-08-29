@@ -120,9 +120,13 @@ pub fn router() -> Router<AppState> {
         .route("/live/stop", post(live_stop))
         .route("/live/status", get(live_status))
 
-        // ── MCP tool server (JSON-RPC 2.0 over Streamable HTTP) ──
+        // ── MCP tool server (JSON-RPC 2.0) ──
+        // Streamable HTTP on /mcp, plus the older HTTP+SSE pair on
+        // /sse + /messages so clients that only speak that still connect.
         .route("/mcp", post(mcp_post).get(mcp_get))
         .route("/mcp/schema", get(mcp_schema))
+        .route("/sse", get(mcp_sse))
+        .route("/messages", post(mcp_messages))
 
         // ── agent: answers questions / runs tasks through that MCP server ──
         .route("/ask", post(crate::agent::ask))
@@ -134,36 +138,153 @@ pub fn router() -> Router<AppState> {
 
 // ── MCP ──
 
-/// One JSON-RPC message per POST. Tool calls re-enter this server over
-/// loopback carrying the caller's Authorization header (see mcp.rs).
+/// Streamable HTTP: one JSON-RPC message — or a batch of them — per POST.
+/// Tool calls re-enter this server over loopback carrying the caller's
+/// Authorization header (see mcp.rs).
 async fn mcp_post(
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    let msg: Value = match serde_json::from_slice(&body) {
+    let payload: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
             let err = crate::mcp::rpc_error(Value::Null, -32700, &format!("parse error: {e}"));
             return (StatusCode::BAD_REQUEST, Json(err)).into_response();
         }
     };
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok());
-    match crate::mcp::handle_message(&s.self_url, &msg, auth).await {
+    let auth = header_str(&headers, axum::http::header::AUTHORIZATION);
+    match crate::mcp::handle_payload(&s.self_url, &payload, auth).await {
+        // The spec lets us answer with either JSON or a stream. Prefer JSON,
+        // but a client that accepts *only* text/event-stream gets its
+        // response as a one-event stream rather than a 406.
+        Some(resp) if wants_only_sse(&headers) => sse_once(resp).into_response(),
         Some(resp) => Json(resp).into_response(),
         // Notifications carry no id and get no body — 202 per the spec.
         None => StatusCode::ACCEPTED.into_response(),
     }
 }
 
+fn header_str(headers: &axum::http::HeaderMap, name: axum::http::HeaderName) -> Option<&str> {
+    headers.get(name).and_then(|h| h.to_str().ok())
+}
+
+/// True when the client asked for an event stream and would not take JSON.
+fn wants_only_sse(headers: &axum::http::HeaderMap) -> bool {
+    let accept = header_str(headers, axum::http::header::ACCEPT).unwrap_or_default();
+    accept.contains("text/event-stream")
+        && !accept.contains("application/json")
+        && !accept.contains("*/*")
+}
+
+/// One JSON-RPC response, wrapped as a single-event SSE body.
+fn sse_once(resp: Value) -> impl axum::response::IntoResponse {
+    use axum::response::sse::{Event, Sse};
+    let stream = futures::stream::once(async move {
+        Ok::<_, std::convert::Infallible>(Event::default().event("message").data(resp.to_string()))
+    });
+    Sse::new(stream)
+}
+
+/// GET /mcp — this server keeps no server-initiated stream on the Streamable
+/// HTTP endpoint, which the spec answers with 405. Clients that want a stream
+/// use the HTTP+SSE transport at /sse instead.
 async fn mcp_get() -> (StatusCode, Json<Value>) {
     (StatusCode::METHOD_NOT_ALLOWED, Json(json!({
         "error": "POST JSON-RPC 2.0 messages to this endpoint",
         "schema": "/mcp/schema",
+        "sse_transport": "/sse",
     })))
+}
+
+/// HTTP+SSE transport, the half a client opens first. The stream's first
+/// event names where to POST messages — as a *relative* URL, so it resolves
+/// correctly whether this API is reached directly or behind the gateway's
+/// `/api/hyperliquid` prefix. Responses to those POSTs arrive here.
+async fn mcp_sse(headers: axum::http::HeaderMap) -> axum::response::Response {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use axum::response::IntoResponse;
+
+    let session = uuid::Uuid::new_v4().to_string();
+    let auth = header_str(&headers, axum::http::header::AUTHORIZATION).map(str::to_string);
+    let rx = crate::mcp::open_session(session.clone(), auth);
+
+    // Dropping the stream (client hangs up) drops this guard, which is what
+    // reaps the session — no sweeper needed.
+    struct Reap(String);
+    impl Drop for Reap {
+        fn drop(&mut self) {
+            crate::mcp::close_session(&self.0);
+        }
+    }
+
+    let endpoint = format!("messages?sessionId={session}");
+    let head = futures::stream::once(async move {
+        Ok::<_, std::convert::Infallible>(Event::default().event("endpoint").data(endpoint))
+    });
+    let reap = Reap(session);
+    let body = futures::stream::unfold((rx, reap), |(mut rx, reap)| async move {
+        let msg = rx.recv().await?;
+        Some((
+            Ok::<_, std::convert::Infallible>(Event::default().event("message").data(msg)),
+            (rx, reap),
+        ))
+    });
+
+    Sse::new(futures::StreamExt::chain(head, body))
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct SessionQuery {
+    /// Clients send `sessionId` (the name that transport's spec uses); the
+    /// snake_case alias is there for hand-written callers.
+    #[serde(rename = "sessionId", alias = "session_id")]
+    session_id: Option<String>,
+}
+
+/// HTTP+SSE transport, the half a client POSTs to. The response goes out on
+/// the matching SSE stream; this returns 202, as that transport specifies.
+async fn mcp_messages(
+    State(s): State<AppState>,
+    Query(q): Query<SessionQuery>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let Some(session) = q.session_id else {
+        return (StatusCode::BAD_REQUEST, Json(json!({
+            "error": "missing sessionId — open GET /sse first and use the endpoint it sends",
+        }))).into_response();
+    };
+    if !crate::mcp::session_exists(&session) {
+        return (StatusCode::NOT_FOUND, Json(json!({
+            "error": "unknown or closed session — reopen GET /sse",
+        }))).into_response();
+    }
+    let payload: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            let err = crate::mcp::rpc_error(Value::Null, -32700, &format!("parse error: {e}"));
+            return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+        }
+    };
+    // Credentials on the POST win; otherwise fall back to whatever the stream
+    // was opened with, since some clients only authenticate the GET.
+    let auth = header_str(&headers, axum::http::header::AUTHORIZATION)
+        .map(str::to_string)
+        .or_else(|| crate::mcp::session_authorization(&session));
+
+    if let Some(resp) = crate::mcp::handle_payload(&s.self_url, &payload, auth.as_deref()).await {
+        if !crate::mcp::session_send(&session, &resp) {
+            return (StatusCode::GONE, Json(json!({
+                "error": "the SSE stream for this session is closed",
+            }))).into_response();
+        }
+    }
+    StatusCode::ACCEPTED.into_response()
 }
 
 /// The MCP tool surface plus its mod-protocol mapping (tool → fn → route).
@@ -185,14 +306,14 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
     Json(json!({
         "name": "hyperliquid",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Hyperliquid full-stack — backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server",
+        "description": "Hyperliquid full-stack — one-transaction cross-chain deposits from seven chains, backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server",
         "protocol": "mod",
         "auth": "mod protocol-auth Bearer token (personal_sign) — public reads open, user-scoped routes gated",
         "testnet": s.hl.testnet,
         "urls": { "app": "/hyperliquid", "api": "/api/hyperliquid" },
         "endpoints": {
-            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/indexes", "/mcp", "/mcp/schema"],
-            "gated": ["/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action"],
+            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/indexes", "/deposit/chains", "/deposit/balances", "/deposit/status", "/mcp", "/mcp/schema"],
+            "gated": ["/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action", "/deposit/quote"],
         },
         // The mod-protocol fn surface is also an MCP tool server; /mcp/schema
         // publishes the tool → fn → route mapping.
@@ -212,6 +333,9 @@ async fn status(State(s): State<AppState>) -> Json<Value> {
         "testnet": s.hl.testnet,
         "indexes": s.store.list_indexes().len(),
         "follows": s.store.list_follows(None).len(),
+        "mcp_tools": crate::mcp::tools().len(),
+        // Agents currently attached over the HTTP+SSE transport.
+        "mcp_sse_sessions": crate::mcp::session_count(),
     }))
 }
 
@@ -269,6 +393,8 @@ struct TopQ {
     min_per_day: Option<f64>,
     pool: Option<usize>,
     seed: Option<String>,           // comma-separated extra wallets
+    rank: Option<String>,           // roi (default) | pnl | volume
+    active: Option<String>,         // 24h (default) | window
 }
 async fn top_traders(State(s): State<AppState>, Query(q): Query<TopQ>)
     -> Result<Json<Value>, (StatusCode, Json<Value>)>
@@ -279,17 +405,26 @@ async fn top_traders(State(s): State<AppState>, Query(q): Query<TopQ>)
     let seed: Vec<String> = q.seed.unwrap_or_default()
         .split(',').filter(|x| !x.is_empty())
         .map(|x| x.trim().to_lowercase()).collect();
+    let bad = |what: &str, got: &str| (StatusCode::BAD_REQUEST, Json(json!({
+        "error": format!("unknown {what} '{got}'"),
+        "rank": ["roi", "pnl", "volume"], "active": ["24h", "window"],
+    })));
+    let rank_s = q.rank.unwrap_or_default();
+    let rank = crate::traders::Rank::parse(&rank_s).ok_or_else(|| bad("rank", &rank_s))?;
+    let active_s = q.active.unwrap_or_default();
+    let active = crate::traders::Active::parse(&active_s).ok_or_else(|| bad("active", &active_s))?;
 
     // Fast path: the background refresher keeps boards for the standard
     // windows; serve those directly instead of re-running the scan per
     // request. Seeded requests need custom rows, so they fall through.
     if seed.is_empty() {
-        if let Some(entry) = s.boards.get(days) {
+        if let Some(entry) = s.boards.get(days, rank, active) {
             if entry.pool >= pool {
                 let mut traders = entry.traders;
                 traders.truncate(pool);
                 return Ok(Json(json!({
                     "days": days, "min_per_day": min_per_day, "pool": pool,
+                    "rank": rank.as_str(), "active": active.as_str(),
                     "updated_at": entry.updated_at,
                     "traders": traders,
                 })));
@@ -299,13 +434,16 @@ async fn top_traders(State(s): State<AppState>, Query(q): Query<TopQ>)
 
     let traders = crate::traders::top_traders_with_progress(
         s.hl.clone(), days, min_per_day, pool, seed.clone(),
-        Some(s.progress.clone()),
+        Some(s.progress.clone()), rank, active,
     ).await.map_err(err500)?;
     if seed.is_empty() {
-        s.boards.put(days, pool, traders.clone());
+        // Store at least the prewarm width so the refresher's next pass (which
+        // walks every cached key) doesn't shrink what a wide request captured.
+        s.boards.put(days, rank, active, pool.max(crate::PREWARM_POOL), traders.clone());
     }
     Ok(Json(json!({
         "days": days, "min_per_day": min_per_day, "pool": pool,
+        "rank": rank.as_str(), "active": active.as_str(),
         "updated_at": chrono::Utc::now().timestamp_millis(),
         "traders": traders,
     })))
@@ -342,13 +480,29 @@ struct CreateFollow {
     coins_deny: Option<Vec<String>>,
     vault_address: Option<String>,
 }
+/// A leader can be ANY Hyperliquid account — nothing requires it to be on a
+/// board — but it must at least be a well-formed EVM address, and you can't
+/// follow yourself (the engine would mirror its own mirrors).
+pub fn validate_follow_pair(follower: &str, leader: &str) -> Result<(String, String), String> {
+    let is_addr = |a: &str| a.len() == 42 && a.starts_with("0x")
+        && a[2..].chars().all(|c| c.is_ascii_hexdigit());
+    let follower = follower.trim().to_lowercase();
+    let leader = leader.trim().to_lowercase();
+    if !is_addr(&follower) { return Err("follower must be a 0x… address (40 hex chars)".into()); }
+    if !is_addr(&leader) { return Err("leader must be a 0x… address (40 hex chars)".into()); }
+    if follower == leader { return Err("leader and follower are the same wallet".into()); }
+    Ok((follower, leader))
+}
+
 async fn create_follow(State(s): State<AppState>, Json(b): Json<CreateFollow>)
     -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
+    let (follower, leader) = validate_follow_pair(&b.follower, &b.leader)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
     let f = Follow {
         id: String::new(),
-        follower: b.follower.to_lowercase(),
-        leader: b.leader.to_lowercase(),
+        follower,
+        leader,
         size_pct: b.size_pct.unwrap_or(10.0).clamp(0.0, 100.0),
         max_per_trade_usd: b.max_per_trade_usd.unwrap_or(0.0).max(0.0),
         coins_allow: b.coins_allow.unwrap_or_default(),
@@ -507,7 +661,7 @@ async fn index_perf(State(s): State<AppState>, Path(id): Path<String>, Query(q):
 }
 
 #[derive(Deserialize)]
-struct AutoBody { days: Option<u32>, top: Option<usize>, min_per_day: Option<f64>, pool: Option<usize> }
+struct AutoBody { days: Option<u32>, top: Option<usize>, min_per_day: Option<f64>, pool: Option<usize>, rank: Option<String> }
 async fn auto_index_preview(State(s): State<AppState>, Json(b): Json<AutoBody>)
     -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
@@ -515,8 +669,10 @@ async fn auto_index_preview(State(s): State<AppState>, Json(b): Json<AutoBody>)
     let top = b.top.unwrap_or(10).max(1).min(50);
     let pool = b.pool.unwrap_or(150);
     let mpd = b.min_per_day.unwrap_or(1.0);
-    let traders = crate::traders::top_traders(s.hl.clone(), days, mpd, pool, vec![])
-        .await.map_err(err500)?;
+    let rank = crate::traders::Rank::parse(b.rank.as_deref().unwrap_or("")).unwrap_or(crate::traders::Rank::Roi);
+    let traders = crate::traders::top_traders_with_progress(
+        s.hl.clone(), days, mpd, pool, vec![], None, rank, crate::traders::Active::Day,
+    ).await.map_err(err500)?;
     let legs = crate::indexes::auto_legs(&traders, top);
     Ok(Json(json!({
         "days": days, "top": top, "legs": legs,
@@ -1217,4 +1373,31 @@ async fn live_status(State(s): State<AppState>, Query(q): Query<LiveStatusQ>) ->
     let cfg = s.live.config_of(&q.eoa);
     let st = s.live.status_of(&q.eoa);
     Json(json!({ "eoa": q.eoa, "config": cfg, "state": st }))
+}
+
+#[cfg(test)]
+mod follow_tests {
+    use super::validate_follow_pair;
+
+    #[test]
+    fn any_well_formed_leader_is_accepted() {
+        let f = "0x1111111111111111111111111111111111111111";
+        // a leader that's on no board at all — just a wallet
+        let l = "0xABCDEFabcdef0123456789ABCDEFabcdef012345";
+        let (a, b) = validate_follow_pair(f, l).unwrap();
+        assert_eq!(a, f);
+        assert_eq!(b, l.to_lowercase());
+        // whitespace tolerated
+        assert!(validate_follow_pair(&format!("  {f} "), l).is_ok());
+    }
+
+    #[test]
+    fn malformed_or_self_follow_is_rejected() {
+        let f = "0x1111111111111111111111111111111111111111";
+        assert!(validate_follow_pair(f, "0x123").is_err());
+        assert!(validate_follow_pair(f, "0xZZ11111111111111111111111111111111111111").is_err());
+        assert!(validate_follow_pair(f, "").is_err());
+        assert!(validate_follow_pair("nope", f).is_err());
+        assert!(validate_follow_pair(f, &f.to_uppercase().replace("0X", "0x")).is_err(), "self-follow");
+    }
 }

@@ -10,6 +10,8 @@ covers:
     - qualifiers (a newcomer rated against the incumbents' records)
     - the scheduler (newcomer detection, daily period, enable switch)
     - forward() and config persistence
+    - the openarena bridge (schema translation, partial credit, void on a
+      judge that is down) — stubbed, never over the wire
 
 run:
     cd ~/mod/mod/orbit/agent && python3 -m pytest tests/test_arena.py -v
@@ -24,12 +26,34 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.arena.mod import Arena, Scheduler, ELO_START
+from src.arena import openarena as oa
+from src.arena import models as mb
 from src.evals.scorers import run_scorer, steps_of
 
 
 # ═══════════════════════════════════════════════════════════════════════
 #  FIXTURES
 # ═══════════════════════════════════════════════════════════════════════
+
+@pytest.fixture(autouse=True)
+def no_neighbours(monkeypatch):
+    """No test in this file touches the openarena module over the wire.
+
+    The pool pulls openarena's tasks in, so a host that happens to be running
+    it would otherwise change what every task-count assertion here sees — the
+    suite would pass or fail depending on what else is up on the box. The
+    bridge tests below stub it deliberately instead.
+    """
+    down = lambda *a, **k: (_ for _ in ()).throw(
+        oa.Unavailable('openarena is stubbed out in tests'))
+    monkeypatch.setattr(oa, 'index', lambda ttl=0: [])
+    monkeypatch.setattr(oa, 'get_task', down)
+    monkeypatch.setattr(oa, 'info', down)
+    monkeypatch.setattr(oa, 'grade', down)
+    oa.forget()
+    yield
+    oa.forget()
+
 
 class FakeAgents:
     """A registry with a known field, so a host's own agents can't skew a test."""
@@ -57,8 +81,9 @@ def finish(summary='done', tool='finish'):
 
 def make_runner(behaviour):
     """behaviour(agent, path) -> trace. Wrapped into the runner signature."""
-    def runner(prompt, agent, model, steps, free, path):
-        return behaviour(agent, path, prompt), {'cost': 0.001, 'model': 'free/model'}
+    def runner(prompt, agent, model, steps, free, path, provider=None):
+        return behaviour(agent, path, prompt), {'cost': 0.001, 'model': 'free/model',
+                                                'provider': provider}
     return runner
 
 
@@ -629,3 +654,561 @@ class TestForward:
         assert st['enabled'] and st['due'] is True
         assert st['subjects'] == ['alpha', 'beta', 'gamma']
         assert len(st['round_tasks']) == 2
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  HAND-WRITTEN TASKS (the Builder's TASK mode)
+# ═══════════════════════════════════════════════════════════════════════
+
+def a_task(**over):
+    """A valid hand-written spec — the shape the Builder posts."""
+    spec = {
+        'title': 'Sum the CSV prices',
+        'description': 'reads a fixture, writes a total',
+        'prompt': 'Your working directory is {workdir}. Sum items.csv and write '
+                  'total.txt containing only that number. Then finish.',
+        'steps': 6,
+        'setup': {'files': {'items.csv': 'name,price\nbolt,3\nnut,4\nwasher,5\n'}},
+        'scorers': [{'type': 'file_exists', 'path': 'total.txt'},
+                    {'type': 'file_regex', 'path': 'total.txt', 'pattern': r'^\s*12\s*$'}],
+    }
+    spec.update(over)
+    return spec
+
+
+class TestCustomTasks:
+
+    def test_a_saved_task_joins_the_pool(self, arena):
+        saved = arena.add_task(a_task(), owner='0xabc')
+        assert saved['key'] == 'custom#sum-the-csv-prices'
+        pool = {t['key']: t for t in arena.tasks()}
+        assert pool[saved['key']]['suite'] == 'custom'
+        assert arena.task(saved['key'])['setup']['files']['items.csv'].startswith('name,price')
+
+    def test_it_is_played_like_any_other_task(self, arena, tmpdir):
+        arena.add_task(a_task(scorers=[{'type': 'finished'}]), owner='0xabc')
+        match = arena.run_match('alpha', 'custom#sum-the-csv-prices')
+        assert match['passed'] and match['suite'] == 'custom'
+
+    def test_editing_keeps_the_key_and_the_author(self, arena):
+        arena.add_task(a_task(), owner='0xabc')
+        again = arena.add_task(a_task(steps=9), owner='0xsomebodyelse',
+                               slug='sum-the-csv-prices')
+        assert again['key'] == 'custom#sum-the-csv-prices'
+        assert again['steps'] == 9
+        # an edit does not transfer ownership — the API checks the caller first
+        assert arena.get_custom('sum-the-csv-prices')['owner'] == '0xabc'
+
+    def test_a_new_task_never_overwrites_another(self, arena):
+        arena.add_task(a_task(), owner='0xabc')
+        second = arena.add_task(a_task(), owner='0xdef')
+        assert second['key'] == 'custom#sum-the-csv-prices-2'
+        assert len(arena.custom()) == 2
+
+    def test_removing_one_takes_it_out_of_the_pool(self, arena):
+        arena.add_task(a_task(), owner='0xabc')
+        arena.remove_task('sum-the-csv-prices')
+        assert [t for t in arena.tasks() if t['suite'] == 'custom'] == []
+        with pytest.raises(KeyError):
+            arena.remove_task('sum-the-csv-prices')
+
+    def test_they_survive_a_restart(self, arena):
+        arena.add_task(a_task(), owner='0xabc')
+        fresh = Arena(agents=FakeAgents(), root=arena.root)
+        assert fresh.task('custom#sum-the-csv-prices')['title'] == 'Sum the CSV prices'
+
+    def test_the_suites_filter_can_exclude_them(self, arena):
+        arena.add_task(a_task(), owner='0xabc')
+        arena.set_config(suites=['agentic/tools'])
+        assert {t['suite'] for t in arena.tasks()} == {'agentic/tools'}
+
+    @pytest.mark.parametrize('bad, why', [
+        ({'title': ''}, 'title'),
+        ({'prompt': 'too short'}, 'prompt'),
+        ({'scorers': []}, 'check'),
+        ({'scorers': [{'type': 'teleport'}]}, 'unknown check'),
+        ({'scorers': [{'type': 'file_exists'}]}, 'path'),
+        ({'scorers': [{'type': 'file_contains', 'path': 'a.txt'}]}, 'text'),
+        ({'scorers': [{'type': 'file_exists', 'path': '/etc/passwd'}]}, 'relative'),
+        ({'setup': {'files': {'../escape.txt': 'x'}}}, 'escapes'),
+        ({'setup': {'files': {'big.txt': 'x' * 50_000}}}, 'too big'),
+        ({'prompt': 'p' * 5000}, 'too long'),
+    ])
+    def test_a_task_that_could_not_be_graded_is_refused(self, arena, bad, why):
+        with pytest.raises(ValueError, match=why):
+            arena.validate_task(a_task(**bad))
+
+    def test_the_step_budget_is_capped(self, arena):
+        saved = arena.add_task(a_task(steps=500), owner='0xabc')
+        assert saved['steps'] == 30
+
+    def test_scorer_specs_are_stripped_to_known_fields(self, arena):
+        arena.add_task(a_task(scorers=[
+            {'type': 'file_exists', 'path': 'total.txt', 'rm': '-rf /'}]), owner='0xabc')
+        stored = arena.get_custom('sum-the-csv-prices')['scorers'][0]
+        assert stored == {'type': 'file_exists', 'path': 'total.txt'}
+
+    def test_forward_exposes_the_store_and_the_check_types(self, arena):
+        arena.forward('task_add', spec=a_task(), owner='0xabc')
+        out = arena.forward('tasks')
+        assert out['custom'][0]['slug'] == 'sum-the-csv-prices'
+        assert 'file_not_contains' in out['scorers']
+        assert arena.forward('task_rm', slug='sum-the-csv-prices')['remaining'] == 0
+
+
+class TestArenaOptOut:
+
+    def test_an_agent_can_stay_off_the_board(self, tmpdir):
+        class Registry(FakeAgents):
+            def get(self, name):
+                info = super().get(name)
+                return {**info, 'arena': name != 'scribe'}
+
+        a = Arena(agents=Registry(names=('alpha', 'scribe')),
+                  root=os.path.join(tmpdir, 'arena'))
+        assert a.subjects() == ['alpha']
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  THE OPENARENA BRIDGE
+# ═══════════════════════════════════════════════════════════════════════
+#
+# openarena is a neighbour, so every test here stubs it. What is under test is
+# the translation and the policy: does its schema become an arena task, does a
+# part-passing program get part marks, and is a judge that cannot be reached a
+# void rather than a loss.
+
+OA_FIZZ = {
+    'id': 't1', 'slug': 'fizzbuzz', 'title': 'FizzBuzz', 'mode': 'io',
+    'language': 'any', 'starter': '', 'statement': 'Print the FizzBuzz sequence.',
+    'tags': ['warmup'], 'author': '0xabc', 'total_tests': 3, 'hidden_tests': 1,
+    'tests': [
+        {'name': 'n=5', 'stdin': '5\n', 'expect': '1\n2\nFizz\n4\nBuzz', 'hidden': False},
+        {'name': 'n=15', 'stdin': '15\n', 'expect': 'Fizz', 'hidden': False},
+        {'name': 'n=20', 'hidden': True},
+    ],
+}
+
+
+@pytest.fixture
+def bridged(monkeypatch, tmpdir):
+    """An arena whose openarena neighbour holds one task and a scripted judge."""
+    graded = []
+
+    def fake_grade(slug, code, language='', agent=None):
+        graded.append({'slug': slug, 'code': code, 'language': language})
+        # two of three cases, one of them the hidden one, so partial credit and
+        # `solved` disagree — which is the whole point of a fraction
+        return {'submission_id': 's1', 'passed': 2, 'total': 3, 'score': 2 / 3,
+                'solved': False, 'judge_ms': 12,
+                'cases': [{'name': 'n=5', 'passed': True, 'hidden': False, 'ms': 4},
+                          {'name': 'n=15', 'passed': True, 'hidden': False, 'ms': 4},
+                          {'name': 'n=20', 'passed': False, 'hidden': True, 'ms': 4}]}
+
+    monkeypatch.setattr(oa, 'index', lambda ttl=0: [dict(OA_FIZZ, tests=3)])
+    monkeypatch.setattr(oa, 'get_task', lambda slug, cached=True: OA_FIZZ)
+    monkeypatch.setattr(oa, 'grade', fake_grade)
+    monkeypatch.setattr(oa, 'info', lambda: {'version': '0.2.0', 'tasks': 1,
+                                             'agents': 0, 'matches': 0})
+    monkeypatch.setattr(oa, 'entrants', lambda: [])
+
+    def behaviour(agent, path, prompt):
+        Path(path, 'solution.py').write_text('print("Fizz")')
+        return [{'tool': 'write', 'params': {'path': 'solution.py'}, 'result': 'ok'},
+                finish('wrote solution.py')]
+
+    a = Arena(runner=make_runner(behaviour), agents=FakeAgents(),
+              root=os.path.join(tmpdir, 'arena'))
+    # retries=0: a void here is the assertion, not something to wait out
+    a.set_config(steps=6, retries=0)
+    return a, graded
+
+
+class TestOpenArenaTasks:
+
+    def test_a_task_over_there_is_a_task_here(self, bridged):
+        arena, _ = bridged
+        task = arena.task('openarena#fizzbuzz')
+        assert task['suite'] == 'openarena'
+        assert task['scorers'] == [{'type': 'openarena', 'task': 'fizzbuzz',
+                                    'path': 'solution.py', 'language': 'any'}]
+        # a program task is write-then-check, so it gets its own budget
+        assert task['steps'] == oa.DEFAULT_STEPS
+
+    def test_the_brief_shows_examples_but_never_a_hidden_case(self, bridged):
+        arena, _ = bridged
+        prompt = arena.task('openarena#fizzbuzz')['prompt']
+        assert 'FizzBuzz sequence' in prompt
+        assert 'solution.py' in prompt          # where to leave the program
+        assert '1\n2\nFizz\n4\nBuzz' in prompt  # the visible case
+        assert 'n=20' not in prompt             # the hidden one, by name even
+        assert '1 of them hidden' in prompt     # but it is counted
+
+    def test_they_join_the_pool_and_can_be_switched_off(self, bridged):
+        arena, _ = bridged
+        assert 'openarena#fizzbuzz' in [t['key'] for t in arena.tasks()]
+        arena.set_config(openarena=False)
+        assert 'openarena#fizzbuzz' not in [t['key'] for t in arena.tasks()]
+        # naming one still plays it — a cap or a switch is about the rotation
+        assert arena.task('openarena#fizzbuzz')['suite'] == 'openarena'
+
+    def test_a_neighbour_that_is_down_is_an_empty_suite_not_an_exception(self, monkeypatch, tmpdir):
+        # `no_neighbours` already has it down — this is the assertion that the
+        # board carries on regardless
+        a = Arena(agents=FakeAgents(), root=os.path.join(tmpdir, 'arena'))
+        assert a.openarena_tasks() == []
+        assert a.openarena_status()['available'] is False
+        assert [t['key'] for t in a.tasks()]      # the rest of the pool is fine
+
+    def test_the_pool_cap_takes_the_newest(self, monkeypatch, tmpdir):
+        rows = [dict(OA_FIZZ, slug=f't{i}', created=i) for i in range(5)]
+        monkeypatch.setattr(oa, 'index', lambda ttl=0: rows)
+        monkeypatch.setattr(oa, 'get_task', lambda slug, cached=True: dict(OA_FIZZ, slug=slug))
+        a = Arena(agents=FakeAgents(), root=os.path.join(tmpdir, 'arena'))
+        a.set_config(openarena_tasks=2)
+        assert [t['key'] for t in a.openarena_tasks()] == ['openarena#t4', 'openarena#t3']
+
+
+class TestOpenArenaScoring:
+
+    def test_part_of_the_cases_is_part_of_the_marks(self, bridged):
+        arena, graded = bridged
+        m = arena.run_match('alpha', 'openarena#fizzbuzz')
+        assert not m['void']
+        # 2 of 3 cases, weighted — not a pass, and not a zero either
+        assert m['correct'] == pytest.approx(2 / 3, abs=1e-3)
+        assert m['passed'] is False
+        assert 0 < m['score'] < 1
+        # the program that was graded is the file the agent wrote
+        assert graded[0] == {'slug': 'fizzbuzz', 'code': 'print("Fizz")',
+                             'language': 'python'}
+
+    def test_the_case_list_lands_on_the_match(self, bridged):
+        arena, _ = bridged
+        m = arena.run_match('alpha', 'openarena#fizzbuzz')
+        check = next(c for c in m['checks'] if c['type'] == 'openarena')
+        assert check['score'] == pytest.approx(2 / 3, abs=1e-3)
+        assert [c['name'] for c in check['cases']] == ['n=5', 'n=15', 'n=20']
+        assert [c['hidden'] for c in check['cases']] == [False, False, True]
+
+    def test_a_judge_that_is_down_voids_the_match(self, bridged, monkeypatch):
+        arena, _ = bridged
+        monkeypatch.setattr(oa, 'grade', lambda *a, **k: (_ for _ in ()).throw(
+            oa.Unavailable('connection refused')))
+        m = arena.run_match('alpha', 'openarena#fizzbuzz')
+        # the agent did its part — this measured nothing, so it is not a loss
+        assert m['void'] and m['score'] == 0.0
+        assert 'could not grade' in m['void_reason']
+        assert arena._rating('alpha')['matches'] == 0
+
+    def test_no_program_at_all_is_a_loss_not_a_void(self, bridged, monkeypatch):
+        arena, _ = bridged
+        monkeypatch.setattr(oa, 'grade', lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError('the judge should never have been called')))
+
+        def silent(agent, path, prompt):
+            return [finish('I could not work it out')]
+        arena._runner = make_runner(silent)
+        m = arena.run_match('alpha', 'openarena#fizzbuzz')
+        assert not m['void']
+        assert m['correct'] == 0.0
+
+    def test_a_program_shown_but_not_written_is_still_graded(self, bridged):
+        arena, graded = bridged
+
+        def in_chat(agent, path, prompt):
+            return [finish('Here you go:\n```python\nprint("Buzz")\n```')]
+        arena._runner = make_runner(in_chat)
+        arena.run_match('alpha', 'openarena#fizzbuzz')
+        assert graded[-1]['code'] == 'print("Buzz")'
+        assert graded[-1]['language'] == 'python'
+
+    def test_a_trace_scorer_still_scores_one_or_zero(self, arena, tmpdir):
+        # the fraction path must not change the schema everything else uses
+        out = run_scorer({'type': 'finished'}, [finish()])
+        assert out['score'] == 1.0 and out['passed'] is True
+
+
+class TestOpenArenaSchema:
+
+    def test_a_valid_io_task_is_accepted(self):
+        clean = oa.validate({
+            'title': 'Double it', 'statement': 'Read N and print N doubled.',
+            'tests': [{'name': 'a', 'stdin': '2\n', 'expect': '4'},
+                      {'name': 'b', 'stdin': '9\n', 'expect': '18', 'hidden': True}]})
+        assert clean['mode'] == 'io' and clean['language'] == 'any'
+        assert clean['tests'][0]['compare'] == 'trim'
+        assert clean['tests'][1]['hidden'] is True
+
+    def test_a_unit_case_needs_a_grader_program(self):
+        with pytest.raises(ValueError, match='program'):
+            oa.validate({'title': 'Stack', 'statement': 'Define a Stack class.',
+                         'mode': 'unit',
+                         'tests': [{'name': 'a', 'stdin': '', 'expect': 'x'}]})
+
+    def test_an_io_case_needs_its_expected_output(self):
+        with pytest.raises(ValueError, match='expect'):
+            oa.validate({'title': 'Double it', 'statement': 'Read N, print 2N.',
+                         'tests': [{'name': 'a', 'stdin': '2\n'}]})
+
+    def test_all_hidden_is_refused(self):
+        # a competitor needs something to check its answer against
+        with pytest.raises(ValueError, match='visible'):
+            oa.validate({'title': 'Double it', 'statement': 'Read N, print 2N.',
+                         'tests': [{'name': 'a', 'stdin': '2\n', 'expect': '4',
+                                    'hidden': True}]})
+
+    def test_a_task_with_no_cases_is_refused(self):
+        with pytest.raises(ValueError, match='test case'):
+            oa.validate({'title': 'Vibes', 'statement': 'Write something nice.',
+                         'tests': []})
+
+    def test_an_unrunnable_language_is_refused(self):
+        with pytest.raises(ValueError, match='unsupported language'):
+            oa.validate({'title': 'x', 'statement': 'Read N and print N.',
+                         'language': 'haskell',
+                         'tests': [{'name': 'a', 'stdin': '1', 'expect': '1'}]})
+
+    def test_the_entrypoint_follows_the_language(self):
+        assert oa.entrypoint('python') == 'solution.py'
+        assert oa.entrypoint('javascript') == 'solution.js'
+        assert oa.entrypoint('bash') == 'solution.sh'
+        assert oa.entrypoint('any') == 'solution.py'
+
+    def test_the_last_fenced_block_wins(self):
+        code, lang = oa.fenced('first:\n```py\nold()\n```\nno, this:\n```python\nnew()\n```')
+        assert code == 'new()' and lang == 'python'
+
+    def test_a_fence_language_is_only_taken_if_it_can_be_run(self):
+        assert oa.pick_language('rust', 'any') == 'python'
+        assert oa.pick_language('', 'javascript') == 'javascript'
+        assert oa.pick_language('bash', 'any') == 'bash'
+
+
+class TestOpenArenaForward:
+
+    def test_forward_reports_the_bridge(self, bridged):
+        arena, _ = bridged
+        out = arena.forward('openarena')
+        assert out['enabled'] is True
+        assert [t['slug'] for t in out['pool']] == ['fizzbuzz']
+
+    def test_forward_writes_through_to_the_neighbour(self, bridged, monkeypatch):
+        arena, _ = bridged
+        seen = {}
+        monkeypatch.setattr(oa, 'create_task',
+                            lambda spec, author=None: seen.update(spec=spec, author=author) or {'slug': 'x'})
+        arena.forward('oa_task_add', spec={
+            'title': 'Double it', 'statement': 'Read N and print N doubled.',
+            'tests': [{'name': 'a', 'stdin': '2\n', 'expect': '4'},
+                      {'name': 'b', 'stdin': '3\n', 'expect': '6', 'hidden': True}]},
+            author='0xabc')
+        assert seen['author'] == '0xabc'
+        assert seen['spec']['title'] == 'Double it'
+
+    def test_bench_options_are_passed_through_and_nothing_else_is(self, bridged, monkeypatch):
+        arena, _ = bridged
+        seen = {}
+        monkeypatch.setattr(oa, 'bench_import',
+                            lambda source, **opts: seen.update(source=source, opts=opts) or {'imported': 0})
+        # `key` and `author` are ours and stay here; the bench options go over
+        arena.forward('oa_import', source='mbpp', limit=5, offset=20,
+                      key='secret', author='0xabc')
+        assert seen['source'] == 'mbpp'
+        assert seen['opts'] == {'limit': 5, 'offset': 20}
+
+    def test_the_pool_breakdown_is_on_the_status(self, bridged):
+        arena, _ = bridged
+        assert arena.status()['suites_count']['openarena'] == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  THE MODEL BOARD — the same matches, keyed on what was underneath
+# ═══════════════════════════════════════════════════════════════════════
+
+def match(model, task='t#0', agent='alpha', season=0, score=0.8, seconds=10.0,
+          steps=2, tokens=1000, cost=0.0, passed=True, void=False, ts=1.0):
+    """One line of matches.jsonl, as the board writes it."""
+    return {'id': f'{model}:{task}:{agent}:{ts}', 'ts': ts, 'season': season,
+            'agent': agent, 'task': task, 'suite': task.split('#')[0],
+            'title': task, 'model': model, 'seconds': seconds, 'steps': steps,
+            'tokens': tokens, 'cost': cost, 'score': score, 'passed': passed,
+            'void': void}
+
+
+class TestModelBoard:
+
+    def test_a_model_is_ranked_on_what_it_scored_and_what_it_burned(self):
+        rows = mb.board([match('fast', score=0.9, seconds=10, steps=2, tokens=800),
+                         match('fast', task='t#1', score=0.7, seconds=30, steps=4, tokens=1200)])
+        assert len(rows) == 1
+        row = rows[0]
+        assert row['matches'] == 2
+        assert row['avg_score'] == pytest.approx(0.8)
+        assert row['avg_seconds'] == pytest.approx(20.0)
+        # the latency that compares across tasks: 40s over 6 steps
+        assert row['sec_per_step'] == pytest.approx(40 / 6, abs=0.01)
+        assert row['tok_per_sec'] == pytest.approx(2000 / 40, abs=0.1)
+        assert row['tasks'] == ['t#0', 't#1']
+
+    def test_a_model_that_never_met_another_is_unrated(self):
+        rows = mb.board([match('lonely'), match('lonely', task='t#1')])
+        assert rows[0]['rated'] is False
+        assert rows[0]['elo'] == mb.ELO_START
+        assert rows[0]['h2h'] == 0
+
+    def test_same_task_same_agent_is_a_head_to_head(self):
+        rows = mb.board([match('strong', score=0.9), match('weak', score=0.2)])
+        board = {r['model']: r for r in rows}
+        assert board['strong']['rated'] and board['strong']['elo'] > mb.ELO_START
+        assert board['weak']['elo'] < mb.ELO_START
+        assert board['strong']['wins'] == 1 and board['weak']['losses'] == 1
+        assert board['strong']['rank'] == 1
+
+    def test_two_models_under_different_agents_did_not_meet(self):
+        # the personas differ, so the score gap could be the agent's — this is
+        # exactly the comparison the board must refuse to make
+        rows = mb.board([match('strong', agent='alpha', score=0.9),
+                         match('weak', agent='beta', score=0.2)])
+        assert all(r['h2h'] == 0 for r in rows)
+        assert all(r['elo'] == mb.ELO_START for r in rows)
+
+    def test_scores_inside_the_draw_band_trade_nothing(self):
+        rows = mb.board([match('a', score=0.80), match('b', score=0.81)])
+        assert {r['elo'] for r in rows} == {mb.ELO_START}
+        assert all(r['draws'] == 1 for r in rows)
+
+    def test_a_model_playing_a_task_twice_gets_one_vote(self):
+        rows = mb.board([match('a', score=0.9, ts=1), match('a', score=0.9, ts=2),
+                         match('b', score=0.2, ts=3)])
+        board = {r['model']: r for r in rows}
+        assert board['a']['h2h'] == 1 and board['a']['matches'] == 2
+
+    def test_voided_matches_are_counted_but_not_averaged(self):
+        rows = mb.board([match('a', score=0.8),
+                         match('a', task='t#1', score=0.0, void=True)])
+        assert rows[0]['matches'] == 1 and rows[0]['voids'] == 1
+        assert rows[0]['avg_score'] == pytest.approx(0.8)
+
+    def test_spend_is_read_off_the_meter_not_the_model_id(self):
+        rows = mb.board([match('paid:free', cost=0.02, score=0.5)])
+        assert rows[0]['free'] is False
+        assert rows[0]['cost_per_point'] == pytest.approx(0.04)
+
+    def test_a_match_with_no_model_recorded_still_counts(self):
+        rows = mb.board([dict(match('x'), model=None)])
+        assert rows[0]['model'] == mb.UNKNOWN
+
+    def test_the_card_carries_per_task_and_the_head_to_head_record(self):
+        log = [match('a', score=0.9), match('b', score=0.2),
+               match('a', task='t#1', score=0.3), match('b', task='t#1', score=0.9)]
+        card = mb.card(log, 'a')
+        assert {t['task'] for t in card['per_task']} == {'t#0', 't#1'}
+        assert card['opponents'][0]['record'] == '1-1-0'
+        assert len(card['matches_log']) == 2
+
+    def test_the_task_board_ranks_models_inside_a_task(self):
+        rows = mb.task_board([match('a', task='t#0', score=0.9),
+                              match('b', task='t#0', score=0.4),
+                              match('a', task='t#1', score=0.1, passed=False)])
+        by_task = {r['task']: r for r in rows}
+        assert by_task['t#0']['best'] == 'a'
+        assert by_task['t#0']['spread'] == pytest.approx(0.5)
+        # hardest first, so the task nobody scored on leads
+        assert rows[0]['task'] == 't#1'
+        # a task only one model played separates nobody
+        assert by_task['t#1']['spread'] == 0.0
+
+    def test_the_arena_reads_its_own_log(self, arena):
+        arena.run_match('alpha', 'agentic/files#0')
+        arena.run_match('beta', 'agentic/files#0')
+        rows = arena.model_board()
+        assert rows[0]['model'] == 'free/model' and rows[0]['matches'] == 2
+        assert arena.model_card('free/model')['matches'] == 2
+        assert arena.task_board()[0]['matches'] == 2
+        status = arena.forward('models')
+        assert status['models'][0]['model'] == 'free/model'
+        assert 'agentic/files#0' in [t['key'] for t in status['tasks']]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  THE GAUNTLET — one agent, one task set, N models
+# ═══════════════════════════════════════════════════════════════════════
+
+def model_runner(scores):
+    """A runner whose result depends on the model it was handed."""
+    def runner(prompt, agent, model, steps, free, path, provider=None):
+        Path(path, 'seen.txt').write_text(f'{model}|{provider}')
+        score = scores.get(model, 0.0)
+        trace = [finish('done')] if score else [{'tool': 'bash', 'error': 'nope'}]
+        if score:
+            Path(path, 'count.txt').write_text('7')
+            Path(path, 'port.txt').write_text('8412')
+            Path(path, 'summary.txt').write_text('a ledger daemon')
+        return trace, {'cost': 0.0, 'model': model, 'provider': provider}
+    return runner
+
+
+@pytest.fixture
+def gauntlet_arena(tmpdir):
+    a = Arena(runner=model_runner({'good': 1.0, 'bad': 0.0}), agents=FakeAgents(),
+              root=os.path.join(tmpdir, 'arena'))
+    a.set_config(tasks_per_round=1, steps=6, retries=0)
+    return a
+
+
+class TestGauntlet:
+
+    def test_every_model_plays_every_task(self, gauntlet_arena):
+        out = gauntlet_arena.run_gauntlet(['good', 'bad'], agent='alpha',
+                                          tasks=['agentic/files#0', 'agentic/files#1'])
+        assert out['matches'] == 4
+        assert {m['model'] for m in out['results']} == {'good', 'bad'}
+        assert {m['agent'] for m in out['results']} == {'alpha'}
+
+    def test_one_model_is_not_a_comparison(self, gauntlet_arena):
+        assert 'error' in gauntlet_arena.run_gauntlet(['good'], agent='alpha')
+
+    def test_the_provider_rides_along_with_the_model_id(self, gauntlet_arena):
+        out = gauntlet_arena.run_gauntlet(
+            [{'model': 'good', 'provider': 'venice'}, {'model': 'bad', 'provider': 'openrouter'}],
+            agent='alpha', tasks=['agentic/files#0'])
+        assert {(m['model'], m['provider']) for m in out['results']} == {
+            ('good', 'venice'), ('bad', 'openrouter')}
+
+    def test_it_leaves_the_agent_board_alone(self, gauntlet_arena):
+        # the agent is the constant, not the subject: a weak model in the field
+        # must not move its rating or overwrite the per-task score a newcomer's
+        # qualifier is measured against
+        gauntlet_arena.run_match('alpha', 'agentic/files#0')
+        before = json.loads(json.dumps(gauntlet_arena._rating('alpha')))
+        gauntlet_arena.run_gauntlet(['good', 'bad'], agent='alpha',
+                                    tasks=['agentic/files#0'])
+        after = gauntlet_arena._rating('alpha')
+        assert after['matches'] == before['matches']
+        assert after['elo'] == before['elo']
+        assert after['per_task'] == before['per_task']
+
+    def test_the_match_cap_stops_it(self, gauntlet_arena):
+        gauntlet_arena.set_config(max_matches=3)
+        out = gauntlet_arena.run_gauntlet(['good', 'bad'], agent='alpha',
+                                          tasks=['agentic/files#0', 'agentic/files#1'])
+        assert out['matches'] == 3 and out['capped_by'] == 'max_matches'
+
+    def test_it_produces_a_rated_model_board(self, gauntlet_arena):
+        gauntlet_arena.run_gauntlet(['good', 'bad'], agent='alpha',
+                                    tasks=['agentic/files#0'])
+        board = {r['model']: r for r in gauntlet_arena.model_board()}
+        assert board['good']['rated'] and board['good']['elo'] > board['bad']['elo']
+        assert board['good']['rank'] == 1
+
+    def test_a_gauntlet_does_not_advance_the_season(self, gauntlet_arena):
+        before = gauntlet_arena._state.get('season', 0)
+        gauntlet_arena.run_gauntlet(['good', 'bad'], agent='alpha',
+                                    tasks=['agentic/files#0'])
+        assert gauntlet_arena._state.get('season', 0) == before
+
+    def test_forward_dispatches_it(self, gauntlet_arena):
+        out = gauntlet_arena.forward('gauntlet', models=['good', 'bad'], agent='alpha',
+                                     tasks=['agentic/files#0'])
+        assert out['matches'] == 2 and out['agent'] == 'alpha'

@@ -115,5 +115,5 @@
         "LIUM_API_KEY": "default Lium API key when a request carries none",
         "LIUM_BASE_URL": "override the upstream base URL (default https://lium.io/api)"
     },
-    "schema": "QmQvujJ3X7tUCAD4idp7hYAYDkGcZXLMVSr4VrCE8DUw9Y"
+    "schema": "QmY8HitohE3tRBXbVPkx5dZ8Di5uF5WdGnfd8Ey6GVtvwS"
 }

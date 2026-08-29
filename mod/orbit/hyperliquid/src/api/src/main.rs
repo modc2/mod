@@ -22,6 +22,9 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Clone)]
+/// Widest board the refresher keeps (the UI's largest pool option).
+pub const PREWARM_POOL: usize = 600;
+
 pub struct AppState {
     pub hl: Arc<hl::Client>,
     pub http: reqwest::Client,
@@ -100,23 +103,34 @@ async fn main() -> anyhow::Result<()> {
     let prewarm_progress = progress.clone();
     let prewarm_boards = boards.clone();
     tokio::spawn(async move {
-        const PREWARM_POOL: usize = 600;
         loop {
+            // Standard boards first (ROI + PnL for each window, 24h-active),
+            // then anything else a visitor has asked for since — those keys
+            // live in the cache, so they stay fresh instead of going stale.
+            let mut todo: Vec<(u32, traders::Rank, traders::Active)> = Vec::new();
             for days in [1u32, 7, 30] {
+                for rank in [traders::Rank::Roi, traders::Rank::Pnl] {
+                    todo.push((days, rank, traders::Active::Day));
+                }
+            }
+            for k in prewarm_boards.keys() {
+                if !todo.contains(&k) { todo.push(k); }
+            }
+            for (days, rank, active) in todo {
                 let started = std::time::Instant::now();
                 let r = traders::top_traders_with_progress(
                     prewarm_hl.clone(), days, 0.5, PREWARM_POOL, vec![],
-                    Some(prewarm_progress.clone()),
+                    Some(prewarm_progress.clone()), rank, active,
                 ).await;
                 match r {
                     Ok(t) => {
                         tracing::info!(
-                            "board refresh days={}: {} traders in {:?}",
-                            days, t.len(), started.elapsed()
+                            "board refresh days={} rank={} active={}: {} traders in {:?}",
+                            days, rank.as_str(), active.as_str(), t.len(), started.elapsed()
                         );
-                        prewarm_boards.put(days, PREWARM_POOL, t);
+                        prewarm_boards.put(days, rank, active, PREWARM_POOL, t);
                     }
-                    Err(e) => tracing::warn!("board refresh days={days} failed: {e}"),
+                    Err(e) => tracing::warn!("board refresh days={days} rank={} failed: {e}", rank.as_str()),
                 }
             }
             tokio::time::sleep(std::time::Duration::from_secs(120)).await;

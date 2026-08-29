@@ -1,7 +1,7 @@
 {
     "name": "nyc",
     "version": "1.0.0",
-    "description": "An open-source browser GIS for New York City \u2014 housing prices from recorded deeds, subway and bike networks, parks, flood zones, traffic injuries and boundaries, as toggleable MapLibre layers with choropleths, legends and a feature inspector. Also an MCP server (stdio + streamable HTTP) whose tools reach every dataset on NYC and NY State Open Data, and an in-app ASK NYC chat agent that answers from those tools with cited sources. Every source is public, key-free open data.",
+    "description": "An open-source browser GIS for New York City \u2014 housing prices from recorded deeds, subway and bike networks, live traffic speeds and hour-by-hour traffic volume, parks, flood zones, traffic injuries and boundaries, as toggleable MapLibre layers with choropleths, legends and a feature inspector. Also an MCP server (stdio + streamable HTTP) whose tools reach every dataset on NYC and NY State Open Data, and an in-app ASK NYC chat agent that answers from those tools with cited sources. Every source is public, key-free open data.",
     "anchor": "mod.py",
     "network": "testnet",
     "port": 50310,
@@ -32,6 +32,7 @@
         "trend",
         "sales",
         "rents",
+        "traffic",
         "homes",
         "affordable",
         "where",
@@ -52,5 +53,5 @@
         "deregister"
     ],
     "key": "nyc",
-    "schema": "QmTbznwgyzzAoWwei75Gar6n265VUBoVLFuCwbFGZn5ZQD"
+    "schema": "QmXdDDapricBDQ2GeqMWTYA4fwAdVyMv3tKfEvhXpopEzG"
 }

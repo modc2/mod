@@ -67,6 +67,28 @@ MAX_HISTORY = 50                # ledger entries kept per account
 MAX_TREASURY_LEDGER = 200       # top-up / withdrawal entries kept
 PROVIDERS = ('openrouter', 'venice')
 
+# Where provider credits are actually bought, and how a purchase can be seen
+# from here. Neither provider sells credits over an API — OpenRouter removed
+# its Coinbase endpoint (it answers 410 Gone: "use the web credits purchase
+# flow instead") and Venice never had one — so the money always leaves on the
+# provider's own page. What this module can do is read the purchase back off
+# the key: `meter` is the number that moves when it lands.
+PROVIDER_TOPUP = {
+    'openrouter': {
+        'url': 'https://openrouter.ai/settings/credits',
+        # credits ever bought on the key. Monotonic, so a rise in it is a
+        # purchase and nothing else — the amount is exact.
+        'meter': 'purchased', 'exact': True,
+    },
+    'venice': {
+        'url': 'https://venice.ai/settings/api',
+        # no purchase counter, only USD left. Spending pulls it down too, so
+        # the mark trails it down and only a rise above the mark is a top-up.
+        'meter': 'balance', 'exact': False,
+    },
+}
+TOPUP_EPSILON = 0.01            # ignore rounding noise in a provider's numbers
+
 
 def _now() -> float:
     return time.time()
@@ -130,6 +152,8 @@ class Credits:
         book.setdefault('topups', {})
         book.setdefault('ledger', [])
         book.setdefault('baseline', {})
+        # per-provider meter reading as of the last booked top-up
+        book.setdefault('purchase', {})
         return state
 
     def _save(self):
@@ -274,8 +298,79 @@ class Credits:
             self._book_ledger({'time': _now(), 'type': 'topup', 'provider': provider,
                                'amount': round(amount, 6), 'ref': (ref or '')[:120],
                                'note': (note or '')[:120]})
+            # a hand-logged purchase is the same money verify_topup would see
+            # on the key — walk the mark past it so it can't be booked twice
+            marks = book.setdefault('purchase', {})
+            if marks.get(provider) is not None:
+                marks[provider] = round(float(marks[provider]) + amount, 6)
             self._save()
             return {'provider': provider, 'amount': round(amount, 6),
+                    'topups': dict(book['topups'])}
+
+    def _purchase_view(self, provider: str, live: dict) -> dict:
+        """Has money landed on this key that the books haven't seen?
+
+        `mark` is the provider's own meter as of the last booked top-up.
+        OpenRouter counts credits ever bought, which only goes up, so
+        mark → now is exactly what was purchased. Venice reports only the
+        USD left, which spending pulls down — so the mark follows it down
+        and only a rise above the mark reads as a top-up.
+        """
+        spec = PROVIDER_TOPUP.get(provider) or {}
+        out = {'url': spec.get('url'), 'meter': spec.get('meter'),
+               'exact': bool(spec.get('exact')),
+               'mark': None, 'now': None, 'pending': 0.0}
+        if not spec or live.get('error'):
+            return out
+        now = live.get(spec['meter'])
+        if now is None:
+            return out
+        now = round(float(now), 6)
+        marks = self._state['treasury'].setdefault('purchase', {})
+        mark = marks.get(provider)
+        if mark is None or (not spec['exact'] and now < float(mark)):
+            # first sight of this key, or an inexact meter spent down
+            marks[provider] = mark = now
+        out.update(mark=round(float(mark), 6), now=now,
+                   pending=round(max(0.0, now - float(mark)), 6))
+        return out
+
+    def verify_topup(self, provider: str, live: dict) -> dict:
+        """Book what the provider's own numbers say landed on the key.
+
+        The owner buys the credits on the provider's page — see
+        PROVIDER_TOPUP for why there is no API to buy them with — and this
+        is the other half of that trip: it reads the purchase back off the
+        key, so the ledger records what arrived rather than what was typed.
+        """
+        provider = (provider or '').strip().lower()
+        if provider not in PROVIDERS:
+            raise ValueError(f"unknown provider '{provider}' — use one of {list(PROVIDERS)}")
+        with self._lock:
+            view = self._purchase_view(provider, live or {})
+            out = {'provider': provider, 'booked': 0.0, **view}
+            if view['now'] is None:
+                out['reason'] = ((live or {}).get('error')
+                                 or f'no readable {view["meter"] or "balance"} on this key')
+                self._save()
+                return out
+            if view['pending'] <= TOPUP_EPSILON:
+                out['reason'] = 'nothing new on the key yet'
+                self._save()
+                return out
+            book = self._state['treasury']
+            amount = view['pending']
+            book['topups'][provider] = round(book['topups'].get(provider, 0.0) + amount, 6)
+            self._book_ledger({
+                'time': _now(), 'type': 'topup', 'provider': provider,
+                'amount': amount, 'verified': True,
+                'ref': f"{view['meter']} {view['mark']} → {view['now']}",
+                'note': ('read off the provider key' if view['exact']
+                         else 'balance rose on the key'),
+            })
+            book.setdefault('purchase', {})[provider] = view['now']
+            self._save()
+            return {**out, 'booked': amount, 'mark': view['now'], 'pending': 0.0,
                     'topups': dict(book['topups'])}
 
     def record_withdrawal(self, amount: float, note: str = '') -> dict:
@@ -365,6 +460,11 @@ class Credits:
             out['provider_balance'] = balance if providers else None
             out['topup_needed'] = (round(max(0.0, funding_required - balance), 6)
                                    if providers else None)
+            # credits seen on a key that the books haven't booked yet — a
+            # purchase made on the provider's page, waiting to be confirmed
+            out['topup_pending'] = round(sum(
+                (p.get('topup') or {}).get('pending') or 0.0
+                for p in out['providers'].values()), 6) if providers else None
             self._save()   # _provider_view may have stamped a drift baseline
             return out
 
@@ -383,7 +483,10 @@ class Credits:
         for name in PROVIDERS:
             live = providers.get(name) or {}
             entry = {'balance': live.get('balance'),
-                     'topups': round(book.get('topups', {}).get(name, 0.0), 6)}
+                     'topups': round(book.get('topups', {}).get(name, 0.0), 6),
+                     # where to buy more, and whether a purchase is sitting
+                     # on the key unbooked
+                     'topup': self._purchase_view(name, live)}
             if live.get('error'):
                 entry['error'] = live['error']
             usage = live.get('usage')

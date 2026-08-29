@@ -30,8 +30,11 @@ from src.tools.builtin.mod import Builtins
 from src.tools.mod import Tools
 from src.agents.mod import Agents
 from src.memory.memory import Memory
+from src.memory.registry import Memories
+from src.toolbox.mod import Toolboxes
 
-BUILTIN_COUNT = 23
+BUILTIN_COUNT = 26  # 23 that act on the world + recall/remember/toolbox, which
+                    # act on the agent's own sub-components
 # shipped agents. Custom agents live in the same directory, so counts are
 # lower bounds — a host with their own agents installed still passes.
 AGENT_COUNT = 9
@@ -626,6 +629,252 @@ class TestMemory:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  MEMORY AS RETRIEVAL (one scorer, every layer)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestRetrieval:
+    """The ranking engine every layer is searched with."""
+
+    def _rank(self, q, docs, **kw):
+        from src.memory.retrieval import rank
+        return rank(q, docs, text_of=lambda d: d["t"], **kw)
+
+    def test_a_rare_word_beats_a_common_one(self):
+        docs = [{"t": "the deploy script runs on every host"},
+                {"t": "the deploy script runs on every host and pins tzdata"},
+                {"t": "deploy deploy deploy"}]
+        hits = self._rank("tzdata deploy", docs)
+        # 'deploy' is in every document and says nothing; 'tzdata' picks one out
+        assert hits[0][1]["t"].endswith("tzdata")
+
+    def test_no_match_is_no_hit(self):
+        assert self._rank("kangaroo", [{"t": "nothing about that here"}]) == []
+
+    def test_stop_words_alone_match_nothing(self):
+        # otherwise "what is the thing" would retrieve the whole store
+        assert self._rank("what is the", [{"t": "what is the thing"}]) == []
+
+    def test_scores_are_bounded_and_ordered(self):
+        docs = [{"t": "relay port 8412"}, {"t": "relay"}]
+        hits = self._rank("relay port", docs)
+        assert [h[0] for h in hits] == sorted([h[0] for h in hits], reverse=True)
+        assert all(0 < s <= 1 for s, _ in hits)
+
+    def test_recency_breaks_a_tie(self):
+        old = {"t": "the same words exactly", "ts": time.time() - 400 * 86400}
+        new = {"t": "the same words exactly", "ts": time.time()}
+        hits = self._rank("same words exactly", [old, new],
+                          ts_of=lambda d: d.get("ts"))
+        assert hits[0][1] is new
+
+
+class TestMemoryRetrieve:
+    """retrieve(): one question, every layer, one shape."""
+
+    def _mem(self):
+        return Memory(persist=False)
+
+    def test_hits_carry_their_layer(self):
+        mem = self._mem()
+        mem.remember("relay", "the relay listens on port 8412")
+        mem.exchange("where does the relay run?", "on box seven",
+                     session="s1", who="0xabc")
+        mem.observe({"tool": "bash", "params": {"command": "systemctl start relay"}})
+        layers = {h["layer"] for h in mem.retrieve("relay", who="0xabc")}
+        assert layers == {"semantic", "dialogue", "episodic"}
+
+    def test_one_layer_can_be_asked_alone(self):
+        mem = self._mem()
+        mem.remember("relay", "the relay listens on port 8412")
+        mem.exchange("relay?", "yes", session="s1", who="0xabc")
+        hits = mem.retrieve("relay", layers=["semantic"], who="0xabc")
+        assert hits and {h["layer"] for h in hits} == {"semantic"}
+
+    def test_dialogue_stays_scoped_to_its_caller(self):
+        mem = self._mem()
+        mem.exchange("my secret question", "my secret answer",
+                     session="s1", who="0xabc")
+        mine = mem.retrieve("secret", who="0xabc")
+        theirs = mem.retrieve("secret", who="0xdef")
+        assert any("secret answer" in h["text"] for h in mine)
+        assert not theirs
+
+    def test_steps_are_retrievable_not_just_tailable(self):
+        mem = self._mem()
+        for i in range(5):
+            mem.observe({"tool": "read", "params": {"file_path": f"/tmp/f{i}.py"}})
+        mem.observe({"tool": "bash", "params": {"command": "pytest -q tests/"}})
+        hits = mem.recall_episodes("pytest")
+        assert hits and hits[0]["tool"] == "bash"
+
+    def test_layers_are_ranked_against_each_other(self):
+        # scoring each layer alone makes the numbers incomparable: a step that
+        # shares one word with the question would outrank the fact that
+        # answers it, because that word is all its own layer has ever seen
+        mem = self._mem()
+        mem.remember("memory modules",
+                     "an agent is built with default or ephemeral memory")
+        for i in range(20):
+            mem.observe({"tool": "read",
+                         "params": {"file_path": f"/root/.mod/agent/work/{i}"}})
+        top = mem.retrieve("agent memory modules", k=3)[0]
+        assert top["layer"] == "semantic"
+
+    def test_a_query_word_nothing_has_seen_does_not_sink_the_rest(self):
+        # "run" when the fact says "runs": the store can only be searched on
+        # what is in it, so an unfindable word is not evidence of a weak match
+        mem = self._mem()
+        mem.remember("test command", "the suite runs with pytest")
+        assert mem.retrieve("how do I run the pytest suite")
+
+    def test_working_memory_is_opt_in(self):
+        # it is the prompt being written right now — retrieving it would hand
+        # the model back what it is already reading
+        mem = self._mem()
+        mem.add("goal", "fix the flaky relay test")
+        assert not mem.retrieve("relay")
+        assert mem.retrieve("relay", layers=["working"])
+
+    def test_compile_still_renders_a_prompt_block(self):
+        mem = self._mem()
+        mem.remember("style", "tabs not spaces")
+        assert "RECALLED FACTS" in mem.compile("what style?")
+
+    def test_a_fact_another_process_stored_is_retrievable(self, tmpdir):
+        # the API, the :50119 service and the CLI all write the same file — a
+        # store cached for the life of a process answers from a startup snapshot
+        served = Memory(dir=tmpdir)
+        assert served.recall("quokkas") == []          # warms the cache
+        cli = Memory(dir=tmpdir)
+        cli.remember("probe", "the probe fact mentions quokkas")
+        assert [f["id"] for f in served.recall("quokkas")] == ["probe"]
+
+    def test_a_local_fact_survives_someone_elses_write(self, tmpdir):
+        a, b = Memory(dir=tmpdir), Memory(dir=tmpdir)
+        a.remember("mine", "written by a")
+        b.remember("theirs", "written by b")
+        assert {f["id"] for f in a.facts()} == {"mine", "theirs"}
+
+
+class TestMemoryRegistry:
+    """Memory is a component: pluggable, with a default."""
+
+    def _reg(self):
+        return Memories()
+
+    def test_default_is_listed_first(self):
+        assert self._reg().ls()[0] == "default"
+
+    def test_every_module_speaks_the_same_interface(self):
+        reg = self._reg()
+        for name in reg.ls():
+            mem = reg.make(name, fresh=True, persist=False)
+            assert mem.retrieve("x") == [] or isinstance(mem.retrieve("x"), list)
+            assert reg.name_of(mem) == name
+
+    def test_ephemeral_never_persists(self):
+        eph = self._reg().make("ephemeral", fresh=True)
+        assert eph.persist is False
+        assert eph.episodic.path is None and eph.semantic.path is None
+        assert eph.save("/tmp/agent_ephemeral_should_not_exist.json") is False
+        assert not os.path.exists("/tmp/agent_ephemeral_should_not_exist.json")
+
+    def test_an_instance_is_shared_so_it_can_remember(self):
+        reg = self._reg()
+        assert reg.make("default") is reg.make("default")
+
+    def test_an_unknown_module_is_an_error_not_a_silent_default(self):
+        with pytest.raises(KeyError):
+            self._reg().make("nope")
+
+    def test_a_dotted_name_falls_back_rather_than_failing_a_run(self):
+        # an agent built against a module that moved loses its memory, not its
+        # ability to answer
+        mem = self._reg().make("not.a.real.module")
+        assert hasattr(mem, "retrieve")
+
+    def test_registry_self_test(self):
+        assert self._reg().test()["passed"]
+
+
+class TestSubComponentTools:
+    """The tools that reach back into the agent box: recall, remember, toolbox."""
+
+    def _agent(self):
+        from src.mod import Agent
+        agent = Agent.__new__(Agent)
+        agent.agents = Agents()
+        agent.memories = Memories()
+        agent.memory = agent.memories.make("ephemeral", fresh=True)
+        agent.tools = Tools(path=TOOLS_PATH)
+        agent.toolboxes = Toolboxes(tools=agent.tools)
+        agent.tools.bind(agent)
+        agent._snapped = []
+        agent._tool_names = None
+        return agent
+
+    def test_the_three_tools_ship(self):
+        for name in ("recall", "remember", "toolbox"):
+            assert name in Builtins().ls()
+
+    def test_remember_then_recall_round_trip(self):
+        agent = self._agent()
+        agent.tools.run("remember", fact="deploy",
+                        content="deploys run through scripts/ship.sh")
+        hits = agent.tools.run("recall", query="how do we deploy")["hits"]
+        assert any("ship.sh" in h["text"] for h in hits)
+
+    def test_recall_reaches_the_live_memory_not_a_new_one(self):
+        agent = self._agent()
+        agent.memory.remember("port", "the api listens on 50117")
+        assert agent.tools.run("recall", query="which port")["total"] == 1
+
+    def test_an_unbound_tool_says_so_rather_than_inventing_memory(self):
+        from src.tools.builtin.mod import Builtins as B
+        tool = B().get("recall")           # no agent bound
+        assert tool.forward(query="anything")["success"] is False
+
+    def test_toolbox_lists_the_bundles(self):
+        agent = self._agent()
+        out = agent.tools.run("toolbox")
+        assert out["success"] and any(b["name"] == "vcs" for b in out["toolboxes"])
+
+    def test_toolbox_grows_the_run_schema(self):
+        agent = self._agent()
+        agent.memory.add("tools", agent.tool_schema(["read"]))
+        out = agent.tools.run("toolbox", box="vcs")
+        assert out["success"] and "git" in out["added"]
+        assert "git" in agent.memory.get("tools") and "read" in agent.memory.get("tools")
+
+    def test_toolbox_leaves_the_module_loadout_alone(self):
+        # widening one run must not widen every later one
+        agent = self._agent()
+        agent.tools.run("toolbox", box="vcs")
+        assert agent._tool_names is None
+
+    def test_a_sandboxed_run_cannot_pull_the_fleet_in(self):
+        agent = self._agent()
+        agent._allowed_paths = ["/tmp/portal"]
+        agent.toolboxes._custom["fleety"] = {"tools": ["read", "mod.git"],
+                                             "description": "with a module in it"}
+        out = agent.tools.run("toolbox", box="fleety")
+        assert out["blocked"] == ["mod.git"]
+        assert "mod.git" not in (agent.memory.get("tools") or {})
+
+    def test_unknown_box_is_reported_with_the_options(self):
+        out = self._agent().tools.run("toolbox", box="nope")
+        assert out["success"] is False and "vcs" in out["error"]
+
+    def test_parts_shows_the_whole_box(self):
+        from src.mod import Agent
+        agent = Agent()
+        parts = agent.parts()
+        assert set(parts) == {"model", "memory", "toolbox", "tools", "prompt"}
+        assert parts["memory"]["module"] == "default"
+        assert any(o["name"] == "ephemeral" for o in parts["memory"]["options"])
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  AGENT (unit tests without LLM)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -636,6 +885,7 @@ class TestAgent:
         from src.mod import Agent
         agent = Agent.__new__(Agent)
         agent.agents = Agents()
+        agent.memories = Memories()
         agent.memory = Memory()
         agent.memory.clear()
         agent.model = None
@@ -987,8 +1237,9 @@ class TestAgent:
         agent = self._make_agent()
         agent._images = []
         agent.init_memory(query="q", path="/tmp", tools={})
-        agent.model = type("M", (), {"forward": staticmethod(lambda *a, **k: "the actual answer")})()
-        step = agent._force_answer(model="x", max_tokens=10, temperature=0.0, free=True)
+        client = type("M", (), {"forward": staticmethod(lambda *a, **k: "the actual answer")})()
+        step = agent._force_answer(client=client, short="openrouter", model="x",
+                                   max_tokens=10, temperature=0.0, free=True)
         assert step["tool"] == "response"
         assert step["result"] == "the actual answer"
 
@@ -997,8 +1248,9 @@ class TestAgent:
         agent._images = []
         agent.init_memory(query="q", path="/tmp", tools={})
         out = '<PLAN><STEP>{"tool": "finish", "params": {"summary": "final words"}}</STEP></PLAN>'
-        agent.model = type("M", (), {"forward": staticmethod(lambda *a, **k: out)})()
-        step = agent._force_answer(model="x", max_tokens=10, temperature=0.0, free=True)
+        client = type("M", (), {"forward": staticmethod(lambda *a, **k: out)})()
+        step = agent._force_answer(client=client, short="openrouter", model="x",
+                                   max_tokens=10, temperature=0.0, free=True)
         assert step["result"] == "final words"
 
     def test_force_answer_model_error_returns_none(self):
@@ -1007,8 +1259,9 @@ class TestAgent:
         agent.init_memory(query="q", path="/tmp", tools={})
         def boom(*a, **k):
             raise RuntimeError("provider down")
-        agent.model = type("M", (), {"forward": staticmethod(boom)})()
-        assert agent._force_answer(model="x", max_tokens=10, temperature=0.0, free=True) is None
+        client = type("M", (), {"forward": staticmethod(boom)})()
+        assert agent._force_answer(client=client, short="openrouter", model="x",
+                                   max_tokens=10, temperature=0.0, free=True) is None
 
     def test_plan_with_finish(self):
         agent = self._make_agent()
@@ -1152,6 +1405,7 @@ class TestMod:
         mod.tools = Tools(path=TOOLS_PATH)
         mod.toolboxes = Toolboxes(tools=mod.tools)
         mod._snapped = []
+        mod.memories = Memories()
         mod.memory = Memory()
         mod.memory.clear()
         mod.model = None
@@ -1280,6 +1534,7 @@ class TestGate:
         mod.tools = Tools(path=TOOLS_PATH)
         mod.toolboxes = Toolboxes(tools=mod.tools)
         mod._snapped = []
+        mod.memories = Memories()
         mod.memory = Memory()
         mod.memory.clear()
         mod.model = None
@@ -1407,10 +1662,14 @@ class TestGate:
     # ── _run: prompt override + memory note injection ────────────────
 
     def _capture_run(self, mod):
-        """Stub mod.run to record the active goal and forwarded kwargs."""
+        """Stub mod.run to record the run's goal and forwarded kwargs.
+
+        The goal reaches the loop as a run argument, not by assignment on the
+        module: one Mod serves every caller, so a persona swapped onto the
+        object would outlive the run that asked for it."""
         captured = {}
         def fake_run(**kw):
-            captured['goal'] = mod.goal
+            captured['goal'] = kw.get('goal') or mod.goal
             captured['kwargs'] = kw
             return []
         mod.run = fake_run
@@ -1422,7 +1681,7 @@ class TestGate:
         captured = self._capture_run(mod)
         mod._run(query="hi", prompt="You are a haiku bot.")
         assert captured['goal'] == "You are a haiku bot."
-        # goal restored after the run
+        # …and the module's own prompt was never touched
         assert mod.goal == Agent.goal
 
     def test_run_prompt_beats_agent_goal(self):
@@ -1481,9 +1740,11 @@ class TestImageAttachments:
         a = self._agent()
         a.model = object()
         a._provider = 'venice'
+        # a run resolves its own client per provider (Agent._client)
+        a._clients, a._client_why = {'venice': object()}, {}
         a._images = ['stale']
         a.tool_schema = lambda *_a, **_k: {}
-        a.memory = type('M', (), {'compile': lambda self, q: None})()
+        a.memory = type('M', (), {'compile': lambda self, q, **kw: None})()
         # the loop never starts: init_memory bails, so this exercises exactly
         # the normalization + the note the model is told about
         captured = {}
@@ -2180,7 +2441,9 @@ class TestVaultRemember:
 
 class TestToolboxes:
     @pytest.fixture
-    def boxes(self, builtin, tmpdir):
+    def boxes(self, tools, tmpdir):
+        # the `tools` fixture, not the module-level fixture *function* — a box
+        # validates its members against a live registry
         from src.toolbox.mod import Toolboxes
         return Toolboxes(tools=tools, path=os.path.join(tmpdir, "toolboxes.json"))
 
@@ -2431,6 +2694,98 @@ class TestMemorySubsystem:
         agent.memory = Memory(dir=tmpdir)
         agent._emit_step({"tool": "bash", "params": {"command": "ls"}, "result": "ok"})
         assert agent.memory.episodes(1)[0]["tool"] == "bash"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  DIALOGUE LAYER (what the user and the agent said to each other)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestDialogueMemory:
+    """The memory module is where a conversation is stored and read back.
+
+    Each console run is its own conversation, so continuity between them is
+    this layer or nothing — and the scoping is the whole safety story: two
+    visitors on one host must never be reminded of each other's chats.
+    """
+
+    @pytest.fixture
+    def mem(self, tmpdir):
+        return Memory(dir=tmpdir)
+
+    def test_an_exchange_is_recorded_and_read_back(self, mem):
+        mem.exchange("what port?", "8412", session="s1", who="0xabc", agent="default")
+        turn = mem.exchanges(5, who="0xabc")[-1]
+        assert turn["query"] == "what port?" and turn["answer"] == "8412"
+        assert turn["agent"] == "default"
+
+    def test_it_survives_a_restart(self, mem, tmpdir):
+        mem.exchange("what port?", "8412", session="s1", who="0xabc")
+        assert Memory(dir=tmpdir).exchanges(5, who="0xabc")[-1]["answer"] == "8412"
+
+    def test_long_turns_are_clipped(self, mem):
+        mem.exchange("q" * 9000, "a" * 9000, session="s1")
+        turn = mem.exchanges(1, session="s1")[-1]
+        assert len(turn["query"]) <= Memory.MAX_TURN
+        assert len(turn["answer"]) <= Memory.MAX_TURN
+
+    def test_a_signed_in_caller_is_remembered_across_conversations(self, mem):
+        mem.exchange("my port is 8412", "noted", session="chat-1", who="0xabc")
+        block = mem.compile("what was my port?", session="chat-2", who="0xabc")
+        assert "8412" in block
+
+    def test_one_visitor_never_reads_another(self, mem):
+        mem.exchange("my secret is hunter2", "noted", session="s1", who="0xabc")
+        assert "hunter2" not in mem.compile("secret?", session="s2", who="0xdef")
+        # anonymous: their own session only, and nothing a signed-in caller said
+        assert "hunter2" not in mem.compile("secret?", session="s1")
+
+    def test_an_anonymous_session_still_has_continuity(self, mem):
+        mem.exchange("my port is 8412", "noted", session="s1")
+        assert "8412" in mem.compile("what port?", session="s1")
+
+    def test_older_turns_come_back_by_keyword(self, mem):
+        mem.exchange("the relay listens on 8412", "noted", session="s1", who="0xabc")
+        for i in range(5):
+            mem.exchange(f"unrelated question {i}", f"unrelated answer {i}",
+                         session="s1", who="0xabc")
+        block = mem.compile("remind me about the relay", session="s1", who="0xabc")
+        assert "RELATED PAST TURNS" in block and "8412" in block
+
+    def test_nothing_said_compiles_to_nothing(self, mem):
+        assert mem.compile("anything?", session="s-empty") == ""
+
+    def test_forward_speaks_the_layer(self, mem):
+        mem.forward("exchange", query="q", answer="a", session="s1", who="0xabc")
+        assert mem.forward("exchanges", n=5, who="0xabc")[-1]["answer"] == "a"
+        assert mem.forward("status")["exchanges"] >= 1
+
+
+class TestRunRemembersTheConversation:
+    """The run loop's half of it: a session makes a run a remembered turn."""
+
+    def test_a_finished_run_leaves_one_exchange(self, tmpdir):
+        from src.mod import Mod
+        mod = Mod()
+        mod.memory = Memory(dir=tmpdir)
+        history = [[{"tool": "read", "params": {}},
+                    {"tool": "finish", "params": {"summary": "the port is 8412"}}]]
+        mod._remember_exchange("what port?", history, session="s1", who="0xabc")
+        assert mod.memory.exchanges(1, who="0xabc")[-1]["answer"] == "the port is 8412"
+
+    def test_the_answer_is_the_last_thing_the_user_read(self, tmpdir):
+        from src.mod import Mod
+        assert Mod._answer_text([[{"tool": "finish", "params": {"summary": "first"}}],
+                                 [{"tool": "response", "result": "last"}]]) == "last"
+        # a blank finish is not an answer — the run has to have said something
+        assert Mod._answer_text([[{"tool": "finish", "params": {"summary": "  "}}]]) == ""
+
+    def test_a_run_that_never_answered_is_not_a_turn(self, tmpdir):
+        from src.mod import Mod
+        mod = Mod()
+        mod.memory = Memory(dir=tmpdir)
+        mod._remember_exchange("q", [[{"tool": "error", "params": {}, "error": "boom"}]],
+                               session="s1", who="0xabc")
+        assert mod.memory.exchanges(5, who="0xabc") == []
 
 
 class TestToolboxMemoryApi:
@@ -2868,6 +3223,9 @@ class TestTreasury:
         # a model that keeps calling a tool — only the budget can end this run
         agent.model = type('M', (), {'forward': staticmethod(
             lambda *a, **k: '<STEP>{"tool": "think", "params": {"thought": "hm"}}</STEP>')})()
+        # the loop takes its client from the per-provider cache, not .model
+        agent._clients = {Agent.PROVIDERS['openrouter']: agent.model}
+        agent._client_why = {}
         seen = []
         def budget(cost):
             seen.append(cost)
@@ -2885,6 +3243,97 @@ class TestTreasury:
         book = Credits(str(tmpdir), deposit_address=self.OWNER).treasury()
         assert book["deposits"] == 10.0 and book["fees"] == 0.05
         assert book["topups"]["venice"] == 2.0
+
+
+class TestTopupVerification:
+    """A top-up is read back off the provider key, not typed from memory.
+
+    Neither provider sells credits over an API, so the purchase happens on
+    their page; what the module can do is see it land and book exactly that.
+    """
+
+    ADDR = "0xAbC0000000000000000000000000000000000aBc"
+    OWNER = "0x7d7c323496eD80E16d47b036607c586fB33dd123"
+
+    @pytest.fixture
+    def credits(self, tmpdir):
+        from src.credits import Credits
+        return Credits(str(tmpdir), deposit_address=self.OWNER)
+
+    def test_first_sight_of_a_key_books_nothing(self, credits):
+        """Credits bought before we ever looked aren't ours to claim."""
+        out = credits.verify_topup("openrouter", {"purchased": 477.0, "balance": -0.15})
+        assert out["booked"] == 0.0 and out["mark"] == 477.0
+        assert credits.treasury()["topups"].get("openrouter", 0) == 0
+
+    def test_a_purchase_on_the_key_is_booked_exactly(self, credits):
+        credits.verify_topup("openrouter", {"purchased": 477.0})
+        out = credits.verify_topup("openrouter", {"purchased": 527.0, "balance": 49.85})
+        assert out["booked"] == 50.0 and out["pending"] == 0.0
+        book = credits.treasury()
+        assert book["topups"]["openrouter"] == 50.0
+        entry = book["ledger"][0]
+        assert entry["verified"] and entry["amount"] == 50.0
+        assert "477.0 \u2192 527.0" in entry["ref"]
+
+    def test_the_same_purchase_is_never_booked_twice(self, credits):
+        credits.verify_topup("openrouter", {"purchased": 477.0})
+        credits.verify_topup("openrouter", {"purchased": 527.0})
+        again = credits.verify_topup("openrouter", {"purchased": 527.0})
+        assert again["booked"] == 0.0 and "nothing new" in again["reason"]
+        assert credits.treasury()["topups"]["openrouter"] == 50.0
+
+    def test_usage_alone_is_not_a_top_up(self, credits):
+        """OpenRouter's meter counts credits bought, so spending can't move it."""
+        credits.verify_topup("openrouter", {"purchased": 477.0, "balance": 20.0})
+        out = credits.verify_topup("openrouter", {"purchased": 477.0, "balance": 3.0})
+        assert out["booked"] == 0.0
+
+    def test_treasury_surfaces_a_purchase_waiting_to_be_booked(self, credits):
+        credits.treasury({"openrouter": {"purchased": 477.0, "balance": 0.0}})
+        book = credits.treasury({"openrouter": {"purchased": 502.0, "balance": 25.0}})
+        assert book["topup_pending"] == 25.0
+        top = book["providers"]["openrouter"]["topup"]
+        assert top["pending"] == 25.0 and top["exact"] is True
+        assert top["url"] == "https://openrouter.ai/settings/credits"
+
+    def test_venice_mark_follows_the_balance_down(self, credits):
+        """Venice reports only what is left, so the mark trails spending —
+        otherwise a top-up after a spend would be booked short."""
+        credits.treasury({"venice": {"balance": 10.0}})
+        credits.treasury({"venice": {"balance": 4.0}})       # spent 6
+        out = credits.verify_topup("venice", {"balance": 24.0})
+        assert out["booked"] == 20.0 and out["exact"] is False
+
+    def test_a_hand_logged_topup_is_not_booked_again_on_verify(self, credits):
+        credits.treasury({"openrouter": {"purchased": 100.0, "balance": 0.0}})
+        credits.record_topup("openrouter", 25, ref="receipt-1")
+        out = credits.verify_topup("openrouter", {"purchased": 125.0, "balance": 25.0})
+        assert out["booked"] == 0.0
+        assert credits.treasury()["topups"]["openrouter"] == 25.0
+
+    def test_an_unreadable_key_books_nothing_and_says_why(self, credits):
+        out = credits.verify_topup("openrouter", {"error": "no API key configured"})
+        assert out["booked"] == 0.0 and out["reason"] == "no API key configured"
+
+    def test_the_module_reads_the_purchase_off_its_own_key(self, tmpdir):
+        """End to end through the mod: balance() -> meter -> booked top-up."""
+        from src.mod import Mod
+        from src.credits import Credits
+        mod = Mod.__new__(Mod)
+        mod._owner = None                     # no owner set: is_owner passes
+        mod.credits = Credits(str(tmpdir))
+        # the key as it stands: 477 bought, all of it spent
+        mod.balance = lambda provider='openrouter': {'balance': -0.15, 'total_credits': 477.0}
+        assert mod.credit_topup_verify('openrouter')['booked'] == 0.0
+        # ...and after $25 is bought on openrouter.ai
+        mod.balance = lambda provider='openrouter': {'balance': 24.85, 'total_credits': 502.0}
+        out = mod.credit_topup_verify('openrouter')
+        assert out['booked'] == 25.0 and out['balance'] == 24.85
+
+    def test_unknown_provider_is_rejected(self, credits):
+        with pytest.raises(ValueError, match="unknown provider"):
+            credits.verify_topup("anthropic", {"balance": 5.0})
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -3315,6 +3764,10 @@ class TestHarnessGate:
         mod = Mod.__new__(Mod)
         mod.agents = Agents()
         mod.harness = Harness()
+        # a native run swaps in the agent's own memory module and back out,
+        # so even this thin stub carries the memory component
+        mod.memories = Memories()
+        mod.memory = Memory()
         mod.is_owner = lambda key=None: is_owner
         mod.allowed_paths_for = lambda key=None: None
         mod.library = None
@@ -3329,8 +3782,17 @@ class TestHarnessGate:
 
     def test_guest_is_refused(self):
         mod = self._mod(False)
-        with pytest.raises(PermissionError, match="owner only"):
+        with pytest.raises(PermissionError, match="owner-only"):
             mod._run(agent_type="claude-code", query="hi", key="0xguest")
+
+    def test_refusal_names_the_agent_that_was_picked(self):
+        """Not the harness behind it — the console reads this back to the
+        visitor as "X runs on the host's own machine", and X has to be the
+        thing they clicked. 'buildmod' is a name they never chose."""
+        mod = self._mod(False)
+        with pytest.raises(PermissionError) as e:
+            mod._run(agent_type="claude-code", query="hi", key="0xguest")
+        assert "'claude-code' hands the run to the claude CLI" in str(e.value)
 
     def test_owner_reaches_the_runner(self, monkeypatch):
         mod = self._mod(True)
@@ -3483,6 +3945,341 @@ class TestBrowserBridge:
 
     def test_delivering_to_nobody_says_so(self):
         assert self._bridge().deliver("gone", text="x")["delivered"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  THE PROMPT, AND THE CALLS THAT COME BACK
+# ═══════════════════════════════════════════════════════════════════════
+
+SCHEMAS = {
+    'bash': {'description': 'Run shell commands and return output',
+             'params': {'command': {'type': 'str', 'required': True},
+                        'cwd': {'type': 'str', 'required': False}}},
+    'read': {'description': 'Read file contents. Slices by line.',
+             'params': {'file_path': {'type': "<class 'str'>", 'required': True},
+                        'offset': {'type': 'int', 'required': False}}},
+    'write': {'description': 'Write content to file_path',
+              'params': {'file_path': {'type': 'str', 'required': True},
+                         'content': {'type': 'str', 'required': True}}},
+    'think': {'description': 'Think it through',
+              'params': {'thought': {'type': 'str', 'required': True}}},
+}
+
+
+class TestPromptRender:
+    """Working memory as text a model can read — not a Python dict repr."""
+
+    def _state(self, **kw):
+        from src.mod import Agent
+        state = {'goal': 'be useful', 'output_format': Agent.output_format,
+                 'query': 'fix the bug', 'tools': SCHEMAS, 'path': '/tmp/w',
+                 'steps': 10, 'step': 0}
+        state.update(kw)
+        return state
+
+    def test_sections_not_a_dict_repr(self):
+        from src.prompt import render
+        text = render(self._state())
+        assert "# TASK\nfix the bug" in text
+        assert '# TOOLS' in text and '# YOUR NEXT STEP' in text
+        assert "{'query':" not in text and "<class 'str'>" not in text
+
+    def test_a_tool_reads_as_a_signature(self):
+        from src.prompt import render
+        text = render(self._state())
+        assert 'read(file_path:str, offset?:int)' in text
+        assert 'finish(summary:str)' in text
+
+    def test_history_is_trimmed_oldest_first(self):
+        from src.prompt import render
+        history = [[{'tool': 'bash', 'params': {'command': f'echo {i}'},
+                     'result': 'x' * 4000}] for i in range(30)]
+        text = render(self._state(history=history), compact=True)
+        assert 'earlier step(s) trimmed' in text
+        assert len(text) < 12000                     # not 30 × 4000 chars
+        assert 'echo 29' in text                     # the newest survives whole
+
+    def test_the_loops_note_on_a_step_survives(self):
+        from src.prompt import render
+        history = [[{'tool': 'read', 'params': {}, 'result': 'ok',
+                     'note': 'you already ran this'}]]
+        assert 'you already ran this' in render(self._state(history=history))
+
+    def test_the_last_step_says_so(self):
+        from src.prompt import render
+        assert 'last chance' in render(self._state(step=9, steps=10))
+        assert 'last chance' not in render(self._state(step=0, steps=10))
+
+    def test_compact_carries_a_worked_example(self):
+        from src.prompt import render
+        assert '"command": "ls -la"' in render(self._state(), compact=True)
+        assert '"command": "ls -la"' not in render(self._state())
+
+    def test_answer_mode_drops_the_tools_and_the_format(self):
+        from src.prompt import render
+        text = render(self._state(), answer=True)
+        assert '# TOOLS (' not in text          # no list to call from
+        assert '<STEP>{' not in text            # and no format to call in
+        assert 'WRITE THE ANSWER' in text
+        assert 'fix the bug' in text          # the task is still the task
+
+    def test_unplaced_context_still_reaches_the_model(self):
+        from src.prompt import render
+        assert 'a note the caller attached' in render(
+            self._state(notes='a note the caller attached'))
+        assert 'fork(x)' in render(self._state(**{'fork(x)': 'some files'}))
+
+
+class TestStepParsing:
+    """A tool call written in any harness's dialect is still a tool call."""
+
+    def _parse(self, text):
+        from src.steps import parse
+        return parse(text, schemas=SCHEMAS)
+
+    @pytest.mark.parametrize("text,expected", [
+        ('<STEP>{"tool": "bash", "params": {"command": "ls"}}</STEP>',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('<tool_call>{"name": "bash", "arguments": {"command": "ls"}}</tool_call>',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('sure!\n```json\n{"tool": "bash", "params": {"command": "ls"}}\n```',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('<|tool_call_start|>[bash(command="ls")]<|tool_call_end|>',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('{"function": {"name": "bash", "arguments": "{\\"command\\": \\"ls\\"}"}}',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('{"bash": {"command": "ls"}}',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ("{'tool': 'bash', 'params': {'command': 'ls'}}",
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('TOOL: bash\nPARAMS: {"command": "ls"}',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+    ])
+    def test_every_dialect_lands_on_the_same_call(self, text, expected):
+        assert self._parse(text) == [expected]
+
+    def test_another_harnesses_tool_names_are_mapped(self):
+        assert self._parse('{"tool": "read_file", "params": {"path": "/tmp/a"}}') == \
+            [{'tool': 'read', 'params': {'file_path': '/tmp/a'}}]
+        assert self._parse('{"name": "run_command", "arguments": {"cmd": "ls"}}') == \
+            [{'tool': 'bash', 'params': {'command': 'ls'}}]
+
+    def test_a_lone_argument_lands_on_the_required_param(self):
+        assert self._parse('bash("ls -la")') == \
+            [{'tool': 'bash', 'params': {'command': 'ls -la'}}]
+        assert self._parse('{"tool": "think", "params": "hmm"}') == \
+            [{'tool': 'think', 'params': {'thought': 'hmm'}}]
+
+    def test_one_unknown_argument_on_one_empty_slot_is_that_slot(self):
+        assert self._parse('{"tool": "write", "params": {"file_path": "/a", "text": "hi"}}') == \
+            [{'tool': 'write', 'params': {'file_path': '/a', 'content': 'hi'}}]
+
+    def test_prose_is_not_a_tool_call(self):
+        assert self._parse('I looked at the files and they seem fine.') == []
+        assert self._parse('the config is {"debug": true} by default') == []
+
+    def test_a_call_beats_the_json_quoted_beside_it(self):
+        text = ('here is the format: {"tool": "write", "params": {}}\n'
+                '<STEP>{"tool": "bash", "params": {"command": "ls"}}</STEP>')
+        assert self._parse(text) == [{'tool': 'bash', 'params': {'command': 'ls'}}]
+
+    def test_the_call_after_the_thinking_wins(self):
+        text = ('<think>I could read(file_path="a") but the user wants a list'
+                '</think>[bash(command="ls")]')
+        assert self._parse(text) == [{'tool': 'bash', 'params': {'command': 'ls'}}]
+
+    def test_an_unknown_tool_resolves_to_nothing(self):
+        from src.steps import resolve_name
+        assert resolve_name('frobnicate', list(SCHEMAS)) is None
+        assert resolve_name('finish', list(SCHEMAS)) == 'finish'
+
+
+class TestLoopReadsAnyDialect:
+    """The same tolerance, wired into the loop the console runs."""
+
+    def _agent(self):
+        from src.mod import Agent
+        agent = Agent.__new__(Agent)
+        agent.memory = Memory()
+        agent.memory.clear()
+        agent.memory.add('tools', SCHEMAS)
+        agent.tools = Tools(path=TOOLS_PATH)
+        agent.anchors = Agent.anchors
+        agent._on_step = None
+        return agent
+
+    def test_an_anchored_call_in_another_dialect_is_repaired(self):
+        agent = self._agent()
+        step = agent._step_from_json('{"tool": "read_file", "params": {"path": "/tmp/a"}}')
+        assert step == {'tool': 'read', 'params': {'file_path': '/tmp/a'}}
+
+    def test_a_call_with_no_anchors_at_all_still_runs(self, tmpdir):
+        agent = self._agent()
+        target = os.path.join(tmpdir, 'a.txt')
+        Path(target).write_text('hello')
+        plan = agent.plan(f'<tool_call>{{"name": "read", '
+                          f'"arguments": {{"file_path": "{target}"}}}}</tool_call>')
+        assert plan[0]['tool'] == 'read'
+        assert 'hello' in str(plan[0].get('result'))
+
+    def test_prose_is_still_the_answer(self):
+        agent = self._agent()
+        plan = agent.plan('There are three files in that directory.')
+        assert plan[0]['tool'] == 'response'
+        assert plan[0]['result'] == 'There are three files in that directory.'
+
+    def test_the_scratchpad_never_reaches_the_user(self):
+        agent = self._agent()
+        plan = agent.plan('<think>hmm, what do they want</think>Three files.')
+        assert plan[0]['result'] == 'Three files.'
+
+
+class TestCirclingGuard:
+    """A read-only call already made is answered from the trail, not re-run."""
+
+    def _agent(self):
+        from src.mod import Agent
+        agent = Agent.__new__(Agent)
+        agent.memory = Memory()
+        agent.memory.clear()
+        agent.tools = Tools(path=TOOLS_PATH)
+        agent._on_step = None
+        agent._allowed_paths = None
+        agent._failed_calls, agent._done_calls = {}, {}
+        return agent
+
+    def test_the_second_identical_read_comes_from_the_first(self, tmpdir):
+        agent = self._agent()
+        target = os.path.join(tmpdir, 'a.txt')
+        Path(target).write_text('one')
+        first = agent.run_plan([{'tool': 'read', 'params': {'file_path': target}}])
+        Path(target).write_text('two')          # changed behind the agent's back
+        again = agent.run_plan([{'tool': 'read', 'params': {'file_path': target}}])
+        assert again[0]['repeat'] and 'already ran' in again[0]['note']
+        assert again[0]['result'] == first[0]['result']
+        assert 'Do NOT call it again' in str(agent.memory.get('hint'))
+
+    def test_a_relative_path_means_the_runs_directory(self, tmpdir):
+        agent = self._agent()
+        agent._path = str(tmpdir)
+        Path(os.path.join(tmpdir, 'a.txt')).write_text('the right file')
+        plan = agent.run_plan([{'tool': 'read', 'params': {'file_path': 'a.txt'}}])
+        assert 'the right file' in str(plan[0]['result'])
+
+    def test_an_omitted_path_means_the_runs_directory_too(self, tmpdir):
+        agent = self._agent()
+        agent._path = str(tmpdir)
+        agent.memory.add('tools', agent.tools.schema(['tree']))
+        Path(os.path.join(tmpdir, 'only-here.txt')).write_text('x')
+        plan = agent.run_plan([{'tool': 'tree', 'params': {}}])
+        assert 'only-here.txt' in str(plan[0]['result'])
+
+    def test_an_absolute_path_is_left_alone(self, tmpdir):
+        agent = self._agent()
+        agent._path = '/nowhere'
+        target = os.path.join(tmpdir, 'b.txt')
+        Path(target).write_text('absolute')
+        plan = agent.run_plan([{'tool': 'read', 'params': {'file_path': target}}])
+        assert 'absolute' in str(plan[0]['result'])
+
+    def test_a_write_invalidates_what_was_cached(self, tmpdir):
+        agent = self._agent()
+        target = os.path.join(tmpdir, 'a.txt')
+        Path(target).write_text('one')
+        agent.run_plan([{'tool': 'read', 'params': {'file_path': target}}])
+        agent.run_plan([{'tool': 'write', 'params': {'file_path': target,
+                                                     'content': 'two'}}])
+        again = agent.run_plan([{'tool': 'read', 'params': {'file_path': target}}])
+        assert not again[0].get('repeat')
+        assert 'two' in str(again[0]['result'])
+
+
+class TestLocalFirstDefault:
+    """Nobody pays for a run they didn't ask to pay for."""
+
+    def _mod(self):
+        from src.mod import Mod
+        return Mod()
+
+    def test_the_default_provider_is_a_local_one(self, monkeypatch):
+        mod = self._mod()
+        monkeypatch.setattr(mod, 'provider_models',
+                            lambda p: ['LiquidAI/LFM2.5-1.2B-Instruct']
+                            if p == 'liquidai' else [])
+        mod._default_provider = None
+        assert mod.default_provider() == 'liquidai'
+        assert mod.is_free_provider(mod.default_provider())
+
+    def test_it_falls_back_when_nothing_local_is_serving(self, monkeypatch):
+        mod = self._mod()
+        monkeypatch.setattr(mod, 'provider_models', lambda p: [])
+        monkeypatch.setattr(mod, 'key_info',
+                            lambda p, **k: {'configured': p == 'venice'})
+        mod._default_provider = None
+        assert mod.default_provider() == 'venice'
+
+    def test_a_personas_prompt_does_not_outlive_its_run(self):
+        """One Mod serves every caller: a swapped-in prompt that stuck was
+        answering later strangers' questions as somebody else's agent."""
+        from src.mod import Agent
+        mod = self._mod()
+        seen = {}
+        mod.run = lambda **kw: seen.update(kw) or []
+        mod._run(query='hi', prompt='You are a haiku bot.')
+        assert seen['goal'] == 'You are a haiku bot.'
+        assert mod.goal == Agent.goal
+        assert 'haiku' not in mod.context()
+
+    def test_a_runs_memory_module_is_its_own(self):
+        mod = self._mod()
+        default = mod.memory
+        ephemeral = mod.memories.make('ephemeral')
+        mod._bind_memory(ephemeral)
+        assert mod.memory is ephemeral
+        mod._unbind_memory()
+        assert mod.memory is default
+
+    def test_two_runs_at_once_do_not_share_a_scratchpad(self):
+        """One Mod serves the whole host. Two runs writing one working memory
+        compiled each other's prompts — the console asking about a file got an
+        arena match's task, tools and history, and answered that instead."""
+        import threading
+        mod = self._mod()
+        prompts, ready = {}, threading.Barrier(2)
+
+        def run(name):
+            mod._bind_memory()
+            try:
+                mod.init_memory(query=f'question from {name}', tools={})
+                ready.wait(timeout=5)          # …now interleave
+                prompts[name] = mod.context()
+            finally:
+                mod._unbind_memory()
+
+        threads = [threading.Thread(target=run, args=(n,)) for n in ('a', 'b')]
+        [t.start() for t in threads]
+        [t.join(10) for t in threads]
+        assert 'question from a' in prompts['a'] and 'question from b' not in prompts['a']
+        assert 'question from b' in prompts['b'] and 'question from a' not in prompts['b']
+
+    def test_one_runs_context_never_reaches_the_next(self):
+        """Working memory is a scratchpad on a process-wide singleton."""
+        mod = self._mod()
+        mod.init_memory(query='first', tools={}, notes='a note only run one had')
+        mod.memory.add('hint', 'something the first run was told')
+        mod.init_memory(query='second', tools={})
+        text = mod.context()
+        assert 'second' in text
+        assert 'a note only run one had' not in text and 'was told' not in text
+
+    def test_a_small_model_gets_the_compact_prompt(self):
+        mod = self._mod()
+        assert mod.compact_prompt('liquidai', 'LiquidAI/LFM2.5-1.2B-Instruct')
+        assert mod.compact_prompt('openrouter', 'qwen/qwen3-4b')
+        # …and a big model is not mistaken for one by the digits in its name
+        assert not mod.compact_prompt('openrouter', 'anthropic/claude-opus-5')
+        assert not mod.compact_prompt('venice', 'llama-3.3-70b')
+        assert not mod.compact_prompt('openrouter', 'google/gemma-4-31b')
 
 
 if __name__ == "__main__":

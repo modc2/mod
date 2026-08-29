@@ -6,16 +6,18 @@
     "anchor": "mod.py",
     "protocol": "wasmland/1.0",
     "port": 50480,
-    "app_port": 50480,
+    "app_port": 50481,
     "gateway_port": 50480,
     "base_path": "/wasmland",
     "route": true,
     "urls": {
         "api": "http://localhost:50480",
-        "app": "http://localhost:50480/wasmland",
-        "same_origin_api": "http://localhost:50480/wasmland/_api"
+        "app": "http://localhost:50481/wasmland",
+        "same_origin_api": "http://localhost:50481/wasmland/_api",
+        "gateway_api": "https://modc2.com/api/wasmland",
+        "gateway_app": "https://modc2.com/wasmland"
     },
-    "backend": "src/api/api.py (FastAPI \u2014 one process serves the API and the console)",
+    "backend": "src/api/api.py (FastAPI \u2014 the API, :50480)",
     "runtime": "src/runtime (the execution layer \u2014 one implementation, imported by the browser Worker and the node runner alike)",
     "state": "the store mod (~/.mod/store/wasmland and the shared blobs/ prefix); ~/.mod/wasmland holds only the HMAC secret and the owner claim",
     "venues": [
@@ -70,7 +72,7 @@
         "games": "GET /games",
         "auth": "POST /auth/challenge | POST /auth/verify | GET /auth/me",
         "runtime": "GET /runtime/{file}.mjs",
-        "console": "GET /wasmland"
+        "console": "GET /wasmland (app service)"
     },
     "fns": [
         "forward",
@@ -100,8 +102,14 @@
         "signin",
         "app",
         "serve",
+        "restart",
         "kill",
         "test"
     ],
-    "schema": "QmSdNkajv4bKeoLFM9rnGr9WKFUBVrgGYzoHzTkaCh2kde"
+    "schema": "QmSdNkajv4bKeoLFM9rnGr9WKFUBVrgGYzoHzTkaCh2kde",
+    "frontend": "src/app/server.py (stdlib \u2014 the console at /wasmland on :50481; proxies /wasmland/_api to the API)",
+    "services": [
+        "wasmland-api",
+        "wasmland-app"
+    ]
 }

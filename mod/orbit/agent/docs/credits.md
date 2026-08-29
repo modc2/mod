@@ -71,11 +71,40 @@ closes the run gate again (`is_allowed`).
 | `provider_cost` | the part of that owed to the providers |
 | `fees` / `fees_available` | our margin, earned / not yet withdrawn |
 | `topups` / `topups_total` | API credits bought at each provider |
+| `topup_pending` | bought on a key but not booked yet — confirm it |
 | `float` | cash held that isn't deployed or taken |
 | `user_credits` | unspent guest credits — the liability |
 | `funding_required` | that liability at cost (credits ÷ 1 + fee_rate) |
 | `provider_balance` | live balance across the provider keys |
 | **`topup_needed`** | `funding_required − provider_balance` — send this now |
+
+## Topping up a provider key
+
+Neither provider sells credits over an API. OpenRouter's Coinbase endpoint
+(`POST /api/v1/credits/coinbase`) was removed and answers **410 Gone** —
+"use the web credits purchase flow instead" — and Venice never had one. So
+the purchase itself is always a trip to the provider's page:
+
+| provider | buy credits at | what the module can read |
+| --- | --- | --- |
+| openrouter | `openrouter.ai/settings/credits` | `total_credits` — credits ever bought on the key, so a rise in it **is** the purchase, exactly |
+| venice | `venice.ai/settings/api` | the USD balance only — a rise above the last mark is a purchase, but spending moves it too |
+
+The console closes that loop instead of asking for a typed amount. The
+treasury panel's **Top up a provider key** row opens the provider's page and
+then watches the key: every eight seconds it re-reads the meter, and the
+moment the money lands it books exactly what arrived
+(`ledger` entry, `verified: true`, `ref: purchased 477.0 → 527.0`).
+
+`mark` is the meter as of the last booked top-up. For OpenRouter it only
+moves when a top-up is booked. For Venice the mark follows the balance
+*down* as the key is spent, so a purchase after a spend is still booked at
+full size — and only the rise above the mark counts. A hand-logged top-up
+walks the mark past its own amount, so the same money is never booked twice.
+
+```bash
+m agent/credit_verify provider=openrouter     # book what landed on the key
+```
 
 ## Endpoints
 
@@ -85,14 +114,15 @@ POST /credits/deposit         verify a tx hash, credit the on-chain sender
 POST /credits/grant           owner: adjust an account (± amount)
 GET  /credits/treasury?live=  owner: the books above (live= skips provider calls)
 POST /credits/topup           owner: record credits bought {provider, amount, ref}
+POST /credits/topup/verify    owner: book what landed on a key {provider}
 POST /credits/withdraw        owner: take earned margin out {amount}
 POST /credits/config          owner: {fee_rate, price_per_step, cost_multiplier,
                                       deposit_address}
 ```
 
 The same actions exist on the mod protocol: `agent treasury`,
-`agent credit_topup provider=openrouter amount=25`, `agent credit_config
-fee_rate=0.1`.
+`agent credit_topup provider=openrouter amount=25`, `agent credit_verify
+provider=openrouter`, `agent credit_config fee_rate=0.1`.
 
 ## Tailoring the margin
 

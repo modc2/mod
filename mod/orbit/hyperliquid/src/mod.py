@@ -98,6 +98,8 @@ class Hyperliquid(m.Mod):
         "update_isolated_margin", "schedule_cancel", "action",
         # transfers / bridging
         "usd_class_transfer", "withdraw", "usd_send", "spot_send",
+        # cross-chain deposit rails
+        "deposit_chains", "deposit_balances", "deposit_quote", "deposit_status",
         # referrer
         "set_referrer",
         # live copy-trade engine
@@ -488,6 +490,38 @@ class Hyperliquid(m.Mod):
         if nonce is not None: body["nonce"] = nonce
         return self._post(f"/indexes/{index_id}/vault/intent", body)
 
+    # ── cross-chain deposit rails ──
+
+    def deposit_chains(self) -> Any:
+        """Source chains and the tokens each one can be funded from."""
+        return self._get("/deposit/chains")
+
+    def deposit_balances(self, eoa: str) -> Any:
+        """Every spendable balance this address holds across those chains."""
+        return self._get("/deposit/balances", eoa=eoa)
+
+    def deposit_quote(self, from_chain_id: int, token: str, amount: str, eoa: str,
+                      to_chain_id: Optional[int] = None,
+                      to_address: Optional[str] = None) -> Any:
+        """A route into Hyperliquid, with the transaction for the wallet to sign.
+
+        `token` is "usdc", "native", a symbol, or a token address. Leaving
+        `to_chain_id` unset routes straight into the Hyperliquid perps
+        account; set it to bridge Arbitrum USDC back out to another chain.
+        """
+        body: Dict[str, Any] = {"from_chain_id": from_chain_id, "token": token,
+                                "amount": str(amount), "eoa": eoa}
+        if to_chain_id is not None: body["to_chain_id"] = to_chain_id
+        if to_address is not None: body["to_address"] = to_address
+        return self._post("/deposit/quote", body)
+
+    def deposit_status(self, tx_hash: str, from_chain_id: int,
+                       to_chain_id: Optional[int] = None) -> Any:
+        """Where a submitted deposit is — by its source-chain transaction hash."""
+        params: Dict[str, Any] = {"tx_hash": tx_hash, "from_chain_id": from_chain_id}
+        if to_chain_id is not None: params["to_chain_id"] = to_chain_id
+        return self._get("/deposit/status", **params)
+
     # ── market / wallet data passthroughs ──
 
     def mids(self) -> Any: return self._get("/mids")
@@ -712,7 +746,8 @@ class Hyperliquid(m.Mod):
             return text
 
     def mcp_config(self) -> Dict[str, Any]:
-        """Client config snippets for registering this server (stdio + HTTP)."""
+        """Client config snippets for registering this server — one per
+        transport, so a client connects with whatever it already speaks."""
         binary = self._api_binary() or os.path.join(
             API_DIR, "target", "release", "hyperliquid-api")
         return {
@@ -727,9 +762,17 @@ class Hyperliquid(m.Mod):
                 "url": f"{self.api_url}/mcp",
                 "headers": {"Authorization": "Bearer <mod protocol token>"},
             },
+            # The 2024-11-05 HTTP+SSE transport: GET /sse names the endpoint
+            # to POST messages to. For clients that predate streamable HTTP.
+            "sse": {
+                "type": "sse",
+                "url": f"{self.api_url}/sse",
+                "headers": {"Authorization": "Bearer <mod protocol token>"},
+            },
             # Same server through the public gateway (mod protocol URL shape).
             "gateway": {"type": "http", "url": "/api/hyperliquid/mcp"},
-            "add_cmd": f"claude mcp add hyperliquid -- {binary} --stdio",
+            "add_cmd": f"claude mcp add --transport http hyperliquid {self.api_url}/mcp",
+            "add_cmd_stdio": f"claude mcp add hyperliquid -- {binary} --stdio",
         }
 
     # ── Agent (see agent.py) — asks/acts through the MCP server above ──

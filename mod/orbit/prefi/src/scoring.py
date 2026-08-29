@@ -60,10 +60,13 @@ DEFAULT_PARAMS = {
     'multiplier': 3.0,      # payout = burn × multiplier × score
     'horizon': 86400,       # default seconds until resolution (1 day)
     'min_burn': 1.0,        # smallest PREFI burn accepted
+    'free_per_day': 3,      # free calls an address may place per 24h (0 = off)
+    'free_payout': 1.0,     # PREFI a *perfect* free call mints; scaled by score
 }
 
 MIN_HORIZON = 3600          # 1 hour
 MAX_HORIZON = 2592000       # 30 days
+FREE_WINDOW = 86400         # rolling window the free allowance is counted over
 
 
 def describe_models() -> Dict[str, str]:
@@ -94,6 +97,14 @@ def validate(params: Dict) -> Dict:
     merged['min_burn'] = float(merged['min_burn'])
     if merged['min_burn'] < 0:
         raise ValueError('min_burn must be >= 0')
+
+    merged['free_per_day'] = int(merged['free_per_day'])
+    if merged['free_per_day'] < 0:
+        raise ValueError('free_per_day must be >= 0')
+
+    merged['free_payout'] = float(merged['free_payout'])
+    if merged['free_payout'] < 0:
+        raise ValueError('free_payout must be >= 0')
 
     return merged
 
@@ -128,3 +139,11 @@ def payout(burn: float, score_value: float, params: Dict = None) -> float:
     `multiplier`× the burn; a total miss returns nothing and the burn is gone."""
     p = validate(params or {})
     return round(burn * p['multiplier'] * score_value, 6)
+
+
+def free_mint(score_value: float, params: Dict = None) -> float:
+    """PREFI minted for a *free* call — there is no burn to scale, so the whole
+    payout is `free_payout` × score. It is the only way into the token for
+    someone who holds none: risk nothing, and accuracy still pays."""
+    p = validate(params or {})
+    return round(p['free_payout'] * score_value, 6)

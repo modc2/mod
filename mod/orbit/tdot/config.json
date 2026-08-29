@@ -1,7 +1,7 @@
 {
     "name": "tdot",
     "version": "2.1.0",
-    "description": "An open-source browser GIS for Toronto \u2014 police-reported crime by neighbourhood, the full open housing record (rental buildings, community and subsidized housing, health and fire violations, the development pipeline, census dwelling values), TTC networks, cycling, green spaces and boundaries, as toggleable MapLibre layers. Includes a model that predicts a building's RentSafeTO inspection score from open data and maps which buildings score worse than their peers. Every source is public, key-free open data.",
+    "description": "An open-source browser GIS for Toronto \u2014 police-reported crime by neighbourhood, the full open housing record (rental buildings, community and subsidized housing, health and fire violations, the development pipeline, census dwelling values), TTC networks, cycling, green spaces and boundaries, as toggleable MapLibre layers. Includes a model that predicts a building's RentSafeTO inspection score from open data and maps which buildings score worse than their peers, ten themes that repaint the map itself and not just the console, and an MCP server (stdio + streamable HTTP) publishing all 17 map tools so any MCP client can drive the live map. Every source is public, key-free open data.",
     "anchor": "mod.py",
     "network": "testnet",
     "port": 50320,
@@ -43,6 +43,7 @@
         "building",
         "districts",
         "district",
+        "mcp",
         "serve",
         "serve_api",
         "serve_app",
@@ -51,5 +52,5 @@
         "deregister"
     ],
     "key": "tdot",
-    "schema": "QmTesiTY7SoZkuudZn48onykxSG7hCzRapVguKMs3GYUAQ"
+    "schema": "QmUuVqbTbvw5YiAzr3cfeaQPj5u1gk9ANkfTkVms4k6FJd"
 }

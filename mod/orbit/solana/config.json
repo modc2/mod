@@ -133,5 +133,5 @@
         "SOLANA_KEY_DIR": "keystore directory (default ~/.mod/solana)",
         "SOLANA_CACHE_TTL": "seconds prices are cached (default 30)"
     },
-    "schema": "QmYRzALRnyMxcZvsNDbprAKM52ALMuL1cgGtrofbGuu8Gv"
+    "schema": "QmVKDq8qbSTFCsVY5dwRutjjjhZJc2XAQikuGuLkwE4g4L"
 }

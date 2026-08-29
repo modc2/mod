@@ -176,6 +176,41 @@ fn hidden_in(recs: Vec<PrivacyRecord>, caller: &str) -> std::collections::HashSe
         .collect()
 }
 
+/// Does the fleet's router still publish this module at {host}/{name}?
+///
+/// Privacy hides a module from this console; the ROUTER is a separate
+/// program (orbit/caddy) with its own generated config. It now skips
+/// build-private modules when it regenerates, but an include written before
+/// the flip keeps serving until someone re-applies it — so the console says
+/// so out loud instead of implying a takedown it did not perform.
+///
+/// Returns (opted_in, currently_routed).
+pub fn public_route(module: &str) -> (bool, bool) {
+    let opted_in = module_root_for(module)
+        .map(|root| root.join("config.json"))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|cfg| cfg.get("route").and_then(|v| v.as_bool()))
+        .unwrap_or(false);
+
+    let caddyfile = std::env::var("MOD_CADDYFILE").unwrap_or_else(|_| "/etc/caddy/Caddyfile".into());
+    let include = Path::new(&caddyfile)
+        .parent()
+        .unwrap_or_else(|| Path::new("/etc/caddy"))
+        .join("mod_site.caddy");
+    let routed = std::fs::read_to_string(include)
+        .map(|text| {
+            let app = format!("@{module}_app ");
+            let api = format!("@{module}_api ");
+            text.lines().any(|l| {
+                let l = l.trim_start();
+                l.starts_with(&app) || l.starts_with(&api)
+            })
+        })
+        .unwrap_or(false);
+    (opted_in, routed)
+}
+
 /// The module a job worked in, when it was a fleet module at all. Job rows
 /// name their module only through `work_dir`.
 pub fn module_of_work_dir(work_dir: &str) -> Option<String> {

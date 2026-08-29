@@ -108,16 +108,17 @@ mark form with another layer (see the colour notes in `app/src/lib/palette.ts`).
 A layer that deserves a hand-written inspector body gets a case in
 `app/src/app/components/Inspector.tsx` and an entry in its `KNOWN` list.
 
-Give it a colour in **both** tables in `palette.ts` — `mapPalette(base)` returns
-the dark or the light one, and a layer missing from the light table falls back
-to the generic point colour on every light theme.
+Give it a colour in **both** tables in `palette.ts` — `mapPalette(base, theme)`
+starts from the dark or the light one, and a layer missing from the light table
+falls back to the generic point colour on every light theme.
 
 ## Themes
 
 Ten themes, picked from the header and saved to `localStorage` as `tdot_theme`.
 A theme is an entry in `THEMES` (`app/src/lib/theme.ts`), a `[data-theme="id"]`
-token block in `globals.css`, and its id in the blocking script in `layout.tsx`
-that applies the saved theme before first paint. Adding one means all three.
+token block in `globals.css`, a `THEME_RAMPS` pair in `palette.ts`, and its id in
+the blocking script in `layout.tsx` that applies the saved theme before first
+paint. Adding one means all four.
 
 - Chrome holds **no literal colours** — components use the token classes from
   `tailwind.config.ts` (`text-ink`, `bg-fill`, `border-line`, `bg-accent`) and
@@ -125,8 +126,28 @@ that applies the saved theme before first paint. Adding one means all three.
 - A theme's `base` (dark/light) lands on the document as `data-base` and picks
   the *map* palette, not just the chrome: sequential and heat ramps have to run
   away from the surface, so each surface has its own table in `palette.ts`.
+- A theme also owns its **magnitude ramps**, so it repaints the map and not only
+  the panels. What it may recolour is scoped: sequential ramps yes; diverging,
+  status, category and TTC line colours no — those carry meaning or identity,
+  and a skin must not change what the map says.
+- Take the palette from `usePalette()`, never `mapPalette(base)` — the surface
+  alone can't say which of the ten themes is on, and two themes can share a
+  surface without sharing ramps. Anything keyed on `base` will fail to repaint
+  when you switch GLASS → MATRIX.
 - A theme's `basemap` is applied on every theme change; the Dark/Light/Streets
   buttons override by hand until the next change.
+
+## MCP
+
+`tdotgis/mcp_server.py` is the whole protocol, and `rpc(msg) -> reply | None` is
+transport-free. The stdio loop and the `POST /mcp` route in `api/api.py` are both
+thin wrappers over it — add a transport by wrapping `rpc`, never by
+reimplementing the dispatch.
+
+Tools come from `tdotgis/tools.py`; adding one there publishes it to the agent,
+the MCP server and the console's **MCP** panel at once, because all three read
+the same registry. A tool that moves the map sets `drives_map` and returns its
+action under `__map__`.
 
 ## Tests
 

@@ -126,7 +126,7 @@ export class ModHtmlAdapter {
   /**
    * Adapt an entire module config into a universal HTML representation.
    */
-  static adapt(config: ModConfig, apiUrl: string = "http://localhost:8894"): AdaptedModule {
+  static adapt(config: ModConfig, apiUrl: string = "http://localhost:8890"): AdaptedModule {
     const forms = ModProtocol.configToHtml(config);
     const tables: Record<string, TableSchema> = {};
     const nav: Array<{ fn: string; label: string; category: string }> = [];

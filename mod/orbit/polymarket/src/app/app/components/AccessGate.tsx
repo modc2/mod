@@ -169,10 +169,11 @@ export default function AccessGate({ children }: { children: React.ReactNode }) 
           </div>
         ) : (
           <div className="px-5 py-5 space-y-4">
-            <p className="text-[12.5px] leading-5 text-pixel-gray-light">
-              Sign-in requires reading and cryptographically accepting the Terms
-              of Use below. Your wallet signature embeds the hash of this exact
-              text and is recorded as proof of acceptance.
+            {/* One line at the card's width — the hash/acceptance detail it
+                used to carry lives in the fine print under the terms well. */}
+            <p className="text-[13px] leading-5 text-pixel-gray-light">
+              Sign-in requires reading and cryptographically accepting these
+              Terms of Use.
             </p>
 
             {/* Terms well — the document is short by design, so it grows to

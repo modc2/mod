@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { keyTypeInfo, type WalletType } from "../utils/keytypes";
 import { ethers } from "ethers";
 import { switchNetwork, getExplorerUrl } from "../utils/wallet";
 import AddressChip from "./AddressChip";
@@ -34,7 +35,7 @@ export interface CreditsData {
 interface CreditsCardProps {
   data: CreditsData | null;
   address: string;
-  walletType: "metamask" | "subwallet" | "local" | "password" | null;
+  walletType: WalletType;
   /** Re-fetch GET /credits — the page owns the authed fetch. */
   onRefresh: () => void | Promise<void>;
   accent?: string;
@@ -60,6 +61,13 @@ async function getSigner(
   address: string,
   rpc: string,
 ): Promise<ethers.Signer> {
+  if (walletType === "phantom" || walletType === "polkadot") {
+    // Credits are an EVM ERC20 purchase; an ed25519/sr25519 key has no
+    // account on that chain to sign it with.
+    throw new Error(
+      "credits are bought on an EVM chain — sign in with an EVM key to top up",
+    );
+  }
   if (walletType === "metamask" || walletType === "subwallet") {
     const injected = (window as any).ethereum;
     if (!injected) throw new Error("no wallet extension found");
@@ -107,7 +115,10 @@ export default function CreditsCard({
     [stables, token],
   );
   const live = !!(chain?.enabled && chain.market && chain.rpc);
-  const canSign = !!walletType && !!address && address !== "local";
+  // Top-ups are EVM transactions, so only a secp256k1 identity can make one.
+  const canSign =
+    !!walletType && !!address && address !== "local" &&
+    keyTypeInfo(address, walletType)?.id === "secp256k1";
   const dollars = Number(amount);
   const validAmount = Number.isFinite(dollars) && dollars > 0;
 

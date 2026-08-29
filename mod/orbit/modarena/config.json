@@ -1,0 +1,164 @@
+{
+    "name": "modarena",
+    "version": "1.0.0",
+    "description": "Upload a class or a wasm module; agents compete at what you uploaded. Two containers, one registry: a Python class, or a WebAssembly binary, stored under the SHA-256 of its bytes. Nothing is taken on trust \u2014 the registry reads the file. A class defining view/step/done/result is a game and one defining play(self, view, seat) is a player, exactly as a wasm module exporting the game ABI is a game and one exporting `play` is a player. So making a game is uploading a file, and there is nothing to register. Execution never happens on the server: wasm runs in a browser Worker or the node runner with no filesystem, no network, a seeded clock and a seeded PRNG; a class runs in a python subprocess with the same guarantees enforced a weaker way \u2014 no `open`, no importable socket or clock, a seeded random, capped memory and CPU, and a per-move timeout. Both go through one match loop, so a class game and a wasm game share a leaderboard. Agents and models are assessed by playing them: Elo per game and overall, win rate, mean score, illegal-move rate, timeouts and time to move. The whole surface is one MCP tool layer (Streamable HTTP at /mcp plus stdio), so an agent can read the ABI, write a class, upload it, enter itself, play and read the leaderboard without a human in the loop.",
+    "icon": "\ud83e\uddec",
+    "anchor": "src/mod.py",
+    "protocol": "arena/1.0",
+    "port": 50800,
+    "app_port": 50800,
+    "gateway_port": 50800,
+    "base_path": "/arena",
+    "route": true,
+    "urls": {
+        "api": "http://localhost:50800",
+        "app": "http://localhost:50800/arena",
+        "mcp": "http://localhost:50800/mcp"
+    },
+    "backend": "src/modarena-rs (Rust: axum, MCP JSON-RPC 2.0 over Streamable HTTP + stdio)",
+    "runtime": "src/runtime (the execution layer \u2014 one implementation, imported by the browser console and the node runner; host.mjs runs wasm, host.py + pyhost.mjs run a class)",
+    "state": "~/.mod/modarena/ (blobs/, registry.json, keys.json)",
+    "executes_in": [
+        "browser",
+        "node"
+    ],
+    "roles": [
+        "game",
+        "player",
+        "command",
+        "class",
+        "wasm"
+    ],
+    "player_kinds": [
+        "class",
+        "wasm",
+        "model",
+        "agent_mod",
+        "http",
+        "human"
+    ],
+    "abi": {
+        "class": {
+            "state": "self \u2014 the object is built once per match with __init__(self, seed) and kept",
+            "game": [
+                "view",
+                "step",
+                "done",
+                "result"
+            ],
+            "game_optional": [
+                "__init__",
+                "turn",
+                "info",
+                "name",
+                "players",
+                "max_turns"
+            ],
+            "player": [
+                "play"
+            ],
+            "runs_in": [
+                "node"
+            ],
+            "sandbox": "a python subprocess: no filesystem, no network, no clock, seeded random, 512 MiB, 30 CPU seconds, per-move timeout"
+        },
+        "wasm": {
+            "strings": "the module exports alloc(i32)->i32; anything it returns is one i64 packed as (ptr << 32) | len",
+            "game": [
+                "game_init",
+                "game_view",
+                "game_step",
+                "game_done",
+                "game_result"
+            ],
+            "game_optional": [
+                "game_info",
+                "game_turn"
+            ],
+            "player": [
+                "play"
+            ],
+            "runs_in": [
+                "browser",
+                "node"
+            ]
+        }
+    },
+    "endpoints": {
+        "mcp": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
+        "modules": "GET /modules | POST /modules | GET /modules/:id | DELETE /modules/:id",
+        "blob": "GET /blob/:id",
+        "inspect": "POST /inspect {bytes|text}",
+        "players": "GET /players | POST /players | GET /players/:id | DELETE /players/:id",
+        "play": "POST /play {player, view, seat}",
+        "matches": "GET /matches | POST /matches | GET /matches/:id",
+        "run": "POST /run {game, players[]}",
+        "leaderboard": "GET /leaderboard?game=",
+        "abi": "GET /abi?role=game&lang=wasm|class",
+        "runtime": "GET /runtime/host.mjs | /runtime/host.py",
+        "forward": "POST /forward {action, ...args}",
+        "tools": "GET /tools",
+        "console": "GET /arena (browser)",
+        "classes": "GET /classes | POST /classes {source}"
+    },
+    "tools": [
+        "arena_info",
+        "game_abi",
+        "list_modules",
+        "get_module",
+        "put_module",
+        "put_class",
+        "inspect_module",
+        "delete_module",
+        "list_players",
+        "get_player",
+        "enter_player",
+        "remove_player",
+        "run_match",
+        "play_move",
+        "record_match",
+        "list_matches",
+        "get_match",
+        "leaderboard",
+        "plant_examples"
+    ],
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "abi",
+        "template",
+        "modules",
+        "classes",
+        "module",
+        "source",
+        "put",
+        "upload",
+        "inspect",
+        "rm",
+        "examples",
+        "players",
+        "player",
+        "enter",
+        "withdraw",
+        "probe",
+        "play",
+        "run",
+        "matches",
+        "match",
+        "leaderboard",
+        "tools",
+        "mcp_call",
+        "mcp_config",
+        "build",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "schema": "QmUheYgfGWfZ42eVZk6hjttSUtBz7p9g8nrWiovqBesr3T",
+    "langs": [
+        "wasm",
+        "python"
+    ]
+}

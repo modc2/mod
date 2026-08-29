@@ -319,3 +319,8 @@ Thumbs.db
 **/_serve.sh
 
 mod/mods/ipfs-service
+
+# stale Next build snapshots kept beside .next/
+.next.prev/
+.next.old/
+.next-old/

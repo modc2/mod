@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en" data-theme="castle">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wingman — a folder of photos in, a profile out</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<style>
+  /* ── THE CABINET ──────────────────────────────────────────────────────
+     Same cabinet as the rest of the fleet: pixel font for chrome, a plain
+     monospace for anything a person has to read at length. No glyphs —
+     this box has no emoji font — so every marker is a CSS box.
+     ─────────────────────────────────────────────────────────────────── */
+  :root{
+    --edge:#000;
+    --gold:#fcbc3c; --gold-hi:#fcd85c; --gold-lo:#e39b00; --gold-ink:#5c2c00;
+    --bg:#0b0b0d; --bg2:#121215; --panel:#17171b; --panel2:#26262c; --well:#050507;
+    --ink:#f2f2f4; --dim:#a9a9b4; --faint:#6c6c78;
+    --hot:#58d854; --warn:#fcd000; --bad:#e52521; --badv:#ff8878; --accent:#3cbcfc;
+    --btn1:#2e2e36; --btn2:#1c1c22; --btn1h:#3a3a44; --btn2h:#24242c;
+    --rule:#202026; --sel:#2a2410;
+    --px:'Press Start 2P',ui-monospace,Menlo,monospace;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  [data-theme=night]{--bg:#04050f;--bg2:#080a20;--panel:#0a0c22;--panel2:#141a3a;--well:#01020a;
+    --btn1:#1a2350;--btn2:#0e1330;--btn1h:#243070;--btn2h:#141a44;--rule:#0e1330}
+  [data-theme=rose]{--gold:#ff6f9c;--gold-hi:#ffa3c0;--gold-lo:#c0345f;--gold-ink:#3a0014;
+    --bg:#0f070a;--bg2:#170a10;--panel:#1c0d14;--panel2:#2c1520;--well:#080306;--rule:#241018}
+  [data-theme=gameboy]{--gold:#8bac0f;--gold-hi:#9bbc0f;--gold-lo:#5a8a30;--gold-ink:#0f380f;
+    --bg:#0f380f;--bg2:#123c12;--panel:#143d14;--panel2:#1e4d1e;--well:#0a2a0a;--ink:#c6d840;
+    --dim:#9bbc0f;--faint:#5a8a30;--btn1:#1e4d1e;--btn2:#143d14;--rule:#1e4d1e}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.55 var(--mono)}
+  a{color:var(--gold)}
+  body:before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,.06) 0 1px,transparent 1px 3px)}
+  header{display:flex;align-items:center;gap:14px;padding:14px 18px;flex-wrap:wrap;
+    background:linear-gradient(180deg,var(--bg2),var(--bg));border-bottom:4px solid var(--edge)}
+  .logo{display:flex;align-items:center;gap:10px}
+  .logo .mark{width:26px;height:26px;background:var(--gold);border:3px solid var(--edge);
+    box-shadow:inset -4px -4px 0 var(--gold-lo),inset 4px 4px 0 var(--gold-hi);position:relative}
+  .logo .mark:after{content:'';position:absolute;left:4px;top:4px;width:12px;height:12px;
+    background:var(--gold-ink)}
+  .logo h1{margin:0;font:16px var(--px);color:var(--gold);letter-spacing:0;
+    text-shadow:3px 3px 0 var(--edge)}
+  .tag{font:8px/1.6 var(--px);color:var(--dim)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .chip{border:2px solid var(--edge);background:var(--panel);padding:5px 8px;
+    font:8px/1.4 var(--px);color:var(--dim);white-space:nowrap;
+    box-shadow:inset 0 2px 0 rgba(255,255,255,.10)}
+  .chip:before{content:'';display:inline-block;width:8px;height:11px;margin-right:7px;
+    background:var(--gold);vertical-align:-2px;box-shadow:inset -2px -2px 0 var(--gold-lo)}
+  .chip b{color:var(--ink);font-weight:400}
+  .chip.hot b{color:var(--hot)} .chip.warn b{color:var(--warn)} .chip.bad b{color:var(--bad)}
+  nav{display:flex;gap:6px;padding:10px 18px;flex-wrap:wrap;background:var(--bg2);
+    border-bottom:4px solid var(--edge)}
+  nav button,.btn{background:linear-gradient(180deg,var(--btn1),var(--btn2));color:var(--dim);
+    border:3px solid var(--edge);font:9px var(--px);padding:9px 12px;cursor:pointer;
+    box-shadow:0 3px 0 var(--edge),inset 0 2px 0 rgba(255,255,255,.12);text-transform:uppercase}
+  nav button:hover,.btn:hover{color:var(--ink);background:linear-gradient(180deg,var(--btn1h),var(--btn2h))}
+  nav button.on,.btn.gold{color:var(--gold-ink);
+    background:linear-gradient(180deg,var(--gold-hi),var(--gold-lo))}
+  nav button:active,.btn:active{transform:translateY(3px);box-shadow:0 0 0 var(--edge)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.sm{font-size:7px;padding:6px 8px}
+  main{padding:18px;max-width:1280px}
+  section{display:none} section.on{display:block}
+  .panel{border:3px solid var(--edge);background:var(--panel);padding:14px;margin-bottom:14px;
+    box-shadow:4px 4px 0 var(--edge)}
+  .panel h2{margin:0 0 6px;font:9px var(--px);color:var(--gold);text-transform:uppercase}
+  .panel p.note{color:var(--dim);margin:4px 0 12px;max-width:100ch}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  select,input[type=text],input[type=number]{background:var(--well);color:var(--ink);
+    border:3px solid var(--edge);font:12px var(--mono);padding:6px 8px;
+    box-shadow:inset 3px 3px 0 rgba(0,0,0,.5)}
+  .drop{border:3px dashed var(--faint);padding:24px;text-align:center;color:var(--dim);
+    cursor:pointer;background:var(--well);margin-top:10px}
+  .drop:hover,.drop.hot{border-color:var(--gold);color:var(--ink)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:12px}
+  .card{border:3px solid var(--edge);background:var(--well);box-shadow:3px 3px 0 var(--edge);
+    position:relative}
+  .card .im{position:relative;width:100%;aspect-ratio:4/5;overflow:hidden;background:#000}
+  .card .im img{width:100%;height:100%;object-fit:contain;display:block}
+  .card.lead{outline:3px solid var(--gold)}
+  .fbox{position:absolute;border:2px solid var(--hot);box-shadow:0 0 0 1px #000}
+  .fbox.dim{border-color:var(--warn)}
+  .card .meta{padding:8px;font-size:11px;color:var(--dim);border-top:3px solid var(--edge);
+    background:var(--panel)}
+  .card .meta b{color:var(--ink);font-weight:400}
+  .card .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .badge{display:inline-block;font:7px var(--px);padding:4px 6px;border:2px solid var(--edge);
+    background:var(--panel2);color:var(--dim);margin:2px 3px 2px 0;text-transform:uppercase}
+  .badge.ok{color:var(--hot)} .badge.warn{color:var(--warn)} .badge.bad{color:var(--badv)}
+  .badge.gold{color:var(--gold-ink);background:var(--gold)}
+  .score{display:inline-block;height:10px;width:80px;border:2px solid var(--edge);
+    background:var(--well);vertical-align:middle;margin-right:6px}
+  .score i{display:block;height:100%;background:var(--hot)}
+  .score.warn i{background:var(--warn)} .score.bad i{background:var(--bad)}
+  table{width:100%;border-collapse:collapse;margin-top:10px}
+  th{text-align:left;font:7px var(--px);color:var(--dim);padding:8px 6px;
+    border-bottom:3px solid var(--edge);text-transform:uppercase}
+  td{padding:8px 6px;border-bottom:2px solid var(--rule);vertical-align:top;font-size:12px}
+  tr:hover td{background:var(--panel2)}
+  td img{width:56px;height:70px;object-fit:cover;border:2px solid var(--edge);background:#000}
+  .issue{display:block;color:var(--dim);font-size:11px}
+  .issue.bad{color:var(--badv)} .issue.warn{color:var(--warn)} .issue.info{color:var(--faint)}
+  .banner{border:3px solid var(--edge);padding:10px 12px;margin:10px 0;background:var(--sel);
+    color:var(--warn);box-shadow:3px 3px 0 var(--edge)}
+  .banner.ok{color:var(--hot);background:#0d1c17}
+  .banner.bad{color:var(--badv);background:#1c0d0d}
+  pre{background:var(--well);border:3px solid var(--edge);padding:10px;overflow:auto;
+    max-height:360px;color:var(--dim);font-size:11px}
+  .dim{color:var(--dim)} .faint{color:var(--faint)} .gold{color:var(--gold)}
+  .hot{color:var(--hot)} .warn{color:var(--warn)} .bad{color:var(--badv)}
+  .slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:10px}
+  .slot .num{position:absolute;left:-3px;top:-3px;font:9px var(--px);background:var(--gold);
+    color:var(--gold-ink);padding:6px 8px;border:3px solid var(--edge);z-index:2}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#000}
+  .pair img{width:100%;display:block;object-fit:contain;aspect-ratio:4/5;background:#000}
+  #status{font:8px var(--px);color:var(--gold);padding:8px 18px;min-height:30px}
+  .theme{display:flex;gap:3px;border:2px solid var(--edge);padding:3px;background:var(--panel)}
+  .theme i{width:14px;height:14px;display:block;cursor:pointer;border:2px solid transparent}
+  .theme i.on{border-color:var(--ink)}
+  @media(max-width:700px){.pair{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><div class="mark"></div><h1>WINGMAN</h1></div>
+  <span class="tag">a folder of photos in — a profile out. measured, cropped, cleaned, never retouched.</span>
+  <span style="flex:1"></span>
+  <div class="chips">
+    <span class="chip" id="c-set"><b>no set</b></span>
+    <span class="chip" id="c-photos"><b>0</b>&nbsp;photos</span>
+    <span class="chip" id="c-det"><b>…</b></span>
+    <span class="chip hot"><b>local only</b>&nbsp;nothing uploaded</span>
+    <span class="chip"><b>12</b>&nbsp;mcp tools</span>
+    <span class="theme" id="theme">
+      <i data-t="castle" style="background:#fcbc3c"></i>
+      <i data-t="night" style="background:#2038ec"></i>
+      <i data-t="rose" style="background:#ff6f9c"></i>
+      <i data-t="gameboy" style="background:#8bac0f"></i>
+    </span>
+  </div>
+</header>
+
+<nav>
+  <button class="on" data-tab="photos">photos</button>
+  <button data-tab="audit">audit</button>
+  <button data-tab="lineup">lineup</button>
+  <button data-tab="render">render</button>
+  <button data-tab="export">export</button>
+  <button data-tab="mcp">mcp</button>
+</nav>
+<div id="status"></div>
+
+<main>
+<section class="on" id="photos">
+  <div class="panel">
+    <h2>the set</h2>
+    <p class="note">A set is a folder of candidates. Its id is unguessable and is the only
+      handle to the photos — the URL <em>is</em> the key, so share it like a password.</p>
+    <div class="row">
+      <select id="set-pick"><option value="">— pick a set —</option></select>
+      <input type="text" id="set-id" placeholder="or paste a set id" size="20">
+      <button class="btn sm" id="set-open">open</button>
+      <input type="text" id="set-name" placeholder="name for a new set" size="18">
+      <button class="btn sm gold" id="set-new">new set</button>
+      <button class="btn sm" id="set-del">delete set</button>
+    </div>
+    <div class="drop" id="drop">choose photos — or drop them here (jpg, png, webp; heic if the codec is installed)
+      <input type="file" id="file" accept="image/*,.heic,.heif" multiple hidden></div>
+    <div class="row" style="margin-top:10px">
+      <input type="text" id="add-dir" placeholder="or a directory on this box: ~/Pictures/me" size="34">
+      <button class="btn sm" id="add-dir-btn">add directory</button>
+      <input type="text" id="add-url" placeholder="or an image URL" size="30">
+      <button class="btn sm" id="add-url-btn">add url</button>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>photos <span class="dim" id="photos-n"></span></h2>
+    <p class="note">Face boxes appear once a photo is audited: green is the detector's box,
+      yellow means it was uncertain — check it before trusting the crop.</p>
+    <div class="grid" id="photo-grid"><span class="faint">no set open</span></div>
+  </div>
+</section>
+
+<section id="audit">
+  <div class="panel">
+    <h2>audit</h2>
+    <p class="note">Everything a program can check about a profile photo, and nothing it
+      cannot. Each issue costs points and says why; <b>bad</b> disqualifies a photo from
+      leading. Expression, eye contact, outfit and setting are not scored — no number here
+      claims to know them.</p>
+    <div class="row">
+      <button class="btn gold" id="audit-run">audit all</button>
+      <button class="btn" id="audit-force">re-measure</button>
+      <span class="dim" id="audit-sum"></span>
+    </div>
+    <div id="audit-out"></div>
+  </div>
+</section>
+
+<section id="lineup">
+  <div class="panel">
+    <h2>lineup</h2>
+    <p class="note">The best N in the order they should go up. A sharp, lit solo face leads
+      (12–55% of the frame); then variety — portrait, full-body, headshot, a wider shot;
+      near-duplicates collapse to the sharper one; a group shot goes after slot 3 and at most
+      once. <b>gaps</b> is the honest part: what the set lacks that no edit adds.</p>
+    <div class="row">
+      <label class="dim">slots <select id="lu-n"><option>4</option><option>5</option><option selected>6</option><option>7</option><option>8</option><option>9</option></select></label>
+      <label class="dim">min score <input type="number" id="lu-min" value="35" min="0" max="100" style="width:70px"></label>
+      <label class="dim"><input type="checkbox" id="lu-group" checked> allow one group shot</label>
+      <button class="btn gold" id="lu-run">build lineup</button>
+    </div>
+    <div id="lu-out"></div>
+  </div>
+</section>
+
+<section id="render">
+  <div class="panel">
+    <h2>render</h2>
+    <p class="note">A face-aware crop to the app's card ratio — eyes about 40% down, headroom
+      kept, re-centred when there is room — resized to the card, then a gentle polish:
+      autocontrast, an exposure lift only when the frame is dark, a hair of colour, a light
+      sharpen. The JPEG is written with no EXIF, no GPS, no colour profile, no thumbnail.
+      No skin is smoothed and no background is replaced.</p>
+    <div class="row">
+      <label class="dim">preset <select id="r-preset"></select></label>
+      <label class="dim">zoom <select id="r-zoom"><option value="auto">auto — frame the face</option><option value="none">none — largest crop</option><option value="1.2">1.2x</option><option value="1.5">1.5x</option></select></label>
+      <label class="dim">polish <select id="r-polish"><option value="auto">auto</option><option value="none">none</option></select></label>
+      <button class="btn gold" id="r-lineup">render lineup</button>
+      <button class="btn" id="r-all">render all</button>
+      <button class="btn" id="r-force">re-render</button>
+    </div>
+    <div id="r-note" class="dim" style="margin-top:8px"></div>
+    <div class="grid" id="r-out"></div>
+  </div>
+</section>
+
+<section id="export">
+  <div class="panel">
+    <h2>export</h2>
+    <p class="note">Lineup → renders for one app → a zip in slot order (<code>01-…</code>,
+      <code>02-…</code>) with <code>report.json</code> explaining every choice. Upload them in
+      that order.</p>
+    <div class="row">
+      <label class="dim">preset <select id="x-preset"></select></label>
+      <label class="dim">slots <select id="x-n"><option>4</option><option>5</option><option selected>6</option><option>7</option><option>8</option><option>9</option></select></label>
+      <button class="btn gold" id="x-run">export</button>
+    </div>
+    <div id="x-out"></div>
+  </div>
+</section>
+
+<section id="mcp">
+  <div class="panel">
+    <h2>mcp</h2>
+    <p class="note">Twelve tools on <code>POST /mcp</code>, the same handlers the buttons on
+      this page call. Point an agent at it and it can do everything here, including telling
+      you what the set is missing.</p>
+    <pre id="mcp-cfg"></pre>
+    <div id="mcp-tools"></div>
+  </div>
+  <div class="panel">
+    <h2>the guide</h2>
+    <pre id="guide"></pre>
+  </div>
+</section>
+</main>
+
+<script>
+const API = (location.pathname.replace(/\/$/,'') || '') + '/_api';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let SET = localStorage.getItem('wingman.set') || '';
+let TOKEN = localStorage.getItem('wingman.token') || '';
+let META = null, AUDIT = {}, PRESETS = {};
+
+function status(msg, cls) { const s = $('#status'); s.textContent = msg || ''; s.className = cls || ''; }
+async function api(path, opts = {}) {
+  const o = {...opts, headers: {...(opts.headers || {})}};
+  if (TOKEN) o.headers['x-wingman-token'] = TOKEN;
+  if (o.body && !(o.body instanceof FormData)) { o.headers['content-type'] = 'application/json'; o.body = JSON.stringify(o.body); }
+  const r = await fetch(API + path, o);
+  const j = await r.json().catch(() => ({error: r.statusText}));
+  if (!r.ok || j.error) throw new Error(j.error || r.statusText);
+  return j;
+}
+const imgUrl = (pid, preset, w) => `${API}/img/${SET}/${pid}` + (preset ? `/${preset}` : `?w=${w || 480}`);
+
+// ── chrome ──
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+  ({audit: showAudit, render: showRenders, mcp: mcpTab}[b.dataset.tab] || (() => {}))();
+});
+document.querySelectorAll('#theme i').forEach(i => i.onclick = () => {
+  document.documentElement.dataset.theme = i.dataset.t; localStorage.setItem('wingman.theme', i.dataset.t);
+  document.querySelectorAll('#theme i').forEach(x => x.classList.toggle('on', x === i));
+});
+{ const t = localStorage.getItem('wingman.theme') || 'castle'; document.documentElement.dataset.theme = t;
+  document.querySelectorAll('#theme i').forEach(x => x.classList.toggle('on', x.dataset.t === t)); }
+
+// ── sets ──
+async function boot() {
+  try { const h = await api('/health');
+    $('#c-det').innerHTML = `<b>${esc(h.detector.name)}</b>`; $('#c-det').className = 'chip ' + (h.detector.ok ? 'hot' : 'warn');
+    PRESETS = h.presets ? Object.fromEntries(h.presets.map(p => [p, p])) : {};
+  } catch (e) { status('api unreachable: ' + e.message, 'bad'); }
+  try { const p = await api('/presets'); PRESETS = p.presets;
+    for (const id of ['#r-preset', '#x-preset']) $(id).innerHTML = Object.entries(PRESETS).map(([k, v]) =>
+      `<option value="${k}">${k} ${v.ratio[0]}:${v.ratio[1]}</option>`).join('');
+  } catch (e) {}
+  if (!TOKEN) { try { TOKEN = (await api('/token')).token; localStorage.setItem('wingman.token', TOKEN); } catch (e) {} }
+  await listSets();
+  if (SET) openSet(SET);
+}
+async function listSets() {
+  try { const r = await api('/sets');
+    $('#set-pick').innerHTML = '<option value="">— pick a set —</option>' + r.sets.map(s =>
+      `<option value="${s.id}" ${s.id === SET ? 'selected' : ''}>${esc(s.name)} · ${s.photos} photos</option>`).join('');
+  } catch (e) { $('#set-pick').innerHTML = '<option value="">(list needs loopback or token)</option>'; }
+}
+$('#set-pick').onchange = e => e.target.value && openSet(e.target.value);
+$('#set-open').onclick = () => $('#set-id').value.trim() && openSet($('#set-id').value.trim());
+$('#set-new').onclick = async () => {
+  try { const s = await api('/sets', {method: 'POST', body: {name: $('#set-name').value || undefined}});
+    await listSets(); openSet(s.id); status('new set ' + s.id); } catch (e) { status(e.message, 'bad'); }
+};
+$('#set-del').onclick = async () => {
+  if (!SET || !confirm('delete this set and every photo, render and audit in it?')) return;
+  try { await api('/sets/' + SET, {method: 'DELETE'}); SET = ''; META = null; localStorage.removeItem('wingman.set');
+    await listSets(); renderGrid(); status('deleted'); } catch (e) { status(e.message, 'bad'); }
+};
+async function openSet(id) {
+  try { META = await api('/sets/' + id); SET = META.id; localStorage.setItem('wingman.set', SET);
+    AUDIT = {}; META.photos.forEach(p => { if (p.audit) AUDIT[p.id] = p.audit; });
+    $('#c-set').innerHTML = `<b>${esc(META.name)}</b>`; $('#set-id').value = SET;
+    $('#c-photos').innerHTML = `<b>${META.photos.length}</b>&nbsp;photos`;
+    renderGrid(); status(`set ${SET} · ${META.photos.length} photos`);
+  } catch (e) { status(e.message, 'bad'); }
+}
+function badgeFor(a) {
+  if (!a) return '<span class="badge">unaudited</span>';
+  const cls = a.score >= 60 ? 'ok' : a.score >= 35 ? 'warn' : 'bad';
+  return `<span class="badge ${a.lead_ok ? 'gold' : cls}">${a.lead_ok ? 'lead' : a.role}</span><span class="badge ${cls}">${a.score}</span>`;
+}
+function faceBoxes(p, a) {
+  if (!a || !a.faces || !a.faces.length) return '';
+  // the image is object-fit:contain inside a 4:5 box; compute the letterbox
+  const boxW = 1, boxH = 1.25, s = Math.min(boxW / p.w, boxH / p.h);
+  const ox = (boxW - p.w * s) / 2, oy = (boxH - p.h * s) / 2;
+  return a.faces.map(f => { const [x0, y0, x1, y1] = f.box;
+    return `<div class="fbox ${f.score < .85 ? 'dim' : ''}" style="left:${(ox + x0 * s) / boxW * 100}%;top:${(oy + y0 * s) / boxH * 100}%;width:${(x1 - x0) * s / boxW * 100}%;height:${(y1 - y0) * s / boxH * 100}%"></div>`; }).join('');
+}
+function renderGrid() {
+  const g = $('#photo-grid');
+  if (!META) { g.innerHTML = '<span class="faint">no set open</span>'; $('#photos-n').textContent = ''; return; }
+  $('#photos-n').textContent = `· ${META.photos.length}`;
+  if (!META.photos.length) { g.innerHTML = '<span class="faint">empty — drop photos above</span>'; return; }
+  g.innerHTML = META.photos.map(p => { const a = AUDIT[p.id];
+    return `<div class="card ${a && a.lead_ok ? 'lead' : ''}">
+      <div class="im"><img src="${imgUrl(p.id)}" loading="lazy">${faceBoxes(p, a)}</div>
+      <div class="meta"><div class="name" title="${esc(p.name)}"><b>${esc(p.name)}</b></div>
+        <div>${p.w}×${p.h}${p.exif && p.exif.gps ? ' · <span class="warn">gps</span>' : ''}</div>
+        <div>${badgeFor(a)}</div>
+        ${a ? `<div class="faint">${esc(a.verdict)}</div>` : ''}
+        <div style="margin-top:6px"><button class="btn sm" data-rm="${p.id}">remove</button></div>
+      </div></div>`; }).join('');
+  g.querySelectorAll('[data-rm]').forEach(b => b.onclick = async () => {
+    try { await api(`/photos/${SET}/${b.dataset.rm}`, {method: 'DELETE'}); openSet(SET); } catch (e) { status(e.message, 'bad'); }
+  });
+}
+
+// ── upload ──
+const drop = $('#drop'), file = $('#file');
+drop.onclick = () => file.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('hot'); };
+drop.ondragleave = () => drop.classList.remove('hot');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('hot'); upload(e.dataTransfer.files); };
+file.onchange = () => upload(file.files);
+async function upload(files) {
+  if (!files.length) return;
+  const fd = new FormData();
+  if (SET) fd.append('set', SET);
+  for (const f of files) fd.append('files', f, f.name);
+  status(`uploading ${files.length}…`);
+  try { const r = await api('/photos', {method: 'POST', body: fd});
+    await listSets(); await openSet(r.set);
+    status(`added ${r.added.length}, skipped ${r.skipped.length}` + (r.skipped.length ? ' — ' + r.skipped.map(s => s.why).join('; ') : ''));
+  } catch (e) { status(e.message, 'bad'); }
+}
+$('#add-dir-btn').onclick = async () => { const d = $('#add-dir').value.trim(); if (!d) return;
+  try { const r = await api('/photos', {method: 'POST', body: {set: SET || undefined, dir: d}}); await listSets(); await openSet(r.set);
+    status(`added ${r.added.length} from ${d}` + (r.skipped.length ? `, skipped ${r.skipped.length}` : '')); } catch (e) { status(e.message, 'bad'); } };
+$('#add-url-btn').onclick = async () => { const u = $('#add-url').value.trim(); if (!u) return;
+  try { const r = await api('/photos', {method: 'POST', body: {set: SET || undefined, url: u}}); await listSets(); await openSet(r.set);
+    status(`added ${r.added.length}`); } catch (e) { status(e.message, 'bad'); } };
+
+// ── audit ──
+async function runAudit(force) {
+  if (!SET) return status('open a set first', 'bad');
+  status('measuring… faces, sharpness, exposure'); $('#audit-run').disabled = true;
+  try { const r = await api(`/audit?set=${SET}${force ? '&force=1' : ''}`);
+    r.photos.forEach(a => AUDIT[a.photo] = a); showAudit(r); renderGrid();
+    status(`audited ${r.photos.length} · ${r.lead_candidates} lead candidate(s) · detector ${r.detector}`);
+  } catch (e) { status(e.message, 'bad'); }
+  $('#audit-run').disabled = false;
+}
+$('#audit-run').onclick = () => runAudit(false);
+$('#audit-force').onclick = () => runAudit(true);
+function showAudit(r) {
+  const rows = r ? r.photos : Object.values(AUDIT).sort((a, b) => b.score - a.score);
+  if (!rows.length) { $('#audit-out').innerHTML = '<p class="faint">nothing audited yet</p>'; return; }
+  if (r) $('#audit-sum').textContent = Object.entries(r.roles).map(([k, v]) => `${v} ${k}`).join(' · ');
+  $('#audit-out').innerHTML = `<table><tr><th></th><th>photo</th><th>role</th><th>score</th><th>verdict</th><th>issues</th></tr>` +
+    rows.map(a => { const cls = a.score >= 60 ? '' : a.score >= 35 ? 'warn' : 'bad';
+      return `<tr><td><img src="${imgUrl(a.photo, null, 160)}"></td>
+        <td><b>${esc(a.name)}</b><br><span class="faint">${a.w}×${a.h} · ${a.face_count} face${a.face_count === 1 ? '' : 's'}${a.face_count ? ` · ${Math.round(a.face_fraction * 100)}% of frame` : ''} · sharp ${a.sharpness} · lum ${a.luminance}</span></td>
+        <td>${badgeFor(a)}</td>
+        <td><span class="score ${cls}"><i style="width:${a.score}%"></i></span>${a.score}</td>
+        <td class="${a.lead_ok ? 'gold' : 'dim'}">${esc(a.verdict)}</td>
+        <td>${a.issues.map(i => `<span class="issue ${i.severity}">${i.severity === 'bad' ? '■' : i.severity === 'warn' ? '▲' : '·'} ${esc(i.text)}${i.cost ? ` <span class="faint">−${i.cost}</span>` : ''}</span>`).join('') || '<span class="faint">none</span>'}</td></tr>`; }).join('') + '</table>';
+}
+
+// ── lineup ──
+$('#lu-run').onclick = async () => {
+  if (!SET) return status('open a set first', 'bad');
+  status('building the lineup…');
+  try { const r = await api(`/lineup?set=${SET}&n=${$('#lu-n').value}&min_score=${$('#lu-min').value}&allow_group=${$('#lu-group').checked}`);
+    $('#lu-out').innerHTML =
+      (r.gaps.length ? `<div class="banner">${r.gaps.map(g => '▲ ' + esc(g)).join('<br>')}</div>` : '<div class="banner ok">no gaps — the set covers a lead, variety and range</div>') +
+      `<div class="slots">` + r.slots.map(s => `<div class="card slot ${s.slot === 1 ? 'lead' : ''}"><span class="num">${s.slot}</span>
+        <div class="im"><img src="${imgUrl(s.photo)}" loading="lazy"></div>
+        <div class="meta"><div class="name"><b>${esc(s.name)}</b></div><div><span class="badge ${s.slot === 1 ? 'gold' : ''}">${s.role}</span><span class="badge ok">${s.score}</span></div>
+        <div class="faint">${esc(s.why)}</div></div></div>`).join('') + '</div>' +
+      (r.left_out.length ? `<h2 style="margin-top:16px">left out · ${r.left_out.length}</h2><table><tr><th></th><th>photo</th><th>score</th><th>why</th></tr>` +
+        r.left_out.map(l => `<tr><td><img src="${imgUrl(l.photo, null, 160)}"></td><td>${esc(l.name)}</td><td>${l.score}</td><td class="dim">${esc(l.why)}</td></tr>`).join('') + '</table>' : '') +
+      `<p class="faint" style="margin-top:12px">${esc(r.rule)}</p>`;
+    status(`lineup: ${r.slots.length} slots, ${r.left_out.length} left out, ${r.gaps.length} gap(s)`);
+    AUDIT = {}; await openSet(SET);
+  } catch (e) { status(e.message, 'bad'); }
+};
+
+// ── render ──
+async function runRender(all, force) {
+  if (!SET) return status('open a set first', 'bad');
+  const preset = $('#r-preset').value; status(`rendering for ${preset}…`);
+  try { const r = await api('/render', {method: 'POST', body: {set: SET, preset, zoom: $('#r-zoom').value, polish: $('#r-polish').value,
+      only_lineup: !all, n: +$('#lu-n').value, force}});
+    showRenders(r); status(`rendered ${r.count} for ${preset} · ${r.promise}`);
+  } catch (e) { status(e.message, 'bad'); }
+}
+$('#r-lineup').onclick = () => runRender(false, false);
+$('#r-all').onclick = () => runRender(true, false);
+$('#r-force').onclick = () => runRender(false, true);
+function showRenders(r) {
+  if (!r) return;
+  const p = r.preset;
+  $('#r-note').textContent = `${p.name} · ${p.ratio[0]}:${p.ratio[1]} · ${p.size[0]}×${p.size[1]} — ${p.note}`;
+  $('#r-out').innerHTML = r.rendered.map(x => `<div class="card" style="grid-column:span 2">
+    <div class="pair"><img src="${imgUrl(x.photo)}" title="source"><img src="${imgUrl(x.photo, x.preset)}?t=${Date.now()}" title="rendered"></div>
+    <div class="meta"><div class="name"><b>${esc(x.name)}</b> → ${x.file}</div>
+      <div>${x.size[0]}×${x.size[1]} · ${Math.round(x.bytes / 1024)} KB · crop [${x.crop.join(', ')}] of ${x.source.join('×')} · ${esc(x.crop_how)}${x.upscale > 1 ? ` · upscaled ${x.upscale}x` : ''}</div>
+      <div class="faint">${x.polish.length ? esc(x.polish.join(' · ')) : 'no polish'} · stripped ${x.stripped.join(', ')}${x.icc_to_srgb ? ' · icc→sRGB' : ''}</div>
+      ${x.warnings.length ? `<div class="warn">▲ ${esc(x.warnings.join('; '))}</div>` : ''}</div></div>`).join('');
+}
+
+// ── export ──
+$('#x-run').onclick = async () => {
+  if (!SET) return status('open a set first', 'bad');
+  const preset = $('#x-preset').value; status(`exporting for ${preset}…`); $('#x-run').disabled = true;
+  try { const r = await api('/export', {method: 'POST', body: {set: SET, preset, n: +$('#x-n').value}});
+    $('#x-out').innerHTML = `<div class="banner ok">■ ${r.files.length} photos, ${Math.round(r.bytes / 1024)} KB —
+        <a href="${API}/download/${SET}/${preset}.zip">download wingman-${preset}.zip</a></div>
+      ${r.gaps.length ? `<div class="banner">${r.gaps.map(g => '▲ ' + esc(g)).join('<br>')}</div>` : ''}
+      <table><tr><th>slot</th><th>file</th><th>why</th></tr>${r.slots.map((s, i) => `<tr><td>${s.slot}</td><td>${esc(r.files[i])}</td><td class="dim">${esc(s.why)}</td></tr>`).join('')}</table>
+      <p class="faint">${r.left_out} left out · report.json inside the zip explains every choice</p>`;
+    status('exported'); } catch (e) { status(e.message, 'bad'); }
+  $('#x-run').disabled = false;
+};
+
+// ── mcp ──
+async function mcpTab() {
+  $('#mcp-cfg').textContent = JSON.stringify({mcpServers: {wingman: {type: 'http', url: location.origin + API.replace(/\/_api$/, '') + '/mcp'}}}, null, 2);
+  try { const t = await api('/tools');
+    $('#mcp-tools').innerHTML = '<table><tr><th>tool</th><th>what</th></tr>' + t.tools.map(x =>
+      `<tr><td class="gold">${x.name}</td><td class="dim">${esc(x.description)}</td></tr>`).join('') + '</table>';
+    const g = await api('/guide'); $('#guide').textContent = JSON.stringify(g, null, 2);
+  } catch (e) { $('#mcp-tools').textContent = e.message; }
+}
+boot();
+</script>
+</body>
+</html>

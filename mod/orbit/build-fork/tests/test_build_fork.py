@@ -1244,10 +1244,88 @@ class TestServer:
     @skip_no_working_cli
     def test_submit_and_check(self):
         c = Mod()
-        job = c.submit(prompt="Say 'server test'", model="haiku")
+        # a gated server takes a write only from a trusted key — the owner is
+        # the one this host can always sign as (~/.mod/build-fork/server.secret)
+        job = c.submit(prompt="Say 'server test'", model="haiku", key=c.get_owner())
         assert 'id' in job
         found = c.job(job['id'])
         assert found['id'] == job['id']
+
+
+class TestHarness:
+    """Hand a whole run to this module: the card, and the trace translation.
+
+    Another module (orbit/agent) calls harness() to see whether the console can
+    run here and run() to hand it a task. run() reads the job server's rendered
+    output back into the fleet's step dicts, so a job here renders in the
+    caller's console like a native run — that's what JobTrace does.
+    """
+
+    def steps(self, lines, status="completed", error=None):
+        trace = m.JobTrace()
+        out = []
+        for line in lines:
+            out += trace.line(line)
+        return out + trace.close(status, error)
+
+    def test_card_names_this_module(self):
+        card = Mod().harness()
+        assert card['name'] == 'buildforkmod' and card['module'] == 'build-fork'
+        assert isinstance(card['available'], bool)
+        assert card['install'] == 'm build-fork/serve'
+
+    def test_tool_line_and_its_detail_become_one_step(self):
+        out = self.steps(["⚡ Bash", "$ ls -la # list the files", "[DONE]"])
+        assert out[0]['tool'] == 'bash'
+        assert out[0]['params']['command'] == 'ls -la'
+        assert 'ls -la' in out[0]['result']
+
+    def test_edit_block_carries_the_file_it_touched(self):
+        out = self.steps(["⚡ Edit", "┌─ EDIT: /tmp/a.py (3 lines)", "│ -old", "│ +new", "└─"])
+        assert out[0]['tool'] == 'edit'
+        assert out[0]['params']['file_path'] == '/tmp/a.py'
+
+    def test_last_message_is_the_answer_not_a_trace_row(self):
+        out = self.steps(["Looking at it.", "Renamed the function.", "[DONE]"])
+        # what came before is narration; the last thing said belongs in finish
+        assert [s['tool'] for s in out] == ['response', 'finish']
+        assert out[0]['result'] == 'Looking at it.'
+        assert out[1]['params']['summary'] == 'Renamed the function.'
+
+    def test_snapshot_trailer_keeps_the_answer(self):
+        # the server appends the CID lines AFTER the run — they must not steal
+        # the agent's closing message out of finish
+        out = self.steps(["Done, wrote the file.",
+                          "[STORE] task → localfs cid QmTask",
+                          "[VERSION] build → localfs cid QmVer", "[DONE]"])
+        assert [s['tool'] for s in out] == ['snapshot', 'snapshot', 'finish']
+        assert out[-1]['params']['summary'] == 'Done, wrote the file.'
+        assert out[-1]['params']['task_cid'] == 'QmTask'
+        assert out[-1]['params']['version_cid'] == 'QmVer'
+
+    def test_thinking_is_a_step_and_the_banner_is_not(self):
+        out = self.steps(["⏳ Session started (haiku)", "💭 planning the edit", "[DONE]"])
+        assert [s['tool'] for s in out] == ['think', 'finish']
+        assert out[0]['params']['thought'] == 'planning the edit'
+
+    def test_failed_job_ends_in_an_error(self):
+        out = self.steps(["⚡ Bash", "$ false"], status="failed", error="Exit code: 1")
+        assert out[-1]['tool'] == 'error' and out[-1]['error'] == 'Exit code: 1'
+
+    def test_done_marks_the_stream_finished(self):
+        trace = m.JobTrace()
+        assert not trace.done
+        trace.line("[DONE]")
+        assert trace.done
+
+    @skip_server_closed
+    @skip_no_working_cli
+    def test_run_returns_a_trace_that_ends_in_finish(self, tmp_path):
+        c = Mod()
+        steps = c.run("Reply with the single word: orbit", path=str(tmp_path),
+                      timeout=300)
+        assert steps and steps[-1]['tool'] in ('finish', 'error')
+        assert all(s.get('job') for s in steps)      # every step names its job
 
 
 class TestPrompts:

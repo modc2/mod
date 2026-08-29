@@ -149,6 +149,30 @@ def test_sigma_proofs_are_bound_to_their_context(system):
                              made.get('public_signals'))['ok'] is False
 
 
+def test_a_pedersen_opening_verifies_and_only_opens_one_way():
+    """Binding is the whole property: with H hashed to a point, nobody knows
+    log_G(H), so no second (v', r') opens the same C. The test settles for what
+    it can actually check — that both implementations accept the real opening
+    and neither accepts a moved value or a moved blinding."""
+    made = native.prove_pedersen(1000, blinding=12345, context='test')
+    for method in (native, node):
+        assert method.verify('pedersen', made['proof'], made['statement'],
+                             made.get('public_signals'))['ok'] is True, method.__name__
+    for tampered in ({**made['proof'], 'v': '1001'}, {**made['proof'], 'r': '12346'}):
+        for method in (native, node):
+            assert method.verify('pedersen', tampered, made['statement'],
+                                 [])['ok'] is False, method.__name__
+
+
+def test_pedersen_hides_the_value_until_it_is_opened():
+    """Two commitments to the same value with different blindings must not look
+    alike — a commitment that leaks equality is not hiding."""
+    a = native.prove_pedersen(1000, context='test')
+    b = native.prove_pedersen(1000, context='test')
+    assert a['proof']['r'] != b['proof']['r']
+    assert a['statement']['C'] != b['statement']['C']
+
+
 def test_merkle_verifies_every_leaf_and_rejects_a_forged_one():
     leaves = [f'account-{i}'.encode() for i in range(9)]
     for index in range(len(leaves)):
@@ -332,6 +356,83 @@ def test_a_signature_buys_exactly_one_run():
         proofs.recheck(record['id'], by=account.address, signature=signature)
         with pytest.raises(proofs.ProofError):
             proofs.recheck(record['id'], by=account.address, signature=signature)
+
+
+# ── the key the console makes in the tab ─────────────────────────────
+#
+# src/app/keys.js is a wallet written from scratch so a visitor without an
+# extension can still hold an address. Everything downstream of a signature
+# assumes eth_account can recover it, and a browser file is exactly the kind of
+# thing nothing else in this suite would catch when it drifts — so it is run
+# here, in node, against the same identity.py the API calls.
+
+KEYS_JS = ROOT / 'src' / 'app' / 'keys.js'
+BROWSER_PROBE = '''
+import { webcrypto } from 'node:crypto';
+import { keccak256, addressOf, personalSign, newKey, bytesToHex } from './keys.mjs';
+// Every browser has crypto.getRandomValues; node 18 does not expose it to ES
+// modules. That is the harness's problem to solve, not the console's.
+globalThis.crypto ??= webcrypto;
+const input = JSON.parse(process.argv[2]);
+const key = input.key || newKey();
+console.log(JSON.stringify({
+  key,
+  address: addressOf(key),
+  keccak_empty: bytesToHex(keccak256('')),
+  keccak_abc: bytesToHex(keccak256('abc')),
+  known_address: addressOf('0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318'),
+  signatures: (input.messages || []).map((m) => personalSign(m, key)),
+}));
+'''
+
+
+def browser_key(tmp_path, key=None, messages=()):
+    """Run the console's signer in node — .mjs because this package is not ESM."""
+    import shutil
+    import subprocess
+    binary = shutil.which('node')
+    if not binary:
+        pytest.skip('node is not installed')
+    (tmp_path / 'keys.mjs').write_text(KEYS_JS.read_text())
+    (tmp_path / 'probe.mjs').write_text(BROWSER_PROBE)
+    done = subprocess.run(
+        [binary, str(tmp_path / 'probe.mjs'),
+         json.dumps({'key': key, 'messages': list(messages)})],
+        capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+def test_the_browsers_own_key_hashes_and_signs_the_way_the_server_reads_it(tmp_path):
+    """Signing in anonymously, end to end: a key made in a tab, a signature this
+    box recovers, and no way for it to tell that from an extension's."""
+    made = browser_key(tmp_path)
+
+    # keccak-256, not SHA3 — one padding byte apart, and everything rests on it
+    assert made['keccak_empty'] == ('c5d2460186f7233c927e7db2dcc703c0'
+                                    'e500b653ca82273b7bfad8045d85a470')
+    assert made['keccak_abc'] == ('4e03657aea45a94fc7d47ba826c8d667'
+                                  'c0d1e6e33a64a036ec44f58fa12d6c45')
+    assert made['known_address'] == '0x2c7536E3605D9C16a7a3D7b1898e529396a65c23'
+
+    address, proof_id = made['address'], 'a' * 64
+    challenge = identity.challenge(address)['message']
+    action = identity.action_challenge(proof_id, address)['message']
+    signed = browser_key(tmp_path, key=made['key'], messages=[challenge, action])
+    assert signed['address'] == address
+    sign_in_sig, action_sig = signed['signatures']
+
+    # the sign-in the console does when there is no wallet in the browser
+    assert identity._recover(challenge, sign_in_sig) == address
+    assert identity.from_signature(address, challenge, sign_in_sig) == address
+    assert identity.read_session(identity.mint_session(address)['token']) == address
+
+    # and the signature that buys one re-run of one listing, from the same key
+    assert identity.from_action(proof_id, address, action, action_sig)['address'] == address
+    with pytest.raises(identity.AuthError):
+        identity.from_action('b' * 64, address, action, action_sig)
+    with pytest.raises(identity.AuthError):
+        identity.from_action(proof_id, address, action, sign_in_sig)
 
 
 def test_a_witness_who_disagrees_stays_on_their_own_row():

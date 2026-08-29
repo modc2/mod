@@ -67,6 +67,89 @@ const netFor = (chainId: string): NetworkDef | null =>
 
 const netLabel = (chainId: string) => netFor(chainId)?.label || (chainId ? `Chain ${chainId}` : 'Unknown')
 
+// ── Chain logos ─────────────────────────────────────────────────────────
+// Every mark is inline SVG in the chain's own brand colour. Nothing is
+// fetched: this console is opened on boxes with no route to a CDN, and a
+// broken <img> reads as a broken network, which is the one thing the
+// picker must never say by accident. Testnets wear the mainnet mark —
+// same chain, and the label already carries the "Sepolia".
+
+const CHAIN_MARK: Record<string, string> = {
+  '1': 'ethereum', '11155111': 'ethereum',
+  '8453': 'base', '84532': 'base',
+  '10': 'optimism',
+  '42161': 'arbitrum',
+  '137': 'polygon',
+  '1337': 'local',
+}
+
+function ChainLogo({ chainId, className = 'w-4 h-4' }: { chainId: string; className?: string }) {
+  const mark = CHAIN_MARK[chainId]
+  const common = { className, viewBox: '0 0 24 24', 'aria-hidden': true as const }
+
+  if (mark === 'base') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#0052FF" />
+      {/* The Base mark: a disc with a slot cut clean through its left side. */}
+      <path fill="#fff" d="M0 10.15h15.9v3.7H0z" />
+    </svg>
+  )
+
+  if (mark === 'ethereum') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#627EEA" />
+      <path fill="#fff" fillOpacity=".6" d="M12 3.5v6.3l5.2 2.3L12 3.5Z" />
+      <path fill="#fff" d="M12 3.5 6.8 12.1 12 9.8V3.5Z" />
+      <path fill="#fff" fillOpacity=".6" d="M12 16.4v4.1l5.2-7.3L12 16.4Z" />
+      <path fill="#fff" d="M12 20.5v-4.1l-5.2-3.2L12 20.5Z" />
+      <path fill="#fff" fillOpacity=".2" d="m12 15.4 5.2-3.3L12 9.8v5.6Z" />
+      <path fill="#fff" fillOpacity=".6" d="M6.8 12.1 12 15.4V9.8l-5.2 2.3Z" />
+    </svg>
+  )
+
+  if (mark === 'optimism') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#FF0420" />
+      <path fill="#fff" d="M8.2 15.6c-1 0-1.9-.24-2.5-.72-.63-.49-.94-1.19-.94-2.1 0-.19.02-.42.06-.7.12-.63.28-1.4.5-2.29.6-2.44 2.16-3.66 4.68-3.66.68 0 1.3.11 1.84.35.54.22.97.56 1.28 1.02.31.45.47 1 .47 1.62 0 .18-.02.4-.06.68-.13.78-.3 1.55-.5 2.28-.31 1.22-.85 2.13-1.61 2.74-.77.59-1.8.89-3.1.89Zm.19-1.93c.5 0 .93-.15 1.28-.45.36-.3.62-.75.77-1.36.21-.87.38-1.62.49-2.27.04-.19.06-.39.06-.59 0-.83-.43-1.24-1.29-1.24-.5 0-.94.15-1.3.45-.35.3-.6.75-.75 1.38-.17.62-.33 1.38-.5 2.27a2.9 2.9 0 0 0-.06.58c0 .83.44 1.23 1.3 1.23Zm5.83 1.79a.24.24 0 0 1-.19-.08.29.29 0 0 1-.03-.22l1.7-7.99c.02-.09.06-.16.14-.22a.36.36 0 0 1 .22-.08h3.27c.91 0 1.64.19 2.19.57.56.37.84.92.84 1.63 0 .2-.02.42-.08.64-.2 1-.65 1.75-1.34 2.22-.68.48-1.61.72-2.79.72h-1.66l-.57 2.7a.4.4 0 0 1-.14.22.36.36 0 0 1-.22.08h-1.34Zm4.15-4.6c.38 0 .7-.1.99-.31.28-.21.47-.51.56-.9.03-.16.04-.3.04-.42 0-.24-.07-.42-.21-.55-.14-.13-.38-.2-.72-.2h-1.47l-.5 2.38h1.31Z" />
+    </svg>
+  )
+
+  if (mark === 'arbitrum') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#213147" />
+      <path fill="#12AAFF" d="m10.9 9.9 1.6-2.7 4.3 6.7v2.7l-1.6-2.5-4.3-4.2Z" />
+      <path fill="#12AAFF" d="M17.2 15.9v-2.5l-1.6 2.5h1.6Z" />
+      <path fill="#9DCCED" d="M6.5 16.7 8.6 13l3.9 6.4-1.9 1.1-4.1-3.8Z" />
+      <path fill="#fff" d="m12.1 4.9 5.2 3v.7l-4.6 7.6-1.3-2.2 3-5-2.3-3.9v-.2Zm-.3 0-5.2 3v9.2l1.4-2.3 2.2-6.9 1.6-3Z" />
+    </svg>
+  )
+
+  if (mark === 'polygon') return (
+    <svg {...common} viewBox="0 0 38.4 33.5" className={className} aria-hidden>
+      <rect width="38.4" height="33.5" rx="8" fill="#8247E5" opacity=".16" />
+      <path fill="#8247E5" d="M29 10.2c-.7-.4-1.6-.4-2.4 0L21 13.5l-3.8 2.1-5.5 3.3c-.7.4-1.6.4-2.4 0L5 16.3c-.7-.4-1.2-1.2-1.2-2.1v-5c0-.8.4-1.6 1.2-2.1l4.3-2.5c.7-.4 1.6-.4 2.4 0L16 7.2c.7.4 1.2 1.2 1.2 2.1v3.3l3.8-2.2V7c0-.8-.4-1.6-1.2-2.1l-8-4.7c-.7-.4-1.6-.4-2.4 0L1.2 5C.4 5.4 0 6.2 0 7v9.4c0 .8.4 1.6 1.2 2.1l8.1 4.7c.7.4 1.6.4 2.4 0l5.5-3.2 3.8-2.2 5.5-3.2c.7-.4 1.6-.4 2.4 0l4.3 2.5c.7.4 1.2 1.2 1.2 2.1v5c0 .8-.4 1.6-1.2 2.1L29 28.8c-.7.4-1.6.4-2.4 0l-4.3-2.5c-.7-.4-1.2-1.2-1.2-2.1V21l-3.8 2.2v3.3c0 .8.4 1.6 1.2 2.1l8.1 4.7c.7.4 1.6.4 2.4 0l8.1-4.7c.7-.4 1.2-1.2 1.2-2.1V17c0-.8-.4-1.6-1.2-2.1L29 10.2Z" />
+    </svg>
+  )
+
+  if (mark === 'local') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="11" className="stroke-mute" strokeWidth="1.6" strokeDasharray="3 2.6" />
+      <rect x="7.5" y="8" width="9" height="3.2" rx="1" className="fill-mute" />
+      <rect x="7.5" y="12.8" width="9" height="3.2" rx="1" className="fill-mute" opacity=".55" />
+    </svg>
+  )
+
+  // Unknown chain — a filled dot in the warning hue, same silhouette as a
+  // logo so the row never reflows when the wallet lands somewhere odd.
+  return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="11" className="fill-gold/20 stroke-gold" strokeWidth="1.6" />
+      <path d="M12 7.5v6" className="stroke-gold" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="16.6" r="1.2" className="fill-gold" />
+    </svg>
+  )
+}
+
 // ── Types ───────────────────────────────────────────────────────────────
 
 interface StakePosition {
@@ -104,6 +187,8 @@ interface PotInfo {
 
 interface Stats {
   pot: PotInfo | null
+  maxLockBlocks?: number
+  distributionPercentage?: number
   totalBlocTime: string
   totalSupply: string
   totalStakes: number
@@ -267,17 +352,43 @@ async function api(fn: string, params: Record<string, any> = {}, method = 'POST'
   return data.result !== undefined ? data.result : data
 }
 
+// Blocks are 2s on Base: 43,200 a day — the unit the inflation epoch counts
+// in too. A year is 365 days, and the shipped default caps a lock at 8 of
+// them on a straight 1x → 8x line.
+const BLOCKS_PER_DAY = 43_200
+const BLOCKS_PER_YEAR = BLOCKS_PER_DAY * 365      // 15,768,000
+const MAX_LOCK_BLOCKS = BLOCKS_PER_YEAR * 8       // 126,144,000
+
+// 126,144,000 reads as noise; "8y" reads as a decision. Every place that
+// prints a lock length goes through here.
+function fmtLockSpan(blocks: number): string {
+  if (!blocks || blocks <= 0) return 'no lock'
+  const days = blocks / BLOCKS_PER_DAY
+  if (days >= 365) {
+    const y = days / 365
+    return `${Number.isInteger(y) ? y : y.toFixed(y < 10 ? 1 : 0)}y`
+  }
+  if (days >= 1) return `${Number.isInteger(days) ? days : days.toFixed(days < 10 ? 1 : 0)}d`
+  const hours = days * 24
+  if (hours >= 1) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`
+  return `${Math.max(1, Math.round(hours * 60))}m`
+}
+
 // Contracts deployed before getPoints() answer /points with an empty list.
 // getMultiplier() still works one lock length at a time, so sample it — a
-// curve you can read beats a panel that says "unavailable".
-const SAMPLE_LOCKS = [0, 10_000, 50_000, 100_000, 200_000]
+// curve you can read beats a panel that says "unavailable". Sampling is a
+// fraction of the instance's own cap, never a fixed block count: an instance
+// capped at 100k blocks must not be offered a 200k lock it would revert on.
+const SAMPLE_FRACTIONS = [0, 1 / 8, 1 / 4, 1 / 2, 1]
 
 // Sequential on purpose: each call is an RPC round-trip on the API side, and
 // firing all five at once gets the batch rate-limited — a half-sampled curve
 // is worse than a slightly slower one.
-async function sampleCurve(): Promise<MultiplierPoint[]> {
+async function sampleCurve(maxLock: number): Promise<MultiplierPoint[]> {
+  const cap = maxLock > 0 ? maxLock : MAX_LOCK_BLOCKS
   const pts: MultiplierPoint[] = []
-  for (const blocks of SAMPLE_LOCKS) {
+  for (const f of SAMPLE_FRACTIONS) {
+    const blocks = Math.floor(cap * f)
     try {
       const r = await api('get_multiplier', { block_count: blocks })
       pts.push({ blocks, multiplier: r.multiplier, multiplierX: r.multiplierX })
@@ -388,6 +499,12 @@ async function readInstanceState(inst: Instance, kit: FactoryKit): Promise<{ sta
     c.totalBlocTime(), c.totalSupply(), c.nextStakeId(),
   ])
 
+  let maxLock = 0, distPct = 0
+  try {
+    const prm = await c.params()
+    maxLock = Number(prm[0]); distPct = Number(prm[1])
+  } catch { /* older contract without params() */ }
+
   let infl: Stats['inflationParams'] | null = null
   let epoch = 0n, epochReward = 0n, totalDist = 0n, lastDist = 0n
   try {
@@ -432,6 +549,8 @@ async function readInstanceState(inst: Instance, kit: FactoryKit): Promise<{ sta
 
   const stats: Stats = {
     pot,
+    maxLockBlocks: maxLock,
+    distributionPercentage: distPct,
     totalBlocTime: totalBT.toString(),
     totalSupply: supply.toString(),
     totalStakes: Number(nextId),
@@ -1015,7 +1134,7 @@ function MarketPanel({ instances, activeId, account, loading, onUse, onRefresh }
       </div>
 
       {instances.length === 0 && (
-        <div className="border border-line rounded-lg bg-panel py-16 text-center">
+        <div className="border border-line rounded-lg bg-panel py-12 text-center">
           <span className="text-xs text-mute uppercase tracking-wider">
             {loading ? 'Loading market...' : 'No instances registered yet — deploy one from the DEPLOY tab'}
           </span>
@@ -1069,7 +1188,12 @@ function MarketPanel({ instances, activeId, account, loading, onUse, onRefresh }
               </div>
 
               <div className="space-y-1 text-[10px] font-mono text-mute">
-                <p>chain <span className="text-iris">{inst.chainId || '?'}</span> · contract <span className="text-ink2">{fmtAddr(inst.bloctime)}</span></p>
+                <p className="flex items-center gap-1.5">
+                  <ChainLogo chainId={inst.chainId} className="w-3.5 h-3.5 shrink-0" />
+                  <span className="text-iris">{netLabel(inst.chainId)}</span>
+                  <span className="text-hair">·</span>
+                  <span className="text-ink2">{fmtAddr(inst.bloctime)}</span>
+                </p>
                 {inst.owner && <p>owner <span className="text-ink2">{fmtAddr(inst.owner)}</span></p>}
               </div>
 
@@ -1232,7 +1356,7 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
           <div>
             <p className="lbl-dim mb-1">Network</p>
             <div className="flex items-center gap-2 h-[42px] px-4 rounded-lg border border-hair bg-panel">
-              <span className={`w-1.5 h-1.5 rounded-full ${known ? 'bg-up' : 'bg-gold'}`} />
+              <ChainLogo chainId={chainId} className="w-4 h-4 shrink-0" />
               <span className="text-sm text-ink2">{netLabel(chainId)}</span>
               <span className="lbl-dim ml-auto">pick it up top</span>
             </div>
@@ -1405,7 +1529,10 @@ function BuildPanel({ connected, chainId, onDeployed }: {
         <div className="flex items-center gap-2">
           <CodeBracketIcon className="w-4 h-4 text-mute" />
           <span className="lbl">Deploy any contract</span>
-          <span className="ml-auto text-[10px] uppercase tracking-wider text-iris">{netLabel(chainId)}</span>
+          <span className="ml-auto flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-iris">
+            <ChainLogo chainId={chainId} className="w-3.5 h-3.5" />
+            {netLabel(chainId)}
+          </span>
         </div>
         <p className="text-[11px] text-mute">
           Write Solidity, compile it here, and deploy from <span className="text-ink2">your wallet</span>.
@@ -1689,9 +1816,9 @@ function NetworkPicker({ chainId, onSelect }: {
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <span className={`chip-dot ${known ? 'bg-up' : 'bg-gold animate-pulse-dot'}`} />
-        {/* The dot alone carries the network on a phone — the label is the
-            first thing to go when the header runs out of room. */}
+        {/* The mark alone carries the network on a phone — the label is the
+            first thing to go when the rail runs out of room. */}
+        <ChainLogo chainId={chainId} className="w-4 h-4 shrink-0" />
         <span className="normal-case tracking-normal hidden sm:inline">{netLabel(chainId)}</span>
         <ChevronDownIcon className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -1706,6 +1833,7 @@ function NetworkPicker({ chainId, onSelect }: {
               onClick={() => { setOpen(false); onSelect(net) }}
               className="menu-item"
             >
+              <ChainLogo chainId={net.chainId} className="w-4 h-4 shrink-0" />
               <span className="flex-1">{net.label}</span>
               <span className="font-mono text-faint">{net.chainId}</span>
             </button>
@@ -1731,10 +1859,25 @@ function BlocTimePageInner() {
   const [chainId, setChainId] = useState(DEFAULT_CHAIN)
   const [tab, setTab] = useState<Tab>('stake')
 
-  // Stake form
+  // Stake form. The lock starts empty and fills in from the instance's own
+  // cap once stats land — an eighth of it, which is one year under the
+  // shipped 8-year default. Typing pins it: a poll must never rewrite a
+  // number someone is in the middle of choosing.
   const [stakeAmount, setStakeAmount] = useState('')
-  const [lockBlocks, setLockBlocks] = useState('10000')
+  const [lockBlocks, setLockBlocks] = useState('')
+  const lockTouched = useRef(false)
   const [staking, setStaking] = useState(false)
+
+  // Each instance carries its own cap in params(); the shipped default is
+  // 8 years (126,144,000 blocks at 2s). 0 means the contract predates
+  // params() — then nothing is clamped and nothing is claimed.
+  const maxLock = stats?.maxLockBlocks || 0
+  const lockOverCap = maxLock > 0 && (parseInt(lockBlocks) || 0) > maxLock
+
+  useEffect(() => {
+    if (lockTouched.current || !maxLock) return
+    setLockBlocks(String(Math.floor(maxLock / 8)))
+  }, [maxLock])
 
   // Sort
   type SortKey = 'amount' | 'bloctime' | 'remaining'
@@ -1863,7 +2006,7 @@ function BlocTimePageInner() {
         if (statsData) setStats(statsData)
         // A curve we already have beats an empty poll — the 15s refetch must
         // never blank the chart just because one sample round came back short.
-        const pts = pointsData?.length ? pointsData : await sampleCurve()
+        const pts = pointsData?.length ? pointsData : await sampleCurve(statsData?.maxLockBlocks || 0)
         if (pts.length) setPoints(pts)
 
         if (account) {
@@ -1931,6 +2074,11 @@ function BlocTimePageInner() {
 
   const handleStake = useCallback(async () => {
     if (!stakeAmount || Number(stakeAmount) <= 0) { toast.error('Enter amount'); return }
+    // The contract reverts with "Exceeds max lock" — say it before the gas.
+    if (maxLock > 0 && (parseInt(lockBlocks) || 0) > maxLock) {
+      toast.error(`Lock is capped at ${maxLock.toLocaleString()} blocks (${fmtLockSpan(maxLock)})`)
+      return
+    }
     setStaking(true)
     try {
       if (instanceMode && activeInst) {
@@ -1954,7 +2102,7 @@ function BlocTimePageInner() {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Stake failed')
     }
     setStaking(false)
-  }, [stakeAmount, lockBlocks, fetchAll, instanceMode, activeInst, withInstance])
+  }, [stakeAmount, lockBlocks, maxLock, fetchAll, instanceMode, activeInst, withInstance])
 
   const handleUnstake = useCallback(async (stakeId: number) => {
     try {
@@ -2123,23 +2271,36 @@ function BlocTimePageInner() {
       <div className="field-grid" aria-hidden />
       <div className="field-scan" aria-hidden />
 
-      {/* Header — sticky, because the network you're on and the wallet
-          you're signing with are the two facts you need at every scroll. */}
-      <header className="sticky top-0 z-30 border-b border-hair bg-base/85 backdrop-blur-xl">
-        <div className="max-w-5xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
-          <div className="w-10 h-10 shrink-0 grid place-items-center rounded-lg border border-line bg-panel2">
-            <ClockIcon className="w-5 h-5 text-accent" />
-          </div>
-          {/* Below sm the clock mark carries the brand on its own — the
-              wallet and network controls need every pixel of that row. */}
-          <div className="min-w-0 hidden sm:block">
-            <h1 className="text-lg md:text-xl font-semibold uppercase leading-none truncate" style={{ letterSpacing: '.16em' }}>
-              BlocTime
-            </h1>
-            <p className="lbl-dim mt-1.5">Time-weighted staking</p>
+      {/* Control rail — one sticky row, no brand block above it. The tabs,
+          the network and the wallet are the only things you need at every
+          scroll; the module's name is the page you're already on. */}
+      <div className="sticky top-0 z-30 border-b border-hair bg-base/85 backdrop-blur-xl">
+        <div className="max-w-5xl mx-auto px-3 md:px-5 py-1.5 flex items-center gap-2">
+          <div className="tabbar flex-1 min-w-0">
+            {([
+              ['stake', 'Stake', LockClosedIcon],
+              ['rewards', 'Rewards', GiftIcon],
+              ['market', 'Market', BuildingStorefrontIcon],
+              ['deploy', 'Deploy', RocketLaunchIcon],
+              ['bridge', 'Bridge', ArrowsRightLeftIcon],
+              ['contracts', 'Contracts', CodeBracketIcon],
+            ] as [Tab, string, any][]).map(([t, label, Icon]) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                aria-current={tab === t}
+                title={label}
+                className={`tab ${tab === t ? 'tab-on' : ''}`}
+              >
+                <Icon className={`w-3.5 h-3.5 shrink-0 ${tab === t ? 'text-accent' : ''}`} />
+                {/* Below sm the icons carry the tabs alone — the wallet and
+                    network controls share this row now. */}
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             <NetworkPicker chainId={chainId} onSelect={selectNetwork} />
             {connected ? (
               <button
@@ -2164,31 +2325,9 @@ function BlocTimePageInner() {
             <ThemePicker />
           </div>
         </div>
-      </header>
+      </div>
 
-      <div className="relative z-10 px-4 md:px-6 py-5 max-w-5xl mx-auto space-y-5">
-
-        {/* Tab Bar */}
-        <div className="tabbar">
-          {([
-            ['stake', 'Stake', LockClosedIcon],
-            ['rewards', 'Rewards', GiftIcon],
-            ['market', 'Market', BuildingStorefrontIcon],
-            ['deploy', 'Deploy', RocketLaunchIcon],
-            ['bridge', 'Bridge', ArrowsRightLeftIcon],
-            ['contracts', 'Contracts', CodeBracketIcon],
-          ] as [Tab, string, any][]).map(([t, label, Icon]) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              aria-current={tab === t}
-              className={`tab ${tab === t ? 'tab-on' : ''}`}
-            >
-              <Icon className={`w-3.5 h-3.5 ${tab === t ? 'text-accent' : ''}`} />
-              {label}
-            </button>
-          ))}
-        </div>
+      <div className="relative z-10 px-3 md:px-5 py-3 max-w-5xl mx-auto space-y-3">
 
         {/* Active market instance banner */}
         {instanceMode && activeInst && (
@@ -2230,7 +2369,7 @@ function BlocTimePageInner() {
 
         {/* ── Stake Tab ────────────────────────────────────────────────── */}
         {tab === 'stake' && (
-          <div key="stake" className="space-y-5 animate-fade-up">
+          <div key="stake" className="space-y-4 animate-fade-up">
             {/* Stake form and the curve it moves along, side by side — the
                 marker on the curve is the preview for the lock field. */}
             <div className="card">
@@ -2436,7 +2575,7 @@ function BlocTimePageInner() {
 
         {/* ── Rewards Tab ──────────────────────────────────────────────── */}
         {tab === 'rewards' && (
-          <div key="rewards" className="space-y-5 animate-fade-up">
+          <div key="rewards" className="space-y-4 animate-fade-up">
             {/* Epoch Stats */}
             {stats && (
               <StatGrid>
@@ -2649,7 +2788,7 @@ function BlocTimePageInner() {
 
         {/* ── Deploy Tab ───────────────────────────────────────────────── */}
         {tab === 'deploy' && (
-          <div key="deploy" className="space-y-5 animate-fade-up">
+          <div key="deploy" className="space-y-4 animate-fade-up">
             <DeployPanel connected={connected} chainId={chainId} getFactory={getFactory} onDeployed={handleDeployed} />
             <BuildPanel connected={connected} chainId={chainId} onDeployed={handleContractDeployed} />
           </div>
@@ -2667,14 +2806,14 @@ function BlocTimePageInner() {
           contractsMeta
             ? <div key="contracts" className="animate-fade-up"><ContractsPlayground meta={contractsMeta} connected={connected} /></div>
             : (
-              <div className="card py-16 flex items-center justify-center">
+              <div className="card py-12 flex items-center justify-center">
                 <ArrowPathIcon className="w-5 h-5 text-mute animate-spin" />
               </div>
             )
         )}
 
         {/* Footer */}
-        <footer className="flex items-center justify-center gap-2 py-6">
+        <footer className="flex items-center justify-center gap-2 py-4">
           <ClockIcon className="w-3.5 h-3.5 text-faint" />
           <span className="lbl-dim">BlocTime Module</span>
         </footer>

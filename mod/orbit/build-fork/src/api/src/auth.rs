@@ -1,4 +1,10 @@
-//! MetaMask signature authentication — challenge/verify + bearer token middleware
+//! Wallet signature authentication — challenge/verify + bearer token middleware.
+//!
+//! Multichain: the challenge is the same for everyone, but the signature over
+//! it may come from a secp256k1 (EVM), ed25519 (Solana) or sr25519 (Substrate)
+//! key. `keys` owns the per-curve verification and the address canonicalisation
+//! this module keys every store by — see `keys::normalize_addr`, which is what
+//! a bare `.to_lowercase()` must never be here (base58 case IS the key).
 
 use axum::{
     extract::{Query, Request, State},
@@ -7,6 +13,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use crate::keys::normalize_addr;
 use hmac::{Hmac, Mac};
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
@@ -76,6 +83,33 @@ pub fn init_secret() {
 
 fn get_secret() -> &'static [u8; 32] {
     SERVER_SECRET.get().expect("Server secret not initialized")
+}
+
+/// A stable pen name for a caller who has no wallet — used by the surfaces
+/// that are open to everyone (the suggestion discussion). Derived by HMAC over
+/// the client IP with the server secret, so the same visitor keeps the same
+/// handle (you can follow, mute or delete a spammer's thread) while the IP
+/// itself never leaves the process. Behind the gateway the real address is in
+/// `x-forwarded-for`; direct callers fall back to the connection-less case and
+/// all share one handle, which is fine — that's loopback.
+pub fn anon_handle(headers: &axum::http::HeaderMap) -> String {
+    let ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .or_else(|| headers.get("x-real-ip").and_then(|v| v.to_str().ok()))
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("local");
+    let mut mac = HmacSha256::new_from_slice(get_secret()).unwrap();
+    mac.update(b"anon:");
+    mac.update(ip.as_bytes());
+    format!("anon:{}", &hex::encode(mac.finalize().into_bytes())[..8])
+}
+
+/// Is this the handle of an unauthenticated commenter rather than an address?
+pub fn is_anon_handle(author: &str) -> bool {
+    author.starts_with("anon:")
 }
 
 /// Pending challenges: address → (nonce message, issued-at unix seconds).
@@ -177,7 +211,7 @@ pub struct TermsQuery {
 /// wallet signature.
 pub async fn terms(Query(q): Query<TermsQuery>) -> impl IntoResponse {
     let required = match q.address.as_deref() {
-        Some(a) if !a.is_empty() => !terms_satisfied(&a.to_lowercase()),
+        Some(a) if !a.is_empty() => !terms_satisfied(&normalize_addr(a)),
         _ => true,
     };
     Json(serde_json::json!({
@@ -204,7 +238,7 @@ pub async fn challenge(
     State(store): State<ChallengeStore>,
     Query(q): Query<ChallengeQuery>,
 ) -> impl IntoResponse {
-    let addr = q.address.to_lowercase();
+    let addr = normalize_addr(&q.address);
     let nonce = hex::encode(rand::random::<[u8; 16]>());
     let mut message = format!(
         "Sign this message to authenticate with Build Jobs.\n\nAddress: {}\nNonce: {}",
@@ -253,6 +287,11 @@ pub struct VerifyRequest {
     /// Optional second-factor key for the grant above.
     #[serde(default)]
     pub grant_key: Option<String>,
+    /// Which curve signed, when the client knows: "secp256k1" | "ed25519" |
+    /// "sr25519". Only load-bearing for SS58 addresses, which can hold either
+    /// Substrate curve; every other format is unambiguous from the address.
+    #[serde(default)]
+    pub key_type: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -263,13 +302,24 @@ pub struct VerifyResponse {
     /// the console can dress itself read-only on the very first render instead
     /// of waiting for a /auth/role round-trip.
     pub role: &'static str,
+    /// The curve this session's address is on, and the chains it reaches —
+    /// echoed so the console can badge the identity without re-deriving it.
+    pub key_type: &'static str,
+    pub networks: &'static [&'static str],
+}
+
+/// Public: the key types (and therefore wallets and chains) this server will
+/// accept a sign-in from. The sign-in screen renders itself from this, so
+/// adding a curve server-side surfaces it in the UI with no client change.
+pub async fn key_types() -> impl IntoResponse {
+    Json(crate::keys::supported())
 }
 
 pub async fn verify(
     State(store): State<ChallengeStore>,
     Json(req): Json<VerifyRequest>,
 ) -> Result<Json<VerifyResponse>, (StatusCode, Json<serde_json::Value>)> {
-    let addr = req.address.to_lowercase();
+    let addr = normalize_addr(&req.address);
 
     // Check the challenge exists AND is still inside its window.
     {
@@ -286,20 +336,36 @@ pub async fn verify(
         }
     }
 
-    // Recover signer from signature
-    let recovered = recover_eth_address(&req.message, &req.signature).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": format!("Signature verification failed: {}", e) })),
-        )
-    })?;
+    // Verify the signature against whichever curve this address is on —
+    // secp256k1 (EVM), ed25519 (Solana) or sr25519 (Substrate). The address
+    // format picks the curve; `key_type` only disambiguates SS58.
+    let key_type = req
+        .key_type
+        .as_deref()
+        .and_then(crate::keys::KeyType::from_id)
+        .or_else(|| crate::keys::detect_key_type(&addr))
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!(
+                        "Unrecognised address format: {} — expected 0x-hex (EVM), base58 (Solana) or SS58 (Substrate)",
+                        addr
+                    )
+                })),
+            )
+        })?;
 
-    if recovered.to_lowercase() != addr {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": "Signer does not match address" })),
-        ));
-    }
+    crate::keys::verify_signature(&addr, &req.message, &req.signature, Some(key_type.id())).map_err(
+        |e| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({
+                    "error": format!("Signature verification failed ({}): {}", key_type.id(), e)
+                })),
+            )
+        },
+    )?;
 
     // Remove used challenge
     {
@@ -412,6 +478,8 @@ pub async fn verify(
         token,
         address: addr,
         role,
+        key_type: key_type.id(),
+        networks: key_type.networks(),
     }))
 }
 
@@ -724,7 +792,7 @@ pub fn get_owner_address() -> Option<String> {
 
     let content = std::fs::read_to_string(&owner_path).ok()?;
     let data: serde_json::Value = serde_json::from_str(&content).ok()?;
-    data.get("owner").and_then(|v| v.as_str()).map(|s| s.to_lowercase())
+    data.get("owner").and_then(|v| v.as_str()).map(|s| normalize_addr(s))
 }
 
 /// Read the "owner" field from config.json (re-read each call so live edits take effect)
@@ -750,7 +818,8 @@ fn read_config_owner() -> Option<String> {
 
     let content = std::fs::read_to_string(&config_path).ok()?;
     let data: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let owner = data.get("owner").and_then(|v| v.as_str())?.to_lowercase();
+    let owner = data.get("owner").and_then(|v| v.as_str())?;
+    let owner = normalize_addr(owner);
     if owner.is_empty() { None } else { Some(owner) }
 }
 
@@ -765,7 +834,7 @@ pub fn is_owner(address: &str) -> bool {
     if address.is_empty() {
         return false;
     }
-    let addr = address.to_lowercase();
+    let addr = normalize_addr(address);
     if owner_addresses().iter().any(|o| o == &addr) {
         return true;
     }
@@ -774,6 +843,24 @@ pub fn is_owner(address: &str) -> bool {
     // process control, destructive module ops, host filesystem. The owner
     // hands it out (and takes it back) from the whitelist card.
     matches!(whitelist_access(&addr), Some(WhitelistAccess::Sudo))
+}
+
+/// The *ultimate* owner: the configured `owner` in config.json plus the
+/// co-owner wallets in ~/.mod/build-fork/owners.json — and nobody else.
+///
+/// This is deliberately narrower than [`is_owner`], which also admits
+/// sudo-whitelisted delegates. The distinction exists for one power: undoing
+/// changes. An editor (whitelisted, invited, or even sudo-delegated) may write
+/// the orbit all day, but rolling a module back to an earlier version is the
+/// owner's last word over everything that was written — so it answers only to
+/// the owner's own key. Delegated sudo can do everything except overrule the
+/// owner's history.
+pub fn is_root_owner(address: &str) -> bool {
+    if address.is_empty() {
+        return false;
+    }
+    let addr = normalize_addr(address);
+    owner_addresses().iter().any(|o| o == &addr)
 }
 
 /// Every address that counts as the owner: the configured primary owner
@@ -814,7 +901,7 @@ pub fn read_co_owners() -> Vec<String> {
         .or_else(|| parsed.get("addresses").and_then(|v| v.as_array()).cloned())
         .unwrap_or_default();
     arr.into_iter()
-        .filter_map(|v| v.as_str().map(|s| s.to_lowercase()))
+        .filter_map(|v| v.as_str().map(normalize_addr))
         .collect()
 }
 
@@ -844,7 +931,7 @@ pub fn is_trusted(address: &str) -> bool {
     if is_owner(address) {
         return true;
     }
-    let addr = address.to_lowercase();
+    let addr = normalize_addr(address);
     if read_whitelist().iter().any(|w| w == &addr) {
         return true;
     }
@@ -1029,7 +1116,7 @@ pub fn revoke_grant(id: &str) -> bool {
 pub fn redeem_grant(id: &str, key: Option<&str>, address: &str) -> Result<i64, String> {
     let now = chrono::Utc::now().timestamp();
     let mut file = prune_grants(read_grants(), now);
-    let addr = address.to_lowercase();
+    let addr = normalize_addr(address);
 
     let grant = file
         .grants
@@ -1076,7 +1163,7 @@ pub fn redeem_grant_guest(id: &str, key: Option<&str>) -> Result<(String, i64), 
 /// True if `address` holds an unexpired redemption of a live grant.
 pub fn grant_active(address: &str) -> bool {
     let now = chrono::Utc::now().timestamp();
-    let addr = address.to_lowercase();
+    let addr = normalize_addr(address);
     let file = read_grants();
     let live: std::collections::HashSet<&str> = file
         .grants
@@ -1106,7 +1193,7 @@ pub fn edit_scope(address: &str) -> Option<EditScope> {
     if address.is_empty() {
         return None;
     }
-    let addr = address.to_lowercase();
+    let addr = normalize_addr(address);
     if is_owner(&addr) || read_whitelist().iter().any(|w| w == &addr) {
         return Some(EditScope::All);
     }
@@ -1123,7 +1210,7 @@ pub fn grant_edit_scope(address: &str) -> Option<EditScope> {
     if address.is_empty() {
         return None;
     }
-    let addr = address.to_lowercase();
+    let addr = normalize_addr(address);
     let now = chrono::Utc::now().timestamp();
     let file = read_grants();
     let live: std::collections::HashSet<&str> = file
@@ -1208,7 +1295,7 @@ pub fn create_handoff(address: &str, ttl: Option<i64>) -> (String, i64) {
     map.insert(
         code.clone(),
         Handoff {
-            address: address.to_lowercase(),
+            address: normalize_addr(address),
             exp,
         },
     );
@@ -1337,7 +1424,7 @@ pub fn read_whitelist_entries() -> Vec<WhitelistEntry> {
             }
             _ => continue,
         };
-        let address = address.to_lowercase();
+        let address = normalize_addr(&address);
         if !address.is_empty() && !entries.iter().any(|e| e.address == address) {
             entries.push(WhitelistEntry { address, access });
         }
@@ -1352,7 +1439,7 @@ pub fn read_whitelist() -> Vec<String> {
 
 /// The access level for `address`, if it's whitelisted at all.
 pub fn whitelist_access(address: &str) -> Option<WhitelistAccess> {
-    let addr = address.to_lowercase();
+    let addr = normalize_addr(address);
     read_whitelist_entries()
         .into_iter()
         .find(|e| e.address == addr)

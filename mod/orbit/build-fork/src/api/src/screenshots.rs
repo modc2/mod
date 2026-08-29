@@ -300,17 +300,35 @@ async fn capture_locked(name: &str, png: &Path, min_age: Duration) -> Result<(),
 pub struct ShotQuery {
     refresh: Option<String>,
     fresh: Option<String>,
+    /// An <img> cannot carry an Authorization header, so a private module's
+    /// own owner passes their bearer here — same escape hatch the job stream
+    /// uses for EventSource.
+    token: Option<String>,
 }
 
 /// GET /modules/:name/screenshot — the module's app as a PNG "profile pic".
-/// Public, like GET /modules: it shows nothing a visitor couldn't see by
-/// opening the module's own URL.
+/// Public for a public module: it shows nothing a visitor couldn't see by
+/// opening the module's own URL. A PRIVATE module's page is exactly what
+/// privacy hides, so the shot answers 404 for everyone but its owner.
 pub async fn module_screenshot(
+    headers: axum::http::HeaderMap,
     UrlPath(name): UrlPath<String>,
     Query(q): Query<ShotQuery>,
 ) -> impl IntoResponse {
     if !valid_name(&name) {
         return (StatusCode::BAD_REQUEST, "bad module name").into_response();
+    }
+    let caller = crate::auth::extract_address_from_headers(&headers)
+        .ok()
+        .or_else(|| {
+            q.token
+                .as_deref()
+                .filter(|t| !t.is_empty())
+                .and_then(|t| crate::auth::extract_address_from_header(&format!("Bearer {t}")).ok())
+        })
+        .unwrap_or_default();
+    if !crate::privacy::can_access(&caller, &name) {
+        return (StatusCode::NOT_FOUND, "module not found").into_response();
     }
     if !module_has_app(&name) {
         return (StatusCode::NOT_FOUND, "module has no app").into_response();

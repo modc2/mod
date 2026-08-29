@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { requireOwner } from "@/lib/ownerGate";
 
 // This route runs server-side as the `node` user inside the claude
 // container and manages the Claude Code OAuth credentials the job runner
@@ -57,7 +58,9 @@ function readStatus() {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const denied = await requireOwner(req);
+  if (denied) return denied;
   return NextResponse.json(readStatus());
 }
 
@@ -65,6 +68,8 @@ export async function GET() {
 //   { json: "<full .credentials.json contents>" }   ← paste from a working machine
 //   { accessToken, refreshToken?, expiresAt?, subscriptionType? }
 export async function POST(req: NextRequest) {
+  const denied = await requireOwner(req);
+  if (denied) return denied;
   let body: any;
   try {
     body = await req.json();

@@ -271,9 +271,9 @@ pub fn act(
     }
 
     let (ok, out) = match backend {
-        Backend::Pm2 => pm2_act(action, procs, module_dir, config),
+        Backend::Pm2 => pm2_act(action, procs, module_dir, module_name, config),
         Backend::Systemd => systemd_act(action, procs, module_name),
-        Backend::Generic => generic_act(action, procs, module_dir, config),
+        Backend::Generic => generic_act(action, procs, module_dir, module_name, config),
     };
     match prelog {
         Some(b) => (ok, format!("{}\n{}", b, out)),
@@ -372,8 +372,14 @@ pub fn has_nix_env(module_dir: &Path) -> bool {
 }
 
 /// Bootstrap a module that has no running processes, from its own launcher:
-/// prefer ecosystem.config.js (pm2 only), else start.sh. nix-wrapped.
-fn bootstrap(module_dir: &Path, prefer_pm2: bool) -> (bool, String) {
+/// prefer ecosystem.config.js (pm2 only), then start.sh, and finally the
+/// protocol's own `m serve <name>`. That last step matters — most modules in
+/// the fleet ship NO launcher script at all. They are a config.json plus a
+/// mod.py, and `m serve` is how they are meant to come up: it resolves the
+/// module by name, picks a free port, starts it under pm2 and writes the port
+/// and urls back into its config.json. Without it, every bare module was
+/// un-startable from this console. nix-wrapped.
+fn bootstrap(module_dir: &Path, module_name: &str, prefer_pm2: bool) -> (bool, String) {
     if prefer_pm2 {
         let eco = module_dir.join("ecosystem.config.js");
         if eco.exists() {
@@ -386,10 +392,73 @@ fn bootstrap(module_dir: &Path, prefer_pm2: bool) -> (bool, String) {
     if start_sh.exists() {
         return run(launcher(module_dir, "bash start.sh"));
     }
+    if let Some(res) = mod_serve(module_dir, module_name) {
+        return res;
+    }
     (
         false,
-        "no running processes and no ecosystem.config.js / start.sh to launch".to_string(),
+        format!(
+            "nothing to launch: no ecosystem.config.js, no start.sh, and `m serve {}` is unavailable (the `m` CLI is not on PATH)",
+            module_name
+        ),
     )
+}
+
+/// A module name is safe to interpolate into a shell command only if it is a
+/// plain identifier — names arrive from the HTTP path, so anything else is
+/// refused rather than quoted.
+fn safe_module_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// True when this module could be launched by the protocol (`m serve <name>`).
+fn can_mod_serve(module_name: &str) -> bool {
+    safe_module_name(module_name) && which("m").is_some()
+}
+
+/// Start a bare module through the protocol. Returns None when that route is
+/// not available at all, so callers can fall through to their own message.
+/// Bounded by `timeout` — a wedged serve must not hang this API's request.
+fn mod_serve(module_dir: &Path, module_name: &str) -> Option<(bool, String)> {
+    if !can_mod_serve(module_name) {
+        return None;
+    }
+    let (ok, out) = run(launcher(
+        module_dir,
+        &format!("timeout 180 m serve {}", module_name),
+    ));
+    // `m serve` echoes the whole pm2 process table, ANSI colours and all — the
+    // tail is the part that says what happened to THIS module.
+    let clean = strip_ansi(out.trim());
+    let lines: Vec<&str> = clean.lines().collect();
+    let tail = lines[lines.len().saturating_sub(30)..].join("\n");
+    Some((ok, format!("m serve {}\n{}", module_name, tail)))
+}
+
+/// Drop CSI escape sequences so launcher output reads as plain text in the UI.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        if chars.peek() == Some(&'[') {
+            chars.next();
+            while let Some(&c) = chars.peek() {
+                chars.next();
+                if c.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        }
+    }
+    out
 }
 
 fn run(mut cmd: Command) -> (bool, String) {
@@ -485,7 +554,44 @@ fn pm2_list(module_dir: &Path) -> Result<Vec<Proc>, String> {
     Ok(procs)
 }
 
-fn pm2_act(action: &str, procs: &[Proc], module_dir: &Path, _config: &Value) -> (bool, String) {
+/// Drop a module's pm2 entries entirely rather than just stopping them. A
+/// rename moves the tree out from under them: the entries still carry the old
+/// name and point at a directory that no longer exists, and `pm2 resurrect`
+/// would faithfully raise those ghosts. The module is re-registered under its
+/// new name by the ordinary start path (`bootstrap` reads the moved
+/// ecosystem.config.js).
+pub fn pm2_forget(procs: &[Proc]) -> (bool, String) {
+    let Some(pm2) = find_pm2() else {
+        return (false, "pm2 not found on host".to_string());
+    };
+    let ids: Vec<&str> = procs
+        .iter()
+        .map(|p| p.id.as_str())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if ids.is_empty() {
+        return (true, "no pm2 entries to remove".to_string());
+    }
+    let mut args = vec!["delete"];
+    args.extend(ids);
+    pm2_run(&pm2, &args)
+}
+
+/// Persist the pm2 process list so a host reboot brings back what is actually
+/// registered now — called after a rename has replaced entries.
+pub fn pm2_save() {
+    if let Some(pm2) = find_pm2() {
+        let _ = pm2_run(&pm2, &["save"]);
+    }
+}
+
+fn pm2_act(
+    action: &str,
+    procs: &[Proc],
+    module_dir: &Path,
+    module_name: &str,
+    _config: &Value,
+) -> (bool, String) {
     let pm2 = match find_pm2() {
         Some(p) => p,
         None => return (false, "pm2 not found on host".to_string()),
@@ -504,7 +610,7 @@ fn pm2_act(action: &str, procs: &[Proc], module_dir: &Path, _config: &Value) -> 
     if action == "stop" {
         return (true, "no pm2 processes registered for this module".to_string());
     }
-    bootstrap(module_dir, true)
+    bootstrap(module_dir, module_name, true)
 }
 
 // ── systemd backend ──────────────────────────────────────────────────
@@ -994,7 +1100,13 @@ fn respawn(snaps: &[(Vec<String>, PathBuf)], _module_dir: &Path) -> (bool, Strin
     (ok, out)
 }
 
-fn generic_act(action: &str, procs: &[Proc], module_dir: &Path, _config: &Value) -> (bool, String) {
+fn generic_act(
+    action: &str,
+    procs: &[Proc],
+    module_dir: &Path,
+    module_name: &str,
+    _config: &Value,
+) -> (bool, String) {
     let kill = |sig: i32| -> usize {
         let mut n = 0;
         for p in procs {
@@ -1008,30 +1120,40 @@ fn generic_act(action: &str, procs: &[Proc], module_dir: &Path, _config: &Value)
     };
     match action {
         "stop" => {
+            if procs.is_empty() {
+                return (true, "nothing running for this module".to_string());
+            }
             let n = kill(libc::SIGTERM);
             (true, format!("sent SIGTERM to {} process(es)", n))
         }
-        "start" => bootstrap(module_dir, false),
+        "start" => bootstrap(module_dir, module_name, false),
         _ => {
-            // restart: stop what's up, then start fresh. A bare module may
-            // have no launcher at all (no ecosystem.config.js / start.sh) —
-            // snapshot its live commands BEFORE killing so we can respawn
-            // them, and refuse to kill anything we cannot bring back.
+            // restart: stop what's up, then start fresh. A bare module may have
+            // no launcher script at all (no ecosystem.config.js / start.sh), so
+            // there are two ways back up: respawn the exact commands it is
+            // running now — snapshotted BEFORE the kill — or, when nothing is
+            // running to copy, hand it to the protocol (`m serve <name>`).
+            // Refuse only when neither is possible, so nothing gets stopped
+            // that cannot be brought back.
             let has_launcher = module_dir.join("ecosystem.config.js").exists()
                 || module_dir.join("start.sh").exists();
             let snaps = if has_launcher { Vec::new() } else { snapshot_cmds(procs) };
-            if !has_launcher && snaps.is_empty() {
+            let respawnable = !has_launcher && !snaps.is_empty();
+            if !has_launcher && !respawnable && !can_mod_serve(module_name) {
                 return (
                     false,
-                    "refusing to restart: no ecosystem.config.js / start.sh and no respawnable process — nothing was stopped".to_string(),
+                    format!(
+                        "nothing to restart: no ecosystem.config.js / start.sh, no respawnable process, and `m serve {}` is unavailable — nothing was stopped",
+                        module_name
+                    ),
                 );
             }
             let n = kill(libc::SIGTERM);
             std::thread::sleep(std::time::Duration::from_millis(800));
-            let (ok, out) = if has_launcher {
-                bootstrap(module_dir, false)
-            } else {
+            let (ok, out) = if respawnable {
                 respawn(&snaps, module_dir)
+            } else {
+                bootstrap(module_dir, module_name, false)
             };
             (ok, format!("stopped {} proc(es); {}", n, out))
         }

@@ -41,6 +41,7 @@ from the commit log, tag it. Never push without a green test run.
 | `icon` | glyph beside the name (default `>_`) |
 | `model` | model override, else the console's pick is used |
 | `tools` | restrict it to these tools; omit for the full loadout. A fleet module counts — `mod.git` is a tool name like any other |
+| `memory` | the memory module it thinks with: `default` (persistent, retrievable) or `ephemeral` (in RAM, written nowhere). Omit for the default one — see [memory.md](memory.md) |
 | `harness` | `claude` or `codex` — hand the run to that CLI instead of this module's loop (host owner only, and only if that CLI is installed here) |
 | body | the goal / system prompt |
 

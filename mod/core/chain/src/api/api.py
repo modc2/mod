@@ -1612,23 +1612,107 @@ async def build_project_delete(name: str, address: Optional[str] = None):
 # ── Shared projects ─────────────────────────────────────────────────────────
 #
 # A gallery: publish a project you built, anyone can fork it into their own
-# sidebar. Entries are keyed "<author>/<name>". The fleet's own contracts ship
-# as read-only entries, so the gallery is never empty and BlocTime is one click
-# away from a working editor.
+# sidebar. Entries are keyed "<author>/<name>". Every module of the fleet ships
+# as a read-only entry, so the gallery is never empty and each contract is one
+# click away from a working editor with its own tests.
+#
+# A fleet entry is laid out the way its tests expect: sources keep their
+# src/contracts/<module>/ directories under contracts/ (so imports like
+# `../tokengate/TokenGate.sol` keep resolving), tests go flat under test/, and
+# the module's README rides along. Paths are chain-module-relative and read
+# fresh on every request, so editing a fleet contract updates its gallery
+# entry without a republish.
 
-# Paths are chain-module-relative and read fresh on every request, so editing a
-# fleet contract updates its gallery entry without a republish.
-BUILTIN_SHARED = [{
-    "id": "fleet/bloctime",
-    "name": "bloctime",
-    "author": "fleet",
-    "description": "Stake an ERC20 for a block duration, mint blocTime on a multiplier curve.",
-    "sources": {
-        "contracts/BlocTime.sol": "src/contracts/bloctime/BlocTime.sol",
-        "contracts/Token.sol": "src/build/shared/bloctime/Token.sol",
-        "test/BlocTime.test.js": "src/contracts/bloctime/test/BlocTime.test.js",
-    },
-}]
+_CONTRACTS = "src/contracts"
+
+# The building blocks the modules share, named once. A module that reads a
+# price through TokenGate needs the gate and an oracle to test against; a
+# module that settles through Market needs the market on top of those.
+_TOKEN = ["token/Token.sol"]
+_ORACLES = ["oracles/IOracleAdapter.sol", "oracles/ManualPriceOracle.sol"]
+_GATE = _ORACLES + ["tokengate/TokenGate.sol"]
+_MARKET = _GATE + ["market/Market.sol"]
+_DEBIT = ["market/debit/Debit.sol"]
+_SAFE = ["safe/Enum.sol", "safe/ISafe.sol", "safe/Safe.sol",
+         "safe/SafeProxy.sol", "safe/SafeProxyFactory.sol"]
+_DEFI = ["defi/IYieldAdapter.sol", "defi/YieldVault.sol", "defi/MockYieldAdapter.sol",
+         "defi/AaveV3Adapter.sol", "defi/test/MockERC20.sol"]
+
+
+def _fleet(name: str, description: str, contracts: list, tests: list,
+           readme: Optional[str] = None) -> dict:
+    """One shipped gallery entry. `contracts` and `tests` are src/contracts-
+    relative; `readme` names the module directory whose README to include."""
+    sources = {}
+    for rel in dict.fromkeys(contracts):            # dedupe, keep order
+        sources[f"contracts/{rel}"] = f"{_CONTRACTS}/{rel}"
+    for rel in tests:
+        sources[f"test/{os.path.basename(rel)}"] = f"{_CONTRACTS}/{rel}"
+    if readme:
+        sources["README.md"] = f"{_CONTRACTS}/{readme}/README.md"
+    return {"id": f"fleet/{name}", "name": name, "author": "fleet",
+            "description": description, "sources": sources}
+
+
+_ALL_TESTS = [
+    "token/test/Token.test.js", "oracles/test/Oracles.test.js",
+    "registry/test/Registry.test.js", "perms/test/Perms.test.js",
+    "tokengate/test/TokenGate.test.js", "bloctime/test/BlocTime.test.js",
+    "treasury/test/Treasury.test.js", "market/test/Market.test.js",
+    "market/test/MarketWithdrawal.test.js", "market/test/Debit.test.js",
+    "safe/test/Safe.test.js", "safe/test/SafeDeployment.test.js",
+    "defi/test/YieldVault.test.js",
+]
+
+# Deploy order, then the pieces that sit beside the fleet, then the whole thing.
+BUILTIN_SHARED = [
+    _fleet("token",
+           "Plain ERC20 — the whole supply minted to the deployer. The fleet's USDC/USDT/native token.",
+           _TOKEN, ["token/test/Token.test.js"], readme="token"),
+    _fleet("oracle",
+           "Price-feed adapters behind one interface: manual, Chainlink and Pyth.",
+           _ORACLES + ["oracles/ChainlinkAdapter.sol", "oracles/PythAdapter.sol"] + _TOKEN,
+           ["oracles/test/Oracles.test.js"], readme="oracles"),
+    _fleet("registry",
+           "On-chain name registry: each mod has an owner, a unique name and arbitrary data.",
+           ["registry/Registry.sol"], ["registry/test/Registry.test.js"], readme="registry"),
+    _fleet("perms",
+           "Hierarchical key-value permissions with first-setter ownership.",
+           ["perms/Perms.sol"], ["perms/test/Perms.test.js"], readme="perms"),
+    _fleet("tokengate",
+           "Payment-token whitelist with a per-token oracle — what Market and Treasury price through.",
+           _GATE + _TOKEN, ["tokengate/test/TokenGate.test.js"], readme="tokengate"),
+    _fleet("bloctime",
+           "Stake an ERC20 for a block duration, mint blocTime on a multiplier curve.",
+           ["bloctime/BlocTime.sol"] + _TOKEN, ["bloctime/test/BlocTime.test.js"], readme="bloctime"),
+    _fleet("treasury",
+           "Splits whitelisted tokens across governance-token holders, gated by TokenGate.",
+           _GATE + ["treasury/Treasury.sol"] + _TOKEN,
+           ["treasury/test/Treasury.test.js"], readme="treasury"),
+    _fleet("market",
+           "Mint/credit/withdraw an 8-decimal stable credit token against oracle-priced payment tokens, plus signed Debit pulls.",
+           _MARKET + _DEBIT + _TOKEN,
+           ["market/test/Market.test.js", "market/test/MarketWithdrawal.test.js",
+            "market/test/Debit.test.js"], readme="market"),
+    _fleet("debit",
+           "EIP-712 signed debit pulls against a Market balance — the payment rail, with the market it draws on.",
+           _MARKET + _DEBIT + _TOKEN, ["market/test/Debit.test.js"], readme="market"),
+    _fleet("safe",
+           "Multisig wallet: EIP-712 threshold signatures, proxy pattern, factory deployment.",
+           _SAFE, ["safe/test/Safe.test.js"], readme="safe"),
+    _fleet("defi",
+           "Yield vault over pluggable strategy adapters (mock + Aave v3), harvest routed through Market.",
+           _DEFI + _MARKET + ["treasury/Treasury.sol"],
+           ["defi/test/YieldVault.test.js"], readme="defi"),
+    _fleet("protocol",
+           "The whole fleet in one project, every test included — ends with the Safe taking ownership of it all.",
+           _TOKEN + _ORACLES + ["oracles/ChainlinkAdapter.sol", "oracles/PythAdapter.sol",
+                                "registry/Registry.sol", "perms/Perms.sol", "tokengate/TokenGate.sol",
+                                "bloctime/BlocTime.sol", "treasury/Treasury.sol", "market/Market.sol"]
+           + _DEBIT + _SAFE + _DEFI,
+           _ALL_TESTS),
+]
+BUILTIN_SHARED[-1]["sources"]["README.md"] = "README.md"
 
 
 def _builtin_files(entry: dict) -> dict:
@@ -1853,6 +1937,10 @@ class BuiltReq(BaseModel):
     tx_hash: Optional[str] = None
     abi: list = []
     source: Optional[str] = None
+    # A contract someone else deployed that you want in your list anyway —
+    # same record, but it never claims you shipped it.
+    watched: bool = False
+    note: Optional[str] = None
 
 
 @app.post("/build/deployments")
@@ -1871,19 +1959,71 @@ async def build_record(req: BuiltReq):
 
     row = {"name": req.name, "network": req.network, "address": req.contract_address,
            "tx_hash": req.tx_hash, "abi": req.abi, "abi_cid": abi_cid,
-           "src_cid": src_cid, "deployer": req.address, "created": time.time()}
+           "src_cid": src_cid, "deployer": req.address, "created": time.time(),
+           "watched": req.watched, "note": req.note}
+    # Adding the same address on the same network twice is a re-record, not a
+    # second contract — keep one row so the list stays a registry.
+    rows[:] = [r for r in rows if not _same_deployment(r, req.network, req.contract_address)]
     rows.insert(0, row)
     _build_save("deployments.json", store)
     return {"ok": True, "deployment": row}
 
 
+def _same_deployment(row: dict, network: str, contract_address: str) -> bool:
+    return (row.get("network") == network
+            and (row.get("address") or "").lower() == (contract_address or "").lower())
+
+
 @app.get("/build/deployments")
 async def build_deployments(address: Optional[str] = None, network: Optional[str] = None):
-    """A user's wallet-signed deployments, newest first."""
+    """A user's wallet-signed deployments, newest first. No network → every one."""
     rows = _build_store("deployments.json").get(_who(address), [])
     if network:
         rows = [r for r in rows if r.get("network") == network]
     return {"deployments": rows, "count": len(rows)}
+
+
+class DeploymentEditReq(BaseModel):
+    address: Optional[str] = None      # whose list
+    network: str
+    contract_address: str
+    name: Optional[str] = None
+    note: Optional[str] = None
+
+
+@app.post("/build/deployments/edit")
+async def build_deployment_edit(req: DeploymentEditReq):
+    """Rename a recorded deployment or attach a note to it."""
+    store = _build_store("deployments.json")
+    rows = store.get(_who(req.address), [])
+    for row in rows:
+        if not _same_deployment(row, req.network, req.contract_address):
+            continue
+        if req.name is not None:
+            if not req.name.strip():
+                raise HTTPException(status_code=400, detail="name cannot be empty")
+            row["name"] = req.name.strip()
+        if req.note is not None:
+            row["note"] = req.note.strip() or None
+        _build_save("deployments.json", store)
+        return {"ok": True, "deployment": row}
+    raise HTTPException(status_code=404,
+                        detail=f"no deployment at {req.contract_address} on {req.network}")
+
+
+@app.delete("/build/deployments")
+async def build_deployment_delete(contract_address: str, network: str,
+                                  address: Optional[str] = None):
+    """Forget a deployment. The contract stays on chain — this drops the record."""
+    store = _build_store("deployments.json")
+    rows = store.get(_who(address), [])
+    kept = [r for r in rows if not _same_deployment(r, network, contract_address)]
+    if len(kept) == len(rows):
+        raise HTTPException(status_code=404,
+                            detail=f"no deployment at {contract_address} on {network}")
+    store[_who(address)] = kept
+    _build_save("deployments.json", store)
+    return {"ok": True, "removed": len(rows) - len(kept)}
 
 
 # ── ABIs in the store ───────────────────────────────────────────────────────

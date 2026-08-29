@@ -2,9 +2,12 @@
 //! spoken as JSON-RPC 2.0 so any MCP client (Claude, IDEs, agent frameworks)
 //! can drive Hyperliquid without a bespoke SDK.
 //!
-//! Transports: Streamable HTTP at `POST /mcp` (one request → one JSON
-//! response, no SSE) and stdio (`hyperliquid-api --stdio`) for clients that
-//! only speak stdio.
+//! Transports, so a client connects with whatever it already speaks:
+//!   * Streamable HTTP — `POST /mcp`, answered as JSON, or as a one-event SSE
+//!     stream for clients that ask for `text/event-stream` and nothing else.
+//!   * HTTP+SSE (the 2024-11-05 transport, still what many agent frameworks
+//!     ship) — `GET /sse` opens the stream and names `POST /messages`.
+//!   * stdio — `hyperliquid-api --stdio`.
 //!
 //! **One schema, two protocols.** Every tool in `TOOLS` names the mod-protocol
 //! `fn` it fronts (the same names config.json lists and `mod.py::forward`
@@ -156,12 +159,19 @@ pub fn tools() -> &'static [Tool] {
         tool("hl_top_traders", "top_traders", "GET", "/traders/top", true,
             "Ranked board of the best-performing wallets over the window, from a \
              full leaderboard scrape: ROI, PnL, volume, and (for the top rows) \
-             win rate, sharpe and trade count. Served from a cache refreshed in \
-             the background; `updated_at` says how fresh it is. Standard windows \
-             (days 1/7/30) return in milliseconds.",
+             win rate, sharpe and trade count. `rank` picks what 'top' means: \
+             roi (best return on equity, default), pnl (biggest dollar winners — \
+             HL's own leaderboard order) or volume. Pure holders with zero \
+             volume are never listed. Served from a cache refreshed in the \
+             background; `updated_at` says how fresh it is. Standard windows \
+             (days 1/7/30 × rank roi/pnl) return in milliseconds. Any address \
+             on the board — or any address at all — can be copied with \
+             hl_create_follow / hl_live_start.",
             vec![
                 ("days", p("integer", "window in days, 1-90 (default 7); 1/7/30 are precomputed")),
                 ("pool", p("integer", "how many ranked traders to return, 1-1500 (default 150)")),
+                ("rank", p("string", "roi (default) | pnl | volume — the metric that selects AND sorts the board")),
+                ("active", p("string", "liveness gate: 24h (default, traded in the last day) | window (traded inside the ranking window)")),
                 ("min_per_day", p("number", "minimum trades per day to qualify (default 1)")),
                 ("seed", arr("string", "extra wallet addresses to force into the board")),
             ], &[]),
@@ -493,6 +503,44 @@ pub fn tools() -> &'static [Tool] {
                 ("code", p("string", "referral code")),
             ], &["eoa", "code"]),
 
+        // ── cross-chain deposit rails ──
+        tool("hl_deposit_chains", "deposit_chains", "GET", "/deposit/chains", true,
+            "Chains Hyperliquid can be funded from (Ethereum, Arbitrum, Base, OP, \
+             Polygon, BNB Chain, Avalanche) and the tokens accepted on each, with \
+             chain ids, RPC/explorer URLs and the minimum deposit.",
+            vec![], &[]),
+        tool("hl_deposit_balances", "deposit_balances", "GET", "/deposit/balances", true,
+            "Every balance an address holds across those chains, priced in USD off \
+             Hyperliquid's own mids and sorted richest first. Use it to answer \
+             'what can I fund with?' before quoting a route. `sources[]` is the \
+             flat list of spendable (chain, token) pairs; `max` already reserves \
+             native gas.",
+            vec![("eoa", p("string", "0x wallet address to scan"))], &["eoa"]),
+        tool("hl_deposit_quote", "deposit_quote", "POST", "/deposit/quote", false,
+            "Quote a route that funds a Hyperliquid account from another chain and \
+             return the transaction for the wallet to sign. The default \
+             destination is the Hyperliquid perps account itself, so one signed \
+             transaction completes the deposit — no Arbitrum hop. Set to_chain_id \
+             to bridge Arbitrum USDC back out instead. This only builds an \
+             unsigned transaction; nothing moves until the wallet signs it.",
+            vec![
+                ("from_chain_id", p("integer", "source chain id: 1, 10, 56, 137, 8453, 42161 or 43114")),
+                ("token", p("string", "what to spend: \"usdc\", \"native\", a symbol like \"WETH\", or a token address")),
+                ("amount", p("string", "amount in whole token units, e.g. \"120.5\"")),
+                ("eoa", eoa()),
+                ("to_chain_id", p("integer", "destination chain id (default: Hyperliquid, 1337)")),
+                ("to_address", p("string", "recipient on the destination chain (default: eoa)")),
+            ], &["from_chain_id", "token", "amount", "eoa"]),
+        tool("hl_deposit_status", "deposit_status", "GET", "/deposit/status", true,
+            "Track a submitted deposit by its source-chain transaction hash: \
+             PENDING / DONE / FAILED, plus how much USDC arrived. NOT_FOUND right \
+             after broadcast is normal — the indexer lags the chain.",
+            vec![
+                ("tx_hash", p("string", "transaction hash on the source chain")),
+                ("from_chain_id", p("integer", "source chain id the transaction was sent on")),
+                ("to_chain_id", p("integer", "destination chain id (default: Hyperliquid, 1337)")),
+            ], &["tx_hash", "from_chain_id"]),
+
         // ── live copy-trade engine ──
         tool("hl_live_start", "live_start", "POST", "/live/start", false,
             "Start an autonomous copy-trade session: poll the given traders and \
@@ -560,6 +608,28 @@ pub fn schema_doc(testnet: bool) -> Value {
             "supportedVersions": SUPPORTED_PROTOCOL_VERSIONS,
             "auth": "Authorization: Bearer <mod protocol token> — required for non-public tools",
             "instructions": INSTRUCTIONS,
+            // Every way in, so a client can pick the one it already speaks.
+            "transports": [
+                {
+                    "type": "streamable-http",
+                    "endpoint": "/mcp",
+                    "note": "one JSON-RPC message (or batch) per POST; \
+                             answered as JSON, or as SSE if that is all you accept",
+                },
+                {
+                    "type": "sse",
+                    "endpoint": "/sse",
+                    "messages": "/messages?sessionId=<id>",
+                    "note": "the 2024-11-05 HTTP+SSE transport — GET /sse, then \
+                             POST to the endpoint named by its first event",
+                },
+                {
+                    "type": "stdio",
+                    "command": "hyperliquid-api --stdio",
+                    "note": "set HL_API_URL to this API and HYPERLIQUID_TOKEN to \
+                             authorize wallet-scoped tools",
+                },
+            ],
         },
         "tools": Value::Array(tools().iter().map(|t| json!({
             "name": t.name,
@@ -773,6 +843,108 @@ pub async fn handle_message(
     })
 }
 
+/// Handle one *payload*: either a single JSON-RPC message or a batch array
+/// (which the 2025-03-26 revision requires servers to accept). `None` means
+/// every message in it was a notification — nothing to reply with.
+pub async fn handle_payload(
+    base: &str,
+    payload: &Value,
+    authorization: Option<&str>,
+) -> Option<Value> {
+    let Some(batch) = payload.as_array() else {
+        return handle_message(base, payload, authorization).await;
+    };
+    // An empty batch is malformed JSON-RPC; say so rather than 202-ing it into
+    // a client that will then wait forever for a response.
+    if batch.is_empty() {
+        return Some(rpc_error(Value::Null, -32600, "invalid request: empty batch"));
+    }
+    let mut out = Vec::new();
+    for msg in batch {
+        if let Some(resp) = handle_message(base, msg, authorization).await {
+            out.push(resp);
+        }
+    }
+    (!out.is_empty()).then(|| Value::Array(out))
+}
+
+// ─── HTTP+SSE transport sessions (the 2024-11-05 transport) ────────────
+//
+// `GET /sse` opens a stream and, per that spec, its first event names the URL
+// the client POSTs messages to. Responses come back down the stream rather
+// than in the POST body, so each open stream needs a mailbox keyed by session.
+
+pub struct Session {
+    tx: tokio::sync::mpsc::UnboundedSender<String>,
+    /// Authorization captured when the stream opened. Clients that only send
+    /// credentials on the SSE request still get their identity applied to the
+    /// messages they POST afterwards.
+    pub authorization: Option<String>,
+    /// Open order, for evicting the oldest when the cap is hit.
+    seq: u64,
+}
+
+/// A session is normally reaped when its stream drops. That relies on the
+/// client's disconnect reaching us — a buffering proxy in front can hold the
+/// upstream socket open after the client is gone, which would let dead
+/// sessions pile up. Cap them and evict the oldest so the ceiling is fixed.
+const MAX_SESSIONS: usize = 128;
+
+fn sessions() -> &'static dashmap::DashMap<String, Session> {
+    static SESSIONS: OnceLock<dashmap::DashMap<String, Session>> = OnceLock::new();
+    SESSIONS.get_or_init(dashmap::DashMap::new)
+}
+
+/// Register a stream and return the receiver its events are pumped from.
+pub fn open_session(
+    id: String,
+    authorization: Option<String>,
+) -> tokio::sync::mpsc::UnboundedReceiver<String> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let map = sessions();
+    map.insert(id, Session { tx, authorization, seq });
+    while map.len() > MAX_SESSIONS {
+        let Some(oldest) = map
+            .iter()
+            .min_by_key(|s| s.seq)
+            .map(|s| s.key().clone())
+        else {
+            break;
+        };
+        tracing::warn!("mcp: {MAX_SESSIONS} SSE sessions open — evicting {oldest}");
+        map.remove(&oldest);
+    }
+    rx
+}
+
+pub fn close_session(id: &str) {
+    sessions().remove(id);
+}
+
+pub fn session_count() -> usize {
+    sessions().len()
+}
+
+pub fn session_exists(id: &str) -> bool {
+    sessions().contains_key(id)
+}
+
+/// Authorization the stream was opened with, if any.
+pub fn session_authorization(id: &str) -> Option<String> {
+    sessions().get(id).and_then(|s| s.authorization.clone())
+}
+
+/// Push one JSON-RPC response down a session's stream. False = no such
+/// session (or the client already went away).
+pub fn session_send(id: &str, msg: &Value) -> bool {
+    match sessions().get(id) {
+        Some(s) => s.tx.send(msg.to_string()).is_ok(),
+        None => false,
+    }
+}
+
 /// stdio transport: newline-delimited JSON-RPC on stdin/stdout, proxying to a
 /// running API (`HL_API_URL`, default the local port). Register with e.g.
 /// `claude mcp add hyperliquid -- /path/to/hyperliquid-api --stdio`.
@@ -800,7 +972,7 @@ pub async fn run_stdio(base: String) {
                 continue;
             }
         };
-        if let Some(resp) = handle_message(&base, &msg, auth.as_deref()).await {
+        if let Some(resp) = handle_payload(&base, &msg, auth.as_deref()).await {
             let _ = stdout.write_all(format!("{resp}\n").as_bytes()).await;
             let _ = stdout.flush().await;
         }
@@ -892,6 +1064,50 @@ mod tests {
         // Missing path param fails before any network call.
         let t = find_tool("hl_orderbook").unwrap();
         assert!(build_url("http://x", t, &json!({})).is_err());
+    }
+
+    /// A batch must come back as an array of the *answerable* messages —
+    /// answering only the first (or dropping the lot into a 202) leaves the
+    /// client waiting forever for ids it will never see.
+    #[tokio::test]
+    async fn batches_answer_every_request_and_skip_notifications() {
+        let batch = json!([
+            {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        ]);
+        let out = handle_payload("http://127.0.0.1:1", &batch, None).await.unwrap();
+        let out = out.as_array().unwrap();
+        assert_eq!(out.len(), 2, "notification must not get a response");
+        assert_eq!(out[0]["id"], json!(1));
+        assert_eq!(out[1]["id"], json!(2));
+        assert_eq!(out[1]["result"]["tools"].as_array().unwrap().len(), tools().len());
+
+        // All-notification batch: nothing to say, so the route 202s.
+        let quiet = json!([{"jsonrpc": "2.0", "method": "notifications/initialized"}]);
+        assert!(handle_payload("http://127.0.0.1:1", &quiet, None).await.is_none());
+
+        // An empty batch is malformed — say so instead of hanging the client.
+        let empty = handle_payload("http://127.0.0.1:1", &json!([]), None).await.unwrap();
+        assert_eq!(empty["error"]["code"], json!(-32600));
+    }
+
+    /// The HTTP+SSE transport's mailbox: a POST finds the stream its session
+    /// belongs to, and a closed stream stops accepting.
+    #[test]
+    fn sse_sessions_route_responses_and_reap() {
+        let id = "session-under-test".to_string();
+        let mut rx = open_session(id.clone(), Some("Bearer t".into()));
+        assert!(session_exists(&id));
+        assert_eq!(session_authorization(&id).as_deref(), Some("Bearer t"));
+
+        assert!(session_send(&id, &json!({"jsonrpc": "2.0", "id": 1, "result": {}})));
+        let got: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
+        assert_eq!(got["id"], json!(1));
+
+        close_session(&id);
+        assert!(!session_exists(&id));
+        assert!(!session_send(&id, &json!({})), "a closed session must not accept");
     }
 
     #[test]

@@ -12,6 +12,7 @@ import type {
   LeaderboardEntry,
   MarketStats,
   PnlData,
+  PortfolioPlan,
   PricePoint,
   SubnetDetail,
   SubnetInfo,
@@ -104,14 +105,39 @@ export const unwatchAccount = (ss58: string) =>
 export const fetchCopies = () => j<CopyConfig[]>("/copies");
 
 export const createCopy = (body: {
-  target_ss58?: string;
-  targets?: { ss58: string; weight: number }[];
+  target_ss58: string;
   our_hotkey: string;
   label?: string;
+  /** The TAO behind this trader. Required — it is the size of the position. */
+  alloc_tao: number;
   max_tao_per_tx?: number;
   daily_limit_tao?: number;
   rebalance_threshold_pct?: number;
+  poll_interval_sec?: number;
 }) => j<CopyConfig>("/copy", { method: "POST", body: JSON.stringify(body) });
+
+/** Re-size a live copy. The blend picks it up on the next pass — no exit. */
+export const updateCopy = (
+  id: string,
+  body: {
+    alloc_tao?: number;
+    label?: string;
+    our_hotkey?: string;
+    max_tao_per_tx?: number;
+    rebalance_threshold_pct?: number;
+    poll_interval_sec?: number;
+  },
+) => j<CopyConfig>(`/copy/${id}`, { method: "PUT", body: JSON.stringify(body) });
+
+// ── portfolio ──
+// Every active copy blended into one book. `portfolioPlan` is a pure read of
+// exactly what `portfolioSync` would execute, so the preview cannot drift
+// from the thing it previews.
+
+export const portfolioPlan = () => j<PortfolioPlan>("/portfolio");
+
+export const portfolioSync = (dryRun = false) =>
+  j<PortfolioPlan>(`/portfolio/sync?dry_run=${dryRun}`, { method: "POST" });
 
 export const pauseCopy = (id: string) =>
   j<{ id: string; status: string }>(`/copy/${id}/pause`, { method: "POST" });
@@ -203,7 +229,14 @@ export const fetchWhoami = () =>
   });
 
 export const backtestBasket = (
-  traders: Array<{ ss58: string; weight: number; enabled?: boolean; label?: string | null }>,
+  traders: Array<{
+    ss58: string;
+    weight: number;
+    enabled?: boolean;
+    label?: string | null;
+    /** When set, the leg is weighted by this TAO rather than by `weight`. */
+    alloc_tao?: number | null;
+  }>,
   days = 7,
   capitalTao = 100,
 ) =>

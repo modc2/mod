@@ -208,8 +208,10 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
     }
     // MCP is a transport, not a privilege: `tools/list` and public tools must
     // work signed-out. Each tool call re-enters this guard as a loopback
-    // request carrying the caller's own header, so gating happens there.
-    if path == "/mcp" {
+    // request carrying the caller's own header, so gating happens there. All
+    // three MCP entrances (streamable HTTP, and the HTTP+SSE pair) are the
+    // same transport and get the same treatment.
+    if matches!(path.as_str(), "/mcp" | "/sse" | "/messages") {
         return next.run(req).await;
     }
 

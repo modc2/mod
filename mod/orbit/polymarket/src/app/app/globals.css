@@ -774,6 +774,37 @@ input[type="radio"] {
   box-shadow: 0 0 0 3px rgba(var(--accent) / 0.18);
 }
 
+/* ── Dense variants ────────────────────────────────────────────────────────
+   This file loads AFTER `@tailwind utilities`, so `.pixel-btn` (13px / 8px 14px)
+   beats a `text-[9px] px-1.5` on the same element: single-class specificity,
+   later source wins. Every "tiny" button in a 340px column was therefore
+   rendering at full desk size, which is what made the copy sidebar wrap and
+   clip. These win the tie by carrying two classes, so a caller opts in with
+   `pixel-btn btn-xs` and gets the size it asked for. */
+.pixel-btn.btn-xs {
+  font-size: 9.5px;
+  padding: 3px 6px;
+  letter-spacing: 0.06em;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+.pixel-btn.btn-sm {
+  font-size: 11px;
+  padding: 5px 9px;
+  letter-spacing: 0.07em;
+  border-radius: var(--radius-sm);
+}
+.pixel-btn.btn-xs:hover,
+.pixel-btn.btn-sm:hover {
+  transform: none; /* a 3px lift on a 16px button reads as a jitter */
+  box-shadow: none;
+}
+.pixel-input-sm.input-xs {
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+}
+
 /* Vibey rounded input */
 .pixel-input {
   background: var(--input-bg);

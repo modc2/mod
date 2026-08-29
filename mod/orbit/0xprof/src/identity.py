@@ -14,6 +14,14 @@ Both end at a 0x address, and nothing downstream cares which door was used.
 There is no password and no account to create: the address *is* the account,
 and it owns the proofs it published and the credits it holds.
 
+Which is what makes signing in anonymously possible without a second code path
+here: the console can generate its own secp256k1 key (src/app/keys.js) and sign
+the same challenge with it, and this file cannot tell that signature from an
+extension's — it recovers an address either way. A visitor with no wallet is
+therefore a first-class account rather than a guest, and where the key is kept
+is the browser's problem and the console's warning to give, not a distinction
+the server gets to make.
+
 Open mode (ZKPROF_OPEN=1) skips the gate for local development. It is off by
 default and `status()` says which it is — a module that quietly runs open is a
 module that will one day be open in production.
@@ -260,7 +268,10 @@ def status() -> Dict[str, Any]:
     return {
         'open_mode': open_mode(),
         'owner': owner(),
-        'accepts': ['mod-protocol token', 'wallet signature (personal_sign)'],
+        'accepts': ['mod-protocol token',
+                    'wallet signature (personal_sign) — from an extension, or '
+                    'from a key the console generated in the tab; the same '
+                    'signature either way'],
         'signed_actions': {'re-verify': 'a fresh personal_sign naming the proof — a '
                                         'session token is not enough, and ZKPROF_OPEN '
                                         'does not waive it, because the run is '

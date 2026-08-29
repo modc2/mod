@@ -37,4 +37,4 @@ pm2 delete build-fork-api build-fork-app >/dev/null 2>&1 || true
 BUILD_FORK_MODE="$MODE" pm2 start ecosystem.config.js
 
 pm2 save >/dev/null 2>&1 || true
-echo "✓ build-fork up — API :${BUILD_FORK_API_PORT:-8894}  APP :${BUILD_FORK_APP_PORT:-8895}  (pm2 ls)"
+echo "✓ build up — API :${BUILD_FORK_API_PORT:-8894}  APP :${BUILD_FORK_APP_PORT:-8895}  (pm2 ls)"

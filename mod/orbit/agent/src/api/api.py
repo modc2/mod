@@ -40,6 +40,7 @@ Endpoints:
     POST /vaults/{name}/entries - upsert {entry, value, private}
     DELETE /vaults/{name}/entries/{entry} - remove one entry
     GET  /vaults/public?address=&name= - anyone: a vault's public entries
+    GET  /parts        - the agent box: model, memory module, toolbox, tools, prompt
     GET  /toolboxes    - tool bundles        POST /toolboxes  DELETE /toolboxes/{name}
     POST /toolboxes/{name}/snap   - snap a bundle onto the agent (unsnap to detach)
     POST /toolboxes/unsnap        - detach everything, back to the full tool set
@@ -49,26 +50,58 @@ Endpoints:
     POST /tools/{name}/run - host: execute one tool (the console's test run)
     POST /tools/select - host: pin the loadout to an exact list (null = toolboxes)
     GET  /memory/state - memory subsystem layers (working/episodic/semantic)
+    GET  /memory/modules   - the memory modules an agent can be built with
+    GET  /memory/retrieve?q= - retrieval across every layer at once, ranked
     GET  /memory/recall?q= - facts scored against a query
     POST /memory/remember  - store a durable fact   DELETE /memory/facts/{id}
     GET  /memory/episodes  - step trail    POST /memory/serve - own process :50119
+    GET  /modules      - the fleet + each module's visibility (anyone)
+    GET  /modules/{name}/tree - file list of a public module (anyone)
+    GET  /modules/{name}/file?path= - one source file of a public module
+    POST /modules/{name}/visibility - owner: flip one module public/private
+    POST /modules/visibility - owner: flip the whole fleet + the default
+    POST /modules/{name}/seal|unseal|restore - owner: the encrypted blob
+    POST /privacy/key  - owner: fleet key state/export/import/passphrase
     GET  /whoami       - resolve a signed token to an address + role
+    GET  /memory/exchanges - what you and the agent have said to each other,
+                        scoped to your address (or your session, anonymous)
     GET  /credits      - deposit info + caller's credit balance/history
     POST /credits/deposit - verify a USDT/USDC tx hash, credit the on-chain sender
     POST /credits/grant   - owner: adjust an account's credits (± amount)
     GET  /credits/treasury - owner: deposits in, provider credits out, margin kept
     POST /credits/topup   - owner: record API credits bought at a provider
+    POST /credits/topup/verify - owner: book a top-up read off the provider key
     POST /credits/withdraw - owner: take earned margin out of the float
     POST /credits/config  - owner: set fee_rate / pricing knobs
     GET  /arena        - the ranked board + what the background process is doing
     GET  /arena/tasks  - the task pool, and this season's slice of it
     GET  /arena/matches?limit=&agent=&task= - recent matches, newest first
     GET  /arena/agents/{name} - one agent's record (rating, per-task, matches)
+    GET  /arena/models - the same matches ranked by model: score, latency,
+                         throughput, spend — plus the catalog to play
+    GET  /arena/model?model= - one model's record (per-task, who it beat)
+    GET  /arena/board/tasks  - per task, the models that played it, ranked
+    POST /arena/gauntlet - admin: one agent, one task set, N models
     POST /arena/run    - admin: play a match (agent=, task=) or a whole round
     POST /arena/config - admin: the board's knobs + scheduler on/off
+    POST /arena/tasks/draft - signed in: a description -> a task spec, written
+                        by the task-builder agent (nothing is stored)
+    POST /arena/tasks  - signed in: save a hand-written task into the pool
+    DELETE /arena/tasks/{slug} - its author, or the host
+    GET  /arena/openarena - the openarena bridge: up?, its pool, its entrants
+    GET  /arena/openarena/tasks/{slug} - one task there, hidden cases hidden
+    POST /arena/openarena/tasks - signed in: upload a task in that schema
+    DELETE /arena/openarena/tasks/{slug} - its author, or the host
+    GET  /arena/openarena/sources - benchmarks it can pull off the web
+    POST /arena/openarena/import - signed in: a benchmark in as tasks
+                        (preview=true converts and keeps nothing)
+    POST /arena/openarena/enter - owner: our agent on openarena's own board
     GET  /tasks        - server-side task registry (running + recent runs)
     GET  /tasks/{id}   - one task with its step trace
     GET  /tasks/{id}/images - thumbnails of the images attached to that run
+    POST /mcp          - MCP (Model Context Protocol) over Streamable HTTP:
+                        the same handlers as JSON-RPC 2.0, 20 tools + resources
+    GET  /mcp/schema   - the MCP tool list + how to connect a client
     POST /forward      - mod protocol entry point
     POST /run          - run the full agent loop
     POST /run/stream   - run the agent loop, streaming steps live (SSE)
@@ -87,10 +120,10 @@ import queue
 import threading
 from collections import OrderedDict
 from typing import Any, Dict, Optional, List
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 # resolve paths: api.py is at src/api/api.py
 # paths MUST be normalized — the mod framework prefix-matches sys.path entries
@@ -109,7 +142,9 @@ try:
 except Exception:
     VERSION = '0.0.0'
 
+from src import mcp             # the MCP server — same handlers, JSON-RPC over them
 from src.liquid import BROWSER   # the mailbox a browser-model run waits on
+from src.privacy.mod import SealError   # sealing failures map to a 400, not a 500
 
 app = FastAPI(title="Agent API", version=VERSION, description="Autonomous coding agent API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -124,7 +159,10 @@ class ForwardRequest(BaseModel):
 
 class RunRequest(BaseModel):
     query: str
-    model: str = "anthropic/claude-opus-5"
+    # both unset by default: the module resolves the provider (local first —
+    # Mod.default_provider) and then that provider's own default model. A
+    # hardcoded frontier model here meant every caller who named none spent.
+    model: Optional[str] = None
     provider: Optional[str] = None
     steps: int = 10
     tools: Optional[List[str]] = None
@@ -137,11 +175,13 @@ class RunRequest(BaseModel):
     agent_type: Optional[str] = None
     chain: Optional[List[dict]] = None
     prompt: Optional[str] = None          # system prompt override (library prompt or free text)
+    memory: Optional[str] = None            # memory module for this run (default | ephemeral | dotted path)
     memory_ids: Optional[List[str]] = None  # library memory note ids injected as context
     tool_ids: Optional[List[str]] = None    # installed tool-doc ids injected as context
     images: Optional[List[str]] = None      # pasted images (data: URLs) — needs a vision model
     thumbs: Optional[List[str]] = None      # tiny copies of the same images, for the task registry
     browser_session: Optional[str] = None   # tab id a `browser` run generates in
+    session: Optional[str] = None           # console conversation — makes the run a remembered exchange
     key: Optional[str] = None
 
 class ToolRunRequest(BaseModel):
@@ -156,6 +196,7 @@ class AgentCreateRequest(BaseModel):
     icon: str = ">_"
     tools: Optional[List[str]] = None
     model: Optional[str] = None
+    memory: Optional[str] = None    # memory module: 'default' | 'ephemeral' | dotted path
     harness: Optional[str] = None   # 'claude' | 'codex' — run on that CLI instead
     key: Optional[str] = None
 
@@ -166,8 +207,10 @@ class AgentUpdateRequest(BaseModel):
     tools: Optional[List[str]] = None
     model: Optional[str] = None
     harness: Optional[str] = None
+    memory: Optional[str] = None # memory module the agent thinks with
     clear_tools: bool = False    # explicit: reset to every tool
     clear_model: bool = False    # explicit: reset to default model
+    clear_memory: bool = False   # explicit: back to the default memory module
     clear_harness: bool = False  # explicit: back to this module's own loop
     key: Optional[str] = None
 
@@ -305,6 +348,10 @@ class TopupRequest(BaseModel):
     note: str = ""
     key: Optional[str] = None
 
+class TopupVerifyRequest(BaseModel):
+    provider: str = "openrouter"      # whose key to read the purchase off
+    key: Optional[str] = None
+
 class WithdrawRequest(BaseModel):
     amount: float
     note: str = ""
@@ -325,6 +372,91 @@ class ArenaRunRequest(BaseModel):
     free: Optional[bool] = None
     key: Optional[str] = None
 
+class TaskDraftRequest(BaseModel):
+    """A plain description in, a task spec out — see /arena/tasks/draft."""
+    description: str
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    free: bool = False
+    steps: int = 4                   # the drafting agent's own budget, not the task's
+    # which schema to draft: 'agent' grades the trace, 'openarena' grades a
+    # program against test cases. `schema` is BaseModel's own name, so the
+    # field is spelled out and the wire keeps the short one
+    task_schema: str = Field('agent', alias='schema')
+    key: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class TaskSaveRequest(BaseModel):
+    title: str
+    prompt: str
+    description: str = ""
+    steps: Optional[int] = None      # the step budget agents get on this task
+    files: Optional[dict] = None     # fixture seeded into the scratch dir
+    scorers: Optional[List[dict]] = None
+    slug: Optional[str] = None       # set = edit that task in place
+    key: Optional[str] = None
+
+class OpenArenaTaskRequest(BaseModel):
+    """A task in the openarena schema — a statement plus the cases that grade
+    it. Stored in the openarena module, judged by its sandbox."""
+    title: str
+    statement: str
+    mode: str = "io"                 # io (stdin/stdout) | unit (imported)
+    language: str = "any"            # any | python | javascript | bash
+    tests: List[dict] = []           # {name, stdin, expect, hidden} | {name, program}
+    starter: str = ""
+    tags: Optional[List[str]] = None
+    slug: Optional[str] = None
+    timeout_ms: Optional[int] = None
+    key: Optional[str] = None
+
+
+class BenchImportRequest(BaseModel):
+    """Pull a published benchmark in as openarena tasks. `preview` converts and
+    keeps nothing — always the first call."""
+    source: str = "humaneval"
+    limit: int = 10
+    offset: int = 0
+    preview: bool = False
+    url: Optional[str] = None        # json / html sources
+    dataset: Optional[str] = None    # hf source
+    config: Optional[str] = None
+    split: Optional[str] = None
+    style: Optional[str] = None      # humaneval | asserts | io | html
+    language: Optional[str] = None
+    max_cases: Optional[int] = None
+    hide_after: Optional[int] = None
+    split_asserts: Optional[bool] = None
+    tags: Optional[List[str]] = None
+    slug_prefix: Optional[str] = None
+    refresh: bool = False
+    key: Optional[str] = None
+
+
+class OpenArenaEnterRequest(BaseModel):
+    """Enter one of our agents as a competitor on openarena's own board."""
+    agent: str
+    name: Optional[str] = None
+    model: Optional[str] = None
+    steps: Optional[int] = None
+    free: Optional[bool] = None
+    key: Optional[str] = None
+
+
+class ArenaGauntletRequest(BaseModel):
+    """One agent, one set of tasks, every model in turn — the round the model
+    board is built out of."""
+    # ids, or {"model": ..., "provider": ...} where the catalog isn't the
+    # module's default
+    models: List[Any]
+    agent: Optional[str] = None            # None = the first eligible agent
+    tasks: Optional[List[str]] = None      # None = this season's rotation
+    steps: Optional[int] = None
+    free: bool = False                     # FREE MODE would ignore every id here
+    key: Optional[str] = None
+
+
 class ArenaConfigRequest(BaseModel):
     enabled: Optional[bool] = None
     free: Optional[bool] = None            # run matches on zero-cost models
@@ -336,6 +468,9 @@ class ArenaConfigRequest(BaseModel):
     max_matches: Optional[int] = None
     harnesses: Optional[bool] = None       # let CLI-backed agents compete
     scheduler: Optional[bool] = None       # start/stop the background process
+    openarena: Optional[bool] = None       # pull openarena's tasks into the pool
+    openarena_tasks: Optional[int] = None  # how many of them (0 = all)
+    openarena_steps: Optional[int] = None  # step budget on a program task
     key: Optional[str] = None
 
 class BrowserCompletionRequest(BaseModel):
@@ -352,6 +487,23 @@ class VaultEntryRequest(BaseModel):
     entry: str
     value: str
     private: bool = True
+    key: Optional[str] = None
+
+class VisibilityRequest(BaseModel):
+    visibility: str                      # 'public' | 'private'
+    passphrase: Optional[str] = None     # if the fleet key is passphrase-wrapped
+    key: Optional[str] = None
+
+class SealRequest(BaseModel):
+    passphrase: Optional[str] = None
+    force: bool = False
+    key: Optional[str] = None
+
+class PrivacyKeyRequest(BaseModel):
+    op: str = 'state'                    # state | export | import | passphrase
+    passphrase: Optional[str] = None
+    current: Optional[str] = None
+    key_b64: Optional[str] = None
     key: Optional[str] = None
 
 
@@ -420,18 +572,35 @@ def _task_thumbs(req: "RunRequest") -> List[str]:
             and len(u) <= MAX_THUMB_BYTES][:MAX_TASK_THUMBS]
 
 
+def _task_provider(req: "RunRequest") -> str:
+    """The provider this run will actually use — local unless asked otherwise."""
+    if req.provider:
+        return req.provider
+    try:
+        return get_mod().default_provider()
+    except Exception:
+        return "openrouter"
+
+
 def _task_model(req: "RunRequest") -> str:
     """The model this run will actually use.
 
     A FREE MODE run ignores req.model and resolves a zero-cost one, so the
     requested model would be a lie in the ledger and in the console's trace.
     Resolved on the request's own provider — a free id from another catalog
-    would be a lie too.
+    would be a lie too. A request that named no model at all is answered the
+    same way the loop answers it: with that provider's default.
     """
+    mod = get_mod()
     if not req.free:
-        return req.model
+        if req.model:
+            return req.model
+        try:
+            return mod.DEFAULT_MODELS.get(_task_provider(req)) or ''
+        except Exception:
+            return ''
     try:
-        return get_mod().free_model(req.provider) or req.model
+        return mod.free_model(_task_provider(req)) or req.model
     except Exception:
         return req.model
 
@@ -444,7 +613,7 @@ def _task_create(req: "RunRequest", chain: bool = False, agent: str = None) -> d
         # request named none, so the registry doesn't say 'default' for a
         # run that went to Claude Code
         "agent_type": (agent or req.agent_type or req.agent or "default"),
-        "provider": req.provider or "openrouter",
+        "provider": _task_provider(req),
         "model": _task_model(req),
         "chain": chain,
         "user": _caller_address(req.key),
@@ -578,7 +747,9 @@ def _charge_run(req: "RunRequest", t: dict) -> Optional[dict]:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "module": "agent", "version": app.version}
+    return {"status": "ok", "module": "agent", "version": app.version,
+            "mcp": {"endpoint": "POST /mcp", "schema": "GET /mcp/schema",
+                    "tools": len(mcp.TOOLS)}}
 
 @app.get("/config")
 def get_config():
@@ -633,7 +804,9 @@ def list_providers():
             "hint": mod.LOCAL_HINTS.get(key),
             "free": key in mod.LOCAL_PROVIDERS,
         })
-    return {"providers": providers, "default": "openrouter"}
+    # local first: a console that opens on a provider nobody has to pay for is
+    # the whole point of shipping the LFM runtimes (Mod.default_provider)
+    return {"providers": providers, "default": mod.default_provider()}
 
 @app.get("/params")
 def run_params(key: Optional[str] = None):
@@ -675,7 +848,7 @@ def run_params(key: Optional[str] = None):
             {"name": "agent_type", "label": "PERSONA", "type": "select",
              "default": mod.default_agent(key), "options": personas},
             {"name": "provider", "label": "PROVIDER", "type": "select",
-             "default": "openrouter", "options": providers},
+             "default": mod.default_provider(), "options": providers},
             {"name": "model", "label": "MODEL", "type": "select", "depends": "provider",
              "options_by": models_by, "default_by": default_by},
             {"name": "toolbox", "label": "TOOLBOX", "type": "select", "default": None,
@@ -692,6 +865,7 @@ def run_params(key: Optional[str] = None):
         ],
         "credits": {"info": "/credits", "deposit": "/credits/deposit",
                     "treasury": "/credits/treasury", "topup": "/credits/topup",
+                    "topup_verify": "/credits/topup/verify",
                     "balance": "/balance", "whoami": "/whoami"},
     }
 
@@ -844,6 +1018,21 @@ def credit_topup(req: TopupRequest):
     except ValueError as e:
         return {"error": str(e)}
 
+@app.post("/credits/topup/verify")
+def credit_topup_verify(req: TopupVerifyRequest):
+    """Owner: book a top-up by reading it back off the provider key.
+
+    Neither provider sells credits over an API, so the purchase itself
+    happens on their page (`topup.url` in the treasury); this confirms it
+    landed and books the amount that actually arrived.
+    """
+    try:
+        return get_mod().credit_topup_verify(req.provider, key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e)}
+
 @app.post("/credits/withdraw")
 def credit_withdraw(req: WithdrawRequest):
     """Owner: take earned margin out of the float."""
@@ -968,6 +1157,103 @@ def get_acl(key: Optional[str] = None):
     except PermissionError as e:
         return {"error": str(e), "code": 403}
 
+# ── module visibility: public modules anyone can audit ──────────────
+#
+# The three reads are deliberately open. A module is a thing you are asked
+# to trust with a host; "public" has to mean a stranger can walk its source
+# without an account, or it means nothing. The writes are owner-only and
+# say so in mod.py, not here.
+
+@app.get("/modules")
+def list_modules(q: str = ""):
+    """The fleet with each module's visibility. Anyone.
+
+    Private modules are listed by name with nothing else — that they exist
+    is not the secret.
+    """
+    return get_mod().forward('modules', q=q)
+
+@app.get("/modules/{name}/tree")
+def module_tree(name: str):
+    """File list of a public module — where an audit starts."""
+    try:
+        return get_mod().forward('module_tree', name=name)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": str(e), "code": 404}
+    except ValueError as e:
+        return {"error": str(e), "code": 400}
+
+@app.get("/modules/{name}/file")
+def module_file(name: str, path: str):
+    """One source file out of a public module."""
+    try:
+        return get_mod().forward('module_file', name=name, path=path)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": str(e), "code": 404}
+    except ValueError as e:
+        return {"error": str(e), "code": 400}
+
+@app.post("/modules/{name}/visibility")
+def set_module_visibility(name: str, req: VisibilityRequest):
+    """Owner: flip one module. private seals it, public unseals it."""
+    return _privacy_write('module_visibility', req.key, name=name,
+                          visibility=req.visibility, passphrase=req.passphrase)
+
+@app.post("/modules/visibility")
+def set_all_visibility(req: VisibilityRequest):
+    """Owner: flip the whole fleet, and the default new modules inherit."""
+    return _privacy_write('modules_visibility', req.key,
+                          visibility=req.visibility, passphrase=req.passphrase)
+
+@app.post("/modules/{name}/seal")
+def seal_module(name: str, req: SealRequest):
+    """Owner: re-seal a private module after editing it."""
+    return _privacy_write('module_seal', req.key, name=name,
+                          passphrase=req.passphrase)
+
+@app.post("/modules/{name}/unseal")
+def unseal_module(name: str, req: SealRequest):
+    """Owner: drop the blob and put the tree back under git."""
+    return _privacy_write('module_unseal', req.key, name=name)
+
+@app.post("/modules/{name}/restore")
+def restore_module(name: str, req: SealRequest):
+    """Owner: unpack a sealed blob back into source — the clone side."""
+    return _privacy_write('module_restore', req.key, name=name,
+                          passphrase=req.passphrase, force=req.force)
+
+@app.post("/privacy/key")
+def privacy_key(req: PrivacyKeyRequest):
+    """Owner: the fleet key — state, export, import, or set a passphrase."""
+    return _privacy_write('privacy_key', req.key, op=req.op,
+                          passphrase=req.passphrase, current=req.current,
+                          key_b64=req.key_b64)
+
+def _privacy_write(action: str, key, **kwargs):
+    """Owner-gated privacy call, with the failure modes mapped to codes.
+
+    A sign-in check first: over HTTP a missing key is a stranger, not the
+    host (see signed_in), and these calls decide what the world can read.
+    """
+    if not signed_in(key):
+        return {"error": "sign in as the owner to change module visibility",
+                "code": 401}
+    try:
+        return get_mod().forward(action, key=key, **kwargs)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": str(e), "code": 404}
+    except (ValueError, SealError) as e:
+        return {"error": str(e), "code": 400}
+    except Exception as e:
+        return {"error": str(e), "code": 500}
+
+
 # ── agents (from agents/ registry) ──────────────────────────────────
 
 @app.get("/agents")
@@ -1001,7 +1287,7 @@ def create_agent(req: AgentCreateRequest):
         result = mod.agents.forward(action='create',
             name=req.name, description=req.description, goal=req.goal,
             icon=req.icon, tools=req.tools, model=req.model,
-            harness=req.harness, key=req.key)
+            memory=req.memory, harness=req.harness, key=req.key)
         if isinstance(result, dict):
             result = {k: v for k, v in result.items() if k != 'cls'}
         return result
@@ -1018,9 +1304,11 @@ def update_agent(name: str, req: AgentUpdateRequest):
         tools = None if req.clear_tools else (req.tools if req.tools is not None else ...)
         model = None if req.clear_model else (req.model if req.model is not None else ...)
         harness = None if req.clear_harness else (req.harness if req.harness is not None else ...)
+        memory = None if req.clear_memory else (req.memory if req.memory is not None else ...)
         result = mod.agents.update(
             name=name, description=req.description, goal=req.goal,
-            icon=req.icon, tools=tools, model=model, harness=harness, key=req.key)
+            icon=req.icon, tools=tools, model=model, memory=memory,
+            harness=harness, key=req.key)
         return {k: v for k, v in result.items() if k != 'cls'}
     except PermissionError as e:
         return {"error": str(e), "code": 403}
@@ -1425,6 +1713,16 @@ def delete_vault(name: str, key: Optional[str] = None):
 
 # ── toolboxes (snap-on tool bundles) ─────────────────────────────────
 
+@app.get("/parts")
+def agent_parts():
+    """What the agent is made of — model, memory module, toolbox, tools, prompt.
+
+    One call for the whole box, so a console (or anyone auditing a run) can see
+    every sub-component and what it could be swapped for, instead of stitching
+    four endpoints together.
+    """
+    return get_mod().forward('parts')
+
 @app.get("/toolboxes")
 def list_toolboxes():
     """All toolboxes (built-in presets + custom) and what's snapped on."""
@@ -1603,6 +1901,25 @@ def memory_recall(q: str, k: int = 5):
     """Durable facts scored against a query."""
     return {"query": q, "facts": get_mod().forward('recall', query=q, k=k)}
 
+@app.get("/memory/modules")
+def memory_modules():
+    """The memory modules an agent can be built with, and which is default."""
+    return get_mod().forward('memories')
+
+@app.get("/memory/retrieve")
+def memory_retrieve(q: str, k: int = 5, layers: Optional[str] = None,
+                    session: Optional[str] = None, min_score: Optional[float] = None,
+                    key: Optional[str] = None):
+    """Retrieval across every memory layer at once — the same call the agent's
+    own recall tool makes, so the console shows exactly what a run would get.
+
+    Scoped like the compiled prompt: a signed-in caller retrieves their own
+    past turns, an anonymous one only the session they are sitting in.
+    """
+    return get_mod().forward('retrieve', key=key, query=q, k=k, session=session,
+                             min_score=min_score,
+                             layers=[l for l in (layers or '').split(',') if l] or None)
+
 @app.get("/memory/facts")
 def memory_facts():
     return {"facts": get_mod().forward('facts')}
@@ -1611,6 +1928,18 @@ def memory_facts():
 def memory_episodes(n: int = 50, session: Optional[str] = None):
     """Recent episode trail (every step the agent executed)."""
     return {"episodes": get_mod().forward('episodes', n=n, session=session)}
+
+@app.get("/memory/exchanges")
+def memory_exchanges(n: int = 20, session: Optional[str] = None,
+                     key: Optional[str] = None):
+    """What this caller and the agent have said to each other.
+
+    This is the layer the next run is compiled from, so it is scoped the same
+    way: a signed-in caller gets every turn recorded under their address, an
+    anonymous one gets the console session they are sitting in and nothing
+    that belongs to a signed-in visitor.
+    """
+    return get_mod().forward('exchanges', key=key, n=n, session=session)
 
 @app.post("/memory/remember")
 def memory_remember(req: FactRequest):
@@ -1649,6 +1978,206 @@ def arena_board():
 def arena_tasks():
     """The task pool, and which slice of it this season plays."""
     return get_mod().forward('arena_tasks')
+
+@app.post("/arena/tasks/draft")
+def arena_task_draft(req: TaskDraftRequest):
+    """Turn a plain description into a task spec with the task-builder agent.
+
+    The draft comes back for review — nothing is stored until the caller saves
+    it. This is a model run, so it needs whatever a run needs: the host, a
+    granted address, or credits.
+    """
+    if not signed_in(req.key):
+        return {"error": "sign in to draft a task", "code": 401}
+    try:
+        return get_mod().forward('arena_task_draft', key=req.key,
+                                 description=req.description, model=req.model,
+                                 provider=req.provider, free=req.free,
+                                 steps=req.steps, schema=req.task_schema)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/arena/tasks")
+def arena_task_add(req: TaskSaveRequest):
+    """Store a hand-written task. It joins the pool every agent plays.
+
+    Passing `slug` edits that task in place, which keeps the scores already
+    recorded against it — and takes being its author.
+    """
+    if not signed_in(req.key):
+        return {"error": "sign in — a task is filed under the address that wrote it",
+                "code": 401}
+    spec = {"title": req.title, "description": req.description, "prompt": req.prompt,
+            "steps": req.steps, "setup": {"files": req.files or {}},
+            "scorers": req.scorers or []}
+    try:
+        return {"task": get_mod().forward('arena_task_add', key=req.key,
+                                          spec=spec, slug=req.slug)}
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, KeyError) as e:
+        return {"error": str(e)}
+
+@app.delete("/arena/tasks/{slug}")
+def arena_task_rm(slug: str, key: Optional[str] = None):
+    """Remove a hand-written task. Its author or the host."""
+    try:
+        return get_mod().forward('arena_task_rm', key=key, slug=slug)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": str(e)}
+
+# ── the openarena schema (statement + graded cases, judged next door) ─
+
+@app.get("/arena/openarena")
+def arena_openarena():
+    """The bridge: is openarena up, what it holds, who is entered there.
+
+    Its own health is not folded into /arena — a neighbour that is down must
+    not slow the board's polling to its timeout.
+    """
+    return get_mod().forward('openarena')
+
+@app.get("/arena/openarena/tasks/{slug}")
+def arena_openarena_task(slug: str):
+    """One openarena task in full, as an entrant sees it — hidden cases keep
+    their names and give up nothing else."""
+    try:
+        return get_mod().forward('openarena_task', slug=slug)
+    except (ValueError, KeyError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/arena/openarena/tasks")
+def arena_openarena_task_add(req: OpenArenaTaskRequest):
+    """Upload a task in the openarena schema.
+
+    It is stored over there, not copied here: the same task, the same hidden
+    cases and the same judge whether it is played from this board or theirs.
+    """
+    if not signed_in(req.key):
+        return {"error": "sign in — a task is filed under the address that wrote it",
+                "code": 401}
+    spec = {k: v for k, v in req.dict().items() if k != 'key' and v is not None}
+    try:
+        return {"task": get_mod().forward('openarena_task_add', key=req.key,
+                                          spec=spec)}
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, KeyError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.delete("/arena/openarena/tasks/{slug}")
+def arena_openarena_task_rm(slug: str, key: Optional[str] = None):
+    """Delete an openarena task. Its author, or the host — a seeded or imported
+    task has no address for an author, so only the host can drop one."""
+    try:
+        return get_mod().forward('openarena_task_rm', key=key, slug=slug)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, KeyError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/arena/openarena/sources")
+def arena_openarena_sources():
+    """The benchmarks openarena can pull off the web."""
+    try:
+        return get_mod().forward('openarena_sources')
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/arena/openarena/import")
+def arena_openarena_import(req: BenchImportRequest):
+    """Convert a published benchmark into tasks — HumanEval, MBPP, CodeContests,
+    a HuggingFace dataset, a JSON url or a scraped problem page.
+
+    `preview: true` converts and keeps nothing, which is the call to make first.
+    """
+    if not signed_in(req.key):
+        return {"error": "sign in to import a benchmark into the arena", "code": 401}
+    opts = {k: v for k, v in req.dict().items()
+            if k not in ('key', 'source', 'preview') and v is not None}
+    try:
+        return get_mod().forward('openarena_import', key=req.key,
+                                 source=req.source, preview=req.preview, **opts)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, KeyError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/arena/openarena/enter")
+def arena_openarena_enter(req: OpenArenaEnterRequest):
+    """Enter one of our agents on openarena's own board.
+
+    Host only: over there the entrant is made to play by calling back into this
+    module's /run, which spends the host's provider key.
+    """
+    if not signed_in(req.key):
+        return {"error": "sign in — entering an agent spends the host's key",
+                "code": 401}
+    try:
+        return {"entrant": get_mod().forward('openarena_enter', key=req.key,
+                                             agent=req.agent, name=req.name,
+                                             model=req.model, steps=req.steps,
+                                             free=req.free)}
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, KeyError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
+
+# ── the same matches, ranked by model ────────────────────────────────
+
+@app.get("/arena/models")
+def arena_models():
+    """The model board: rank, score, latency, throughput and spend per model,
+    plus the catalog a gauntlet can be pointed at."""
+    return get_mod().forward('arena_models')
+
+@app.get("/arena/model")
+def arena_model(model: str):
+    """One model's record. A query param, not a path one — model ids carry
+    slashes and colons ('nvidia/nemotron-3-ultra-550b-a55b:free')."""
+    return get_mod().forward('arena_model', model=model)
+
+@app.get("/arena/board/tasks")
+def arena_task_board():
+    """Every played task, hardest first, with the models ranked underneath."""
+    return get_mod().forward('arena_task_board')
+
+@app.post("/arena/gauntlet")
+def arena_gauntlet(req: ArenaGauntletRequest):
+    """Rank models against each other: one agent, one task set, N models.
+
+    Host only, and the one place on the board that will run a paid model — a
+    named model is not FREE MODE, so this spends the host's provider key.
+    """
+    if not signed_in(req.key):
+        return {"error": "sign in — a gauntlet spends steps on the host's key",
+                "code": 401}
+    try:
+        return get_mod().forward('arena_gauntlet', key=req.key, models=req.models,
+                                 agent=req.agent, tasks=req.tasks, steps=req.steps,
+                                 free=req.free, reason='gauntlet')
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": f"unknown task: {e}"}
+    except ValueError as e:
+        return {"error": str(e)}
 
 @app.get("/arena/matches")
 def arena_matches(limit: int = 50, agent: Optional[str] = None,
@@ -1738,6 +2267,7 @@ def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None, budget=No
                 temperature=req.temperature,
                 safety=req.safety,
                 free=req.free,
+                memory=req.memory,
                 memory_ids=req.memory_ids,
                 tool_ids=req.tool_ids,
                 on_step=on_step,
@@ -1797,9 +2327,11 @@ def run_agent(req: RunRequest):
             safety=req.safety,
             free=req.free,
             prompt=req.prompt,
+            memory=req.memory,
             memory_ids=req.memory_ids,
             tool_ids=req.tool_ids,
             images=req.images,
+            session=req.session,
             on_step=lambda s: _task_step(task, s),
             budget=_run_budget(req, task),
         )
@@ -1906,9 +2438,11 @@ def run_agent_stream(req: RunRequest):
                     safety=req.safety,
                     free=req.free,
                     prompt=req.prompt,
+                    memory=req.memory,
                     memory_ids=req.memory_ids,
                     tool_ids=req.tool_ids,
                     images=req.images,
+                    session=req.session,
                     on_step=on_step,
                     budget=_run_budget(req, task),
                 )
@@ -1948,6 +2482,133 @@ def run_agent_stream(req: RunRequest):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ── MCP (Model Context Protocol) ─────────────────────────────────────
+#
+# The same handlers, spoken as JSON-RPC 2.0 over one endpoint. src/mcp.py holds
+# the tools and the dispatch; this is only the transport — sessions, the SSE
+# option, and recovering the caller's token from the Authorization header so an
+# MCP client is authenticated exactly the way an HTTP client is.
+
+MCP_SESSIONS: set = set()
+MAX_MCP_SESSIONS = 500
+
+
+def _mcp_key(request: Request) -> Optional[str]:
+    """The caller's token: Bearer first, then the fleet's header spellings."""
+    auth = request.headers.get('authorization') or ''
+    if auth.lower().startswith('bearer '):
+        return auth[7:].strip() or None
+    for h in ('x-mod-key', 'x-agent-key', 'x-auth-token'):
+        v = request.headers.get(h)
+        if v:
+            return v.strip()
+    return request.query_params.get('key') or None
+
+
+def _mcp_headers(session: Optional[str] = None) -> dict:
+    h = {'MCP-Protocol-Version': mcp.PROTOCOL_VERSION}
+    if session:
+        h['Mcp-Session-Id'] = session
+    return h
+
+
+def _mcp_sse(payloads: list) -> StreamingResponse:
+    """One JSON-RPC reply per SSE event, for clients that ask for a stream."""
+    def gen():
+        for p in payloads:
+            yield f"data: {json.dumps(p, default=str)}\n\n"
+    return StreamingResponse(gen(), media_type='text/event-stream',
+                             headers={'Cache-Control': 'no-cache',
+                                      'X-Accel-Buffering': 'no'})
+
+
+@app.get("/mcp/schema")
+def mcp_schema(request: Request):
+    """The tool list and connection details, as plain JSON — what the console
+    renders and what a curl reads before wiring a client up.
+
+    The endpoint is reported for the host this request actually arrived on, so
+    a read through the gateway describes the gateway rather than a localhost
+    port nobody outside the box can dial. It is rebuilt from the fleet's route
+    convention rather than the request path, because the proxy strips
+    /api/agent before we ever see it — echoing the stripped path back would
+    hand out /mcp on the bare domain, which is a different module entirely.
+    """
+    fwd_host = request.headers.get('x-forwarded-host')
+    scheme = request.headers.get('x-forwarded-proto') or request.url.scheme
+    own_port = int(os.environ.get('PORT', 50117))
+    # direct only when the request landed on our own port with nothing in
+    # front — a hit on the activator's :9000 is a proxy too, and takes the
+    # same /api/<mod> route the gateway does
+    direct = not fwd_host and (request.url.port or own_port) == own_port
+    base = (f'{request.url.scheme}://{request.url.netloc}' if direct
+            else f'{scheme}://{fwd_host or request.url.netloc}/api/agent')
+    return {**mcp.info(base), 'tools': mcp.tool_list(),
+            'resources': mcp.RESOURCES, 'instructions': mcp.INSTRUCTIONS}
+
+
+@app.post("/mcp")
+async def mcp_post(request: Request):
+    """MCP streamable HTTP — the same JSON-RPC surface as the stdio server."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={
+            'jsonrpc': '2.0', 'id': None,
+            'error': {'code': -32700, 'message': 'parse error'}})
+
+    # A session id we never issued means the client is talking to a different
+    # process than the one it initialised against — usually an API restart.
+    sent = request.headers.get('mcp-session-id')
+    if sent and sent not in MCP_SESSIONS:
+        return JSONResponse(status_code=404, headers=_mcp_headers(), content={
+            'jsonrpc': '2.0', 'id': None,
+            'error': {'code': -32001, 'message': 'unknown session; reinitialize'}})
+
+    msgs = body if isinstance(body, list) else [body]
+    if not all(isinstance(x, dict) for x in msgs):
+        return JSONResponse(status_code=400, content={
+            'jsonrpc': '2.0', 'id': None,
+            'error': {'code': -32600, 'message': 'invalid request'}})
+
+    session = sent
+    if any(x.get('method') == 'initialize' for x in msgs):
+        session = uuid.uuid4().hex
+        MCP_SESSIONS.add(session)
+        while len(MCP_SESSIONS) > MAX_MCP_SESSIONS:
+            MCP_SESSIONS.pop()
+
+    key = _mcp_key(request)
+    replies = [r for r in (mcp.handle(x, key) for x in msgs) if r is not None]
+
+    # Notifications only: nothing to answer, and 202 with an empty body is what
+    # the spec asks for — a JSON `null` here trips strict clients.
+    if not replies:
+        return Response(status_code=202, headers=_mcp_headers(session))
+
+    accept = request.headers.get('accept', '')
+    if 'text/event-stream' in accept and 'application/json' not in accept:
+        return _mcp_sse(replies)
+
+    payload = replies if isinstance(body, list) else replies[0]
+    return JSONResponse(payload, headers=_mcp_headers(session))
+
+
+@app.delete("/mcp")
+def mcp_delete(request: Request):
+    """End a session. Nothing is stored against it, so this is bookkeeping."""
+    MCP_SESSIONS.discard(request.headers.get('mcp-session-id') or '')
+    return Response(status_code=204, headers=_mcp_headers())
+
+
+@app.get("/mcp")
+def mcp_get():
+    """No server-initiated stream: the spec's answer for that is a plain 405."""
+    return JSONResponse(status_code=405, headers=_mcp_headers(), content={
+        'error': 'POST JSON-RPC here (MCP streamable HTTP); GET /mcp/schema '
+                 'lists the tools. This server opens no server-initiated SSE stream'})
 
 
 if __name__ == "__main__":

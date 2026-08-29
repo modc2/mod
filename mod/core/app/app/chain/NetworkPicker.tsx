@@ -1,45 +1,45 @@
 "use client"
 
-// Network picker — every chain the console knows, plus any RPC you add yourself.
-// Fleet networks (the ones config.json has deployments for) are marked; the rest
-// are yours to build and deploy on.
+// NETWORK — every chain the console knows, plus any RPC you add yourself.
+// Fleet networks (the ones config.json has deployments for) are marked; the
+// rest are yours to build and deploy on. The lamp is the chain's pulse.
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'react-toastify'
 import {
-  TERM_FONT, ACCENT, NETWORKS, netInfo, allNetworks,
+  ACCENT, NETWORKS, netInfo, allNetworks, isBuiltinNetwork, isOverridden,
   saveCustomNetwork, removeCustomNetwork, type NetworkInfo,
 } from './shared'
-import { Btn, Input, panelStyle } from './ui'
+import { Btn, Input, Pill, Dropdown, DropHead, DropRow, DropRule, Quiet } from './ui'
+import { PIXEL, NEON, Led, type LedState } from './arcade'
 
+// An override of a builtin keeps that builtin's group — it's still Base
+// Sepolia, it just dials a different RPC.
 const groupOf = (n: NetworkInfo) =>
-  n.custom ? 'CUSTOM' : n.fleet ? 'FLEET' : n.testnet ? 'TESTNETS' : 'MAINNETS'
+  n.custom && !isBuiltinNetwork(n.key) ? 'CUSTOM'
+    : n.fleet ? 'FLEET' : n.testnet ? 'TESTNETS' : 'MAINNETS'
 
 const GROUPS = ['FLEET', 'TESTNETS', 'MAINNETS', 'CUSTOM']
 
 export function NetworkPicker({
-  network, setNetwork,
+  network, setNetwork, led = 'idle', block, onManage,
 }: {
   network: string
   setNetwork: (key: string) => void
+  led?: LedState
+  block?: number | null
+  /** jump to the CHAINS tab for the full table */
+  onManage?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)
   const [nets, setNets] = useState<Record<string, NetworkInfo>>(NETWORKS)
   const [form, setForm] = useState({ name: '', rpc: '', chainId: '', explorer: '', currency: 'ETH' })
-  const box = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => { setOpen(false); setAdding(false) }, [])
 
   // custom networks live in localStorage — only readable after mount
   useEffect(() => { setNets(allNetworks()) }, [])
-
-  useEffect(() => {
-    if (!open) return
-    const away = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) { setOpen(false); setAdding(false) }
-    }
-    document.addEventListener('mousedown', away)
-    return () => document.removeEventListener('mousedown', away)
-  }, [open])
+  useEffect(() => { if (open) setNets(allNetworks()) }, [open])
 
   const active = netInfo(network)
 
@@ -57,106 +57,99 @@ export function NetworkPicker({
     setNets(allNetworks())
     setNetwork(key)
     setForm({ name: '', rpc: '', chainId: '', explorer: '', currency: 'ETH' })
-    setAdding(false); setOpen(false)
+    close()
     toast.success(`${form.name} added`)
   }
 
   const drop = (key: string) => {
+    // Dropping an override of a builtin puts the shipped RPC back — the chain
+    // itself is still there, so don't move the console off it.
+    const wasOverride = isBuiltinNetwork(key)
     removeCustomNetwork(key)
-    const next = allNetworks()
-    setNets(next)
-    if (network === key) setNetwork('testnet')
+    setNets(allNetworks())
+    if (!wasOverride && network === key) setNetwork('testnet')
   }
 
+  const trigger = (
+    <Pill
+      label="NET"
+      color={ACCENT}
+      open={open}
+      onClick={() => (open ? close() : setOpen(true))}
+      led={<Led state={led} />}
+      title={led === 'dead' ? `${active.rpc} is not answering`
+        : led === 'warn' ? 'the RPC reports a different chain id than recorded'
+          : active.rpc}
+    >
+      <span>{active.name}</span>
+      <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
+        #{active.chainId}{block ? ` · ${block.toLocaleString()}` : ''}
+      </span>
+      {isOverridden(active.key) && (
+        <span style={{ fontFamily: PIXEL, fontSize: '7px', color: NEON.coin }}>TUNED</span>
+      )}
+    </Pill>
+  )
+
   return (
-    <div ref={box} style={{ position: 'relative' }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          fontFamily: TERM_FONT, fontSize: '12px', letterSpacing: '0.06em',
-          padding: '8px 12px', minHeight: '40px', border: `2px solid ${ACCENT}`, background: `${ACCENT}14`,
-          color: ACCENT, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
-          maxWidth: '100%',
-        }}
-      >
-        <span style={{ opacity: 0.7 }}>NET</span>
-        {active.name}
-        <span style={{ opacity: 0.6, fontSize: '11px' }}>#{active.chainId}</span>
-        <span style={{ opacity: 0.6 }}>{open ? '▲' : '▼'}</span>
-      </button>
+    <Dropdown open={open} onClose={close} trigger={trigger} width={340}>
+      {GROUPS.map(group => {
+        const rows = Object.values(nets).filter(n => groupOf(n) === group)
+        if (!rows.length) return null
+        return (
+          <div key={group}>
+            <DropHead>{group}</DropHead>
+            {rows.map(n => (
+              <DropRow
+                key={n.key}
+                active={n.key === network}
+                onClick={() => { setNetwork(n.key); close() }}
+                title={n.rpc}
+                right={n.custom && (
+                  <Quiet onClick={() => drop(n.key)}
+                    title={isBuiltinNetwork(n.key) ? 'reset to the built-in RPC' : 'remove network'}>
+                    ✕
+                  </Quiet>
+                )}
+              >
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {n.name}
+                  {isOverridden(n.key) && (
+                    <span style={{ fontFamily: PIXEL, fontSize: '7px', color: NEON.coin, marginLeft: '8px' }}>TUNED</span>
+                  )}
+                </span>
+                <span style={{ fontSize: '13px', color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                  #{n.chainId} · {n.currency}
+                </span>
+              </DropRow>
+            ))}
+          </div>
+        )
+      })}
 
-      {open && (
-        <div style={{
-          ...panelStyle, position: 'absolute', zIndex: 40, top: 'calc(100% + 4px)', left: 0,
-          // never wider than the phone it's dropping down on
-          width: 'min(300px, calc(100vw - 40px))', maxHeight: '440px', overflowY: 'auto',
-          boxShadow: `3px 3px 0px 0px ${ACCENT}55`,
-        }}>
-          {GROUPS.map(group => {
-            const rows = Object.values(nets).filter(n => groupOf(n) === group)
-            if (!rows.length) return null
-            return (
-              <div key={group}>
-                <div style={{
-                  fontFamily: TERM_FONT, fontSize: '10px', letterSpacing: '0.14em',
-                  color: 'var(--text-tertiary)', padding: '8px 10px 4px',
-                }}>
-                  {group}
-                </div>
-                {rows.map(n => (
-                  <div key={n.key} style={{ display: 'flex', alignItems: 'stretch' }}>
-                    <button
-                      onClick={() => { setNetwork(n.key); setOpen(false) }}
-                      style={{
-                        flex: 1, textAlign: 'left', fontFamily: TERM_FONT, fontSize: '12px',
-                        padding: '10px', minHeight: '40px', border: 'none',
-                        borderLeft: `2px solid ${n.key === network ? ACCENT : 'transparent'}`,
-                        background: n.key === network ? `${ACCENT}14` : 'transparent',
-                        color: n.key === network ? ACCENT : 'var(--text-secondary)', cursor: 'pointer',
-                      }}
-                    >
-                      {n.name}
-                      <span style={{ color: 'var(--text-tertiary)', marginLeft: '8px', fontSize: '10px' }}>
-                        #{n.chainId} · {n.currency}
-                      </span>
-                    </button>
-                    {n.custom && (
-                      <button
-                        onClick={() => drop(n.key)}
-                        title="remove network"
-                        style={{
-                          fontFamily: TERM_FONT, fontSize: '11px', padding: '0 8px', border: 'none',
-                          background: 'transparent', color: 'var(--text-tertiary)', cursor: 'pointer',
-                        }}
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )
-          })}
-
-          <div style={{ borderTop: '1px solid var(--border-color)', padding: '10px' }}>
-            {!adding ? (
-              <Btn size="sm" active={false} onClick={() => setAdding(true)}>+ ADD NETWORK</Btn>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <Input value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="name" />
-                <Input value={form.rpc} onChange={v => setForm(f => ({ ...f, rpc: v }))} placeholder="https://rpc…" />
-                <Input value={form.chainId} onChange={v => setForm(f => ({ ...f, chainId: v }))} placeholder="chain id" />
-                <Input value={form.currency} onChange={v => setForm(f => ({ ...f, currency: v }))} placeholder="ETH" />
-                <Input value={form.explorer} onChange={v => setForm(f => ({ ...f, explorer: v }))} placeholder="explorer url (optional)" />
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <Btn size="sm" onClick={addNetwork}>SAVE</Btn>
-                  <Btn size="sm" active={false} onClick={() => setAdding(false)}>CANCEL</Btn>
-                </div>
-              </div>
+      <DropRule />
+      <div style={{ padding: '4px 12px 12px' }}>
+        {!adding ? (
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <Btn size="sm" active={false} onClick={() => setAdding(true)}>+ ADD NETWORK</Btn>
+            {onManage && (
+              <Btn size="sm" active={false} onClick={() => { onManage(); close() }}>ALL CHAINS →</Btn>
             )}
           </div>
-        </div>
-      )}
-    </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <Input value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="name" />
+            <Input value={form.rpc} onChange={v => setForm(f => ({ ...f, rpc: v }))} placeholder="https://rpc…" />
+            <Input value={form.chainId} onChange={v => setForm(f => ({ ...f, chainId: v }))} placeholder="chain id" />
+            <Input value={form.currency} onChange={v => setForm(f => ({ ...f, currency: v }))} placeholder="ETH" />
+            <Input value={form.explorer} onChange={v => setForm(f => ({ ...f, explorer: v }))} placeholder="explorer url (optional)" />
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <Btn size="sm" onClick={addNetwork}>SAVE</Btn>
+              <Btn size="sm" active={false} onClick={() => setAdding(false)}>CANCEL</Btn>
+            </div>
+          </div>
+        )}
+      </div>
+    </Dropdown>
   )
 }

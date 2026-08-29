@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>debank — what this address owns</title>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #12151a; --line: #1e242c; --ink: #d7dee8;
+    --dim: #7b8798; --accent: #45d0a0; --warn: #e0a23c; --bad: #e06a5c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  header { padding: 18px 20px 0; }
+  h1 { font-size: 15px; margin: 0 0 2px; letter-spacing: .12em; text-transform: uppercase; }
+  .sub { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 20px 12px; }
+  input, select, button {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+    padding: 7px 10px; font: inherit; border-radius: 3px;
+  }
+  input:focus, select:focus { outline: 1px solid var(--accent); }
+  #addr { flex: 1; min-width: 320px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  nav { display: flex; gap: 2px; padding: 0 20px; border-bottom: 1px solid var(--line);
+        flex-wrap: wrap; }
+  nav button { border: none; border-bottom: 2px solid transparent; background: none;
+               color: var(--dim); padding: 8px 12px; letter-spacing: .08em;
+               text-transform: uppercase; font-size: 11px; }
+  nav button.on { color: var(--accent); border-bottom-color: var(--accent); }
+  main { padding: 16px 20px 60px; }
+  .totals { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 14px; }
+  .stat { border: 1px solid var(--line); background: var(--panel); border-radius: 3px;
+          padding: 10px 14px; min-width: 130px; }
+  .stat b { display: block; font-size: 18px; font-weight: 600; }
+  .stat span { color: var(--dim); font-size: 11px; text-transform: uppercase;
+               letter-spacing: .08em; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: var(--dim); font-weight: 400; font-size: 11px;
+       text-transform: uppercase; letter-spacing: .08em; padding: 6px 10px 6px 0;
+       border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 6px 10px 6px 0; border-bottom: 1px solid #161a20; vertical-align: top; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .mut { color: var(--dim); }
+  .warn { color: var(--warn); } .bad { color: var(--bad); } .ok { color: var(--accent); }
+  .msg { padding: 12px 14px; border: 1px solid var(--line); border-left: 2px solid var(--warn);
+         background: var(--panel); border-radius: 3px; white-space: pre-wrap; }
+  .msg.err { border-left-color: var(--bad); }
+  pre { background: var(--panel); border: 1px solid var(--line); padding: 12px;
+        border-radius: 3px; overflow: auto; max-height: 60vh; }
+  code { color: var(--accent); }
+  .tool { border-bottom: 1px solid #161a20; padding: 8px 0; }
+  .tool b { color: var(--accent); font-weight: 600; }
+  footer { color: var(--dim); padding: 0 20px 30px; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>debank</h1>
+  <div class="sub">what an address actually owns &mdash; across every chain, net of debt</div>
+</header>
+
+<div class="bar">
+  <input id="addr" placeholder="0x… EVM address" spellcheck="false">
+  <select id="chain"><option value="">all chains</option></select>
+  <input id="key" type="password" placeholder="AccessKey (optional)"
+         style="width:220px">
+  <button id="go">Look up</button>
+</div>
+
+<nav id="tabs"></nav>
+<main>
+  <div id="out" class="msg">Enter an address. Everything except the chain catalog needs a
+DeBank AccessKey (cloud.debank.com) &mdash; paste one above, or store it once with
+<code>m debank/set_key &lt;key&gt;</code>.</div>
+</main>
+<footer id="foot"></footer>
+
+<script>
+// The console derives its own API base from location, so it self-describes
+// whether it is loaded from :50720 or from the gateway at /debank.
+const BASE = location.pathname.replace(/\/+$/, '') || '';
+const API = (BASE.endsWith('/debank') ? BASE : '/debank') + '/_api';
+const $ = (id) => document.getElementById(id);
+const out = $('out');
+
+const TABS = [
+  ['portfolio', 'Portfolio'], ['tokens', 'Tokens'], ['protocols', 'DeFi'],
+  ['approvals', 'Approvals'], ['history', 'History'], ['nfts', 'NFTs'],
+  ['chains', 'Chains'], ['tools', 'Tools'],
+];
+let tab = 'portfolio';
+
+$('tabs').innerHTML = TABS.map(([k, label]) =>
+  `<button data-t="${k}">${label}</button>`).join('');
+$('tabs').onclick = (e) => { if (e.target.dataset.t) { tab = e.target.dataset.t; run(); } };
+$('go').onclick = run;
+$('addr').onkeydown = (e) => { if (e.key === 'Enter') run(); };
+
+const usd = (n) => n == null ? '—' :
+  '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+const num = (n) => n == null ? '—' :
+  Number(n).toLocaleString('en-US', { maximumFractionDigits: 6 });
+const when = (t) => t ? new Date(t * 1000).toISOString().slice(0, 16).replace('T', ' ') : '—';
+const esc = (s) => String(s == null ? '' : s).replace(/[<&>]/g,
+  (c) => ({ '<': '&lt;', '&': '&amp;', '>': '&gt;' }[c]));
+const shortAddr = (a) => a && a.length > 14 ? a.slice(0, 8) + '…' + a.slice(-6) : (a || '—');
+
+async function get(path, params = {}) {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null));
+  const headers = {};
+  if ($('key').value.trim()) headers['x-debank-key'] = $('key').value.trim();
+  const r = await fetch(`${API}${path}?${q}`, { headers });
+  const body = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (!r.ok) throw Object.assign(new Error(body.error || `HTTP ${r.status}`), body);
+  return body;
+}
+
+function table(cols, rows) {
+  return `<table><thead><tr>${cols.map((c) =>
+    `<th${c.n ? ' style="text-align:right"' : ''}>${c.label}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((r) => `<tr>${cols.map((c) =>
+      `<td class="${c.n ? 'n' : ''} ${c.cls ? c.cls(r) : ''}">${c.get(r)}</td>`).join('')}</tr>`)
+      .join('')}</tbody></table>`;
+}
+
+function stats(items) {
+  return `<div class="totals">${items.filter(Boolean).map(([label, value, cls = '']) =>
+    `<div class="stat"><b class="${cls}">${value}</b><span>${label}</span></div>`).join('')}</div>`;
+}
+
+function footNote(d) {
+  const bits = [];
+  if (d.hidden_below_min_usd) bits.push(`${d.hidden_below_min_usd} rows below $${d.min_usd} hidden`);
+  if (d.matched > d.shown) bits.push(`${d.matched - d.shown} more matched than shown`);
+  if (d.note) bits.push(d.note);
+  if (d.source) bits.push(`source: ${d.source}`);
+  $('foot').textContent = bits.join('  ·  ');
+}
+
+const VIEWS = {
+  portfolio: async (id, chain) => {
+    const d = await get('/portfolio', { id });
+    footNote(d);
+    return stats([['net worth', usd(d.total_usd)], ['chains', d.chain_count]]) +
+      table([
+        { label: 'chain', get: (r) => esc(r.chain) },
+        { label: 'name', get: (r) => `<span class="mut">${esc(r.name || '')}</span>` },
+        { label: 'native', get: (r) => esc(r.native || '') },
+        { label: 'usd', n: true, get: (r) => usd(r.usd) },
+      ], d.chains);
+  },
+  tokens: async (id, chain) => {
+    const d = await get('/tokens', { id, chain });
+    footNote(d);
+    return stats([['tokens value', usd(d.total_usd)], ['rows', `${d.shown}/${d.total}`]]) +
+      table([
+        { label: 'chain', get: (r) => esc(r.chain || '') },
+        { label: 'token', get: (r) => `<b>${esc(r.symbol || '?')}</b>` },
+        { label: 'amount', n: true, get: (r) => num(r.amount) },
+        { label: 'price', n: true, get: (r) => usd(r.price) },
+        { label: 'usd', n: true, get: (r) => usd(r.usd) },
+      ], d.tokens);
+  },
+  protocols: async (id, chain) => {
+    const d = await get('/protocols', { id, chain });
+    footNote(d);
+    return stats([
+      ['defi net', usd(d.total_usd)],
+      ['borrowed', usd(d.total_borrowed_usd), d.total_borrowed_usd ? 'warn' : ''],
+      ['protocols', d.shown],
+    ]) + table([
+      { label: 'protocol', get: (r) => `<b>${esc(r.name || r.protocol)}</b>` },
+      { label: 'chain', get: (r) => esc(r.chain || '') },
+      { label: 'positions', get: (r) => `<span class="mut">${
+          esc((r.positions || []).map((p) => p.type).filter(Boolean).join(', ') || '—')}</span>` },
+      { label: 'supplied', n: true, get: (r) => usd(r.supplied_usd) },
+      { label: 'borrowed', n: true, cls: (r) => r.borrowed_usd ? 'warn' : '',
+        get: (r) => usd(r.borrowed_usd) },
+      { label: 'net usd', n: true, get: (r) => usd(r.usd) },
+    ], d.protocols);
+  },
+  approvals: async (id, chain) => {
+    if (!chain) return `<div class="msg">Approvals are per chain &mdash; pick one above.
+Run Portfolio first to see which chains hold value.</div>`;
+    const d = await get('/approvals', { id, chain });
+    footNote(d);
+    return stats([
+      ['exposure', usd(d.total_exposure_usd), d.total_exposure_usd ? 'bad' : ''],
+      ['unlimited grants', d.unlimited_count, d.unlimited_count ? 'warn' : ''],
+      ['approvals', d.shown],
+    ]) + table([
+      { label: 'token', get: (r) => `<b>${esc(r.token || '?')}</b>` },
+      { label: 'spender', get: (r) => esc(r.spender_name || shortAddr(r.spender)) },
+      { label: 'allowance', get: (r) => r.unlimited
+          ? '<span class="warn">unlimited</span>' : 'capped' },
+      { label: 'balance', n: true, get: (r) => usd(r.balance_usd) },
+      { label: 'at risk', n: true, cls: (r) => r.exposure_usd ? 'bad' : '',
+        get: (r) => usd(r.exposure_usd) },
+      { label: 'approved', get: (r) => `<span class="mut">${when(r.last_approved)}</span>` },
+    ], d.approvals);
+  },
+  history: async (id, chain) => {
+    const d = await get('/history', { id, chain });
+    footNote(d);
+    const leg = (l) => (l || []).map((x) =>
+      `${num(x.amount)} ${esc(x.symbol || '')}`).join(', ') || '—';
+    return stats([['transactions', d.count]]) + table([
+      { label: 'time', get: (r) => `<span class="mut">${when(r.time)}</span>` },
+      { label: 'chain', get: (r) => esc(r.chain || '') },
+      { label: 'type', get: (r) => `<b>${esc(r.type)}</b>` },
+      { label: 'via', get: (r) => esc(r.project || r.action || '') },
+      { label: 'out', get: (r) => leg(r.sent) },
+      { label: 'in', get: (r) => leg(r.received) },
+      { label: 'gas', n: true, get: (r) => usd(r.gas_usd) },
+      { label: 'status', cls: (r) => r.status === 'ok' ? 'ok' : 'bad',
+        get: (r) => esc(r.status) },
+    ], d.transactions);
+  },
+  nfts: async (id, chain) => {
+    const d = await get('/nfts', { id, chain });
+    footNote(d);
+    return stats([['floor value', usd(d.total_usd)], ['items', d.count]]) + table([
+      { label: 'collection', get: (r) => `<b>${esc(r.collection || '?')}</b>` },
+      { label: 'item', get: (r) => esc(r.name || r.token_id || '') },
+      { label: 'chain', get: (r) => esc(r.chain || '') },
+      { label: 'qty', n: true, get: (r) => num(r.amount) },
+      { label: 'floor usd', n: true, get: (r) => usd(r.usd) },
+    ], d.nfts);
+  },
+  chains: async () => {
+    const d = await get('/chains');
+    footNote(d);
+    return stats([['chains indexed', d.count], ['catalog', d.source]]) + table([
+      { label: 'id', get: (r) => `<b>${esc(r.chain)}</b>` },
+      { label: 'name', get: (r) => esc(r.name || '') },
+      { label: 'native', get: (r) => esc(r.native || '') },
+      { label: 'evm id', n: true, get: (r) => r.community_id ?? '—' },
+      { label: 'explorer', get: (r) => `<span class="mut">${esc(r.explorer || '')}</span>` },
+    ], d.chains);
+  },
+  tools: async () => {
+    const d = await get('/tools');
+    $('foot').textContent = `MCP: POST ${location.origin}/mcp  ·  stdio: python3 mcp.py`;
+    return stats([['mcp tools', d.count]]) + d.tools.map((t) =>
+      `<div class="tool"><b>${esc(t.name)}</b> <span class="mut">(${
+        Object.keys(t.inputSchema.properties || {}).join(', ') || 'no arguments'})</span>
+       <div class="mut">${esc(t.description)}</div></div>`).join('');
+  },
+};
+
+async function run() {
+  for (const b of $('tabs').children) b.classList.toggle('on', b.dataset.t === tab);
+  const id = $('addr').value.trim();
+  const chain = $('chain').value;
+  if (!id && !['chains', 'tools'].includes(tab)) {
+    out.className = 'msg';
+    out.innerHTML = 'Enter an EVM address (0x…) to look up.';
+    return;
+  }
+  out.className = 'msg';
+  out.textContent = 'querying DeBank…';
+  try {
+    out.innerHTML = await VIEWS[tab](id, chain);
+    out.className = '';
+  } catch (e) {
+    out.className = 'msg err';
+    out.innerHTML = `<b>${esc(e.message)}</b>${e.hint ? '\n' + esc(e.hint) : ''}`;
+  }
+}
+
+// Populate the chain picker from the catalog — it answers without a key.
+get('/chains').then((d) => {
+  $('chain').insertAdjacentHTML('beforeend', d.chains.map((c) =>
+    `<option value="${esc(c.chain)}">${esc(c.name || c.chain)}</option>`).join(''));
+}).catch(() => {});
+
+run();
+</script>
+</body>
+</html>

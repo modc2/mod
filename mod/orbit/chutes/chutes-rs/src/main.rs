@@ -1,6 +1,7 @@
 mod chutes;
 mod http;
 mod mcp;
+mod upstream;
 
 #[tokio::main]
 async fn main() {
