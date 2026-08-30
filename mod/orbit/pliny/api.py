@@ -21,6 +21,8 @@ Routes (also reachable under the gateway's /api/plinyville prefix):
     GET  /tools            the MCP tool registry (?all=1 for the ALL server's)
     GET  /run              the arcade: every repo that is an app, not a corpus
     GET  /m/<repo>/run     can this repo run, from which entry, and what it touches
+    GET  /m/<repo>/build   what building this repo would take / how it went
+    POST /m/<repo>/build   build it — the ones that ship as source (see builds.py)
     GET  /m/<repo>/run/…   the app itself, sandboxed (see run.py)
     POST /update           re-pull repos + the plinyworld snapshot (GET works too)
     GET  /status           the daily scan receipt: freshness + the module's CID
@@ -46,6 +48,7 @@ from kinds import TYPE_IDS, Kinds                        # noqa: E402
 from market import Market                                # noqa: E402
 from plinyville import DESCRIPTION, GitHubError, Ville  # noqa: E402
 from run import SANDBOX as RUN_SANDBOX                    # noqa: E402
+from builds import BuildError                            # noqa: E402
 from run import Defanged, Runner                         # noqa: E402
 from scan import Scanner                                 # noqa: E402
 
@@ -117,6 +120,13 @@ def info():
                                         'allow-same-origin). Nothing runs on the box',
             'GET /m/<repo>/audit': 'clipboard, hosts, storage, camera, eval, a key '
                                    'left in the source — read it before you run it',
+            'GET /builds': 'every build receipt, and which repos are one build '
+                           'away from being playable',
+            'GET /m/<repo>/build': 'what building this repo would take, or how the '
+                                   'last attempt went',
+            'POST /m/<repo>/build': 'build a repo that ships as source (npm install '
+                                    '--ignore-scripts, then its own build) so the '
+                                    'arcade can run it — returns at once, poll the GET',
             'GET /m/<repo>/{readme,tree,file,search}': "one mod's api (from the store)",
             'POST /m/<repo>/mcp': "one mod's own MCP server",
             'POST /update': 're-pull repos + the plinyworld upstream snapshot',
@@ -140,6 +150,12 @@ def info():
                         'under the mod at /m/<repo>/run — sandboxed into an opaque '
                         'origin that cannot reach this host, audited before you press '
                         'play, and never for the pastejacking PoC'},
+        'build': {'url': f'/api{BASE}/builds',
+                  'note': 'the few that are apps but ship as source get built here '
+                          '(npm install --ignore-scripts, then the repo\'s own build, '
+                          'inside its clone) so the arcade can run them — POST '
+                          '/m/<repo>/build. A build that would only produce a page '
+                          'that throws is refused before it starts'},
     }
 
 
@@ -267,6 +283,8 @@ def _handler():
                     return self._send(200, chat.card(BASE))
                 if p == '/clones':
                     return self._send(200, cloner.clones())
+                if p == '/builds':
+                    return self._send(200, runner.builds())
                 if p == '/discover':
                     return self._send(200, cloner.discover())
                 if p.startswith('/m/'):
@@ -357,6 +375,8 @@ def _handler():
                     return self._send(200, kinds.catalog(repo=name))
                 if sub == '/audit':
                     return self._send(200, runner.audit(name, q.get('entry')))
+                if sub == '/build':
+                    return self._send(200, runner.build_state(name))
                 if sub == '/install':
                     return self._send(200, archive(name, via=q.get('via') or 'clone'))
                 return self._send(404, {'error': f'no route /m/{name}{sub}'})
@@ -412,10 +432,18 @@ def _handler():
                         return self._send(200, archive(
                             name, refresh=bool(body.get('refresh')),
                             via=q.get('via') or body.get('via') or 'clone'))
+                    if sub == '/build':
+                        # returns at once: npm install is minutes long, so the
+                        # console polls GET /m/<repo>/build for the step.
+                        if body.get('forget') or q.get('forget'):
+                            return self._send(200, runner.builder.forget(name))
+                        return self._send(202, runner.build(
+                            name, force=bool(body.get('force') or q.get('force')),
+                            wait=bool(body.get('wait') or q.get('wait'))))
                     if sub in ('', '/', '/uninstall'):
                         return self._send(200, archive(name))
                     return self._send(404, {'error': f'no route POST /m/{name}{sub}'})
-                except (GitHubError, ValueError) as e:
+                except (GitHubError, ValueError, BuildError) as e:
                     return self._send(getattr(e, 'status', None) or 400, {'error': str(e)})
                 except Exception as e:                   # noqa: BLE001
                     return self._send(500, {'error': f'{type(e).__name__}: {e}'})

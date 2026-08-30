@@ -296,6 +296,16 @@ def _t_install(a):
     return _archive(_market(a), _scoped(a['name']), refresh=bool(a.get('refresh')))
 
 
+def _t_build(a):
+    """Build one of the repos that ships as source, so the arcade can run it."""
+    from run import Runner
+    r = Runner(_market(a))
+    if not a.get('name'):
+        return r.builds()
+    return r.build(_scoped(a['name']), force=bool(a.get('force')),
+                   wait=a.get('wait', True))
+
+
 def _str(desc, **kw):
     return dict({'type': 'string', 'description': desc}, **kw)
 
@@ -437,6 +447,26 @@ TOOLS = {
         }},
         'handler': _t_run,
     },
+    'pv_build': {
+        'description': 'Build a repo that is an app but ships as source, so that '
+                       'pv_run can serve it. A few of these repos commit a Vite '
+                       "index.html whose only script is /src/main.tsx — a browser "
+                       'loads that as a blank page, so the arcade calls them '
+                       '`needs_build` rather than pretending. This runs the repo\'s '
+                       'own build inside its clone (npm install --ignore-scripts, '
+                       "then vite build --base ./ or the package's declared build "
+                       'script) and the built page becomes runnable like any other. '
+                       'Omit `name` for every build receipt, what is one build away, '
+                       'and what would still not work if it were built (LEAKHUB '
+                       'wants a Convex deployment of its own). Minutes on a cold '
+                       'repo; the install runs with lifecycle scripts disabled.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'name': _str('repo name, e.g. GL4SS — omit for every receipt'),
+            'force': {'type': 'boolean', 'description': 'rebuild even if it is already built'},
+            'wait': {'type': 'boolean', 'description': 'wait for it to finish (default true)'},
+        }},
+        'handler': _t_build,
+    },
     'pv_install': {
         'description': 'Archive one repo into the store mod as a market mod: its recursive '
                        'tree, README and readable files, content-addressed. Idempotent — '
@@ -472,7 +502,7 @@ ALL_INSTRUCTIONS = (
     "this module hosts, read out of a payload that is never served as script."
 )
 
-REPO_OPS = ('readme', 'tree', 'file', 'search', 'info', 'install', 'run')
+REPO_OPS = ('readme', 'tree', 'file', 'search', 'info', 'install', 'run', 'build')
 
 
 def _repo_handler(mk, name):
@@ -502,6 +532,9 @@ def _repo_handler(mk, name):
         if op == 'run':
             from run import Runner
             return Runner(mk).manifest(name, clone=True)
+        if op == 'build':
+            from run import Runner
+            return Runner(mk).build(name, force=bool(a.get('refresh')), wait=True)
         raise ValueError(f'unknown op {op!r} — one of {", ".join(REPO_OPS)}')
     return run
 
@@ -520,7 +553,8 @@ def _repo_tool(mk, repo, installed):
         'description': (f'{desc + " — " if desc else ""}{", ".join(bits)}. '
                         'op=readme (default) | tree (path=) | file (path=) | '
                         'search (query=) | info | install | run (can it run in a '
-                        'browser, from where, and what it touches).'),
+                        'browser, from where, and what it touches) | build (if it '
+                        'is an app that ships as source, build it so run works).'),
         'inputSchema': {'type': 'object', 'properties': {
             'op': {'type': 'string', 'enum': list(REPO_OPS),
                    'description': 'what to read (default: readme)'},

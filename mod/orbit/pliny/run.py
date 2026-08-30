@@ -53,6 +53,7 @@ import subprocess
 import tempfile
 import time
 
+from builds import BuildError, Builder
 from clone import Cloner
 from market import BASE_PATH, Market
 from plinyville import Ville
@@ -162,6 +163,21 @@ CONFLICT_MARK = re.compile(r'^<{7} |^>{7} ', re.M)
 # repair (see Runner._deconflict).
 STRAY_MARK = re.compile(r'^(?:<{7}|>{7}|={7})(?:\s.*)?$')
 REPAIRABLE_EXT = ('.js', '.mjs', '.css', '.html', '.htm')
+# The other SyntaxError in this corpus, and the only other one worth repairing:
+# a `const X` inside a function whose own parameter is already called X. R00TS
+# does it in updateWordCloud(words) and the page has been dead ever since —
+# every button on it calls something in a file the browser refuses to compile.
+# Dropping the keyword turns the redeclaration into an assignment to the
+# binding that is already there, which is the program the author wrote: the
+# collision itself proves they meant `words` to mean the new thing from that
+# line on. node is what decides — the regex only says where to look, and the
+# repair is kept only if the real parser accepts the result.
+REDECL_RE = re.compile(r"Identifier '([\w$]+)' has already been declared")
+NODE_LINE_RE = re.compile(r'^[^\n]*?:(\d+)$', re.M)
+DECL_LINE_RE = re.compile(r'^(\s*)(const|let)\s+([\w$]+)\b')
+FUNC_PARAMS_RE = re.compile(r'function\s*[\w$]*\s*\(([^)]*)\)')
+ARROW_PARAMS_RE = re.compile(r'(?:\(([^)]*)\)|([\w$]+))\s*=>\s*$')
+REDECL_ROUNDS = 4
 # A page whose scripts fetch a service on this box is not "a front end for
 # something running elsewhere" — it draws, and some of it works — but it is not
 # whole either. Say so on the button instead of letting the panels 404 silently.
@@ -185,6 +201,10 @@ class Runner:
         self.market = market or Market(ville)
         self.ville = self.market.ville
         self.cloner = cloner or Cloner(self.market)
+        # Some of these repos are apps that ship as source. The builder turns
+        # one into a page inside its own clone; everything below then finds it
+        # by walking the checkout it always walked. See builds.py.
+        self.builder = Builder(self.cloner)
 
     # ── discovery: which repos are pages, and where do they start ────────────
 
@@ -334,11 +354,40 @@ class Runner:
         if not ready:
             out.update(runnable=False, **self._why_not(e.get('kinds') or [],
                                                        e['entries']))
+            # "read the source" is the wrong answer about an app whose only
+            # problem is that nobody ran its build. Say what it would take.
+            if out.get('needs_build'):
+                out['build'] = self.builder.plan(name)
+                p = out['build']
+                if p.get('can_build'):
+                    out['note'] = (out['note'].split(' — ')[0]
+                                   + ' — but it can be built here: press BUILD and '
+                                     'it becomes an app you can run')
+                elif p.get('why'):
+                    out['note'] += '. Building it here would not help: ' + p['why']
             return out
         entry = ready[0]['path']
         out.update(runnable=True, kind='web', entry=entry,
                    run_url=f'{base}/{entry}',
                    note='runs in the browser, sandboxed — nothing executes on this box')
+        rec = self.builder.receipt(name)
+        if rec and rec.get('ok') and entry.startswith((rec.get('out') or '\0') + '/'):
+            out['built'] = {'at': rec['at'], 'node': rec.get('node'),
+                            'tool': rec.get('tool'), 'out': rec.get('out'),
+                            'head': rec.get('head'), 'seconds': rec.get('seconds'),
+                            'stale': self.builder.stale(name, rec)}
+            out['note'] = ('built here from source (' + rec.get('out', 'dist')
+                           + '/) and served from the same sandbox — nothing '
+                             'executes on this box once it is built')
+            if out['built']['stale']:
+                # the clone moved after the build: what is being served is a
+                # real page, just not this commit's. Say which.
+                out['note'] += (' — built from ' + (rec.get('head') or '?')
+                                + ', which the clone has since moved past; '
+                                  'build it again for the current code')
+                out['degraded'] = True
+                out['degraded_why'] = ('the page you would run was built from an '
+                                       'older commit than the one archived here')
         out.update(self.health(name, entry))
         if audit:
             out['audit'] = self.audit(name, entry)
@@ -392,6 +441,11 @@ class Runner:
             # …and does what we are about to serve actually compile?
             if (rel.lower().endswith(('.js', '.mjs')) and len(checked) < SYNTAX_CAP):
                 served = self._deconflict(text, os.path.splitext(rel)[1].lower())[0]
+                served, redecl = self._redeclare(served)
+                if redecl:
+                    repairs.append({'file': rel, 'redeclared': len(redecl),
+                                    'lines': [r['line'] for r in redecl],
+                                    'fix': redecl[0]['fix']})
                 ok, why = self._parses(served)
                 if ok is not None:
                     checked.append(rel)
@@ -484,7 +538,9 @@ class Runner:
                          'wants': m.get('wants') or [],
                          'repairs': m.get('repairs') or [],
                          'scripts_parsed': m.get('scripts_parsed'),
-                         'unparsable': m.get('unparsable') or []}
+                         'unparsable': m.get('unparsable') or [],
+                         'built': m.get('built'),
+                         'build': m.get('build')}
             changed = True
         for name, d in DEFANGED.items():
             if name not in out:
@@ -506,12 +562,15 @@ class Runner:
 
     def _stamp(self, name) -> str:
         """Cheap 'has this checkout moved' key — a git call per repo would cost
-        47 subprocesses on a cold gallery load."""
+        47 subprocesses on a cold gallery load. A build moves nothing in .git
+        and changes everything about the answer, so it stamps too."""
         g = os.path.join(self.path(name), '.git')
         try:
-            return str(int(os.path.getmtime(g)))
+            base = str(int(os.path.getmtime(g)))
         except OSError:
-            return '0'
+            base = '0'
+        b = self.builder.stamp(name)
+        return f'{base}:{b}' if b else base
 
     @staticmethod
     def _save(obj):
@@ -532,8 +591,12 @@ class Runner:
         for r in runs:
             r.setdefault('run_url', f'/api{BASE_PATH}/m/{r["repo"]}/run/{r["entry"]}')
             r['app'] = f'{BASE_PATH}/m/{r["repo"]}#run'
+        buildable = [{'repo': k, 'entry': v.get('entry'), **(v.get('build') or {})}
+                     for k, v in sorted(idx.items())
+                     if not v.get('runnable') and (v.get('build') or {}).get('can_build')]
         return {'runnable': len(runs), 'cloned': len(idx), 'sandbox': SANDBOX,
-                'mods': runs,
+                'mods': runs, 'buildable': buildable,
+                'built': sum(1 for r in runs if r.get('built')),
                 'note': 'browser apps, served from their clone and sandboxed — '
                         'nothing runs on this box'}
 
@@ -560,8 +623,57 @@ class Runner:
                     m['run_repairs'] = e['repairs']
                 if e.get('unparsable'):
                     m['run_unparsable'] = e['unparsable']
+                if e.get('built'):
+                    m['run_built'] = e['built']
+            elif (e.get('build') or {}).get('can_build'):
+                # not an app *yet* — one build away from being one
+                m['build'] = e['build']
+                m['build_note'] = e['build'].get('note')
         catalog['runnable'] = n
         return catalog
+
+    # ── building the ones that ship as source ───────────────────────────────
+
+    def build(self, name, force=False, wait=False) -> dict:
+        """Build a repo, then re-read what it can run.
+
+        `wait=False` (the API's default) starts it and returns at once — an
+        npm install is minutes long and a console that holds a POST open for
+        all of them cannot show what step it is on."""
+        name = self.ville._safe(name)
+        if not self.cloned(name):
+            self.cloner.clone(name)
+        if wait:
+            rec = self.builder.build(name, force=force)
+            return {'build': rec, 'run': self.manifest(name, audit=False)}
+        st = self.builder.start(name, force=force)
+        if st.get('state') != 'running':
+            st['run'] = self.manifest(name, audit=False)
+        return st
+
+    def builds(self) -> dict:
+        """Every build receipt, plus what else on the shelf is one build away."""
+        idx = self.index()
+        cat = self.builder.catalog()
+        cat['buildable'] = [{'repo': k, **(v.get('build') or {})}
+                            for k, v in sorted(idx.items())
+                            if not v.get('runnable')
+                            and (v.get('build') or {}).get('can_build')]
+        cat['blocked'] = [{'repo': k, 'why': (v.get('build') or {}).get('why'),
+                           'needs_env': (v.get('build') or {}).get('needs_env')}
+                          for k, v in sorted(idx.items())
+                          if (v.get('build') or {}).get('why')
+                          and not (v.get('build') or {}).get('can_build')]
+        return cat
+
+    def build_state(self, name) -> dict:
+        """Where a build is up to, plus what it would take if it has not run."""
+        name = self.ville._safe(name)
+        st = self.builder.state(name)
+        st['plan'] = self.builder.plan(name)
+        if not st.get('running'):
+            st['run'] = self.manifest(name, audit=False)
+        return st
 
     # ── the audit: what does this page reach for ────────────────────────────
 
@@ -666,20 +778,25 @@ class Runner:
             body = f.read()
         ext = os.path.splitext(full)[1].lower()
         ctype = TYPES.get(ext, 'application/octet-stream')
-        repaired = 0
+        repaired, redeclared = 0, 0
         if ext in REPAIRABLE_EXT:
             text = body.decode('utf-8', 'replace')
             text, repaired = self._deconflict(text, ext)
+            if ext in ('.js', '.mjs'):
+                text, redecl = self._redeclare(text)
+                redeclared = len(redecl)
             body = text.encode()
         if ext in HTML_EXT:
             body = self._shim(body.decode('utf-8', 'replace'), name, rel).encode()
         out = {'body': body, 'ctype': ctype, 'headers': self.headers(), 'path': rel}
         if repaired:
             out['repaired'] = repaired
+        if redeclared:
+            out['redeclared'] = redeclared
         return out
 
-    @staticmethod
-    def _parses(text):
+    @classmethod
+    def _parses(cls, text):
         """Does this script actually parse? None when we cannot know.
 
         Serving 200 OK for a file the browser will refuse to compile is the
@@ -687,8 +804,14 @@ class Runner:
         dead, and nothing in the response says so. `node --check` is the same
         parser, so when the host has node we can say it on the card instead of
         letting the visitor find out."""
+        return cls._check(text)[:2]
+
+    @classmethod
+    def _check(cls, text):
+        """(parses?, one-line reason, node's whole complaint). The third is
+        what the redeclaration repair reads the line number out of."""
         if not NODE or len(text) > 800_000:
-            return None, None
+            return None, None, None
         d = tempfile.mkdtemp(prefix='pliny-syntax-')
         try:
             for ext in ('.js', '.mjs'):        # classic first, then as a module
@@ -699,12 +822,13 @@ class Runner:
                     r = subprocess.run([NODE, '--check', fp], capture_output=True,
                                        text=True, timeout=20)
                 except (OSError, subprocess.SubprocessError):
-                    return None, None
+                    return None, None, None
                 if r.returncode == 0:
-                    return True, None
-                err = next((ln.strip() for ln in (r.stderr or '').splitlines()
+                    return True, None, None
+                raw = r.stderr or ''
+                err = next((ln.strip() for ln in raw.splitlines()
                             if 'Error' in ln), 'it does not parse')
-            return False, err
+            return False, err, raw
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
@@ -744,6 +868,114 @@ class Runner:
                      'no conflict to close were dropped as well.')
         banner = (f'<!-- {note} -->\n' if ext in HTML_EXT else f'/* {note} */\n')
         return banner + fixed, n + stray
+
+    @classmethod
+    def _redeclare(cls, text: str):
+        """Repair `const X` colliding with the enclosing function's own `X`.
+
+        This is the second of the two dead-page bugs in this corpus and the
+        harder one to see: the file has no merge markers, it reads perfectly,
+        and the browser throws it away whole. The repair is one keyword, and
+        node adjudicates — we ask it where the collision is, check that the
+        line it names really is a `const`/`let` shadowing a parameter of the
+        function above it, drop the keyword and ask node again. Nothing is
+        returned that the real parser has not accepted."""
+        if not NODE or len(text) > 400_000:
+            return text, []
+        # Cheap gate: a `const X` under a `function (… X …)` somewhere in the
+        # file. Without it every script served would pay for a node process.
+        lines = text.split('\n')
+        params = []
+        for ln in lines:
+            m = FUNC_PARAMS_RE.search(ln)
+            if m:
+                params = [p.strip().split('=')[0].strip()
+                          for p in m.group(1).split(',') if p.strip()]
+            d = DECL_LINE_RE.match(ln)
+            if d and d.group(3) in params:
+                break
+        else:
+            return text, []
+        fixed, repairs = text, []
+        for _ in range(REDECL_ROUNDS):
+            ok, why, err = cls._check(fixed)
+            if ok or not err:
+                break
+            m = REDECL_RE.search(err)
+            if not m:
+                break
+            ln_no = cls._error_line(err)
+            if not ln_no:
+                break
+            rows = fixed.split('\n')
+            if ln_no > len(rows):
+                break
+            row = rows[ln_no - 1]
+            d = DECL_LINE_RE.match(row)
+            if not d or d.group(3) != m.group(1):
+                break
+            if m.group(1) not in cls._params_above(rows, ln_no - 1):
+                break                       # not the shape we know — leave it
+            rows[ln_no - 1] = row.replace(d.group(2) + ' ', '', 1)
+            fixed = '\n'.join(rows)
+            repairs.append({'line': ln_no, 'name': m.group(1),
+                            'was': row.strip()[:90],
+                            'fix': f'`{d.group(2)} {m.group(1)}` shadows the '
+                                   f'enclosing function\'s own parameter '
+                                   f'`{m.group(1)}` — a SyntaxError that kills '
+                                   'the whole file. Served as an assignment '
+                                   'instead of a declaration.'})
+        if not repairs:
+            return text, []
+        ok = cls._check(fixed)[0]
+        if not ok:
+            return text, []               # the repair did not land it — be honest
+        note = ('pliny: upstream redeclares %s inside a function that already '
+                'takes %s as a parameter, which is a SyntaxError — the browser '
+                'compiles none of this file, so nothing on the page responds. '
+                'Served with the declaration keyword dropped (%s), which is what '
+                'the code means from that line on. Nothing else is changed.'
+                % (', '.join(sorted({r['name'] for r in repairs})),
+                   ', '.join(sorted({r['name'] for r in repairs})),
+                   ', '.join('line %d' % r['line'] for r in repairs)))
+        return f'/* {note} */\n' + fixed, repairs
+
+    @staticmethod
+    def _params_above(rows, i):
+        """The parameters of the function whose body *contains* line i.
+
+        Not the nearest header above it: R00TS closes a nested `createBranch`
+        four lines earlier, and taking that one made the check refuse the one
+        repair it exists for. Walk the braces back to the `{` that opens the
+        enclosing block and read the header on its line."""
+        depth, j = 0, i - 1
+        while j >= 0 and i - j < 1200:
+            line = rows[j]
+            for k in range(len(line) - 1, -1, -1):
+                c = line[k]
+                if c == '}':
+                    depth += 1
+                elif c == '{':
+                    if depth:
+                        depth -= 1
+                        continue
+                    m = FUNC_PARAMS_RE.search(line[:k])
+                    if m:
+                        return [p.strip().split('=')[0].strip()
+                                for p in m.group(1).split(',') if p.strip()]
+                    a = ARROW_PARAMS_RE.search(line[:k])
+                    if a:
+                        return [p.strip().split('=')[0].strip()
+                                for p in (a.group(1) or a.group(2) or '').split(',')
+                                if p.strip()]
+                    return []          # a plain block, not a function — no params
+            j -= 1
+        return []
+
+    @staticmethod
+    def _error_line(err):
+        m = NODE_LINE_RE.search((err or '').split('\n')[0])
+        return int(m.group(1)) if m else None
 
     @staticmethod
     def headers() -> dict:

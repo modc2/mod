@@ -867,17 +867,47 @@ _SRC_FILES = {
     'package.json': '{"name":"src-app"}',
 }
 _PY_FILES = {'main.py': 'print("hello")', 'README.md': '# a script'}
+# An app that ships as source AND carries the build that would fix it. Its
+# build is a node one-liner rather than a real bundler: the point under test is
+# the plumbing (install, build, find the page, re-read the arcade), not npm.
+_BUILD_FILES = {
+    'index.html': ('<!doctype html><html><head><title>Unbuilt</title></head>'
+                   '<body><div id="root"></div>'
+                   '<script type="module" src="/src/main.tsx"></script></body></html>'),
+    'src/main.tsx': 'export default function App(){return <div/>}',
+    'package.json': ('{"name":"demo-build","version":"1.0.0","private":true,'
+                     '"scripts":{"build":"node make.js"}}'),
+    'make.js': ("const fs=require('fs');fs.mkdirSync('dist',{recursive:true});"
+                "fs.writeFileSync('dist/index.html','<!doctype html><html><head>"
+                "<title>Built</title></head><body><h1>built</h1>"
+                "<script src=\"./app.js\"></script></body></html>');"
+                "fs.writeFileSync('dist/app.js','console.log(1)');"),
+}
+# The same thing, but building it would only produce a page that throws: it
+# reads somebody else's deployment URL out of its own bundle at boot.
+_ENV_FILES = dict(_BUILD_FILES, **{
+    'src/main.tsx': 'const u = import.meta.env.VITE_BACKEND_URL; export default u;',
+})
+
+
+_REPOS = (('DEMO_APP', _APP_FILES), ('DEMO_SRC', _SRC_FILES),
+          ('DEMO_PY', _PY_FILES), ('DEMO_BUILD', _BUILD_FILES),
+          ('DEMO_ENV', _ENV_FILES))
 
 
 def _runner(tmp):
-    """A Runner over three fixture repos cloned from a local git base."""
+    """A Runner over the fixture repos, cloned from a local git base."""
+    import builds as _builds
     import run as _run
-    cl = _cloner(tmp, repos=('DEMO_APP', 'DEMO_SRC', 'DEMO_PY'))
-    for name, files in (('DEMO_APP', _APP_FILES), ('DEMO_SRC', _SRC_FILES),
-                        ('DEMO_PY', _PY_FILES)):
+    cl = _cloner(tmp, repos=tuple(n for n, _ in _REPOS))
+    for name, files in _REPOS:
         _fixture_repo(os.path.join(tmp, 'remote'), name, files)
         cl.clone(name)
     _run.RUN_INDEX = os.path.join(tmp, 'run.json')
+    # receipts and logs into the sandbox too — a test must never write over
+    # the real build index in ~/.mod/pliny
+    _builds.BUILD_INDEX = os.path.join(tmp, 'builds.json')
+    _builds.LOG_DIR = os.path.join(tmp, 'build-logs')
     return _run.Runner(cl.mkt, cl)
 
 
@@ -961,6 +991,89 @@ def test_source_that_needs_a_build_is_not_called_runnable():
         py = r.manifest('DEMO_PY')
         assert not py['runnable'] and py['kind'] == 'python', py
         return m['note'][:60]
+
+
+@check
+def test_an_app_that_ships_as_source_can_be_built_and_then_runs():
+    """The arcade's answer for a Vite stub used to end at "read the source".
+    Now the card offers the build that upstream never ran: install, build, and
+    the page that comes out is served from the same sandbox as everything
+    else — no new path, the walk just finds a real page now."""
+    import tempfile
+    import builds as _builds
+    if not _builds.Builder._nodes():
+        return 'no node on this host — skipped'
+    with tempfile.TemporaryDirectory() as tmp:
+        r = _runner(tmp)
+        before = r.manifest('DEMO_BUILD')
+        assert not before['runnable'] and before['needs_build'], before
+        assert before['build']['can_build'], before['build']
+        assert 'BUILD' in before['note'], before['note']
+
+        out = r.build('DEMO_BUILD', wait=True)
+        assert out['build']['ok'], out['build']
+        assert out['build']['out'] == 'dist', out['build']
+
+        after = r.manifest('DEMO_BUILD')
+        assert after['runnable'] and after['entry'] == 'dist/index.html', after
+        assert after['built']['stale'] is False, after['built']
+        page = r.asset('DEMO_BUILD', 'dist/index.html')['body'].decode()
+        assert '<h1>built</h1>' in page and 'data-pliny="shim"' in page
+        # and the arcade counts it without being told twice
+        assert 'DEMO_BUILD' in [m['repo'] for m in r.catalog(refresh=True)['mods']]
+        return 'source -> dist/index.html -> runnable, sandboxed'
+
+
+@check
+def test_a_build_that_would_only_fail_on_load_is_refused_before_it_runs():
+    """LEAKHUB builds perfectly and then throws, because the bundle reads a
+    Convex URL that is nobody's business but its author's. A BUILD button that
+    hands back a white page is worse than no button."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        r = _runner(tmp)
+        plan = r.builder.plan('DEMO_ENV')
+        assert not plan['can_build'], plan
+        assert plan['needs_env'] == ['VITE_BACKEND_URL'], plan
+        m = r.manifest('DEMO_ENV')
+        assert not m['runnable'] and 'VITE_BACKEND_URL' in m['note'], m['note']
+        try:
+            r.builder.start('DEMO_ENV')
+        except _builds_error() as e:
+            assert 'VITE_BACKEND_URL' in str(e), e
+            return 'refused, with the variable named'
+        raise AssertionError('a build that cannot work was started anyway')
+
+
+def _builds_error():
+    from builds import BuildError
+    return BuildError
+
+
+@check
+def test_a_const_shadowing_its_own_parameter_is_repaired_on_the_way_out():
+    """The second dead-page bug in this corpus, and the invisible one: no merge
+    markers, the file reads fine, and the browser throws the whole thing away.
+    R00TS has been a picture of itself since 2024 because of one keyword."""
+    import run as _run
+    if not _run.NODE:
+        return 'no node on this host — skipped'
+    src = ('function draw(words){\n'
+           '  const n = Object.keys(words).length;\n'
+           '  const words = [1,2,3];\n'
+           '  return words.length + n;\n'
+           '}\n')
+    assert _run.Runner._parses(src)[0] is False
+    fixed, repairs = _run.Runner._redeclare(src)
+    assert len(repairs) == 1 and repairs[0]['name'] == 'words', repairs
+    assert _run.Runner._parses(fixed)[0] is True
+    assert 'pliny:' in fixed.split('\n')[0]          # announced in the bytes
+    assert '  words = [1,2,3];' in fixed             # the keyword, and only it
+    # …and a redeclaration we do not understand is left alone rather than
+    # guessed at: no enclosing parameter, so no repair.
+    other = 'const a = 1;\nconst a = 2;\n'
+    assert _run.Runner._redeclare(other) == (other, [])
+    return 'one keyword, and node agrees'
 
 
 @check
@@ -1233,6 +1346,19 @@ def test_chat_scope_lists_the_repos_the_agent_may_read():
         allowed = cmd[cmd.index('--allowedTools') + 1]
         assert allowed.startswith('mcp__pliny__pv_') and 'Bash' not in allowed
         return 'fenced to ' + ','.join(sc['repos'])
+
+
+@check
+def test_the_agent_gets_no_tool_that_writes():
+    """The fence is the tool list, so a tool that spends minutes of npm and
+    writes to a clone must not be on it. pv_build and pv_install are the two
+    writes in the registry; the agent reads."""
+    import chat as _chat
+    import mcp as _mcp
+    writes = {'pv_install', 'pv_build', 'pv_update'}
+    assert not (writes & set(_chat.AGENT_TOOLS)), _chat.AGENT_TOOLS
+    assert writes <= set(_mcp.TOOLS), 'the writes should still exist on /mcp'
+    return f'{len(_chat.AGENT_TOOLS)} read-only tools, {len(writes)} writes withheld'
 
 
 @check

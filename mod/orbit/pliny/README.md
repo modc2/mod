@@ -167,16 +167,82 @@ reports all three rather than letting you find out by clicking:
   the same SyntaxError.
 - **a script that will not compile anyway.** When the host has node, every
   script the entry pulls in is run through `node --check` after the repair, and
-  a failure is reported with the parser's own message: R00TS declares `words`
-  twice in one function, which is upstream's bug and nothing serving can fix.
-  The card says so before you press RUN.
+  a failure is reported with the parser's own message. One shape of that failure
+  is now repaired instead: R00TS declares `const words` inside
+  `updateWordCloud(words)`, shadowing the function's own parameter, which is a
+  SyntaxError that throws the whole file away — the page painted and every
+  button on it was dead. node names the line, the declaration keyword is dropped
+  so the line assigns to the binding that is already there (which is what the
+  code means from that line on), node is asked again, and the repair is
+  announced in the served bytes. Anything node still refuses is reported, not
+  hidden.
 - **a back end that is not here.** T3MP3ST keeps its API address in a settings
   field rather than a literal `fetch()`, so the arcade also treats a localhost
   host repeated through a page as the page's back end and names the port.
 
 The verdicts are cached in `~/.mod/pliny/run.json`, keyed on each clone's state,
-so the gallery can put a RUN button on 13 of 47 cards without walking 47
+so the gallery can put a RUN button on 15 of 47 cards without walking 47
 checkouts on every page load.
+
+## BUILD — the apps that ship as source
+
+Three of these repos are real browser apps that nobody ever built. What upstream
+committed is a Vite `index.html` whose only script is `/src/main.tsx`, or a
+template a node script fills in — a browser loads that as a blank page, so the
+arcade called them `needs_build` and the card said *read the source* about an
+app that was meant to be played.
+
+The missing step is not clever. It is `npm install && npm run build`, and the
+card now offers it:
+
+```bash
+m pliny/build GL4SS           # install, build, and the arcade can run it
+m pliny/build                 # every receipt + what is one build away
+m pliny/build GL4SS forget=1  # drop the build and the node_modules
+```
+
+- `GET /api/plinyville/builds` — every receipt, what is buildable, what is blocked
+- `GET /api/plinyville/m/<repo>/build` — the plan, or how the last attempt went
+- `POST /api/plinyville/m/<repo>/build` — build it (**returns at once**; poll the GET)
+- MCP: `pv_build`, `op=build` on any `pv_<repo>` tool
+- the console: a **BUILD** button on the card, which becomes **RUN** when it lands
+
+The build runs **inside the repo's own clone**, and that is the whole design: it
+writes `dist/index.html` next to the source, and `Runner.entries` walks the same
+checkout it always walked, finds a page whose scripts are real JavaScript, ranks
+it above the unbuilt stub and serves it out of the same sandbox as everything
+else. No new serving path, no new hole.
+
+What it is careful about:
+
+- **Nothing is built unless somebody asks.** The daily scan never triggers one —
+  a build is minutes of network and a few hundred megabytes of `node_modules`.
+- **`--ignore-scripts` on every install.** This is somebody else's dependency
+  tree, and an npm lifecycle script is arbitrary code running as this user. The
+  only thing executed is the repo's own declared build.
+- **Vite gets `--base ./`.** Vite's default emits `<script src="/assets/…">`,
+  which is *this server's* root and not the app's. A page that builds and then
+  404s its own bundle is worse than one that never built. Skipping the repo's
+  own `tsc -b && vite build` also skips a type check that fails on repos whose
+  pages work fine.
+- **node is chosen, not assumed.** The system node here is 18 and Vite 7 wants
+  20.19+; the builder finds every node on the box (including one in the nix
+  store that nothing put on `PATH`) and picks the newest that the package's
+  `engines` will admit to.
+- **A build that would only produce a broken page is refused before it starts.**
+  LEAKHUB builds perfectly and then throws: its bundle reads `VITE_CONVEX_URL`
+  at boot, a Convex deployment of its own that is not in the repo. The card says
+  that, with the variable named, instead of offering a button that hands back a
+  white page.
+- **Every build leaves a receipt** in `~/.mod/pliny/builds.json`: the commit it
+  was built from, the node it used, the seconds it took, and on failure the tail
+  of the log. A build whose clone has since moved past that commit is reported
+  **stale** rather than quietly served as if it were current.
+
+Today: **GL4SS** (a WebGL/leaflet "looking glass") and **P4RS3LT0NGV3** (a
+universal text encoder and steganography suite, 13 tools) both build in under
+ten seconds after the install and are playable; LEAKHUB is the one that is
+honestly refused.
 
 ## TYPES — which sort of thing do you want
 
@@ -343,6 +409,8 @@ m pliny/deploy                # pm2 workers + Caddy routes
 - `GET /run` — the arcade: every repo that is an app
 - `GET /m/<repo>/run` — can it run, from which entry, and what it touches
 - `GET /m/<repo>/run/<path>` — the app itself, sandboxed (see [RUN](#run--the-repos-that-are-apps))
+- `GET /builds` — every build receipt, what is buildable, what is blocked
+- `GET /m/<repo>/build` · `POST /m/<repo>/build` — the plan, and the build (see [BUILD](#build--the-apps-that-ship-as-source))
 - `GET /tools[?all=1]` · `POST /mcp` — the MCP registry and endpoint
 - `POST /mcp/all` — the **ALL** server: every repo as its own tool
 
@@ -511,6 +579,7 @@ mod.py                          CLI verbs + process/gateway control (anchor)
 plinyville.py                   the core — GitHub mirror + exhibit analysis
 api.py                          JSON API + MCP endpoint            :50592
 run.py                          the arcade - entry discovery, the audit, the sandbox
+builds.py                       BUILD - the apps that ship as source, built so they run
 kinds.py                        the taxonomy - what sort of thing each repo is, with receipts
 chat.py                         the chat - the claude agent, fenced to this corpus
 app.py                          gallery UI + exhibit + /api proxy  :50593

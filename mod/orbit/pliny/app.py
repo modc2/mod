@@ -844,8 +844,15 @@ function renderArcade(n){
   const el=document.getElementById('arcade');
   if(!n){ el.style.display='none'; return; }
   el.style.display='';
-  document.getElementById('arcaden').innerHTML='<b>'+n+'</b> of them are apps - they run here, sandboxed';
+  // …and the ones that are apps but shipped as source: the strip should say
+  // they exist, because a BUILD button on a card nobody scrolled to is a
+  // feature nobody finds.
+  const b=REPOS.filter(r=>!r.run&&r.build).length;
+  document.getElementById('arcaden').innerHTML='<b>'+n+'</b> of them are apps - they run here, sandboxed'
+    +(b?' &middot; <b>'+b+'</b> more build into one':'');
 }
+// recount after a build lands, without refetching the whole market
+function arcade(){ renderArcade(REPOS.filter(r=>r.run).length); }
 function toggleArcade(){
   ONLY_RUN=!ONLY_RUN;
   document.getElementById('arcadebtn').textContent=ONLY_RUN?'SHOW ALL':'RUN ONLY';
@@ -916,12 +923,46 @@ function render(){
           ${r.run?(r.run_defanged
             ? `<a class="btn" href="${B}/plinyworld" target="_blank" rel="noopener" title="a live clipboard-hijack PoC - the defanged exhibit runs instead">RUN &gt;</a>`
             : `<a class="btn" href="${B}/m/${encodeURIComponent(r.name)}#run" title="run it here, sandboxed">RUN &gt;</a>`):''}
+          ${(!r.run&&r.build)?`<button class="btn" onclick="build('${esc(r.name)}',this)" title="${esc(r.build_note||'')} - this app ships as source; build it here and it becomes playable">BUILD &gt;</button>`:''}
           <a class="btn ghost" href="${B}/m/${encodeURIComponent(r.name)}">OPEN &gt;</a>
           ${r.installed?'':`<button class="btn ghost" onclick="install('${esc(r.name)}',this)">+ INSTALL</button>`}
           <a class="btn ghost" href="${esc(r.url)}" target="_blank" rel="noopener">GITHUB</a>
         </div>
       </div>
     </div>`).join('') || '<div class="loading">no matching mods</div>';
+}
+
+// BUILD: the two or three repos in this corpus that are apps nobody ran the
+// build for. The POST returns at once - an npm install is minutes long - so
+// this polls the same route for the step it is on and only claims the app is
+// playable once the server says the arcade can serve a page.
+async function build(name, btn){
+  const label=(t,cur)=>{ if(!btn) return; btn.textContent=t;
+    btn.classList.toggle('cur',!!cur); btn.disabled=!!cur; };
+  label('BUILDING',true);
+  try{
+    const j=await apiPost('/m/'+encodeURIComponent(name)+'/build');
+    if(j.error) throw new Error(j.error);
+    for(let i=0;i<200;i++){
+      const st=await api('/m/'+encodeURIComponent(name)+'/build');
+      // "INSTALL" would read as the archive button two along; this is the
+      // dependency install, and the card already has an + INSTALL of its own.
+      if(st.running){ label((st.step==='install'?'DEPS':'BUILD')+' '+Math.round(st.seconds||0)+'S',true);
+        await new Promise(r=>setTimeout(r,3000)); continue; }
+      const rec=st.receipt||{};
+      if(!rec.ok) throw new Error((rec.error||'the build did not produce a page')
+        +((rec.log||[]).length?' - '+rec.log[rec.log.length-1].slice(0,120):''));
+      const r=REPOS.find(x=>x.name===name);
+      if(r&&st.run&&st.run.runnable){ r.run=true; r.run_kind=st.run.kind; r.build=null;
+        r.run_url=st.run.run_url; r.run_degraded=!!st.run.degraded;
+        r.run_degraded_why=st.run.degraded_why; }
+      render(); arcade(); return;
+    }
+    throw new Error('still building after ten minutes - see GET /builds');
+  }catch(e){
+    label('BUILD FAILED',false);
+    alert('build failed: '+e.message);
+  }
 }
 
 async function install(name, btn){
@@ -1068,9 +1109,19 @@ async function askAgent(){
         else if(e.type==='done'){
           CHAT_SESSION=e.session||null;
           ans.style.display='block';
-          ans.innerHTML=mdlite(e.answer||text||'(no answer)')
-            +(e.grounded?'':'<div class="sub" style="margin-top:9px;color:var(--warn)">'
-              +'it answered without opening a file - that is its opinion, not the corpus</div>');
+          // A declined run is the runtime talking, not the corpus. This wall is
+          // jailbreak prompts and leaked system prompts, so the model does
+          // sometimes stop; printing its error in the answer box unmarked would
+          // read as if the repos had said it.
+          ans.innerHTML=(e.declined?'<div class="sub" style="margin-bottom:9px;color:var(--warn)">'
+              +'the model declined this one - what follows is its runtime\'s message, '
+              +'not something read out of the corpus</div>':'')
+            +mdlite(e.answer||text||'(no answer)')
+            +((e.grounded||e.declined)?'':'<div class="sub" style="margin-top:9px;color:var(--warn)">'
+              +'it answered without opening a file - that is its opinion, not the corpus</div>')
+            +((e.declined&&(e.read_count||0))?'<div class="sub" style="margin-top:9px">'
+              +'it had already read '+(e.read_count)+' thing'+(e.read_count>1?'s':'')
+              +' - those are listed below</div>':'');
           const seen=[];
           (e.reads||[]).forEach(rd2=>{ const n=(rd2.input||{}).name;
             if(n&&!seen.includes(n)) seen.push(n); });

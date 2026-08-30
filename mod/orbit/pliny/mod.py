@@ -155,6 +155,25 @@ class Mod:
         r = self._runner()
         return r.manifest(name, clone=True) if name else r.catalog(refresh=refresh)
 
+    def build(self, name=None, force=False, forget=False) -> dict:
+        """Build a repo that ships as source, so the arcade can run it.
+
+        A few of these are real browser apps whose committed `index.html` is a
+        Vite stub the browser cannot compile — the page loads blank and the
+        card says "read the source". This runs the repo's own build inside its
+        clone (`npm install --ignore-scripts`, then `vite build --base ./` or
+        its declared build script) and the arcade then finds the built page and
+        serves it out of the same sandbox as everything else.
+
+        With no name: every build receipt, what is one build away, and what
+        would still not work if it were built."""
+        r = self._runner()
+        if not name:
+            return r.builds()
+        if forget:
+            return r.builder.forget(r.ville._safe(name))
+        return r.build(name, force=force, wait=True)
+
     def types(self, repo=None, refresh=False) -> dict:
         """What sort of thing each repo IS — jailbreak set, leaked system prompt,
         red-team tool, browser app, tool, writing, exhibit, empty — with live

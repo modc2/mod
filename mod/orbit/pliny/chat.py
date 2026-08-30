@@ -388,13 +388,26 @@ class Chat:
             yield {'type': 'error', 'status': 502,
                    'error': result.get('error') or 'the agent errored'}
             return
+        # An `is_error` result that still carries text is usually the runtime
+        # talking, not the agent: most often the model's own provider declining
+        # the request half way through. This corpus is jailbreak prompts and
+        # leaked system prompts, so that happens — and printing "API Error: …"
+        # in the answer box as if the corpus had said it is the one thing this
+        # panel must not do. Flag it, keep the reads, and say whose words those
+        # are.
+        declined = bool(result.get('is_error'))
         yield {
             'type': 'done',
             'answer': answer,
-            'grounded': bool(reads),
-            'note': None if reads else ('the agent answered without opening a single '
-                                        'file — treat this as its opinion, not as '
-                                        'the corpus'),
+            'declined': declined,
+            'grounded': bool(reads) and not declined,
+            'note': ('the agent stopped before answering and this is its runtime\'s '
+                     'own message, not something read out of the corpus — the model '
+                     'declined the request. What it had already read is listed below.'
+                     if declined else
+                     None if reads else ('the agent answered without opening a single '
+                                         'file — treat this as its opinion, not as '
+                                         'the corpus')),
             'reads': reads,
             'read_count': len(reads),
             'scope': {'types': sc.get('types'), 'repo': sc.get('repo'),
