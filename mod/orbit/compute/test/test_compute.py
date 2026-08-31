@@ -18,6 +18,7 @@ MODULE = os.path.dirname(HERE)
 if MODULE not in sys.path:
     sys.path.insert(0, MODULE)
 
+import geo                                              # noqa: E402
 import mcp                                              # noqa: E402
 import mods                                             # noqa: E402
 import providers as P                                   # noqa: E402
@@ -87,6 +88,26 @@ def test_gpu_match_ignores_the_note():
 
 def test_unpriced_offers_never_satisfy_a_price_ceiling():
     assert not Filters(max_usd_hr=1).match(_o(gpu='H100', usd_hr=None))
+    assert not Filters(min_usd_hr=1).match(_o(gpu='H100', usd_hr=None))
+
+
+def test_price_is_a_band_not_just_a_ceiling():
+    f = Filters(min_usd_hr=1, max_usd_hr=3)
+    assert f.match(_o(gpu='H100', usd_hr=2))
+    assert f.match(_o(gpu='H100', usd_hr=1))     # inclusive on both edges
+    assert f.match(_o(gpu='H100', usd_hr=3))
+    assert not f.match(_o(gpu='H100', usd_hr=0.4))
+    assert not f.match(_o(gpu='H100', usd_hr=4))
+    # free rows are below every floor above zero, and inside a floorless band
+    assert not f.match(_o(gpu='H100', usd_hr=0))
+    assert Filters(max_usd_hr=3).match(_o(gpu='H100', usd_hr=0))
+
+
+def test_a_backwards_band_is_straightened_not_obeyed():
+    """min above max would match nothing; a typo should still search."""
+    f = Filters(min_usd_hr=5, max_usd_hr=2)
+    assert (f.min_usd_hr, f.max_usd_hr) == (2, 5)
+    assert f.match(_o(gpu='H100', usd_hr=3))
 
 
 def test_storage_is_hidden_unless_asked_for():
@@ -202,10 +223,111 @@ def test_results_are_sorted_by_price_with_unpriced_rows_last(monkeypatch):
     assert r['cheapest']['ref'] == 'a'
 
 
+# ── where a market is ──
+# The gazetteer is data, so these test the reading of it: every provider
+# spells a location differently and all of them have to land on one point,
+# and anything that cannot be read has to stay off the map rather than land
+# in the Gulf of Guinea at 0,0.
+
+@pytest.mark.parametrize('text,place,precision', [
+    ('US, Des Moines, IA', 'Des Moines', 'city'),      # shadeform
+    ('Des Moines, United States', 'Des Moines', 'city'),  # lium
+    ('Washington, US', 'Washington', 'state'),         # vast — a state, not DC
+    ('RU', 'Russia', 'country'),                       # clore
+    ('Quebec, CA', 'Quebec', 'city'),
+    ('Chiyoda City, Japan', 'Chiyoda City', 'city'),   # the admin word is theirs
+    ('us-southeast-1', 'US Southeast', 'region'),      # a cloud names a region
+    ('NO, Central', 'Norway', 'country'),              # unreadable half, readable half
+])
+def test_every_market_spells_a_location_differently_and_all_of_them_land(
+        text, place, precision):
+    got = geo.place(text)
+    assert got, f'{text!r} did not resolve'
+    assert got['place'] == place
+    assert got['precision'] == precision
+    assert -90 <= got['lat'] <= 90 and -180 <= got['lon'] <= 180
+
+
+@pytest.mark.parametrize('text', ['', None, '   ', 'Unable to determine country',
+                                  'unknown', 'n/a', 'somewhere nice'])
+def test_a_location_that_cannot_be_read_is_not_placed_at_zero_zero(text):
+    assert geo.place(text) is None
+
+
+def test_a_country_code_is_placed_inside_its_own_country():
+    # the centroid has to be the country's, not the average of the world
+    ru, br, au = geo.place('RU'), geo.place('BR'), geo.place('AU')
+    assert ru['lat'] > 40 and ru['lon'] > 30
+    assert br['lat'] < 0 and br['lon'] < -30
+    assert au['lat'] < 0 and au['lon'] > 110
+
+
+def test_a_city_beats_the_country_it_is_in():
+    city, country = geo.place('Las Vegas, United States'), geo.place('US')
+    assert city['precision'] == 'city' and country['precision'] == 'country'
+    assert abs(city['lat'] - 36.17) < 0.5 and abs(city['lon'] + 115.14) < 0.5
+    assert (city['lat'], city['lon']) != (country['lat'], country['lon'])
+
+
+def test_search_places_the_rows_it_can_and_counts_the_rest(monkeypatch):
+    class Fake:
+        name, caps, kyc = 'f', ('search',), 'none'
+
+        def search(self, f):
+            return [mk_offer('f', 'a', usd_hr=1.0, gpu='H100', region='US, Des Moines, IA'),
+                    mk_offer('f', 'b', usd_hr=2.0, gpu='H100', region='Des Moines, United States'),
+                    mk_offer('f', 'c', usd_hr=3.0, gpu='H100', region=None),
+                    mk_offer('f', 'd', usd_hr=4.0, gpu='H100', region='hjkl')]
+
+    monkeypatch.setattr(P, 'every', lambda *a, **k: [Fake()])
+    r = Hub().search()
+    by = {o['ref']: o for o in r['offers']}
+    assert by['a']['geo']['place'] == 'Des Moines'
+    assert 'geo' not in by['c'] and 'geo' not in by['d']
+    m = r['map']
+    assert m['placed'] == 2 and m['unplaced'] == 2
+    # both spellings of the same city are one dot, not two
+    assert len(m['points']) == 1
+    p = m['points'][0]
+    assert p['count'] == 2 and p['min_usd_hr'] == 1.0 and p['providers'] == {'f': 2}
+
+
+def test_the_map_verb_answers_the_same_places_as_the_search_it_wraps(monkeypatch):
+    class Fake:
+        name, caps, kyc = 'f', ('search',), 'none'
+
+        def search(self, f):
+            return [mk_offer('f', 'a', usd_hr=1.0, region='DE'),
+                    mk_offer('f', 'b', usd_hr=2.0, region='Paris, France')]
+
+    monkeypatch.setattr(P, 'every', lambda *a, **k: [Fake()])
+    h = Hub()
+    assert h.map()['points'] == h.search()['map']['points']
+    assert h.map()['countries'] == 2
+
+
+def test_a_market_with_no_location_is_counted_not_guessed(monkeypatch):
+    class Blind:
+        name, caps, kyc = 'blind', ('search',), 'none'
+
+        def search(self, f):
+            return [mk_offer('blind', str(i), usd_hr=1.0) for i in range(3)]
+
+    monkeypatch.setattr(P, 'every', lambda *a, **k: [Blind()])
+    m = Hub().map()
+    assert m['points'] == [] and m['unplaced'] == 3
+    assert m['unplaced_providers'] == {'blind': 3}
+
+
+def test_the_map_is_open_and_spends_nothing():
+    import auth
+    assert '/map' in auth.OPEN and 'compute_map' in auth.OPEN_TOOLS
+
+
 # ── mcp wire ──
 
 def test_every_tool_is_declared_and_callable():
-    assert len(mcp.TOOLS) == 21
+    assert len(mcp.TOOLS) == 22
     for name, t in mcp.TOOLS.items():
         assert name.startswith('compute_')
         assert t['description'] and t['inputSchema']['type'] == 'object'

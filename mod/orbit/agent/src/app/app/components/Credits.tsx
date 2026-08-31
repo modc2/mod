@@ -404,30 +404,114 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
     setVerifying(false)
   }
 
-  const grant = async () => {
-    const amount = parseFloat(grantAmount)
-    if (!grantAddr.trim() || !isFinite(amount) || granting) return
+  // The owner's ledger move: hand credit to an address, or take it back.
+  // Same endpoint either way — the sign is the whole difference — and the
+  // server clamps a deduction at zero, so `credited` is what really moved.
+  const move = async (signed: number, address?: string) => {
+    const addr = (address || grantAddr).trim()
+    if (!addr || !isFinite(signed) || signed === 0 || granting) return
     setGranting(true)
     setGrantMsg(null)
     try {
       const res = await fetch(`${API_URL}/credits/grant`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: grantAddr.trim(), amount, key: auth?.token }),
+        body: JSON.stringify({ address: addr, amount: signed, key: auth?.token }),
         signal: AbortSignal.timeout(10000),
       })
       const data = await res.json()
       if (data.error) setGrantMsg(data.error)
       else {
-        setGrantMsg(`${shortAddr(data.address)} → ${fmtUsd(data.balance)}`)
-        setGrantAddr(''); setGrantAmount('')
+        const moved = typeof data.credited === 'number' ? data.credited : signed
+        const short = Math.abs(moved) < Math.abs(signed) ? ' (all it had)' : ''
+        setGrantMsg(`${moved < 0 ? 'Took' : 'Gave'} ${fmtUsd(Math.abs(moved))}${short} · ` +
+          `${shortAddr(data.address)} → ${fmtUsd(data.balance)}`)
+        if (!address) setGrantAmount('')
         onRefresh()
+        loadTreasury()
       }
     } catch (e: any) {
-      setGrantMsg(e?.message || 'grant failed')
+      setGrantMsg(e?.message || 'the ledger move failed')
     }
     setGranting(false)
   }
+
+  const grantAmountNum = Math.abs(parseFloat(grantAmount))
+  const grantReady = !!grantAddr.trim() && isFinite(grantAmountNum) && grantAmountNum > 0
+
+  // the owner's own desk, in place of the guest top-up form: the owner funds
+  // the provider keys directly, so buying credits from themselves would just
+  // move their money in a circle. What they need is the other two buttons.
+  const ownerDesk = (
+    <div className="rounded-lg border border-violet-500/15 bg-violet-500/[0.03] p-3 space-y-2">
+      <div className="text-[9px] text-violet-300/70 uppercase tracking-wider">Owner · credit desk</div>
+      <div className="text-[10px] text-gray-500 leading-relaxed">
+        Give credit to any address, or take it back. Nothing here is a payment —
+        you already pay {providers.join(' / ')} for every run this module makes.
+      </div>
+      <input value={grantAddr} onChange={e => setGrantAddr(e.target.value)} placeholder="0x… address"
+        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-md px-2.5 py-1.5 text-[11px] font-mono text-gray-200 outline-none placeholder:text-gray-600 focus:border-violet-500/40 transition" />
+      <div className="flex items-center gap-1.5">
+        <div className="flex-1 min-w-0 flex items-center bg-white/[0.04] border border-white/[0.08] rounded-md focus-within:border-violet-500/40 transition">
+          <span className="text-[10px] font-mono text-gray-500 pl-2">$</span>
+          <input value={grantAmount} inputMode="decimal"
+            onChange={e => setGrantAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+            onKeyDown={e => { if (e.key === 'Enter' && grantReady) move(grantAmountNum) }}
+            placeholder="10"
+            className="flex-1 min-w-0 bg-transparent px-1.5 py-1.5 text-[12px] font-mono text-gray-200 outline-none placeholder:text-gray-600" />
+        </div>
+        <button onClick={() => move(grantAmountNum)} disabled={!grantReady || granting}
+          className="px-2.5 py-1.5 rounded-md text-[10px] font-medium border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40 transition shrink-0">
+          {granting ? '…' : 'Top up'}
+        </button>
+        <button onClick={() => move(-grantAmountNum)} disabled={!grantReady || granting}
+          className="px-2.5 py-1.5 rounded-md text-[10px] font-medium border border-amber-500/30 text-amber-300 hover:bg-amber-500/10 disabled:opacity-40 transition shrink-0">
+          Deduct
+        </button>
+      </div>
+      <div className="flex items-center gap-1.5">
+        {[5, 10, 25, 100].map(v => (
+          <button key={v} onClick={() => setGrantAmount(String(v))}
+            className="px-2 py-0.5 rounded-full text-[10px] font-mono border border-white/10 text-gray-500 hover:text-gray-200 hover:border-white/25 transition">
+            ${v}
+          </button>
+        ))}
+      </div>
+      {grantMsg && <div className="text-[10px] text-gray-400">{grantMsg}</div>}
+      {(info?.accounts?.length || 0) > 0 && (
+        <div className="pt-1 space-y-0.5 max-h-44 overflow-y-auto">
+          {info!.accounts!.map(a => (
+            <div key={a.address} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-white/[0.03] group">
+              <button onClick={() => setGrantAddr(a.address)} title={`${a.address} — click to load into the desk`}
+                className="text-[10px] text-gray-400 font-mono hover:text-gray-200 transition">
+                {shortAddr(a.address)}
+              </button>
+              <span className="ml-auto text-[10px] font-mono text-emerald-300/80">{fmtUsd(a.balance)}</span>
+              <button onClick={() => move(grantReady ? grantAmountNum : 10, a.address)} disabled={granting}
+                title={`Give this address ${fmtUsd(grantReady ? grantAmountNum : 10)}`}
+                className="text-[11px] leading-none w-5 h-5 rounded border border-white/10 text-emerald-300/70 opacity-0 group-hover:opacity-100 hover:bg-emerald-500/10 transition disabled:opacity-30">
+                +
+              </button>
+              <button onClick={() => move(-(grantReady ? grantAmountNum : a.balance), a.address)}
+                disabled={granting || a.balance <= 0}
+                title={grantReady ? `Take ${fmtUsd(grantAmountNum)} back` : 'Zero this account out'}
+                className="text-[11px] leading-none w-5 h-5 rounded border border-white/10 text-amber-300/70 opacity-0 group-hover:opacity-100 hover:bg-amber-500/10 transition disabled:opacity-30">
+                −
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {depositAddr && (
+        <div className="text-[9px] text-gray-600 leading-relaxed pt-0.5">
+          Guests pay in at <span className="font-mono text-gray-500">{shortAddr(depositAddr)}</span>{' '}
+          <button onClick={copyDeposit} className="text-gray-500 hover:text-gray-300 transition">
+            {copied ? 'copied' : 'copy'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
 
   if (!open) return null
 
@@ -459,15 +543,37 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
             </div>
           ) : (
             <>
-              {/* balance */}
-              <div className="rounded-lg border border-emerald-500/15 bg-emerald-500/[0.04] p-3">
-                <div className="text-[9px] text-gray-500 uppercase tracking-wider">Balance · {shortAddr(auth.address)}</div>
-                <div className="text-2xl font-semibold text-emerald-200 font-mono mt-0.5">{fmtUsd(balance)}</div>
-                <div className="text-[10px] text-gray-500 mt-1">
-                  Buys {pct(1 / (1 + feeRate))} of its value in model time — a run is billed at what it
-                  costs on the module&apos;s provider key plus {pct(feeRate)}.
+              {/* balance — the owner has no balance to hold: they pay the
+                  providers directly, so the number that means anything to
+                  them is what the guests are holding */}
+              {auth.isOwner ? (
+                <div className="rounded-lg border border-violet-500/15 bg-violet-500/[0.04] p-3">
+                  <div className="text-[9px] text-gray-500 uppercase tracking-wider">
+                    Owner · {shortAddr(auth.address)}
+                  </div>
+                  <div className="text-lg font-semibold text-violet-200 mt-0.5">Your runs are free</div>
+                  <div className="text-[10px] text-gray-500 mt-1 leading-relaxed">
+                    You pay the providers directly, so the module never bills your address and
+                    you never buy credits from yourself. Credits are for everyone else —
+                    hand them out below.
+                  </div>
+                  {book && (
+                    <div className="text-[10px] text-gray-500 mt-1.5 font-mono">
+                      {book.accounts} account{book.accounts === 1 ? '' : 's'} holding{' '}
+                      <span className="text-emerald-300/80">{fmtUsd(book.user_credits)}</span>
+                    </div>
+                  )}
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-lg border border-emerald-500/15 bg-emerald-500/[0.04] p-3">
+                  <div className="text-[9px] text-gray-500 uppercase tracking-wider">Balance · {shortAddr(auth.address)}</div>
+                  <div className="text-2xl font-semibold text-emerald-200 font-mono mt-0.5">{fmtUsd(balance)}</div>
+                  <div className="text-[10px] text-gray-500 mt-1">
+                    Buys {pct(1 / (1 + feeRate))} of its value in model time — a run is billed at what it
+                    costs on the module&apos;s provider key plus {pct(feeRate)}.
+                  </div>
+                </div>
+              )}
 
               {/* spend toggle — how guest runs are powered */}
               {!auth.isOwner && (
@@ -488,15 +594,16 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
                   </span>
                 </button>
               )}
-              {auth.isOwner && (
-                <div className="text-[10px] text-gray-600 px-1">
-                  You are the module owner — your runs use your own key and are never charged.
-                </div>
-              )}
             </>
           )}
 
+          {/* the owner gets the desk where a guest gets the payment form:
+              buying credits from themselves would move their own money in a
+              circle, and what they actually need is to fund other people */}
+          {auth?.isOwner && ownerDesk}
+
           {/* top up */}
+          {!auth?.isOwner && (
           <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-3 space-y-2.5">
             <div className="text-[9px] text-gray-500 uppercase tracking-wider">Top up</div>
             {!info?.enabled || !depositAddr ? (
@@ -646,6 +753,7 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
               </>
             )}
           </div>
+          )}
 
           {/* history */}
           {auth && (info?.account?.history?.length || 0) > 0 && (
@@ -882,36 +990,6 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
             </div>
           )}
 
-          {/* owner tools */}
-          {auth?.isOwner && (
-            <div className="rounded-lg border border-violet-500/15 bg-violet-500/[0.03] p-3 space-y-2">
-              <div className="text-[9px] text-violet-300/70 uppercase tracking-wider">Owner · grant credits</div>
-              <div className="flex items-center gap-1.5">
-                <input value={grantAddr} onChange={e => setGrantAddr(e.target.value)} placeholder="0x… address"
-                  className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-md px-2.5 py-1.5 text-[11px] font-mono text-gray-200 outline-none placeholder:text-gray-600 focus:border-violet-500/40 transition" />
-                <input value={grantAmount} onChange={e => setGrantAmount(e.target.value)} placeholder="± $"
-                  className="w-16 bg-white/[0.04] border border-white/[0.08] rounded-md px-2 py-1.5 text-[11px] font-mono text-gray-200 outline-none placeholder:text-gray-600 focus:border-violet-500/40 transition" />
-                <button onClick={grant} disabled={granting}
-                  className="px-2.5 py-1.5 rounded-md text-[10px] font-medium border border-violet-500/30 text-violet-300 hover:bg-violet-500/10 disabled:opacity-40 transition shrink-0">
-                  {granting ? '…' : 'Grant'}
-                </button>
-              </div>
-              {grantMsg && <div className="text-[10px] text-gray-400">{grantMsg}</div>}
-              {(info?.accounts?.length || 0) > 0 && (
-                <div className="pt-1 space-y-0.5 max-h-40 overflow-y-auto">
-                  {info!.accounts!.map(a => (
-                    <div key={a.address} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-white/[0.03]">
-                      <button onClick={() => setGrantAddr(a.address)} title={a.address}
-                        className="text-[10px] text-gray-400 font-mono hover:text-gray-200 transition">
-                        {shortAddr(a.address)}
-                      </button>
-                      <span className="ml-auto text-[10px] font-mono text-emerald-300/80">{fmtUsd(a.balance)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </aside>
     </>

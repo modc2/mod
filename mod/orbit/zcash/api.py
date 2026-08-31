@@ -53,9 +53,19 @@ OPEN_FNS = {
     'info', 'block', 'tx', 'address', 'mempool', 'price', 'network', 'search',
     'validate', 'estimate_fee', 'capabilities', 'status', 'test',
     'bridge_chains', 'bridge_quote', 'bridge_status', 'bridge_maya',
+    # Teaching and the agent are public: someone who does not yet know what a
+    # z-address is has no token, and gating the explanation behind the thing
+    # it explains is how people end up guessing instead.
+    'learn', 'explain', 'ask', 'agent_status',
+    # Quoting a shielded bridge reserves nothing and reveals nothing the
+    # caller did not already type. Reserving one does -- see bridge_start.
+    'bridge_shielded_plan', 'bridge_shielded_address',
     'wallet_list', 'wallet_info', 'wallet_balance', 'wallet_utxos',
     # A shielded address is public; what has been paid to it is not.
     'shielded_address',
+    # Whether this host has a prover installed is a property of the host, not
+    # of anyone's money -- and the app has to know it to render the tab.
+    'shielded_backend',
 }
 
 # Functions that spend, reserve, or reveal secrets.
@@ -63,11 +73,22 @@ GUARDED_FNS = {
     'wallet_create', 'wallet_restore', 'wallet_new_address', 'wallet_import',
     'wallet_reveal', 'wallet_delete', 'wallet_label',
     'send', 'broadcast_raw', 'bridge_start', 'bridge_send',
+    # bridge_shielded_in reserves a deposit address when reserve=True, and
+    # reads a wallet's shielded account when given a name; bridge_shielded_out
+    # spends notes. Both are gated whole rather than by argument, because a
+    # gate that depends on a flag in the body is a gate someone will flip.
+    'bridge_shielded_in', 'bridge_shielded_out',
     # Viewing keys reveal every shielded payment an account ever received,
     # so reading the shielded pool is guarded even though it cannot spend.
     'shielded_new_address', 'shielded_upgrade', 'shielded_export',
     'shielded_scan', 'shielded_balance', 'shielded_scan_tx',
     'shielded_send', 'shielded_node_import', 'shielded_operation',
+    # The light-client prover: building it spends CPU, syncing it reveals
+    # which wallet is being watched, and spendable/shield touch the notes.
+    # Only `shielded_backend` (is a prover present at all) stays open, so the
+    # app can show the install button before anyone has a token.
+    'shielded_backend_install', 'shielded_sync_start', 'shielded_sync_status',
+    'shielded_sync_stop', 'shielded_spendable', 'shielded_shield',
 }
 
 # One Mod instance, one token file, shared with the MCP tools -- two loadings

@@ -20,8 +20,9 @@ import {
 
 interface Template { key: string; name: string; description: string; files: Record<string, string> }
 
-// Each template card wears its own neon — five cabinet colours, cycled, so a
-// row of them reads as a shelf of different games rather than five grey boxes.
+// Each template keeps one cabinet colour, but it only shows on hover (and in
+// its sprite) — five cards each framed in a different neon read as a rainbow
+// against the hairline panels around them, not as a shelf of games.
 const CARD_COLORS = [ACCENT, NEON.p2, NEON.p1, NEON.coin, NEON.life]
 
 // The landing strip: what this console does, in the order you'll do it.
@@ -290,11 +291,13 @@ export function BuildTab({
               className="arc-card"
               style={{
                 textAlign: 'left', padding: '14px', cursor: 'pointer',
-                // longhand borders: the left edge carries the card's colour,
-                // the same bar the marquee pills wear
-                borderStyle: 'solid', borderWidth: '3px 3px 3px 5px',
-                borderColor: `var(--border-color) var(--border-color) var(--border-color) ${c}`,
-                background: 'var(--bg-secondary)', boxShadow: '3px 3px 0 0 rgba(0,0,0,0.35)',
+                // one hairline, like every other panel — `--c` is what
+                // arc-card lights the edge with under the pointer, so the
+                // template's own colour is a reward for reaching for it
+                borderStyle: 'solid', borderWidth: '1px',
+                borderColor: 'var(--border-color)',
+                background: 'var(--bg-secondary)',
+                boxShadow: '0 1px 0 0 rgba(255,255,255,0.035) inset, 0 8px 24px -18px rgba(0,0,0,0.9)',
                 fontFamily: TERM_FONT, color: 'var(--text-secondary)',
                 display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '124px',
                 ['--c' as any]: c,
@@ -304,7 +307,7 @@ export function BuildTab({
                 <Sprite seed={t.key} size={22} />
                 <span style={{
                   fontFamily: PIXEL, fontSize: PX.sm, lineHeight: 1.6,
-                  color: c, letterSpacing: '0.06em',
+                  color: 'var(--text-primary)', letterSpacing: '0.06em',
                 }}>
                   {t.name.toUpperCase()}
                 </span>
@@ -317,7 +320,7 @@ export function BuildTab({
                 fontSize: '13px', color: 'var(--text-tertiary)',
               }}>
                 <span>{sol} contract{sol === 1 ? '' : 's'} · {files.length} files</span>
-                <span style={{ marginLeft: 'auto', color: c }}>START →</span>
+                <span style={{ marginLeft: 'auto', color: ACCENT }}>START →</span>
               </div>
             </button>
           )

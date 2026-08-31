@@ -302,3 +302,314 @@ def best_quote(to_asset: str, amount_zec, recipient: str, refund_to: str) -> dic
     results.sort(key=score, reverse=True)
     return {"best": results[0] if results else None,
             "quotes": results, "unavailable": errors}
+
+
+# ── Shielded routes ─────────────────────────────────────────────────────────
+#
+# The solver networks speak ordinary chain addresses, and for Zcash that has
+# historically meant a t-address: money crosses the bridge in the clear and the
+# user is expected to shield it afterwards, in a second transaction, from a
+# wallet that can prove.
+#
+# It does not have to be that way in the inbound direction. The 1Click router
+# accepts a ZIP-316 **unified address** as a ZEC recipient and rejects a bare
+# `zs1` (verified against the live router: a UA quotes 201, a zs1 answers 400
+# "recipient is not valid"). A unified address whose only receiver is Sapling
+# leaves the sender no transparent option -- so wrapping the user's shielded
+# address in a shielded-only UA is what turns "bridge to Zcash" into "bridge
+# into the shielded pool", with no second transaction and no transparent hop.
+#
+# The catch, stated plainly because it decides whether funds are private: a
+# unified address that ALSO publishes a transparent receiver is a transparent
+# destination in practice, because ZIP-316 lets the sender pick any receiver it
+# supports and a solver will pick the cheap one. The wallet's own u1 address is
+# exactly that shape (Sapling + P2PKH). So `shielded_recipient` never passes a
+# user's address through untouched -- it re-encodes it with the transparent
+# receivers removed and says so.
+#
+# The outbound direction cannot be fixed this way. Spending a shielded note
+# needs a Groth16 proof, and the deposit address the solver hands back is an
+# ordinary t-address regardless. See `shielded_plan` for what that costs.
+
+try:
+    from . import sapling as _sapling
+except ImportError:  # loaded as a loose module
+    import sapling as _sapling
+
+SHIELDED_TYPECODES = (_sapling.TYPECODE_SAPLING, _sapling.TYPECODE_ORCHARD)
+_TRANSPARENT_TYPECODES = (_sapling.TYPECODE_P2PKH, _sapling.TYPECODE_P2SH)
+_RECEIVER_NAMES = {0x00: "p2pkh", 0x01: "p2sh", 0x02: "sapling", 0x03: "orchard"}
+
+
+POOL_NAMES = {_sapling.TYPECODE_SAPLING: "sapling",
+              _sapling.TYPECODE_ORCHARD: "orchard"}
+
+
+def shielded_recipient(address: str, readable: set = None) -> dict:
+    """Normalise any Zcash address into one a bridge can pay *privately*.
+
+    Returns the address to hand the router, plus what had to change to get
+    there. Raises BridgeError for an address that cannot be paid shielded at
+    all -- a bare t-address is not a shielded destination and pretending
+    otherwise would quietly publish the payment.
+
+    `readable` names the pools the caller can actually decrypt notes in
+    ({"sapling"}, or {"sapling", "orchard"}). Receivers outside it are dropped:
+    directing a bridge into a pool this module cannot scan would land the money
+    somewhere real but invisible, which reads to the user as lost. Pass None to
+    accept every shielded receiver the address offers -- correct for a caller
+    that knows it is only building an address for some other wallet to use.
+    """
+    a = (address or "").strip()
+    if not a:
+        raise BridgeError("no Zcash address given")
+    if readable is not None:
+        readable = {str(p).lower() for p in readable}
+        if not readable:
+            raise BridgeError(
+                "this module cannot read notes in any shielded pool, so it "
+                "will not direct a bridge into one. Check capabilities().")
+
+    if a.startswith(("t1", "t3")):
+        raise BridgeError(
+            f"{a} is a transparent address, so a bridge into it is a public "
+            "payment. For a private one, pass this wallet's shielded address "
+            "(zs1... or u1...) -- shielded_address(name) prints it.")
+
+    if a.startswith("zs1"):
+        if readable is not None and "sapling" not in readable:
+            raise BridgeError(
+                "this module cannot read Sapling notes, so it will not direct "
+                "a bridge into a Sapling address. Check capabilities().")
+        try:
+            pa = _sapling.decode_payment_address(a)
+        except ValueError as e:
+            raise BridgeError(f"{a} is not a valid Sapling address: {e}")
+        ua = _sapling.encode_unified_address([(_sapling.TYPECODE_SAPLING, pa.raw)])
+        return {
+            "recipient": ua,
+            "given": a,
+            "pool": "sapling",
+            "pools": ["sapling"],
+            "receivers": ["sapling"],
+            "rewritten": True,
+            "why": ("The router rejects a bare zs1 address, so this is the same "
+                    "Sapling receiver re-encoded as a unified address. Same "
+                    "keys, same notes -- only the envelope changed."),
+        }
+
+    if a.startswith("u1"):
+        try:
+            receivers = _sapling.decode_unified_address(a)
+        except ValueError as e:
+            raise BridgeError(f"{a} is not a valid unified address: {e}")
+        kinds = [_RECEIVER_NAMES.get(tc, f"unknown({tc})") for tc, _ in receivers]
+        shielded = [(tc, d) for tc, d in receivers if tc in SHIELDED_TYPECODES]
+        if not shielded:
+            raise BridgeError(
+                f"{a} publishes only {', '.join(kinds)} receivers, so paying it "
+                "is a transparent payment. A private bridge needs a Sapling or "
+                "Orchard receiver.")
+
+        dropped = [_RECEIVER_NAMES.get(tc, str(tc)) for tc, _ in receivers
+                   if tc in _TRANSPARENT_TYPECODES]
+
+        # A receiver we cannot decrypt is worse than no receiver: the money
+        # arrives, the chain confirms it, and every balance we can show says
+        # zero. ZIP-316 lets the sender pick any receiver it supports, so
+        # leaving an unreadable one in the address is leaving that outcome on
+        # the table.
+        unreadable = []
+        if readable is not None:
+            keep = [(tc, d) for tc, d in shielded
+                    if POOL_NAMES.get(tc, "") in readable]
+            unreadable = [POOL_NAMES.get(tc, str(tc)) for tc, d in shielded
+                          if (tc, d) not in keep]
+            if not keep:
+                offered = ", ".join(POOL_NAMES.get(tc, str(tc)) for tc, _ in shielded)
+                raise BridgeError(
+                    f"{a} offers only {offered} receivers, and this module "
+                    f"cannot read notes in {offered}. Bridging into it would "
+                    "land real funds that no balance here could ever show. "
+                    f"Readable pools: {', '.join(sorted(readable))}.")
+            shielded = keep
+
+        left = [POOL_NAMES.get(tc, str(tc)) for tc, _ in shielded]
+        if not dropped and not unreadable:
+            return {"recipient": a, "given": a, "pool": left[0],
+                    "pools": left, "receivers": left, "rewritten": False,
+                    "why": "This unified address offers no transparent "
+                           "receiver, so the payment can only land shielded."}
+
+        stripped = _sapling.encode_unified_address(shielded)
+        reasons = []
+        if dropped:
+            reasons.append(
+                f"it also published a {', '.join(dropped)} receiver, and a "
+                "sender is free to pick it -- which would put the funds in the "
+                "clear")
+        if unreadable:
+            reasons.append(
+                f"it offered a {', '.join(unreadable)} receiver this module "
+                "cannot decrypt, so a payment there would be invisible to "
+                "every balance shown here")
+        out = {
+            "recipient": stripped,
+            "given": a,
+            "pool": left[0],
+            "pools": left,
+            "receivers": left,
+            "rewritten": True,
+            "why": ("This is the address you gave with receivers removed, "
+                    "because " + "; and ".join(reasons) + ". What is left can "
+                    f"only be paid into the {' or '.join(left)} pool."),
+        }
+        if dropped:
+            out["dropped_receivers"] = dropped
+        if unreadable:
+            out["unreadable_receivers"] = unreadable
+        return out
+
+    if a.startswith("zc"):
+        raise BridgeError("Sprout addresses are deprecated and cannot receive funds")
+    raise BridgeError(f"unrecognised Zcash address {a!r}")
+
+
+def shielded_quote(from_asset: str, amount, z_recipient: str, refund_to: str,
+                   dry: bool = True, slippage_bps: int = 100,
+                   deadline_hours: int = 6, readable: set = None) -> dict:
+    """Quote <asset> -> ZEC landing directly in the shielded pool."""
+    target = shielded_recipient(z_recipient, readable=readable)
+    q = quote(from_asset, ZEC_ASSET, amount, target["recipient"], refund_to,
+              dry=dry, slippage_bps=slippage_bps, deadline_hours=deadline_hours)
+    q["shielded"] = True
+    q["destination_pool"] = target["pool"]
+    q["destination_pools"] = target.get("pools", [target["pool"]])
+    q["recipient_given"] = target["given"]
+    q["recipient_rewritten"] = target["rewritten"]
+    q["recipient_note"] = target["why"]
+    if target.get("dropped_receivers"):
+        q["dropped_receivers"] = target["dropped_receivers"]
+    if target.get("unreadable_receivers"):
+        q["unreadable_receivers"] = target["unreadable_receivers"]
+    q["privacy"] = privacy("in", from_asset, target["pool"])
+    return q
+
+
+def shielded_out_quote(to_asset: str, amount_zec, recipient: str, refund_to: str,
+                       dry: bool = True, slippage_bps: int = 100,
+                       deadline_hours: int = 6) -> dict:
+    """Quote shielded ZEC -> <asset>. The deposit address is transparent.
+
+    `refund_to` must be transparent: a refund is a payment from the solver, and
+    the solver cannot prove a shielded output any more than this module can.
+    """
+    if str(refund_to or "").startswith(("zs1", "u1")):
+        raise BridgeError(
+            "the refund address must be a transparent t-address: a refund is "
+            "paid by the solver on the origin chain, and no solver can send "
+            "into the Zcash shielded pool. Use a t-address from this wallet.")
+    q = quote(ZEC_ASSET, to_asset, amount_zec, recipient, refund_to,
+              dry=dry, slippage_bps=slippage_bps, deadline_hours=deadline_hours)
+    q["funded_from"] = "shielded"
+    q["privacy"] = privacy("out", to_asset, "sapling")
+    return q
+
+
+def privacy(direction: str, other_asset: str, pool: str = "sapling") -> dict:
+    """What a shielded bridge in this direction does and does not hide."""
+    if direction == "in":
+        return {
+            "direction": f"{other_asset} -> shielded ZEC",
+            "grade": "good",
+            "hidden": [
+                "The ZEC amount, once it lands: a Sapling output is encrypted, "
+                "so the chain shows a shielded output and nothing else.",
+                "Your Zcash address: it never appears on the Zcash chain in the "
+                "clear, and no transparent hop links it to anything.",
+            ],
+            "visible": [
+                f"Everything you did on the {other_asset} side: the origin chain "
+                "sees you fund the solver's deposit address in the open.",
+                "The solver knows the origin address and the destination "
+                "address, because you told it both.",
+                "The amount and the timing of the swap, to anyone watching the "
+                "origin chain -- the value entering the shielded pool is public "
+                "even though its destination is not.",
+            ],
+            "better": [
+                "Bridge amounts that are not memorable, and not the exact "
+                "balance of the origin address.",
+                "Let the funds sit before you spend them: value that enters "
+                "and leaves the pool within minutes correlates by timing.",
+            ],
+        }
+    return {
+        "direction": f"shielded ZEC -> {other_asset}",
+        "grade": "weak",
+        "hidden": [
+            "Which notes paid for it: the spend proves it owns *a* note "
+            "without saying which one, so the payment does not link back to "
+            "how the ZEC arrived.",
+        ],
+        "visible": [
+            "The amount: unshielding is a public output, so the value leaving "
+            "the pool is in the clear.",
+            f"The link between that amount and your {other_asset} address, to "
+            "the solver and to anyone comparing both chains at that timestamp.",
+        ],
+        "better": [
+            "This direction cannot be made private by the bridge. The value has "
+            "to become transparent to leave Zcash at all.",
+            "Break the timing link: unshield to a fresh t-address first, wait, "
+            "then bridge from it as an ordinary transparent bridge.",
+        ],
+        "note": "Leaving the shielded pool is the leaky direction. Entering it "
+                "is the private one.",
+    }
+
+
+def shielded_plan(has_node: bool = False) -> dict:
+    """Which shielded bridge directions work right now, and what each needs."""
+    return {
+        "in": {
+            "supported": True,
+            "route": "near-intents",
+            "how": "The router accepts a shielded-only unified address as the "
+                   "ZEC recipient, so the solver's payment lands as a Sapling "
+                   "output. No transparent hop, no second transaction.",
+            "needs": "nothing beyond a shielded address of your own",
+            "verified": "The router accepts the address and issues a deposit "
+                        "address for it. Whether a given solver then pays a "
+                        "Sapling-only recipient is the solver's business; if "
+                        "one cannot, the swap refunds to your origin-chain "
+                        "refund address rather than paying transparently.",
+        },
+        "out": {
+            "supported": bool(has_node),
+            "route": "near-intents",
+            "how": "The deposit address is an ordinary t-address, so leaving "
+                   "the pool means spending a shielded note into it -- which "
+                   "needs a Groth16 proof.",
+            "needs": ("a proving backend: ZCASH_RPC_URL pointed at a "
+                      "zcashd/zebrad node holding the spending key"),
+            "without_it": "The bridge can still reserve the deposit address "
+                          "and tell you exactly what to pay; you complete the "
+                          "spend in a proving wallet (Zashi, Ywallet, zingo) "
+                          "using the key from shielded_export.",
+        },
+        "maya": {
+            "supported": False,
+            "why": "Maya deposits carry a memo that identifies the swap, and "
+                   "its ZEC inbound addresses are transparent. There is no "
+                   "shielded recipient form in that protocol.",
+        },
+        "orchard": {
+            "supported": True,
+            "why": "Orchard notes are read here, so an Orchard receiver stays "
+                   "in the address handed to the router. The rule is not "
+                   "'Sapling only' but 'never advertise a pool we cannot "
+                   "decrypt' -- shielded_recipient takes the readable set from "
+                   "capabilities() and trims anything outside it.",
+        },
+    }

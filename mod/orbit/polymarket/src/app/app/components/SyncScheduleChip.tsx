@@ -18,21 +18,6 @@ import {
   type SyncSchedule,
 } from "../lib/syncSchedule";
 
-// Common cadences, one click each. Anything else goes in the MINUTES box —
-// the server accepts 5min…7d.
-const PRESETS: { label: string; secs: number }[] = [
-  // 5M is the server floor and the default — a full sweep takes 8–10 min, so
-  // this one means "always be syncing".
-  { label: "5M", secs: 300 },
-  { label: "15M", secs: 900 },
-  { label: "30M", secs: 1800 },
-  { label: "1H", secs: 3600 },
-  { label: "2H", secs: 7200 },
-  { label: "6H", secs: 21600 },
-  { label: "12H", secs: 43200 },
-  { label: "24H", secs: 86400 },
-];
-
 const POLL_CLOSED_MS = 30_000;
 const POLL_OPEN_MS = 5_000;
 
@@ -46,7 +31,9 @@ export default function SyncScheduleChip() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [customMin, setCustomMin] = useState("");
+  // The minutes box IS the control — seeded with the live server value so the
+  // panel shows a number you can edit, not an empty box beside eight chips.
+  const [minInput, setMinInput] = useState("");
   // Local seconds ticker so the countdown moves between polls.
   const [, setTick] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -80,6 +67,12 @@ export default function SyncScheduleChip() {
     const t = setInterval(() => setTick((v) => v + 1), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Only fires when the cadence actually changed (our own save, or another
+  // tab's), so it never yanks the field out from under someone typing.
+  useEffect(() => {
+    if (sched) setMinInput(String(Math.round(sched.intervalSecs / 60)));
+  }, [sched?.intervalSecs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close on outside click / Escape — same interaction as NavMenu's dropdown.
   useEffect(() => {
@@ -144,6 +137,20 @@ export default function SyncScheduleChip() {
         ? "border-red-400/60 text-red-400"
         : "border-green-400/40 text-green-400/90";
 
+  // The box is the whole control, so validate it here: SAVE lights up only
+  // when the typed number differs from what the server is running and lands
+  // inside the accepted window.
+  const minMinutes = Math.round(sched.minIntervalSecs / 60);
+  const maxMinutes = Math.round(sched.maxIntervalSecs / 60);
+  const typedMin = minInput === "" ? null : Number(minInput);
+  const inRange = typedMin != null && typedMin >= minMinutes && typedMin <= maxMinutes;
+  const dirty = typedMin != null && typedMin !== Math.round(sched.intervalSecs / 60);
+  // An empty box is mid-edit, not a mistake — only a typed number can be wrong.
+  const badNumber = typedMin != null && !inRange;
+  const save = () => {
+    if (inRange && dirty) void apply({ intervalSecs: typedMin! * 60 });
+  };
+
   return (
     <div ref={rootRef} className="relative shrink-0">
       <button
@@ -194,56 +201,33 @@ export default function SyncScheduleChip() {
             cadence, in the background — no browser needed.
           </p>
 
-          {/* Cadence presets */}
-          <div className="flex flex-wrap gap-1">
-            {PRESETS.map((p) => {
-              const active = sched.intervalSecs === p.secs;
-              return (
-                <button
-                  key={p.secs}
-                  onClick={() => void apply({ intervalSecs: p.secs })}
-                  disabled={busy}
-                  className={`pixel-btn text-[11px] px-2 py-0.5 font-mono disabled:opacity-40 ${
-                    active
-                      ? "border-green-400 text-green-400 bg-green-400/10"
-                      : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Any other cadence, in minutes */}
+          {/* One control: the number of minutes. */}
           <div className="flex items-center gap-1.5">
             <span className="text-[11px] text-pixel-gray tracking-wider">EVERY</span>
             <input
               type="text"
               inputMode="numeric"
-              value={customMin}
-              onChange={(e) => setCustomMin(e.target.value.replace(/[^0-9]/g, ""))}
+              value={minInput}
+              onChange={(e) => setMinInput(e.target.value.replace(/[^0-9]/g, ""))}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && customMin) {
-                  void apply({ intervalSecs: Number(customMin) * 60 });
-                }
+                if (e.key === "Enter") save();
               }}
-              placeholder={String(Math.round(sched.intervalSecs / 60))}
-              className="pixel-input-sm w-16 text-center font-mono text-[12px]"
+              className={`pixel-input-sm w-20 text-center font-mono text-[13px] ${
+                badNumber ? "border-red-400 text-red-400" : ""
+              }`}
             />
-            <span className="text-[11px] text-pixel-gray tracking-wider">MIN</span>
+            <span className="text-[11px] text-pixel-gray tracking-wider">MINUTES</span>
             <button
-              onClick={() => customMin && void apply({ intervalSecs: Number(customMin) * 60 })}
-              disabled={busy || !customMin}
-              className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white disabled:opacity-30"
+              onClick={save}
+              disabled={busy || !dirty || !inRange}
+              className="pixel-btn ml-auto text-[11px] px-2.5 py-0.5 border-green-400/60 text-green-400 hover:bg-green-400/10 disabled:opacity-30 disabled:border-pixel-border disabled:text-pixel-gray"
             >
-              SET
+              {dirty ? "SAVE" : "SAVED"}
             </button>
-            <span className="ml-auto text-[10px] text-pixel-gray font-mono">
-              {Math.round(sched.minIntervalSecs / 60)}m–
-              {Math.round(sched.maxIntervalSecs / 86400)}d
-            </span>
           </div>
+          <p className={`text-[10px] font-mono ${badNumber ? "text-red-400" : "text-pixel-gray"}`}>
+            {minMinutes}–{maxMinutes} minutes ({Math.round(sched.maxIntervalSecs / 86400)} days max)
+          </p>
 
           {/* Status */}
           <div className="border-t border-pixel-border pt-2 space-y-1 text-[11px] font-mono">

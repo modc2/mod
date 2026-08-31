@@ -510,16 +510,25 @@ class Polymarket(m.Mod):
 
     def active_traders(self, days: int = 7, pool: int = 2000,
                        active_hours: float = 6, limit: int = 50,
-                       sort: str = "winRate") -> Any:
+                       sort: str = "winRate", min_history_days: float = 0) -> Any:
         """The leaderboard, from cache: best traders over `days`, ranked by win rate.
 
         `sort` parameterizes the ranking metric: winRate (default), exitEntry
-        (avg exit÷entry price over closed trades), sharpe, pnl, volume.
+        (avg exit÷entry price over closed trades), sharpe, pnl, volume, history
+        (longest track record first).
+
+        `min_history_days` is a TRACK-RECORD floor, not a recency one: it drops
+        traders whose first-ever trade is more recent than N days. Worth setting
+        to `days` on a long window — a wallet that opened last week can top the
+        30-day board, and its 30-day numbers are mostly a flat line through days
+        it did not exist. Traders whose age hasn't been resolved yet are kept.
 
         m polymarket/active_traders                  → top 50, traded in the last 6h
         m polymarket/active_traders active_hours=0   → the whole board, dormants too
         m polymarket/active_traders days=30 limit=10 → top 10 of the 30-day window
         m polymarket/active_traders sort=exitEntry   → ranked by exit÷entry ratio
+        m polymarket/active_traders days=30 min_history_days=30
+                                                     → 30D board, 30D+ of record only
         """
         # pool=2000 matches the background warmup's cache key, so the default
         # call returns the pre-aggregated payload instantly instead of
@@ -527,13 +536,15 @@ class Polymarket(m.Mod):
         # way — it answers `cold` rather than aggregating — and lets the
         # recency filter and the row cap run server-side over the cached
         # payload. A trader who hasn't traded in 6h isn't one to copy.
-        if sort not in ("winRate", "exitEntry", "sharpe", "pnl", "volume"):
+        if sort not in ("winRate", "exitEntry", "sharpe", "pnl", "volume", "history"):
             sort = "winRate"
         params = {"days": str(days), "pool": str(pool), "paged": "1",
                   "pageSize": str(max(1, min(int(limit), 100))), "page": "0",
                   "sort": sort, "order": "desc"}
         if active_hours and float(active_hours) > 0:
             params["maxLastTradeHrs"] = str(active_hours)
+        if min_history_days and float(min_history_days) > 0:
+            params["minHistoryDays"] = str(min_history_days)
         r = self._get("/active-traders", **params)
         if isinstance(r, dict) and r.get("cold"):
             # Nothing cached for this window yet — pay for it once.

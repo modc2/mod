@@ -14,19 +14,82 @@ Zcash.
 - `zcash/bundles.py` — reading Sapling bundles out of v4/v5 transactions and
   out of explorer rows
 - `zcash/shielded.py` — the wallet-facing layer: derive, scan, summarize, node
+- `zcash/lightclient.py` — the proving backend: drives a locally built
+  `zcash-devtool` light client so shielded sends actually work
 - `zcash/chain.py` — UTXOs, tip, consensus branch id, broadcast, shielded rows
 - `zcash/wallet.py` — encrypted wallet files in `~/.mod/zcash/wallets/`
-- `zcash/bridge.py` — NEAR Intents + Maya routes
+- `zcash/bridge.py` — NEAR Intents + Maya routes, and the shielded-recipient
+  rewrite that makes bridging *into* the pool work
+- `zcash/learn.py` — the written lessons and glossary (hand-written, not generated)
+- `zcash/agent.py` — `ask`: intent matching, retrieval, grounding, optional LLM
 - `zcash/mod.py` — the `Mod` class exposed to the fleet
 - `api.py` — loopback REST API backing the web app
-- `app/` — Next.js front end (explorer / wallet / shielded / send / bridge)
+- `app/` — Next.js front end (explorer / learn / ask / wallet / shielded /
+  send / bridge / private / mcp). `learn.tsx` and `private.tsx` are separate
+  files from `page.tsx` deliberately — several sessions edit this app at once.
 
 ## Things that will bite you
+
+**Shielded sending is a three-rung ladder, and each rung fails differently.**
+A spend needs a zk-SNARK proof, so: the prover has to be built on this host
+(`shielded_backend_install` → `~/.mod/zcash/bin/zcash-devtool`), the wallet's
+light client has to have scanned to the tip (`shielded_sync_start`, poll
+`shielded_sync_status`), and only then does `shielded_send` work. Every
+failure names the missing rung rather than erroring out of a subprocess — if
+someone reports "shielded send is broken", read `error` first, it says which.
+
+**`scan_queue.priority` is a label, not a to-do flag.** A scanned range keeps
+priority 10 (`ScanPriority::Scanned`) forever, so "blocks left to scan" is
+`priority > 10`, not `priority > 0`. Reading it wrong makes a fully synced
+wallet look permanently behind and blocks every send. Pinned in
+`tests/test_lightclient.py`.
+
+**The light client's birthday is 100 blocks below the wallet's.** A spend is
+anchored several confirmations back, so a scan starting exactly at the tip has
+nothing to anchor to and the prover says "Must scan blocks first" — which
+reads like a bug and is an off-by-a-few-blocks. `BIRTHDAY_MARGIN` handles it.
 
 **Spending functions are dry runs by default.** `send` and `bridge_send` build
 and sign but do not submit unless `broadcast=True`. If someone reports "it
 didn't send", check that flag before anything else — the response always states
 `mode: DRY RUN` or `BROADCAST`.
+
+**A unified address with a transparent receiver is a transparent
+destination.** ZIP-316 lets the sender pick any receiver it supports, and a
+solver offered a cheap transparent one takes it. The wallet's own `u1` carries
+Sapling *and* P2PKH, so handing it to a bridge unchanged would very likely be
+paid in the clear. `bridge.shielded_recipient()` re-encodes it without the
+transparent receiver before the router ever sees it. Never bypass that by
+passing an address straight to `bridge.quote()` and calling the result private.
+
+**The router accepts `u1` and rejects `zs1`.** Verified live (201 vs 400
+`recipient is not valid`). That single fact is what makes inbound shielded
+bridging possible at all, and `tests/test_learn_bridge.py` pins both halves as
+`live` tests — if the first fails, `bridge_shielded_in` is broken; if the
+second starts passing, the wrapping is merely redundant.
+
+**Which shielded pools are safe to advertise comes from `capabilities()`.**
+`mod._readable_pools()` reads it, and any receiver in a pool the module cannot
+decrypt is stripped from a bridge recipient. A payment into an unreadable pool
+is real, confirmed and invisible to every balance shown here — worse than a
+refusal. This is deliberately capability-driven: when Orchard reading lands,
+bridging into Orchard starts working with no edit to the bridge.
+
+**Bridging out of shielded without a node is a `RESERVED` state, not a
+failure.** It reserves the deposit address and returns `manual_payment` plus
+`how` — the user completes the spend in a proving wallet. Do not "fix" this
+into an error; the swap is live and completable.
+
+**`ask` grounds by calling functions.** `agent.GROUNDING_FNS` is the allowlist
+and it is asserted in tests to exclude everything that spends. Adding a
+function to an intent's `ground` list without adding it there fails the call,
+by design. Suggested `actions` are checked against the live module before they
+go out, so a renamed function drops the button instead of shipping a broken one.
+
+**Lessons are load-bearing text.** `test_lessons_do_not_promise_shielded_spending`
+fails the suite if a lesson claims something can spend shielded ZEC without
+naming what that needs. If you edit `learn.py`, keep the qualifier in the same
+sentence as the claim.
 
 **The consensus branch id must come from the chain.** It changes at every
 network upgrade and is committed to by every signature. `chain.consensus_branch_id()`

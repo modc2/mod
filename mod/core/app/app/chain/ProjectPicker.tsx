@@ -196,8 +196,10 @@ export function ProjectPicker({ projects, address }: { projects: ProjectsApi; ad
     </div>
   )
 
+  // Left-aligned: the picker lives at the top of the left rail now, so the
+  // panel hangs down and to the right, over the workspace beside it.
   return (
-    <Dropdown open={open} onClose={close} trigger={trigger} width={380} align="right" color={PROJECT_COLOR} grow={2}>
+    <Dropdown open={open} onClose={close} trigger={trigger} width={380} color={PROJECT_COLOR} grow={2}>
       <input
         ref={uploadRef}
         type="file"

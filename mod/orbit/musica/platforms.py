@@ -588,6 +588,563 @@ def sc_status() -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# YouTube
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# yt-dlp does the work: it is the only thing that keeps up with YouTube's
+# player, and it is an ordinary import here rather than a subprocess so the
+# extracted metadata comes back as objects. Audio comes out as one progressive
+# format — m4a first because every browser decodes AAC, opus/webm after — and
+# googlevideo sends NO CORS header, so the URL is handed to serve.py's proxy
+# exactly the way Bandcamp's is. A stream URL is signed and expires (the
+# ``expire`` query parameter says when), so resolved URLs are cached until a
+# minute before that and re-extracted after.
+
+YT_STATE = {'lock': threading.Lock(), 'streams': {}, 'last_error': None}
+YT_COOKIES = STATE_DIR / 'youtube_cookies.txt'
+YT_KINDS = {'all': 'video', 'track': 'video', 'video': 'video',
+            'album': 'playlist', 'playlist': 'playlist', 'artist': 'channel',
+            'channel': 'channel'}
+# The result-page filters YouTube itself uses for "playlists" and "channels";
+# ytsearch: only ever returns videos.
+YT_FILTERS = {'playlist': 'EgIQAw%3D%3D', 'channel': 'EgIQAg%3D%3D'}
+
+
+def yt_available() -> bool:
+    try:
+        import yt_dlp  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _yt_dlp(**overrides):
+    try:
+        import yt_dlp
+    except ImportError:
+        raise PlatformError(
+            'YouTube needs yt-dlp on this box — pip install yt-dlp '
+            '(nothing else in musica depends on it)')
+    opts = {
+        'quiet': True, 'no_warnings': True, 'skip_download': True,
+        'noplaylist': True, 'socket_timeout': 20, 'retries': 2,
+        # only_download: a deleted video inside a playlist is skipped, but a
+        # playlist that does not exist still says so instead of coming back
+        # as an empty list.
+        'ignoreerrors': 'only_download', 'cachedir': str(STATE_DIR / 'ytcache'),
+        # YouTube's player is JavaScript; without a runtime some formats
+        # silently disappear. deno is upstream's default, node is what is
+        # actually installed here — offering both costs nothing.
+        'js_runtimes': {'node': {}, 'deno': {}},
+    }
+    if YT_COOKIES.exists():                    # optional, for age-gated tracks
+        opts['cookiefile'] = str(YT_COOKIES)
+    opts.update(overrides)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    return yt_dlp.YoutubeDL(opts)
+
+
+def _yt_extract(target: str, **overrides) -> dict:
+    """One yt-dlp extraction, with its errors turned into PlatformError."""
+    import yt_dlp
+    try:
+        with _yt_dlp(**overrides) as y:
+            info = y.extract_info(target, download=False)
+    except yt_dlp.utils.DownloadError as e:
+        msg = str(e).replace('ERROR: ', '').strip()
+        YT_STATE['last_error'] = msg
+        if 'confirm you' in msg or 'bot' in msg.lower():
+            raise PlatformError(
+                'YouTube is asking this IP to prove it is not a bot. Export '
+                f'browser cookies to {YT_COOKIES} (Netscape format) and they '
+                'will be used automatically.')
+        raise PlatformError(f'YouTube: {msg}')
+    except Exception as e:                                      # noqa: BLE001
+        YT_STATE['last_error'] = f'{type(e).__name__}: {e}'
+        raise PlatformError(f'YouTube: {type(e).__name__}: {e}')
+    if not info:
+        raise PlatformError(f'YouTube returned nothing for {target}')
+    YT_STATE['last_error'] = None
+    return info
+
+
+def _yt_art(vid, thumbs=None) -> Optional[str]:
+    for t in sorted(thumbs or [], key=lambda t: -(t.get('preference') or 0)):
+        if t.get('url') and 'hqdefault' in t['url']:
+            return t['url']
+    return f'https://i.ytimg.com/vi/{vid}/hqdefault.jpg' if vid else None
+
+
+def _yt_embed(vid=None, playlist=None) -> Optional[str]:
+    if playlist:
+        return f'https://www.youtube.com/embed/videoseries?list={playlist}'
+    return f'https://www.youtube.com/embed/{vid}?rel=0' if vid else None
+
+
+def _yt_video_row(e: dict) -> dict:
+    """One video, flat entry or full info — the crate's row shape either way."""
+    vid = e.get('id')
+    live = e.get('is_live') or e.get('live_status') in ('is_live', 'is_upcoming')
+    return {
+        'source': 'youtube', 'kind': 'track', 'id': vid,
+        'name': e.get('title'),
+        'artists': (e.get('artist') or e.get('creator') or e.get('uploader')
+                    or e.get('channel') or ''),
+        'album': e.get('album'),
+        'duration_ms': _ms(e.get('duration')),
+        'art': _yt_art(vid, e.get('thumbnails')),
+        'url': e.get('webpage_url') or (f'https://www.youtube.com/watch?v={vid}'
+                                        if vid else None),
+        'embed': _yt_embed(vid=vid),
+        # A live stream is HLS with no end; the deck decodes whole files only.
+        'streamable': not live,
+        'live': bool(live),
+        'plays': e.get('view_count'),
+        'likes': e.get('like_count'),
+        'channel': e.get('channel') or e.get('uploader'),
+        'channel_url': e.get('channel_url') or e.get('uploader_url'),
+        'release': (e.get('upload_date') or '')[:8] or None,
+        'genre': (e.get('categories') or [None])[0],
+    }
+
+
+def _yt_playlist_row(e: dict) -> dict:
+    pid = e.get('id')
+    return {
+        'source': 'youtube', 'kind': 'playlist', 'id': pid,
+        'name': e.get('title'), 'artists': e.get('channel') or e.get('uploader') or '',
+        'tracks': e.get('playlist_count') or e.get('video_count'),
+        'art': (e.get('thumbnails') or [{}])[-1].get('url'),
+        'url': e.get('webpage_url') or (f'https://www.youtube.com/playlist?list={pid}'
+                                        if pid else None),
+        'embed': _yt_embed(playlist=pid), 'streamable': True,
+    }
+
+
+def _yt_channel_row(e: dict) -> dict:
+    cid = e.get('id') or e.get('channel_id')
+    return {
+        'source': 'youtube', 'kind': 'artist', 'id': cid,
+        'name': e.get('title') or e.get('channel') or e.get('uploader'),
+        'artists': e.get('channel') or e.get('uploader'),
+        'followers': e.get('channel_follower_count') or e.get('subscriber_count'),
+        'tracks': e.get('playlist_count') or e.get('video_count'),
+        'art': (e.get('thumbnails') or [{}])[-1].get('url'),
+        'url': e.get('url') or e.get('channel_url') or e.get('webpage_url'),
+        'streamable': False,
+    }
+
+
+def _yt_row(e: dict) -> Optional[dict]:
+    """A search entry → a crate row. YouTube mixes videos, playlists and
+    channels into one result list, and only the entry's own type says which
+    it is: a channel is a tab whose id is a UC… or whose URL names one."""
+    if not isinstance(e, dict) or not e.get('id'):
+        return None
+    ie = (e.get('ie_key') or '').lower()
+    if (e.get('_type') or 'video') == 'playlist' or ie in ('youtubetab', 'youtubeplaylist'):
+        url = e.get('url') or e.get('channel_url') or ''
+        if str(e.get('id', '')).startswith('UC') or '/channel/' in url or '/@' in url:
+            return _yt_channel_row(e)
+        return _yt_playlist_row(e)
+    return _yt_video_row(e)
+
+
+def yt_search(q: str, kind='track', limit=20) -> dict:
+    """Search YouTube for videos, playlists or channels."""
+    kind = str(kind or 'track').lower()
+    if kind not in YT_KINDS:
+        raise PlatformError(f'kind must be one of {", ".join(YT_KINDS)}')
+    want = YT_KINDS[kind]
+    limit = max(1, min(int(limit), 50))
+    # Over-fetch: a video search comes back salted with channels and
+    # playlists, and those get dropped below.
+    fetch = limit + 6
+    if want == 'video':
+        target = f'ytsearch{fetch}:{q}'
+    else:
+        target = ('https://www.youtube.com/results?search_query='
+                  + quote(q) + '&sp=' + YT_FILTERS[want])
+    info = _yt_extract(target, extract_flat='in_playlist', playlistend=fetch,
+                       noplaylist=False)
+    # YouTube salts a video search with channels and playlists; the caller
+    # asked for one kind, so only that kind comes back.
+    want_kind = {'video': 'track', 'playlist': 'playlist', 'channel': 'artist'}[want]
+    rows = []
+    for e in info.get('entries') or []:
+        row = _yt_channel_row(e) if want == 'channel' else _yt_row(e)
+        if row and row['kind'] == want_kind:
+            rows.append(row)
+        if len(rows) >= limit:
+            break
+    return {'source': 'youtube', 'kind': kind, 'query': q,
+            'count': len(rows), 'items': rows}
+
+
+def yt_video(video: str) -> dict:
+    """One video's full metadata — id or any watch/shorts/youtu.be URL."""
+    info = _yt_extract(_yt_target(video))
+    row = _yt_video_row(info)
+    row['description'] = (info.get('description') or '')[:1200] or None
+    row['formats'] = sorted({f.get('acodec') for f in (info.get('formats') or [])
+                             if f.get('acodec') and f['acodec'] != 'none'})
+    return row
+
+
+def yt_playlist(playlist: str, limit=100) -> dict:
+    """A playlist, mix or album with its videos listed."""
+    pid = str(playlist).strip()
+    target = pid if pid.startswith('http') else f'https://www.youtube.com/playlist?list={pid}'
+    limit = max(1, min(int(limit), 200))
+    info = _yt_extract(target, extract_flat='in_playlist', noplaylist=False,
+                       playlistend=limit)
+    rows = [r for r in (_yt_video_row(e) for e in (info.get('entries') or [])
+                        if isinstance(e, dict) and e.get('id'))]
+    return {
+        'source': 'youtube', 'kind': 'playlist', 'id': info.get('id') or pid,
+        'name': info.get('title'), 'artists': info.get('channel') or info.get('uploader'),
+        'url': info.get('webpage_url') or target,
+        'embed': _yt_embed(playlist=info.get('id') or pid),
+        'art': rows[0]['art'] if rows else None,
+        'streamable': True, 'count': len(rows), 'items': rows,
+    }
+
+
+def yt_channel(channel: str, limit=30) -> dict:
+    """A channel's own uploads, newest first."""
+    c = str(channel).strip()
+    if c.startswith('http'):
+        target = c.rstrip('/')
+    elif c.startswith('@'):
+        target = f'https://www.youtube.com/{c}'
+    elif c.startswith('UC'):
+        target = f'https://www.youtube.com/channel/{c}'
+    else:
+        target = f'https://www.youtube.com/@{c}'
+    if not target.endswith('/videos'):
+        target += '/videos'
+    limit = max(1, min(int(limit), 100))
+    info = _yt_extract(target, extract_flat='in_playlist', noplaylist=False,
+                       playlistend=limit)
+    entries = info.get('entries') or []
+    # A channel tab can nest one level: entries[0] is itself a playlist of videos.
+    if entries and isinstance(entries[0], dict) and entries[0].get('_type') == 'playlist':
+        entries = entries[0].get('entries') or []
+    rows = [_yt_video_row(e) for e in entries if isinstance(e, dict) and e.get('id')]
+    return {
+        'source': 'youtube', 'kind': 'artist',
+        'id': info.get('channel_id') or info.get('id'),
+        'name': info.get('channel') or info.get('title'),
+        'artists': info.get('channel') or info.get('title'),
+        'followers': info.get('channel_follower_count'),
+        'url': info.get('channel_url') or target,
+        'streamable': False, 'count': len(rows), 'items': rows,
+    }
+
+
+def _yt_target(video: str) -> str:
+    v = str(video or '').strip()
+    if not v:
+        raise PlatformError('a YouTube video id or URL is required')
+    return v if v.startswith('http') else f'https://www.youtube.com/watch?v={v}'
+
+
+def _yt_pick(info: dict) -> dict:
+    """The best single audio-only format to hand a browser.
+
+    Preference is m4a (AAC) first because every browser's decodeAudioData
+    reads it, then opus/webm, then anything with sound. Adaptive formats only:
+    a progressive 18/22 stream carries video the deck would decode and throw
+    away.
+    """
+    fmts = [f for f in (info.get('formats') or [])
+            if f.get('url') and f.get('acodec') not in (None, 'none')
+            and (f.get('protocol') or '').startswith('http')]
+    audio_only = [f for f in fmts if f.get('vcodec') in (None, 'none')]
+
+    def score(f):
+        ext = f.get('ext') or ''
+        return (0 if ext == 'm4a' else 1 if ext in ('webm', 'opus') else 2,
+                -(f.get('abr') or f.get('tbr') or 0))
+    for pool in (audio_only, fmts):
+        if pool:
+            return sorted(pool, key=score)[0]
+    raise PlatformError(f'"{info.get("title")}" has no downloadable audio stream '
+                        '(live streams and DRM videos do not)')
+
+
+def _expiry(url: str) -> float:
+    m = re.search(r'[?&]expire=(\d+)', url or '')
+    return float(m.group(1)) if m else time.time() + 3600
+
+
+def yt_stream(video: str) -> dict:
+    """A video's audio track — a signed googlevideo URL, proxied not direct.
+
+    googlevideo answers a browser fetch with no ``Access-Control-Allow-Origin``
+    header at all, so this one goes through serve.py's ``/stream/youtube``
+    proxy the same way Bandcamp's does. URLs are cached until a minute before
+    they expire, which is what makes a second load of the same track instant.
+    """
+    target = _yt_target(video)
+    with YT_STATE['lock']:
+        hit = YT_STATE['streams'].get(target)
+        if hit and hit['expires'] > time.time() + 60:
+            return dict(hit['where'])
+    info = _yt_extract(target)
+    if info.get('is_live'):
+        raise PlatformError(f'"{info.get("title")}" is a live stream — the deck '
+                            'decodes whole files, not an open-ended one')
+    f = _yt_pick(info)
+    vid = info.get('id')
+    where = {
+        'source': 'youtube', 'id': vid, 'name': info.get('title'),
+        'artists': info.get('artist') or info.get('uploader') or info.get('channel'),
+        'duration_ms': _ms(info.get('duration')), 'art': _yt_art(vid, info.get('thumbnails')),
+        'url': f['url'], 'direct': False,
+        'format': f.get('ext') or 'm4a', 'codec': f.get('acodec'),
+        'abr': f.get('abr') or f.get('tbr'), 'filesize': f.get('filesize')
+        or f.get('filesize_approx'),
+        'mime': 'audio/mp4' if (f.get('ext') == 'm4a') else 'audio/webm',
+        'referer': info.get('webpage_url') or target,
+    }
+    with YT_STATE['lock']:
+        YT_STATE['streams'][target] = {'where': dict(where),
+                                       'expires': _expiry(f['url'])}
+        if len(YT_STATE['streams']) > 128:      # oldest first, this is a cache
+            for k in list(YT_STATE['streams'])[:32]:
+                YT_STATE['streams'].pop(k, None)
+    return where
+
+
+def yt_status() -> dict:
+    ok = yt_available()
+    version = None
+    if ok:
+        import yt_dlp
+        version = yt_dlp.version.__version__
+    return {
+        'source': 'youtube', 'configured': ok,
+        'auth': 'none needed' + (', cookies file found' if YT_COOKIES.exists() else ''),
+        'yt_dlp': version,
+        'cookies': YT_COOKIES.exists(),
+        'cached_streams': len(YT_STATE['streams']),
+        'last_error': YT_STATE['last_error'],
+        'streams': ('best audio-only format (m4a, else opus), proxied by the '
+                    'module — googlevideo sends no CORS header')
+        if ok else 'unavailable: pip install yt-dlp',
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Internet Archive
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# The one source here that is unambiguously free to use: netlabels, Live Music
+# Archive concerts, 78rpm transfers, radio. No key, no challenge, and the files
+# are served with ``Access-Control-Allow-Origin: *``, so the browser fetches
+# them itself and the module never touches the bytes. An item is an album; its
+# audio files are the tracks, addressed as ``identifier/filename``.
+
+IA = 'https://archive.org'
+IA_SEARCH = IA + '/advancedsearch.php'
+IA_FIELDS = ['identifier', 'title', 'creator', 'year', 'date', 'downloads',
+             'collection', 'subject', 'mediatype', 'item_size']
+IA_AUDIO_EXT = ('.mp3', '.ogg', '.oga', '.flac', '.m4a', '.wav', '.opus', '.aiff')
+# Format label → how much the deck wants it. Lossy first: a 300MB WAV is a
+# worse thing to hand a browser than the 8MB MP3 sitting next to it.
+IA_FORMAT_RANK = {'VBR MP3': 0, '128Kbps MP3': 1, 'MP3': 1, '64Kbps MP3': 2,
+                  'Ogg Vorbis': 3, 'Flac': 4, '24bit Flac': 5, 'WAVE': 6}
+
+_ia = requests.Session()
+_ia.headers.update({'User-Agent': UA, 'Accept': 'application/json'})
+
+
+def _ia_get(url: str, **params) -> dict:
+    try:
+        r = _ia.get(url, params=params or None, timeout=TIMEOUT)
+    except requests.RequestException as e:
+        raise PlatformError(f'Internet Archive did not answer: {e}')
+    if r.status_code >= 400:
+        raise PlatformError(f'Internet Archive answered {r.status_code}')
+    try:
+        return r.json()
+    except ValueError:
+        raise PlatformError('Internet Archive did not answer with JSON')
+
+
+def _ia_art(identifier: str) -> str:
+    return f'{IA}/services/img/{identifier}'
+
+
+def _ia_embed(identifier: str) -> str:
+    return f'{IA}/embed/{identifier}'
+
+
+def _ia_item_row(d: dict) -> dict:
+    ident = d.get('identifier')
+    creator = d.get('creator')
+    if isinstance(creator, list):
+        creator = ', '.join(creator)
+    subject = d.get('subject')
+    if isinstance(subject, str):
+        subject = [subject]
+    return {
+        'source': 'archive', 'kind': 'album', 'id': ident, 'name': d.get('title'),
+        'artists': creator or '', 'art': _ia_art(ident),
+        'url': f'{IA}/details/{ident}', 'embed': _ia_embed(ident),
+        'release': str(d.get('year') or (d.get('date') or ''))[:10] or None,
+        'plays': d.get('downloads'), 'streamable': True,
+        'genre': (subject or [None])[0],
+        'collection': (d.get('collection') or [None])[0]
+        if isinstance(d.get('collection'), list) else d.get('collection'),
+    }
+
+
+def ia_search(q: str, kind='album', limit=20, collection=None) -> dict:
+    """Search the audio half of archive.org.
+
+    Items are albums, concerts and radio shows — open one with
+    :func:`ia_item` to get its tracks. ``collection`` narrows to one corner of
+    the archive, e.g. ``etree`` (Live Music Archive) or ``netlabels``.
+    """
+    # etree (the Live Music Archive) items carry mediatype "etree", not
+    # "audio" — restricting to audio alone hides tens of thousands of concerts.
+    query = f'({q}) AND mediatype:(audio OR etree)'
+    if collection:
+        query += f' AND collection:({collection})'
+    body = _ia_get(IA_SEARCH, **{
+        'q': query, 'fl[]': IA_FIELDS, 'rows': max(1, min(int(limit), 100)),
+        'page': 1, 'output': 'json'})
+    docs = ((body.get('response') or {}).get('docs')) or []
+    rows = [_ia_item_row(d) for d in docs if d.get('identifier')]
+    return {'source': 'archive', 'kind': 'album', 'query': q,
+            'total': (body.get('response') or {}).get('numFound'),
+            'count': len(rows), 'items': rows}
+
+
+def _ia_tracks(ident: str, meta: dict) -> list:
+    """One audio track per recording, keeping the best format of each.
+
+    An item usually holds the same music several times over — an MP3, an Ogg
+    and a FLAC of every track. They are grouped by the original file each was
+    derived from, and the friendliest format of each group wins.
+    """
+    files = meta.get('files') or []
+    groups = {}
+    for f in files:
+        name = f.get('name') or ''
+        if not name.lower().endswith(IA_AUDIO_EXT):
+            continue
+        origin = f.get('original') if f.get('source') == 'derivative' else name
+        rank = IA_FORMAT_RANK.get(f.get('format'), 7)
+        cur = groups.get(origin)
+        if cur is None or rank < cur[0]:
+            groups[origin] = (rank, f)
+    md = meta.get('metadata') or {}
+    creator = md.get('creator')
+    if isinstance(creator, list):
+        creator = ', '.join(creator)
+    rows = []
+    for _, f in groups.values():
+        name = f['name']
+        rows.append({
+            'source': 'archive', 'kind': 'track', 'id': f'{ident}/{name}',
+            'name': f.get('title') or name.rsplit('/', 1)[-1].rsplit('.', 1)[0],
+            'artists': f.get('artist') or creator or '',
+            'album': f.get('album') or md.get('title'),
+            'num': int(str(f.get('track')).split('/')[0])
+            if str(f.get('track') or '').split('/')[0].isdigit() else None,
+            'duration_ms': _ms(f.get('length')) if str(f.get('length') or '')
+            .replace('.', '', 1).isdigit() else _hms(f.get('length')),
+            'art': _ia_art(ident), 'url': f'{IA}/details/{ident}',
+            'file_url': f'{IA}/download/{ident}/{quote(name)}',
+            'embed': _ia_embed(ident), 'streamable': True,
+            'format': f.get('format'), 'size': int(f['size']) if str(f.get('size') or '')
+            .isdigit() else None,
+        })
+    rows.sort(key=lambda r: (r['num'] is None, r['num'] or 0, r['name'] or ''))
+    return rows
+
+
+def _hms(text) -> Optional[int]:
+    """``12:34`` or ``1:02:03`` → milliseconds; archive.org uses both."""
+    parts = str(text or '').split(':')
+    if len(parts) < 2:
+        return None
+    try:
+        secs = 0.0
+        for p in parts:
+            secs = secs * 60 + float(p)
+        return int(secs * 1000)
+    except ValueError:
+        return None
+
+
+def ia_item(identifier: str) -> dict:
+    """One archive.org item — an album, a concert, a show — with its tracks."""
+    ident = str(identifier or '').strip().strip('/')
+    if not ident:
+        raise PlatformError('an archive.org identifier is required')
+    ident = ident.split('/')[0]
+    meta = _ia_get(f'{IA}/metadata/{ident}')
+    if not meta or not meta.get('files'):
+        raise PlatformError(f'archive.org has no item called {ident!r}')
+    md = meta.get('metadata') or {}
+    if md.get('mediatype') not in (None, 'audio', 'etree'):
+        raise PlatformError(f'{ident} is {md.get("mediatype")}, not audio')
+    tracks = _ia_tracks(ident, meta)
+    row = _ia_item_row({**md, 'identifier': ident})
+    row.update({'count': len(tracks), 'items': tracks,
+                'label': md.get('publisher') or md.get('collection'),
+                'streamable': bool(tracks),
+                'license': md.get('licenseurl') or md.get('rights')})
+    return row
+
+
+def ia_stream(track_id: str) -> dict:
+    """``identifier/filename`` → the file's URL, which the browser can fetch.
+
+    archive.org sends ``Access-Control-Allow-Origin: *`` and honours Range, so
+    this is the one platform where the deck downloads straight from the
+    source; the proxy stays available as a fallback.
+    """
+    ref = str(track_id or '').strip().strip('/')
+    if '/' not in ref:
+        item = ia_item(ref)
+        if not item['items']:
+            raise PlatformError(f'{ref} has no playable audio')
+        ref = item['items'][0]['id']
+    ident, name = ref.split('/', 1)
+    meta = _ia_get(f'{IA}/metadata/{ident}')
+    f = next((x for x in meta.get('files') or [] if x.get('name') == name), None)
+    if not f:
+        raise PlatformError(f'{name} is not a file in {ident}')
+    md = meta.get('metadata') or {}
+    creator = md.get('creator')
+    if isinstance(creator, list):
+        creator = ', '.join(creator)
+    return {
+        'source': 'archive', 'id': f'{ident}/{name}',
+        'name': f.get('title') or name.rsplit('/', 1)[-1],
+        'artists': f.get('artist') or creator or '',
+        'duration_ms': _hms(f.get('length')) or _ms(f.get('length')),
+        'art': _ia_art(ident),
+        'url': f'{IA}/download/{ident}/{quote(name)}',
+        'direct': True, 'format': f.get('format'),
+        'size': int(f['size']) if str(f.get('size') or '').isdigit() else None,
+    }
+
+
+def ia_status() -> dict:
+    return {
+        'source': 'archive', 'configured': True, 'auth': 'none needed',
+        'scope': 'mediatype:audio — netlabels, Live Music Archive, 78rpm, radio',
+        'streams': 'the original files, fetched by the browser (CORS open)',
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # links
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -607,6 +1164,19 @@ def detect(text: str) -> Optional[dict]:
         if m:
             return {'source': 'spotify', 'kind': m.group(1), 'id': m.group(2), 'url': s}
         return None
+    if host.endswith('youtube.com') or host.endswith('youtu.be'):
+        return _detect_youtube(u, path, s)
+    if host.endswith('archive.org'):
+        m = re.search(r'/(?:details|download|embed|metadata)/([^/]+)(/.*)?$', path)
+        if not m:
+            return None
+        ident, rest = m.group(1), (m.group(2) or '').lstrip('/')
+        if rest and rest.lower().endswith(IA_AUDIO_EXT):
+            from urllib.parse import unquote
+            return {'source': 'archive', 'kind': 'track',
+                    'id': f'{ident}/{unquote(rest)}', 'url': s}
+        return {'source': 'archive', 'kind': 'album', 'id': ident,
+                'url': f'{IA}/details/{ident}'}
     if host.endswith('bandcamp.com') or '/album/' in path or '/track/' in path:
         if host.endswith('bandcamp.com'):
             kind = 'track' if '/track/' in path else ('album' if '/album/' in path else 'artist')
@@ -624,4 +1194,36 @@ def detect(text: str) -> Optional[dict]:
             kind = 'artist'
         clean = f'https://soundcloud.com{path}'
         return {'source': 'soundcloud', 'kind': kind, 'id': clean, 'url': clean}
+    return None
+
+
+def _detect_youtube(u, path, raw: str) -> Optional[dict]:
+    """A YouTube link, in any of the six shapes the site hands out.
+
+    A watch URL that also carries ``list=`` is a video being played inside a
+    playlist; the video is what was clicked, so that is what comes back.
+    """
+    from urllib.parse import parse_qs
+    host = u.netloc.lower().split(':')[0]
+    qs = parse_qs(u.query)
+    if host.endswith('youtu.be'):
+        vid = path.strip('/').split('/')[0]
+        return {'source': 'youtube', 'kind': 'track', 'id': vid,
+                'url': f'https://www.youtube.com/watch?v={vid}'} if vid else None
+    if path in ('/watch', '/watch/') and qs.get('v'):
+        vid = qs['v'][0]
+        return {'source': 'youtube', 'kind': 'track', 'id': vid,
+                'url': f'https://www.youtube.com/watch?v={vid}'}
+    m = re.match(r'^/(?:shorts|embed|v|live)/([\w-]+)', path)
+    if m:
+        return {'source': 'youtube', 'kind': 'track', 'id': m.group(1),
+                'url': f'https://www.youtube.com/watch?v={m.group(1)}'}
+    if path.rstrip('/') in ('/playlist', '/watch_videos') and qs.get('list'):
+        pid = qs['list'][0]
+        return {'source': 'youtube', 'kind': 'playlist', 'id': pid,
+                'url': f'https://www.youtube.com/playlist?list={pid}'}
+    m = re.match(r'^/(channel/[\w-]+|@[^/]+|c/[^/]+|user/[^/]+)', path)
+    if m:
+        return {'source': 'youtube', 'kind': 'artist', 'id': m.group(1).split('/')[-1],
+                'url': f'https://www.youtube.com/{m.group(1)}'}
     return None

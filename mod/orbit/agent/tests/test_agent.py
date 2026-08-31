@@ -3008,6 +3008,28 @@ class TestCredits:
         # a drained account is never negative and further charges are free no-ops
         assert credits.charge_steps(self.ADDR, 10)["charged"] == 0.0
 
+    def test_owner_deduct_clamps_at_zero(self, credits):
+        # the owner's other button: take credit back. It can only take what
+        # is there, and the books record what MOVED, not what was typed —
+        # a -100 off a $5 account used to knock $100 off the treasury.
+        credits.credit(self.ADDR, 5, kind="grant")
+        out = credits.credit(self.ADDR, -100, kind="debit")
+        assert out["credited"] == -5.0 and out["requested"] == -100.0
+        assert credits.balance(self.ADDR) == 0.0
+        book = credits.treasury()
+        assert book["grants"] == 0.0
+        assert credits.info(self.ADDR)["account"]["history"][0]["amount"] == -5.0
+
+    def test_owner_tops_up_any_address(self, credits):
+        other = "0x" + "c" * 40
+        credits.credit(self.ADDR, 7, kind="grant")
+        credits.credit(other, 3, kind="grant")
+        accounts = {a["address"]: a["balance"]
+                    for a in credits.info(self.ADDR, owner=True)["accounts"]}
+        assert accounts[self.ADDR.lower()] == 7.0 and accounts[other] == 3.0
+        # grants are free credit, not cash in — they never touch the float
+        assert credits.treasury()["deposits"] == 0.0
+
     def test_addresses_case_insensitive(self, credits):
         credits.credit(self.ADDR.lower(), 1)
         assert credits.balance(self.ADDR.upper().replace("0X", "0x")) == 1.0
@@ -3289,8 +3311,45 @@ class TestTreasury:
             return len(seen) < 3        # affordable for two steps, then not
 
         steps = agent.run(query='burn credits', steps=10, model='x', budget=budget)
-        assert len(seen) == 3           # consulted after every executed step
+        assert len(seen) == 3           # consulted before every step
         assert steps[-1]['tool'] == 'error' and 'top up' in steps[-1]['error']
+
+    def test_an_empty_account_stops_before_it_calls_the_model(self):
+        """Zero credits is not "spent" — and it doesn't get a free call first.
+
+        The gate used to run after the call, so an account that had never
+        deposited burned a full model call on the module's key and was then
+        told its balance was spent. Nothing was; there was nothing to spend.
+        """
+        from src.mod import Agent
+        from src.billing import Meter
+        from src.memory.mod import Memory
+        from src.tools.mod import Tools
+        from src.toolbox.mod import Toolboxes
+        from src.agents.mod import Agents
+
+        agent = Agent.__new__(Agent)
+        agent.agents, agent.memory = Agents(), Memory()
+        agent.memory.clear()
+        agent.tools = Tools()
+        agent.toolboxes = Toolboxes(tools=agent.tools)
+        agent._tool_names, agent._snapped, agent._session_keys = None, [], {}
+        agent.goal, agent.output_format = Agent.goal, Agent.output_format
+        agent.anchors = Agent.anchors
+        agent._provider = Agent.PROVIDERS['openrouter']
+        agent.meter = Meter()
+        calls = []
+        agent.model = type('M', (), {'forward': staticmethod(
+            lambda *a, **k: calls.append(1) or '<STEP>{"tool": "think", "params": {}}</STEP>')})()
+        agent._clients = {Agent.PROVIDERS['openrouter']: agent.model}
+        agent._client_why = {}
+
+        steps = agent.run(query='hey', steps=10, model='x',
+                          budget=lambda cost: False)   # balance 0: 0 * fee < 0 is False
+        assert calls == []                              # the module paid for nothing
+        assert steps[-1]['tool'] == 'error'
+        assert 'no account credits' in steps[-1]['error']
+        assert 'spent' not in steps[-1]['error']
 
     def test_books_persist(self, credits, tmpdir):
         from src.credits import Credits

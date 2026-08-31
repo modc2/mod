@@ -317,6 +317,38 @@ impl PipelineCache {
         None
     }
 
+    /// A payload of ANY age, for when the alternative is nothing at all.
+    ///
+    /// `get_or_disk` refuses anything past `DISK_MAX_AGE`, and a refusal here
+    /// means a cold request has to rebuild the window from scratch — ~10
+    /// minutes of upstream paging that a scale-to-zero stop will interrupt
+    /// long before it finishes, leaving the console with a permanently empty
+    /// board. A three-day-old 30D leaderboard is worse than a fresh one and
+    /// far better than none, as long as the caller says so: this returns the
+    /// payload's real `syncedAt` and the route labels the source `stale-disk`
+    /// so the UI's sync-age chip tells the truth.
+    pub fn get_stale_disk(&self, key: &str) -> Option<AggPayload> {
+        self.load_from_disk_max_age(key, Duration::from_secs(86_400 * 365))
+    }
+
+    /// When this window was last actually rebuilt, memory or disk, regardless
+    /// of whether that is fresh enough to serve. This is the warmup's
+    /// stalest-first sort key — right after a restart, memory is empty, so
+    /// asking `get` alone would call every window equally stale and re-fix
+    /// the fixed order the sort exists to break.
+    pub fn synced_at_any_age(&self, key: &str) -> Option<i64> {
+        if let Some(entry) = self.entries.read().get(key) {
+            return Some(entry.payload.synced_at);
+        }
+        let path = self.disk_path(key);
+        let meta = std::fs::metadata(&path).ok()?;
+        let modified = meta.modified().ok()?;
+        modified
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs() as i64)
+    }
+
     pub fn set(&self, key: &str, payload: AggPayload) {
         // Memory
         let mut entries = self.entries.write();
@@ -411,13 +443,17 @@ impl PipelineCache {
     }
 
     fn load_from_disk(&self, key: &str) -> Option<AggPayload> {
+        self.load_from_disk_max_age(key, DISK_MAX_AGE)
+    }
+
+    fn load_from_disk_max_age(&self, key: &str, max_age: Duration) -> Option<AggPayload> {
         let path = self.disk_path(key);
         if path.exists() {
-            // Skip if file is older than DISK_MAX_AGE
+            // Skip if file is older than max_age
             let mut mtime_secs: i64 = 0;
             if let Ok(meta) = std::fs::metadata(&path) {
                 if let Ok(modified) = meta.modified() {
-                    if modified.elapsed().unwrap_or(Duration::ZERO) > DISK_MAX_AGE {
+                    if modified.elapsed().unwrap_or(Duration::ZERO) > max_age {
                         return None;
                     }
                     if let Ok(dur) = modified.duration_since(std::time::UNIX_EPOCH) {

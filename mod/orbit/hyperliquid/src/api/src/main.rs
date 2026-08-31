@@ -38,6 +38,8 @@ pub struct AppState {
     pub progress: Arc<traders::ProgressTracker>,
     pub boards: Arc<traders::BoardCache>,
     pub index: Arc<traders::TraderIndex>,
+    /// Board scans running in the background (see `ScanJobs`).
+    pub scans: Arc<traders::ScanJobs>,
     pub signer: Arc<signer::SignerStore>,
     pub meta: Arc<actions::MetaCache>,
     pub live: Arc<live_engine::EngineRegistry>,
@@ -167,6 +169,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState {
         hl, http, store, copy, progress, boards, index, signer, meta, live,
+        scans: traders::ScanJobs::new(),
         auth: auth::AuthCfg::from_env(),
         self_url: Arc::new(self_url),
     };

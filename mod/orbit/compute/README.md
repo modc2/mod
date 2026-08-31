@@ -16,9 +16,10 @@ button for every function on them — in the browser, over the same transport it
 rented with, with nothing listening on a public interface.
 
 ```
-m compute/search gpu=4090 max_usd_hr=1        # every market at once, cheapest first
+m compute/search gpu=4090 min_usd_hr=.2 max_usd_hr=1   # every market, cheapest first
 m compute/quote id=vast:46655560 hours=4      # cost, plus what it costs elsewhere
 m compute/rent  id=vast:46655560 confirm=1    # spends YOUR credits
+m compute/map    gpu=4090                     # where those machines physically are
 m compute/instances                           # everything running + combined burn rate
 m compute/stop  id=vast:14002931              # ends the billing
 
@@ -50,7 +51,7 @@ is 2× the price. So the markets are normalized down to two nouns and eight verb
 | **instance** | something rented and running, priced in USD/hr | `provider:ref` |
 
 **search · quote · rent · instances · status · logs · exec · stop · balance** —
-twenty-one MCP tools total (fourteen for the markets, seven for the nodes you
+twenty-two MCP tools total (fifteen for the markets, seven for the nodes you
 put on them), for every market, forever. New market = one adapter file; nothing
 else in the module changes.
 
@@ -135,6 +136,47 @@ ready-to-run **plan** — for Akash a complete SDL plus the four
 `provider-services` commands; for Nosana the `@nosana/cli` line — which you or
 your operator sign locally. Everything else about them (live pricing, capacity,
 provider counts) works with no key and no wallet.
+
+## Where the compute is
+
+Every market spells a location differently — clore says `RU`, vast says
+`Washington, US`, lium says `Des Moines, United States`, shadeform says
+`US, New York, NY`, and a cloud may just say `us-southeast-1`. `geo.py` reads
+all of them into one point, so `search` comes back with the rows placed and
+the answer carries a map:
+
+```
+m compute/map gpu=4090
+
+Ukraine        15 offers   from $0.322   clore · vast
+Moldova        15 offers   from $10.00   clore
+Russia         14 offers   from $4.00    clore
+Novosibirsk     6 offers   from $0.496   lium · vast
+Des Moines     18 offers   from $0.281   lium · shadeform
+...
+40 points · 24 countries · 128 placed · 11 unplaced
+```
+
+The console draws the same answer as a world you can click: **WHERE** in the
+MARKET tab is a pixel map where a square is a place, its outline is every offer
+there and its fill is what survives the other filters. Click one and it becomes
+a filter like any other — price band, market and GPU all narrow with it.
+
+Two things it will not do:
+
+- **It will not fake precision.** A market that only publishes `RU` gets a dot
+  on Russia's centroid and the tooltip says *country centroid — this market
+  publishes no city*. `precision` is on every point: `city`, `state`, `region`
+  (a cloud's own anchor) or `country`.
+- **It will not guess.** RunPod, Nosana, Aleph, Akash, Polaris, Cathedral and
+  Targon sell a catalogue rather than a located machine and publish no region
+  at all. Their offers are counted in `unplaced` — the map says *N nowhere*
+  and lets you filter to them, rather than dropping them in the sea.
+
+The gazetteer is GeoNames `cities5000` and Natural Earth 110m, baked into
+`geo/*.json` by `geo/build.py`. No geocoding API, no key, no rate limit, no
+dependency — the same rules as the rest of the module. Re-run
+`python3 geo/build.py` to refresh it.
 
 ## Nodes — the rented box, running mod
 
@@ -271,6 +313,10 @@ m compute/raw provider=akash path=/v1/network-capacity
 ```
 mod.py          the fns  →  hub / node
 hub.py          fan-out, spend guard, id routing — knows no provider names
+geo.py          reads any market's location string into one point on a map
+geo/            the gazetteer, baked offline by geo/build.py
+  build.py      GeoNames cities5000 + Natural Earth 110m  →  the three files below
+  cities.json countries.json states.json
 providers/
   base.py       Provider contract, offer/instance shapes, filters, key resolution
   targon.py lium.py akash.py vast.py clore.py nosana.py aleph.py
@@ -280,7 +326,7 @@ mods.py         the mod lane: the same markets read through their own modules
 node.py         transports, bootstrap, node registry — the rented box, running mod
 modctl.py       what gets uploaded: JSON in, JSON out, on the far side
 auth.py         open / byok / owner, and the token
-mcp.py          21 tools + JSON-RPC 2.0 (stdio and Streamable HTTP)
+mcp.py          22 tools + JSON-RPC 2.0 (stdio and Streamable HTTP)
 api.py          REST + /mcp + console, stdlib only
 console.html    zero-dependency browser console (market, nodes, terminal),
                 drawn 8-bit: ten cabinet palettes, castle by default, CSS-only, no assets

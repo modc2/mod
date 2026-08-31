@@ -247,6 +247,15 @@ near('phase of a negative time', M.phase(-0.25, 1), 0.75, 1e-9);
     ['https://soundcloud.com/four-tet', 'soundcloud', 'artist'],
     ['https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC?si=abc', 'spotify', 'track'],
     ['spotify:playlist:37i9dQZF1DXcBWIGoYBM5M', 'spotify', 'playlist'],
+    ['https://www.youtube.com/watch?v=SM4tQcUt_mQ', 'youtube', 'track'],
+    ['https://www.youtube.com/watch?v=SM4tQcUt_mQ&list=PL123', 'youtube', 'track'],
+    ['https://youtu.be/SM4tQcUt_mQ?t=30', 'youtube', 'track'],
+    ['https://www.youtube.com/shorts/abc_DEF-123', 'youtube', 'track'],
+    ['https://music.youtube.com/playlist?list=OLAK5uy_kabc', 'youtube', 'playlist'],
+    ['https://www.youtube.com/@boardsofcanada', 'youtube', 'artist'],
+    ['https://www.youtube.com/channel/UC3sZYInu3YYkyIXBif83ZCg', 'youtube', 'artist'],
+    ['https://archive.org/details/gd1977-05-08.sbd', 'archive', 'album'],
+    ['https://archive.org/download/gd1977-05-08.sbd/gd77-05-08d1t01.mp3', 'archive', 'track'],
   ];
   for (const [url, src, kind] of links) {
     const d = C.detect(url);
@@ -254,6 +263,13 @@ near('phase of a negative time', M.phase(-0.25, 1), 0.75, 1e-9);
       d ? `got ${d.source}/${d.kind}` : 'got null');
   }
   ok('detect ignores plain text', C.detect('four tet') === null);
+  ok('youtube id survives the query string',
+    C.detect('https://www.youtube.com/watch?v=SM4tQcUt_mQ&list=PL1&index=2').id === 'SM4tQcUt_mQ');
+  ok('archive track id is identifier/filename',
+    C.detect('https://archive.org/download/x_item/02%20-%20Track.mp3').id === 'x_item/02 - Track.mp3');
+  ok('only Spotify refuses to play',
+    ['bandcamp', 'soundcloud', 'youtube', 'archive', 'local'].every(C.playable)
+      && !C.playable('spotify'));
   ok('detect ignores other hosts', C.detect('https://example.com/album/x') === null);
 
   ok('camelot same key', C.camelotRel('8A', '8A').rel === 'same');
@@ -269,6 +285,13 @@ near('phase of a negative time', M.phase(-0.25, 1), 0.75, 1e-9);
   ok('duration formats hours', C.dur(6492336) === '1:48:12');
   ok('duration formats minutes', C.dur(243264) === '4:03');
   ok('stream url: direct wins', C.streamUrl({ direct: true, url: 'https://cdn/x.mp3', source: 'soundcloud', id: 1 }) === 'https://cdn/x.mp3');
+  ok('stream url: youtube proxies by video id',
+    C.streamUrl({ direct: false, source: 'youtube', id: 'SM4tQcUt_mQ' })
+      === 'api/stream/youtube?id=SM4tQcUt_mQ');
+  ok('stream url: archive fetches direct',
+    C.streamUrl({ direct: true, source: 'archive', id: 'item/a.mp3',
+                  url: 'https://archive.org/download/item/a.mp3' })
+      === 'https://archive.org/download/item/a.mp3');
   ok('stream url: bandcamp proxies with track',
     C.streamUrl({ direct: false, source: 'bandcamp', id: 'https://a.bandcamp.com/album/b', bc_id: 42 })
       === 'api/stream/bandcamp?id=https%3A%2F%2Fa.bandcamp.com%2Falbum%2Fb&track=42');

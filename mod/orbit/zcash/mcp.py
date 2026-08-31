@@ -25,11 +25,13 @@ enforced rather than documented:
     real transaction and then stop; nothing is published unless the call
     carries broadcast=true. Every response says which mode it ran in.
 
-    **Shielded spending is impossible without a node.** This module derives
-    real Sapling keys, hands out zs1/unified addresses and decrypts the notes
-    they receive — but creating a shielded output needs a Groth16 proof it
-    cannot compute. zec_shielded_send says so and offers the key instead.
-    Orchard is not implemented at all. zec_capabilities is the honest map.
+    **Shielded spending needs a prover, and the prover is local.** This
+    module derives real Sapling and Orchard keys, hands out zs1/unified
+    addresses and decrypts the notes they receive in pure Python — but a
+    spend carries a zk-SNARK proof, which Python will not produce. A local
+    light client does: zec_shielded_backend builds it once, zec_shielded_sync
+    scans this wallet's notes, and zec_shielded_send proves and broadcasts.
+    No full node. zec_capabilities is the honest map.
 
     **A viewing key reads a lifetime of payments.** Shielded reads are gated
     like spends, because handing out an incoming viewing key exposes every
@@ -61,8 +63,8 @@ SERVER_NAME = 'zcash'
 INSTRUCTIONS = (
     'Zcash: block explorer, HD wallet, real transparent sends, Sapling '
     'shielded addresses and note decryption, and a bridge to 30+ chains. '
-    'Start with zec_capabilities — it is the honest map of what works, what '
-    'needs a node, and what is not implemented (Orchard). '
+    'Start with zec_capabilities — it is the honest map of what works and what '
+    'needs a prover. Both shielded pools, Sapling and Orchard, are read here. '
     'LOOKING: zec_search takes a height, a txid or any address and works out '
     'which it is; zec_info, zec_price and zec_network cover the chain itself; '
     'zec_validate names an address\'s pool before you pay it. '
@@ -75,13 +77,17 @@ INSTRUCTIONS = (
     'fully signed either way, so a dry run tells you the fee, the inputs and '
     'the txid you would get. Do not pass broadcast=true unless the user asked '
     'for a real payment. Fees are ZIP-317; zec_estimate_fee prices one first. '
-    'SHIELDED: this module derives Sapling keys, gives out zs1 and unified '
-    'addresses and decrypts notes with the viewing key (zec_shielded_address, '
-    'zec_shielded_scan, zec_shielded_scan_tx). It CANNOT create a shielded '
-    'output or spend a note — that needs a Groth16 proof. zec_shielded_export '
-    'hands the key to a proving wallet; zec_shielded_send works only when '
-    'ZCASH_RPC_URL points at a zcashd/zebrad node. Scans have no spend '
-    'detection without a node, so a balance from a scan is what was RECEIVED. '
+    'SHIELDED: this module derives Sapling and Orchard keys, gives out zs1 '
+    'and unified addresses and decrypts notes with the viewing key '
+    '(zec_shielded_address, zec_shielded_scan, zec_shielded_scan_tx). '
+    'SHIELDED SPENDING works here, in three steps and in this order: '
+    'zec_shielded_backend (action=install) builds a local light client once '
+    'per host, since a spend needs a zk-SNARK proof; zec_shielded_sync '
+    '(action=start) scans the chain for this wallet\'s notes in the '
+    'background and action=status says how far it got; then zec_shielded_send '
+    'proves and broadcasts — DRY RUN unless broadcast=true. '
+    'zec_shielded_spendable is what can actually be sent, as against '
+    'zec_shielded_scan which reports what was RECEIVED. '
     'BRIDGING: zec_bridge_chains lists destinations, zec_bridge_quote prices '
     'one for free, zec_bridge_send does the whole thing from a wallet (dry '
     'run unless broadcast=true), zec_bridge_status tracks it by deposit '
@@ -400,6 +406,37 @@ def _t_shielded_send(a):
         account=int(a['account']) if a.get('account') is not None else None)
 
 
+def _t_shielded_backend(a):
+    """The prover: where it is, or how to get one."""
+    m = get_mod()
+    if a.get('action') == 'install':
+        return m.shielded_backend_install(force=bool(a.get('force')))
+    return m.shielded_backend()
+
+
+def _t_shielded_sync(a):
+    """The light client's scan: start it, watch it, stop it."""
+    m = get_mod()
+    action = a.get('action') or 'status'
+    if action == 'start':
+        return m.shielded_sync_start(
+            name=a['wallet'], password=a.get('password'),
+            birthday=int(a['birthday']) if a.get('birthday') is not None else None)
+    if action == 'stop':
+        return m.shielded_sync_stop(name=a['wallet'])
+    return m.shielded_sync_status(name=a['wallet'])
+
+
+def _t_shielded_spendable(a):
+    return get_mod().shielded_spendable(name=a['wallet'])
+
+
+def _t_shielded_shield(a):
+    return get_mod().shielded_shield(
+        name=a['wallet'], password=a['password'],
+        broadcast=bool(a.get('broadcast')))
+
+
 def _t_shielded_node(a):
     mod = get_mod()
     action = (a.get('action') or 'status').lower()
@@ -471,6 +508,48 @@ def _t_bridge_send(a):
         refund_to=a.get('refund_to'))
 
 
+def _t_bridge_shielded_plan(a):
+    return get_mod().bridge_shielded_plan()
+
+
+def _t_bridge_shielded_address(a):
+    return get_mod().bridge_shielded_address(
+        address=a.get('address'), name=a.get('wallet') or a.get('name'))
+
+
+def _t_bridge_shielded_in(a):
+    return get_mod().bridge_shielded_in(
+        from_asset=a['from_asset'], amount=float(a['amount']),
+        refund_to=a['refund_to'], recipient=a.get('recipient'),
+        name=a.get('wallet') or a.get('name'),
+        reserve=bool(a.get('reserve')),
+        slippage_bps=int(a.get('slippage_bps') or 100))
+
+
+def _t_bridge_shielded_out(a):
+    return get_mod().bridge_shielded_out(
+        name=a['wallet'], password=a['password'], to_asset=a['to_asset'],
+        amount=float(a['amount']), recipient=a['recipient'],
+        broadcast=bool(a.get('broadcast')), refund_to=a.get('refund_to'),
+        slippage_bps=int(a.get('slippage_bps') or 100),
+        from_address=a.get('from_address'))
+
+
+def _t_learn(a):
+    return get_mod().learn(topic=a.get('topic'), level=a.get('level'),
+                           path=a.get('path'),
+                           glossary=bool(a.get('glossary')))
+
+
+def _t_explain(a):
+    return get_mod().explain(term=a['term'])
+
+
+def _t_ask(a):
+    return get_mod().ask(question=a['question'],
+                         ground=a.get('ground', True) is not False)
+
+
 # ── registry ─────────────────────────────────────────────────────────
 #
 # `fns` names the module functions a tool reaches. api.py gates the same
@@ -481,9 +560,11 @@ TOOLS = {
     'zec_capabilities': {
         'description': 'What this module can and cannot do, and why. Transparent '
                        'sending is real; Sapling addresses and note decryption are '
-                       'real; creating a shielded output needs a Groth16 proof this '
-                       'module cannot compute, and Orchard is not implemented at '
-                       'all. Also reports whether a proving node is configured. '
+                       'real, and so are Orchard keys, addresses and note '
+                       'decryption; creating a shielded output needs a zk-SNARK '
+                       'proof Python will not produce, so spending needs the local '
+                       'light client or a node. Also reports which shielded pools '
+                       'can be read and whether a prover is available. '
                        'Read this before promising a user a shielded payment.',
         'inputSchema': {'type': 'object', 'properties': {}},
         'annotations': _READ, 'fns': ['capabilities'], 'handler': _t_capabilities,
@@ -714,9 +795,11 @@ TOOLS = {
                        'and the ZIP-316 unified address that carries it alongside a '
                        'transparent receiver. Hand out the unified one where you can '
                        '— any wallet can pay it. Public information, no password. '
-                       'Unified addresses from here never advertise an Orchard '
-                       'receiver, because this module cannot detect Orchard notes and '
-                       'claiming one would lose the payment.',
+                       'The unified address carries both shielded pools, Sapling and '
+                       'Orchard, plus a transparent receiver. That transparent '
+                       'receiver is why it is not a private address to hand a '
+                       'bridge: a sender may pick it. Use '
+                       'zec_bridge_shielded_address for the shielded-only form.',
         'inputSchema': {'type': 'object', 'properties': {'wallet': _WALLET},
                         'required': ['wallet']},
         'annotations': _READ, 'fns': ['shielded_address'],
@@ -790,12 +873,14 @@ TOOLS = {
         'handler': _t_shielded_upgrade,
     },
     'zec_shielded_send': {
-        'description': 'Send shielded ZEC — ONLY with a proving backend behind it. A '
-                       'Sapling spend needs a zk-SNARK proof this module cannot '
-                       'compute, so without ZCASH_RPC_URL pointing at a zcashd or '
-                       'zebrad node this returns a refusal, the two ways to proceed, '
-                       'and the spending key to import elsewhere. With a node, it '
-                       'hands the node the payment. Dry run unless broadcast=true.',
+        'description': 'Send shielded ZEC for real — a zs1 or unified address, '
+                       'proved locally and broadcast. Needs the local light client: '
+                       'run zec_shielded_backend action=install once per host, then '
+                       'zec_shielded_sync action=start and wait for it to report '
+                       'synced. If either step is missing this returns exactly which '
+                       'one and how to fix it, rather than failing obscurely. DRY RUN '
+                       'unless broadcast=true — the dry run checks the address, the '
+                       'spendable balance and the sync state and prices the fee.',
         'inputSchema': {'type': 'object', 'properties': {
             'wallet': _WALLET, 'password': _PASSWORD,
             'to': _str('a zs1 or unified address'),
@@ -806,6 +891,64 @@ TOOLS = {
             'broadcast': _BROADCAST},
             'required': ['wallet', 'password', 'to', 'amount']},
         'annotations': _SPEND, 'fns': ['shielded_send'], 'handler': _t_shielded_send,
+    },
+    'zec_shielded_backend': {
+        'description': 'The shielded prover — the thing that makes a shielded SEND '
+                       'possible at all. action=status (default) says whether a '
+                       'local zk-SNARK prover is installed on this host and where; '
+                       'action=install builds it, once, from source (a Zcash light '
+                       'client over zcash_client_backend and zcash_proofs — several '
+                       'minutes of CPU, and it needs cargo). Nothing else about '
+                       'shielded sending works until this reports installed.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'action': _str('status (default) or install', enum=['status', 'install']),
+            'force': _bool('rebuild even if it is already installed')},
+            'required': []},
+        'annotations': _WRITE,
+        'fns': ['shielded_backend', 'shielded_backend_install'],
+        'handler': _t_shielded_backend,
+    },
+    'zec_shielded_sync': {
+        'description': "The light client's scan of this wallet's shielded notes — "
+                       'the step between having keys and being able to spend. '
+                       'action=start sets the light client up from the wallet seed '
+                       '(needs the password the first time) and scans in the '
+                       'background from the wallet birthday; it returns immediately. '
+                       'action=status (default) reports how far it got and whether '
+                       'it can spend yet; action=stop halts it. A wallet with an old '
+                       'birthday can take a long time to scan the first time.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'action': _str('start, status (default) or stop',
+                           enum=['start', 'status', 'stop']),
+            'wallet': _WALLET, 'password': _PASSWORD,
+            'birthday': _int('block to scan from, overriding the wallet birthday')},
+            'required': ['wallet']},
+        'annotations': _WRITE,
+        'fns': ['shielded_sync_start', 'shielded_sync_status',
+                'shielded_sync_stop'],
+        'handler': _t_shielded_sync,
+    },
+    'zec_shielded_spendable': {
+        'description': 'The shielded balance that can actually be SPENT, per pool, as '
+                       "the light client's own note commitment tree sees it. This is "
+                       'the number zec_shielded_send is checked against — unlike '
+                       'zec_shielded_scan, which reports what was received and cannot '
+                       'always tell what has since been spent.',
+        'inputSchema': {'type': 'object', 'properties': {'wallet': _WALLET},
+                        'required': ['wallet']},
+        'annotations': _READ, 'fns': ['shielded_spendable'],
+        'handler': _t_shielded_spendable,
+    },
+    'zec_shielded_shield': {
+        'description': "Move a wallet's TRANSPARENT balance into the shielded pool, "
+                       'so it can then be spent privately. Shielding creates a '
+                       'shielded output, so it needs the same local prover a send '
+                       'does. DRY RUN unless broadcast=true.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'wallet': _WALLET, 'password': _PASSWORD, 'broadcast': _BROADCAST},
+            'required': ['wallet', 'password']},
+        'annotations': _SPEND, 'fns': ['shielded_shield'],
+        'handler': _t_shielded_shield,
     },
     'zec_shielded_node': {
         'description': 'The node-backed half of shielded spending. action=import '
@@ -900,6 +1043,133 @@ TOOLS = {
             'required': ['to_asset', 'amount', 'recipient', 'refund_to']},
         'annotations': _WRITE, 'fns': ['bridge_start'], 'handler': _t_bridge_start,
     },
+    'zec_learn': {
+        'description': 'Plain-language Zcash lessons for someone starting from '
+                       'zero: what Zcash is, why one wallet has two kinds of '
+                       'address, how shielded notes work, what this module can '
+                       'and cannot do, how bridging works and what it leaks. '
+                       'No arguments lists them; `topic` opens one in full; '
+                       '`path` follows a reading order. Read a lesson before '
+                       'explaining Zcash to a user from memory — this text is '
+                       'written to match what this module actually does.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'topic': _str('a lesson id or a phrase to match, e.g. '
+                          '"private-bridging" or "shielded notes"'),
+            'level': _str('start, core or deep'),
+            'path': _str('a reading order: beginner, sending, privacy, '
+                         'bridging or developer'),
+            'glossary': _bool('true returns every defined term instead')}},
+        'annotations': _READ, 'fns': ['learn'], 'handler': _t_learn,
+    },
+    'zec_explain': {
+        'description': 'Define one Zcash term in a sentence or two, with the '
+                       'lesson that puts it in context. Understands the way '
+                       'beginners phrase things — "zaddr", "gas", "seed", '
+                       '"snark" all resolve.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'term': _str('the word to define')}, 'required': ['term']},
+        'annotations': _READ, 'fns': ['explain'], 'handler': _t_explain,
+    },
+    'zec_ask': {
+        'description': 'Ask a question about Zcash or this module in plain '
+                       'words and get an answer grounded in the written '
+                       'lessons plus live reads. Returns the answer, the '
+                       'lessons it came from, the glossary terms involved, and '
+                       '`actions` — the exact calls to make next. It never '
+                       'calls anything that spends, deletes or reveals a '
+                       'secret; those come back as actions for the caller to '
+                       'run deliberately. Good for "why did nothing send", '
+                       '"can I bridge into a shielded address", "is my viewing '
+                       'key safe to share".',
+        'inputSchema': {'type': 'object', 'properties': {
+            'question': _str('the question, in plain language'),
+            'ground': _bool('true (default) lets it call read-only functions '
+                            'to put live data in the answer')},
+            'required': ['question']},
+        'annotations': _READ, 'fns': ['ask'], 'handler': _t_ask,
+    },
+    'zec_bridge_shielded_plan': {
+        'description': 'Which shielded bridge directions work on this '
+                       'deployment right now, what each one needs, and exactly '
+                       'what each one leaks. Bridging INTO the shielded pool '
+                       'works with nothing extra; bridging OUT needs a proving '
+                       'node and cannot be made private. Also reports which '
+                       'shielded pools this module can read, which is what '
+                       'decides whether a recipient address is safe to use.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'annotations': _READ, 'fns': ['bridge_shielded_plan'],
+        'handler': _t_bridge_shielded_plan,
+    },
+    'zec_bridge_shielded_address': {
+        'description': 'The address a bridge should be given so the payment '
+                       'lands SHIELDED. Give it a zs1, a u1 or a wallet name. '
+                       'A bare zs1 is wrapped into a unified address (the '
+                       'router rejects zs1). A unified address that also '
+                       'carries a transparent receiver comes back re-encoded '
+                       'without it — otherwise the solver picks the cheap '
+                       'transparent receiver and pays you in the clear — and '
+                       'so does one carrying a pool this module cannot '
+                       'decrypt. The response says what was removed and why.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': _str('a zs1 or u1 address'),
+            'wallet': _str('a wallet name, to use its own shielded address')}},
+        'annotations': _READ, 'fns': ['bridge_shielded_address'],
+        'handler': _t_bridge_shielded_address,
+    },
+    'zec_bridge_shielded_in': {
+        'description': 'Bridge an asset from another chain STRAIGHT INTO the '
+                       'shielded pool — the funds arrive as an encrypted note, '
+                       'with no transparent hop and no second transaction. '
+                       'This is the one shielded operation that works without '
+                       'a proving node, because the solver creates the '
+                       'shielded output rather than this module. `refund_to` '
+                       'is on the ORIGIN chain: a refund cannot be paid into '
+                       'the shielded pool. Quotes only unless reserve=true; '
+                       'reserving returns a deposit address the user funds '
+                       'themselves from the origin chain, since it is not on '
+                       'Zcash and this module cannot pay it.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'from_asset': _str("what you are paying with: 'eth:USDC', 'ETH', "
+                               "'BTC', 'base:ETH' — zec_bridge_chains lists them"),
+            'amount': _num('how much of from_asset to send'),
+            'refund_to': _str('your address on the ORIGIN chain, where the '
+                              'money returns if the swap fails'),
+            'recipient': _str('your own zs1 or u1 Zcash address'),
+            'wallet': _str('a wallet name instead, to use its shielded address'),
+            'reserve': _bool('false (default) only quotes; true reserves a real '
+                             'deposit address and starts the clock'),
+            'slippage_bps': _int('slippage tolerance in basis points (100 = 1%)')},
+            'required': ['from_asset', 'amount', 'refund_to']},
+        'annotations': _WRITE, 'fns': ['bridge_shielded_in'],
+        'handler': _t_bridge_shielded_in,
+    },
+    'zec_bridge_shielded_out': {
+        'description': 'Bridge shielded ZEC out to another chain. Read the '
+                       'privacy field aloud before using this: leaving the '
+                       'shielded pool is PUBLIC — the solver deposit address '
+                       'is transparent, so the amount is in the clear and '
+                       'links to the destination address by timing. It also '
+                       'needs a Groth16 proof: with ZCASH_RPC_URL set the node '
+                       'proves and sends; without one this reserves the '
+                       'deposit address and returns the exact payment to make '
+                       'from a proving wallet, which is a completable state, '
+                       'not a failure. Dry run unless broadcast=true.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'wallet': _WALLET, 'password': _PASSWORD,
+            'to_asset': _str("what to receive: 'ETH', 'eth:USDC', 'BTC'"),
+            'amount': _num('how much ZEC to send from the shielded pool'),
+            'recipient': _str('your address on the destination chain'),
+            'refund_to': _str('a t-address of this wallet for refunds; '
+                              'defaults to its first. It cannot be shielded — '
+                              'no solver can refund into the pool.'),
+            'from_address': _str('which shielded address to spend from; '
+                                 'defaults to the account\'s first'),
+            'broadcast': _BROADCAST,
+            'slippage_bps': _int('slippage tolerance in basis points')},
+            'required': ['wallet', 'password', 'to_asset', 'amount', 'recipient']},
+        'annotations': _SPEND, 'fns': ['bridge_shielded_out'],
+        'handler': _t_bridge_shielded_out,
+    },
     'zec_bridge_send': {
         'description': 'Bridge ZEC out of a wallet in one step: reserve the deposit '
                        'address and pay it. DRY RUN unless broadcast=true — a dry run '
@@ -963,9 +1233,12 @@ _FALLBACK_GUARDED = {
     'wallet_create', 'wallet_restore', 'wallet_new_address', 'wallet_import',
     'wallet_reveal', 'wallet_delete', 'wallet_label',
     'send', 'broadcast_raw', 'bridge_start', 'bridge_send',
+    'bridge_shielded_in', 'bridge_shielded_out',
     'shielded_new_address', 'shielded_upgrade', 'shielded_export',
     'shielded_scan', 'shielded_balance', 'shielded_scan_tx',
     'shielded_send', 'shielded_node_import', 'shielded_operation',
+    'shielded_backend_install', 'shielded_sync_start', 'shielded_sync_status',
+    'shielded_sync_stop', 'shielded_spendable', 'shielded_shield',
 }
 
 
@@ -1051,10 +1324,11 @@ def describe(url=None):
             'dry_run': 'zec_send, zec_bridge_send and zec_shielded_send build and '
                        'sign but do not publish unless broadcast=true; the response '
                        'always names the mode it ran in',
-            'shielded': 'Sapling addresses, note decryption and viewing keys are '
-                        'real; creating a shielded output needs a Groth16 proof '
-                        'this module cannot compute, and Orchard is not implemented '
-                        '— zec_capabilities is the authoritative map',
+            'shielded': 'Sapling and Orchard addresses, note decryption and '
+                        'viewing keys are real; creating a shielded output needs a '
+                        'zk-SNARK proof, so spending goes through the local light '
+                        'client or a node — zec_capabilities is the authoritative '
+                        'map',
             'passwords': 'a wallet password is never stored; it is passed per call '
                          'and only decrypts the seed for that call',
         },

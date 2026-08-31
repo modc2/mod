@@ -65,6 +65,35 @@ impl ProgressTracker {
     }
 }
 
+/// Scans in flight right now, keyed by the request they answer.
+///
+/// A cold board is a multi-minute, 429-throttled walk — longer than any
+/// reverse proxy will hold a connection open (Cloudflare cuts at 100s and
+/// replaces the answer with its own HTML). So `/traders/top` hands the walk to
+/// a background task and answers `scanning: true` once its own budget is up;
+/// this registry is what stops a page full of retries from starting the same
+/// walk over and over.
+#[derive(Default)]
+pub struct ScanJobs { keys: Mutex<std::collections::HashSet<String>> }
+
+impl ScanJobs {
+    pub fn new() -> Arc<Self> { Arc::new(Self::default()) }
+    /// Claim `key` for this caller. `None` means someone else is already
+    /// running exactly this scan — wait for theirs instead of duplicating it.
+    pub fn claim(self: &Arc<Self>, key: &str) -> Option<ScanClaim> {
+        if !self.keys.lock().insert(key.to_string()) { return None; }
+        Some(ScanClaim { jobs: self.clone(), key: key.to_string() })
+    }
+    pub fn running(&self) -> usize { self.keys.lock().len() }
+}
+
+/// Releases its key whenever the scan task ends — including on panic, so a
+/// failed walk can be retried instead of being locked out forever.
+pub struct ScanClaim { jobs: Arc<ScanJobs>, key: String }
+impl Drop for ScanClaim {
+    fn drop(&mut self) { self.jobs.keys.lock().remove(&self.key); }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopTrader {
     pub address: String,
@@ -857,6 +886,20 @@ mod tests {
         // legacy boards.json keys (bare day counts) are ignored, not misread
         assert_eq!(parse_board_key("7"), None);
         assert_eq!(parse_board_key("7:roi:24h:extra"), None);
+    }
+
+    #[test]
+    fn a_scan_key_is_claimed_once_and_freed_when_the_walk_ends() {
+        let jobs = ScanJobs::new();
+        let a = jobs.claim("7|all|roi|24h").expect("first caller claims it");
+        // a second request for the same board joins instead of re-walking
+        assert!(jobs.claim("7|all|roi|24h").is_none());
+        // a different board is unaffected
+        let b = jobs.claim("30|all|roi|24h").expect("other keys are free");
+        assert_eq!(jobs.running(), 2);
+        drop(a);
+        assert!(jobs.claim("7|all|roi|24h").is_some(), "key frees when the scan ends");
+        drop(b);
     }
 
     #[test]

@@ -29,13 +29,13 @@ from providers.base import ProviderError
 STATE = os.path.expanduser('~/.mod/compute')
 SECRET_FILE = os.path.join(STATE, 'server.secret')
 
-OPEN = {'', '/', '/health', '/providers', '/search', '/offer', '/quote',
+OPEN = {'', '/', '/health', '/providers', '/search', '/map', '/offer', '/quote',
         '/mods', '/tools', '/console', '/index.html', '/identity'}
 BYOK = {'/instances', '/status', '/logs', '/balance', '/keys'}
 
 # Tool name → tier, for the MCP endpoint, which is one URL for everything.
-OPEN_TOOLS = {'compute_providers', 'compute_search', 'compute_offer',
-              'compute_quote', 'compute_mods'}
+OPEN_TOOLS = {'compute_providers', 'compute_search', 'compute_map',
+              'compute_offer', 'compute_quote', 'compute_mods'}
 BYOK_TOOLS = {'compute_instances', 'compute_status', 'compute_logs',
               'compute_balance'}
 

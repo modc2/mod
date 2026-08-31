@@ -1,6 +1,27 @@
-"""infer — make a model cheaper to run, and prove you did.
+"""infer — prove a model said it, and make it cheaper to run.
 
-Inference optimization that does not care what architecture you trained. A
+Two halves that need each other.
+
+**The board.** A claim here is not a screenshot. It is the canonical request, the
+exact output, three sha256 hashes over their own content, a mod-protocol
+signature and a core/store CID — and the board only takes runs with the sampler
+switched off, temperature 0 and top_p 1, because a sampled receipt makes every
+disagreement on the board unreadable.
+
+    m infer/run gpt-4o prompt="name three primes" repeat=3
+    m infer/board sort=divergent          # models that will not hold still
+    m infer/replicate <question>          # ask it again, file the answer
+    m infer/verify <receipt> rerun=true   # recheck every hash from content
+    m infer/leaderboard                   # who is reproducible, measured
+
+Receipts sharing a request hash are one question, and the question carries the
+verdict: unreplicated, self-reproduced, reproduced, or divergent. Temperature 0
+is greedy, not deterministic — batching, expert routing and float reduction
+order are not in the request — so `divergent` on a hosted model is a finding,
+not a bug.
+
+**The optimizer**, which is where the bit-exact receipts come from. Inference
+optimization that does not care what architecture you trained. A
 CNN, an LSTM, a transformer, a gradient-boosted forest: by the time it is here
 it is a graph, and the passes read the graph. One standard binary carries it —
 **ONNX** — because that is the format both runtimes execute without a second
@@ -18,6 +39,7 @@ conversion:
     m infer/parity mlp mlp+slim+extended      # did the answers survive
     m infer/portable cnn+slim+extended        # will it run in a browser
     m infer/export torchvision:resnet18       # torch → the standard binary
+    m infer/run mlp runtime=onnx repeat=3     # a receipt anyone can re-execute
     m infer/serve
 
 Nothing is asserted without being measured. `optimize` benchmarks the model it
@@ -40,13 +62,16 @@ if HERE not in sys.path:
 
 class Mod:
     description = """
-    infer — inference optimization for any model architecture, on one standard
-    binary. ONNX in, a smaller and faster ONNX out, running unchanged in
-    onnxruntime here and onnxruntime-web in a browser tab. Fuse and fold the
-    graph, quantize the weights to int8 or fp16, and get back what each pass
-    actually bought: nodes removed, bytes saved, p50 latency before and after,
-    how far the outputs moved, and whether the result can still run in a
-    browser. Fourteen MCP tools, a REST API and a console on one port.
+    infer — a board where model output at temperature 0 is a signed,
+    content-addressed, re-runnable claim, and the ONNX optimizer that produces
+    the bit-exact half of it. Post what a model said, hash it, publish it to
+    core/store, and let anyone ask the same question again and file their answer
+    beside yours: same bytes from two independent signers is `reproduced`, two
+    different answers to one greedy question is `divergent`, and the board says
+    which character they parted on. The optimizer half fuses, folds and
+    quantizes any architecture on one standard binary, running unchanged in
+    onnxruntime here and onnxruntime-web in a browser tab. Twenty-eight MCP
+    tools, a REST API and a console on one port.
     """
 
     def __init__(self, port=None, **kwargs):
@@ -75,6 +100,104 @@ class Mod:
         """Runtime versions, execution providers, and which passes work here."""
         import engine
         return engine.health()
+
+    # ── the board ────────────────────────────────────────────────
+
+    def board(self, model=None, provider=None, runtime=None, verdict=None,
+              by=None, q=None, limit=50, sort='recent'):
+        """Every question posted, newest first, with the verdict it earned."""
+        import proofs
+        return proofs.board(model=model, provider=provider, runtime=runtime,
+                            verdict=verdict, by=by, q=q, limit=limit, sort=sort)
+
+    def run(self, model, prompt=None, provider=None, runtime=None, repeat=1,
+            system=None, messages=None, max_tokens=512, seed=None, stop=None,
+            publish=True, sign=True, api_key=None, batch=1, shapes=None):
+        """Ask it at temperature 0, then hash, sign and publish the answer."""
+        import proofs
+        return proofs.run(model, provider=provider, runtime=runtime, sign=sign,
+                          publish=publish, repeat=repeat, prompt=prompt,
+                          system=system, messages=messages,
+                          max_tokens=max_tokens, seed=seed, stop=stop,
+                          api_key=api_key, batch=batch, shapes=shapes)
+
+    ask = run
+
+    def post(self, model=None, output=None, prompt=None, provider=None,
+             claim=None, attestation=None, publish=True, sign=True, **kw):
+        """File a run you did somewhere else — the hashes are recomputed here."""
+        import proofs
+        return proofs.post(claim=claim, sign=sign, publish=publish,
+                           attestation=attestation, model=model, output=output,
+                           prompt=prompt, provider=provider, **kw)
+
+    def replicate(self, question=None, receipt=None, provider=None,
+                  publish=True, sign=True, api_key=None):
+        """Ask the same question again and say whether the answer held."""
+        import proofs
+        return proofs.replicate(question_id=question, receipt=receipt,
+                                provider=provider, publish=publish, sign=sign,
+                                api_key=api_key)
+
+    def verify(self, receipt, rerun=False, fetch=True):
+        """Recheck every hash, the signature and the stored bytes from content."""
+        import proofs
+        return proofs.verify(receipt, rerun=rerun, fetch=fetch)
+
+    def question(self, question, full=False):
+        """One question: its receipts, its variants, and where they parted."""
+        import proofs
+        return proofs.question(question, full=full)
+
+    def receipt(self, receipt):
+        """One receipt, exactly as it was published."""
+        import proofs
+        return proofs.receipt(receipt)
+
+    def diff(self, a, b):
+        """Two answers side by side, and the character they disagree on."""
+        import proofs
+        return proofs.diff(a, b)
+
+    def leaderboard(self, runtime=None, min_receipts=2):
+        """Which models hold still at temperature 0, by the receipts here."""
+        import proofs
+        return proofs.leaderboard(runtime=runtime, min_receipts=min_receipts)
+
+    def canon(self, model, prompt=None, runtime='llm', **kw):
+        """The canonical request bytes and their hash, without running it."""
+        import proofs
+        return proofs.canonical(runtime=runtime, model=model, prompt=prompt, **kw)
+
+    def providers(self):
+        """Which endpoints are reachable from here, and which have a key."""
+        import proofs
+        return proofs.providers()
+
+    def set_key(self, provider, key=None):
+        """Give a provider a key — 0600, off-tree, never inside a receipt."""
+        import proofs
+        return proofs.set_key(provider, key)
+
+    def add_provider(self, name, base, style='openai', note=None):
+        """Register any other openai- or anthropic-shaped endpoint."""
+        import proofs
+        return proofs.add_provider(name, base, style=style, note=note)
+
+    def import_receipt(self, cid):
+        """Pull in a receipt published from another box, by its store CID."""
+        import proofs
+        return proofs.fetch(cid)
+
+    def status(self):
+        """The board at a glance: receipts, verdicts, signer, store health."""
+        import proofs
+        return proofs.status()
+
+    def forget(self, receipt):
+        """Drop a receipt from this board. Its CID still resolves — that is the point."""
+        import proofs
+        return proofs.delete(receipt)
 
     # ── the store ────────────────────────────────────────────────
 

@@ -165,8 +165,13 @@ def test_payment_address_roundtrip_and_checksum():
         sapling.decode_payment_address("zs1abcdef")
 
 
-def test_unified_address_never_claims_an_orchard_receiver():
-    """We cannot detect Orchard payments, so we must not advertise Orchard."""
+def test_a_sapling_address_alone_claims_only_sapling():
+    """A Sapling key cannot speak for the Orchard pool.
+
+    The wallet's unified addresses do carry an Orchard receiver now (see
+    tests/test_orchard.py), but that receiver comes from the Orchard key --
+    this encoder only ever advertises what it was given.
+    """
     fvk = sapling.ExtendedSpendingKey.from_seed(bytes(range(32))).fvk()
     ua = fvk.address(0).unified(bytes(range(20)))
     typecodes = [tc for tc, _ in sapling.decode_unified_address(ua)]

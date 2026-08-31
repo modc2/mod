@@ -22,7 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import {
-  API_BASE, fetchTradersPage, formatPnl, formatVolume, timeAgo,
+  API_BASE, fetchTradersPage, formatHistory, formatPnl, formatVolume, historyDays, timeAgo,
   WARMED_CANDIDATE_POOL, DEFAULT_ACTIVE_HOURS, type TopTrader,
 } from "../lib/polymarket";
 import { marketMatchesQuery } from "../lib/marketQuery";
@@ -49,8 +49,26 @@ const SORTS = [
   { key: "trades", label: "TRADES" },
   { key: "volume", label: "VOLUME" },
   { key: "last", label: "RECENT" },
+  { key: "history", label: "TRACK RECORD" },
   { key: "score", label: "CUSTOM SCORE" },
 ] as const;
+
+/** Track-record presets for the HISTORY ≥ control.
+ *
+ *  0 is the default and it is deliberate: this is a user's call, not a house
+ *  rule. Ranking over 30 days of a wallet that opened six days ago is a
+ *  perfectly reasonable thing to want to look at — it just should not be
+ *  something the console does to you without saying so. */
+const HISTORY_FLOORS = [0, 7, 14, 30, 90] as const;
+
+/** Is this trader's whole record shorter than the window being ranked?
+ *  Then part of that window is a straight line through their non-existence —
+ *  which is what a flat first-25-days backtest curve actually is. Unknown
+ *  ages are not flagged; a missing start date isn't a short one. */
+function tooNewForWindow(t: TopTrader, windowDays: number): boolean {
+  const d = historyDays(t);
+  return d !== null && d < windowDays;
+}
 const PAGE_SIZE = 12;
 /** CUSTOM SCORE is a client-side rank (the formula is JS), so the server
     can't page it. Instead the panel pulls this many rows — ordered by the
@@ -86,6 +104,8 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
   const [sort, setSort] = useState<string>("pnl");
   const [order, setOrder] = useState<SortDir>("desc");
   const [activeOnly, setActiveOnly] = useState(true);
+  // Track-record floor, in days. Off by default — see HISTORY_FLOORS.
+  const [minHistoryDays, setMinHistoryDays] = useState<number>(0);
   const [amount, setAmount] = useState("100");
 
   // The custom SCORE formula — shared with the /traders board via one
@@ -108,8 +128,10 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
   const [total, setTotal] = useState(0);
   const [poolCount, setPoolCount] = useState(0);
   const [syncedAt, setSyncedAt] = useState(0);
-  const [ran, setRan] = useState({ query: "", days: 1, activeOnly: true, sort: "pnl", order: "desc" as SortDir });
+  const [ran, setRan] = useState({ query: "", days: 1, activeOnly: true, sort: "pnl", order: "desc" as SortDir, minHistoryDays: 0 });
   const [dropped, setDropped] = useState(0);
+  const [historyDropped, setHistoryDropped] = useState(0);
+  const [historyKnown, setHistoryKnown] = useState(0);
   const [loading, setLoading] = useState(false);
   const [cold, setCold] = useState(false);
   const [warming, setWarming] = useState(false);
@@ -136,12 +158,13 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
   const already = isAddress && existing.has(typed);
 
   const run = useCallback(
-    async (opts: { query?: string; days?: number; sort?: string; order?: SortDir; activeOnly?: boolean } = {}) => {
+    async (opts: { query?: string; days?: number; sort?: string; order?: SortDir; activeOnly?: boolean; minHistoryDays?: number } = {}) => {
       const q = (opts.query ?? query).trim();
       const d = opts.days ?? days;
       const s = opts.sort ?? sort;
       const o = opts.order ?? order;
       const recent = opts.activeOnly ?? activeOnly;
+      const minHist = opts.minHistoryDays ?? minHistoryDays;
       setLoading(true);
       setError(null);
       try {
@@ -158,6 +181,7 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
           pageSize: isScore ? SCORE_POOL : PAGE_SIZE,
           marketQuery: q || undefined,
           maxLastTradeHrs: recent ? DEFAULT_ACTIVE_HOURS : undefined,
+          minHistoryDays: minHist || undefined,
         });
         if (res.cold) {
           setCold(true);
@@ -170,8 +194,10 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
           setPoolCount(res.count);
           setSyncedAt(res.syncedAt ?? 0);
           setDropped(res.activityDropped ?? 0);
+          setHistoryDropped(res.historyDropped ?? 0);
+          setHistoryKnown(res.historyKnown ?? 0);
         }
-        setRan({ query: q, days: d, activeOnly: recent, sort: s, order: o });
+        setRan({ query: q, days: d, activeOnly: recent, sort: s, order: o, minHistoryDays: minHist });
         return !res.cold;
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -181,7 +207,7 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
         setLoading(false);
       }
     },
-    [query, days, sort, order, activeOnly, scorePoolSort],
+    [query, days, sort, order, activeOnly, minHistoryDays, scorePoolSort],
   );
 
   useEffect(() => () => { if (warmTimer.current) clearTimeout(warmTimer.current); }, []);
@@ -382,6 +408,47 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
               {activeOnly ? `LAST ${DEFAULT_ACTIVE_HOURS}H` : "OFF"}
             </button>
             </Field>
+            {/* Track record. The sibling of ONLY ACTIVE: that one asks "are
+                they trading NOW", this one asks "have they been trading LONG".
+                A 30D window over a wallet that opened last week is 24 days of
+                flat line and a return that rests on six.
+
+                Deliberately not defaulted to the window — the user decides how
+                much record they want behind a name, and OFF is a real answer. */}
+            <Field label="HISTORY ≥">
+            <div className="flex items-center gap-1">
+              {HISTORY_FLOORS.map((h) => (
+                <button
+                  key={h}
+                  className={`pixel-btn btn-xs ${h === minHistoryDays ? "border-pixel-green text-pixel-green" : ""}`}
+                  disabled={loading}
+                  onClick={() => { setMinHistoryDays(h); void run({ minHistoryDays: h }); }}
+                  title={
+                    h === 0
+                      ? "No track-record floor — brand-new wallets included"
+                      : `Only traders whose first-ever trade was at least ${h} days ago${
+                          h < days ? "" : ` — enough record to make the ${days}D window mean something`
+                        }`
+                  }
+                >
+                  {h === 0 ? "OFF" : `${h}D`}
+                </button>
+              ))}
+              <input
+                className="pixel-input-sm w-14 font-mono text-[11px]"
+                value={HISTORY_FLOORS.includes(minHistoryDays as (typeof HISTORY_FLOORS)[number]) ? "" : String(minHistoryDays)}
+                inputMode="numeric"
+                placeholder="days"
+                disabled={loading}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  setMinHistoryDays(Number.isFinite(n) && n > 0 ? n : 0);
+                }}
+                onKeyDown={(e) => e.key === "Enter" && void run()}
+                title="Any number of days — press Enter to apply"
+              />
+            </div>
+            </Field>
           </>
         )}
         <Field label="$ PER TRADER">
@@ -485,8 +552,25 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                 {dropped > 0 && <> ({dropped.toLocaleString()} dormant hidden)</>}
               </>
             )}
+            {ran.minHistoryDays > 0 && (
+              <>
+                {" "}· <span className="text-pixel-green">{ran.minHistoryDays}d+ record</span>
+                {historyDropped > 0 && <> ({historyDropped.toLocaleString()} too new hidden)</>}
+              </>
+            )}
             {syncedAt > 0 && <> · data {timeAgo(syncedAt * 1000)}</>}
           </div>
+
+          {/* The floor keeps traders whose age hasn't been resolved yet — so
+              say so rather than let a half-applied filter read as a clean cut.
+              Ages fill in per wallet as the warmup sweeps the board. */}
+          {ran.minHistoryDays > 0 && view.length > 0 && historyKnown < view.length && (
+            <div className="font-mono text-[10px] text-amber-400">
+              {(view.length - historyKnown).toLocaleString()} of {view.length} shown have no
+              known start date yet — the {ran.minHistoryDays}d floor let them through rather
+              than cut them on missing data. They fill in as the board re-syncs.
+            </div>
+          )}
 
           {ran.query && !scoped && (
             <div className="font-mono text-[10px] text-amber-400">
@@ -500,7 +584,9 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
           {view.length === 0 ? (
             <div className="font-mono text-[10px] text-pixel-gray">
               nobody on the {ran.days}D board traded {ran.query ? `“${ran.query}”` : "anything"}
-              {ran.activeOnly && dropped > 0
+              {ran.minHistoryDays > 0 && historyDropped > 0
+                ? ` — ${historyDropped.toLocaleString()} matched but have less than ${ran.minHistoryDays} days of history; lower HISTORY ≥ to see them`
+                : ran.activeOnly && dropped > 0
                 ? ` in the last ${DEFAULT_ACTIVE_HOURS}h — ${dropped.toLocaleString()} did earlier; set ONLY ACTIVE to OFF to see them`
                 : ". Try a wider market, or a longer window."}
             </div>
@@ -575,8 +661,30 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                             IN BOOK
                           </span>
                         )}
+                        {/* Track record beside recency: how long they have
+                            been doing this, next to when they last did it.
+                            Amber when the record is shorter than the window
+                            being ranked — that is exactly the case where the
+                            headline number covers days the trader didn't
+                            exist for. */}
                         <span
-                          className="ml-auto font-mono text-[9px] text-pixel-gray whitespace-nowrap shrink-0"
+                          className={`ml-auto font-mono text-[9px] whitespace-nowrap shrink-0 ${
+                            tooNewForWindow(t, ran.days) ? "text-amber-400" : "text-pixel-gray"
+                          }`}
+                          title={
+                            t.firstTradeTs
+                              ? `First trade ${timeAgo(t.firstTradeTs * 1000)}${
+                                  tooNewForWindow(t, ran.days)
+                                    ? ` — SHORTER than the ${ran.days}D window, so part of that window predates them`
+                                    : ""
+                                }`
+                              : "Track record not resolved yet — fills in on the next board sync"
+                          }
+                        >
+                          {formatHistory(t)}
+                        </span>
+                        <span
+                          className="font-mono text-[9px] text-pixel-gray whitespace-nowrap shrink-0"
                           title="Time since their most recent trade"
                         >
                           {t.lastTradeTs ? timeAgo(t.lastTradeTs * 1000) : "—"}

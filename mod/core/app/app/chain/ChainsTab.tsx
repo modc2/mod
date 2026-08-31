@@ -216,7 +216,10 @@ export function ChainsTab({
               }}>
                 <span>#{n.chainId}</span>
                 <span>{n.currency}</span>
-                <span style={{ color: state === 'dead' ? NEON.dead : 'var(--text-secondary)' }}>
+                <span
+                  style={{ color: state === 'dead' ? NEON.dead : 'var(--text-secondary)' }}
+                  title={!scanning && p && !p.up ? p.detail : undefined}
+                >
                   {scanning ? 'scanning…'
                     : !p ? '—'
                       : p.up ? `block ${p.block?.toLocaleString()} · ${p.ms}ms`

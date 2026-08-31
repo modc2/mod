@@ -2,10 +2,10 @@
     "name": "openhouse",
     "description": "Rent-to-own, on-chain \u2014 the protocol takes 1\u20135% (owner-set, capped in the contract) and 95\u201399% of every payment stays with the property as renter equity and owner income",
     "version": "2.1.0",
-    "port": 50130,
+    "port": 50132,
     "app_port": 50131,
     "urls": {
-        "api": "http://localhost:50130",
+        "api": "http://localhost:50132",
         "app": "http://localhost:50131"
     },
     "network": "testnet",
@@ -62,11 +62,11 @@
         "deregister"
     ],
     "mcp": {
-        "url": "http://localhost:50130/mcp",
+        "url": "http://localhost:50132/mcp",
         "transport": "streamable-http",
         "auth": "none",
         "docs": "Model Context Protocol (JSON-RPC 2.0 over Streamable HTTP) tool server for LLM agents \u2014 POST /mcp on the API. Reads: openhouse_terms, openhouse_quote, openhouse_models, openhouse_status, openhouse_property, openhouse_rent_stats, openhouse_rent_ledger, openhouse_equity, openhouse_shareholders, openhouse_portfolio, openhouse_dividends, openhouse_landscape, openhouse_source. Writes (testnet bookkeeping, no signed transactions): openhouse_pay_rent, openhouse_purchase, openhouse_set_terms, openhouse_claim_owner."
     },
-    "schema": "QmXQ7FtJ3pNfyvbc8kPwWvynuouomY1euQkEd42FqKS6Fx",
+    "schema": "QmV3WC9q3xrjjUNskDn58uSzq5HKW5grFaRRD9TncmekM7",
     "gateway_port": 50131
 }

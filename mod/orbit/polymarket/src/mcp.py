@@ -201,7 +201,7 @@ DEFAULT_ACTIVE_HOURS = 6
 
 # The ranking metric is parameterized; winRate is the default, matching the
 # console's SCORE preset. Keys are the server's sort keys verbatim.
-TRADER_SORTS = ('winRate', 'exitEntry', 'sharpe', 'pnl', 'volume')
+TRADER_SORTS = ('winRate', 'exitEntry', 'sharpe', 'pnl', 'volume', 'history')
 
 
 def _t_top_traders(args):
@@ -226,6 +226,12 @@ def _t_top_traders(args):
     }
     if hours > 0:
         params['maxLastTradeHrs'] = hours
+    # Track-record floor. A long `days` over a wallet that opened last week is
+    # mostly a flat line; this is how a caller demands N days of record behind
+    # the names it gets back. Unresolved ages are kept, not cut.
+    min_history = float(args.get('min_history_days') or 0)
+    if min_history > 0:
+        params['minHistoryDays'] = min_history
     # Paged reads answer from the warm cache and never trigger an aggregation:
     # the filters, the sort and the row count all run over the cached payload.
     paged = _get(f'{API_URL}/active-traders?{urllib.parse.urlencode(params)}', timeout=60)
@@ -235,6 +241,8 @@ def _t_top_traders(args):
             'total': paged.get('total'),
             'activeHours': hours if hours > 0 else None,
             'dormantHidden': paged.get('activityDropped'),
+            'minHistoryDays': min_history or None,
+            'tooNewHidden': paged.get('historyDropped'),
             'candidatePool': paged.get('candidatePool'),
             'source': paged.get('source'),
             'syncedAt': paged.get('syncedAt'),
@@ -805,8 +813,15 @@ TOOLS = {
             'active_hours': {'type': 'number', 'description': 'only traders whose last trade is '
                                                              'within this many hours (default 6; '
                                                              '0 = the whole board, dormants too)'},
+            'min_history_days': {'type': 'number', 'description': "track-record floor: only traders "
+                                                                 "whose FIRST-ever trade is at least "
+                                                                 "this many days old (default 0 = off). "
+                                                                 "Set it to `days` on a long window — a "
+                                                                 "wallet that opened last week can top the "
+                                                                 "30-day board on days it did not exist"},
             'sort': {'type': 'string', 'description': 'ranking metric: winRate (default) | '
-                                                      'exitEntry | sharpe | pnl | volume'},
+                                                      'exitEntry | sharpe | pnl | volume | '
+                                                      'history (longest track record first)'},
         }},
         'handler': _t_top_traders,
     },

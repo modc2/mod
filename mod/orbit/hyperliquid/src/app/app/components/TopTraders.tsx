@@ -53,6 +53,10 @@ export default function TopTraders() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [prog, setProg] = useState<ScanProgress | null>(null);
+  // The API walks a cold board in the background rather than holding the
+  // request open past a gateway timeout — `scanning` means the rows on screen
+  // are the last good board and a fresh one is still being built.
+  const [scanning, setScanning] = useState(false);
   const [coinFilter, setCoinFilter] = useState<Set<string>>(new Set());
   const [seedOpen, setSeedOpen] = useState(false);
   const [coinsExpanded, setCoinsExpanded] = useState(false);
@@ -65,7 +69,7 @@ export default function TopTraders() {
   // the user sees "X of N wallets" instead of an opaque spinner. Cached
   // fast-path responses resolve before the first poll — no flash.
   useEffect(() => {
-    if (!loading) { setProg(null); return; }
+    if (!loading && !scanning) { setProg(null); return; }
     let alive = true;
     const poll = () => fetchScanProgress()
       .then((p) => { if (alive) setProg(p.running ? p : null); })
@@ -73,7 +77,7 @@ export default function TopTraders() {
     poll();
     const id = setInterval(poll, 1000);
     return () => { alive = false; clearInterval(id); };
-  }, [loading]);
+  }, [loading, scanning]);
 
   const pct = prog && prog.total > 0
     ? Math.min(100, Math.round((prog.scanned / prog.total) * 100)) : null;
@@ -92,11 +96,22 @@ export default function TopTraders() {
         days, pool: coins.length ? enrich : "all", rank, enrich, seed: seedArr, coins,
       });
       const { traders: rows, ...m } = res;
-      setTraders(rows ?? []);
-      setMeta(m);
-    } catch (e: any) { setErr(e.message ?? String(e)); setTraders([]); setMeta(null); }
+      // A scanning answer with no rows yet must not blank a board we already
+      // have on screen — the walk it kicked off will fill it in.
+      if (!m.scanning || (rows?.length ?? 0) > 0) { setTraders(rows ?? []); setMeta(m); }
+      setScanning(!!m.scanning);
+    } catch (e: any) { setErr(e.message ?? String(e)); setTraders([]); setMeta(null); setScanning(false); }
     finally { setLoading(false); }
   };
+
+  // While the API is walking a board in the background, come back for it —
+  // the answer lands in its cache the moment the walk finishes.
+  useEffect(() => {
+    if (!scanning || loading) return;
+    const id = setTimeout(() => load(), 5_000);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line
+  }, [scanning, loading, days, rank, enrich, coinKey]);
 
   // Refetch when requirements change.
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [days, rank, enrich, coinKey]);
@@ -263,8 +278,8 @@ export default function TopTraders() {
           </>
         }
         right={
-          <Freshness loading={loading} label={
-            loading
+          <Freshness loading={loading || scanning} label={
+            loading || scanning
               ? (pct != null ? `syncing ${pct}%` : "syncing…")
               : meta?.updated_at ? `updated ${ago(meta.updated_at)}` : "waiting for the first scan"
           } />
@@ -357,8 +372,8 @@ export default function TopTraders() {
               onClick={() => setSeedOpen((v) => !v)}>
               seeds{seed.trim() ? " ●" : ""}
             </button>
-            <button className="btn-primary min-w-[6.5rem]" onClick={load} disabled={loading}>
-              {loading ? (pct != null ? `syncing ${pct}%` : "syncing…") : "scan"}
+            <button className="btn-primary min-w-[6.5rem]" onClick={load} disabled={loading || scanning}>
+              {loading || scanning ? (pct != null ? `syncing ${pct}%` : "syncing…") : "scan"}
             </button>
           </div>
         </div>
@@ -414,7 +429,7 @@ export default function TopTraders() {
       </div>
 
       {/* Sync progress — shown while the API is actively scanning Hyperliquid */}
-      {loading && (
+      {(loading || scanning) && (
         <div className="panel p-3 space-y-2">
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-accent2">
@@ -464,14 +479,14 @@ export default function TopTraders() {
           <div />
         </div>
         {err && <div className="px-4 py-3 text-xs text-loss">{err}</div>}
-        {loading && sorted.length === 0 &&
+        {(loading || scanning) && sorted.length === 0 &&
           [...Array(6)].map((_, i) => (
             <div key={i} className={`${GRID} py-3 items-center table-row`}>
               <div className="skeleton h-4 w-44" />
               {[...Array(7)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
             </div>
           ))}
-        {!err && !loading && sorted.length === 0 && (
+        {!err && !loading && !scanning && sorted.length === 0 && (
           <div className="px-4 py-10 text-center text-xs text-muted">
             {coinFilter.size > 0
               ? `no active wallet in the top ${meta?.depth ?? "—"} of the leaderboard traded ${coinList.join(" / ")} in the last ${days}d — try another coin or a longer window.`

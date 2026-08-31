@@ -1,4 +1,4 @@
-/* musica — the crate half: this module's API, and three platforms behind it.
+/* musica — the crate half: this module's API, and five platforms behind it.
  *
  * Every call is relative to the page. index.html pins <base href="./"> and the
  * gateway serves the console at /musica with the prefix kept, so `api/search`
@@ -54,6 +54,11 @@ const api = {
   bandcampPage: (url) => call('bandcamp_page', { url }),
   soundcloudPlaylist: (id) => call('soundcloud_playlist', { id }),
   soundcloudUser: (id) => call('soundcloud_user', { id }),
+  youtubeVideo: (id) => call('youtube_video', { id }),
+  youtubePlaylist: (id, limit) => call('youtube_playlist', { id, limit }),
+  youtubeChannel: (id, limit) => call('youtube_channel', { id, limit }),
+  archiveItem: (id) => call('archive_item', { id }),
+  archiveCollection: (id, q, limit) => call('archive_collection', { id, q, limit }),
   track: (id) => call('track', { id }),
   album: (id) => call('album', { id }),
   artist: (id) => call('artist', { id }),
@@ -64,8 +69,9 @@ const api = {
 };
 
 /* The URL the browser should fetch a platform track's bytes from: SoundCloud
- * hands over a CORS-open CDN URL, Bandcamp goes through the module's proxy.
- * Both are answers to api.stream(); this just picks the right one. */
+ * and archive.org hand over CORS-open URLs, Bandcamp and YouTube go through
+ * the module's proxy. All are answers to api.stream(); this picks the right
+ * one, and app.js retries through the proxy if a direct fetch is refused. */
 function streamUrl(where) {
   if (!where) return null;
   if (where.direct && where.url) return where.url;
@@ -112,11 +118,20 @@ function subtitle(item) {
 }
 
 const SOURCES = {
-  spotify: { label: 'Spotify', short: 'SP', color: '#1db954' },
-  bandcamp: { label: 'Bandcamp', short: 'BC', color: '#1da0c3' },
-  soundcloud: { label: 'SoundCloud', short: 'SC', color: '#ff5500' },
-  local: { label: 'File', short: 'FILE', color: '#c8ff2e' },
+  spotify: { label: 'Spotify', short: 'SP', color: '#1db954', plays: false },
+  bandcamp: { label: 'Bandcamp', short: 'BC', color: '#1da0c3', plays: true },
+  soundcloud: { label: 'SoundCloud', short: 'SC', color: '#ff5500', plays: true },
+  youtube: { label: 'YouTube', short: 'YT', color: '#ff3b30', plays: true },
+  archive: { label: 'Internet Archive', short: 'IA', color: '#9c8cff', plays: true },
+  local: { label: 'File', short: 'FILE', color: '#c8ff2e', plays: true },
 };
+
+/* Whether a deck can decode this source's audio at all. Spotify is the only
+ * no: its stream is DRM-protected, which no amount of Web Audio gets around. */
+function playable(source) {
+  const s = SOURCES[source];
+  return s ? s.plays !== false : true;
+}
 
 /* ── links ────────────────────────────────────────────────────────────── */
 
@@ -137,6 +152,32 @@ function detect(text) {
   if (host.endsWith('bandcamp.com')) {
     const kind = path.includes('/track/') ? 'track' : (path.includes('/album/') ? 'album' : 'artist');
     return { source: 'bandcamp', kind, id: `${u.protocol}//${u.host}${path}` };
+  }
+  if (/(^|\.)youtube\.com$/.test(host) || host.endsWith('youtu.be')) {
+    if (host.endsWith('youtu.be')) {
+      const vid = path.split('/').filter(Boolean)[0];
+      return vid ? { source: 'youtube', kind: 'track', id: vid } : null;
+    }
+    if (/^\/watch$/.test(path) && u.searchParams.get('v')) {
+      return { source: 'youtube', kind: 'track', id: u.searchParams.get('v') };
+    }
+    m = path.match(/^\/(?:shorts|embed|v|live)\/([\w-]+)/);
+    if (m) return { source: 'youtube', kind: 'track', id: m[1] };
+    if (/^\/(playlist|watch_videos)$/.test(path) && u.searchParams.get('list')) {
+      return { source: 'youtube', kind: 'playlist', id: u.searchParams.get('list') };
+    }
+    m = path.match(/^\/(channel\/[\w-]+|@[^/]+|c\/[^/]+|user\/[^/]+)/);
+    if (m) return { source: 'youtube', kind: 'artist', id: m[1].split('/').pop() };
+    return null;
+  }
+  if (host.endsWith('archive.org')) {
+    m = path.match(/\/(?:details|download|embed|metadata)\/([^/]+)(\/.*)?$/);
+    if (!m) return null;
+    const rest = (m[2] || '').replace(/^\//, '');
+    if (rest && /\.(mp3|ogg|oga|flac|m4a|wav|opus|aiff)$/i.test(rest)) {
+      return { source: 'archive', kind: 'track', id: `${m[1]}/${decodeURIComponent(rest)}` };
+    }
+    return { source: 'archive', kind: 'album', id: m[1] };
   }
   if (/^(www\.|m\.|on\.)?soundcloud\.com$/.test(host)) {
     const parts = path.split('/').filter(Boolean);
@@ -180,6 +221,7 @@ function camelotShift(code, semitones) {
 }
 
 M.api = api;
-M.crate = { dur, subtitle, detect, streamUrl, SOURCES, parseCamelot, camelotRel, camelotShift };
+M.crate = { dur, subtitle, detect, streamUrl, SOURCES, playable,
+            parseCamelot, camelotRel, camelotShift };
 
 })(typeof globalThis !== 'undefined' ? globalThis : this);

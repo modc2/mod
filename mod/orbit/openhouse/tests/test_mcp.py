@@ -160,8 +160,11 @@ def test_write_tools_announce_themselves(client):
 
 def test_terms_returns_the_live_deal(client):
     t = data(call(client, 'openhouse_terms'))
-    assert 1 <= t['fee_pct'] <= 5
-    assert t['fee_band'] == {'min_pct': 1.0, 'max_pct': 5.0}
+    # Bound to the constants, not to a copy of them: the floor already moved
+    # from 1% to 0% once (taking nothing is inside the band) and this test was
+    # the last thing still asserting the old number.
+    assert openhouse_mod.Mod.MIN_FEE_PCT <= t['fee_pct'] <= openhouse_mod.Mod.MAX_FEE_PCT
+    assert t['fee_band'] == {'min_pct': openhouse_mod.Mod.MIN_FEE_PCT, 'max_pct': openhouse_mod.Mod.MAX_FEE_PCT}
     # the three legs of a payment account for the whole of it
     assert round(t['fee_pct'] + t['equity_pct_of_rent'] + t['owner_pct_of_rent'], 6) == 100.0
 
@@ -260,7 +263,7 @@ def test_rent_ledger_filters_and_limits(client):
 
 
 def test_set_terms_holds_the_fee_band(client):
-    assert 'between 1.0% and 5.0%' in errtext(call(client, 'openhouse_set_terms', fee_pct=12))
+    assert f'between {openhouse_mod.Mod.MIN_FEE_PCT}% and {openhouse_mod.Mod.MAX_FEE_PCT}%' in errtext(call(client, 'openhouse_set_terms', fee_pct=12))
     assert 'between 0% and 100%' in errtext(call(client, 'openhouse_set_terms', credit_pct=140))
 
 

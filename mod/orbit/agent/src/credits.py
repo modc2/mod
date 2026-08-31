@@ -216,19 +216,27 @@ class Credits:
 
     def credit(self, address: str, amount: float, kind: str = 'deposit',
                note: str = '', tx: str = None) -> dict:
-        """Add credits to an account (deposit verification or owner grant)."""
+        """Move an account's balance (deposit verification, or an owner
+        top-up / deduction).
+
+        A deduction can only take what is there — an account never goes
+        negative — and it is the amount that ACTUALLY moved that gets
+        written to the history and the books. Booking the requested amount
+        instead let '-100' off a $5 account knock $100 off the treasury.
+        """
         if not address or not str(address).startswith('0x'):
             raise ValueError('a 0x address is required')
         amount = float(amount)
         with self._lock:
             acct = self._account(address)
-            acct['balance'] = round(float(acct['balance']) + amount, 6)
-            if acct['balance'] < 0:
-                acct['balance'] = 0.0
-            self._record(acct, kind, amount, note, tx)
-            self._book_credit(kind, amount)
+            before = float(acct['balance'])
+            acct['balance'] = round(max(0.0, before + amount), 6)
+            applied = round(acct['balance'] - before, 6)
+            self._record(acct, kind, applied, note, tx)
+            self._book_credit(kind, applied)
             self._save()
-            return {'address': address.lower(), 'balance': acct['balance'], 'credited': amount}
+            return {'address': address.lower(), 'balance': acct['balance'],
+                    'credited': applied, 'requested': round(amount, 6)}
 
     # ── charging ─────────────────────────────────────────────────────
 
@@ -298,7 +306,9 @@ class Credits:
     def _book_credit(self, kind: str, amount: float):
         """Money in: a verified deposit is real cash, a grant is not."""
         book = self._state['treasury']
-        field = 'grants' if kind == 'grant' else 'deposits'
+        # a debit is an owner reversal of free credit, so it walks `grants`
+        # back down rather than pretending cash left the deposit float
+        field = 'grants' if kind in ('grant', 'debit') else 'deposits'
         book[field] = round(book.get(field, 0.0) + float(amount), 6)
 
     def _book_ledger(self, entry: dict):

@@ -368,8 +368,10 @@ def test_pool_all_is_the_whole_gated_leaderboard_with_stats_only_on_top():
     assert r["candidates"] == len(rows) == r["priced"] == r["matched"]
     # every row is priced from the leaderboard ...
     assert all(t["account_value"] >= 1000 for t in rows)
-    # ... but fill stats were only spent on the top slice by rank
-    assert 0 < r["enriched"] <= 120
+    # ... but fill stats were only spent on a top slice by rank — the request
+    # asks for 120, and the background deepener may have measured further down
+    # by now, so the bound is "a slice", not the requested number.
+    assert 0 < r["enriched"] < len(rows)
     assert r["enriched"] == sum(1 for t in rows if t["win_rate"] >= 0)
     # the board is ordered by the rank metric
     rois = [t["roi"] for t in rows]
@@ -387,13 +389,30 @@ def test_score_floors_and_sort_apply_server_side():
     # never lets an unmeasured 0 outrank a measured value
     r = requests.get(f"{API_URL}/traders/top", params={**base, "min_sharpe": 0, "sort": "sharpe"}, timeout=120).json()
     assert r["sort"] == "sharpe"
-    assert r["matched"] == r["enriched"] == len(r["traders"]) <= 120
+    assert r["matched"] == r["enriched"] == len(r["traders"]) < every["matched"]
     sharpes = [t["sharpe"] for t in r["traders"]]
     assert sharpes == sorted(sharpes, reverse=True) and all(s >= 0 for s in sharpes)
     # rows without stats sink to the bottom on a stat sort of the unfiltered board
     r = requests.get(f"{API_URL}/traders/top", params={**base, "sort": "win_rate"}, timeout=120).json()
     measured = [t["win_rate"] >= 0 for t in r["traders"]]
     assert measured.index(False) == r["enriched"] and not any(measured[r["enriched"]:])
+
+
+def test_cold_board_answers_scanning_instead_of_timing_out():
+    # A board nobody has asked for yet is a multi-minute walk — longer than any
+    # proxy holds a connection. `wait` bounds how long the request blocks; past
+    # it the walk continues in the background and the answer says so.
+    r = requests.get(f"{API_URL}/traders/top",
+                     params={"days": 30, "pool": 7, "rank": "volume", "active": "window",
+                             "enrich": 5, "wait": 0}, timeout=30)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert "scanning" in d and isinstance(d["traders"], list)
+    if d["scanning"]:
+        assert d["progress"] is not None
+    # a cached board is never "scanning" — the fast path answers outright
+    warm = requests.get(f"{API_URL}/traders/top", params={"days": 7, "pool": 5}, timeout=120).json()
+    assert warm["scanning"] is False and warm["progress"] is None and len(warm["traders"]) == 5
 
 
 def test_bad_pool_and_sort_are_400s():

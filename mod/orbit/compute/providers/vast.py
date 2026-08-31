@@ -52,8 +52,13 @@ class Vast(Provider):
         q = {'rentable': {'eq': True}, 'num_gpus': {'gte': f.min_gpus or 1},
              'type': 'on-demand', 'order': [['dph_total', 'asc']],
              'limit': min(max(int(f.limit or 40), 64), 256)}
-        if f.max_usd_hr is not None:
-            q['dph_total'] = {'lte': f.max_usd_hr}
+        if f.max_usd_hr is not None or f.min_usd_hr is not None:
+            band = {}
+            if f.max_usd_hr is not None:
+                band['lte'] = f.max_usd_hr
+            if f.min_usd_hr is not None:
+                band['gte'] = f.min_usd_hr
+            q['dph_total'] = band
         if f.min_vram_gb:
             q['gpu_ram'] = {'gte': int(f.min_vram_gb * 1024)}
         if f.gpu:

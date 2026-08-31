@@ -268,12 +268,12 @@ export function ContractsTab({
           )}
           {explorerUrl(d.network, d.address) && (
             <a href={explorerUrl(d.network, d.address)} target="_blank" rel="noreferrer" style={linkStyle}>
-              CONTRACT ↗
+              CONTRACT<Out />
             </a>
           )}
           {d.tx_hash && txUrl(d.network, d.tx_hash) && (
             <a href={txUrl(d.network, d.tx_hash)} target="_blank" rel="noreferrer" style={linkStyle}>
-              TX ↗
+              TX<Out />
             </a>
           )}
         </div>
@@ -302,7 +302,7 @@ export function ContractsTab({
           <Btn size="sm" active={false} onClick={() => copy(r.address, 'Address')}>COPY</Btn>
           <Btn size="sm" active={false} onClick={() => checkCode([{ network, address: r.address }])}>VERIFY</Btn>
           {explorerUrl(network, r.address) && (
-            <a href={explorerUrl(network, r.address)} target="_blank" rel="noreferrer" style={linkStyle}>EXPLORER ↗</a>
+            <a href={explorerUrl(network, r.address)} target="_blank" rel="noreferrer" style={linkStyle}>EXPLORER<Out /></a>
           )}
         </div>
       </div>
@@ -400,3 +400,12 @@ const linkStyle = {
   border: '2px solid var(--border-color)', color: 'var(--text-tertiary)',
   textDecoration: 'none',
 } as const
+
+/**
+ * The "opens elsewhere" arrow. Press Start 2P has no ↗, so set in linkStyle's
+ * pixel face it draws as tofu — a comma-shaped box. It gets the terminal face
+ * of its own, which does have the glyph.
+ */
+const Out = () => (
+  <span style={{ fontFamily: TERM_FONT, fontSize: '13px', marginLeft: '5px' }}>↗</span>
+)

@@ -1,8 +1,8 @@
 {
     "name": "musica",
-    "version": "0.2.0",
-    "description": "A DJ booth and a pattern studio in one browser tab. Two decks with beatmatch, EQ, filters, loops and key matching; a step sequencer and piano roll in the FL Studio idiom; and a crate that searches Spotify, Bandcamp and SoundCloud at once. Bandcamp and SoundCloud tracks stream straight onto a deck and get analysed for tempo and key; Spotify is metadata and embeds. Every sample is decoded and mixed client-side through Web Audio \u2014 the module serves the console, answers the three platforms (Bandcamp and SoundCloud need no keys; Spotify uses your own app keys) and proxies the one stream that lacks CORS.",
-    "icon": "\ud83c\udf9b\ufe0f",
+    "version": "0.3.0",
+    "description": "A DJ booth and a pattern studio in one browser tab, and an MCP server for agents. Two decks with beatmatch, EQ, filters, loops and key matching; a step sequencer and piano roll in the FL Studio idiom; and a crate that searches Spotify, Bandcamp, SoundCloud, YouTube and the Internet Archive at once. Everything but Spotify streams onto a deck and gets analysed for tempo and key — YouTube through yt-dlp, archive.org straight from the source. Every sample is decoded and mixed client-side through Web Audio; the module serves the console, answers the five platforms (only Spotify needs keys), proxies the two streams that lack CORS, and exposes the whole crate as 16 MCP tools at POST /mcp.",
+    "icon": "🎛️",
     "color": "#c8ff2e",
     "anchor": "mod.py",
     "network": "testnet",
@@ -13,7 +13,8 @@
     "route": true,
     "urls": {
         "app": "http://localhost:50780/musica",
-        "api": "http://localhost:50780"
+        "api": "http://localhost:50780",
+        "mcp": "http://localhost:50780/musica/mcp"
     },
     "fns": [
         "forward",
@@ -40,6 +41,13 @@
         "bandcamp_page",
         "soundcloud_playlist",
         "soundcloud_user",
+        "mcp",
+        "tools",
+        "archive_collection",
+        "archive_item",
+        "youtube_channel",
+        "youtube_playlist",
+        "youtube_video",
         "spotify_status",
         "platforms",
         "warm",
@@ -76,18 +84,25 @@
         "discover",
         "bandcamp_page",
         "soundcloud_playlist",
-        "soundcloud_user"
+        "soundcloud_user",
+        "youtube_video",
+        "youtube_playlist",
+        "youtube_channel",
+        "archive_item",
+        "archive_collection",
+        "tools",
+        "mcp"
     ],
     "endpoints": {
-        "/info": "Null call \u2014 what this module is and what it exposes",
+        "/info": "Null call — what this module is and what it exposes",
         "/health": "Liveness",
         "/decks": "The mixer's signal chain, deck by deck",
         "/kit": "The synthesised drum kit and synth voices the sequencer ships with",
-        "/platforms": "What Spotify, Bandcamp and SoundCloud will and won't do from this deployment (keys masked)",
-        "/search": "Search all three platforms at once, or one (q, source=all|spotify|bandcamp|soundcloud, kind=track|album|artist|playlist, limit). A pasted link resolves instead.",
-        "/resolve": "A Spotify, Bandcamp or SoundCloud link \u2192 the track, album, playlist or artist it names, with tracks",
-        "/stream": "Where a track's audio is (source=bandcamp|soundcloud, id). SoundCloud: a direct CORS-open URL. Bandcamp: pulled through /stream/bandcamp?id=\u2026",
-        "/stream/bandcamp": "The MP3 itself, proxied with Range passthrough \u2014 the one non-JSON route",
+        "/platforms": "What Spotify, Bandcamp, SoundCloud, YouTube and the Internet Archive will and won't do from this deployment (keys masked)",
+        "/search": "Search all five platforms at once, or one (q, source=all|spotify|bandcamp|soundcloud|youtube|archive, kind=track|album|artist|playlist, limit). A pasted link resolves instead.",
+        "/resolve": "A Spotify, Bandcamp, SoundCloud, YouTube or archive.org link → the track, album, playlist, channel or item it names, with tracks",
+        "/stream": "Where a track's audio is (source, id). SoundCloud and archive.org answer with a CORS-open URL; Bandcamp and YouTube are pulled through /stream/<source>.",
+        "/stream/bandcamp": "The MP3 itself, proxied with Range passthrough — one of two non-JSON routes",
         "/discover": "Bandcamp's discover feed for a tag (tag, slice=top|new|rec, size)",
         "/bandcamp_page": "One Bandcamp album or track page, every track listed with whether it streams",
         "/soundcloud_playlist": "A SoundCloud set or album with its tracks hydrated",
@@ -95,11 +110,53 @@
         "/track": "One Spotify track's metadata",
         "/album": "A Spotify album with its tracks",
         "/artist": "A Spotify artist's top tracks",
-        "/playlist": "A Spotify playlist's tracks \u2014 public, or yours if orbit/spotify is logged in",
+        "/playlist": "A Spotify playlist's tracks — public, or yours if orbit/spotify is logged in",
         "/my_playlists": "Your own Spotify playlists, via orbit/spotify's login",
         "/spotify_status": "Whether Spotify is wired up, and which endpoints this app may call",
-        "/keys": "Alias of /platforms"
+        "/keys": "Alias of /platforms",
+        "/stream/youtube": "A video's best audio-only track (m4a), proxied with Range passthrough — googlevideo sends no CORS header",
+        "/youtube_video": "One YouTube video's metadata (id or any watch/shorts/youtu.be URL)",
+        "/youtube_playlist": "A YouTube playlist, mix or album with its videos",
+        "/youtube_channel": "A channel's uploads (@handle, UC… id or channel URL)",
+        "/archive_item": "One archive.org item with its tracks — each track id is identifier/filename",
+        "/archive_collection": "Browse one archive.org collection: etree, netlabels, 78rpm… (id, q, limit)",
+        "/tools": "The MCP tool list, as JSON",
+        "/mcp": "The MCP server: POST a JSON-RPC 2.0 message (initialize, tools/list, tools/call). GET lists the tools."
     },
     "key": "musica",
-    "schema": "QmRMygtncKMqGvA7kar6vXzRmbxqaHtQyeNX4qoZ78SBdi"
+    "schema": "Qmefx3TwvHw29FY1XGcvGJLdQ6Z7CNw8M2fqsrRP4CBBiD",
+    "mcp": {
+        "protocol": "2025-06-18 (also speaks 2025-03-26 and 2024-11-05)",
+        "transports": {
+            "http": "POST /mcp on the app port (and /api/musica/mcp through the gateway)",
+            "stdio": "python3 mcp.py"
+        },
+        "auth": "none — every tool is a public read; musica_fetch writes audio into ~/.mod/musica/audio",
+        "tool_prefix": "musica_",
+        "tools": [
+            "musica_search",
+            "musica_resolve",
+            "musica_stream",
+            "musica_fetch",
+            "musica_youtube_video",
+            "musica_youtube_playlist",
+            "musica_youtube_channel",
+            "musica_bandcamp_page",
+            "musica_bandcamp_discover",
+            "musica_soundcloud_playlist",
+            "musica_soundcloud_user",
+            "musica_archive_item",
+            "musica_archive_collection",
+            "musica_spotify",
+            "musica_platforms",
+            "musica_console"
+        ]
+    },
+    "sources": {
+        "spotify": "metadata + embeds (DRM)",
+        "bandcamp": "mp3-128, proxied",
+        "soundcloud": "progressive mp3, direct",
+        "youtube": "best audio-only via yt-dlp, proxied",
+        "archive": "original files, direct"
+    }
 }

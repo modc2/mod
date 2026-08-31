@@ -130,7 +130,7 @@ class Mod:
 
         # Config
         self.network = self.config.get('network', 'testnet')
-        self.port = int(self.config.get('port', 50130))
+        self.port = int(self.config.get('port', 50132))
         self.app_port = int(self.config.get('app_port', 50131))
 
         # Chain config
@@ -1138,7 +1138,8 @@ class Mod:
     # Whitelisted, human-meaningful source files surfaced to the app.
     _SOURCE_FILES = [
         ('contracts/OpenHouse.sol', 'solidity',
-         'The on-chain contract: shares, pro-rata dividends, governance.'),
+         'The on-chain contract: rent credited as principal, the quarterly '
+         'BLOCTIME pool, governance.'),
         ('mod.py', 'python',
          'Module logic — shares, dividends, governance, serving.'),
         ('api/api.py', 'python',

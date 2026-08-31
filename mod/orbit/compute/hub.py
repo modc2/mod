@@ -12,6 +12,11 @@ Three rules the whole module rests on.
      market is down or unkeyed; the dead ones come back in `providers` with
      their reason, and the rest of the answer is still there.
 
+Every market that publishes a location also comes back placed: `geo` on the
+row, and `map` on the answer, so "where is the cheap H100" is one call and not
+a hundred region strings to squint at. A market that publishes nothing stays
+unplaced and is counted as such — see geo.py.
+
 Nothing here knows a provider's name — that lives in providers/.
 """
 
@@ -20,6 +25,7 @@ import os
 import re
 import time
 
+import geo
 import providers as P
 from providers.base import ProviderError
 
@@ -107,6 +113,7 @@ class Hub:
         else:
             priced.sort(key=lambda o: o['usd_hr'])
         rows = (priced + unpriced)[:f.limit]
+        geo.attach(rows)
         if not raw:
             # the console's distribution view wants every row, not every
             # provider's payload — a vast row carries ~3 KB of raw for 350 B of shape
@@ -117,9 +124,28 @@ class Hub:
             'total_found': len(offers),
             'cheapest': priced[0] if priced else None,
             'offers': rows,
+            'map': geo.rollup(rows),
             'providers': report,
             'took_ms': round((time.time() - started) * 1000),
         }
+
+    # ── where ─────────────────────────────────────────────────────────
+
+    def map(self, provider=None, kyc=None, limit=2000, **filters):
+        """The same search, answered as places instead of rows.
+
+        Markets are merged onto shared cells, so a point is somewhere machines
+        are, with what the cheapest one there costs. Offers whose provider
+        publishes no location are counted in `unplaced` rather than guessed at.
+        """
+        got = self.search(provider=provider, kyc=kyc, limit=limit, raw=False,
+                          **filters)
+        out = dict(got['map'])
+        out['filters'] = got['filters']
+        out['total_found'] = got['total_found']
+        out['providers'] = got['providers']
+        out['took_ms'] = got['took_ms']
+        return out
 
     def offer(self, oid):
         """One offer, re-read from its own provider."""
@@ -207,6 +233,7 @@ class Hub:
                     report[p.name] = e.dict()
                 except Exception as e:
                     report[p.name] = {'error': f'{type(e).__name__}: {e}'}
+        geo.attach(rows)
         burn = sum(r['usd_hr'] for r in rows if r.get('usd_hr'))
         return {'instances': rows, 'count': len(rows),
                 'burn_usd_hr': round(burn, 4), 'providers': report}

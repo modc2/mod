@@ -75,6 +75,20 @@ function authToken(): string | null {
   } catch { return null; }
 }
 
+// Not every error body is ours: a proxy timing out in front of the API answers
+// with its own HTML page, and dumping that verbatim into the UI is how a 524
+// ends up rendered as a wall of markup. Keep the API's `error` field when
+// there is one, otherwise a short readable line.
+function brief(body: string): string {
+  try {
+    const j = JSON.parse(body);
+    const msg = j?.error ?? j?.message;
+    if (typeof msg === "string") return msg;
+  } catch { /* not ours */ }
+  const text = body.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return text.length > 160 ? `${text.slice(0, 160)}…` : text;
+}
+
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const token = authToken();
   const r = await fetch(`${BASE}${path}`, {
@@ -91,7 +105,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
     // header shows "sign in" instead of silently failing everywhere.
     window.dispatchEvent(new CustomEvent("hl:unauthorized"));
   }
-  if (!r.ok) throw new Error(`${path} ${r.status} ${await r.text().catch(() => "")}`);
+  if (!r.ok) throw new Error(`${path} ${r.status} ${brief(await r.text().catch(() => ""))}`);
   return r.json() as Promise<T>;
 }
 
@@ -135,6 +149,10 @@ export type BoardMeta = {
   rank: string; active: string; sort: string; coins: string[];
   depth: number; candidates: number | null; priced: number; matched: number; enriched: number;
   updated_at: number;
+  // A cold board is walked in the background (it outlives any proxy timeout):
+  // `scanning` means these rows are the last good board, not the answer yet.
+  scanning?: boolean;
+  progress?: ScanProgress | null;
 };
 export const fetchBoard = (o: {
   days: number; pool: number | "all"; rank?: string; enrich?: number; seed?: string[]; coins?: string[];

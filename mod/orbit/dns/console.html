@@ -104,29 +104,36 @@
   .brand .cur{display:inline-block;width:9px;height:15px;background:var(--hot);
     margin-left:2px;animation:blink 1.06s steps(1) infinite;vertical-align:-2px}
   @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
-  @media(max-width:1080px){.brand .tag{display:none}}
+  /* the strapline yields to the readings: below this the top line is worth
+     more as six live numbers than as a sentence you have already read */
+  @container page (max-width:1400px){.brand .tag{display:none}}
 
-  .stats{display:flex;gap:8px;align-items:stretch;margin-left:6px;flex-wrap:wrap}
-  .stat{padding:4px 12px;background:var(--panel);border:var(--px) solid var(--line);
+  /* The readings live in the top line, in the gap the brand and the buttons
+     used to leave empty between them. A header row of blank pixels is a row
+     that could have been carrying five numbers. Too many to fit, they scroll. */
+  .stats{display:flex;gap:8px;align-items:stretch;margin:0 6px;flex:1 1 0;
+        min-width:0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;
+        -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);
+        mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}
+  .stats::-webkit-scrollbar{display:none}
+  .stat{flex:none;padding:4px 12px;background:var(--panel);border:var(--px) solid var(--line);
         line-height:1.2}
   .stat .k{display:block;font-size:7px;letter-spacing:.12em;color:var(--faint)}
   .stat .v{font-size:17px;color:var(--ink2);font-variant-numeric:tabular-nums}
   .stat .v.hot{color:var(--hot)}
-  /* When the top line runs out of room it is the readings that drop to a row
-     of their own, not the wallet button: the brand and the buttons are the
-     one arrangement a header is always read in. */
-  @media(max-width:1280px){.stats{order:3;width:100%;margin-left:0}}
-  @media(min-width:1081px) and (max-width:1700px){
-    body.docked .stats{order:3;width:100%;margin-left:0}}
-  /* Narrow: the five readings scroll as one strip instead of stacking into
-     three rows of chrome above the first thing anyone came here to read. */
-  @media(max-width:900px){
-    .stats{width:100%;order:3;margin-left:0;flex-wrap:nowrap;overflow-x:auto;
-      scrollbar-width:none;padding-bottom:2px;
-      -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 20px),transparent);
-      mask-image:linear-gradient(90deg,#000 calc(100% - 20px),transparent)}
-    .stats::-webkit-scrollbar{display:none}
-    .stat{flex:none}
+  /* Only on a phone do the readings take a line of their own: above that the
+     strip scrolls in place rather than pushing the tabs down a row. */
+  /* tighter type before the strip has to scroll: six readings you can see
+     beat four you can and two you have to drag for */
+  @container page (max-width:1240px){
+    .stat{padding:3px 9px}.stat .v{font-size:15px}
+  }
+  /* Only on a phone do the readings take a line of their own. Anywhere else
+     they stay in the top line and scroll: a header whose first row is empty
+     while its second row is numbers is one row of wasted screen. */
+  @container page (max-width:700px){
+    .stats{width:100%;order:3;margin:0;flex:none;padding-bottom:2px}
+    .stat{padding:4px 12px}.stat .v{font-size:17px}
   }
 
   .who{margin-left:auto;position:relative;display:flex;align-items:center;gap:8px}
@@ -181,7 +188,7 @@
   nav button{flex:none}
   /* Below the wrap point the eight keys become one scrolling strip, faded at
      the edge so it reads as more-to-the-right; go() scrolls the live one in. */
-  @media(max-width:1080px){
+  @container page (max-width:1080px){
     nav{flex-wrap:nowrap;scroll-snap-type:x proximity;
       -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent);
       mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent)}
@@ -339,6 +346,8 @@
   .hero h1{font-family:var(--f-pixel);font-size:15px;line-height:1.8;
         color:var(--ink);margin:0 0 14px;text-shadow:2px 2px 0 #03050c}
   .hero .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  /* how wide the guide column is when it is open */
+  :root{--dockw:min(408px,34vw)}
   .prose{font-size:18px;line-height:1.5;color:var(--ink2);max-width:74ch;margin:0 0 11px}
   .prose.dim{color:var(--dim)}
 
@@ -386,20 +395,26 @@
   .word span{display:block;color:var(--dim)}
 
   /* ── the dock: the guide, on every tab ───────────────────────────── */
-  .dock{position:fixed;top:0;right:0;bottom:0;width:424px;max-width:100%;z-index:55;
-        background:var(--bg);border-left:var(--px) solid var(--edge);
-        display:flex;flex-direction:column;transform:translateX(100%);
-        transition:transform .16s steps(4)}
-  .dock.on{transform:none}
-  /* Open, the guide gets a column of its own: the whole page is inset —
-     header included — rather than the panel being laid over the tabs and the
-     wallet button, which is how a dock ends up hiding the thing it just told
-     you to press. */
-  @media(min-width:1081px){
-    body.docked{padding-right:424px}
-    body.docked .toast{right:442px}
-  }
-  body{transition:padding-right .16s steps(4)}
+  /* The guide is a column of the page, not a sheet laid over it: the shell is
+     one flex row — page, then dock — so asking a question narrows the console
+     instead of covering the tab and the wallet button it just told you to
+     press. Shut, the column is slid out by its own width and costs nothing. */
+  body{display:flex;align-items:flex-start}
+  #page{flex:1 1 auto;min-width:0;container:page / inline-size}
+  /* Shut, the column is a zero-width slot: nothing is parked off the right of
+     the page, so there is no phantom width to scroll into. Its contents keep
+     their own width and are clipped, which is what makes the open and shut
+     states one width transition and not a slide over the top of the page. */
+  .dock{flex:none;width:0;overflow:hidden;position:sticky;top:0;height:100vh;
+        z-index:55;background:var(--bg);
+        border-left:0 solid var(--edge);visibility:hidden;
+        display:flex;flex-direction:column;
+        transition:width .16s steps(4),border-left-width .16s steps(4),
+                   visibility 0s .16s}
+  .dock > *{width:var(--dockw)}
+  .dock.on{width:var(--dockw);border-left-width:var(--px);visibility:visible;
+        transition:width .16s steps(4),border-left-width .16s steps(4)}
+  body.docked .toast{right:calc(var(--dockw) + 18px)}
   /* the sheet's backdrop, only ever lit under the narrow layout */
   .scrim{position:fixed;inset:0;z-index:54;background:rgba(4,6,14,.62);
          opacity:0;pointer-events:none;transition:opacity .16s}
@@ -496,17 +511,22 @@
      header is a dock you cannot get out of the way to reach the tab it just
      told you to open. */
   @media(max-width:1080px){
-    .dock{width:100%;top:auto;height:min(76vh,660px);border-left:none;
+    body{display:block}
+    .dock{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;height:min(76vh,660px);
+          overflow:visible;visibility:visible;border-left:none;
           border-top:var(--px) solid var(--edge);transform:translateY(100%);
-          box-shadow:0 -6px 0 rgba(3,5,12,.6)}
-    .dock.on{transform:none}
+          box-shadow:0 -6px 0 rgba(3,5,12,.6);
+          transition:transform .16s steps(4)}
+    .dock > *{width:auto}
+    .dock.on{width:auto;transform:none;transition:transform .16s steps(4)}
     .dock .grab{display:block}
     body.docked .scrim{opacity:1;pointer-events:auto}
+    body.docked .toast{right:18px}
   }
   /* Narrow: the header stays one line of brand and buttons, the readings and
      the tabs each stay one scrolling line. Four stacked rows of chrome on a
      390px screen is a console with no room left to be a console. */
-  @media(max-width:760px){
+  @container page (max-width:760px){
     .top{padding:10px 13px;gap:9px}
     nav{padding:0 13px 10px}
     main{padding:13px 13px 84px}
@@ -516,11 +536,15 @@
     .who button.ghost{font-size:7px;padding:8px 9px}
     button.wallet{font-size:7px;padding:9px 10px;gap:6px}
     .stat{padding:3px 9px}.stat .v{font-size:15px}
+  }
+  @media(max-width:760px){
     .fab{bottom:14px;right:14px;padding:10px 13px;font-size:8px}
   }
 </style>
 </head>
 <body>
+
+<div id="page">
 
 <header>
   <div class="top">
@@ -677,6 +701,7 @@
 
 </main>
 
+</div><!-- /#page -->
 
 <!-- ── GUIDE-UI: the guide, docked ─────────────────────────────────── -->
 <div class="scrim" id="scrim" aria-hidden="true"></div>

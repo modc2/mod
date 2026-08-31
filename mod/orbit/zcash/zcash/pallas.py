@@ -411,6 +411,10 @@ SINSEMILLA_C = 253                      # chunks a message may have
 def sinsemilla_hash_to_point(d: bytes, bits) -> Point:
     """SinsemillaHashToPoint(D, M) over a message given as a list of bits."""
     bits = list(bits)
+    # A caller that hands over a string of "0"/"1" -- or bytes -- would
+    # otherwise get a hash of nonsense out, silently. Sinsemilla takes bits.
+    if any(b not in (0, 1) for b in bits):
+        raise ValueError("Sinsemilla takes a sequence of bits (0 or 1)")
     n = -(-len(bits) // SINSEMILLA_K)
     if n > SINSEMILLA_C:
         raise ValueError(f"Sinsemilla message of {len(bits)} bits is too long")

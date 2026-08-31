@@ -5,6 +5,7 @@ pub mod pipeline;
 pub mod cache;
 pub mod categories;
 pub mod types;
+pub mod first_trade;
 pub mod strats;
 pub mod auth;
 pub mod signer;

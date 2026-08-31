@@ -1138,6 +1138,25 @@ RULES:
         # with meter.take() once forward() returns
         self.meter.open(provider=short, model=model)
         for step_i in range(steps):
+            # ── spend ceiling ──
+            # Checked BEFORE the call, not after. An account with no credits
+            # used to burn a whole model call on the module's key and only then
+            # be told its "credit balance was spent" — nothing had been spent,
+            # there was never anything to spend. The wording splits the two
+            # cases, because they need different things from the user.
+            if budget and not budget(self.meter.peek()):
+                # step 0 means the account could never afford this run; later
+                # means it afforded some of it. (Cost is not the tell — an
+                # unpriced model tallies 0.0 all the way through.)
+                step = {'tool': 'error', 'params': {}, 'error': (
+                    'credit balance spent — top up to keep going' if step_i else
+                    'no account credits — runs on the host key are billed to your '
+                    'credit balance (not the provider key in the header). '
+                    'Add credits, or pick a free model, to keep going.')}
+                self._emit_step(step)
+                history.append([step])
+                print('Agent stopped: out of credits')
+                break
             self.memory.update({'step': step_i, 'pwd': path})
             # inject recovery hint after repeated errors
             if consecutive_errors >= 3:
@@ -1183,13 +1202,6 @@ RULES:
                 break
             if plan and plan[-1]['tool'].lower() == 'error':
                 print('Agent stopped: model error')
-                break
-            if budget and not budget(self.meter.peek()):
-                step = {'tool': 'error', 'params': {},
-                        'error': 'credit balance spent — top up to keep going'}
-                self._emit_step(step)
-                history.append([step])
-                print('Agent stopped: out of credits')
                 break
             # track consecutive errors for recovery
             if plan and any(_step_failed(s) for s in plan):
@@ -2201,10 +2213,19 @@ class Mod(Agent):
 
     def credit_grant(self, address: str, amount: float, note: str = '',
                      key: str = None) -> dict:
-        """Manually adjust an account's credits (± amount). Owner only."""
+        """Top up or deduct any account (± amount). Owner only.
+
+        This is the owner's side of the ledger: they already pay the
+        providers directly, so they never buy credits for themselves —
+        they hand them to whoever should be able to run, and take them
+        back the same way. A deduction stops at zero.
+        """
         self.require_owner(key, 'credit_grant')
-        return self.credits.credit(address, amount, kind='grant',
-                                   note=note or f'granted by {self._owner}')
+        amount = float(amount)
+        kind = 'grant' if amount >= 0 else 'debit'
+        verb = 'granted' if amount >= 0 else 'deducted'
+        return self.credits.credit(address, amount, kind=kind,
+                                   note=note or f'{verb} by {self._owner}')
 
     def charge_run(self, address: str, usage: dict, note: str = '') -> dict:
         """Bill a finished guest run from its metered cost.

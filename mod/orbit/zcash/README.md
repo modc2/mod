@@ -1,7 +1,7 @@
 # zcash
 
 Explorer, wallet and cross-chain bridge for Zcash — transparent sends, and a
-real Sapling shielded account.
+real shielded account you can spend from.
 
 ```
 m zcash/capabilities          # what works, and what does not
@@ -15,11 +15,17 @@ m zcash/test                  # self-test: chain, signer, bridge, explorer
 | **Explorer** | blocks, transactions, addresses, mempool, price, network |
 | **Wallet** | BIP39/BIP44 HD wallets, WIF import, balances, UTXOs |
 | **Send** | builds, signs and broadcasts NU5 v5 transparent transactions |
-| **Shielded** | Sapling keys, `zs1` + unified addresses, note decryption |
+| **Shielded** | Sapling + Orchard keys, `zs1` + unified addresses, note decryption, real sends |
 | **Bridge** | ZEC ⇄ Ethereum, Base, Arbitrum, Solana, BTC, Tron and ~30 more |
+| **Private bridge** | another chain → straight into your **shielded** pool, no transparent hop |
+| **Learn** | plain-language lessons and a glossary, for someone starting from zero |
+| **Ask** | an agent that answers Zcash questions from those lessons plus live reads |
 
-Shielded ZEC can be **received and read** here but not **sent** — see
-[Shielded](#shielded) below for exactly where the line is and why.
+Shielded ZEC is received, read **and sent** here. Sending needs a zk-SNARK
+prover, which is built once from source into `~/.mod/zcash/bin/` — see
+[Sending shielded ZEC](#sending-shielded-zec). Bridging *in* needs no prover
+at all — the solver on the other chain creates the shielded output. See
+[Private bridging](#private-bridging).
 
 ## Wallet
 
@@ -107,6 +113,111 @@ reserved, so a mistyped address fails locally rather than eating the deposit.
 the native `ZEC.ZEC` pool. Maya halts periodically; `bridge_maya` reports its
 real state rather than failing opaquely.
 
+## Private bridging
+
+The two directions are not symmetric, and the module keeps them apart rather
+than hiding the difference behind a flag.
+
+```bash
+m zcash/bridge_shielded_plan     # what works here, what it needs, what it leaks
+```
+
+### In — works, and lands encrypted
+
+The 1Click router accepts a **ZIP-316 unified address** as the ZEC recipient
+and rejects a bare `zs1`. A unified address whose only receiver is shielded
+leaves the solver no transparent option, so the payment arrives as a Sapling
+note: no transparent hop, no second transaction, and nothing for this module to
+prove.
+
+```bash
+m zcash/bridge_shielded_in from_asset=eth:USDC amount=250 \
+    recipient=zs1... refund_to=0x...            # quote, reserves nothing
+m zcash/bridge_shielded_in ... reserve=True     # real deposit address
+```
+
+`recipient` takes a `zs1` or a `u1`; `name=<wallet>` uses that wallet's own.
+`refund_to` is on the **origin** chain — a refund is paid by the solver, and no
+solver can pay into the shielded pool.
+
+The address you give is never passed through untouched. `bridge_shielded_address`
+shows what actually goes to the router:
+
+* a bare `zs1` is wrapped into a unified address (same receiver, new envelope);
+* a unified address carrying a **transparent** receiver is re-encoded without
+  it — ZIP-316 lets the sender pick any receiver it supports, and a solver
+  offered a cheap transparent one will take it. The wallet's default `u1` is
+  exactly that shape, so this is the common case, not the corner case;
+* a receiver in a pool this module **cannot decrypt** is removed too. Funds
+  paid there would be real, confirmed and invisible to every balance shown
+  here. Which pools count is read from `capabilities()`, so the rule follows
+  the code rather than being hardcoded.
+
+The response says what was removed and why, every time.
+
+### Out — works, but cannot be private
+
+The solver's deposit address is an ordinary t-address. Value has to become
+transparent to leave Zcash at all, so the amount is public at that moment and
+links to the destination address by timing. The spend still hides *which* notes
+paid. If that link matters: unshield to a fresh t-address, wait, then bridge
+from there as an ordinary transparent bridge.
+
+Mechanically it also needs a Groth16 proof, which this module cannot produce:
+
+```bash
+m zcash/bridge_shielded_out name=savings password=<pw> \
+    to_asset=ETH amount=0.5 recipient=0x...       # dry run
+m zcash/bridge_shielded_out ... broadcast=True
+```
+
+* With `ZCASH_RPC_URL` set, the node proves and sends — one step.
+* Without one, it still **reserves the deposit address** and returns the exact
+  payment to make (from address, to address, amount, deadline) plus the steps
+  to make it from Zashi/Ywallet/zingo with the key from `shielded_export`. That
+  is a completable swap, not a failure, and the response says so.
+
+Both directions carry a `privacy` block naming what is hidden, what is still
+visible, and what to do differently. The inbound one is graded `good` and still
+lists what leaks.
+
+## Learning, and the agent
+
+Someone who does not know what a shielded pool is cannot use this module
+safely — they can lose money by pasting the right address into the wrong box.
+So the explanation ships with the code, and it is not gated: reads are open,
+and gating the explanation behind the token that the explanation explains is
+how people end up guessing.
+
+```bash
+m zcash/learn                              # 11 lessons, ~35 minutes
+m zcash/learn path=beginner                # a reading order
+m zcash/learn topic=private-bridging       # one lesson in full
+m zcash/learn glossary=True                # 47 terms
+m zcash/explain term=zaddr                 # understands how beginners type
+```
+
+Lessons are hand-written to match what this module actually does, and the test
+suite pins that: every cross-reference resolves, and no sentence claims
+something can spend shielded ZEC without naming what that needs.
+
+```bash
+m zcash/ask question="how do I bridge USDC into a shielded address?"
+```
+
+`ask` recognises the questions people actually ask, answers from the lessons,
+calls **read-only** functions to ground the answer in live data, and returns
+`actions` — the exact calls to make next. It never calls anything that spends,
+deletes or reveals a secret; those come back as actions to run deliberately.
+The grounding allowlist is asserted in tests.
+
+It needs no language model. Set `ZCASH_LLM_URL` (any OpenAI-compatible
+`/chat/completions` endpoint) plus `ZCASH_LLM_KEY` and a model writes the prose
+over the same sources — but the citations and the suggested calls still come
+from the written corpus, so a hallucinated function name cannot reach the user
+as a button. Without a model configured it answers from the lessons directly,
+which is the default and works offline. `agent_status` says which is running.
+
 ## Shielded
 
 The Sapling pool is implemented for real, in pure Python: ZIP-32 key
@@ -126,18 +237,62 @@ addresses (`m/32'/133'/account'`), so the seed you already wrote down restores
 both pools, and the `zs1` address this module prints is the same one Zashi,
 Ywallet or `zcashd` derive from those words.
 
-### Where the line is
+### Sending shielded ZEC
+
+A shielded spend carries a zk-SNARK proof — Groth16 for Sapling, Halo 2 for
+Orchard — which is not something pure Python produces. So the proving is done
+by a **local light client**, built once from source and driven by
+`zcash/lightclient.py`. It is not a full node: it syncs compact blocks from a
+lightwalletd server, keeps the note commitment trees itself, builds the proof
+and broadcasts — the same trust model Zashi or Ywallet run on a phone.
+
+```bash
+m zcash/shielded_backend_install                       # once per host (~10 min)
+m zcash/shielded_sync_start  name=savings password=<pw>   # returns immediately
+m zcash/shielded_sync_status name=savings                 # poll until synced
+m zcash/shielded_spendable   name=savings                 # what can be sent
+m zcash/shielded_send name=savings password=<pw> to=zs1... amount=0.1
+m zcash/shielded_send name=savings password=<pw> to=zs1... amount=0.1 broadcast=True
+```
+
+The light client is restored from the **same mnemonic** the rest of the module
+holds, at the same ZIP-32 path, so it is literally the same account: the
+unified address `shielded_address` prints and the one the light client derives
+are byte-for-byte identical, and a note received at one is spendable by the
+other.
 
 | | |
 |---|---|
 | Receive to a `zs1` / `u1` address | ✅ |
 | Read your notes: value, memo, sender's own sends | ✅ |
-| Spend a note, or pay a shielded address | ❌ needs a Groth16 proof |
-| Orchard, in either direction | ❌ not implemented |
+| Spend a note, or pay a shielded address | ✅ with the local prover, or a node |
+| Shield transparent funds (`shielded_shield`) | ✅ with the local prover |
 
-Creating a shielded output or spending a note requires a zk-SNARK proof, which
-is not feasible in pure Python. The module does not pretend otherwise — it
-hands you the key instead:
+Three things are worth knowing before the first send:
+
+* **The scan is the slow part, not the proof.** A wallet created here has a
+  birthday at the current tip and syncs in seconds; a seed restored from years
+  ago has millions of blocks to read. `shielded_sync_start` is a background
+  job for exactly that reason, and `shielded_sync_status` reports a percentage.
+* **The light client starts a hundred blocks below the birthday.** A spend is
+  anchored to a commitment tree state several confirmations back, so a wallet
+  whose scan begins exactly at the tip has no depth to anchor against and the
+  prover refuses. The margin is automatic.
+* **`shielded_send` is a dry run unless `broadcast=True`,** like everything
+  else here. The dry run checks the address, the sync state and the spendable
+  balance and prices the fee; it stops before the proof, because a proof that
+  is not broadcast is a proof thrown away.
+
+The `~/.mod/zcash/lightwallets/<name>/` directory holds the light client's own
+copy of the seed, sealed by `zcash-devtool` to an `age` key — and that key is
+in turn sealed with this module's AES-256-GCM under the wallet password, so
+nothing on disk opens without it. It is written to a 0600 temporary file only
+for the seconds a send needs it.
+
+### Spending somewhere else instead
+
+The seed opens this account in any Zcash wallet, so the export path still
+works and needs no prover at all:
 
 ```bash
 m zcash/shielded_export name=savings password=<pw>
@@ -145,7 +300,7 @@ m zcash/shielded_export name=savings password=<pw>
 # → zxviews1…                    watch-only export
 ```
 
-With a node configured, the node does the proving:
+A configured node also proves, and takes precedence when it holds the key:
 
 ```bash
 export ZCASH_RPC_URL=http://127.0.0.1:8232
@@ -154,10 +309,13 @@ m zcash/shielded_node_import name=savings password=<pw>
 m zcash/shielded_send name=savings password=<pw> to=zs1... amount=0.1 broadcast=True
 ```
 
-Unified addresses from this module carry a **Sapling receiver and a transparent
-one, never Orchard** — advertising a pool whose payments we cannot detect would
-lose funds. A unified address that publishes a transparent receiver *can* be
-paid by `send`, transparently, and the response says so.
+Unified addresses from this module carry **both shielded receivers, Sapling and
+Orchard, alongside a transparent one** — every pool advertised is a pool this
+module can decrypt, which is the rule that matters: advertising one whose
+payments we could not detect would lose funds. A unified address that publishes
+a transparent receiver *can* be paid by `send`, transparently, and the response
+says so — which is exactly why it is the wrong address to hand a bridge. See
+[Private bridging](#private-bridging).
 
 ### Two things a scan cannot do without a node
 
@@ -227,6 +385,7 @@ instead of rendering a blank explorer.
 | `BLOCKCHAIR_API_KEY` | raises the public rate limit |
 | `ZCASH_WALLET_DIR` | where wallets are stored |
 | `ZCASH_STATE_DIR` | where the API token lives |
+| `ZCASH_LLM_URL` / `_KEY` / `_MODEL` | optional model for `ask`; without it the agent answers from the written lessons |
 
 ## Tests
 

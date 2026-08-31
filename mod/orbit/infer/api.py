@@ -25,6 +25,7 @@ if HERE not in sys.path:
 
 import engine as E                                          # noqa: E402
 import mcp                                                  # noqa: E402
+import proofs as P                                          # noqa: E402
 from engine import InferError                               # noqa: E402
 
 BASE = os.environ.get('BASE_PATH', '/infer')
@@ -35,10 +36,28 @@ def info():
     return {
         'name': 'infer',
         'version': mcp.version(),
-        'what': 'inference optimization for any model architecture, on one '
-                'standard binary — ONNX in, a smaller and faster ONNX out, '
-                'running unchanged in onnxruntime here and onnxruntime-web in '
-                'a browser tab',
+        'what': 'a board where model output at temperature 0 is a signed, '
+                'content-addressed, re-runnable claim — and the optimizer that '
+                'produces the bit-exact half of it',
+        'halves': {
+            'proofs': 'post what a model said at temperature 0, hash it, sign '
+                      'it, publish it to core/store, and let anyone run the '
+                      'same question again and file the answer beside yours',
+            'optimize': 'inference optimization for any architecture on one '
+                        'standard binary — ONNX in, a smaller and faster ONNX '
+                        'out, running unchanged in onnxruntime here and '
+                        'onnxruntime-web in a browser tab',
+        },
+        'rule': 'temperature 0, top_p 1, one candidate, no penalties. A sampled '
+                'run is refused with 422, because a board that mixes sampled and '
+                'greedy receipts cannot tell a nondeterministic model from a '
+                'different random draw.',
+        'verdicts': {
+            'unreplicated': 'one receipt — somebody said so',
+            'self-reproduced': 'ran again, same bytes, same signer',
+            'reproduced': 'same bytes from two independent signers',
+            'divergent': 'one greedy question, more than one answer',
+        },
         'binary': {
             'format': 'ONNX',
             'local': 'onnxruntime (CPU, and any provider this build has)',
@@ -50,9 +69,28 @@ def info():
         'passes': list(E.PASSES),
         'default_passes': E.DEFAULT_PASSES,
         'store': E.MODEL_DIR,
+        'receipts': P.LEDGER,
+        'published_to': P.STORE_URL if P.STORE_ON else 'off',
         'mcp': {'endpoint': 'POST /mcp', 'transport': 'Streamable HTTP (JSON-RPC 2.0)',
                 'stdio': 'python3 mcp.py', 'tools': len(mcp.TOOLS)},
         'endpoints': {
+            'GET /proofs': 'the board — one row per question, with its verdict',
+            'POST /proofs': '{model, prompt|messages, output, provider} — post a '
+                            'claim somebody ran anywhere',
+            'GET /proofs/status': 'totals, this box\'s signing address, store health',
+            'GET /proofs/<id>': 'one receipt, whole',
+            'DELETE /proofs/<id>': 'drop it from this board (the CID still resolves)',
+            'GET /questions/<hash>': 'every receipt for one question, and the verdict',
+            'POST /run': '{model, prompt, provider, repeat?} — run it here and post it',
+            'POST /replicate': '{question|receipt} — ask it again, file the answer',
+            'GET|POST /verify': 'receipt=, rerun= — recheck every hash and the signature',
+            'GET /diff': 'a=, b= — where two answers stopped agreeing',
+            'GET /leaderboard': 'which models hold still at temperature 0',
+            'GET|POST /canon': 'the canonical request bytes and their hash, without running it',
+            'GET /providers': 'who is reachable from here',
+            'POST /providers': '{name, base, style} — add an openai- or anthropic-shaped one',
+            'POST /key': '{provider, key} — kept 0600 off-tree, never in a receipt',
+            'POST /import': '{cid} — pull in a receipt published from another box',
             'GET /health': 'runtime versions, providers, available passes',
             'GET /models': 'everything in the store',
             'POST /models': '{data|path|url, name?} — add an .onnx',
@@ -183,6 +221,72 @@ def route(method, path, query, body):
                         shape=arg('shape'), weights=arg('weights'))
     if path == '/examples':
         return E.examples()
+    # ── the board ────────────────────────────────────────────
+    if path == '/proofs':
+        if method == 'POST':
+            return P.post(claim=arg('claim'), sign=flag('sign', True),
+                          publish=flag('publish', True), key=arg('key'),
+                          attestation=arg('attestation'),
+                          **{k: v for k, v in args.items()
+                             if k not in ('claim', 'sign', 'publish', 'key',
+                                          'attestation')})
+        return P.board(model=arg('model'), provider=arg('provider'),
+                       runtime=arg('runtime'), verdict=arg('verdict'),
+                       by=arg('by'), q=arg('q'), limit=num('limit', 50),
+                       sort=arg('sort') or 'recent')
+    if path == '/proofs/status':
+        return P.status()
+    if path.startswith('/proofs/'):
+        rid = path.split('/', 2)[2]
+        if method == 'DELETE':
+            return P.delete(rid)
+        return P.receipt(rid)
+    if path.startswith('/questions/'):
+        return P.question(path.split('/', 2)[2], full=flag('full', False))
+    if path == '/questions':
+        return P.question(arg('question') or arg('id') or '',
+                          full=flag('full', False))
+    if path == '/run':
+        return P.run(arg('model'), provider=arg('provider'),
+                     runtime=arg('runtime'), sign=flag('sign', True),
+                     publish=flag('publish', True), key=arg('key'),
+                     repeat=num('repeat', 1), prompt=arg('prompt'),
+                     messages=arg('messages'), system=arg('system'),
+                     max_tokens=num('max_tokens', 512), seed=arg('seed'),
+                     stop=arg('stop'), api_key=arg('api_key'),
+                     batch=num('batch', 1), shapes=arg('shapes'),
+                     params=arg('params'))
+    if path == '/replicate':
+        return P.replicate(question_id=arg('question'), receipt=arg('receipt'),
+                           provider=arg('provider'), sign=flag('sign', True),
+                           publish=flag('publish', True), key=arg('key'),
+                           api_key=arg('api_key'))
+    if path == '/verify':
+        return P.verify(arg('receipt') or arg('id'), rerun=flag('rerun', False),
+                        fetch=flag('fetch', True))
+    if path == '/diff':
+        if not (arg('a') and arg('b')):
+            raise InferError('diff compares two receipts — pass a= and b=')
+        return P.diff(arg('a'), arg('b'))
+    if path == '/leaderboard':
+        return P.leaderboard(runtime=arg('runtime'),
+                             min_receipts=num('min_receipts', 2))
+    if path == '/canon':
+        return P.canonical(runtime=arg('runtime') or 'llm', model=arg('model'),
+                           prompt=arg('prompt'), messages=arg('messages'),
+                           system=arg('system'), max_tokens=num('max_tokens', 512),
+                           seed=arg('seed'), stop=arg('stop'), batch=num('batch', 1),
+                           shapes=arg('shapes'), params=arg('params'))
+    if path == '/providers':
+        if method == 'POST':
+            return P.add_provider(arg('name') or arg('provider'), arg('base'),
+                                  style=arg('style') or 'openai', note=arg('note'))
+        return P.providers()
+    if path == '/key':
+        return P.set_key(arg('provider'), arg('key'))
+    if path == '/import':
+        return P.fetch(arg('cid'), post_it=flag('post', True))
+
     if path == '/reports':
         model = arg('model')
         all_ = _reports()

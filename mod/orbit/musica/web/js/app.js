@@ -56,7 +56,7 @@ async function boot() {
   $('#boot').classList.add('gone');
   requestAnimationFrame(render);
 
-  // Restore a previous session's patterns and set list, if the tab has been here before.
+  // Restore a previous session's patterns and picks, if the tab has been here before.
   try {
     const saved = localStorage.getItem('musica.studio');
     if (saved && app.seq.restore(JSON.parse(saved))) {
@@ -766,7 +766,7 @@ function save() {
 /* ── library: decoded audio ───────────────────────────────────────────── */
 
 /* Every row in the library has one key. Files are name+size; platform tracks
- * are source:id. The set list uses the same keys, which is how a plan made of
+ * are source:id. MY SET uses the same keys, which is how a plan made of
  * platform rows knows which of them have already been pulled in. */
 function keyOf(x) {
   if (x.key) return x.key;
@@ -823,8 +823,9 @@ async function fetchAudio(url, onProgress) {
 }
 
 /* Pull a Bandcamp or SoundCloud track into the library. The module says where
- * the bytes are; SoundCloud's CDN is fetched directly and falls back to the
- * module's proxy if the browser is refused. */
+ * the bytes are; SoundCloud's CDN and archive.org are fetched directly and
+ * fall back to the module's proxy if the browser is refused, while Bandcamp
+ * and YouTube always go through it. */
 async function addPlatform(item, onProgress) {
   const key = keyOf(item);
   const found = app.library.find(r => r.key === key);
@@ -860,8 +861,8 @@ async function sendToDeck(id, item, btn) {
   if (item.buffer) { loadToDeck(id, item); tab('booth'); return; }
   const lib = app.library.find(r => r.key === keyOf(item));
   if (lib) { loadToDeck(id, lib); tab('booth'); return; }
-  if (item.source === 'spotify') {
-    return toast('Spotify audio is DRM-protected — preview it, then find it on Bandcamp or SoundCloud');
+  if (!C.playable(item.source)) {
+    return toast('Spotify audio is DRM-protected — preview it, then use FIND ON… to get a copy that plays');
   }
   if (item.streamable === false) return toast('that one does not stream');
   if (item.kind && item.kind !== 'track') return toast('open it and pick a track');
@@ -891,9 +892,8 @@ async function sendToDeck(id, item, btn) {
 function refreshLocal() {
   const ul = $('#local');
   ul.textContent = '';
-  $('#crate-count').textContent = app.library.length || '';
   if (!app.library.length) {
-    ul.append(stateRow('nothing decoded yet — drop files anywhere, or send a Bandcamp / SoundCloud track to a deck'));
+    ul.append(stateRow('nothing decoded yet — drop files anywhere, or send a track from the crate to a deck'));
     return;
   }
   for (const rec of app.library) {
@@ -908,7 +908,8 @@ function refreshLocal() {
     }, [
       { label: 'A', cls: 'a', fn: (e) => sendToDeck('A', rec, e.currentTarget) },
       { label: 'B', cls: 'b', fn: (e) => sendToDeck('B', rec, e.currentTarget) },
-      { html: icon('plus'), cls: 'plus' + (inSet ? ' on' : ''), title: inSet ? 'in the set list' : 'add to the set list',
+      { html: icon(inSet ? 'check' : 'plus'), cls: 'plus' + (inSet ? ' on' : ''),
+        title: inSet ? 'in MY SET — click to take it out' : 'add to MY SET (top of the page)',
         fn: () => toggleSet(rec) },
     ]));
   }
@@ -1035,7 +1036,8 @@ function bindCrate() {
   $('#set-clear').addEventListener('click', () => {
     if (!app.setlist.length) return;
     app.setlist = []; saveSet(); paintSet(); refreshLocal();
-    toast('set list cleared');
+    repaintResults();
+    toast('MY SET is empty again');
   });
 
   $$('[data-goto]').forEach(b => b.addEventListener('click', () => tab(b.dataset.goto)));
@@ -1109,7 +1111,7 @@ async function search() {
   }
   const kind = $('#kind').value;
   setResultsTitle(app.source === 'all' ? 'EVERYWHERE' : C.SOURCES[app.source].label.toUpperCase(), q);
-  ul.append(stateRow(`searching ${app.source === 'all' ? 'Spotify, Bandcamp and SoundCloud' : C.SOURCES[app.source].label}…`));
+  ul.append(stateRow(`searching ${app.source === 'all' ? 'every platform' : C.SOURCES[app.source].label}…`));
   try {
     const res = await M.api.search(q, app.source, kind, 30);
     ul.textContent = '';
@@ -1175,7 +1177,7 @@ function resultRow(it) {
   const a = lib && lib.analysis;
   const actions = [];
   const isTrack = !it.kind || it.kind === 'track';
-  if (isTrack && it.source !== 'spotify' && it.streamable !== false) {
+  if (isTrack && C.playable(it.source) && it.streamable !== false) {
     actions.push({ label: 'A', cls: 'a', title: 'load onto deck A', fn: (e) => sendToDeck('A', it, e.currentTarget) });
     actions.push({ label: 'B', cls: 'b', title: 'load onto deck B', fn: (e) => sendToDeck('B', it, e.currentTarget) });
   }
@@ -1183,8 +1185,9 @@ function resultRow(it) {
     actions.push({ label: 'OPEN', title: 'list its tracks', fn: () => openItem(it) });
   }
   if (isTrack) {
-    actions.push({ html: icon('plus'), cls: 'plus' + (inSet ? ' on' : ''),
-      title: inSet ? 'in the set list' : 'add to the set list', fn: () => toggleSet(it) });
+    actions.push({ html: icon(inSet ? 'check' : 'plus'), cls: 'plus' + (inSet ? ' on' : ''),
+      title: inSet ? 'in MY SET — click to take it out' : 'add to MY SET (top of the page)',
+      fn: () => toggleSet(it) });
   }
   if (it.url) actions.push({ html: icon('ext'), title: `open on ${C.SOURCES[it.source].label}`,
     fn: () => root.open(it.url, '_blank', 'noreferrer') });
@@ -1207,6 +1210,9 @@ async function openItem(it) {
       ? await M.api.search(it.name, 'bandcamp', 'all', 40) : await M.api.bandcampPage(it.id);
     else if (it.source === 'soundcloud') res = it.kind === 'artist'
       ? await M.api.soundcloudUser(it.id) : await M.api.soundcloudPlaylist(it.id);
+    else if (it.source === 'youtube') res = it.kind === 'artist'
+      ? await M.api.youtubeChannel(it.id, 50) : await M.api.youtubePlaylist(it.id, 100);
+    else if (it.source === 'archive') res = await M.api.archiveItem(String(it.id).split('/')[0]);
     else if (it.kind === 'album') res = await M.api.album(it.id);
     else if (it.kind === 'artist') res = await M.api.artist(it.id);
     else res = await M.api.playlist(it.id, 100);
@@ -1223,7 +1229,7 @@ async function openItem(it) {
 /* ── preview ──────────────────────────────────────────────────────────── */
 
 /* The platform's own player in an iframe. Spotify's plays 30s logged out and
- * the full track logged in; Bandcamp and SoundCloud play the whole thing. */
+ * the full track logged in; the other four play the whole thing. */
 function showPreview(it) {
   app.preview = it;
   const box = $('#preview');
@@ -1239,9 +1245,12 @@ function showPreview(it) {
   if (it.source === 'soundcloud') src = src.replace('auto_play=false', 'auto_play=true');
   if (it.source === 'spotify') src += (src.includes('?') ? '&' : '?') + 'theme=0';
   // Each platform's player has a natural height; a stretched one is mostly blank.
+  // YouTube's is video, so it wants a 16:9 box rather than a strip.
   const isTrackEmbed = !it.kind || it.kind === 'track';
   const h = it.source === 'spotify' ? (isTrackEmbed ? 152 : 380)
-    : it.source === 'bandcamp' ? (isTrackEmbed ? 120 : 470) : (isTrackEmbed ? 166 : 380);
+    : it.source === 'bandcamp' ? (isTrackEmbed ? 120 : 470)
+    : it.source === 'youtube' ? 240
+    : it.source === 'archive' ? 200 : (isTrackEmbed ? 166 : 380);
   box.className = 'preview';
   box.style.height = h + 'px';
   box.innerHTML = `<iframe src="${esc(src)}" allow="autoplay; encrypted-media; clipboard-write" loading="lazy" title="preview"></iframe>`;
@@ -1264,17 +1273,26 @@ function showPreview(it) {
     b.addEventListener('click', fn);
     acts.append(b);
   };
-  if (isTrack && it.source !== 'spotify' && it.streamable !== false) {
+  if (isTrack && C.playable(it.source) && it.streamable !== false) {
     add('DECK A', 'a', (e) => sendToDeck('A', it, e.currentTarget));
     add('DECK B', 'b', (e) => sendToDeck('B', it, e.currentTarget));
   }
-  if (isTrack) add(app.setlist.some(x => x.key === keyOf(it)) ? 'IN THE SET' : 'ADD TO SET', 'mini', () => { toggleSet(it); showPreview(it); }, icon('plus'));
-  if (it.source === 'spotify' && isTrack) {
-    // The bridge: a Spotify find is DRM'd, but the same track is often on a
-    // platform that streams plainly. One click searches it there.
+  if (isTrack) {
+    const has = app.setlist.some(x => x.key === keyOf(it));
+    add(has ? 'IN MY SET' : 'ADD TO MY SET', 'mini' + (has ? ' on' : ''),
+      () => { toggleSet(it); showPreview(it); }, icon(has ? 'check' : 'plus'));
+  }
+  if (isTrack && (it.source === 'spotify' || it.source === 'youtube')) {
+    // The bridge: a Spotify find is DRM'd and a YouTube rip is a rip, but the
+    // same track is usually on a platform that hands over a clean file. One
+    // click searches it there.
     const q = [it.artists, it.name].filter(Boolean).join(' ');
-    add('FIND ON BANDCAMP', 'mini', () => { $('#q').value = q; setSource('bandcamp'); search(); });
-    add('FIND ON SOUNDCLOUD', 'mini', () => { $('#q').value = q; setSource('soundcloud'); search(); });
+    const to = it.source === 'spotify'
+      ? ['bandcamp', 'soundcloud', 'youtube'] : ['bandcamp', 'soundcloud'];
+    for (const src of to) {
+      add(`FIND ON ${C.SOURCES[src].label.toUpperCase()}`, 'mini',
+        () => { $('#q').value = q; setSource(src); search(); });
+    }
   }
   if (it.url) add(C.SOURCES[it.source].label, 'mini', () => root.open(it.url, '_blank', 'noreferrer'), icon('ext'));
   meta.append(t, s, acts);
@@ -1285,14 +1303,14 @@ function setSource(src) {
   $$('#sources .chip').forEach(x => x.classList.toggle('on', x.dataset.source === src));
 }
 
-/* ── set list ─────────────────────────────────────────────────────────── */
+/* ── MY SET ───────────────────────────────────────────────────────────── */
 
 function toggleSet(it) {
   const key = keyOf(it);
   const i = app.setlist.findIndex(s => s.key === key);
   if (i >= 0) {
     app.setlist.splice(i, 1);
-    toast('removed from the set');
+    toast('taken out of MY SET');
   } else {
     app.setlist.push({
       key, source: it.source, id: it.id, bc_id: it.bc_id, kind: it.kind || 'track',
@@ -1301,27 +1319,50 @@ function toggleSet(it) {
         || (it.buffer ? Math.round(it.buffer.duration * 1000) : null),
       streamable: it.streamable !== false,
     });
-    toast('added to the set');
+    toast(`#${app.setlist.length} in MY SET — it is at the top of the page`);
+    bumpPicks();
   }
   saveSet();
   paintSet();
   refreshLocal();
-  $$('#results li').forEach((li, k) => {
-    const it2 = app.results[k - (li.classList.contains('head') ? 1 : 0)];
-    void it2;
-  });
-  // Re-render the results so the + buttons reflect the change.
-  const sel = $('#results li.sel');
-  const selIdx = sel ? Array.from($('#results').children).indexOf(sel) : -1;
+  repaintResults();
+}
+
+/* A pick lands in a rail the eye was not on, so say so once: the rail flashes
+ * and the newest card scrolls into view. */
+function bumpPicks() {
+  const el = $('#picks');
+  if (!el) return;
+  el.classList.remove('bump');
+  void el.offsetWidth;
+  el.classList.add('bump');
+  setTimeout(() => {
+    const last = $('#picks-rows').lastElementChild;
+    if (last && last.scrollIntoView) last.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, 0);
+}
+
+/* Re-render the results so every + reflects what is in the set now. */
+function repaintResults() {
   const ul = $('#results');
+  if (!ul) return;
+  const sel = $('#results li.sel');
+  const selIdx = sel ? Array.from(ul.children).indexOf(sel) : -1;
   const head = ul.querySelector('li.head');
-  const states = Array.from(ul.querySelectorAll('li.state'));
-  if (app.results.length && !states.length) {
-    ul.textContent = '';
-    if (head) ul.append(head);
-    app.results.forEach(x => ul.append(resultRow(x)));
-    if (selIdx >= 0 && ul.children[selIdx]) ul.children[selIdx].classList.add('sel');
-  }
+  if (!app.results.length || ul.querySelector('li.state')) return;
+  ul.textContent = '';
+  if (head) ul.append(head);
+  app.results.forEach(x => ul.append(resultRow(x)));
+  if (selIdx >= 0 && ul.children[selIdx]) ul.children[selIdx].classList.add('sel');
+}
+
+/* Reorder by drag: pull one out and put it back where it was let go. */
+function dropSet(from, to) {
+  if (!Number.isInteger(from) || from === to || from < 0 || from >= app.setlist.length) return;
+  const [item] = app.setlist.splice(from, 1);
+  app.setlist.splice(to, 0, item);
+  saveSet();
+  paintSet();
 }
 
 function moveSet(i, dir) {
@@ -1336,84 +1377,145 @@ function saveSet() {
   try { localStorage.setItem('musica.set', JSON.stringify(app.setlist)); } catch (e) { /* quota */ }
 }
 
-/* Paint the set list in the crate and the "up next" strip under the booth. A
- * row that has been decoded shows its tempo and key, and the key lights up
+/* Paint MY SET: the rail across the top of the crate, and the "up next" strip
+ * under the booth. Both are the same card — the rail carries the controls.
+ * A pick that has been decoded shows its tempo and key, and the key lights up
  * against whichever deck is playing. */
 function paintSet() {
-  const ul = $('#setlist');
-  ul.textContent = '';
+  const rail = $('#picks-rows');
   const strip = $('#booth-set-rows');
+  rail.textContent = '';
   strip.textContent = '';
-  $('#set-hint').textContent = app.setlist.length
-    ? `${app.setlist.length} track${app.setlist.length === 1 ? '' : 's'} · ${C.dur(app.setlist.reduce((a, s) => a + (s.duration_ms || 0), 0))}`
-    : 'plan the order · keys light up when they match the playing deck';
-  if (!app.setlist.length) {
-    ul.append(stateRow('empty — press + on anything to plan a set'));
-    const e = doc.createElement('span');
-    e.className = 'empty';
-    e.textContent = 'nothing planned yet — add tracks from the crate';
-    strip.append(e);
+  const n = app.setlist.length;
+  $('#picks').classList.toggle('empty', !n);
+  $('#booth-set').classList.toggle('empty', !n);
+  $('#picks-count').textContent = n;
+  $('#crate-count').textContent = n || '';
+  const total = app.setlist.reduce((a, s) => a + (s.duration_ms || 0), 0);
+  $('#set-hint').innerHTML = n
+    ? `${n} track${n === 1 ? '' : 's'}${total ? ' · ' + C.dur(total) : ''} · in play order — drag a card, or use the arrows`
+    : `press ${icon('plus')} on any track below and it lands up here`;
+  if (!n) {
+    const e = doc.createElement('div');
+    e.className = 'picks-empty';
+    e.innerHTML = `nothing picked yet — press ${icon('plus')} on any track below and it lands here, first in line`;
+    rail.append(e);
+    const s2 = doc.createElement('span');
+    s2.className = 'empty';
+    s2.textContent = 'nothing picked yet — add tracks in the crate';
+    strip.append(s2);
     return;
   }
   const ref = referenceKey();
   app.setlist.forEach((s, i) => {
-    const lib = app.library.find(r => r.key === s.key);
-    const a = lib && lib.analysis;
-    const code = a && a.camelot;
-    const canPlay = lib || (s.source !== 'spotify' && s.streamable);
-    const li = row({
-      title: s.name, source: s.source, art: s.art,
-      sub: [s.artists, C.dur(s.duration_ms), a && a.bpm ? a.bpm.toFixed(1) + ' BPM' : (lib ? 'analysing…' : (canPlay ? 'not decoded yet' : 'preview only'))]
-        .filter(Boolean).join(' · '),
-      key: code ? `${a.key} · ${code}` : null, keyCode: code,
-    }, [
-      ...(canPlay ? [
-        { label: 'A', cls: 'a', fn: (e) => sendToDeck('A', lib || s, e.currentTarget) },
-        { label: 'B', cls: 'b', fn: (e) => sendToDeck('B', lib || s, e.currentTarget) },
-      ] : []),
-      { html: icon('x'), title: 'remove', fn: () => { app.setlist.splice(i, 1); saveSet(); paintSet(); refreshLocal(); } },
-    ], () => { if (s.embed) showPreview({ ...s, kind: 'track' }); });
-    const order = doc.createElement('span');
-    order.className = 'order';
-    order.textContent = i + 1;
-    const handle = doc.createElement('span');
-    handle.className = 'handle';
-    const up = doc.createElement('button'); up.innerHTML = icon('up'); up.title = 'earlier';
-    const dn = doc.createElement('button'); dn.innerHTML = icon('down'); dn.title = 'later';
-    up.addEventListener('click', (e) => { e.stopPropagation(); moveSet(i, -1); });
-    dn.addEventListener('click', (e) => { e.stopPropagation(); moveSet(i, 1); });
-    handle.append(up, dn);
-    li.prepend(order, handle);
-    ul.append(li);
-
-    // the strip under the booth
-    const card = doc.createElement('div');
-    card.className = 'card';
-    const rel = C.camelotRel(code, ref);
-    if (code && ref && rel.score >= 2) card.classList.add('match');
-    if (s.art) { const img = doc.createElement('img'); img.src = s.art; img.alt = ''; card.append(img); }
-    else { const n = doc.createElement('span'); n.className = 'noart'; n.innerHTML = icon('disc'); card.append(n); }
-    const who = doc.createElement('span');
-    who.className = 'who';
-    const b = doc.createElement('b'); b.textContent = `${i + 1}. ${s.name}`; b.title = s.name;
-    const sub = doc.createElement('span');
-    sub.textContent = [code, a && a.bpm ? a.bpm.toFixed(0) : null, rel.label && code && ref ? rel.label : null,
-      s.artists].filter(Boolean).join(' · ');
-    who.append(b, sub);
-    card.append(who);
-    if (canPlay) {
-      const to = doc.createElement('span');
-      to.className = 'to';
-      for (const id of ['A', 'B']) {
-        const btn = doc.createElement('button');
-        btn.textContent = id; btn.className = 'mini ' + id.toLowerCase();
-        btn.addEventListener('click', (e) => sendToDeck(id, lib || s, e.currentTarget));
-        to.append(btn);
-      }
-      card.append(to);
-    }
-    strip.append(card);
+    rail.append(setCard(s, i, ref, true));
+    strip.append(setCard(s, i, ref, false));
   });
+}
+
+/* One pick, as a card. `full` is the crate rail — numbered, with move and
+ * remove; without it this is the compact strip under the booth. */
+function setCard(s, i, ref, full) {
+  const lib = app.library.find(r => r.key === s.key);
+  const a = lib && lib.analysis;
+  const code = a && a.camelot;
+  const canPlay = !!lib || (C.playable(s.source) && s.streamable !== false);
+  const rel = C.camelotRel(code, ref);
+  const matches = !!(code && ref && rel.score >= 2);
+
+  const card = doc.createElement('div');
+  card.className = 'card' + (full ? ' full' : '');
+  if (matches) card.classList.add('match');
+
+  const num = doc.createElement('span');
+  num.className = 'num';
+  num.textContent = i + 1;
+  card.append(num);
+
+  if (s.art) {
+    const img = doc.createElement('img');
+    img.src = s.art; img.alt = ''; img.loading = 'lazy';
+    img.onerror = () => { const d = doc.createElement('span'); d.className = 'noart'; d.innerHTML = icon('disc'); img.replaceWith(d); };
+    card.append(img);
+  } else {
+    const d = doc.createElement('span'); d.className = 'noart'; d.innerHTML = icon('disc'); card.append(d);
+  }
+
+  const who = doc.createElement('span');
+  who.className = 'who';
+  const b = doc.createElement('b');
+  b.innerHTML = pill(s.source);
+  b.append(doc.createTextNode(s.name || '(untitled)'));
+  b.title = s.name || '';
+  const sub = doc.createElement('span');
+  const state = a && a.bpm ? a.bpm.toFixed(1) + ' BPM'
+    : (lib ? 'analysing…' : (canPlay ? 'press A or B' : 'preview only'));
+  if (code) {
+    const k = doc.createElement('em');
+    k.className = 'key ' + keyClass(code);
+    k.textContent = code + (matches ? ' ' + rel.label : '');
+    sub.append(k, doc.createTextNode(' · '));
+  }
+  sub.append(doc.createTextNode(
+    [s.artists, C.dur(s.duration_ms), state].filter(Boolean).join(' · ')));
+  who.append(b, sub);
+  card.append(who);
+
+  const to = doc.createElement('span');
+  to.className = 'to';
+  const btn = (html, cls, title, fn) => {
+    const el = doc.createElement('button');
+    el.innerHTML = html;
+    el.className = cls;
+    el.title = title;
+    el.addEventListener('click', (e) => { e.stopPropagation(); fn(e); });
+    to.append(el);
+    return el;
+  };
+  if (canPlay) {
+    btn('A', 'a', 'load onto deck A', (e) => sendToDeck('A', lib || s, e.currentTarget));
+    btn('B', 'b', 'load onto deck B', (e) => sendToDeck('B', lib || s, e.currentTarget));
+  }
+  if (full) {
+    btn(icon('left'), 'move', 'earlier in the set', () => moveSet(i, -1));
+    btn(icon('right'), 'move', 'later in the set', () => moveSet(i, 1));
+    btn(icon('x'), 'drop', 'take it out of the set', () => {
+      app.setlist.splice(i, 1); saveSet(); paintSet(); refreshLocal(); repaintResults();
+      toast('taken out of MY SET');
+    });
+  }
+  card.append(to);
+
+  const prog = doc.createElement('i');
+  prog.className = 'prog';
+  card.append(prog);
+
+  if (full && app.setlist.length > 1) {
+    card.draggable = true;
+    card.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', String(i));
+      e.dataTransfer.effectAllowed = 'move';
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    card.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; card.classList.add('over'); });
+    card.addEventListener('dragleave', () => card.classList.remove('over'));
+    card.addEventListener('drop', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      card.classList.remove('over');
+      const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      dropSet(from, i);
+    });
+  }
+
+  if (s.embed) {
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', () => {
+      if (!full) tab('crate');
+      showPreview({ ...s, kind: 'track' });
+    });
+  }
+  return card;
 }
 
 /* ── platforms drawer ─────────────────────────────────────────────────── */
@@ -1428,7 +1530,9 @@ function bindDrawer() {
       const p = await M.api.platforms();
       app.platforms = p;
       body.textContent = '';
-      body.append(platformCard('spotify', p.spotify), platformCard('bandcamp', p.bandcamp), platformCard('soundcloud', p.soundcloud));
+      for (const src of ['spotify', 'bandcamp', 'soundcloud', 'youtube', 'archive']) {
+        if (p[src]) body.append(platformCard(src, p[src]));
+      }
       const foot = doc.createElement('p');
       foot.className = 'hint';
       foot.textContent = p.streams || '';
@@ -1454,13 +1558,26 @@ function platformCard(src, s) {
     dl('keys from', s.keys_source ? `<code>${esc(s.keys_source)}</code>` : '—');
     dl('client id', s.client_id ? `<code>${esc(s.client_id)}</code>` : '—');
     dl('your account', s.logged_in ? 'logged in via orbit/spotify — your playlists are readable' : 'not logged in (<code>m spotify/login</code> in orbit/spotify)');
-    dl('audio', 'DRM-protected — preview in the embed, then find the track on Bandcamp or SoundCloud');
+    dl('audio', 'DRM-protected — preview in the embed, then find the track on Bandcamp, SoundCloud, YouTube or the Archive');
   } else if (src === 'bandcamp') {
     dl('status', s.last_error ? 'blocked' : 'reachable');
     dl('auth', s.auth);
     dl('streams', s.streams);
     dl('browser', s.browser ? 'headless Chromium available for the JS challenge' : 'no headless browser — a challenge cannot be cleared');
     if (s.last_error) dl('error', esc(s.last_error));
+  } else if (src === 'youtube') {
+    dl('status', s.configured ? (s.last_error ? 'erroring' : 'reachable')
+      : 'yt-dlp is not installed — <code>pip install yt-dlp</code>');
+    dl('auth', s.auth);
+    dl('yt-dlp', s.yt_dlp ? `<code>${esc(s.yt_dlp)}</code>` : '—');
+    dl('streams', s.streams);
+    dl('cached streams', s.cached_streams);
+    if (s.last_error) dl('error', esc(s.last_error));
+  } else if (src === 'archive') {
+    dl('status', 'reachable');
+    dl('auth', s.auth);
+    dl('scope', s.scope);
+    dl('streams', s.streams);
   } else {
     dl('status', 'reachable');
     dl('auth', s.auth);

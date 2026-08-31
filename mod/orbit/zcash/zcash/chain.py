@@ -178,15 +178,26 @@ class Chain:
         costs one request per 100 transactions rather than one per
         transaction. Rows without a Sapling bundle are dropped here.
         """
+        return [row for row in self.transactions_in_range(
+                    from_height, to_height, max_requests)
+                if row.get("shielded_output_raw") or row.get("shielded_input_raw")]
+
+    def transactions_in_range(self, from_height: int, to_height: int,
+                              max_requests: int = 40) -> list:
+        """Every transaction row in a height range, in chain order.
+
+        The Orchard scanner needs this rather than `shielded_transactions`:
+        the explorer flags a row as shielded only when it carries a *Sapling*
+        bundle, so an Orchard-only payment looks like an ordinary transaction
+        here and would be filtered away before anyone tried to read it.
+        """
         out, offset = [], 0
         for _ in range(max_requests):
             data = self._bc("/transactions", {
                 "q": f"block_id({from_height}..{to_height})",
                 "limit": 100, "offset": offset, "s": "id(asc)"})
             rows = data.get("data") or []
-            for row in rows:
-                if row.get("shielded_output_raw") or row.get("shielded_input_raw"):
-                    out.append(row)
+            out.extend(rows)
             total = (data.get("context") or {}).get("total_rows") or 0
             offset += len(rows)
             if not rows or offset >= total:

@@ -80,6 +80,19 @@ pub struct Trader {
     /// mid-window. `Option` keeps older cached payloads loadable.
     #[serde(rename = "lastTradeTs", default, skip_serializing_if = "Option::is_none")]
     pub last_trade_ts: Option<u64>,
+    /// Unix-seconds of this wallet's FIRST activity ever — not the first in
+    /// the ranking window. It is what "this account is 6 days old" is made
+    /// of, and the only honest answer to "why is the 30D backtest flat for
+    /// 25 days": the trader did not exist for most of it.
+    ///
+    /// Deliberately window-independent. Deriving it from the enrichment pull
+    /// would cap it at the window (the 7D board would say every trader is 7
+    /// days old), so it comes from a separate `sortDirection=ASC&limit=1`
+    /// call, cached forever — a first trade never moves. `None` = not
+    /// resolved yet, and every filter that reads it fails OPEN, same rule as
+    /// `lastTradeTs`: unknown history must not silently empty the board.
+    #[serde(rename = "firstTradeTs", default, skip_serializing_if = "Option::is_none")]
+    pub first_trade_ts: Option<u64>,
     #[serde(rename = "pnlCurve", skip_serializing_if = "Option::is_none")]
     pub pnl_curve: Option<Vec<f64>>,
     /// Per-market metrics — memory-only, not serialized to JSON / disk cache.
@@ -180,6 +193,17 @@ pub struct ActiveTradersQuery {
     /// is what the console did while this lived client-side. 0/absent = off.
     #[serde(rename = "maxLastTradeHrs")]
     pub max_last_trade_hrs: Option<f64>,
+    /// Track-record floor, in days: drop traders whose first-ever trade is
+    /// more recent than this. The user picks the number — a 30D backtest of
+    /// a 6-day-old wallet is 24 days of flat line and a "+24%" that rests on
+    /// six days, so "only show me traders with at least N days behind them"
+    /// is the filter that makes a long window mean something.
+    ///
+    /// Reads `firstTradeTs` off the cached row (no re-aggregation). Traders
+    /// whose first trade hasn't been resolved yet are KEPT — see the field
+    /// docs on `Trader::first_trade_ts`. 0/absent = off.
+    #[serde(rename = "minHistoryDays")]
+    pub min_history_days: Option<f64>,
     pub status: Option<String>,
 }
 

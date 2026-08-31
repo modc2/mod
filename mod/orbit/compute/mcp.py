@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """compute mcp — one MCP tool layer over every compute market.
 
-Fourteen tools instead of a hundred: the aggregation *is* the interface. An
+Twenty-two tools instead of a hundred: the aggregation *is* the interface. An
 agent that learns `compute_search` → `compute_quote` → `compute_rent` →
 `compute_stop` can drive Targon, Lium, Cathedral, Akash, Vast, Nosana, Prime,
 Polaris and its own hardware without learning any of them.
@@ -41,7 +41,7 @@ INSTRUCTIONS = (
     'docker hosts. Offers and rentals share one shape, '
     'priced in USD/hr, addressed as provider:ref. Start with compute_providers '
     '(who is reachable, who needs a key, who is no-KYC), then compute_search '
-    '(fan-out, cheapest first), compute_quote (cost for N hours + cheaper '
+    '(fan-out, cheapest first), compute_map (the same fan-out answered as places on a map — where the machines physically are), compute_quote (cost for N hours + cheaper '
     'alternatives), compute_rent (spend-guarded), compute_instances / '
     'compute_logs, and compute_stop — stopping is what ends the billing. '
     'Every call spends the caller\'s own credits on their own provider account; '
@@ -78,8 +78,18 @@ def _t_search(a):
     return _hub(a).search(
         provider=a.get('provider'), kyc=a.get('kyc'), sort=a.get('sort') or 'price',
         gpu=a.get('gpu'), min_gpus=a.get('min_gpus'), min_vram_gb=a.get('min_vram_gb'),
-        max_usd_hr=a.get('max_usd_hr'), region=a.get('region'), kind=a.get('kind'),
+        max_usd_hr=a.get('max_usd_hr'), min_usd_hr=a.get('min_usd_hr'),
+        region=a.get('region'), kind=a.get('kind'),
         available_only=a.get('available_only', True), limit=a.get('limit') or 40)
+
+
+def _t_map(a):
+    return _hub(a).map(
+        provider=a.get('provider'), kyc=a.get('kyc'),
+        gpu=a.get('gpu'), min_gpus=a.get('min_gpus'), min_vram_gb=a.get('min_vram_gb'),
+        max_usd_hr=a.get('max_usd_hr'), min_usd_hr=a.get('min_usd_hr'),
+        region=a.get('region'), kind=a.get('kind'),
+        available_only=a.get('available_only', True), limit=a.get('limit') or 2000)
 
 
 def _t_offer(a):
@@ -234,6 +244,8 @@ TOOLS = {
             'min_gpus': _num('at least this many GPUs on one node'),
             'min_vram_gb': _num('at least this much VRAM per GPU'),
             'max_usd_hr': _num('price ceiling per hour'),
+            'min_usd_hr': _num('price floor per hour — with max_usd_hr it is a band, '
+                               'which is how you skip the $0.001 junk tier'),
             'region': _str('substring of the region/country'),
             'provider': _str('comma-separated providers to limit the fan-out to'),
             'kyc': _str('only markets at this KYC level (use "none" for permissionless)',
@@ -245,6 +257,30 @@ TOOLS = {
             'limit': _num('rows to return (default 40, max 200)'),
         }},
         'handler': _t_search,
+    },
+    'compute_map': {
+        'description': 'Where the compute physically is. The same fan-out as '
+                       'compute_search, answered as places instead of rows: one point '
+                       'per city or country with how many offers are there, which '
+                       'markets, and what the cheapest and median cost. Use it to pick '
+                       'a jurisdiction or to sit next to your data, then re-run '
+                       'compute_search with that region. Offers whose market publishes '
+                       'no location are counted in `unplaced` — never placed on a guess.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'gpu': _str('GPU to match, loosely: "H100", "4090", "a100"'),
+            'min_gpus': _num('at least this many GPUs on one node'),
+            'min_vram_gb': _num('at least this much VRAM per GPU'),
+            'max_usd_hr': _num('price ceiling per hour'),
+            'min_usd_hr': _num('price floor per hour'),
+            'region': _str('substring of the region/country'),
+            'provider': _str('comma-separated providers to limit the fan-out to'),
+            'kyc': _str('only markets at this KYC level (use "none" for permissionless)',
+                        enum=['none', 'email', 'account', 'full']),
+            'kind': _str('gpu | cpu | confidential | job | storage | all'),
+            'available_only': {'type': 'boolean', 'description': 'skip sold-out offers (default true)'},
+            'limit': _num('offers to place (default 2000)'),
+        }},
+        'handler': _t_map,
     },
     'compute_offer': {
         'description': 'Re-read one offer from its provider — confirms it still exists '

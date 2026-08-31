@@ -1,7 +1,7 @@
 {
     "name": "compute",
     "version": "1.0.0",
-    "description": "One interface to every decentralized compute market, and a way to actually use what you rent. Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Clore, Nosana, Aleph Cloud, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, RunPod, Fluence, Shadeform and your own docker hosts, normalized to one offer/instance shape priced in USD/hr and addressed as provider:ref. Then compute/deploy turns a rented box into a mod protocol node: it installs mod core over the same transport it rents with, and the browser console gets a shell, the node's module list, and a call button for every function on them \u2014 no port has to be open on the box. Twenty-one MCP tools replace fourteen provider APIs. BYOK throughout: every call spends the caller's own credits on their own provider account, and the no-KYC crypto-native markets come first.",
+    "description": "One interface to every decentralized compute market, and a way to actually use what you rent. Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Clore, Nosana, Aleph Cloud, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, RunPod, Fluence, Shadeform and your own docker hosts, normalized to one offer/instance shape priced in USD/hr and addressed as provider:ref. Then compute/deploy turns a rented box into a mod protocol node: it installs mod core over the same transport it rents with, and the browser console gets a shell, the node's module list, and a call button for every function on them \u2014 no port has to be open on the box. Every market that publishes a location comes back placed, so the console draws the world and an agent can ask compute_map where the cheap H100s physically are. Twenty-two MCP tools replace fourteen provider APIs. BYOK throughout: every call spends the caller's own credits on their own provider account, and the no-KYC crypto-native markets come first.",
     "icon": "\u25a6",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
@@ -37,6 +37,7 @@
         "compute_providers",
         "compute_mods",
         "compute_search",
+        "compute_map",
         "compute_offer",
         "compute_quote",
         "compute_rent",
@@ -61,7 +62,8 @@
         "health": "GET /health",
         "providers": "GET /providers?kyc=&cap=&provider=",
         "mods": "GET /mods?mod=&compare=&sample=&gpu=&max_usd_hr= \u2014 the same markets read through the sibling modules that front them (targon, lium, cathedral), each against the direct lane",
-        "search": "GET /search?gpu=&min_gpus=&min_vram_gb=&max_usd_hr=&region=&provider=&kyc=&sort=&limit=",
+        "search": "GET /search?gpu=&min_gpus=&min_vram_gb=&min_usd_hr=&max_usd_hr=&region=&provider=&kyc=&sort=&limit=",
+        "map": "GET /map?gpu=&region=&provider=&kyc=&max_usd_hr=&limit= \u2014 the same fan-out as /search, answered as places: one point per city or country with offer count, markets and cheapest/median price",
         "offer": "GET /offer?id=provider:ref",
         "quote": "GET /quote?id=provider:ref&hours=N",
         "rent": "POST /rent {id, hours, confirm, name, image, ssh_key}",
@@ -93,6 +95,8 @@
         "mods",
         "search",
         "ls",
+        "map",
+        "where",
         "offer",
         "quote",
         "rent",
@@ -149,7 +153,7 @@
         "COMPUTE_MOD_TIMEOUT": "seconds a sibling module gets in the mod lane (default 12)",
         "COMPUTE_TEST_LIVE": "0 to skip the tests that touch live catalogs"
     },
-    "schema": "QmQJUCWmAo1cHGCnWu6vs3eJgBnqyCKkwdzF8qyohNiUeL",
+    "schema": "QmaTn76GWhhAZ5soWdVhcHk42Lk6H44Fi78KQXXWNAnpdW",
     "mod_lane": {
         "what": "the markets that also run as their own modules on this box, read through those modules and compared with the direct-to-upstream lane",
         "mods": {
@@ -177,5 +181,11 @@
         "owner": "rent, stop, exec, raw, set_key and every /node route",
         "proof": "Authorization: Bearer `m compute/token`, or a request from localhost that did not pass through the gateway",
         "secret": "~/.mod/compute/server.secret (0600, off-tree, minted on first need)"
+    },
+    "geo": {
+        "what": "every offer that carries a location is placed: `geo` on the row, `map` on the answer",
+        "gazetteer": "geo/*.json \u2014 GeoNames cities5000 + Natural Earth 110m, baked in by geo/build.py. Offline, no key, no dependency.",
+        "precision": "city | state | region (a cloud's own anchor) | country \u2014 reported, never faked; a country code draws a dot on the country centroid and says so",
+        "unplaced": "a market that sells a catalogue rather than a located machine (runpod, nosana, aleph, akash, polaris, cathedral, targon) is counted in `unplaced`, never guessed onto the map"
     }
 }

@@ -15,13 +15,19 @@ import { ACCENT } from './shared'
 
 export const PIXEL = "var(--font-pixel), 'Press Start 2P', monospace"
 
-/** Cabinet palette — player-one pink through to the coin gold. */
+/**
+ * Cabinet palette. The console is a working tool wearing an arcade shirt, so
+ * the neons are rationed: ACCENT carries the interface, and these five say one
+ * thing each — whose turn, what it costs, is it alive, is it dead. A control
+ * that is merely present gets no colour at all; that restraint is what keeps
+ * four lit pills in a row from reading as a fruit machine.
+ */
 export const NEON = {
-  p1: '#ff2e88',
-  p2: '#22d3ee',
+  p1: '#ff5c9d',
+  p2: '#5ee7f5',
   coin: '#ffcc33',
-  life: '#39ff14',
-  dead: '#ff3b30',
+  life: '#4ade80',
+  dead: '#ff5a52',
 }
 
 /**
@@ -50,9 +56,12 @@ export const ARCADE_CSS = `
    the borders so the metal reads cool rather than grey. Scoped to dark; the
    light theme keeps the shell's contrast, which is already sufficient. */
 :root.dark .arc-cabinet {
-  --text-secondary: rgba(255, 255, 255, 0.68);
-  --text-tertiary: rgba(255, 255, 255, 0.45);
-  --border-color: rgba(148, 163, 184, 0.28);
+  --text-secondary: rgba(255, 255, 255, 0.70);
+  --text-tertiary: rgba(255, 255, 255, 0.46);
+  --border-color: rgba(148, 163, 184, 0.20);
+  /* the edge a control shows when you reach for it — one step up from the
+     resting hairline, so hover is legible without anything having to light up */
+  --border-strong: rgba(148, 163, 184, 0.46);
 }
 
 @keyframes arc-blink { 0%,49% { opacity: 1 } 50%,100% { opacity: 0 } }
@@ -80,39 +89,92 @@ export const ARCADE_CSS = `
 .arc-cabinet { position: relative; isolation: isolate; }
 /* The room the cabinet stands in: neon spill off the marquee and a faint
    floor grid, so empty page below the panels reads as depth, not absence. */
+/* One light source, not three. The old backdrop lit the page from three
+   corners in three colours and every panel sat in a different wash; now a
+   single accent spill falls from behind the marquee and fades out, so the
+   page has a top and a bottom. */
 .arc-cabinet::before {
   content: ''; position: absolute; inset: 0; pointer-events: none; z-index: -1;
   background:
-    radial-gradient(1000px 540px at 18% -60px, color-mix(in srgb, var(--accent-primary, #10b981) 20%, transparent), transparent 62%),
-    radial-gradient(820px 480px at 88% 40px, rgba(34,211,238,.13), transparent 60%),
-    radial-gradient(820px 560px at 50% 105%, rgba(255,46,136,.13), transparent 65%),
-    repeating-linear-gradient(90deg, rgba(148,163,184,.045) 0 1px, transparent 1px 56px),
-    repeating-linear-gradient(0deg, rgba(148,163,184,.045) 0 1px, transparent 1px 56px);
+    radial-gradient(1100px 460px at 24% -120px, color-mix(in srgb, var(--accent-primary, #10b981) 14%, transparent), transparent 68%),
+    radial-gradient(900px 420px at 82% -60px, rgba(94,231,245,.06), transparent 66%),
+    repeating-linear-gradient(90deg, rgba(148,163,184,.03) 0 1px, transparent 1px 64px),
+    repeating-linear-gradient(0deg, rgba(148,163,184,.03) 0 1px, transparent 1px 64px);
 }
+/* Scanlines you feel rather than see. At .35 they crawled over body text and
+   greyed the whole console down; the wash is texture, not a filter. */
 .arc-cabinet::after {
   content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 30;
   background: repeating-linear-gradient(
-    0deg, rgba(0,0,0,.13) 0px, rgba(0,0,0,.13) 1px, transparent 1px, transparent 3px);
-  animation: arc-roll 14s linear infinite;
-  opacity: .35;
+    0deg, rgba(0,0,0,.10) 0px, rgba(0,0,0,.10) 1px, transparent 1px, transparent 4px);
+  animation: arc-roll 20s linear infinite;
+  opacity: .16;
 }
 
-/* A clickable card. Set its colour with --c; on hover it lifts against its
-   own hard shadow, on press it sits down into it — the same physics as
-   arc-press, but the throw lights up in the card's colour. */
-.arc-card { transition: transform .08s steps(2), box-shadow .08s steps(2), border-color .08s, background .08s; }
+/* A clickable card. Set its colour with --c. A grid of these used to throw a
+   5px hard shadow in the card's own colour on hover, which at eleven cards
+   made the page flash; the card now lifts a little and its edge lights, which
+   says the same thing at a tenth of the volume. */
+.arc-card { transition: transform .1s ease, box-shadow .1s ease, border-color .1s, background .1s; }
 .arc-card:hover:not(:disabled) {
   border-color: var(--c, var(--accent-primary, #10b981)) !important;
-  box-shadow: 5px 5px 0 0 var(--c, var(--accent-primary, #10b981)) !important;
-  transform: translate(-2px, -2px);
+  box-shadow: 0 0 0 1px var(--c, var(--accent-primary, #10b981)),
+              0 12px 28px -20px var(--c, var(--accent-primary, #10b981)) !important;
+  transform: translateY(-1px);
 }
-.arc-card:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: none !important; }
+.arc-card:active:not(:disabled) { transform: translateY(1px); }
 
-/* A resting tab wakes up under the pointer. The lit tab keeps its own colour. */
-.arc-tab[aria-pressed="false"]:hover:not(:disabled) {
-  color: var(--text-primary) !important;
-  border-color: var(--border-strong, var(--border-color)) !important;
+/* Keyboard users get the same answer the pointer gets, in the accent. */
+.arc-cabinet :focus-visible {
+  outline: 2px solid var(--accent-primary, #10b981);
+  outline-offset: 2px;
 }
+
+/* An instrument in the control strip: flat until you reach for it. The
+   button physics (a 3px travel onto a hard shadow) belong to things that
+   DO something; a pill only opens a menu. */
+.arc-ctl { transition: border-color .12s, background .12s, color .12s; }
+.arc-ctl:hover:not(:disabled) {
+  border-color: var(--border-strong, rgba(148,163,184,.55));
+  background: rgba(255,255,255,.035);
+}
+
+/* A pill's readout: an address, maybe a badge after it. Clipped by overflow
+   alone the badge came out as half a letter inside half a border ("METł"),
+   because a badge sets flex-shrink:0 and the row ran out of pill. Everything
+   BEFORE the last item gives way first, so what truncates is the reading
+   (which the dropdown repeats in full) and never the box around it. */
+.arc-val > *:not(:last-child) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Tabs. Eight bevelled boxes in a row read as eight equal shouts and hid
+   which one you were on; a tab is now a word on a rail, and the SELECTED
+   word is the only one wearing the accent — the same way a cabinet's lit
+   button is the only lit button. */
+.arc-tab {
+  position: relative;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0;
+  box-shadow: none !important;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.arc-tab::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px;
+  background: transparent; transition: background .1s steps(2);
+}
+.arc-tab[aria-pressed="false"]:hover:not(:disabled) { color: var(--text-primary); }
+.arc-tab[aria-pressed="false"]:hover:not(:disabled)::after { background: var(--border-color); }
+.arc-tab[aria-pressed="true"] {
+  color: var(--accent-primary, #10b981);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary, #10b981) 55%, transparent);
+}
+.arc-tab[aria-pressed="true"]::after {
+  background: var(--accent-primary, #10b981); height: 3px; bottom: -2px;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent-primary, #10b981) 70%, transparent);
+}
+/* A tab is a word, so it must not travel on press the way a button does. */
+.arc-tab.arc-press:active:not(:disabled) { transform: none; }
 
 /* Marquee shine — a light bar crossing the title, once every few seconds. */
 .arc-shine { position: relative; overflow: hidden; }
@@ -225,122 +287,5 @@ export function Sprite({ seed, size = 20, style }: { seed: string; size?: number
     >
       {cells.map(([x, y]) => <rect key={`${x}${y}`} x={x} y={y} width="1" height="1" fill={fill} />)}
     </svg>
-  )
-}
-
-/**
- * The cabinet marquee: one strip across the top — the game's name at the
- * left, the controls a player reaches for without thinking beside it (which
- * chain, who's signing, what they hold, which project), and the score at the
- * far right, where a cabinet keeps it. The controls stretch to fill whatever
- * the title and score leave, so the strip is always full. On a phone there is
- * no such row: the title takes its own band and the controls wrap under it.
- */
-export function Marquee({
-  title, subtitle, controls, readouts = [], compact,
-}: {
-  title: string
-  subtitle: string
-  /** the control row — pills with dropdowns, so this box must not clip */
-  controls?: ReactNode
-  readouts?: { label: string; value: string; color?: string; led?: LedState }[]
-  compact?: boolean
-}) {
-  // the shine needs overflow:hidden and the dropdowns need the opposite, so
-  // the sweep is scoped to the title alone — never to a box holding controls
-  const name = (
-    <span className="arc-shine" style={{
-      display: 'inline-flex', alignItems: 'flex-end', gap: '10px', flexShrink: 0,
-      // room for the glow: the sweep box would otherwise crop it
-      padding: '4px 8px 4px 4px', margin: '-4px -8px -4px -4px',
-    }}>
-      <span style={{
-        fontFamily: PIXEL,
-        fontSize: compact ? '18px' : '24px',
-        letterSpacing: '0.12em',
-        lineHeight: 1,
-        color: ACCENT,
-        // chromatic offset — the ghosting a real cabinet's shadow mask
-        // gives. One pixel: at two the fringes detach and the word blurs.
-        textShadow: `1px 0 0 ${NEON.p1}, -1px 0 0 ${NEON.p2}, 0 0 16px ${ACCENT}`,
-      }}>
-        {title}
-      </span>
-      <span className="arc-blink" style={{
-        fontFamily: PIXEL, fontSize: compact ? '18px' : '24px', lineHeight: 1, color: NEON.coin,
-      }}>
-        ▮
-      </span>
-    </span>
-  )
-
-  const score = readouts.length > 0 && (
-    <div style={{ display: 'flex', gap: '22px', alignItems: 'flex-end', marginLeft: 'auto', flexShrink: 0 }}>
-      {readouts.map(r => (
-        <div key={r.label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
-          <span style={{
-            display: 'flex', alignItems: 'center', gap: '6px',
-            fontFamily: PIXEL, fontSize: '7px', color: 'var(--text-tertiary)', letterSpacing: '0.18em',
-          }}>
-            {r.led && <Led state={r.led} size={6} />}
-            {r.label}
-          </span>
-          <span style={{
-            fontFamily: PIXEL, fontSize: compact ? PX.lg : '18px', lineHeight: 1,
-            color: r.color || 'var(--text-primary)',
-            textShadow: `0 0 10px ${r.color || ACCENT}88`,
-            whiteSpace: 'nowrap',
-          }}>
-            {r.value}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-
-  const frame: CSSProperties = {
-    border: `3px solid ${ACCENT}`,
-    boxShadow: `4px 4px 0 0 ${NEON.p1}55, 8px 8px 0 0 ${NEON.p2}33`,
-    background: 'linear-gradient(180deg, var(--bg-secondary), var(--bg-primary))',
-    marginBottom: '14px',
-    color: ACCENT,
-  }
-
-  if (compact) {
-    return (
-      <div className="arc-bolts" style={frame}>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '14px', flexWrap: 'wrap', padding: '12px 12px 8px' }}>
-          {name}
-          {score}
-        </div>
-        {controls && (
-          <div style={{
-            display: 'flex', alignItems: 'stretch', gap: '8px', flexWrap: 'wrap',
-            padding: '10px 12px 12px',
-            borderTop: `2px solid ${ACCENT}33`,
-          }}>
-            {controls}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  return (
-    <div className="arc-bolts" style={frame}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '12px 18px' }}>
-        {name}
-        {controls && (
-          <Strip.Provider value={true}>
-            <div style={{
-              display: 'flex', alignItems: 'stretch', gap: '10px', flex: '1 1 0', minWidth: 0,
-            }}>
-              {controls}
-            </div>
-          </Strip.Provider>
-        )}
-        {score}
-      </div>
-    </div>
   )
 }

@@ -11,12 +11,17 @@ is all client side and the Spotify calls are stateless:
                           that resolves the same locally and behind the gateway
     /api/musica/*       → the API (prefix stripped by the gateway, so the
                           protocol routes land at the root)
-    …/stream/bandcamp?id=<page url>[&track=<id>]
-                        → the one non-JSON route: a Bandcamp track's MP3,
-                          proxied with Range passthrough, because bcbits.com
-                          sends no CORS header and the deck needs the bytes.
-                          SoundCloud's CDN does send one, so the browser
-                          fetches those itself.
+    …/stream/<source>?id=…
+                        → the one non-JSON route: a track's audio, proxied
+                          with Range passthrough. Bandcamp's bcbits.com and
+                          YouTube's googlevideo send no CORS header at all, so
+                          the deck cannot fetch those itself; SoundCloud's CDN
+                          and archive.org do, and the browser fetches theirs
+                          direct with this left as the fallback.
+    /mcp                → the MCP server (mcp.py) over Streamable HTTP: POST
+                          one JSON-RPC message, get one back. GET lists the
+                          tools, which is not part of the protocol but is what
+                          a person pointing a browser at it wants.
 
     python3 serve.py [--port 50780] [--host 0.0.0.0]
 """
@@ -37,6 +42,12 @@ NAME = 'musica'
 
 _mod = None
 _mod_error = None
+_mcp = None
+
+# Every source whose bytes this process will relay. Two of them have to be
+# proxied (no CORS header upstream); the other two are here so a browser that
+# fails a direct fetch has somewhere to fall back to.
+STREAM_SOURCES = ('bandcamp', 'youtube', 'soundcloud', 'archive')
 
 
 def api_fns() -> tuple:
@@ -70,6 +81,21 @@ def module():
     finally:
         sys.path[:0] = shadow
     return _mod
+
+
+def mcp():
+    """The MCP server module, sharing this process's Mod instance."""
+    global _mcp
+    if _mcp is None:
+        spec = importlib.util.spec_from_file_location(
+            'musica_mcp', os.path.join(MODULE_DIR, 'mcp.py'))
+        server = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(server)
+        mod = module()
+        if mod is not None:
+            server.bind(mod)
+        _mcp = server
+    return _mcp
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -121,7 +147,7 @@ class Handler(SimpleHTTPRequestHandler):
         if self.command != 'HEAD':
             self.wfile.write(body)
 
-    def _call(self, fn):
+    def _call(self, fn, kwargs=None):
         mod = module()
         if mod is None:
             return self._json(503, {'error': f'module not loaded: {_mod_error}'})
@@ -129,7 +155,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(404, {'error': f'no such function {fn!r}',
                                     'fns': list(api_fns())})
         try:
-            kwargs = self._args()
+            kwargs = self._args() if kwargs is None else kwargs
         except ValueError as e:
             return self._json(400, {'error': str(e)})
         try:
@@ -174,8 +200,9 @@ class Handler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip('/')
         source = path.rsplit('/', 1)[-1]
         args = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items() if v}
-        if source not in ('bandcamp', 'soundcloud'):
-            return self._json(404, {'error': 'stream/bandcamp or stream/soundcloud'})
+        if source not in STREAM_SOURCES:
+            return self._json(404, {'error': 'stream/ takes one of '
+                                             + ', '.join(STREAM_SOURCES)})
         where = mod.stream(source=source, id=args.get('id'), track=args.get('track'))
         if where.get('error'):
             return self._json(502, where)
@@ -199,7 +226,12 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'audio/mpeg')
         name = f"{where.get('artists') or ''} - {where.get('name') or 'track'}".strip(' -')
         safe = ''.join(ch if ch.isalnum() or ch in ' -_.' else '_' for ch in name)[:120]
-        self.send_header('Content-Disposition', f'inline; filename="{safe}.mp3"')
+        # The extension has to match the bytes: YouTube's best audio is m4a,
+        # and a browser told .mp3 will still decode it but a save will lie.
+        ctype = (up.headers.get('Content-Type') or '').lower()
+        ext = ('m4a' if 'mp4' in ctype else 'webm' if 'webm' in ctype
+               else 'ogg' if 'ogg' in ctype else 'flac' if 'flac' in ctype else 'mp3')
+        self.send_header('Content-Disposition', f'inline; filename="{safe}.{ext}"')
         self.send_header('X-Musica-Source', source)
         self.end_headers()
         if self.command == 'HEAD':
@@ -222,8 +254,50 @@ class Handler(SimpleHTTPRequestHandler):
         return (path.startswith('/api/') or path == '/api'
                 or self._route() in api_fns())
 
+    def _is_mcp(self) -> bool:
+        return urlparse(self.path).path.rstrip('/') in ('/mcp', '/api/mcp')
+
+    def _mcp(self):
+        """One JSON-RPC message in, one out — MCP's Streamable HTTP transport.
+
+        The gateway strips ``/api/musica``, so the module's own ``mcp``
+        function lands on this same path: a body that is not JSON-RPC (no
+        ``method``) is that call instead, which keeps ``/api/musica/mcp?name=…``
+        working for anything that does not speak the protocol.
+
+        Notifications have no response, and the protocol wants 202 for those
+        rather than an empty 200 body.
+        """
+        if module() is None:
+            return self._json(503, {'error': f'module not loaded: {_mod_error}'})
+        n = int(self.headers.get('Content-Length') or 0)
+        raw = self.rfile.read(n) if n else b''
+        try:
+            body = json.loads(raw or b'null')
+        except json.JSONDecodeError as e:
+            return self._json(200, {'jsonrpc': '2.0', 'id': None,
+                                    'error': {'code': -32700,
+                                              'message': f'parse error: {e}'}})
+        if body is None or (isinstance(body, dict) and 'method' not in body):
+            args = {k: v[0] for k, v in
+                    parse_qs(urlparse(self.path).query).items() if v}
+            args.update(body or {})
+            return self._call('mcp', args)
+        server = mcp()
+        if isinstance(body, list):              # a batch, answered as a batch
+            out = [r for r in (server.handle(x) for x in body) if r is not None]
+            return self._json(200, out) if out else self._json(202, {})
+        resp = server.handle(body)
+        if resp is None:
+            self.send_response(202)
+            self.send_header('Content-Length', '0')
+            return self.end_headers()
+        return self._json(200, resp)
+
     def do_POST(self):
         self._strip()
+        if self._is_mcp():
+            return self._mcp()
         return self._call(self._route())
 
     def do_GET(self):
@@ -233,6 +307,14 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, {'ok': True, 'module': NAME})
         if self._is_stream():
             return self._stream()
+        if self._is_mcp() and not urlparse(self.path).query:
+            # Not a transport GET (no SSE here) — the tool list, because that
+            # is the useful answer to a browser pointed at /mcp. With a query
+            # string it is the module's own mcp() function being called, and
+            # that falls through to _call below.
+            return self._json(200, {'server': 'musica', 'transport': 'POST /mcp',
+                                    'protocol': 'JSON-RPC 2.0 (MCP)',
+                                    'tools': mcp().tool_list()})
         # GET is not the protocol's call verb, but the console fetches with it
         # and a browser pointed at a function should get its answer rather than
         # a directory listing.

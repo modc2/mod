@@ -706,9 +706,38 @@ async fn active_traders(
     }
     }
 
-    // Paged but cold cache. force=1 skips this "cold" early return so the
-    // request falls through to run_pipeline below and the client gets the
-    // freshly-aggregated paged result instead of an empty COLD payload.
+    // Nothing fresh enough to serve — but there may still be an OLD copy on
+    // disk, and for the deep windows that is usually the whole story. A 30D
+    // board takes ~10 minutes to rebuild and the fleet activator stops this
+    // process after ~60s idle, so a window that falls past the 24h disk
+    // ceiling can never claw its way back on demand: every request restarts
+    // the rebuild, and every rebuild gets killed. The console showed "the 30D
+    // leaderboard hasn't been aggregated yet" over a file that was sitting
+    // right there, three days old.
+    //
+    // Serve it, labelled. `source: "stale-disk"` plus the real `syncedAt`
+    // gives the UI everything it needs to show the age, and the warmup — now
+    // ordered stalest-first — replaces it in the background.
+    if !force {
+        if let Some(payload) = state.pipeline.cache.get_stale_disk(&cache_key) {
+            if paged {
+                return Json(apply_pagination(&payload, &q, "stale-disk")).into_response();
+            }
+            return Json(json!({
+                "count": payload.count,
+                "candidatePool": payload.candidate_pool,
+                "daysWindow": payload.days_window,
+                "minTradesPerDay": payload.min_trades_per_day,
+                "traders": payload.traders,
+                "source": "stale-disk",
+                "syncedAt": payload.synced_at,
+            })).into_response();
+        }
+    }
+
+    // Paged, and genuinely nothing anywhere. force=1 skips this "cold" early
+    // return so the request falls through to run_pipeline below and the client
+    // gets the freshly-aggregated paged result instead of an empty COLD payload.
     if paged && !force {
         return Json(json!({
             "traders": [],
@@ -955,6 +984,34 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
     // for", and only the server knows which.
     let activity_dropped = before_activity - traders.len();
 
+    // Track-record floor — the user's own answer to "why is my 30D backtest
+    // flat for 25 days". A wallet that opened six days ago can top a 30D
+    // board on six days of luck, and the copy sim will happily quote it a
+    // 30-day return. This drops anyone with less than N days behind them, N
+    // chosen in the console.
+    //
+    // Counted separately from the activity floors above even though both run
+    // here: the console names the reason rows disappeared, and "quiet for 6h"
+    // and "too new" are different reasons with different fixes.
+    //
+    // Unlike the recency gate, a MISSING timestamp is KEPT, not cut.
+    // `firstTradeTs` is resolved per wallet and cached forever, so a payload
+    // written before the field existed — or one whose upstream lookup 429'd —
+    // has none, and treating that as "no history" would empty the whole board
+    // over a data gap. Unknown recency isn't recent; unknown age isn't young.
+    let before_history = traders.len();
+    if let Some(min_days) = q.min_history_days {
+        if min_days > 0.0 {
+            let now = chrono::Utc::now().timestamp().max(0) as u64;
+            traders.retain(|t| {
+                crate::first_trade::history_days(t.first_trade_ts, now)
+                    .is_none_or(|d| d >= min_days)
+            });
+        }
+    }
+    let history_dropped = before_history - traders.len();
+    let history_known = traders.iter().filter(|t| t.first_trade_ts.is_some()).count();
+
     // Sort by the metric the caller asked for, ALWAYS.
     //
     // Topic/category match count is a TIEBREAKER, not the primary key. It used
@@ -985,6 +1042,15 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
             // Missing timestamp (pre-lastTradeTs disk cache) sinks to the
             // bottom on desc — unknown recency must not outrank known.
             "last" => Some(a.last_trade_ts.unwrap_or(0).cmp(&b.last_trade_ts.unwrap_or(0))),
+            // Longest track record first on desc. An OLDER first trade is a
+            // LONGER record, so the comparison is reversed relative to the
+            // timestamp; unresolved ages sort as u64::MAX (= "brand new"),
+            // which sinks them on desc — the filter keeps them, but they
+            // should not lead a board ranked by seniority.
+            "history" => Some(
+                b.first_trade_ts.unwrap_or(u64::MAX)
+                    .cmp(&a.first_trade_ts.unwrap_or(u64::MAX)),
+            ),
             _ => a.pnl.partial_cmp(&b.pnl),
         };
         let c = cmp.unwrap_or(std::cmp::Ordering::Equal);
@@ -1025,6 +1091,15 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
         "traders": sliced,
         "total": total,
         "activityDropped": activity_dropped,
+        // Cut by the track-record floor specifically, so the console can say
+        // "412 hidden: less than 30 days of history" instead of blaming the
+        // recency filter for it.
+        "historyDropped": history_dropped,
+        // How many rows on this board have a resolved account age at all.
+        // The floor fails open on the rest, so a board that is mostly
+        // unresolved is a floor that is mostly not applied — the console
+        // needs to be able to say so rather than imply a clean cut.
+        "historyKnown": history_known,
         "page": page,
         "pageSize": page_size,
         "count": payload.count,
@@ -1549,7 +1624,7 @@ mod tests {
             market_titles: markets.iter().map(|(t, _, _)| (*t).to_string()).collect(),
             recent_trades: markets.iter().map(|(_, _, n)| n).sum(),
             trades_24h: 0,
-            last_trade_ts: None,
+            last_trade_ts: None, first_trade_ts: None,
             pnl_curve: None,
             market_metrics: Some(metrics),
         }
@@ -1759,5 +1834,90 @@ mod tests {
 
         assert_eq!(addresses(&result), vec!["0xactive"]);
         assert_eq!(result["total"].as_u64(), Some(1));
+    }
+
+    /// A trader whose first-ever trade was `days_ago`.
+    fn trader_aged(address: &str, days_ago: f64) -> Trader {
+        let mut t = trader_with_markets(address, &[("Bitcoin above $110,000", 10.0, 3)]);
+        let now = chrono::Utc::now().timestamp() as f64;
+        t.first_trade_ts = Some((now - days_ago * 86_400.0).max(0.0) as u64);
+        t
+    }
+
+    /// The point of the whole thing: a 30D window is only meaningful over a
+    /// trader who existed for 30 days, so the user can demand that much
+    /// record before a name is allowed onto the board.
+    #[test]
+    fn history_floor_drops_traders_younger_than_the_window() {
+        let veteran = trader_aged("0xveteran", 90.0);
+        let month = trader_aged("0xmonth", 31.0);
+        let rookie = trader_aged("0xrookie", 6.0); // the wallet from the flat 30D curve
+
+        let result = apply_pagination(
+            &payload(vec![veteran, month, rookie]),
+            &paged_query(json!({"minHistoryDays": 30, "sort": "pnl"})),
+            "memory",
+        );
+
+        let addrs = addresses(&result);
+        assert!(addrs.contains(&"0xveteran".to_string()), "{addrs:?}");
+        assert!(addrs.contains(&"0xmonth".to_string()), "{addrs:?}");
+        assert!(!addrs.contains(&"0xrookie".to_string()), "{addrs:?}");
+        assert_eq!(result["total"].as_u64(), Some(2));
+        assert_eq!(result["historyDropped"].as_u64(), Some(1));
+        // The recency floor didn't run — the console must be able to name the
+        // right reason for the missing row.
+        assert_eq!(result["activityDropped"].as_u64(), Some(0));
+    }
+
+    /// An unresolved age is not a young age. `firstTradeTs` is filled in
+    /// per-wallet over time, so cutting on its absence would blank the board
+    /// the first time the filter is used on a not-yet-enriched payload.
+    #[test]
+    fn history_floor_keeps_traders_whose_age_is_unknown() {
+        let mut unknown = trader_with_markets("0xunknown", &[("Bitcoin above $110,000", 10.0, 3)]);
+        unknown.first_trade_ts = None;
+
+        let result = apply_pagination(
+            &payload(vec![unknown, trader_aged("0xrookie", 2.0)]),
+            &paged_query(json!({"minHistoryDays": 30})),
+            "memory",
+        );
+
+        assert_eq!(addresses(&result), vec!["0xunknown"]);
+        assert_eq!(result["historyKnown"].as_u64(), Some(0));
+    }
+
+    /// 0 / absent = off, same convention as every other floor.
+    #[test]
+    fn history_floor_off_keeps_everyone() {
+        let traders = vec![trader_aged("0xa", 200.0), trader_aged("0xb", 1.0)];
+        let off = apply_pagination(&payload(traders.clone()), &paged_query(json!({})), "memory");
+        assert_eq!(off["total"].as_u64(), Some(2));
+        assert_eq!(off["historyDropped"].as_u64(), Some(0));
+
+        let zeroed = apply_pagination(
+            &payload(traders),
+            &paged_query(json!({"minHistoryDays": 0})),
+            "memory",
+        );
+        assert_eq!(zeroed["total"].as_u64(), Some(2));
+    }
+
+    /// `sort=history` desc = longest record first. The oldest first trade is
+    /// the longest record, so this must NOT be a plain timestamp sort.
+    #[test]
+    fn sort_by_history_puts_the_longest_record_first() {
+        let result = apply_pagination(
+            &payload(vec![
+                trader_aged("0xnew", 3.0),
+                trader_aged("0xold", 300.0),
+                trader_aged("0xmid", 40.0),
+            ]),
+            &paged_query(json!({"sort": "history", "order": "desc"})),
+            "memory",
+        );
+
+        assert_eq!(addresses(&result), vec!["0xold", "0xmid", "0xnew"]);
     }
 }

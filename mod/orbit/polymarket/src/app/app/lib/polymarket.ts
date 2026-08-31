@@ -33,7 +33,30 @@ export interface TopTrader {
       Surfaces "last trade Xs ago" in the leaderboard so the user can tell
       whether a high-PnL trader is firing right now vs. went silent days ago. */
   lastTradeTs?: number;
+  /** Unix-seconds of this wallet's FIRST trade ever — its track record, not
+      its window. A 30D board can be topped by an account that opened last
+      week, and the copy sim will quote it a 30-day return over 24 days of
+      flat line; this is what `HISTORY ≥` filters on. Absent = not resolved
+      yet (never treat that as "brand new"). */
+  firstTradeTs?: number;
   pnlCurve?: number[];   // ~12-point cumulative PnL over the window
+}
+
+/** Days of track record behind a trader, or `null` when unresolved.
+ *  `null` is not zero: every gate built on this fails open. */
+export function historyDays(t: { firstTradeTs?: number }, nowSec = Date.now() / 1000): number | null {
+  if (!t.firstTradeTs) return t.firstTradeTs === 0 ? 0 : null;
+  return Math.max(0, (nowSec - t.firstTradeTs) / 86_400);
+}
+
+/** "6d" / "3mo" / "1y" — how long they have been at it, for a dense column. */
+export function formatHistory(t: { firstTradeTs?: number }, nowSec = Date.now() / 1000): string {
+  const d = historyDays(t, nowSec);
+  if (d === null) return "—";
+  if (d < 1) return "<1d";
+  if (d < 60) return `${Math.floor(d)}d`;
+  if (d < 730) return `${Math.floor(d / 30)}mo`;
+  return `${(d / 365).toFixed(1)}y`;
 }
 
 // ── Formatting helpers ──────────────────────────────────────────
@@ -752,6 +775,16 @@ export interface PagedTradersResult {
       removed. Lets an empty board say WHY it is empty — nobody trades this
       topic, or everybody who does has been quiet longer than the window. */
   activityDropped?: number;
+  /** How many the track-record floor (`minHistoryDays`) removed — counted
+      apart from `activityDropped` so an empty board can name the right
+      reason: "everybody went quiet" and "everybody is too new" want
+      different fixes. */
+  historyDropped?: number;
+  /** How many rows on the board have a resolved `firstTradeTs` at all. The
+      floor fails open on the rest, so a low number here means the filter is
+      mostly not being applied yet — the UI says so instead of implying a
+      clean cut. */
+  historyKnown?: number;
 }
 
 /** Default recency lens on every leaderboard read: only traders who have
@@ -785,6 +818,11 @@ export async function fetchTradersPage(opts: {
   /** Recency floor — hours since the trader's last trade. See
       DEFAULT_ACTIVE_HOURS; 0/undefined disables it. */
   maxLastTradeHrs?: number;
+  /** Track-record floor — minimum days since the trader's FIRST-EVER trade.
+      Filters on `firstTradeTs`; traders whose age hasn't been resolved are
+      kept, so this narrows a board rather than emptying it. 0/undefined
+      disables it. */
+  minHistoryDays?: number;
   /** When true, server bypasses agg + per-trader caches and runs
       a full re-aggregation from Polymarket. Used by the SYNC button. */
   force?: boolean;
@@ -808,6 +846,7 @@ export async function fetchTradersPage(opts: {
   if (opts.minSellVolume && opts.minSellVolume > 0) params.set("minSellVolume", String(opts.minSellVolume));
   if (opts.minTrades24h && opts.minTrades24h > 0) params.set("minTrades24h", String(opts.minTrades24h));
   if (opts.maxLastTradeHrs && opts.maxLastTradeHrs > 0) params.set("maxLastTradeHrs", String(opts.maxLastTradeHrs));
+  if (opts.minHistoryDays && opts.minHistoryDays > 0) params.set("minHistoryDays", String(opts.minHistoryDays));
 
   const res = await fetch(`${API_URL}/active-traders?${params.toString()}`, { headers: serverAuthHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}`);

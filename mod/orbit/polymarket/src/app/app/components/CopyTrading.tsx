@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   fetchTopTradersStream, ActiveTradersProgress,
   fetchTradersPage,
-  formatVolume, formatPnl, TopTrader,
+  formatVolume, formatPnl, formatHistory, historyDays, TopTrader,
   CategorySlug, CATEGORIES,
   matchTraderSearch, matchTraderCategory,
   DEFAULT_ACTIVE_HOURS,
@@ -24,7 +24,7 @@ import {
 import ScoreRatioChips from "./ScoreRatioChips";
 import Sparkline from "./Sparkline";
 
-type TraderSort = "score" | "volume" | "pnl" | "positions" | "last";
+type TraderSort = "score" | "volume" | "pnl" | "positions" | "last" | "history";
 
 type SortDir = "asc" | "desc";
 const PAGE_SIZE = 50;
@@ -189,6 +189,9 @@ export default function CopyTrading({
   // page request, so they narrow the WHOLE cached board (and its row count),
   // not the 50 rows that already came back.
   const [maxLastTradeHrs, setMaxLastTradeHrs] = useState(String(DEFAULT_ACTIVE_HOURS));
+  // Track-record floor, in days. Blank/0 = off: how much history a trader
+  // needs behind them is the user's call, not the board's.
+  const [minHistoryDays, setMinHistoryDays] = useState("");
   // How many traders the two floors above removed, straight from the server.
   // An empty board means something different depending on it.
   const [activityDropped, setActivityDropped] = useState(0);
@@ -242,6 +245,7 @@ export default function CopyTrading({
           // actually see, and the board stays a cache read.
           minTrades24h: Number(minTrades24h) || undefined,
           maxLastTradeHrs: Number(maxLastTradeHrs) || undefined,
+          minHistoryDays: Number(minHistoryDays) || undefined,
           force: opts.force,
         });
         if (result.cold) {
@@ -268,7 +272,7 @@ export default function CopyTrading({
     },
     [days, minTradesPerDay, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
-     minTrades24h, maxLastTradeHrs],
+     minTrades24h, maxLastTradeHrs, minHistoryDays],
   );
 
   // Streaming load — used for cold cache (pipeline needs to run) AND
@@ -435,7 +439,7 @@ export default function CopyTrading({
     })();
   }, [cacheWarm, page, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
       minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
-      minTrades24h, maxLastTradeHrs]);
+      minTrades24h, maxLastTradeHrs, minHistoryDays]);
 
   // Background staleness check. Re-fetches current page silently once data
   // crosses MAX_STALENESS_MS so the leaderboard never gets older than this
@@ -608,6 +612,15 @@ export default function CopyTrading({
       if (maxLastTradeHrs !== "" && Number.isFinite(mlh) && mlh > 0) {
         if (!t.lastTradeTs || Date.now() / 1000 - t.lastTradeTs > mlh * 3600) return false;
       }
+      // Track-record floor — drop traders whose first-ever trade is more
+      // recent than N days. Unlike the recency floor above, a MISSING
+      // firstTradeTs is KEPT: it means "not resolved yet", not "brand new",
+      // and cutting on it would empty the board over a data gap.
+      const mhd = Number(minHistoryDays);
+      if (minHistoryDays !== "" && Number.isFinite(mhd) && mhd > 0) {
+        const age = historyDays(t);
+        if (age !== null && age < mhd) return false;
+      }
       const mbv = Number(minBuyVolume);
       if (minBuyVolume !== "" && Number.isFinite(mbv) && t.buyVolume < mbv) return false;
       const msv = Number(minSellVolume);
@@ -634,11 +647,15 @@ export default function CopyTrading({
       if (traderSort === "positions") return dir * (a.recentTrades - b.recentTrades);
       // Missing lastTradeTs → 0 so unknown-recency traders sink on desc.
       if (traderSort === "last") return dir * ((a.lastTradeTs ?? 0) - (b.lastTradeTs ?? 0));
+      // Longest record first on desc: an OLDER first trade is a LONGER
+      // record, so the sign flips relative to the timestamp. Unresolved ages
+      // sort as "brand new" and sink.
+      if (traderSort === "history") return dir * ((b.firstTradeTs ?? Number.MAX_SAFE_INTEGER) - (a.firstTradeTs ?? Number.MAX_SAFE_INTEGER));
       return dir * (a.pnl - b.pnl); // default: pnl
     });
     return list;
   }, [cacheWarm, streamedAll, search, category, marketQuery, minVolume, minPnl,
-      minTrades, minTrades24h, maxLastTradeHrs, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor,
+      minTrades, minTrades24h, maxLastTradeHrs, minHistoryDays, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor,
       stratFilter, stratAddrs]);
 
   const sortedTraders = useMemo(() => {
@@ -662,7 +679,7 @@ export default function CopyTrading({
   // Reset page on filter/sort change
   useEffect(() => { setPage(0); }, [search, category, marketQuery, traderSort, sortDir,
     minVolume, minPnl, minTrades, minBuyVolume, minSellVolume, stratFilter,
-    minTrades24h, maxLastTradeHrs]);
+    minTrades24h, maxLastTradeHrs, minHistoryDays]);
 
   const totalPages = Math.max(1, Math.ceil(visibleTotal / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -1027,6 +1044,11 @@ export default function CopyTrading({
                 // this many hours. Defaults to DEFAULT_ACTIVE_HOURS; blank/0
                 // disables. Widen it to see the dormant-but-profitable names.
                 { label: "LAST TRADE ≤ HRS", value: maxLastTradeHrs, onChange: onDec(setMaxLastTradeHrs), ph: String(DEFAULT_ACTIVE_HOURS) },
+                // Track-record floor — how many days of history a trader must
+                // have BEHIND them. Blank/0 = off. This is the one that makes a
+                // 30D ranking mean 30 days: a wallet that opened last week can
+                // top a 30D board, and its 30D backtest is mostly flat line.
+                { label: "MIN HISTORY DAYS", value: minHistoryDays, onChange: onDec(setMinHistoryDays), ph: "off" },
                 { label: "MIN BUY VOL", value: minBuyVolume, onChange: onDec(setMinBuyVolume), ph: "any" },
                 { label: "MIN SELL VOL", value: minSellVolume, onChange: onDec(setMinSellVolume), ph: "any" },
                 { label: "MIN P&L", value: minPnl, onChange: onDec(setMinPnl), ph: "any" },
@@ -1142,6 +1164,7 @@ export default function CopyTrading({
                 <col style={{ width: "72px" }} />
                 <col style={{ width: "80px" }} />
                 <col style={{ width: "64px" }} />
+                <col style={{ width: "72px" }} />
                 <col style={{ width: "100px" }} />
               </colgroup>
               <thead className="sticky">
@@ -1159,6 +1182,17 @@ export default function CopyTrading({
                     </th>
                   ))}
                   <th className="num text-right" title="Trades in last 24h — flags dormant traders">24H</th>
+                  {/* RECORD sits beside LAST on purpose: "how long have
+                      they been doing this" and "when did they last do it" are
+                      the two halves of whether a windowed number means
+                      anything. */}
+                  <th
+                    className={`sortable num ${traderSort === "history" ? "sorted" : ""} text-right`}
+                    title="How long this wallet has been trading — time since its first-ever trade. Shorter than the ranking window means part of that window predates the trader."
+                    onClick={() => handleSort("history")}>
+                    RECORD
+                    <SortArrow active={traderSort === "history"} dir={sortDir} />
+                  </th>
                   <th
                     className={`sortable num ${traderSort === "last" ? "sorted" : ""} text-right`}
                     title="Time since this trader's most recent trade"
@@ -1172,7 +1206,7 @@ export default function CopyTrading({
               <tbody>
                 {pageTraders.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="text-center py-8 text-[13px] text-pixel-gray">
+                    <td colSpan={11} className="text-center py-8 text-[13px] text-pixel-gray">
                       EVERY ROW IS HIDDEN BY THE CURRENT FILTERS
                       {activityDropped > 0 && (
                         <div className="mt-2 text-[12px] text-pixel-gray-light">
@@ -1239,6 +1273,29 @@ export default function CopyTrading({
                         return (
                           <td className={`num text-right font-mono ${cls}`} title={title}>
                             {c24}
+                          </td>
+                        );
+                      })()}
+                      {/* RECORD — days of track record. Amber when it is
+                          SHORTER than the window being ranked: the numbers to
+                          the left then cover days this account did not exist,
+                          which is the single most misleading thing a long
+                          window can do. "—" = not resolved yet, not new. */}
+                      {(() => {
+                        const age = historyDays(trader);
+                        const cls = age === null
+                          ? "text-pixel-gray"
+                          : age < days
+                            ? "text-amber-400"
+                            : "text-pixel-gray-light";
+                        const title = age === null
+                          ? "Track record not resolved yet — fills in on the next sync"
+                          : age < days
+                            ? `Only ${Math.floor(age)} days of history — SHORTER than the ${days}D window, so these numbers cover days before this account existed`
+                            : `Trading for ${Math.floor(age)} days`;
+                        return (
+                          <td className={`num text-right font-mono ${cls}`} title={title}>
+                            {formatHistory(trader)}
                           </td>
                         );
                       })()}

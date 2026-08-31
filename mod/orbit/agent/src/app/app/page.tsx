@@ -1992,11 +1992,57 @@ export default function Home() {
     )
   }
 
+  // "credit balance spent" is about the caller's prepaid credits — a different
+  // pot of money from the provider-key balance in the header pill, which is the
+  // host's. Read as raw text the two flatly contradict each other ($5.38 up top,
+  // "out of credits" in the transcript), so say which is which.
+  const creditsBanner = (text: string) => {
+    const empty = /no account credits/i.test(text)
+    return (
+      <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3">
+        <div className="flex items-start gap-2.5">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5 text-amber-300">
+            <circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.01" />
+          </svg>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-amber-100">
+              {empty ? 'This run needs credits on your account' : 'Your credits ran out mid-run'}
+            </div>
+            <div className="text-xs text-amber-200/70 mt-0.5 leading-relaxed">
+              {balance && typeof balance.balance === 'number' && balance.balance > 0 ? (
+                <>The <span className="font-mono">{fmtBalance(balance)}</span> in the header is the host&apos;s{' '}
+                  {balance.provider} key, not your money. Paid models run on that key and are billed to your
+                  own credit balance{creditsInfo?.account ? <> — currently <span className="font-mono">{`$${creditsInfo.account.balance.toFixed(2)}`}</span></> : null}.</>
+              ) : (
+                <>Paid models run on the host&apos;s provider key and are billed to your own credit balance.</>
+              )}
+              {' '}Add credits, or switch to a free model — those never touch it.
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+          {!auth ? (
+            <button onClick={signIn} disabled={authBusy}
+              className="px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-60 transition">
+              {authBusy ? 'Signing in…' : 'Sign in'}
+            </button>
+          ) : (
+            <button onClick={() => setShowCredits(true)}
+              className="px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/25 transition">
+              Add credits
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   // What a system message actually means, when we can tell. Anything we can't
   // read stays exactly as the server said it — nothing is ever swallowed.
   const runNotice = (text?: string) => {
     const prov = detectKeyError(text)
     if (prov) return keyErrorBanner(prov)
+    if (text && /no account credits|credit balance spent/i.test(text)) return creditsBanner(text)
     if (text && HARNESS_REFUSAL.test(text)) return harnessBanner(text)
     if (text && /permission denied|requires admin access|owner[-\s]only/i.test(text)) return accessBanner(text)
     return null
@@ -2321,12 +2367,21 @@ export default function Home() {
                     parked outside, it collided with the wrapped second line */}
                 <span className="min-w-0 flex-1">
                   <span className="pop__t pop__t--line">
-                    Credits
+                    {auth.isOwner ? 'Credit desk' : 'Credits'}
+                    {/* the owner never buys credits — their runs are on their
+                        own key — so the number worth showing them is what the
+                        guests are holding, not their own empty balance */}
                     <span className="pop__amt">
-                      ${(creditsInfo?.account?.balance ?? 0).toFixed(2)}
+                      ${(auth.isOwner
+                        ? (creditsInfo?.accounts || []).reduce((n, a) => n + (a.balance || 0), 0)
+                        : (creditsInfo?.account?.balance ?? 0)).toFixed(2)}
                     </span>
                   </span>
-                  <span className="pop__s">top up, or see what runs have cost</span>
+                  <span className="pop__s">
+                    {auth.isOwner
+                      ? 'give or take credit from any address'
+                      : 'top up, or see what runs have cost'}
+                  </span>
                 </span>
               </button>
             </div>

@@ -9,9 +9,9 @@
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { height:100%; overflow:hidden; background:#0b0f14; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:var(--ink); }
   #app { position:fixed; inset:0; }
-  /* the whole point: render tiny, blow it up with hard edges */
-  #app canvas { display:block; width:100% !important; height:100% !important;
-                image-rendering: pixelated; image-rendering: crisp-edges; }
+  /* the canvas is always stretched to the window; how it is stretched is the look */
+  #app canvas { display:block; width:100% !important; height:100% !important; image-rendering: auto; }
+  #app.crunch canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
 
   /* HUD — 8-bit slab panels, no blur, no round corners */
   #hud { position:fixed; inset:0; pointer-events:none; }
@@ -228,6 +228,7 @@
     <div class="row"><span>Free camera</span><b><kbd>C</kbd></b></div>
     <div class="row"><span>Time of day</span><b><kbd>T</kbd></b></div>
     <div class="row"><span>Sound</span><b><kbd>M</kbd></b></div>
+    <div class="row"><span>Graphics</span><b><kbd>G</kbd></b></div>
     <div class="row"><span>Pixel size</span><b><kbd>[</kbd><kbd>]</kbd></b></div>
     <div class="hint">Walk up to anyone and press F — read what they like, get their number 📱 · people under a ❗ want a favour · drum circles east and west of the fountain 🥁 · chess in the SW corner ♟ · dog run on the west side 🐕</div>
     <div class="hint">Click the scene to capture the mouse · <kbd>Esc</kbd> to release · <kbd>H</kbd> hides this</div>
@@ -323,33 +324,72 @@ const GROUND_Y = 0;
 // ---------------------------------------------------------------------------
 const app = document.getElementById('app');
 // perf knobs via URL: ?lite=1 (no shadows/bloom), ?density=0.5 (smaller crowd)
-// look knobs:      ?px=4 (pixel size, 0=auto), ?levels=12 (colours per channel), ?dither=1, ?raw=1 (no pixel pass)
+// look knobs:      ?gfx=hi|ps2|pixel, ?px=4 (pixel size), ?levels=12, ?dither=1
 const QS = new URLSearchParams(location.search);
 const LITE = QS.get('lite') === '1';
 const DENSITY = Math.max(0.1, parseFloat(QS.get('density') || '1') || 1);
-const RAW = QS.get('raw') === '1';                                   // escape hatch: render smooth
 const PX_FORCE = Math.max(0, parseInt(QS.get('px') || '0') || 0);
 const LEVELS = Math.max(2, parseFloat(QS.get('levels') || '16') || 16);
 const DITHER = QS.get('dither') !== null ? Math.max(0, parseFloat(QS.get('dither'))) : 0.65;
 
-// The look: render into a small framebuffer and let the browser blow it up with
-// nearest-neighbour. Everything downstream is authored for real pixels — chunky
-// texels, hard shadow edges, a 4x4 Bayer dither instead of smooth gradients.
-const VPIX = 460;                                                    // target internal width in "pixels"
+// ---- three ways to draw the same park (G cycles them) -----------------------
+// The park itself is modelled the same either way — what changes is the
+// framebuffer it lands in and how much of the shading survives the trip out.
+//   hi    full resolution, MSAA, smooth shading, filtered textures, image-based
+//         sky light. Nothing is thrown away.
+//   ps2   a 480-line buffer stretched bilinear over the window, 40 colour bins
+//         with a whisper of dither. Sixth-generation console: soft, not blocky.
+//   pixel the original look — a ~460px buffer blown up nearest-neighbour, 16
+//         colours a channel, banded toon ramp and ink outlines on every body.
+const GFX = {
+  hi:    { label:'HIGH',  note:'full resolution · smooth shading',
+           px:false, aa:true,  levels:0,      dither:0,      sat:1.06, vig:0.16,
+           bloom:0.18, thresh:0.90, soft:true,  ink:false, band:false, env:true },
+  ps2:   { label:'PS2',   note:'480-line buffer · bilinear upscale',
+           px:false, aa:false, levels:40,     dither:0.30,   sat:1.10, vig:0.22,
+           bloom:0.26, thresh:0.88, soft:false, ink:false, band:false, env:true },
+  pixel: { label:'PIXEL', note:'chunky texels · 16 colours a channel',
+           px:true,  aa:false, levels:LEVELS, dither:DITHER, sat:1.16, vig:0.30,
+           bloom:0.30, thresh:0.86, soft:false, ink:true,  band:true,  env:false },
+};
+let MODE = (() => {
+  const q = (QS.get('gfx') || '').toLowerCase();
+  if (GFX[q]) return q;
+  if (QS.get('raw') === '1') return 'hi';                    // old escape hatch
+  if (QS.get('px')) return 'pixel';
+  try { const s = localStorage.getItem('fw.gfx'); if (GFX[s]) return s; } catch {}
+  return 'hi';
+})();
+const G = () => GFX[MODE];
+const RAW = false;
+
+const VPIX = 460;                                            // pixel mode: internal width in "pixels"
 function pixelSize() {
-  if (RAW) return 1;
   if (PX_FORCE) return PX_FORCE;
   return Math.max(2, Math.min(6, Math.round(window.innerWidth / VPIX)));
 }
 let PSIZE = pixelSize();
-const lowW = () => Math.max(160, Math.floor(window.innerWidth  / PSIZE));
-const lowH = () => Math.max(120, Math.floor(window.innerHeight / PSIZE));
+const MAX_PIXELS = 2.6e6;                                    // ceiling so a 4K panel doesn't melt the GPU
+// The size of the buffer we actually draw into. CSS stretches it to the window
+// in every mode; only `pixel` asks the browser to do that with hard edges.
+function bufferSize() {
+  const W = Math.max(320, window.innerWidth), H = Math.max(240, window.innerHeight);
+  if (MODE === 'pixel') {
+    PSIZE = pixelSize();
+    return [Math.max(160, Math.floor(W/PSIZE)), Math.max(120, Math.floor(H/PSIZE))];
+  }
+  if (MODE === 'ps2') { const s = Math.min(1, 480/H); return [Math.round(W*s), Math.round(H*s)]; }
+  let s = Math.min(window.devicePixelRatio || 1, 1.5);
+  if (W*H*s*s > MAX_PIXELS) s = Math.sqrt(MAX_PIXELS/(W*H));
+  return [Math.round(W*s), Math.round(H*s)];
+}
+const lowW = () => bufferSize()[0], lowH = () => bufferSize()[1];
 
-const renderer = new THREE.WebGLRenderer({ antialias: RAW, powerPreference: 'high-performance' });
-renderer.setPixelRatio(1);                                           // never supersample — we want the grid
-renderer.setSize(lowW(), lowH(), false);                             // false: CSS stretches it to the window
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(1);                                   // we size the buffer ourselves, per mode
+renderer.setSize(lowW(), lowH(), false);                     // false: CSS stretches it to the window
 renderer.shadowMap.enabled = !LITE;
-renderer.shadowMap.type = LITE ? THREE.BasicShadowMap : THREE.PCFShadowMap;  // hard-ish edges suit the grid
+renderer.shadowMap.type = LITE ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.12;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -361,39 +401,44 @@ scene.fog = new THREE.FogExp2(0xe3d8bf, 0.0026);                     // late-aft
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 1600);
 camera.position.set(0, 6, 18);
 
-// ---- post: bloom → tonemap → quantise+dither+vignette (graceful fallback) ----
+// ---- post: bloom → tonemap → grade (+ optional quantise/dither/vignette) ----
 // Quantising AFTER the output pass means we're binning display-space colour, so
-// the palette stays put no matter how bright the scene gets.
-const PixelShader = {
+// the palette stays put no matter how bright the scene gets. `levels` at 0
+// switches the binning off entirely, which is what the smooth modes want.
+const GradeShader = {
   uniforms: {
     tDiffuse: { value: null },
-    levels:   { value: LEVELS },
-    dither:   { value: DITHER },
+    levels:   { value: 0 },
+    dither:   { value: 0 },
+    sat:      { value: 1.06 },
+    vig:      { value: 0.16 },
     warm:     { value: 1 },
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader: `
     varying vec2 vUv;
-    uniform sampler2D tDiffuse; uniform float levels, dither, warm;
+    uniform sampler2D tDiffuse; uniform float levels, dither, sat, vig, warm;
     // 2x2 Bayer, recursed once → the classic 4x4 ordered-dither matrix
     float b2(vec2 p){ return mod(3.0*p.x + 2.0*p.y, 4.0); }
     float bayer4(vec2 p){ vec2 q = floor(mod(p,4.0)); return (4.0*b2(mod(q,2.0)) + b2(floor(q*0.5))) / 16.0; }
     void main(){
       vec3 c = texture2D(tDiffuse, vUv).rgb;
-      // gentle grade: lift saturation + a soft S-curve so the small palette still reads
+      // gentle grade: lift saturation + a soft S-curve so midtones keep their bite
       float lum = dot(c, vec3(0.2126,0.7152,0.0722));
-      c = mix(vec3(lum), c, 1.16);
+      c = mix(vec3(lum), c, sat);
       c = clamp(c*c*(3.0-2.0*c)*0.28 + c*0.74, 0.0, 1.0);
       c *= mix(vec3(1.0), vec3(1.03,1.0,0.95), warm);
-      float t = (bayer4(gl_FragCoord.xy) - 0.5) * dither;
-      float n = max(2.0, levels) - 1.0;
-      c = floor(c * n + 0.5 + t) / n;                 // hard palette bins
-      float v = distance(vUv, vec2(0.5));             // faint CRT-ish falloff
-      gl_FragColor = vec4(c * (1.0 - v*v*0.30), 1.0);
+      if (levels > 1.5) {                             // hard palette bins, dithered
+        float t = (bayer4(gl_FragCoord.xy) - 0.5) * dither;
+        float n = levels - 1.0;
+        c = floor(c * n + 0.5 + t) / n;
+      }
+      float v = distance(vUv, vec2(0.5));             // faint lens falloff
+      gl_FragColor = vec4(c * (1.0 - v*v*vig), 1.0);
     }`,
 };
 
-let composer = null, pixelPass = null;
+let composer = null, gradePass = null, bloomPass = null;
 if (!LITE) try {
   const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }, { ShaderPass }] = await Promise.all([
     import('three/addons/postprocessing/EffectComposer.js'),
@@ -405,12 +450,63 @@ if (!LITE) try {
   composer = new EffectComposer(renderer);
   composer.setSize(lowW(), lowH());
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(lowW(), lowH()), 0.30, 0.7, 0.86);
-  composer.addPass(bloom);
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(lowW(), lowH()), 0.18, 0.7, 0.90);
+  composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
-  if (!RAW) { pixelPass = new ShaderPass(PixelShader); composer.addPass(pixelPass); }
+  gradePass = new ShaderPass(GradeShader); composer.addPass(gradePass);
 } catch (e) { composer = null; console.warn('post-processing unavailable, rendering direct', e); }
 function render() { if (composer) composer.render(); else renderer.render(scene, camera); }
+
+// Multisampling lives on the composer's own targets — the renderer's `antialias`
+// flag never reaches them. Disposing is how you get three to rebuild one.
+function composerSamples(n) {
+  if (!composer) return;
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
+    if (rt && rt.samples !== n) { rt.samples = n; rt.dispose(); }
+  }
+}
+
+// Subsystems that own something mode-dependent (texture filtering, the toon
+// ramp, ink outlines, the sky probe) register here instead of being reached
+// into from the switch.
+const GFX_HOOKS = [];
+function applyResolution() {
+  const [w, h] = bufferSize();
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);              // CSS keeps the canvas full-bleed
+  if (composer) { composer.setSize(w, h); composerSamples(G().aa ? 4 : 0); }
+  return [w, h];
+}
+function applyGfx(announce) {
+  const g = G();
+  app.classList.toggle('crunch', g.px);
+  const [w, h] = applyResolution();
+  if (!LITE) {
+    renderer.shadowMap.type = g.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    renderer.shadowMap.needsUpdate = true;
+  }
+  if (gradePass) {
+    const u = gradePass.uniforms;
+    u.levels.value = g.levels; u.dither.value = g.dither;
+    u.sat.value = g.sat; u.vig.value = g.vig;
+  }
+  if (bloomPass) { bloomPass.strength = g.bloom; bloomPass.threshold = g.thresh; }
+  for (const fn of GFX_HOOKS) { try { fn(g, MODE); } catch (e) { console.warn('gfx hook', e); } }
+  // shadow filtering and env maps are compiled into the shaders, so everything
+  // standing in the park needs a recompile once — cheap, and only on a switch.
+  scene.traverse(o => {
+    const m = o.material; if (!m) return;
+    (Array.isArray(m) ? m : [m]).forEach(mm => { mm.needsUpdate = true; });
+  });
+  if (announce) toast(`${g.label} — ${g.note} · ${w}×${h}`);
+}
+function setGfx(mode, announce = true) {
+  if (!GFX[mode]) return;
+  MODE = mode;
+  try { localStorage.setItem('fw.gfx', mode); } catch {}
+  applyGfx(announce);
+}
 
 // ---------------------------------------------------------------------------
 // Sky (gradient dome) + lighting + the time of day that drives both
@@ -503,9 +599,43 @@ function buildSky() {
   const sky = new THREE.Mesh(new THREE.SphereGeometry(760, 40, 20), mat);
   sky.frustumCulled = false;
   scene.add(sky);
+  SKY_MESH = sky;
   return uniforms;
 }
+let SKY_MESH = null;
 const SKYU = buildSky();
+
+// ---- image-based sky light --------------------------------------------------
+// The single biggest thing separating "lit by three lamps" from "outdoors" is
+// that the whole sky is a light source. Pre-filter the sky dome into an
+// environment probe and every standard material in the park picks up its
+// gradient — cool from above, warm off the horizon — instead of one flat
+// hemisphere colour. It is rebuilt only when the hour has actually moved.
+let _pmrem = null, _envRT = null, _envScene = null, _envHour = null;
+let ENV_ON = false, ENV_I = 0.75;
+function updateEnv(force) {
+  if (!ENV_ON) {
+    if (scene.environment) { scene.environment = null; _envHour = null; }
+    return;
+  }
+  if (!force && _envHour !== null && Math.abs(_envHour - DAY.hour) < 0.2) return;
+  try {
+    if (!_pmrem) _pmrem = new THREE.PMREMGenerator(renderer);
+    if (!_envScene) { _envScene = new THREE.Scene(); _envScene.add(new THREE.Mesh(SKY_MESH.geometry, SKY_MESH.material)); }
+    const rt = _pmrem.fromScene(_envScene, 0, 1, 2000);
+    if (_envRT) _envRT.dispose();
+    _envRT = rt; scene.environment = rt.texture; _envHour = DAY.hour;
+  } catch (e) { console.warn('sky probe unavailable', e); ENV_ON = false; scene.environment = null; }
+}
+GFX_HOOKS.push(g => {
+  ENV_ON = !!g.env && !LITE;
+  updateEnv(true);
+  const i = ENV_ON ? ENV_I : 1;
+  scene.traverse(o => {
+    const m = o.material; if (!m) return;
+    (Array.isArray(m) ? m : [m]).forEach(mm => { if (mm.isMeshStandardMaterial) mm.envMapIntensity = i; });
+  });
+});
 
 // sky fill (cool) + ground bounce (warm) — the two halves of real outdoor light
 const hemi = new THREE.HemisphereLight(0xbfd8f2, 0x8f7a54, 0.72);
@@ -558,8 +688,9 @@ function applyTimeOfDay(h) {
   sun.intensity = lerpN('sunI');
   lerpC('sun', sun.color);
   sun.visible = sun.intensity > 0.01;
-  hemi.intensity = lerpN('hemiI');
-  ambient.intensity = lerpN('ambI');
+  // with a sky probe lighting the park, the hemisphere light would double up
+  hemi.intensity = lerpN('hemiI') * (ENV_ON ? 0.62 : 1);
+  ambient.intensity = lerpN('ambI') * (ENV_ON ? 0.70 : 1);
   // after dark the only "sky" is sodium bounce off the city — go cool and dim
   hemi.color.setHex(0xbfd8f2).lerp(_c1.setHex(0x2c3a58), Math.max(0, -el*2.2));
   fill.position.set(-SUN_DIR.x*60, 34, -SUN_DIR.z*60);
@@ -572,6 +703,7 @@ function applyTimeOfDay(h) {
   // night ramps in as the sun drops through the horizon; lamps follow it
   DAY.night = THREE.MathUtils.smoothstep(-el, -0.02, 0.14);
   for (const fn of NIGHT_HOOKS) fn(DAY.night, DAY.hour, el);
+  updateEnv(false);                       // cheap no-op unless the hour moved
 }
 
 // ---------------------------------------------------------------------------
@@ -584,6 +716,21 @@ function makeCanvas(size = 512) {
 // Textures are authored as pixel art: NEAREST magnification keeps the texels
 // crunchy up close, mipmaps keep them from boiling in the distance.
 const TEXELS_PER_M = 32;   // roughly one texel per screen pixel at walking distance
+// Every world texture is registered so a mode switch can re-filter the lot:
+// nearest + low anisotropy for the pixel look, trilinear + max anisotropy for
+// the smooth ones, which is most of what makes paving read as stone up close
+// and as a surface — rather than as a shimmering grid — down the promenade.
+const WORLD_TEX = [];
+function trackTex(t) { WORLD_TEX.push(t); return t; }
+GFX_HOOKS.push(g => {
+  const maxA = renderer.capabilities.getMaxAnisotropy();
+  const aniso = g.px ? 4 : Math.min(16, maxA);
+  for (const t of WORLD_TEX) {
+    t.magFilter = g.px ? THREE.NearestFilter : THREE.LinearFilter;
+    t.anisotropy = aniso;
+    t.needsUpdate = true;
+  }
+});
 function pixelTex(canvas, { repeat = 1, srgb = true } = {}) {
   const t = new THREE.CanvasTexture(canvas);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -593,7 +740,7 @@ function pixelTex(canvas, { repeat = 1, srgb = true } = {}) {
   t.anisotropy = 4;
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   if (repeat !== 1) t.repeat.set(repeat, repeat);
-  return t;
+  return trackTex(t);
 }
 const rgb = (r,g,b,a=1) => `rgba(${r|0},${g|0},${b|0},${a})`;
 const pick = a => a[(Math.random()*a.length)|0];
@@ -850,7 +997,7 @@ const plazaTex = (() => {
   const t = new THREE.CanvasTexture(c);
   t.magFilter = THREE.NearestFilter; t.minFilter = THREE.LinearMipmapLinearFilter;
   t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  return t;
+  return trackTex(t);
 })();
 const plaza = new THREE.Mesh(new THREE.CircleGeometry(20, 64),
   new THREE.MeshStandardMaterial({ map: plazaTex, roughness: .92 }));
@@ -1801,19 +1948,34 @@ function buildBirds(){
 // ---------------------------------------------------------------------------
 // banded toon ramp → crisp shading that survives the palette quantiser.
 // Five steps (not four) so faces and limbs keep some roundness.
-function makeToonRamp(steps) {
-  const data = new Uint8Array(steps);
-  for (let i=0;i<steps;i++) data[i] = Math.round(58 + (255-58)*Math.pow(i/(steps-1), 0.85));
-  const tex = new THREE.DataTexture(data, steps, 1, THREE.RedFormat);
+// Bodies keep their MeshToonMaterial in every mode — what changes is the ramp
+// it reads. Banded into five steps it is cel shading; sampled smooth off the
+// same 64-entry curve it shades like a diffuse surface, with the terminator
+// rolling off the way a shoulder actually does.
+function makeToonRamp(bands) {
+  const N = 64, data = new Uint8Array(N);
+  for (let i=0;i<N;i++) {
+    let u = i/(N-1);
+    if (bands) u = Math.round(u*(bands-1))/(bands-1);
+    data[i] = Math.round(58 + (255-58)*Math.pow(u, 0.85));
+  }
+  const tex = new THREE.DataTexture(data, N, 1, THREE.RedFormat);
   tex.minFilter = tex.magFilter = THREE.NearestFilter; tex.needsUpdate = true; return tex;
 }
 const TOON = makeToonRamp(5);
+GFX_HOOKS.push(g => {
+  const fresh = makeToonRamp(g.band ? 5 : 0);
+  TOON.image = fresh.image;
+  TOON.magFilter = TOON.minFilter = g.band ? THREE.NearestFilter : THREE.LinearFilter;
+  TOON.needsUpdate = true;
+});
 const toon = (color, extra={}) => new THREE.MeshToonMaterial({ color, gradientMap: TOON, ...extra });
 const OUTLINE_MAT = new THREE.MeshBasicMaterial({ color: 0x191421, side: THREE.BackSide,
   polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 4 });
 // subtle ink outline via inverted hull (a back-faced, slightly bigger shell).
 // Every hull is a second draw call, so they're collected per character and
 // switched off once a body is too far away for the ink to be visible anyway.
+let INK = true;             // ink outlines: on for the pixel look, off when smooth
 let _outlineSink = null;
 function outline(mesh, k=1.045) {
   const o = new THREE.Mesh(mesh.geometry, OUTLINE_MAT);
@@ -2795,6 +2957,14 @@ blob.rotation.x=-Math.PI/2; blob.position.y=0.03; scene.add(blob);
 // on the grass, dogs. This is the vibe people come (and tune in) for.
 // ---------------------------------------------------------------------------
 const people = [], dogs = [], DRUM_CIRCLES = [];
+GFX_HOOKS.push(g => {
+  INK = !!g.ink;
+  for (const o of hero.userData.outlines) o.visible = INK;
+  for (const p of people) {                 // force the distance cull to re-decide
+    p.userData.inked = null;
+    for (const o of p.userData.outlines) o.visible = INK;
+  }
+});
 
 // Where people are is not uniform. In the real park the plaza rim and the
 // Fifth Avenue promenade carry most of the density and the lawn interiors are
@@ -3112,7 +3282,7 @@ function updatePeople(dt, time){
     // distance culling: past 60 m the ink outlines are sub-pixel, and past
     // 45 m nobody can see a limb move on two frames out of three
     const ddx = p.position.x-camX, ddz = p.position.z-camZ, d2 = ddx*ddx + ddz*ddz;
-    const inkOn = d2 < 60*60;
+    const inkOn = INK && d2 < 60*60;
     if (u.inked !== inkOn) { u.inked = inkOn; for (const o of u.outlines) o.visible = inkOn; }
     const lazy = d2 > 45*45 && ((peopleTick + pi) % 3);
 
@@ -4788,24 +4958,23 @@ window.__fw = { THREE, scene, camera, hero, state, get people(){ return people; 
 // ---------------------------------------------------------------------------
 // Resize
 // ---------------------------------------------------------------------------
-function applyResolution() {
-  PSIZE = pixelSize();
-  const w = lowW(), h = lowH();
-  camera.aspect = window.innerWidth/window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(w, h, false);            // CSS keeps the canvas full-bleed
-  if (composer) composer.setSize(w, h);
-}
 addEventListener('resize', applyResolution);
-applyResolution();
+applyGfx(false);              // everything is built now: put it in the chosen look
 
-// live pixel-size control: [ chunkier, ] finer
+// G cycles the look; [ and ] still drive pixel size, and reach for pixel mode
+// if you are not already in it.
 addEventListener('keydown', e => {
+  if (e.key === 'g' || e.key === 'G') {
+    const order = ['hi','ps2','pixel'];
+    setGfx(order[(order.indexOf(MODE)+1) % order.length]);
+    return;
+  }
   if (e.key !== '[' && e.key !== ']') return;
-  PSIZE = Math.max(1, Math.min(10, PSIZE + (e.key === '[' ? 1 : -1)));
-  const w = lowW(), h = lowH();
+  if (MODE !== 'pixel') { setGfx('pixel'); return; }
+  PSIZE = Math.max(2, Math.min(10, PSIZE + (e.key === '[' ? 1 : -1)));
+  const w = Math.max(160, Math.floor(window.innerWidth/PSIZE)), h = Math.max(120, Math.floor(window.innerHeight/PSIZE));
   renderer.setSize(w, h, false); if (composer) composer.setSize(w, h);
-  toast(PSIZE === 1 ? 'pixels off — raw render' : `pixel size ${PSIZE} · ${w}×${h}`);
+  toast(`pixel size ${PSIZE} · ${w}×${h}`);
 });
 
 // ---------------------------------------------------------------------------

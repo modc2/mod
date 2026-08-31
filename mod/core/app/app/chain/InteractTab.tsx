@@ -7,14 +7,20 @@
 // Every contract is a card in a deck. The deck is yours to manage: pin the
 // ones you keep coming back to, hide the noise, rename anything, and keep
 // contracts you loaded by hand. The book lives in this browser, per network.
+//
+// Methods are never a wall of buttons. One search box owns them: type any part
+// of a name, an argument or a type and the list narrows; ↑↓ walks it, ⏎ opens
+// it. On a wide screen it's a rail beside the call; on a phone it's one
+// dropdown. A read with no arguments answers the moment you pick it.
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { ethers } from 'ethers'
 import { toast } from 'react-toastify'
 import {
   TERM_FONT, ACCENT, READ, WRITE, DANGER, chainApi, coerceArgs, jsonify,
   placeholderFor, readProvider, short, explorerUrl, txUrl, useIsMobile,
   cardBook, saveContractCard, forgetContractCard, nameContractCard, toggleContractCard,
+  recentMethods, rememberMethod,
   type CardBook,
 } from './shared'
 import { Panel, Label, Btn, Input, Empty, panelStyle, Quiet } from './ui'
@@ -57,7 +63,34 @@ const signature = (f: AbiFn) => {
   return `${f.name}(${ins})${outs ? ` → ${f.outputs.length > 1 ? `(${outs})` : outs}` : ''}`
 }
 
-/** A small hard-edged link — EXPLORER ↗, TX ↗. */
+/** `transfer(address,uint256)` — unique even when a name is overloaded. */
+const fnId = (f: AbiFn) => `${f.name}(${f.inputs.map(i => i.type).join(',')})`
+
+/**
+ * How well a method answers what was typed — lower is better, -1 is no match.
+ * Anything you can see about a method is searchable: its name, its argument
+ * names, its types. Initials work too, so "gdl" finds getDailyLimit.
+ */
+function score(f: AbiFn, q: string): number {
+  if (!q) return 0
+  const needle = q.toLowerCase().trim()
+  const name = f.name.toLowerCase()
+  if (name.startsWith(needle)) return 0
+  if (name.includes(needle)) return 1
+  const params = f.inputs.map(i => `${i.name} ${i.type}`).join(' ').toLowerCase()
+  const outs = f.outputs.map(o => `${o.name} ${o.type}`).join(' ').toLowerCase()
+  if (params.includes(needle) || outs.includes(needle)) return 2
+  let i = 0
+  for (const ch of name) { if (ch === needle[i]) i++; if (i === needle.length) return 3 }
+  return -1
+}
+
+/** A method dressed for the list. */
+interface Meth { f: AbiFn; id: string; read: boolean }
+type Row = { head: string; color: string; count: number } | { m: Meth }
+const isHead = (r: Row): r is { head: string; color: string; count: number } => 'head' in r
+
+/** A small hard-edged link — EXPLORER ->, TX ->. */
 function Ext({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <a href={href} target="_blank" rel="noreferrer" className="arc-press arc-pixel"
@@ -77,6 +110,284 @@ const SOURCE_TAG: Record<Source, { label: string; color: string }> = {
   saved: { label: 'SAVED', color: NEON.coin },
 }
 
+/**
+ * The method finder. Same guts either way: a search field, three filter chips
+ * and a list — a sticky rail on a wide screen, a dropdown on a phone. It is a
+ * top-level component (not a render function) so typing in the search field
+ * can never remount it and steal the caret.
+ */
+function MethodPicker({
+  fns, currentId, onPick, mobile, recent, searchRef,
+}: {
+  fns: AbiFn[]
+  currentId: string
+  onPick: (f: AbiFn) => void
+  mobile: boolean
+  /** method ids called most recently on this contract, newest first */
+  recent: string[]
+  searchRef: React.MutableRefObject<HTMLInputElement | null>
+}) {
+  const [q, setQ] = useState('')
+  const [kind, setKind] = useState<'all' | 'read' | 'write'>('all')
+  const [cursor, setCursor] = useState(0)
+  const [open, setOpen] = useState(false)
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+
+  const all: Meth[] = useMemo(
+    () => fns.map(f => ({ f, id: fnId(f), read: isRead(f) })), [fns])
+  const readCount = all.filter(m => m.read).length
+
+  const list = useMemo(() => {
+    const kept = all.filter(m => kind === 'all' || (kind === 'read') === m.read)
+    if (!q.trim()) return kept
+    return kept
+      .map(m => ({ m, s: score(m.f, q) }))
+      .filter(x => x.s >= 0)
+      .sort((a, b) => a.s - b.s || a.m.f.name.length - b.m.f.name.length)
+      .map(x => x.m)
+  }, [all, q, kind])
+
+  const rows: Row[] = useMemo(() => {
+    const out: Row[] = []
+    const group = (head: string, color: string, items: Meth[]) => {
+      if (!items.length) return
+      out.push({ head, color, count: items.length })
+      items.forEach(m => out.push({ m }))
+    }
+    if (q.trim()) { group('MATCHES', ACCENT, list); return out }
+    if (kind === 'all') {
+      const seen = new Set<string>()
+      group('RECENT', NEON.coin, recent
+        .map(id => list.find(m => m.id === id))
+        .filter((m): m is Meth => !!m && !seen.has(m.id) && !!seen.add(m.id)))
+    }
+    group('READ', READ, list.filter(m => m.read))
+    group('WRITE', WRITE, list.filter(m => !m.read))
+    return out
+  }, [list, q, kind, recent])
+
+  // keyboard walks the rendered order, headers skipped
+  const flat = useMemo(() => rows.filter((r): r is { m: Meth } => !isHead(r)).map(r => r.m), [rows])
+  useEffect(() => { setCursor(0) }, [q, kind])
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-idx="${cursor}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [cursor])
+
+  const take = (m: Meth) => { onPick(m.f); setOpen(false) }
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setCursor(c => Math.min(flat.length - 1, c + 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor(c => Math.max(0, c - 1)) }
+    else if (e.key === 'Enter') { e.preventDefault(); if (flat[cursor]) take(flat[cursor]) }
+    else if (e.key === 'Escape') { if (q) setQ(''); else { setOpen(false); searchRef.current?.blur() } }
+  }
+
+  const chip = (label: string, k: 'all' | 'read' | 'write', n: number, color: string) => (
+    <button
+      key={k}
+      onClick={() => setKind(k)}
+      className="arc-press arc-pixel"
+      style={{
+        flex: 1, fontFamily: PIXEL, fontSize: PX.xs, letterSpacing: '0.08em',
+        padding: '6px 4px', minHeight: mobile ? '34px' : '28px',
+        border: `2px solid ${kind === k ? color : 'var(--border-color)'}`,
+        background: kind === k ? `${color}1f` : 'transparent',
+        color: kind === k ? color : 'var(--text-tertiary)',
+        cursor: 'pointer', whiteSpace: 'nowrap',
+      }}
+    >
+      {label} {n}
+    </button>
+  )
+
+  const row = (m: Meth, idx: number) => {
+    const c = m.read ? READ : WRITE
+    const on = m.id === currentId
+    const at = idx === cursor
+    return (
+      <button
+        // a method can be in RECENT and in its own group — index keeps keys unique
+        key={`${idx}-${m.id}`}
+        data-idx={idx}
+        onClick={() => take(m)}
+        onMouseEnter={() => setCursor(idx)}
+        className="arc-press"
+        title={signature(m.f)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '8px', width: '100%', textAlign: 'left',
+          fontFamily: TERM_FONT, fontSize: mobile ? '16px' : '14px',
+          padding: mobile ? '9px 10px' : '6px 9px', minHeight: mobile ? '42px' : '32px',
+          borderWidth: '2px', borderStyle: 'solid',
+          borderColor: on ? c : at ? 'var(--border-color)' : 'transparent',
+          background: on ? `${c}1f` : at ? 'rgba(255,255,255,0.05)' : 'transparent',
+          color: on ? c : 'var(--text-secondary)',
+          cursor: 'pointer',
+        }}
+      >
+        <span style={{
+          width: '7px', height: '7px', flexShrink: 0,
+          background: on ? c : 'transparent', border: `2px solid ${c}`,
+          boxShadow: on ? `0 0 8px ${c}` : 'none',
+        }} />
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {m.f.name}
+        </span>
+        {m.f.inputs.length > 0 && (
+          <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', flexShrink: 0 }}>
+            ×{m.f.inputs.length}
+          </span>
+        )}
+        {m.f.stateMutability === 'payable' && (
+          <span style={{ fontFamily: PIXEL, fontSize: '7px', color: NEON.coin, flexShrink: 0 }}>$</span>
+        )}
+      </button>
+    )
+  }
+
+  let idx = -1
+  const guts = (
+    <>
+      <div style={{ position: 'relative' }}>
+        <input
+          ref={searchRef}
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={onKey}
+          placeholder={mobile ? 'search methods' : 'search methods    /'}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          style={{
+            width: '100%', fontFamily: TERM_FONT, fontSize: mobile ? '16px' : '14px',
+            padding: mobile ? '10px 30px 10px 10px' : '7px 28px 7px 10px',
+            border: `2px solid ${q ? ACCENT : 'var(--border-color)'}`,
+            background: 'rgba(0,0,0,0.25)', color: 'var(--text-primary)', outline: 'none',
+          }}
+        />
+        {q && (
+          <button
+            onClick={() => { setQ(''); searchRef.current?.focus() }}
+            title="clear"
+            style={{
+              position: 'absolute', right: '4px', top: 0, bottom: 0, width: '24px',
+              border: 'none', background: 'transparent', color: 'var(--text-tertiary)',
+              cursor: 'pointer', fontSize: '14px', lineHeight: 1,
+            }}
+          >✕</button>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: '4px' }}>
+        {chip('ALL', 'all', all.length, ACCENT)}
+        {chip('READ', 'read', readCount, READ)}
+        {chip('WRITE', 'write', all.length - readCount, WRITE)}
+      </div>
+
+      <div ref={listRef} style={{
+        overflowY: 'auto', minHeight: 0, flex: 1,
+        maxHeight: mobile ? '42vh' : undefined,
+        display: 'flex', flexDirection: 'column', gap: '1px',
+        margin: '0 -2px',
+      }}>
+        {rows.length === 0 ? (
+          <div style={{
+            fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-tertiary)',
+            padding: '14px 4px', lineHeight: 1.6,
+          }}>
+            nothing here matches “{q}”
+          </div>
+        ) : rows.map(r => isHead(r) ? (
+          <div key={`h-${r.head}`} style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            fontFamily: PIXEL, fontSize: '7px', letterSpacing: '0.14em', color: r.color,
+            padding: '10px 4px 4px', position: 'sticky', top: 0,
+            background: 'var(--bg-primary)', zIndex: 1,
+          }}>
+            <span style={{ width: '3px', height: '9px', background: r.color }} />
+            {r.head}
+            <span style={{ fontFamily: TERM_FONT, fontSize: '12px', letterSpacing: 'normal', opacity: 0.7 }}>
+              {r.count}
+            </span>
+          </div>
+        ) : row(r.m, ++idx))}
+      </div>
+
+      <div style={{
+        fontFamily: TERM_FONT, fontSize: '12px', color: 'var(--text-tertiary)',
+        opacity: 0.8, paddingTop: '2px', lineHeight: 1.5,
+      }}>
+        ↑↓ move · ⏎ open{mobile ? '' : ' · / jumps here'}
+      </div>
+    </>
+  )
+
+  if (!mobile) {
+    return (
+      <div style={{
+        ...panelStyle, padding: '10px', position: 'sticky', top: '12px',
+        display: 'flex', flexDirection: 'column', gap: '8px',
+        // the console scrolls inside its own pane, not the window — leave room
+        // for the app header so the rail's own list is what scrolls
+        maxHeight: 'calc(100vh - 120px)', minWidth: 0,
+      }}>
+        <Label style={{ color: ACCENT, marginBottom: '2px' }} note={`${all.length}`}>METHODS</Label>
+        {guts}
+      </div>
+    )
+  }
+
+  const picked = all.find(m => m.id === currentId)
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', scrollMarginTop: '12px' }}>
+      <button
+        onClick={() => {
+          const next = !open
+          setOpen(next)
+          // bring the dropdown its own room instead of opening off the bottom
+          if (next) requestAnimationFrame(() =>
+            wrapRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+        }}
+        className="arc-press"
+        style={{
+          display: 'flex', alignItems: 'center', gap: '8px', width: '100%', textAlign: 'left',
+          fontFamily: TERM_FONT, fontSize: '16px', padding: '12px', minHeight: '48px',
+          borderWidth: '2px', borderStyle: 'solid',
+          borderColor: picked ? (picked.read ? READ : WRITE) : ACCENT,
+          background: 'rgba(0,0,0,0.25)',
+          color: picked ? (picked.read ? READ : WRITE) : 'var(--text-secondary)',
+          boxShadow: `3px 3px 0 0 ${picked ? (picked.read ? READ : WRITE) : ACCENT}`,
+          cursor: 'pointer',
+        }}
+      >
+        <span style={{ fontFamily: PIXEL, fontSize: PX.xs, letterSpacing: '0.1em', flexShrink: 0 }}>
+          {picked ? (picked.read ? 'READ' : 'WRITE') : 'METHOD'}
+        </span>
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {picked ? picked.f.name : `search ${all.length} methods`}
+        </span>
+        <span style={{ flexShrink: 0, opacity: 0.7 }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 30 }} />
+          <div style={{
+            ...panelStyle, position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 40,
+            padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px',
+            // --bg-secondary is translucent under the glass theme; a dropdown
+            // that shows the panel underneath through itself is unreadable
+            background: 'var(--bg-primary)',
+            boxShadow: '0 12px 28px rgba(0,0,0,0.55)',
+          }}>
+            {guts}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function InteractTab({
   wallet, network, target, setTarget,
 }: {
@@ -94,6 +405,9 @@ export function InteractTab({
   const reload = useCallback(() => setBook(cardBook(network)), [network])
   useEffect(() => { reload() }, [reload])
 
+  // With a contract chosen the deck is a shelf you already picked from — it
+  // folds away so the methods and the call start at the top of the screen.
+  const [deckOpen, setDeckOpen] = useState(false)
   const [manage, setManage] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
@@ -154,6 +468,8 @@ export function InteractTab({
   }, [builds, fleet, book])
 
   const hiddenCount = cards.filter(c => c.hidden).length
+  /** the deck shows while nothing is chosen, or when you ask for it back */
+  const deckVisible = !target || deckOpen
   const visible = (c: Card) => showHidden || !c.hidden
   const deck = {
     pinned: cards.filter(c => c.pinned && visible(c)),
@@ -176,12 +492,47 @@ export function InteractTab({
 
   const reads = fns.filter(isRead)
   const writes = fns.filter(f => !isRead(f))
-  const current = fns.find(f => f.name === fn) || null
+  const current = fns.find(f => fnId(f) === fn) || null
 
   useEffect(() => { setFn(''); setArgs({}); setResult(null); setError(null); setValue('') }, [target?.address])
   useEffect(() => { setArgs({}); setResult(null); setError(null); setTook(null) }, [fn])
 
-  const pick = (t: InteractTarget) => setTarget({ name: t.name, address: t.address, abi: t.abi, abiCid: t.abiCid })
+  const pick = (t: InteractTarget) => {
+    setTarget({ name: t.name, address: t.address, abi: t.abi, abiCid: t.abiCid })
+    setDeckOpen(false)
+    setShowManual(false)
+  }
+
+  // ── choosing a method ──
+  // Picking a read that takes no arguments answers straight away: there is
+  // nothing to fill in, so making you press CALL is a step that asks nothing.
+  const [autoRun, setAutoRun] = useState<string | null>(null)
+  const searchRef = useRef<HTMLInputElement | null>(null)
+  const [recent, setRecent] = useState<string[]>([])
+  useEffect(() => {
+    setRecent(target ? recentMethods(network, target.address) : [])
+  }, [network, target?.address])
+
+  const pickFn = useCallback((f: AbiFn) => {
+    const id = fnId(f)
+    setFn(id)
+    if (isRead(f) && f.inputs.length === 0) setAutoRun(id)
+  }, [])
+
+  // “/” (or ⌘K) puts the caret in the method search from anywhere on the tab
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+      const hotkey = (!typing && e.key === '/') || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')
+      if (!hotkey || !searchRef.current) return
+      e.preventDefault()
+      searchRef.current.focus()
+      searchRef.current.select()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const targetCard = target ? cards.find(c => lc(c.address) === lc(target.address)) : undefined
 
   // ── managing the deck ──
@@ -250,9 +601,13 @@ export function InteractTab({
     const t0 = performance.now()
     try {
       const callArgs = coerceArgs(current.inputs, args)
+      // by full signature, so an overloaded name still calls the one you picked
+      const id = fnId(current)
+      rememberMethod(network, target.address, id)
+      setRecent(recentMethods(network, target.address))
       if (isRead(current)) {
         const contract = new ethers.Contract(target.address, target.abi, readProvider(network))
-        const out = await contract[current.name](...callArgs)
+        const out = await contract.getFunction(id)(...callArgs)
         setResult(out)
       } else {
         if (!wallet.kind) throw new Error('Sign in with a wallet to send a transaction')
@@ -261,7 +616,7 @@ export function InteractTab({
         const overrides = current.stateMutability === 'payable' && value.trim()
           ? { value: ethers.parseEther(value.trim()) }
           : {}
-        const tx = await contract[current.name](...callArgs, overrides)
+        const tx = await contract.getFunction(id)(...callArgs, overrides)
         const receipt = await tx.wait()
         setResult({ tx_hash: tx.hash, status: receipt?.status === 1 ? 'success' : 'failed',
           block: receipt?.blockNumber, gas_used: receipt?.gasUsed })
@@ -276,48 +631,15 @@ export function InteractTab({
     }
   }, [target, current, args, value, network, wallet])
 
+  useEffect(() => {
+    if (!autoRun || !current || fnId(current) !== autoRun) return
+    setAutoRun(null)
+    execute()
+  }, [autoRun, current, execute])
+
   const canSend = !!current && (isRead(current) || !!wallet.kind)
   const color = current ? (isRead(current) ? READ : WRITE) : ACCENT
   const resultText = result === null ? '' : typeof result === 'string' ? result : jsonify(result)
-
-  const method = (f: AbiFn) => {
-    const c = isRead(f) ? READ : WRITE
-    const on = fn === f.name
-    return (
-      <button
-        key={f.name}
-        onClick={() => setFn(f.name)}
-        className="arc-press"
-        title={signature(f)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: '8px',
-          fontFamily: TERM_FONT, fontSize: mobile ? '16px' : '15px',
-          padding: mobile ? '10px 12px' : '7px 12px', minHeight: mobile ? '44px' : '36px',
-          border: `2px solid ${on ? c : 'var(--border-color)'}`,
-          background: on ? `${c}1f` : 'rgba(0,0,0,0.2)',
-          color: on ? c : 'var(--text-secondary)',
-          boxShadow: on ? `3px 3px 0 0 ${c}` : '2px 2px 0 0 rgba(0,0,0,0.3)',
-          cursor: 'pointer', maxWidth: '100%',
-          flex: mobile ? '1 1 calc(50% - 6px)' : undefined,
-        }}
-      >
-        <span style={{
-          width: '8px', height: '8px', flexShrink: 0,
-          background: on ? c : 'transparent', border: `2px solid ${c}`,
-          boxShadow: on ? `0 0 8px ${c}` : 'none',
-        }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-        {f.inputs.length > 0 && (
-          <span style={{ fontSize: '12px', color: on ? c : 'var(--text-tertiary)', opacity: 0.8, flexShrink: 0 }}>
-            ×{f.inputs.length}
-          </span>
-        )}
-        {f.stateMutability === 'payable' && (
-          <span style={{ fontFamily: PIXEL, fontSize: '7px', color: NEON.coin, flexShrink: 0 }}>$</span>
-        )}
-      </button>
-    )
-  }
 
   // ── cards ──
   // Plain render functions, not components: a component defined inside render
@@ -351,8 +673,6 @@ export function InteractTab({
           background: active ? `${ACCENT}14` : panelStyle.background,
           opacity: c.hidden ? 0.5 : 1,
           padding: '10px 12px',
-          flex: mobile ? '1 1 100%' : '1 1 230px',
-          maxWidth: mobile ? undefined : '340px',
           minWidth: 0,
           display: 'flex', flexDirection: 'column', gap: '6px',
           cursor: 'pointer', outline: 'none',
@@ -436,7 +756,10 @@ export function InteractTab({
     items.length === 0 ? null : (
       <div style={{ marginBottom: '14px' }}>
         <Label style={color ? { color } : undefined} note={`${items.length}`}>{label}</Label>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{
+          display: 'grid', gap: '8px',
+          gridTemplateColumns: mobile ? '1fr' : 'repeat(auto-fill, minmax(250px, 1fr))',
+        }}>
           {items.map(card)}
         </div>
       </div>
@@ -446,6 +769,7 @@ export function InteractTab({
   return (
     <div>
       {/* deck toolbar */}
+      {deckVisible && (
       <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '14px' }}>
         <Btn size="sm" color={NEON.coin} active={manage} onClick={() => { setManage(m => !m); setRenaming(null); setConfirmForget(null) }}
           title="pin, rename, hide or forget cards">
@@ -459,14 +783,18 @@ export function InteractTab({
             {showHidden ? 'HIDE' : 'SHOW'} {hiddenCount} HIDDEN
           </Btn>
         )}
+        {target && (
+          <Btn size="sm" active={false} onClick={() => setDeckOpen(false)}>✕ CLOSE DECK</Btn>
+        )}
         {manage && (
           <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
             cards are yours to arrange — nothing here touches the chain
           </span>
         )}
       </div>
+      )}
 
-      {showManual && (
+      {showManual && deckVisible && (
         <Panel style={{ marginBottom: '16px' }}>
           <Label style={{ color: NEON.coin }} note="joins the deck as a SAVED card">ANY CONTRACT</Label>
           <Label>NAME</Label>
@@ -508,7 +836,7 @@ export function InteractTab({
         </Panel>
       )}
 
-      {loading ? <Empty>Loading contracts…</Empty> : (
+      {deckVisible && (loading ? <Empty>Loading contracts…</Empty> : (
         <>
           {group('PINNED', deck.pinned, NEON.coin)}
           {group(`MY BUILDS — ${network}`, deck.build, ACCENT)}
@@ -521,7 +849,7 @@ export function InteractTab({
             <Empty>Every card is hidden — SHOW {hiddenCount} HIDDEN brings them back.</Empty>
           )}
         </>
-      )}
+      ))}
 
       {!target ? (
         <div style={{
@@ -551,6 +879,10 @@ export function InteractTab({
                 {reads.length} read · {writes.length} write
               </span>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginLeft: 'auto' }}>
+                <Btn size="sm" active={deckOpen} onClick={() => setDeckOpen(o => !o)}
+                  title="back to the deck of contracts">
+                  {deckOpen ? 'HIDE DECK' : '⇄ CHANGE'}
+                </Btn>
                 <Btn size="sm" active={false} onClick={() => {
                   navigator.clipboard.writeText(target.address); toast.success('Address copied')
                 }}>COPY</Btn>
@@ -563,7 +895,7 @@ export function InteractTab({
                   }}>ABI CID</Btn>
                 )}
                 {explorerUrl(network, target.address) && (
-                  <Ext href={explorerUrl(network, target.address)}>EXPLORER ↗</Ext>
+                  <Ext href={explorerUrl(network, target.address)}>EXPLORER {'->'}</Ext>
                 )}
               </div>
             </div>
@@ -575,26 +907,39 @@ export function InteractTab({
             </div>
           </div>
 
-          {/* ── methods ── */}
+          {/* ── methods beside the call: find on the left, work on the right ── */}
           {fns.length === 0 ? (
             <Empty>This ABI has no callable functions.</Empty>
           ) : (
+          <div style={{
+            display: 'grid', gap: '16px', alignItems: 'start',
+            gridTemplateColumns: mobile ? '1fr' : '286px minmax(0, 1fr)',
+          }}>
+            <MethodPicker
+              fns={fns}
+              currentId={current ? fnId(current) : ''}
+              onPick={pickFn}
+              mobile={mobile}
+              recent={recent}
+              searchRef={searchRef}
+            />
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
+
+          {/* nothing picked yet — say what the two sides do */}
+          {!current && (
             <div style={{
-              display: 'grid', gap: '16px',
-              gridTemplateColumns: mobile || !writes.length || !reads.length ? '1fr' : '1fr 1fr',
+              ...panelStyle, padding: mobile ? '20px 16px' : '28px 24px', textAlign: 'center',
+              fontFamily: TERM_FONT, color: 'var(--text-tertiary)', lineHeight: 1.6,
             }}>
-              {reads.length > 0 && (
-                <div>
-                  <Label style={{ color: READ }} note="free — asks the RPC">READ</Label>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>{reads.map(method)}</div>
-                </div>
-              )}
-              {writes.length > 0 && (
-                <div>
-                  <Label style={{ color: WRITE }} note="signed by your wallet · costs gas">WRITE</Label>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>{writes.map(method)}</div>
-                </div>
-              )}
+              <div style={{ fontFamily: PIXEL, fontSize: PX.sm, color: ACCENT, letterSpacing: '0.1em', marginBottom: '8px', lineHeight: 1.7 }}>
+                PICK A METHOD
+              </div>
+              <div style={{ fontSize: '14px' }}>
+                {mobile
+                  ? `Tap the box above and type — ${reads.length} reads, ${writes.length} writes.`
+                  : `Type in the search on the left — ${reads.length} reads are free, ${writes.length} writes cost gas.`}
+              </div>
             </div>
           )}
 
@@ -700,7 +1045,7 @@ export function InteractTab({
                     navigator.clipboard.writeText(resultText); toast.success('Result copied')
                   }}>COPY</Btn>
                   {result?.tx_hash && txUrl(network, result.tx_hash) && (
-                    <Ext href={txUrl(network, result.tx_hash)}>TX ↗</Ext>
+                    <Ext href={txUrl(network, result.tx_hash)}>TX {'->'}</Ext>
                   )}
                 </div>
               </div>
@@ -713,6 +1058,10 @@ export function InteractTab({
                 {resultText}
               </pre>
             </div>
+          )}
+
+            </div>
+          </div>
           )}
         </div>
       )}

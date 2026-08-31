@@ -1,7 +1,10 @@
 "use client"
 
-// Cabinet primitives: hard 3px borders, hard offset shadows, pixel type on the
-// chrome and terminal type on the data. Everything the chain tabs draw goes
+// Cabinet primitives. The rule: a hard offset shadow is the throw of a
+// BUTTON, so only things you press wear one — panels are quiet boxes with a
+// hairline edge, and the page gets its depth from one light behind the
+// marquee instead of from a black shadow under every rectangle. Pixel type on
+// the chrome, terminal type on the data. Everything the chain tabs draw goes
 // through these so the whole console reads as one machine.
 
 import { CSSProperties, ReactNode, useContext, useEffect, useRef } from 'react'
@@ -9,9 +12,9 @@ import { TERM_FONT, ACCENT, useIsMobile } from './shared'
 import { PIXEL, PX, NEON, Strip } from './arcade'
 
 export const panelStyle: CSSProperties = {
-  border: '3px solid var(--border-color)',
+  border: '1px solid var(--border-color)',
   background: 'var(--bg-secondary)',
-  boxShadow: '3px 3px 0 0 rgba(0,0,0,0.35)',
+  boxShadow: '0 1px 0 0 rgba(255,255,255,0.035) inset, 0 8px 24px -18px rgba(0,0,0,0.9)',
 }
 
 export function Panel({ children, style }: { children: ReactNode; style?: CSSProperties }) {
@@ -84,15 +87,15 @@ export function Btn({
         letterSpacing: '0.08em',
         lineHeight: 1.6,
         padding: sm ? '7px 10px' : '11px 16px',
-        minHeight: sm ? '30px' : '44px',
-        border: `${sm ? 2 : 3}px solid ${active ? color : 'var(--border-color)'}`,
-        background: active ? `${color}1a` : 'transparent',
+        minHeight: sm ? '30px' : '42px',
+        border: `${sm ? 1 : 2}px solid ${active ? color : 'var(--border-color)'}`,
+        background: active ? `${color}16` : 'transparent',
         color: active ? color : 'var(--text-tertiary)',
-        boxShadow: active && !disabled ? `${sm ? 2 : 3}px ${sm ? 2 : 3}px 0px 0px ${color}` : 'none',
+        boxShadow: active && !disabled ? `2px 2px 0px 0px ${color}${sm ? '99' : ''}` : 'none',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.4 : 1,
         whiteSpace: 'nowrap',
-        textShadow: active && !sm ? `0 0 10px ${color}66` : undefined,
+        textShadow: active && !sm ? `0 0 12px ${color}55` : undefined,
         width: full && mobile ? '100%' : undefined,
         ...style,
       }}
@@ -130,7 +133,7 @@ export function Input({
         // iOS zooms the page for any field under 16px — never worth the pixels
         fontSize: mobile ? '16px' : '14px',
         padding: mobile ? '10px' : '7px 10px',
-        border: '2px solid var(--border-color)',
+        border: '1px solid var(--border-color)',
         background: 'rgba(0,0,0,0.25)',
         color: 'var(--text-primary)',
         outline: 'none',
@@ -175,12 +178,12 @@ export function Sheet({
         onClick={e => e.stopPropagation()}
         style={{
           width: 'min(88vw, 320px)', height: '100%', overflowY: 'auto',
-          background: 'var(--bg-primary)', borderRight: `3px solid ${ACCENT}`,
+          background: 'var(--bg-primary)', borderRight: `2px solid ${ACCENT}`,
         }}
       >
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '12px 14px', borderBottom: '3px solid var(--border-color)',
+          padding: '12px 14px', borderBottom: '1px solid var(--border-color)',
           position: 'sticky', top: 0, background: 'var(--bg-primary)', zIndex: 1,
         }}>
           <span style={{ fontFamily: PIXEL, fontSize: PX.sm, letterSpacing: '0.14em', color: ACCENT }}>
@@ -207,7 +210,7 @@ export function Log({ lines, live }: { lines: string[]; live?: boolean }) {
     <div style={{ ...panelStyle }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: '8px',
-        padding: '7px 12px', borderBottom: '2px solid var(--border-color)',
+        padding: '7px 12px', borderBottom: '1px solid var(--border-color)',
         fontFamily: PIXEL, fontSize: PX.xs, letterSpacing: '0.14em', color: 'var(--text-tertiary)',
       }}>
         CONSOLE {live && <span className="arc-blink" style={{ color: NEON.coin }}>● REC</span>}
@@ -255,9 +258,9 @@ export function Banner({
   const color = tone === 'bad' ? NEON.dead : NEON.coin
   return (
     <div style={{
-      border: `3px solid ${color}`,
+      border: `1px solid ${color}`,
       background: `${color}14`,
-      boxShadow: `3px 3px 0 0 ${color}55`,
+      boxShadow: `0 0 0 1px ${color}33, 0 10px 26px -20px ${color}`,
       padding: '12px 14px',
       marginBottom: '12px',
       display: 'flex', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap',
@@ -334,20 +337,22 @@ export function Pill({
       onClick={onClick}
       data-tip={tip || title || ''}
       aria-expanded={onClick ? !!open : undefined}
-      className="arc-press arc-tip"
+      className="arc-ctl arc-tip"
       style={{
         display: 'flex', alignItems: 'center', gap: '10px',
         width: '100%', height: '100%',
         // line-height 1 + overflow:hidden on the value would clip the tall
         // terminal digits top and bottom — a 0 came out as ()
         fontFamily: TERM_FONT, fontSize: dense ? '15px' : '17px', lineHeight: 1.3,
-        padding: dense ? '0 9px 0 9px' : '0 12px 0 11px', minHeight: dense ? '40px' : '44px',
-        // longhand on every side: mixing the `border` shorthand with a
-        // `borderLeft` override makes React warn on each open/close rerender
-        borderStyle: 'solid', borderWidth: '2px 2px 2px 5px',
-        borderColor: `${open ? color : 'var(--border-color)'} ${open ? color : 'var(--border-color)'} ${open ? color : 'var(--border-color)'} ${color}`,
-        background: open ? `${color}14` : 'rgba(0,0,0,0.25)',
-        boxShadow: open ? `3px 3px 0 0 ${color}` : '3px 3px 0 0 rgba(0,0,0,0.35)',
+        padding: dense ? '0 10px' : '0 12px', minHeight: dense ? '38px' : '42px',
+        // Four pills used to wear four fat coloured edges and the strip read
+        // as a fruit machine. The chrome is now one neutral face for all of
+        // them; the colour survives where it does work — the label, the lamp,
+        // and the whole border of the one that's OPEN.
+        borderStyle: 'solid', borderWidth: '1px',
+        borderColor: open ? color : 'var(--border-color)',
+        background: open ? `${color}12` : 'rgba(0,0,0,0.22)',
+        boxShadow: open ? `0 0 0 1px ${color}55` : 'none',
         color: 'var(--text-primary)', cursor: onClick ? 'pointer' : 'default',
         textAlign: 'left',
         ...style,
@@ -361,7 +366,7 @@ export function Pill({
         {label}
       </span>
       <span
-        className={blink ? 'arc-blink-soft' : undefined}
+        className={`arc-val${blink ? ' arc-blink-soft' : ''}`}
         style={{
           display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -375,6 +380,20 @@ export function Pill({
         </span>
       )}
     </button>
+  )
+}
+
+/**
+ * A hover hint in the cabinet's own face. The browser's native `title` draws
+ * a grey system box that belongs to no theme and takes a second to appear;
+ * this is the same hint drawn like a dropdown. Wrap anything that would
+ * otherwise carry a `title` — a truncated address, an RPC's own error text.
+ */
+export function Tip({ text, children, style }: { text: string; children: ReactNode; style?: CSSProperties }) {
+  return (
+    <span className="arc-tip" data-tip={text} tabIndex={0} style={{ display: 'inline-flex', alignItems: 'center', ...style }}>
+      {children}
+    </span>
   )
 }
 
@@ -432,7 +451,7 @@ export function Dropdown({
           width: `min(${width}px, calc(100vw - 32px))`,
           maxHeight: 'min(70vh, 560px)', overflowY: 'auto',
           borderColor: color,
-          boxShadow: `4px 4px 0 0 ${color}66`,
+          boxShadow: `0 0 0 1px ${color}44, 0 18px 40px -24px rgba(0,0,0,0.95)`,
           background: 'var(--bg-primary)',
         }}>
           {children}

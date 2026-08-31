@@ -29,6 +29,9 @@
   <symbol id="i-x" viewBox="0 0 16 16"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></symbol>
   <symbol id="i-ext" viewBox="0 0 16 16"><path d="M9 2.5h4.5V7M13.5 2.5L7 9M6 3.5H3.5v9h9V10" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.5l3.5 3.5L13 4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-left" viewBox="0 0 16 16"><path d="M12 8H4M7.5 4.5L4 8l3.5 3.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-right" viewBox="0 0 16 16"><path d="M4 8h8M8.5 4.5L12 8l-3.5 3.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></symbol>
   <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
   <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 4a1 1 0 011-1h3.2l1.5 1.5H13a1 1 0 011 1V12a1 1 0 01-1 1H3a1 1 0 01-1-1z" stroke="currentColor" stroke-width="1.4" fill="none"/></symbol>
   <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.5 9.5l3-3M5 11a2.5 2.5 0 01-3.5-3.5l2-2A2.5 2.5 0 017 5M9 5a2.5 2.5 0 013.5 3.5l-2 2A2.5 2.5 0 017 11" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></symbol>
@@ -45,12 +48,13 @@
     <div class="boot-logo"><span class="ring"></span><span class="ring r2"></span></div>
     <h1>MUSICA</h1>
     <p>Two decks, a mixer, a pattern studio — and a crate that digs Spotify,
-       Bandcamp and SoundCloud at once. Everything is decoded and mixed in this
-       tab; nothing you load leaves your machine.</p>
+       Bandcamp, SoundCloud, YouTube and the Internet Archive at once.
+       Everything is decoded and mixed in this tab; nothing you load leaves
+       your machine.</p>
     <ul class="boot-feats"><li>2 DECKS</li><li>3-BAND EQ</li><li>KEY MATCH</li><li>SEQUENCER</li><li>PIANO ROLL</li><li>CRATE</li></ul>
     <button id="boot-go" class="big">OPEN THE BOOTH</button>
     <small>Browsers only start audio after a click. Enter works too.</small>
-    <div class="boot-platforms"><span class="sp">Spotify</span><span class="bc">Bandcamp</span><span class="sc">SoundCloud</span></div>
+    <div class="boot-platforms"><span class="sp">Spotify</span><span class="bc">Bandcamp</span><span class="sc">SoundCloud</span><span class="yt">YouTube</span><span class="ia">Archive</span></div>
   </div>
 </div>
 
@@ -85,6 +89,12 @@
 <!-- ── BOOTH ─────────────────────────────────────────────────────────── -->
 <main id="booth" class="pane on">
 
+  <!-- MY SET across the top of the booth: the next track is always one click away -->
+  <section class="booth-set" id="booth-set">
+    <div class="bs-head"><b>UP NEXT</b><span class="hint">MY SET, in order — a key lights up when it mixes into the playing deck</span><button class="mini" data-goto="crate">OPEN THE CRATE</button></div>
+    <div class="bs-rows" id="booth-set-rows"></div>
+  </section>
+
   <section class="deck" data-deck="A">
     <div class="deck-head">
       <span class="tag">A</span>
@@ -102,7 +112,7 @@
     <div class="waves">
       <canvas class="wave-full" height="52"></canvas>
       <canvas class="wave-zoom" height="96"></canvas>
-      <div class="wave-empty"><div><svg><use href="#i-disc"/></svg><b>Nothing loaded</b>drop an audio file here, or send a track from the crate <kbd>3</kbd></div></div>
+      <div class="wave-empty"><div><svg><use href="#i-disc"/></svg><b>Nothing loaded</b>drop an audio file here, or send one from the crate <kbd>3</kbd></div></div>
     </div>
     <div class="time-row"><span class="elapsed">0:00</span><span class="src-badge"></span><span class="remain">-0:00</span></div>
 
@@ -190,7 +200,7 @@
     <div class="waves">
       <canvas class="wave-full" height="52"></canvas>
       <canvas class="wave-zoom" height="96"></canvas>
-      <div class="wave-empty"><div><svg><use href="#i-disc"/></svg><b>Nothing loaded</b>drop an audio file here, or send a track from the crate <kbd>3</kbd></div></div>
+      <div class="wave-empty"><div><svg><use href="#i-disc"/></svg><b>Nothing loaded</b>drop an audio file here, or send one from the crate <kbd>3</kbd></div></div>
     </div>
     <div class="time-row"><span class="elapsed">0:00</span><span class="src-badge"></span><span class="remain">-0:00</span></div>
 
@@ -224,12 +234,6 @@
         </div>
       </div>
     </div>
-  </section>
-
-  <!-- a strip of the set list under the booth, so the next track is one click away -->
-  <section class="booth-set" id="booth-set">
-    <div class="bs-head"><b>UP NEXT</b><span class="hint">from the set list — key-matched against what's playing</span><button class="mini" data-goto="crate">OPEN THE CRATE</button></div>
-    <div class="bs-rows" id="booth-set-rows"></div>
   </section>
 </main>
 
@@ -270,7 +274,7 @@
     <div class="search-wrap">
       <svg class="s-icon"><use href="#i-search"/></svg>
       <input id="q" type="search" autocomplete="off" spellcheck="false"
-             placeholder="search everywhere — or paste a Spotify, Bandcamp or SoundCloud link">
+             placeholder="search everywhere — or paste a Spotify, Bandcamp, SoundCloud, YouTube or archive.org link">
       <span id="q-link" class="q-link" hidden><svg><use href="#i-link"/></svg><span></span></span>
     </div>
     <div class="chips" id="sources">
@@ -278,6 +282,8 @@
       <button class="chip sp" data-source="spotify">SPOTIFY</button>
       <button class="chip bc" data-source="bandcamp">BANDCAMP</button>
       <button class="chip sc" data-source="soundcloud">SOUNDCLOUD</button>
+      <button class="chip yt" data-source="youtube">YOUTUBE</button>
+      <button class="chip ia" data-source="archive">ARCHIVE</button>
     </div>
     <select id="kind" title="What to search for">
       <option value="track">tracks</option>
@@ -288,12 +294,24 @@
     <label class="filebtn" title="Load audio files from disk"><svg><use href="#i-folder"/></svg>FILES<input id="files" type="file" accept="audio/*" multiple hidden></label>
   </div>
 
+  <!-- everything you picked, at the top, always in view -->
+  <section id="picks" class="picks empty">
+    <div class="picks-head">
+      <b>MY SET</b>
+      <i id="picks-count" class="count">0</i>
+      <span class="hint" id="set-hint">press <svg class="inl"><use href="#i-plus"/></svg> on any track below and it lands here</span>
+      <button class="mini" id="picks-booth" data-goto="booth">OPEN THE BOOTH</button>
+      <button class="mini" id="set-clear">CLEAR</button>
+    </div>
+    <div id="picks-rows" class="picks-rows"></div>
+  </section>
+
   <div class="crate-grid">
     <!-- left: results -->
     <section class="results-col">
       <div class="col-head">
         <b id="results-title">DIG</b>
-        <span id="results-note" class="hint">Bandcamp and SoundCloud tracks load straight onto a deck. Spotify is for planning — preview, then find the file.</span>
+        <span id="results-note" class="hint">Bandcamp, SoundCloud, YouTube and Internet Archive tracks load straight onto a deck. Spotify is for planning — preview, then find the file.</span>
         <div class="tag-row" id="discover-tags">
           <span class="hint">discover</span>
           <button class="tagbtn" data-tag="techno">techno</button>
@@ -316,26 +334,20 @@
         <div class="preview-empty">
           <svg><use href="#i-disc"/></svg>
           <p>Pick anything on the left to hear it here. Spotify previews need a
-             Spotify login in the embed; Bandcamp and SoundCloud play as-is.</p>
+             Spotify login in the embed; Bandcamp, SoundCloud, YouTube and the
+             Internet Archive play as-is.</p>
         </div>
       </div>
       <div id="preview-meta" class="preview-meta"></div>
     </section>
 
-    <!-- right: library + set list -->
+    <!-- right: everything decoded and ready to mix -->
     <section class="set-col">
       <div class="col-head">
-        <b>LIBRARY</b>
-        <span class="hint">decoded in this tab — the only thing that can be mixed</span>
+        <b>READY TO MIX</b>
+        <span class="hint">decoded in this tab — drop files here too</span>
       </div>
-      <ul id="local" class="rows compact" data-empty="Nothing decoded yet — drop files anywhere, or send a Bandcamp / SoundCloud track to a deck."></ul>
-
-      <div class="col-head set-head">
-        <b>SET LIST</b>
-        <span class="hint" id="set-hint">plan the order · keys light up when they match the playing deck</span>
-        <button class="mini" id="set-clear">CLEAR</button>
-      </div>
-      <ul id="setlist" class="rows compact" data-empty="Empty — press + on anything to plan a set."></ul>
+      <ul id="local" class="rows compact" data-empty="Nothing decoded yet — drop files anywhere, or send a track from the crate to a deck."></ul>
     </section>
   </div>
 </main>

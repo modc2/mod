@@ -271,43 +271,62 @@ def _read_compactsize(body: bytes, i: int):
     return value, i + 1 + width
 
 
-def encode_unified_address(receivers: list) -> str:
-    """ZIP-316 unified address from [(typecode, bytes), ...], lowest first."""
-    if not receivers:
-        raise ValueError("a unified address needs at least one receiver")
-    ordered = sorted(receivers, key=lambda r: r[0])
-    if not any(tc in (TYPECODE_SAPLING, TYPECODE_ORCHARD) for tc, _ in ordered):
-        raise ValueError("a unified address needs a shielded receiver")
+def encode_unified(hrp: str, items: list) -> str:
+    """ZIP-316 encoding of [(typecode, bytes), ...] under any unified HRP.
+
+    Addresses (`u`), full viewing keys (`uview`) and incoming viewing keys
+    (`uivk`) are all the same container: receivers sorted by typecode, padded
+    with the HRP itself, F4Jumbled, then bech32m. Only the HRP differs, and
+    the padding is what stops one being read as another.
+    """
+    if not items:
+        raise ValueError(f"a {hrp} needs at least one item in it")
+    ordered = sorted(items, key=lambda r: r[0])
     raw = b"".join(_compactsize(tc) + _compactsize(len(data)) + data
                    for tc, data in ordered)
-    padding = HRP_UNIFIED_ADDRESS.encode().ljust(16, b"\x00")
-    return bech32_encode(HRP_UNIFIED_ADDRESS, f4jumble(raw + padding), m=True)
+    padding = hrp.encode().ljust(16, b"\x00")
+    return bech32_encode(hrp, f4jumble(raw + padding), m=True)
 
 
-def decode_unified_address(addr: str) -> list:
-    """-> [(typecode, bytes), ...]. Raises ValueError if it is not a valid UA."""
-    hrp, data = bech32_decode(addr, m=True)
-    if hrp != HRP_UNIFIED_ADDRESS:
-        raise ValueError(f"not a unified address (hrp {hrp!r})")
+def decode_unified(hrp: str, s: str) -> list:
+    """-> [(typecode, bytes), ...] for any unified encoding. Raises ValueError."""
+    got, data = bech32_decode(s.strip(), m=True)
+    if got != hrp:
+        raise ValueError(f"not a {hrp} encoding (hrp {got!r})")
     if len(data) < 48:
-        raise ValueError("unified address too short")
+        raise ValueError(f"{hrp} encoding too short")
     raw = f4jumble_inv(data)
     body, padding = raw[:-16], raw[-16:]
     if padding != hrp.encode().ljust(16, b"\x00"):
-        raise ValueError("bad unified address padding")
+        raise ValueError(f"bad {hrp} padding")
     out, i = [], 0
     while i < len(body):
-        # Typecodes and lengths are compactsize: a receiver this module has
+        # Typecodes and lengths are compactsize: an item this module has
         # never heard of still has to be skipped cleanly rather than rejected.
         tc, i = _read_compactsize(body, i)
         ln, i = _read_compactsize(body, i)
         if i + ln > len(body):
-            raise ValueError("truncated receiver")
+            raise ValueError("truncated item")
         out.append((tc, body[i:i + ln]))
         i += ln
     if not out:
-        raise ValueError("unified address has no receivers")
+        raise ValueError(f"{hrp} encoding has no items")
     return out
+
+
+def encode_unified_address(receivers: list) -> str:
+    """ZIP-316 unified address from [(typecode, bytes), ...], lowest first."""
+    if not receivers:
+        raise ValueError("a unified address needs at least one receiver")
+    if not any(tc in (TYPECODE_SAPLING, TYPECODE_ORCHARD)
+               for tc, _ in receivers):
+        raise ValueError("a unified address needs a shielded receiver")
+    return encode_unified(HRP_UNIFIED_ADDRESS, receivers)
+
+
+def decode_unified_address(addr: str) -> list:
+    """-> [(typecode, bytes), ...]. Raises ValueError if it is not a valid UA."""
+    return decode_unified(HRP_UNIFIED_ADDRESS, addr)
 
 
 # ── Keys ────────────────────────────────────────────────────────────────────

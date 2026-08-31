@@ -30,6 +30,7 @@ those fail, the keys are wrong -- do not ship.
 """
 
 import hashlib
+import os
 import struct
 
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
@@ -564,3 +565,49 @@ def decrypt_action_with_ovk(ovk: bytes, cv: bytes, cmx: bytes, rho: bytes,
         return _finish(note, cmx, epk, ivk_check=esk)
     except ValueError:
         return None
+
+
+def encrypt_note(address: Address, value: int, rho: bytes, memo: bytes = None,
+                 ovk: bytes = None, rseed: bytes = None, rcv: int = None) -> dict:
+    """Build the encrypted half of an Orchard action paying `address`.
+
+    Everything a real action carries except its Halo 2 proof and its
+    signatures: the two ciphertexts, the ephemeral key, the value commitment
+    and cmx, all built exactly as a spending wallet would build them. `rho` is
+    the nullifier of the note the action spends, which is what a real bundle
+    supplies and what binds this note to its position in the chain.
+
+    It cannot make a *valid* action -- no proof -- so nothing here can be
+    broadcast. It exists so decryption can be tested against a note we built
+    ourselves, and so a proving backend could be dropped in later without
+    reimplementing note encryption.
+    """
+    rseed = rseed or os.urandom(32)
+    rcv = os.urandom(32) if rcv is None else rcv
+    rcv = PA.to_scalar(rcv) if isinstance(rcv, bytes) else rcv
+    memo = (memo or b"\xf6").ljust(MEMO_SIZE, b"\x00")[:MEMO_SIZE]
+    rho_int = int.from_bytes(rho, "little")
+    if rho_int >= PA.P:
+        raise OrchardError("rho is not a Pallas base field element")
+
+    esk = esk_of(rseed, rho_int)
+    g_d = diversify_hash(address.d)
+    epk = (g_d * esk).to_bytes()
+    key = kdf((address.pk_d_point() * esk).to_bytes(), epk)
+    plaintext = (b"\x02" + address.d + value.to_bytes(8, "little")
+                 + rseed + memo)
+    enc_ciphertext = ChaCha20Poly1305(key).encrypt(b"\x00" * 12, plaintext, None)
+
+    note = _parse_note_plaintext(plaintext, rho_int)
+    note.pk_d = address.pk_d
+    cmx = note.cmx()
+    cv = PA.value_commitment(value, rcv).to_bytes()
+
+    out_ciphertext = None
+    if ovk is not None:
+        out_ciphertext = ChaCha20Poly1305(prf_ock(ovk, cv, cmx, epk)).encrypt(
+            b"\x00" * 12, address.pk_d + esk.to_bytes(32, "little"), None)
+
+    return {"cv": cv, "cmx": cmx, "epk": epk, "rho": rho,
+            "enc_ciphertext": enc_ciphertext, "out_ciphertext": out_ciphertext,
+            "note": note}

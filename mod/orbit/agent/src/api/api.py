@@ -68,7 +68,7 @@ Endpoints:
     GET  /credits      - deposit info + caller's credit balance/history
     POST /credits/deposit - verify a USDT/USDC/ETH tx hash, credit the on-chain sender
     GET  /credits/price   - ETH/USD the next native deposit is priced at
-    POST /credits/grant   - owner: adjust an account's credits (± amount)
+    POST /credits/grant   - owner: top up (+) or deduct (-) ANY account
     GET  /credits/treasury - owner: deposits in, provider credits out, margin kept
     POST /credits/topup   - owner: record API credits bought at a provider
     POST /credits/topup/verify - owner: book a top-up read off the provider key
@@ -999,7 +999,12 @@ def credit_price(network: str = "base"):
 
 @app.post("/credits/grant")
 def credit_grant(req: CreditGrantRequest):
-    """Manually adjust an account's credits (± amount). Owner only."""
+    """Top up (+) or deduct (−) any account's credits. Owner only.
+
+    The owner funds the provider keys directly, so they never buy credits
+    for themselves — this is how they hand credit to a guest address and
+    take it back. A deduction is clamped at zero.
+    """
     try:
         return get_mod().credit_grant(req.address, req.amount, req.note, key=req.key)
     except PermissionError as e:

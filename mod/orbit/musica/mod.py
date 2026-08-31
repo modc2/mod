@@ -12,12 +12,17 @@ drop on a deck is uploaded anywhere. This module's own jobs are to serve the
 console and to answer the Spotify half from *your* API keys, kept in
 ``~/.mod/musica/keys.json`` rather than in the repo.
 
-The crate reaches three platforms. Spotify is metadata and embeds only: its
-streamed audio is DRM-protected and cannot be routed through Web Audio, so a
-Spotify find is for planning a set. Bandcamp and SoundCloud both stream plain
-MP3 to their own web players, and those streams CAN be decoded — so a Bandcamp
-or SoundCloud track loads straight onto a deck, gets analysed for tempo and
-key, and mixes like a file. ``platforms.py`` owns the two keyless adapters.
+The crate reaches five platforms, and four of them play. Spotify is metadata
+and embeds only: its streamed audio is DRM-protected and cannot be routed
+through Web Audio, so a Spotify find is for planning a set. Bandcamp,
+SoundCloud, YouTube and the Internet Archive all hand over audio their own
+players decode, and so can this one — a track from any of them loads straight
+onto a deck, gets analysed for tempo and key, and mixes like a file.
+``platforms.py`` owns all four keyless adapters; YouTube goes through yt-dlp.
+
+The whole crate is also an MCP server (``mcp.py``, POST /mcp), so an agent can
+search every platform, resolve a link and fetch a stream URL with the same
+calls the console makes.
 
 This is the anchor file: the orbit loader imports it by path and instantiates
 ``Mod``. Everything the module exposes to the CLI, the gateway and other
@@ -35,6 +40,11 @@ CLI:
     m musica/search q="four tet" source=bandcamp kind=album
     m musica/resolve url=https://fourtet.bandcamp.com/album/three
     m musica/stream source=soundcloud id=2176707750      # where the MP3 is
+    m musica/search q="roygbiv" source=youtube            # yt-dlp, proxied audio
+    m musica/search q="live 1977" source=archive          # the Internet Archive
+    m musica/archive_item id=gd1977-05-08.sbd.hicks.4982.sbeok.shnf
+    m musica/youtube_playlist id=PLBsm_SagFMmefZzqPX4iD8FxlbQMI5eHs
+    m musica/mcp               # the MCP server's tool list
     m musica/platforms         # what each platform will and won't do here
     m musica/test              # files + JS syntax + engine smoke test
     m musica/kill              # stop it
@@ -69,6 +79,17 @@ def _platforms():
     return globals()['_platforms_mod']
 
 
+def _mcp():
+    """Load ``mcp.py`` by path — it imports platforms.py the same way."""
+    if '_mcp_mod' not in globals():
+        spec = importlib.util.spec_from_file_location(
+            'musica_mcp', str(MODULE_DIR / 'mcp.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        globals()['_mcp_mod'] = module
+    return globals()['_mcp_mod']
+
+
 def _spotify():
     """Load ``spotify.py`` by path.
 
@@ -85,14 +106,19 @@ def _spotify():
     return globals()['_spotify_mod']
 
 
-SOURCES = ('spotify', 'bandcamp', 'soundcloud')
+SOURCES = ('spotify', 'bandcamp', 'soundcloud', 'youtube', 'archive')
+
+# Sources whose audio a deck can actually decode. Spotify is the odd one out
+# and every "can this play" check in the module and the console reads this.
+PLAYABLE = ('bandcamp', 'soundcloud', 'youtube', 'archive')
 
 
 class Mod:
     description = ('A DJ booth and an FL-style pattern studio in one browser '
                    'tab — two decks, a mixer, a sequencer, and a crate that '
-                   'searches Spotify, Bandcamp and SoundCloud at once. Bandcamp '
-                   'and SoundCloud tracks load straight onto a deck.')
+                   'searches Spotify, Bandcamp, SoundCloud, YouTube and the '
+                   'Internet Archive at once. Everything but Spotify loads '
+                   'straight onto a deck. Also an MCP server for agents.')
 
     # What the HTTP API exposes. Every public method is a function of this
     # module, but the API answers from the public gateway, so it serves only the
@@ -101,7 +127,9 @@ class Mod:
                'kit', 'keys', 'search', 'track', 'playlist', 'album', 'artist',
                'my_playlists', 'spotify_status', 'platforms', 'resolve',
                'stream', 'discover', 'bandcamp_page', 'soundcloud_playlist',
-               'soundcloud_user')
+               'soundcloud_user', 'youtube_video', 'youtube_playlist',
+               'youtube_channel', 'archive_item', 'archive_collection',
+               'tools', 'mcp')
 
     # The mixer's signal chain, in order. The console builds exactly this graph
     # per deck; keeping the description here means `m musica/decks` and the code
@@ -263,8 +291,12 @@ class Mod:
             'spotify': _spotify().status(),
             'bandcamp': pf.bc_status(),
             'soundcloud': pf.sc_status(),
-            'streams': 'Bandcamp and SoundCloud tracks decode into a deck; '
-                       'Spotify is DRM-protected and stays metadata + embeds',
+            'youtube': pf.yt_status(),
+            'archive': pf.ia_status(),
+            'playable': list(PLAYABLE),
+            'streams': 'Bandcamp, SoundCloud, YouTube and Internet Archive '
+                       'tracks decode into a deck; Spotify is DRM-protected '
+                       'and stays metadata + embeds',
         }
 
     def set_key(self, client_id=None, client_secret=None, soundcloud_client_id=None, **_) -> dict:
@@ -298,6 +330,12 @@ class Mod:
                 return pf.bc_search(q, kind=kind, limit=limit)
             if source == 'soundcloud':
                 return pf.sc_search(q, kind='track' if kind == 'all' else kind, limit=limit)
+            if source == 'youtube':
+                return pf.yt_search(q, kind=kind, limit=limit)
+            if source == 'archive':
+                # archive.org indexes items, not tracks: a search for a track
+                # kind still answers with the albums that contain them.
+                return pf.ia_search(q, limit=limit)
         except (sp.SpotifyError, pf.PlatformError, Exception) as e:  # noqa: BLE001
             return {'source': source, 'error': str(e), 'count': 0, 'items': []}
         return {'source': source, 'error': f'unknown source {source!r}', 'items': []}
@@ -325,7 +363,7 @@ class Mod:
             out = self._one(source, q, kind, limit)
             return out if 'error' not in out else {**out, 'query': q, 'kind': kind}
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=3) as ex:
+        with ThreadPoolExecutor(max_workers=len(SOURCES)) as ex:
             results = dict(zip(SOURCES, ex.map(
                 lambda src: self._one(src, q, kind, limit), SOURCES)))
         items = []
@@ -350,7 +388,8 @@ class Mod:
         pf, sp = _platforms(), _spotify()
         link = pf.detect(url or '')
         if not link:
-            return {'error': 'not a Spotify, Bandcamp or SoundCloud link', 'url': url}
+            return {'error': 'not a Spotify, Bandcamp, SoundCloud, YouTube or '
+                             'archive.org link', 'url': url}
         try:
             src, kind, ident = link['source'], link['kind'], link['id']
             if src == 'bandcamp':
@@ -359,6 +398,14 @@ class Mod:
                 return pf.bc_page(ident)
             if src == 'soundcloud':
                 return pf.sc_resolve(ident)
+            if src == 'youtube':
+                if kind == 'playlist':
+                    return pf.yt_playlist(ident)
+                if kind == 'artist':
+                    return pf.yt_channel(ident)
+                return pf.yt_video(ident)
+            if src == 'archive':
+                return pf.ia_item(ident.split('/')[0])
             if kind == 'track':
                 return sp.track(ident)
             if kind == 'album':
@@ -372,10 +419,15 @@ class Mod:
     def stream(self, source=None, id=None, track=None, **_) -> dict:
         """Where a track's audio actually is.
 
-        SoundCloud answers with a signed CDN URL the browser fetches itself
-        (``direct: true``). Bandcamp's has no CORS header, so the console
-        pulls it through this module's ``/stream/bandcamp?…`` proxy instead
-        (``direct: false``). Spotify has no stream to give.
+        SoundCloud and the Internet Archive answer with a URL the browser
+        fetches itself (``direct: true``). Bandcamp's and YouTube's carry no
+        CORS header, so the console pulls those through this module's
+        ``/stream/<source>?…`` proxy instead (``direct: false``). Spotify has
+        no stream to give.
+
+        ids by source: soundcloud a numeric track id, bandcamp a track or
+        album page URL (plus ``track``), youtube a video id or watch URL,
+        archive ``identifier/filename``.
         """
         pf = _platforms()
         try:
@@ -383,13 +435,18 @@ class Mod:
                 return pf.sc_stream(id)
             if source == 'bandcamp':
                 return pf.bc_stream(id, track_id=track)
+            if source == 'youtube':
+                return pf.yt_stream(id)
+            if source == 'archive':
+                return pf.ia_stream(id)
         except pf.PlatformError as e:
             return {'error': str(e), 'source': source, 'id': id}
         if source == 'spotify':
             return {'error': 'Spotify audio is DRM-protected and cannot be decoded — '
                              'preview it in the embed, then load the file or find it '
-                             'on Bandcamp or SoundCloud', 'source': source, 'id': id}
-        return {'error': 'source must be bandcamp or soundcloud'}
+                             'on Bandcamp, SoundCloud, YouTube or the Internet '
+                             'Archive', 'source': source, 'id': id}
+        return {'error': f'source must be one of {", ".join(PLAYABLE)}'}
 
     def discover(self, tag='electronic', slice='top', size=24, **_) -> dict:
         """Bandcamp's discover feed for one tag — top, new or rec."""
@@ -428,6 +485,102 @@ class Mod:
             return pf.sc_user_tracks(id, limit=int(limit))
         except (pf.PlatformError, ValueError) as e:
             return {'error': str(e), 'id': id}
+
+    def youtube_video(self, id=None, **_) -> dict:
+        """One YouTube video's metadata — an id, or any watch/shorts/youtu.be URL."""
+        if not id:
+            return {'error': 'id is required', 'usage': 'm musica/youtube_video id=SM4tQcUt_mQ'}
+        pf = _platforms()
+        try:
+            return pf.yt_video(id)
+        except pf.PlatformError as e:
+            return {'error': str(e), 'id': id}
+
+    def youtube_playlist(self, id=None, limit=100, **_) -> dict:
+        """A YouTube playlist, mix or album, with its videos listed."""
+        if not id:
+            return {'error': 'id is required — a list= id or a playlist URL'}
+        pf = _platforms()
+        try:
+            return pf.yt_playlist(id, limit=int(limit))
+        except (pf.PlatformError, ValueError) as e:
+            return {'error': str(e), 'id': id}
+
+    def youtube_channel(self, id=None, limit=30, **_) -> dict:
+        """A YouTube channel's uploads — @handle, UC… id, or channel URL."""
+        if not id:
+            return {'error': 'id is required — @handle, a UC… id or a channel URL'}
+        pf = _platforms()
+        try:
+            return pf.yt_channel(id, limit=int(limit))
+        except (pf.PlatformError, ValueError) as e:
+            return {'error': str(e), 'id': id}
+
+    def archive_item(self, id=None, **_) -> dict:
+        """One archive.org item — album, concert or show — with its tracks.
+
+        Each track's id is ``identifier/filename``, which is what
+        ``stream(source=archive, id=…)`` takes.
+        """
+        if not id:
+            return {'error': 'id is required — an archive.org identifier'}
+        pf = _platforms()
+        try:
+            return pf.ia_item(id)
+        except pf.PlatformError as e:
+            return {'error': str(e), 'id': id}
+
+    def archive_collection(self, id='netlabels', q='', limit=30, **_) -> dict:
+        """One corner of the archive: ``etree`` (Live Music Archive),
+        ``netlabels``, ``78rpm``, ``audio_music``… optionally filtered by ``q``.
+        """
+        pf = _platforms()
+        try:
+            out = pf.ia_search(q or '*', limit=int(limit), collection=id)
+        except (pf.PlatformError, ValueError) as e:
+            return {'error': str(e), 'collection': id}
+        out['collection'] = id
+        return out
+
+    def tools(self, **_) -> dict:
+        """The MCP tool list — name, one-line summary and arguments for each."""
+        mcp = _mcp()
+        mcp.bind(self)
+        return {'server': 'musica', 'transport': {
+            'http': self.api_url().rstrip('/') + '/mcp',
+            'stdio': f'python3 {MODULE_DIR / "mcp.py"}'},
+            'count': len(mcp.TOOLS),
+            'tools': [{'name': t['name'],
+                       'summary': t['description'].split('. ')[0] + '.',
+                       'args': sorted((t['inputSchema'].get('properties') or {}).keys()),
+                       'required': t['inputSchema'].get('required', [])}
+                      for t in mcp.tool_list()]}
+
+    def mcp(self, method=None, name=None, arguments=None, **kwargs) -> dict:
+        """Call the MCP server without speaking JSON-RPC.
+
+        ``m musica/mcp`` lists the tools; ``m musica/mcp name=musica_search
+        arguments='{"q":"four tet"}'`` runs one. The HTTP transport at
+        ``/mcp`` is the real one — this is the same handlers from the CLI.
+        """
+        mcp = _mcp()
+        mcp.bind(self)
+        if method and method not in ('tools/call', 'tools/list'):
+            return {'error': f'method must be tools/list or tools/call, not {method!r}'}
+        if not name:
+            return self.tools()
+        args = arguments
+        if isinstance(args, str):
+            try:
+                args = json.loads(args or '{}')
+            except json.JSONDecodeError as e:
+                return {'error': f'arguments is not JSON: {e}'}
+        args = dict(args or {})
+        args.update({k: v for k, v in kwargs.items() if not k.startswith('_')})
+        try:
+            return {'tool': name, 'result': mcp.call_tool(name, args)}
+        except Exception as e:                                  # noqa: BLE001
+            return {'tool': name, 'error': f'{type(e).__name__}: {e}'}
 
     def warm(self, force=False, **_) -> dict:
         """Clear Bandcamp's JavaScript challenge in a headless browser (CLI only)."""
@@ -606,6 +759,12 @@ class Mod:
                 'https://soundcloud.com/clutchrecs/sets/tech-house': ('soundcloud', 'playlist'),
                 'https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC?si=x': ('spotify', 'track'),
                 'spotify:album:1ATL5GLyefJaxhQzSPVrLX': ('spotify', 'album'),
+                'https://www.youtube.com/watch?v=SM4tQcUt_mQ&list=PL1': ('youtube', 'track'),
+                'https://youtu.be/SM4tQcUt_mQ': ('youtube', 'track'),
+                'https://music.youtube.com/playlist?list=OLAK5uy_k': ('youtube', 'playlist'),
+                'https://www.youtube.com/@boardsofcanada': ('youtube', 'artist'),
+                'https://archive.org/details/gd1977-05-08.sbd': ('archive', 'album'),
+                'https://archive.org/download/x_item/02.mp3': ('archive', 'track'),
                 'four tet': None,
             }
             bad = [u for u, want in links.items()
@@ -613,6 +772,24 @@ class Mod:
             checks['links'] = 'ok' if not bad else f'misdetected: {bad}'
         except Exception as e:                    # noqa: BLE001
             checks['links'] = f'{type(e).__name__}: {e}'
+        # The MCP surface: every tool must name a handler that exists and an
+        # inputSchema whose required arguments are declared. No network.
+        try:
+            mcp = _mcp()
+            mcp.bind(self)
+            tools = mcp.tool_list()
+            broken = [t['name'] for t in tools
+                      if not callable(mcp.TOOLS[t['name']]['handler'])
+                      or any(r not in (t['inputSchema'].get('properties') or {})
+                             for r in t['inputSchema'].get('required', []))]
+            checks['mcp'] = f'{len(tools)} tools' if not broken else f'broken: {broken}'
+        except Exception as e:                    # noqa: BLE001
+            checks['mcp'] = f'{type(e).__name__}: {e}'
+
+        pf = _platforms()
+        checks['yt_dlp'] = (pf.yt_status().get('yt_dlp') or 'installed') \
+            if pf.yt_available() else 'not installed — YouTube is off (pip install yt-dlp)'
+
         node = subprocess.run(['bash', '-lc', 'command -v node'],
                               capture_output=True, text=True)
         if node.returncode != 0:
@@ -640,6 +817,7 @@ class Mod:
 
         ok = (all(v == 'ok' for k, v in checks.items() if k.startswith('js/'))
               and checks.get('links') == 'ok'
+              and str(checks.get('mcp', '')).endswith('tools')
               and not isinstance(checks.get('engine'), str))
         return {'ok': ok, 'checks': checks}
 

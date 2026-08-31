@@ -82,15 +82,32 @@ class Mod:
                           min_vram_gb=min_vram_gb, kind=kind)
 
     def search(self, gpu=None, min_gpus=None, min_vram_gb=None, max_usd_hr=None,
-               region=None, provider=None, kyc=None, kind=None, sort='price',
-               limit=40, available_only=True):
+               min_usd_hr=None, region=None, provider=None, kyc=None, kind=None,
+               sort='price', limit=40, available_only=True):
         """Search every market at once, cheapest first, in one shape."""
         return self.hub.search(gpu=gpu, min_gpus=min_gpus, min_vram_gb=min_vram_gb,
-                               max_usd_hr=max_usd_hr, region=region, provider=provider,
+                               max_usd_hr=max_usd_hr, min_usd_hr=min_usd_hr,
+                               region=region, provider=provider,
                                kyc=kyc, kind=kind, sort=sort, limit=limit,
                                available_only=available_only)
 
     ls = search
+
+    def map(self, gpu=None, min_gpus=None, min_vram_gb=None, max_usd_hr=None,
+            min_usd_hr=None, region=None, provider=None, kyc=None, kind=None,
+            limit=2000, available_only=True):
+        """The same search answered as places: where the machines actually are.
+
+        One point per city or country, with how many offers sit there, which
+        markets, and the cheapest and median price. Markets that publish no
+        location are counted in `unplaced` rather than placed on a guess.
+        """
+        return self.hub.map(gpu=gpu, min_gpus=min_gpus, min_vram_gb=min_vram_gb,
+                            max_usd_hr=max_usd_hr, min_usd_hr=min_usd_hr,
+                            region=region, provider=provider, kyc=kyc, kind=kind,
+                            limit=limit, available_only=available_only)
+
+    where = map
 
     def offer(self, id):
         """Re-read one offer from its provider (id = provider:ref)."""

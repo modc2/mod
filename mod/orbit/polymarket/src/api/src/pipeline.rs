@@ -7,6 +7,7 @@ use parking_lot::RwLock;
 use serde_json::Value;
 
 use crate::cache::PipelineCache;
+use crate::first_trade::FirstTradeStore;
 use crate::types::{AggPayload, MarketMetric, Trader};
 
 const DATA_API: &str = "https://data-api.polymarket.com";
@@ -15,6 +16,9 @@ const PAGE_SIZE: u32 = 50;
 pub struct PipelineState {
     pub cache: PipelineCache,
     pub http: reqwest::Client,
+    /// Wallet → first-ever trade. Shared across every window so the 30D pass
+    /// pays nothing for what the 1D pass already resolved.
+    pub first_trades: Arc<FirstTradeStore>,
     warmup_running: RwLock<bool>,
 }
 
@@ -23,6 +27,7 @@ impl PipelineState {
         Self {
             cache: PipelineCache::new(),
             http,
+            first_trades: Arc::new(FirstTradeStore::new()),
             warmup_running: RwLock::new(false),
         }
     }
@@ -59,7 +64,33 @@ impl PipelineState {
         // on-schedule tick never skips a combo that is about to fall due.
         let now = chrono::Utc::now().timestamp();
 
-        let combos = [(1u32, 0.0, 2000u32), (7, 0.0, 2000), (14, 0.0, 2000), (30, 0.0, 2000)];
+        let mut combos = vec![(1u32, 0.0, 2000u32), (7, 0.0, 2000), (14, 0.0, 2000), (30, 0.0, 2000)];
+
+        // STALEST FIRST — not 1D, 7D, 14D, 30D in that order.
+        //
+        // A cycle is not guaranteed to finish. The fleet activator stops this
+        // process after ~60s with no connections, and a full four-window pass
+        // takes ~10 minutes; every wake used to restart the list at 1D, finish
+        // it in ~2 minutes, and die somewhere in 7D. The deep windows were
+        // never reached: while 1D was re-synced every few minutes, the 30D
+        // board sat untouched for three days, aged past the disk cache's 24h
+        // ceiling, and the console answered "the 30D leaderboard hasn't been
+        // aggregated yet" — a starved queue reading as missing data.
+        //
+        // Ordering by last sync makes an interrupted cycle still make
+        // progress: whatever is furthest behind goes first, so the window
+        // nobody has rebuilt is the one that gets rebuilt. The sort key falls
+        // through to the DISK tier (`synced_at_any_age`) on purpose — memory
+        // is empty right after the restart that caused the problem, and a
+        // memory-only read would call every window equally stale and re-fix
+        // the fixed order this sort exists to break.
+        combos.sort_by_key(|(days, min_per_day, pool)| {
+            let key = format!("{}:{}:{}", days, min_per_day, pool);
+            self.cache
+                .synced_at_any_age(&key)
+                .unwrap_or(i64::MIN) // never synced at all = most urgent
+        });
+
         for (days, min_per_day, pool) in combos {
             let key = format!("{}:{}:{}", days, min_per_day, pool);
             if min_age_secs > 0
@@ -70,6 +101,7 @@ impl PipelineState {
             {
                 continue;
             }
+            tracing::info!("warming {}D…", days);
             match self.run_pipeline(days, min_per_day, pool, None).await {
                 Ok(payload) => {
                     tracing::info!("warmed {}D: {} traders", days, payload.count);
@@ -83,6 +115,10 @@ impl PipelineState {
                     tracing::warn!("warmup {}D failed: {}", days, e);
                 }
             }
+            // Persist per window, not per cycle: the cycle may not reach its
+            // end (see the ordering note above), and losing 2000 resolved
+            // first-trades to a stop would mean re-fetching them next wake.
+            self.first_trades.flush();
         }
 
         tracing::info!("warmup cycle done");
@@ -187,7 +223,7 @@ impl PipelineState {
                     market_titles: vec![],
                     recent_trades: 0,
                     trades_24h: 0,
-                    last_trade_ts: None,
+                    last_trade_ts: None, first_trade_ts: None,
                     pnl_curve: None,
                     market_metrics: None,
                 });
@@ -213,6 +249,7 @@ impl PipelineState {
 
         let cutoff = cutoff_sec;
         let http = self.http.clone();
+        let first_trades = self.first_trades.clone();
         let enrich_done = Arc::new(AtomicUsize::new(0));
         let enrich_kept = Arc::new(AtomicUsize::new(0));
         let depth_sum = Arc::new(AtomicU64::new(0));
@@ -226,11 +263,22 @@ impl PipelineState {
                 let kept_counter = enrich_kept.clone();
                 let partial = partial_traders.clone();
                 let depth_accum = depth_sum.clone();
+                let first_trades = first_trades.clone();
                 async move {
-                    let (trader_opt, oldest_ts) = enrich_trader(http, t, cutoff, min_trades).await;
+                    let (trader_opt, oldest_ts) = enrich_trader(http.clone(), t, cutoff, min_trades).await;
                     let depth = now_sec.saturating_sub(oldest_ts.min(now_sec));
                     depth_accum.fetch_add(depth, Ordering::Relaxed);
                     let done = done_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                    // How long this wallet has existed, resolved only for the
+                    // traders that survived enrichment — the dropped ones are
+                    // ~2/3 of the candidate pool and nothing reads their age.
+                    // Cached forever, so this is one request per NEW wallet,
+                    // not one per cycle.
+                    let mut trader_opt = trader_opt;
+                    if let Some(ref mut trader) = trader_opt {
+                        trader.first_trade_ts =
+                            first_trades.resolve(&http, &trader.address, DATA_API).await;
+                    }
                     if let Some(ref trader) = trader_opt {
                         kept_counter.fetch_add(1, Ordering::Relaxed);
                         partial.write().push(trader.clone());
@@ -269,6 +317,10 @@ impl PipelineState {
 
         let mut out: Vec<Trader> = enriched.into_iter().flatten().collect();
         out.sort_by(|a, b| b.pnl.partial_cmp(&a.pnl).unwrap_or(std::cmp::Ordering::Equal));
+        // Newly resolved account ages go to disk here too, so an on-demand
+        // run (SYNC NOW, a cold `days=` the warmup hasn't reached) keeps what
+        // it learned.
+        self.first_trades.flush();
 
         if let Some(ref tx) = on_progress {
             let total_depth = depth_sum.load(Ordering::Relaxed);
@@ -1317,7 +1369,7 @@ mod tests {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
-            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
         // Call with the mock server URL (override DATA_API)
@@ -1348,7 +1400,7 @@ mod tests {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
-            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
         let cutoff = now - 86400;
@@ -1386,7 +1438,7 @@ mod tests {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
-            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
         let cutoff = now - 86400;
@@ -1411,14 +1463,14 @@ mod tests {
                     address: "0xaaa".to_string(),
                     volume: 5000.0, buy_volume: 3000.0, sell_volume: 2000.0,
                     pnl: 150.0, win_rate: 65.0, sharpe: 0.0, exit_entry: -1.0, positions: 10,
-                    market_titles: vec!["Market A".into()], recent_trades: 10, trades_24h: 0, last_trade_ts: None,
+                    market_titles: vec!["Market A".into()], recent_trades: 10, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
                     pnl_curve: Some(vec![0.0; 12]), market_metrics: None,
                 },
                 Trader {
                     address: "0xbbb".to_string(),
                     volume: 3000.0, buy_volume: 1500.0, sell_volume: 1500.0,
                     pnl: -50.0, win_rate: 40.0, sharpe: 0.0, exit_entry: -1.0, positions: 5,
-                    market_titles: vec![], recent_trades: 5, trades_24h: 0, last_trade_ts: None,
+                    market_titles: vec![], recent_trades: 5, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
                     pnl_curve: None, market_metrics: None,
                 },
             ],
@@ -1457,7 +1509,7 @@ mod tests {
                 address: "0xccc".to_string(),
                 volume: 100.0, buy_volume: 60.0, sell_volume: 40.0,
                 pnl: 5.0, win_rate: 50.0, sharpe: 0.0, exit_entry: -1.0, positions: 2,
-                market_titles: vec!["Test".into()], recent_trades: 2, trades_24h: 0, last_trade_ts: None,
+                market_titles: vec!["Test".into()], recent_trades: 2, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
                 pnl_curve: Some(vec![1.0, 2.0, 3.0]), market_metrics: None,
             }],
         };
@@ -1500,7 +1552,7 @@ mod tests {
             positions: 42,
             market_titles: vec!["Will BTC hit 100k?".into(), "US Election".into()],
             recent_trades: 42,
-            trades_24h: 7, last_trade_ts: None,
+            trades_24h: 7, last_trade_ts: None, first_trade_ts: None,
             pnl_curve: Some(vec![0.0, 5.0, 10.0, 8.0, 12.0, 15.0, 14.0, 18.0, 20.0, 22.0, 25.0, 30.0]),
             market_metrics: None,
         };
@@ -1539,7 +1591,7 @@ mod tests {
             address: "0x".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
-            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
             pnl_curve: None, market_metrics: None,
         };
         let json = serde_json::to_string(&trader).unwrap();

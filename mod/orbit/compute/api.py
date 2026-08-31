@@ -53,7 +53,7 @@ def info():
             'GET /mods': 'the same markets read through the sibling modules that '
                          'front them (targon, lium, cathedral), each against the '
                          'direct lane — mod=&compare=&sample=',
-            'GET /search': 'gpu, min_gpus, min_vram_gb, max_usd_hr, region, provider, '
+            'GET /search': 'gpu, min_gpus, min_vram_gb, min_usd_hr, max_usd_hr, region, provider, '
                            'kyc, sort, limit, raw=0',
             'GET /offer': 'id=provider:ref',
             'GET /quote': 'id=provider:ref&hours=N — cost + cheaper alternatives',
@@ -146,11 +146,19 @@ def route(method, path, query, body, keys, owner=False):
         return h.search(provider=q.get('provider'), kyc=q.get('kyc'),
                         sort=q.get('sort') or 'price', gpu=q.get('gpu'),
                         min_gpus=q.get('min_gpus'), min_vram_gb=q.get('min_vram_gb'),
-                        max_usd_hr=q.get('max_usd_hr'), region=q.get('region'),
+                        max_usd_hr=q.get('max_usd_hr'),
+                        min_usd_hr=q.get('min_usd_hr'), region=q.get('region'),
                         kind=q.get('kind'),
                         available_only=q.get('available_only', '1') not in ('0', 'false'),
                         limit=q.get('limit') or 40,
                         raw=q.get('raw', '1') not in ('0', 'false'))
+    if path == '/map':
+        return h.map(provider=q.get('provider'), kyc=q.get('kyc'), gpu=q.get('gpu'),
+                     min_gpus=q.get('min_gpus'), min_vram_gb=q.get('min_vram_gb'),
+                     max_usd_hr=q.get('max_usd_hr'), min_usd_hr=q.get('min_usd_hr'),
+                     region=q.get('region'), kind=q.get('kind'),
+                     available_only=q.get('available_only', '1') not in ('0', 'false'),
+                     limit=q.get('limit') or 2000)
     if path == '/offer':
         return h.offer(_need(arg('id'), 'id'))
     if path == '/quote':

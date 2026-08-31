@@ -9,23 +9,18 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
 <style>
   /* ── THE CABINET ─────────────────────────────────────────────────────
-     Ten palettes, one console. Nothing below hard-codes a colour: sky,
-     stone, gold, flame, panel and ink all come out of vars, so a theme is
-     a swatch list and nothing else. The scenery — a keep, its curtain
-     wall, torches and a moon — is CSS boxes only; never a glyph, because
-     this box has no emoji font.
+     Ten palettes, one console. Nothing below hard-codes a colour:
+     background, stone, gold, flame, panel and ink all come out of vars, so
+     a theme is a swatch list and nothing else. The background is a plain
+     wash — no scenery behind the data, nothing to read past.
      ─────────────────────────────────────────────────────────────────── */
   :root{
     /* defaults — every palette overrides what it wants and inherits the rest */
     --edge:#000;
-    --flame:#fc9838; --flame-hi:#fcd85c; --flame-lo:#e45c10;
-    --sky1:#2f66e0; --sky2:#5c94fc; --sky3:#8ab4ff;
-    --moon:#ffffff; --moon-lo:#cfe0ff;
     --brick:#c84c0c; --brick-hi:#e88030; --brick-lo:#7c2c00;
     --gold:#fcbc3c; --gold-hi:#fcd85c; --gold-lo:#e39b00;
     --gold-ink:#5c2c00; --gold-sheen:#ffe9a8; --gold-deep:#a06000;
     --pipe:#00a800; --pipe-hi:#58d854; --pipe-lo:#006800;
-    --gnd-top:#e88030; --gnd:#c84c0c;
     --bg:#0a0f1e; --bg2:#0e1730; --panel:#111a2f; --panel2:#1a2745;
     --panel3:#16233d; --well:#05080f;
     --ink:#ffffff; --dim:#a4b7dc; --faint:#6a7ea6;
@@ -36,13 +31,10 @@
     --scan:.05;
     --px:'Press Start 2P','Silkscreen',ui-monospace,Menlo,monospace;
   }
-  /* ── NIGHT · SMB starry sky, blue brick ──────────────────────────── */
+  /* ── NIGHT · deep blue, high contrast ────────────────────────────── */
   [data-theme=night]{
-    --sky1:#000000; --sky2:#05061a; --sky3:#0b1030;
-    --moon:#ffffff; --moon-lo:transparent;
     --brick:#2038ec; --brick-hi:#6888ff; --brick-lo:#0018a8;
     --pipe:#007850; --pipe-hi:#30c890; --pipe-lo:#004028;
-    --gnd-top:#6888ff; --gnd:#2038ec;
     --bg:#04050f; --bg2:#080a20; --panel:#0a0c22; --panel2:#141a3a;
     --panel3:#12183a; --well:#01020a;
     --ink:#eaf0ff; --dim:#9aa8dc; --faint:#5b6598;
@@ -50,15 +42,11 @@
     --inset:#26307a; --rule:#0e1330; --hover:#141a3a; --sel:#2a2410;
     --scan:.07;
   }
-  /* ── CASTLE · grey stone, torchlight. The default. ───────────────── */
+  /* ── CASTLE · grey and amber on near-black. The default. ─────────── */
   [data-theme=castle]{
-    --sky1:#000000; --sky2:#0d0d12; --sky3:#1c1c24;
-    --moon:#e8e8f0; --moon-lo:#9a9aa8;
-    --flame:#fc9838; --flame-hi:#fcd85c; --flame-lo:#e45c10;
     --brick:#9c9c9c; --brick-hi:#d8d8d8; --brick-lo:#4c4c4c;
     --gold:#fcbc3c; --gold-hi:#fcd85c; --gold-lo:#e39b00;
     --pipe:#e45c10; --pipe-hi:#fc9838; --pipe-lo:#a02000;
-    --gnd-top:#d8d8d8; --gnd:#7c7c7c;
     --bg:#0b0b0d; --bg2:#121215; --panel:#17171b; --panel2:#26262c;
     --panel3:#202027; --well:#050506;
     --ink:#ffffff; --dim:#b8b8c0; --faint:#75757f;
@@ -70,13 +58,10 @@
   /* ── DMG · Game Boy, four shades of green ────────────────────────── */
   [data-theme=dmg]{
     --edge:#0f380f;
-    --sky1:#0f380f; --sky2:#1d4a18; --sky3:#306230;
-    --moon:#8bac0f; --moon-lo:#306230;
     --brick:#306230; --brick-hi:#8bac0f; --brick-lo:#0f380f;
     --gold:#8bac0f; --gold-hi:#9bbc0f; --gold-lo:#5a8a30;
     --gold-ink:#0f380f; --gold-sheen:#c6d840; --gold-deep:#0f380f;
     --pipe:#306230; --pipe-hi:#8bac0f; --pipe-lo:#0f380f;
-    --gnd-top:#8bac0f; --gnd:#306230;
     --bg:#0f380f; --bg2:#123c12; --panel:#143d14; --panel2:#1e4d1e;
     --panel3:#1b481b; --well:#0b2b0b;
     --ink:#9bbc0f; --dim:#8bac0f; --faint:#5a8a30;
@@ -88,13 +73,10 @@
   }
   /* ── VIRTUAL BOY · red on black, one colour only ─────────────────── */
   [data-theme=vb]{
-    --sky1:#000000; --sky2:#120000; --sky3:#1e0000;
-    --moon:#ff2020; --moon-lo:transparent;
     --brick:#a00000; --brick-hi:#ff3c3c; --brick-lo:#4a0000;
     --gold:#ff2020; --gold-hi:#ff6060; --gold-lo:#a00000;
     --gold-ink:#200000; --gold-sheen:#ff9090; --gold-deep:#600000;
     --pipe:#d00000; --pipe-hi:#ff4040; --pipe-lo:#500000;
-    --gnd-top:#ff3c3c; --gnd:#8c0000;
     --bg:#060000; --bg2:#0f0000; --panel:#170000; --panel2:#260000;
     --panel3:#200000; --well:#030000;
     --ink:#ff4040; --dim:#c02020; --faint:#7a1010;
@@ -106,13 +88,10 @@
   }
   /* ── HYRULE · NES Zelda overworld ────────────────────────────────── */
   [data-theme=zelda]{
-    --sky1:#050f04; --sky2:#14300f; --sky3:#1e4a16;
-    --moon:#58d854; --moon-lo:transparent;
     --brick:#b85c00; --brick-hi:#fcbc3c; --brick-lo:#703000;
     --gold:#fcd000; --gold-hi:#fce870; --gold-lo:#b88000;
     --gold-ink:#3c2000; --gold-sheen:#fff4b0; --gold-deep:#8a5c00;
     --pipe:#00a800; --pipe-hi:#58d854; --pipe-lo:#005800;
-    --gnd-top:#fcbc3c; --gnd:#b85c00;
     --bg:#071206; --bg2:#0b1c0a; --panel:#0e2010; --panel2:#16341a;
     --panel3:#132d17; --well:#030803;
     --ink:#f8f8d8; --dim:#b8cc98; --faint:#7a8f60;
@@ -123,13 +102,10 @@
   }
   /* ── BRINSTAR · Metroid purple ───────────────────────────────────── */
   [data-theme=metroid]{
-    --sky1:#000000; --sky2:#180030; --sky3:#2a0850;
-    --moon:#c084fc; --moon-lo:transparent;
     --brick:#7828c8; --brick-hi:#b060ff; --brick-lo:#3c0878;
     --gold:#f8b800; --gold-hi:#ffd858; --gold-lo:#a87000;
     --gold-ink:#2a1200; --gold-sheen:#ffe9a8; --gold-deep:#7a5000;
     --pipe:#00b8a0; --pipe-hi:#40f0d8; --pipe-lo:#00685c;
-    --gnd-top:#b060ff; --gnd:#5c1c9c;
     --bg:#0a0418; --bg2:#120826; --panel:#170a2e; --panel2:#241245;
     --panel3:#1f1040; --well:#04010c;
     --ink:#eadcff; --dim:#a88fd8; --faint:#6d5a96;
@@ -142,13 +118,10 @@
   /* ── C64 · the two blues and that yellow ─────────────────────────── */
   [data-theme=c64]{
     --edge:#1a0f4a;
-    --sky1:#6c5eb5; --sky2:#7869c4; --sky3:#8b7ed8;
-    --moon:#c9c2f0; --moon-lo:#5a4bb5;
     --brick:#7869c4; --brick-hi:#a89ae8; --brick-lo:#40318d;
     --gold:#d5df7c; --gold-hi:#eff296; --gold-lo:#8a9a3c;
     --gold-ink:#2a2e0c; --gold-sheen:#f6f8c8; --gold-deep:#6a7a2c;
     --pipe:#4ac64a; --pipe-hi:#7bdc6e; --pipe-lo:#2e6b2e;
-    --gnd-top:#a89ae8; --gnd:#7869c4;
     --bg:#40318d; --bg2:#453697; --panel:#4a3b9e; --panel2:#5a4bb5;
     --panel3:#544499; --well:#302370;
     --ink:#ffffff; --dim:#c9c2f0; --faint:#9c92d8;
@@ -160,13 +133,10 @@
   }
   /* ── ARCADE · amber phosphor ─────────────────────────────────────── */
   [data-theme=arcade]{
-    --sky1:#000000; --sky2:#070400; --sky3:#0f0800;
-    --moon:#ffb000; --moon-lo:transparent;
     --brick:#cc7000; --brick-hi:#ffb000; --brick-lo:#663000;
     --gold:#ffb000; --gold-hi:#ffd45c; --gold-lo:#b06800;
     --gold-ink:#1a0d00; --gold-sheen:#ffe6a8; --gold-deep:#7a4600;
     --pipe:#cc8f00; --pipe-hi:#ffcc44; --pipe-lo:#5e3d00;
-    --gnd-top:#ffb000; --gnd:#995200;
     --bg:#050300; --bg2:#0d0800; --panel:#140c00; --panel2:#241600;
     --panel3:#1e1200; --well:#020100;
     --ink:#ffcc44; --dim:#cc8f22; --faint:#8a5f10;
@@ -178,13 +148,10 @@
   }
   /* ── NEON · the mall at 2am ──────────────────────────────────────── */
   [data-theme=neon]{
-    --sky1:#0d0221; --sky2:#2b0a4a; --sky3:#6a1178;
-    --moon:#ff2fd0; --moon-lo:transparent;
     --brick:#ff2fd0; --brick-hi:#ff8ae8; --brick-lo:#a0007a;
     --gold:#00f0ff; --gold-hi:#b8feff; --gold-lo:#00c2dc;
     --gold-ink:#00161c; --gold-sheen:#e6ffff; --gold-deep:#00788c;
     --pipe:#39ff6a; --pipe-hi:#b0ffc4; --pipe-lo:#00a030;
-    --gnd-top:#ff8ae8; --gnd:#a0007a;
     --bg:#0a0118; --bg2:#12022a; --panel:#16032e; --panel2:#260a48;
     --panel3:#200740; --well:#05010e;
     --ink:#f6e9ff; --dim:#c39ae0; --faint:#8a63ab;
@@ -196,8 +163,7 @@
   }
 
   *{box-sizing:border-box}
-  html{height:100%;image-rendering:pixelated;
-       background:linear-gradient(180deg,var(--sky1) 0%,var(--sky2) 45%,var(--sky3) 100%)}
+  html{height:100%;image-rendering:pixelated;background:var(--bg)}
   body{margin:0;min-height:100%;background:transparent;color:var(--ink);
        font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
   a{color:var(--accent)}
@@ -212,87 +178,6 @@
                   rgba(0,0,0,var(--scan)) 0 2px,transparent 2px 4px);
        box-shadow:inset 0 0 120px rgba(0,0,0,.34)}
   [data-crt=off] #crt{display:none}
-
-  /* ── the grounds: a night sky with a moon, a curtain wall running the
-        width of the page, a keep with lit windows and two torches at the
-        gate. All fixed, all pointer-events:none, all behind. Every colour
-        is a var, so a palette repaints the stone and the fire together. ── */
-  #sky,#ground{position:fixed;left:0;right:0;pointer-events:none;z-index:-1}
-  #sky{top:0;bottom:0;overflow:hidden}
-  .star{position:absolute;width:4px;height:4px;background:var(--moon);opacity:.75}
-  .s1{top:120px;left:12%} .s2{top:210px;left:31%;opacity:.5} .s3{top:90px;left:57%}
-  .s4{top:260px;left:71%;opacity:.55} .s5{top:170px;left:88%} .s6{top:320px;left:9%;opacity:.4}
-  .s7{top:60px;left:40%;opacity:.6} .s8{top:300px;left:50%;opacity:.35}
-  .moon{position:absolute;top:70px;right:12%;width:64px;height:64px;border-radius:50%;
-        background:var(--moon);box-shadow:inset -10px -6px 0 var(--moon-lo),0 0 0 4px var(--edge)}
-  .moon:before,.moon:after{content:'';position:absolute;border-radius:50%;background:var(--moon-lo)}
-  .moon:before{width:12px;height:12px;left:16px;top:14px}
-  .moon:after{width:8px;height:8px;left:34px;top:36px}
-
-  /* stone: a mortar grid over the palette's brick colour, capped with a
-     highlight course; every wall piece below shares it */
-  .stone{background:
-      linear-gradient(180deg,var(--brick-hi) 0 3px,transparent 3px),
-      repeating-linear-gradient(180deg,transparent 0 12px,var(--brick-lo) 12px 14px),
-      repeating-linear-gradient(90deg,transparent 0 16px,var(--brick-lo) 16px 18px),
-      var(--brick)}
-  /* merlons: a strip of teeth that sits on top of any wall */
-  .mer{position:absolute;height:14px;border:0!important;background:
-      repeating-linear-gradient(90deg,var(--brick) 0 14px,transparent 14px 26px)!important;
-      -webkit-mask:repeating-linear-gradient(90deg,#000 0 14px,transparent 14px 26px);
-              mask:repeating-linear-gradient(90deg,#000 0 14px,transparent 14px 26px)}
-  .mer:before{content:'';position:absolute;inset:0;
-      background:linear-gradient(180deg,var(--brick-hi) 0 3px,transparent 3px)}
-
-  #ground{bottom:0;height:44px;border-top:4px solid var(--edge);overflow:visible;
-     background:
-       repeating-linear-gradient(90deg,rgba(0,0,0,.28) 0 2px,transparent 2px 16px),
-       repeating-linear-gradient(180deg,rgba(0,0,0,.28) 0 2px,transparent 2px 16px),
-       linear-gradient(180deg,var(--gnd-top) 0 6px,var(--gnd) 6px 100%)}
-
-  /* the curtain wall: full width, far away, so it sits dim behind the keep */
-  .wall{position:absolute;left:0;right:0;bottom:44px;height:78px;
-        border-top:3px solid var(--edge);opacity:.55}
-  .wall .mer{left:0;right:0;top:-17px}
-  .wall .arrow{position:absolute;top:24px;width:6px;height:18px;background:var(--edge)}
-  /* the keep */
-  .keep{position:absolute;bottom:44px;left:6%;width:360px;height:250px}
-  .keep i{position:absolute;border:3px solid var(--edge);display:block}
-  .keep .base{left:56px;bottom:0;width:248px;height:132px}
-  .keep .lt{left:0;bottom:0;width:70px;height:206px}
-  .keep .rt{right:0;bottom:0;width:70px;height:206px}
-  .keep .ct{left:140px;bottom:132px;width:80px;height:92px}
-  .keep .mer{top:-14px;left:-3px;right:-3px}
-  .keep .roof{left:132px;bottom:224px;width:96px;height:26px;border:0;
-      background:var(--brick-lo);clip-path:polygon(0 100%,50% 0,100% 100%)}
-  .keep .banner{left:176px;bottom:236px;width:4px;height:36px;border:0;background:var(--edge)}
-  .keep .banner:after{content:'';position:absolute;left:4px;top:0;width:24px;height:16px;
-      background:var(--gold);clip-path:polygon(0 0,100% 0,70% 50%,100% 100%,0 100%)}
-  .keep .gate{left:152px;bottom:0;width:56px;height:78px;border-bottom:0;
-      border-radius:28px 28px 0 0;
-      background:repeating-linear-gradient(90deg,var(--brick-lo) 0 3px,transparent 3px 13px),
-                 repeating-linear-gradient(180deg,var(--brick-lo) 0 3px,transparent 3px 13px),
-                 var(--well)}
-  .keep .win{width:10px;height:22px;border-width:2px;background:var(--flame-hi);
-      box-shadow:0 0 8px var(--flame);animation:glow 3s steps(3) infinite}
-  .keep .w1{left:30px;bottom:150px} .keep .w2{left:30px;bottom:96px;animation-delay:1s}
-  .keep .w3{right:30px;bottom:150px;animation-delay:.6s} .keep .w4{right:30px;bottom:96px;animation-delay:1.7s}
-  .keep .w5{left:175px;bottom:172px;animation-delay:.3s}
-  .keep .w6{left:100px;bottom:80px;background:var(--edge);box-shadow:none;animation:none}
-  .keep .w7{left:240px;bottom:80px;background:var(--edge);box-shadow:none;animation:none}
-  /* torches: a bracket, a shaft and a flame that flickers in two frames */
-  .torch{position:absolute;bottom:64px;width:8px;height:26px;border:2px solid var(--edge);
-      background:var(--brick-lo)}
-  .torch:before{content:'';position:absolute;left:-8px;bottom:100%;width:20px;height:24px;
-      background:linear-gradient(180deg,var(--flame-hi) 0 35%,var(--flame) 35% 70%,var(--flame-lo) 70%);
-      clip-path:polygon(50% 0,80% 30%,100% 65%,85% 100%,15% 100%,0 65%,20% 30%);
-      animation:flicker .32s steps(2) infinite}
-  .torch:after{content:'';position:absolute;left:-30px;bottom:-4px;width:64px;height:64px;
-      border-radius:50%;background:radial-gradient(circle,var(--flame) 0,transparent 68%);
-      opacity:.22;animation:glow 1.1s steps(3) infinite}
-  .keep .t1{left:128px} .keep .t2{left:224px}
-  @keyframes flicker{50%{transform:scaleX(-1) translateY(-2px) scale(.92)}}
-  @keyframes glow{50%{opacity:.7}}
 
   /* ── HUD ─────────────────────────────────────────────────────────── */
   header{display:flex;align-items:center;gap:14px;padding:11px 18px;
@@ -359,7 +244,7 @@
   #themepop .foot{display:flex;gap:6px;margin-top:9px;align-items:center;flex-wrap:wrap}
 
   /* ── the room you play in ─────────────────────────────────────────── */
-  main{max-width:1560px;width:calc(100% - 60px);margin:22px auto 130px;padding:16px 18px 24px;
+  main{max-width:1560px;width:calc(100% - 60px);margin:22px auto 40px;padding:16px 18px 24px;
        background:linear-gradient(180deg,var(--bg2),var(--bg));border:4px solid var(--edge);
        box-shadow:0 0 0 4px var(--brick),0 0 0 8px var(--edge),0 14px 0 rgba(0,0,0,.25)}
   section{display:none} section.on{display:block}
@@ -370,6 +255,18 @@
   input:focus,select:focus,textarea:focus{outline:none;box-shadow:inset 0 0 0 2px var(--gold)}
   input::placeholder{color:var(--faint)}
   input[type=checkbox]{accent-color:var(--gold);box-shadow:none;padding:0}
+  /* two numbers that mean one thing, so they live in one well */
+  .range{display:flex;align-items:center;gap:4px;background:var(--well);
+         border:2px solid var(--edge);padding:2px 8px;
+         box-shadow:inset 0 0 0 2px var(--inset)}
+  .range label{font-size:11px;color:var(--faint)}
+  .range i{font-style:normal;color:var(--faint)}
+  .range input{border:0;box-shadow:none;background:transparent;padding:4px 0;
+               min-width:0;width:62px;-moz-appearance:textfield}
+  .range input::-webkit-outer-spin-button,
+  .range input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .range input:focus{box-shadow:none;color:var(--gold)}
+  .range:focus-within{box-shadow:inset 0 0 0 2px var(--gold)}
 
   /* buttons are blocks: gold to press, green to go elsewhere, red to break */
   button.go{background:linear-gradient(180deg,var(--gold-hi),var(--gold-lo));
@@ -438,12 +335,14 @@
       box-shadow:inset 0 2px 0 rgba(255,255,255,.08),0 3px 0 var(--edge);
       padding:7px 10px 6px;flex:1 1 200px;min-width:0;display:flex;flex-direction:column}
   .dp.wide{flex:2.4 1 340px}
+  .dp.full{flex:1 1 100%}   /* the world gets its own row */
   .dp h5{margin:0 0 7px;font:8px/1.6 var(--px);color:var(--gold);display:flex;gap:8px;
          align-items:baseline;white-space:nowrap}
   .dp h5 span{color:var(--dim);font:10px/1.4 ui-monospace,Menlo,monospace;font-weight:400;
               overflow:hidden;text-overflow:ellipsis;min-width:0}
   .dp h5 i{font-style:normal;color:var(--gold-hi);margin-left:auto;font:7px/1.8 var(--px);
            cursor:pointer;flex:none}
+  .dp h5 i + i{margin-left:0}
   .dp h5 i:hover{color:var(--badv)}
   .hist{position:relative;display:flex;align-items:flex-end;flex:1;min-height:64px;
         border-bottom:2px solid var(--inset);cursor:crosshair;user-select:none;touch-action:none}
@@ -459,6 +358,24 @@
              box-shadow:0 0 5px var(--hot)}
   .hist .med:after{content:'med';position:absolute;top:0;left:4px;font:7px/1 var(--px);color:var(--hot)}
   .hist .med.r:after{left:auto;right:4px}
+  /* ── WHERE: the world as a landmask, a market as a square on it ───── */
+  .map{position:relative;width:100%;aspect-ratio:200/78;background:var(--well);
+    box-shadow:inset 0 0 0 1px var(--rule);overflow:hidden;touch-action:none}
+  .map canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+  .map .pin{position:absolute;transform:translate(-50%,-50%);display:block;
+    box-shadow:inset 0 0 0 1px var(--inset);cursor:pointer}
+  .map .pin b{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    display:block;background:var(--gold)}
+  .map .pin:hover{box-shadow:inset 0 0 0 1px var(--gold-hi),0 0 0 2px var(--edge)}
+  .map .pin:hover b{background:var(--gold-hi)}
+  .map .pin.on{box-shadow:inset 0 0 0 1px var(--gold-hi),0 0 0 2px var(--gold-deep)}
+  .map .pin.on b{background:var(--gold-hi)}
+  .map .pin.off b{background:var(--inset)}
+  .map .nowhere{position:absolute;right:4px;bottom:3px;font:7px/1.6 var(--px);
+    color:var(--faint);background:var(--well);padding:2px 4px;cursor:pointer;
+    box-shadow:inset 0 0 0 1px var(--rule)}
+  .map .nowhere:hover{color:var(--ink);box-shadow:inset 0 0 0 1px var(--inset)}
+  .map .nowhere.on{color:var(--gold-hi);box-shadow:inset 0 0 0 1px var(--gold-deep)}
   .axis{display:flex;justify-content:space-between;font-size:9px;color:var(--faint);margin-top:4px}
   .axis span:first-child.hotv{color:var(--hot)}
   .tip{position:fixed;z-index:70;pointer-events:none;background:var(--well);border:2px solid var(--edge);
@@ -584,9 +501,9 @@
   .lock{cursor:pointer}
   .grow{flex:1}
 
-  /* nobody has to watch a torch flicker to read a price table */
+  /* nobody has to watch things move to read a price table */
   @media(prefers-reduced-motion:reduce){
-    .torch:before,.torch:after,.keep .win,.dot.booting,.qblock{animation:none}
+    .dot.booting,.qblock{animation:none}
   }
 </style>
 <script>
@@ -606,27 +523,6 @@
 <body>
 <!-- the glass of the tube: scanlines and darkened corners over everything -->
 <div id="crt" aria-hidden="true"></div>
-<!-- the grounds: moon and stars, a curtain wall, the keep with its torches.
-     Decoration only — fixed, pointer-events:none, behind the console. -->
-<div id="sky" aria-hidden="true">
-  <i class="star s1"></i><i class="star s2"></i><i class="star s3"></i><i class="star s4"></i>
-  <i class="star s5"></i><i class="star s6"></i><i class="star s7"></i><i class="star s8"></i>
-  <div class="moon"></div>
-</div>
-<div id="ground" aria-hidden="true">
-  <div class="wall stone"><i class="mer"></i>
-    <i class="arrow" style="left:8%"></i><i class="arrow" style="left:22%"></i>
-    <i class="arrow" style="left:50%"></i><i class="arrow" style="left:64%"></i>
-    <i class="arrow" style="left:78%"></i><i class="arrow" style="left:92%"></i></div>
-  <div class="keep">
-    <i class="base stone"></i><i class="lt stone"><i class="mer"></i></i>
-    <i class="rt stone"><i class="mer"></i></i><i class="ct stone"><i class="mer"></i></i>
-    <i class="roof"></i><i class="banner"></i>
-    <i class="win w1"></i><i class="win w2"></i><i class="win w3"></i><i class="win w4"></i>
-    <i class="win w5"></i><i class="win w6"></i><i class="win w7"></i>
-    <i class="gate"></i><i class="torch t1"></i><i class="torch t2"></i>
-  </div>
-</div>
 <header>
   <h1><span class="qblock" aria-hidden="true">&#9638;</span> <b>COMPUTE</b></h1>
   <span class="sub">every market, one desk &mdash; and a box you can drive</span>
@@ -661,10 +557,16 @@
 <!-- ── MARKET ─────────────────────────────────────────────────────────── -->
 <section id="market" class="on">
   <div class="bar">
-    <input id="q-gpu" placeholder="gpu (H100, 4090)" style="width:145px">
+    <select id="q-gpu" style="width:200px" onchange="gpuPicked()"
+            title="every GPU model on the board right now"><option value="">any gpu</option></select>
+    <input id="q-gpu-text" placeholder="model, e.g. H200" style="width:130px;display:none">
     <input id="q-gpus" type="number" min="1" placeholder="min gpus" style="width:92px">
     <input id="q-vram" type="number" min="1" placeholder="min vram" style="width:92px">
-    <input id="q-max" type="number" step="0.01" placeholder="max $/hr" style="width:92px">
+    <span class="range" title="a price band: leave either side empty for open-ended">
+      <label>$/hr</label>
+      <input id="q-min" type="number" step="0.01" min="0" placeholder="min">
+      <i>&mdash;</i>
+      <input id="q-max" type="number" step="0.01" min="0" placeholder="max"></span>
     <input id="q-region" placeholder="region" style="width:92px">
     <select id="q-kyc">
       <option value="">any KYC</option><option value="none">no KYC only</option>
@@ -871,7 +773,7 @@ function setToken() {
 // and never re-hits eleven markets.
 let ALL = [], REPORT = {}, TOOK = 0, SHOW = 120, HX = null;
 const PAGE = 120, BUCKETS = 30, TOPN = 8;
-const PICK = {price: null, market: new Set(), gpu: new Set(), vram: new Set()};
+const PICK = {price: null, place: new Set(), market: new Set(), gpu: new Set(), vram: new Set()};
 let GPU_ALL = false;   // GPU panel: top-N with an "other" bucket, or every model
 const gpuName = o => (o.gpu || o.kind || '?').replace(/^NVIDIA\s+/i, '')
   .replace(/^GeForce\s+/i, '').replace(/\s+/g, ' ').trim() || '?';
@@ -889,14 +791,24 @@ async function search() {
   f.textContent = 'searching every market...';
   const p = new URLSearchParams();
   const add = (k, id) => { const v = document.getElementById(id).value.trim(); if (v) p.set(k, v) };
-  add('gpu', 'q-gpu'); add('min_gpus', 'q-gpus'); add('min_vram_gb', 'q-vram');
-  add('max_usd_hr', 'q-max'); add('region', 'q-region'); add('kyc', 'q-kyc');
+  const gpu = gpuWanted();
+  if (gpu) p.set('gpu', gpu);
+  add('min_gpus', 'q-gpus'); add('min_vram_gb', 'q-vram');
+  // a backwards band is a typo, not a filter — straighten it and say so
+  const lo = document.getElementById('q-min'), hi = document.getElementById('q-max');
+  let note = '';
+  if (lo.value && hi.value && +lo.value > +hi.value) {
+    [lo.value, hi.value] = [hi.value, lo.value];
+    note = ' - $/hr range was backwards, swapped';
+  }
+  add('min_usd_hr', 'q-min'); add('max_usd_hr', 'q-max');
+  add('region', 'q-region'); add('kyc', 'q-kyc');
   add('kind', 'q-kind'); add('sort', 'q-sort');
   p.set('limit', '2000'); p.set('raw', '0');
   try {
     const d = await call('/search?' + p);
     ALL = d.offers; REPORT = d.providers; TOOK = d.took_ms; SHOW = PAGE;
-    PICK.price = null; PICK.market.clear(); PICK.gpu.clear(); PICK.vram.clear();
+    PICK.price = null; PICK.place.clear(); PICK.market.clear(); PICK.gpu.clear(); PICK.vram.clear();
     const priced = ALL.filter(o => o.usd_hr > 0).map(o => o.usd_hr);
     if (priced.length) {
       const lo = Math.log(Math.min(...priced)), hi = Math.log(Math.max(...priced));
@@ -907,8 +819,74 @@ async function search() {
     HX && (HX.gpus = [...gc.entries()].sort((a, b) => b[1] - a[1]).slice(0, TOPN).map(e => e[0]));
     if (!HX) HX = {lo: 0, span: 1, gpus: [...gc.entries()].sort((a, b) => b[1] - a[1]).slice(0, TOPN).map(e => e[0]), empty: true};
     blip(ALL.length ? 'coin' : 'bad');
+    if (!gpu) fillGpus(ALL);
     refresh();
+    if (note) f.textContent += note;
   } catch (e) { f.textContent = e.message; blip('bad') }
+}
+
+// ── the GPU dropdown is the board's own catalogue: every model actually on
+//    offer, how many rows carry it, what the cheapest one costs. Rebuilt from
+//    any search that was not already narrowed to one model, so picking H100
+//    never collapses the list to H100.
+const MODEL = /^[a-z]{0,3}\d{3,5}[a-z]{0,2}$/, NOT_MODEL = /^\d+(gb|g|mb|tb)$/;
+// "RTX 4090" and "RTX4090" are one card in two spellings, and the server
+// matches the number, so the number is the key.
+const gpuKey = o => (String(o.gpu || '').replace(/-/g, ' ').toLowerCase().split(/\s+/)
+  .find(t => t && !NOT_MODEL.test(t) && MODEL.test(t)) || '')
+  .replace(/^(rtx|gtx|gt)(?=\d)/, '') || null;
+
+// packaging, not identity: the same die ships as 80GB / SXM / PCIE / NVL rows
+// TI and SUPER go too: the filter is by model number, so a label promising
+// a 5070 Ti would be a filter that quietly also returns plain 5070s.
+const SPEC = /^(\d+(gb|g|mb|tb)|sxm\d*|pcie\d*|hbm\d*|nvl\d*|oam|community|gpu|gpus|ti|super)$/;
+const cardName = o => gpuName(o).split(/\s+/)
+  .filter((t, i) => i < 3 && (i === 0 || !SPEC.test(t.toLowerCase())))
+  .join(' ').trim();
+// the most common spelling wins; a tie goes to the more specific one
+const bestName = names => [...names.entries()]
+  .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length).map(e => e[0])[0] || '';
+
+function gpuWanted() {
+  const sel = document.getElementById('q-gpu').value;
+  return sel === '__other'
+    ? document.getElementById('q-gpu-text').value.trim() : sel;
+}
+
+function fillGpus(rows) {
+  const m = new Map();
+  for (const o of rows) {
+    const k = gpuKey(o); if (!k) continue;
+    const e = m.get(k) || {n: 0, lo: null, names: new Map()};
+    e.n++;
+    if (o.usd_hr > 0 && (e.lo == null || o.usd_hr < e.lo)) e.lo = o.usd_hr;
+    // the label is the card name the market uses most, minus the packaging
+    // tokens: "H100 80GB HBM3" and "H100 SXM" both read as H100, while
+    // "RTX 5090" keeps the brand a bare "5090" row would have lost
+    const nm = cardName(o);
+    if (nm) e.names.set(nm, (e.names.get(nm) || 0) + 1);
+    m.set(k, e);
+  }
+  if (!m.size) return;
+  const sel = document.getElementById('q-gpu'), keep = sel.value;
+  const list = [...m.entries()].sort((a, b) => b[1].n - a[1].n);
+  sel.innerHTML = '<option value="">any gpu</option>' +
+    list.map(([k, e]) => `<option value="${esc(k)}">` +
+      `${esc(bestName(e.names) || k).toUpperCase()} · ${e.n}` +
+      `${e.lo == null ? '' : ' · from ' + usd(e.lo)}</option>`).join('') +
+    '<option value="__other">type a model...</option>';
+  sel.value = keep === '__other' || m.has(keep) ? keep : '';
+}
+
+// "type a model..." keeps the free-text escape hatch for anything the board
+// has not listed yet — a model nobody has in stock today still searches.
+function gpuPicked() {
+  const sel = document.getElementById('q-gpu'), t = document.getElementById('q-gpu-text');
+  const other = sel.value === '__other';
+  t.style.display = other ? '' : 'none';
+  if (other) { t.focus(); return }
+  t.value = '';
+  search();
 }
 
 function tally(rows, key) {
@@ -928,13 +906,14 @@ function passes(o, skip) {
     const b = bucketOf(o);
     if (b == null || b < PICK.price[0] || b > PICK.price[1]) return false;
   }
+  if (skip !== 'place' && PICK.place.size && !PICK.place.has(cellOf(o))) return false;
   if (skip !== 'market' && PICK.market.size && !PICK.market.has(o.provider)) return false;
   if (skip !== 'gpu' && PICK.gpu.size && !gpuHit(o)) return false;
   if (skip !== 'vram' && PICK.vram.size && !PICK.vram.has(vramTier(o))) return false;
   return true;
 }
 const view = skip => ALL.filter(o => passes(o, skip));
-const anyPick = () => PICK.price || PICK.market.size || PICK.gpu.size || PICK.vram.size;
+const anyPick = () => PICK.price || PICK.place.size || PICK.market.size || PICK.gpu.size || PICK.vram.size;
 
 function refresh() {
   const rows = view();
@@ -957,8 +936,9 @@ function renderDist(rows) {
     }</div></div>`;
     return;
   }
-  el.innerHTML = priceRail(rows) + marketRail() + gpuRail() + vramRail();
+  el.innerHTML = priceRail(rows) + placeRail(rows) + marketRail() + gpuRail() + vramRail();
   wireHist();
+  wireMap();
 }
 
 // ── $/hr: a log histogram, because a market whose floor is 1/4000th of its
@@ -988,7 +968,8 @@ function priceRail(rows) {
       (unpriced ? ` · ${unpriced} unpriced` : '');
   const lo = Math.exp(HX.lo), hi = Math.exp(HX.lo + HX.span);
   const mid = Math.exp(HX.lo + HX.span / 2);
-  return `<div class="dp wide"><h5>$/HR <span>${head}</span>${p ? '<i onclick="clearPick(\'price\')">CLEAR</i>' : ''}</h5>
+  return `<div class="dp wide"><h5>$/HR <span>${head}</span>${p ?
+      '<i onclick="rangeFromPick()">SEARCH THIS BAND</i><i onclick="clearPick(\'price\')">CLEAR</i>' : ''}</h5>
     <div class="hist" id="hist">${cols}${medMark}</div>
     <div class="axis"><span class="${freeT ? 'hotv' : ''}">${freeT ? 'free · ' : ''}${usd(lo)}</span><span>${usd(mid)}</span><span>${usd(hi)} /hr</span></div>
   </div>`;
@@ -1063,8 +1044,20 @@ function clearPick(kind) {
   if (kind === 'price') PICK.price = null; else PICK[kind].clear();
   blip('jump'); SHOW = PAGE; refresh();
 }
+// a band dragged on the histogram only hides rows already fetched; sending it
+// back as min/max asks every market for that band instead
+function rangeFromPick() {
+  if (!PICK.price) return;
+  const [a, b] = PICK.price;
+  const fix = v => Number(v.toPrecision(3));
+  document.getElementById('q-min').value = a < 0 ? '' : fix(bucketLo(a));
+  document.getElementById('q-max').value = fix(bucketHi(b));
+  PICK.price = null;
+  search();
+}
+
 function clearAll() {
-  PICK.price = null; PICK.market.clear(); PICK.gpu.clear(); PICK.vram.clear();
+  PICK.price = null; PICK.place.clear(); PICK.market.clear(); PICK.gpu.clear(); PICK.vram.clear();
   blip('jump'); SHOW = PAGE; refresh();
 }
 
@@ -1118,6 +1111,136 @@ function wireHist() {
   h.addEventListener('pointercancel', () => { drag = null });
 }
 
+// ── WHERE ────────────────────────────────────────────────────────────
+// Every market that publishes a location, on one world. The land is a
+// 200x78 equirectangular landmask (Natural Earth 110m, rasterised by
+// geo/build.py and baked in here so the console still draws offline); a
+// market is a square on it, outlined by every offer there and filled by the
+// ones that survive the other picks. Click one to pick the place.
+const MASK = 'AAAAAAAAH//Av/+AAAAAAAAAAAAAAAAAAAAAAAAAA////////AABgA+AAADgAAAAAAAAAAAAAnf//////+AAf/AHAAAD/gAAAAAAAAAAAP9////////AAB/AAABAAB8AAAAAAAAAAAH/3/+H////wAAMAAA/4A//8AD/AAAAAAAD/9//gA///8AAAAAAeAD///zgewAAgAAAA//f//AP//8AAAAAAOA/////9f8AAMB//D/////+B///AAAD/AB0f///////+z3B///////+fwf//gAAB//t////////////+f///////n/D/8NQAA////////////////////////7/g/8D+AB///////////////8e////////n4H8AeAB////////////////Af//////hf8A+AAAA/3/////////////+QP//////wB9gBAAAAP+////////////7+AAPwH////A/8AAAADh/f//////////wJ4AAH4AP///+H/gAAAA4P3//////////4A+AADAAH//////+AAAA/H////////////QPgAAAAA////+//wAAAP7////////////8DgAAAAAD//////8AAAB//////////////AQAAAAAAf/////3gAAAH/////////////4AAAAAAAD//////4AAAB/////////////sAAAAAAAAf/////gAAAAH//7/////////7AAAAAAAAP/////gAAAA///8n////////94AAAAAAAD/////AAAAAP8///////////4cAAAAAAAA/////AAAAAD+N//////////+GAAAAAAAAH////gAAAAA/j9/////////3BgAAAAAAAA////wAAAAAH/+N////////+z4AAAAAAAAP///8AAAAAA/+Bn///////+P8AAAAAAAAA///+AAAAAA//5wf///////x8AAAAAAAAAH//+AAAAAAP///////////8IAAAAAAAAAB//7wAAAAAH////////////AAAAAAAAAAAP/gfAAAAAD////////////wAAAAAAAAAAB/4DwAAAAB//////v/////8AAAAAAAAAAAf8B4AAAAA///////h/////AAAAAAAYAAACfD/AAAAAP//////8P///+wAAAAAADAAAAH5w/AAAAD////+/+B/5/8AAAAAAAAQAAAB/8P8AAAA///////gP4f/DAAAAAAAAAAAAH/wAAAAAP////9/gD8D/g4AAAAAAAAAAAAL8AAAAAD//////gAeAv4OAAAAAAAAAAAAAfAgAAAA//////gAHgD+DwAAAAAAAAAAAABw/4AAAP/////+AB4A/g8AAAAAAAAAAAAAP/+AAAB//////gAOAMwfgAAAAAAAAAAAAB//wAAAP/////wABwDoN4AAAAAAAAAAAAAD//gAAB/////8AAMD8DmAAAAAAAAAAAAAA//8AAAOz///+AAAA/B4AAAAAAAAAAAAAAP//gAAAAH///AAAADz8cAAAAAAAAAAAAAH//4AAAAB///gAAAA8//AAAAAAAAAAAAAB///wAAAA///wAAAAHv+ewAAAAAAAAAAAAf///gAAAH//4AAAAA5///mAAAAAAAAAAAP///+AAAA//+AAAAAOG4f/4AAAAAAAAAAD////gAAAP//AAAAAA+AC//AAAAAAAAAAAf///4AAAB//wAAAAAD/4P4MAAAAAAAAAAD///+AAAAf/+AAAAAAA8A3DgAAAAAAAAAAf///AAAAH//hAAAAAAAPsAAAAAAAAAAAAH///gAAAD//4wAAAAAAfzgAgIAAAAAAAAA///4AAAA//++AAAAAAP+4AMGAAAAAAAAAD//+AAAAP//PAAAAAAH//ABDAAAAAAAAAA///AAAAB//jwAAAAAD//4AAAAAAAAAAAAH//wAAAAf/w4AAAAAH//+AYAAAAAAAAAAD//8AAAAH/8OAAAAAB///wCAAAAAAAAAAA//4AAAAA//DgAAAAA///+AAAAAAAAAAAAP/8AAAAAP/gQAAAAAP///wAAAAAAAAAAAD/+AAAAAD/4AAAAAAB///8AAAAAAAAAAAA//gAAAAAf8AAAAAAAf///AAAAAAAAAAAAP/wAAAAAH+AAAAAAAD///wAAAAAAAAAAAD/4AAAAAA/AAAAAAAB/D/4AIAAAAAAAAAB/8AAAAAAMAAAAAAAAOAf8AHAAAAAAAAAAf+AAAAAAAAAAAAAAAAAB/AA8AAAAAAAAAH/AAAAAAAAAAAAAAAAAAPAAPAAAAAAAAAB/AAAAAAAAAAAAAAAAAAA4AHgAAAAAAAAA/gAAAAAAAAAAAAAAAAAAOADwAAAAAAAAAPwAAAAAAAAAAAAAAAAAABAD4AAAAAAAAAH4AAAAAAAAAAAAAAAAAAAAA4AAAAAAAAAB/AAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAPgAAAAAAAAAAADAAAAAAAAAAAAAAAAAAAD4wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHwAAAAAAAAAAAAAAAAAAAAAA';
+const MW = 200, MH = 78, LAT_TOP = 84, LAT_BOT = -56;
+const mapX = lon => (Math.max(-180, Math.min(180, lon)) + 180) / 360 * 100;
+const mapY = lat => (LAT_TOP - Math.max(LAT_BOT, Math.min(LAT_TOP, lat))) / (LAT_TOP - LAT_BOT) * 100;
+// the same cell the API rolls up on — one degree, so a city keeps its own dot
+// and a country centroid does not smear across its neighbours
+const cellOf = o => o.geo ? Math.round(o.geo.lat) + ':' + Math.round(o.geo.lon) : '__none';
+
+function placeCells(rows) {
+  const cells = new Map();
+  const bump = (o, key) => {
+    if (!o.geo) return;
+    const k = cellOf(o);
+    let c = cells.get(k);
+    if (!c) cells.set(k, c = {k, lat: o.geo.lat, lon: o.geo.lon, cc: o.geo.cc,
+                              country: o.geo.country, precision: o.geo.precision,
+                              labels: new Map(), tot: 0, cur: 0, prices: [], mk: new Map()});
+    c[key]++;
+    if (key === 'tot') {
+      c.labels.set(o.geo.place, (c.labels.get(o.geo.place) || 0) + 1);
+      const RANK = ['city', 'state', 'region', 'country'];
+      if (RANK.indexOf(o.geo.precision) < RANK.indexOf(c.precision)) c.precision = o.geo.precision;
+    } else {
+      c.mk.set(o.provider, (c.mk.get(o.provider) || 0) + 1);
+      if (o.usd_hr != null) c.prices.push(o.usd_hr);
+    }
+  };
+  for (const o of ALL) bump(o, 'tot');
+  for (const o of rows) bump(o, 'cur');
+  for (const c of cells.values()) {
+    c.label = [...c.labels.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    c.prices.sort((a, b) => a - b);
+  }
+  return [...cells.values()].sort((a, b) => b.tot - a.tot);
+}
+
+function placeRail(rows) {
+  const cells = placeCells(view('place'));
+  const noneT = ALL.filter(o => !o.geo).length;
+  const noneC = view('place').filter(o => !o.geo).length;
+  const on = PICK.place;
+  if (!cells.length && !noneT) return '';
+  const peak = Math.max(1, ...cells.map(c => c.tot));
+  const ccs = new Set(cells.map(c => c.cc));
+  const cheap = cells.filter(c => c.prices.length).sort((a, b) => a.prices[0] - b.prices[0])[0];
+  const pins = cells.map(c => {
+    const side = Math.round(5 + 13 * Math.sqrt(c.tot / peak));
+    const inner = c.cur ? Math.max(2, Math.round(side * Math.sqrt(c.cur / c.tot))) : 0;
+    return `<i class="pin ${on.has(c.k) ? 'on' : ''} ${c.cur ? '' : 'off'}" data-k="${c.k}"
+      style="left:${mapX(c.lon).toFixed(2)}%;top:${mapY(c.lat).toFixed(2)}%;width:${side}px;height:${side}px"
+      ><b style="width:${inner}px;height:${inner}px"></b></i>`;
+  }).join('');
+  const none = noneT ? `<span class="nowhere ${on.has('__none') ? 'on' : ''}"
+      onclick="togglePick('place','__none')"
+      title="these markets sell a catalogue, not a located machine — they publish no region at all, so nothing here is guessed onto the map"
+      >${noneC === noneT ? noneT : noneC + ' of ' + noneT} nowhere</span>` : '';
+  const head = `${cells.length} place${cells.length === 1 ? '' : 's'} · ${ccs.size} countries` +
+    (cheap ? ` · cheapest in ${esc(cheap.label)} at ${usd(cheap.prices[0])}` : '');
+  return `<div class="dp wide full"><h5>WHERE <span>${head}</span>${
+    on.size ? '<i onclick="clearPick(\'place\')">CLEAR</i>' : ''}</h5>
+    <div class="map" id="map"><canvas width="${MW}" height="${MH}"></canvas>${pins}${none}</div>
+    <div class="axis"><span>a square is a place · outline is every offer, fill is what is left</span>
+      <span>click to pick</span></div></div>`;
+}
+
+let LAND = null;
+function landCells() {
+  if (LAND) return LAND;
+  const bin = atob(MASK);
+  LAND = [];
+  for (let i = 0; i < MW * MH; i++)
+    if (bin.charCodeAt(i >> 3) & (128 >> (i & 7))) LAND.push([i % MW, (i / MW) | 0]);
+  return LAND;
+}
+
+function drawLand() {
+  const c = document.querySelector('#map canvas');
+  if (!c) return;
+  const g = c.getContext('2d');
+  const css = getComputedStyle(document.documentElement);
+  g.clearRect(0, 0, MW, MH);
+  g.fillStyle = css.getPropertyValue('--panel2').trim() || '#26262c';
+  for (const [x, y] of landCells()) g.fillRect(x, y, 1, 1);
+}
+
+function wireMap() {
+  const m = document.getElementById('map');
+  if (!m) return;
+  drawLand();
+  const tip = document.getElementById('tip');
+  const cells = new Map(placeCells(view('place')).map(c => [c.k, c]));
+  m.addEventListener('mouseleave', () => { tip.style.display = 'none' });
+  m.addEventListener('mousemove', e => {
+    const pin = e.target.closest('.pin');
+    if (!pin) { tip.style.display = 'none'; return }
+    const c = cells.get(pin.dataset.k);
+    if (!c) return;
+    const mk = [...c.mk.entries()].sort((a, b) => b[1] - a[1])
+      .slice(0, 4).map(([n, v]) => `${n} ${v}`).join(' · ');
+    const how = {city: '', state: 'state centroid', region: 'cloud region',
+                 country: 'country centroid — this market publishes no city'}[c.precision];
+    tip.innerHTML = `<b>${esc(c.label)}</b>${c.label === c.country ? '' : ', ' + esc(c.country)}` +
+      `<br>${c.cur === c.tot ? c.tot : c.cur + ' of ' + c.tot} offer${c.tot === 1 ? '' : 's'}` +
+      (c.prices.length ? ` · from ${usd(c.prices[0])} · med ${usd(c.prices[c.prices.length >> 1])}` : '') +
+      (mk ? `<br><span class="faint">${esc(mk)}</span>` : '') +
+      (how ? `<br><span class="faint">${how}</span>` : '') +
+      `<br><span class="faint">${PICK.place.has(c.k) ? 'click to let go' : 'click to pick this place'}</span>`;
+    tip.style.display = 'block';
+    const w = tip.offsetWidth, x = e.clientX + 14 + w > window.innerWidth ? e.clientX - w - 14 : e.clientX + 14;
+    tip.style.left = x + 'px'; tip.style.top = (e.clientY + 16) + 'px';
+  });
+  m.addEventListener('click', e => {
+    const pin = e.target.closest('.pin');
+    if (pin) { tip.style.display = 'none'; togglePick('place', pin.dataset.k) }
+  });
+}
+
+// a picked cell's own name, so the chip reads "where Des Moines" and not "41:-94"
+function placeLabel(k) {
+  if (k === '__none') return 'no location published';
+  const o = ALL.find(x => cellOf(x) === k);
+  return o && o.geo ? o.geo.place : k;
+}
+
 function renderPicks(rows) {
   const el = document.getElementById('m-picks');
   const chips = [];
@@ -1127,6 +1250,7 @@ function renderPicks(rows) {
     const band = a < 0 && b < 0 ? 'free' : `${a < 0 ? 'free' : usd(bucketLo(a))} - ${usd(bucketHi(b))}/hr`;
     chip('$/hr', band, "clearPick('price')");
   }
+  for (const k of PICK.place) chip('where', placeLabel(k), `togglePick('place','${esc(k)}')`);
   for (const m of PICK.market) chip('market', m, `togglePick('market','${esc(m)}')`);
   for (const g of PICK.gpu) chip('gpu', g === '__other' ? 'other' : g, `togglePick('gpu','${esc(g)}')`);
   for (const v of PICK.vram) chip('vram', v, `togglePick('vram','${esc(v)}')`);
@@ -1579,7 +1703,7 @@ async function callTool() {
 // ── THE CABINETS ───────────────────────────────────────────────────────
 // Ten palettes, the castle first because it is the default. A theme is
 // nothing but a name on <html data-theme>, so the switch is one attribute and
-// the whole console — stone, sky, torchlight, scanline depth — repaints from
+// the whole console — panels, gold, ink, scanline depth — repaints from
 // CSS vars. Four swatches per card so the drawer reads as a palette and not
 // a list of words.
 const THEMES = [
@@ -1604,6 +1728,7 @@ function setTheme(id) {
   document.documentElement.dataset.theme = t.id;
   try { localStorage.setItem(THM, t.id) } catch {}
   drawThemes();
+  drawLand();   // the land is painted, not styled — it has to be repainted
 }
 function drawThemes() {
   const cur = themeId(), t = THEMES.find(x => x.id === cur) || THEMES[0];
@@ -1686,6 +1811,17 @@ document.addEventListener('click', e => {
 });
 if (sound) { document.getElementById('snd').textContent = 'SOUND ON';
              document.getElementById('snd').classList.add('on') }
+
+// the bar behaves like a bar: a dropdown searches when you change it, a field
+// when you press Enter. SEARCH is still there for the mouse.
+for (const id of ['q-gpu-text', 'q-gpus', 'q-vram', 'q-min', 'q-max', 'q-region']) {
+  document.getElementById(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') search();
+  });
+}
+for (const id of ['q-kyc', 'q-kind', 'q-sort']) {
+  document.getElementById(id).addEventListener('change', search);
+}
 
 deployTarget();
 stats();

@@ -4,19 +4,20 @@ Zcash: explorer, wallet (transparent and shielded), and cross-chain bridge.
   explorer   info / block / tx / address / mempool / price / network / search
   wallet     create, restore, import keys, derive addresses, balances
   send       build, sign (ZIP-244) and broadcast transparent transactions
-  shielded   real Sapling addresses, note decryption, viewing-key exports
+  shielded   real Sapling and Orchard addresses, note decryption, exports
   bridge     ZEC <-> Ethereum and 30+ other chains via NEAR Intents / Maya
 
 Spending is guarded: `send` and `bridge_send` are dry runs unless you pass
 broadcast=True, and every response says plainly which mode it ran in.
 
-The shielded half is honest about its edges. It derives ZIP-32 Sapling keys
-from the same seed as the transparent ones, hands out `zs1` and unified
-addresses, and decrypts the notes those addresses receive -- but it cannot
-create a shielded output, because that needs a Groth16 proof. `shielded_export`
-gives a proving wallet the key; `shielded_send` uses a node if one is
-configured. Orchard is not read at all, so unified addresses from here never
-advertise an Orchard receiver. See `capabilities()`.
+The shielded half is real on both sides. It derives ZIP-32 Sapling *and*
+Orchard keys from the same seed as the transparent ones, hands out `zs1` and
+unified addresses carrying both shielded receivers, and decrypts the notes and
+actions those addresses receive -- all in pure Python. Spending needs a
+zk-SNARK proof, which Python will not produce, so a local light client does
+it: `shielded_backend_install` builds it once, `shielded_sync_start` scans the
+chain for this wallet's notes, and `shielded_send` proves and broadcasts. No
+full node. See `capabilities()`.
 """
 
 import json
@@ -34,19 +35,27 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 try:
+    from . import agent as _agent
     from . import bridge as _bridge
     from . import bundles as _bundles
     from . import chain as _chain
     from . import keys as _keys
+    from . import learn as _learn
+    from . import lightclient as _lightclient
+    from . import orchard as _orchard
     from . import sapling as _sapling
     from . import shielded as _shielded
     from . import tx as _tx
     from . import wallet as _wallet
 except ImportError:  # loaded as a loose module by the mod runtime
+    import agent as _agent
     import bridge as _bridge
     import bundles as _bundles
     import chain as _chain
     import keys as _keys
+    import learn as _learn
+    import lightclient as _lightclient
+    import orchard as _orchard
     import sapling as _sapling
     import shielded as _shielded
     import tx as _tx
@@ -97,8 +106,9 @@ def _supply(s: dict) -> dict:
 
 
 class Mod:
-    description = ("Zcash explorer, wallet (transparent sends + Sapling "
-                   "shielded addresses and note decryption) and cross-chain bridge")
+    description = ("Zcash explorer, wallet (transparent sends + Sapling and "
+                   "Orchard shielded addresses and note decryption) and "
+                   "cross-chain bridge")
 
     fns = [
         # explorer
@@ -107,11 +117,15 @@ class Mod:
         'wallet_create', 'wallet_restore', 'wallet_list', 'wallet_info',
         'wallet_new_address', 'wallet_import', 'wallet_balance', 'wallet_utxos',
         'wallet_reveal', 'wallet_delete', 'wallet_label',
-        # shielded (Sapling)
+        # shielded (Sapling + Orchard)
         'shielded_address', 'shielded_new_address', 'shielded_upgrade',
         'shielded_export', 'shielded_scan', 'shielded_balance',
         'shielded_scan_tx', 'shielded_send', 'shielded_node_import',
         'shielded_operation',
+        # shielded spending (the local prover)
+        'shielded_backend', 'shielded_backend_install', 'shielded_sync_start',
+        'shielded_sync_status', 'shielded_sync_stop', 'shielded_spendable',
+        'shielded_shield',
         # spending
         'validate', 'estimate_fee', 'send', 'broadcast_raw',
         # bridge
@@ -504,7 +518,7 @@ class Mod:
 
     # ── Spending ───────────────────────────────────────────────────────────
 
-    # ── Shielded (Sapling) ──────────────────────────────────────────────────
+    # ── Shielded (Sapling + Orchard) ────────────────────────────────────────
 
     def shielded_address(self, name: str) -> dict:
         """This wallet's shielded receive addresses. No password needed.
@@ -520,10 +534,12 @@ class Mod:
                 'birthday': account.get('birthday'),
                 'addresses': account.get('addresses', []),
                 'receive': account['addresses'][0]['unified_address'],
+                'pools': account.get('pools', ['sapling']),
                 'note': 'Give out the unified address (u1...) where you can: it '
-                        'carries the Sapling receiver plus a transparent one, so '
-                        'any wallet can pay it. The zs1 form is the same '
-                        'shielded address on its own.',
+                        'carries an Orchard and a Sapling receiver plus a '
+                        'transparent one, so any wallet can pay it and a modern '
+                        'one will pick Orchard. The zs1 form is the Sapling '
+                        'receiver on its own.',
             }
         except _wallet.WalletError as e:
             return _err(e)
@@ -536,7 +552,7 @@ class Mod:
             return _err(e)
 
     def shielded_upgrade(self, name: str, password: str, birthday: int = None) -> dict:
-        """Give a wallet made before shielded support its Sapling account."""
+        """Give a wallet made before shielded support its shielded account."""
         try:
             return _wallet.upgrade_shielded(name, password,
                                             birthday or self._birthday())
@@ -544,7 +560,7 @@ class Mod:
             return _err(e)
 
     def shielded_export(self, name: str, password: str, account: int = None) -> dict:
-        """Export this account's Sapling spending and viewing keys.
+        """Export this account's shielded spending and viewing keys.
 
         The extended spending key is what a proving wallet needs to *send*
         shielded ZEC with these notes -- this module can read them and build
@@ -567,16 +583,23 @@ class Mod:
 
     def shielded_scan(self, name: str, password: str, from_height: int = None,
                       to_height: int = None, blocks: int = None,
-                      account: int = None) -> dict:
-        """Find this wallet's shielded notes on chain.
+                      account: int = None, orchard: bool = True) -> dict:
+        """Find this wallet's shielded notes on chain, in both pools.
 
-        Trial-decrypts every Sapling output in the range with the wallet's
-        incoming viewing key, and its own sends with the outgoing viewing key.
-        Defaults to the wallet's birthday through the tip.
+        Trial-decrypts every Sapling output and every Orchard action in the
+        range with the wallet's incoming viewing keys, and its own sends with
+        the outgoing ones. Defaults to the wallet's birthday through the tip.
+
+        Orchard costs more without a node: the public explorer serves Sapling
+        ciphertexts inside its transaction rows but not Orchard actions, so
+        each candidate transaction has to be fetched whole. Pass
+        `orchard=False` for the cheap Sapling-only scan over a longer range.
         """
         try:
             xsk = _wallet.shielded_key(name, password, account)
             fvk = xsk.fvk()
+            ofvk = (_wallet.orchard_key(name, password, account).fvk()
+                    if orchard else None)
             tip = self.chain.tip_height()
             to_height = int(to_height) if to_height is not None else tip
             started_at = None
@@ -591,14 +614,17 @@ class Mod:
                         birthday = _wallet.shielded(name).get('birthday')
                     except _wallet.WalletError:
                         birthday = None
+                    window = (_shielded.ORCHARD_EXPLORER_MAX_BLOCKS if ofvk
+                              is not None else _shielded.MAX_EXPLORER_BLOCKS)
                     if birthday:
                         from_height, started_at = birthday, 'wallet birthday'
                     else:
-                        from_height = max(0, to_height - _shielded.MAX_EXPLORER_BLOCKS + 1)
+                        from_height = max(0, to_height - window + 1)
                         started_at = ('a default window -- this wallet has no '
                                       'recorded birthday, so anything paid to it '
                                       'before this height was not looked at')
-            out = _shielded.scan_blocks(self.chain, fvk, int(from_height), to_height)
+            out = _shielded.scan_blocks(self.chain, fvk, int(from_height),
+                                        to_height, orchard_fvk=ofvk)
             out['wallet'] = name
             out['tip'] = tip
             if started_at:
@@ -622,29 +648,44 @@ class Mod:
 
     def shielded_scan_tx(self, txid: str, name: str = None, password: str = None,
                          viewing_key: str = None, account: int = None) -> dict:
-        """Read one transaction's shielded outputs with a viewing key.
+        """Read one transaction's shielded outputs and actions with a key.
 
-        Takes either a wallet (name + password) or a `zxviews...` extended
-        full viewing key. Notes that belong to the key come back decrypted,
+        Takes either a wallet (name + password), a `zxviews...` extended full
+        viewing key, or a ZIP-316 `uview1...` unified key (which carries both
+        pools at once). Notes that belong to the key come back decrypted,
         value and memo included; the rest stay encrypted, as they should.
+
+        One transaction is cheap enough that both pools are always read: the
+        raw bytes are fetched whenever the transaction could hold an Orchard
+        bundle, because the explorer's row never carries one.
         """
         try:
             if viewing_key:
-                fvk = _shielded.keys_from_viewing_key(viewing_key)['fvk']
+                keys = _shielded.keys_from_viewing_key(viewing_key)
+                fvk, ofvk = keys['fvk'], keys.get('orchard_fvk')
             elif name:
                 fvk = _wallet.shielded_key(name, password, account).fvk()
+                ofvk = _wallet.orchard_key(name, password, account).fvk()
             else:
-                raise ValueError("pass a wallet name (with password) or a viewing_key")
+                raise ValueError("pass a wallet name (with password), a "
+                                 "viewing_key, or a unified uview key")
             row = self.chain.transaction_row(txid)
-            if row.get('shielded_output_raw') or row.get('shielded_input_raw'):
+            pools = ['sapling'] if fvk is not None else []
+            if ofvk is not None and _shielded._may_hold_orchard(row):
+                pools.append('orchard')
+                raw = self.chain.raw_transaction(txid)
+                scan = _shielded.scan_raw_transaction(
+                    raw, fvk, txid, row.get('block_id'), orchard_fvk=ofvk)
+            elif row.get('shielded_output_raw') or row.get('shielded_input_raw'):
                 scan = _shielded.scan_explorer_row(dict(row, hash=txid), fvk)
             else:
                 raw = self.chain.raw_transaction(txid)
                 scan = _shielded.scan_raw_transaction(
                     raw, fvk, txid, row.get('block_id'))
-            summary = _shielded.summarize([scan])
+            summary = _shielded.summarize([scan], pools=pools or ['sapling'])
             scan['found'] = summary['note_count']
             scan['received_zec'] = summary['received_zec']
+            scan['pools_scanned'] = summary['pools_scanned']
             scan['pools_not_scanned'] = summary['pools_not_scanned']
             return scan
         except (_wallet.WalletError, _shielded.ShieldedError, _chain.ChainError,
@@ -654,41 +695,276 @@ class Mod:
     def shielded_send(self, name: str, password: str, to: str, amount: float,
                       memo: str = None, broadcast: bool = False,
                       from_address: str = None, account: int = None) -> dict:
-        """Send shielded ZEC -- only with a proving backend behind it.
+        """Send shielded ZEC -- for real, with a local zk-SNARK prover.
 
-        This module can derive the keys, build the note and read the result,
-        but a Sapling spend needs a Groth16 proof. When ZCASH_RPC_URL points
-        at a zcashd/zebrad node holding this account's key, the node does the
-        proving and this hands it the payment. Dry run unless broadcast=True.
+        A shielded spend carries a Groth16 proof (Sapling) or a Halo 2 one
+        (Orchard), which is why the rest of this module -- pure Python -- can
+        receive and read shielded value but not move it. The proving is done
+        by a local light client (see `zcash/lightclient.py`): it syncs compact
+        blocks from a lightwalletd server, keeps the note commitment trees,
+        builds the proof and broadcasts. Same seed, same account, same notes.
+
+        Two things have to be true before this can spend, and the response
+        says which one is missing:
+
+          * the prover is built (`shielded_backend_install`, once per host);
+          * this wallet's light client has finished scanning
+            (`shielded_sync_start`, then `shielded_sync_status`).
+
+        Dry run unless broadcast=True. The dry run is real work: it checks the
+        address, the balance and the sync state, and reports the fee band --
+        it just stops before the proof, because a proof that is not broadcast
+        is a proof thrown away.
+
+        A configured node (ZCASH_RPC_URL) is still honoured, and still takes
+        precedence when it holds the key: see `shielded_node_import`.
         """
         try:
             info = _keys.decode_address(to)
             if info['type'] not in ('sapling', 'unified'):
                 return {'error': f"{to} is a {info['type']} address; use send() "
                                  f"for transparent payments"}
-            if not self.chain.has_node:
+            if amount is None or float(amount) <= 0:
+                return {'error': 'amount must be positive'}
+            amount = float(amount)
+
+            # A node that already holds the key proves faster than a fresh
+            # scan, so it keeps precedence where the operator set one up.
+            if self.chain.has_node:
+                source = from_address
+                if not source:
+                    source = _wallet.shielded(name)['addresses'][0]['address']
+                return _shielded.node_send(self.chain, source, to, amount, memo,
+                                           broadcast=broadcast)
+
+            backend = _lightclient.available()
+            if not backend['installed']:
                 keys_hint = self.shielded_export(name, password, account)
                 return {
-                    'error': 'no proving backend: a Sapling spend needs a '
-                             'zk-SNARK proof this module cannot compute',
+                    'error': 'no proving backend installed',
                     'how_to_send': [
-                        'Set ZCASH_RPC_URL (plus ZCASH_RPC_USER/PASSWORD) to a '
-                        'zcashd or zebrad node, run shielded_node_import, then '
-                        'call this again.',
+                        'Run shielded_backend_install once on this host: it '
+                        'builds a local Zcash light client that can prove and '
+                        'broadcast a shielded spend, with no full node.',
+                        'Or set ZCASH_RPC_URL to a zcashd/zebrad node and run '
+                        'shielded_node_import.',
                         'Or import the extended spending key below into Zashi, '
-                        'Ywallet, zingo or zcashd and send from there.',
+                        'Ywallet, zingo or zcashd.',
                     ],
+                    'backend': backend,
                     'extended_spending_key':
                         keys_hint.get('extended_spending_key'),
                     'to': to, 'amount_zec': amount,
                 }
-            source = from_address
-            if not source:
-                account_meta = _wallet.shielded(name)
-                source = account_meta['addresses'][0]['address']
-            return _shielded.node_send(self.chain, source, to, amount, memo,
-                                       broadcast=broadcast)
+
+            if not _lightclient.initialized(name):
+                return {
+                    'error': f'the light client for {name!r} has not been set '
+                             f'up yet',
+                    'how_to_send': ['Call shielded_sync_start(name, password) '
+                                    'and wait for shielded_sync_status to '
+                                    'report synced.'],
+                    'to': to, 'amount_zec': amount,
+                }
+
+            state = _lightclient.status(name)
+            if state.get('syncing'):
+                return {
+                    'error': 'the light client is still scanning; a spend '
+                             'needs the note commitment tree up to the tip',
+                    'sync': state, 'to': to, 'amount_zec': amount,
+                }
+            if state.get('synced') is False:
+                return {
+                    'error': 'the light client is behind the chain tip',
+                    'how_to_send': ['Call shielded_sync_start(name) and wait '
+                                    'for shielded_sync_status to report '
+                                    'synced.'],
+                    'sync': state, 'to': to, 'amount_zec': amount,
+                }
+
+            zatoshis = int(round(amount * ZAT))
+            bal = _lightclient.balance(name)
+            spendable = (bal['sapling_spendable_zat']
+                         + bal['orchard_spendable_zat'])
+            if spendable <= zatoshis:
+                return {
+                    'error': f'not enough spendable shielded value: '
+                             f'{spendable / ZAT:.8f} ZEC available, '
+                             f'{amount:.8f} ZEC requested plus fee',
+                    'balance': bal, 'to': to, 'amount_zec': amount,
+                }
+
+            if not broadcast:
+                return {
+                    'mode': 'DRY RUN', 'sent': False,
+                    'to': to, 'to_type': info['type'],
+                    'amount_zec': amount, 'amount_zat': zatoshis,
+                    'memo': memo,
+                    'spendable_zec': spendable / ZAT,
+                    'fee_zec': _tx.MARGINAL_FEE * 2 / ZAT,
+                    'fee_note': 'ZIP-317; the exact fee depends on how many '
+                                'notes the light client selects',
+                    'prover': backend,
+                    'chain_tip_height': state.get('chain_tip_height'),
+                    'note': 'nothing was proved or broadcast. Pass '
+                            'broadcast=True to spend for real.',
+                }
+
+            if not password:
+                return {'error': 'a password is required to spend: it unseals '
+                                 'the light client identity'}
+            result = _lightclient.send(name, password, to, zatoshis, memo)
+            result['balance_before'] = bal
+            result['resync'] = ('call shielded_sync_start to pick up the '
+                                'change note')
+            return result
         except (_wallet.WalletError, _shielded.ShieldedError, _chain.ChainError,
+                _lightclient.LightClientError, ValueError) as e:
+            return _err(e)
+
+    def shielded_backend(self) -> dict:
+        """Is there a local zk-SNARK prover on this host, and where."""
+        out = _lightclient.available()
+        out['node'] = self.chain.node_info()
+        out['can_spend_shielded'] = bool(out['installed']) or self.chain.has_node
+        return out
+
+    def shielded_backend_install(self, force: bool = False,
+                                 timeout: int = 3600) -> dict:
+        """Build the local prover, once. Takes a while; it is a light client.
+
+        This compiles zcash-devtool (zcash_client_backend + zcash_proofs) into
+        ~/.mod/zcash/bin/. It needs cargo on the host and about ten minutes of
+        CPU the first time; afterwards `shielded_send` just works.
+        """
+        if _lightclient.binary() and not force:
+            return dict(_lightclient.available(), rebuilt=False)
+        script = os.path.join(_HERE, '..', 'install_prover.sh')
+        env = dict(os.environ)
+        if force:
+            env['ZCASH_PROVER_FORCE'] = '1'
+        started = time.time()
+        try:
+            cp = subprocess.run(['bash', os.path.abspath(script)],
+                                capture_output=True, text=True,
+                                timeout=timeout, env=env)
+        except subprocess.TimeoutExpired:
+            return {'error': f'the build did not finish within {timeout}s; '
+                             f'run `bash install_prover.sh` in a terminal'}
+        if cp.returncode != 0:
+            tail = (cp.stderr or cp.stdout or '').strip().splitlines()[-8:]
+            return {'error': 'the prover build failed', 'output': tail}
+        return dict(_lightclient.available(), rebuilt=True,
+                    seconds=round(time.time() - started, 1))
+
+    def shielded_sync_start(self, name: str, password: str = None,
+                            birthday: int = None) -> dict:
+        """Set up this wallet's light client if needed, and start scanning.
+
+        The first call restores the wallet's own mnemonic into a light client
+        (which is why it wants the password) and starts a background scan from
+        the wallet's birthday. Later calls just start a scan. Poll
+        `shielded_sync_status` -- this returns immediately either way.
+        """
+        try:
+            if not _lightclient.binary():
+                return {'error': 'no proving backend installed',
+                        'how_to_fix': 'run shielded_backend_install once',
+                        'backend': _lightclient.available()}
+            created = None
+            if not _lightclient.initialized(name):
+                if not password:
+                    return {'error': 'a password is required the first time: '
+                                     'the light client is restored from this '
+                                     "wallet's mnemonic"}
+                secret = _wallet.reveal(name, password)
+                if not secret.get('mnemonic'):
+                    return {'error': f'wallet {name!r} holds imported keys '
+                                     f'only; a shielded account needs a seed'}
+                if birthday is None:
+                    account = (_wallet.info(name) or {}).get('shielded') or {}
+                    birthday = account.get('birthday') or \
+                        (_wallet.shielded(name) or {}).get('birthday')
+                created = _lightclient.init(name, secret['mnemonic'], password,
+                                            birthday)
+            job = _lightclient.sync_start(name)
+            out = _lightclient.status(name)
+            out['sync_job'] = job
+            if created:
+                out['created'] = created
+                out['note'] = ('the light client was restored from this '
+                               "wallet's seed and is scanning from block "
+                               f"{created.get('birthday')}. A wallet with an "
+                               'old birthday can take a while.')
+            return out
+        except (_wallet.WalletError, _lightclient.LightClientError,
+                ValueError) as e:
+            return _err(e)
+
+    def shielded_sync_status(self, name: str) -> dict:
+        """How far this wallet's light client has scanned, and can it spend."""
+        try:
+            out = _lightclient.status(name)
+            if out.get('initialized') and not out.get('syncing'):
+                try:
+                    out['balance'] = _lightclient.balance(name)
+                except _lightclient.LightClientError:
+                    pass                # a wallet with no summary yet
+            return out
+        except (_lightclient.LightClientError, ValueError) as e:
+            return _err(e)
+
+    def shielded_sync_stop(self, name: str) -> dict:
+        """Stop a running background scan."""
+        try:
+            return _lightclient.sync_stop(name)
+        except (_lightclient.LightClientError, ValueError) as e:
+            return _err(e)
+
+    def shielded_spendable(self, name: str) -> dict:
+        """Shielded balance as the prover sees it -- what can actually be sent.
+
+        `shielded_balance` scans the explorer and reports what *arrived*; this
+        reports what the light client holds a spendable note for, which is the
+        number a send is checked against.
+        """
+        try:
+            if not _lightclient.initialized(name):
+                return {'error': f'no light client for {name!r}',
+                        'how_to_fix': 'call shielded_sync_start first'}
+            out = _lightclient.balance(name)
+            out['sync'] = {k: v for k, v in _lightclient.status(name).items()
+                           if k in ('syncing', 'percent', 'synced',
+                                    'blocks_remaining', 'max_scanned_height')}
+            return out
+        except (_lightclient.LightClientError, ValueError) as e:
+            return _err(e)
+
+    def shielded_shield(self, name: str, password: str,
+                        broadcast: bool = False) -> dict:
+        """Move this wallet's transparent balance into the shielded pool.
+
+        Shielding is itself a shielded output, so it needs the same prover a
+        send does. Dry run unless broadcast=True.
+        """
+        try:
+            if not _lightclient.initialized(name):
+                return {'error': f'no light client for {name!r}',
+                        'how_to_fix': 'call shielded_sync_start first'}
+            bal = _lightclient.balance(name)
+            if not broadcast:
+                return {'mode': 'DRY RUN', 'shielded': False,
+                        'transparent_spendable_zec':
+                            bal['transparent_spendable_zat'] / ZAT,
+                        'note': 'pass broadcast=True to shield for real'}
+            if bal['transparent_spendable_zat'] <= 0:
+                return {'error': 'no transparent balance to shield',
+                        'balance': bal}
+            out = _lightclient.shield(name, password)
+            out['balance_before'] = bal
+            return out
+        except (_lightclient.LightClientError, _wallet.WalletError,
                 ValueError) as e:
             return _err(e)
 
@@ -961,11 +1237,324 @@ class Mod:
         except (ValueError, _wallet.WalletError, _bridge.BridgeError, _chain.ChainError) as e:
             return _err(e)
 
+    # ── Shielded bridging ──────────────────────────────────────────────────
+    #
+    # The two directions are genuinely different problems, so they are two
+    # functions rather than one with a flag.
+    #
+    # IN is solved. The router accepts a ZIP-316 unified address as the ZEC
+    # recipient, so a shielded-only unified address forces the solver to pay
+    # into the pool. Nothing is proven on our side -- the solver creates the
+    # shielded output -- which is why this works at all in a module that
+    # cannot create one itself.
+    #
+    # OUT is not, and cannot be made so here: the deposit address is a
+    # t-address and paying it from the pool is a Sapling spend. With a node
+    # configured we drive it; without one we still reserve the deposit
+    # address and hand back the exact payment a proving wallet must make,
+    # because a reservation the user can complete by hand is worth more than
+    # a refusal.
+
+    def _readable_pools(self) -> set:
+        """Shielded pools this module can actually decrypt notes in.
+
+        Read from capabilities() rather than hardcoded, so that the day
+        Orchard reading lands, bridging into an Orchard receiver starts
+        working without anyone remembering to edit the bridge -- and until
+        that day, an address advertising one is trimmed rather than trusted.
+        """
+        caps = self.capabilities()
+        pools = set()
+        for pool in ('sapling', 'orchard'):
+            row = caps.get(f'shielded_{pool}') or {}
+            if row.get('read') or row.get('receive'):
+                pools.add(pool)
+        return pools
+
+    def bridge_shielded_plan(self) -> dict:
+        """Which shielded bridge directions work here right now, and why."""
+        backend = self.shielded_backend()
+        plan = _bridge.shielded_plan(bool(backend.get('can_spend_shielded')))
+        plan['node'] = backend.get('node')
+        plan['prover'] = {k: backend.get(k) for k in
+                          ('installed', 'binary', 'can_spend_shielded')}
+        plan['readable_pools'] = sorted(self._readable_pools())
+        plan['privacy'] = {
+            'in': _bridge.privacy('in', 'origin chain'),
+            'out': _bridge.privacy('out', 'destination chain'),
+        }
+        return plan
+
+    def bridge_shielded_address(self, address: str = None,
+                                name: str = None) -> dict:
+        """The address a bridge should be given to pay you *shielded*.
+
+        Give it an address or a wallet name. A unified address that also
+        carries a transparent receiver comes back re-encoded without it,
+        because a solver offered both will pick the transparent one.
+        """
+        try:
+            target = address
+            if not target:
+                if not name:
+                    raise ValueError('give an address or a wallet name')
+                account = _wallet.shielded(name)
+                if not account or not account.get('addresses'):
+                    raise ValueError(
+                        f"wallet {name!r} has no shielded account; add one with "
+                        "shielded_upgrade")
+                target = account['addresses'][0]['unified_address']
+            out = _bridge.shielded_recipient(target,
+                                             readable=self._readable_pools())
+            if name:
+                out['wallet'] = name
+            return out
+        except (ValueError, _wallet.WalletError, _bridge.BridgeError) as e:
+            return _err(e)
+
+    def bridge_shielded_in(self, from_asset: str, amount: float,
+                           refund_to: str, recipient: str = None,
+                           name: str = None, reserve: bool = False,
+                           slippage_bps: int = 100) -> dict:
+        """Bridge another chain's asset straight into your shielded pool.
+
+        `recipient` is your own zs1 or u1 address (or pass `name` to use a
+        wallet's). `refund_to` is your address on the ORIGIN chain -- a refund
+        is paid there, and no solver can refund into the shielded pool.
+
+        Quotes only, unless reserve=True: reserving returns a real deposit
+        address you fund yourself from the origin chain.
+        """
+        try:
+            target = recipient
+            if not target:
+                if not name:
+                    raise ValueError(
+                        'give recipient (your zs1/u1 address) or name (a wallet)')
+                account = _wallet.shielded(name)
+                if not account or not account.get('addresses'):
+                    raise ValueError(
+                        f"wallet {name!r} has no shielded account; add one with "
+                        "shielded_upgrade")
+                target = account['addresses'][0]['unified_address']
+
+            quote = _bridge.shielded_quote(from_asset, amount, target,
+                                           refund_to, dry=not reserve,
+                                           slippage_bps=slippage_bps,
+                                           readable=self._readable_pools())
+            if name:
+                quote['wallet'] = name
+            if not reserve:
+                quote['mode'] = 'QUOTE'
+                quote['note'] = (
+                    f"QUOTE ONLY - nothing reserved and nothing sent. "
+                    f"{quote['amount_in']} {quote['from']} would arrive as "
+                    f"~{quote['amount_out']} ZEC in your shielded pool. Re-run "
+                    "with reserve=True to get a deposit address.")
+                return quote
+            quote['mode'] = 'RESERVED'
+            quote['fund_from'] = quote['from']
+            quote['note'] = (
+                f"Deposit address reserved on {quote['from'].split(':')[0]}. "
+                f"Send exactly {quote['amount_in']} {quote['from']} to "
+                f"{quote['deposit_address']} before {quote['deadline']}. This "
+                "module cannot pay it for you -- it is on another chain. The "
+                f"~{quote['amount_out']} ZEC lands as a shielded note; find it "
+                "with shielded_scan once it arrives.")
+            quote['track_with'] = {'fn': 'bridge_status',
+                                   'deposit_address': quote['deposit_address']}
+            return quote
+        except (ValueError, _wallet.WalletError, _bridge.BridgeError) as e:
+            return _err(e)
+
+    def bridge_shielded_out(self, name: str, password: str, to_asset: str,
+                            amount: float, recipient: str,
+                            broadcast: bool = False, refund_to: str = None,
+                            slippage_bps: int = 100,
+                            from_address: str = None) -> dict:
+        """Bridge shielded ZEC out to another chain.
+
+        Reserves the deposit address, then spends a shielded note into it --
+        which needs a proving node. Without one this stops at the reservation
+        and hands you the exact payment to make from a proving wallet.
+
+        Dry run unless broadcast=True. Read `privacy` before using it: leaving
+        the shielded pool is public, and no bridge can change that.
+        """
+        try:
+            account = _wallet.shielded(name)
+            if not account or not account.get('addresses'):
+                raise ValueError(
+                    f"wallet {name!r} has no shielded account; add one with "
+                    "shielded_upgrade")
+            source = from_address or account['addresses'][0]['address']
+
+            # The refund lands on the Zcash side and a solver cannot pay into
+            # the pool, so it has to be one of this wallet's t-addresses.
+            refund = refund_to
+            if not refund:
+                entries = _wallet.addresses(name)
+                if not entries:
+                    raise ValueError(
+                        f"wallet {name!r} has no transparent address to refund "
+                        "to; pass refund_to")
+                refund = entries[0]['address']
+
+            quote = _bridge.shielded_out_quote(
+                to_asset, amount, recipient, refund,
+                dry=not broadcast, slippage_bps=slippage_bps)
+            # Which prover exists is shielded_send's decision, not this
+            # function's -- it already prefers a configured node over the
+            # local light client and knows when the client is still scanning.
+            # Asking chain.has_node here instead would have said "no prover"
+            # on a host that had built one.
+            backend = self.shielded_backend()
+            can_prove = bool(backend.get('can_spend_shielded'))
+            out = {'bridge': quote, 'wallet': name, 'from_shielded': source,
+                   'privacy': quote['privacy'],
+                   'proving': ('node' if self.chain.has_node
+                               else 'local light client' if can_prove
+                               else 'none — you complete the spend yourself')}
+
+            if not broadcast:
+                out['mode'] = 'DRY RUN'
+                out['broadcast'] = False
+                out['note'] = (
+                    "DRY RUN - nothing reserved, nothing spent. Quoted "
+                    f"{quote['amount_in']} ZEC from your shielded notes -> "
+                    f"~{quote['amount_out']} {quote['to']}. Re-run with "
+                    "broadcast=True to reserve a deposit address"
+                    + (f" and have the {out['proving']} prove and send the "
+                       "spend." if can_prove else
+                       " and get the exact payment to make from a proving "
+                       "wallet."))
+                return out
+
+            deposit = quote['deposit_address']
+            if not can_prove:
+                # Reserved, unpaid, and completable by hand -- say exactly
+                # that rather than pretending it failed or that it worked.
+                out['mode'] = 'RESERVED — PAY IT YOURSELF'
+                out['broadcast'] = False
+                out['manual_payment'] = {
+                    'from': source,
+                    'to': deposit,
+                    'amount_zec': quote['amount_in'],
+                    'before': quote['deadline'],
+                    'memo': None,
+                }
+                out['how'] = [
+                    f"Export this account's spending key: shielded_export("
+                    f"name={name!r}, password=...).",
+                    "Import it into a wallet that can prove a Sapling spend — "
+                    "Zashi, Ywallet or zingo.",
+                    f"From that wallet send exactly {quote['amount_in']} ZEC "
+                    f"from {source} to {deposit} before {quote['deadline']}.",
+                    f"Track it here with bridge_status("
+                    f"deposit_address={deposit!r}).",
+                    "Or build the local prover once with "
+                    "shielded_backend_install() (or set ZCASH_RPC_URL to a "
+                    "node holding the key) and re-run this — it will do all "
+                    "of that in one step.",
+                ]
+                out['note'] = (
+                    f"The deposit address {deposit} is reserved and the swap is "
+                    f"live until {quote['deadline']}, but NO ZEC WAS SENT: "
+                    "spending a shielded note needs a zk-SNARK proof, and this "
+                    "host has no prover built. Pay it from a proving wallet — "
+                    "or run shielded_backend_install() — and the swap "
+                    "completes normally.")
+                return out
+
+            payment = self.shielded_send(
+                name, password, deposit, float(quote['amount_in']),
+                broadcast=True, from_address=source)
+            if isinstance(payment, dict) and payment.get('error'):
+                out['payment'] = payment
+                out['mode'] = 'RESERVED — SPEND FAILED'
+                out['broadcast'] = False
+                out['note'] = (
+                    f"Deposit address {deposit} was reserved but the shielded "
+                    f"spend failed: {payment['error']}. No ZEC left the pool. "
+                    f"The swap is still live until {quote['deadline']} — pay "
+                    f"{quote['amount_in']} ZEC to {deposit} by any means and "
+                    "it completes.")
+                return out
+            out['payment'] = payment
+            out['mode'] = 'BROADCAST'
+            out['broadcast'] = True
+            out['track_with'] = {'fn': 'bridge_status',
+                                 'deposit_address': deposit}
+            out['note'] = (
+                f"Proving and sending {quote['amount_in']} ZEC from {source} "
+                f"to {deposit} via the {out['proving']}. "
+                + (f"Watch the spend with shielded_operation("
+                   f"{payment['operation_id']!r}). "
+                   if payment.get('operation_id') else
+                   f"Spend txid {payment.get('txid')}. ")
+                + f"Watch the swap with bridge_status({deposit!r}). Expect "
+                f"~{quote['amount_out']} {quote['to']} at {recipient}.")
+            return out
+        except (ValueError, _wallet.WalletError, _bridge.BridgeError,
+                _shielded.ShieldedError, _chain.ChainError) as e:
+            return _err(e)
+
+    # ── Learning and the agent ─────────────────────────────────────────────
+
+    def learn(self, topic: str = None, level: str = None, path: str = None,
+              glossary: bool = False) -> dict:
+        """Plain-language Zcash lessons for someone starting from zero.
+
+        No arguments lists them. `topic` opens one in full. `path` follows a
+        reading order ('beginner', 'sending', 'privacy', 'bridging',
+        'developer'). glossary=True returns every defined term.
+        """
+        try:
+            if glossary:
+                return _learn.glossary()
+            if topic:
+                return _learn.lesson(topic)
+            return _learn.lessons(level=level, path=path)
+        except KeyError as e:
+            return {'error': str(e).strip("'")}
+
+    def explain(self, term: str) -> dict:
+        """Define one Zcash word, with the lesson that puts it in context."""
+        try:
+            return _learn.explain(term)
+        except KeyError as e:
+            return {'error': str(e).strip("'")}
+
+    def ask(self, question: str, ground: bool = True) -> dict:
+        """Ask about Zcash or about this module, in your own words.
+
+        Answers from the written lessons, calls read-only functions to ground
+        the answer in live data, and writes out the exact call you would make
+        next. It never calls a function that spends, deletes or reveals a
+        secret -- those come back as `actions` for you to run.
+        """
+        try:
+            return _agent.ask(question, mod=self, ground=ground)
+        except _agent.AgentError as e:
+            return _err(e)
+
+    def agent_status(self) -> dict:
+        """What the answering agent is backed by right now."""
+        return _agent.status()
+
     # ── Meta ───────────────────────────────────────────────────────────────
 
     def capabilities(self) -> dict:
         """What this module can and cannot do, and why."""
         node = self.chain.node_info()
+        prover = _lightclient.available()
+        can_spend = bool(prover['installed']) or self.chain.has_node
+        spend_how = ('a local light client proves and broadcasts '
+                     '(zcash_client_backend + zcash_proofs)'
+                     if prover['installed'] else
+                     'a configured node proves and broadcasts'
+                     if self.chain.has_node else
+                     'no proving backend yet -- run shielded_backend_install')
         return {
             'explorer': {'supported': True, 'source': 'blockchair'},
             'transparent_wallet': {
@@ -981,28 +1570,54 @@ class Mod:
             'shielded_sapling': {
                 'receive': True,
                 'read': True,
-                'send': self.chain.has_node,
+                'send': can_spend,
+                'send_how': spend_how,
                 'details': 'Real ZIP-32 keys (m/32\'/133\'/account\'), zs1 and '
                            'ZIP-316 unified addresses, note decryption with the '
                            'incoming and outgoing viewing keys, note '
                            'commitments and nullifiers -- all pure Python, '
                            'pinned to the official Zcash test vectors.',
-                'cannot': 'Create a shielded output or spend a note: both need '
-                          'a Groth16 proof. shielded_export prints the extended '
-                          'spending key for a proving wallet; with '
-                          'ZCASH_RPC_URL set, shielded_send hands the proving '
-                          'to the node.',
-                'spend_detection': 'nullifiers, node only' if self.chain.has_node
-                                   else 'unavailable without a node (note '
-                                        'positions need the commitment tree)',
+                'cannot': None if can_spend else
+                          'Create a shielded output or spend a note without a '
+                          'proving backend: both need a Groth16 proof. Run '
+                          'shielded_backend_install once to build the local '
+                          'light client that does it, or set ZCASH_RPC_URL.',
+                'spend_detection': 'nullifiers, from the light client\'s own '
+                                   'commitment tree' if prover['installed']
+                                   else 'nullifiers, node only'
+                                   if self.chain.has_node
+                                   else 'unavailable without a proving backend '
+                                        '(note positions need the commitment '
+                                        'tree)',
             },
             'shielded_orchard': {
-                'receive': False, 'read': False, 'send': False,
-                'reason': 'Orchard note decryption needs Pallas arithmetic with '
-                          'Sinsemilla commitments, which is not implemented '
-                          'here. Unified addresses from this module therefore '
-                          'never advertise an Orchard receiver -- claiming one '
-                          'we cannot detect would lose funds.',
+                'receive': True,
+                'read': True,
+                'send': can_spend,
+                'send_how': spend_how,
+                'details': 'Real ZIP-32 Orchard keys from the same seed and the '
+                           'same account path, unified addresses that advertise '
+                           'an Orchard receiver, and action decryption with the '
+                           'incoming and outgoing viewing keys -- Pallas, '
+                           'Sinsemilla and Poseidon in pure Python, pinned to '
+                           'the official Zcash test vectors.',
+                'cannot': None if can_spend else
+                          'Create an Orchard action without a proving backend: '
+                          'that needs a Halo 2 proof. Run '
+                          'shielded_backend_install once, or set ZCASH_RPC_URL.',
+                'spend_detection': 'nullifiers, no node needed -- an Orchard '
+                                   'nullifier does not depend on the note\'s '
+                                   'position in the commitment tree, so a scan '
+                                   'that covers the spending block sees it',
+                'limits': 'The public explorer does not serialize Orchard '
+                          'actions into its transaction rows, so a scan without '
+                          'a node fetches each candidate transaction whole and '
+                          f'covers {_shielded.ORCHARD_EXPLORER_MAX_BLOCKS} '
+                          'blocks at a time instead of '
+                          f'{_shielded.MAX_EXPLORER_BLOCKS}. Transactions in a '
+                          'serialization this module cannot parse (the chain '
+                          'tip now carries some) are counted and reported as '
+                          'unreadable rather than passed off as empty.',
             },
             'bridge': {
                 'supported': True,
@@ -1011,7 +1626,9 @@ class Mod:
                            'Arbitrum, Solana, BTC and Tron',
             },
             'node': node,
-            'safety': 'send() and bridge_send() are dry runs unless broadcast=True',
+            'shielded_prover': prover,
+            'safety': 'send(), shielded_send() and bridge_send() are dry runs '
+                      'unless broadcast=True',
         }
 
     def mcp(self, message: dict = None, tool: str = None, args: dict = None,
@@ -1166,6 +1783,41 @@ class Mod:
         except Exception as e:
             results['shielded'] = {'ok': False, 'error': str(e)}
             failures.append('shielded')
+
+        # Orchard: the same end-to-end receive path on the other pool, plus
+        # the nullifier -- which is the part Orchard can do and Sapling cannot,
+        # since it needs no note position and so no node.
+        try:
+            oxsk = _orchard.ExtendedSpendingKey.from_seed(
+                b'zcash-selftest-seed-32bytes-long')
+            ofvk = oxsk.fvk()
+            oaddress = ofvk.address(0)
+            rho = (0xC0FFEE).to_bytes(32, 'little')
+            action = _orchard.encrypt_note(oaddress, 87_654_321, rho,
+                                           memo=b'self test', ovk=ofvk.ovk)
+            got = _orchard.decrypt_action_with_ivk(
+                ofvk.ivk, rho, action['cmx'], action['epk'],
+                action['enc_ciphertext'])
+            other = _orchard.ExtendedSpendingKey.from_seed(
+                b'a different seed, 32 bytes ok!!!').fvk()
+            spilled = _orchard.decrypt_action_with_ivk(
+                other.ivk, rho, action['cmx'], action['epk'],
+                action['enc_ciphertext'])
+            results['orchard'] = {
+                'ok': (got is not None and got.value == 87_654_321
+                       and got.memo_text() == 'self test' and spilled is None),
+                'unified': oaddress.encode(),
+                'note_read_back': got.value if got else None,
+                'nullifier': got.nullifier(ofvk.nk).hex() if got else None,
+                'opaque_to_other_keys': spilled is None,
+                'spend_detection': 'nullifiers, no node needed',
+                'can_send': self.chain.has_node,
+            }
+            if not results['orchard']['ok']:
+                failures.append('orchard')
+        except Exception as e:
+            results['orchard'] = {'ok': False, 'error': str(e)}
+            failures.append('orchard')
 
         try:
             chains = _bridge.chains()

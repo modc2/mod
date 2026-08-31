@@ -25,24 +25,33 @@ export async function api(path: string, opts?: { method?: string; body?: any }) 
 
 /** Fetch one endpoint, keep the last good value, expose a manual reload.
  *  A failed fetch leaves the fallback in place — pages render the honest
- *  empty state rather than an error screen. */
+ *  empty state rather than an error screen.
+ *
+ *  `error` carries WHY the fallback is showing. Most pages ignore it and
+ *  render zeros, which is right for a pre-launch counter; a page whose whole
+ *  job is to display fetched content (/code) needs to say "the API is down"
+ *  instead of spinning on "Loading…" forever. */
 export function useResource<T>(path: string, fallback: T) {
   const [data, setData] = useState<T>(fallback)
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const reload = useCallback(async (p = path) => {
     setLoading(true)
     try {
       const next = await api(p)
       if (next != null) setData(next as T)
-    } catch {}
+      setError(null)
+    } catch (e: any) {
+      setError(e?.message || 'Request failed')
+    }
     setLoading(false)
     setLoaded(true)
   }, [path])
 
   useEffect(() => { reload() }, [reload])
-  return { data, loading, loaded, reload }
+  return { data, loading, loaded, error, reload }
 }
 
 /* ── formatting ─────────────────────────────────────────── */

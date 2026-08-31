@@ -423,6 +423,18 @@ Every leaderboard read lands on traders who have **traded in the last 6 hours**.
 - **Unknown recency is not recent.** A row with no `lastTradeTs` (a pre-`lastTradeTs` disk payload) is dropped while the lens is on — the opposite of the strat-side gate, where unknown passes. Here a wrong drop costs one row on a board of thousands; there it would pause a running strat.
 - **A snapshot older than the window empties the board**, and no amount of relaxing the other filters fixes that. The console says so — it names the age and points at ↻ SYNC — but the real guard is the background warmup, which re-aggregates every 5 min by default (30 min on this deployment).
 
+#### The track-record floor (`minHistoryDays` — default off)
+
+The activity lens asks *are they trading now*. This asks *have they been trading long*, and it is the other half of making a windowed number mean something.
+
+A wallet that placed its first trade six days ago can sit at the top of the **30D** board. Every stat on that row is real — and every one of them describes six days. The copy sim on its profile will draw a 30-day curve that is flat for twenty-four days and then quote `+24.6% · 30D NET`, because the twenty-four flat days are not a quiet patch, they are the account not existing.
+
+- **It is the user's number, not the house's.** `HISTORY ≥` in the COPY desk's FIND TRADERS panel (`OFF / 7D / 14D / 30D / 90D` + a free box), `MIN HISTORY DAYS` in traders → FILTERS, `min_history_days` on `pm_top_traders` (MCP) and `m polymarket/active_traders`. Default **off**: ranking a young wallet over a long window is a legitimate thing to want to look at — it just should not happen silently.
+- **`firstTradeTs` is window-independent, and has to be.** The enrichment pull stops at the window cutoff by design, so on the 7D board the oldest trade anyone has is 7 days old and an age derived from it would report every trader as one week old. Instead `src/api/src/first_trade.rs` asks data-api for `?limit=1&sortDirection=ASC` — the oldest activity row directly, which also sidesteps the `offset > 5000` ceiling — **once per wallet, cached forever** in `<POLYMARKET_DATA_DIR>/first_trade.json`. A first trade is immutable. After the first sweep the whole filter is free; the store checkpoints every 100 new wallets so a scale-to-zero stop mid-sweep doesn't lose the lookups.
+- **Unknown age is not young.** A row with no `firstTradeTs` (pre-field disk payload, or a lookup that 429'd) is **kept**, the opposite of the recency lens. Cutting on missing data would empty the board over a data gap rather than narrow it. `historyKnown` in the response says how many rows have a resolved age, and the console says so out loud when the floor is only partly applied.
+- **`historyDropped` is counted apart from `activityDropped`.** "Everybody went quiet" and "everybody is too new" want different fixes, so an empty board names the right one.
+- **Where it shows up beyond the filter.** A `RECORD` column on the traders table and a track-record chip on each FIND TRADERS card, both **amber when the record is shorter than the window being ranked**; `sort=history` ranks longest-record-first; and the profile's copy sim prints `THIS ACCOUNT IS N DAYS OLD — younger than the {days}D window` above the headline, so the flat curve explains itself.
+
 #### Trader profile — TRADES / P&L / INFO
 
 A trader page (`/traders/<address>`) is three tabs over one filtered flow:
@@ -488,6 +500,21 @@ polled 1 traders · 4 new trades observed · 4 BUY(s) gated (4 price<60¢)
 - **`N BUY(s) gated (…)`** names the gate that dropped this cycle's entries: `price<60¢` (the implicit favorites-only floor when a strat sets no price band), `price`, `side`, `size`, `category`, `market query`. A strat whose filters exclude 100% of its leaders' flow is a *filter decision*, not a fault — but silently dropping those candidates made it indistinguishable from a broken engine.
 
 Candidates that clear the gates and are then skipped downstream still log their own `SKIP` line (`TOO_SOON`, `SUB_SCALE`, `REBALANCE_SKIP`, …).
+
+### Why a deep window can go stale forever (a trap)
+
+The warmup rebuilds four windows — 1D, 7D, 14D, 30D — and a full pass takes about **ten minutes**. The fleet activator stops this module after ~60s with no connections ([activator sleeps](#)). Those two facts used to combine badly, because the pass ran the windows in fixed order:
+
+> every wake restarted the list at 1D, finished it in ~2 minutes, and died somewhere in 7D.
+
+The deep windows were never *reached*. 1D was re-synced every few minutes while the 30D board sat untouched for **three days**, aged past the pipeline cache's 24h disk ceiling, and the console answered *"the 30D leaderboard hasn't been aggregated yet"* — a starved queue reading as missing data. Relaxing filters, pressing SYNC, and waiting all did nothing, because each attempt restarted the same rebuild that would be killed again.
+
+Two changes, both in the "an interrupted cycle must still make progress" family:
+
+- **The warmup goes stalest-first** (`warmup_cycle`, `pipeline.rs`): combos are sorted by last `synced_at` — read through `synced_at_any_age`, which consults *disk*, because memory is empty right after the restart that caused the problem. Whatever is furthest behind goes first, so the window nobody has rebuilt is the one that gets rebuilt.
+- **A stale board beats no board** (`get_stale_disk`, `cache.rs`): when nothing is fresh enough to serve, `/active-traders` serves the old disk payload labelled `source: "stale-disk"` with its true `syncedAt`, instead of returning `cold` and kicking off a rebuild that cannot finish. The UI's data-age chip tells the truth and the warmup replaces it in the background.
+
+If a window looks empty, check the disk cache mtimes before the code — `ls -la /tmp/polymarket-active-traders-cache/` next to `grep 'warming\|warmed\|warmup cycle done' src/api/api.log` says immediately whether this is a data problem or a starvation problem.
 
 ### Warmed candidate pool (a trap)
 

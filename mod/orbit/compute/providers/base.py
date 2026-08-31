@@ -301,12 +301,20 @@ class Filters:
     HIDDEN_KINDS = ('storage',)
 
     def __init__(self, gpu=None, min_gpus=None, min_vram_gb=None, max_usd_hr=None,
-                 region=None, available_only=True, limit=40, kind=None, **_):
+                 min_usd_hr=None, region=None, available_only=True, limit=40,
+                 kind=None, **_):
         self.kind = (kind or '').strip().lower() or None
         self.gpu = (gpu or '').strip().lower() or None
         self.min_gpus = int(min_gpus) if min_gpus else None
         self.min_vram_gb = num(min_vram_gb)
         self.max_usd_hr = num(max_usd_hr)
+        # A price band, not just a ceiling: the floor of a market whose cheapest
+        # row is $0.001 is where the junk lives, and an agent asking for a real
+        # H100 wants to say so. Free (0) rows fall outside any floor above 0.
+        self.min_usd_hr = num(min_usd_hr)
+        if (self.min_usd_hr is not None and self.max_usd_hr is not None
+                and self.min_usd_hr > self.max_usd_hr):
+            self.min_usd_hr, self.max_usd_hr = self.max_usd_hr, self.min_usd_hr
         self.region = (region or '').strip().lower() or None
         self.available_only = bool(available_only)
         # 2000 is enough to hand the whole catalogue to a distribution view;
@@ -334,9 +342,13 @@ class Filters:
             return False
         if self.min_vram_gb and (o.get('vram_gb') or 0) < self.min_vram_gb:
             return False
-        if self.max_usd_hr is not None:
+        if self.max_usd_hr is not None or self.min_usd_hr is not None:
             p = o.get('usd_hr')
-            if p is None or p > self.max_usd_hr:
+            if p is None:
+                return False
+            if self.max_usd_hr is not None and p > self.max_usd_hr:
+                return False
+            if self.min_usd_hr is not None and p < self.min_usd_hr:
                 return False
         if self.region and self.region not in str(o.get('region') or '').lower():
             return False
@@ -345,6 +357,7 @@ class Filters:
     def dict(self):
         return {'gpu': self.gpu, 'kind': self.kind, 'min_gpus': self.min_gpus,
                 'min_vram_gb': self.min_vram_gb, 'max_usd_hr': self.max_usd_hr,
+                'min_usd_hr': self.min_usd_hr,
                 'region': self.region, 'available_only': self.available_only,
                 'limit': self.limit}
 

@@ -170,10 +170,23 @@ on the order the other leaders filled in.
 `autoExecute: true` is refused unless `POLYMARKET_MCP_ALLOW_LIVE=1`. Don't work
 around it — dry-run, then tell the human to flip it on the desk.
 
+**A long window does not mean a long record.** A wallet whose first trade was
+six days ago can top the **30D** board, and its 30D copy sim draws a curve that
+is flat for twenty-four days and then reports a 30-day return. The flat part is
+not a quiet patch — it is the account not existing. `firstTradeTs` on every
+trader row is the age; `min_history_days` on `pm_top_traders` (and
+`HISTORY ≥` / `MIN HISTORY DAYS` in the console) is the floor. It is **off by
+default** on purpose: how much record a name needs behind it is the caller's
+call. Traders whose age is not resolved yet are *kept*, never cut — unknown age
+is not young.
+
 **The app and API sleep.** The fleet activator stops both after ~60s idle;
 requests through `localhost:9000/polymarket` wake them, direct calls to
 `:50091` / `:3091` do not. "Connection refused" usually means asleep, not
-broken.
+broken. It also **interrupts the leaderboard warmup**, which is why that pass
+now rebuilds the *stalest* window first and why `/active-traders` will serve a
+`source: "stale-disk"` board rather than nothing: a ten-minute 30D sweep that
+always restarted at 1D never reached 30D at all.
 
 ## Building
 

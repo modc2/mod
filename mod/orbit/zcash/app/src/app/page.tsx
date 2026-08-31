@@ -1,8 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { call, get, getToken, num, setToken, timeAgo, usd, zatToZec, zec } from './api'
 import { Button, C, Code, Copy, Field, Input, Note, Panel, Spinner, Stat } from './ui'
+import { Ask, Learn } from './learn'
+import { PrivateBridge } from './private'
 
 // Spending functions need the module token (~/.mod/zcash/server.secret,
 // printed by `m zcash/token`). Reads work without it.
@@ -38,11 +40,39 @@ function Unlock() {
   )
 }
 
-type Tab = 'explorer' | 'wallet' | 'shielded' | 'send' | 'bridge' | 'mcp'
-const TABS: Tab[] = ['explorer', 'wallet', 'shielded', 'send', 'bridge', 'mcp']
+// An action suggested by a lesson or by the agent names a module function.
+// This is the one place that maps a function back to the tab that performs it,
+// so "open the tab" on an action lands somewhere useful instead of nowhere.
+function tabFor(fn: string): Tab {
+  if (fn.startsWith('bridge_shielded')) return 'private'
+  if (fn.startsWith('bridge')) return 'bridge'
+  if (fn.startsWith('shielded')) return 'shielded'
+  if (fn.startsWith('wallet')) return 'wallet'
+  if (fn === 'send' || fn === 'estimate_fee' || fn === 'broadcast_raw') return 'send'
+  if (fn === 'learn' || fn === 'explain') return 'learn'
+  if (fn === 'ask') return 'ask'
+  if (fn === 'mcp') return 'mcp'
+  return 'explorer'
+}
+
+type Tab = 'explorer' | 'learn' | 'ask' | 'wallet' | 'shielded' | 'send'
+  | 'bridge' | 'private' | 'mcp'
+const TABS: Tab[] = ['explorer', 'learn', 'ask', 'wallet', 'shielded', 'send',
+  'bridge', 'private', 'mcp']
 
 export default function Page() {
   const [tab, setTab] = useState<Tab>('explorer')
+  // ?tab=learn deep-links a tab, so a lesson or an answer can be linked to
+  // directly. The hash is kept in sync so the back button and a copied URL
+  // both land where the reader was.
+  useEffect(() => {
+    const want = new URLSearchParams(window.location.search).get('tab')
+      || window.location.hash.replace('#', '')
+    if (want && (TABS as string[]).includes(want)) setTab(want as Tab)
+  }, [])
+  useEffect(() => {
+    if (typeof window !== 'undefined') window.history.replaceState(null, '', `#${tab}`)
+  }, [tab])
   const [caps, setCaps] = useState<any>(null)
   // null = still connecting. The API route starts the backend on demand, so a
   // cold first load takes a few seconds; say "starting" rather than "offline"
@@ -114,15 +144,18 @@ export default function Page() {
           </Note>
         )}
 
-        {tab !== 'explorer' && <Unlock />}
+        {!['explorer', 'learn', 'ask'].includes(tab) && <Unlock />}
         {tab === 'explorer' && <Explorer online={online} />}
         {tab === 'wallet' && <Wallet />}
         {tab === 'shielded' && <Shielded caps={caps} />}
         {tab === 'send' && <Send />}
         {tab === 'bridge' && <Bridge caps={caps} />}
+        {tab === 'private' && <PrivateBridge caps={caps} />}
+        {tab === 'learn' && <Learn onAction={a => setTab(tabFor(a.fn))} />}
+        {tab === 'ask' && <Ask onAction={a => setTab(tabFor(a.fn))} />}
         {tab === 'mcp' && <Mcp />}
 
-        {caps && tab !== 'mcp' && <Capabilities caps={caps} />}
+        {caps && !['mcp', 'learn', 'ask'].includes(tab) && <Capabilities caps={caps} />}
       </div>
     </main>
   )
@@ -389,10 +422,10 @@ function Wallet() {
 
 // ── Shielded ────────────────────────────────────────────────────────────────
 
-// What this tab can honestly offer: a real Sapling address to receive on, and
-// the viewing keys that read what arrives. Spending needs a Groth16 prover,
-// which lives in a node or another wallet -- the panel says so rather than
-// offering a button that cannot work.
+// Receive, read, and — since the prover landed — spend. The three shielded
+// acts are three panels: an address to be paid at, a scan of what arrived,
+// and ShieldedSend, which owns the whole prover/sync/spend ladder because
+// each rung is meaningless without the one below it.
 function Shielded({ caps }: { caps: any }) {
   const [wallets, setWallets] = useState<any[]>([])
   const [name, setName] = useState('')
@@ -571,19 +604,14 @@ function Shielded({ caps }: { caps: any }) {
         )}
       </Panel>
 
-      <Panel title="Sending shielded ZEC">
-        <Note kind={node ? 'ok' : 'warn'}>
-          {node
-            ? 'A Zcash node is configured, so shielded_send can ask it to prove '
-              + 'and broadcast a spend. Run shielded_node_import once first.'
-            : 'This module cannot create a shielded spend: that needs a Groth16 '
-              + 'proof, which is not feasible in pure Python. Export the '
-              + 'spending key below into Zashi, Ywallet, zingo or zcashd and '
-              + 'send from there — or set ZCASH_RPC_URL to a node.'}
-        </Note>
-        {sapling?.cannot && (
-          <div style={{ fontSize: 11.5, color: C.dim, marginBottom: 10 }}>{sapling.cannot}</div>
-        )}
+      <ShieldedSend name={name} pw={pw} caps={caps} />
+
+      <Panel title="Spend these notes somewhere else">
+        <div style={{ fontSize: 12.5, color: C.dim, marginBottom: 10 }}>
+          The same seed opens this account in any Zcash wallet. Export it if
+          you would rather spend from Zashi, Ywallet, zingo or zcashd — the
+          notes are the same notes.
+        </div>
         {!keys ? (
           <Button variant="ghost" disabled={!name || !pw || !!busy}
             onClick={() => run('keys', 'shielded_export', { name, password: pw }, setKeys)}>
@@ -603,6 +631,248 @@ function Shielded({ caps }: { caps: any }) {
         )}
       </Panel>
     </>
+  )
+}
+
+// ── Shielded send ───────────────────────────────────────────────────────────
+
+// Spending shielded ZEC is a ladder, and this panel is the ladder: a prover
+// has to exist on the host, the wallet's light client has to have scanned to
+// the tip, and only then is there a balance to spend. Showing a send form
+// before the first two are true would just be a button that fails, so each
+// rung renders only the one thing to do next.
+function ShieldedSend({ name, pw, caps }: { name: string, pw: string, caps: any }) {
+  const [backend, setBackend] = useState<any>(null)
+  const [sync, setSync] = useState<any>(null)
+  const [busy, setBusy] = useState('')
+  const [err, setErr] = useState('')
+  const [to, setTo] = useState('')
+  const [amount, setAmount] = useState('')
+  const [memo, setMemo] = useState('')
+  const [preview, setPreview] = useState<any>(null)
+  const [sent, setSent] = useState<any>(null)
+
+  const loadBackend = () => call('shielded_backend').then(setBackend).catch(() => {})
+  const loadSync = () => {
+    if (!name) return Promise.resolve()
+    return call('shielded_sync_status', { name })
+      .then(setSync).catch(() => setSync(null))
+  }
+
+  useEffect(() => { loadBackend() }, [])
+  useEffect(() => { setSync(null); setPreview(null); setSent(null); loadSync() }, [name])
+
+  // While a scan is running the only honest thing to show is how far it got,
+  // so poll until it stops rather than leaving a stale percentage on screen.
+  useEffect(() => {
+    if (!sync?.syncing) return
+    const t = setInterval(loadSync, 4000)
+    return () => clearInterval(t)
+  }, [sync?.syncing, name])
+
+  const install = async () => {
+    setBusy('install'); setErr('')
+    try {
+      setBackend(await call('shielded_backend_install', {}))
+    } catch (e: any) { setErr(e.message) } finally { setBusy('') }
+  }
+
+  const startSync = async () => {
+    setBusy('sync'); setErr('')
+    try { setSync(await call('shielded_sync_start', { name, password: pw })) }
+    catch (e: any) { setErr(e.message) } finally { setBusy('') }
+  }
+
+  const send = async (broadcast: boolean) => {
+    setBusy(broadcast ? 'send' : 'preview'); setErr('')
+    if (broadcast) setPreview(null); else setSent(null)
+    try {
+      const r = await call('shielded_send', {
+        name, password: pw, to: to.trim(), amount: Number(amount),
+        memo: memo || undefined, broadcast,
+      })
+      if (broadcast) { setSent(r); loadSync() } else setPreview(r)
+    } catch (e: any) { setErr(e.message) } finally { setBusy('') }
+  }
+
+  const node = caps?.node?.reachable
+  const installed = backend?.installed
+  const ready = sync?.initialized && sync?.synced && !sync?.syncing
+  const spendable = sync?.balance?.shielded_spendable_zec
+
+  return (
+    <Panel title="Send shielded ZEC" right={
+      installed ? <span style={{ fontSize: 11, color: C.green }}>prover ready</span>
+        : node ? <span style={{ fontSize: 11, color: C.green }}>node</span> : null
+    }>
+      {err && <Note kind="error">{err}</Note>}
+
+      {/* Rung 1 — is there a prover on this machine at all? */}
+      {backend && !installed && !node && (
+        <>
+          <Note kind="warn">
+            A shielded payment carries a zero-knowledge proof, and this machine
+            has nothing that can build one yet. Installing the prover fixes
+            that for good — it compiles a Zcash light client from source, once.
+          </Note>
+          <div style={{ fontSize: 12.5, color: C.dim, marginBottom: 10 }}>
+            It takes several minutes and needs Rust on the host. Afterwards
+            sending is a normal button, and no full node is involved: the
+            wallet syncs compact blocks from a lightwalletd server, exactly
+            like Zashi or Ywallet on a phone.
+          </div>
+          <Button disabled={busy === 'install'} onClick={install}>
+            {busy === 'install' ? 'building the prover…' : 'Install the prover'}
+          </Button>
+          {busy === 'install' && (
+            <div style={{ fontSize: 11.5, color: C.dim, marginTop: 8 }}>
+              Compiling. This can take ten minutes; leave the tab open.
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Rung 2 — has this wallet's light client caught up with the chain? */}
+      {installed && name && !ready && (
+        <>
+          {!sync?.initialized ? (
+            <Note kind="info">
+              This wallet has no light client yet. Setting one up restores the
+              same seed into a scanner that tracks its notes — that is what
+              makes them spendable. It needs the wallet password once.
+            </Note>
+          ) : sync?.syncing ? (
+            <Note kind="info">
+              Scanning the chain for this wallet&apos;s notes. A wallet with an
+              old birthday has a lot of history to read; you can leave this.
+            </Note>
+          ) : (
+            <Note kind="warn">
+              The light client is behind the chain tip. Sync it before sending —
+              a spend needs the note commitment tree right up to the top.
+            </Note>
+          )}
+
+          {sync?.percent != null && (
+            <>
+              <div style={{
+                height: 8, background: C.bg, borderRadius: 4, overflow: 'hidden',
+                border: `1px solid ${C.line}`, marginBottom: 6,
+              }}>
+                <div style={{
+                  width: `${Math.min(100, sync.percent)}%`, height: '100%',
+                  background: sync.synced ? C.green : C.gold, transition: 'width .4s',
+                }} />
+              </div>
+              <div style={{ fontSize: 11.5, color: C.dim, marginBottom: 10 }}>
+                {sync.percent}% · scanned to block {num(sync.max_scanned_height)}
+                {sync.blocks_remaining ? ` · ${num(sync.blocks_remaining)} blocks left` : ''}
+                {sync.chain_tip_height ? ` · tip ${num(sync.chain_tip_height)}` : ''}
+              </div>
+            </>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button disabled={!pw || !!busy || sync?.syncing} onClick={startSync}>
+              {busy === 'sync' ? 'starting…'
+                : sync?.syncing ? 'scanning…'
+                : sync?.initialized ? 'Sync now' : 'Set up and sync'}
+            </Button>
+            {sync?.syncing && (
+              <Button variant="ghost"
+                onClick={() => call('shielded_sync_stop', { name }).then(loadSync)}>
+                Stop
+              </Button>
+            )}
+          </div>
+          {!pw && <div style={{ fontSize: 11, color: C.dim, marginTop: 8 }}>
+            Enter the wallet password above first.
+          </div>}
+        </>
+      )}
+
+      {/* Rung 3 — the actual payment. */}
+      {(ready || node) && (
+        <>
+          {ready && (
+            <div style={{
+              display: 'grid', gap: 10, marginBottom: 14,
+              gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
+            }}>
+              <Stat label="Spendable" value={zec(spendable)} sub="shielded notes" />
+              <Stat label="Transparent"
+                value={zatToZec(sync?.balance?.transparent_spendable_zat)}
+                sub="shield it to spend privately" />
+              <Stat label="Synced to" value={num(sync?.max_scanned_height)}
+                sub={`tip ${num(sync?.chain_tip_height)}`} />
+            </div>
+          )}
+
+          <Input label="To" value={to} placeholder="zs1… or u1…"
+            onChange={(e: any) => { setTo(e.target.value); setPreview(null); setSent(null) }}
+            hint="a shielded or unified address — amount, memo and recipient stay encrypted" />
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <Input label="Amount (ZEC)" value={amount} placeholder="0.01"
+                onChange={(e: any) => { setAmount(e.target.value); setPreview(null); setSent(null) }} />
+            </div>
+            <div style={{ flex: 2, minWidth: 180 }}>
+              <Input label="Memo (optional)" value={memo}
+                onChange={(e: any) => setMemo(e.target.value)}
+                hint="encrypted; only the recipient can read it" />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button variant="ghost"
+              disabled={!to || !amount || !name || !pw || !!busy}
+              onClick={() => send(false)}>
+              {busy === 'preview' ? 'checking…' : 'Preview'}
+            </Button>
+            <Button disabled={!preview || !!busy} onClick={() => send(true)}>
+              {busy === 'send' ? 'proving & broadcasting…' : 'Send for real'}
+            </Button>
+          </div>
+          {busy === 'send' && (
+            <div style={{ fontSize: 11.5, color: C.dim, marginTop: 8 }}>
+              Building the zero-knowledge proof. This takes a few seconds.
+            </div>
+          )}
+
+          {preview && !sent && (
+            <div style={{ marginTop: 14 }}>
+              <Note kind="warn">
+                Nothing has been sent. {zec(preview.amount_zec)} to a{' '}
+                {preview.to_type} address, fee about {zec(preview.fee_zec)}.
+                Press <strong>Send for real</strong> to prove and broadcast it.
+              </Note>
+              <Field label="To" mono value={preview.to} />
+              <Field label="Spendable after" value={
+                zec((preview.spendable_zec || 0) - (preview.amount_zec || 0))} />
+            </div>
+          )}
+
+          {sent && (
+            <div style={{ marginTop: 14 }}>
+              <Note kind="ok">
+                Sent {zec(sent.amount_zec)}, proved locally and broadcast in{' '}
+                {sent.seconds}s. It is spendable by the recipient once mined.
+              </Note>
+              {sent.txid && <Field label="Transaction id" mono
+                value={<>{sent.txid}<Copy text={sent.txid} /></>} />}
+              <div style={{ fontSize: 11.5, color: C.dim }}>
+                Sync again to pick up the change note.
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!name && <div style={{ fontSize: 12.5, color: C.dim }}>
+        Pick a wallet above.
+      </div>}
+      {!backend && <Spinner label="checking for a prover" />}
+    </Panel>
   )
 }
 
@@ -713,11 +983,336 @@ function Send() {
 }
 
 // ── Bridge ──────────────────────────────────────────────────────────────────
+//
+// A bridge is two legs and a direction, so it is drawn that way: what you send,
+// what you get, and a flip between them. The receive leg is priced continuously
+// from the asset table the router itself publishes (indicative, marked as such)
+// and replaced by a real 1Click quote the moment both addresses look valid.
+
+const EVM_RE = /^0x[0-9a-fA-F]{40}$/
+const TADDR_RE = /^t[13][a-km-zA-HJ-NP-Z1-9]{20,40}$/
+const POPULAR = ['eth:ETH', 'btc:BTC', 'eth:USDC', 'base:ETH', 'sol:SOL', 'near:NEAR']
+
+type Asset = { id: string, chain: string, symbol: string, price?: number }
+
+const ZEC_ASSET: Asset = { id: 'ZEC', chain: 'zec', symbol: 'ZEC' }
+
+// 'eth:USDC' and 'USDC' both resolve server-side; keep whatever the user picked.
+const symbolOf = (id: string) => (id.includes(':') ? id.split(':')[1] : id).toUpperCase()
+const chainOf = (id: string) => (id.includes(':') ? id.split(':')[0] : '').toLowerCase()
+
+// The router keys chains by short code; a person reads names.
+const CHAIN_NAMES: Record<string, string> = {
+  zec: 'Zcash', eth: 'Ethereum', base: 'Base', arb: 'Arbitrum', op: 'Optimism',
+  pol: 'Polygon', bsc: 'BNB Chain', avax: 'Avalanche', sol: 'Solana', btc: 'Bitcoin',
+  near: 'NEAR', ton: 'TON', tron: 'Tron', doge: 'Dogecoin', xrp: 'XRP', sui: 'Sui',
+  apt: 'Aptos', ltc: 'Litecoin', bera: 'Berachain', gnosis: 'Gnosis', scroll: 'Scroll',
+  zksync: 'zkSync', linea: 'Linea', monad: 'Monad', cardano: 'Cardano', bch: 'Bitcoin Cash',
+  stellar: 'Stellar', aleo: 'Aleo', hyper: 'Hyperliquid',
+}
+const chainName = (c: string) => CHAIN_NAMES[c] || (c || '').toUpperCase()
+
+// 188 assets sorted by chain code puts ABS and ADI at the top of the list and
+// ETH 20 rows down. Rank the chains people actually bridge to first instead.
+const MAJOR_CHAINS = ['eth', 'btc', 'sol', 'base', 'arb', 'near', 'pol', 'op', 'bsc',
+  'avax', 'ton', 'tron', 'sui', 'apt', 'doge', 'xrp', 'ltc', 'bera']
+const assetRank = (a: Asset) => {
+  const pop = POPULAR.indexOf(a.id)
+  if (pop >= 0) return pop
+  const major = MAJOR_CHAINS.indexOf(a.chain)
+  return major >= 0 ? 100 + major * 10 : 900
+}
+
+// Router amounts arrive at full token precision (0.349919587000071284 ETH); show
+// enough to be exact about the size and keep the full value in the title.
+function fmtAmt(v: any): string {
+  const n = Number(v)
+  if (v === '' || v == null || !isFinite(n)) return ''
+  if (n === 0) return '0'
+  const s = Math.abs(n) >= 1000
+    ? n.toLocaleString(undefined, { maximumFractionDigits: 4 })
+    : n.toPrecision(8)
+  return s.includes('.') && !s.includes('e')
+    ? s.replace(/0+$/, '').replace(/\.$/, '')
+    : s
+}
+
+function AssetGlyph({ symbol, size = 30 }: { symbol: string, size?: number }) {
+  // No icon set is shipped with the module, and a broken remote logo looks
+  // worse than none -- so the token draws itself from its own ticker.
+  const hue = [...symbol].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7)
+  const zec = symbol === 'ZEC'
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%', flexShrink: 0,
+      background: zec ? C.gold : `hsl(${hue} 55% 26%)`,
+      color: zec ? '#12141a' : `hsl(${hue} 85% 78%)`,
+      border: `1px solid ${zec ? C.gold : `hsl(${hue} 50% 40%)`}`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: size * 0.36, fontWeight: 700, letterSpacing: -0.2,
+    }}>{symbol.slice(0, zec ? 1 : 3)}</div>
+  )
+}
+
+// The asset button + its dropdown. 188 assets across 35 chains is too many for
+// a datalist you cannot see, so this is searchable, priced, and shows the chain.
+function AssetSelect({ value, assets, onChange, locked }: {
+  value: string, assets: Asset[], onChange: (id: string) => void, locked?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const sym = symbolOf(value)
+  const chain = chainOf(value)
+
+  const matches = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    const hit = (a: Asset) => !needle
+      || a.symbol.toLowerCase().includes(needle)
+      || a.chain.toLowerCase().includes(needle)
+      || a.id.toLowerCase().includes(needle)
+    const needleHit = (a: Asset) =>
+      needle && a.symbol.toLowerCase().startsWith(needle) ? 0 : 1
+    return assets.filter(hit).sort((x, y) =>
+      needleHit(x) - needleHit(y) || assetRank(x) - assetRank(y)
+      || x.symbol.localeCompare(y.symbol) || x.chain.localeCompare(y.chain)
+    ).slice(0, 300)
+  }, [assets, q])
+
+  if (locked) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 9, padding: '7px 14px 7px 8px',
+        borderRadius: 999, background: C.bg, border: `1px solid ${C.line}`,
+      }}>
+        <AssetGlyph symbol={sym} size={26} />
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{sym}</div>
+          <div style={{ fontSize: 9.5, color: C.dim, letterSpacing: 0.6 }}>Zcash</div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button onClick={() => { setOpen(o => !o); setQ('') }} style={{
+        display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer',
+        padding: '7px 12px 7px 8px', borderRadius: 999, background: C.bg,
+        border: `1px solid ${open ? C.gold : C.line}`, color: C.text,
+      }}>
+        <AssetGlyph symbol={sym} size={26} />
+        <div style={{ textAlign: 'left' }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{sym}</div>
+          <div style={{ fontSize: 9.5, color: C.dim, letterSpacing: 0.6 }}>
+            {chain ? chainName(chain) : 'pick a chain'}
+          </div>
+        </div>
+        <span style={{ color: C.dim, fontSize: 10, marginLeft: 2 }}>▼</span>
+      </button>
+
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{
+            position: 'fixed', inset: 0, zIndex: 20,
+          }} />
+          <div style={{
+            position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 21,
+            width: 320, maxWidth: '80vw', background: C.panel,
+            border: `1px solid ${C.line}`, borderRadius: 10, padding: 10,
+            boxShadow: '0 18px 40px rgba(0,0,0,.55)',
+          }}>
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)}
+              placeholder="search asset or chain…" style={{
+                width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+                background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6,
+                color: C.text, fontSize: 12.5, outline: 'none', marginBottom: 8,
+              }} />
+            <div style={{ maxHeight: 268, overflowY: 'auto' }}>
+              {matches.length === 0 && (
+                <div style={{ fontSize: 11.5, color: C.dim, padding: '10px 4px' }}>
+                  No asset matches “{q}”.
+                </div>
+              )}
+              {matches.map(a => (
+                <button key={a.id} onClick={() => { onChange(a.id); setOpen(false) }} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                  padding: '7px 8px', borderRadius: 6, cursor: 'pointer', textAlign: 'left',
+                  background: a.id === value ? C.panel2 : 'transparent',
+                  border: 'none', color: C.text,
+                }}>
+                  <AssetGlyph symbol={a.symbol} size={24} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>{a.symbol}</div>
+                    <div style={{ fontSize: 10, color: C.dim }}>{chainName(a.chain)}</div>
+                  </div>
+                  {a.price != null && (
+                    <div style={{ fontSize: 10.5, color: C.dim }}>{usd(a.price)}</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// One side of the swap. `readOnly` legs show what the router says you get.
+function Leg({ tag, amount, onAmount, assetNode, usdValue, note, readOnly, title }: {
+  tag: string, amount: string, onAmount?: (v: string) => void, assetNode: ReactNode,
+  usdValue?: ReactNode, note?: ReactNode, readOnly?: boolean, title?: string
+}) {
+  return (
+    <div style={{
+      background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 12,
+      padding: '12px 14px',
+    }}>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontSize: 10, letterSpacing: 1.1, color: C.dim, marginBottom: 4,
+      }}>
+        <span>{tag}</span>
+        {note}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <input
+            value={amount}
+            readOnly={readOnly}
+            title={title}
+            onChange={e => onAmount?.(e.target.value)}
+            inputMode="decimal"
+            placeholder="0.0"
+            style={{
+              width: '100%', boxSizing: 'border-box', background: 'transparent',
+              border: 'none', outline: 'none', padding: 0,
+              color: readOnly ? C.dim : C.text, fontWeight: 600,
+              // long router amounts must not push the asset chip off a phone
+              fontSize: amount.length > 15 ? 19 : amount.length > 11 ? 22 : 26,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              letterSpacing: -0.5,
+            }} />
+          <div style={{ fontSize: 11, color: C.dim, marginTop: 2, height: 14 }}>
+            {usdValue}
+          </div>
+        </div>
+        {assetNode}
+      </div>
+    </div>
+  )
+}
+
+// Address input with a live verdict dot -- an EVM recipient or a t-address is
+// checkable here, so say so before the router has to reject it.
+function AddrInput({ label, value, onChange, placeholder, ok, hint }: {
+  label: string, value: string, onChange: (v: string) => void,
+  placeholder?: string, ok: boolean | null, hint?: string
+}) {
+  const color = value ? (ok === false ? C.red : ok ? C.green : C.line) : C.line
+  return (
+    <label style={{ display: 'block' }}>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        fontSize: 11, color: C.dim, marginBottom: 4,
+      }}>
+        <span>{label}</span>
+        {value && ok != null && (
+          <span style={{ color: ok ? C.green : C.red, fontSize: 10.5 }}>
+            {ok ? 'looks valid' : 'wrong format'}
+          </span>
+        )}
+      </div>
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        spellCheck={false} style={{
+          width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+          background: C.bg, border: `1px solid ${color}`, borderRadius: 8,
+          color: C.text, fontSize: 12.5, outline: 'none',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        }} />
+      {hint && <div style={{ fontSize: 10, color: C.dim, marginTop: 3 }}>{hint}</div>}
+    </label>
+  )
+}
+
+function RouteHealth() {
+  const [m, setM] = useState<any>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => { call('bridge_maya').then(setM).catch(() => setFailed(true)) }, [])
+  const mayaOk = m && m.available
+  const pill = (label: string, ok: boolean | null, title?: string) => (
+    <span title={title} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10,
+      color: C.dim, border: `1px solid ${C.line}`, borderRadius: 999,
+      padding: '3px 9px', whiteSpace: 'nowrap',
+    }}>
+      <span style={{
+        width: 6, height: 6, borderRadius: '50%',
+        background: ok == null ? C.dim : ok ? C.green : C.red,
+      }} />{label}
+    </span>
+  )
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      {pill('NEAR Intents', true, 'primary route')}
+      {pill('Maya', failed ? false : m ? !!mayaOk : null,
+        m?.zec_inbound_address ? `ZEC inbound ${m.zec_inbound_address}` : 'ZEC.ZEC pool')}
+    </div>
+  )
+}
+
+const TRACK_STEPS = [
+  { key: 'reserved', label: 'Reserved' },
+  { key: 'deposit', label: 'Deposit seen' },
+  { key: 'swap', label: 'Swapping' },
+  { key: 'paid', label: 'Paid out' },
+]
+
+function trackStage(status: string): number {
+  const s = (status || '').toUpperCase()
+  if (s === 'SUCCESS') return 4
+  if (s === 'PROCESSING' || s === 'PENDING_KYC') return 3
+  if (s.includes('DEPOSIT') && s !== 'PENDING_DEPOSIT') return 2
+  return 1
+}
+
+function Stepper({ status }: { status: string }) {
+  const s = (status || '').toUpperCase()
+  const bad = s === 'REFUNDED' || s === 'FAILED'
+  const stage = trackStage(s)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', margin: '4px 0 14px' }}>
+      {TRACK_STEPS.map((step, i) => {
+        const done = !bad && stage > i + 1
+        const now = !bad && stage === i + 1
+        const c = bad ? C.red : done ? C.green : now ? C.gold : C.line
+        return (
+          <div key={step.key} style={{ display: 'flex', alignItems: 'center', flex: i < 3 ? 1 : 0 }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{
+                width: 12, height: 12, borderRadius: '50%', margin: '0 auto',
+                background: done || now ? c : 'transparent', border: `2px solid ${c}`,
+                boxShadow: now ? `0 0 0 4px ${c}22` : undefined,
+              }} />
+              <div style={{
+                fontSize: 9.5, marginTop: 5, color: done || now ? C.text : C.dim,
+                whiteSpace: 'nowrap',
+              }}>{step.label}</div>
+            </div>
+            {i < 3 && <div style={{
+              flex: 1, height: 2, background: done ? C.green : C.line, margin: '0 6px 16px',
+            }} />}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 function Bridge({ caps }: { caps: any }) {
   const [chains, setChains] = useState<any[]>([])
   const [dir, setDir] = useState<'out' | 'in'>('out')
-  const [asset, setAsset] = useState('ETH')
+  const [asset, setAsset] = useState('eth:ETH')
   const [amount, setAmount] = useState('1')
   const [recipient, setRecipient] = useState('')
   const [refund, setRefund] = useState('')
@@ -725,26 +1320,80 @@ function Bridge({ caps }: { caps: any }) {
   const [order, setOrder] = useState<any>(null)
   const [track, setTrack] = useState<any>(null)
   const [busy, setBusy] = useState(false)
+  const [quoting, setQuoting] = useState(false)
+  const [zecUsd, setZecUsd] = useState<number | null>(null)
   const [err, setErr] = useState('')
 
   useEffect(() => {
     call('bridge_chains').then(r => setChains(r.chains || [])).catch(e => setErr(e.message))
+    call('price').then((p: any) => setZecUsd(Number(p?.usd ?? p?.price_usd ?? p?.price))).catch(() => {})
   }, [])
 
-  const args = () => dir === 'out'
-    ? { from_asset: 'ZEC', to_asset: asset, amount: Number(amount), recipient, refund_to: refund }
-    : { from_asset: asset, to_asset: 'ZEC', amount: Number(amount), recipient, refund_to: refund }
+  const assets: Asset[] = useMemo(() => chains.flatMap((c: any) =>
+    c.chain === 'zec' ? [] : (c.assets || []).map((a: any) => ({
+      id: `${c.chain}:${a.symbol}`, chain: c.chain, symbol: a.symbol, price: a.price_usd,
+    }))), [chains])
 
-  const doQuote = async () => {
-    setBusy(true); setErr(''); setQuote(null); setOrder(null); setTrack(null)
-    try { setQuote(await call('bridge_quote', args())) }
-    catch (e: any) { setErr(e.message) }
-    finally { setBusy(false) }
+  const picked = useMemo(
+    () => assets.find(a => a.id === asset)
+      || { id: asset, chain: chainOf(asset), symbol: symbolOf(asset) } as Asset,
+    [assets, asset])
+
+  const other = dir === 'out' ? picked : ZEC_ASSET   // what you receive
+  const origin = dir === 'out' ? ZEC_ASSET : picked  // what you send
+
+  // Address shape is checkable for EVM chains and for Zcash; elsewhere the
+  // router is the only authority, so stay silent rather than guess.
+  const verdict = (addr: string, a: Asset): boolean | null => {
+    if (!addr) return null
+    if (a.symbol === 'ZEC') return TADDR_RE.test(addr.trim())
+    if (addr.startsWith('0x') || /^(eth|base|arb|op|pol|bsc|avax|linea|scroll|zksync|gnosis|abs)$/.test(a.chain))
+      return EVM_RE.test(addr.trim())
+    return null
   }
+  const recipientOk = verdict(recipient, other)
+  const refundOk = verdict(refund, origin)
+
+  const args = useCallback(() => ({
+    from_asset: origin.id, to_asset: other.id,
+    amount: Number(amount), recipient: recipient.trim(), refund_to: refund.trim(),
+  }), [origin.id, other.id, amount, recipient, refund])
+
+  const ready = !!(Number(amount) > 0 && recipient.trim() && refund.trim()
+    && recipientOk !== false && refundOk !== false)
+
+  // Indicative price from the router's own asset table -- shown while the real
+  // quote is missing or stale, and always labelled as an estimate.
+  const indicative = useMemo(() => {
+    const n = Number(amount)
+    const inUsd = origin.symbol === 'ZEC' ? zecUsd : origin.price
+    const outUsd = other.symbol === 'ZEC' ? zecUsd : other.price
+    if (!n || !inUsd || !outUsd) return null
+    return { out: (n * inUsd) / outUsd, usdIn: n * inUsd }
+  }, [amount, origin, other, zecUsd])
+
+  const quoteFresh = quote && quote.from === `${origin.chain}:${origin.symbol}`.replace(/^:/, '')
+    && Number(quote.amount_in) === Number(amount)
+
+  const doQuote = useCallback(async (silent = false) => {
+    if (!silent) { setBusy(true); setOrder(null); setTrack(null) }
+    setQuoting(true); setErr('')
+    try { setQuote(await call('bridge_quote', args())) }
+    catch (e: any) { if (!silent) setErr(e.message); setQuote(null) }
+    finally { setBusy(false); setQuoting(false) }
+  }, [args])
+
+  // Quote as you type, once both addresses are plausible: a bridge that only
+  // prices on a button press feels dead while you fill the form in.
+  useEffect(() => {
+    if (!ready) { setQuote(null); return }
+    const t = setTimeout(() => { doQuote(true) }, 700)
+    return () => clearTimeout(t)
+  }, [ready, doQuote])
 
   const doStart = async () => {
     setBusy(true); setErr('')
-    try { setOrder(await call('bridge_start', args())); setQuote(null) }
+    try { setOrder(await call('bridge_start', args())); setTrack(null) }
     catch (e: any) { setErr(e.message) }
     finally { setBusy(false) }
   }
@@ -756,92 +1405,167 @@ function Bridge({ caps }: { caps: any }) {
     finally { setBusy(false) }
   }
 
-  const options = chains.flatMap(c =>
-    c.chain === 'zec' ? [] : c.assets.map((a: any) => `${c.chain}:${a.symbol}`))
+  const flip = () => {
+    setDir(d => (d === 'out' ? 'in' : 'out'))
+    setQuote(null); setOrder(null); setTrack(null)
+    setRecipient(refund); setRefund(recipient)
+  }
+
+  const receiveAmount = fmtAmt(quoteFresh ? quote.amount_out : indicative?.out)
+
+  const rate = quoteFresh
+    ? Number(quote.amount_out) / Number(quote.amount_in)
+    : indicative ? indicative.out / Number(amount) : null
+
+  const popular = POPULAR.filter(p => assets.some(a => a.id === p))
 
   return (
     <>
       {err && <Note kind="error">{err}</Note>}
-      <Panel title="Bridge">
-        <Note kind="info">
-          ZEC moves across chains through solver networks (NEAR Intents, Maya) — you
-          get a deposit address and the solver pays the destination. Bridging{' '}
-          <b>out of</b> ZEC can be paid straight from a wallet here; bridging{' '}
-          <b>into</b> ZEC is funded from your wallet on the origin chain.
-        </Note>
 
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-          {(['out', 'in'] as const).map(d => (
-            <button key={d} onClick={() => { setDir(d); setQuote(null); setOrder(null) }} style={{
-              padding: '6px 13px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
-              background: dir === d ? C.panel2 : 'transparent',
-              border: `1px solid ${dir === d ? C.gold : C.line}`,
-              color: dir === d ? C.text : C.dim,
-            }}>{d === 'out' ? 'ZEC → other chain' : 'other chain → ZEC'}</button>
-          ))}
+      <Panel title="Bridge" right={<RouteHealth />}>
+        <div style={{ display: 'grid', gap: 6 }}>
+          <Leg
+            tag={`YOU SEND · ${chainName(origin.chain).toUpperCase()}`}
+            amount={amount}
+            onAmount={v => setAmount(v.replace(/[^\d.]/g, ''))}
+            usdValue={indicative ? usd(indicative.usdIn) : ''}
+            assetNode={dir === 'out'
+              ? <AssetSelect value="ZEC" assets={assets} onChange={() => {}} locked />
+              : <AssetSelect value={asset} assets={assets} onChange={setAsset} />}
+          />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '2px 0' }}>
+            <div style={{ flex: 1, height: 1, background: C.line }} />
+            <button onClick={flip} title="reverse direction" style={{
+              width: 32, height: 32, borderRadius: '50%', cursor: 'pointer',
+              background: C.panel2, border: `1px solid ${C.line}`, color: C.gold,
+              fontSize: 14, lineHeight: 1, display: 'flex',
+              alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>↓</button>
+            <div style={{ flex: 1, height: 1, background: C.line }} />
+          </div>
+
+          <Leg
+            tag={`YOU RECEIVE · ${chainName(other.chain).toUpperCase()}`}
+            amount={receiveAmount}
+            readOnly
+            title={quoteFresh ? `exactly ${quote.amount_out} ${other.symbol}` : undefined}
+            note={quoting
+              ? <span style={{ color: C.gold }}>pricing…</span>
+              : quoteFresh
+                ? <span style={{ color: C.green }}>quoted</span>
+                : <span>estimate</span>}
+            usdValue={quoteFresh ? usd(quote.amount_out_usd)
+              : indicative ? `${usd(indicative.usdIn)} · indicative` : ''}
+            assetNode={dir === 'out'
+              ? <AssetSelect value={asset} assets={assets} onChange={setAsset} />
+              : <AssetSelect value="ZEC" assets={assets} onChange={() => {}} locked />}
+          />
         </div>
 
-        <label style={{ display: 'block', marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: C.dim, marginBottom: 4 }}>
-            {dir === 'out' ? 'Receive asset' : 'Pay with'}
+        {popular.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+            {popular.map(p => (
+              <button key={p} onClick={() => setAsset(p)} style={{
+                fontSize: 11, padding: '4px 10px', borderRadius: 999, cursor: 'pointer',
+                background: asset === p ? C.panel2 : 'transparent',
+                border: `1px solid ${asset === p ? C.gold : C.line}`,
+                color: asset === p ? C.text : C.dim,
+              }}>{symbolOf(p)} <span style={{ opacity: 0.55 }}>{chainName(chainOf(p))}</span></button>
+            ))}
+            <span style={{ fontSize: 10.5, color: C.dim, alignSelf: 'center', marginLeft: 'auto' }}>
+              {chains.length} chains · {assets.length} assets
+            </span>
           </div>
-          <input list="assets" value={asset} onChange={e => setAsset(e.target.value)}
-            placeholder="ETH, eth:USDC, BTC, base:ETH…" style={{
-              width: '100%', boxSizing: 'border-box', padding: '9px 11px', background: C.bg,
-              border: `1px solid ${C.line}`, borderRadius: 6, color: C.text, fontSize: 13,
-              fontFamily: 'ui-monospace, Menlo, monospace',
-            }} />
-          <datalist id="assets">{options.map(o => <option key={o} value={o} />)}</datalist>
-          <div style={{ fontSize: 10, color: C.dim, marginTop: 3 }}>
-            {chains.length} chains available
+        )}
+
+        {rate != null && isFinite(rate) && (
+          <div style={{
+            display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center',
+            fontSize: 11.5, color: C.dim, marginTop: 12, padding: '9px 12px',
+            background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8,
+          }}>
+            <span style={{ color: C.text }}>
+              1 {origin.symbol} ≈ {fmtAmt(rate)} {other.symbol}
+            </span>
+            {quoteFresh && <span>route <b style={{ color: C.text }}>{quote.route}</b></span>}
+            {quoteFresh && quote.eta_seconds != null &&
+              <span>~{Math.round(quote.eta_seconds / 60) || 1} min</span>}
+            {quoteFresh && quote.price_impact_pct != null && (
+              <span>impact <b style={{
+                color: quote.price_impact_pct < -1 ? C.red : C.text,
+              }}>{quote.price_impact_pct}%</b></span>
+            )}
+            {quoteFresh && quote.min_amount_out &&
+              <span style={{ marginLeft: 'auto' }}>slippage guard 1%</span>}
           </div>
-        </label>
+        )}
 
-        <Input label={`Amount (${dir === 'out' ? 'ZEC' : asset})`} value={amount}
-          onChange={(e: any) => setAmount(e.target.value)} />
-        <Input label={dir === 'out' ? `Recipient address on ${asset.split(':')[0] || asset}` : 'Your Zcash t-address'}
-          value={recipient} onChange={(e: any) => setRecipient(e.target.value)}
-          placeholder={dir === 'out' ? '0x…' : 't1…'} />
-        <Input label={dir === 'out' ? 'Refund t-address (if the swap fails)' : `Refund address on ${asset.split(':')[0] || asset}`}
-          value={refund} onChange={(e: any) => setRefund(e.target.value)}
-          placeholder={dir === 'out' ? 't1…' : '0x…'} />
+        <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+          <AddrInput
+            label={`Recipient address on ${chainName(other.chain || other.symbol)}`}
+            value={recipient} onChange={setRecipient} ok={recipientOk}
+            placeholder={other.symbol === 'ZEC' ? 't1…' : '0x…'} />
+          <AddrInput
+            label={`Refund address on ${chainName(origin.chain || origin.symbol)}`}
+            value={refund} onChange={setRefund} ok={refundOk}
+            hint="Where the funds go if the swap misses its deadline."
+            placeholder={origin.symbol === 'ZEC' ? 't1…' : '0x…'} />
+        </div>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Button onClick={doQuote} disabled={busy || !recipient || !refund || !amount}>
-            {busy ? '…' : 'Get quote'}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14, alignItems: 'center' }}>
+          <Button onClick={doStart} disabled={busy || !ready} style={{ flex: 1, minWidth: 220 }}>
+            {busy ? 'working…' : quoteFresh
+              ? `Reserve deposit address for ${fmtAmt(quote.amount_out)} ${other.symbol}`
+              : 'Reserve deposit address'}
           </Button>
-          <Button variant="ghost" onClick={doStart} disabled={busy || !recipient || !refund || !amount}>
-            Reserve deposit address
+          <Button variant="ghost" onClick={() => doQuote(false)} disabled={busy || !ready}>
+            Refresh quote
           </Button>
         </div>
+        {!ready && (
+          <div style={{ fontSize: 11, color: C.dim, marginTop: 8 }}>
+            Fill in both addresses to price the swap. Nothing moves until you fund
+            the deposit address, and quoting reserves nothing.
+          </div>
+        )}
       </Panel>
-
-      {quote && (
-        <Panel title="Quote (nothing reserved)">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
-            <Stat label="You send" value={`${quote.amount_in} ${quote.from}`} sub={usd(quote.amount_in_usd)} />
-            <Stat label="You receive" value={`${quote.amount_out}`} sub={`${quote.to} · ${usd(quote.amount_out_usd)}`} />
-            <Stat label="ETA" value={`${quote.eta_seconds}s`} sub={`slippage ${quote.price_impact_pct ?? '—'}%`} />
-          </div>
-          <Field label="Route" value={quote.route} />
-        </Panel>
-      )}
 
       {order && (
         <Panel title="Deposit address reserved">
           <Note kind="warn">
-            Send <b>exactly {order.amount_in} {order.from}</b> to the address below
-            before {order.deadline}. Anything late or short is refunded to {order.refund_to}.
+            Send <b>exactly {order.amount_in} {symbolOf(order.from)}</b> to the address
+            below before {order.deadline}. Anything late or short is refunded to{' '}
+            {order.refund_to}.
           </Note>
-          <Field label="Deposit address"
-            value={<>{order.deposit_address}<Copy text={order.deposit_address} /></>} mono />
-          <Field label="You receive" value={`~${order.amount_out} ${order.to} at ${order.recipient}`} />
+          <div style={{
+            background: C.bg, border: `1px solid ${C.gold}55`, borderRadius: 10,
+            padding: 14, marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 10, color: C.dim, letterSpacing: 1, marginBottom: 6 }}>
+              DEPOSIT ADDRESS · {symbolOf(order.from)} ON {chainName(chainOf(order.from)).toUpperCase()}
+            </div>
+            <div style={{
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              fontSize: 14, wordBreak: 'break-all', color: C.gold, lineHeight: 1.5,
+            }}>{order.deposit_address}<Copy text={order.deposit_address} /></div>
+          </div>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10,
+          }}>
+            <Stat label="You send" value={`${fmtAmt(order.amount_in)} ${symbolOf(order.from)}`}
+              sub={usd(order.amount_in_usd)} />
+            <Stat label="You receive" value={`~${fmtAmt(order.amount_out)} ${symbolOf(order.to)}`}
+              sub={usd(order.amount_out_usd)} />
+            <Stat label="Paid to" value={<span style={{ fontSize: 12 }}>{order.recipient}</span>} />
+          </div>
           <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
             <Button variant="ghost" onClick={() => doTrack(order.deposit_address)} disabled={busy}>
-              Check status
+              {busy ? '…' : 'Check status'}
             </Button>
           </div>
-          {order.route === 'near-intents' && order.from.startsWith('zec') && (
+          {order.from.startsWith('zec') && (
             <Note kind="info">
               To pay this from a wallet here, use the Send tab with this deposit
               address, or call <code>bridge_send</code> to quote and pay in one step.
@@ -851,40 +1575,51 @@ function Bridge({ caps }: { caps: any }) {
       )}
 
       {track && (
-        <Panel title="Bridge status">
-          <Field label="Status" value={track.status}
-            color={track.status === 'SUCCESS' ? C.green : C.gold} />
-          <Field label="Deposited" value={track.deposited ?? '— nothing received yet'} />
-          <Field label="Received" value={track.amount_out ?? '—'} />
+        <Panel title="Bridge status" right={
+          <span style={{
+            fontSize: 10.5, letterSpacing: 0.8, padding: '3px 10px', borderRadius: 999,
+            border: `1px solid ${track.status === 'SUCCESS' ? C.green : C.gold}55`,
+            color: track.status === 'SUCCESS' ? C.green : C.gold,
+          }}>{track.status}</span>
+        }>
+          <Stepper status={track.status} />
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10,
+            marginBottom: 12,
+          }}>
+            <Stat label="Deposited" value={fmtAmt(track.deposited) || '—'}
+              sub={track.deposited ? undefined : 'nothing received yet'} />
+            <Stat label="Received" value={fmtAmt(track.amount_out) || '—'} sub={usd(track.amount_out_usd)} />
+            <Stat label="Updated" value={<span style={{ fontSize: 13 }}>
+              {track.updated_at ? timeAgo(track.updated_at.replace('T', ' ').slice(0, 19)) : '—'}
+            </span>} />
+          </div>
+          {track.origin_tx?.length > 0 &&
+            <Field label="Origin tx" value={track.origin_tx.join(', ')} mono />}
           {track.destination_tx?.length > 0 &&
             <Field label="Destination tx" value={track.destination_tx.join(', ')} mono />}
+          <Button variant="ghost" onClick={() => doTrack(track.deposit_address)} disabled={busy}>
+            Refresh
+          </Button>
         </Panel>
       )}
 
       {caps?.node && !caps.node.configured && (
-        <Panel title="Maya route">
-          <MayaStatus />
+        <Panel title="How this works">
+          <div style={{ fontSize: 12.5, color: C.dim, lineHeight: 1.65 }}>
+            ZEC moves across chains through solver networks — NEAR Intents (primary,
+            ~35 chains) and Maya. You are given a deposit address on the origin chain;
+            a solver watches it and pays the destination. Bridging <b style={{ color: C.text }}>out of</b> ZEC
+            can be funded straight from a wallet on the Send tab; bridging{' '}
+            <b style={{ color: C.text }}>into</b> ZEC is funded from your wallet on the origin chain.
+            Quotes reserve nothing.
+          </div>
         </Panel>
       )}
     </>
   )
 }
 
-function MayaStatus() {
-  const [m, setM] = useState<any>(null)
-  useEffect(() => { call('bridge_maya').then(setM).catch(() => {}) }, [])
-  if (!m) return <Spinner />
-  return (
-    <>
-      <Field label="Availability"
-        value={m.available ? 'open' : 'halted — quotes will fail'}
-        color={m.available ? C.green : C.red} />
-      {m.zec_inbound_address && <Field label="ZEC inbound" value={m.zec_inbound_address} mono />}
-      {m.halted_chains?.length > 0 &&
-        <Field label="Halted chains" value={m.halted_chains.join(', ')} />}
-    </>
-  )
-}
 
 // ── MCP ─────────────────────────────────────────────────────────────────────
 //

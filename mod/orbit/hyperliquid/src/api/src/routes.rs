@@ -407,7 +407,15 @@ struct TopQ {
     min_win: Option<f64>,
     min_trades: Option<usize>,
     with_stats: Option<bool>,
+    wait: Option<u64>,              // seconds to hold the request open for a cold scan (default 45, max 90)
 }
+
+/// How long `/traders/top` will hold a connection open waiting for a cold
+/// scan before answering `scanning: true`. Cloudflare cuts an origin request
+/// at 100s and swaps in its own error page, so the ceiling stays under that.
+const SCAN_WAIT_DEFAULT_S: u64 = 45;
+const SCAN_WAIT_MAX_S: u64 = 90;
+
 async fn top_traders(State(s): State<AppState>, Query(q): Query<TopQ>)
     -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
@@ -445,7 +453,7 @@ async fn top_traders(State(s): State<AppState>, Query(q): Query<TopQ>)
     // One shape for both paths: filter, then order, then report what was
     // priced from the leaderboard vs actually measured from fills.
     let finish = |mut traders: Vec<crate::traders::TopTrader>, depth: usize, candidates: Option<usize>,
-                  coins: Vec<String>, updated_at: i64| {
+                  coins: Vec<String>, updated_at: i64, scanning: bool| {
         let priced = traders.len();
         filter.apply(&mut traders);
         if let Some(k) = sort { k.sort(&mut traders); }
@@ -460,6 +468,11 @@ async fn top_traders(State(s): State<AppState>, Query(q): Query<TopQ>)
             "priced": priced, "matched": traders.len(),
             "enriched": crate::traders::enriched_count(&traders),
             "updated_at": updated_at,
+            // A cold board outlives any proxy timeout, so the walk runs in the
+            // background and this says so — rows here (if any) are the last
+            // good board for the window, and /scan/progress tracks the rest.
+            "scanning": scanning,
+            "progress": if scanning { json!(s.progress.snapshot()) } else { Value::Null },
             "traders": traders,
         }))
     };
@@ -492,24 +505,74 @@ async fn top_traders(State(s): State<AppState>, Query(q): Query<TopQ>)
                 if pool != ALL { traders.truncate(pool); }
                 let candidates = if entry.all { Some(entry.pool) } else { None };
                 let depth = traders.len();
-                return Ok(finish(traders, depth, candidates, vec![], entry.updated_at));
+                return Ok(finish(traders, depth, candidates, vec![], entry.updated_at, false));
             }
         }
     }
 
-    let board = crate::traders::top_traders_with_progress(
-        s.hl.clone(), s.index.clone(), days, pool, seed.clone(),
-        Some(s.progress.clone()), rank, active, coins, enrich,
-    ).await.map_err(err500)?;
-    // Cache what we computed under the key the refresher will keep warm —
-    // but never let a narrow live board replace a whole-leaderboard one that
-    // already covers it (a deeper `enrich` request lands here on purpose).
-    let covered = s.boards.get(days, rank, active).map_or(false, |e| e.covers(pool));
-    if seed.is_empty() && board.coins.is_empty() && (pool == ALL || !covered) {
-        s.boards.put(days, rank, active, pool, board.traders.clone());
+    // Nothing cached covers this request, so it needs a real walk of the
+    // leaderboard — minutes, on a cold index. Run it as a detached task and
+    // wait on it for a bounded budget: fast scans (a warm index makes a repeat
+    // ~instant) still answer inline, and a genuinely cold one answers
+    // `scanning: true` with the last good board instead of being killed at a
+    // gateway timeout and rendered as somebody else's error page.
+    let key = format!("{days}|{}|{}|{}|{enrich}|{}|{}", pool, rank.as_str(), active.as_str(),
+                      coins.join(","), seed.join(","));
+    // A coin requirement or a seed can only be answered by the walk itself —
+    // a plain cached board would show wallets that don't meet it.
+    let fallback = if seed.is_empty() && coins.is_empty() {
+        s.boards.get(days, rank, active)
+    } else { None };
+    let scanning = |entry: Option<crate::traders::BoardEntry>, coins: Vec<String>| {
+        let (rows, updated_at, candidates) = match entry {
+            Some(e) => {
+                let mut t = e.traders;
+                if pool != ALL { t.truncate(pool); }
+                let c = if e.all { Some(e.pool) } else { None };
+                (t, e.updated_at, c)
+            }
+            None => (vec![], 0, None),
+        };
+        let depth = rows.len();
+        finish(rows, depth, candidates, coins, updated_at, true)
+    };
+
+    let Some(claim) = s.scans.claim(&key) else {
+        // Someone else is already walking exactly this board; joining their
+        // scan beats starting a second one against the same rate limit.
+        return Ok(scanning(fallback, coins));
+    };
+    let (hl, index, progress) = (s.hl.clone(), s.index.clone(), s.progress.clone());
+    let (boards, coins_req) = (s.boards.clone(), coins.clone());
+    let (seed_t, coins_t) = (seed.clone(), coins.clone());
+    let seeded = !seed.is_empty();
+    let task = tokio::spawn(async move {
+        let _claim = claim; // released when the scan ends, panic included
+        let board = crate::traders::top_traders_with_progress(
+            hl, index, days, pool, seed_t, Some(progress), rank, active, coins_t, enrich,
+        ).await?;
+        // Cache what we computed under the key the refresher will keep warm —
+        // but never let a narrow live board replace a whole-leaderboard one
+        // that already covers it (a deeper `enrich` request lands here on
+        // purpose). Storing it here is also what a `scanning` caller comes
+        // back for.
+        let covered = boards.get(days, rank, active).map_or(false, |e| e.covers(pool));
+        if !seeded && board.coins.is_empty() && (pool == ALL || !covered) {
+            boards.put(days, rank, active, pool, board.traders.clone());
+        }
+        Ok::<_, anyhow::Error>(board)
+    });
+    let wait = std::time::Duration::from_secs(
+        q.wait.unwrap_or(SCAN_WAIT_DEFAULT_S).min(SCAN_WAIT_MAX_S));
+    match tokio::time::timeout(wait, task).await {
+        // Dropping the JoinHandle on timeout detaches the task, it does not
+        // cancel it — the walk finishes and lands in the board cache.
+        Err(_) => Ok(scanning(fallback, coins_req)),
+        Ok(Err(join)) => Err(err500(join)),
+        Ok(Ok(Err(e))) => Err(err500(e)),
+        Ok(Ok(Ok(board))) => Ok(finish(board.traders, board.depth, Some(board.candidates), board.coins,
+                                       chrono::Utc::now().timestamp_millis(), false)),
     }
-    Ok(finish(board.traders, board.depth, Some(board.candidates), board.coins,
-              chrono::Utc::now().timestamp_millis()))
 }
 
 async fn scan_progress(State(s): State<AppState>) -> Json<Value> {

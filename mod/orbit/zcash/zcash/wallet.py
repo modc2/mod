@@ -180,10 +180,12 @@ def _shielded_account(mnemonic: str, passphrase: str, transparent: str,
         "account": account,
         "birthday": birthday,
         "next_index": first["diversifier_index"] + 1,
+        "pools": ["orchard", "sapling"],
         "addresses": [{
             "diversifier_index": first["diversifier_index"],
             "address": first["address"],
             "unified_address": first["unified_address"],
+            "receivers": first["unified_receivers"],
             "label": "",
         }],
     }
@@ -214,6 +216,25 @@ def shielded_key(name: str, password: str, account: int = None):
                                  secret.get("passphrase", ""), account)
 
 
+def orchard_key(name: str, password: str, account: int = None):
+    """The ZIP-32 Orchard key for this wallet -- same seed, same account.
+
+    Separate from `shielded_key` because the two pools have different key
+    derivations, not because they have different seeds: one mnemonic backs up
+    the transparent addresses, the Sapling account and this.
+    """
+    data = _read(name)
+    secret = _decrypt(data["encrypted"], password)
+    if not secret.get("mnemonic"):
+        raise WalletError(
+            f"wallet {name!r} holds only imported transparent keys; Orchard "
+            f"addresses come from a seed, so there is nothing to derive")
+    if account is None:
+        account = (data.get("shielded") or {}).get("account", 0)
+    return _shielded.orchard_account_key(secret["mnemonic"],
+                                         secret.get("passphrase", ""), account)
+
+
 def new_shielded_address(name: str, password: str, label: str = "") -> dict:
     """Derive the next diversified address of the Sapling account."""
     data = _read(name)
@@ -229,7 +250,8 @@ def new_shielded_address(name: str, password: str, label: str = "") -> dict:
         account.get("account", 0), account.get("next_index", 0), t_addr)
     entry = {"diversifier_index": derived["diversifier_index"],
              "address": derived["address"],
-             "unified_address": derived["unified_address"], "label": label}
+             "unified_address": derived["unified_address"],
+             "receivers": derived["unified_receivers"], "label": label}
     account["addresses"].append(entry)
     # Half of all diversifier indices are unusable, so step past the one the
     # search actually landed on rather than the one we asked for.

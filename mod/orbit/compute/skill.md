@@ -35,11 +35,33 @@ m compute/stop id=vast:14002931
 ```
 
 Search filters: `gpu` (loose — `4090` finds `NVIDIA GeForce RTX 4090`),
-`min_gpus`, `min_vram_gb`, `max_usd_hr`, `region`, `provider`, `kyc`,
+`min_gpus`, `min_vram_gb`, `min_usd_hr`/`max_usd_hr` (a price band — a floor
+is how you skip the $0.001 junk tier), `region`, `provider`, `kyc`,
 `kind` (gpu|cpu|confidential|job|storage|all), `sort` (price|vram|gpus), `limit` (up to 2000), `raw=0` to drop each offer's provider payload — what the console's distribution view uses to pull the whole catalogue in one call.
 
 `compute_search` never fails because one market is down — check the `providers`
 map in the result for who answered and who didn't, and say so if it matters.
+
+## Where it is
+
+`compute_map` is `compute_search` answered as places instead of rows: one point
+per city or country, with the offer count, the markets there and the
+cheapest/median price. Use it to pick a jurisdiction or to sit near your data,
+then re-run `compute_search` with that `region`.
+
+```
+m compute/map gpu=4090 kyc=none
+```
+
+- `precision` on a point says what it is worth: `city`, `state`, `region` (a
+  cloud's own anchor) or `country` (the market only published a country code).
+- `unplaced` counts the offers whose market publishes no location at all —
+  RunPod, Nosana, Aleph, Akash, Polaris, Cathedral and Targon sell a catalogue,
+  not a located machine. They are never placed on a guess.
+- Reading the map spends nothing and needs no key.
+
+In the console this is the **WHERE** panel on the MARKET tab: click a square to
+filter every other panel to that place.
 
 ## Markets
 

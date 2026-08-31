@@ -363,7 +363,53 @@ export interface NetProbe {
   chainId?: number
   /** round trip in ms */
   ms: number
+  /** why it didn't answer, in words a person can act on */
   error?: string
+  /** the RPC's own wording, when we rephrased it */
+  detail?: string
+}
+
+/**
+ * Dig an RPC's own words out of an ethers error. ethers wraps any JSON-RPC
+ * error object it can't classify as "could not coalesce error" and hangs the
+ * real payload off `.error` — so the reason is always there, one field down.
+ */
+function rpcCause(e: any): { message: string; code?: number } {
+  const inner = e?.error ?? e?.info?.error ?? e?.info?.payload?.error
+  const message = [inner?.message, inner?.data?.message, e?.shortMessage, e?.message]
+    .find((s: unknown) => typeof s === 'string' && s.trim()) || ''
+  return { message: String(message).trim(), code: typeof inner?.code === 'number' ? inner.code : undefined }
+}
+
+/**
+ * Turn an RPC failure into one line that says what to do about it. "could not
+ * coalesce error" is ethers shrugging; a chain card that prints it has told
+ * you nothing. `retry` marks the failures worth asking twice about — a dropped
+ * request is transient, a rate limit or a missing API key is not.
+ */
+export function rpcErrorText(e: any): { text: string; detail?: string; retry: boolean } {
+  const { message: raw, code } = rpcCause(e)
+  const m = raw.toLowerCase()
+  const say = (text: string, retry = false) =>
+    ({ text, detail: raw && raw !== text ? raw : undefined, retry })
+
+  if (/rate limit|too many requests|429|request count exceeded|quota|over capacity|throttl/.test(m))
+    return say('rate limited - this RPC is turning us away')
+  if (/unauthoriz|api key|apikey|project id|access key|forbidden|401|403|must be authenticated/.test(m))
+    return say('this RPC needs an API key')
+  if (/not valid json|invalid json|unexpected token|<html/.test(m))
+    return say('that URL answers with a web page, not JSON-RPC')
+  if (/timed out|timeout|etimedout/.test(m)) return say('no answer in time', true)
+  if (e?.code === 'NETWORK_ERROR' || /failed to fetch|networkerror|load failed|cors|could not send request/.test(m))
+    return say('unreachable from the browser - wrong URL, or it blocks browser calls (CORS)', true)
+  if (/econnrefused|enotfound|eai_again|getaddrinfo|dns/.test(m))
+    return say('nothing answering at that address', true)
+  if (/does not exist|unsupported|not supported|method not found/.test(m))
+    return say("this RPC won't answer eth_blockNumber")
+  if (!raw || /could not coalesce error/.test(m))
+    return { text: code ? `the RPC returned error ${code} and no message` : 'the RPC failed without saying why', detail: raw || undefined, retry: true }
+  // The RPC said something specific. Its words beat anything we'd invent.
+  return raw.length > 88 ? { text: raw.slice(0, 87) + '...', detail: raw, retry: false } : { text: raw, retry: false }
 }
 
 /**
@@ -378,27 +424,41 @@ export async function probeNetwork(network: string, timeoutMs = 6000): Promise<N
   const net = netInfo(network)
   const started = Date.now()
   if (!net.rpc) return { up: false, ms: 0, error: 'no RPC url' }
-  const provider = new ethers.JsonRpcProvider(net.rpc, undefined, { staticNetwork: true })
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('timed out')), timeoutMs))
-  try {
-    const [block, chainId] = await Promise.race([
-      Promise.all([
-        provider.send('eth_blockNumber', []),
-        provider.send('eth_chainId', []),
-      ]),
-      timeout,
-    ])
-    return {
-      up: true, ms: Date.now() - started,
-      block: parseInt(block, 16),
-      chainId: parseInt(chainId, 16),
+
+  const ask = async (): Promise<NetProbe & { retry?: boolean }> => {
+    const provider = new ethers.JsonRpcProvider(net.rpc, undefined, { staticNetwork: true })
+    let timer: any
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('timed out')), timeoutMs)
+    })
+    try {
+      const [block, chainId] = await Promise.race([
+        Promise.all([
+          provider.send('eth_blockNumber', []),
+          provider.send('eth_chainId', []),
+        ]),
+        timeout,
+      ])
+      return {
+        up: true, ms: Date.now() - started,
+        block: parseInt(block, 16),
+        chainId: parseInt(chainId, 16),
+      }
+    } catch (e: any) {
+      const { text, detail, retry } = rpcErrorText(e)
+      return { up: false, ms: Date.now() - started, error: text, detail, retry }
+    } finally {
+      clearTimeout(timer)
+      provider.destroy()
     }
-  } catch (e: any) {
-    return { up: false, ms: Date.now() - started, error: e?.shortMessage || e?.message || 'unreachable' }
-  } finally {
-    provider.destroy()
   }
+
+  // Public endpoints drop the odd request; one retry keeps a healthy chain from
+  // reading dead. Refusals aren't retried — asking twice only makes them truer.
+  const first = await ask()
+  if (first.up || !first.retry) return first
+  const second = await ask()
+  return second.up ? second : first
 }
 
 /** Ask an injected wallet to move to `network`, adding the chain if unknown. */
@@ -671,4 +731,28 @@ export function toggleContractCard(network: string, flag: 'pinned' | 'hidden', a
   const other = flag === 'pinned' ? 'hidden' : 'pinned'
   if (book[flag].includes(a)) book[other] = book[other].filter(x => x !== a)
   writeBook(network, book)
+}
+
+// ── methods you keep coming back to ────────────────────────────────────────
+// A big ABI is 60 functions, but a session touches four. Remember which four
+// per contract so PLAY can float them to the top instead of making you hunt.
+
+const LS_RECENT_FNS = 'chain_recent_methods'
+const RECENT_MAX = 5
+
+const recentStore = (): Record<string, string[]> => {
+  try { return JSON.parse(safeGet(LS_RECENT_FNS) || '{}') } catch { return {} }
+}
+
+const recentKey = (network: string, address: string) => `${network}|${lc(address)}`
+
+/** Method ids (`name(type,type)`) last called on this contract, newest first. */
+export const recentMethods = (network: string, address: string): string[] =>
+  recentStore()[recentKey(network, address)] || []
+
+export function rememberMethod(network: string, address: string, id: string) {
+  const store = recentStore()
+  const key = recentKey(network, address)
+  store[key] = [id, ...(store[key] || []).filter(x => x !== id)].slice(0, RECENT_MAX)
+  safeSet(LS_RECENT_FNS, JSON.stringify(store))
 }
