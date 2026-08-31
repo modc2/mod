@@ -16,6 +16,15 @@ file is the whole act of making a game.
   edit it, `m arena/upload path=mygame.py`. It is playable at that point —
   nothing to register, nothing to compile. `m arena/abi lang=class` is the
   whole contract; `m arena/template role=player` is the bot version.
+- **Write one with the build agent**: `m arena/vibe prompt="tic-tac-toe on a
+  4x4 board"` starts a session from the game template, runs one round on
+  orbit/build's job server and comes back with the file and what the registry
+  reads it as; `m arena/vibe session=<id> prompt="…"` is round two;
+  `m arena/vibe_store session=<id> name=ttt4` puts it in the registry. Fork a
+  stored class instead of the template: `m arena/fork module=connect4
+  prompt="5 in a row"`. `m arena/vibes` lists sessions and says whether build
+  is reachable. In the console: **+ add ▸ vibe one**, and a **fork** button on
+  every game and player page.
 - Read a module's code: `m arena/code module=ttt` (a class as itself, a wasm
   module as the source it was uploaded with); its two hashes — the arena's
   SHA-256 and the store module's CID: `m arena/hashes module=ttt`. Every
@@ -32,6 +41,11 @@ file is the whole act of making a game.
   `m arena/enter name=opus kind=model config='{"model":"anthropic/claude-opus-5"}'`
   `m arena/enter name=perfect kind=wasm config='{"module":"bot-ttt"}'`
   `m arena/enter name=centre kind=class config='{"module":"center"}'`
+- Seat a module of this fleet: `m arena/fleet` (every module that could play),
+  `m arena/fleet module=agent` (its tools), `m arena/seat module=agent
+  tool=agent_run auth=1` (entered as an `mcp` player)
+- Who is running this arena — the key it signs with, the machine, uptime, the
+  doors, the store and whether it can build a Rust class: `m arena/host`
 - Check a player answers before seating it:
   `m arena/probe player=opus view="Legal moves: rock, paper, scissors"`
 - Play: `m arena/play game=ttt players=opus,perfect seed=42`
@@ -45,6 +59,10 @@ file is the whole act of making a game.
   storing: `m arena/inspect path=poker.py`
 - Write one: `m arena/abi lang=class` (or `role=player`, or `lang=wasm`) — the
   contract, at run time, with the template it hands out
+- Read the docs: `m arena/docs` (the contents), `m arena/doc slug=mcp` (one
+  page as markdown), `m arena/docs q="illegal move"` (which section says it) —
+  eight pages: start, upload, game, player, match, sandbox, mcp, api. The
+  console's **docs** tab and the `docs_*` MCP tools are the same text.
 
 ## Endpoints
 
@@ -52,13 +70,21 @@ One port: `:50470` serves the API, the MCP endpoint, the runtime and the
 console. Gateway: `/arena` (console), `/api/arena` (API). The console is two
 nouns — games and players — and a game *is* its leaderboard: open one to see
 the ranking, seat two players into it, and read the matches behind the rank.
+Its other three tabs are **servers** (one MCP server per module stored here,
+every module of the fleet with a "seat it" button, and what a class may call
+out to), **host** (whose box this is) and **docs**. It is phone-first: below
+900px the tabs become a bottom bar and every table stacks into records.
 `m arena/serve` builds if needed and starts it under pm2 (`arena-api`).
 
-MCP: `POST /mcp`, or `arena-api --stdio` for MCP clients. 19 tools —
-`arena_info`, `game_abi`, `list_modules`, `get_module`, `put_module`,
-`put_class`, `inspect_module`, `delete_module`, `list_players`, `get_player`,
-`enter_player`, `remove_player`, `run_match`, `play_move`, `record_match`,
-`list_matches`, `get_match`, `leaderboard`, `plant_examples`.
+MCP: `POST /mcp`, or `arena-api --stdio` for MCP clients. 31 tools —
+`arena_info`, `game_abi`, `docs_pages`, `docs_page`, `docs_search`,
+`list_modules`, `get_module`, `put_module`, `put_class`, `inspect_module`,
+`delete_module`, `list_players`, `get_player`, `enter_player`,
+`remove_player`, `run_match`, `play_move`, `record_match`, `list_matches`,
+`get_match`, `leaderboard`, `plant_examples`, `module_servers`, `module_tool`,
+`mcp_servers`, `mcp_call`, `arena_host`, `fleet_modules`, `rust_toolchain`,
+`store_status`, `store_sync` —
+and the documentation is served as MCP resources too, `arena://docs/<slug>`.
 
 `put_class` takes the source as plain text — an agent that has just written a
 class does not have to base64 it to enter it.
@@ -122,14 +148,31 @@ and store it. `src/examples/` has three games and two bots, one `.rs` each.
 | `wasm` | `{"module": "…"}` (a module exporting `play`) | browser / node runner |
 | `model` | `{"model": "…", "base"?, "key"?, "system"?}` | server — any OpenAI-compatible endpoint, OpenRouter by default |
 | `agent_mod` | `{"agent"?, "model"?, "steps"?, "free"?}` | server — the fleet's `agent` module |
+| `mcp` | `{"module": "bt", "tool"?, "arg"?, "arguments"?, "auth"?}` | server — any module of this fleet, over its own MCP server |
 | `http` | `{"url": "…", "headers"?}` — posted a view, answers `{"move": "…"}` | server |
 | `human` | — | the console |
+
+`mcp` is the kind that makes the fleet playable: `m arena/fleet` lists every
+module on this box that answers on an MCP server, `m arena/fleet module=bt`
+lists what that one offers, and `m arena/seat module=bt tool=bt_ask` enters it.
+A module is **named, not addressed** — the call goes through the gateway, which
+wakes a module the activator has put to sleep, so seating one is enough to
+bring it back. Leave `tool`/`arg` off and they are read from the module's own
+`tools/list`; a tool whose argument is called `view` is handed the raw position
+instead of the brief; `auth=1` signs the call with the box's own key for a
+module that only answers a caller it can identify.
 
 The server drives anything holding a key or facing CORS; the tab only ever runs
 wasm. Keys come from `~/.mod/arena/keys.json` or the environment, and configs
 are redacted on every endpoint that serves them.
 
 ## Gotchas
+
+- **A vibe is the box's own spend.** Rounds go to orbit/build under its owner's
+  token, minted from `~/.mod/build/server.secret` — so the arena and build must
+  share a host, and `ARENA_BUILD_URL=off` is how a public arena keeps strangers
+  from writing games on its account. The result is never stored by the agent:
+  `store_vibe` is the upload, and it reads the file like any other.
 
 - **Execution is not on the server.** `run_match` spawns the node runner; no
   node on PATH means matches play in the browser only.
@@ -146,6 +189,14 @@ are redacted on every endpoint that serves them.
   A module missing one of the five game exports is stored as plain `wasm`; a
   class missing one of the four methods is stored as `class` and told which
   method it lacks. Neither can be played until it is fixed and re-uploaded.
+- **A seated fleet module is not sandboxed.** `class` and `wasm` players run
+  with no filesystem, no network and a seeded PRNG; an `mcp` player is another
+  module on this box doing whatever that module does, and its move is not a
+  function of its view alone. Same for `model`, `agent_mod` and `http`. The
+  leaderboard says the kind for that reason.
+- **A refused call out is not a call out.** A class that calls `self.mcp(...)`
+  in a match with no door open gets an explained refusal in the transcript, and
+  the seat's `mcp` count stays 0 — nothing left the sandbox.
 - **Ratings are per game and overall, rated separately.** Overall is the front
   page; per game is the number to quote.
 - **Results are reported by the runner**, which is the thing that ran the wasm.
@@ -158,7 +209,7 @@ are redacted on every endpoint that serves them.
 
 ## Tests
 
-`pytest src/tests -q` — 39 tests against a real server on a throwaway state
+`pytest src/tests -q` — 68 tests against a real server on a throwaway state
 directory, going through HTTP, MCP and the node runner, because the thing worth
 testing is that the three surfaces agree. Thirteen of them are the class layer:
 a class plays a class, a class player sits at a wasm game, the sandbox refuses

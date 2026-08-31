@@ -28,7 +28,7 @@ use std::time::Duration;
 /// `wasm` and `class` are the two that execute: one in a wasm engine, one in a
 /// python subprocess. Both are entered the same way — `config.module` — and
 /// both move in the execution layer rather than on the server.
-pub const KINDS: [&str; 6] = ["wasm", "class", "model", "agent_mod", "http", "human"];
+pub const KINDS: [&str; 7] = ["wasm", "class", "model", "agent_mod", "mcp", "http", "human"];
 
 const OPENROUTER: &str = "https://openrouter.ai/api/v1";
 const AGENT_MOD_BASE: &str = "http://127.0.0.1:50117";
@@ -118,6 +118,7 @@ pub fn system_of(p: &Player) -> Option<String> {
     match p.kind.trim().to_lowercase().as_str() {
         "model" | "llm" => cfg(p, "system").map(str::to_string),
         "agent_mod" | "agent" => cfg(p, "prompt").map(str::to_string),
+        "mcp" | "module" => cfg(p, "prompt").map(str::to_string),
         _ => None,
     }
 }
@@ -127,7 +128,7 @@ pub fn system_of(p: &Player) -> Option<String> {
 /// exact text `play()` sends, with only the view left blank.
 pub fn prompt_card(p: &Player) -> Option<Value> {
     match p.kind.trim().to_lowercase().as_str() {
-        "model" | "llm" | "agent_mod" | "agent" | "http" | "webhook" => Some(json!({
+        "model" | "llm" | "agent_mod" | "agent" | "mcp" | "module" | "http" | "webhook" => Some(json!({
             "system": system_of(p),
             "brief": cfg(p, "brief").unwrap_or(""),
             "template": prompt_of(p, "{view}", 0).replace("You are seat 0.", "You are seat {seat}."),
@@ -240,6 +241,7 @@ pub async fn play(p: &Player, view: &str, seat: usize) -> Result<Answer, String>
     match p.kind.trim().to_lowercase().as_str() {
         "model" | "llm" => model(p, view, seat).await,
         "agent_mod" | "agent" => agent_mod(p, view, seat).await,
+        "mcp" | "module" => mcp_player(p, view, seat).await,
         "http" | "webhook" => http(p, view, seat).await,
         "wasm" | "class" | "human" => Err(format!(
             "a `{}` player moves in the execution layer, not on the server",
@@ -411,6 +413,238 @@ async fn agent_mod(p: &Player, view: &str, seat: usize) -> Result<Answer, String
                       "system": cfg(p, "prompt") }),
         prompt: prompt_of(p, view, seat),
     })
+}
+
+/// A module of this fleet, in a seat — reached through its own MCP server.
+///
+/// This is the one that makes "which of my modules is any good at this" a
+/// question with an answer. Anything with an MCP server can sit down: the
+/// agent module, a chain module, another arena, a server somebody wrote this
+/// afternoon. The move is whatever the tool says back, read the same way a
+/// model's answer is read, so a module that answers in a sentence is fine.
+///
+/// config: { module | server | url, tool?, arg?, arguments?, brief?, prompt? }
+///
+/// `module` is a module of this fleet and goes through the gateway, so a
+/// module that is asleep is woken by being seated rather than failing. `tool`
+/// and `arg` are worked out from the server's own tools/list when they are
+/// not given — one extra round trip per move, and the way to skip it is to
+/// name them. Naming both is also the one case where `auth` cannot put the
+/// token in a `key` argument, because nothing here has read the tool's schema;
+/// the Authorization header still carries it.
+async fn mcp_player(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
+    let mut server = crate::mcpout::resolve(cfg(p, "server"), cfg(p, "module"), cfg(p, "url"))?;
+    let prompt = prompt_of(p, view, seat);
+
+    let (mut tool, mut arg) = (
+        cfg(p, "tool").map(str::to_string),
+        cfg(p, "arg").map(str::to_string),
+    );
+    let mut tool_schema = Value::Null;
+    if tool.is_none() || arg.is_none() {
+        let tools = crate::mcpout::tools_of(&server).await?;
+        if tools.is_empty() {
+            return Err(format!("{} offers no tools to ask", server.name));
+        }
+        let chosen = match &tool {
+            Some(name) => tools
+                .iter()
+                .find(|t| t.get("name").and_then(|v| v.as_str()) == Some(name.as_str()))
+                .cloned()
+                .ok_or_else(|| {
+                    format!(
+                        "{} has no tool `{name}` — it offers {}",
+                        server.name,
+                        tool_names(&tools)
+                    )
+                })?,
+            None => pick_tool(&tools).ok_or_else(|| {
+                format!(
+                    "say which tool of {} plays: it offers {}",
+                    server.name,
+                    tool_names(&tools)
+                )
+            })?,
+        };
+        tool = chosen.get("name").and_then(|v| v.as_str()).map(str::to_string);
+        if arg.is_none() {
+            arg = text_arg(&chosen);
+        }
+        tool_schema = chosen;
+    }
+    let tool = tool.ok_or("an mcp player needs config.tool")?;
+    let arg = arg.unwrap_or_else(|| "query".to_string());
+
+    // What actually goes in that argument. A server whose argument is called
+    // `view` is asking for the position — that is the arena's own word for it,
+    // and every module server here uses it — so it gets the position and none
+    // of the brief. Anything else is being asked a question and gets the brief
+    // wrapped round it, the same one a model gets. `raw` settles it either way.
+    let raw_view = p
+        .config
+        .get("raw")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(arg == "view" || arg == "position" || arg == "board");
+    let asked = if raw_view { view.to_string() } else { prompt.clone() };
+
+    // Anything else the tool needs is carried on the player and sent every
+    // move; the view goes in under `arg`.
+    let mut arguments = p
+        .config
+        .get("arguments")
+        .filter(|v| v.is_object())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    arguments[&arg] = json!(asked);
+    // A server that takes a seat wants to know which one it is sitting in.
+    if !arguments.get("seat").is_some_and(|v| !v.is_null()) && takes_arg(&tool_schema, "seat") {
+        arguments["seat"] = json!(seat);
+    }
+
+    // `auth` seats a module that will only answer a signed-in caller: this
+    // arena signs the call with the box's own key, as itself. It is opt-in
+    // because a token is an identity, and handing one to a server nobody
+    // asked for is not a default anything should have.
+    if p.config.get("auth").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let tok = crate::storelink::protocol_token().await?;
+        if takes_arg(&tool_schema, "key") {
+            arguments["key"] = json!(tok);
+        }
+        server.headers.push(("authorization".into(), format!("Bearer {tok}")));
+    }
+
+    let out = crate::mcpout::rpc(&server, "tools/call", json!({ "name": tool, "arguments": arguments })).await?;
+    if out.get("isError").and_then(|b| b.as_bool()).unwrap_or(false) {
+        return Err(format!("{}/{tool}: {}", server.name, crate::mcpout::text_of(&out)));
+    }
+    let raw = answer_text(&out);
+    if raw.trim().is_empty() {
+        return Err(format!("{}/{tool} returned nothing to read a move out of", server.name));
+    }
+    Ok(Answer {
+        mv: extract_move(&raw),
+        raw,
+        note: String::new(),
+        meta: json!({ "driver": "mcp", "server": server.name, "url": server.url,
+                      "tool": tool, "arg": arg, "raw_view": raw_view }),
+        // The transcript should show what this seat was actually sent, which
+        // for a server asked for a position is the position.
+        prompt: asked,
+    })
+}
+
+/// Whether a tool takes an argument by that name at all. The seat number is
+/// worth sending to a server that asked for one and noise to one that did not,
+/// and the same goes for a signed-in caller's `key`.
+fn takes_arg(schema: &Value, name: &str) -> bool {
+    schema
+        .get("inputSchema")
+        .or_else(|| schema.get("input_schema"))
+        .and_then(|s| s.get("properties"))
+        .and_then(|p| p.get(name))
+        .is_some()
+}
+
+fn tool_names(tools: &[Value]) -> String {
+    tools
+        .iter()
+        .filter_map(|t| t.get("name").and_then(|v| v.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Which tool of a server is the one that answers a question. A server that
+/// says `ask`, `play` or `run` is telling us; anything else is a guess we do
+/// not make.
+fn pick_tool(tools: &[Value]) -> Option<Value> {
+    const WANTED: [&str; 8] = ["play", "ask", "move", "chat", "answer", "run", "query", "complete"];
+    for want in WANTED {
+        if let Some(t) = tools.iter().find(|t| {
+            t.get("name")
+                .and_then(|v| v.as_str())
+                .map(|n| n == want || n.ends_with(&format!("_{want}")))
+                .unwrap_or(false)
+        }) {
+            return Some(t.clone());
+        }
+    }
+    None
+}
+
+/// Which argument of a tool the position goes in: the first required string,
+/// else the first string it takes at all.
+fn text_arg(tool: &Value) -> Option<String> {
+    let schema = tool.get("inputSchema").or_else(|| tool.get("input_schema"))?;
+    let props = schema.get("properties")?.as_object()?;
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(|r| r.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+    let is_text = |k: &String| {
+        props
+            .get(k)
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str())
+            .map(|t| t == "string")
+            .unwrap_or(false)
+    };
+    for name in &required {
+        let k = (*name).to_string();
+        if is_text(&k) {
+            return Some(k);
+        }
+    }
+    props.keys().find(|k| is_text(k)).cloned()
+}
+
+/// The move out of an MCP result, however the server chose to shape it.
+///
+/// A well-behaved server answers `structuredContent`, and a module of this
+/// arena answers a whole turn — driver, timing, the move. So the named fields
+/// are read first, wherever they are, and only a server that says nothing
+/// recognisable has its prose handed to the move reader. Handing over the
+/// whole JSON blob and hoping a move can be read out of it is how a perfect
+/// bot ends up with an illegal-move rate.
+fn answer_text(result: &Value) -> String {
+    const NAMED: [&str; 8] = ["move", "mv", "action", "answer", "reply", "summary", "text", "result"];
+
+    let mut candidates: Vec<Value> = Vec::new();
+    if let Some(sc) = result.get("structuredContent") {
+        candidates.push(sc.clone());
+    }
+    let text = crate::mcpout::text_of(result);
+    if let Ok(parsed) = serde_json::from_str::<Value>(text.trim()) {
+        if parsed.is_object() {
+            candidates.push(parsed);
+        }
+    }
+    candidates.push(result.clone());
+
+    for c in &candidates {
+        // An error the server reported in its own shape is an error, not a move.
+        if let Some(e) = c.get("error").and_then(|v| v.as_str()) {
+            if !e.trim().is_empty() {
+                return String::new();
+            }
+        }
+        for key in NAMED {
+            if let Some(v) = c.get(key) {
+                match v {
+                    Value::String(s) if !s.trim().is_empty() => return s.clone(),
+                    Value::Number(n) => return n.to_string(),
+                    _ => {}
+                }
+            }
+        }
+    }
+    if !text.trim().is_empty() {
+        return text;
+    }
+    match result {
+        Value::String(s) => s.clone(),
+        _ => String::new(),
+    }
 }
 
 /// Any endpoint. We post the view and read a move back — from a `move` field

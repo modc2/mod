@@ -184,6 +184,12 @@ impl Yields {
         }
     }
 
+    /// The whole cached index — every pool, with the snapshot's age — for
+    /// callers that build their own rows out of it (the modules registry).
+    pub async fn all(&self) -> Result<(Arc<Vec<Pool>>, u64), String> {
+        self.snapshot().await
+    }
+
     async fn fetch(&self) -> Result<Vec<Pool>, String> {
         let url = format!("{}/pools", self.source);
         let response = self

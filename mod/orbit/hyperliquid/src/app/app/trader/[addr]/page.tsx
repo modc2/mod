@@ -44,7 +44,7 @@ export default function TraderPage() {
       <div className="flex items-center justify-between">
         <div>
           <Link href="/" className="text-[11px] text-muted hover:text-ink">← traders</Link>
-          <h1 className="text-xl text-ink mt-1">{shortAddr(addr)}</h1>
+          <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight mt-1">{shortAddr(addr)}</h1>
           <a href={`https://app.hyperliquid.xyz/explorer/address/${addr}`} target="_blank" rel="noreferrer"
             className="text-[11px] text-muted hover:text-accent2">view on hyperliquid →</a>
         </div>

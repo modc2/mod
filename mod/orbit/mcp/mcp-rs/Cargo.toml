@@ -1,6 +1,6 @@
 [package]
 name = "mcp-rs"
-version = "2.0.0"
+version = "2.2.0"
 edition = "2021"
 description = "MCP Hub — aggregates many MCP servers behind one registry + one gateway endpoint"
 

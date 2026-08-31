@@ -15,11 +15,13 @@ from typing import Any, Dict, List, Optional
 
 import bittensor as bt
 import requests
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from ..agent import agent as strat_agent
+from ..agent import mcp_server
 from ..chain.bt_source import BtSource, BtUnavailable, make_client
 from ..chain.client import SubtensorClient, TraderCandidate, is_valid_ss58
 from ..chain.snapshot import SnapshotManager
@@ -1638,6 +1640,54 @@ def agent_ask(req: AskRequest):
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"cache-control": "no-cache",
                                       "x-accel-buffering": "no"})
+
+
+# ── MCP over HTTP ────────────────────────────────────────────────
+#
+# The same dispatcher the stdio server runs, mounted on the API port so any
+# MCP client (Claude Code, the fleet's mcp hub, a DAG) connects with one URL:
+#
+#     claude mcp add --transport http copytensor http://localhost:50150/mcp
+#
+# Every tool is a loopback call to this API's own REST routes — that is why
+# the dispatch runs in the threadpool: a blocking requests.get to ourselves
+# from the event loop would wait on the loop it is blocking.
+
+@app.post("/mcp")
+async def mcp_endpoint(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={
+            "jsonrpc": "2.0", "id": None,
+            "error": {"code": -32700, "message": "parse error"}})
+    replies = await run_in_threadpool(mcp_server.handle_batch, body)
+    if replies is None:
+        return Response(status_code=202)
+    return replies
+
+
+@app.get("/mcp")
+def mcp_get():
+    return JSONResponse(status_code=405, content={
+        "error": "POST JSON-RPC here (MCP streamable HTTP); SSE stream not "
+                 "offered. GET /mcp/schema lists the tools."})
+
+
+@app.get("/mcp/schema")
+def mcp_schema():
+    """Transports, scope and the full tool list — read this before connecting."""
+    out = mcp_server.schema()
+    port = int(os.environ.get("COPYTENSOR_API_PORT", _config.get("port", 50150)))
+    out["connect"] = {
+        "http": f"http://localhost:{port}/mcp",
+        "gateway": "/api/copytensor/mcp on the mod gateway (:3001 / caddy :3000)",
+        "claude": f"claude mcp add --transport http copytensor http://localhost:{port}/mcp",
+        "stdio": {"command": "python3", "args": ["-m", "src.agent.mcp_server"],
+                  "cwd": os.path.dirname(os.path.dirname(os.path.dirname(
+                      os.path.abspath(__file__))))},
+    }
+    return out
 
 
 # ── wallet ───────────────────────────────────────────────────────

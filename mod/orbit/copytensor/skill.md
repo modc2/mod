@@ -126,7 +126,7 @@ mod/orbit/copytensor/
     ├── mod.py                   # Mod orchestrator (Copytensor)
     ├── agent/
     │   ├── tools.py             # The strat agent's toolbox (trimmed reads + propose_strat)
-    │   ├── mcp_server.py        # Zero-dep MCP stdio server over that toolbox
+    │   ├── mcp_server.py        # MCP dispatcher: stdio server + the POST /mcp mount in api/app.py
     │   └── agent.py             # Claude CLI driver: SSE events, session resume
     ├── api/
     │   ├── app.py               # FastAPI app
@@ -189,11 +189,49 @@ is shared by every module on this host).
 empty at 0600 if nothing exists) → Claude CLI OAuth. `GET /agent` reports which one
 answered, and `m copytensor/test` fails the `agent` check when none do.
 
-The MCP server also stands alone, for any client:
+## MCP — sync the book from any client
+
+The API **is** the MCP server: `POST /mcp` on the API port speaks streamable
+HTTP (JSON-RPC 2.0, batches ok), and the gateway forwards it as
+`/api/copytensor/mcp`. `GET /mcp/schema` (or `m copytensor/mcp`) lists the
+transports and every tool before you connect.
 
 ```bash
+claude mcp add --transport http copytensor http://localhost:50150/mcp
+# through the gateway / from another box:
+claude mcp add --transport http copytensor https://<host>/api/copytensor/mcp
+# stdio, if you would rather not go over the network (same dispatcher):
 claude mcp add copytensor -- python3 -m src.agent.mcp_server   # from the module dir
 ```
+
+25 tools in two scopes (`src/agent/tools.py`):
+
+| scope | tools | who sees it |
+|---|---|---|
+| `agent` (read-only) | `ct_status ct_market ct_subnets ct_traders ct_trader ct_trader_flows ct_flows ct_leaderboard ct_copies propose_strat` | the strat agent — `agent.py` launches the stdio server with `COPYTENSOR_MCP_SCOPE=agent`, so it can't even list the ops set |
+| `ops` | `ct_wallet ct_copy ct_create_copy ct_resize_copy ct_pause_copy ct_resume_copy ct_delete_copy ct_portfolio ct_sync ct_trades ct_watch ct_unwatch ct_watches ct_strats ct_backtest` | any MCP client on `/mcp` (default scope `all` = both) |
+
+The sync flow an MCP client runs:
+
+1. `ct_wallet` — is a signer loaded? (Loading one is `POST /wallet/set` /
+   `m copytensor/set_wallet`; a mnemonic is never an MCP argument.)
+2. `ct_create_copy {target_ss58, alloc_tao}` — `our_hotkey` defaults to the
+   loaded wallet. Or `ct_resize_copy` / `ct_pause_copy` on an existing one.
+3. `ct_sync {dry_run: true}` — the plan, unsigned. Same object the live pass
+   executes, so the preview cannot drift.
+4. `ct_sync` — signs the stake/unstake extrinsics that close the gap. Always the
+   **whole** portfolio (sleeves only add up diffed together); a `copy_id` just
+   names the reason and routes via `POST /copy/{id}/sync`. Long timeout
+   (`COPYTENSOR_MCP_SYNC_TIMEOUT`, 600 s) — a wide book signs one tx per subnet.
+5. `ct_trades` — what landed.
+
+Every tool is a loopback call to a REST route above, so REST, `m copytensor/*`
+and MCP can never disagree. That loopback is also why the `/mcp` handler
+dispatches in the threadpool (`run_in_threadpool`): a blocking `requests` call
+to ourselves from the event loop would wait on the loop it is blocking.
+`ct_strats` reads private strats only with the browser's owner key
+(`owner_key` arg or `COPYTENSOR_OWNER_KEY`). Pinned by `tests/test_mcp.py`
+(fake API, no chain, no bt).
 
 ## UI — the 8-bit console
 
@@ -237,22 +275,37 @@ Two things worth knowing before editing:
   copy). Put the class on a `<p>`, not on a panel, or the 72ch measure caps the panel.
 
 Two shared components carry the page furniture, and both replaced per-page copies
-that had already drifted apart: `PageHeader.tsx` (the marquee band — title, optional
-controls on the right, standfirst below) and `StatTile.tsx` (a scoreboard readout;
-`tone` paints the lit strip across its top and the value). Use them rather than
-hand-rolling another header or tile.
+that had already drifted apart: `PageHeader.tsx` (title, one quiet VT323 line under
+it, optional controls on the right — it used to be a boxed marquee band that ate a
+third of the first screen) and `StatTile.tsx` (a scoreboard readout; `tone` paints
+the lit strip across its top and the value). Use them rather than hand-rolling
+another header or tile.
 
-The top bar is two honest rows at every width — marquee + status on top, nav + search
-under it. It used to collapse onto one line on wide screens, but logo + tabs +
-search + 4 controls only ever fitted by shrinking the tabs and the search field into
-each other. The nav is five doors — SUBNETS, TRADERS, STRATS, AGENT, PORTFOLIO — and
-`/` lands on SUBNETS. There was a sixth, LEADERBOARD, which rendered the *same*
-`Leaderboard.tsx` as TRADERS under a different standfirst; the tab is gone and
-`/leaderboard` redirects to `/traders` so old links still land. The board no longer
-carries a "top subnet" column either — and with it went the whole `/subnets` fetch
-the table did only to name that one cell. Under `lg` the status cluster (rpc, skin,
-both drawer doors, search) folds into a `☰` sheet and the nav becomes a scrolling
-rail that auto-centres the active tab.
+### The front door
+
+`/` is a plain-language landing page (`components/Home.tsx`), built for someone who
+has never seen a coldkey: a one-line pitch, the top nine traders of the last 7 days
+as **cards** (rank, name, one big return %, "holds N τ · M subnets", COPY / DETAILS),
+the copies you already run, and a three-step "how it works". Cards are filtered
+harder than the board — priced, ≥25 τ held, ≥2 subnets, market % < 500 — because a
+wallet that emptied itself over the window reads as +150 % market on −100 % total
+and used to top the raw ranking. (The board itself now hides dust books < 1 τ too,
+unless you're searching for one.)
+
+COPY on a card opens `SimpleCopy.tsx`: one dialog, one number. If no wallet is set
+it asks for the recovery phrase first (`POST /wallet/set`), then amount → START
+(`POST /copy` with `alloc_tao`; hotkey, per-tx cap and rebalance band take the
+server defaults). Every dial the dialog hides is still on the strat maker in the
+drawer. `/portfolio` is now MY COPIES — `MyCopies.tsx` cards with PAUSE / SYNC /
+STOP over the activity tape; the blended book with per-subnet drift stays on
+`/strats` (`AllocationBook`).
+
+The top bar is one row on desktop: logo, four doors — HOME, TRADERS, SUBNETS,
+MY COPIES — search, the τ/$ toggle, and MORE. MORE is a drop holding everything a
+first-timer doesn't need: STRATS, AGENT, the two drawer caps (WATCHLIST, STRAT
+MAKER), the skin picker and the RPC readout. Under `lg` the rail scrolls under the
+logo and MORE's contents become the `☰` sheet. `/leaderboard` still redirects to
+`/traders`.
 
 Charts are plotted on the pixel lattice, not drawn: `Sparkline.tsx` snaps vertices to
 a 2px grid and emits an axis-aligned staircase, and the Recharts areas use

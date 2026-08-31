@@ -26,28 +26,11 @@ import { API_BASE_URL } from '@/lib/contracts'
 import {
   HYPEREVM, addressUrl, depositToVault, ensureHyperEVM, signAction, txUrl, walletBalance,
 } from '@/lib/hyperevm'
+import { fmt, usd, pct, pxq, short, countdown, pairLabel } from '@/lib/fmt'
+import { Section, Stat, Empty, Avatar, Tabs, Tag, Field, Label, Spinner } from '@/components/ui'
+import Functions from '@/components/Functions'
 
 const API = API_BASE_URL
-
-const fmt = (n: number, d = 2) =>
-  n == null || Number.isNaN(n) ? '—' : n.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d })
-const usd = (n: number, d = 2) => (n == null ? '—' : `$${fmt(n, d)}`)
-const pct = (n: number, d = 1) => (n == null ? '—' : `${(n * 100).toFixed(d)}%`)
-// Prices, unlike dollar amounts, span eight orders of magnitude here — the pool
-// lists any Hyperliquid pair, and PUMP at $0.0045 must not render as "$0.00".
-const px = (n: number) => (n == null ? '—' : usd(n, n === 0 ? 2 : n < 0.01 ? 6 : n < 1 ? 4 : 2))
-const short = (a: string) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '—')
-
-function countdown(seconds: number) {
-  if (seconds == null) return '—'
-  if (seconds <= 0) return 'now'
-  const d = Math.floor(seconds / 86400)
-  const h = Math.floor((seconds % 86400) / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (d) return `${d}d ${h}h`
-  if (h) return `${h}h ${m}m`
-  return `${m}m ${seconds % 60}s`
-}
 
 const get = async (url: string) => {
   try { const r = await fetch(url); return r.ok ? r.json() : null } catch { return null }
@@ -66,10 +49,19 @@ async function post(url: string) {
  * and true as "True" — get this wrong and the signature silently fails to
  * verify against a message the user never saw.
  */
-const CONFIG_KINDS: Record<string, 'int' | 'float' | 'bool' | 'str'> = {
+const CONFIG_KINDS: Record<string, 'int' | 'float' | 'bool' | 'str' | 'json'> = {
   interval: 'int', entry_cutoff: 'int', fee_bps: 'int', spot_grace: 'int',
   tolerance: 'float', min_stake: 'float', max_stake: 'float', min_withdraw: 'float',
-  model: 'str', auto_pay: 'bool', free_per_round: 'int', free_notional: 'float',
+  model: 'str', model_params: 'json', auto_pay: 'bool', free_per_round: 'int', free_notional: 'float',
+  min_liquidity_usd: 'float',
+}
+
+/** Canonical JSON — sorted keys, no spaces — the form the server signs `model_params` in. */
+function canonicalJson(value: any): string {
+  const obj = typeof value === 'string' ? JSON.parse(value || '{}') : (value || {})
+  const sorted: Record<string, any> = {}
+  Object.keys(obj).sort().forEach(k => { sorted[k] = obj[k] })
+  return JSON.stringify(sorted)
 }
 
 function pyStr(key: string, value: any): string {
@@ -80,10 +72,12 @@ function pyStr(key: string, value: any): string {
       return Number.isInteger(n) ? `${n}.0` : String(n)
     }
     case 'bool': return value ? 'True' : 'False'
+    case 'json': return canonicalJson(value)
     default: return String(value)
   }
 }
 
+type View = 'round' | 'history' | 'board' | 'free' | 'functions' | 'admin'
 
 export default function Pool({ address, markets, onAction }: any) {
   const { data: walletClient } = useWalletClient()
@@ -98,9 +92,13 @@ export default function Pool({ address, markets, onAction }: any) {
   const [owner, setOwner] = useState<any>(null)
   const [freeQuota, setFreeQuota] = useState<any>(null)
   const [freeBoard, setFreeBoard] = useState<any[]>([])
-  const [view, setView] = useState<'round' | 'history' | 'board' | 'free' | 'admin'>('round')
+  const [view, setView] = useState<View>('round')
 
-  const hlMarkets = (markets || []).filter((m: any) => m.source === 'hyperliquid' && m.active)
+  // The pool settles on feeds that can answer "the price at the close":
+  // Hyperliquid marks, Bittensor subnet prices, and DEX pools on Solana/Base
+  // (hourly candles, behind the owner's liquidity floor).
+  const hlMarkets = (markets || []).filter((m: any) =>
+    (m.source === 'hyperliquid' || m.source === 'bittensor' || m.source === 'dex') && m.active)
 
   const refresh = useCallback(async () => {
     const [c, v, s, r, o] = await Promise.all([
@@ -151,51 +149,56 @@ export default function Pool({ address, markets, onAction }: any) {
     return { nonce: req.nonce, signature }
   }, [address, walletClient])
 
-  if (!cfg) return <div className="card p-8 text-center text-sm text-zinc-500">Loading pool…</div>
+  if (!cfg) {
+    return (
+      <div className="card">
+        <Empty msg={<span className="inline-flex items-center gap-2"><Spinner /> Loading the pool…</span>} />
+      </div>
+    )
+  }
 
   const tokens: any[] = Object.values(vault?.tokens || {})
+  const isOwner = owner?.owner && address && owner.owner.toLowerCase() === address.toLowerCase()
 
   return (
     <div className="space-y-5">
-      <PoolStats stats={stats} round={round} cfg={cfg} vault={vault} />
+      <Hero stats={stats} round={round} cfg={cfg} vault={vault} markets={hlMarkets} />
 
       {!vault?.address ? (
-        <div className="card p-5">
-          <div className="text-sm text-white font-medium mb-1">The pool has no vault yet</div>
-          <p className="text-xs text-zinc-500 leading-relaxed">
+        <div className="card p-6">
+          <div className="text-sm text-white font-medium mb-1.5">The pool has no vault yet</div>
+          <p className="note">
             Deposits need an address on {HYPEREVM.name} to land in. The owner creates one with{' '}
-            <code className="text-zinc-400">m prefi/pool-create-vault</code> (a custodial hot wallet
+            <code className="mono t2">m prefi/pool-create-vault</code> (a custodial hot wallet
             this server holds the key to) or points the pool at an address they already control with{' '}
-            <code className="text-zinc-400">m prefi/pool-set-vault address=0x…</code>.
+            <code className="mono t2">m prefi/pool-set-vault address=0x…</code>.
           </p>
         </div>
       ) : (
-        <div className="grid md:grid-cols-3 gap-4">
-          <Deposit address={address} vault={vault} tokens={tokens} walletClient={walletClient}
-                   onDone={reload} />
+        <div className="grid lg:grid-cols-[1fr_1.25fr_1fr] gap-4 items-start">
+          <Deposit address={address} vault={vault} tokens={tokens} walletClient={walletClient} onDone={reload} />
           <Stake address={address} balance={balance} cfg={cfg} round={round}
-                 markets={hlMarkets} signFor={signFor} onDone={reload}
-                 quota={freeQuota} />
+                 markets={hlMarkets} signFor={signFor} onDone={reload} quota={freeQuota} />
           <Cashout address={address} balance={balance} tokens={tokens} cfg={cfg}
                    withdrawals={withdrawals} signFor={signFor} onDone={reload} />
         </div>
       )}
 
-      <nav className="flex items-center gap-1.5">
-        {([['round', 'This round'], ['history', 'Past rounds'],
-           ['board', 'Stakers'], ['free', 'Free play'],
-           ['admin', 'Owner']] as const).map(([id, label]) => (
-          <button key={id} onClick={() => setView(id)}
-            className={`btn btn-ghost text-xs px-3 py-1.5 ${view === id ? 'active' : ''}`}>
-            {label}
-          </button>
-        ))}
-      </nav>
+      <Tabs size="sm" value={view} onChange={setView} tabs={[
+        { id: 'round', label: `Round ${round?.index ?? ''}`.trim(), count: round?.assets?.length },
+        { id: 'history', label: 'Past rounds' },
+        { id: 'board', label: 'Stakers' },
+        { id: 'free', label: 'Free play' },
+        { id: 'functions', label: 'Functions' },
+        { id: 'admin', label: isOwner ? 'Owner · you' : owner?.claimed ? 'Rules' : 'Owner' },
+      ]} />
 
       {view === 'round' && <RoundView round={round} cfg={cfg} address={address} />}
       {view === 'history' && <HistoryView rounds={history} />}
       {view === 'board' && <BoardView board={board} address={address} />}
       {view === 'free' && <FreeBoardView board={freeBoard} cfg={cfg} address={address} />}
+      {view === 'functions' && <Functions address={address} walletClient={walletClient} cfg={cfg}
+                                          owner={owner} signFor={signFor} onDone={reload} />}
       {view === 'admin' && <OwnerView cfg={cfg} owner={owner} vault={vault} address={address}
                                       signFor={signFor} onDone={reload} />}
     </div>
@@ -203,38 +206,99 @@ export default function Pool({ address, markets, onAction }: any) {
 }
 
 
-/* ─── Header stats ────────────────────────────────────────────── */
+/* ─── Hero: the round, the pot, the clock ─────────────────────── */
 
-function PoolStats({ stats, round, cfg, vault }: any) {
+function Hero({ stats, round, cfg, vault, markets }: any) {
   const s = stats || {}
+  const total = round ? round.closes - round.opens : 0
+  const elapsed = round ? Math.max(0, Math.min(total, total - round.seconds_to_close)) : 0
+  const progress = total ? elapsed / total : 0
+  const cutoff = total && round ? (round.entry_deadline - round.opens) / total : 1
+  const open = round?.entries_open !== false
+  const insolvent = vault?.solvent === false
+  const count = (src: string) => markets.filter((m: any) => m.source === src).length
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <Stat label="In the pool" value={usd(s.tvl || 0)}
-            sub={`${usd(s.at_stake || 0)} at stake · ${s.stakers || 0} stakers` +
-                 (s.free_callers ? ` · ${s.free_callers} free` : '')} />
-      <Stat label={`Round ${round?.index ?? s.round ?? 0}`}
-            value={countdown(round?.seconds_to_close)}
-            sub={round?.entries_open
-              ? `entries close in ${countdown(round?.seconds_to_deadline)}`
-              : 'entries closed — settling next'} />
-      <Stat label="Interval" value={`${cfg?.interval_days ?? 7}d`}
-            sub={`${cfg?.model} · tolerance ${cfg?.tolerance}`} />
-      <Stat label="Vault"
-            value={vault?.address ? short(vault.address) : 'none'}
-            sub={vault?.solvent === false
-              ? `⚠ holds ${usd(vault?.held_total || 0)} against ${usd(vault?.owed?.total || 0)} owed`
-              : vault?.address ? `${HYPEREVM.name} · covered` : 'not configured'}
-            tone={vault?.solvent === false ? 'bad' : undefined} />
+    <div className="hero p-6 md:p-7">
+      <div className="grid lg:grid-cols-[1.3fr_1fr] gap-8">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <Tag tone={open ? 'accent' : 'warn'}>
+              <span className={`dot ${open ? 'dot-live' : ''}`} style={open ? {} : { background: 'var(--warn)' }} />
+              {open ? 'entries open' : 'entries closed'}
+            </Tag>
+            <span className="text-xs t3">round <span className="mono t2">{round?.index ?? s.round ?? 0}</span> · every {cfg?.interval_days ?? 7}d</span>
+          </div>
+
+          <div className="mt-4 flex items-end gap-4 flex-wrap">
+            <div>
+              <div className="stat-label">Closes in</div>
+              <div className="num text-[44px] leading-none font-medium text-white mt-2 tracking-tight">{countdown(round?.seconds_to_close)}</div>
+            </div>
+            <div className="pb-1 text-xs t3 leading-relaxed">
+              {open
+                ? <>entries close in <span className="t2 mono">{countdown(round?.seconds_to_deadline)}</span></>
+                : <>settling at the close</>}
+              <br />
+              {round?.closes && <span>{new Date(round.closes * 1000).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <div className="bar">
+              <div className="bar-fill" style={{ width: `${progress * 100}%` }} />
+              <div className="bar-mark" style={{ left: `${cutoff * 100}%` }} title="entry cutoff" />
+            </div>
+            <div className="flex justify-between text-[10.5px] t3 mt-2 mono">
+              <span>opened {round?.opens ? new Date(round.opens * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}</span>
+              <span className="warn">entry cutoff</span>
+              <span>close</span>
+            </div>
+          </div>
+
+          <p className="note mt-5 max-w-lg">
+            Stake USDC on where a market closes. Every asset is its own pot; at the close the pot splits{' '}
+            <b>pro-rata by dollars × accuracy</b> — {cfg?.model} scoring, tolerance {cfg?.tolerance}.
+            {cfg?.free_per_round > 0 && <> {cfg.free_per_round} free calls a round need no deposit.</>}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 content-start">
+          <Stat label="In the pool" value={usd(s.tvl || 0)}
+            sub={`${usd(s.at_stake || 0)} at stake this round`} />
+          <Stat label="Stakers" value={s.stakers || 0}
+            sub={s.free_callers ? `+ ${s.free_callers} free caller${s.free_callers === 1 ? '' : 's'}` : `${s.entries_open || 0} open entries`} />
+          <Stat label="Markets" value={markets.length}
+            sub={[
+              count('hyperliquid') && `${count('hyperliquid')} Hyperliquid`,
+              count('bittensor') && `${count('bittensor')} Bittensor`,
+              count('dex') && `${count('dex')} DEX`,
+            ].filter(Boolean).join(' · ') || 'none listed yet'} />
+          <Stat label="Vault" tone={insolvent ? 'down' : undefined}
+            value={vault?.address ? <a className="link" href={addressUrl(vault.address)} target="_blank" rel="noreferrer">{short(vault.address)}</a> : 'none'}
+            sub={insolvent
+              ? `holds ${usd(vault?.held_total || 0)} against ${usd(vault?.owed?.total || 0)} owed`
+              : vault?.address ? `${HYPEREVM.name} · ${usd(vault?.held_total || 0)} held · covered` : 'not configured'} />
+        </div>
+      </div>
     </div>
   )
 }
 
-function Stat({ label, value, sub, tone }: any) {
+
+/* ─── Action card frame ───────────────────────────────────────── */
+
+function ActionCard({ step, title, aside, accent, children }: any) {
   return (
-    <div className="stat-card">
-      <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
-      <div className={`text-xl font-semibold mt-1 ${tone === 'bad' ? 'down' : 'text-white'}`}>{value}</div>
-      {sub && <div className="text-[10px] text-zinc-500 mt-1">{sub}</div>}
+    <div className={`card ${accent ? 'card-accent' : ''}`}>
+      <div className="section-head">
+        <div className="flex items-center gap-2.5">
+          <span className={`step ${accent ? 'on' : ''}`}>{step}</span>
+          <span className="section-title">{title}</span>
+        </div>
+        {aside}
+      </div>
+      <div className="p-[18px] space-y-3">{children}</div>
     </div>
   )
 }
@@ -301,49 +365,44 @@ function Deposit({ address, vault, tokens, walletClient, onDone }: any) {
   }
 
   return (
-    <div className="card p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-white font-medium">Deposit</div>
-        <a href={addressUrl(vault.address)} target="_blank" rel="noreferrer"
-           className="text-[10px] text-zinc-500 hover:text-zinc-300">
-          vault {short(vault.address)} ↗
-        </a>
-      </div>
-
-      <div className="flex gap-1.5">
+    <ActionCard step="1" title="Deposit" aside={
+      <a href={addressUrl(vault.address)} target="_blank" rel="noreferrer" className="text-[11px] t3 hover:text-white mono">
+        vault {short(vault.address)} ↗
+      </a>
+    }>
+      <div className="seg">
         {tokens.map((t: any) => (
-          <button key={t.symbol} onClick={() => setSymbol(t.symbol)}
-            className={`btn btn-ghost text-[10px] px-2 py-1 ${symbol === t.symbol ? 'active' : ''}`}>
+          <button key={t.symbol} onClick={() => setSymbol(t.symbol)} className={`seg-btn ${symbol === t.symbol ? 'active' : ''}`}>
             {t.symbol}
           </button>
         ))}
       </div>
 
-      <div className="flex gap-2">
-        <input className="input flex-1" placeholder="0.00" value={amount}
+      <div className="field-group">
+        <input className="input input-lg pr-20" placeholder="0.00" value={amount}
                onChange={e => setAmount(e.target.value)} inputMode="decimal" />
-        <button className="btn btn-ghost text-[10px] px-2"
-                onClick={() => held != null && setAmount(String(held))}>MAX</button>
+        <button className="btn btn-ghost btn-xs absolute right-2 top-1/2 -translate-y-1/2"
+                onClick={() => held != null && setAmount(String(held))} disabled={held == null}>MAX</button>
       </div>
-      <div className="text-[10px] text-zinc-500">
-        {held == null ? `${HYPEREVM.name} balance unavailable` : `You hold ${fmt(held, 2)} ${symbol} on ${HYPEREVM.name}`}
+      <div className="text-[11px] t3">
+        {!address ? `Deposits land on ${HYPEREVM.name}`
+          : held == null ? `${HYPEREVM.name} balance unavailable`
+          : <>You hold <span className="mono t2">{fmt(held, 2)} {symbol}</span> on {HYPEREVM.name}</>}
       </div>
 
-      <button className="btn btn-blue w-full text-xs py-2" disabled={busy || !address} onClick={send}>
-        {busy ? 'Depositing…' : `Deposit ${symbol}`}
+      <button className="btn btn-secondary w-full" disabled={busy || !address} onClick={send}>
+        {busy ? <><Spinner /> Depositing…</> : `Deposit ${symbol}`}
       </button>
 
-      <details className="text-[10px] text-zinc-500">
-        <summary className="cursor-pointer hover:text-zinc-300">Already sent one? Credit by hash</summary>
+      <details className="text-[11px] t3">
+        <summary className="hover:text-white">Already sent one? Credit by hash</summary>
         <div className="flex gap-2 mt-2">
-          <input className="input flex-1 text-[10px]" placeholder="0x…" value={manual}
+          <input className="input flex-1 text-xs mono py-2" placeholder="0x…" value={manual}
                  onChange={e => setManual(e.target.value)} />
-          <button className="btn btn-ghost text-[10px] px-2" disabled={busy || !manual} onClick={credit}>
-            Credit
-          </button>
+          <button className="btn btn-ghost btn-sm" disabled={busy || !manual} onClick={credit}>Credit</button>
         </div>
       </details>
-    </div>
+    </ActionCard>
   )
 }
 
@@ -372,7 +431,8 @@ function Stake({ address, balance, cfg, round, markets, signFor, onDone, quota }
   const assetUsed = (quota?.assets_used || []).includes(asset)
 
   const market = markets.find((m: any) => m.symbol === asset)
-  const mark = market?.price_usd
+  const quote = market?.quote
+  const mark = market?.price ?? market?.price_usd
   const move = mark && Number(price) > 0 ? (Number(price) - mark) / mark * 100 : null
   const notional = quota?.notional ?? cfg?.free_notional ?? 0
 
@@ -397,7 +457,7 @@ function Stake({ address, balance, cfg, round, markets, signFor, onDone, quota }
         })
         if (signature) query.set('signature', signature)
         const out = await post(`${API}/pool/free?${query}`)
-        toast.success(`Free call on ${out.asset} at ${px(out.predicted_price)} — ` +
+        toast.success(`Free call on ${out.asset} at ${pxq(out.predicted_price, out.quote)} — ` +
                       `scored at the close, ${out.free_remaining} left this round`)
       } else {
         const amountStr = stake.toFixed(6)
@@ -409,7 +469,7 @@ function Stake({ address, balance, cfg, round, markets, signFor, onDone, quota }
         })
         if (signature) query.set('signature', signature)
         const out = await post(`${API}/pool/stake?${query}`)
-        toast.success(`Staked ${usd(out.staked)} on ${out.asset} at ${px(out.predicted_price)}`)
+        toast.success(`Staked ${usd(out.staked)} on ${out.asset} at ${pxq(out.predicted_price, out.quote)}`)
       }
       setAmount(''); setPrice('')
       onDone()
@@ -420,87 +480,95 @@ function Stake({ address, balance, cfg, round, markets, signFor, onDone, quota }
 
   const open = round?.entries_open !== false
   const blocked = free && (!freeOn || freeLeft <= 0 || assetUsed)
+  const nudge = (p: number) => mark && setPrice(String(Number((mark * (1 + p / 100)).toPrecision(8))))
+
   return (
-    <div className="card p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 p-0.5 rounded-md bg-white/[0.04]">
-          {([['paid', 'Stake'], ['free', 'Free']] as const).map(([id, label]) => (
-            <button key={id} onClick={() => setMode(id)} disabled={id === 'free' && !freeOn}
-              className={`text-[11px] px-2.5 py-1 rounded ${
-                effective === id ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'
-              } ${id === 'free' && !freeOn ? 'opacity-40 cursor-not-allowed' : ''}`}>
-              {label}
-            </button>
+    <ActionCard step="2" title={free ? 'Call it free' : 'Stake'} accent aside={
+      <div className="seg">
+        {([['paid', 'Stake'], ['free', 'Free']] as const).map(([id, label]) => (
+          <button key={id} onClick={() => setMode(id)} disabled={id === 'free' && !freeOn}
+            className={`seg-btn ${effective === id ? `active ${id === 'free' ? 'violet' : 'accent'}` : ''}`}>
+            {label}{id === 'free' && freeOn && ` · ${freeLeft}`}
+          </button>
+        ))}
+      </div>
+    }>
+      <div>
+        <Label>Market</Label>
+        <select className="input" value={asset} onChange={e => setAsset(e.target.value)}>
+          {markets.length === 0 && <option value="">No Hyperliquid, Bittensor, Solana or Base markets listed</option>}
+          {markets.map((m: any) => (
+            <option key={m.symbol} value={m.symbol} disabled={m.source === 'dex' && m.eligible === false}>
+              {pairLabel(m)}
+              {m.source === 'bittensor' ? ' (TAO)' : m.source === 'dex' && m.eligible === false ? ' — under the liquidity floor' : ''}
+            </option>
           ))}
-        </div>
-        <div className="text-[10px] text-zinc-500">
-          {free ? `${freeLeft} free call${freeLeft === 1 ? '' : 's'} left`
-                : `balance ${usd(balance?.available || 0)}`}
-        </div>
+        </select>
       </div>
 
-      <select className="input w-full" value={asset} onChange={e => setAsset(e.target.value)}>
-        {markets.length === 0 && <option value="">No Hyperliquid markets listed</option>}
-        {markets.map((m: any) => (
-          <option key={m.symbol} value={m.symbol}>
-            {m.hl_kind === 'spot' || m.symbol.includes('/') ? m.symbol : `${m.symbol}-PERP`}
-          </option>
-        ))}
-      </select>
-
       <div>
-        <input className="input w-full" placeholder={mark ? `close price, mark ${px(mark).slice(1)}` : 'close price'}
-               value={price} onChange={e => setPrice(e.target.value)} inputMode="decimal" />
-        {move != null && (
-          <div className={`text-[10px] mt-1 ${move >= 0 ? 'up' : 'down'}`}>
-            {move >= 0 ? '+' : ''}{move.toFixed(2)}% from the mark
+        <Label hint={mark ? <>mark <span className="mono t2">{pxq(mark, quote)}</span></> : undefined}>
+          Close price{quote === 'TAO' ? ' in TAO' : ''}
+        </Label>
+        <div className="field-group">
+          <input className="input input-lg" placeholder={mark ? pxq(mark, quote).slice(1) : '0.00'}
+                 value={price} onChange={e => setPrice(e.target.value)} inputMode="decimal" />
+          {move != null && <span className={`suffix mono ${move >= 0 ? 'up' : 'down'}`}>{move >= 0 ? '+' : ''}{move.toFixed(2)}%</span>}
+        </div>
+        {mark && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {[-5, -2, -1, 0, 1, 2, 5].map(p => (
+              <button key={p} onClick={() => nudge(p)} className="chip mono">{p === 0 ? 'mark' : `${p > 0 ? '+' : ''}${p}%`}</button>
+            ))}
           </div>
         )}
       </div>
 
-      {free ? (
-        <div className="input w-full flex items-center justify-between text-xs text-zinc-400">
-          <span>No money down</span>
-          <span className="text-zinc-500">scored as {usd(notional, 0)}</span>
-        </div>
-      ) : (
-        <input className="input w-full" placeholder={`$ stake (min ${fmt(cfg?.min_stake || 0, 0)})`}
-               value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" />
-      )}
+      <div>
+        <Label hint={free ? undefined : <>balance <span className="mono t2">{usd(balance?.available || 0)}</span></>}>
+          {free ? 'Stake' : 'Amount'}
+        </Label>
+        {free ? (
+          <div className="input flex items-center justify-between text-sm">
+            <span className="violet font-medium">No money down</span>
+            <span className="t3 text-xs">scored as {usd(notional, 0)}</span>
+          </div>
+        ) : (
+          <div className="field-group">
+            <input className="input input-lg pr-24" placeholder={`min ${fmt(cfg?.min_stake || 0, 0)}`}
+                   value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" />
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+              <span className="text-xs t3">USD</span>
+              <button className="btn btn-ghost btn-xs" disabled={!(balance?.available > 0)}
+                onClick={() => setAmount(String(balance.available))}>MAX</button>
+            </div>
+          </div>
+        )}
+      </div>
 
-      <button className={`btn w-full text-xs py-2 ${free ? 'btn-blue' : 'btn-green'}`}
+      <button className={`btn btn-lg w-full ${free ? 'btn-violet' : 'btn-primary'}`}
               disabled={busy || !address || !open || blocked || markets.length === 0}
               onClick={submit}>
-        {busy ? 'Signing…' : !open ? 'Entries closed' : free ? 'Call it free' : 'Stake'}
+        {busy ? <><Spinner /> Signing…</> : !open ? 'Entries closed' : free ? 'Call it free' : `Stake${amount ? ` ${usd(Number(amount))}` : ''}`}
       </button>
 
-      {free ? (
-        <p className="text-[10px] text-zinc-500 leading-relaxed">
-          {!freeOn ? 'Free play is switched off — stake to enter a round.'
+      <p className="note">
+        {!address ? 'Connect a wallet — the call is signed so the board knows it is yours.'
+          : free ? (
+            !freeOn ? 'Free play is switched off — stake to enter a round.'
             : assetUsed ? `You already have a free call on ${asset} this round — one per asset, so the board means something.`
-            : freeLeft <= 0 ? `Out of free calls. They reset when the round does, in ${countdown(round?.seconds_to_close)}.`
-            : <>Costs nothing and wins nothing: the call never enters the pot, so it cannot
-              dilute anyone who staked. It is scored by the same rule, ranks on the free
-              board, and reports what {usd(notional, 0)} on it{' '}
-              <span className="text-zinc-300">would have won</span>.</>}
-        </p>
-      ) : (
-        <p className="text-[10px] text-zinc-500 leading-relaxed">
-          Your score is <span className="text-zinc-300">dollars × accuracy</span>, where accuracy is{' '}
-          {cfg?.model === 'linear' && cfg?.tolerance === 1
-            ? '1 − |called − actual| / actual'
-            : `${cfg?.model}(|called − actual| / actual, ${cfg?.tolerance})`}.
-          The pot pays out pro-rata by score when the round closes.
-          {freeOn && !funded && (
-            <> No balance yet?{' '}
-              <button className="text-blue-400 hover:underline" onClick={() => setMode('free')}>
-                call one free
-              </button>.
+            : freeLeft <= 0 ? `Out of free calls. They reset with the round, in ${countdown(round?.seconds_to_close)}.`
+            : <>Costs nothing, wins nothing: it never enters the pot. Scored by the same rule, ranked on the free board,
+              and reports what <b>{usd(notional, 0)} would have won</b>.</>
+          ) : (
+            <>Score is <b>dollars × accuracy</b>, accuracy is{' '}
+              <span className="mono">{cfg?.model === 'linear' && cfg?.tolerance === 1 ? '1 − |called − actual| / actual' : `${cfg?.model}(|called − actual| / actual, ${cfg?.tolerance})`}</span>.
+              The pot pays pro-rata by score at the close.
+              {freeOn && !funded && <> No balance yet? <button className="link" onClick={() => setMode('free')}>Call one free</button>.</>}
             </>
           )}
-        </p>
-      )}
-    </div>
+      </p>
+    </ActionCard>
   )
 }
 
@@ -535,66 +603,65 @@ function Cashout({ address, balance, tokens, cfg, withdrawals, signFor, onDone }
     } finally { setBusy(false) }
   }
 
+  const won = balance?.won || 0
   return (
-    <div className="card p-4 space-y-3">
-      <div className="text-sm text-white font-medium">Your balance</div>
-
-      <div className="grid grid-cols-2 gap-2 text-xs">
+    <ActionCard step="3" title="Cash out" aside={
+      address && <span className="text-[11px] t3">available <span className="mono t2">{usd(balance?.available || 0)}</span></span>
+    }>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 p-3 rounded-[10px] bg-black/25 border border-white/[0.05]">
         <Field label="Available" value={usd(balance?.available || 0)} />
         <Field label="At stake" value={usd(balance?.at_stake || 0)} />
-        <Field label="Won" value={usd(balance?.won || 0)} tone={(balance?.won || 0) > 0 ? 'up' : ''} />
+        <Field label="Won" value={`${won > 0 ? '+' : ''}${usd(won)}`} tone={won > 0 ? 'up' : ''} />
         <Field label="Deposited" value={usd(balance?.deposited || 0)} />
       </div>
 
       <div className="flex gap-2">
-        <input className="input flex-1" placeholder={`$ (min ${fmt(cfg?.min_withdraw || 1, 2)})`}
-               value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" />
-        <select className="input w-24" value={symbol} onChange={e => setSymbol(e.target.value)}>
+        <div className="field-group flex-1">
+          <input className="input" placeholder={`min ${fmt(cfg?.min_withdraw || 1, 2)}`}
+                 value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" />
+          <button className="btn btn-ghost btn-xs absolute right-2 top-1/2 -translate-y-1/2"
+            disabled={!(balance?.available > 0)} onClick={() => setAmount(String(balance.available))}>MAX</button>
+        </div>
+        <select className="input w-28" value={symbol} onChange={e => setSymbol(e.target.value)}>
           {tokens.map((t: any) => <option key={t.symbol} value={t.symbol}>{t.symbol}</option>)}
         </select>
       </div>
-      <button className="btn btn-ghost w-full text-xs py-2" disabled={busy || !address} onClick={submit}>
-        {busy ? 'Signing…' : 'Withdraw'}
+      <button className="btn btn-secondary w-full" disabled={busy || !address} onClick={submit}>
+        {busy ? <><Spinner /> Signing…</> : 'Withdraw'}
       </button>
 
-      {withdrawals?.length > 0 && (
-        <div className="space-y-1 pt-1">
+      {withdrawals?.length > 0 ? (
+        <div className="space-y-1.5 pt-1">
+          <div className="label mb-0">Recent</div>
           {withdrawals.slice(0, 3).map((w: any) => (
-            <div key={w.id} className="flex items-center justify-between text-[10px]">
-              <span className="text-zinc-500">#{w.id} {usd(w.amount)} {w.token}</span>
+            <div key={w.id} className="flex items-center justify-between text-[11px]">
+              <span className="t3 mono">#{w.id} · {usd(w.amount)} {w.token}</span>
               {w.tx
-                ? <a className="up" href={txUrl(w.tx)} target="_blank" rel="noreferrer">{w.status} ↗</a>
-                : <span className={w.status === 'failed' ? 'down' : 'text-zinc-400'}>{w.status}</span>}
+                ? <a className="link" href={txUrl(w.tx)} target="_blank" rel="noreferrer">{w.status} ↗</a>
+                : <Tag tone={w.status === 'failed' ? 'down' : w.status === 'sent' ? 'up' : 'warn'}>{w.status}</Tag>}
             </div>
           ))}
         </div>
+      ) : (
+        <p className="note">Withdrawals are signed and {cfg?.auto_pay ? 'paid automatically from the vault' : 'released by the operator'}.</p>
       )}
-    </div>
-  )
-}
-
-function Field({ label, value, tone }: any) {
-  return (
-    <div>
-      <div className="text-[10px] text-zinc-500">{label}</div>
-      <div className={`tabular-nums ${tone || 'text-white'}`}>{value}</div>
-    </div>
+    </ActionCard>
   )
 }
 
 
 /* ─── This round ──────────────────────────────────────────────── */
 
+const POT_COLS = 'grid-cols-[1fr_110px_90px_80px_110px]'
+
 function RoundView({ round, cfg, address }: any) {
   if (!round) return null
   if (!round.assets?.length) {
     return (
-      <div className="card p-8 text-center">
-        <div className="text-sm text-zinc-400">Nothing staked in round {round.index} yet</div>
-        <div className="text-[10px] text-zinc-500 mt-1">
-          The pot opens with the first stake · closes in {countdown(round.seconds_to_close)}
-          {round.free_per_round > 0 && ' · free calls are scored either way'}
-        </div>
+      <div className="card">
+        <Empty title={`Nothing staked in round ${round.index} yet`}
+          msg={<>The first stake opens a pot. Closes in <span className="mono t2">{countdown(round.seconds_to_close)}</span>
+            {round.free_per_round > 0 && <> — free calls are scored either way</>}.</>} />
       </div>
     )
   }
@@ -603,30 +670,30 @@ function RoundView({ round, cfg, address }: any) {
     <div className="space-y-4">
       {round.assets.map((pot: any) => (
         <div key={pot.asset} className="card overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-[10px] font-bold text-emerald-400">
-                {pot.asset[0]}
-              </div>
+          <div className="section-head">
+            <div className="flex items-center gap-3">
+              <Avatar symbol={pot.asset} />
               <div>
-                <div className="text-sm text-white font-medium">{pot.asset} pot</div>
-                <div className="text-[10px] text-zinc-500">
-                  {pot.stakers} staker{pot.stakers === 1 ? '' : 's'} · {usd(pot.gross)} in
+                <div className="flex items-center gap-2">
+                  <span className="section-title">{pot.asset}</span>
+                  <span className="count">{usd(pot.gross)} pot</span>
+                </div>
+                <div className="text-[11px] t3 mt-0.5">
+                  {pot.stakers} staker{pot.stakers === 1 ? '' : 's'}
                   {pot.fee > 0 && ` · ${usd(pot.fee)} fee`}
+                  {pot.free?.length > 0 && ` · ${pot.free.length} free call${pot.free.length === 1 ? '' : 's'}`}
                 </div>
               </div>
             </div>
             <div className="text-right">
-              <div className="text-sm text-white tabular-nums">
-                {pot.actual_price ? px(pot.actual_price) : '—'}
-              </div>
-              <div className={`text-[10px] ${pot.provisional ? 'text-amber-400/80' : 'text-zinc-500'}`}>
+              <div className="num text-base text-white">{pot.actual_price ? pxq(pot.actual_price, pot.quote) : '—'}</div>
+              <div className={`text-[11px] ${pot.provisional ? 'warn' : 't3'}`}>
                 {pot.provisional ? 'live mark · provisional' : `settled · ${pot.price_mode}`}
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-[1fr_90px_80px_70px_90px] gap-2 px-4 py-2 text-[10px] text-zinc-500 font-medium">
+          <div className={`thead ${POT_COLS}`}>
             <span>Staker</span><span className="text-right">Called</span>
             <span className="text-right">Off by</span><span className="text-right">Score</span>
             <span className="text-right">{pot.provisional ? 'Would take' : 'Paid'}</span>
@@ -634,21 +701,16 @@ function RoundView({ round, cfg, address }: any) {
           {pot.entries.map((e: any) => {
             const mine = address && e.address?.toLowerCase() === address.toLowerCase()
             return (
-              <div key={e.id} className={`table-row grid-cols-[1fr_90px_80px_70px_90px] gap-2 ${mine ? 'bg-blue-500/[0.06]' : ''}`}>
-                <span className="text-xs text-zinc-300">
-                  {mine ? <span className="text-blue-400">you</span> : short(e.address)}
-                  <span className="text-zinc-600 ml-2">{usd(e.amount)}</span>
+              <div key={e.id} className={`trow ${POT_COLS} ${mine ? 'mine' : ''}`}>
+                <span className="text-xs">
+                  {mine ? <span className="accent font-medium">you</span> : <span className="mono t2">{short(e.address)}</span>}
+                  <span className="t3 ml-2 mono">{usd(e.amount)}</span>
                 </span>
-                <span className="text-right text-xs text-white tabular-nums">{px(e.predicted_price)}</span>
-                <span className="text-right text-xs text-zinc-400 tabular-nums">
-                  {e.rel_error == null ? '—' : pct(e.rel_error, 2)}
-                </span>
-                <span className="text-right text-xs text-zinc-400 tabular-nums">
-                  {e.score == null ? '—' : fmt(e.score, 1)}
-                </span>
-                <span className={`text-right text-xs tabular-nums ${
-                  e.payout == null ? 'text-zinc-500'
-                    : e.payout > e.amount ? 'up' : e.payout < e.amount ? 'down' : 'text-zinc-300'}`}>
+                <span className="text-right num text-xs text-white">{pxq(e.predicted_price, pot.quote)}</span>
+                <span className="text-right num text-xs t2">{e.rel_error == null ? '—' : pct(e.rel_error, 2)}</span>
+                <span className="text-right num text-xs t2">{e.score == null ? '—' : fmt(e.score, 1)}</span>
+                <span className={`text-right num text-xs ${
+                  e.payout == null ? 't3' : e.payout > e.amount ? 'up' : e.payout < e.amount ? 'down' : 't2'}`}>
                   {e.payout == null ? '—' : usd(e.payout)}
                 </span>
               </div>
@@ -658,10 +720,11 @@ function RoundView({ round, cfg, address }: any) {
           {pot.free?.length > 0 && <FreeCalls pot={pot} address={address} />}
         </div>
       ))}
-      <p className="text-[10px] text-zinc-500 px-1">
-        Each asset has its own pot — a call on one never pays out of another&apos;s.
-        Free calls sit outside the pot entirely, so they never dilute it.
-        Round {round.index} settles at the {cfg?.model} score against the Hyperliquid mark at close.
+      <p className="note px-1">
+        Each asset has its own pot — a call on one never pays out of another&apos;s. Free calls sit outside the
+        pot entirely, so they never dilute it. Round {round.index} settles at the {cfg?.model} score against the
+        mark at close — Hyperliquid for pairs, the Bittensor indexer for subnets (in TAO), the pool&apos;s hourly
+        candle for Solana and Base tokens.
       </p>
     </div>
   )
@@ -670,38 +733,31 @@ function RoundView({ round, cfg, address }: any) {
 
 function FreeCalls({ pot, address }: any) {
   return (
-    <div className="border-t border-white/5 bg-white/[0.015]">
-      <div className="grid grid-cols-[1fr_90px_80px_70px_90px] gap-2 px-4 py-2 text-[10px] text-zinc-600 font-medium">
-        <span>
-          Free calls
-          <span className="text-zinc-700 ml-2 font-normal">outside the pot — nothing paid</span>
-        </span>
+    <div className="border-t border-white/[0.06] bg-black/20">
+      <div className={`thead ${POT_COLS} border-b-0`}>
+        <span className="violet">Free calls <span className="t3 normal-case tracking-normal font-normal ml-1">outside the pot — nothing paid</span></span>
         <span className="text-right">Called</span>
         <span className="text-right">Off by</span>
-        <span className="text-right" />
+        <span />
         <span className="text-right">Would have won</span>
       </div>
       {pot.free.map((e: any) => {
         const mine = address && e.address?.toLowerCase() === address.toLowerCase()
         return (
-          <div key={e.id} className={`table-row grid-cols-[1fr_90px_80px_70px_90px] gap-2 ${mine ? 'bg-blue-500/[0.06]' : ''}`}>
-            <span className="text-xs text-zinc-500">
-              {mine ? <span className="text-blue-400">you</span> : short(e.address)}
-              <span className="text-zinc-700 ml-2">free</span>
+          <div key={e.id} className={`trow ${POT_COLS} ${mine ? 'mine' : ''}`}>
+            <span className="text-xs flex items-center gap-2">
+              {mine ? <span className="accent font-medium">you</span> : <span className="mono t2">{short(e.address)}</span>}
+              <Tag tone="violet">free</Tag>
             </span>
-            <span className="text-right text-xs text-zinc-400 tabular-nums">{px(e.predicted_price)}</span>
-            <span className="text-right text-xs text-zinc-500 tabular-nums">
-              {e.rel_error == null ? '—' : pct(e.rel_error, 2)}
-            </span>
+            <span className="text-right num text-xs t2">{pxq(e.predicted_price, pot.quote)}</span>
+            <span className="text-right num text-xs t3">{e.rel_error == null ? '—' : pct(e.rel_error, 2)}</span>
             <span />
-            <span className="text-right text-xs tabular-nums text-zinc-500">
+            <span className="text-right num text-xs t2">
               {e.would_win == null ? '—' : (
-                <>
-                  {usd(e.would_win)}
-                  <span className={`ml-1.5 ${e.would_net > 0 ? 'up' : e.would_net < 0 ? 'down' : ''}`}>
+                <>{usd(e.would_win)}
+                  <span className={`ml-1.5 ${e.would_net > 0 ? 'up' : e.would_net < 0 ? 'down' : 't3'}`}>
                     {e.would_net > 0 ? '+' : ''}{fmt(e.would_net, 2)}
-                  </span>
-                </>
+                  </span></>
               )}
             </span>
           </div>
@@ -715,30 +771,29 @@ function FreeCalls({ pot, address }: any) {
 /* ─── Past rounds ─────────────────────────────────────────────── */
 
 function HistoryView({ rounds }: any) {
-  if (!rounds?.length) return <div className="card p-8 text-center text-sm text-zinc-500">No settled rounds yet</div>
+  if (!rounds?.length) return <div className="card"><Empty title="No settled rounds yet" msg="Each round lands here with its close price and who took the pot." /></div>
   return (
     <div className="space-y-3">
       {rounds.map((r: any) => (
-        <div key={r.index} className="card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-white font-medium">Round {r.index}</div>
-            <div className="text-[10px] text-zinc-500">
-              {new Date(r.closes * 1000).toLocaleString()} · {r.status}
+        <div key={r.index} className="card overflow-hidden">
+          <div className="section-head">
+            <div className="flex items-center gap-2.5">
+              <span className="section-title">Round {r.index}</span>
+              <Tag tone={r.status === 'settled' ? 'up' : r.status === 'open' ? 'accent' : 'neutral'}>{r.status}</Tag>
             </div>
+            <span className="text-[11px] t3 mono">{new Date(r.closes * 1000).toLocaleString()}</span>
           </div>
           {Object.keys(r.assets || {}).length === 0 ? (
-            <div className="text-[10px] text-zinc-500">{usd(r.staked)} staked · not settled yet</div>
+            <div className="px-[18px] py-3 text-xs t3">{usd(r.staked)} staked · not settled yet</div>
           ) : (
-            <div className="space-y-1">
+            <div>
               {Object.entries(r.assets).map(([asset, a]: any) => (
-                <div key={asset} className="flex items-center justify-between text-xs">
-                  <span className="text-zinc-300">{asset}</span>
-                  <span className="text-zinc-500">closed {px(a.actual_price)}</span>
-                  <span className="text-zinc-400">{usd(a.pot)} pot</span>
-                  <span className={a.mode === 'refund' ? 'text-amber-400/80' : 'up'}>
-                    {a.mode === 'refund'
-                      ? 'no winner — refunded'
-                      : `${short(a.winner?.address)} took ${usd(a.winner?.payout)}`}
+                <div key={asset} className="trow grid-cols-[1fr_120px_100px_1fr] text-xs">
+                  <span className="flex items-center gap-2"><Avatar symbol={asset} size="sm" /><span className="text-white font-medium">{asset}</span></span>
+                  <span className="t3">closed <span className="num t2">{pxq(a.actual_price, a.quote)}</span></span>
+                  <span className="num t2">{usd(a.pot)} pot</span>
+                  <span className={`text-right ${a.mode === 'refund' ? 'warn' : 'up'}`}>
+                    {a.mode === 'refund' ? 'no winner — refunded' : <><span className="mono">{short(a.winner?.address)}</span> took {usd(a.winner?.payout)}</>}
                   </span>
                 </div>
               ))}
@@ -754,10 +809,11 @@ function HistoryView({ rounds }: any) {
 /* ─── Stakers ─────────────────────────────────────────────────── */
 
 function BoardView({ board, address }: any) {
-  if (!board?.length) return <div className="card p-8 text-center text-sm text-zinc-500">No settled stakes yet</div>
+  if (!board?.length) return <div className="card"><Empty title="No settled stakes yet" msg="Stakers rank here by profit once a round settles." /></div>
+  const cols = 'grid-cols-[36px_1fr_100px_100px_90px_80px]'
   return (
     <div className="card overflow-hidden">
-      <div className="grid grid-cols-[40px_1fr_90px_90px_80px_70px] gap-2 px-4 py-2 text-[10px] text-zinc-500 font-medium">
+      <div className={`thead ${cols}`}>
         <span>#</span><span>Staker</span><span className="text-right">Staked</span>
         <span className="text-right">PnL</span><span className="text-right">Accuracy</span>
         <span className="text-right">Win rate</span>
@@ -765,15 +821,13 @@ function BoardView({ board, address }: any) {
       {board.map((row: any, i: number) => {
         const mine = address && row.address?.toLowerCase() === address.toLowerCase()
         return (
-          <div key={row.address} className={`table-row grid-cols-[40px_1fr_90px_90px_80px_70px] gap-2 ${mine ? 'bg-blue-500/[0.06]' : ''}`}>
-            <span className="text-xs text-zinc-500">{i + 1}</span>
-            <span className="text-xs text-zinc-300">{mine ? <span className="text-blue-400">you</span> : short(row.address)}</span>
-            <span className="text-right text-xs text-zinc-400 tabular-nums">{usd(row.staked)}</span>
-            <span className={`text-right text-xs tabular-nums ${row.pnl >= 0 ? 'up' : 'down'}`}>
-              {row.pnl >= 0 ? '+' : ''}{usd(row.pnl)}
-            </span>
-            <span className="text-right text-xs text-zinc-400 tabular-nums">{pct(row.avg_accuracy, 1)}</span>
-            <span className="text-right text-xs text-zinc-400 tabular-nums">{row.win_rate}%</span>
+          <div key={row.address} className={`trow ${cols} ${mine ? 'mine' : ''}`}>
+            <span className={`rank rank-${i + 1}`}>{i + 1}</span>
+            <span className="text-xs">{mine ? <span className="accent font-medium">you</span> : <span className="mono t2">{short(row.address)}</span>}</span>
+            <span className="text-right num text-xs t2">{usd(row.staked)}</span>
+            <span className={`text-right num text-xs ${row.pnl >= 0 ? 'up' : 'down'}`}>{row.pnl >= 0 ? '+' : ''}{usd(row.pnl)}</span>
+            <span className="text-right num text-xs t2">{pct(row.avg_accuracy, 1)}</span>
+            <span className="text-right num text-xs t2">{row.win_rate}%</span>
           </div>
         )
       })}
@@ -785,20 +839,19 @@ function BoardView({ board, address }: any) {
 function FreeBoardView({ board, cfg, address }: any) {
   if (!board?.length) {
     return (
-      <div className="card p-8 text-center">
-        <div className="text-sm text-zinc-400">No free calls yet</div>
-        <div className="text-[10px] text-zinc-500 mt-1">
-          {cfg?.free_per_round > 0
+      <div className="card">
+        <Empty title="No free calls yet"
+          msg={cfg?.free_per_round > 0
             ? `Everyone gets ${cfg.free_per_round} a round, one per asset — no deposit, no gas.`
-            : 'Free play is switched off.'}
-        </div>
+            : 'Free play is switched off.'} />
       </div>
     )
   }
+  const cols = 'grid-cols-[36px_1fr_70px_90px_120px_100px]'
   return (
     <div className="space-y-2">
       <div className="card overflow-hidden">
-        <div className="grid grid-cols-[40px_1fr_60px_80px_90px_90px] gap-2 px-4 py-2 text-[10px] text-zinc-500 font-medium">
+        <div className={`thead ${cols}`}>
           <span>#</span><span>Caller</span><span className="text-right">Calls</span>
           <span className="text-right">Accuracy</span><span className="text-right">Would have won</span>
           <span className="text-right">vs notional</span>
@@ -806,27 +859,21 @@ function FreeBoardView({ board, cfg, address }: any) {
         {board.map((row: any, i: number) => {
           const mine = address && row.address?.toLowerCase() === address.toLowerCase()
           return (
-            <div key={row.address} className={`table-row grid-cols-[40px_1fr_60px_80px_90px_90px] gap-2 ${mine ? 'bg-blue-500/[0.06]' : ''}`}>
-              <span className="text-xs text-zinc-500">{i + 1}</span>
-              <span className="text-xs text-zinc-300">
-                {mine ? <span className="text-blue-400">you</span> : short(row.address)}
-                {row.staker && <span className="text-[9px] text-emerald-400/70 ml-2">stakes too</span>}
+            <div key={row.address} className={`trow ${cols} ${mine ? 'mine' : ''}`}>
+              <span className={`rank rank-${i + 1}`}>{i + 1}</span>
+              <span className="text-xs flex items-center gap-2">
+                {mine ? <span className="accent font-medium">you</span> : <span className="mono t2">{short(row.address)}</span>}
+                {row.staker && <Tag tone="up">stakes too</Tag>}
               </span>
-              <span className="text-right text-xs text-zinc-400 tabular-nums">
-                {row.settled}/{row.calls}
-              </span>
-              <span className="text-right text-xs text-zinc-400 tabular-nums">
-                {row.settled ? pct(row.avg_accuracy, 1) : '—'}
-              </span>
-              <span className="text-right text-xs text-zinc-400 tabular-nums">{usd(row.would_win)}</span>
-              <span className={`text-right text-xs tabular-nums ${row.would_net >= 0 ? 'up' : 'down'}`}>
-                {row.would_net >= 0 ? '+' : ''}{usd(row.would_net)}
-              </span>
+              <span className="text-right num text-xs t2">{row.settled}/{row.calls}</span>
+              <span className="text-right num text-xs t2">{row.settled ? pct(row.avg_accuracy, 1) : '—'}</span>
+              <span className="text-right num text-xs t2">{usd(row.would_win)}</span>
+              <span className={`text-right num text-xs ${row.would_net >= 0 ? 'up' : 'down'}`}>{row.would_net >= 0 ? '+' : ''}{usd(row.would_net)}</span>
             </div>
           )
         })}
       </div>
-      <p className="text-[10px] text-zinc-500 px-1 leading-relaxed">
+      <p className="note px-1">
         Ranked by accuracy, because free calls win no money. &ldquo;Would have won&rdquo; prices each
         call at {usd(cfg?.free_notional || 0, 0)} against the pot that actually formed — including
         the {usd(cfg?.free_notional || 0, 0)} it would have taken to place, which is why a call that
@@ -846,6 +893,7 @@ function OwnerView({ cfg, owner, vault, address, signFor, onDone }: any) {
   const unclaimed = !owner?.claimed
 
   const set = (key: string, value: any) => setForm(f => ({ ...f, [key]: value }))
+  const dirty = Object.values(form).some(v => v !== '' && v != null)
 
   const save = async () => {
     const patch = Object.entries(form).filter(([, v]) => v !== '' && v != null)
@@ -878,101 +926,106 @@ function OwnerView({ cfg, owner, vault, address, signFor, onDone }: any) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="card p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-sm text-white font-medium">Pool rules</div>
-          <div className="text-[10px] text-zinc-500">
-            {unclaimed ? 'unclaimed — anyone can configure it'
-              : isOwner ? 'you own this pool' : `owner ${short(owner.owner)}`}
+    <div className="grid lg:grid-cols-[1fr_320px] gap-4 items-start">
+      <Section title="Pool rules" action={
+        <Tag tone={unclaimed ? 'warn' : isOwner ? 'accent' : 'neutral'}>
+          {unclaimed ? 'unclaimed — anyone can configure' : isOwner ? 'you own this pool' : `owner ${short(owner.owner)}`}
+        </Tag>
+      }>
+        <div className="p-[18px]">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Setting label="Round interval" hint={`now ${cfg.interval_days}d`}>
+              <select className="input" value={form.interval ?? ''} onChange={e => set('interval', e.target.value)}>
+                <option value="">unchanged</option>
+                <option value={3600}>hourly</option>
+                <option value={86400}>daily</option>
+                <option value={604800}>weekly</option>
+                <option value={1209600}>fortnightly</option>
+                <option value={2592000}>monthly</option>
+              </select>
+            </Setting>
+
+            <Setting label="Scoring curve" hint={`now ${cfg.model}`}>
+              <select className="input mono" value={form.model ?? ''} onChange={e => set('model', e.target.value)}>
+                <option value="">unchanged</option>
+                {Object.keys(cfg.models || {}).map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </Setting>
+
+            <Setting label="Tolerance" hint={`now ${cfg.tolerance} · sets the function's tol`}>
+              <input className="input mono" placeholder="unchanged" inputMode="decimal"
+                     value={form.tolerance ?? ''} onChange={e => set('tolerance', e.target.value)} />
+            </Setting>
+
+            <Setting label="Function params" hint={`now ${JSON.stringify(cfg.model_params || {})} · JSON, by name`}>
+              <input className="input mono" placeholder='{"power": 4}' spellCheck={false}
+                     value={form.model_params ?? ''} onChange={e => set('model_params', e.target.value)} />
+            </Setting>
+
+            <Setting label="Min stake" hint={`now ${usd(cfg.min_stake)}`}>
+              <input className="input mono" placeholder="unchanged" inputMode="decimal"
+                     value={form.min_stake ?? ''} onChange={e => set('min_stake', e.target.value)} />
+            </Setting>
+
+            <Setting label="Protocol fee" hint={`now ${(cfg.fee_bps / 100).toFixed(2)}% · max 5%`}>
+              <input className="input mono" placeholder="basis points" inputMode="numeric"
+                     value={form.fee_bps ?? ''} onChange={e => set('fee_bps', e.target.value)} />
+            </Setting>
+
+            <Setting label="Free calls / round" hint={cfg.free_per_round ? `now ${cfg.free_per_round} per address` : 'off'}>
+              <input className="input mono" placeholder="0 switches free play off" inputMode="numeric"
+                     value={form.free_per_round ?? ''} onChange={e => set('free_per_round', e.target.value)} />
+            </Setting>
+
+            <Setting label="Free notional" hint={`now ${usd(cfg.free_notional, 0)} per free call`}>
+              <input className="input mono" placeholder="paper stake for would-have-won" inputMode="decimal"
+                     value={form.free_notional ?? ''} onChange={e => set('free_notional', e.target.value)} />
+            </Setting>
+
+            <Setting label="Entry cutoff" hint={`now ${countdown(cfg.entry_cutoff)} before close`}>
+              <input className="input mono" placeholder="seconds" inputMode="numeric"
+                     value={form.entry_cutoff ?? ''} onChange={e => set('entry_cutoff', e.target.value)} />
+            </Setting>
+
+            <Setting label="Min DEX liquidity"
+                     hint={cfg.min_liquidity_usd ? `now ${usd(cfg.min_liquidity_usd, 0)} · Solana & Base tokens under it can't be listed or staked` : 'no floor — any pool is listable'}>
+              <input className="input mono" placeholder="dollars in the pool (0 = no floor)" inputMode="decimal"
+                     value={form.min_liquidity_usd ?? ''} onChange={e => set('min_liquidity_usd', e.target.value)} />
+            </Setting>
           </div>
-        </div>
 
-        <div className="grid md:grid-cols-3 gap-3">
-          <Setting label="Round interval" hint={`now ${cfg.interval_days}d`}>
-            <select className="input w-full" value={form.interval ?? ''}
-                    onChange={e => set('interval', e.target.value)}>
-              <option value="">unchanged</option>
-              <option value={3600}>hourly</option>
-              <option value={86400}>daily</option>
-              <option value={604800}>weekly</option>
-              <option value={1209600}>fortnightly</option>
-              <option value={2592000}>monthly</option>
-            </select>
-          </Setting>
-
-          <Setting label="Scoring curve" hint={`now ${cfg.model}`}>
-            <select className="input w-full" value={form.model ?? ''}
-                    onChange={e => set('model', e.target.value)}>
-              <option value="">unchanged</option>
-              {Object.keys(cfg.models || {}).map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </Setting>
-
-          <Setting label="Tolerance" hint={`now ${cfg.tolerance} · 1.0 = pure 1 − relL1`}>
-            <input className="input w-full" placeholder="unchanged" inputMode="decimal"
-                   value={form.tolerance ?? ''} onChange={e => set('tolerance', e.target.value)} />
-          </Setting>
-
-          <Setting label="Min stake" hint={`now ${usd(cfg.min_stake)}`}>
-            <input className="input w-full" placeholder="unchanged" inputMode="decimal"
-                   value={form.min_stake ?? ''} onChange={e => set('min_stake', e.target.value)} />
-          </Setting>
-
-          <Setting label="Protocol fee" hint={`now ${(cfg.fee_bps / 100).toFixed(2)}% · max 5%`}>
-            <input className="input w-full" placeholder="basis points" inputMode="numeric"
-                   value={form.fee_bps ?? ''} onChange={e => set('fee_bps', e.target.value)} />
-          </Setting>
-
-          <Setting label="Free calls / round"
-                   hint={cfg.free_per_round ? `now ${cfg.free_per_round} per address` : 'off'}>
-            <input className="input w-full" placeholder="0 switches free play off" inputMode="numeric"
-                   value={form.free_per_round ?? ''} onChange={e => set('free_per_round', e.target.value)} />
-          </Setting>
-
-          <Setting label="Free notional" hint={`now ${usd(cfg.free_notional, 0)} per free call`}>
-            <input className="input w-full" placeholder="paper stake for would-have-won" inputMode="decimal"
-                   value={form.free_notional ?? ''} onChange={e => set('free_notional', e.target.value)} />
-          </Setting>
-
-          <Setting label="Entry cutoff" hint={`now ${countdown(cfg.entry_cutoff)} before close`}>
-            <input className="input w-full" placeholder="seconds" inputMode="numeric"
-                   value={form.entry_cutoff ?? ''} onChange={e => set('entry_cutoff', e.target.value)} />
-          </Setting>
-        </div>
-
-        <div className="flex items-center gap-2 mt-4">
-          <button className="btn btn-blue text-xs px-3 py-1.5" disabled={busy} onClick={save}>
-            {busy ? 'Saving…' : 'Save rules'}
-          </button>
-          {unclaimed && (
-            <button className="btn btn-ghost text-xs px-3 py-1.5" onClick={claim}>
-              Claim ownership
+          <div className="flex items-center gap-2 mt-5">
+            <button className={`btn ${dirty ? 'btn-primary' : 'btn-ghost'}`} disabled={busy || !dirty} onClick={save}>
+              {busy ? <><Spinner /> Saving…</> : 'Save rules'}
             </button>
-          )}
+            {unclaimed && <button className="btn btn-secondary" onClick={claim}>Claim ownership</button>}
+          </div>
+          <p className="note mt-3">
+            A new interval takes effect at the next boundary — the round people have already
+            staked into keeps the length it was sold with, and its scoring params are frozen
+            from the moment it opened.
+          </p>
         </div>
-        <p className="text-[10px] text-zinc-500 mt-3 leading-relaxed">
-          A new interval takes effect at the next boundary — the round people have already
-          staked into keeps the length it was sold with, and its scoring params are frozen
-          from the moment it opened.
-        </p>
-      </div>
+      </Section>
 
-      <div className="card p-4 space-y-2">
-        <div className="text-sm text-white font-medium">Vault</div>
-        <div className="grid md:grid-cols-4 gap-3 text-xs">
-          <Field label="Address" value={vault?.address ? short(vault.address) : 'none'} />
-          <Field label="Holds" value={usd(vault?.held_total || 0)} />
-          <Field label="Owes" value={usd(vault?.owed?.total || 0)}
-                 tone={vault?.solvent === false ? 'down' : ''} />
-          <Field label="Gas" value={vault?.gas == null ? '—' : `${fmt(vault.gas, 4)} HYPE`} />
+      <Section title="Vault" action={
+        vault?.address && <a className="text-[11px] link mono" href={addressUrl(vault.address)} target="_blank" rel="noreferrer">{short(vault.address)} ↗</a>
+      }>
+        <div className="p-[18px] space-y-4">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <Field label="Holds" value={usd(vault?.held_total || 0)} />
+            <Field label="Owes" value={usd(vault?.owed?.total || 0)} tone={vault?.solvent === false ? 'down' : ''} />
+            <Field label="Gas" value={vault?.gas == null ? '—' : `${fmt(vault.gas, 4)} HYPE`} />
+            <Field label="Key" value={vault?.hot_key ? 'server-held' : 'watch-only'} />
+          </div>
+          <div className="divider" />
+          <p className="note">
+            {vault?.hot_key
+              ? `This server holds the key — withdrawals ${vault.auto_pay ? 'send automatically' : 'queue until an owner releases them'}. Keep HYPE in it for gas.`
+              : 'Watch-only vault: deposits credit, withdrawals queue for the operator to pay by hand.'}
+          </p>
         </div>
-        <p className="text-[10px] text-zinc-500 leading-relaxed">
-          {vault?.hot_key
-            ? `This server holds the key — withdrawals ${vault.auto_pay ? 'send automatically' : 'queue until an owner releases them'}. Keep HYPE in it for gas.`
-            : 'Watch-only vault: deposits credit, withdrawals queue for the operator to pay by hand.'}
-        </p>
-      </div>
+      </Section>
     </div>
   )
 }
@@ -980,9 +1033,9 @@ function OwnerView({ cfg, owner, vault, address, signFor, onDone }: any) {
 function Setting({ label, hint, children }: any) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1">{label}</div>
+      <Label>{label}</Label>
       {children}
-      {hint && <div className="text-[10px] text-zinc-600 mt-1">{hint}</div>}
+      {hint && <div className="text-[11px] t3 mt-1.5">{hint}</div>}
     </div>
   )
 }

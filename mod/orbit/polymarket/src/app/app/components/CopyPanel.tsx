@@ -100,10 +100,10 @@ export default function CopyPanel() {
       >
         <span className="min-w-0 flex-1">
           <span className="block text-[9.5px] font-mono tracking-[0.14em] text-pixel-gray">
-            COPY BOOK
+            WHO I COPY
           </span>
           <span className="block truncate text-[11.5px] font-mono text-cyan-300">
-            many traders, one desk
+            the traders, their dollars, start / stop
           </span>
         </span>
         <span className="text-[9px] text-pixel-gray shrink-0">{expanded ? "▲" : "▼"}</span>
@@ -195,7 +195,7 @@ function CopyBookBody() {
             {running} RUNNING{(totals?.executing ?? 0) > 0 ? ` · ${totals?.executing} LIVE` : " · TEST"}
           </span>
         ) : (
-          <span className="text-[9.5px] font-mono text-pixel-gray">IDLE</span>
+          <span className="text-[9.5px] font-mono text-pixel-gray">NOT RUNNING</span>
         )}
       </div>
 
@@ -221,7 +221,7 @@ function CopyBookBody() {
           onClick={() => void rebalance("equal")}
           title="Give every enabled trader the same dollars"
         >
-          SPLIT EVEN
+          SPLIT EVENLY
         </button>
         <Link
           href="/copy/basket"
@@ -268,7 +268,7 @@ function CopyBookBody() {
 
       {!eoa && (
         <div className="px-3 pb-1.5 text-[9.5px] font-mono text-amber-400 leading-snug">
-          no wallet — the book reads, but nothing can run
+          no wallet connected — nothing can START until you sign in
         </div>
       )}
 
@@ -343,8 +343,8 @@ function CopyBookBody() {
 
       {/* ── MEASURE — what those amounts would have done ── */}
       <Section
-        title="MEASURE"
-        hint="$N over the last M days, per trader"
+        title="BACKTEST"
+        hint="what $N would have done, per trader"
         open={measureOpen}
         onToggle={() => { const v = !measureOpen; setMeasureOpen(v); remember(MEASURE_KEY, v); }}
       >
@@ -360,8 +360,8 @@ function CopyBookBody() {
 
       {/* ── TRADES — what they did, and what I got ── */}
       <Section
-        title="MY COPY TRADES"
-        hint="their trades vs my fills"
+        title="RESULTS"
+        hint="their trades vs mine"
         open={tradesOpen}
         onToggle={() => { const v = !tradesOpen; setTradesOpen(v); remember(TRADES_KEY, v); }}
       >
@@ -599,9 +599,9 @@ function AddTraders({
         <Link
           href="/copy"
           className="ml-auto text-[9.5px] font-mono tracking-[0.1em] text-pixel-gray hover:text-green-400 shrink-0"
-          title="The full desk — search for traders by the markets they trade"
+          title="The desk — find the best traders in a market"
         >
-          ▦ FIND
+          FIND TRADERS →
         </Link>
       </div>
     </div>

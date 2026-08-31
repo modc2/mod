@@ -66,7 +66,8 @@ Endpoints:
     GET  /memory/exchanges - what you and the agent have said to each other,
                         scoped to your address (or your session, anonymous)
     GET  /credits      - deposit info + caller's credit balance/history
-    POST /credits/deposit - verify a USDT/USDC tx hash, credit the on-chain sender
+    POST /credits/deposit - verify a USDT/USDC/ETH tx hash, credit the on-chain sender
+    GET  /credits/price   - ETH/USD the next native deposit is priced at
     POST /credits/grant   - owner: adjust an account's credits (± amount)
     GET  /credits/treasury - owner: deposits in, provider credits out, margin kept
     POST /credits/topup   - owner: record API credits bought at a provider
@@ -182,6 +183,7 @@ class RunRequest(BaseModel):
     thumbs: Optional[List[str]] = None      # tiny copies of the same images, for the task registry
     browser_session: Optional[str] = None   # tab id a `browser` run generates in
     session: Optional[str] = None           # console conversation — makes the run a remembered exchange
+    harness_args: Optional[dict] = None     # runner-specific knobs for a harness agent (chainmod: project, address, network)
     key: Optional[str] = None
 
 class ToolRunRequest(BaseModel):
@@ -332,7 +334,8 @@ class FactRequest(BaseModel):
 
 class DepositRequest(BaseModel):
     tx_hash: str
-    network: str = "base"
+    network: str = "base"             # base | ethereum
+    provider: Optional[str] = None    # earmark: openrouter | venice
     key: Optional[str] = None
 
 class CreditGrantRequest(BaseModel):
@@ -864,6 +867,7 @@ def run_params(key: Optional[str] = None):
              "hint": "free models only; run is never billed"},
         ],
         "credits": {"info": "/credits", "deposit": "/credits/deposit",
+                    "price": "/credits/price",
                     "treasury": "/credits/treasury", "topup": "/credits/topup",
                     "topup_verify": "/credits/topup/verify",
                     "balance": "/balance", "whoami": "/whoami"},
@@ -971,17 +975,27 @@ def get_credits(key: Optional[str] = None):
 
 @app.post("/credits/deposit")
 def credit_deposit(req: DepositRequest):
-    """Verify a USDT/USDC transfer to the deposit address by tx hash.
+    """Verify a USDT/USDC/ETH transfer to the deposit address by tx hash.
 
     Credits go to the ON-CHAIN SENDER of the transfer (so a hash can't
-    be claimed by someone else), and each hash is credited only once.
+    be claimed by someone else), and each hash is credited only once. ETH
+    is priced at the Chainlink ETH/USD feed of the chain it landed on.
+    `provider` earmarks the deposit for the openrouter or venice key.
     """
     try:
-        return get_mod().credit_deposit(req.tx_hash, req.network)
+        return get_mod().credit_deposit(req.tx_hash, req.network, req.provider)
     except (ValueError, RuntimeError) as e:
         return {"error": str(e)}
     except Exception as e:
         return {"error": f"verification failed: {e}"}
+
+@app.get("/credits/price")
+def credit_price(network: str = "base"):
+    """ETH in USD — what a native deposit on `network` is credited at right now."""
+    try:
+        return get_mod().credit_price(network)
+    except (ValueError, RuntimeError) as e:
+        return {"error": str(e)}
 
 @app.post("/credits/grant")
 def credit_grant(req: CreditGrantRequest):
@@ -2332,6 +2346,7 @@ def run_agent(req: RunRequest):
             tool_ids=req.tool_ids,
             images=req.images,
             session=req.session,
+            harness_args=req.harness_args,
             on_step=lambda s: _task_step(task, s),
             budget=_run_budget(req, task),
         )
@@ -2443,6 +2458,7 @@ def run_agent_stream(req: RunRequest):
                     tool_ids=req.tool_ids,
                     images=req.images,
                     session=req.session,
+                    harness_args=req.harness_args,
                     on_step=on_step,
                     budget=_run_budget(req, task),
                 )

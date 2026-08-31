@@ -391,62 +391,125 @@ async fn leaderboard(State(s): State<AppState>) -> Result<Json<Value>, (StatusCo
 struct TopQ {
     days: Option<u32>,
     min_per_day: Option<f64>,
-    pool: Option<usize>,
+    pool: Option<String>,           // 1-1500, or `all` = every gated wallet on the leaderboard
+    enrich: Option<usize>,          // fill stats for the top N by `rank` only (default 120, max 400)
     seed: Option<String>,           // comma-separated extra wallets
     rank: Option<String>,           // roi (default) | pnl | volume
     active: Option<String>,         // 24h (default) | window
+    coins: Option<String>,          // comma-separated: only wallets that traded one of these
+    sort: Option<String>,           // roi | pnl | volume | equity | sharpe | win_rate | trades (default = rank)
+    // Score floors — see traders::ScoreFilter.
+    min_roi: Option<f64>,
+    min_pnl: Option<f64>,
+    min_volume: Option<f64>,
+    min_equity: Option<f64>,
+    min_sharpe: Option<f64>,
+    min_win: Option<f64>,
+    min_trades: Option<usize>,
+    with_stats: Option<bool>,
 }
 async fn top_traders(State(s): State<AppState>, Query(q): Query<TopQ>)
     -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
+    use crate::traders::{ScoreFilter, SortKey, ALL, ENRICH_CAP, ENRICH_MAX};
     let days = q.days.unwrap_or(7).clamp(1, 90);
     let min_per_day = q.min_per_day.unwrap_or(1.0).max(0.0);
-    let pool = q.pool.unwrap_or(150).clamp(1, 1500);
-    let seed: Vec<String> = q.seed.unwrap_or_default()
-        .split(',').filter(|x| !x.is_empty())
-        .map(|x| x.trim().to_lowercase()).collect();
     let bad = |what: &str, got: &str| (StatusCode::BAD_REQUEST, Json(json!({
         "error": format!("unknown {what} '{got}'"),
         "rank": ["roi", "pnl", "volume"], "active": ["24h", "window"],
+        "pool": "1-1500 or all",
+        "sort": ["roi", "pnl", "volume", "equity", "sharpe", "win_rate", "trades"],
     })));
+    let pool_s = q.pool.unwrap_or_default();
+    let pool = match pool_s.trim().to_ascii_lowercase().as_str() {
+        "" => 150,
+        "all" | "0" | "*" => ALL,
+        n => n.parse::<usize>().map_err(|_| bad("pool", &pool_s))?.clamp(1, 1500),
+    };
+    let enrich = q.enrich.unwrap_or(ENRICH_CAP).min(ENRICH_MAX);
+    let seed: Vec<String> = q.seed.unwrap_or_default()
+        .split(',').filter(|x| !x.is_empty())
+        .map(|x| x.trim().to_lowercase()).collect();
     let rank_s = q.rank.unwrap_or_default();
     let rank = crate::traders::Rank::parse(&rank_s).ok_or_else(|| bad("rank", &rank_s))?;
     let active_s = q.active.unwrap_or_default();
     let active = crate::traders::Active::parse(&active_s).ok_or_else(|| bad("active", &active_s))?;
+    let sort_s = q.sort.unwrap_or_default();
+    let sort = if sort_s.trim().is_empty() { None }
+        else { Some(SortKey::parse(&sort_s).ok_or_else(|| bad("sort", &sort_s))?) };
+    let filter = ScoreFilter {
+        min_roi: q.min_roi, min_pnl: q.min_pnl, min_volume: q.min_volume, min_equity: q.min_equity,
+        min_sharpe: q.min_sharpe, min_win: q.min_win, min_trades: q.min_trades,
+        with_stats: q.with_stats.unwrap_or(false),
+    };
+    // One shape for both paths: filter, then order, then report what was
+    // priced from the leaderboard vs actually measured from fills.
+    let finish = |mut traders: Vec<crate::traders::TopTrader>, depth: usize, candidates: Option<usize>,
+                  coins: Vec<String>, updated_at: i64| {
+        let priced = traders.len();
+        filter.apply(&mut traders);
+        if let Some(k) = sort { k.sort(&mut traders); }
+        Json(json!({
+            "days": days, "min_per_day": min_per_day,
+            "pool": if pool == ALL { json!("all") } else { json!(pool) },
+            "all": pool == ALL, "enrich": enrich,
+            "rank": rank.as_str(), "active": active.as_str(),
+            "sort": sort.map(|k| k.as_str()).unwrap_or(rank.as_str()),
+            "filter": filter, "filtered": !filter.is_empty(),
+            "coins": coins, "depth": depth, "candidates": candidates,
+            "priced": priced, "matched": traders.len(),
+            "enriched": crate::traders::enriched_count(&traders),
+            "updated_at": updated_at,
+            "traders": traders,
+        }))
+    };
+    let coins = crate::traders::wanted_coins(
+        &q.coins.unwrap_or_default().split(',').map(|x| x.to_string()).collect::<Vec<_>>());
+    // A coin nobody trades would send the scan through its whole walk budget
+    // (hundreds of throttled fills fetches) to find nothing — reject unknown
+    // names up front. Builder-dex ("xyz:GOLD") and spot-index ("@123") coins
+    // aren't in the perp/spot universe by name, so they pass through.
+    for c in &coins {
+        if c.contains(':') || c.starts_with('@') { continue; }
+        if s.meta.get(c).await.is_err() {
+            return Err((StatusCode::BAD_REQUEST, Json(json!({
+                "error": format!("unknown coin '{c}' — not in the Hyperliquid perp/spot universe"),
+                "coins": coins,
+            }))));
+        }
+    }
 
     // Fast path: the background refresher keeps boards for the standard
     // windows; serve those directly instead of re-running the scan per
-    // request. Seeded requests need custom rows, so they fall through.
-    if seed.is_empty() {
+    // request. Seeded and coin-filtered requests need their own walk of the
+    // leaderboard, so they fall through.
+    // A deeper enrichment than the refresher keeps warm is a real scan, so it
+    // skips the cache too.
+    if seed.is_empty() && coins.is_empty() && enrich <= ENRICH_CAP {
         if let Some(entry) = s.boards.get(days, rank, active) {
-            if entry.pool >= pool {
+            if entry.covers(pool) {
                 let mut traders = entry.traders;
-                traders.truncate(pool);
-                return Ok(Json(json!({
-                    "days": days, "min_per_day": min_per_day, "pool": pool,
-                    "rank": rank.as_str(), "active": active.as_str(),
-                    "updated_at": entry.updated_at,
-                    "traders": traders,
-                })));
+                if pool != ALL { traders.truncate(pool); }
+                let candidates = if entry.all { Some(entry.pool) } else { None };
+                let depth = traders.len();
+                return Ok(finish(traders, depth, candidates, vec![], entry.updated_at));
             }
         }
     }
 
-    let traders = crate::traders::top_traders_with_progress(
-        s.hl.clone(), days, min_per_day, pool, seed.clone(),
-        Some(s.progress.clone()), rank, active,
+    let board = crate::traders::top_traders_with_progress(
+        s.hl.clone(), s.index.clone(), days, pool, seed.clone(),
+        Some(s.progress.clone()), rank, active, coins, enrich,
     ).await.map_err(err500)?;
-    if seed.is_empty() {
-        // Store at least the prewarm width so the refresher's next pass (which
-        // walks every cached key) doesn't shrink what a wide request captured.
-        s.boards.put(days, rank, active, pool.max(crate::PREWARM_POOL), traders.clone());
+    // Cache what we computed under the key the refresher will keep warm —
+    // but never let a narrow live board replace a whole-leaderboard one that
+    // already covers it (a deeper `enrich` request lands here on purpose).
+    let covered = s.boards.get(days, rank, active).map_or(false, |e| e.covers(pool));
+    if seed.is_empty() && board.coins.is_empty() && (pool == ALL || !covered) {
+        s.boards.put(days, rank, active, pool, board.traders.clone());
     }
-    Ok(Json(json!({
-        "days": days, "min_per_day": min_per_day, "pool": pool,
-        "rank": rank.as_str(), "active": active.as_str(),
-        "updated_at": chrono::Utc::now().timestamp_millis(),
-        "traders": traders,
-    })))
+    Ok(finish(board.traders, board.depth, Some(board.candidates), board.coins,
+              chrono::Utc::now().timestamp_millis()))
 }
 
 async fn scan_progress(State(s): State<AppState>) -> Json<Value> {
@@ -661,18 +724,18 @@ async fn index_perf(State(s): State<AppState>, Path(id): Path<String>, Query(q):
 }
 
 #[derive(Deserialize)]
-struct AutoBody { days: Option<u32>, top: Option<usize>, min_per_day: Option<f64>, pool: Option<usize>, rank: Option<String> }
+struct AutoBody { days: Option<u32>, top: Option<usize>, pool: Option<usize>, rank: Option<String>, coins: Option<Vec<String>> }
 async fn auto_index_preview(State(s): State<AppState>, Json(b): Json<AutoBody>)
     -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
     let days = b.days.unwrap_or(7);
     let top = b.top.unwrap_or(10).max(1).min(50);
     let pool = b.pool.unwrap_or(150);
-    let mpd = b.min_per_day.unwrap_or(1.0);
     let rank = crate::traders::Rank::parse(b.rank.as_deref().unwrap_or("")).unwrap_or(crate::traders::Rank::Roi);
     let traders = crate::traders::top_traders_with_progress(
-        s.hl.clone(), days, mpd, pool, vec![], None, rank, crate::traders::Active::Day,
-    ).await.map_err(err500)?;
+        s.hl.clone(), s.index.clone(), days, pool, vec![], None, rank, crate::traders::Active::Day,
+        b.coins.unwrap_or_default(), crate::traders::ENRICH_CAP,
+    ).await.map(|b| b.traders).map_err(err500)?;
     let legs = crate::indexes::auto_legs(&traders, top);
     Ok(Json(json!({
         "days": days, "top": top, "legs": legs,
@@ -769,9 +832,11 @@ async fn forward(State(s): State<AppState>, Json(b): Json<ForwardBody>)
         }
         "top_traders" => {
             let days = b.payload.get("days").and_then(|x| x.as_u64()).unwrap_or(7) as u32;
-            let mpd = b.payload.get("min_per_day").and_then(|x| x.as_f64()).unwrap_or(1.0);
             let pool = b.payload.get("pool").and_then(|x| x.as_u64()).unwrap_or(150) as usize;
-            let traders = crate::traders::top_traders(s.hl.clone(), days, mpd, pool, vec![])
+            let coins: Vec<String> = b.payload.get("coins").and_then(|x| x.as_array())
+                .map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let traders = crate::traders::top_traders(s.hl.clone(), s.index.clone(), days, pool, vec![], coins)
                 .await.map_err(err500)?;
             json!({"traders": traders})
         }

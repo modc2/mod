@@ -211,6 +211,10 @@ async fn main() -> anyhow::Result<()> {
     // exempt themselves inside the middleware.
     let access = polymarket_api::AccessStore::from_env();
     let app = Router::new()
+        // Wallet-signed copy-desk actions need BOTH the access store (owner +
+        // nonce HMAC) and the app state (book + engines) — merged here where
+        // both exist, and still inside the guard below.
+        .merge(polymarket_api::copy_actions::router(access.clone(), state.clone()))
         .merge(polymarket_api::router().with_state(state))
         .merge(polymarket_api::access::router(access.clone()))
         .layer(axum::middleware::from_fn_with_state(

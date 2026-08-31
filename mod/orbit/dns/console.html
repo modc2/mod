@@ -190,7 +190,9 @@
 
   main{padding:18px 18px 88px;max-width:1520px;margin:0 auto;
         position:relative;z-index:1}
-  section{display:none} section.on{display:block}
+  section{display:none} section.on{display:block;animation:tabin .16s steps(4)}
+  @keyframes tabin{from{opacity:.25;transform:translateY(4px)}to{opacity:1;transform:none}}
+  @media(prefers-reduced-motion:reduce){section.on{animation:none}}
 
   /* ── controls ───────────────────────────────────────────────────── */
   .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
@@ -282,6 +284,10 @@
   .p.grn{color:var(--good);border-color:#22623d;background:rgba(93,255,155,.09)}
   .p.bad{color:var(--bad);border-color:#6b2626;background:rgba(255,107,107,.09)}
   .p.warn{color:var(--warn);border-color:#6b5216;background:rgba(255,206,77,.09)}
+  /* a masked address: the server sent x.x.x.x because the caller is not the
+     owner. Drawn as a fact with a reason, not as a broken-looking value. */
+  .p.priv{color:var(--warn);border-color:#6b5216;background:rgba(255,206,77,.07);
+     cursor:help;letter-spacing:.08em}
 
   .dimtxt{color:var(--dim)} .warnv{color:var(--warn)} .badv{color:var(--bad)}
   .goodv{color:var(--good)}
@@ -751,9 +757,22 @@ async function api(path, opts){
 
 const pill = (t, cls) => `<span class="p ${cls||''}">${esc(t)}</span>`;
 const yesno = b => b ? '<span class="goodv">yes</span>' : '<span class="dimtxt">no</span>';
-const copyable = (v, cls) => v
-  ? `<span class="cp ${cls||''}" data-copy="${esc(v)}" title="click to copy">${esc(v)}</span>`
-  : '<span class="dimtxt">—</span>';
+
+// The server masks IP addresses to x.x.x.x / x:x:x::x for anyone who is not
+// the deployment owner. Those tokens are a wire format, not a display format:
+// pv() runs over ALREADY-ESCAPED html and turns each one into a pill that
+// says what happened, so a hidden address reads as a fact, not a glitch.
+const MASKRE = /x\.x\.x\.x|x:x:x::x/;
+const PRIVANOTE = 'this address is private — only the deployment owner sees it';
+const pv = h => String(h).replace(/x\.x\.x\.x|x:x:x::x/g,
+  `<span class="p priv" title="${PRIVANOTE}">PRIVATE</span>`);
+const epv = s => pv(esc(s));
+const copyable = (v, cls) => {
+  if (v && MASKRE.test(String(v))) return pv(esc(v));   // nothing to copy
+  return v
+    ? `<span class="cp ${cls||''}" data-copy="${esc(v)}" title="click to copy">${esc(v)}</span>`
+    : '<span class="dimtxt">—</span>';
+};
 
 document.addEventListener('click', e => {
   const c = e.target.closest('[data-copy]');
@@ -881,6 +900,10 @@ function drawMenu(){
     <div class="kv"><span>standing</span><span class="role ${esc(w.role)}">${esc(w.role)}</span></div>
     <div class="kv"><span>deployment owner</span><span class="addr">${esc(short(w.owner)||'unclaimed')}</span></div>
     <div class="kv"><span>zones you can change</span><span>${(w.zones_you_can_change||[]).length || '<span class="dimtxt">none yet</span>'}</span></div>
+    <div class="kv"><span>ip addresses</span><span class="${w.is_owner?'goodv':''}">${
+      w.is_owner ? 'visible to you, masked for others'
+      : MASKRE.test(String(STATE.target||'')) ? '<span class="warnv">hidden — owner only</span>'
+      : 'visible'}</span></div>
     <div class="kv"><span>token signed</span><span class="${stale?'badv':'dimtxt'}">${esc(ago(age))}${stale?' · expired':''}</span></div>
     <div class="row">
       <button class="ghost" id="mre">re-sign</button>
@@ -931,7 +954,9 @@ async function doResolve(){
       <div class="card"><h3>name</h3><div class="big hot">${esc(d.name)}</div>
         <div class="sm">${esc(d.kind)} · zone ${esc(d.zone||'not held here')}</div></div>
       <div class="card"><h3>resolves to</h3><div class="big">${copyable((d.addresses||[]).join(', '))}</div>
-        <div class="sm">${esc(d.dns?.rcode||'')}${d.dns?.matched?' · '+esc(d.dns.matched):''}</div></div>
+        <div class="sm">${MASKRE.test((d.addresses||[]).join(','))
+          ? 'shown to the owner only — the name itself works for everyone'
+          : esc(d.dns?.rcode||'')+(d.dns?.matched?' · '+esc(d.dns.matched):'')}</div></div>
       <div class="card"><h3>module</h3><div class="big">${esc(d.module||'—')}</div>
         <div class="sm">${d.module ? (d.routed ? 'routed' : 'not routed') : 'a host, not a module'}</div></div>
       <div class="card"><h3>upstream</h3><div class="big">${up.api_port||'—'} <span class="dimtxt">/</span> ${up.app_port||'—'}</div>
@@ -961,7 +986,7 @@ async function doResolve(){
     if (ans.length) h += `<div class="box"><h2>what the server answers<span class="rest"></span></h2><table>
       <tr><th>name</th><th>type</th><th>value</th><th class="n">ttl</th></tr>
       ${ans.map(a=>`<tr><td>${esc(a.name)}</td><td>${pill(a.type,'hot')}</td>
-        <td class="txt">${esc(a.value)}</td><td class="n">${a.ttl}</td></tr>`).join('')}</table></div>`;
+        <td class="txt">${epv(a.value)}</td><td class="n">${a.ttl}</td></tr>`).join('')}</table></div>`;
     $('#rout').innerHTML = h;
   } catch(e){ toast(e.message, true); }
   $('#qgo').disabled = false;
@@ -1024,7 +1049,7 @@ async function verifyMod(name){
       <div class="why" style="margin-top:5px">${esc(a.means||a.error||'')}</div>
       <div class="why" style="margin:8px 0 6px">${a.card ? 'the signed card, as m.info() returns it'
         : 'no signed card — what the zone publishes, unattested'}</div>
-      <pre>${esc(JSON.stringify(a.card || d.card, null, 2))}</pre></div>`);
+      <pre>${epv(JSON.stringify(a.card || d.card, null, 2))}</pre></div>`);
     toast('');
     $('#aout').firstElementChild.scrollIntoView({block:'start', behavior:'smooth'});
   } catch(e){ toast(e.message, true); }
@@ -1173,10 +1198,10 @@ async function doCheck(){
     const d = await api(`/check?name=${encodeURIComponent(n)}&type=${$('#ctype').value}`);
     const cls = d.verdict==='match'?'goodv':d.verdict==='unknown'?'dimtxt':'warnv';
     $('#cout').innerHTML = `<div class="${cls}" style="font-size:16px">${esc(d.verdict)}</div>
-      <div class="why">${esc(d.detail)}</div>
+      <div class="why">${epv(d.detail)}</div>
       <table style="margin-top:10px">
-        <tr><td class="dimtxt">held here</td><td>${esc((d.here.values||[]).join(', ')||'—')} (${esc(d.here.rcode)})</td></tr>
-        <tr><td class="dimtxt">the internet</td><td>${esc((d.public.values||[]).join(', ')||'—')} ${d.public.rcode?'('+esc(d.public.rcode)+')':''}</td></tr>
+        <tr><td class="dimtxt">held here</td><td>${epv((d.here.values||[]).join(', ')||'—')} (${esc(d.here.rcode)})</td></tr>
+        <tr><td class="dimtxt">the internet</td><td>${epv((d.public.values||[]).join(', ')||'—')} ${d.public.rcode?'('+esc(d.public.rcode)+')':''}</td></tr>
         <tr><td class="dimtxt">delegated here</td><td>${yesno(d.delegation?.to_us)}</td></tr>
         <tr><td class="dimtxt">nameservers</td><td class="txt">${esc((d.delegation?.nameservers||[]).join(', ')||'—')}</td></tr>
       </table>`;
@@ -1192,7 +1217,7 @@ async function doPlan(){
       registered here ${yesno(d.registered_here)}</div>
       <table style="margin-top:8px">
       ${d.steps.map(s=>`<tr><td class="dimtxt n" style="width:22px">${s.step}</td>
-        <td><b>${esc(s.do)}</b><div class="why">${esc(s.how)}</div>
+        <td><b>${esc(s.do)}</b><div class="why">${epv(s.how)}</div>
         <div class="why">who: ${esc(s.who)}</div></td></tr>`).join('')}</table>
       <div class="note">${esc(d.note)}</div>`;
   } catch(e){ $('#pout').innerHTML = ''; toast(e.message, true); }
@@ -1254,7 +1279,7 @@ async function registerZone(){
     $('#regnext').innerHTML = `<div class="box" style="margin-top:11px">
       <h2>what makes ${esc(zone)} real<span class="rest"></span></h2>
       <table>${(d.next||[]).map(s=>`<tr><td class="dimtxt n" style="width:22px">${s.step}</td>
-        <td><b>${esc(s.do)}</b><div class="why">${esc(s.how)}</div></td></tr>`).join('')}</table></div>`;
+        <td><b>${esc(s.do)}</b><div class="why">${epv(s.how)}</div></td></tr>`).join('')}</table></div>`;
   } catch(e){ toast(e.message, true); }
 }
 
@@ -1470,7 +1495,7 @@ async function runTool(){
     $('#mres').innerHTML = `<div class="why">${out.isError
         ? '<span class="badv">the tool refused</span>' : '<span class="goodv">ok</span>'}
       · ${ms} ms · ${text.length} bytes</div>
-      <pre style="margin-top:7px">${esc(text)}</pre>`;
+      <pre style="margin-top:7px">${epv(text)}</pre>`;
   } catch(e){
     $('#mres').innerHTML = `<div class="badv">${esc(e.message)}</div>`;
   }
@@ -1580,13 +1605,13 @@ function runAction(a){
 function renderAnswer(d){
   const paras = (d.answer||[]).map(p => `<p>${esc(p)}</p>`).join('');
   const facts = (d.facts||[]).length ? '<div class="facts">' + d.facts.map(f =>
-    `<div><span>${esc(f.k)}</span><span>${esc(f.v)}</span></div>`).join('') + '</div>' : '';
+    `<div><span>${esc(f.k)}</span><span>${epv(f.v)}</span></div>`).join('') + '</div>' : '';
   const urls = (d.urls||[]).length ? '<div class="facts">' + d.urls.map(u =>
     `<div><span>${esc(u.k)}</span><span><a href="${esc(u.v)}" target="_blank" rel="noopener">${esc(u.v)}</a></span></div>`).join('') + '</div>' : '';
   const steps = (d.steps||[]).length ? '<ol>' + d.steps.map(s =>
-    `<li><b>${esc(s.do)}</b> — ${esc(s.how)}</li>`).join('') + '</ol>' : '';
+    `<li><b>${esc(s.do)}</b> — ${epv(s.how)}</li>`).join('') + '</ol>' : '';
   const cli = (d.cli||[]).length ? '<div class="cli"><span class="why">from a terminal</span>'
-    + d.cli.map(c => `<code data-copy="${esc(c)}">${esc(c)}</code>`).join('') + '</div>' : '';
+    + d.cli.map(c => `<code data-copy="${esc(c)}">${epv(c)}</code>`).join('') + '</div>' : '';
   const head = `<div class="head"><span class="u">${esc(d.understood || 'not sure what that meant')}</span>`
     + `<span class="c">${esc(d.confidence||'')}</span></div>`;
   return head + paras + steps + facts + urls + actionButtons(d.do) + cli
@@ -1656,8 +1681,8 @@ function drawStart(){
       <div class="tick">${s.done?'&#10003;':'&#9642;'}</div>
       <div>
         <h4>${esc(s.title)}${now?' <span class="badge">YOU ARE HERE</span>':''}</h4>
-        <div class="why">${esc(s.why)}</div>
-        <div class="how">${esc(s.how)}</div>
+        <div class="why">${epv(s.why)}</div>
+        <div class="how">${epv(s.how)}</div>
         <div class="acts">${s.action ? actionButtons([s.action]) : ''}
           ${s.cli ? `<button class="link" data-copy="${esc(s.cli)}">${esc(s.cli)}</button>` : ''}
         </div>
@@ -1775,7 +1800,14 @@ function drawStats(d){
       <span class="v">${d.modules.routed} <span class="dimtxt">· ${d.modules.live} up</span></span></div>
     <div class="stat"><span class="k">listener</span><span class="v">
       ${l.running ? `<span class="dot live"></span> ${esc(l.bind)}:${l.port}`
-                  : '<span class="dot bad"></span> down'}</span></div>`;
+                  : '<span class="dot bad"></span> down'}</span></div>
+    ${MASKRE.test(String(d.target||''))
+      ? `<div class="stat" title="${PRIVANOTE}"><span class="k">addresses</span>
+           <span class="v warnv">PRIVATE</span></div>`
+      : d.you && d.you.is_owner
+      ? `<div class="stat" title="everyone else sees x.x.x.x — settings.private_ips turns this off">
+           <span class="k">addresses</span><span class="v goodv">OWNER ONLY</span></div>`
+      : ''}`;
 }
 
 (async () => {

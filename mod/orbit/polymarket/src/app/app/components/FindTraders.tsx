@@ -1,134 +1,162 @@
 "use client";
 
-// FIND TRADERS BY MARKET — the desk's front door to the leaderboard.
+// ADD TRADERS — the desk's one way in.
 //
-// The question this answers is "who is good at BITCOIN", not "who is good".
-// Those are different lists, and the difference is the whole point: a trader
-// with a $400k lifetime P&L made none of it in the market you want to copy
-// them in, and copying them would have you following their election book.
+// One box. Paste a 0x address and ADD puts dollars behind that name. Type a
+// market topic (or tap a preset) and FIND ranks the leaderboard on their
+// record IN THAT MARKET ONLY — not lifetime P&L next to a filter. The query
+// that found a trader is stored on the allocation as `params.marketQuery`, so
+// the live engine and the backtest copy exactly the slice you ranked them on.
+// Find on bitcoin, copy on bitcoin.
 //
-// So the chain runs one way, all the way down:
+// Two things about the data, both surfaced rather than hidden:
 //
-//   market type  →  their trades in it  →  their numbers from those trades
-//                →  the traders that survive  →  the gate the copy runs under
-//
-// Every number in this table is recomputed server-side from ONLY the matching
-// markets (`apply_pagination` in api/src/routes.rs) — this is not a lifetime
-// P&L next to a market filter. And the query that produced the list is stored
-// on the allocation as `params.marketQuery`, so the live engine and the
-// backtest both refuse the leader's trades outside it. Find on bitcoin, copy
-// on bitcoin.
-//
-// The one thing that can quietly break that promise is the server answering a
-// filtered request from its DISK cache, which drops the per-market breakdown
-// and leaves the stats lifetime. `statsAreScoped` below detects it from the
-// payload itself and the panel says so rather than showing numbers that mean
-// something else.
+//   • Only the windows the server's hourly warmup aggregates answer instantly
+//     (1/7/14/30D). A window whose cache is cold says so and offers to warm it
+//     here — the old panel sent you to another page to press SYNC.
+//   • A filtered request answered from the DISK cache has no per-market
+//     breakdown, so its numbers are lifetime. `statsAreScoped` detects that
+//     from the payload and the panel says so.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import {
-  fetchTradersPage, formatPnl, formatVolume, timeAgo,
+  API_BASE, fetchTradersPage, formatPnl, formatVolume, timeAgo,
   WARMED_CANDIDATE_POOL, DEFAULT_ACTIVE_HOURS, type TopTrader,
 } from "../lib/polymarket";
 import { marketMatchesQuery } from "../lib/marketQuery";
 import { MARKET_TYPES, matchPreset } from "../lib/marketTypes";
 import { shortAddress } from "../lib/identityStrat";
+import {
+  DEFAULT_FORMULA, FORMULA_VARS, compileFormula, formatScore, scoreInputs,
+  loadSavedFormula, matchScorePreset, saveFormula,
+} from "../lib/scoreFormula";
+import ScoreRatioChips from "./ScoreRatioChips";
+import Sparkline from "./Sparkline";
+import {
+  addPicks, clearPicks, removePicks, setPickDays, togglePick as storeTogglePick, usePicks,
+} from "../lib/pickStore";
+import { OPEN_SIDEBAR_EVENT } from "./UserSidebar";
 
-/** Windows the server's hourly warmup actually aggregates (`warmup_cycle` in
-    pipeline.rs). Asking for any other window is a different cache key, and a
-    cold key answers `{cold:true}` instead of computing — so these four are the
-    only ones that come back instantly. */
+const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+/** Windows the hourly warmup aggregates (`warmup_cycle`, pipeline.rs). */
 const WINDOWS = [1, 7, 14, 30] as const;
-
 const SORTS = [
   { key: "pnl", label: "P&L" },
   { key: "sharpe", label: "SHARPE" },
   { key: "winRate", label: "WIN %" },
+  { key: "trades", label: "TRADES" },
   { key: "volume", label: "VOLUME" },
   { key: "last", label: "RECENT" },
+  { key: "score", label: "CUSTOM SCORE" },
 ] as const;
-
 const PAGE_SIZE = 12;
+/** CUSTOM SCORE is a client-side rank (the formula is JS), so the server
+    can't page it. Instead the panel pulls this many rows — ordered by the
+    score preset's own metric (win rate by default), or by Sharpe for a
+    hand-written formula — and ranks THEM with the formula. */
+const SCORE_POOL = 200;
+type SortDir = "asc" | "desc";
 
-/** True when the server recomputed each row's stats from the matching markets
-    only. Derived, not reported: the scoped path REPLACES `marketTitles` with
-    the matching titles, so a row carrying a title that doesn't match the query
-    is a row whose numbers are still lifetime — the disk-cache fallback. */
+/** How long to keep re-asking after WARM before giving up (10s × 24). */
+const WARM_POLLS = 24;
+
 function statsAreScoped(traders: TopTrader[], query: string): boolean {
   if (!query.trim() || traders.length === 0) return true;
   return traders.every((t) => t.marketTitles.every((title) => marketMatchesQuery(title, query)));
 }
 
 interface Props {
-  /** Adds the trader to the copy book with `marketQuery` as their gate. */
+  /** Adds the trader to the copy book, gated to `marketQuery` ("" = every market). */
   onAdd: (address: string, allocationUsd: number, marketQuery: string) => void;
-  /** Drops the trader into the BASKET draft instead — a shortlist you size and
-      replay as a set before any of it is committed (/copy/basket). Same gate
-      rides along, so a name found on bitcoin is basketed on bitcoin. */
+  /** Shortlist into the BASKET draft instead (/copy/basket). */
   onBasket?: (address: string, allocationUsd: number, marketQuery: string) => void;
-  /** Addresses already in the basket draft — shown as IN BASKET. */
   inBasket?: Set<string>;
   busy: boolean;
-  /** Addresses already in the book — shown as ADDED, and adding again just
-      re-points their gate at the current query. */
+  /** Addresses already in the book — ADD becomes UPDATE. */
   existing: Set<string>;
 }
 
 export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing }: Props) {
   const [query, setQuery] = useState("");
-  const [days, setDays] = useState<number>(7);
+  // 1D is the window the warmup always has ready — the panel opens on a
+  // search that answers, not on a cold-cache apology.
+  const [days, setDays] = useState<number>(1);
   const [sort, setSort] = useState<string>("pnl");
-  // The recency lens, on by default. This panel's output goes straight into
-  // the copy book, and a wallet that stopped trading two days ago is an
-  // allocation that fills nothing — it just looks good on a 7D board. Off
-  // shows the whole board, dormants included.
+  const [order, setOrder] = useState<SortDir>("desc");
   const [activeOnly, setActiveOnly] = useState(true);
   const [amount, setAmount] = useState("100");
+
+  // The custom SCORE formula — shared with the /traders board via one
+  // sessionStorage key, so a formula written there ranks here too.
+  const [formula, setFormula] = useState<string>(DEFAULT_FORMULA);
+  useEffect(() => { setFormula(loadSavedFormula()); }, []);
+  useEffect(() => { saveFormula(formula); }, [formula]);
+  const compiled = useMemo(() => compileFormula(formula), [formula]);
+  // The pool the formula re-ranks is server-ordered — by the preset's own
+  // metric when the formula IS a preset (win rate out of the box), by Sharpe
+  // for hand-written expressions.
+  const scorePoolSort = matchScorePreset(formula)?.key ?? "sharpe";
+  const scoreFor = useCallback(
+    (t: TopTrader): number =>
+      compiled.fn ? compiled.fn(scoreInputs(t)) : Number.NEGATIVE_INFINITY,
+    [compiled],
+  );
+
   const [rows, setRows] = useState<TopTrader[] | null>(null);
   const [total, setTotal] = useState(0);
   const [poolCount, setPoolCount] = useState(0);
-  const [ranQuery, setRanQuery] = useState("");
-  // The window the shown rows were actually scored over — `days` is the
-  // selector and can be moved without re-running, so the profile links use
-  // this instead. Same reason `ranQuery` exists.
-  const [ranDays, setRanDays] = useState(7);
-  // The lens the CURRENT rows were fetched under, and how many it removed —
-  // the toggle can be flipped without re-running, so the copy below has to
-  // describe the result, not the control.
-  const [ranActiveOnly, setRanActiveOnly] = useState(true);
+  const [syncedAt, setSyncedAt] = useState(0);
+  const [ran, setRan] = useState({ query: "", days: 1, activeOnly: true, sort: "pnl", order: "desc" as SortDir });
   const [dropped, setDropped] = useState(0);
   const [loading, setLoading] = useState(false);
   const [cold, setCold] = useState(false);
+  const [warming, setWarming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const warmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── The selection ──
+  //
+  // Checked rows live in lib/pickStore, not here: the tray that replays and
+  // commits them is a block of the user sidebar (SelectionTray.tsx), where a
+  // shortlist stays in view however far the page scrolls. Each pick remembers
+  // the $ and the QUERY it was checked under, so a selection built across
+  // several searches (two from bitcoin, one from nba) keeps each name's gate.
+  const { picks } = usePicks();
+  const picked = useMemo(() => new Set(picks.map((p) => p.address)), [picks]);
+  // The sidebar replays every pick over this panel's window — keep it told.
+  useEffect(() => { setPickDays(days); }, [days]);
 
   const usd = Number(amount);
   const amountOk = Number.isFinite(usd) && usd > 0;
-  const active = matchPreset(query);
+  const preset = matchPreset(query);
+  const typed = query.trim().toLowerCase();
+  const isAddress = ADDR_RE.test(typed);
+  const already = isAddress && existing.has(typed);
 
   const run = useCallback(
-    async (opts: { query?: string; days?: number; sort?: string; activeOnly?: boolean } = {}) => {
+    async (opts: { query?: string; days?: number; sort?: string; order?: SortDir; activeOnly?: boolean } = {}) => {
       const q = (opts.query ?? query).trim();
       const d = opts.days ?? days;
       const s = opts.sort ?? sort;
+      const o = opts.order ?? order;
       const recent = opts.activeOnly ?? activeOnly;
       setLoading(true);
       setError(null);
-      setCold(false);
       try {
+        // CUSTOM SCORE ranks client-side: pull a pool wide enough to
+        // re-rank (ordered by the score preset's metric, or Sharpe for a
+        // hand-written formula), instead of one server-ordered page.
+        const isScore = s === "score";
         const res = await fetchTradersPage({
           days: d,
-          // The warmed pool, always — see WARMED_CANDIDATE_POOL. A different
-          // pool is a different cache key and answers cold.
           pool: WARMED_CANDIDATE_POOL,
-          sort: s,
-          order: "desc",
+          sort: isScore ? scorePoolSort : s,
+          order: isScore ? "desc" : o,
           page: 0,
-          pageSize: PAGE_SIZE,
+          pageSize: isScore ? SCORE_POOL : PAGE_SIZE,
           marketQuery: q || undefined,
-          // Server-side, against the same cached aggregate — so `total` is the
-          // count of traders you could actually copy right now.
           maxLastTradeHrs: recent ? DEFAULT_ACTIVE_HOURS : undefined,
         });
         if (res.cold) {
@@ -136,70 +164,128 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
           setRows([]);
           setTotal(0);
         } else {
+          setCold(false);
           setRows(res.traders);
           setTotal(res.total);
           setPoolCount(res.count);
+          setSyncedAt(res.syncedAt ?? 0);
           setDropped(res.activityDropped ?? 0);
         }
-        setRanQuery(q);
-        setRanDays(d);
-        setRanActiveOnly(recent);
+        setRan({ query: q, days: d, activeOnly: recent, sort: s, order: o });
+        return !res.cold;
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
         setRows([]);
+        return false;
       } finally {
         setLoading(false);
       }
     },
-    [query, days, sort, activeOnly],
+    [query, days, sort, order, activeOnly, scorePoolSort],
   );
+
+  useEffect(() => () => { if (warmTimer.current) clearTimeout(warmTimer.current); }, []);
+
+  /** Ask the API to aggregate now, then keep re-asking until the window
+      answers. The sync is the same hourly cycle — this just doesn't wait for
+      the hour. */
+  const warm = useCallback(async () => {
+    setWarming(true);
+    try {
+      await fetch(`${API_BASE}/sync/run`, { method: "POST" });
+    } catch {
+      // The poll below reports the state either way.
+    }
+    let left = WARM_POLLS;
+    const tick = async () => {
+      const ok = await run();
+      if (ok || --left <= 0) {
+        setWarming(false);
+        return;
+      }
+      warmTimer.current = setTimeout(() => void tick(), 10_000);
+    };
+    warmTimer.current = setTimeout(() => void tick(), 10_000);
+  }, [run]);
+
+  const submit = () => {
+    if (isAddress) {
+      if (!amountOk || busy) return;
+      onAdd(typed, usd, "");
+      setQuery("");
+      return;
+    }
+    void run();
+  };
 
   const pick = (presetQuery: string) => {
     setQuery(presetQuery);
     void run({ query: presetQuery });
   };
 
-  const scoped = useMemo(() => statsAreScoped(rows ?? [], ranQuery), [rows, ranQuery]);
+  const scoped = useMemo(() => statsAreScoped(rows ?? [], ran.query), [rows, ran.query]);
 
-  /** The profile link for a row, carrying the search that produced the row.
-   *
-   *  This panel's whole claim is that a row is a trader's record IN THIS
-   *  MARKET TYPE — so the screen the row opens has to be that record too. The
-   *  link used to be a bare `/traders/<addr>`, which handed the profile no
-   *  filter at all: you searched BITCOIN, clicked the winner, and read a tape
-   *  of tennis. `?mq=` is the profile's topic filter (FiltersContext, seeded
-   *  from the URL by `useUrlSync`) and `?days=` matches the window the row
-   *  was scored over, so the two screens describe the same slice of flow.
-   *  The profile shows it as a clearable chip — one ✕ for the whole record. */
+  // What the table shows: the server page as-is, or — on CUSTOM SCORE — the
+  // pooled rows re-ranked by the formula, top of the page. Ranking is a memo,
+  // so editing the formula re-orders instantly without a refetch.
+  const view = useMemo(() => {
+    if (!rows) return null;
+    if (ran.sort !== "score") return rows;
+    const dir = ran.order === "desc" ? -1 : 1;
+    return [...rows].sort((a, b) => dir * (scoreFor(a) - scoreFor(b))).slice(0, PAGE_SIZE);
+  }, [rows, ran.sort, ran.order, scoreFor]);
+
   const profileHref = useCallback(
     (address: string) => {
       const qs = new URLSearchParams();
-      if (ranQuery) qs.set("mq", ranQuery);
-      qs.set("days", String(ranDays));
+      if (ran.query) qs.set("mq", ran.query);
+      qs.set("days", String(ran.days));
       return `/traders/${address}?${qs.toString()}`;
     },
-    [ranQuery, ranDays],
+    [ran.query, ran.days],
   );
+
+  const sortLabel =
+    ran.sort === "score"
+      ? `SCORE = ${formula}`
+      : SORTS.find((s) => s.key === ran.sort)?.label ?? ran.sort;
+
+  /** Check/uncheck one row. A fresh pick captures the current $ and the query
+      that found the row; sizing it afterwards happens on the sidebar tray. */
+  const togglePick = (address: string) =>
+    storeTogglePick({ address, usd: amountOk ? usd : 100, marketQuery: ran.query });
+
+  /** Header checkbox: all page rows picked → drop them; otherwise pick the missing. */
+  const pageAddrs = useMemo(() => (view ?? []).map((t) => t.address.toLowerCase()), [view]);
+  const allPagePicked = pageAddrs.length > 0 && pageAddrs.every((a) => picked.has(a));
+  const togglePage = () => {
+    if (allPagePicked) removePicks(pageAddrs);
+    else addPicks(pageAddrs.map((a) => ({ address: a, usd: amountOk ? usd : 100, marketQuery: ran.query })));
+  };
+
+  /** Flip the rank direction — the cards re-rank on the server. */
+  const flipOrder = () => {
+    if (loading) return;
+    const next: SortDir = order === "desc" ? "asc" : "desc";
+    setOrder(next);
+    void run({ order: next });
+  };
 
   return (
     <div className="pixel-panel p-4 space-y-3">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <div className="font-mono text-[12px] tracking-[0.14em] text-pixel-gray-light">
-          FIND TRADERS BY MARKET
-        </div>
+        <div className="font-mono text-[12px] tracking-[0.14em] text-pixel-gray-light">ADD A TRADER</div>
         <span className="font-mono text-[10px] text-pixel-gray">
-          their numbers in this market only — and the gate the copy runs under
+          paste an address to copy them — or pick a market to find who does best there
         </span>
       </div>
 
-      {/* The market type. One string: the search, and the copy gate. */}
+      {/* Presets: each is a literal query, and the query is the copy gate. */}
       <div className="flex flex-wrap items-center gap-1.5">
         {MARKET_TYPES.map((m) => (
           <button
             key={m.label}
-            className={`pixel-btn text-[10px] px-2 ${
-              active?.label === m.label ? "border-pixel-green text-pixel-green" : ""
-            }`}
+            className={`pixel-btn btn-xs ${preset?.label === m.label ? "border-pixel-green text-pixel-green" : ""}`}
             disabled={loading}
             onClick={() => pick(m.query)}
             title={`${m.hint} — matches: ${m.query}`}
@@ -207,252 +293,451 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
             {m.label}
           </button>
         ))}
-        {query.trim() !== "" && (
-          <button
-            className="pixel-btn text-[10px] px-2"
-            disabled={loading}
-            onClick={() => pick("")}
-            title="Every market — no gate, the leaderboard whole"
-          >
+        {typed !== "" && !isAddress && (
+          <button className="pixel-btn btn-xs" disabled={loading} onClick={() => pick("")} title="Every market — no gate">
             ✕ ANY MARKET
           </button>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Every control wears its label. A row of 1D/7D/BY P&L/ACTIVE 6H/$100
+          with no words was the most-asked-about strip on the console. */}
+      <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+        <Field label={isAddress ? "TRADER" : "TRADER ADDRESS · OR A MARKET"} className="flex-1 min-w-[260px]">
         <input
-          className="pixel-input-sm flex-1 min-w-[220px] font-mono text-[12px]"
-          placeholder="market topic — bitcoin, btc"
+          className={`pixel-input-sm w-full font-mono text-[12px] ${
+            typed.startsWith("0x") && !isAddress ? "border-amber-400/60" : ""
+          }`}
+          placeholder="0x… address to copy, or a market — bitcoin, nba, elections"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void run()}
-          title={
-            "OR across commas, AND within a phrase. \"price of bitcoin\" is one " +
-            "phrase; \"bitcoin, btc\" is either spelling."
-          }
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          title="An address copies that trader. A topic finds traders: OR across commas, AND within a phrase."
         />
-        <div className="flex items-center gap-1">
-          {WINDOWS.map((d) => (
-            <button
-              key={d}
-              className={`pixel-btn text-[10px] px-2 ${d === days ? "border-pixel-green text-pixel-green" : ""}`}
+        </Field>
+        {!isAddress && (
+          <>
+            <Field label="RANK OVER">
+            <div className="flex items-center gap-1">
+              {WINDOWS.map((d) => (
+                <button
+                  key={d}
+                  className={`pixel-btn btn-xs ${d === days ? "border-pixel-green text-pixel-green" : ""}`}
+                  disabled={loading}
+                  onClick={() => { setDays(d); void run({ days: d }); }}
+                  title={`Rank on the last ${d} day(s)`}
+                >
+                  {d}D
+                </button>
+              ))}
+            </div>
+            </Field>
+            <Field label="RANK BY">
+            <select
+              value={sort}
               disabled={loading}
-              onClick={() => { setDays(d); void run({ days: d }); }}
-              title={`Rank on the last ${d} day(s) of their flow`}
+              onChange={(e) => { setSort(e.target.value); void run({ sort: e.target.value }); }}
+              title="Rank by"
+              className="bg-pixel-black/40 border border-pixel-border/60 rounded px-1.5 py-[3px] font-mono text-[10px] text-pixel-white outline-none cursor-pointer"
             >
-              {d}D
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1">
-          {SORTS.map((s) => (
+              {SORTS.map((s) => (
+                <option key={s.key} value={s.key}>{s.label}</option>
+              ))}
+            </select>
+            </Field>
+            {sort === "score" && (
+              <Field label="SCORE =" className="flex-1 min-w-[200px]">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <ScoreRatioChips
+                    formula={formula}
+                    setFormula={setFormula}
+                    canSave={!compiled.error}
+                    btnClass="pixel-btn btn-xs"
+                  />
+                  <input
+                    className={`pixel-input-sm flex-1 min-w-[120px] font-mono text-[12px] ${compiled.error ? "border-red-400/70" : ""}`}
+                    value={formula}
+                    spellCheck={false}
+                    placeholder={DEFAULT_FORMULA}
+                    onChange={(e) => setFormula(e.target.value)}
+                    title={`Any expression of ${FORMULA_VARS.join(", ")} (and Math) — e.g. sharpe * Math.log(1 + volume)`}
+                  />
+                  <button
+                    className="pixel-btn btn-xs"
+                    onClick={() => setFormula(DEFAULT_FORMULA)}
+                    title="Back to the default — win rate"
+                  >
+                    RST
+                  </button>
+                </div>
+              </Field>
+            )}
+            <Field label="ONLY ACTIVE">
             <button
-              key={s.key}
-              className={`pixel-btn text-[10px] px-2 ${s.key === sort ? "border-pixel-green text-pixel-green" : ""}`}
+              className={`pixel-btn btn-xs ${activeOnly ? "border-pixel-green text-pixel-green" : ""}`}
               disabled={loading}
-              onClick={() => { setSort(s.key); void run({ sort: s.key }); }}
-              title={`Best ${s.label} in these markets first`}
+              onClick={() => { const next = !activeOnly; setActiveOnly(next); void run({ activeOnly: next }); }}
+              title={`Only traders who filled something in the last ${DEFAULT_ACTIVE_HOURS}h — a wallet that went quiet yesterday is a copy that never fills. Off = the whole board.`}
             >
-              {s.label}
+              {activeOnly ? `LAST ${DEFAULT_ACTIVE_HOURS}H` : "OFF"}
             </button>
-          ))}
-        </div>
-        <button
-          className={`pixel-btn text-[10px] px-2 ${activeOnly ? "border-pixel-green text-pixel-green" : ""}`}
-          disabled={loading}
-          onClick={() => { const next = !activeOnly; setActiveOnly(next); void run({ activeOnly: next }); }}
-          title={`Only traders who filled something in the last ${DEFAULT_ACTIVE_HOURS}h. A great ${days}D record on a wallet that went quiet yesterday is a copy that never fills. Off = the whole board.`}
-        >
-          ACTIVE {DEFAULT_ACTIVE_HOURS}H
-        </button>
-        <button className="pixel-btn text-[11px]" disabled={loading} onClick={() => void run()}>
-          {loading ? "…" : "FIND"}
-        </button>
-
-        <span className="flex-1" />
-
-        <span className="font-mono text-[9px] tracking-[0.14em] text-pixel-gray">COPY WITH $</span>
+            </Field>
+          </>
+        )}
+        <Field label="$ PER TRADER">
         <input
-          className="pixel-input-sm w-20 font-mono text-[12px]"
+          className="pixel-input-sm w-24 font-mono text-[12px]"
           value={amount}
           inputMode="decimal"
           onChange={(e) => setAmount(e.target.value)}
-          title="What each ADD puts behind the trader. Change it per row afterwards."
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          title="Dollars behind each trader you add. Editable per row afterwards."
         />
+        </Field>
+        <button
+          className={`pixel-btn btn-sm ${isAddress ? "border-pixel-green text-pixel-green" : ""}`}
+          disabled={loading || (isAddress && (!amountOk || busy))}
+          onClick={submit}
+          title={
+            isAddress
+              ? already
+                ? "Already in the book — this updates their allocation"
+                : `Copy ${shortAddress(typed)} with $${amountOk ? usd : "…"} across every market they trade`
+              : "Rank the leaderboard on this market"
+          }
+        >
+          {loading ? "…" : isAddress ? (already ? "UPDATE $" : `COPY WITH $${amountOk ? usd : "…"}`) : "FIND TRADERS"}
+        </button>
       </div>
 
+      {typed.startsWith("0x") && !isAddress && (
+        <div className="font-mono text-[10px] text-amber-400">
+          that isn&apos;t a full address yet — 42 hex characters
+        </div>
+      )}
+      {sort === "score" && (
+        compiled.error ? (
+          <div className="font-mono text-[10px] text-red-400">formula: {compiled.error}</div>
+        ) : (
+          <div className="font-mono text-[9px] text-pixel-gray">
+            your formula ranks the top {SCORE_POOL} by {matchScorePreset(formula)?.label ?? "Sharpe"} — variables: {FORMULA_VARS.join(" · ")}, plus Math.
+            Write your own ratio (pnl / volume) and + SAVE keeps it as a chip. Shared with the /traders board.
+          </div>
+        )
+      )}
       {error && <div className="font-mono text-[10px] text-red-400">{error}</div>}
 
-      {cold && (
-        <div className="font-mono text-[10px] text-amber-400">
-          the leaderboard cache is cold for {days}D — open{" "}
-          <Link href="/traders" className="text-pixel-green underline">TRADERS</Link>{" "}
-          and press SYNC to aggregate it, then come back
+      {/* The selection itself lives in the SIDE PANEL (SelectionTray) — every
+          checked row replayed there as it's checked, sized per name, committed
+          with one COPY ALL. Here, just the count: the desk stays a finder. */}
+      {picks.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px]">
+          <span className="text-[11px] tracking-[0.14em] text-pixel-green">
+            {picks.length} SELECTED · ${picks.reduce((s, p) => s + p.usd, 0).toLocaleString()}
+          </span>
+          <span className="text-pixel-gray">
+            replaying in the side panel — size and commit them there
+          </span>
+          <button
+            className="pixel-btn btn-xs"
+            onClick={() => window.dispatchEvent(new Event(OPEN_SIDEBAR_EVENT))}
+            title="Open the side panel — the selection tray is its top block"
+          >
+            SHOW PANEL →
+          </button>
+          <button className="pixel-btn btn-xs" onClick={clearPicks} title="Uncheck everything">
+            CLEAR
+          </button>
         </div>
       )}
 
-      {rows !== null && !cold && (
+      {cold && (
+        <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] text-amber-400">
+          <span>the {ran.days}D leaderboard hasn&apos;t been aggregated yet</span>
+          <button className="pixel-btn btn-xs" disabled={warming} onClick={() => void warm()}>
+            {warming ? "WARMING…" : "WARM IT NOW"}
+          </button>
+          <span className="text-pixel-gray">
+            {warming ? "re-checking every 10s — a full sweep takes a few minutes" : "or use 1D, which is always ready"}
+          </span>
+        </div>
+      )}
+
+      {view !== null && !cold && (
         <>
           <div className="font-mono text-[10px] text-pixel-gray">
-            {ranQuery ? (
+            {ran.query ? (
               <>
                 <span className="text-pixel-gray-light">{total.toLocaleString()}</span> of{" "}
-                {poolCount.toLocaleString()} traders in the {days}D leaderboard trade{" "}
-                <span className="text-pixel-gray-light">“{ranQuery}”</span> — showing the top{" "}
-                {Math.min(PAGE_SIZE, rows.length)} by {SORTS.find((s) => s.key === sort)?.label}
+                {poolCount.toLocaleString()} traders on the {ran.days}D board trade{" "}
+                <span className="text-pixel-gray-light">“{ran.query}”</span> — top{" "}
+                {Math.min(PAGE_SIZE, view.length)} by {sortLabel}{ran.order === "asc" ? " (lowest first)" : ""}
               </>
             ) : (
               <>
-                every market, {total.toLocaleString()} traders — pick a market type above to rank
-                traders on that flow alone
+                {total.toLocaleString()} traders on the {ran.days}D board, every market — top{" "}
+                {Math.min(PAGE_SIZE, view.length)} by {sortLabel}{ran.order === "asc" ? " (lowest first)" : ""}
               </>
             )}
-            {ranActiveOnly && (
+            {ran.activeOnly && (
               <>
-                {" "}·{" "}
-                <span className="text-pixel-green">active {DEFAULT_ACTIVE_HOURS}h</span>
+                {" "}· <span className="text-pixel-green">active {DEFAULT_ACTIVE_HOURS}h</span>
                 {dropped > 0 && <> ({dropped.toLocaleString()} dormant hidden)</>}
               </>
             )}
+            {syncedAt > 0 && <> · data {timeAgo(syncedAt * 1000)}</>}
           </div>
 
-          {ranQuery && !scoped && (
+          {ran.query && !scoped && (
             <div className="font-mono text-[10px] text-amber-400">
-              these numbers are LIFETIME, not “{ranQuery}”-only — the server answered from its disk
-              cache, which has no per-market breakdown. Press SYNC on{" "}
-              <Link href="/traders" className="text-pixel-green underline">TRADERS</Link> to get
-              market-scoped stats.
+              these numbers are LIFETIME, not “{ran.query}”-only — answered from the disk cache.{" "}
+              <button className="pixel-btn btn-xs" disabled={warming} onClick={() => void warm()}>
+                {warming ? "WARMING…" : "RE-AGGREGATE"}
+              </button>
             </div>
           )}
 
-          {rows.length === 0 ? (
+          {view.length === 0 ? (
             <div className="font-mono text-[10px] text-pixel-gray">
-              no trader in the {days}D leaderboard traded {ranQuery ? `“${ranQuery}”` : "anything"}
-              {ranActiveOnly && dropped > 0 ? (
-                <> in the last {DEFAULT_ACTIVE_HOURS}h — {dropped.toLocaleString()} traded it earlier,
-                  so turn ACTIVE {DEFAULT_ACTIVE_HOURS}H off to see them</>
-              ) : (
-                <>. Try a wider market type, or a longer window.</>
-              )}
+              nobody on the {ran.days}D board traded {ran.query ? `“${ran.query}”` : "anything"}
+              {ran.activeOnly && dropped > 0
+                ? ` in the last ${DEFAULT_ACTIVE_HOURS}h — ${dropped.toLocaleString()} did earlier; set ONLY ACTIVE to OFF to see them`
+                : ". Try a wider market, or a longer window."}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="pixel-table w-full" style={{ minWidth: "760px" }}>
-                <thead>
-                  <tr>
-                    <th>TRADER</th>
-                    <th className="text-right">P&amp;L</th>
-                    <th className="text-right">TRADES</th>
-                    <th className="text-right">WIN</th>
-                    <th className="text-right">SHARPE</th>
-                    <th className="text-right">VOLUME</th>
-                    <th className="text-right">MARKETS</th>
-                    <th className="text-right">LAST</th>
-                    {/* Two actions live here (copy now, or shortlist into the
-                        basket). `table-layout: fixed` + `overflow: hidden` on
-                        a cell means an unsized action column clips the second
-                        button — and a clipped button is not just ugly, it
-                        can't be clicked. */}
-                    <th className={onBasket ? "w-[232px]" : "w-[110px]"} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((t) => {
-                    const already = existing.has(t.address.toLowerCase());
-                    return (
-                      <tr key={t.address}>
-                        <td className="font-mono text-[11px]">
-                          <Link
-                            href={profileHref(t.address)}
-                            className="text-pixel-gray-light hover:text-pixel-green normal-case"
-                            title={
-                              ranQuery
-                                ? `${t.address} — their record in “${ranQuery}” over ${ranDays}D`
-                                : t.address
-                            }
-                          >
-                            {shortAddress(t.address)} ↗
-                          </Link>
-                        </td>
-                        <td
-                          className={`num text-right font-mono text-[11px] ${
+            <>
+              {/* One row of page-wide controls where the table header used to be. */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <label
+                  className="flex items-center gap-1.5 font-mono text-[9px] tracking-[0.1em] text-pixel-gray cursor-pointer"
+                  title="Select everyone on this page — each gets replayed with your $ in the side panel, automatically"
+                >
+                  <input
+                    type="checkbox"
+                    className="cursor-pointer accent-emerald-400 w-3 h-3"
+                    checked={allPagePicked}
+                    onChange={togglePage}
+                  />
+                  SELECT ALL {view.length}
+                </label>
+                <button
+                  className="pixel-btn btn-xs"
+                  disabled={loading}
+                  onClick={flipOrder}
+                  title="Flip the ranking direction"
+                >
+                  {ran.order === "desc" ? "▼ BEST FIRST" : "▲ WORST FIRST"}
+                </button>
+              </div>
+
+              {/* One card per trader: who they are, the shape of their P&L
+                  over the window, the numbers behind it, and the two actions.
+                  The curve is the same slice the stats are — filtered board,
+                  filtered curve. */}
+              <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))" }}>
+                {view.map((t, i) => {
+                  const addr = t.address.toLowerCase();
+                  const inBook = existing.has(addr);
+                  const basketed = inBasket?.has(addr) ?? false;
+                  const curve = t.pnlCurve;
+                  const score = ran.sort === "score" ? scoreFor(t) : null;
+                  return (
+                    <div
+                      key={t.address}
+                      className={`rounded border p-2.5 flex flex-col gap-2 ${
+                        picked.has(addr)
+                          ? "border-pixel-green/60 bg-pixel-green/5"
+                          : "border-pixel-border/60 bg-pixel-black/20"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <input
+                          type="checkbox"
+                          className="cursor-pointer accent-emerald-400 w-3 h-3 shrink-0"
+                          checked={picked.has(addr)}
+                          onChange={() => togglePick(t.address)}
+                          title={
+                            picked.has(addr)
+                              ? "Unselect — drops them from the side panel"
+                              : `Select — backtests $${amountOk ? usd : 100} on them automatically, in the side panel`
+                          }
+                        />
+                        <span className="font-mono text-[9px] text-pixel-gray shrink-0">#{i + 1}</span>
+                        <Link
+                          href={profileHref(t.address)}
+                          className="font-mono text-[11px] text-pixel-gray-light hover:text-pixel-green normal-case truncate"
+                          title={`${t.address}\n${t.marketTitles.slice(0, 6).join("\n")}`}
+                        >
+                          {shortAddress(t.address)} ↗
+                        </Link>
+                        {inBook && (
+                          <span className="font-mono text-[8px] tracking-[0.12em] border border-pixel-green/50 text-pixel-green rounded-[3px] px-1 py-[1px] shrink-0">
+                            IN BOOK
+                          </span>
+                        )}
+                        <span
+                          className="ml-auto font-mono text-[9px] text-pixel-gray whitespace-nowrap shrink-0"
+                          title="Time since their most recent trade"
+                        >
+                          {t.lastTradeTs ? timeAgo(t.lastTradeTs * 1000) : "—"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span
+                          className={`font-mono text-[16px] leading-none ${
                             t.pnl > 0 ? "text-pixel-green" : t.pnl < 0 ? "text-red-400" : "text-pixel-gray"
                           }`}
+                          title="Realized + marked P&L over the window"
                         >
                           {formatPnl(t.pnl)}
-                        </td>
-                        <td className="num text-right font-mono text-[11px] text-pixel-gray-light">
-                          {t.recentTrades.toLocaleString()}
-                        </td>
-                        <td className="num text-right font-mono text-[11px] text-pixel-gray-light">
-                          {t.winRate < 0 ? "—" : `${Math.round(t.winRate)}%`}
-                        </td>
-                        <td className="num text-right font-mono text-[11px] text-pixel-gray-light">
-                          {t.sharpe ? t.sharpe.toFixed(2) : "—"}
-                        </td>
-                        <td className="num text-right font-mono text-[11px] text-pixel-gray-light">
-                          {formatVolume(t.volume)}
-                        </td>
-                        <td
-                          className="num text-right font-mono text-[11px] text-pixel-gray"
-                          title={t.marketTitles.slice(0, 6).join("\n")}
+                        </span>
+                        <span
+                          className={`font-mono text-[8.5px] tracking-[0.1em] ${
+                            ran.sort === "pnl" ? "text-pixel-green" : "text-pixel-gray"
+                          }`}
                         >
-                          {t.marketTitles.length}
-                        </td>
-                        <td className="num text-right font-mono text-[10px] text-pixel-gray">
-                          {t.lastTradeTs ? timeAgo(t.lastTradeTs * 1000) : "—"}
-                        </td>
-                        <td className="text-right" style={{ overflow: "visible" }}>
+                          {ran.days}D P&L{ran.query ? " · THIS MARKET" : ""}
+                        </span>
+                      </div>
+
+                      {curve && curve.length > 1 ? (
+                        <div
+                          className="w-full"
+                          title="Cumulative realized P&L across the window — open positions' marks land in the total above, not this line"
+                        >
+                          <Sparkline
+                            data={curve}
+                            width={250}
+                            height={48}
+                            stretch
+                            hoverLabel={(idx) => `bucket ${idx + 1}/${curve.length} of the ${ran.days}D window`}
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-[48px] flex items-center justify-center font-mono text-[8.5px] text-pixel-gray border border-dashed border-pixel-border/40 rounded">
+                          no P&L curve for this slice yet — the next sync draws it
+                        </div>
+                      )}
+
+                      <div className={`grid ${score !== null ? "grid-cols-5" : "grid-cols-4"} gap-1`}>
+                        <Stat
+                          label="WIN"
+                          active={ran.sort === "winRate"}
+                          value={t.winRate < 0 ? "—" : `${Math.round(t.winRate)}%`}
+                          title="Share of closed positions that made money"
+                        />
+                        <Stat
+                          label="TRADES"
+                          active={ran.sort === "trades"}
+                          value={t.recentTrades.toLocaleString()}
+                          title="Trades in the window"
+                        />
+                        <Stat
+                          label="SHARPE"
+                          active={ran.sort === "sharpe"}
+                          value={t.sharpe ? t.sharpe.toFixed(2) : "—"}
+                          title="Mean / stdev of per-trade returns"
+                        />
+                        <Stat
+                          label="VOLUME"
+                          active={ran.sort === "volume"}
+                          value={formatVolume(t.volume)}
+                          title="Dollars traded over the window"
+                        />
+                        {score !== null && (
+                          <Stat
+                            label="SCORE"
+                            active
+                            value={formatScore(score)}
+                            valueClass={score > 0 ? "text-pixel-green" : score < 0 ? "text-red-400" : "text-pixel-gray"}
+                            title={`score = ${formula}`}
+                          />
+                        )}
+                      </div>
+
+                      <div className="flex gap-1 mt-auto">
+                        <button
+                          className="pixel-btn btn-xs flex-1"
+                          disabled={!amountOk || busy}
+                          onClick={() => onAdd(t.address, usd, ran.query)}
+                          title={
+                            inBook
+                              ? `Already in the book — sets $${usd} and gates them to ${ran.query ? `“${ran.query}”` : "all markets"}`
+                              : ran.query
+                                ? `Copy with $${usd}, only where they trade “${ran.query}”`
+                                : `Copy with $${usd}, across every market they trade`
+                          }
+                        >
+                          {inBook ? "UPDATE" : `COPY $${amountOk ? usd : "…"}`}
+                        </button>
+                        {onBasket && (
                           <button
-                            className="pixel-btn text-[10px] px-2"
+                            className={`pixel-btn btn-xs flex-1 ${basketed ? "border-pixel-green text-pixel-green" : ""}`}
                             disabled={!amountOk || busy}
-                            onClick={() => onAdd(t.address, usd, ranQuery)}
+                            onClick={() => onBasket(t.address, usd, ran.query)}
                             title={
-                              already
-                                ? `Already in the book — this re-points their gate at ${
-                                    ranQuery ? `“${ranQuery}”` : "all markets"
-                                  } and sets $${usd}`
-                                : ranQuery
-                                  ? `Copy with $${usd}, only where they trade “${ranQuery}”`
-                                  : `Copy with $${usd}, across every market they trade`
+                              basketed
+                                ? "In the basket — this re-sizes them there"
+                                : "Shortlist: size several traders against each other on /copy/basket before committing"
                             }
                           >
-                            {already ? "RE-GATE" : `ADD $${amountOk ? usd : "…"}`}
+                            {basketed ? "IN BASKET" : "BASKET"}
                           </button>
-                          {onBasket && (
-                            <button
-                              className={`pixel-btn text-[10px] px-2 ml-1 ${
-                                inBasket?.has(t.address.toLowerCase()) ? "border-pixel-green text-pixel-green" : ""
-                              }`}
-                              disabled={!amountOk || busy}
-                              onClick={() => onBasket(t.address, usd, ranQuery)}
-                              title={
-                                inBasket?.has(t.address.toLowerCase())
-                                  ? "Already in the basket — this re-sizes them there"
-                                  : "Shortlist them: the basket sizes several traders at once and replays the whole split before anything is committed"
-                              }
-                            >
-                              {inBasket?.has(t.address.toLowerCase()) ? "IN BASKET" : "+ BASKET"}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
 
-          {rows.length > 0 && (
+          {view.length > 0 && (
             <div className="font-mono text-[9px] text-pixel-gray">
-              {ranQuery
-                ? `ADD copies them only in markets matching “${ranQuery}” — the same gate the backtest replays under. Change or drop it on the row below.`
-                : "no market gate — ADD copies everything they trade."}
+              {ran.query
+                ? `COPY follows them only in markets matching “${ran.query}” — the backtest and the live engine both use that filter, and each card's curve is that slice alone.`
+                : "no market filter — COPY follows everything they trade."}
+              {" "}Or tick several cards — each gets backtested automatically, in the side panel.
             </div>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** A control with its name over it. */
+function Field({ label, className = "", children }: { label: string; className?: string; children: React.ReactNode }) {
+  return (
+    <div className={`flex flex-col gap-1 ${className}`}>
+      <span className="font-mono text-[8.5px] tracking-[0.14em] text-pixel-gray whitespace-nowrap">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+/** One number on a trader card — label over value, label lit when it's the
+    metric the board is ranked by. */
+function Stat({
+  label,
+  value,
+  active = false,
+  title,
+  valueClass = "text-pixel-gray-light",
+}: {
+  label: string;
+  value: string;
+  active?: boolean;
+  title?: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0" title={title}>
+      <span className={`font-mono text-[8px] tracking-[0.12em] ${active ? "text-pixel-green" : "text-pixel-gray"}`}>
+        {label}
+      </span>
+      <span className={`font-mono text-[11px] truncate ${valueClass}`}>{value}</span>
     </div>
   );
 }

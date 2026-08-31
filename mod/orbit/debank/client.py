@@ -53,6 +53,60 @@ CHAIN_ALIASES = {
     'metis': 'metis',
 }
 
+# ── the bank rail: chains a browser wallet can be pointed at ──
+#
+# DeBank is the full picture, but it needs a key. These are the chains a
+# browser wallet actually switches to, each with a public RPC that answers
+# balance reads keyless. Native coin + the major stablecoins, priced by
+# CoinGecko's free tier, is the floor the bank stands on when no AccessKey is
+# present — real numbers, not an empty page.
+NETWORKS = {
+    'eth': {'name': 'Ethereum', 'chain_id': 1, 'native': 'ETH', 'coingecko': 'ethereum',
+            'rpc': 'https://ethereum-rpc.publicnode.com', 'explorer': 'https://etherscan.io',
+            'tokens': {'USDC': ('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', 6),
+                       'USDT': ('0xdAC17F958D2ee523a2206206994597C13D831ec7', 6),
+                       'DAI': ('0x6B175474E89094C44Da98b954EedeAC495271d0F', 18)}},
+    'base': {'name': 'Base', 'chain_id': 8453, 'native': 'ETH', 'coingecko': 'ethereum',
+             'rpc': 'https://base-rpc.publicnode.com', 'explorer': 'https://basescan.org',
+             'tokens': {'USDC': ('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', 6),
+                        'DAI': ('0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', 18)}},
+    'arb': {'name': 'Arbitrum', 'chain_id': 42161, 'native': 'ETH', 'coingecko': 'ethereum',
+            'rpc': 'https://arbitrum-one-rpc.publicnode.com', 'explorer': 'https://arbiscan.io',
+            'tokens': {'USDC': ('0xaf88d065e77c8cC2239327C5EDb3A432268e5831', 6),
+                       'USDT': ('0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', 6),
+                       'DAI': ('0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1', 18)}},
+    'op': {'name': 'Optimism', 'chain_id': 10, 'native': 'ETH', 'coingecko': 'ethereum',
+           'rpc': 'https://optimism-rpc.publicnode.com',
+           'explorer': 'https://optimistic.etherscan.io',
+           'tokens': {'USDC': ('0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85', 6),
+                      'USDT': ('0x94b008aA00579c1307B0EF2c499aD98a8ce58e58', 6),
+                      'DAI': ('0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1', 18)}},
+    'matic': {'name': 'Polygon', 'chain_id': 137, 'native': 'POL', 'coingecko': 'matic-network',
+              'rpc': 'https://polygon-bor-rpc.publicnode.com',
+              'explorer': 'https://polygonscan.com',
+              'tokens': {'USDC': ('0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', 6),
+                         'USDT': ('0xc2132D05D31c914a87C6611C10748AEb04B58e8F', 6),
+                         'DAI': ('0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063', 18)}},
+    'bsc': {'name': 'BNB Chain', 'chain_id': 56, 'native': 'BNB', 'coingecko': 'binancecoin',
+            'rpc': 'https://bsc-rpc.publicnode.com', 'explorer': 'https://bscscan.com',
+            'tokens': {'USDC': ('0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d', 18),
+                       'USDT': ('0x55d398326f99059fF775485246999027B3197955', 18),
+                       'DAI': ('0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3', 18)}},
+    'avax': {'name': 'Avalanche', 'chain_id': 43114, 'native': 'AVAX', 'coingecko': 'avalanche-2',
+             'rpc': 'https://avalanche-c-chain-rpc.publicnode.com',
+             'explorer': 'https://snowtrace.io',
+             'tokens': {'USDC': ('0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E', 6),
+                        'USDT': ('0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7', 6),
+                        'DAI': ('0xd586E7F844cEa2F87f50152665BCbc2C279D8d70', 18)}},
+    'xdai': {'name': 'Gnosis', 'chain_id': 100, 'native': 'xDAI', 'coingecko': 'xdai',
+             'rpc': 'https://gnosis-rpc.publicnode.com', 'explorer': 'https://gnosisscan.io',
+             'tokens': {'USDC': ('0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83', 6),
+                        'USDT': ('0x4ECaBa5870353805a9F068101A40E0f32ed605C6', 6)}},
+}
+STABLE_IDS = {'USDC': 'usd-coin', 'USDT': 'tether', 'DAI': 'dai'}
+PRICE_URL = 'https://api.coingecko.com/api/v3/simple/price'
+RPC_TIMEOUT = float(os.environ.get('DEBANK_RPC_TIMEOUT', 12))
+
 # Categories DeBank tags history rows with, in plain words.
 CATES = {
     'send': 'send', 'receive': 'receive', 'approve': 'approve',
@@ -173,6 +227,155 @@ def _rank(rows, min_usd, limit, key='usd'):
     out = kept[:limit] if limit else kept
     return out, {'shown': len(out), 'matched': len(kept), 'total': len(rows),
                  'hidden_below_min_usd': hidden, 'min_usd': min_usd}
+
+
+# ── keyless reads ──
+
+_price_cache = {'at': 0, 'prices': {}}
+
+
+def prices(refresh=False):
+    """USD prices for every native coin and stablecoin on the bank rail.
+
+    CoinGecko's free tier, cached 60s. A failure returns the last good answer
+    (or pegs the stables at 1.0) rather than blanking the whole page — a bank
+    that shows amounts without prices beats one that shows nothing.
+    """
+    cache = _price_cache
+    if not refresh and cache['prices'] and time.time() - cache['at'] < 60:
+        return cache['prices']
+    ids = sorted({n['coingecko'] for n in NETWORKS.values()} | set(STABLE_IDS.values()))
+    try:
+        req = urllib.request.Request(
+            f'{PRICE_URL}?ids={",".join(ids)}&vs_currencies=usd',
+            headers={'accept': 'application/json', 'user-agent': 'mod-debank/0.1'})
+        with urllib.request.urlopen(req, timeout=RPC_TIMEOUT) as r:
+            got = json.loads(r.read() or b'{}')
+        out = {k: _f((v or {}).get('usd')) for k, v in got.items()}
+        if out:
+            cache.update(at=time.time(), prices=out)
+    except Exception:
+        pass
+    out = dict(cache['prices'])
+    for sid in STABLE_IDS.values():
+        out.setdefault(sid, 1.0)
+    return out
+
+
+def rpc(url, calls):
+    """One batched JSON-RPC POST. `calls` is [(method, params), ...]; returns
+    the results in order, None where a call errored."""
+    body = [{'jsonrpc': '2.0', 'id': i, 'method': m, 'params': p}
+            for i, (m, p) in enumerate(calls)]
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={
+        'content-type': 'application/json', 'accept': 'application/json',
+        'user-agent': 'mod-debank/0.1'})
+    with urllib.request.urlopen(req, timeout=RPC_TIMEOUT) as r:
+        answers = json.loads(r.read() or b'[]')
+    if isinstance(answers, dict):
+        answers = [answers]
+    by_id = {a.get('id'): a.get('result') for a in answers if isinstance(a, dict)}
+    return [by_id.get(i) for i in range(len(calls))]
+
+
+def _hex_amount(value, decimals):
+    if not value or not isinstance(value, str):
+        return 0.0
+    try:
+        return int(value, 16) / (10 ** decimals)
+    except ValueError:
+        return 0.0
+
+
+def _balance_of(addr):
+    # balanceOf(address) — selector 0x70a08231, one 32-byte padded argument.
+    return '0x70a08231' + addr[2:].lower().rjust(64, '0')
+
+
+def chain_balances(chain, addr, px):
+    """Native coin plus the stablecoins on one bank-rail chain, via its public RPC."""
+    net = NETWORKS[chain]
+    tokens = list(net['tokens'].items())
+    calls = [('eth_getBalance', [addr, 'latest'])] + [
+        ('eth_call', [{'to': contract, 'data': _balance_of(addr)}, 'latest'])
+        for _, (contract, _) in tokens]
+    results = rpc(net['rpc'], calls)
+    rows = []
+    native_amt = _hex_amount(results[0], 18)
+    price = px.get(net['coingecko'], 0.0)
+    rows.append({'chain': chain, 'symbol': net['native'], 'name': net['name'] + ' native',
+                 'amount': native_amt, 'price': price, 'usd': round(native_amt * price, 2),
+                 'token_id': chain, 'verified': True, 'native': True, 'decimals': 18})
+    for (sym, (contract, dec)), res in zip(tokens, results[1:]):
+        amt = _hex_amount(res, dec)
+        p = px.get(STABLE_IDS.get(sym, ''), 1.0)
+        rows.append({'chain': chain, 'symbol': sym, 'name': sym + ' on ' + net['name'],
+                     'amount': amt, 'price': p, 'usd': round(amt * p, 2),
+                     'token_id': contract.lower(), 'verified': True, 'native': False,
+                     'decimals': dec})
+    return rows
+
+
+def networks():
+    """The bank rail, in the shape a browser wallet needs: hex chain ids, RPCs,
+    explorers, and the stablecoin contracts with their decimals."""
+    return {'count': len(NETWORKS), 'networks': [
+        {'chain': k, 'name': n['name'], 'chain_id': n['chain_id'],
+         'chain_id_hex': hex(n['chain_id']), 'native': n['native'], 'decimals': 18,
+         'rpc': n['rpc'], 'explorer': n['explorer'],
+         'tokens': [{'symbol': s, 'address': a, 'decimals': d}
+                    for s, (a, d) in n['tokens'].items()]}
+        for k, n in NETWORKS.items()]}
+
+
+def balances(id, chains=None, min_usd=0.0):
+    """What an address holds on the bank rail, with no key at all.
+
+    Native coin and the major stablecoins on every supported chain, read in
+    parallel from public RPCs and priced by CoinGecko. It is deliberately
+    narrow — no LP tokens, no DeFi, no long tail — so it can be honest: the
+    `source` says `rpc`, and `coverage` says exactly what was looked at.
+    """
+    addr = _addr(id)
+    wanted = [chain_id(c) for c in chains] if chains else list(NETWORKS)
+    unknown = [c for c in wanted if c not in NETWORKS]
+    if unknown:
+        raise DebankError(f'not on the bank rail: {", ".join(unknown)}', status=400,
+                          hint=f'keyless balances cover {", ".join(NETWORKS)} — '
+                               'use debank_tokens with an AccessKey for the rest')
+    px = prices()
+    from concurrent.futures import ThreadPoolExecutor
+    errors, per_chain = {}, {}
+
+    def one(chain):
+        try:
+            per_chain[chain] = chain_balances(chain, addr, px)
+        except Exception as e:
+            errors[chain] = f'{type(e).__name__}: {e}'
+
+    with ThreadPoolExecutor(max_workers=min(8, len(wanted)) or 1) as pool:
+        list(pool.map(one, wanted))
+
+    rows = [r for c in wanted for r in per_chain.get(c, [])]
+    chain_rows = []
+    for c in wanted:
+        if c not in per_chain:
+            continue
+        usd = round(sum(r['usd'] for r in per_chain[c]), 2)
+        chain_rows.append({'chain': c, 'name': NETWORKS[c]['name'],
+                           'chain_id': NETWORKS[c]['chain_id'],
+                           'native': NETWORKS[c]['native'],
+                           'native_amount': per_chain[c][0]['amount'],
+                           'usd': usd, 'tokens': per_chain[c]})
+    chain_rows.sort(key=lambda r: r['usd'], reverse=True)
+    ranked, meta = _rank(rows, min_usd, 0)
+    return {'id': addr, 'total_usd': round(sum(r['usd'] for r in rows), 2),
+            'chains': chain_rows, 'tokens': ranked, **meta,
+            'source': 'rpc', 'priced_by': 'coingecko' if _price_cache['prices'] else 'peg',
+            'coverage': 'native coin + USDC/USDT/DAI on ' + ', '.join(wanted),
+            'errors': errors or None,
+            'note': 'keyless — an AccessKey adds every other token, DeFi, NFTs, '
+                    'history and approvals'}
 
 
 class Client:
@@ -528,6 +731,15 @@ class Client:
         """NFT approvals — contract and per-token, as DeBank reports them."""
         return self.get('/v1/user/nft_authorized_list', id=_addr(id),
                         chain_id=chain_id(chain))
+
+    # ── the bank rail (keyless) ──
+
+    def balances(self, id, chains=None, min_usd=0.0):
+        """Native + stablecoin balances on the bank rail. Needs no key."""
+        return balances(id, chains=chains, min_usd=min_usd)
+
+    def networks(self):
+        return networks()
 
     # ── chains & gas ──
 

@@ -84,7 +84,14 @@ export function initBuild(ctx) {
   }
 
   document.querySelectorAll('.res-tab').forEach((tab) => {
-    tab.onclick = () => showResult(tab.dataset.res);
+    tab.onclick = () => {
+      showResult(tab.dataset.res);
+      if (tab.dataset.res === 'res-agent') {
+        agentMode();
+        agentStatus();
+        loadAgentRuns();
+      }
+    };
   });
 
   /* ── the file strip ───────────────────────────────────────── */

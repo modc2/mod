@@ -1,6 +1,6 @@
 {
     "name": "prefi",
-    "description": "Prediction pool on Hyperliquid \u2014 deposit USDC/USDT0 on HyperEVM, stake on where an asset closes, the pot splits by dollars x accuracy every round; every Hyperliquid pair (perp and spot) is listable; plus PREFI trading, staking and treasury",
+    "description": "Prediction pool on Hyperliquid, Bittensor, Solana and Base \u2014 deposit USDC/USDT0 on HyperEVM, stake on where an asset closes, the pot splits by dollars x accuracy every round; every Hyperliquid pair (perp and spot), every Bittensor subnet alpha token, and any Solana or Base token whose pool clears the owner-set liquidity floor is listable; plus PREFI trading, staking and treasury",
     "anchor": "mod.py",
     "network": "baseSepolia",
     "port": 50410,
@@ -22,6 +22,17 @@
         "hl_assets",
         "hl_stats",
         "seed_hl",
+        "add_bt_market",
+        "bt_assets",
+        "bt_stats",
+        "seed_bt",
+        "add_dex_market",
+        "dex_assets",
+        "dex_search",
+        "dex_stats",
+        "seed_dex",
+        "dex_snapshot",
+        "dex_min_liquidity",
         "list_markets",
         "open_position",
         "close_position",
@@ -36,6 +47,15 @@
         "set_scoring",
         "scoring_models",
         "score_preview",
+        "fn_list",
+        "fn_get",
+        "fn_test",
+        "fn_sign",
+        "fn_save",
+        "fn_delete",
+        "fn_share",
+        "fn_publish",
+        "fn_import",
         "lock_prefi",
         "extend_lock",
         "unlock_prefi",
@@ -83,5 +103,5 @@
         "serve_app",
         "kill"
     ],
-    "schema": "QmQNxoVxm5FSB6xno7gkHKancx84Y17w8ou35TP9Gwpge4"
+    "schema": "QmQ5vasNdNgDgZ9g33tawFzSzmXXCZvFocehB66gozapQ5"
 }

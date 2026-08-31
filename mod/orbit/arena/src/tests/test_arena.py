@@ -67,6 +67,36 @@ def arena():
     shutil.rmtree(state, ignore_errors=True)
 
 
+@pytest.fixture(scope='module')
+def arena_no_agent():
+    """A server with the build agent switched off — what a box without
+    orbit/build is, and what a public arena should be."""
+    if not os.path.exists(BINARY):
+        pytest.skip(f'no backend at {BINARY} — run `m arena/build`')
+    state = tempfile.mkdtemp(prefix='arena-test-')
+    port = free_port()
+    proc = subprocess.Popen(
+        [BINARY],
+        env={**os.environ, 'PORT': str(port), 'ARENA_STATE': state,
+             'ARENA_STORE_URL': 'off', 'ARENA_BUILD_URL': 'off'},
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    base = f'http://127.0.0.1:{port}'
+    for _ in range(100):
+        try:
+            if requests.get(f'{base}/info', timeout=1).ok:
+                break
+        except Exception:
+            time.sleep(0.1)
+    else:
+        proc.kill()
+        pytest.fail(f'server never came up: {proc.stdout.read()[-2000:]}')
+    yield base
+    proc.terminate()
+    proc.wait(timeout=10)
+    shutil.rmtree(state, ignore_errors=True)
+
+
 def get(base, path, **params):
     r = requests.get(base + path, params=params, timeout=30)
     return r.status_code, r.json()
@@ -585,6 +615,58 @@ def test_an_unknown_tool_says_what_the_arena_actually_does(arena):
     assert 'game_init' in out['result']['content'][0]['text']
 
 
+def test_the_docs_are_the_same_text_through_all_three_doors(arena):
+    """A page read over REST, asked for as a tool, and attached as a resource
+    is one page. The console renders the first, an agent gets the second or
+    the third, and there is no fourth copy to fall behind."""
+    _, contents = get(arena, '/docs')
+    slugs = [p['slug'] for p in contents['pages']]
+    assert 'start' in slugs and 'mcp' in slugs
+
+    _, rest = get(arena, '/docs/mcp')
+    tool = mcp(arena, 'docs_page', {'slug': 'mcp'})
+    _, out = post(arena, '/mcp', {'jsonrpc': '2.0', 'id': 40, 'method': 'resources/read',
+                                  'params': {'uri': 'arena://docs/mcp'}})
+    resource = out['result']['contents'][0]
+    assert rest == tool
+    assert resource['text'] == rest['markdown'] == tool['markdown']
+    assert resource['mimeType'] == 'text/markdown'
+
+    r = requests.get(f'{arena}/docs/mcp', params={'format': 'md'}, timeout=30)
+    assert r.headers['content-type'].startswith('text/markdown')
+    assert r.text == rest['markdown']
+
+
+def test_every_doc_page_is_listed_as_a_resource(arena):
+    _, contents = get(arena, '/docs')
+    _, out = post(arena, '/mcp', {'jsonrpc': '2.0', 'id': 41, 'method': 'resources/list'})
+    assert ({p['resource'] for p in contents['pages']}
+            == {r['uri'] for r in out['result']['resources']})
+
+
+def test_searching_the_docs_answers_with_a_section(arena):
+    hits = mcp(arena, 'docs_search', {'q': 'illegal move rate'})
+    assert hits['hits'][0]['slug'] == 'match'
+    assert hits['hits'][0]['heading']
+    assert mcp(arena, 'docs_search', {'q': 'quokka'})['count'] == 0
+
+
+def test_a_page_that_does_not_exist_says_which_ones_do(arena):
+    r = requests.get(f'{arena}/docs/nope', timeout=30)
+    assert r.status_code == 404
+    assert 'sandbox' in r.json()['error']
+
+
+def test_a_client_is_told_where_the_docs_are_before_it_calls_anything(arena):
+    """initialize is the only message a client is guaranteed to send, so what
+    it says about the docs is what an agent that reads nothing else knows."""
+    _, out = post(arena, '/mcp', {'jsonrpc': '2.0', 'id': 42, 'method': 'initialize',
+                                  'params': {'protocolVersion': '2025-06-18'}})
+    result = out['result']
+    assert 'resources' in result['capabilities']
+    assert 'docs_pages' in result['instructions']
+
+
 def test_the_abi_is_documented_at_runtime(arena):
     """An agent that wants to write a game can read the contract from the
     server rather than from this repository."""
@@ -896,7 +978,7 @@ def test_a_class_with_no_door_is_told_so_and_carries_on(arena, caller, bots):
     """The default. A match nobody opened a door for is a match where every
     move is a function of its view alone, and a class written to call out
     still plays."""
-    out = mcp(arena, 'run_match', {'game': 'rps', 'players': ['caller', 'random'],
+    out = mcp(arena, 'run_match', {'game': 'rps', 'players': ['caller', 'dice'],
                                    'seed': 4})
     assert all(s['mcp'] == 0 for s in out['seats'])
     assert out['seats'][0]['moves'] > 0
@@ -905,11 +987,11 @@ def test_a_class_with_no_door_is_told_so_and_carries_on(arena, caller, bots):
 
 
 def test_a_class_given_a_door_calls_out_and_the_call_lands_on_its_seat(arena, caller, bots):
-    out = mcp(arena, 'run_match', {'game': 'rps', 'players': ['caller', 'random'],
+    out = mcp(arena, 'run_match', {'game': 'rps', 'players': ['caller', 'dice'],
                                    'seed': 4, 'mcp': ['arena']})
     seat = next(s for s in out['seats'] if s['player_name'] == 'caller')
     assert seat['mcp'] > 0, out
-    assert next(s for s in out['seats'] if s['player_name'] == 'random')['mcp'] == 0
+    assert next(s for s in out['seats'] if s['player_name'] == 'dice')['mcp'] == 0
     # The arena answered with something real, and the class printed it.
     _, full = get(arena, f"/matches/{out['id']}")
     assert 'modules:' in json.dumps(full['turns'])
@@ -921,10 +1003,83 @@ def test_a_class_given_a_door_calls_out_and_the_call_lands_on_its_seat(arena, ca
 
 
 def test_a_match_may_name_which_servers_are_reachable(arena, caller, bots):
-    out = mcp(arena, 'run_match', {'game': 'rps', 'players': ['caller', 'random'],
+    out = mcp(arena, 'run_match', {'game': 'rps', 'players': ['caller', 'dice'],
                                    'seed': 4, 'mcp': ['somewhere-else']})
     _, full = get(arena, f"/matches/{out['id']}")
     assert 'may call somewhere-else' in json.dumps(full['turns'])
+
+
+# ── a module in a seat ───────────────────────────────────────────────────
+#
+# The other direction of the same door: not a class calling out mid-move, but a
+# whole module sitting in a seat and being asked one of its own tools. Every
+# module stored here already answers on /m/<name>/mcp, so the arena can be
+# pointed at itself — which is a real MCP player over a real socket, with
+# nothing in the test that has to be running for it.
+
+
+def test_a_module_can_be_seated_over_mcp_and_plays_a_rated_match(arena, bots):
+    _, entered = post(arena, '/players', {
+        'name': 'over_mcp', 'kind': 'mcp',
+        'config': {'url': f'{arena}/m/bot-ttt/mcp'},
+    })
+    assert entered['kind'] == 'mcp'
+    # A module of the fleet is not a module stored here: the card must not
+    # claim bytes this arena does not hold.
+    assert 'module' not in entered
+
+    # One move first — the tool and the argument are worked out from the
+    # server's own tools/list, and `play(view=…)` is asked for the position.
+    _, move = post(arena, '/play', {
+        'player': 'over_mcp',
+        'view': 'You are X.\n 1 | 2 | 3 \nLegal moves: 1, 2, 3',
+        'seat': 0,
+    })
+    assert move['move'] in {'1', '2', '3'}, move
+    assert move['meta']['driver'] == 'mcp' and move['meta']['arg'] == 'view'
+
+    # Then a whole match. A perfect player reached over MCP is still perfect:
+    # the seat is a transport, not a handicap.
+    out = mcp(arena, 'run_match', {'game': 'ttt', 'players': ['over_mcp', 'dice'], 'seed': 42})
+    seat = next(s for s in out['seats'] if s['player_name'] == 'over_mcp')
+    assert seat['illegal'] == 0, out
+    assert seat['score'] >= next(s for s in out['seats'] if s['player_name'] == 'dice')['score']
+    assert out['rated'] is True
+
+
+def test_an_mcp_player_says_what_it_could_not_reach(arena):
+    """A seat nobody can reach fails as an explained error, not a hang."""
+    post(arena, '/players', {'name': 'nowhere_mcp', 'kind': 'mcp',
+                             'config': {'url': 'http://127.0.0.1:1/mcp'}})
+    _, out = post(arena, '/play', {'player': 'nowhere_mcp', 'view': 'Legal moves: 1', 'seat': 0})
+    assert 'unreachable' in out.get('error', '').lower(), out
+    # And naming nothing at all is refused at the door rather than at move time.
+    _, refused = post(arena, '/players', {'name': 'unaddressed', 'kind': 'mcp', 'config': {}})
+    assert 'module' in refused.get('error', ''), refused
+
+
+def test_the_fleet_is_a_list_of_seats(arena):
+    """`/fleet` is discovery, so it answers whether or not a gateway is up —
+    with the modules it can see and the agents next door, or with nothing."""
+    _, out = get(arena, '/fleet')
+    assert 'gateway' in out and isinstance(out['modules'], list)
+    assert out['count'] == len(out['modules'])
+    for m in out['modules']:
+        assert m['name'] and m['mcp'].endswith('/mcp')
+
+
+def test_the_host_says_whose_arena_this_is(arena):
+    """A rating is a claim; this is the page that says who is making it."""
+    _, out = get(arena, '/host?store=0')
+    assert out['module'] == 'arena' and out['host']['machine']
+    assert out['uptime_seconds'] >= 0 and out['host']['pid'] > 0
+    assert out['counts']['modules'] >= 13
+    assert out['state']['dir'].endswith('arena') or 'arena' in out['state']['dir']
+    assert 'mcp' in out['player_kinds']
+    # The store costs a round trip, so it is only there when asked for.
+    assert 'store' not in out
+    _, full = get(arena, '/host')
+    assert 'store' in full
 
 
 def test_the_same_door_is_open_to_a_caller_that_is_not_a_class(arena):
@@ -976,3 +1131,101 @@ def test_source_text_travels_beside_uploaded_wasm_bytes(arena):
     # Put the example's own source back so the other tests read what they expect.
     src = open(os.path.join(EXAMPLES, '..', 'ttt.rs')).read()
     post(arena, '/modules', {'bytes': base64.b64encode(raw).decode(), 'source_text': src})
+
+
+# ── vibe: writing one with the agent ─────────────────────────────────────
+#
+# Nothing here runs the agent: a fork and a template are sessions holding
+# source, storing one is an upload, and a hand-edited file is a round without
+# a sentence. The one test that asks for a sentence does so against a server
+# with the agent switched off, so it never spends anything.
+
+def test_a_fork_is_a_session_holding_the_source_it_started_from(arena):
+    _, c4 = get(arena, '/modules/connect4')
+    code, s = post(arena, '/vibe', {'from': 'connect4'})
+    assert code == 200, s
+    assert s['status'] == 'ready'
+    assert s['source'] == c4['source']
+    assert s['lang'] == 'python' and s['role'] == 'game'
+    assert s['name'] == 'connect4-fork'
+    assert s['from']['module'] == c4['id']
+    # The registry's reader ran on it: it says what the file is.
+    assert s['reads_as']['role'] == 'game'
+    assert os.path.exists(s['file'])
+    assert os.path.exists(os.path.join(os.path.dirname(s['file']), 'ARENA.md'))
+
+    # The same door over MCP, by name.
+    m = mcp(arena, 'fork_module', {'module': 'connect4', 'name': 'c4-again'})
+    assert m['name'] == 'c4-again' and m['source'] == c4['source']
+
+    # It is in the list, and the list says whether the agent is there.
+    _, listing = get(arena, '/vibe')
+    assert any(x['session'] == s['session'] for x in listing['sessions'])
+    assert 'available' in listing['build']
+
+
+def test_storing_an_unchanged_fork_is_the_original_and_a_changed_one_is_new(arena):
+    _, s = post(arena, '/vibe', {'from': 'connect4', 'name': 'c4-copy'})
+    # Bytes are the id: storing the copy untouched lands on connect4 itself,
+    # which keeps its name — nobody renames a game by forking it.
+    _, same = post(arena, f"/vibe/{s['session']}/store", {})
+    assert same['name'] == 'connect4'
+    _, c4 = get(arena, '/modules/connect4')
+    assert same['id'] == c4['id']
+
+    # Hand back an edited file — a round without the agent — and store that.
+    edited = c4['source'].replace('class ', 'class Forked', 1) + '\n# forked\n'
+    code, s2 = post(arena, '/vibe', {'session': s['session'], 'source': edited})
+    assert code == 200, s2
+    assert s2['source'] == edited
+    _, stored = post(arena, f"/vibe/{s['session']}/store", {'name': 'c4-forked'})
+    assert stored['role'] == 'game', stored
+    assert stored['name'] == 'c4-forked'
+    assert stored['id'] != c4['id']
+    _, after = get(arena, f"/vibe/{s['session']}")
+    assert after['status'] == 'stored'
+    assert after['stored']['id'] == stored['id']
+    requests.delete(f"{arena}/modules/{stored['id']}", timeout=30)
+
+
+def test_a_template_session_starts_from_the_template_and_a_player_is_entered_when_stored(arena):
+    _, abi = get(arena, '/abi', role='player', lang='class')
+    _, s = post(arena, '/vibe', {'role': 'player', 'lang': 'python', 'name': '_vibe_bot'})
+    assert s['status'] == 'ready'
+    assert s['source'] == abi['template']
+    assert s['from'] == {'template': 'player'}
+    assert s['reads_as']['role'] == 'player'
+
+    # Bytes are the id, and the template's bytes may already be in the
+    # registry under another name (an earlier test uploads them) — so a
+    # hand edit first, the way a person would before storing a bot.
+    _, s = post(arena, '/vibe', {'session': s['session'], 'source': abi['template'] + '\n# mine\n'})
+    assert s['source'].endswith('# mine\n')
+    stored = mcp(arena, 'store_vibe', {'session': s['session'][:6]})
+    assert stored['role'] == 'player'
+    assert stored['entered']['name'] == '_vibe_bot', stored
+    _, players = get(arena, '/players')
+    assert any(p['name'] == '_vibe_bot' for p in players['players'])
+    requests.delete(f"{arena}/players/{stored['entered']['id']}", timeout=30)
+    requests.delete(f"{arena}/modules/{stored['id']}", timeout=30)
+
+    # A prefix that is not unambiguous is refused rather than guessed.
+    _, s2 = post(arena, '/vibe', {'role': 'player'})
+    common = os.path.commonprefix([s['session'], s2['session']])
+    if common:
+        code, out = get(arena, f'/vibe/{common}')
+        assert code == 404 and 'matches' in out['error']
+
+
+def test_compiled_wasm_cannot_be_forked_because_a_fork_starts_from_source(arena):
+    code, out = post(arena, '/vibe', {'from': 'ttt'})
+    assert code == 400
+    assert 'compiled wasm' in out['error']
+
+
+def test_a_sentence_needs_the_agent_and_says_so_when_it_is_off(arena_no_agent):
+    code, out = post(arena_no_agent, '/vibe', {'prompt': 'a game of nim with three heaps'})
+    assert code == 424, out
+    assert out['error'].startswith('build:')
+    _, listing = get(arena_no_agent, '/vibe')
+    assert listing['build']['available'] is False

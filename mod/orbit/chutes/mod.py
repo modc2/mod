@@ -120,16 +120,53 @@ class Mod:
         return {'key': src != 'none', 'source': src, 'env': ENV_KEY, 'file': KEY_FILE}
 
     def set_api_key(self, api_key: str, persist: bool = False):
-        """Set the key; persist=True writes ~/.mod/chutes/api_key (0600)."""
+        """Set the key; persist=True writes ~/.mod/chutes/api_key (0600) —
+        the same file the console's KEYS > THIS BOX card writes via POST /key."""
         self.api_key = api_key
         self._api_key_explicit = True
         if persist:
             path = os.path.expanduser(KEY_FILE)
             os.makedirs(os.path.dirname(path), exist_ok=True)
+            os.chmod(os.path.dirname(path), 0o700)
             with open(path, 'w') as f:
-                f.write(api_key)
+                f.write(api_key.strip() + '\n')
             os.chmod(path, 0o600)
         return {'status': 'set', 'persisted': persist}
+
+    def clear_api_key(self):
+        """Remove ~/.mod/chutes/api_key (what DELETE /key does)."""
+        path = os.path.expanduser(KEY_FILE)
+        try:
+            os.remove(path)
+            return {'removed': True, 'source': _resolve_key()[1]}
+        except FileNotFoundError:
+            return {'removed': False, 'source': _resolve_key()[1]}
+
+    # ── owner sign-in (the door POST /key is behind) ─────────────
+
+    def token(self, mod: str = 'chutes'):
+        """Mint a mod-protocol token with this box's key — paste it into the
+        console's KEYS tab (PASTE TOKEN) when there's no wallet extension, or
+        send it as `Authorization: Bearer` to POST /key. The box key is the
+        default owner, so on a fresh box this token already opens the door."""
+        import mod as m
+        return m.mod('auth')().token({'mod': mod})
+
+    def whoami(self, token: str = None):
+        """GET /key as seen by `token` (default: one minted with the box key):
+        owner, whether you are them, and where the server key stands."""
+        token = token or self.token()
+        r = requests.get(f'{self.server_url}/key',
+                         headers={'Authorization': f'Bearer {token}'}, timeout=10)
+        return r.json()
+
+    def set_server_key(self, api_key: str, token: str = None, verify: bool = True):
+        """Set the box's key THROUGH the server (POST /key), the way the
+        console does — signed by `token` (default: the box key's own)."""
+        token = token or self.token()
+        r = requests.post(f'{self.server_url}/key', json={'key': api_key, 'verify': verify},
+                          headers={'Authorization': f'Bearer {token}'}, timeout=30)
+        return r.json()
 
     # ── MCP client (the backend) ─────────────────────────────────
 

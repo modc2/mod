@@ -1,6 +1,6 @@
 ---
 name: compute
-description: Rent GPUs from any decentralized market through one interface — search every provider at once (Bittensor Targon/Lium, Akash, Vast.ai, Clore, Nosana, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, Shadeform, your own hosts), compare prices, rent, watch and stop — then turn the rented box into a mod protocol node you can shell into, list modules on, and call functions on from the browser. Use when asked to find, price, rent or stop compute anywhere, for no-KYC / crypto-paid GPUs, or to set up and drive a remote container.
+description: Rent GPUs from any decentralized market through one interface — search every provider at once (Bittensor Targon/Lium, Akash, Vast.ai, Clore, Nosana, Aleph Cloud, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, RunPod, Fluence, Shadeform, your own hosts), compare prices, rent, watch and stop — then turn the rented box into a mod protocol node you can shell into, list modules on, and call functions on from the browser. Use when asked to find, price, rent or stop compute anywhere, for no-KYC / crypto-paid GPUs, or to set up and drive a remote container.
 type: orbit-module
 ---
 
@@ -51,10 +51,13 @@ map in the result for who answered and who didn't, and say so if it matters.
 | `targon` | none | TAO | Bittensor SN4; pricing public; **Hub API is v3** |
 | `akash` | none | AKT/USDC | permissionless; `rent` returns an **SDL deploy plan** |
 | `nosana` | none | NOS | Solana; `rent` returns a **`@nosana/cli` job plan** |
+| `aleph` | none | ALEPH | Aleph Cloud; fixed tiers priced in ALEPH streamed per second, USD via live token rate; `rent` returns an **aleph-client plan** |
 | `cathedral` | email | credits | attested TDX + confidential GPU, signed receipts; some shapes are **per execution, not hourly** |
 | `prime` | email | crypto/card | even its catalog needs a key |
 | `polaris` | email | crypto/card | |
 | `hyperbolic` | email | crypto/card | rented per node inside a cluster: ids are `cluster/node`; catalog needs a key |
+| `runpod` | email | card/crypto | both lanes quoted: ids are `community/<gpu>` (marketplace hosts) or `secure/<gpu>`; catalog public |
+| `fluence` | email | USDC/card | decentralized **CPU** VMs; even the catalog needs a key; `rent` returns the draft→provision plan |
 | `shadeform` | account | card | fiat benchmark — excluded by `kyc=none` |
 | `local` | none | market tokens | your docker hosts; needs `COMPUTE_LOCAL=1` |
 
@@ -128,8 +131,8 @@ header → env (`LIUM_API_KEY`, `VAST_API_KEY`, `TARGON_API_KEY`, …) →
 `m compute/set_key provider=vast key=… ` (written 0600, off-tree, never
 committed). No route or tool ever returns a key.
 
-Public reads that need no key at all: search on vast, lium, targon, akash,
-nosana, cathedral, polaris, shadeform.
+Public reads that need no key at all: search on vast, clore, lium, targon,
+akash, nosana, aleph, cathedral, polaris, runpod, shadeform.
 
 ## When the shared surface isn't enough
 

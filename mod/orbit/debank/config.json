@@ -1,7 +1,7 @@
 {
     "name": "debank",
-    "version": "0.1.0",
-    "description": "What an EVM address actually owns, across every chain: token balances priced and ranked, DeFi positions net of borrowing, NFTs at floor, decoded transaction history, and the live token approvals that let someone else move it all \u2014 ranked by what a spender could take today. Eighteen MCP tools, a REST API and a browser console over one port and one client, so an agent, a shell and a human never see different answers. BYOK \u2014 every call spends the caller's own DeBank units.",
+    "version": "0.3.0",
+    "description": "A bank for a browser wallet. Connect MetaMask (or any EIP-1193 wallet) and the console becomes your account: total balance across every chain, accounts per chain, send and receive native coin or stablecoins, a statement of decoded history, the standing permissions that let someone else move your money \u2014 with one-click revoke \u2014 and a savings desk that places the account's stablecoins into curated index funds of yield venues (Aave, Compound, Morpho, Maple, Sky, Spark), each with live projected ROI and the liquidity locked in the protocol read from chain, entered with exact-amount approve+deposit signatures built here and signed only in the wallet. Powered by DeBank Cloud for the full picture (tokens, DeFi net of debt, NFTs, history, approvals \u2014 BYOK, every call spends the caller's own units) with a keyless floor that always works: native + USDC/USDT/DAI on 8 chains read straight from public RPCs. Twenty-four MCP tools, a REST API and the console over one port and one client.",
     "icon": "\u25e9",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
@@ -15,15 +15,19 @@
         "app": "http://localhost:50720/debank",
         "mcp": "http://localhost:50720/mcp",
         "upstream": "https://pro-openapi.debank.com",
-        "keys": "https://cloud.debank.com"
+        "keys": "https://cloud.debank.com",
+        "rpc": "https://publicnode.com (keyless balance reads)",
+        "prices": "https://api.coingecko.com (keyless prices, 60s cache)"
     },
     "backend": "python stdlib only (http.server + urllib) \u2014 no dependencies",
     "layout": {
         "mod.py": "the anchor \u2014 every fn below, plus serve/kill/status/test",
-        "client.py": "the DeBank Cloud client: key resolution, retries, and the normalizers that turn nested amounts+prices into flat USD rows",
+        "client.py": "the DeBank Cloud client plus the keyless bank rail: key resolution, retries, the normalizers, and public-RPC balances priced by CoinGecko",
         "mcp.py": "MCP tool registry + JSON-RPC 2.0 (stdio and Streamable HTTP)",
         "api.py": "REST + MCP + console on one port",
-        "console.html": "browser console \u2014 one address in, eight views out",
+        "savings.py": "the savings desk: index funds over yield venues \u2014 live APY join (defi module \u2192 DefiLlama \u2192 frozen hints), on-chain locked liquidity and holdings, approve+deposit plans, exit txs, off-tree ledger",
+        "funds.json": "the curated registry: 11 on-chain-verified venues and 4 index funds, each one asset on one chain",
+        "console.html": "the bank \u2014 connects to the browser wallet; overview, accounts, assets, savings, positions, statement, permissions, vault, send, receive, settings",
         "test/test_debank.py": "offline tests: normalizers, chain aliases, MCP protocol"
     },
     "tools": [
@@ -42,6 +46,12 @@
         "debank_holders",
         "debank_gas",
         "debank_chains",
+        "debank_balances",
+        "debank_networks",
+        "debank_funds",
+        "debank_fund",
+        "debank_savings",
+        "debank_savings_plan",
         "debank_account",
         "debank_set_key",
         "debank_raw"
@@ -64,12 +74,19 @@
         "holders": "GET /holders?protocol=|chain=&token=&start=&limit=",
         "gas": "GET /gas?chain=",
         "chains": "GET /chains?q=&refresh= \u2014 the one route that answers signed-out",
+        "balances": "GET /balances?id=&chains=&min_usd= \u2014 keyless: native + USDC/USDT/DAI on 8 chains via public RPCs",
+        "networks": "GET /networks \u2014 keyless: the bank rail a wallet can switch to (chain ids, RPCs, explorers, stablecoin contracts)",
+        "funds": "GET /funds?amount= \u2014 keyless: the savings index funds with live projected ROI and per-protocol locked liquidity; GET /funds/{id} for one (venue:<id> = fund of one)",
+        "savings": "GET /savings?id= \u2014 keyless: idle stablecoins vs money placed in each venue, read from chain",
+        "savings_plan": "GET /savings/plan?id=&fund=&amount= \u2014 the approve+deposit txs the owner's wallet must sign",
+        "savings_exit": "GET /savings/exit?id=&venue= \u2014 the withdraw-everything tx",
+        "savings_record": "POST /savings/record {id, fund, venue, amount, tx}",
         "account": "GET /account",
         "set_key": "POST /set_key {key, persist}",
         "raw": "GET|POST /raw?path=&public= \u2014 any Cloud API route",
         "tools": "GET /tools",
         "mcp": "POST /mcp (JSON-RPC 2.0, Streamable HTTP)",
-        "console": "GET /debank (browser)"
+        "console": "GET /debank (browser \u2014 the bank: connect wallet, send, receive, revoke)"
     },
     "fns": [
         "forward",
@@ -91,6 +108,12 @@
         "holders",
         "gas",
         "chains",
+        "balances",
+        "networks",
+        "funds",
+        "fund",
+        "savings",
+        "savings_plan",
         "account",
         "set_key",
         "raw",
@@ -108,7 +131,7 @@
         "schema": "GET /tools",
         "transport": "streamable-http (JSON-RPC 2.0) + stdio (`python3 mcp.py`)",
         "tool_prefix": "debank_",
-        "auth": "BYOK \u2014 x-debank-key header, DEBANK_ACCESS_KEY, or ~/.mod/debank/key.json; debank_chains answers without one"
+        "auth": "BYOK \u2014 x-debank-key header, DEBANK_ACCESS_KEY, or ~/.mod/debank/key.json; debank_chains, debank_balances and debank_networks answer without one"
     },
     "auth": {
         "model": "BYOK \u2014 this module holds no house key",
@@ -120,5 +143,16 @@
         ],
         "note": "an Authorization bearer is never read as a DeBank key \u2014 the gateway puts its own session tokens there"
     },
-    "schema": "QmYWJEkAeFxDZegiuoUQc377ZVz3L8e3KuSFEGLQd51Z8W"
+    "schema": "Qma8Uw3koSHhQ1fmX96mqwXFPDA3T5oVkMP6cqRBFgXu89",
+    "wallet": {
+        "standard": "EIP-1193 (window.ethereum) \u2014 MetaMask, Rabby, Coinbase Wallet, Brave",
+        "actions": [
+            "eth_requestAccounts",
+            "wallet_switchEthereumChain / wallet_addEthereumChain",
+            "eth_sendTransaction (native + ERC-20 transfer)",
+            "approve(spender, 0) revoke",
+            "savings: approve(venue, exact) + deposit/supply, redeem/withdraw — ERC-4626, Aave V3, Compound V3"
+        ],
+        "rule": "keys never leave the wallet; this server never sees a private key or signs anything"
+    }
 }

@@ -13,6 +13,12 @@
 import { API_BASE } from "./polymarket";
 import type { AllocationParams } from "./identityStrat";
 
+/** Fired after a copy-book write made OUTSIDE a useCopyBook instance (the
+    sidebar's SELECTION tray commits with raw upserts) — every mounted
+    useCopyBook re-reads on it, so the desk shows the new rows without
+    waiting out its 15s poll. */
+export const COPY_BOOK_CHANGED_EVENT = "poly-copy-book-changed";
+
 /** One leader's live session, as the desk needs it. Null ⇒ never started. */
 export interface CopyLive {
   running: boolean;
@@ -59,6 +65,29 @@ export interface CopyBookRow {
   live: CopyLive | null;
 }
 
+/** A session RUNNING on this wallet that is not a row of the book — a strat
+    started from an older console, a candle bot. It spends the same USDC the
+    rows do, so the desk shows it (and can stop it) rather than reporting
+    "none running" over a wallet that is placing orders. */
+export interface OtherSession {
+  strategyId: string;
+  running: boolean;
+  autoExecute: boolean;
+  capital: number | null;
+  marketQuery: string | null;
+  /** True for an originating (candle/momentum) strat — no leaders. */
+  momentum: boolean;
+  /** Enabled leader addresses. */
+  traders: string[];
+  status: string;
+  cycles: number;
+  ordersPlaced: number;
+  balance: number | null;
+  error: string | null;
+  realized: number | null;
+  lastFillAt: number | null;
+}
+
 export interface CopyBook {
   version: number;
   /** The desk's target size. Advisory: the engine budgets per allocation. */
@@ -66,6 +95,8 @@ export interface CopyBook {
   updatedAt: number;
   eoa: string | null;
   allocations: CopyBookRow[];
+  /** Running outside the book. Absent from an API older than this field. */
+  sessions?: OtherSession[];
   totals: {
     traders: number;
     enabled: number;
@@ -75,6 +106,8 @@ export interface CopyBook {
     running: number;
     /** Sessions actually placing orders. `running - executing` are DRY RUN. */
     executing: number;
+    otherRunning?: number;
+    otherExecuting?: number;
   };
 }
 
@@ -218,6 +251,16 @@ export function setCopyExecution(
   });
 }
 
+/** Stop a session by its engine id — the route for the sessions the book
+    does NOT own (`CopyBook.sessions`). The same `/live/stop` the strat
+    workspace used; `/copy/stop` only knows addresses. */
+export function stopSession(eoa: string, strategyId: string): Promise<{ ok: boolean }> {
+  return call(`/live/stop`, {
+    method: "POST",
+    body: JSON.stringify({ eoa, strategyId }),
+  });
+}
+
 /** Stop one leader, or the whole desk when `address` is omitted. */
 export function stopCopying(
   eoa: string,
@@ -232,6 +275,72 @@ export function stopCopying(
 /** The book as identity strats — what the backtest worker replays. */
 export function fetchCopyStrats(): Promise<{ strats: unknown[]; count: number }> {
   return call(`/copy/strats`);
+}
+
+// ── Wallet-signed actions — the trustless path ──
+//
+// LOAD (put $ behind a trader), REMOVE (take $ back off), DROP (out of the
+// book) can each be authorized by an EIP-191 signature from the owner wallet
+// over the EXACT action, instead of by the session token alone. The server
+// builds the message (the client never constructs the bytes it signs — same
+// rule as sign-in), the wallet popup shows the human sentence ("LOAD $25.00
+// INTO 0xab…"), and the server recovers the signer, requires it to BE the
+// owner, enforces a 10-minute freshness window and single use, and appends a
+// verifiable receipt. See api/src/copy_actions.rs.
+
+export type SignedCopyAction = "load" | "remove" | "drop";
+
+export interface CopyActionReceipt {
+  action: SignedCopyAction;
+  trader: string;
+  amountUsd: number | null;
+  wallet: string;
+  beforeUsd: number | null;
+  afterUsd: number | null;
+  stoppedSession: boolean;
+  timestamp: number;
+  executedAt: number;
+  signature: string;
+  digest: string;
+}
+
+/** True when a browser wallet is there to sign — the precondition for the
+    trustless path. Without one the desk falls back to token-authorized writes
+    (and says so in the confirm). */
+export function canSignActions(): boolean {
+  return typeof window !== "undefined" && !!(window as { ethereum?: unknown }).ethereum;
+}
+
+/** Full signed flow: challenge → personal_sign → execute. Wallet errors come
+    out in the desk's vocabulary (Reject → WalletDeclinedError, from
+    lib/walletConfirm.ts); returns the receipt and the fresh book. */
+export async function signedCopyAction(
+  action: SignedCopyAction,
+  trader: string,
+  amountUsd: number | null,
+  eoa: string,
+): Promise<{ ok: boolean; receipt: CopyActionReceipt; book: CopyBook }> {
+  const ch = await call<{ message: string; timestamp: number }>(`/copy/signed/challenge`, {
+    method: "POST",
+    body: JSON.stringify({ action, trader, amountUsd, eoa }),
+  });
+  const { signAsOwner } = await import("./walletConfirm");
+  const { signature } = await signAsOwner(ch.message);
+  return call(`/copy/signed/execute`, {
+    method: "POST",
+    body: JSON.stringify({
+      action, trader, amountUsd, eoa,
+      timestamp: ch.timestamp, signature,
+    }),
+  });
+}
+
+/** The audit trail — every signed action with its signature, verifiable by
+    anyone who rebuilds the message and recovers the signer. */
+export function fetchCopyReceipts(
+  eoa?: string | null,
+): Promise<{ receipts: CopyActionReceipt[]; count: number }> {
+  return call(`/copy/signed/receipts${eoaQuery(eoa)}`);
 }
 
 // ── Derived reads the desk uses in more than one place ──

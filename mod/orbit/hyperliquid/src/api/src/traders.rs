@@ -57,6 +57,12 @@ impl ProgressTracker {
         s.finished_ms = chrono::Utc::now().timestamp_millis();
         s.running = false;
     }
+    /// A coin scan stops early once it has enough matches — report the depth
+    /// it actually reached instead of pretending it walked the whole budget.
+    pub fn finish_at(&self, scanned: usize) {
+        { let mut s = self.state.lock(); s.total = scanned; }
+        self.finish();
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,7 +163,18 @@ const MIN_ACCOUNT_VALUE: f64 = 1_000.0;
 // coins) on the top slice. HL 429s aggressive /info scans, so enriching all of
 // a 600-pool would take minutes; cap it so the board stays responsive. Rows
 // past the cap still show the scraped ROI/PnL/volume, just "—" for fill stats.
-const ENRICH_CAP: usize = 120;
+pub const ENRICH_CAP: usize = 120;
+/// Hard ceiling on how many top rows one request may ask to enrich. Past the
+/// background deepener's reach every extra row is a cold, throttled fetch.
+pub const ENRICH_MAX: usize = 400;
+/// `pool` sentinel: the whole gated leaderboard, not a top-N slice. The
+/// leaderboard CDN already prices every wallet (ROI / PnL / volume / equity),
+/// so showing all of them costs nothing — only fill stats are rationed.
+pub const ALL: usize = usize::MAX;
+/// How many rows of a board survive to disk. Memory keeps whole boards
+/// (thousands of rows); the persisted copy is the top slice, enough to answer
+/// the first visitors after a restart while the refresher rebuilds the rest.
+pub const PERSIST_CAP: usize = 600;
 
 #[derive(Debug, Clone, Default)]
 struct LbRow {
@@ -279,7 +296,16 @@ fn score_fills(fills: &[Fill], cutoff_ms: i64) -> (f64, f64, f64, usize, Vec<Str
 pub struct BoardEntry {
     pub updated_at: i64, // ms epoch of the compute that produced this board
     pub pool: usize,     // how many rows were captured (requests truncate down)
+    #[serde(default)]
+    pub all: bool,       // true ⇒ `traders` is the entire gated leaderboard
     pub traders: Vec<TopTrader>,
+}
+
+impl BoardEntry {
+    /// Can this entry answer a request for `pool` rows (`ALL` = everything)?
+    pub fn covers(&self, pool: usize) -> bool {
+        if pool == ALL { self.all } else { self.all || self.pool >= pool }
+    }
 }
 
 pub struct BoardCache {
@@ -305,128 +331,414 @@ impl BoardCache {
         self.boards.lock().keys().filter_map(|k| parse_board_key(k)).collect()
     }
     pub fn put(&self, days: u32, rank: Rank, active: Active, pool: usize, traders: Vec<TopTrader>) {
+        let all = pool == ALL;
         let entry = BoardEntry {
             updated_at: chrono::Utc::now().timestamp_millis(),
-            pool,
+            pool: if all { traders.len() } else { pool },
+            all,
             traders,
         };
         let mut g = self.boards.lock();
         g.insert(board_key(days, rank, active), entry);
-        if let Ok(s) = serde_json::to_string(&*g) {
+        // Disk gets the top slice only: a whole-leaderboard board is a few MB
+        // per key and the refresher rewrites it every couple of minutes.
+        let slim: std::collections::HashMap<&String, BoardEntry> = g.iter().map(|(k, e)| {
+            let mut c = e.clone();
+            if c.traders.len() > PERSIST_CAP {
+                c.traders.truncate(PERSIST_CAP);
+                c.pool = PERSIST_CAP;
+                c.all = false;
+            }
+            (k, c)
+        }).collect();
+        if let Ok(s) = serde_json::to_string(&slim) {
             let _ = std::fs::write(&self.path, s);
         }
     }
 }
 
+/// One wallet's fill-derived stats for one window, as scraped from HL. The
+/// leaderboard CDN knows ROI/PnL/volume for everyone but says nothing about
+/// WHAT a wallet trades — that only comes from its fills, one throttled /info
+/// call per wallet. This index is where those calls accumulate, so a request
+/// that needs "the top 50 who trade ZEC" walks the ranked leaderboard against
+/// memory and only pays for wallets nobody has looked at yet.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexEntry {
+    pub scanned_at: i64,    // ms epoch of the fills fetch
+    pub volume: f64,
+    pub pnl: f64,
+    pub win_rate: f64,      // -1 if no realised fills
+    pub trades: usize,
+    pub coins: Vec<String>, // every distinct coin traded in the window, most-traded first
+    pub sharpe: f64,
+    pub avg_trade_usd: f64,
+    pub last_active: i64,
+}
+
+impl IndexEntry {
+    pub fn is_fresh(&self, now_ms: i64) -> bool {
+        now_ms - self.scanned_at <= INDEX_TTL_MS
+    }
+    /// True when this wallet traded at least one of `wanted` (uppercased).
+    pub fn trades_any(&self, wanted: &[String]) -> bool {
+        wanted.is_empty() || self.coins.iter().any(|c| wanted.iter().any(|w| w == &c.to_ascii_uppercase()))
+    }
+}
+
+/// How long an index entry counts as current. Coins traded over a window
+/// barely move minute to minute; 30 min keeps win%/sharpe honest without
+/// re-scraping every wallet on every 60s board refresh.
+pub const INDEX_TTL_MS: i64 = 30 * 60 * 1000;
+/// Entries older than this are dropped when the index is written to disk.
+const INDEX_EVICT_MS: i64 = 48 * 3_600_000;
+/// Wallets per fills round-trip batch during a coin scan — small enough that
+/// a popular coin (BTC) stops after one or two batches.
+const COIN_CHUNK: usize = 40;
+/// Deepest a single request will walk the ranked leaderboard looking for coin
+/// matches before giving up and returning what it found.
+pub const COIN_SCAN_CAP: usize = 600;
+
+/// Normalise a user-supplied coin list: trimmed, uppercased, de-duplicated.
+pub fn wanted_coins(raw: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for c in raw {
+        let c = c.trim().to_ascii_uppercase();
+        if !c.is_empty() && !out.contains(&c) { out.push(c); }
+    }
+    out
+}
+
+pub struct TraderIndex {
+    path: std::path::PathBuf,
+    // Keyed by `"{days}:{addr}"` — stats are window-scoped.
+    entries: Mutex<std::collections::HashMap<String, IndexEntry>>,
+}
+
+impl TraderIndex {
+    fn key(days: u32, addr: &str) -> String { format!("{days}:{}", addr.to_lowercase()) }
+
+    pub fn load(dir: &str) -> Self {
+        let path = std::path::PathBuf::from(dir).join("traderindex.json");
+        let entries = std::fs::read_to_string(&path).ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        Self { path, entries: Mutex::new(entries) }
+    }
+    pub fn len(&self) -> usize { self.entries.lock().len() }
+    pub fn get(&self, days: u32, addr: &str) -> Option<IndexEntry> {
+        self.entries.lock().get(&Self::key(days, addr)).cloned()
+    }
+    pub fn is_fresh(&self, days: u32, addr: &str, now_ms: i64) -> bool {
+        self.get(days, addr).map(|e| e.is_fresh(now_ms)).unwrap_or(false)
+    }
+    pub fn put(&self, days: u32, addr: &str, e: IndexEntry) {
+        self.entries.lock().insert(Self::key(days, addr), e);
+    }
+    /// Persist, dropping entries nobody will trust again.
+    pub fn save(&self) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let snapshot = {
+            let mut g = self.entries.lock();
+            g.retain(|_, e| now - e.scanned_at <= INDEX_EVICT_MS);
+            g.clone()
+        };
+        if let Ok(s) = serde_json::to_string(&snapshot) {
+            let _ = std::fs::write(&self.path, s);
+        }
+    }
+    /// Which of `addrs` still need a fills fetch for this window.
+    pub fn stale(&self, days: u32, addrs: &[String], now_ms: i64) -> Vec<String> {
+        addrs.iter().filter(|a| !self.is_fresh(days, a, now_ms)).cloned().collect()
+    }
+
+    /// Fetch fills for every wallet in `addrs` that isn't fresh in the index
+    /// and score them into it. Failed fetches (HL 429 storms) keep whatever
+    /// stale entry was there. `progress`, if given, is ticked per wallet
+    /// starting from `base` so a multi-batch scan reports a running total.
+    /// Returns how many wallets were actually fetched.
+    pub async fn enrich(
+        &self,
+        hl: &Arc<Client>,
+        days: u32,
+        addrs: &[String],
+        progress: Option<&Arc<ProgressTracker>>,
+        base: usize,
+    ) -> usize {
+        let now = chrono::Utc::now().timestamp_millis();
+        let todo = self.stale(days, addrs, now);
+        if todo.is_empty() { return 0; }
+        let cutoff_ms = now - (days as i64) * 86_400_000;
+        let counter = Arc::new(AtomicUsize::new(0));
+        // Hyperliquid /info rate-limits aggressive parallel scans; cap
+        // concurrency so a deep walk doesn't collapse into 429s.
+        let scanned: Vec<(String, Option<Vec<Fill>>)> = stream::iter(todo.iter().cloned())
+            .map(|addr| {
+                let hl = hl.clone();
+                let counter = counter.clone();
+                async move {
+                    let r = match hl.user_fills_by_time(&addr, cutoff_ms).await {
+                        Ok(v) => (addr.clone(), Some(parse_fills(&v))),
+                        Err(e) => {
+                            tracing::warn!("fills fetch failed for {addr}: {e}");
+                            (addr.clone(), None)
+                        }
+                    };
+                    let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
+                    if let Some(p) = progress { p.tick(base + n); }
+                    r
+                }
+            })
+            .buffer_unordered(2)
+            .collect()
+            .await;
+        let stamp = chrono::Utc::now().timestamp_millis();
+        for (addr, fills) in scanned {
+            let Some(fills) = fills else { continue };
+            let (vol, pnl, wr, n, coins, sharpe, last) = score_fills(&fills, cutoff_ms);
+            self.put(days, &addr, IndexEntry {
+                scanned_at: stamp,
+                volume: vol, pnl, win_rate: wr, trades: n, coins, sharpe,
+                avg_trade_usd: if n == 0 { 0.0 } else { vol / n as f64 },
+                last_active: last,
+            });
+        }
+        self.save();
+        todo.len()
+    }
+}
+
+/// What a scan returns: the board plus how it was found. `depth` is how far
+/// down the ranked leaderboard the walk went; `candidates` is how many wallets
+/// passed the leaderboard-side gates (equity floor + liveness) in total.
+#[derive(Debug, Clone, Serialize)]
+pub struct Board {
+    pub traders: Vec<TopTrader>,
+    pub depth: usize,
+    pub candidates: usize,
+    pub coins: Vec<String>,
+}
+
+/// Which rows a caller wants to keep. Every threshold is a floor; the
+/// fill-derived ones (`sharpe`, `win`, `trades`) can only be met by rows that
+/// have fill stats, so setting any of them implies `with_stats`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ScoreFilter {
+    pub min_roi: Option<f64>,     // percent
+    pub min_pnl: Option<f64>,     // USD
+    pub min_volume: Option<f64>,  // USD
+    pub min_equity: Option<f64>,  // USD account value
+    pub min_sharpe: Option<f64>,
+    pub min_win: Option<f64>,     // percent
+    pub min_trades: Option<usize>,
+    pub with_stats: bool,
+}
+
+impl ScoreFilter {
+    pub fn is_empty(&self) -> bool { *self == ScoreFilter::default() }
+    fn needs_stats(&self) -> bool {
+        self.with_stats || self.min_sharpe.is_some() || self.min_win.is_some() || self.min_trades.is_some()
+    }
+    pub fn keeps(&self, t: &TopTrader) -> bool {
+        let has_stats = t.win_rate >= 0.0;
+        if self.needs_stats() && !has_stats { return false; }
+        self.min_roi.map_or(true, |m| t.roi >= m)
+            && self.min_pnl.map_or(true, |m| t.pnl >= m)
+            && self.min_volume.map_or(true, |m| t.volume >= m)
+            && self.min_equity.map_or(true, |m| t.account_value >= m)
+            && self.min_sharpe.map_or(true, |m| t.sharpe >= m)
+            && self.min_win.map_or(true, |m| t.win_rate >= m)
+            && self.min_trades.map_or(true, |m| t.trades >= m)
+    }
+    pub fn apply(&self, rows: &mut Vec<TopTrader>) {
+        if !self.is_empty() { rows.retain(|t| self.keeps(t)); }
+    }
+}
+
+/// Column a board can be ordered by. The leaderboard-priced ones (`roi`,
+/// `pnl`, `volume`, `equity`) rank every row; the fill-derived ones
+/// (`sharpe`, `win_rate`, `trades`) sink rows without stats to the bottom
+/// instead of letting an unmeasured 0 outrank a measured negative.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortKey { Roi, Pnl, Volume, Equity, Sharpe, WinRate, Trades }
+
+impl SortKey {
+    pub fn parse(s: &str) -> Option<SortKey> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "" => None,
+            "roi" => Some(SortKey::Roi),
+            "pnl" => Some(SortKey::Pnl),
+            "volume" | "vlm" | "vol" => Some(SortKey::Volume),
+            "equity" | "account_value" => Some(SortKey::Equity),
+            "sharpe" => Some(SortKey::Sharpe),
+            "win" | "win_rate" | "winrate" => Some(SortKey::WinRate),
+            "trades" => Some(SortKey::Trades),
+            _ => None,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SortKey::Roi => "roi", SortKey::Pnl => "pnl", SortKey::Volume => "volume",
+            SortKey::Equity => "equity", SortKey::Sharpe => "sharpe",
+            SortKey::WinRate => "win_rate", SortKey::Trades => "trades",
+        }
+    }
+    fn needs_stats(self) -> bool { matches!(self, SortKey::Sharpe | SortKey::WinRate | SortKey::Trades) }
+    fn metric(self, t: &TopTrader) -> f64 {
+        if self.needs_stats() && t.win_rate < 0.0 { return f64::NEG_INFINITY; }
+        match self {
+            SortKey::Roi => t.roi, SortKey::Pnl => t.pnl, SortKey::Volume => t.volume,
+            SortKey::Equity => t.account_value, SortKey::Sharpe => t.sharpe,
+            SortKey::WinRate => t.win_rate, SortKey::Trades => t.trades as f64,
+        }
+    }
+    pub fn sort(self, rows: &mut [TopTrader]) {
+        rows.sort_by(|a, b| self.metric(b).partial_cmp(&self.metric(a)).unwrap_or(std::cmp::Ordering::Equal));
+    }
+}
+
+/// Rows that carry fill stats (win%/sharpe/trades) — the ones a query was
+/// actually spent on.
+pub fn enriched_count(rows: &[TopTrader]) -> usize {
+    rows.iter().filter(|t| t.win_rate >= 0.0).count()
+}
+
+/// The ranked, gated leaderboard for one window — the walk order every scan
+/// and the background deepener share.
+pub async fn ranked_addrs(hl: &Arc<Client>, days: u32, rank: Rank, active: Active) -> Vec<String> {
+    let lb = hl.leaderboard().await.unwrap_or(Value::Null);
+    parse_lb_ranked(&lb, window_for_days(days), rank, active)
+        .into_iter().map(|(a, _)| a).collect()
+}
+
+fn row_from(addr: &str, lb: &LbRow, e: Option<&IndexEntry>) -> TopTrader {
+    let mut t = TopTrader {
+        address: addr.to_string(),
+        roi: lb.roi * 100.0,           // HL's official window ROI (percent)
+        account_value: lb.account_value,
+        volume: lb.vlm,
+        pnl: lb.pnl,
+        win_rate: -1.0,                // "—" until/unless fills enrich it
+        trades: 0,
+        coins: Vec::new(),
+        avg_trade_usd: 0.0,
+        sharpe: 0.0,
+        last_active: 0,                // 0 ⇒ UI shows "≤24h" (liveness gate)
+    };
+    if let Some(e) = e {
+        if e.trades > 0 {
+            t.win_rate = e.win_rate;
+            t.trades = e.trades;
+            t.coins = e.coins.clone();
+            t.sharpe = e.sharpe;
+            t.avg_trade_usd = e.avg_trade_usd;
+            t.last_active = e.last_active;
+        }
+    }
+    t
+}
+
 pub async fn top_traders(
     hl: Arc<Client>,
+    index: Arc<TraderIndex>,
     days: u32,
-    min_per_day: f64,
     pool: usize,
     extra_addrs: Vec<String>,
+    coins: Vec<String>,
 ) -> anyhow::Result<Vec<TopTrader>> {
-    top_traders_with_progress(hl, days, min_per_day, pool, extra_addrs, None, Rank::Roi, Active::Day).await
+    top_traders_with_progress(hl, index, days, pool, extra_addrs, None, Rank::Roi, Active::Day, coins, ENRICH_CAP)
+        .await.map(|b| b.traders)
 }
 
 pub async fn top_traders_with_progress(
     hl: Arc<Client>,
+    index: Arc<TraderIndex>,
     days: u32,
-    _min_per_day: f64,   // retired: liveness is the `active` gate (see parse_lb_ranked)
     pool: usize,
     extra_addrs: Vec<String>,
     progress: Option<Arc<ProgressTracker>>,
     rank: Rank,
     active: Active,
-) -> anyhow::Result<Vec<TopTrader>> {
+    coins: Vec<String>,
+    enrich: usize,
+) -> anyhow::Result<Board> {
+    // Fill stats are the only thing that costs a throttled /info call per
+    // wallet, so they're rationed to the top `enrich` rows by `rank` — the
+    // rest of the board is priced straight from the leaderboard CDN.
+    let enrich = enrich.min(ENRICH_MAX);
     let lb = hl.leaderboard().await.unwrap_or(Value::Null);
     // Whole-universe leaderboard, ranked by `rank` and already filtered by the
     // `active` gate. This IS the source of truth for the board — every row's
     // ROI/PnL/volume comes from here, so "top `pool`" means literally the top
-    // `pool` of the scrape, not a sample of whatever we could scan.
+    // `pool` of the scrape that meet the requirements, not a sample of
+    // whatever we could scan.
     let ranked = parse_lb_ranked(&lb, window_for_days(days), rank, active);
+    let candidates = ranked.len();
     let lb_by_addr: std::collections::HashMap<String, LbRow> =
         ranked.iter().cloned().collect();
-    let mut addrs: Vec<String> = ranked.into_iter().map(|(a, _)| a).collect();
-    addrs.truncate(pool.max(1));
-    // Seed wallets are always included on top of the ranked pool.
-    for a in extra_addrs {
-        if !addrs.contains(&a) { addrs.push(a); }
-    }
+    let ranked: Vec<String> = ranked.into_iter().map(|(a, _)| a).collect();
+    let wanted = wanted_coins(&coins);
+    let pool = pool.max(1);
 
-    let cutoff_ms: i64 = chrono::Utc::now().timestamp_millis()
-        - (days as i64) * 86_400_000;
-
-    // Enrich only the top slice with per-fill stats (win%/sharpe/trades/coins).
-    let enrich: std::collections::HashSet<String> =
-        addrs.iter().take(ENRICH_CAP).cloned().collect();
-    if let Some(p) = progress.as_ref() { p.start(days, enrich.len()); }
-    let counter = Arc::new(AtomicUsize::new(0));
-
-    // Hyperliquid /info rate-limits aggressive parallel scans; cap concurrency
-    // so longer windows don't silently drop addresses to 429s. Rows that 429
-    // here aren't dropped — they just keep their leaderboard-only stats.
-    let scanned: Vec<(String, Vec<Fill>)> = stream::iter(enrich.iter().cloned())
-        .map(|addr| {
-            let hl = hl.clone();
-            let progress = progress.clone();
-            let counter = counter.clone();
-            async move {
-                let r = match hl.user_fills_by_time(&addr, cutoff_ms).await {
-                    Ok(v) => (addr.clone(), parse_fills(&v)),
-                    Err(e) => {
-                        tracing::warn!("fills fetch failed for {addr}: {e}");
-                        (addr.clone(), Vec::new())
-                    }
-                };
-                let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
-                if let Some(p) = progress.as_ref() { p.tick(n); }
-                r
-            }
-        })
-        .buffer_unordered(2)
-        .collect()
-        .await;
-    if let Some(p) = progress.as_ref() { p.finish(); }
-    let fills_by_addr: std::collections::HashMap<String, Vec<Fill>> =
-        scanned.into_iter().collect();
-
-    // Build one row per selected address, straight from the leaderboard, and
-    // layer per-fill colour on top where we managed to scan it.
-    let mut out = Vec::with_capacity(addrs.len());
-    for addr in &addrs {
-        let row = lb_by_addr.get(addr).cloned().unwrap_or_default();
-        let mut t = TopTrader {
-            address: addr.clone(),
-            roi: row.roi * 100.0,          // HL's official window ROI (percent)
-            account_value: row.account_value,
-            volume: row.vlm,
-            pnl: row.pnl,
-            win_rate: -1.0,                // "—" until/unless fills enrich it
-            trades: 0,
-            coins: Vec::new(),
-            avg_trade_usd: 0.0,
-            sharpe: 0.0,
-            last_active: 0,                // 0 ⇒ UI shows "≤24h" (liveness gate)
-        };
-        if let Some(fills) = fills_by_addr.get(addr) {
-            if !fills.is_empty() {
-                let (vol, _pnl, wr, n, coins, sharpe, last) = score_fills(fills, cutoff_ms);
-                if n > 0 {
-                    t.win_rate = wr;
-                    t.trades = n;
-                    t.coins = coins;
-                    t.sharpe = sharpe;
-                    t.avg_trade_usd = vol / n as f64;
-                    t.last_active = last;
+    let mut addrs: Vec<String>;
+    let depth;
+    if wanted.is_empty() {
+        // Plain board: the top `pool` by metric (`ALL` = every gated wallet).
+        // Enrich only the top slice with per-fill stats (win%/sharpe/trades/
+        // coins); rows past the cap keep their real leaderboard ROI/PnL/volume
+        // and show "—".
+        addrs = ranked.iter().take(pool).cloned().collect();
+        depth = addrs.len();
+        let enrich: Vec<String> = addrs.iter().take(enrich).cloned().collect();
+        if let Some(p) = progress.as_ref() { p.start(days, enrich.len()); }
+        index.enrich(&hl, days, &enrich, progress.as_ref(), 0).await;
+        if let Some(p) = progress.as_ref() { p.finish(); }
+    } else {
+        // Coin requirement: walk the ranked leaderboard in batches, scraping
+        // fills for anyone the index hasn't seen lately, and keep wallets that
+        // traded one of the wanted coins — until we hold `pool` of them or the
+        // walk budget runs out. Every row on a coin board is enriched by
+        // construction: we had to read its fills to know it qualifies.
+        let budget = COIN_SCAN_CAP.min(ranked.len());
+        if let Some(p) = progress.as_ref() { p.start(days, budget); }
+        addrs = Vec::with_capacity(pool);
+        let mut walked = 0usize;
+        for chunk in ranked[..budget].chunks(COIN_CHUNK) {
+            index.enrich(&hl, days, chunk, progress.as_ref(), walked).await;
+            for a in chunk {
+                walked += 1;
+                if index.get(days, a).map(|e| e.trades > 0 && e.trades_any(&wanted)).unwrap_or(false) {
+                    addrs.push(a.clone());
+                    if addrs.len() >= pool { break; }
                 }
             }
+            if let Some(p) = progress.as_ref() { p.tick(walked); }
+            if addrs.len() >= pool { break; }
         }
-        out.push(t);
+        depth = walked;
+        if let Some(p) = progress.as_ref() { p.finish_at(walked); }
     }
+
+    // Seed wallets are always included on top of the ranked pool, scraped
+    // even when they'd fall outside the enrichment cap.
+    let seeds: Vec<String> = extra_addrs.into_iter()
+        .filter(|a| !addrs.contains(a)).collect();
+    if !seeds.is_empty() {
+        index.enrich(&hl, days, &seeds, None, 0).await;
+        addrs.extend(seeds);
+    }
+
+    // Build one row per selected address, straight from the leaderboard, and
+    // layer per-fill colour on top where the index has it.
+    let mut out: Vec<TopTrader> = addrs.iter().map(|addr| {
+        let row = lb_by_addr.get(addr).cloned().unwrap_or_default();
+        row_from(addr, &row, index.get(days, addr).as_ref())
+    }).collect();
     // Rank the board by the same metric we selected the cohort on.
     let metric = |t: &TopTrader| match rank { Rank::Roi => t.roi, Rank::Pnl => t.pnl, Rank::Volume => t.volume };
     out.sort_by(|a, b| metric(b).partial_cmp(&metric(a)).unwrap_or(std::cmp::Ordering::Equal));
-    Ok(out)
+    Ok(Board { traders: out, depth, candidates, coins: wanted })
 }
 
 pub async fn analyze(hl: Arc<Client>, addr: &str, days: u32) -> anyhow::Result<Value> {
@@ -563,5 +875,143 @@ mod tests {
         let c2 = BoardCache::load(dir.to_str().unwrap());
         assert_eq!(c2.keys().len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn entry(coins: &[&str], age_ms: i64) -> IndexEntry {
+        IndexEntry {
+            scanned_at: chrono::Utc::now().timestamp_millis() - age_ms,
+            volume: 1.0, pnl: 0.0, win_rate: 50.0, trades: 3,
+            coins: coins.iter().map(|c| c.to_string()).collect(),
+            sharpe: 0.0, avg_trade_usd: 1.0, last_active: 0,
+        }
+    }
+
+    #[test]
+    fn wanted_coins_normalises() {
+        let w = wanted_coins(&["zec".into(), " ETH ".into(), "".into(), "ZEC".into()]);
+        assert_eq!(w, vec!["ZEC", "ETH"]);
+        assert!(wanted_coins(&[]).is_empty());
+    }
+
+    #[test]
+    fn coin_match_is_any_of_and_case_insensitive() {
+        let e = entry(&["ETH", "xyz:HYUNDAI"], 0);
+        assert!(e.trades_any(&wanted_coins(&["eth".into()])));
+        assert!(e.trades_any(&wanted_coins(&["ZEC".into(), "ETH".into()])));
+        assert!(e.trades_any(&wanted_coins(&["xyz:hyundai".into()])));
+        assert!(!e.trades_any(&wanted_coins(&["ZEC".into()])));
+        // no requirement → everyone qualifies
+        assert!(e.trades_any(&[]));
+    }
+
+    #[test]
+    fn index_freshness_and_persistence() {
+        let dir = std::env::temp_dir().join(format!("hl-index-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ix = TraderIndex::load(dir.to_str().unwrap());
+        let now = chrono::Utc::now().timestamp_millis();
+        let a = "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string();
+        let b = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string();
+        ix.put(7, &a, entry(&["ZEC"], 0));
+        ix.put(7, &b, entry(&["BTC"], INDEX_TTL_MS + 1));
+        // keys are case-insensitive and window-scoped
+        assert!(ix.get(7, &a.to_lowercase()).is_some());
+        assert!(ix.get(1, &a).is_none());
+        assert!(ix.is_fresh(7, &a, now));
+        assert!(!ix.is_fresh(7, &b, now));
+        assert_eq!(ix.stale(7, &[a.clone(), b.clone()], now), vec![b.clone()]);
+        // survives a save/reload; a stale-but-recent entry is kept (fallback
+        // when a refetch 429s), an ancient one is evicted
+        ix.put(7, "0xcccccccccccccccccccccccccccccccccccccccc", entry(&["SOL"], INDEX_EVICT_MS + 1));
+        ix.save();
+        let ix2 = TraderIndex::load(dir.to_str().unwrap());
+        assert_eq!(ix2.len(), 2);
+        assert!(ix2.get(7, &b).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn tt(roi: f64, pnl: f64, equity: f64, stats: Option<(f64, f64, usize)>) -> TopTrader {
+        let (win_rate, sharpe, trades) = stats.unwrap_or((-1.0, 0.0, 0));
+        TopTrader {
+            address: format!("0x{roi}"), roi, account_value: equity, volume: pnl.abs() * 10.0, pnl,
+            win_rate, trades, coins: vec![], avg_trade_usd: 0.0, sharpe, last_active: 0,
+        }
+    }
+
+    #[test]
+    fn score_filter_is_a_set_of_floors_and_stat_floors_imply_stats() {
+        let rows = vec![
+            tt(50.0, 5000.0, 20_000.0, Some((60.0, 1.8, 40))),   // measured, strong
+            tt(80.0, 800.0, 1_500.0, None),                      // unmeasured, high roi
+            tt(-10.0, -900.0, 90_000.0, Some((30.0, -0.5, 12))), // measured, losing
+        ];
+        let mut f = ScoreFilter::default();
+        assert!(f.is_empty());
+        let mut r = rows.clone(); f.apply(&mut r); assert_eq!(r.len(), 3);
+        f.min_roi = Some(0.0);
+        let mut r = rows.clone(); f.apply(&mut r); assert_eq!(r.len(), 2);
+        // a sharpe floor can only be met by rows that were measured
+        f = ScoreFilter { min_sharpe: Some(-1.0), ..Default::default() };
+        let mut r = rows.clone(); f.apply(&mut r);
+        assert_eq!(r.iter().map(|t| t.roi as i64).collect::<Vec<_>>(), vec![50, -10]);
+        f = ScoreFilter { with_stats: true, min_equity: Some(50_000.0), ..Default::default() };
+        let mut r = rows.clone(); f.apply(&mut r);
+        assert_eq!(r.len(), 1); assert_eq!(r[0].roi, -10.0);
+        f = ScoreFilter { min_win: Some(50.0), min_trades: Some(50), ..Default::default() };
+        let mut r = rows.clone(); f.apply(&mut r); assert!(r.is_empty());
+        assert_eq!(enriched_count(&rows), 2);
+    }
+
+    #[test]
+    fn sort_keys_parse_and_unmeasured_rows_sink_on_stat_sorts() {
+        assert_eq!(SortKey::parse("sharpe"), Some(SortKey::Sharpe));
+        assert_eq!(SortKey::parse("win"), Some(SortKey::WinRate));
+        assert_eq!(SortKey::parse("account_value"), Some(SortKey::Equity));
+        assert_eq!(SortKey::parse(""), None);
+        assert_eq!(SortKey::parse("luck"), None);
+        let mut rows = vec![
+            tt(80.0, 800.0, 1_500.0, None),                      // unmeasured (sharpe field is 0)
+            tt(-10.0, -900.0, 90_000.0, Some((30.0, -0.5, 12))), // measured negative sharpe
+            tt(50.0, 5000.0, 20_000.0, Some((60.0, 1.8, 40))),
+        ];
+        SortKey::Sharpe.sort(&mut rows);
+        assert_eq!(rows.iter().map(|t| t.roi as i64).collect::<Vec<_>>(), vec![50, -10, 80]);
+        SortKey::Roi.sort(&mut rows);
+        assert_eq!(rows.iter().map(|t| t.roi as i64).collect::<Vec<_>>(), vec![80, 50, -10]);
+        SortKey::Equity.sort(&mut rows);
+        assert_eq!(rows[0].account_value, 90_000.0);
+    }
+
+    #[test]
+    fn whole_boards_stay_in_memory_but_only_a_slice_hits_disk() {
+        let dir = std::env::temp_dir().join(format!("hl-boards-all-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let c = BoardCache::load(dir.to_str().unwrap());
+        let rows: Vec<TopTrader> = (0..(PERSIST_CAP + 25)).map(|i| tt(i as f64, 0.0, 1.0, None)).collect();
+        c.put(7, Rank::Roi, Active::Day, ALL, rows);
+        let e = c.get(7, Rank::Roi, Active::Day).unwrap();
+        assert!(e.all && e.traders.len() == PERSIST_CAP + 25 && e.pool == PERSIST_CAP + 25);
+        assert!(e.covers(ALL) && e.covers(50) && e.covers(PERSIST_CAP + 25));
+        // reload from disk: the top slice, no longer claiming to be everyone
+        let c2 = BoardCache::load(dir.to_str().unwrap());
+        let e2 = c2.get(7, Rank::Roi, Active::Day).unwrap();
+        assert!(!e2.all && e2.traders.len() == PERSIST_CAP && e2.pool == PERSIST_CAP);
+        assert!(e2.covers(PERSIST_CAP) && !e2.covers(ALL) && !e2.covers(PERSIST_CAP + 1));
+        // a top-N board never answers an `all` request
+        c.put(1, Rank::Roi, Active::Day, 150, vec![]);
+        assert!(!c.get(1, Rank::Roi, Active::Day).unwrap().covers(ALL));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rows_only_take_fill_stats_from_entries_with_trades() {
+        let lb = LbRow { roi: 0.05, pnl: 10.0, vlm: 100.0, day_vlm: 1.0, account_value: 5000.0 };
+        let t = row_from("0xa", &lb, None);
+        assert_eq!(t.roi, 5.0); assert_eq!(t.win_rate, -1.0); assert!(t.coins.is_empty());
+        let t = row_from("0xa", &lb, Some(&entry(&["ETH"], 0)));
+        assert_eq!(t.trades, 3); assert_eq!(t.coins, vec!["ETH"]);
+        let mut empty = entry(&[], 0); empty.trades = 0;
+        let t = row_from("0xa", &lb, Some(&empty));
+        assert_eq!(t.win_rate, -1.0);
     }
 }

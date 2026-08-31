@@ -1,6 +1,7 @@
 "use client";
 
 import type { BlockSpec, Catalog, Graph, GraphNode, Report } from "../lib/types";
+import { RiskPill, SEVERITY_COLOR } from "./AuditView";
 
 type Props = {
   catalog: Catalog;
@@ -8,8 +9,10 @@ type Props = {
   node: GraphNode | null;
   report: Report | null;
   onChange: (graph: Graph) => void;
-  onViewSource: (block: BlockSpec) => void;
+  onViewSource: (block: BlockSpec, tab?: "source" | "audit") => void;
 };
+
+const RISK_ORDER = ["critical", "high", "medium", "low", "info", "unknown"];
 
 export default function Inspector({
   catalog,
@@ -65,6 +68,54 @@ export default function Inspector({
             </div>
           </>
         )}
+        {graph.nodes.length > 0 && (
+          <>
+            <div className="label" style={{ margin: "18px 0 8px" }}>
+              Audit
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {[...graph.nodes]
+                .map((n) => ({ n, spec: catalog.blocks.find((b) => b.id === n.block) }))
+                .sort(
+                  (a, b) =>
+                    RISK_ORDER.indexOf(a.spec?.audit?.risk ?? "unknown") -
+                    RISK_ORDER.indexOf(b.spec?.audit?.risk ?? "unknown")
+                )
+                .map(({ n, spec }) =>
+                  spec ? (
+                    <div
+                      key={n.id}
+                      style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, cursor: "pointer" }}
+                      onClick={() => onViewSource(spec, "audit")}
+                      title="read the agent audit"
+                    >
+                      <RiskPill summary={spec.audit} compact />
+                      <span style={{ color: "var(--muted)", flex: 1 }}>
+                        {n.label || spec.name}
+                      </span>
+                      {spec.audit?.worst && (
+                        <span
+                          className="mono-small"
+                          style={{
+                            color: SEVERITY_COLOR[spec.audit.worst.severity],
+                            maxWidth: 150,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {spec.audit.worst.title}
+                        </span>
+                      )}
+                    </div>
+                  ) : null
+                )}
+            </div>
+            <div className="mono-small" style={{ marginTop: 6 }}>
+              agent audits of unaudited reference code — click one to read the report
+            </div>
+          </>
+        )}
         <div style={{ marginTop: 20, fontSize: 11, color: "var(--dim)", lineHeight: 1.6 }}>
           Select a block to edit its parameters. Drag from a block&apos;s right-hand dot into
           another block&apos;s port to wire them; click a wire to disconnect it.
@@ -96,9 +147,28 @@ export default function Inspector({
         {spec.docs || spec.summary}
       </div>
 
-      <button className="ghost" style={{ width: "100%" }} onClick={() => onViewSource(spec)}>
-        read {spec.contract}.sol
-      </button>
+      <div style={{ display: "flex", gap: 6 }}>
+        <button className="ghost" style={{ flex: 1 }} onClick={() => onViewSource(spec, "source")}>
+          read {spec.contract}.sol
+        </button>
+        <button
+          className="ghost"
+          style={{ flex: 1, display: "flex", justifyContent: "center", gap: 6 }}
+          onClick={() => onViewSource(spec, "audit")}
+          title={spec.audit ? "the agent audit of this block" : "no agent audit yet"}
+        >
+          audit <RiskPill summary={spec.audit} compact />
+        </button>
+      </div>
+      {spec.audit?.worst && (
+        <div className="mono-small" style={{ marginTop: 6, lineHeight: 1.5 }}>
+          <span style={{ color: SEVERITY_COLOR[spec.audit.worst.severity] }}>
+            {spec.audit.worst.severity}
+          </span>{" "}
+          {spec.audit.worst.title}
+          {spec.audit.findings > 1 ? ` (+${spec.audit.findings - 1} more)` : ""}
+        </div>
+      )}
 
       {nodeIssues.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, margin: "12px 0" }}>

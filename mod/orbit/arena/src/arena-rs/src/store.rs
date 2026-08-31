@@ -231,8 +231,22 @@ impl Player {
         if let Some(m) = self.config.get("model").and_then(|m| m.as_str()) {
             v["model"] = json!(m);
         }
+        // `module` means two different things and they must not be confused:
+        // for a wasm or class player it is a module stored *here*, by id; for
+        // an mcp player it is a module of the fleet, by name, which this arena
+        // holds no bytes for.
         if let Some(m) = self.config.get("module").and_then(|m| m.as_str()) {
-            v["module"] = json!(m);
+            match self.kind.as_str() {
+                "mcp" | "module" => v["via"] = json!(m),
+                _ => v["module"] = json!(m),
+            }
+        }
+        if self.kind == "mcp" {
+            for key in ["server", "tool", "url"] {
+                if let Some(x) = self.config.get(key).and_then(|v| v.as_str()) {
+                    v[key] = json!(x);
+                }
+            }
         }
         // What a server-driven player is told each move, so the players tab
         // can say it without a click. The full template is on get_player.

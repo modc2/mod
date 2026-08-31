@@ -7,14 +7,17 @@ add it here. Nothing else in the module knows a provider's name.
 from .base import (CAPS, Filters, NeedsKey, Provider, ProviderError, Unsupported,
                    instance, offer, set_key)
 from .akash import Akash
+from .aleph import Aleph
 from .cathedral import Cathedral
 from .clore import Clore
+from .fluence import Fluence
 from .hyperbolic import Hyperbolic
 from .lium import Lium
 from .local import Local
 from .nosana import Nosana
 from .polaris import Polaris
 from .prime import Prime
+from .runpod import Runpod
 from .shadeform import Shadeform
 from .targon import Targon
 from .vast import Vast
@@ -22,8 +25,8 @@ from .vast import Vast
 # Order is the default display order: crypto-native and no-KYC first, the fiat
 # benchmark last, your own hardware after that.
 REGISTRY = {p.name: p for p in (
-    Targon, Lium, Akash, Vast, Clore, Nosana, Cathedral, Prime, Polaris,
-    Hyperbolic, Shadeform, Local)}
+    Targon, Lium, Akash, Vast, Clore, Nosana, Aleph, Cathedral, Prime, Polaris,
+    Hyperbolic, Runpod, Fluence, Shadeform, Local)}
 
 __all__ = ['REGISTRY', 'get', 'every', 'CAPS', 'Filters', 'Provider', 'ProviderError',
            'NeedsKey', 'Unsupported', 'offer', 'instance', 'set_key']

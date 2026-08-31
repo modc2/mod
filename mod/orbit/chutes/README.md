@@ -25,10 +25,10 @@ speaks the OpenAI-compatible shape, so any OpenAI client points at it too.
 | Tab | What |
 | --- | --- |
 | **CHAT** | Streaming chat — chute picker, temperature, system prompt, per-message latency/tokens/cost |
-| **MODELS** | The whole chute catalog in one sortable table — USD per 1M tokens, invocations, kind, TEE/hot tags. `USE` sends one to CHAT |
+| **CHUTES** | Every chute on api.chutes.ai (~500), loaded once and browsed locally: search across name/tagline/owner/GPU/engine/readme, chips for kind · LIVE NOW · hot/tee/vllm/sglang, GPU + owner pickers, nine sorts, 50/100/ALL per page, LIST or GRID. `INFO` opens the card — prices (in/out/cached/rig-hour), live replicas, GPUs, engine image, owner, dates, full readme, a curl. `USE` sends it to CHAT (or IMAGE), `+ VS LANE` to VS. Keys: ↑↓ move · ENTER open · U use · V lane · / search · ←→ page |
 | **VS** | Same prompt, several chutes, at once. Lanes race with live timers; fastest gets the ★ FASTEST ribbon, failures get KO'd |
 | **IMAGE** | Text → image on a diffusion chute |
-| **KEYS** | Key vault — browser-only, sent as `x-chutes-key`, plus a live TEST button |
+| **KEYS** | Key vault — THIS BOX (owner-signed, writes the server key) and THIS BROWSER (localStorage, `x-chutes-key`), plus a live TEST button |
 | **MCP** | The tool registry as a runnable console: pick a tool, edit JSON args, `tools/call`, see the raw result |
 
 The cabinet card at the top shows whether a key resolves (and from where), the
@@ -53,7 +53,8 @@ turns it off.
 | `POST /compare` | Race one prompt across `models:[...]` |
 | `POST /route` | Rank chutes under filters; `ask` runs the winner |
 | `POST /images` | Image generation on a diffusion chute |
-| `GET /models?q=&kind=&sort=` | Normalized catalog (10-min cache, `refresh=1` busts it) |
+| `GET /models?q=&kind=&tag=&gpu=&owner=&live=1&sort=&offset=&limit=&facets=1` | Normalized catalog (10-min cache, `refresh=1` busts it). Rows carry `in/out/cache_price` ($/1M), `hour_price`, `instances` (active replicas), `gpus`, `gpu_count`, `owner`, `logo`, `image`, `readme` (first 600 chars), `created_at`/`updated_at`. Sorts: price · out_price · expensive · name · invocations · instances · newest · updated · gpus. `facets=1` adds counts per kind/tag/gpu/owner |
+| `GET /chute/{name or chute_id}` | The full upstream record — whole readme, every instance, node selector |
 | `GET /status?counts=1` | Default chute, key status (never the key), catalog size |
 | `POST /forward` | Generic `{action, ...args}` → any MCP tool |
 | `GET /tools` | Tool registry (REST view of `tools/list`) |
@@ -70,6 +71,8 @@ invocations}` with prices in **USD per 1M tokens**:
 
 ```bash
 curl -s localhost:50300/models?q=qwen\&kind=chat\&sort=price
+curl -s 'localhost:50300/models?live=1&gpu=h200&sort=instances'   # what's actually running on H200s right now
+curl -s localhost:50300/chute/zai-org/GLM-5.1-TEE                   # one chute, in full
 curl -s -X POST localhost:50300/route \
   -d '{"kind":"chat","max_price":0.05,"limit":5,"ask":"write a haiku about GPUs"}'
 # → cheapest chat chutes under $0.05/M, and `ask` runs the prompt on the top one
@@ -105,11 +108,41 @@ The key resolves per request:
 `~/.mod/model/chutes/apikeys.json` (the shape the `model` mod writes).
 
 Keys live off-tree and are never logged or echoed; `/status` reports only
-*whether* a key resolved and *from where*. The console's KEYS tab holds the key
-in browser localStorage only — it never writes to disk.
+*whether* a key resolved and *from where*.
+
+### Setting the key from the app
+
+The console's **KEYS** tab has two cards:
+
+- **THIS BOX** writes `~/.mod/chutes/api_key` on the server — the key MCP,
+  stdio, the `m` CLI and every browser without its own key share. Only the
+  box's owner may set or remove it: CONNECT WALLET (one `personal_sign`, no
+  transaction) or PASTE TOKEN (`m chutes/token`, minted on the box). The key
+  is tried against chutes.ai on a free authenticated call before it lands on
+  disk, so a typo is refused instead of saved.
+- **THIS BROWSER** keeps a key in localStorage and sends it as `x-chutes-key`;
+  it wins over the box key for that browser's own requests.
+
+The same door over HTTP — a mod-protocol token as `Authorization: Bearer`
+(or `x-mod-token`), signed by the owner:
 
 ```bash
-m chutes/set_api_key api_key=... persist=true   # → ~/.mod/chutes/api_key
+GET    /key                 # key status, owner, whether you may write
+POST   /key {key, verify?}  # save it (verify defaults to true)
+DELETE /key                 # remove it
+```
+
+The owner is `CHUTES_OWNER` → `~/.mod/chutes/owner.json` `{"owner": "0x…"}`
+→ config.json `owner` → the box's own key (`m.key().address`), which is what
+the `m` CLI signs with — so on a fresh box the CLI is already the owner.
+Tokens are good for `CHUTES_TOKEN_MAX_AGE` seconds (default 7 days).
+
+```bash
+m chutes/set_api_key api_key=... persist=true   # → ~/.mod/chutes/api_key, directly
+m chutes/set_server_key api_key=...             # the same, through POST /key
+m chutes/token                                  # a token to paste into the console
+m chutes/whoami                                 # GET /key as the box key sees it
+m chutes/clear_api_key
 ```
 
 Public endpoints (the catalog, `utilization`) work with no key at all.

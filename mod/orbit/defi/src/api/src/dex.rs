@@ -761,7 +761,7 @@ impl Dex {
     }
 
     /// The address behind an eth-module account name.
-    async fn evm_address(&self, account: &str, token: Option<&str>) -> Result<String, String> {
+    pub async fn evm_address(&self, account: &str, token: Option<&str>) -> Result<String, String> {
         if account.starts_with("0x") && account.len() == 42 {
             return Ok(account.to_string());
         }
@@ -980,7 +980,7 @@ fn router_abi() -> Value {
     ])
 }
 
-fn erc20_abi() -> Value {
+pub fn erc20_abi() -> Value {
     json!([
         { "name": "allowance", "type": "function", "stateMutability": "view",
           "inputs": [{ "name": "owner", "type": "address" }, { "name": "spender", "type": "address" }],
@@ -1021,7 +1021,7 @@ fn env(key: &str, fallback: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| fallback.to_string())
 }
 
-fn unknown_chain(id: &str) -> String {
+pub fn unknown_chain(id: &str) -> String {
     format!(
         "'{id}' is not a chain this desk trades — {}",
         CHAINS.iter().map(|c| c.id).collect::<Vec<_>>().join(", ")
@@ -1094,7 +1094,7 @@ fn unwrap_tool_result(response: Value, module: &str, tool: &str) -> Result<Value
     Ok(value)
 }
 
-fn string_at(value: &Value, pointer: &str) -> Result<String, String> {
+pub fn string_at(value: &Value, pointer: &str) -> Result<String, String> {
     value
         .pointer(pointer)
         .and_then(|v| v.as_str())

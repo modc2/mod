@@ -80,6 +80,8 @@ standing it needs, `dns_whoami` says which ones the current token can run.
   This needs no permission from the deployment owner — reach for
   `dns_plan` first, which prints the whole sequence including the one step
   (`caddy add_host`) only the box's owner can do.
+- IP addresses are masked (`x.x.x.x`) in every response unless the caller is
+  the deployment owner — `settings.private_ips = false` turns the mask off
 - deployment owner only: `dns_host_set`, `dns_settings`, records in the system
   zone, `dns_serve`/`dns_kill`, `dns_router_sync`.
 

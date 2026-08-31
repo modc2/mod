@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""selfinsure mcp — sixteen tools, and the adjudicator's seat is the point.
+"""selfinsure mcp — twenty-six tools, and the adjudicator's seat is the point.
 
 An agent is not a spectator here. `si_queue` is a work queue of claims waiting
 on a decision, `si_claim` is the case file, and `si_vote` is the decision — with
@@ -9,7 +9,7 @@ lets any agent register itself and start adjudicating within one call.
 Self-contained JSON-RPC 2.0 on the standard library, no `mcp` package.
 
     python3 mcp.py                     # stdio — one JSON message per line
-    python3 mcp.py --http --port 50740 # Streamable HTTP — POST /mcp
+    python3 mcp.py --http --port 50850 # Streamable HTTP — POST /mcp (api.py)
 """
 
 import json
@@ -24,6 +24,8 @@ if HERE not in sys.path:
 
 import pool as P                                             # noqa: E402
 from pool import FEE_CAP_BPS, SelfInsureError                # noqa: E402
+import onchain as O                                          # noqa: E402
+from chain import ChainError                                 # noqa: E402
 
 SUPPORTED_PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
 DEFAULT_PROTOCOL_VERSION = '2025-03-26'
@@ -47,7 +49,13 @@ INSTRUCTIONS = (
     'to state=unfunded and is paid from the next premiums in, oldest first. '
     'si_pool reports it as insolvency rather than hiding it, and si_distribute '
     'refuses to return surplus while any claim is unpaid. Surplus goes back to '
-    'members pro rata — that is what makes these low- to no-profit.'
+    'members pro rata — that is what makes these low- to no-profit. '
+    'The same mutual exists as an Ethereum contract (contracts/src/SelfInsure.sol): '
+    'si_contract describes it, si_preset gives the US health template terms, '
+    'si_deploy puts a pool on a chain through the eth module, and si_onchain reads a '
+    'live pool back — including operatorShareBps, the provider\'s profit as a share of '
+    'every premium, straight off the chain. An optional oracle (SignedOracle) lets '
+    'real data — a signed hospital bill — gate, cap or automatically settle a claim.'
 )
 
 
@@ -164,6 +172,62 @@ def _t_ledger(a):
 
 def _t_stats(a):
     return P.stats()
+
+
+# ── on-chain ─────────────────────────────────────────────────────
+
+def _t_contract(a):
+    what = a.get('what') or 'describe'
+    if what == 'describe':
+        out = O.describe()
+        out['calls'] = O.pool_calls()
+        return out
+    if what == 'source':
+        return {'contract': a.get('contract', 'SelfInsure'),
+                'source': O.source(a.get('contract', 'SelfInsure'))}
+    if what == 'abi':
+        return {'contract': a.get('contract', 'SelfInsure'),
+                'abi': O.abi(a.get('contract', 'SelfInsure'))}
+    if what == 'compile':
+        r = O.compile(a.get('contract', 'SelfInsure'))
+        r.pop('bytecode', None)
+        r['abi_functions'] = sorted(x['name'] for x in r.get('abi') or []
+                                    if x.get('type') == 'function')
+        r.pop('abi', None)
+        return r
+    if what == 'calls':
+        return O.pool_calls()
+    raise SelfInsureError("what is describe, source, abi, compile or calls")
+
+
+def _t_preset(a):
+    kind = a.pop('preset', 'health') or 'health'
+    dec = a.pop('decimals', 6)
+    return O.preset(kind, dec if dec not in (None, '') else 6, **a)
+
+
+def _t_deploy(a):
+    contract = (a.pop('contract', 'SelfInsure') or 'SelfInsure')
+    account = a.pop('account', None)
+    network = a.pop('network', None)
+    password = a.pop('password', None)
+    confirm = bool(a.pop('confirm', False))
+    if contract == 'SelfInsureFactory':
+        return O.deploy_factory(account, network, password, confirm)
+    if contract == 'SignedOracle':
+        return O.deploy_oracle(account, network, password, a.get('owner'), confirm)
+    return O.deploy(account, network, password, preset_=a.pop('preset', 'health') or 'health',
+                    confirm=confirm, **a)
+
+
+def _t_onchain(a):
+    return O.transparency(a['address'], network=a.get('network'),
+                          decimals=a.get('decimals'))
+
+
+def _t_onchain_claim(a):
+    return O.claim(a['address'], a['claim'], network=a.get('network'),
+                   decimals=a.get('decimals'))
 
 
 TOOLS = {
@@ -456,6 +520,103 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': _t_stats,
     },
+    'si_contract': {
+        'description': 'The mutual as an Ethereum smart contract. describe = what it '
+                       'guarantees in code (10% fee cap, 7-day fee notice, pro-rata '
+                       'rebates, FIFO unfunded queue, frozen terms, optional oracle) '
+                       'and every call a member, agent or owner makes; source = the '
+                       'Solidity; abi = the interface; compile = build it and report '
+                       'the compiler. Three contracts: SelfInsure (a pool), '
+                       'SelfInsureFactory (anyone opens one; openHealth deploys the '
+                       'US health template), SignedOracle (real data, signed by named '
+                       'reporters).',
+        'inputSchema': {'type': 'object', 'properties': {
+            'what': _str('describe (default), source, abi, compile or calls',
+                         enum=['describe', 'source', 'abi', 'compile', 'calls']),
+            'contract': _str('SelfInsure (default), SelfInsureFactory or SignedOracle',
+                             enum=['SelfInsure', 'SelfInsureFactory', 'SignedOracle'])}},
+        'handler': _t_contract,
+    },
+    'si_preset': {
+        'description': 'The template terms, scaled to an asset and ready for the '
+                       'constructor. health = the US health mutual: $400/month, '
+                       '$50k per claim, $250 deductible, $250k/year, 30-day wait, '
+                       '$25k reserve floor, 0% operator fee, 2 adjudicators at 66%. '
+                       'Every number can be overridden; fee_bps above 1000 is refused '
+                       'here and by the contract. parametric = the oracle decides. '
+                       'mutual = the plain defaults.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'preset': _str('health (default), parametric or mutual',
+                           enum=['health', 'parametric', 'mutual']),
+            'decimals': _num('the asset\'s decimals: 6 for USDC (default), 18 for ETH/DAI'),
+            'premium': _num('per period, whole units'), 'period_days': _num('days'),
+            'coverage': _num('per-claim cap'), 'deductible': _num(''),
+            'annual_cap': _num('per member per policy year'),
+            'waiting_days': _num(''), 'reserve_floor': _num(''),
+            'fee_bps': _num('operator fee, 0..1000'), 'quorum': _num(''),
+            'threshold_bps': _num('share of votes that must accept, 1..10000'),
+            'approved_agents_only': _bool('owner admits adjudicators')}},
+        'handler': _t_preset,
+    },
+    'si_deploy': {
+        'description': 'Put a pool on a chain. Signs through the eth module — '
+                       'account is a keystore account there and selfinsure never sees '
+                       'the key. Defaults to the health preset in the asset\'s decimals; '
+                       'pass terms overrides (premium, coverage, fee_bps, ...) or a '
+                       'preset. asset = an ERC-20 address (omit for native ETH). '
+                       'oracle = a SignedOracle address with oracle_mode advisory, '
+                       'required or automatic. contract=SelfInsureFactory deploys the '
+                       'factory; contract=SignedOracle deploys an oracle. Mainnet '
+                       'needs confirm=true. Returns the address and reads '
+                       'transparency() straight back.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'account': _str('eth module keystore account that pays for the deploy'),
+            'network': _str('eth module network name (default: its default, usually local)'),
+            'password': _str('the account password if it is locked'),
+            'contract': _str('SelfInsure (default), SelfInsureFactory or SignedOracle',
+                             enum=['SelfInsure', 'SelfInsureFactory', 'SignedOracle']),
+            'name': _str('pool name'), 'about': _str('what is covered — agents judge against it'),
+            'asset': _str('ERC-20 address, or omit for ETH'),
+            'decimals': _num('asset decimals (read from the token if omitted)'),
+            'owner': _str('operator address (default: the deploying account)'),
+            'oracle': _str('SignedOracle address'),
+            'oracle_mode': _str('none, advisory, required or automatic',
+                                enum=['none', 'advisory', 'required', 'automatic']),
+            'preset': _str('health (default), parametric or mutual',
+                           enum=['health', 'parametric', 'mutual']),
+            'premium': _num(''), 'period_days': _num(''), 'coverage': _num(''),
+            'deductible': _num(''), 'annual_cap': _num(''), 'waiting_days': _num(''),
+            'reserve_floor': _num(''), 'fee_bps': _num('0..1000'), 'quorum': _num(''),
+            'threshold_bps': _num(''), 'approved_agents_only': _bool(''),
+            'confirm': _bool('required on mainnet')},
+            'required': ['account']},
+        'handler': _t_deploy,
+    },
+    'si_onchain': {
+        'description': 'Read a live pool off the chain, no key needed: the money '
+                       '(premiums in, claims paid, surplus returned, held on chain), '
+                       'the PROVIDER block (fee now, fee cap, profit accrued and '
+                       'withdrawn, profit as a share of every premium ever paid, any '
+                       'pending fee raise and when it lands), solvency (reconciles = '
+                       'the contract holds what its books say; solvent = every open '
+                       'claim could be paid today), the terms and the oracle.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': _str('the pool contract'),
+            'network': _str('eth module network (default: its default)'),
+            'decimals': _num('override the asset decimals')},
+            'required': ['address']},
+        'handler': _t_onchain,
+    },
+    'si_onchain_claim': {
+        'description': 'One on-chain claim: amount, state, paid and still owed, the '
+                       'frozen terms it is judged under, every ballot with its '
+                       'reason, and the oracle\'s attestation if the pool has one.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': _str('the pool contract'), 'claim': _num('claim id (1-based)'),
+            'network': _str(''), 'decimals': _num('')},
+            'required': ['address', 'claim']},
+        'handler': _t_onchain_claim,
+    },
 }
 
 
@@ -492,7 +653,7 @@ def _call(id_, params):
                                           'text': json.dumps(out, default=str, indent=2)}],
                              'structuredContent': out if isinstance(out, dict) else None,
                              'isError': False})
-    except SelfInsureError as e:
+    except (SelfInsureError, ChainError) as e:
         return _result(id_, {'content': [{'type': 'text',
                                           'text': json.dumps(e.dict(), default=str)}],
                              'isError': True})
@@ -566,6 +727,6 @@ if __name__ == '__main__':
     if '--http' in argv:
         import api
         i = argv.index('--port') + 1 if '--port' in argv else -1
-        api.serve(int(argv[i]) if i > 0 else int(os.environ.get('PORT', 50740)))
+        api.serve(int(argv[i]) if i > 0 else int(os.environ.get('PORT', 50850)))
     else:
         serve_stdio()

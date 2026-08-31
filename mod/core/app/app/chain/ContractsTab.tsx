@@ -190,7 +190,7 @@ export function ContractsTab({
     const dnet = netInfo(d.network)
     return (
       <div key={key} style={{
-        ...panelStyle, padding: '12px 14px', marginBottom: '8px',
+        ...panelStyle, padding: '12px 14px',
         borderColor: state === 'empty' ? `${NEON.dead}88` : 'var(--border-color)',
         display: 'flex', flexDirection: 'column', gap: '9px',
       }}>
@@ -226,21 +226,19 @@ export function ContractsTab({
               {dnet.name.toUpperCase()}
             </button>
           )}
-          <span style={{ marginLeft: 'auto', fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)' }}>
-            {codeLabel(state)}
-          </span>
         </div>
 
         <div style={{
           fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-secondary)',
           display: 'flex', gap: '14px', flexWrap: 'wrap',
         }}>
-          <span style={{ wordBreak: 'break-all' }}>{mobile ? short(d.address, 10, 8) : d.address}</span>
+          <span title={d.address} style={{ wordBreak: 'break-all' }}>{short(d.address, 10, 8)}</span>
           {d.created ? (
             <span style={{ color: 'var(--text-tertiary)' }}>
               {new Date(d.created * 1000).toLocaleDateString()}
             </span>
           ) : null}
+          <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{codeLabel(state)}</span>
           {d.abi_cid && (
             <button onClick={() => copy(d.abi_cid!, 'ABI CID')} title={d.abi_cid} style={{
               fontFamily: TERM_FONT, fontSize: '13px', color: READ, background: 'none',
@@ -251,7 +249,7 @@ export function ContractsTab({
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: 'auto' }}>
           <Btn size="sm" disabled={!d.abi?.length}
             title={d.abi?.length ? undefined : 'no ABI recorded for this one'}
             onClick={() => {
@@ -287,9 +285,8 @@ export function ContractsTab({
     const key = rowKey({ network, address: r.address })
     return (
       <div key={key} style={{
-        ...panelStyle, padding: '12px 14px', marginBottom: '8px',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        gap: '10px', flexWrap: 'wrap',
+        ...panelStyle, padding: '12px 14px',
+        display: 'flex', flexDirection: 'column', gap: '9px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}
           title={codeLabel(code[key])}>
@@ -301,7 +298,7 @@ export function ContractsTab({
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: 'auto' }}>
           <Btn size="sm" active={false} onClick={() => copy(r.address, 'Address')}>COPY</Btn>
           <Btn size="sm" active={false} onClick={() => checkCode([{ network, address: r.address }])}>VERIFY</Btn>
           {explorerUrl(network, r.address) && (
@@ -375,7 +372,9 @@ export function ContractsTab({
               ? 'Nothing here yet — deploy from BUILD, or WATCH a contract that already exists.'
               : 'Sign in above and your deployments show up here.'}
           </Empty>
-        ) : mine.map(deploymentCard)}
+        ) : (
+          <div style={cardGrid(mobile)}>{mine.map(deploymentCard)}</div>
+        )}
       </div>
 
       {/* fleet */}
@@ -384,12 +383,17 @@ export function ContractsTab({
           <Label>FLEET — {net.name.toUpperCase()}</Label>
           {fleet.length === 0
             ? <Empty>No fleet contracts deployed on {net.name}.</Empty>
-            : fleet.map(fleetCard)}
+            : <div style={cardGrid(mobile)}>{fleet.map(fleetCard)}</div>}
         </div>
       )}
     </div>
   )
 }
+
+const cardGrid = (mobile: boolean) => ({
+  display: 'grid', gap: '10px',
+  gridTemplateColumns: mobile ? '1fr' : 'repeat(auto-fill, minmax(340px, 1fr))',
+} as const)
 
 const linkStyle = {
   fontFamily: PIXEL, fontSize: PX.xs, padding: '7px 10px', lineHeight: 1.6,

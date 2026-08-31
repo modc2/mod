@@ -115,10 +115,36 @@ export type ScanProgress = {
 };
 export const fetchScanProgress = () => j<ScanProgress>(`/scan/progress`);
 
-export const fetchTopTraders = (days: number, minPerDay = 1, pool = 150, seed?: string[]) =>
-  j<{ traders: TopTrader[]; days: number; pool: number; updated_at?: number }>(
+// `coins` is a requirement, not a display filter: the API walks the ranked
+// leaderboard until it holds `pool` wallets that traded one of them, and
+// reports how deep it went as `depth`.
+export const fetchTopTraders = (days: number, minPerDay = 1, pool = 150, seed?: string[], coins?: string[]) =>
+  j<{ traders: TopTrader[]; days: number; pool: number; updated_at?: number;
+      coins?: string[]; depth?: number; candidates?: number }>(
     `/traders/top?days=${days}&min_per_day=${minPerDay}&pool=${pool}` +
-    (seed?.length ? `&seed=${encodeURIComponent(seed.join(","))}` : "")
+    (seed?.length ? `&seed=${encodeURIComponent(seed.join(","))}` : "") +
+    (coins?.length ? `&coins=${encodeURIComponent(coins.join(","))}` : "")
+  );
+
+// The whole-board fetch: `pool: "all"` = every gated wallet on the leaderboard
+// (priced from the CDN, free); `enrich` = how many top rows by `rank` get fill
+// stats (win%/sharpe/trades/coins — one throttled query each, so rationed).
+// Score floors are applied client-side on the full list, so they're instant.
+export type BoardMeta = {
+  days: number; pool: number | "all"; all: boolean; enrich: number;
+  rank: string; active: string; sort: string; coins: string[];
+  depth: number; candidates: number | null; priced: number; matched: number; enriched: number;
+  updated_at: number;
+};
+export const fetchBoard = (o: {
+  days: number; pool: number | "all"; rank?: string; enrich?: number; seed?: string[]; coins?: string[];
+}) =>
+  j<BoardMeta & { traders: TopTrader[] }>(
+    `/traders/top?days=${o.days}&pool=${o.pool}` +
+    (o.rank ? `&rank=${o.rank}` : "") +
+    (o.enrich != null ? `&enrich=${o.enrich}` : "") +
+    (o.seed?.length ? `&seed=${encodeURIComponent(o.seed.join(","))}` : "") +
+    (o.coins?.length ? `&coins=${encodeURIComponent(o.coins.join(","))}` : "")
   );
 
 export const analyzeTrader = (addr: string, days: number) =>
@@ -463,7 +489,8 @@ export async function askStream(
 // ── formatting helpers ──
 export const fmtUsd = (n: number) => {
   const a = Math.abs(n);
-  const s = a >= 1e6 ? `${(a / 1e6).toFixed(2)}M`
+  const s = a >= 1e9 ? `${(a / 1e9).toFixed(2)}B`
+    : a >= 1e6 ? `${(a / 1e6).toFixed(2)}M`
     : a >= 1e3 ? `${(a / 1e3).toFixed(2)}K`
     : a.toFixed(2);
   return `${n < 0 ? "-" : ""}$${s}`;

@@ -29,6 +29,17 @@ interface RunResult {
   error?: string
 }
 
+/** The describe/it titles in a Mocha file, in source order — enough to say what a run will cover. */
+function suiteOutline(src: string): { kind: 'describe' | 'it'; title: string }[] {
+  const out: { kind: 'describe' | 'it'; title: string }[] = []
+  const re = /\b(describe|context|it|test)\s*\(\s*(['"`])((?:\\.|(?!\2)[^\\])*)\2/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(src))) {
+    out.push({ kind: m[1] === 'it' || m[1] === 'test' ? 'it' : 'describe', title: m[3] })
+  }
+  return out
+}
+
 export function TestTab({ projects, address }: { projects: ProjectsApi; address: string }) {
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<RunResult | null>(null)
@@ -67,7 +78,7 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
     }
   }, [project, projects, address, grep])
 
-  if (!project) return <Empty>No project open — start one from the sidebar.</Empty>
+  if (!project) return <Empty>No project open — pick or start one from the PROJECT pill up top.</Empty>
 
   const addTest = () => {
     const contract = Object.keys(project.files).find(p => p.endsWith('.sol'))
@@ -95,6 +106,51 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
           <Btn size="sm" active={false} onClick={addTest}>+ ADD A TEST</Btn>
         )}
       </div>
+
+      {/* What's about to run — the tab used to be one button over a void until
+          the first run came back. The titles are read straight out of the
+          test source, so the list is the suite as written, not as last run. */}
+      {!running && !result && testFiles.length > 0 && (
+        <div>
+          <Label note="read from the test files · press RUN TESTS to execute">SUITE</Label>
+          <div style={{ display: 'grid', gap: '8px', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+            {testFiles.map(f => {
+              const cases = suiteOutline(project.files[f] || '')
+              return (
+                <div key={f} style={{ ...panelStyle, padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '6px' }}>
+                    <span style={{ fontFamily: TERM_FONT, fontSize: '15px', color: 'var(--text-primary)' }}>
+                      {f.split('/').pop()}
+                    </span>
+                    <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', marginLeft: 'auto' }}>
+                      {cases.filter(c => c.kind === 'it').length} test{cases.filter(c => c.kind === 'it').length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  {cases.length === 0 ? (
+                    <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)' }}>
+                      no describe / it blocks found
+                    </div>
+                  ) : cases.slice(0, 12).map((c, i) => (
+                    <div key={i} style={{
+                      fontFamily: TERM_FONT, fontSize: '13px', lineHeight: 1.5,
+                      color: c.kind === 'describe' ? ACCENT : 'var(--text-secondary)',
+                      paddingLeft: c.kind === 'it' ? '14px' : 0,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {c.kind === 'it' ? '○ ' : ''}{c.title}
+                    </div>
+                  ))}
+                  {cases.length > 12 && (
+                    <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', paddingLeft: '14px' }}>
+                      … {cases.length - 12} more
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {running && (
         <div style={{ ...panelStyle, padding: '14px', fontFamily: TERM_FONT, fontSize: '14px', color: ACCENT }}>

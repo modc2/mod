@@ -16,6 +16,19 @@ pub const PROTOCOL_VERSION: &str = "2025-06-18";
 pub const SERVER_NAME: &str = "arena";
 pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// What a client is told at initialize, before it has called anything. Short
+/// on purpose: where the documentation is, and the one loop this exists for.
+pub const INSTRUCTIONS: &str = "\
+Upload a class or a wasm module; agents compete at what you uploaded. What a \
+file defines is what it becomes: view/step/done/result is a game, play is a \
+player, and nothing has to be registered.\n\n\
+Read the docs first — docs_pages lists eight pages, docs_page reads one, \
+docs_search finds a section, and every page is also the resource \
+arena://docs/<slug>. game_abi is the contract at run time.\n\n\
+The loop with nobody in it: game_abi -> put_class -> enter_player -> \
+run_match -> leaderboard. Every stored module is also an MCP server of its \
+own at /m/<name>/mcp, where a game can be played a turn at a time.";
+
 /// Where this server answers, so the node runner it spawns can call back in.
 static BASE: OnceLock<String> = OnceLock::new();
 
@@ -51,6 +64,34 @@ pub fn tool_list() -> Value {
                     "lang": { "type": "string", "enum": ["wasm", "class", "rust"], "default": "wasm",
                               "description": "`class` for the Python-class form and `rust` for the Rust-class form — the methods to define, rather than the exports to compile" }
                 }
+            }
+        },
+        {
+            "name": "docs_pages",
+            "description": "The documentation of this arena: eight pages, with a one-line summary of each. Start here if you are about to write a game, seat a player or drive this over MCP — it is the same text the console's docs tab shows, and every page is also the resource arena://docs/<slug>.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "docs_page",
+            "description": "One documentation page, as markdown. Slugs: start, upload, game, player, match, sandbox, mcp, api.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "slug": { "type": "string", "default": "start",
+                              "description": "start (what this is) · upload (what the reader reads) · game (the contract, in three containers) · player (the seven kinds of seat) · match (the loop and the ratings) · sandbox (what uploaded code may reach) · mcp (this server) · api (routes, state, the fleet)" }
+                }
+            }
+        },
+        {
+            "name": "docs_search",
+            "description": "Free text over the documentation, scored by section rather than by page — the answer to `where does it say that` comes back as a heading and a snippet, with the slug to read in full.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "q": { "type": "string" },
+                    "limit": { "type": "integer", "default": 8 }
+                },
+                "required": ["q"]
             }
         },
         {
@@ -328,9 +369,93 @@ pub fn tool_list() -> Value {
             }
         },
         {
+            "name": "arena_host",
+            "description": "Who is running this arena. A rating is a claim about somebody else's code, and this says whose box the claim was made on: the address of the key this box signs with, the machine, the uptime, every door in, how much of the registry has reached the store, and whether it can compile a Rust class. store=false skips the round trip to the store module.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "store": { "type": "boolean", "default": true } }
+            }
+        },
+        {
+            "name": "fleet_modules",
+            "description": "Every module of this fleet that a player could be seated on. Anything with an MCP server can take a seat: enter_player with kind=mcp and config {module, tool?} asks it one of its own tools each move and reads a move out of the answer. Modules are named, never addressed — the call goes through the gateway, which wakes one that is asleep. Pass `module` to get that module's tools instead, which is how you find out which tool plays.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "module": { "type": "string", "description": "a module name — its tools, rather than the whole fleet" }
+                }
+            }
+        },
+        {
             "name": "rust_toolchain",
             "description": "Whether this box can compile a Rust class: the rustc it would use, the target, and where the compiled artefacts are cached. A Rust class needs rustc and the wasm32-unknown-unknown target; a Python class needs neither.",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "vibe",
+            "description": "Write a game or a player with the build agent, one sentence at a time. A session starts from the template (role + lang) or from a stored class (`from` — a fork), and each `prompt` is a round: the file and the sentence go to the build module's job server, the agent edits the file, and the session comes back holding the result and what the registry reads it as. No `prompt` makes the session without running anything — a fork, ready to be written to. Pass `session` to continue one; pass `source` with it to hand back a file you edited by hand. The result is not stored until store_vibe.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "prompt": { "type": "string", "description": "what to write or change, in a sentence or a paragraph" },
+                    "session": { "type": "string", "description": "continue this session (its id, or a prefix of it)" },
+                    "role": { "type": "string", "enum": ["game", "player"], "default": "game", "description": "for a new session from the template" },
+                    "lang": { "type": "string", "enum": ["python", "rust"], "default": "python" },
+                    "from": { "type": "string", "description": "a stored class module to fork — its id, its name, or a prefix" },
+                    "source": { "type": "string", "description": "start from this text instead (or, with `session`, replace the file before the round)" },
+                    "name": { "type": "string", "description": "what the result should be called when stored" },
+                    "model": { "type": "string", "description": "the model build should run the round on; blank is build's default" }
+                }
+            }
+        },
+        {
+            "name": "fork_module",
+            "description": "Fork a stored class into a vibe session: the source of a game or a player, copied under a new name, ready for a sentence or for editing by hand. The same as vibe with `from` and no `prompt`. Compiled wasm cannot be forked — a fork starts from source.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "module": { "type": "string", "description": "the module to fork — id, name, or prefix" },
+                    "name": { "type": "string", "description": "the fork's name (default: <name>-fork)" }
+                },
+                "required": ["module"]
+            }
+        },
+        {
+            "name": "get_vibe",
+            "description": "One vibe session: its status (ready, running, done, failed, cancelled, stored), the file as it is right now, what the registry reads it as, every round with its transcript tail and cost, and the build job behind it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "session": { "type": "string" } },
+                "required": ["session"]
+            }
+        },
+        {
+            "name": "list_vibes",
+            "description": "Every vibe session on this arena, newest first, and whether the build agent is reachable from here.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "store_vibe",
+            "description": "Put what a vibe session holds into the registry — put_class on the text, so what it becomes is read off the file. A player is entered too (enter=false to only store). A Rust class is compiled on the way in and a compile error comes back with the card.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": { "type": "string" },
+                    "name": { "type": "string" },
+                    "description": { "type": "string" },
+                    "enter": { "type": "boolean", "default": true }
+                },
+                "required": ["session"]
+            }
+        },
+        {
+            "name": "cancel_vibe",
+            "description": "Stop a running vibe round. The file keeps whatever the agent had written by then.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "session": { "type": "string" } },
+                "required": ["session"]
+            }
         }
     ])
 }
@@ -548,7 +673,7 @@ fn rust_abi(role: &str) -> Value {
 }
 
 /// The ABI, as documentation an agent can read at run time.
-fn game_abi(role: &str, lang: &str) -> Value {
+pub fn game_abi(role: &str, lang: &str) -> Value {
     if matches!(lang, "class" | "python" | "py" | "classes") {
         return class_abi(role);
     }
@@ -776,6 +901,10 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
             crate::modmcp::call_tool(&key, &tool, &inner).await
         }
 
+        "docs_pages" => Ok(crate::docs::index()),
+        "docs_page" => crate::docs::page(args),
+        "docs_search" => Ok(crate::docs::search(args)),
+
         "mcp_servers" => Ok(crate::mcpout::list()),
         "mcp_call" => {
             if s(args, "server").is_empty() {
@@ -784,7 +913,41 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
             }
             Ok(crate::mcpout::call(args).await)
         }
+        "arena_host" => Ok(crate::hostcard::card(
+            args.get("store").and_then(|v| v.as_bool()).unwrap_or(true),
+        )
+        .await),
+        "fleet_modules" => {
+            let name = s(args, "module");
+            if name.is_empty() {
+                Ok(crate::mcpout::fleet().await)
+            } else {
+                let server = crate::mcpout::resolve(None, Some(&name), None)?;
+                let tools = crate::mcpout::tools_of(&server).await?;
+                Ok(json!({ "module": name, "mcp": server.url, "count": tools.len(), "tools": tools }))
+            }
+        }
         "rust_toolchain" => Ok(crate::rustc::toolchain()),
+        "vibe" => crate::vibe::vibe(args).await,
+        "fork_module" => {
+            let key = s(args, "module");
+            if key.is_empty() {
+                return Err("fork_module requires `module`".into());
+            }
+            let mut a = json!({ "from": key });
+            if let Some(n) = args.get("name") {
+                a["name"] = n.clone();
+            }
+            crate::vibe::vibe(&a).await
+        }
+        "get_vibe" => crate::vibe::get(&s(args, "session")).await,
+        "list_vibes" => {
+            let mut v = crate::vibe::list();
+            v["build"] = crate::vibe::availability().await;
+            Ok(v)
+        }
+        "store_vibe" => crate::vibe::store(args).await,
+        "cancel_vibe" => crate::vibe::cancel(&s(args, "session")).await,
         "store_status" => Ok(crate::storelink::status().await),
         "store_sync" => Ok(crate::storelink::sync(args).await),
 
@@ -820,8 +983,9 @@ pub async fn handle_message(msg: &Value) -> Option<Value> {
             id,
             json!({
                 "protocolVersion": params.get("protocolVersion").and_then(|v| v.as_str()).unwrap_or(PROTOCOL_VERSION),
-                "capabilities": { "tools": {} },
-                "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION }
+                "capabilities": { "tools": {}, "resources": {} },
+                "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION },
+                "instructions": INSTRUCTIONS
             }),
         ),
         "ping" => rpc_result(id, json!({})),
@@ -844,7 +1008,23 @@ pub async fn handle_message(msg: &Value) -> Option<Value> {
                 ),
             }
         }
-        "resources/list" => rpc_result(id, json!({ "resources": [] })),
+        "resources/list" => rpc_result(id, json!({ "resources": crate::docs::resource_list() })),
+        "resources/read" => {
+            let uri = params.get("uri").and_then(|u| u.as_str()).unwrap_or("");
+            match crate::docs::resource_read(uri) {
+                Ok(contents) => rpc_result(id, json!({ "contents": contents })),
+                Err(e) => rpc_error(id, -32602, &e),
+            }
+        }
+        "resources/templates/list" => rpc_result(
+            id,
+            json!({ "resourceTemplates": [{
+                "uriTemplate": "arena://docs/{slug}",
+                "name": "arena docs",
+                "description": "One documentation page as markdown — docs_pages lists the slugs",
+                "mimeType": "text/markdown"
+            }] }),
+        ),
         "prompts/list" => rpc_result(id, json!({ "prompts": [] })),
         _ => rpc_error(id, -32601, &format!("method not found: {method}")),
     })

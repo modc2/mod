@@ -2,14 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import { TERM_FONT, ACCENT, netInfo, probeNetwork, chainApi, short, useIsMobile, useApiHealth } from './shared'
-import { Sheet, Banner, panelStyle } from './ui'
+import { Banner, panelStyle } from './ui'
 import { ArcadeStyles, Marquee, PIXEL, PX, NEON, type LedState } from './arcade'
 import { useChainWallet } from './WalletBar'
 import { AccountPicker } from './AccountPicker'
 import { NetworkPicker } from './NetworkPicker'
 import { Balances } from './Balances'
-import { Sidebar } from './Sidebar'
-import { Gallery } from './Gallery'
+import { ProjectPicker } from './ProjectPicker'
 import { useProjects } from './projects'
 import { BuildTab } from './BuildTab'
 import { TestTab } from './TestTab'
@@ -18,10 +17,11 @@ import { ContractsTab } from './ContractsTab'
 import { ChainsTab } from './ChainsTab'
 import { InteractTab, type InteractTarget } from './InteractTab'
 import { ConfigTab } from './ConfigTab'
+import { AgentTab } from './AgentTab'
 
 export const dynamic = 'force-dynamic'
 
-type Tab = 'build' | 'test' | 'deploy' | 'contracts' | 'chains' | 'interact' | 'config'
+type Tab = 'build' | 'test' | 'agent' | 'deploy' | 'contracts' | 'chains' | 'interact' | 'config'
 
 interface TabDef { key: Tab; label: string; hint: string; fleetOnly?: boolean }
 
@@ -32,6 +32,7 @@ interface TabDef { key: Tab; label: string; hint: string; fleetOnly?: boolean }
 const BUILDING: TabDef[] = [
   { key: 'build', label: 'BUILD', hint: 'Write it, compile it, deploy it with your wallet.' },
   { key: 'test', label: 'TEST', hint: 'Run the project’s tests on an in-process EVM — no wallet, no gas.' },
+  { key: 'agent', label: 'AGENT', hint: 'Hand the project to Claude Code: it edits contracts and tests in a sandbox and runs the suite — through the agent module, like the build console.' },
   { key: 'interact', label: 'PLAY', hint: 'Call any contract: yours, the fleet’s, or one loaded by address / ABI CID.' },
 ]
 
@@ -51,7 +52,6 @@ export default function ChainPage() {
   const [activeTab, setActiveTab] = useState<Tab>('build')
   const [network, setNetwork] = useState('testnet')
   const [target, setTarget] = useState<InteractTarget | null>(null)
-  const [railOpen, setRailOpen] = useState(false)
   const [chainLed, setChainLed] = useState<LedState>('idle')
   const [block, setBlock] = useState<number | null>(null)
   const [score, setScore] = useState<number | null>(null)
@@ -67,10 +67,19 @@ export default function ChainPage() {
   // The marquee's chain lamp — is the RPC we're pointed at actually answering?
   useEffect(() => {
     let cancelled = false
+    let misses = 0
     const ping = () => probeNetwork(network).then(p => {
       if (cancelled) return
-      setChainLed(!p.up ? 'dead' : p.chainId !== net.chainId ? 'warn' : 'live')
-      setBlock(p.up ? p.block ?? null : null)
+      if (p.up) {
+        misses = 0
+        setChainLed(p.chainId !== net.chainId ? 'warn' : 'live')
+        setBlock(p.block ?? null)
+        return
+      }
+      // public RPCs drop the odd request — keep the last block on screen and
+      // only call the chain dead on the second miss in a row
+      misses += 1
+      if (misses >= 2) { setChainLed('dead'); setBlock(null) }
     })
     setChainLed('idle'); setBlock(null)
     ping()
@@ -100,13 +109,6 @@ export default function ChainPage() {
     </div>
   )
 
-  const rail = (
-    <>
-      <Sidebar projects={projects} address={wallet.address} onNavigate={() => setRailOpen(false)} />
-      <Gallery projects={projects} address={wallet.address} onNavigate={() => setRailOpen(false)} />
-    </>
-  )
-
   const tabButton = (tab: TabDef, primary: boolean) => {
     const active = activeTab === tab.key
     const dim = tab.fleetOnly && !fleet
@@ -114,20 +116,26 @@ export default function ChainPage() {
       <button
         key={tab.key}
         onClick={() => setActiveTab(tab.key)}
-        className="arc-press arc-pixel"
+        className="arc-press arc-pixel arc-tab"
+        aria-pressed={active}
         title={dim ? `${net.name} has no fleet deployment` : tab.hint}
         style={{
           fontFamily: PIXEL,
-          fontSize: primary ? PX.sm : PX.xs,
+          fontSize: primary ? (mobile ? PX.md : PX.sm) : PX.xs,
           letterSpacing: '0.06em',
           lineHeight: 1.6,
-          padding: primary ? (mobile ? '11px 12px' : '9px 14px') : '7px 10px',
-          minHeight: primary ? (mobile ? '44px' : '40px') : '32px',
-          flexShrink: 0,
-          border: `${primary ? 3 : 2}px solid ${active ? ACCENT : 'transparent'}`,
-          background: active ? `${ACCENT}1a` : 'transparent',
-          color: active ? ACCENT : 'var(--text-tertiary)',
-          boxShadow: active ? `${primary ? 3 : 2}px ${primary ? 3 : 2}px 0px 0px ${ACCENT}` : 'none',
+          padding: primary ? (mobile ? '12px 8px' : '9px 14px') : (mobile ? '9px 10px' : '7px 10px'),
+          minHeight: primary ? (mobile ? '48px' : '40px') : (mobile ? '38px' : '32px'),
+          flex: mobile && primary ? '1 1 0' : '0 0 auto',
+          // every tab is a physical button — a resting tab keeps its bezel
+          // and shadow, it just isn't lit. Bare text next to a boxed BUILD
+          // read as labels, not as the other two-thirds of the controls.
+          border: `${primary ? 3 : 2}px solid ${active ? ACCENT : 'var(--border-color)'}`,
+          background: active ? `${ACCENT}1a` : 'var(--bg-secondary)',
+          color: active ? ACCENT : 'var(--text-secondary)',
+          boxShadow: active
+            ? `${primary ? 3 : 2}px ${primary ? 3 : 2}px 0px 0px ${ACCENT}`
+            : `${primary ? 3 : 2}px ${primary ? 3 : 2}px 0px 0px rgba(0,0,0,0.4)`,
           cursor: 'pointer',
           opacity: dim ? 0.4 : 1,
           textShadow: active && primary ? `0 0 10px ${ACCENT}` : 'none',
@@ -141,7 +149,7 @@ export default function ChainPage() {
   const groupMark = (label: string) => (
     <span key={label} style={{
       fontFamily: PIXEL, fontSize: '7px', letterSpacing: '0.14em', flexShrink: 0,
-      color: 'var(--text-tertiary)', opacity: 0.6, padding: '0 4px 0 8px',
+      color: 'var(--text-tertiary)', padding: '0 4px 0 10px',
       borderLeft: '2px solid var(--border-color)', lineHeight: 1,
     }}>
       {label}
@@ -157,7 +165,7 @@ export default function ChainPage() {
       width: 0, minWidth: '100%',
     }}>
       <ArcadeStyles />
-      <div className="max-w-7xl mx-auto" style={{ padding: mobile ? '12px 12px 40px' : '16px 16px 48px' }}>
+      <div className="max-w-6xl mx-auto" style={{ padding: mobile ? '10px 10px 40px' : '16px 16px 48px' }}>
 
         <Marquee
           compact={mobile}
@@ -171,6 +179,7 @@ export default function ChainPage() {
               />
               <AccountPicker wallet={wallet} network={network} />
               <Balances wallet={wallet} network={network} />
+              <ProjectPicker projects={projects} address={wallet.address} />
             </>
           }
           readouts={mobile ? [] : [
@@ -195,92 +204,80 @@ export default function ChainPage() {
           </Banner>
         )}
 
-        {/* On a phone the rail is a drawer — one button, always showing what's open */}
-        {mobile && (
-          <button
-            onClick={() => setRailOpen(true)}
-            className="arc-press"
+        {/* Tabs — the big three fill the row on a phone; the smaller tier
+            wraps under them. Never a horizontal scroll: a tab off the edge is
+            a tab nobody finds. */}
+        <div style={{
+          display: 'flex', columnGap: mobile ? '4px' : '6px', rowGap: '8px', alignItems: 'center',
+          borderBottom: '3px solid var(--border-color)', paddingBottom: '8px',
+          flexWrap: 'wrap',
+        }}>
+          <div style={{
+            display: 'flex', gap: mobile ? '6px' : '6px', alignItems: 'stretch',
+            width: mobile ? '100%' : undefined,
+          }}>
+            {BUILDING.map(t => tabButton(t, true))}
+          </div>
+          <div style={{
+            display: 'flex', columnGap: '4px', rowGap: '6px', alignItems: 'center', marginLeft: mobile ? 0 : '8px',
+            flexWrap: 'wrap',
+          }}>
+            <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+              {groupMark('MANAGE')}
+              {MANAGING.map(t => tabButton(t, false))}
+            </span>
+            <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+              {groupMark('FLEET')}
+              {FLEET.map(t => tabButton(t, false))}
+            </span>
+          </div>
+        </div>
+
+        <p style={{
+          fontFamily: TERM_FONT, fontSize: '15px', color: 'var(--text-secondary)',
+          margin: '10px 0 16px', lineHeight: 1.5,
+        }}>
+          <span style={{ color: ACCENT, marginRight: '8px' }}>»</span>
+          {hint}
+        </p>
+
+        {/* Panels */}
+        {activeTab === 'build' && (
+          <BuildTab wallet={wallet} network={network} projects={projects} onInteract={handoff} />
+        )}
+        {activeTab === 'test' && <TestTab projects={projects} address={wallet.address} />}
+        {activeTab === 'agent' && <AgentTab wallet={wallet} network={network} projects={projects} />}
+        {activeTab === 'interact' && (
+          <InteractTab wallet={wallet} network={network} target={target} setTarget={setTarget} />
+        )}
+        {activeTab === 'contracts' && (
+          <ContractsTab wallet={wallet} network={network} onInteract={handoff} onNetwork={setNetwork} />
+        )}
+        {activeTab === 'chains' && (
+          <ChainsTab network={network} setNetwork={setNetwork} address={wallet.address} />
+        )}
+        {activeTab === 'deploy' && (fleet ? <DeployTab network={network} /> : offFleet)}
+        {activeTab === 'config' && (fleet ? <ConfigTab network={network} /> : offFleet)}
+
+        {/* The cabinet's base plate. One line, in character: who's at the
+            controls — or the words every cabinet says when nobody is. */}
+        <div style={{
+          marginTop: '48px', paddingTop: '14px', borderTop: '2px solid var(--border-color)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+        }}>
+          <span style={{ color: NEON.p1, fontSize: '8px' }}>▲</span>
+          <span
+            className={wallet.address ? undefined : 'arc-blink-soft'}
             style={{
-              ...panelStyle, width: '100%', marginBottom: '12px', padding: '12px 14px',
-              display: 'flex', alignItems: 'center', gap: '10px', minHeight: '48px',
-              fontFamily: TERM_FONT, fontSize: '15px', color: 'var(--text-primary)', cursor: 'pointer',
+              fontFamily: PIXEL, fontSize: '7px', letterSpacing: '0.22em',
+              color: 'var(--text-tertiary)', lineHeight: 1.8, textAlign: 'center',
             }}
           >
-            <span style={{ color: ACCENT }}>☰</span>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {projects.project ? projects.project.name : 'PROJECTS'}
-            </span>
-            <span style={{ marginLeft: 'auto', fontSize: '13px', color: 'var(--text-tertiary)' }}>
-              {projects.project
-                ? (projects.saving ? 'saving…' : projects.dirty ? 'unsaved' : 'saved')
-                : 'pick or start one'}
-            </span>
-          </button>
-        )}
-
-        <Sheet open={mobile && railOpen} onClose={() => setRailOpen(false)} title="PROJECTS">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>{rail}</div>
-        </Sheet>
-
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-          {/* Left rail — your projects on top, the shared gallery under them */}
-          {!mobile && (
-            <div style={{
-              width: '232px', flexShrink: 0, alignSelf: 'flex-start',
-              position: 'sticky', top: '16px', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto',
-              display: 'flex', flexDirection: 'column', gap: '12px',
-            }}>
-              {rail}
-            </div>
-          )}
-
-          <div style={{ flex: 1, minWidth: 0 }}>
-            {/* Tabs — the big three on the left, the rest as a smaller tier
-                that sits right or, when the window is narrow, drops onto its
-                own line. Never a horizontal scroll: a tab off the edge is a
-                tab nobody finds. */}
-            <div style={{
-              display: 'flex', gap: mobile ? '4px' : '6px', alignItems: 'center',
-              borderBottom: '3px solid var(--border-color)', paddingBottom: '8px',
-              flexWrap: 'wrap', rowGap: '8px',
-            }}>
-              <div style={{ display: 'flex', gap: mobile ? '4px' : '6px', alignItems: 'stretch' }}>
-                {BUILDING.map(t => tabButton(t, true))}
-              </div>
-              <div style={{
-                display: 'flex', gap: '4px', alignItems: 'center', marginLeft: mobile ? 0 : '8px',
-              }}>
-                {groupMark('MANAGE')}
-                {MANAGING.map(t => tabButton(t, false))}
-                {groupMark('FLEET')}
-                {FLEET.map(t => tabButton(t, false))}
-              </div>
-            </div>
-
-            <p style={{
-              fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-tertiary)',
-              margin: '10px 0 16px', lineHeight: 1.5,
-            }}>
-              {hint}
-            </p>
-
-            {/* Panels */}
-            {activeTab === 'build' && (
-              <BuildTab wallet={wallet} network={network} projects={projects} onInteract={handoff} />
-            )}
-            {activeTab === 'test' && <TestTab projects={projects} address={wallet.address} />}
-            {activeTab === 'interact' && (
-              <InteractTab wallet={wallet} network={network} target={target} setTarget={setTarget} />
-            )}
-            {activeTab === 'contracts' && (
-              <ContractsTab wallet={wallet} network={network} onInteract={handoff} onNetwork={setNetwork} />
-            )}
-            {activeTab === 'chains' && (
-              <ChainsTab network={network} setNetwork={setNetwork} address={wallet.address} />
-            )}
-            {activeTab === 'deploy' && (fleet ? <DeployTab network={network} /> : offFleet)}
-            {activeTab === 'config' && (fleet ? <ConfigTab network={network} /> : offFleet)}
-          </div>
+            {wallet.address
+              ? `PLAYER ${short(wallet.address, 6, 4)} · READY`
+              : 'INSERT COIN TO CONTINUE'}
+          </span>
+          <span style={{ color: NEON.p2, fontSize: '8px' }}>▲</span>
         </div>
       </div>
     </div>

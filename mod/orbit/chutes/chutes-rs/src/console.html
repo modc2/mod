@@ -165,6 +165,51 @@ tr:hover td{background:rgba(255,255,255,.035)}
 .bar i{display:block;height:100%;background:var(--acc)}
 .tblwrap{max-height:56vh;overflow:auto;border:3px solid var(--edge);background:var(--deep)}
 
+/* ── chute browser ── */
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center}
+.chip{font:inherit;font-size:7px;letter-spacing:1px;color:var(--dim);background:var(--deep);border:3px solid var(--edge);
+  padding:5px 8px;cursor:pointer;box-shadow:2px 2px 0 rgba(0,0,0,.6)}
+.chip:hover{color:var(--ink)}
+.chip.on{color:#000;background:var(--acc);border-color:var(--acc)}
+.chip.gold.on{background:var(--gold);border-color:var(--gold)}
+.chip b{opacity:.7;font-size:6px;margin-left:4px}
+.chips .sep{width:3px;height:18px;background:var(--edge);margin:0 4px}
+.tblwrap.cat{max-height:64vh}
+.tblwrap.cat table{table-layout:fixed;min-width:900px}
+#mTable col.c0{width:34px}#mTable col.c2{width:92px}#mTable col.c3{width:82px}#mTable col.c4{width:66px}
+#mTable col.c5{width:78px}#mTable col.c6{width:112px}#mTable col.c7{width:150px}#mTable col.c8{width:126px}
+#mTable td{overflow:hidden}
+#mTable .nm .tl{max-width:100%}
+#mTable tr.cur td{background:rgba(61,220,151,.09);box-shadow:inset 4px 0 0 var(--acc)}
+#mTable .nm .n{font-family:var(--term);font-size:16px;letter-spacing:0;word-break:break-all;color:var(--ink)}
+#mTable .nm .n:hover{color:var(--gold);cursor:pointer}
+#mTable .nm .tl{font-family:var(--term);font-size:13px;color:var(--dim);line-height:1.3;overflow:hidden;
+  white-space:nowrap;text-overflow:ellipsis}
+.lg{width:22px;height:22px;image-rendering:auto;border:2px solid var(--edge);background:var(--deep);vertical-align:middle;display:inline-block;object-fit:cover}
+.lg.ph{border-color:transparent;background:repeating-linear-gradient(45deg,var(--edge) 0 3px,var(--deep) 3px 6px)}
+.live{white-space:nowrap}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;padding:10px}
+.card{background:var(--panel);border:3px solid var(--edge);padding:10px;position:relative;display:flex;flex-direction:column;gap:6px;min-height:150px}
+.card.cur{border-color:var(--acc);box-shadow:0 0 18px -6px var(--acc)}
+.card:hover{border-color:var(--p2)}
+.card .n{font-family:var(--term);font-size:16px;letter-spacing:0;word-break:break-all;color:var(--ink);cursor:pointer;line-height:1.2}
+.card .n:hover{color:var(--gold)}
+.card .tl{font-family:var(--term);font-size:13px;color:var(--dim);line-height:1.25;flex:1;overflow:hidden;max-height:48px}
+.card .meta{font-size:7px;color:var(--dim);display:flex;gap:8px;flex-wrap:wrap;letter-spacing:1px}
+.card .meta b{color:var(--gold)}
+.card .act{display:flex;gap:6px;margin-top:auto}
+.pager{justify-content:space-between;margin-top:10px;font-size:8px;color:var(--dim)}
+.detail{background:var(--deep);border:4px solid var(--acc);padding:12px;margin:12px 0;box-shadow:0 0 24px -6px var(--acc);animation:rise .12s steps(3)}
+.detail .head{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.detail .head .lg{width:52px;height:52px}
+.detail .title{font-family:var(--term);font-size:24px;letter-spacing:0;color:var(--gold);word-break:break-all;line-height:1.1}
+.detail .sub{font-family:var(--term);font-size:15px;color:var(--dim);margin-top:4px}
+.specs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 14px;margin:12px 0}
+.specs .k{font-size:7px;color:var(--dim);letter-spacing:2px}
+.specs .v{font-family:var(--term);font-size:16px;color:var(--ink);word-break:break-all;line-height:1.2;margin-top:3px}
+.specs .v.gold{color:var(--gold)}
+.detail pre.out{max-height:300px;font-size:14px}
+
 /* ── VS mode ── */
 .lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-top:12px}
 .lane{background:var(--deep);border:4px solid var(--edge);padding:10px;position:relative;min-height:150px}
@@ -256,25 +301,42 @@ footer{margin-top:20px;font-size:8px;color:var(--dim);line-height:2.4;text-align
     </div>
   </section>
 
-  <!-- ══ MODELS ══ -->
+  <!-- ══ CHUTES (catalog browser) ══ -->
   <section data-tab="MODELS" class="hide">
     <div class="frame">
-      <h3><span>▶ CHUTE SELECT</span><span id="mCount" class="dim">…</span></h3>
+      <h3><span>▶ CHUTE CATALOG — every chute on api.chutes.ai</span><span id="mCount" class="dim">…</span></h3>
       <div class="row">
-        <select id="mKind" style="width:auto">
-          <option value="chat">CHAT</option><option value="image">IMAGE</option>
-          <option value="embedding">EMBED</option><option value="any">ALL KINDS</option>
+        <input class="grow" id="mSearch" placeholder="/ search — name · tagline · owner · gpu · engine · readme…">
+        <select id="mSort" style="width:auto" title="sort">
+          <option value="invocations">MOST CALLED</option>
+          <option value="instances">MOST LIVE</option>
+          <option value="price">CHEAPEST IN</option>
+          <option value="out_price">CHEAPEST OUT</option>
+          <option value="expensive">PRICIEST</option>
+          <option value="newest">NEWEST</option>
+          <option value="updated">RECENTLY UPDATED</option>
+          <option value="gpus">BIGGEST RIG</option>
+          <option value="name">A → Z</option>
         </select>
-        <input class="grow" id="mSearch" placeholder="search chutes…">
-        <button class="btn sm" id="mGo">SEARCH</button>
-        <button class="btn sm ghost" id="mRefresh">[R] REFRESH</button>
+        <select id="mGpu" style="width:auto" title="gpu"><option value="">ANY GPU</option></select>
+        <select id="mOwner" style="width:auto" title="owner"><option value="">ANY OWNER</option></select>
+        <select id="mPer" style="width:auto" title="rows per page">
+          <option value="50">50 / PAGE</option><option value="100">100 / PAGE</option><option value="0">SHOW ALL</option>
+        </select>
+        <button class="btn sm ghost" id="mView" title="list / grid">GRID</button>
+        <button class="btn sm ghost" id="mRefresh" title="re-pull the catalog">[R] REFRESH</button>
       </div>
-      <div class="tblwrap" style="margin-top:12px">
-        <table id="mTable"><thead><tr>
-          <th data-sort="name">CHUTE</th><th data-sort="in_price">IN $/M</th>
-          <th data-sort="out_price">OUT $/M</th><th data-sort="invocations">CALLS</th><th>KIND</th><th>TAGS</th><th></th>
-        </tr></thead><tbody><tr><td colspan="7" class="dim">loading…</td></tr></tbody></table>
+      <div class="chips" id="mChips"></div>
+      <div id="mDetail" class="hide"></div>
+      <div class="tblwrap cat" id="mList">
+        <table id="mTable"><colgroup><col class="c0"><col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5"><col class="c6"><col class="c7"><col class="c8"></colgroup><thead><tr>
+          <th style="width:28px">#</th><th data-sort="name">CHUTE</th><th data-sort="price">IN $/M</th>
+          <th data-sort="out_price">OUT $/M</th><th data-sort="invocations">CALLS</th><th data-sort="instances">LIVE</th>
+          <th data-sort="gpus">RIG</th><th>TAGS</th><th></th>
+        </tr></thead><tbody><tr><td colspan="9" class="dim">loading…</td></tr></tbody></table>
       </div>
+      <div class="row pager" id="mPager"></div>
+      <div class="dim" style="font-size:7px;margin-top:8px;letter-spacing:1px">↑ ↓ MOVE · ENTER OPEN · U USE IN CHAT · V SEND TO VS · / SEARCH · ← → PAGE · ESC CLOSE</div>
     </div>
   </section>
 
@@ -300,7 +362,7 @@ footer{margin-top:20px;font-size:8px;color:var(--dim);line-height:2.4;text-align
     <div class="frame">
       <h3><span>▶ PIXEL FORGE — text → image</span><span class="dim">diffusion chutes</span></h3>
       <div class="row">
-        <input class="grow" id="iModel" placeholder="diffusion chute name (see MODELS > IMAGE)">
+        <input class="grow" id="iModel" placeholder="diffusion chute name (see CHUTES > IMAGE)">
         <select id="iSize" style="width:auto">
           <option>1024x1024</option><option>1024x1536</option><option>1536x1024</option><option>512x512</option>
         </select>
@@ -315,16 +377,22 @@ footer{margin-top:20px;font-size:8px;color:var(--dim);line-height:2.4;text-align
   <!-- ══ KEYS ══ -->
   <section data-tab="KEYS" class="hide">
     <div class="frame">
-      <h3><span>▶ KEY VAULT</span><span class="dim">browser-only · sent per request · never written to disk</span></h3>
-      <div id="keyCard"></div>
+      <h3><span>▶ KEY VAULT</span><span class="dim">two places a key can live</span></h3>
+      <div class="cols">
+        <div id="boxCard"></div>
+        <div id="keyCard"></div>
+      </div>
       <p class="dim" style="font-size:8px;margin-top:14px;line-height:2.2">
-        A key typed here lives in this browser's localStorage and rides along as an
-        <span class="gold">x-chutes-key</span> header. For a server-side key the whole box shares, drop it in
-        <span class="gold">~/.mod/chutes/api_key</span> or export <span class="gold">CHUTES_API_KEY</span> — the backend resolves
-        explicit → env → <span class="gold">api_key</span> → <span class="gold">key.json</span> →
-        <span class="gold">~/.mod/model/chutes/apikeys.json</span>, and reports which without ever echoing the key.
-        <span class="gold">~/.mod/chutes/defaults.json</span> can name the default chute, and list stand-ins to
-        fall through to when it can't answer.
+        <span class="gold">THIS BOX</span> writes <span class="gold">~/.mod/chutes/api_key</span> on the server — the key the MCP
+        server, the stdio transport, the <span class="gold">m</span> CLI and every browser without its own key all share.
+        Only the box's owner may set or remove it: sign in with a wallet (one <span class="gold">personal_sign</span>, no
+        transaction) or paste a token minted on the box with <span class="gold">m chutes/token</span>. The key is checked
+        against chutes.ai before it lands on disk, and is never echoed back.
+        <span class="gold">THIS BROWSER</span> keeps a key in localStorage instead and sends it as an
+        <span class="gold">x-chutes-key</span> header — it wins over the box key for your own requests.
+        Resolution: explicit → <span class="gold">CHUTES_API_KEY</span> → <span class="gold">api_key</span> →
+        <span class="gold">key.json</span> → <span class="gold">~/.mod/model/chutes/apikeys.json</span>; /status reports which.
+        <span class="gold">~/.mod/chutes/defaults.json</span> names the default chute and its stand-ins.
       </p>
     </div>
   </section>
@@ -372,7 +440,7 @@ const LS = 'chutes.arcade.v2';
 const TABS = ['CHAT','MODELS','VS','IMAGE','KEYS','MCP'];
 const S = {
   tab:'CHAT', model:'', system:'', temp:0.7, stream:true,
-  key:'', sfx:true, hud:{calls:0, tokens:0, cost:0}, history:[],
+  key:'', token:'', sfx:true, hud:{calls:0, tokens:0, cost:0}, history:[],
 };
 try{ Object.assign(S, JSON.parse(localStorage.getItem(LS)||'{}')); }catch(e){}
 // v1 blob (multi-provider cabinet): carry the chutes key over, drop the rest.
@@ -382,7 +450,7 @@ try{
 }catch(e){}
 const save = () => { try{ localStorage.setItem(LS, JSON.stringify({
   tab:S.tab, model:S.model, system:S.system, temp:S.temp,
-  stream:S.stream, key:S.key, sfx:S.sfx, hud:S.hud,
+  stream:S.stream, key:S.key, sfx:S.sfx, hud:S.hud, browse:S.browse,
 })); }catch(e){} };
 
 let STATUS = {};      // from /status
@@ -462,7 +530,8 @@ function renderCabinet(){
 
 /* ═══════════════════════════ tabs ═══════════════════════════ */
 function renderTabs(){
-  $('#tabs').innerHTML = TABS.map((t,i)=>`<button data-t="${t}" class="${t===S.tab?'on':''}">${t} <span class="k">${i+1}</span></button>`).join('');
+  const LABEL = {MODELS:'CHUTES'};
+  $('#tabs').innerHTML = TABS.map((t,i)=>`<button data-t="${t}" class="${t===S.tab?'on':''}">${LABEL[t]||t} <span class="k">${i+1}</span></button>`).join('');
   $$('#tabs button').forEach(b => b.onclick = () => go(b.dataset.t));
   $$('section[data-tab]').forEach(s => s.classList.toggle('hide', s.dataset.tab !== S.tab));
 }
@@ -571,56 +640,240 @@ async function send(){
   save();
 }
 
-/* ═══════════════════════════ MODELS ═══════════════════════════ */
-let mSort = {key:'in_price', dir:1};
+/* ═══════════════════════════ CHUTES — catalog browser ═══════════════════════════
+   The whole catalog comes down once (one /models call, no cap) and every
+   filter/sort/page after that is local, so browsing is instant. The same
+   knobs exist server-side (GET /models?kind=&tag=&gpu=&owner=&live=&sort=)
+   for API and MCP callers. */
+let FACETS = null;
+const F = Object.assign({q:'', kind:'any', tags:[], gpu:'', owner:'', live:false, sort:'invocations', per:50, page:0, view:'list', cur:0},
+                        S.browse || {});
+let VIEW = [];          // rows after filter+sort
+let DETAIL = null;      // open chute id
+const saveF = () => { S.browse = {sort:F.sort, per:F.per, view:F.view}; save(); };
+
 async function loadModels(refresh){
   const tb = $('#mTable tbody');
-  tb.innerHTML = `<tr><td colspan="7" class="dim">SCANNING CHUTES…</td></tr>`;
-  const q = new URLSearchParams({kind:$('#mKind').value, limit:'400'});
-  if($('#mSearch').value.trim()) q.set('q', $('#mSearch').value.trim());
+  tb.innerHTML = `<tr><td colspan="9" class="dim">SCANNING CHUTES…</td></tr>`;
+  const q = new URLSearchParams({kind:'any', limit:'5000', sort:'name', facets:'1'});
   if(refresh) q.set('refresh','1');
   const d = await api('/models?' + q);
-  if(d.error){ tb.innerHTML = `<tr><td colspan="7" class="bad">${esc(d.error)}</td></tr>`; sfx.err(); return; }
+  if(d.error){ tb.innerHTML = `<tr><td colspan="9" class="bad">${esc(d.error)}</td></tr>`; sfx.err(); return; }
   CATALOG = d.items || [];
-  $('#mCount').textContent = `${CATALOG.length} SHOWN / ${d.total} MATCHED`;
+  FACETS = d.facets || null;
+  if(STATUS) { STATUS.models = d.catalog ?? CATALOG.length; renderCabinet(); }
+  renderFacets();
+  applyFilters();
+  if(refresh){ toast('> ' + CATALOG.length + ' CHUTES'); sfx.done(); }
+}
+
+function renderFacets(){
+  const fx = FACETS || {kinds:{}, tags:{}, gpus:{}, owners:{}};
+  const kinds = [['any','ALL'],['chat','CHAT'],['image','IMAGE'],['embedding','EMBED'],['custom','CUSTOM']];
+  const tagOrder = ['hot','tee','openrouter','vllm','sglang','diffusion','tei'];
+  const tags = tagOrder.filter(t => fx.tags[t]).concat(Object.keys(fx.tags).filter(t=>!tagOrder.includes(t)).sort());
+  $('#mChips').innerHTML =
+    kinds.filter(([k]) => k==='any' || fx.kinds[k] || F.kind===k).map(([k,l]) => `<button class="chip ${F.kind===k?'on':''}" data-kind="${k}">${l}<b>${k==='any' ? (CATALOG||[]).length : (fx.kinds[k]||0)}</b></button>`).join('') +
+    `<span class="sep"></span>` +
+    `<button class="chip gold ${F.live?'on':''}" data-live="1">LIVE NOW<b>${fx.live ?? '?'}</b></button>` +
+    tags.map(t => `<button class="chip ${t==='hot'?'gold':''} ${F.tags.includes(t)?'on':''}" data-tag="${esc(t)}">${esc(t.toUpperCase())}<b>${fx.tags[t]}</b></button>`).join('');
+  $$('#mChips [data-kind]').forEach(b => b.onclick = () => { F.kind = b.dataset.kind; F.page = 0; sfx.move(); renderFacets(); applyFilters(); });
+  $$('#mChips [data-tag]').forEach(b => b.onclick = () => {
+    const t = b.dataset.tag; F.tags = F.tags.includes(t) ? F.tags.filter(x=>x!==t) : F.tags.concat(t);
+    F.page = 0; sfx.move(); renderFacets(); applyFilters();
+  });
+  $('#mChips [data-live]').onclick = () => { F.live = !F.live; F.page = 0; sfx.move(); renderFacets(); applyFilters(); };
+  const opt = (sel, entries, all, cur) => {
+    sel.innerHTML = `<option value="">${all}</option>` + entries.map(([k,n]) => `<option value="${esc(k)}" ${k===cur?'selected':''}>${esc(k.toUpperCase())} (${n})</option>`).join('');
+  };
+  opt($('#mGpu'), Object.entries(fx.gpus).sort((a,b)=>b[1]-a[1]), 'ANY GPU', F.gpu);
+  opt($('#mOwner'), Object.entries(fx.owners).sort((a,b)=>b[1]-a[1]), 'ANY OWNER', F.owner);
+  $('#mSort').value = F.sort; $('#mPer').value = String(F.per);
+  $('#mView').textContent = F.view === 'list' ? 'GRID' : 'LIST';
+}
+
+const priced = (m,k) => (m[k]>0 ? m[k] : Infinity);
+const SORTS = {
+  invocations:(a,b)=>(b.invocations||0)-(a.invocations||0),
+  instances:(a,b)=>((b.instances||0)-(a.instances||0)) || ((b.invocations||0)-(a.invocations||0)),
+  price:(a,b)=>priced(a,'in_price')-priced(b,'in_price'),
+  out_price:(a,b)=>priced(a,'out_price')-priced(b,'out_price'),
+  expensive:(a,b)=>(b.in_price||0)-(a.in_price||0),
+  newest:(a,b)=>String(b.created_at).localeCompare(String(a.created_at)),
+  updated:(a,b)=>String(b.updated_at).localeCompare(String(a.updated_at)),
+  gpus:(a,b)=>((b.gpu_count||0)-(a.gpu_count||0)) || ((b.instances||0)-(a.instances||0)),
+  name:(a,b)=>String(a.id).toLowerCase().localeCompare(String(b.id).toLowerCase()),
+};
+function applyFilters(){
+  const terms = F.q.toLowerCase().split(/\s+/).filter(Boolean);
+  VIEW = (CATALOG||[]).filter(m => {
+    if(F.kind !== 'any' && m.kind !== F.kind) return false;
+    if(F.live && !(m.instances > 0)) return false;
+    if(F.tags.length && !F.tags.every(t => (m.tags||[]).includes(t))) return false;
+    if(F.gpu && !(m.gpus||[]).includes(F.gpu)) return false;
+    if(F.owner && m.owner !== F.owner) return false;
+    if(terms.length){
+      const hay = [m.id, m.description, (m.tags||[]).join(' '), m.owner, (m.gpus||[]).join(' '), m.image, m.readme].join(' ').toLowerCase();
+      if(!terms.every(t => hay.includes(t))) return false;
+    }
+    return true;
+  }).sort(SORTS[F.sort] || SORTS.invocations);
+  const pages = F.per ? Math.max(1, Math.ceil(VIEW.length / F.per)) : 1;
+  if(F.page >= pages) F.page = pages - 1;
+  F.cur = Math.min(F.cur, Math.max(0, VIEW.length-1));
+  const on = [F.kind!=='any', F.live, F.tags.length, F.gpu, F.owner, terms.length].filter(Boolean).length;
+  $('#mCount').textContent = `${VIEW.length} OF ${(CATALOG||[]).length} CHUTES` + (on ? ` · ${on} FILTER${on>1?'S':''}` : '');
   renderModels();
 }
-function renderModels(onPick){
-  const rows = (CATALOG||[]).slice();
-  const k = mSort.key;
-  rows.sort((a,b)=>{
-    let x = a[k], y = b[k];
-    if(typeof x === 'string') return mSort.dir * String(x).localeCompare(String(y));
-    // unpriced rows (0) sink to the bottom on price sorts
-    if(k.endsWith('price')){ x = x || 1e9; y = y || 1e9; }
-    return mSort.dir * ((x||0) - (y||0));
-  });
-  const max = Math.max(...rows.map(r=>r.in_price||0), .0001);
-  $('#mTable tbody').innerHTML = rows.slice(0,400).map(m=>{
-    const price = m.in_price ? '$'+(m.in_price<1 ? m.in_price.toFixed(3) : m.in_price.toFixed(2)) : '—';
-    const calls = m.invocations ? (m.invocations>=1e6 ? (m.invocations/1e6).toFixed(1)+'M' : m.invocations>=1000 ? Math.round(m.invocations/1000)+'k' : m.invocations) : '—';
-    return `<tr>
-      <td class="mono" style="max-width:340px;word-break:break-all">${esc(m.id)}</td>
-      <td class="gold">${price}<div class="bar" style="margin-top:3px"><i style="width:${Math.min(100,(m.in_price/max)*100)}%"></i></div></td>
-      <td class="dim">${m.out_price ? '$'+m.out_price.toFixed(3) : '—'}</td>
-      <td class="dim">${calls}</td>
-      <td class="dim">${esc(m.kind)}</td>
-      <td>${(m.tags||[]).map(t=>`<span class="pill ${t==='tee'?'ok':t==='hot'?'gold':'dim'}">${esc(t)}</span>`).join('')}</td>
-      <td><button class="btn sm" data-use="${esc(m.id)}">USE</button></td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="7" class="dim">no matches</td></tr>';
-  $$('#mTable button[data-use]').forEach(b => b.onclick = () => {
-    S.model = b.dataset.use;
-    $('#model').value = S.model; $('#iModel').value = S.model;
-    sfx.pick(); renderCabinet(); save();
-    toast('> ' + S.model.slice(0,40));
-    if(onPick) onPick(); else go('CHAT');
-  });
+
+const fmtPrice = v => v>0 ? '$'+(v<1 ? v.toFixed(3) : v.toFixed(2)) : '—';
+const fmtN = n => !n ? '—' : n>=1e6 ? (n/1e6).toFixed(1)+'M' : n>=1000 ? Math.round(n/1000)+'k' : String(n);
+const rig = m => (m.gpus&&m.gpus.length) ? (m.gpu_count>1 ? m.gpu_count+'×' : '') + m.gpus.map(g=>g.toUpperCase()).join('/') : '—';
+const logo = (m, cls='') => m.logo ? `<img class="lg ${cls}" src="${esc(m.logo)}" alt="" loading="lazy" onerror="this.classList.add('ph');this.removeAttribute('src')">` : `<span class="lg ph ${cls}"></span>`;
+const pills = m => (m.tags||[]).filter(t=>t!=='openrouter').map(t=>`<span class="pill ${t==='tee'?'ok':t==='hot'?'gold':'dim'}">${esc(t)}</span>`).join('');
+const liveCell = m => `<span class="live"><span class="led ${m.instances>0?'on':''}"></span>${m.instances>0 ? m.instances : (m.instances_total ? '0/'+m.instances_total : 'COLD')}</span>`;
+
+function pageSlice(){
+  if(!F.per) return {rows:VIEW, start:0};
+  const start = F.page * F.per;
+  return {rows:VIEW.slice(start, start+F.per), start};
 }
-$$('#mTable th[data-sort]').forEach(th => th.onclick = () => {
-  const k = th.dataset.sort;
-  mSort = {key:k, dir: (mSort.key === k ? -mSort.dir : (k === 'invocations' ? -1 : 1))};
-  sfx.move(); renderModels();
+function renderModels(){
+  const {rows, start} = pageSlice();
+  const max = Math.max(...VIEW.map(r=>r.in_price||0), .0001);
+  const list = $('#mList');
+  if(F.view === 'grid'){
+    list.innerHTML = `<div class="grid">` + rows.map((m,i)=>`
+      <div class="card ${start+i===F.cur?'cur':''}" data-i="${start+i}">
+        <div class="row" style="gap:8px;flex-wrap:nowrap">${logo(m)}<span class="n grow" data-open="${esc(m.id)}">${esc(m.id)}</span></div>
+        <div class="tl">${esc(m.description || m.readme || '')}</div>
+        <div class="meta"><span>IN <b>${fmtPrice(m.in_price)}</b></span><span>OUT <b>${fmtPrice(m.out_price)}</b></span><span>${fmtN(m.invocations)} CALLS</span></div>
+        <div class="meta"><span>${liveCell(m)}</span><span>${esc(rig(m))}</span><span>${pills(m)}</span></div>
+        <div class="act"><button class="btn sm" data-use="${esc(m.id)}">USE</button><button class="btn sm ghost" data-open="${esc(m.id)}">INFO</button></div>
+      </div>`).join('') + `</div>` || '<div class="dim" style="padding:20px">no matches</div>';
+  } else {
+    list.innerHTML = `<table id="mTable"><colgroup><col class="c0"><col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5"><col class="c6"><col class="c7"><col class="c8"></colgroup><thead><tr>
+        <th style="width:28px">#</th><th data-sort="name">CHUTE</th><th data-sort="price">IN $/M</th>
+        <th data-sort="out_price">OUT $/M</th><th data-sort="invocations">CALLS</th><th data-sort="instances">LIVE</th>
+        <th data-sort="gpus">RIG</th><th>TAGS</th><th></th>
+      </tr></thead><tbody>` + (rows.map((m,i)=>`<tr class="${start+i===F.cur?'cur':''}" data-i="${start+i}">
+        <td class="dim">${start+i+1}</td>
+        <td class="nm"><div class="row" style="gap:8px;flex-wrap:nowrap">${logo(m)}<div class="grow" style="overflow:hidden"><div class="n" data-open="${esc(m.id)}">${esc(m.id)}</div>${m.description ? `<div class="tl" title="${esc(m.description)}">${esc(m.description)}</div>` : ''}</div></div></td>
+        <td class="gold">${fmtPrice(m.in_price)}<div class="bar" style="margin-top:3px"><i style="width:${Math.min(100,(m.in_price/max)*100)}%"></i></div></td>
+        <td class="dim">${fmtPrice(m.out_price)}</td>
+        <td class="dim">${fmtN(m.invocations)}</td>
+        <td>${liveCell(m)}</td>
+        <td class="dim" style="white-space:nowrap">${esc(rig(m))}</td>
+        <td>${pills(m)}</td>
+        <td style="white-space:nowrap"><button class="btn sm" data-use="${esc(m.id)}">USE</button> <button class="btn sm ghost" data-open="${esc(m.id)}">INFO</button></td>
+      </tr>`).join('') || '<tr><td colspan="9" class="dim">no matches</td></tr>') + `</tbody></table>`;
+    $$('#mTable th[data-sort]').forEach(th => th.onclick = () => { F.sort = th.dataset.sort; $('#mSort').value = F.sort; sfx.move(); saveF(); applyFilters(); });
+  }
+  $$('#mList [data-use]').forEach(b => b.onclick = e => { e.stopPropagation(); useChute(b.dataset.use); });
+  $$('#mList [data-open]').forEach(b => b.onclick = e => { e.stopPropagation(); openChute(b.dataset.open); });
+  $$('#mList [data-i]').forEach(el => el.onclick = () => { F.cur = +el.dataset.i; markCur(); });
+  // pager
+  const pages = F.per ? Math.max(1, Math.ceil(VIEW.length / F.per)) : 1;
+  $('#mPager').innerHTML = `<span>${VIEW.length ? `SHOWING ${start+1}–${start+rows.length} OF ${VIEW.length}` : 'NOTHING MATCHES'}</span>` +
+    (pages > 1 ? `<span class="row"><button class="btn sm ghost" data-pg="-1" ${F.page===0?'disabled':''}>&lt; PREV</button>
+      <span>PAGE ${F.page+1} / ${pages}</span><button class="btn sm ghost" data-pg="1" ${F.page>=pages-1?'disabled':''}>NEXT &gt;</button></span>` :
+      (F.per && VIEW.length > F.per ? '' : `<span class="dim">ALL ${VIEW.length} ON ONE PAGE</span>`));
+  $$('#mPager [data-pg]').forEach(b => b.onclick = () => { F.page += +b.dataset.pg; sfx.move(); renderModels(); $('#mList').scrollTop = 0; });
+}
+function markCur(){
+  $$('#mList [data-i]').forEach(el => el.classList.toggle('cur', +el.dataset.i === F.cur));
+  const el = $(`#mList [data-i="${F.cur}"]`);
+  if(el) el.scrollIntoView({block:'nearest'});
+}
+function useChute(id, where){
+  S.model = id;
+  $('#model').value = S.model; $('#iModel').value = S.model;
+  sfx.pick(); renderCabinet(); save();
+  toast('> ' + S.model.slice(0,40));
+  const m = (CATALOG||[]).find(x => x.id === id);
+  go(where || (m && m.kind === 'image' ? 'IMAGE' : 'CHAT'));
+}
+function toLane(id){
+  const empty = $$('[data-vsm]').find(i => !i.value.trim());
+  if(empty) empty.value = id;
+  else { LANES = Math.min(LANES+1, 8); renderTargets(); const last = $$('[data-vsm]').pop(); if(last) last.value = id; }
+  sfx.pick(); toast('> LANE: ' + id.slice(0,36));
+}
+async function openChute(id){
+  const m = (CATALOG||[]).find(x => x.id === id);
+  if(!m) return;
+  DETAIL = id; sfx.pick();
+  const box = $('#mDetail'); box.classList.remove('hide');
+  const when = t => t ? String(t).slice(0,10) : '—';
+  const link = m.slug ? `https://chutes.ai/app/chute/${encodeURIComponent(m.slug)}` : `https://chutes.ai/app/chute/${encodeURIComponent(m.chute_id)}`;
+  box.innerHTML = `<div class="detail">
+    <div class="head">${logo(m)}<div class="grow" style="min-width:0">
+      <div class="title">${esc(m.id)}</div>
+      <div class="sub">${esc(m.description || '')}</div>
+      <div class="row" style="margin-top:8px">${pills(m)} <span class="pill dim">${esc(m.kind)}</span> ${m.openrouter?'<span class="pill dim">on openrouter</span>':''}</div>
+    </div>
+    <span class="row">
+      <button class="btn sm" data-duse="${esc(m.id)}">${m.kind==='image' ? 'USE IN IMAGE' : 'USE IN CHAT'}</button>
+      <button class="btn sm ghost" data-dvs="${esc(m.id)}">+ VS LANE</button>
+      <button class="btn sm ghost" data-dcopy="${esc(m.id)}">COPY NAME</button>
+      <button class="btn sm ghost" id="dClose">ESC CLOSE</button>
+    </span></div>
+    <div class="specs">
+      <div><div class="k">INPUT</div><div class="v gold">${fmtPrice(m.in_price)} /M</div></div>
+      <div><div class="k">OUTPUT</div><div class="v gold">${fmtPrice(m.out_price)} /M</div></div>
+      <div><div class="k">CACHED INPUT</div><div class="v">${fmtPrice(m.cache_price)} /M</div></div>
+      <div><div class="k">RIG PRICE</div><div class="v">${m.hour_price>0 ? '$'+m.hour_price.toFixed(2)+' /h' : '—'}</div></div>
+      <div><div class="k">CALLS</div><div class="v">${(m.invocations||0).toLocaleString()}</div></div>
+      <div><div class="k">LIVE REPLICAS</div><div class="v">${liveCell(m)}${m.instances_total ? ` <span class="dim">of ${m.instances_total}</span>` : ''}</div></div>
+      <div><div class="k">RIG</div><div class="v">${esc(rig(m))}</div></div>
+      <div><div class="k">ENGINE</div><div class="v">${esc(m.image || '—')}</div></div>
+      <div><div class="k">CONCURRENCY</div><div class="v">${m.concurrency || '—'}</div></div>
+      <div><div class="k">OWNER</div><div class="v">${esc(m.owner || '—')}</div></div>
+      <div><div class="k">CREATED</div><div class="v">${when(m.created_at)}</div></div>
+      <div><div class="k">UPDATED</div><div class="v">${when(m.updated_at)}</div></div>
+      <div style="grid-column:1/-1"><div class="k">CHUTE ID</div><div class="v dim">${esc(m.chute_id)} · <a href="${link}" target="_blank" rel="noopener">chutes.ai ↗</a></div></div>
+    </div>
+    <label class="lbl">README</label>
+    <pre class="out" id="dReadme">${esc(m.readme || '(none)')}${m.readme && m.readme.length >= 600 ? '\n\n… loading the rest' : ''}</pre>
+    <label class="lbl">CALL IT</label>
+    <pre class="out" style="max-height:120px">curl -s ${esc(location.origin + BASE)}/chat -H 'content-type: application/json' \\
+  -d '{"model":"${esc(m.id)}","messages":[{"role":"user","content":"hi"}]}'</pre>
+  </div>`;
+  box.querySelector('[data-duse]').onclick = () => useChute(m.id);
+  box.querySelector('[data-dvs]').onclick = () => toLane(m.id);
+  box.querySelector('[data-dcopy]').onclick = () => { navigator.clipboard?.writeText(m.id); toast('> COPIED'); sfx.move(); };
+  $('#dClose').onclick = closeChute;
+  box.scrollIntoView({block:'nearest', behavior:'smooth'});
+  F.cur = VIEW.indexOf(m); if(F.cur < 0) F.cur = 0; markCur();
+  if(m.readme && m.readme.length >= 600){
+    const full = await api('/forward', {method:'POST', body:JSON.stringify({action:'get_chute', chute_id:m.chute_id || m.id})});
+    if(DETAIL === id && full && full.readme) $('#dReadme').textContent = full.readme;
+    else if(DETAIL === id) $('#dReadme').textContent = m.readme;
+  }
+}
+function closeChute(){ DETAIL = null; $('#mDetail').classList.add('hide'); $('#mDetail').innerHTML = ''; }
+
+// keyboard: browse the catalog like a menu
+document.addEventListener('keydown', e => {
+  if(S.tab !== 'MODELS') return;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if(e.key === 'Escape'){ if(typing) document.activeElement.blur(); else if(DETAIL) closeChute(); return; }
+  if(typing) return;
+  if(e.key === '/'){ e.preventDefault(); $('#mSearch').focus(); return; }
+  if(!VIEW.length) return;
+  const {rows, start} = pageSlice();
+  const m = VIEW[F.cur];
+  if(e.key === 'ArrowDown' || e.key === 'j'){ e.preventDefault(); F.cur = Math.min(VIEW.length-1, F.cur+1); }
+  else if(e.key === 'ArrowUp' || e.key === 'k'){ e.preventDefault(); F.cur = Math.max(0, F.cur-1); }
+  else if(e.key === 'ArrowRight' && F.per){ e.preventDefault(); const pages = Math.ceil(VIEW.length/F.per); if(F.page < pages-1){ F.page++; F.cur = F.page*F.per; renderModels(); } return; }
+  else if(e.key === 'ArrowLeft' && F.per){ e.preventDefault(); if(F.page > 0){ F.page--; F.cur = F.page*F.per; renderModels(); } return; }
+  else if(e.key === 'Enter' && m){ DETAIL === m.id ? closeChute() : openChute(m.id); return; }
+  else if((e.key === 'u' || e.key === 'U') && m){ useChute(m.id); return; }
+  else if((e.key === 'v' || e.key === 'V') && m){ toLane(m.id); return; }
+  else return;
+  if(F.per && (F.cur < start || F.cur >= start + rows.length)){ F.page = Math.floor(F.cur / F.per); renderModels(); }
+  else markCur();
+  sfx.move();
 });
 
 /* ═══════════════════════════ VS ═══════════════════════════ */
@@ -701,14 +954,20 @@ async function forge(){
 }
 
 /* ═══════════════════════════ KEYS ═══════════════════════════ */
+/* Two cards: THIS BOX (the server's key, owner-signed, POST /key) and THIS
+   BROWSER (localStorage, x-chutes-key). */
+let BOX = null;   // last GET /key
+const short = a => a ? a.slice(0,6) + '...' + a.slice(-4) : '';
+
 function renderKeys(){
   const p = STATUS;
   $('#keyCard').innerHTML = `
-    <div class="frame" style="border-color:var(--acc)">
-      <h3><span style="color:var(--acc)">CHUTES.AI</span>
-        <span class="${p.key?'ok':'dim'}">${p.key?('SERVER KEY · '+esc(String(p.key_source||'').toUpperCase())):'NO SERVER KEY'}</span></h3>
+    <div class="frame" style="border-color:var(--edge);height:100%">
+      <h3><span>THIS BROWSER</span>
+        <span class="${S.key?'ok':'dim'}"><span class="led ${S.key?'on':''}"></span>${S.key?'BROWSER KEY SET':'NO BROWSER KEY'}</span></h3>
       <div class="dim" style="font-size:8px;line-height:2.2;margin-bottom:8px">
-        BASE ${esc(p.base_url||'')}<br>ENV ${esc(p.key_env||'CHUTES_API_KEY')}<br>FILE ${esc(p.key_file||'~/.mod/chutes/api_key')}<br>
+        localStorage only · sent as x-chutes-key · never written to disk<br>
+        BASE ${esc(p.base_url||'')}<br>
         <a href="${esc(p.signup||'https://chutes.ai')}" target="_blank" rel="noopener">get a key ></a>
       </div>
       <input type="password" id="keyIn" placeholder="paste chutes key (this browser only)" value="${esc(S.key||'')}">
@@ -721,7 +980,7 @@ function renderKeys(){
     </div>`;
   $('#keySave').onclick = () => {
     S.key = $('#keyIn').value.trim();
-    save(); sfx.pick(); toast(S.key ? 'KEY SAVED' : 'KEY CLEARED'); renderCabinet();
+    save(); sfx.pick(); toast(S.key ? 'KEY SAVED' : 'KEY CLEARED'); renderCabinet(); renderKeys();
   };
   $('#keyClear').onclick = () => { S.key = ''; save(); renderKeys(); renderCabinet(); toast('KEY CLEARED'); };
   $('#keyTest').onclick = async () => {
@@ -733,6 +992,132 @@ function renderKeys(){
     if(d.error){ stat.innerHTML = `<span class="bad">X ${esc(d.error).slice(0,90)}</span>`; sfx.err(); }
     else { stat.innerHTML = `<span class="ok">OK ${Math.round(performance.now()-t0)}ms · ${esc(d._model||'')}</span>`; sfx.done(); }
   };
+  renderBox();
+  loadBox();
+}
+
+/* ── the box: owner sign-in ──
+   A mod-protocol token is base64url({data, time, key, signature}) where the
+   signature is an EIP-191 personal_sign over JSON.stringify({data, time}) —
+   no spaces, that key order — which is byte-for-byte what the server (and
+   m.mod('auth') everywhere else in the fleet) re-serializes and verifies. */
+function b64url(obj){
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  let bin = ''; bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function wallet(){
+  const eth = window.ethereum;
+  if(!eth) return null;
+  if(Array.isArray(eth.providers) && eth.providers.length) return eth.providers.find(p => p.isMetaMask) || eth.providers[0];
+  return eth;
+}
+async function mintToken(provider, address){
+  const data = {mod:'chutes'};
+  const time = (Date.now()/1000).toString();
+  const signature = await provider.request({method:'personal_sign', params:[JSON.stringify({data, time}), address]});
+  return b64url({data, time, key:address, signature});
+}
+function keepToken(t){ S.token = (t||'').trim(); save(); }
+function boxHeaders(){ const h = {'content-type':'application/json'}; if(S.token) h['x-mod-token'] = S.token; return h; }
+async function boxApi(path, opts){
+  const r = await fetch(BASE + path, Object.assign({headers:boxHeaders()}, opts||{}));
+  const text = await r.text();
+  let d; try{ d = JSON.parse(text); }catch(e){ d = {error:text.slice(0,300)}; }
+  if(!r.ok && !d.error) d.error = 'HTTP ' + r.status;
+  return d;
+}
+async function loadBox(){
+  const d = await boxApi('/key');
+  BOX = d.key_source ? d : {error: d.error || 'the server has no /key route — rebuild chutes-api'};
+  renderBox();
+}
+async function signIn(pick){
+  const p = wallet();
+  if(!p){ pasteToken(); return; }
+  try{
+    if(pick){ try{ await p.request({method:'wallet_requestPermissions', params:[{eth_accounts:{}}]}); }catch(e){} }
+    const accounts = await p.request({method:'eth_requestAccounts'});
+    const address = (accounts && accounts[0] || '').toLowerCase();
+    if(!address) throw new Error('the wallet returned no account');
+    keepToken(await mintToken(p, address));
+    await loadBox();
+    toast('SIGNED IN AS ' + short(address)); sfx.win();
+  }catch(e){
+    toast(e.code === 4001 ? 'SIGNATURE REFUSED' : (e.message || 'WALLET REFUSED').toUpperCase().slice(0,60), true); sfx.err();
+  }
+}
+function pasteToken(){
+  const t = prompt('No wallet extension in this browser.\n\nPaste a mod-protocol token minted on the box that holds the owner key:\n\n    m chutes/token\n\n(the box key is the owner unless CHUTES_OWNER, ~/.mod/chutes/owner.json or config.json says otherwise)');
+  if(!t) return;
+  keepToken(t);
+  loadBox().then(() => { const ok = BOX && BOX.you; toast(ok ? 'TOKEN ACCEPTED' : 'TOKEN REJECTED', !ok); ok ? sfx.win() : sfx.err(); });
+}
+function renderBox(){
+  const b = BOX || {};
+  const led = `<span class="led ${b.key?'on':''}"></span>`;
+  const status = b.key ? 'SERVER KEY · ' + esc(String(b.key_source||'').toUpperCase()) : (BOX ? 'NO SERVER KEY' : 'LOADING');
+  const owner = 'OWNER ' + (b.owner ? `<span class="gold">${esc(short(b.owner))}</span> <span class="dim">(${esc(b.owner_source||'')})</span>`
+                                    : (BOX && !b.error ? '<span class="bad">none declared</span>' : '?'));
+  let who = '';
+  if(BOX && !b.error){
+    who = !b.you
+      ? `<div class="row" style="margin-top:10px">
+           <button class="btn sm" id="bxSign">CONNECT WALLET</button>
+           <button class="btn sm ghost" id="bxPaste">PASTE TOKEN</button>
+           <span class="dim" style="font-size:8px">${b.token_error ? '<span class="bad">X ' + esc(b.token_error) + '</span>' : 'sign in as the owner to set the key for the whole box'}</span>
+         </div>`
+      : `<div class="row" style="margin-top:10px;font-size:8px">
+           <span>YOU <span class="gold">${esc(short(b.you))}</span> · ${b.is_owner ? '<span class="ok">OWNER</span>' : '<span class="bad">NOT THE OWNER</span>'}</span>
+           <button class="btn sm ghost" id="bxOut">SIGN OUT</button>
+         </div>`;
+  }
+  const form = b.is_owner ? `
+      <input type="password" id="bxIn" placeholder="paste chutes key -> saved on the box" style="margin-top:10px">
+      <div class="row" style="margin-top:8px">
+        <button class="btn sm" id="bxSave">SAVE TO BOX</button>
+        ${b.file_present ? '<button class="btn sm ghost" id="bxClear">REMOVE</button>' : ''}
+        <span class="dim" style="font-size:8px" id="bxStat"></span>
+      </div>` : '';
+  const shadow = b.shadowed_by ? `<div class="bad" style="font-size:8px;margin-top:8px;line-height:2">CHUTES_API_KEY is set in the server's environment — it wins over the file you save here</div>` : '';
+  $('#boxCard').innerHTML = `
+    <div class="frame" style="border-color:var(--acc);height:100%">
+      <h3><span style="color:var(--acc)">THIS BOX</span><span class="${b.key?'ok':'dim'}">${led}${status}</span></h3>
+      <div class="dim" style="font-size:8px;line-height:2.2">
+        shared by MCP · stdio · the m CLI · every browser without its own key<br>
+        FILE ${esc(b.file||'~/.mod/chutes/api_key')}<br>${owner}
+      </div>
+      ${b.error ? '<div class="bad" style="font-size:8px;margin-top:8px">X ' + esc(b.error) + '</div>' : ''}
+      ${who}${form}${shadow}
+    </div>`;
+  const on = (id, fn) => { const el = $(id); if(el) el.onclick = fn; };
+  on('#bxSign', () => signIn(false));
+  on('#bxPaste', pasteToken);
+  on('#bxOut', () => { keepToken(''); loadBox(); toast('SIGNED OUT'); sfx.move(); });
+  on('#bxSave', saveBox);
+  on('#bxClear', clearBox);
+}
+async function refreshStatus(){
+  const s = await api('/status?counts=1');
+  if(!s.error) STATUS = s;
+  renderCabinet();
+}
+async function saveBox(){
+  const key = $('#bxIn').value.trim(), stat = $('#bxStat');
+  if(!key){ toast('PASTE A KEY FIRST', true); sfx.err(); return; }
+  stat.textContent = 'CHECKING WITH CHUTES.AI…'; stat.className = 'dim'; sfx.send();
+  const d = await boxApi('/key', {method:'POST', body:JSON.stringify({key})});
+  if(d.error){ stat.innerHTML = `<span class="bad">X ${esc(d.error).slice(0,120)}</span>`; sfx.err(); return; }
+  $('#bxIn').value = '';
+  toast('BOX KEY SAVED'); sfx.win();
+  await refreshStatus(); await loadBox();
+}
+async function clearBox(){
+  if(!confirm('Remove the box key? MCP, stdio and the CLI lose it until one is set again.')) return;
+  const d = await boxApi('/key', {method:'DELETE'});
+  if(d.error){ toast(d.error.slice(0,60), true); sfx.err(); return; }
+  toast('BOX KEY REMOVED'); sfx.move();
+  await refreshStatus(); await loadBox();
 }
 
 /* ═══════════════════════════ MCP ═══════════════════════════ */
@@ -798,12 +1183,17 @@ $('#model').oninput = e => { S.model = e.target.value.trim(); renderCabinet(); s
 $('#system').oninput = e => { S.system = e.target.value; save(); };
 $('#temp').oninput = e => { S.temp = parseFloat(e.target.value); $('#tempV').textContent = S.temp.toFixed(1); save(); };
 $('#stream').onchange = e => { S.stream = e.target.checked; save(); };
-$('#pickModel').onclick = () => { go('MODELS'); loadModels(); };
+$('#pickModel').onclick = () => { go('MODELS'); if(!CATALOG) loadModels(); };
 $('#sfxBtn').onclick = () => { S.sfx = !S.sfx; $('#sfxBtn').textContent = 'SFX ' + (S.sfx?'ON':'OFF'); save(); if(S.sfx) sfx.pick(); };
-$('#mGo').onclick = () => loadModels();
 $('#mRefresh').onclick = () => loadModels(true);
-$('#mKind').onchange = () => loadModels();
-$('#mSearch').addEventListener('keydown', e => { if(e.key === 'Enter') loadModels(); });
+let mDeb;
+$('#mSearch').addEventListener('input', e => { clearTimeout(mDeb); mDeb = setTimeout(() => { F.q = e.target.value.trim(); F.page = 0; applyFilters(); }, 120); });
+$('#mSearch').addEventListener('keydown', e => { if(e.key === 'Enter'){ F.q = e.target.value.trim(); F.page = 0; applyFilters(); e.target.blur(); } });
+$('#mSort').onchange = e => { F.sort = e.target.value; F.page = 0; sfx.move(); saveF(); applyFilters(); };
+$('#mGpu').onchange = e => { F.gpu = e.target.value; F.page = 0; sfx.move(); applyFilters(); };
+$('#mOwner').onchange = e => { F.owner = e.target.value; F.page = 0; sfx.move(); applyFilters(); };
+$('#mPer').onchange = e => { F.per = +e.target.value; F.page = 0; sfx.move(); saveF(); renderModels(); };
+$('#mView').onclick = () => { F.view = F.view === 'list' ? 'grid' : 'list'; $('#mView').textContent = F.view === 'list' ? 'GRID' : 'LIST'; sfx.move(); saveF(); renderModels(); };
 $('#vsGo').onclick = fight;
 $('#vsAdd').onclick = () => { LANES = Math.min(LANES+1, 8); renderTargets(); sfx.move(); };
 $('#iGo').onclick = forge;

@@ -1,7 +1,7 @@
 {
     "name": "arena",
     "version": "1.0.0",
-    "description": "Upload a class or a wasm module; agents compete at what you uploaded. Three containers, one registry: a Python class, a Rust class, or a WebAssembly binary, stored under the SHA-256 of its bytes. Nothing is taken on trust \u2014 the registry reads the file. A class defining view/step/done/result is a game and one defining play is a player, in either language, exactly as a wasm module exporting the game ABI is a game. So making a game is uploading a file, and there is nothing to register. Execution never happens on the server: wasm runs in a browser Worker or the node runner with no filesystem, no network, a seeded clock and a seeded PRNG; a Rust class is compiled to wasm on upload and runs in that same sandbox; a Python class runs in a python subprocess with the same guarantees enforced a weaker way. All of it goes through one match loop, so a class game and a wasm game share a leaderboard. Every stored module is also two more things: a mod of its own, minted under orbit/arena/mods/, and an MCP server of its own at /m/<name>/mcp \u2014 a game you open a table at and play a turn at a time, an agent you hand a view and get a move back from. And the traffic runs both ways: a class can call an MCP server mid-move through a door the arena holds, never a socket the sandbox opens, and every such call is counted onto the seat that made it. Agents and models are assessed by playing them: Elo per game and overall, win rate, mean score, illegal-move rate, timeouts, time to move, and calls out.",
+    "description": "Upload a class or a wasm module; agents compete at what you uploaded. Three containers, one registry: a Python class, a Rust class, or a WebAssembly binary, stored under the SHA-256 of its bytes. Nothing is taken on trust \u2014 the registry reads the file. A class defining view/step/done/result is a game and one defining play is a player, in either language, exactly as a wasm module exporting the game ABI is a game. So making a game is uploading a file, and there is nothing to register. Execution never happens on the server: wasm runs in a browser Worker or the node runner with no filesystem, no network, a seeded clock and a seeded PRNG; a Rust class is compiled to wasm on upload and runs in that same sandbox; a Python class runs in a python subprocess with the same guarantees enforced a weaker way. All of it goes through one match loop, so a class game and a wasm game share a leaderboard. Every stored module is also two more things: a mod of its own, minted under orbit/arena/mods/, and an MCP server of its own at /m/<name>/mcp \u2014 a game you open a table at and play a turn at a time, an agent you hand a view and get a move back from. And the traffic runs both ways: a class can call an MCP server mid-move through a door the arena holds, never a socket the sandbox opens, and every such call is counted onto the seat that made it. And a player need not live here at all: any module of this fleet that answers on an MCP server can be seated, asked one of its own tools each move through the gateway \u2014 which is what wakes one that is asleep. Agents and models are assessed by playing them: Elo per game and overall, win rate, mean score, illegal-move rate, timeouts, time to move, and calls out. And a game or a player can be written here rather than brought: a vibe session is one file the build module's agent edits a sentence at a time, starting from the template or from a fork of any stored class, and storing it is the same upload as any other \u2014 the registry reads what the agent wrote.",
     "icon": "\ud83e\uddec",
     "anchor": "src/mod.py",
     "protocol": "arena/1.0",
@@ -13,11 +13,12 @@
     "urls": {
         "api": "http://localhost:50470",
         "app": "http://localhost:50470/arena",
-        "mcp": "http://localhost:50470/mcp"
+        "mcp": "http://localhost:50470/mcp",
+        "docs": "http://localhost:50470/arena#docs/start"
     },
     "backend": "src/arena-rs (Rust: axum, MCP JSON-RPC 2.0 over Streamable HTTP + stdio, one server for the arena and one per stored module)",
     "runtime": "src/runtime (the execution layer \u2014 one implementation, imported by the browser console and the node runner; host.mjs runs wasm, host.py + pyhost.mjs run a Python class, mcpsync.mjs is the door a sandbox calls out through)",
-    "state": "~/.mod/arena/ (blobs/, registry.json \u2014 ids, cids and sources \u2014, keys.json, rustc/, mcp_servers.json, store_token if you set one)",
+    "state": "~/.mod/arena/ (blobs/, registry.json \u2014 ids, cids and sources \u2014, keys.json, rustc/, mcp_servers.json, store_token if you set one, vibe/<id>/ \u2014 one file and ARENA.md per vibe session)",
     "executes_in": [
         "browser",
         "node"
@@ -142,11 +143,18 @@
         "servers": "GET /servers (every module, its endpoint and its mod name)",
         "mcp_out": "POST /mcp/call {server, tool, arguments} | GET /mcp/servers",
         "toolchain": "GET /toolchain (can this box compile a Rust class)",
-        "store": "GET /store (the bridge to the store module) | POST /store/sync {force?, verify?}"
+        "store": "GET /store (the bridge to the store module) | POST /store/sync {force?, verify?}",
+        "docs": "GET /docs \u2014 the contents | GET /docs/:slug (?format=md) | GET /docs/search?q= | the docs_* tools and the resources arena://docs/<slug>",
+        "host": "GET /host \u2014 the box running this arena: its key, machine, uptime, doors, store and toolchain",
+        "fleet": "GET /fleet \u2014 every module of this fleet a player can be seated on | GET /fleet/:name/tools",
+        "vibe": "GET /vibe (every session + whether the build agent is reachable) | POST /vibe {prompt?, session?, role?, lang?, from?, source?, name?, model?} | GET /vibe/:id | POST /vibe/:id/store {name?, description?, enter?} | POST /vibe/:id/cancel | DELETE /vibe/:id"
     },
     "tools": [
         "arena_info",
         "game_abi",
+        "docs_pages",
+        "docs_page",
+        "docs_search",
         "list_modules",
         "get_module",
         "put_module",
@@ -170,13 +178,23 @@
         "mcp_call",
         "rust_toolchain",
         "store_status",
-        "store_sync"
+        "store_sync",
+        "arena_host",
+        "fleet_modules",
+        "vibe",
+        "fork_module",
+        "get_vibe",
+        "list_vibes",
+        "store_vibe",
+        "cancel_vibe"
     ],
     "fns": [
         "forward",
         "info",
         "health",
         "readme",
+        "docs",
+        "doc",
         "abi",
         "template",
         "modules",
@@ -222,9 +240,18 @@
         "code",
         "hashes",
         "store_status",
-        "store_sync"
+        "store_sync",
+        "host",
+        "fleet",
+        "seat",
+        "vibe",
+        "fork",
+        "vibes",
+        "vibe_status",
+        "vibe_store",
+        "vibe_cancel"
     ],
-    "schema": "QmXJutRD5fMNJRR71BBrwiqhzNy34xwDzY44Y1gerjATsm",
+    "schema": "QmSQJzWjiCxKMyCGKvmCXdtNUi4xhCo4sbCqHDw7jzfm5h",
     "langs": [
         "wasm",
         "python",
@@ -237,5 +264,11 @@
         "url": "http://127.0.0.1:9000/api/store",
         "key": "arena/<sha256>",
         "what": "every stored module is pushed to the store module as a public object \u2014 the same bytes, hashed there into a CID and kept beside the SHA-256 in the registry; a wasm example's Rust source goes too, under its own hash. ARENA_STORE_URL=off turns it off (the tests run that way); ARENA_STORE_TOKEN or ~/.mod/arena/store_token overrides the token the box's own key would sign."
+    },
+    "vibe": {
+        "what": "write a game or a player with the build agent, a sentence at a time: a session is one file under ~/.mod/arena/vibe/<id>/ that orbit/build's job server (Claude Code) edits in place, starting from the template or from a stored class (a fork). Storing it is put_class on the text, so the registry reads what the agent wrote.",
+        "build": "http://127.0.0.1:8890 (ARENA_BUILD_URL; `off` disables the agent \u2014 a fork and a template still work). The arena mints build's own session token from ~/.mod/build/server.secret, so the jobs land in build's ledger under its owner: the arena and build share a host.",
+        "limits": "ARENA_VIBE_MAX rounds at once (2), 15 minutes a round, 4000 characters a sentence; ARENA_VIBE_MODEL picks the model (blank = build's default)",
+        "console": "+ add \u25b8 vibe one: start from a template or fork any class, type a sentence, watch the round, keep going or upload; every game and player page has a fork button"
     }
 }

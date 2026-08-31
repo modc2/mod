@@ -182,6 +182,7 @@ impl PipelineState {
                     pnl: 0.0,
                     win_rate: 0.0,
                     sharpe: 0.0,
+                    exit_entry: -1.0,
                     positions: 0,
                     market_titles: vec![],
                     recent_trades: 0,
@@ -417,10 +418,14 @@ async fn enrich_trader_with_url(
     trader.buy_volume = metrics.buy_volume;
     trader.sell_volume = metrics.sell_volume;
     trader.pnl = metrics.pnl;
-    // Sharpe over the same window the rest of the row's stats use — the
-    // leaderboard's default SCORE. Reuses the live engine's ONE stats formula
-    // so ranking here matches copy-candidate scoring.
-    trader.sharpe = crate::live_engine::stats_from_returns(&metrics.returns).sharpe;
+    // Sharpe + exit/entry over the same window the rest of the row's stats
+    // use — SCORE presets in the leaderboard. Reuses the live engine's ONE
+    // stats formula so ranking here matches copy-candidate scoring. The
+    // exit/entry ratio is `1 + mean return` (each return is
+    // `(exit − entry) / entry`), -1 when no closed trades decided anything.
+    let rs = crate::live_engine::stats_from_returns(&metrics.returns);
+    trader.sharpe = rs.sharpe;
+    trader.exit_entry = if rs.sample_size > 0 { 1.0 + rs.roi } else { -1.0 };
     trader.pnl_curve = Some(compute_pnl_curve(&all_trades, cutoff_sec));
 
     // Market titles come from the SAME in-window per-market set the stats
@@ -502,8 +507,15 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
     let mut count = 0u32;
 
     // Per-market accumulator
-    struct MktAccum { volume: f64, buy_volume: f64, sell_volume: f64, pnl: f64, trades: u32, wins: u32, decided: u32, returns: Vec<f64> }
+    struct MktAccum { volume: f64, buy_volume: f64, sell_volume: f64, pnl: f64, trades: u32, wins: u32, decided: u32, returns: Vec<f64>, curve: Vec<f64> }
     let mut per_market: HashMap<String, MktAccum> = HashMap::new();
+
+    // Bucketing for the per-market realized-PnL curve — the SAME 12-bucket
+    // window split `compute_pnl_curve` uses for the trader-level curve, so a
+    // query-scoped curve summed from these lines up with the unscoped one.
+    const CURVE_BUCKETS: usize = 12;
+    let curve_now_sec = chrono::Utc::now().timestamp() as u64;
+    let curve_bucket_size = (curve_now_sec.saturating_sub(cutoff_sec) / CURVE_BUCKETS as u64).max(1);
 
     // Per-position outcome tracker for buy-accuracy: a bought position "ends
     // up winning" when its price saturates to $1 — a REDEEM with a payout or
@@ -592,10 +604,16 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
                 let mkt = per_market.entry(title.to_string()).or_insert(MktAccum {
                     volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
                     pnl: 0.0, trades: 0, wins: 0, decided: 0, returns: Vec::new(),
+                    curve: vec![0.0; CURVE_BUCKETS],
                 });
                 mkt.volume += usdc_size;
                 mkt.trades += 1;
                 mkt.pnl += realized;
+                if realized != 0.0 {
+                    let idx = ((ts.saturating_sub(cutoff_sec)) / curve_bucket_size)
+                        .min(CURVE_BUCKETS as u64 - 1) as usize;
+                    mkt.curve[idx] += realized;
+                }
                 if let Some(r) = sell_return {
                     mkt.returns.push(r);
                 }
@@ -622,6 +640,7 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
             let mkt = per_market.entry(o.title.clone()).or_insert(MktAccum {
                 volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
                 pnl: 0.0, trades: 0, wins: 0, decided: 0, returns: Vec::new(),
+                curve: vec![0.0; CURVE_BUCKETS],
             });
             mkt.decided += 1;
             if o.won { mkt.wins += 1; }
@@ -633,6 +652,7 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
             title, volume: m.volume, buy_volume: m.buy_volume,
             sell_volume: m.sell_volume, pnl: m.pnl, trades: m.trades,
             wins: m.wins, decided: m.decided, returns: m.returns,
+            curve: m.curve,
         }
     }).collect();
 
@@ -1296,7 +1316,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1327,7 +1347,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1365,7 +1385,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1390,14 +1410,14 @@ mod tests {
                 Trader {
                     address: "0xaaa".to_string(),
                     volume: 5000.0, buy_volume: 3000.0, sell_volume: 2000.0,
-                    pnl: 150.0, win_rate: 65.0, sharpe: 0.0, positions: 10,
+                    pnl: 150.0, win_rate: 65.0, sharpe: 0.0, exit_entry: -1.0, positions: 10,
                     market_titles: vec!["Market A".into()], recent_trades: 10, trades_24h: 0, last_trade_ts: None,
                     pnl_curve: Some(vec![0.0; 12]), market_metrics: None,
                 },
                 Trader {
                     address: "0xbbb".to_string(),
                     volume: 3000.0, buy_volume: 1500.0, sell_volume: 1500.0,
-                    pnl: -50.0, win_rate: 40.0, sharpe: 0.0, positions: 5,
+                    pnl: -50.0, win_rate: 40.0, sharpe: 0.0, exit_entry: -1.0, positions: 5,
                     market_titles: vec![], recent_trades: 5, trades_24h: 0, last_trade_ts: None,
                     pnl_curve: None, market_metrics: None,
                 },
@@ -1436,7 +1456,7 @@ mod tests {
             traders: vec![Trader {
                 address: "0xccc".to_string(),
                 volume: 100.0, buy_volume: 60.0, sell_volume: 40.0,
-                pnl: 5.0, win_rate: 50.0, sharpe: 0.0, positions: 2,
+                pnl: 5.0, win_rate: 50.0, sharpe: 0.0, exit_entry: -1.0, positions: 2,
                 market_titles: vec!["Test".into()], recent_trades: 2, trades_24h: 0, last_trade_ts: None,
                 pnl_curve: Some(vec![1.0, 2.0, 3.0]), market_metrics: None,
             }],
@@ -1476,6 +1496,7 @@ mod tests {
             pnl: -420.69,
             win_rate: 55.0,
             sharpe: 1.25,
+            exit_entry: 1.08,
             positions: 42,
             market_titles: vec!["Will BTC hit 100k?".into(), "US Election".into()],
             recent_trades: 42,
@@ -1497,6 +1518,19 @@ mod tests {
         assert!(v.get("marketTitles").is_some());
         assert!(v.get("pnlCurve").is_some());
         assert!(v.get("recentTrades").is_some());
+        assert!(v.get("exitEntry").is_some());
+        assert_eq!(parsed.exit_entry, 1.08);
+    }
+
+    #[test]
+    fn trader_exit_entry_defaults_to_unknown_on_old_payloads() {
+        // Disk caches written before the exitEntry field existed must still
+        // load — and surface the same -1 "unknown" sentinel winRate uses,
+        // not a fake break-even 0.
+        let json = r#"{"address":"0x","volume":1.0,"buyVolume":1.0,"sellVolume":0.0,
+            "pnl":0.0,"winRate":-1.0,"positions":0,"marketTitles":[],"recentTrades":0}"#;
+        let parsed: Trader = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.exit_entry, -1.0);
     }
 
     #[test]
@@ -1504,7 +1538,7 @@ mod tests {
         let trader = Trader {
             address: "0x".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None,
             pnl_curve: None, market_metrics: None,
         };

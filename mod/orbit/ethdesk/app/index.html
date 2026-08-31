@@ -136,6 +136,7 @@
           <button class="res-tab on" data-res="res-out">output</button>
           <button class="res-tab" data-res="res-tests">tests</button>
           <button class="res-tab" data-res="res-share">share</button>
+          <button class="res-tab" data-res="res-agent">agent</button>
         </div>
 
         <div class="res on" id="res-out">
@@ -164,6 +165,33 @@
         </div>
 
         <div class="res" id="res-share"></div>
+
+        <div class="res" id="res-agent">
+          <div class="res-head">
+            <h3>agent</h3>
+            <span id="agent-mode" class="hint"></span>
+          </div>
+          <p class="hint">Hands the project to the <b>build</b> module as a
+            folder of code — <code>config.json</code>, <code>contracts/</code>,
+            <code>tests/</code> — and an agent edits it there on your own build
+            account. When the job ends the folder syncs back as a new version,
+            gets compile-checked, and the suites in <code>tests/</code> are how
+            its logic is verified — on a real chain, with your account.</p>
+          <div id="agent-state"></div>
+          <textarea id="agent-prompt" rows="3"
+            placeholder="what should it build or change? e.g. add a cap to the token, and a test proving a mint past the cap reverts"></textarea>
+          <div class="row wrap">
+            <select id="agent-model" class="grow" title="which model runs the job">
+              <option value="claude-sonnet-5">sonnet — fast</option>
+              <option value="claude-fable-5">fable — deepest</option>
+              <option value="claude-opus-5">opus</option>
+              <option value="claude-haiku-4-5-20251001">haiku — cheapest</option>
+            </select>
+            <button id="agent-go" class="primary">run the agent</button>
+          </div>
+          <div id="agent-live"></div>
+          <div id="agent-runs" class="rows"></div>
+        </div>
       </aside>
 
     </div>

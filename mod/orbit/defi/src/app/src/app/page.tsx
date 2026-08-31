@@ -7,11 +7,26 @@ import Inspector from "./components/Inspector";
 import Palette from "./components/Palette";
 import PromptDrawer from "./components/PromptDrawer";
 import YieldDesk from "./components/YieldDesk";
+import Hub, { type Prefill } from "./components/Hub";
+import Modules from "./components/Modules";
+import Book from "./components/Book";
+import AuditView, { RiskPill } from "./components/AuditView";
 import * as api from "./lib/api";
 import { runPlan, type StepState } from "./lib/deploy";
-import { emptyGraph, type BlockSpec, type Catalog, type Graph, type Plan, type Protocol, type Report } from "./lib/types";
+import { emptyGraph, type Audit, type BlockSpec, type Catalog, type Graph, type Plan, type Protocol, type Report } from "./lib/types";
 
-type Drawer = "none" | "prompts" | "library" | "source" | "deploy" | "trade" | "yield";
+type Drawer = "none" | "prompts" | "library" | "source" | "deploy";
+/// The console's six rooms. HUB is home: the curated front door for USD —
+/// MODULES is the full registry behind it.
+type View = "hub" | "modules" | "book" | "treasury" | "trade" | "compose";
+const VIEWS: { id: View; label: string }[] = [
+  { id: "hub", label: "HUB" },
+  { id: "modules", label: "MODULES" },
+  { id: "book", label: "BOOK" },
+  { id: "treasury", label: "TREASURY" },
+  { id: "trade", label: "TRADE" },
+  { id: "compose", label: "COMPOSE" },
+];
 
 export default function Page() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -20,7 +35,10 @@ export default function Page() {
   const [report, setReport] = useState<Report | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<Drawer>("none");
-  const [sourceOf, setSourceOf] = useState<{ block: BlockSpec; artifact?: any } | null>(null);
+  const [view, setView] = useState<View>("hub");
+  const [prefill, setPrefill] = useState<Prefill | null>(null);
+  const [sourceOf, setSourceOf] = useState<{ block: BlockSpec; artifact?: any; audit?: Audit | null } | null>(null);
+  const [sourceTab, setSourceTab] = useState<"source" | "audit">("source");
 
   const [address, setAddress] = useState<string | null>(null);
   const [protocolId, setProtocolId] = useState<string | null>(null);
@@ -55,11 +73,14 @@ export default function Page() {
             const { protocol } = await api.importProtocol(cid);
             setGraph(protocol.graph);
             setProtocolId(protocol.id);
+            setView("compose");
             say(`imported “${protocol.name}”`);
           } catch (e: any) {
             say(e.message, true);
           }
         }
+        const room = new URLSearchParams(window.location.search).get("view");
+        if (room && VIEWS.some((v) => v.id === room)) setView(room as View);
       } catch (e: any) {
         setBoot(e.message);
       }
@@ -227,12 +248,13 @@ export default function Page() {
     setDrawer("none");
   };
 
-  const viewSource = async (block: BlockSpec) => {
+  const viewSource = async (block: BlockSpec, tab: "source" | "audit" = "source") => {
     setSourceOf({ block });
+    setSourceTab(tab);
     setDrawer("source");
     try {
       const full = await api.getBlock(block.id);
-      setSourceOf({ block: full.block, artifact: full.artifact });
+      setSourceOf({ block: full.block, artifact: full.artifact, audit: full.audit ?? null });
     } catch (e: any) {
       say(e.message, true);
     }
@@ -303,6 +325,23 @@ export default function Page() {
       >
         <span style={{ color: "var(--accent)", fontSize: 15 }}>✦</span>
         <span style={{ fontWeight: 700, letterSpacing: "0.06em", fontSize: 12 }}>DEFI</span>
+        <nav className="nav">
+          {VIEWS.map((v) => (
+            <button
+              key={v.id}
+              className={view === v.id ? "active" : ""}
+              onClick={() => {
+                // A nav click is a fresh visit — only EXPLORE carries a prefill.
+                if (v.id === "modules") setPrefill(null);
+                setView(v.id);
+              }}
+            >
+              {v.label}
+            </button>
+          ))}
+        </nav>
+        {view !== "compose" && <div style={{ flex: 1 }} />}
+        {view === "compose" && (<>
         <input
           value={graph.name}
           onChange={(e) => setGraph({ ...graph, name: e.target.value })}
@@ -345,12 +384,6 @@ export default function Page() {
         <button onClick={() => setDrawer(drawer === "prompts" ? "none" : "prompts")}>
           ✦ AI compose
         </button>
-        <button onClick={() => setDrawer(drawer === "yield" ? "none" : "yield")}>
-          yield
-        </button>
-        <button onClick={() => setDrawer(drawer === "trade" ? "none" : "trade")}>
-          trade
-        </button>
         <button onClick={save} disabled={!address}>
           save
         </button>
@@ -360,11 +393,39 @@ export default function Page() {
         <button className="primary" onClick={buildPlan} disabled={!report?.ok || !compileInfo?.ready}>
           deploy…
         </button>
+        </>)}
         <button className="ghost" onClick={address ? () => { api.clearSession(); setAddress(null); } : connect}>
           {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "connect wallet"}
         </button>
       </header>
 
+      {view === "hub" && (
+        <Hub
+          say={say}
+          onExplore={(pf) => {
+            setPrefill(pf);
+            setView("modules");
+          }}
+        />
+      )}
+      {view === "modules" && (
+        <Modules say={say} address={address} prefill={prefill} onOpenTreasury={() => setView("treasury")} onOpenBook={() => setView("book")} />
+      )}
+      {view === "book" && <Book say={say} onOpenModules={() => setView("modules")} />}
+      {view === "trade" && (
+        <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+          <div className="rail-empty" style={{ padding: "40px 48px", maxWidth: 520 }}>
+            <div style={{ fontSize: 22, color: "var(--accent)" }}>✦</div>
+            <div style={{ marginTop: 10, lineHeight: 1.7 }}>
+              The trading desk. Quote and swap on Ethereum and Base (Uniswap V3), Solana (Jupiter) and
+              Bittensor (dTAO pools) — each trade signed by the module that owns that chain. Buying a
+              module&apos;s receipt token from MODULES goes through this same desk.
+            </div>
+          </div>
+          <DexDesk onClose={() => setView("modules")} say={say} />
+        </div>
+      )}
+      {view === "compose" && (
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         <aside
           style={{
@@ -395,8 +456,6 @@ export default function Page() {
               composing={composing}
             />
           )}
-
-          {drawer === "trade" && <DexDesk onClose={() => setDrawer("none")} say={say} />}
 
 
           {drawer === "library" && (
@@ -462,7 +521,21 @@ export default function Page() {
                 <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
                   {sourceOf.block.icon} {sourceOf.block.contract}.sol
                 </span>
-                {sourceOf.artifact && (
+                <button
+                  className={sourceTab === "source" ? "" : "ghost"}
+                  style={{ padding: "2px 8px" }}
+                  onClick={() => setSourceTab("source")}
+                >
+                  source
+                </button>
+                <button
+                  className={sourceTab === "audit" ? "" : "ghost"}
+                  style={{ padding: "2px 8px", display: "flex", gap: 6, alignItems: "center" }}
+                  onClick={() => setSourceTab("audit")}
+                >
+                  audit <RiskPill summary={sourceOf.block.audit} compact />
+                </button>
+                {sourceOf.artifact && sourceTab === "source" && (
                   <span className="pill">{sourceOf.artifact.deployedSize} bytes</span>
                 )}
                 <button className="ghost" onClick={() => setDrawer("none")} style={{ padding: "2px 8px" }}>
@@ -470,9 +543,15 @@ export default function Page() {
                 </button>
               </div>
               <div className="scroll" style={{ flex: 1, padding: 12 }}>
+                {sourceTab === "audit" && (
+                  <AuditView audit={sourceOf.audit} loading={sourceOf.audit === undefined} />
+                )}
+                {sourceTab === "source" && (
                 <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.6, marginBottom: 12 }}>
                   {sourceOf.block.docs || sourceOf.block.summary}
                 </div>
+                )}
+                {sourceTab === "source" && (
                 <pre
                   style={{
                     margin: 0,
@@ -484,6 +563,7 @@ export default function Page() {
                 >
                   {sourceOf.block.source ?? "loading…"}
                 </pre>
+                )}
               </div>
             </div>
           )}
@@ -575,11 +655,12 @@ export default function Page() {
           />
         </aside>
       </div>
+      )}
 
-      {/* YIELD is a mode rather than a drawer: an APR table wants the whole
-          window, and nothing on the canvas is relevant while you are reading it. */}
-      {drawer === "yield" && (
-        <YieldDesk onClose={() => setDrawer("none")} say={say} address={address} />
+      {/* TREASURY keeps its full-window desk: the yields table beside the
+          BlocTime treasury, because they are one decision. */}
+      {view === "treasury" && (
+        <YieldDesk onClose={() => setView("modules")} say={say} address={address} />
       )}
 
       {toast && (

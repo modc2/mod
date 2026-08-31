@@ -3,7 +3,10 @@
 Thin Python face over the Rust API (mcp-rs, :50360). The hub aggregates every
 MCP server it knows — auto-discovered fleet mods plus user-registered remotes —
 and re-exposes the union at POST /mcp as one MCP server (tools named
-server__tool). These fns mirror the REST surface for mod-protocol callers.
+server__tool). It is itself a `mod` hub type: hubs() lists the other hub types
+it can see (peer mod hubs, the fleet's index, the public directories) and
+catalog() searches for servers across all of them. These fns mirror the REST
+surface for mod-protocol callers.
 
 Write calls (add_server / remove_server / toggle_server) send Bearer
 ~/.mod/mcp/server.secret automatically when that file exists.
@@ -142,6 +145,40 @@ def search(q, count=8, provider=None):
 def fetch(url, max_chars=8000):
     """Read one public URL as text (HTML stripped)."""
     return _req(f"/fetch?url={_q(url)}&max_chars={int(max_chars)}")
+
+
+def hub():
+    """This hub's manifest — type mod-hub: what another hub reads at GET /hub."""
+    return _req("/hub")
+
+
+def hubs(refresh=False):
+    """Every hub type this one can see (mod peers, the index, the directories) with counts."""
+    return _req("/hubs" + ("?refresh=1" if refresh else ""))
+
+
+def add_hub(url, id=None, name=None, headers=None, note=None):
+    """Add a peer hub by its API base; the kind (mod|index) is worked out from what it answers."""
+    body = {"url": url}
+    if id:
+        body["id"] = id
+    if name:
+        body["name"] = name
+    if headers:
+        body["headers"] = headers
+    if note:
+        body["note"] = note
+    return _req("/hubs", body, auth=True)
+
+
+def remove_hub(id):
+    """Forget a peer hub."""
+    return _req(f"/hubs/{id}", method="DELETE", auth=True)
+
+
+def connect_hub(id):
+    """Register a mod/index hub's own MCP endpoint as one upstream — its tools nest as id__server__tool."""
+    return _req(f"/hubs/{id}/connect", {}, auth=True)
 
 
 def catalog(q="", registry="all", limit=20):

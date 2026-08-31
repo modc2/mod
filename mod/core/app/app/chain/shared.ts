@@ -439,6 +439,49 @@ export async function getSigner(kind: WalletKind, network: string, address?: str
   return new ethers.Wallet(localPrivateKey(), readProvider(network))
 }
 
+// ── protocol-auth token ─────────────────────────────────────────────────────
+//
+// The AGENT tab runs through the orbit/agent module, which authenticates with
+// a wallet-signed, time-bounded token rather than a session: base64url of
+// {data, time, key, signature}, the signature an EIP-191 personal_sign over
+// exactly JSON.stringify({data, time}). A local key signs silently; a browser
+// wallet prompts once. Cached per address for half of its 24h life.
+
+const LS_AGENT_TOKEN = 'chain_agent_token'
+const TOKEN_REUSE_S = 12 * 3600
+
+function b64url(obj: any): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj))
+  let bin = ''
+  bytes.forEach(b => { bin += String.fromCharCode(b) })
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+export async function agentToken(kind: WalletKind, address: string): Promise<string> {
+  const addr = address.toLowerCase()
+  try {
+    const cached = JSON.parse(safeGet(LS_AGENT_TOKEN) || 'null')
+    if (cached?.address === addr && cached.token && Date.now() / 1000 - cached.minted < TOKEN_REUSE_S) {
+      return cached.token
+    }
+  } catch {}
+  const data = { scope: 'chain' }
+  const time = (Date.now() / 1000).toString()
+  const message = JSON.stringify({ data, time })
+  let signature: string
+  if (kind === 'browser') {
+    if (!hasInjected()) throw new Error('No browser wallet found — install MetaMask')
+    signature = await (window as any).ethereum.request({ method: 'personal_sign', params: [message, addr] })
+  } else {
+    signature = await new ethers.Wallet(localPrivateKey()).signMessage(message)
+  }
+  const token = b64url({ data, time, key: addr, signature })
+  safeSet(LS_AGENT_TOKEN, JSON.stringify({ address: addr, token, minted: Date.now() / 1000 }))
+  return token
+}
+
+export const forgetAgentToken = () => { try { localStorage.removeItem(LS_AGENT_TOKEN) } catch {} }
+
 // ── ERC-20 tokens ───────────────────────────────────────────────────────────
 //
 // Balances are read straight from the RPC so they work on any network, fleet
@@ -547,3 +590,85 @@ export const placeholderFor = (type: string) =>
       : type.endsWith(']') ? '["a","b"]'
         : /^u?int/.test(type) ? '0'
           : type
+
+// ── contract cards ──────────────────────────────────────────────────────────
+//
+// The PLAY tab's deck, per network, kept in this browser: contracts you loaded
+// by address, which cards are pinned or hidden, and any name you gave a card.
+// The fleet's contracts and your builds come from the API — the book only
+// records what you did to them.
+
+export interface SavedContract {
+  name: string
+  address: string
+  abi: any[]
+  abiCid?: string
+  added: number
+}
+
+export interface CardBook {
+  saved: SavedContract[]
+  /** lower-cased addresses */
+  pinned: string[]
+  hidden: string[]
+  /** lower-cased address → the name you gave it */
+  names: Record<string, string>
+}
+
+const LS_CARDS = 'chain_contract_cards'
+const lc = (a: string) => a.toLowerCase()
+const emptyBook = (): CardBook => ({ saved: [], pinned: [], hidden: [], names: {} })
+
+const cardStore = (): Record<string, CardBook> => {
+  try { return JSON.parse(safeGet(LS_CARDS) || '{}') } catch { return {} }
+}
+
+export const cardBook = (network: string): CardBook => ({ ...emptyBook(), ...(cardStore()[network] || {}) })
+
+const writeBook = (network: string, book: CardBook) => {
+  const store = cardStore()
+  store[network] = book
+  safeSet(LS_CARDS, JSON.stringify(store))
+}
+
+/** Keep a contract you loaded by hand. Same address again replaces the card. */
+export function saveContractCard(network: string, c: Omit<SavedContract, 'added'>) {
+  const book = cardBook(network)
+  const address = ethers.getAddress(c.address)
+  book.saved = [
+    ...book.saved.filter(s => lc(s.address) !== lc(address)),
+    { ...c, address, added: Date.now() },
+  ]
+  writeBook(network, book)
+}
+
+/** Drop a saved card and everything the book remembers about that address. */
+export function forgetContractCard(network: string, address: string) {
+  const book = cardBook(network)
+  book.saved = book.saved.filter(s => lc(s.address) !== lc(address))
+  book.pinned = book.pinned.filter(a => a !== lc(address))
+  book.hidden = book.hidden.filter(a => a !== lc(address))
+  delete book.names[lc(address)]
+  writeBook(network, book)
+}
+
+/** Name any card — fleet, build or saved. An empty name puts the original back. */
+export function nameContractCard(network: string, address: string, name: string) {
+  const book = cardBook(network)
+  const trimmed = name.trim()
+  if (trimmed) book.names[lc(address)] = trimmed
+  else delete book.names[lc(address)]
+  book.saved = book.saved.map(s => lc(s.address) === lc(address) && trimmed ? { ...s, name: trimmed } : s)
+  writeBook(network, book)
+}
+
+/** Pin a card to the top of the deck, or hide it — both toggle. */
+export function toggleContractCard(network: string, flag: 'pinned' | 'hidden', address: string) {
+  const book = cardBook(network)
+  const a = lc(address)
+  book[flag] = book[flag].includes(a) ? book[flag].filter(x => x !== a) : [...book[flag], a]
+  // a hidden card can't be pinned — whichever you did last wins
+  const other = flag === 'pinned' ? 'hidden' : 'pinned'
+  if (book[flag].includes(a)) book[other] = book[other].filter(x => x !== a)
+  writeBook(network, book)
+}

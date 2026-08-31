@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""debank mcp — eighteen tools that answer "what does this address own?"
+"""debank mcp — twenty-four tools that answer "what does this address own?"
+— and, since the savings desk, "where should its stablecoins sit?"
 
 The tools are ordered the way the question actually gets answered: start at
 `debank_portfolio` (the total and which chains carry it), then drill — tokens,
@@ -42,8 +43,15 @@ INSTRUCTIONS = (
     'debank_approvals is the risk view — standing permissions ranked by what the '
     'spender could take today; it is per chain by design. Addresses must be 0x '
     'hex, not ENS. BYOK: every call spends the CALLER\'S DeBank units and needs '
-    'an AccessKey from cloud.debank.com (debank_set_key); only debank_chains '
-    'answers signed-out.'
+    'an AccessKey from cloud.debank.com (debank_set_key). Three tools answer '
+    'signed-out: debank_chains (the catalog), debank_networks (the bank rail a '
+    'wallet can switch to) and debank_balances (native + stablecoins on that rail, '
+    'read from public RPCs) — use debank_balances when portfolio 401s. The savings '
+    'desk also answers signed-out: debank_funds (curated index funds of yield '
+    'venues with live projected ROI and per-protocol locked liquidity), '
+    'debank_fund, debank_savings (idle vs placed, read from chain) and '
+    'debank_savings_plan (the approve+deposit transactions for the owner\'s '
+    'wallet — nothing is signed server-side).'
 )
 
 
@@ -133,6 +141,39 @@ def _t_gas(a):
 
 def _t_chains(a):
     return _client(a).chains(q=a.get('q'), refresh=a.get('refresh', False))
+
+
+def _t_balances(a):
+    chains = a.get('chains')
+    if isinstance(chains, str):
+        chains = [x for x in chains.split(',') if x.strip()]
+    return _client(a).balances(a['id'], chains=chains or None,
+                               min_usd=a.get('min_usd', 0.0))
+
+
+def _t_networks(a):
+    return _client(a).networks()
+
+
+def _t_funds(a):
+    import savings
+    return savings.funds(amount=a.get('amount'), refresh=a.get('refresh', False))
+
+
+def _t_fund(a):
+    import savings
+    return savings.fund(a['fund'], amount=a.get('amount'),
+                        refresh=a.get('refresh', False))
+
+
+def _t_savings(a):
+    import savings
+    return savings.savings(a['id'])
+
+
+def _t_savings_plan(a):
+    import savings
+    return savings.plan(a['id'], a['fund'], a['amount'])
 
 
 def _t_account(a):
@@ -339,6 +380,29 @@ TOOLS = {
         }},
         'handler': _t_chains,
     },
+    'debank_balances': {
+        'description': 'Native coin and USDC/USDT/DAI balances on the bank rail — '
+                       'Ethereum, Base, Arbitrum, Optimism, Polygon, BNB Chain, '
+                       'Avalanche, Gnosis — read straight from public RPCs and priced '
+                       'by CoinGecko. Answers with NO key, so it is the fallback when '
+                       'debank_portfolio 401s. Deliberately narrow: no DeFi, no long '
+                       'tail, and `coverage` says exactly what was looked at.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': _ID,
+            'chains': {'type': 'array', 'items': {'type': 'string'},
+                       'description': 'restrict to these bank-rail chains (default all 8)'},
+            'min_usd': _MIN_USD}, 'required': ['id']},
+        'handler': _t_balances,
+    },
+    'debank_networks': {
+        'description': 'The bank rail a browser wallet can be switched to: each chain\'s '
+                       'EVM chain id (decimal and hex), a public RPC, the explorer, and '
+                       'the stablecoin contracts with their decimals. Use it to build '
+                       'wallet_switchEthereumChain / eth_sendTransaction payloads or an '
+                       'ERC-20 transfer. Answers with no key.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_networks,
+    },
     'debank_account': {
         'description': 'Whether the caller\'s AccessKey works, where it was resolved '
                        'from, and the remaining unit balance if the plan exposes it. '
@@ -357,6 +421,56 @@ TOOLS = {
             'persist': _bool('write it to disk (default true; false = this process only)'),
         }, 'required': ['key']},
         'handler': _t_set_key,
+    },
+    'debank_funds': {
+        'description': 'The savings index funds — curated, weighted baskets of '
+                       'yield venues (Aave, Compound, Morpho vaults, Maple, Sky, '
+                       'Spark) in one stablecoin on one chain, with live projected '
+                       'ROI (30-day mean APY, weighted), today\'s spot APY, the '
+                       'liquidity locked in each protocol read from the venue '
+                       'contract on chain, and the exit terms (instant vs request). '
+                       'Works without a key. Pass amount= to see the dollar '
+                       'projection at that size.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'amount': _num('optional dollar amount to project the funds at'),
+            'refresh': _bool('bypass the 10-minute yields cache')}},
+        'handler': _t_funds,
+    },
+    'debank_fund': {
+        'description': 'One savings fund in full — every sleeve with its live APY, '
+                       'on-chain locked liquidity, pool TVL and exit terms. '
+                       '`venue:<id>` (e.g. venue:sky-sdai-eth) is a fund of one. '
+                       'Works without a key.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'fund': _str('fund id from debank_funds, or venue:<venue-id>'),
+            'amount': _num('optional dollar amount to project at')},
+            'required': ['fund']},
+        'handler': _t_fund,
+    },
+    'debank_savings': {
+        'description': 'The savings picture of an address, keyless: stablecoins '
+                       'sitting idle on the bank rail vs money already placed in '
+                       'each yield venue (balanceOf + convertToAssets read from '
+                       'public RPCs), with the blended APY and projected yearly '
+                       'income of what is placed, plus the ledger of placements '
+                       'made from this bank.',
+        'inputSchema': {'type': 'object', 'properties': {'id': _ID},
+                        'required': ['id']},
+        'handler': _t_savings,
+    },
+    'debank_savings_plan': {
+        'description': 'Split a dollar amount across a fund\'s sleeves and build '
+                       'the exact transactions the OWNER\'s wallet must sign — an '
+                       'exact-amount approve (with the USDT reset leg only when '
+                       'needed) then the deposit, per sleeve — plus whether the '
+                       'wallet actually holds enough of the asset on that chain. '
+                       'This server signs nothing.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': _ID,
+            'fund': _str('fund id, or venue:<venue-id> for a single protocol'),
+            'amount': _num('dollars to place')},
+            'required': ['id', 'fund', 'amount']},
+        'handler': _t_savings_plan,
     },
     'debank_raw': {
         'description': 'Escape hatch: call any DeBank Cloud route directly with the '

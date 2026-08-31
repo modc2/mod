@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use parking_lot::RwLock;
 use serde_json::Value;
 
-use crate::types::AggPayload;
+use crate::types::{AggPayload, MarketMetric};
 
 // ─── Proxy Cache (TTL-based in-memory + disk for persistent endpoints) ───
 
@@ -358,10 +358,55 @@ impl PipelineCache {
         self.disk_dir.join(format!("{}.json", safe_key))
     }
 
+    /// The per-market breakdown, persisted BESIDE the payload.
+    ///
+    /// `Trader.market_metrics` is `#[serde(skip)]` so the leaderboard the
+    /// browser receives stays small — but that also kept it off disk, and
+    /// every API restart answered "traders in bitcoin" with LIFETIME numbers
+    /// until the next warmup pass (up to an hour of a ranking that means
+    /// something else). A sidecar file keeps the wire shape and survives the
+    /// restart: address → metrics, re-attached on load.
+    fn metrics_path(&self, key: &str) -> PathBuf {
+        let mut p = self.disk_path(key);
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        p.set_file_name(format!("{}.metrics.json", name));
+        p
+    }
+
     fn save_to_disk(&self, key: &str, payload: &AggPayload) {
         let path = self.disk_path(key);
         if let Ok(json) = serde_json::to_string(payload) {
             std::fs::write(path, json).ok();
+        }
+        let metrics: HashMap<&str, &Vec<MarketMetric>> = payload
+            .traders
+            .iter()
+            .filter_map(|t| t.market_metrics.as_ref().map(|m| (t.address.as_str(), m)))
+            .collect();
+        let mpath = self.metrics_path(key);
+        if metrics.is_empty() {
+            std::fs::remove_file(mpath).ok();
+        } else if let Ok(json) = serde_json::to_string(&metrics) {
+            std::fs::write(mpath, json).ok();
+        }
+    }
+
+    /// Re-attach the sidecar's breakdown to a payload loaded from disk. A
+    /// missing or unreadable sidecar leaves the payload metric-less, which is
+    /// exactly what it was before — the console detects that and says so.
+    fn attach_metrics(&self, key: &str, payload: &mut AggPayload) {
+        let raw = match std::fs::read_to_string(self.metrics_path(key)) {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        let mut metrics: HashMap<String, Vec<MarketMetric>> = match serde_json::from_str(&raw) {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+        for t in payload.traders.iter_mut() {
+            if let Some(m) = metrics.remove(&t.address) {
+                t.market_metrics = Some(m);
+            }
         }
     }
 
@@ -382,6 +427,7 @@ impl PipelineCache {
             }
             let data = std::fs::read_to_string(&path).ok()?;
             let mut payload: AggPayload = serde_json::from_str(&data).ok()?;
+            self.attach_metrics(key, &mut payload);
             // Old disk payloads (before synced_at existed) deserialize with
             // synced_at=0. Fall back to the file's mtime so the client still
             // sees a sensible "last sync" instead of 1970.

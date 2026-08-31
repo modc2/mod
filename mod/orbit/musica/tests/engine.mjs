@@ -19,7 +19,7 @@ const WEB = join(HERE, '..', 'web', 'js');
 
 // The console's files are classic scripts that hang everything off
 // globalThis.MUSICA, so evaluating them here is all the "import" they need.
-for (const f of ['engine.js', 'analyze.js', 'synth.js', 'sequencer.js']) {
+for (const f of ['engine.js', 'analyze.js', 'synth.js', 'sequencer.js', 'crate.js']) {
   runInThisContext(readFileSync(join(WEB, f), 'utf8'), { filename: f });
 }
 const M = globalThis.MUSICA;
@@ -233,6 +233,45 @@ near('phase of a negative time', M.phase(-0.25, 1), 0.75, 1e-9);
     if (!(pk[b * 2] < -0.9 && pk[b * 2 + 1] > 0.9)) good = false;
   }
   ok('peaks bracket the waveform', good);
+}
+
+/* ── crate: links and the Camelot wheel ───────────────────────────────── */
+
+{
+  const C = M.crate;
+  const links = [
+    ['https://fourtet.bandcamp.com/album/three', 'bandcamp', 'album'],
+    ['https://fourtet.bandcamp.com/track/loved-2?from=x', 'bandcamp', 'track'],
+    ['https://soundcloud.com/four-tet/lost-village-23rd-august-2025', 'soundcloud', 'track'],
+    ['https://m.soundcloud.com/clutchrecs/sets/tech-house', 'soundcloud', 'playlist'],
+    ['https://soundcloud.com/four-tet', 'soundcloud', 'artist'],
+    ['https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC?si=abc', 'spotify', 'track'],
+    ['spotify:playlist:37i9dQZF1DXcBWIGoYBM5M', 'spotify', 'playlist'],
+  ];
+  for (const [url, src, kind] of links) {
+    const d = C.detect(url);
+    ok(`detect ${url}`, d && d.source === src && d.kind === kind,
+      d ? `got ${d.source}/${d.kind}` : 'got null');
+  }
+  ok('detect ignores plain text', C.detect('four tet') === null);
+  ok('detect ignores other hosts', C.detect('https://example.com/album/x') === null);
+
+  ok('camelot same key', C.camelotRel('8A', '8A').rel === 'same');
+  ok('camelot relative major', C.camelotRel('8A', '8B').rel === 'relative');
+  ok('camelot adjacent', C.camelotRel('8A', '9A').rel === 'adjacent');
+  ok('camelot wraps the wheel', C.camelotRel('12A', '1A').rel === 'adjacent');
+  ok('camelot energy boost', C.camelotRel('8A', '10A').rel === 'energy');
+  ok('camelot clash', C.camelotRel('8A', '2B').rel === 'clash');
+  ok('camelot unknown', C.camelotRel(null, '8A').rel === 'unknown');
+  ok('camelot shift +1 semitone = +7', C.camelotShift('8A', 1) === '3A');
+  ok('camelot shift -1 semitone', C.camelotShift('3A', -1) === '8A');
+  ok('camelot shift keeps mode', C.camelotShift('12B', 2) === '2B');
+  ok('duration formats hours', C.dur(6492336) === '1:48:12');
+  ok('duration formats minutes', C.dur(243264) === '4:03');
+  ok('stream url: direct wins', C.streamUrl({ direct: true, url: 'https://cdn/x.mp3', source: 'soundcloud', id: 1 }) === 'https://cdn/x.mp3');
+  ok('stream url: bandcamp proxies with track',
+    C.streamUrl({ direct: false, source: 'bandcamp', id: 'https://a.bandcamp.com/album/b', bc_id: 42 })
+      === 'api/stream/bandcamp?id=https%3A%2F%2Fa.bandcamp.com%2Falbum%2Fb&track=42');
 }
 
 /* ── report ───────────────────────────────────────────────────────────── */

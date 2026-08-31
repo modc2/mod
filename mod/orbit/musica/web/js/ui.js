@@ -44,6 +44,7 @@ function knob(el, onChange) {
   const norm = () => (value - min) / (max - min);
   function render() {
     ind.style.transform = `rotate(${-135 + norm() * 270}deg)`;
+    el.style.setProperty('--p', norm().toFixed(3));   // the arc in the stylesheet
     const off = bipolar ? Math.abs(value) > 0.02 : Math.abs(norm() - 0.5) > 0.02;
     el.classList.toggle('live', off);
   }
@@ -131,9 +132,8 @@ function drawFull(canvas, deck) {
   ctx.fillRect(0, 0, w, h);
   const p = deck.peaks;
   if (!p) {
-    ctx.fillStyle = COLOR.dim;
-    ctx.font = '10px ui-monospace, monospace';
-    ctx.fillText('no track', 8, h / 2 + 3);
+    ctx.fillStyle = 'rgba(255,255,255,.07)';
+    ctx.fillRect(0, Math.round(h / 2), w, 1);
     return;
   }
   const buckets = p.length / 2, mid = h / 2;
@@ -173,7 +173,13 @@ function drawZoom(canvas, deck) {
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = COLOR.bg;
   ctx.fillRect(0, 0, w, h);
-  if (!deck.buffer) return;
+  if (!deck.buffer) {
+    ctx.fillStyle = 'rgba(255,255,255,.05)';
+    for (let x = 0; x < w; x += w / 16) ctx.fillRect(Math.round(x), 0, 1, h);
+    ctx.fillStyle = 'rgba(255,255,255,.07)';
+    ctx.fillRect(0, Math.round(h / 2), w, 1);
+    return;
+  }
 
   const pos = deck.position();
   const t0 = pos - SPAN / 2, t1 = pos + SPAN / 2;
@@ -184,17 +190,32 @@ function drawZoom(canvas, deck) {
     ctx.fillRect(px(deck.loop.start), 0, Math.max(1, px(deck.loop.end) - px(deck.loop.start)), h);
   }
 
-  // Peaks again, but re-bucketed for this window so the zoom is real detail
-  // rather than the overview stretched.
-  const p = deck.peaks, buckets = p.length / 2, dur = deck.duration || 1, mid = h / 2;
-  ctx.fillStyle = deck.id === 'A' ? COLOR.A : COLOR.B;
+  // The fine peaks, re-bucketed for this window so the zoom is real detail
+  // rather than the overview stretched. Each column takes the extreme of every
+  // fine bucket it covers, so nothing between two columns is lost.
+  const p = deck.fine || deck.peaks, buckets = p.length / 2, dur = deck.duration || 1, mid = h / 2;
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  const c = deck.id === 'A' ? COLOR.A : COLOR.B;
+  grad.addColorStop(0, c); grad.addColorStop(0.5, '#ffffff'); grad.addColorStop(1, c);
+  ctx.fillStyle = c;
+  ctx.globalAlpha = 0.9;
+  const perCol = SPAN / w;
   for (let x = 0; x < w; x++) {
-    const t = t0 + (x / w) * SPAN;
-    if (t < 0 || t > dur) continue;
-    const b = Math.min(buckets - 1, Math.floor(t / dur * buckets));
-    const lo = p[b * 2], hi = p[b * 2 + 1];
+    const ta = t0 + x * perCol, tb = ta + perCol;
+    if (tb < 0 || ta > dur) continue;
+    let b0 = Math.max(0, Math.floor(ta / dur * buckets));
+    const b1 = Math.min(buckets - 1, Math.floor(tb / dur * buckets));
+    let lo = 0, hi = 0;
+    for (let b = b0; b <= b1; b++) {
+      if (p[b * 2] < lo) lo = p[b * 2];
+      if (p[b * 2 + 1] > hi) hi = p[b * 2 + 1];
+    }
     ctx.fillRect(x, mid + lo * mid * 0.92, 1, Math.max(1, (hi - lo) * mid * 0.92));
   }
+  ctx.globalAlpha = 1;
+  // a bright centre line through the body of the wave, the way a booth display reads
+  ctx.fillStyle = 'rgba(255,255,255,.18)';
+  ctx.fillRect(0, mid, w, 1);
 
   if (deck.bpm) {
     const beat = 60 / deck.bpm;

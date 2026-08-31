@@ -24,6 +24,14 @@ fn composer_and_desk_tools() -> serde_json::Value {
             }
         },
         {
+            "name": "defi_audit",
+            "description": "[public] The agent security audit of one block — risk verdict, every finding with where/exploit/recommendation, and safe-use guidance — or, with no id, every block's verdict and the fleet tally. Read it before defi_plan. 'common' is the shared base every block inherits.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string", "description": "block id, e.g. 'vault'; omit for the overview" } }
+            }
+        },
+        {
             "name": "defi_templates",
             "description": "[public] Starter compositions — a vault+strategy, an AMM with liquidity mining, a governed money market.",
             "inputSchema": { "type": "object", "properties": {} }
@@ -377,12 +385,89 @@ fn yield_and_treasury_tools() -> serde_json::Value {
     ])
 }
 
+/// Modular finance: every place money can go, as a module; and the positions.
+/// Its own group — one json! literal past ~30 tools blows the macro's
+/// recursion limit.
+fn finance_tools() -> serde_json::Value {
+    serde_json::json!([
+        {
+            "name": "defi_hub",
+            "description": "[public] The HUB — a hand-vetted shortlist of legitimate protocols this desk is willing to point USD at (Aave, Morpho, Sky, Spark, Compound, Maple, Fluid, Ethena, Kamino, Save, Curve), joined LIVE with DefiLlama's index. One row per protocol: tier (core|established|frontier), plain-language blurb, why it is credible, what it is subject to, and its USD stablecoin pools grouped per chain — multichain, each chain saying whether THIS desk can enter it (Ethereum/Base via eth, Solana via solana) or it is read-only. Curated is not certified: the risks ride on every row.",
+            "inputSchema": { "type": "object", "properties": {
+                "chain": { "type": "string", "description": "restrict to one chain — a desk id (ethereum|base|solana) or an index name (Arbitrum, Polygon…)" },
+                "min_tvl": { "type": "number", "description": "per-pool USD floor, default 1,000,000" }
+            } }
+        },
+        {
+            "name": "defi_hub_protocol",
+            "description": "[public] One hub protocol in full: the vetted card plus EVERY USD pool it runs per chain (up to 12 each), each with its module_id — the handle defi_module / defi_enter takes.",
+            "inputSchema": { "type": "object", "properties": {
+                "id": { "type": "string", "description": "a hub id from defi_hub — aave-v3, morpho, sky, sparklend, compound-v3, maple, fluid, ethena, kamino, save, curve" },
+                "min_tvl": { "type": "number" }
+            }, "required": ["id"] }
+        },
+        {
+            "name": "defi_modules",
+            "description": "[public] The finance modules: every place money can go that gives a return — DefiLlama's pools on Ethereum, Base and Solana; Bittensor subnets through the bt module; vaults you composed and deployed; the BlocTime treasury. Each row carries returns (apy, apy_base, emissions_share, 30d mean), liquidity (tvl, entry, exit mode, exit_delay_days, lock_days), conditions, and an adapter saying how THIS desk enters it (or null = read-only). Filters: chain (ethereum|base|solana|tao|evm), kind, q, addable, instant, min_tvl, stable, organic, sort (score|apy|tvl|base|mean30d), limit.",
+            "inputSchema": { "type": "object", "properties": {
+                "chain": { "type": "string" }, "kind": { "type": "string", "description": "Lending, Liquid Staking, Dexs, Yield, Subnet (dTAO), Composed vault… see defi_module_facets" },
+                "q": { "type": "string" }, "addable": { "type": "boolean", "description": "only modules this desk can enter" },
+                "instant": { "type": "boolean", "description": "only modules you can leave instantly (natively or at market)" },
+                "min_tvl": { "type": "number" }, "stable": { "type": "boolean" }, "organic": { "type": "boolean" },
+                "sort": { "type": "string" }, "limit": { "type": "integer" }
+            } }
+        },
+        {
+            "name": "defi_module_facets",
+            "description": "[public] Chains, kinds and adapter kinds present in the registry right now, with counts and how many of each are addable.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "defi_module",
+            "description": "[public] One module in full by id (llama:<pool>, tao:sn<netuid>, own:<protocol>:<node>, treasury), with up to a year of rate history for index pools and the live pool price for a subnet.",
+            "inputSchema": { "type": "object", "properties": { "id": { "type": "string" }, "history": { "type": "boolean", "default": true } }, "required": ["id"] }
+        },
+        {
+            "name": "defi_module_quote",
+            "description": "[public] What putting `amount` into a module would do, and what taking it out TODAY would cost: the entry route and expected receipt, the exit quote, round_trip_cost_pct, the plan of calls. Reads only — the liquidity restriction measured rather than described.",
+            "inputSchema": { "type": "object", "properties": { "id": { "type": "string" }, "amount": { "type": "string" } }, "required": ["id", "amount"] }
+        },
+        {
+            "name": "defi_enter",
+            "description": "Put money into a module. Executes through the module that owns the chain — eth (approve + deposit/supply, or a Uniswap buy of the receipt), solana (a Jupiter buy of the receipt), bt (a stake into the subnet pool) — with YOUR bearer forwarded. Returns needs_confirm on a mainnet module until confirm=true; dryRun=true returns the plan and quote and sends nothing. A position row is written only when something was actually sent. The treasury module records a plan and points at defi_treasury_lock.",
+            "inputSchema": { "type": "object", "properties": {
+                "module": { "type": "string", "description": "an id from defi_modules" }, "amount": { "type": "string" },
+                "account": { "type": "string", "description": "eth account name, solana keystore wallet, or bittensor coldkey — whatever the chain module calls yours" },
+                "hotkey": { "type": "string" }, "password": { "type": "string" },
+                "confirm": { "type": "boolean" }, "dryRun": { "type": "boolean" }, "slippageBps": { "type": "number" },
+                "auth": { "type": "string", "description": "bearer for the chain module, if not the one on this call" }
+            }, "required": ["module", "amount"] }
+        },
+        {
+            "name": "defi_positions",
+            "description": "[public] The book: every position entered through here, with the module's rate now beside the rate at entry (apy_drift), days in, and a labelled projection of what it has earned.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "defi_exit",
+            "description": "Take money out of a position: sell the receipt back (swap_receipt / tao_subnet), withdraw/redeem (erc4626, mod_vault), Pool.withdraw (aave_v3) or Comet.withdraw (compound_v3). amount is in the asset for vaults and lenders, in the receipt token for swaps, TAO-equivalent for a subnet; omit it or pass 'all' to leave entirely. confirm=true on mainnet.",
+            "inputSchema": { "type": "object", "properties": { "id": { "type": "string" }, "amount": { "type": "string" }, "account": { "type": "string" }, "password": { "type": "string" }, "hotkey": { "type": "string" }, "confirm": { "type": "boolean" }, "slippageBps": { "type": "number" }, "auth": { "type": "string" } }, "required": ["id"] }
+        },
+        {
+            "name": "defi_position_value",
+            "description": "What a position is worth now, read on chain where this desk can (vault shares → assets, Comet balance, receipt balance); a pointer to sol_portfolio / bt_portfolio otherwise.",
+            "inputSchema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+        }
+    ])
+}
+
 /// Every tool this server offers, in one list.
 fn tools() -> serde_json::Value {
     let mut all = composer_and_desk_tools();
-    let rest = yield_and_treasury_tools();
-    if let (Some(a), Some(b)) = (all.as_array_mut(), rest.as_array()) {
-        a.extend(b.iter().cloned());
+    for rest in [yield_and_treasury_tools(), finance_tools()] {
+        if let (Some(a), Some(b)) = (all.as_array_mut(), rest.as_array()) {
+            a.extend(b.iter().cloned());
+        }
     }
     all
 }
@@ -466,11 +551,31 @@ async fn handle(
                     "name": b.name,
                     "description": b.summary,
                     "mimeType": "text/x-solidity"
-                })).collect::<Vec<_>>()
+                })).chain(state.catalog.audits.keys().map(|id| serde_json::json!({
+                    "uri": format!("defi://audit/{id}"),
+                    "name": format!("audit: {id}"),
+                    "description": format!("agent security audit of the {id} block"),
+                    "mimeType": "application/json"
+                }))).collect::<Vec<_>>()
             }),
         ),
         "resources/read" => {
             let uri = params.get("uri").and_then(|u| u.as_str()).unwrap_or("");
+            if let Some(audit_id) = uri.strip_prefix("defi://audit/") {
+                return Some(match state.catalog.audit(audit_id) {
+                    Some(audit) => ok(
+                        id,
+                        serde_json::json!({
+                            "contents": [{
+                                "uri": uri,
+                                "mimeType": "application/json",
+                                "text": serde_json::to_string_pretty(audit).unwrap_or_default()
+                            }]
+                        }),
+                    ),
+                    None => err(id, -32602, format!("no audit resource '{audit_id}'")),
+                });
+            }
             let block_id = uri.strip_prefix("defi://block/").unwrap_or("");
             match state.catalog.block(block_id) {
                 Some(block) => ok(
@@ -548,6 +653,21 @@ async fn call_tool(
                 "block": block,
                 "artifact": compiled.as_ref().and_then(|c| c.artifacts.get(&block.contract).cloned()),
             }))
+        }
+        "defi_audit" => {
+            match args.get("id").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()) {
+                None => Ok(state.catalog.audits_overview()),
+                Some(block_id) => {
+                    if state.catalog.block(block_id).is_none() && block_id != "common" {
+                        return Err(format!("no block '{block_id}'"));
+                    }
+                    state
+                        .catalog
+                        .audit(block_id)
+                        .cloned()
+                        .ok_or_else(|| format!("block '{block_id}' has no audit yet"))
+                }
+            }
         }
         "defi_validate" => {
             let g = arg_graph(&args)?;
@@ -683,6 +803,49 @@ async fn call_tool(
         "defi_treasury_holders" => state.treasury.holders().await,
         "defi_treasury_preview" => state.treasury.preview(auth::now()).await,
         "defi_treasury_onchain" => state.treasury.onchain(&state.dex, token.as_deref()).await,
+        "defi_hub" => {
+            let chain = args.get("chain").and_then(|v| v.as_str()).filter(|c| !c.is_empty()).map(|c| c.to_lowercase());
+            let min_tvl = args.get("min_tvl").and_then(|v| v.as_f64()).unwrap_or(1_000_000.0);
+            let (pools, fetched) = state.yields.all().await?;
+            Ok(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl))
+        }
+        "defi_hub_protocol" => {
+            let id = arg_str(&args, "id")?;
+            let min_tvl = args.get("min_tvl").and_then(|v| v.as_f64()).unwrap_or(1_000_000.0);
+            let (pools, fetched) = state.yields.all().await?;
+            state.hub.protocol(&id, &pools, &state.finance.registry, fetched, min_tvl)
+        }
+        "defi_modules" => {
+            let filter = crate::finance::Filter::from_query(&args);
+            state.finance.modules(&filter, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury).await
+        }
+        "defi_module_facets" => {
+            state.finance.facets(&state.yields, &state.dex, &state.store, &state.catalog, &state.treasury).await
+        }
+        "defi_module" => {
+            let id = arg_str(&args, "id")?;
+            let history = args.get("history").and_then(|v| v.as_bool()).unwrap_or(true);
+            state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, history).await
+        }
+        "defi_module_quote" => {
+            let id = arg_str(&args, "id")?;
+            let module = state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false).await?;
+            state.finance.quote(&module, &args, &state.dex, peer_auth(&args, &token)).await
+        }
+        "defi_enter" => {
+            let id = arg_str(&args, "module")?;
+            let module = state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false).await?;
+            state.finance.enter(&module, &args, who.as_deref(), &state.dex, &state.treasury, peer_auth(&args, &token)).await
+        }
+        "defi_positions" => state.finance.positions(&state.yields, who.as_deref()).await,
+        "defi_exit" => {
+            let id = arg_str(&args, "id")?;
+            state.finance.exit(&id, &args, &state.dex, peer_auth(&args, &token)).await
+        }
+        "defi_position_value" => {
+            let id = arg_str(&args, "id")?;
+            state.finance.value(&id, &state.dex, token.as_deref()).await
+        }
         "defi_treasury_choose" => {
             let who = who.ok_or("sign in with your wallet first")?;
             let now = auth::now();

@@ -848,14 +848,40 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
                     t.win_rate = if total_decided > 0 {
                         (total_wins as f64 / total_decided as f64 * 100.0).round().min(100.0)
                     } else { -1.0 };
-                    // Sharpe scoped to the matching markets' closed-trade
-                    // returns — same query-scoped recompute the other stats
-                    // get, via the ONE `stats_from_returns` formula.
+                    // Sharpe + exit/entry scoped to the matching markets'
+                    // closed-trade returns — same query-scoped recompute the
+                    // other stats get, via the ONE `stats_from_returns`
+                    // formula (mirrors the pipeline's whole-window pass).
                     let scoped_returns: Vec<f64> = matching.iter()
                         .flat_map(|m| m.returns.iter().copied())
                         .collect();
-                    t.sharpe = crate::live_engine::stats_from_returns(&scoped_returns).sharpe;
-                    t.pnl_curve = None; // curve reflects all trades, clear for consistency
+                    let rs = crate::live_engine::stats_from_returns(&scoped_returns);
+                    t.sharpe = rs.sharpe;
+                    t.exit_entry = if rs.sample_size > 0 { 1.0 + rs.roi } else { -1.0 };
+                    // Query-scoped curve: each market carries its own
+                    // 12-bucket realized-PnL deltas (same bucketing as the
+                    // trader-level curve) — sum the matching markets
+                    // element-wise and cum-sum into a curve of ONLY the
+                    // filtered slice. Older cached payloads have no
+                    // per-market deltas; those show no curve rather than
+                    // the all-markets one under a filtered board.
+                    let n = matching.iter().map(|m| m.curve.len()).max().unwrap_or(0);
+                    t.pnl_curve = if n == 0 {
+                        None
+                    } else {
+                        let mut curve = vec![0.0f64; n];
+                        for m in &matching {
+                            for (i, v) in m.curve.iter().enumerate() {
+                                curve[i] += v;
+                            }
+                        }
+                        let mut cum = 0.0f64;
+                        for v in curve.iter_mut() {
+                            cum += *v;
+                            *v = (cum * 100.0).round() / 100.0;
+                        }
+                        Some(curve)
+                    };
                 }
                 true
             } else {
@@ -949,9 +975,13 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
             "volume" => a.volume.partial_cmp(&b.volume),
             "positions" => a.positions.partial_cmp(&b.positions),
             "winRate" => a.win_rate.partial_cmp(&b.win_rate),
+            "trades" => Some(a.recent_trades.cmp(&b.recent_trades)),
             // Default SCORE metric — lets server pagination order the whole
             // set by Sharpe instead of the old pnl proxy.
             "sharpe" => a.sharpe.partial_cmp(&b.sharpe),
+            // SCORE preset — avg exit÷entry ratio; -1 "no closed trades"
+            // sentinel naturally sinks below every real ratio on desc.
+            "exitEntry" => a.exit_entry.partial_cmp(&b.exit_entry),
             // Missing timestamp (pre-lastTradeTs disk cache) sinks to the
             // bottom on desc — unknown recency must not outrank known.
             "last" => Some(a.last_trade_ts.unwrap_or(0).cmp(&b.last_trade_ts.unwrap_or(0))),
@@ -1501,6 +1531,7 @@ mod tests {
                 wins: 0,
                 decided: 0,
                 returns: vec![],
+                curve: vec![],
             })
             .collect();
         Trader {
@@ -1513,6 +1544,7 @@ mod tests {
             pnl: 999_999.0,
             win_rate: -1.0,
             sharpe: 0.0,
+            exit_entry: -1.0,
             positions: 0,
             market_titles: markets.iter().map(|(t, _, _)| (*t).to_string()).collect(),
             recent_trades: markets.iter().map(|(_, _, n)| n).sum(),
@@ -1619,6 +1651,49 @@ mod tests {
 
         assert_eq!(addresses(&result), vec!["0xbtc"]);
         assert_eq!(result["total"].as_u64(), Some(1));
+    }
+
+    /// A market filter must produce a curve of ONLY the filtered slice —
+    /// the matching markets' per-bucket deltas summed and cum-summed. The
+    /// non-matching market's swings must not appear in it.
+    #[test]
+    fn market_query_builds_scoped_curve_from_matching_markets() {
+        let mut t = trader_with_markets(
+            "0xbtc",
+            &[("Bitcoin above $110,000", 10.0, 3), ("Who wins the 2028 election?", 5_000.0, 40)],
+        );
+        t.pnl_curve = Some(vec![9_999.0; 12]); // lifetime curve — must be replaced
+        if let Some(mm) = t.market_metrics.as_mut() {
+            mm[0].curve = vec![5.0, 0.0, -2.0, 3.0]; // bitcoin deltas
+            mm[1].curve = vec![1_000.0, 1_000.0, 1_000.0, 1_000.0]; // politics — filtered out
+        }
+
+        let result = apply_pagination(
+            &payload(vec![t]),
+            &paged_query(json!({"marketQuery": "bitcoin", "sort": "pnl", "order": "desc"})),
+            "memory",
+        );
+
+        let curve: Vec<f64> = result["traders"][0]["pnlCurve"]
+            .as_array().expect("scoped pnlCurve")
+            .iter().map(|v| v.as_f64().unwrap()).collect();
+        assert_eq!(curve, vec![5.0, 5.0, 3.0, 6.0]);
+    }
+
+    /// Older cached payloads carry no per-market deltas — a filtered board
+    /// then shows NO curve rather than the misleading all-markets one.
+    #[test]
+    fn market_query_without_market_curves_clears_the_curve() {
+        let mut t = trader_with_markets("0xbtc", &[("Bitcoin above $110,000", 10.0, 3)]);
+        t.pnl_curve = Some(vec![9_999.0; 12]);
+
+        let result = apply_pagination(
+            &payload(vec![t]),
+            &paged_query(json!({"marketQuery": "bitcoin", "sort": "pnl", "order": "desc"})),
+            "memory",
+        );
+
+        assert!(result["traders"][0]["pnlCurve"].is_null());
     }
 
     /// A trader whose last fill landed `hours_ago`, with `trades_24h` fills in

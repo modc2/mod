@@ -7,6 +7,8 @@ import {
   setToken,
   ApiKey,
   Candidate,
+  Hub,
+  HubsView,
   Listing,
   Me,
   PageText,
@@ -612,13 +614,20 @@ function CatalogSheet({
   onClose,
   onConnect,
   known,
+  initialRegistry = "all",
 }: {
   onClose: () => void;
   onConnect: (l: Listing) => void;
   known: Set<string>;
+  initialRegistry?: string;
 }) {
   const [q, setQ] = useState("");
-  const [registry, setRegistry] = useState("all");
+  const [registry, setRegistry] = useState(initialRegistry);
+  const [hubs, setHubs] = useState<Hub[]>([]);
+
+  useEffect(() => {
+    api.hubs().then((v) => setHubs(v.hubs)).catch(() => {});
+  }, []);
   const [rows, setRows] = useState<Listing[] | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -643,8 +652,8 @@ function CatalogSheet({
   );
 
   useEffect(() => {
-    run("", "all");
-  }, [run]);
+    run("", initialRegistry);
+  }, [run, initialRegistry]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -652,14 +661,20 @@ function CatalogSheet({
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
 
+  /// Every hub that can be searched, as a select option — the index and any
+  /// peer hub by id, the directories by name; keyed ones only when ready.
+  const searchable = hubs.filter((h) => !h.self && h.registry && h.registry !== "hub");
+
   return (
     <div className="sheet" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="sheet-inner">
-        <h2>Connect another hub</h2>
+        <h2>Find a server across every hub</h2>
         <p className="muted small" style={{ margin: 0 }}>
-          The public MCP directories, searched live: a keyless <strong>featured</strong> shortlist this hub has
-          shaken hands with, the project's <strong>official</strong> registry, and <strong>Smithery</strong>.
-          Connecting one probes it first, like any other server.
+          One search over every hub type this one can see: a keyless <strong>featured</strong> shortlist, the
+          fleet's <strong>index</strong> (every row probed — live, auth, down), every <strong>peer hub</strong>{" "}
+          added by URL, and the public <strong>directories</strong>. Connecting a row probes it first, like any
+          other server; a row marked <em>via</em> is behind a hub — connect that hub and its tools arrive
+          nested.
         </p>
         <div className="row" style={{ marginTop: 14 }}>
           <input
@@ -677,10 +692,14 @@ function CatalogSheet({
               run(q, e.target.value);
             }}
           >
-            <option value="all">every directory</option>
+            <option value="all">every hub</option>
             <option value="featured">featured (no key)</option>
-            <option value="official">official registry</option>
-            <option value="smithery">smithery</option>
+            {searchable.map((h) => (
+              <option key={h.id} value={h.registry} disabled={!h.ready}>
+                {h.name} · {h.kind}
+                {h.ready ? "" : h.needs_key ? " (no key)" : " (down)"}
+              </option>
+            ))}
           </select>
           <button className="primary" disabled={busy} onClick={() => run(q, registry)}>
             {busy ? "searching…" : "search"}
@@ -710,10 +729,16 @@ function CatalogSheet({
                   )}
                   <div className="row">
                     <span className="badge plain">{l.registry}</span>
+                    {l.status && (
+                      <span className={`badge ${l.status === "live" ? "good" : l.status === "auth" ? "warn" : "bad"}`}>
+                        {l.status}
+                      </span>
+                    )}
+                    {l.tools ? <span className="muted small">{l.tools} tools</span> : null}
                     {l.needs_key && <span className="badge warn">needs key</span>}
                     {l.uses ? <span className="muted small">{l.uses.toLocaleString()} uses</span> : null}
                     <button className="sm" disabled={already} onClick={() => onConnect(l)}>
-                      {already ? "connected" : "connect"}
+                      {already ? "connected" : l.via ? `connect ${l.via} hub` : "connect"}
                     </button>
                   </div>
                 </div>
@@ -727,6 +752,244 @@ function CatalogSheet({
           })}
           {rows?.length === 0 && <div className="muted small">no server in the directories matched that</div>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── hub types ────────────────────────────────────────────────────── */
+
+const KIND_HUE: Record<string, string> = {
+  mod: "var(--accent)",
+  index: "var(--src-fleet)",
+  directory: "var(--ink-mute)",
+};
+
+/// Every hub type this one can see: itself (a mod hub), peers added by URL,
+/// the fleet's index, and the public directories — with what each holds and
+/// what you can do with it: browse it, or connect the whole thing.
+function HubsSheet({
+  onClose,
+  onBrowse,
+  onChanged,
+  me,
+}: {
+  onClose: () => void;
+  onBrowse: (registry: string) => void;
+  onChanged: () => void;
+  me: Me | null;
+}) {
+  const [view, setView] = useState<HubsView | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState<string>("");
+  const [note, setNote] = useState("");
+  const [url, setUrl] = useState("");
+  const [manifest, setManifest] = useState<string>("");
+
+  const load = useCallback(async (refresh = false) => {
+    setBusy(refresh ? "refresh" : "");
+    try {
+      setView(await api.hubs(refresh));
+      setError("");
+    } catch (e) {
+      setError(String((e as Error).message || e));
+    } finally {
+      setBusy("");
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    api.manifest().then((m) => setManifest(JSON.stringify(m, null, 2))).catch(() => {});
+  }, [load]);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const canEdit = !!(me?.can_write || me?.local);
+
+  const connect = async (h: Hub) => {
+    setBusy(h.id);
+    setNote("");
+    try {
+      const r = await api.connectHub(h.id);
+      setNote(`connected ${h.id} — ${r.probe.toolCount} tools now callable as ${h.id}__server__tool`);
+      onChanged();
+    } catch (e) {
+      setNote(String((e as Error).message || e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const remove = async (h: Hub) => {
+    setBusy(h.id);
+    try {
+      await api.removeHub(h.id);
+      setNote(`forgot ${h.id}`);
+      load();
+    } catch (e) {
+      setNote(String((e as Error).message || e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const add = async () => {
+    if (!url.trim()) return;
+    setBusy("add");
+    setNote("");
+    try {
+      const r = await api.addHub({ url: url.trim() });
+      setNote(`added ${r.added.id} — a ${r.kind} hub with ${r.added.servers ?? "?"} servers`);
+      setUrl("");
+      load(true);
+    } catch (e) {
+      setNote(String((e as Error).message || e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <div className="sheet" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="sheet-inner" style={{ width: "min(960px, 94vw)", maxWidth: "none" }}>
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <h2 style={{ margin: 0 }}>Hub types</h2>
+          <div className="row">
+            <button className="sm ghost" disabled={busy === "refresh"} onClick={() => load(true)}>
+              {busy === "refresh" ? "probing…" : "re-probe hubs"}
+            </button>
+            <button className="sm ghost" onClick={onClose}>
+              close
+            </button>
+          </div>
+        </div>
+        <p className="muted small" style={{ margin: "6px 0 0" }}>
+          Anything that lists MCP servers is a hub. <strong>mod</strong> is this software — this deployment is
+          one, and any other mod hub is a peer you can browse or connect whole (its tools arrive as{" "}
+          <code>peer__server__tool</code>). An <strong>index</strong> is an internet-wide crawl with a probe
+          status per server. A <strong>directory</strong> is a public registry you connect rows from.
+        </p>
+
+        {view && (
+          <div className="row" style={{ gap: 8, marginTop: 12 }}>
+            <span className="badge plain">{view.count} hubs</span>
+            <span className="badge good">{view.ready} ready</span>
+            {Object.entries(view.kinds).map(([k, n]) => (
+              <span key={k} className="badge" style={{ ["--hue" as string]: KIND_HUE[k] }} title={view.kind_docs[k]}>
+                {n} {k}
+              </span>
+            ))}
+            <span className="muted small">probed {ago(view.checked_at)}</span>
+          </div>
+        )}
+
+        {error && <div className="note bad" style={{ marginTop: 12 }}>{error}</div>}
+        {note && <div className={`note ${/^(connected|added|forgot)/.test(note) ? "good" : "warn"} small`} style={{ marginTop: 12 }}>{note}</div>}
+
+        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))" }}>
+          {view === null && [0, 1, 2, 3].map((i) => <div key={i} className="skel" />)}
+          {view?.hubs.map((h) => (
+            <div key={h.id} className="card" style={{ opacity: h.ready ? 1 : 0.6, cursor: "default" }}>
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <h3>
+                  <span style={{ color: h.ready ? "var(--good)" : "var(--bad)", marginRight: 6 }}>●</span>
+                  {h.name}
+                </h3>
+                <div className="row" style={{ gap: 6 }}>
+                  {h.self && <span className="tag">this hub</span>}
+                  <span className="badge" style={{ ["--hue" as string]: KIND_HUE[h.kind] }} title={view.kind_docs[h.kind]}>
+                    {h.kind}
+                  </span>
+                </div>
+              </div>
+              <p className="desc">{h.description}</p>
+              <div className="meta">
+                {h.servers != null && <span>{h.servers.toLocaleString()} servers</span>}
+                {h.live != null && <span style={{ color: "var(--good)" }}>{h.live.toLocaleString()} live</span>}
+                {h.tools != null && <span>{h.tools.toLocaleString()} tools</span>}
+                {h.version && <span className="mono">v{h.version}</span>}
+                {h.needs_key && !h.ready && <span className="tag">needs {h.key_name || "a key"}</span>}
+                {h.note && <span className="muted small">{h.note}</span>}
+              </div>
+              {h.error && (
+                <div className="small" style={{ color: "var(--bad-ink)" }}>
+                  {h.error.slice(0, 120)}
+                </div>
+              )}
+              <div className="src" style={{ marginTop: 2 }}>
+                {h.mcp || h.url}
+              </div>
+              <div className="foot">
+                {!h.self && h.registry && h.registry !== "hub" && (
+                  <button className="sm" disabled={!h.ready} onClick={() => onBrowse(h.registry!)}>
+                    browse
+                  </button>
+                )}
+                {!h.self && h.mcp && (
+                  <button
+                    className="sm primary"
+                    disabled={!h.ready || !canEdit || busy === h.id}
+                    title={canEdit ? `register ${h.mcp} as one upstream` : "editing needs the owner wallet"}
+                    onClick={() => connect(h)}
+                  >
+                    {busy === h.id ? "connecting…" : "connect whole hub"}
+                  </button>
+                )}
+                {h.homepage && (
+                  <a className="muted small" href={h.homepage} target="_blank" rel="noreferrer">
+                    site ↗
+                  </a>
+                )}
+                {h.source === "user" && !h.self && (
+                  <button className="sm ghost" disabled={!canEdit || busy === h.id} onClick={() => remove(h)}>
+                    forget
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="form" style={{ marginTop: 16 }}>
+          <h4 style={{ margin: "0 0 6px" }}>Add a peer hub</h4>
+          <div className="muted small" style={{ marginBottom: 8 }}>
+            Another mod hub or index, by its API base — e.g. <code>https://host/api/mcp</code>. It has to answer{" "}
+            <code>/hub</code> (or a hub-shaped <code>/stats</code>); a bare MCP endpoint is a server, not a hub —
+            use <em>add server</em> for that.
+          </div>
+          <div className="row">
+            <input
+              style={{ flex: 1 }}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && add()}
+              placeholder="https://other-host/api/mcp"
+              disabled={!canEdit}
+            />
+            <button className="primary" disabled={!canEdit || !url.trim() || busy === "add"} onClick={add}>
+              {busy === "add" ? "identifying…" : "add hub"}
+            </button>
+          </div>
+          {!canEdit && (
+            <div className="muted small" style={{ marginTop: 6 }}>
+              adding or connecting a hub edits the registry — sign in with the owner wallet
+            </div>
+          )}
+        </div>
+
+        {manifest && (
+          <details style={{ marginTop: 14 }}>
+            <summary className="muted small" style={{ cursor: "pointer" }}>
+              this hub's manifest — what a peer reads at <code>GET /hub</code>
+            </summary>
+            <pre className="code" style={{ maxHeight: 260, marginTop: 8 }}>{manifest}</pre>
+          </details>
+        )}
       </div>
     </div>
   );
@@ -919,10 +1182,24 @@ export default function Page() {
     }
   };
 
+  const [hubsOpen, setHubsOpen] = useState(false);
+  const [catalogRegistry, setCatalogRegistry] = useState("all");
+
   const connectListing = (l: Listing) => {
-    setSeed(l);
+    // A row behind a peer hub connects the hub itself, once, under its id.
+    setSeed(
+      l.via
+        ? { ...l, id: l.via, name: `${l.via} hub`, description: `${l.via} hub — tools arrive as ${l.via}__server__tool` }
+        : l
+    );
     setBrowsing(false);
     setAdding(true);
+  };
+
+  const browseHub = (registry: string) => {
+    setCatalogRegistry(registry);
+    setHubsOpen(false);
+    setBrowsing(true);
   };
 
   const knownUrls = useMemo(
@@ -962,8 +1239,17 @@ export default function Page() {
           <button className="sm" onClick={() => setSearching(true)}>
             search web
           </button>
-          <button className="sm" onClick={() => setBrowsing(true)}>
-            browse hubs
+          <button className="sm" onClick={() => setHubsOpen(true)}>
+            hubs
+          </button>
+          <button
+            className="sm"
+            onClick={() => {
+              setCatalogRegistry("all");
+              setBrowsing(true);
+            }}
+          >
+            find servers
           </button>
           <button className="sm" onClick={() => setShowConnect(!showConnect)}>
             connect
@@ -985,9 +1271,12 @@ export default function Page() {
           <h1>One hub for every MCP server</h1>
           <p>
             The local fleet is found two ways — what a mod declares, and what the port scan catches it serving —
-            remote servers register by URL or straight from the public directories, and the union is one MCP
-            endpoint where every tool is callable as <code>server__tool</code>. The web comes along for the ride:{" "}
-            <code>web_search</code> and <code>web_fetch</code> work with no API key.
+            remote servers register by URL or from any other hub, and the union is one MCP endpoint where every
+            tool is callable as <code>server__tool</code>. This is a <strong>mod</strong> hub — one hub type among
+            the <button className="sm ghost" style={{ padding: "0 4px" }} onClick={() => setHubsOpen(true)}>hubs</button>{" "}
+            it can see and connect to: peer mod hubs, the fleet's internet-wide index, and the public
+            directories. The web comes along for the ride: <code>web_search</code> and <code>web_fetch</code>{" "}
+            work with no API key.
           </p>
         </div>
 
@@ -1002,6 +1291,16 @@ export default function Page() {
                 {v} {k}
               </span>
             ))}
+            {stats.hubs && (
+              <button
+                className="badge"
+                style={{ cursor: "pointer", ["--hue" as string]: "var(--accent)" }}
+                onClick={() => setHubsOpen(true)}
+                title="every hub type this one can see — mod peers, the index, the directories"
+              >
+                {stats.hubs.count} hubs{stats.hubs.ready != null ? ` · ${stats.hubs.ready} ready` : ""}
+              </button>
+            )}
             {stats.web.provider && <span className="badge">web: {stats.web.provider}</span>}
             {me?.authenticated ? (
               <span className="badge plain" title={me.address || ""}>
@@ -1086,8 +1385,14 @@ export default function Page() {
         />
       )}
       {browsing && (
-        <CatalogSheet onClose={() => setBrowsing(false)} onConnect={connectListing} known={knownUrls} />
+        <CatalogSheet
+          onClose={() => setBrowsing(false)}
+          onConnect={connectListing}
+          known={knownUrls}
+          initialRegistry={catalogRegistry}
+        />
       )}
+      {hubsOpen && <HubsSheet onClose={() => setHubsOpen(false)} onBrowse={browseHub} onChanged={load} me={me} />}
       {searching && (
         <WebSheet onClose={() => setSearching(false)} providers={stats?.web.providers || []} />
       )}

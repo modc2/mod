@@ -43,6 +43,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import builder  # noqa: E402
 import catalog  # noqa: E402
 import chains  # noqa: E402
 import compiler  # noqa: E402
@@ -107,6 +108,12 @@ async def project_error(request: Request, exc: projects.ProjectError):
 @app.exception_handler(harness.TestError)
 async def test_error(request: Request, exc: harness.TestError):
     return JSONResponse(status_code=400, content={'detail': str(exc)})
+
+
+@app.exception_handler(builder.BuildError)
+async def build_error(request: Request, exc: builder.BuildError):
+    return JSONResponse(status_code=exc.status if exc.status >= 400 else 502,
+                        content={'detail': exc.message})
 
 
 @app.exception_handler(StoreError)
@@ -836,6 +843,90 @@ def store_terms(authorization: Optional[str] = Header(default=None)):
     if not token:
         raise HTTPException(401, 'sign in first')
     return LINK.accept_terms(token)
+
+
+# ── the agent door: hand a project to the build module ───────────────
+
+
+class AgentRunBody(BaseModel):
+    prompt: str
+    project: Optional[str] = None
+    name: Optional[str] = None
+    template: Optional[str] = None
+    model: Optional[str] = None
+
+
+class AgentVerifyBody(BaseModel):
+    account: str = 'default'
+    password: Optional[str] = None
+    network: Optional[str] = None
+    confirm: bool = False
+
+
+@app.get('/agent')
+def agent_status():
+    """Is the build module up, and where workspaces are checked out."""
+    return builder.status()
+
+
+@app.post('/agent/run')
+def agent_run(body: AgentRunBody,
+              authorization: Optional[str] = Header(default=None)):
+    """Materialize a project as a folder of code and set an agent on it.
+
+    With `project` the agent edits that one; without, a new project is seeded
+    first (from `template`, or a compilable stub). The job runs in the build
+    module under the CALLER'S token — build's own whitelist, credits and
+    sandbox decide, exactly as if they had typed the prompt there.
+    """
+    who = caller(authorization)
+    return builder.run(who, _token(authorization), body.prompt,
+                       project=body.project, name=body.name,
+                       template=body.template, model=body.model)
+
+
+@app.get('/agent/runs')
+def agent_runs(limit: int = Query(default=30, le=200),
+               project: Optional[str] = None,
+               authorization: Optional[str] = Header(default=None)):
+    who = caller(authorization)
+    return {'runs': builder.runs(who, limit, project)}
+
+
+@app.get('/agent/runs/{run_id}')
+def agent_poll(run_id: int,
+               authorization: Optional[str] = Header(default=None)):
+    """One run: build's live view of the job, and — once, when the job ends —
+    the sync back into a new project version plus a free compile check."""
+    who = caller(authorization)
+    return builder.poll(who, _token(authorization), run_id)
+
+
+@app.post('/agent/runs/{run_id}/verify')
+def agent_verify(run_id: int, body: AgentVerifyBody,
+                 authorization: Optional[str] = Header(default=None)):
+    """Run the edited project's suites on a chain — real deploys, real
+    receipts. This is what 'the agent's work is verified' means here."""
+    who = caller(authorization)
+    return builder.verify(who, _token(authorization), run_id, body.account,
+                          password=body.password, network=body.network,
+                          confirm=body.confirm)
+
+
+@app.post('/agent/runs/{run_id}/cancel')
+def agent_cancel(run_id: int,
+                 authorization: Optional[str] = Header(default=None)):
+    who = caller(authorization)
+    return builder.cancel(who, _token(authorization), run_id)
+
+
+@app.get('/projects/{project}/workspace')
+def project_workspace(project: str,
+                      authorization: Optional[str] = Header(default=None)):
+    """Check the project out as a mod-shaped folder and say what landed where."""
+    who = caller(authorization)
+    row = projects.get(who, project)
+    return builder.materialize(who, row)
 
 
 # ── tests: put it on a chain and push it ─────────────────────────────

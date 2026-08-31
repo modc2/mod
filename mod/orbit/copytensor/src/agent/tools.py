@@ -23,6 +23,12 @@ import requests
 
 API_URL = os.environ.get("COPYTENSOR_API_URL", "http://localhost:50150")
 TIMEOUT_SEC = float(os.environ.get("COPYTENSOR_AGENT_HTTP_TIMEOUT", "45"))
+# A live portfolio pass signs one extrinsic per subnet it rebalances; the
+# read timeout above would cut a wide book off mid-sync.
+SYNC_TIMEOUT_SEC = float(os.environ.get("COPYTENSOR_MCP_SYNC_TIMEOUT", "600"))
+# Strat ownership on the API is an X-Owner-Key header; an MCP client can pin
+# its key here so ct_strats sees the same shelf the browser does.
+OWNER_KEY = os.environ.get("COPYTENSOR_OWNER_KEY")
 
 # Board reads are the same call for every trader the agent scores, so hold
 # one copy for a beat rather than re-fetching 372 rows per lookup.
@@ -33,11 +39,44 @@ _board_cache: tuple = (0.0, None)
 SS58_RE = re.compile(r"^5[1-9A-HJ-NP-Za-km-z]{46,47}$")
 
 
-def _get(path: str, **params) -> Any:
-    r = requests.get(f"{API_URL}{path}", params=params or None, timeout=TIMEOUT_SEC)
+def _request(method: str, path: str, params: Optional[Dict] = None,
+             body: Any = None, headers: Optional[Dict] = None,
+             timeout: Optional[float] = None) -> Any:
+    """One HTTP path for every tool — reads and writes alike go through the
+    running API, so the MCP surface can never drift from the REST one."""
+    r = requests.request(method, f"{API_URL}{path}", params=params or None,
+                         json=body, headers=headers or None,
+                         timeout=timeout or TIMEOUT_SEC)
     if r.status_code >= 400:
-        raise RuntimeError(f"{path} -> {r.status_code} {r.text[:200]}")
+        raise RuntimeError(f"{method} {path} -> {r.status_code} {r.text[:200]}")
     return r.json()
+
+
+def _get(path: str, **params) -> Any:
+    return _request("GET", path, params=params)
+
+
+def _post(path: str, body: Any = None, timeout: Optional[float] = None,
+          **params) -> Any:
+    return _request("POST", path, params=params or None, body=body,
+                    timeout=timeout)
+
+
+def _put(path: str, body: Any = None) -> Any:
+    return _request("PUT", path, body=body)
+
+
+def _delete(path: str) -> Any:
+    return _request("DELETE", path)
+
+
+def _owner_headers(owner_key: Optional[str]) -> Dict:
+    key = owner_key or OWNER_KEY
+    return {"X-Owner-Key": key} if key else {}
+
+
+def _clean(d: Dict) -> Dict:
+    return {k: v for k, v in d.items() if v is not None}
 
 
 def _num(x, nd: int = 4):
@@ -209,6 +248,221 @@ def copies() -> Dict:
         "label": c.get("label"), "status": c.get("status"),
         "daily_limit_tao": (c.get("config") or {}).get("daily_limit_tao"),
     } for c in rows]}
+
+
+# ── ops: the copy book, and syncing it ───────────────────────────
+#
+# These are NOT in the strat agent's toolbox (it stays read-only by
+# construction — see TOOLS below). They exist for an MCP client that runs
+# the engine: create/resize/pause a copy, and above all `ct_sync`, which
+# applies the blended book to the chain right now.
+
+def _copy_row(c: Dict) -> Dict:
+    cfg = c.get("config") or {}
+    ti = c.get("target_info") or {}
+    row = {
+        "id": c.get("id"), "target_ss58": c.get("target_ss58"),
+        "label": c.get("label"), "status": c.get("status"),
+        "alloc_tao": _num(c.get("alloc_tao"), 6),
+        "our_hotkey": cfg.get("our_hotkey"),
+        "max_tao_per_tx": cfg.get("max_tao_per_tx"),
+        "rebalance_threshold_pct": cfg.get("rebalance_threshold_pct"),
+        "poll_interval_sec": cfg.get("poll_interval_sec"),
+        "subnet_allowlist": cfg.get("subnet_allowlist"),
+        "subnet_denylist": cfg.get("subnet_denylist"),
+        "last_sync_block": c.get("last_sync_block"),
+        "created_at": c.get("created_at"), "updated_at": c.get("updated_at"),
+    }
+    if ti:
+        row["target"] = {
+            "label": ti.get("label"),
+            "total_stake_tao": _num(ti.get("total_stake_tao"), 3),
+            "num_subnets": ti.get("num_subnets"),
+            "pnl_tao": _num(ti.get("pnl_tao"), 3),
+            "pnl_pct": _num(ti.get("pnl_pct"), 3),
+            "pnl_days": ti.get("pnl_days"),
+            "top_allocations": (ti.get("top_allocations") or [])[:5],
+        }
+    return row
+
+
+def _plan_out(p: Dict) -> Dict:
+    """A portfolio plan for the wire: the book, every sleeve, every trade
+    that closes the gap. Rows already carry subnet names."""
+    return {
+        "our_ss58": p.get("our_ss58"),
+        "staked_tao": _num(p.get("staked_tao"), 6),
+        "free_tao": _num(p.get("free_tao"), 6),
+        "requested_tao": _num(p.get("requested_tao"), 6),
+        "deployable_tao": _num(p.get("deployable_tao"), 6),
+        "scale": _num(p.get("scale"), 4),
+        "band_tao": _num(p.get("band_tao"), 6),
+        "sleeves": p.get("sleeves") or [],
+        "rows": p.get("rows") or [],
+        "trades": p.get("trades"),
+        "blocked": p.get("blocked"),
+        "notes": p.get("notes") or [],
+        "executed": bool(p.get("executed")),
+        "results": p.get("results") or [],
+    }
+
+
+def wallet() -> Dict:
+    """Whether a wallet is loaded, and its balance. Never raises on 'not
+    set' — that is the answer, not an error."""
+    try:
+        w = _get("/wallet/balance")
+    except RuntimeError as e:
+        if "400" in str(e):
+            return {"wallet_set": False,
+                    "hint": "POST /wallet/set (or `m copytensor/set_wallet`) "
+                            "loads a wallet; mnemonics never travel over MCP"}
+        raise
+    return {"wallet_set": True, "ss58": w.get("ss58"),
+            "balance_tao": _num(w.get("balance_tao"), 6)}
+
+
+def copy(copy_id: str) -> Dict:
+    return _copy_row(_get(f"/copy/{copy_id}"))
+
+
+def create_copy(target_ss58: str, alloc_tao: float, label: Optional[str] = None,
+                our_hotkey: Optional[str] = None,
+                max_tao_per_tx: Optional[float] = None,
+                rebalance_threshold_pct: Optional[float] = None,
+                poll_interval_sec: Optional[int] = None,
+                subnet_allowlist: Optional[List[int]] = None,
+                subnet_denylist: Optional[List[int]] = None) -> Dict:
+    target_ss58 = (target_ss58 or "").strip()
+    if not SS58_RE.match(target_ss58):
+        raise ValueError(f"not an SS58 coldkey: {target_ss58[:12]!r}")
+    if not alloc_tao or float(alloc_tao) <= 0:
+        raise ValueError("alloc_tao must be > 0 — it is the TAO behind this trader")
+    if not our_hotkey:
+        w = wallet()
+        if not w.get("wallet_set"):
+            raise ValueError("no wallet set — load one with /wallet/set before "
+                             "going live (copies need a signer)")
+        our_hotkey = w["ss58"]
+    body = _clean({
+        "target_ss58": target_ss58, "our_hotkey": our_hotkey,
+        "label": label, "alloc_tao": float(alloc_tao),
+        "max_tao_per_tx": max_tao_per_tx,
+        "rebalance_threshold_pct": rebalance_threshold_pct,
+        "poll_interval_sec": poll_interval_sec,
+        "subnet_allowlist": subnet_allowlist, "subnet_denylist": subnet_denylist,
+    })
+    row = _copy_row(_post("/copy", body))
+    row["note"] = ("created and active — the portfolio loop picks it up on its "
+                   "next pass; call ct_sync to apply the book right now")
+    return row
+
+
+def resize_copy(copy_id: str, alloc_tao: Optional[float] = None,
+                label: Optional[str] = None,
+                max_tao_per_tx: Optional[float] = None,
+                rebalance_threshold_pct: Optional[float] = None,
+                poll_interval_sec: Optional[int] = None) -> Dict:
+    body = _clean({"alloc_tao": alloc_tao, "label": label,
+                   "max_tao_per_tx": max_tao_per_tx,
+                   "rebalance_threshold_pct": rebalance_threshold_pct,
+                   "poll_interval_sec": poll_interval_sec})
+    if not body:
+        raise ValueError("nothing to change — give alloc_tao, label or a limit")
+    return _copy_row(_put(f"/copy/{copy_id}", body))
+
+
+def pause_copy(copy_id: str) -> Dict:
+    return _post(f"/copy/{copy_id}/pause")
+
+
+def resume_copy(copy_id: str) -> Dict:
+    return _post(f"/copy/{copy_id}/resume")
+
+
+def delete_copy(copy_id: str) -> Dict:
+    out = _delete(f"/copy/{copy_id}")
+    out["note"] = ("the sleeve is gone from the book; the stake it held is "
+                   "unwound on the next sync, not by this call")
+    return out
+
+
+def portfolio() -> Dict:
+    """The blended book and the trades that would close the gap. Pure read
+    — identical to what ct_sync(dry_run=true) would execute."""
+    out = {"plan": _plan_out(_get("/portfolio"))}
+    try:
+        out["loop"] = _get("/portfolio/status")
+    except Exception as e:  # the plan is the answer; the loop is colour
+        out["loop"] = {"error": str(e)}
+    return out
+
+
+def sync(copy_id: Optional[str] = None, dry_run: bool = False) -> Dict:
+    """Apply the book now. Sleeves only add up when they are diffed against
+    the chain together, so a copy_id is a hint about *why* — the pass always
+    runs the whole portfolio. dry_run returns the same plan unsigned."""
+    if dry_run:
+        plan = _plan_out(_post("/portfolio/sync", dry_run="true"))
+        plan["dry_run"] = True
+        return plan
+    if copy_id:
+        out = _post(f"/copy/{copy_id}/sync", timeout=SYNC_TIMEOUT_SEC)
+        out["copy_id"] = copy_id
+        return out
+    plan = _plan_out(_post("/portfolio/sync", timeout=SYNC_TIMEOUT_SEC))
+    plan["dry_run"] = False
+    return plan
+
+
+def trades(limit: int = 50, copy_id: Optional[str] = None) -> Dict:
+    limit = max(1, min(int(limit), 500))
+    rows = _get("/trades", **_clean({"limit": limit, "copy_id": copy_id})) or []
+    return {"count": len(rows), "trades": rows}
+
+
+def watch(ss58: str, label: Optional[str] = None) -> Dict:
+    ss58 = (ss58 or "").strip()
+    if not SS58_RE.match(ss58):
+        raise ValueError(f"not an SS58 coldkey: {ss58[:12]!r}")
+    return _post("/watch", {"ss58": ss58, "label": label})
+
+
+def unwatch(ss58: str) -> Dict:
+    return _delete(f"/watch/{(ss58 or '').strip()}")
+
+
+def watches() -> Dict:
+    rows = _get("/watches")
+    if isinstance(rows, dict):
+        return rows
+    return {"count": len(rows), "watches": rows}
+
+
+def strats(owner_key: Optional[str] = None) -> Dict:
+    """Your saved strats (plus public + whitelisted-to-you). Needs the
+    browser's owner key to see private ones — pass it or set
+    COPYTENSOR_OWNER_KEY."""
+    out = _request("GET", "/strats", headers=_owner_headers(owner_key))
+    for s in out.get("strats") or []:
+        s.pop("thesis", None)
+    return out
+
+
+def backtest(traders: List[Dict], days: int = 7, capital_tao: float = 100.0) -> Dict:
+    if not isinstance(traders, list) or not traders:
+        raise ValueError("traders must be a non-empty list of {ss58, weight|alloc_tao}")
+    rows = []
+    for t in traders:
+        ss58 = str((t or {}).get("ss58") or "").strip()
+        if not SS58_RE.match(ss58):
+            raise ValueError(f"not an SS58 coldkey: {ss58[:12]!r}")
+        rows.append(_clean({"ss58": ss58, "label": t.get("label"),
+                            "weight": t.get("weight", 1.0),
+                            "alloc_tao": t.get("alloc_tao")}))
+    return _post("/strats/backtest", {"traders": rows, "days": int(days),
+                                      "capital_tao": float(capital_tao)},
+                 timeout=SYNC_TIMEOUT_SEC)
 
 
 # ── the deliverable ──────────────────────────────────────────────
@@ -406,19 +660,115 @@ TOOLS: List[Tool] = [
          propose_strat),
 ]
 
-BY_NAME: Dict[str, Tool] = {t.name: t for t in TOOLS}
-
 # The tool whose result is a strat, not a reading — the driver watches for it.
 STRAT_TOOL = "propose_strat"
 
+_SS58 = _p("string", "Coldkey SS58 address.")
+_COPY_ID = _p("string", "Copy id, as returned by ct_copies / ct_create_copy.")
 
-def list_tools() -> List[Dict]:
-    return [t.schema() for t in TOOLS]
+# Ops tools: everything that moves the copy book. Served over MCP (HTTP and
+# stdio) but never handed to the strat agent — `list_tools(scope="agent")`
+# is what it sees, and `agent.py` allow-lists only those names.
+OPS_TOOLS: List[Tool] = [
+    Tool("ct_wallet", "Whether a signing wallet is loaded, and its TAO balance. "
+         "Copies and syncs need one; loading it is a REST/console action, "
+         "never an MCP argument.", {}, wallet),
+    Tool("ct_copy", "One copy config in full: sizing, limits, sync state, and "
+         "the target trader's current book.", {"copy_id": _COPY_ID}, copy),
+    Tool("ct_create_copy",
+         "Start mirroring a trader: alloc_tao is the TAO that follows them. "
+         "Becomes a sleeve of the blended book; the loop applies it on its "
+         "next pass, or call ct_sync to apply now. Needs a wallet (ct_wallet).",
+         {"target_ss58": _SS58,
+          "alloc_tao": _p("number", "TAO behind this trader (> 0)."),
+          "label": _p("string", "Display name.", default=None),
+          "our_hotkey": _p("string", "Hotkey to stake through; defaults to "
+                           "the loaded wallet.", default=None),
+          "max_tao_per_tx": _p("number", "Ceiling on any single stake/unstake.",
+                               default=None),
+          "rebalance_threshold_pct": _p("number", "Only mirror an allocation "
+                                        "gap wider than this.", default=None),
+          "poll_interval_sec": _p("integer", "Seconds between passes.",
+                                  default=None),
+          "subnet_allowlist": _p("array", "Only these netuids.",
+                                 items={"type": "integer"}, default=None),
+          "subnet_denylist": _p("array", "Never these netuids.",
+                                items={"type": "integer"}, default=None)},
+         create_copy),
+    Tool("ct_resize_copy", "Re-size or re-label a live copy. Changing alloc_tao "
+         "re-weights the book on the next pass — no stop/start.",
+         {"copy_id": _COPY_ID,
+          "alloc_tao": _p("number", "New TAO behind this trader.", default=None),
+          "label": _p("string", "New display name.", default=None),
+          "max_tao_per_tx": _p("number", "Per-tx ceiling.", default=None),
+          "rebalance_threshold_pct": _p("number", "Drift tolerance.", default=None),
+          "poll_interval_sec": _p("integer", "Seconds between passes.",
+                                  default=None)},
+         resize_copy),
+    Tool("ct_pause_copy", "Pause a copy: its sleeve drops out of the book until "
+         "resumed.", {"copy_id": _COPY_ID}, pause_copy),
+    Tool("ct_resume_copy", "Resume a paused copy.", {"copy_id": _COPY_ID},
+         resume_copy),
+    Tool("ct_delete_copy", "Remove a copy. The stake it held unwinds on the "
+         "next sync, not by this call.", {"copy_id": _COPY_ID}, delete_copy),
+    Tool("ct_portfolio", "The blended book: every sleeve, what it asks for, "
+         "and the trades that would close the gap. Pure read — the exact "
+         "plan ct_sync would execute.", {}, portfolio),
+    Tool("ct_sync",
+         "SYNC the book to the chain now: diff every active sleeve against "
+         "our stake and sign the stake/unstake extrinsics that close the gap. "
+         "Always runs the whole portfolio (a copy_id only names the reason). "
+         "dry_run=true returns the same plan with nothing signed — call that "
+         "first. Needs a wallet; can take minutes on a wide book.",
+         {"copy_id": _p("string", "Optional copy id this sync is for.",
+                        default=None),
+          "dry_run": _p("boolean", "Preview only — no extrinsics.",
+                        default=False)},
+         sync),
+    Tool("ct_trades", "The copy engine's trade history — what it staked or "
+         "unstaked, when, and whether it landed.",
+         {"limit": _p("integer", "Max rows (≤ 500).", default=50),
+          "copy_id": _p("string", "Only this copy's trades.", default=None)},
+         trades),
+    Tool("ct_watch", "Track a coldkey: it joins the watchlist and the bt index "
+         "starts snapshotting it.", {"ss58": _SS58,
+                                    "label": _p("string", "Display name.",
+                                                default=None)}, watch),
+    Tool("ct_unwatch", "Stop tracking a coldkey.", {"ss58": _SS58}, unwatch),
+    Tool("ct_watches", "The watchlist.", {}, watches),
+    Tool("ct_strats", "Saved strats — yours (with an owner key), plus every "
+         "public and whitelisted-to-you one.",
+         {"owner_key": _p("string", "The browser's X-Owner-Key; defaults to "
+                          "COPYTENSOR_OWNER_KEY.", default=None)}, strats),
+    Tool("ct_backtest", "Replay a basket over the last N days off the bt "
+         "index: equity curve, stats, per-trader contribution. No id needed "
+         "— the basket travels inline.",
+         {"traders": _p("array", "The basket.", items={
+              "type": "object",
+              "properties": {
+                  "ss58": {"type": "string", "description": "Coldkey SS58."},
+                  "weight": {"type": "number", "description": "Relative weight."},
+                  "alloc_tao": {"type": "number", "description": "Absolute TAO sleeve."},
+                  "label": {"type": "string"}},
+              "required": ["ss58"]}),
+          "days": _p("integer", "Window in days (≤ 365).", default=7),
+          "capital_tao": _p("number", "Pot behind the basket when legs carry "
+                            "weights rather than alloc_tao.", default=100)},
+         backtest),
+]
+
+ALL_TOOLS: List[Tool] = TOOLS + OPS_TOOLS
+BY_NAME: Dict[str, Tool] = {t.name: t for t in ALL_TOOLS}
+SCOPES: Dict[str, List[Tool]] = {"agent": TOOLS, "ops": OPS_TOOLS, "all": ALL_TOOLS}
 
 
-def call_tool(name: str, args: Optional[Dict] = None) -> Any:
+def list_tools(scope: str = "all") -> List[Dict]:
+    return [t.schema() for t in SCOPES.get(scope, ALL_TOOLS)]
+
+
+def call_tool(name: str, args: Optional[Dict] = None, scope: str = "all") -> Any:
     tool = BY_NAME.get(name)
-    if not tool:
+    if not tool or tool not in SCOPES.get(scope, ALL_TOOLS):
         raise ValueError(f"unknown tool: {name}")
     kwargs = dict(args or {})
     unknown = set(kwargs) - set(tool.params)

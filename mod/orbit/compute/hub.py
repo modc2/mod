@@ -84,7 +84,7 @@ class Hub:
         def one(p):
             return p.name, p.search(f)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, len(pool))) as ex:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(pool))) as ex:
             futures = {ex.submit(one, p): p for p in pool}
             for fut in concurrent.futures.as_completed(futures, timeout=FANOUT_TIMEOUT + 5):
                 p = futures[fut]
@@ -195,7 +195,7 @@ class Hub:
         if not pool:
             return {'instances': [], 'count': 0, 'providers': {},
                     'note': 'no provider has a key — `m compute/set_key provider=… key=…`'}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, len(pool))) as ex:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(pool))) as ex:
             futures = {ex.submit(one, p): p for p in pool}
             for fut in concurrent.futures.as_completed(futures, timeout=FANOUT_TIMEOUT + 5):
                 p = futures[fut]

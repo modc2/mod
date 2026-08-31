@@ -1,9 +1,9 @@
 {
     "name": "mcp",
     "title": "MCP Hub",
-    "version": "2.1.0",
-    "description": "One hub for every MCP server. Finds the local fleet twice over \u2014 what a mod declares in config.json and what a live port sweep catches it serving \u2014 registers any remote server (with auth headers), browses the public MCP directories, and re-exposes the union as a single MCP server: point one client at POST /mcp and every upstream tool is callable as server__tool. Carries web_search and web_fetch itself, with no API key required.",
-    "icon": "\u25c8",
+    "version": "2.2.0",
+    "description": "One hub for every MCP server, and one hub type among many. Finds the local fleet twice over — what a mod declares in config.json and what a live port sweep catches it serving — registers any remote server (with auth headers), and re-exposes the union as a single MCP server: point one client at POST /mcp and every upstream tool is callable as server__tool. It is a `mod` hub: GET /hub is its manifest, GET /hubs lists every other hub type it can see and connect to — peer mod hubs (connect one whole and its tools nest as peer__server__tool), the fleet's internet-wide index (mcpscan, every server probed), and the public directories (official registry, Smithery, Glama, PulseMCP, Docker) — and GET /catalog searches across all of them at once. Carries web_search and web_fetch itself, with no API key required.",
+    "icon": "◈",
     "color": "#7c6cf0",
     "port": 50360,
     "app_port": 50361,
@@ -43,7 +43,12 @@
         "client_config",
         "stats",
         "refresh",
-        "discover"
+        "discover",
+        "hub",
+        "hubs",
+        "add_hub",
+        "remove_hub",
+        "connect_hub"
     ],
     "endpoints": {
         "servers": {
@@ -64,12 +69,12 @@
         "servers/:id/toggle": {
             "method": "POST",
             "auth": "write-gated",
-            "docs": "{enabled: bool} \u2014 include or exclude a server from aggregation without deleting it"
+            "docs": "{enabled: bool} — include or exclude a server from aggregation without deleting it"
         },
         "probe": {
             "method": "POST",
             "auth": false,
-            "docs": "{url, headers?} \u2014 ad-hoc MCP handshake against any URL; returns protocolVersion, serverInfo and the full tool list; nothing is saved"
+            "docs": "{url, headers?} — ad-hoc MCP handshake against any URL; returns protocolVersion, serverInfo and the full tool list; nothing is saved"
         },
         "tools": {
             "method": "GET",
@@ -84,7 +89,7 @@
         "client_config": {
             "method": "GET",
             "auth": false,
-            "docs": "?client=claude|cursor|vscode|json \u2014 paste-ready client config (or the `claude mcp add` one-liner) pointing at this hub's /mcp"
+            "docs": "?client=claude|cursor|vscode|json — paste-ready client config (or the `claude mcp add` one-liner) pointing at this hub's /mcp"
         },
         "stats": {
             "method": "GET",
@@ -104,22 +109,47 @@
         "intake": {
             "method": "POST",
             "auth": false,
-            "docs": "{text} \u2014 parse a URL, a store/IPFS CID, an mcpServers config blob, a `claude mcp add` one-liner or a QR payload into candidate servers. Nothing is registered"
+            "docs": "{text} — parse a URL, a store/IPFS CID, an mcpServers config blob, a `claude mcp add` one-liner or a QR payload into candidate servers. Nothing is registered"
         },
         "search": {
             "method": "GET/POST",
             "auth": false,
-            "docs": "?q=&count=&provider= \u2014 search the web. Providers are tried in order: brave, tavily, exa, serper (key required, from env or ~/.mod/mcp/web.json), then keenable (public, keyless), then DuckDuckGo instant answers. A chain that finds nothing still returns 200, with results:[], the per-provider `tried` trace and `error` saying why \u2014 only a missing `q` or a pinned provider with no key is a 400"
+            "docs": "?q=&count=&provider= — search the web. Providers are tried in order: brave, tavily, exa, serper (key required, from env or ~/.mod/mcp/web.json), then keenable (public, keyless), then DuckDuckGo instant answers. A chain that finds nothing still returns 200, with results:[], the per-provider `tried` trace and `error` saying why — only a missing `q` or a pinned provider with no key is a 400"
         },
         "fetch": {
             "method": "GET/POST",
             "auth": false,
-            "docs": "?url=&max_chars= \u2014 read one public page as text (HTML stripped), falling back to a reader service when a site blocks the direct request. Loopback and private addresses are refused"
+            "docs": "?url=&max_chars= — read one public page as text (HTML stripped), falling back to a reader service when a site blocks the direct request. Loopback and private addresses are refused"
         },
         "catalog": {
             "method": "GET",
             "auth": false,
-            "docs": "?q=&registry=featured|official|smithery|all&limit= \u2014 search the public MCP directories live. Rows carry a URL ready to POST to /servers; nothing is registered here"
+            "docs": "?q=&registry=all|featured|official|smithery|glama|pulsemcp|<index id>|<index id>:<source>|<peer hub id>&limit= — search for servers across every hub this one knows, live. Keyed directories join `all` only when their key is set. Rows carry a URL ready to POST to /servers; a row with `via` is behind a peer hub (its URL is that hub's /mcp — connect the hub once and the row's tools arrive nested). Index rows carry status live|auth|down and a real tool count. Nothing is registered here"
+        },
+        "hub": {
+            "method": "GET",
+            "auth": false,
+            "docs": "This hub's manifest: type mod-hub, protocol mod/mcp-hub/1, its public URL and MCP endpoint, servers/up/tools counts, peers, and how to browse (GET /servers), search (GET /catalog) and connect (POST /servers). What another hub reads to recognise this one as a mod hub"
+        },
+        "hubs": {
+            "method": "GET/POST",
+            "auth": "POST is write-gated",
+            "docs": "GET: every hub type this one can see — itself (kind mod, self:true), peer mod hubs added by URL, the fleet's index (kind index; mcpscan), and the public directories (kind directory) — each probed for servers/live/tools, whether it is ready, the key it needs if any, and the registry= value that searches it. Cached 10 min; ?refresh=1 re-probes. POST {url, id?, name?, headers?, note?}: add a peer by its API base — it must answer /hub (a mod hub) or a hub-shaped /stats (an index); a bare MCP endpoint is a server and belongs in POST /servers"
+        },
+        "hubs/:id": {
+            "method": "GET/DELETE",
+            "auth": "DELETE is write-gated",
+            "docs": "GET one hub row. DELETE forgets a peer hub (built-ins cannot be removed)"
+        },
+        "hubs/:id/connect": {
+            "method": "POST",
+            "auth": "write-gated",
+            "docs": "Register a mod/index hub's own MCP endpoint as one upstream server under its id. Its tools arrive nested — id__server__tool for a mod peer, id__mcp_find etc. for the index. Probed first, like any server"
+        },
+        "hubs/refresh": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Re-probe every hub now and return the fresh view"
         },
         "discover": {
             "method": "POST",
@@ -134,7 +164,7 @@
         "keys": {
             "method": "GET/POST",
             "auth": "owner-only",
-            "docs": "GET: minted API keys (hash withheld). POST {name}: mint one \u2014 the plaintext is returned exactly once"
+            "docs": "GET: minted API keys (hash withheld). POST {name}: mint one — the plaintext is returned exactly once"
         },
         "keys/:id": {
             "method": "DELETE",
@@ -149,6 +179,8 @@
             "hub_servers",
             "hub_search",
             "hub_catalog",
+            "hub_hubs",
+            "hub_connect",
             "web_search",
             "web_fetch"
         ],
@@ -156,7 +188,8 @@
             "streamable-http",
             "stdio"
         ],
-        "nested_hubs": "Aggregating another hub works: the split is on the FIRST __, so otherhub__github__create_issue routes to otherhub, which routes to github"
+        "nested_hubs": "Aggregating another hub works: the split is on the FIRST __, so otherhub__github__create_issue routes to otherhub, which routes to github",
+        "hub_type": "mod — this hub's manifest is GET /hub; hub_hubs lists the other hub types (mod peers, index, directories); hub_connect registers a server or a whole hub (needs registry-edit rights, an API key does not buy it)"
     },
     "types": {
         "ServerEntry": {
@@ -229,6 +262,91 @@
                     "type": "string"
                 }
             }
+        },
+        "Hub": {
+            "type": "object",
+            "required": [
+                "id",
+                "kind",
+                "url",
+                "ready"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "enum": [
+                        "mod",
+                        "index",
+                        "directory"
+                    ]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string",
+                    "description": "API base (mod/index) or the directory's API"
+                },
+                "homepage": {
+                    "type": "string"
+                },
+                "mcp": {
+                    "type": "string",
+                    "description": "The hub's own MCP endpoint, when it has one — what /hubs/:id/connect registers"
+                },
+                "registry": {
+                    "type": "string",
+                    "description": "The registry= value on /catalog that searches this hub"
+                },
+                "source": {
+                    "enum": [
+                        "builtin",
+                        "fleet",
+                        "user"
+                    ]
+                },
+                "self": {
+                    "type": "boolean"
+                },
+                "needs_key": {
+                    "type": "boolean"
+                },
+                "key_name": {
+                    "type": "string"
+                },
+                "ready": {
+                    "type": "boolean"
+                },
+                "servers": {
+                    "type": "integer"
+                },
+                "live": {
+                    "type": "integer"
+                },
+                "tools": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "string"
+                },
+                "latency_ms": {
+                    "type": "integer"
+                },
+                "checked_at": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                }
+            }
         }
     },
     "discovery": {
@@ -247,9 +365,9 @@
         }
     },
     "auth": {
-        "identity": "borrowed from orbit/build \u2014 the same wallet session token, validated here against ~/.mod/build/server.secret. The hub never mints one",
+        "identity": "borrowed from orbit/build — the same wallet session token, validated here against ~/.mod/build/server.secret. The hub never mints one",
         "reads": "open (registry, tools, catalog, web search)",
-        "calls": "tool execution needs an owner/editor wallet, a hub API key (mcphub_\u2026), or a caller on this host (no X-Forwarded-* header). MCP_GATE_LOCAL=1 gates local callers too; MCP_OPEN_CALLS=1 opens everyone",
+        "calls": "tool execution needs an owner/editor wallet, a hub API key (mcphub_…), or a caller on this host (no X-Forwarded-* header). MCP_GATE_LOCAL=1 gates local callers too; MCP_OPEN_CALLS=1 opens everyone",
         "writes": "registry edits need an owner/editor wallet, Bearer ~/.mod/mcp/server.secret, or a caller on this host",
         "keys": "minted owner-only; only the sha256 is stored; a key buys tool calls, never registry edits",
         "open": "ACCESS_OPEN=1 forces every gate off"
@@ -269,7 +387,27 @@
         "MCP_GATE_LOCAL": "1 demands a credential from callers on this host too",
         "MCP_OPEN_CALLS": "1 opens tool execution to anyone",
         "MCP_AUTH_MODULE": "Identity issuer to trust (default build)",
-        "BRAVE_API_KEY|TAVILY_API_KEY|EXA_API_KEY|SERPER_API_KEY": "Optional web-search keys; ~/.mod/mcp/web.json holds them too"
+        "BRAVE_API_KEY|TAVILY_API_KEY|EXA_API_KEY|SERPER_API_KEY": "Optional web-search keys; ~/.mod/mcp/web.json holds them too",
+        "MCP_HUBS_REFRESH_SECS": "Background re-probe cadence for the other hubs (default 900); GET /hubs also re-probes on demand when its view is older than 600s",
+        "GLAMA_API_KEY|PULSEMCP_API_KEY": "Optional directory keys (web.json `glama` / `pulsemcp` works too); without them those two hub types show as not ready and stay out of registry=all"
     },
-    "schema": "QmSy65fy8Yf3TB4xiX3X2pLgqAGAU7LxddMrZHVZ37A8mP"
+    "schema": "QmSy65fy8Yf3TB4xiX3X2pLgqAGAU7LxddMrZHVZ37A8mP",
+    "hub_types": {
+        "mod": {
+            "what": "A mod-protocol hub — this software. Answers GET /hub (manifest), GET /servers (registry with probes), GET /catalog (search), POST /mcp (every aggregated tool). This deployment is one; any other is a peer",
+            "browse": "registry=<peer id> on /catalog reads its /servers live",
+            "connect": "POST /hubs/:id/connect registers its /mcp as one upstream; tools nest as peer__server__tool (the split is on the first __)"
+        },
+        "index": {
+            "what": "An internet-wide crawl with a probe status per server — orbit/mcpscan (31k servers, 8k live). Found automatically when it is aggregated here",
+            "browse": "registry=mcpscan (live rows) or mcpscan:docker / mcpscan:github for one directory it mirrors",
+            "connect": "POST /hubs/mcpscan/connect — then mcpscan__mcp_find / mcpscan__mcp_call search and call any indexed server from your client"
+        },
+        "directory": {
+            "what": "A public registry: official (registry.modelcontextprotocol.io, keyless), smithery (listing keyless, hosted servers need a key), glama and pulsemcp (API needs a key — web.json `glama` / `pulsemcp`), docker (mirrored by the index)",
+            "browse": "registry=<id> on /catalog",
+            "connect": "rows one at a time — POST /servers with the row's url"
+        },
+        "peers": "~/.mod/mcp/hubs.json — {id, name, url, kind, headers}; POST /hubs identifies the kind by what the URL answers"
+    }
 }

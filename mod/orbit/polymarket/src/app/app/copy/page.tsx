@@ -13,7 +13,9 @@ import CopyDesk from "../components/CopyDesk";
 function CopyPageInner() {
   return (
     <div className="max-w-[1600px] mx-auto">
-      <TopBar showSearch searchPlaceholder="PASTE A TRADER ADDRESS…" />
+      {/* No top search here: the ADD TRADERS box on the desk takes an address
+            (and a topic) itself. */}
+        <TopBar showSearch={false} />
       <div className="p-4">
         <CopyDesk />
       </div>

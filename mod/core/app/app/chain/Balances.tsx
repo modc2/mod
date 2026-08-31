@@ -12,7 +12,7 @@ import {
   TERM_FONT, ACCENT, READ, chainApi, netInfo, readProvider, readToken, isErc20Abi,
   trackedTokens, trackToken, untrackToken, explorerUrl, type TokenBalance,
 } from './shared'
-import { Btn, Input, Pill, Dropdown, DropHead, DropRow, DropRule, Quiet } from './ui'
+import { Btn, Input, Pill, Hint, Dropdown, DropHead, DropRow, DropRule, Quiet } from './ui'
 import { NEON } from './arcade'
 import type { ChainWallet } from './WalletBar'
 
@@ -112,18 +112,18 @@ export function Balances({ wallet, network }: {
       color={NEON.coin}
       open={open}
       onClick={() => (open ? close() : setOpen(true))}
-      title={`native balance on ${net.name}`}
+      tip={`${net.currency} on ${net.name} — tokens inside`}
     >
       <span style={{ color: NEON.coin }}>{wallet.balance === null ? '—' : pretty(wallet.balance)}</span>
       <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{net.currency}</span>
       {shown.length > 0 && (
-        <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>+{shown.length}</span>
+        <Hint><span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>+{shown.length}</span></Hint>
       )}
     </Pill>
   )
 
   return (
-    <Dropdown open={open} onClose={close} trigger={trigger} color={NEON.coin} width={380}>
+    <Dropdown open={open} onClose={close} trigger={trigger} color={NEON.coin} width={380} grow={2}>
       <DropHead color={NEON.coin} right={
         <Quiet color={NEON.coin} onClick={() => { wallet.refresh(); load() }} title="refresh balances">↻</Quiet>
       }>

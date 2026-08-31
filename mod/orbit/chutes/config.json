@@ -1,7 +1,7 @@
 {
     "name": "chutes",
     "version": "4.0.0",
-    "description": "chutes.ai serverless GPU inference behind one OpenAI-compatible Rust MCP server and an 8-bit arcade console. Streaming chat, image generation on diffusion chutes, a price router over the whole chute catalog (USD/1M tokens), and a VS mode that races the same prompt across several chutes.",
+    "description": "chutes.ai serverless GPU inference behind one OpenAI-compatible Rust MCP server and an 8-bit arcade console. Streaming chat, image generation on diffusion chutes, a browsable catalog of every chute (price, live replicas, GPUs, owner, readme; filter by kind/tag/gpu/owner/live), a price router (USD/1M tokens), and a VS mode that races the same prompt across several chutes.",
     "icon": "\u25b2",
     "color": "#3ddc97",
     "port": 50300,
@@ -25,7 +25,9 @@
         "status": "GET /status",
         "forward": "POST /forward",
         "tools": "GET /tools",
-        "console": "GET /"
+        "console": "GET /",
+        "key": "GET /key \u00b7 POST /key {key} \u00b7 DELETE /key (owner-signed)",
+        "chute": "GET /chute/{id_or_name}"
     },
     "tools": [
         "chat",
@@ -52,6 +54,10 @@
         "keys",
         "key",
         "set_api_key",
+        "set_server_key",
+        "whoami",
+        "token",
+        "clear_api_key",
         "list_chutes",
         "get_chute",
         "warmup",
@@ -66,5 +72,5 @@
         "test"
     ],
     "backend": "chutes-rs (Rust: axum MCP server, JSON-RPC 2.0 Streamable HTTP + stdio)",
-    "schema": "QmPvX9NWtWiBECrm7dZB4gNHg2Z3JqsGStgSsvTHQ99tQP"
+    "schema": "QmXeJKTCAGGSFSNQAnfwMoPDerRZEVZhSDmN4A3HTvGS52"
 }

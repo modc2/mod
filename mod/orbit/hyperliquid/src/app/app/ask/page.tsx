@@ -109,7 +109,7 @@ export default function AskPage() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl tracking-wider text-ink">Ask</h1>
+          <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">Ask</h1>
           <p className="text-xs text-muted mt-1 max-w-2xl">
             An agent whose only toolbox is this module&apos;s own MCP server. It
             answers from live tool calls — never from memory — and every call

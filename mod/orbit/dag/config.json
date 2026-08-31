@@ -191,5 +191,5 @@
         "DAG_KEEP_RUNS": "run records kept before the oldest are dropped (default 500)",
         "DAG_MAX_RESULT_CHARS": "cap on the outputs returned to an MCP caller (default 40000)"
     },
-    "schema": "QmZsNQqP9yyfKpxxmRqxrGsZTMsBbYRYWxfQck7kB862ou"
+    "schema": "Qmah97xeevvGfkYRfrdSFzREmrwNY3m3HNwEFUrJK3yA4a"
 }

@@ -134,7 +134,7 @@ export async function openClass(source, opts = {}) {
         } catch (e) {
           value = { error: e.message || String(e) };
         }
-        session.mcp.push({ request: reply.mcp, reply: value });
+        session.mcp.push({ request: reply.mcp, reply: value, ...(mcp ? {} : { refused: true }) });
         if (!child.stdin.writable) throw new Error("the class host stopped listening mid-call");
         child.stdin.write(`${JSON.stringify({ op: "mcp_result", value })}\n`);
         continue;

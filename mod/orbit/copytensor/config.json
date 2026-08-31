@@ -7,7 +7,7 @@
     "bt_url": "http://localhost:50280",
     "cooldown_sec": 60,
     "daily_limit_tao": 100.0,
-    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers; the leaderboard and every read are served by the bt module's local index (public RPCs as fallback), and a strat agent you can talk to builds the baskets",
+    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers; the leaderboard and every read are served by the bt module's local index (public RPCs as fallback), a strat agent you can talk to builds the baskets, and an MCP server (POST /mcp) drives the book \u2014 create copies, sync the portfolio, backtest",
     "endpoints": {
         "/account/{ss58}": {
             "docs": "Coldkey allocations + N-day PnL",
@@ -167,6 +167,22 @@
         "/whoami": {
             "method": "GET",
             "docs": "Your strat-owner fingerprint \u2014 the id someone whitelists to let you in"
+        },
+        "/mcp": {
+            "method": "POST",
+            "docs": "MCP streamable-HTTP endpoint (JSON-RPC 2.0, batches ok) \u2014 25 tools: every read the strat agent has plus the ops set (ct_copies, ct_create_copy, ct_sync, ct_portfolio, ct_backtest...). `claude mcp add --transport http copytensor <this url>`"
+        },
+        "/mcp/schema": {
+            "method": "GET",
+            "docs": "Transports, scope and the full MCP tool list \u2014 read before connecting"
+        },
+        "/portfolio": {
+            "method": "GET",
+            "docs": "The blended book: every sleeve, what it asks for, and the trades that would close the gap (pure read)"
+        },
+        "/portfolio/sync": {
+            "method": "POST",
+            "docs": "Run a portfolio pass now (?dry_run=true previews the identical plan unsigned)"
         }
     },
     "fns": [
@@ -194,6 +210,7 @@
         "discover",
         "set_pool",
         "universe",
+        "mcp",
         "ask",
         "agent_status",
         "create_copy",
@@ -204,7 +221,10 @@
         "sync_copy",
         "set_wallet",
         "wallet_balance",
-        "forward"
+        "forward",
+        "portfolio",
+        "sync_portfolio",
+        "resize_copy"
     ],
     "gateway_port": 3001,
     "leaderboard_pool_size": 1000,
@@ -229,7 +249,7 @@
     ],
     "rebalance_threshold_pct": 5.0,
     "route": true,
-    "schema": "QmSZFbP1HWNAEdMZhY5BScwkkqDAgC19HgcaznLUuAkyGA",
+    "schema": "QmWbqvSQ2JtrZDbKfGeZR8RwPr3cKbuHGuwCpo42madQYa",
     "seed_validators": [
         {
             "label": "Top delegate #1 owner",
@@ -265,9 +285,10 @@
         "api": "http://localhost:50150",
         "app": "http://localhost:3150/copytensor",
         "gateway_api": "http://localhost:3001/api/copytensor",
-        "gateway_app": "http://localhost:3001/copytensor"
+        "gateway_app": "http://localhost:3001/copytensor",
+        "mcp": "http://localhost:50150/mcp"
     },
-    "version": "0.8.0",
+    "version": "0.10.0",
     "watched_accounts": [
         "5GsbTgfvgCH4xdqSkiPb7EaBBFLHjWH5vfEALhJaewSFpZX9",
         "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
@@ -275,5 +296,15 @@
         "5E9fVY1jexCNVMjd2rdBsAxeamFGEMfzHcyTn2fHgdHeYc5p",
         "5CMCxTXzJNZqgXsujrmuWypaxoRo9ChMSPbzBEMk6H3m9Uv9",
         "5DkwfxC9mZTTCsRUt6nrnwQEWVrhsmY13SBRparj6cpAVxVY"
-    ]
+    ],
+    "mcp": {
+        "endpoint": "POST /mcp",
+        "schema": "GET /mcp/schema",
+        "stdio": "python3 -m src.agent.mcp_server",
+        "scopes": {
+            "all": "default over HTTP \u2014 reads + the copy book + ct_sync",
+            "agent": "COPYTENSOR_MCP_SCOPE=agent \u2014 the strat agent's read-only set"
+        },
+        "docs": "Every tool is a loopback call to a REST route above, so REST and MCP can never disagree. Wallets are never loaded over MCP."
+    }
 }

@@ -154,8 +154,10 @@ pub fn describe() -> Value {
 }
 
 // ── normalized model records ────────────────────────────────────────────────
-// {id, name, chute_id, context, in_price, out_price, kind, tags, invocations}
-// where prices are USD per million tokens.
+// {id, name, chute_id, in_price, out_price, cache_price, hour_price, kind,
+//  tags, invocations, instances, gpus, gpu_count, owner, logo, slug, image,
+//  readme, created_at, updated_at, openrouter, concurrency}
+// where token prices are USD per million tokens and hour_price is USD/hour.
 
 fn f(v: Option<&Value>) -> Option<f64> {
     match v? {
@@ -165,15 +167,28 @@ fn f(v: Option<&Value>) -> Option<f64> {
     }
 }
 
-/// A chute record → model row. `standard_template` tells chat from diffusion.
+fn str_of<'a>(m: &'a Value, path: &[&str]) -> &'a str {
+    let mut cur = m;
+    for k in path {
+        match cur.get(k) {
+            Some(v) => cur = v,
+            None => return "",
+        }
+    }
+    cur.as_str().unwrap_or("")
+}
+
+/// A chute record → catalog row. `standard_template` tells chat from diffusion.
 pub fn normalize_chute(m: &Value) -> Value {
+    let price = m.get("current_estimated_price");
     let per_m = |k: &str| {
-        m.get("current_estimated_price")
+        price
             .and_then(|p| p.get("per_million_tokens"))
             .and_then(|p| p.get(k))
             .and_then(|p| f(p.get("usd")))
             .unwrap_or(0.0)
     };
+    let hour = price.and_then(|p| p.get("usd")).and_then(|p| f(p.get("hour"))).unwrap_or(0.0);
     let template = m.get("standard_template").and_then(|v| v.as_str()).unwrap_or("");
     let kind = match template {
         "vllm" | "sglang" => "chat",
@@ -191,18 +206,53 @@ pub fn normalize_chute(m: &Value) -> Value {
     if m.get("hot").and_then(|v| v.as_bool()).unwrap_or(false) {
         tags.push("hot".into());
     }
+    if m.get("openrouter").and_then(|v| v.as_bool()).unwrap_or(false) {
+        tags.push("openrouter".into());
+    }
+    let instances = m.get("instances").and_then(|v| v.as_array());
+    let live = instances
+        .map(|a| a.iter().filter(|i| i.get("active").and_then(|v| v.as_bool()).unwrap_or(false)).count())
+        .unwrap_or(0);
+    let gpus: Vec<String> = m
+        .get("supported_gpus")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|g| g.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let gpu_count = m.get("node_selector").and_then(|n| n.get("gpu_count")).and_then(|v| v.as_u64()).unwrap_or(0);
+    let image = {
+        let name = str_of(m, &["image", "name"]);
+        let tag = str_of(m, &["image", "tag"]);
+        if name.is_empty() { String::new() } else if tag.is_empty() { name.to_string() } else { format!("{name}:{tag}") }
+    };
+    let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("");
     json!({
-        "id": m.get("name").and_then(|v| v.as_str()).unwrap_or(""),
-        "name": m.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+        "id": name,
+        "name": name,
         "chute_id": m.get("chute_id").and_then(|v| v.as_str()).unwrap_or(""),
+        "slug": m.get("slug").and_then(|v| v.as_str()).unwrap_or(""),
         // The chute catalog doesn't publish a context window.
         "context": 0,
         "in_price": per_m("input"),
         "out_price": per_m("output"),
+        "cache_price": per_m("input_cache_read"),
+        "hour_price": hour,
         "kind": kind,
         "tags": tags,
         "invocations": m.get("invocation_count").and_then(|v| v.as_u64()).unwrap_or(0),
+        "instances": live,
+        "instances_total": instances.map(|a| a.len()).unwrap_or(0),
+        "gpus": gpus,
+        "gpu_count": gpu_count,
+        "owner": str_of(m, &["user", "username"]),
+        "logo": m.get("logo").and_then(|v| v.as_str()).unwrap_or(""),
+        "image": image,
+        "concurrency": m.get("concurrency").and_then(|v| v.as_u64()).unwrap_or(0),
+        "openrouter": m.get("openrouter").and_then(|v| v.as_bool()).unwrap_or(false),
+        "created_at": m.get("created_at").and_then(|v| v.as_str()).unwrap_or(""),
+        "updated_at": m.get("updated_at").and_then(|v| v.as_str()).unwrap_or(""),
         "description": m.get("tagline").and_then(|v| v.as_str()).unwrap_or("").chars().take(240).collect::<String>(),
+        // A taste of the readme; `get_chute` returns the whole thing.
+        "readme": m.get("readme").and_then(|v| v.as_str()).unwrap_or("").chars().take(600).collect::<String>(),
     })
 }
 

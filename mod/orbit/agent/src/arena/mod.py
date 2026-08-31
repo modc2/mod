@@ -58,6 +58,8 @@ Usage:
 import json
 import os
 import shutil
+import calendar
+import re
 import threading
 import time
 import uuid
@@ -141,6 +143,11 @@ DEFAULTS = {
 # how long to wait before replaying a match the provider voided — a free model
 # that just said "rate limited" will say it again immediately
 RETRY_PAUSE = 20.0
+# how long the board sits out after a provider says the day's quota is gone,
+# when the error doesn't say when it reopens. Every match played into a
+# closed door is the same void, and each one burns the free-tier quota the
+# console's own free runs share
+RATE_LIMIT_COOLDOWN = 3600.0
 
 MAX_MATCH_LINES = 5000
 
@@ -775,7 +782,10 @@ class Arena:
         for attempt in range(attempts):
             match = self._play(agent, spec, model=model, steps=steps, free=free,
                                reason=reason, attempt=attempt, provider=provider)
-            if not match["void"] or attempt + 1 >= attempts:
+            # a closed door is not a flaky one — replaying a rate limit only
+            # spends more of the quota it just ran out of
+            if not match["void"] or attempt + 1 >= attempts \
+                    or self._rate_limited(match.get("void_reason")):
                 break
             time.sleep(RETRY_PAUSE)
         self._append_match(match)
@@ -954,7 +964,7 @@ class Arena:
                 if capped_by:
                     break
                 # an eval can name the subjects it applies to
-                allowed = self.evals.get(spec["suite"]).get("agents")
+                allowed = self._suite_agents(spec)
                 for agent in field:
                     if allowed and agent not in allowed:
                         continue
@@ -971,6 +981,13 @@ class Arena:
                     tokens += int(match.get("tokens", 0))
                     if not match["void"]:
                         results.setdefault(spec["key"], []).append((agent, match["score"]))
+                    elif self._rate_limited(match.get("void_reason")):
+                        # the provider has closed the door for the day: every
+                        # further match is the same void, and each one burns
+                        # the quota the console's own free runs share
+                        self._cooldown(match.get("void_reason"))
+                        capped_by = "rate_limited"
+                        break
             for key, entries in results.items():
                 self._rate(key, entries)
 
@@ -994,6 +1011,18 @@ class Arena:
             self._state["rounds"] = rounds[-50:]
             self._save_state()
             return {**summary, "results": played}
+        except Exception as e:
+            # a round that fell over still ran: left unstamped, the scheduler
+            # saw it as due again on the next tick and replayed its first
+            # matches every minute — seven hundred a day, on the free tier
+            self._state["last_round"] = _now()
+            rounds = self._state.setdefault("rounds", [])
+            rounds.append({"reason": reason, "ts": self._state["last_round"],
+                           "season": self._state.get("season", 0),
+                           "matches": 0, "error": str(e)[:200]})
+            self._state["rounds"] = rounds[-50:]
+            self._save_state()
+            raise
         finally:
             self._lock.release()
 
@@ -1093,7 +1122,7 @@ class Arena:
             token_cap = int(self.config().get("max_tokens", 0) or 0)
             played, tokens = [], 0
             for spec in pool:
-                allowed = self.evals.get(spec["suite"]).get("agents")
+                allowed = self._suite_agents(spec)
                 if allowed and agent not in allowed:
                     continue
                 # one newcomer can arrive at any hour, so the qualifier answers
@@ -1215,14 +1244,59 @@ class Arena:
             "matches_log": self.matches(limit=20, agent=agent),
         }
 
+    def _suite_agents(self, spec: Dict[str, Any]) -> Optional[List[str]]:
+        """The subjects a task's eval suite restricts itself to, or None.
+
+        Only a shipped eval suite can name its agents. A hand-written task,
+        an openarena problem or an arena drill has no `evals/<suite>/mod.py`
+        behind it, and looking one up raised `eval not found: custom` out of
+        the middle of a round — which then never stamped last_round and was
+        started again on every tick.
+        """
+        try:
+            return self.evals.get(spec["suite"]).get("agents")
+        except Exception:
+            return None
+
+    @staticmethod
+    def _rate_limited(reason: Optional[str]) -> bool:
+        """Does a void reason say the provider shut the door, not that the
+        agent tripped? A 429, or the agent loop's own plain-words rewrite."""
+        low = (reason or "").lower()
+        return ("429" in low or "rate limit" in low or "rate-limit" in low
+                or "quota" in low)
+
+    def _cooldown(self, reason: Optional[str] = None) -> float:
+        """Sit out until the provider reopens: the reset time if the error
+        names one, RATE_LIMIT_COOLDOWN from now if it doesn't."""
+        until = _now() + RATE_LIMIT_COOLDOWN
+        found = re.search(r"resets (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)", reason or "")
+        if found:
+            try:
+                until = max(until, calendar.timegm(
+                    time.strptime(found.group(1), "%Y-%m-%dT%H:%M:%SZ")))
+            except Exception:
+                pass
+        self._state["cooldown_until"] = until
+        self._state["cooldown_reason"] = str(reason or "")[:200]
+        self._save_state()
+        return until
+
+    def cooling(self) -> bool:
+        return _now() < float(self._state.get("cooldown_until", 0) or 0)
+
     def due(self) -> bool:
-        """Has a day (or whatever the config says) passed since the last round?"""
+        """Has a day (or whatever the config says) passed since the last round?
+        Never while the board is cooling down after a rate limit."""
+        if self.cooling():
+            return False
         period = float(self.config().get("period_hours", 24)) * 3600
         return (_now() - float(self._state.get("last_round", 0))) >= period
 
     def next_run(self) -> float:
         period = float(self.config().get("period_hours", 24)) * 3600
-        return float(self._state.get("last_round", 0)) + period
+        return max(float(self._state.get("last_round", 0)) + period,
+                   float(self._state.get("cooldown_until", 0) or 0))
 
     def status(self) -> Dict[str, Any]:
         cfg = self.config()
@@ -1241,6 +1315,9 @@ class Arena:
             "last_round": self._state.get("last_round", 0),
             "next_round": self.next_run(),
             "due": self.due(),
+            # a board sitting out a rate limit says so, and until when
+            "cooldown_until": float(self._state.get("cooldown_until", 0) or 0),
+            "cooldown_reason": self._state.get("cooldown_reason") or None,
             "running": self._running,
             "scheduler": self.scheduler.status() if self.scheduler else {"alive": False},
             "subjects": self.subjects(),
@@ -1427,6 +1504,13 @@ class Scheduler:
         if not self.arena.config().get("enabled"):
             self.last_action = "disabled"
             return {"skipped": "disabled"}
+        if self.arena.cooling():
+            # qualifiers too: a newcomer played into a closed door is a void
+            # and a slice of the quota, same as a round
+            until = float(self.arena._state.get("cooldown_until", 0) or 0)
+            self.last_action = "cooling down until " + time.strftime(
+                "%Y-%m-%d %H:%M UTC", time.gmtime(until))
+            return {"skipped": "rate_limited", "until": until}
 
         done = []
         # on a board with no history, the first round already plays the whole

@@ -156,9 +156,20 @@ the live router and belongs to whoever owns the box.
 
 ## Who may change what
 
-Reads are open, all of them. A zone is public data answered to the whole
-internet over UDP a few milliseconds later, so hiding it behind a token would
-be theatre. What is gated is change, and there are exactly three standings:
+Reads are open, all of them — with one privacy carve-out. The *names* are
+public, but the IP addresses behind them are masked (`x.x.x.x` / `x:x:x::x`)
+in every HTTP and MCP response unless the caller is the deployment owner: what
+a name points at is the owner's business, not a page any anonymous browser can
+read the box's address off. The console draws a masked address as a PRIVATE
+pill rather than a broken value. Loopback, the unspecified bind and the
+well-known public resolvers stay visible (they identify nothing), and the
+owner can turn the whole mask off with `settings.private_ips = false`. Note
+the honest limit: a zone actually *delegated* to this box is still answered
+over UDP/TCP to anyone who queries the listener — DNS itself cannot check a
+token — so the mask protects the HTTP surface, which is where an address
+would otherwise be casually read.
+
+What is gated beyond that is change, and there are exactly three standings:
 
 | | |
 |---|---|

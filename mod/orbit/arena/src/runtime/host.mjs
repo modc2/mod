@@ -235,7 +235,11 @@ export async function instantiate(bytes, opts = {}) {
       } catch (e) {
         reply = JSON.stringify({ error: e.message || String(e) });
       }
-      out.mcp.push({ request, reply: reply.slice(0, 4000) });
+      // Recorded either way — a player that phoned a friend should not be
+      // able to do it invisibly — but a call with no door to go through is
+      // marked, because it did not leave this process and must not be counted
+      // as a call out.
+      out.mcp.push({ request, reply: reply.slice(0, 4000), ...(mcp ? {} : { refused: true }) });
       const raw = enc.encode(reply);
       const alloc = instance?.exports?.alloc;
       if (typeof alloc !== "function") {

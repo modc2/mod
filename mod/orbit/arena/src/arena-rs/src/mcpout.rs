@@ -144,7 +144,182 @@ pub fn list() -> Value {
     })
 }
 
-fn find(name: &str) -> Result<Server, String> {
+// ── the fleet ────────────────────────────────────────────────────────────
+//
+// The list above is what a *class* may call — a short, deliberate, credentialed
+// list, because that side is untrusted code. This part is the other question:
+// which modules of this fleet could take a seat. Anyone asking that is the
+// person running the arena, at their own console, so the answer can be the
+// whole fleet rather than an allowlist.
+//
+// A module in this fleet answers at {gateway}/api/{name}, and its MCP server
+// at {gateway}/api/{name}/mcp. Going through the gateway rather than a port is
+// what wakes a module that the activator has put to sleep.
+
+/// The fleet router. Every module is reachable behind it whether or not it is
+/// awake — which a port is not.
+pub fn gateway() -> String {
+    std::env::var("ARENA_GATEWAY")
+        .ok()
+        .map(|s| s.trim().trim_end_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:9000".to_string())
+}
+
+/// Where one fleet module's own MCP server answers.
+pub fn module_mcp_url(name: &str) -> String {
+    format!("{}/api/{}/mcp", gateway(), name.trim().trim_matches('/'))
+}
+
+/// A module of this fleet, addressed as a server. No headers: the gateway is
+/// on this box, and a module that wants a token is one to add to the list
+/// above by hand.
+pub fn fleet_server(name: &str) -> Server {
+    Server {
+        name: name.trim().to_string(),
+        url: module_mcp_url(name),
+        description: format!("the {} module of this fleet, through the gateway", name.trim()),
+        headers: Vec::new(),
+        enabled: true,
+    }
+}
+
+/// A server named however a player config named it: a configured server by
+/// name, a fleet module by name, or a URL given outright. The first two are
+/// tried in that order so a configured entry — the one that may carry a
+/// credential — always wins over the bare gateway route of the same name.
+pub fn resolve(server: Option<&str>, module: Option<&str>, url: Option<&str>) -> Result<Server, String> {
+    if let Some(name) = server.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Ok(s) = find(name) {
+            return Ok(s);
+        }
+    }
+    for name in [server, module].into_iter().flatten().map(str::trim).filter(|s| !s.is_empty()) {
+        return Ok(fleet_server(name));
+    }
+    if let Some(u) = url.map(str::trim).filter(|s| !s.is_empty()) {
+        return Ok(Server {
+            name: u.to_string(),
+            url: u.to_string(),
+            description: "named by URL".into(),
+            headers: Vec::new(),
+            enabled: true,
+        });
+    }
+    Err("name a `module` of this fleet, a configured `server`, or a `url`".into())
+}
+
+/// What one server offers. Used by the console to fill in a tool picker, and
+/// by the mcp player driver to work out which argument the view goes in.
+pub async fn tools_of(server: &Server) -> Result<Vec<Value>, String> {
+    let v = rpc(server, "tools/list", json!({})).await?;
+    Ok(v.get("tools").and_then(|t| t.as_array()).cloned().unwrap_or_default())
+}
+
+/// The fleet, as far as this box can see it: every module the MCP hub module
+/// has indexed, every module the activator manages, and the servers a class
+/// may call out to. Each one is somewhere a player could be seated.
+pub async fn fleet() -> Value {
+    use std::collections::BTreeMap;
+    let mut seen: BTreeMap<String, Value> = BTreeMap::new();
+    let gw = gateway();
+
+    // The MCP hub module indexes the fleet's servers and probes them, so it
+    // knows both what exists and what is answering. It is the best answer
+    // when it is up, and never the only one.
+    let hub = client()
+        .get(format!("{gw}/api/mcp/servers"))
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .ok();
+    if let Some(r) = hub {
+        if let Ok(v) = r.json::<Value>().await {
+            for s in v.get("servers").and_then(|a| a.as_array()).cloned().unwrap_or_default() {
+                let id = s.get("id").or_else(|| s.get("name")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if id.is_empty() {
+                    continue;
+                }
+                let probe = s.get("probe").cloned().unwrap_or(Value::Null);
+                seen.insert(id.clone(), json!({
+                    "name": id,
+                    "title": s.get("name").and_then(|v| v.as_str()).unwrap_or(&id),
+                    "description": s.get("note").and_then(|v| v.as_str()).unwrap_or(""),
+                    "mcp": module_mcp_url(&id),
+                    "direct": s.get("url").cloned().unwrap_or(Value::Null),
+                    "tools": probe.get("toolCount").cloned().unwrap_or(Value::Null),
+                    "up": probe.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+                    "source": "hub",
+                }));
+            }
+        }
+    }
+
+    // The activator knows every module it can wake, which includes modules
+    // asleep right now — exactly the ones a probe would have missed.
+    let act = client()
+        .get(format!("{gw}/_activator/state"))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .ok();
+    if let Some(r) = act {
+        if let Ok(v) = r.json::<Value>().await {
+            for m in v.get("modules").and_then(|a| a.as_array()).cloned().unwrap_or_default() {
+                let id = m.get("module").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if id.is_empty() {
+                    continue;
+                }
+                let running = m.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
+                seen.entry(id.clone())
+                    .and_modify(|e| { e["managed"] = json!(true); e["running"] = json!(running); })
+                    .or_insert_with(|| json!({
+                        "name": id, "title": id, "description": "",
+                        "mcp": module_mcp_url(&id), "direct": Value::Null,
+                        "tools": Value::Null, "up": running, "running": running,
+                        "managed": true, "source": "activator",
+                    }));
+            }
+        }
+    }
+
+    for s in servers() {
+        seen.entry(s.name.clone())
+            .and_modify(|e| { e["callable_by_a_class"] = json!(s.enabled); })
+            .or_insert_with(|| json!({
+                "name": s.name, "title": s.name, "description": s.description,
+                "mcp": s.url, "direct": s.url, "tools": Value::Null, "up": Value::Null,
+                "callable_by_a_class": s.enabled, "source": "configured",
+            }));
+    }
+
+    // Whoever is in the agent module can be seated by name, so hand the
+    // console the list rather than making somebody guess at one.
+    let agents = client()
+        .get(format!("{gw}/api/agent/agents"))
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .ok();
+    let agents = match agents {
+        Some(r) => r.json::<Value>().await.ok().unwrap_or(Value::Null),
+        None => Value::Null,
+    };
+
+    json!({
+        "gateway": gw,
+        "count": seen.len(),
+        "modules": seen.into_values().collect::<Vec<_>>(),
+        "agents": agents.get("agents").cloned().unwrap_or_else(|| json!([])),
+        "agent_host": agents.get("host").cloned().unwrap_or(Value::Null),
+        "how": "every module here is one an `mcp` player can be seated on: it is asked \
+                one of its own tools each move, and whatever it says back is read for a \
+                move. `module` names it, `tool` says which tool, and the arena makes the \
+                call through the gateway — which wakes a module that is asleep.",
+    })
+}
+
+pub fn find(name: &str) -> Result<Server, String> {
     let all = servers();
     let hit = all
         .iter()
@@ -165,7 +340,7 @@ fn find(name: &str) -> Result<Server, String> {
 }
 
 /// One JSON-RPC round trip to an MCP server.
-async fn rpc(server: &Server, method: &str, params: Value) -> Result<Value, String> {
+pub async fn rpc(server: &Server, method: &str, params: Value) -> Result<Value, String> {
     let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
     let mut req = client()
         .post(&server.url)
@@ -260,7 +435,7 @@ pub async fn call(args: &Value) -> Value {
     }
 }
 
-fn text_of(result: &Value) -> String {
+pub fn text_of(result: &Value) -> String {
     result
         .get("content")
         .and_then(|c| c.as_array())

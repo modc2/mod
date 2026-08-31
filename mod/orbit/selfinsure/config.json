@@ -1,6 +1,70 @@
 {
     "name": "selfinsure",
-    "description": "selfinsure",
-    "version": "0.1.0",
-    "schema": "QmVwnbFGrXvN2csevKNJnb9XvjZH2Nu6UjWaVtSSdxJzoM"
+    "description": "Member-owned insurance mutuals as an Ethereum contract: operator fee capped at 10% and published on chain, 7-day fee notice, pro-rata surplus rebates, FIFO unfunded queue, agent-adjudicated claims, optional oracle for real data (advisory / required / automatic), and a US health mutual template with a 0% operator fee",
+    "version": "0.2.0",
+    "port": 50850,
+    "urls": {
+        "api": "http://localhost:50850",
+        "app": "http://localhost:50850",
+        "mcp": "http://localhost:50850/mcp"
+    },
+    "contracts": {
+        "source": "contracts/src/SelfInsure.sol",
+        "factory": "contracts/src/SelfInsureFactory.sol",
+        "oracle": "contracts/src/oracles/SignedOracle.sol",
+        "solc": "0.8.24",
+        "max_fee_bps": 1000,
+        "fee_notice_days": 7,
+        "local": {
+            "chainId": "31337",
+            "url": "http://127.0.0.1:8545",
+            "note": "addresses from script/Demo.s.sol; redeploy with forge script",
+            "contracts": {
+                "SelfInsureFactory": {
+                    "address": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+                    "contract": "SelfInsureFactory"
+                },
+                "SignedOracle": {
+                    "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+                    "contract": "SignedOracle"
+                },
+                "TravisCountyHealthMutual": {
+                    "address": "0x9f1ac54BEF0DD2f6f3462EA0fa94fC62300d3a8e",
+                    "contract": "SelfInsure"
+                },
+                "DemoUSD": {
+                    "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+                    "contract": "DemoUSD"
+                }
+            }
+        }
+    },
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "contract",
+        "source",
+        "abi",
+        "compile",
+        "preset",
+        "deploy",
+        "transparency",
+        "claim",
+        "pools",
+        "pool",
+        "stats",
+        "tools",
+        "call",
+        "serve"
+    ],
+    "mcp": {
+        "url": "http://localhost:50850/mcp",
+        "transport": "streamable-http",
+        "stdio": "python3 mcp.py",
+        "auth": "none",
+        "docs": "26 tools. Off-chain pools: si_pools, si_pool, si_create_pool, si_set_terms, si_quote, si_join, si_premium, si_donate, si_member, si_register_agent, si_admit_agent, si_agents, si_claim_file, si_queue, si_claim, si_vote, si_withdraw_claim, si_distribute, si_withdraw_fees, si_ledger, si_stats. On-chain: si_contract (describe/source/abi/compile/calls), si_preset (health/parametric/mutual terms scaled to an asset), si_deploy (through the eth module keystore), si_onchain (a live pool: money, the provider's profit share, solvency), si_onchain_claim."
+    },
+    "schema": "QmXqR3BFQedqZikvVMmL52d6QHwJYu3GSHHjjvQR18joAZ"
 }

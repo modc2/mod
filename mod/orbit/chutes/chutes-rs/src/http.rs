@@ -1,10 +1,10 @@
 //! HTTP surface: MCP Streamable HTTP at /mcp, REST adapters that dispatch
 //! through the same MCP tool layer, and the embedded 8-bit console.
 
-use crate::{chutes, mcp, upstream};
+use crate::{chutes, mcp, owner, upstream};
 use axum::{
     body::Body,
-    extract::{Query, Request},
+    extract::{Path, Query, Request},
     http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -61,6 +61,7 @@ fn info() -> Value {
             "status": "GET /status?counts=1",
             "forward": "POST /forward {action, ...args}",
             "tools": "GET /tools",
+            "key": "GET /key · POST /key {key} · DELETE /key (owner, mod-protocol token)",
             "console": "GET / (browser)"
         },
         "stdio": "chutes-api --stdio"
@@ -183,18 +184,25 @@ async fn route_pick(headers: HeaderMap, Json(body): Json<Value>) -> Response {
 /// Query params → tool args (`q` is an alias for `search`, flags are strings).
 fn args_from_query(q: &HashMap<String, String>) -> Value {
     let mut args = json!({});
-    for (from, to) in [("q", "search"), ("search", "search"), ("kind", "kind"), ("sort", "sort")] {
+    for (from, to) in [
+        ("q", "search"), ("search", "search"), ("kind", "kind"), ("sort", "sort"),
+        ("tag", "tag"), ("gpu", "gpu"), ("owner", "owner"),
+    ] {
         if let Some(v) = q.get(from).filter(|v| !v.is_empty()) {
             args[to] = json!(v);
         }
     }
-    if let Some(v) = q.get("limit").and_then(|v| v.parse::<u64>().ok()) {
-        args["limit"] = json!(v);
+    for k in ["limit", "offset"] {
+        if let Some(v) = q.get(k).and_then(|v| v.parse::<u64>().ok()) {
+            args[k] = json!(v);
+        }
     }
-    if let Some(v) = q.get("max_price").and_then(|v| v.parse::<f64>().ok()) {
-        args["max_price"] = json!(v);
+    for k in ["max_price", "min_instances"] {
+        if let Some(v) = q.get(k).and_then(|v| v.parse::<f64>().ok()) {
+            args[k] = json!(v);
+        }
     }
-    for k in ["refresh", "counts"] {
+    for k in ["refresh", "counts", "live", "facets"] {
         if q.get(k).map(|v| v == "1" || v == "true").unwrap_or(false) {
             args[k] = json!(true);
         }
@@ -204,6 +212,11 @@ fn args_from_query(q: &HashMap<String, String>) -> Value {
 
 async fn models(headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
     via_tool("models", args_from_query(&q), header_keys(&headers)).await
+}
+
+/// One chute, in full, by chute_id or name (names contain slashes).
+async fn chute(headers: HeaderMap, Path(id): Path<String>) -> Response {
+    via_tool("get_chute", json!({ "chute_id": id.trim_start_matches('/') }), header_keys(&headers)).await
 }
 
 async fn status(headers: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
@@ -227,6 +240,110 @@ async fn health() -> Json<Value> {
     Json(info())
 }
 
+// ── the box's key, from the console ──────────────────────────────────────────
+
+/// The mod-protocol token on a `/key` request: `x-mod-token`, else the
+/// Bearer. (Elsewhere a Bearer is a chutes key; on these routes it is who
+/// you are — they are the only routes that need to know.)
+fn mod_token(headers: &HeaderMap) -> Option<String> {
+    let get = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim).filter(|v| !v.is_empty()).map(String::from);
+    get("x-mod-token").or_else(|| {
+        get("authorization").map(|v| v.strip_prefix("Bearer ").map(str::trim).unwrap_or(&v).to_string()).filter(|v| !v.is_empty())
+    })
+}
+
+/// Who signed, or why not — never a hard failure on a GET.
+fn caller(headers: &HeaderMap) -> (Option<String>, Option<String>) {
+    match mod_token(headers) {
+        None => (None, None),
+        Some(t) => match owner::verify_token(&t) {
+            Ok(addr) => (Some(addr), None),
+            Err(e) => (None, Some(e)),
+        },
+    }
+}
+
+/// Owner-only gate for writes: 401 with no/bad token, 403 for a signed
+/// stranger. Resolving the owner may ask Python once, hence spawn_blocking.
+async fn require_owner(headers: &HeaderMap) -> Result<String, Response> {
+    let (you, err) = caller(headers);
+    let Some(you) = you else {
+        let msg = err.unwrap_or_else(|| "sign in first — send a mod-protocol token as Authorization: Bearer <token> (or x-mod-token)".into());
+        return Err((StatusCode::UNAUTHORIZED, Json(json!({ "error": msg, "signed_in": false }))).into_response());
+    };
+    let (owner_addr, source) = tokio::task::spawn_blocking(owner::owner).await.unwrap_or((None, "none"));
+    match owner_addr {
+        Some(o) if o == you => Ok(you),
+        Some(o) => Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": format!("{you} is not the owner of this box — the key belongs to {o} ({source})"), "you": you, "owner": o, "owner_source": source })),
+        )
+            .into_response()),
+        None => Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": format!("this box declares no owner — set {} or ~/.mod/chutes/owner.json", owner::ENV_OWNER), "you": you })),
+        )
+            .into_response()),
+    }
+}
+
+/// GET /key — where the server key stands, who owns the box, whether you may write.
+async fn key_get(headers: HeaderMap) -> Response {
+    let (you, err) = caller(&headers);
+    let report = tokio::task::spawn_blocking(move || owner::report(you.as_deref(), err.as_deref())).await;
+    match report {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+/// POST /key {key, verify?} — write ~/.mod/chutes/api_key. Owner only. With
+/// `verify` (default true) the key is tried against chutes.ai first, on a
+/// free authenticated call, so a typo never lands on disk.
+async fn key_set(headers: HeaderMap, Json(body): Json<Value>) -> Response {
+    let you = match require_owner(&headers).await {
+        Ok(y) => y,
+        Err(r) => return r,
+    };
+    let key = body.get("key").or_else(|| body.get("api_key")).and_then(|k| k.as_str()).map(str::trim).unwrap_or("").to_string();
+    if key.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "POST /key needs {key}" }))).into_response();
+    }
+    let verify = body.get("verify").and_then(|v| v.as_bool()).unwrap_or(true);
+    if verify {
+        if let Err(e) = upstream::list_chutes(&key, 1, 1).await {
+            if (401..=403).contains(&e.status) {
+                return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": format!("chutes.ai rejected that key ({})", e.status), "upstream": e.message, "saved": false }))).into_response();
+            }
+            // Anything else (rate limit, outage) is not the key's fault — save, but say so.
+        }
+    }
+    match owner::write_key(&key) {
+        Ok(path) => Json(json!({
+            "saved": true,
+            "file": path.display().to_string(),
+            "key_source": chutes::key_source(),
+            "shadowed_by": if chutes::key_source() == "env" { Some("env") } else { None },
+            "by": you,
+            "verified": verify,
+        }))
+        .into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e, "saved": false }))).into_response(),
+    }
+}
+
+/// DELETE /key — remove ~/.mod/chutes/api_key. Owner only.
+async fn key_clear(headers: HeaderMap) -> Response {
+    let you = match require_owner(&headers).await {
+        Ok(y) => y,
+        Err(r) => return r,
+    };
+    match owner::clear_key() {
+        Ok(removed) => Json(json!({ "removed": removed, "key_source": chutes::key_source(), "by": you })).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
 /// The whole surface, rooted at `/`. Requests carrying the gateway prefix are
 /// rewritten onto it by `strip_base`.
 fn routes() -> Router {
@@ -243,9 +360,11 @@ fn routes() -> Router {
         .route("/route", post(route_pick))
         .route("/images", post(images))
         .route("/models", get(models))
+        .route("/chute/*id", get(chute))
         .route("/status", get(status))
         .route("/forward", post(forward))
         .route("/tools", get(tools))
+        .route("/key", get(key_get).post(key_set).delete(key_clear))
 }
 
 /// Gateway prefix the same surface answers on, so `{host}/chutes` reaches the

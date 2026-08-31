@@ -1,10 +1,16 @@
 use serde::{Deserialize, Serialize};
 
+/// Serde default for stats whose absence means "unknown", not zero —
+/// matches the `-1` sentinel `winRate` uses for undecided traders.
+fn unknown_stat() -> f64 {
+    -1.0
+}
+
 /// Per-market breakdown of a trader's activity within the analysis window.
 /// Stored in memory cache only (`#[serde(skip)]` on parent) — used by
 /// `apply_pagination` to recompute aggregate stats when a search/category
 /// filter narrows the view to specific markets.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketMetric {
     pub title: String,
     pub volume: f64,
@@ -22,6 +28,14 @@ pub struct MarketMetric {
     /// this market — lets `apply_pagination` recompute Sharpe scoped to the
     /// markets matching a search/category/topic query.
     pub returns: Vec<f64>,
+    /// 12-bucket realized-PnL DELTAS in this market over the window — same
+    /// bucketing as the trader-level `pnlCurve`. `apply_pagination` sums
+    /// these element-wise across the markets matching a query and cum-sums
+    /// the result into a query-scoped curve, instead of clearing the
+    /// all-markets one. `#[serde(default)]` keeps older cached payloads
+    /// loadable (they surface as empty → no scoped curve until next sync).
+    #[serde(default)]
+    pub curve: Vec<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +56,14 @@ pub struct Trader {
     /// cached payloads loadable (they surface as 0 until the next sync).
     #[serde(default)]
     pub sharpe: f64,
+    /// Average exit÷entry price ratio over the window's closed trades —
+    /// `1 + mean per-closed-trade return`, so 1.0 = break-even and 1.15 means
+    /// positions were exited at 15% above cost on average. A SCORE preset in
+    /// the leaderboard UI. `-1` = no closed trades in the window (same
+    /// "unknown" sentinel as `winRate`); the default keeps older cached
+    /// payloads loadable.
+    #[serde(rename = "exitEntry", default = "unknown_stat")]
+    pub exit_entry: f64,
     pub positions: u32,
     #[serde(rename = "marketTitles")]
     pub market_titles: Vec<String>,

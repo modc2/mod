@@ -86,7 +86,11 @@ export default function Leaderboard() {
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    let r = entries.filter((e) => e.num_subnets >= minSubnets);
+    // A wallet that emptied itself over the window reads as −100% total on
+    // +150% market and used to top the board. Dust books are hidden unless
+    // you're searching for one by name.
+    let r = entries.filter(
+      (e) => e.num_subnets >= minSubnets && (needle ? true : e.total_stake_tao >= 1));
     if (needle) {
       r = r.filter((e) =>
         (e.label || "").toLowerCase().includes(needle) ||

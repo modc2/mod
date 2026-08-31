@@ -140,7 +140,7 @@ function WorkspaceInner() {
   if (state === "loading") {
     return (
       <Shell>
-        <Notice title="READING THE COPY BOOK">
+        <Notice title="LOADING">
           <p className="text-pixel-gray">{shortAddress(address)}…</p>
         </Notice>
       </Shell>
@@ -150,7 +150,7 @@ function WorkspaceInner() {
   if (state === "error") {
     return (
       <Shell>
-        <Notice title="COULDN'T READ THE COPY BOOK" tone="red">
+        <Notice title="COULDN'T LOAD YOUR DESK" tone="red">
           <p className="font-mono text-[12px] text-red-300 break-words">{error}</p>
           <button onClick={() => void load()} className="pixel-btn text-[12px] px-3 py-1 mt-3">
             RETRY
@@ -164,11 +164,11 @@ function WorkspaceInner() {
   if (state === "absent") {
     return (
       <Shell>
-        <Notice title="NOT ON THE DESK">
+        <Notice title="YOU AREN'T COPYING THIS TRADER YET">
           <p>
-            You aren&apos;t copying{" "}
-            <code className="font-mono text-pixel-white">{shortAddress(address)}</code> yet. A
-            workspace is a view of a copy-book row, so there has to be a row first.
+            Add <code className="font-mono text-pixel-white">{shortAddress(address)}</code> to your
+            desk to see their backtest, run a copy session and fund it. Nothing starts until you
+            press START.
           </p>
           {error && (
             <p className="font-mono text-[12px] text-red-300 mt-2 break-words">{error}</p>

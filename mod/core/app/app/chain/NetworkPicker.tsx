@@ -10,7 +10,7 @@ import {
   ACCENT, NETWORKS, netInfo, allNetworks, isBuiltinNetwork, isOverridden,
   saveCustomNetwork, removeCustomNetwork, type NetworkInfo,
 } from './shared'
-import { Btn, Input, Pill, Dropdown, DropHead, DropRow, DropRule, Quiet } from './ui'
+import { Btn, Input, Pill, Hint, Dropdown, DropHead, DropRow, DropRule, Quiet } from './ui'
 import { PIXEL, NEON, Led, type LedState } from './arcade'
 
 // An override of a builtin keeps that builtin's group — it's still Base
@@ -77,14 +77,23 @@ export function NetworkPicker({
       open={open}
       onClick={() => (open ? close() : setOpen(true))}
       led={<Led state={led} />}
-      title={led === 'dead' ? `${active.rpc} is not answering`
-        : led === 'warn' ? 'the RPC reports a different chain id than recorded'
-          : active.rpc}
+      tip={led === 'dead' ? `${active.rpc} is not answering`
+        : led === 'warn' ? `the RPC reports a different chain id than ${active.chainId}`
+          : `chain ${active.chainId} · ${active.rpc}`}
     >
       <span>{active.name}</span>
-      <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
-        #{active.chainId}{block ? ` · ${block.toLocaleString()}` : ''}
-      </span>
+      <Hint>
+        {block ? (
+          // the live block is the pulse; the chain id is a fact, and lives in the list
+          <span style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginLeft: 'auto', paddingLeft: '8px' }}>
+            <span style={{ opacity: 0.6 }}>blk </span>{block.toLocaleString()}
+          </span>
+        ) : (
+          <span style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginLeft: 'auto', paddingLeft: '8px' }}>
+            #{active.chainId}
+          </span>
+        )}
+      </Hint>
       {isOverridden(active.key) && (
         <span style={{ fontFamily: PIXEL, fontSize: '7px', color: NEON.coin }}>TUNED</span>
       )}
@@ -92,7 +101,7 @@ export function NetworkPicker({
   )
 
   return (
-    <Dropdown open={open} onClose={close} trigger={trigger} width={340}>
+    <Dropdown open={open} onClose={close} trigger={trigger} width={340} grow={3}>
       {GROUPS.map(group => {
         const rows = Object.values(nets).filter(n => groupOf(n) === group)
         if (!rows.length) return null

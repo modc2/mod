@@ -5,6 +5,8 @@ lock what you choose into a treasury that pays out weekly — from one console,
 and from one MCP server.
 
 ```
+m defi/hub                         # legit protocols for USD, live, every chain
+m defi/hub_protocol aave-v3        # one of them: every USD pool per chain
 m defi/blocks                      # the block catalog
 m defi/plan graph.json             # type-check + ordered deployment plan
 m defi/yield_protocols             # the APR for each DeFi protocol, live
@@ -18,9 +20,23 @@ m defi/serve
 ```
 
 API `:50500` (`/api/defi`) · console `/defi` (`:50501`) · MCP `POST /mcp`
-(34 tools)
+(45 tools)
 
 ## Four parts, one console
+
+**The hub.** The console opens on the question most people actually arrive
+with: *which protocols are legitimate enough to put dollars into, and where do
+they run?* `/hub` is a hand-vetted shortlist — Aave V3, Morpho, Sky, Spark,
+Compound V3, Maple, Fluid, Ethena, Kamino, Save, Curve — each chosen for a
+multi-year track record or over $1b deposited, a named team, public audits and a
+plain-stablecoin way in. The names, tiers (`core` · `established` · `frontier`),
+credentials and risks are written by hand in `src/api/hub.json`; every number
+beside them is DefiLlama's, joined at request time. Each card lists every chain
+the index sees the protocol on, deepest first — Ethereum, Base and Solana marked
+as this desk's own (enterable when an adapter exists), the rest honestly
+read-only. Curated is not certified: what can go wrong sits beside why it is
+here on every card. PUT USD IN hands the pick to the MODULES room with the pool
+already open.
 
 **The composer.** A lending market, a yield vault and a liquidity mine are not
 monoliths — they are the same handful of parts wired differently. So the parts
@@ -140,7 +156,7 @@ by hand.
 POST /mcp   {"jsonrpc":"2.0","id":1,"method":"tools/list"}
 ```
 
-Composer: `defi_catalog` · `defi_block` · `defi_templates` · `defi_validate` ·
+Composer: `defi_catalog` · `defi_block` · `defi_audit` · `defi_templates` · `defi_validate` ·
 `defi_plan` · `defi_protocols` · `defi_protocol` · `defi_save` · `defi_publish` ·
 `defi_import` · `defi_prompts` · `defi_prompt` · `defi_compose`
 
@@ -156,7 +172,29 @@ Desk: `defi_dex_venues` · `defi_dex_tokens` · `defi_dex_quote` ·
 `defi_dex_swap` · `defi_dex_balances`
 
 Blocks are also resources (`defi://block/{id}`), so an agent can read the
-Solidity it is about to deploy.
+Solidity it is about to deploy — and their audits (`defi://audit/{id}`), so it
+can read what is wrong with it first.
+
+## Audits
+
+Every block has been audited by an agent. The report lives next to the contract
+(`src/api/blocks/audits/<id>.json`, schema in `audits/SCHEMA.md`) and is served
+three ways: `GET /audits` is every verdict on one page, worst first, with the
+fleet tally by severity; `GET /catalog/{id}/audit` is one report — risk verdict,
+findings with `where` (function + line), `exploit` (the concrete call sequence)
+and `recommendation`, and `safe_use` guidance for deploying as-is; and the
+`defi_audit` MCP tool returns either. `common` is the shared base every block
+inherits (`ERC20Base`, `Owned`, `SafeTransfer`), audited on its own because a bug
+there is a bug in all twenty-five.
+
+In the console every palette card carries its risk badge, the inspector shows the
+worst finding under the block, the block page has an AUDIT tab beside the source,
+and the ISSUES panel rolls up the audit of every block on the canvas so a
+composition's weakest block is visible before the deployment plan is.
+
+An agent audit is not an audit. It reduces the unknowns — it does not certify
+anything, and it cannot see the composition you will actually deploy. Read it,
+then read the source.
 
 ## Composability, the mod way
 
@@ -190,9 +228,10 @@ State lives in `~/.mod/defi/` (`server.secret` 0600, `protocols/`, `objects/`,
 
 ## Caveats
 
-The catalog contracts are unaudited reference implementations — read the source
-on the block page, deploy to a testnet first, and treat mainnet use as your own
-risk. That goes double for the treasury: it is tested, but tested is not
+The catalog contracts are unaudited reference implementations — each ships an
+agent audit (the AUDIT tab, `/catalog/{id}/audit`), which is a reading, not a
+certification. Read the source on the block page, deploy to a testnet first, and
+treat mainnet use as your own risk. That goes double for the treasury: it is tested, but tested is not
 audited, and a lock that works exactly as designed still cannot be undone.
 
 An APY is not a promise either. The index reports what a pool paid, not what it

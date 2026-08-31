@@ -49,6 +49,7 @@ export type Stats = {
   by_source: Record<string, number>;
   write_gate: boolean;
   swept_at: number;
+  hubs?: { count: number; ready: number | null; checked_at: number };
   web: { provider: string | null; providers: WebProvider[] };
   auth: AuthConfig;
 };
@@ -69,12 +70,56 @@ export type Listing = {
   name: string;
   description?: string;
   url: string;
+  /// featured | official | smithery | glama | pulsemcp | an index id | a peer hub id
   registry: "featured" | "official" | "smithery" | string;
   homepage?: string;
   verified?: boolean;
   uses?: number;
   needs_key?: boolean;
   note?: string;
+  /// Set when `url` is another hub's MCP endpoint rather than the server
+  /// itself — connect that hub once and this row's tools arrive nested.
+  via?: string;
+  /// live | auth | down | error | unknown — what an index last saw.
+  status?: string;
+  tools?: number;
+};
+
+/// Anything that lists MCP servers. kind: mod (a hub like this one — this
+/// deployment is the one with self=true), index (an internet-wide crawl),
+/// directory (a public registry).
+export type Hub = {
+  id: string;
+  kind: "mod" | "index" | "directory" | string;
+  name: string;
+  description: string;
+  url: string;
+  homepage?: string;
+  mcp?: string;
+  registry?: string;
+  source: "builtin" | "fleet" | "user" | string;
+  self: boolean;
+  needs_key: boolean;
+  key_name?: string;
+  ready: boolean;
+  servers?: number;
+  live?: number;
+  tools?: number;
+  version?: string;
+  latency_ms: number;
+  checked_at: number;
+  error?: string;
+  note?: string;
+};
+
+export type HubsView = {
+  self: string | null;
+  count: number;
+  ready: number;
+  kinds: Record<string, number>;
+  hubs: Hub[];
+  checked_at: number;
+  kind_docs: Record<string, string>;
 };
 
 export type Hit = { title: string; url: string; snippet?: string; published?: string };
@@ -207,6 +252,16 @@ export const api = {
     req<{ count: number; listings: Listing[]; errors?: string[]; sources: string[] }>(
       `/catalog?q=${encodeURIComponent(q)}&registry=${registry}&limit=${limit}`
     ),
+
+  /// Every hub type this one can see, with what each holds.
+  hubs: (refresh = false) => req<HubsView>(`/hubs${refresh ? "?refresh=1" : ""}`),
+  manifest: () => req<Record<string, unknown>>("/hub"),
+  addHub: (body: { url: string; id?: string; name?: string; headers?: Record<string, string>; note?: string }) =>
+    req<{ added: Hub; kind: string }>("/hubs", { method: "POST", body: JSON.stringify(body) }),
+  removeHub: (id: string) => req<{ removed: string }>(`/hubs/${id}`, { method: "DELETE" }),
+  /// Register a mod/index hub's own MCP endpoint as one upstream server.
+  connectHub: (id: string) =>
+    req<{ added: Server; probe: Probe }>(`/hubs/${id}/connect`, { method: "POST", body: "{}" }),
 
   /// Parse a URL, CID, client config, CLI line or QR payload into candidates.
   intake: (text: string) =>

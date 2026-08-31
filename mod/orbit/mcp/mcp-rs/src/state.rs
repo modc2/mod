@@ -2,7 +2,7 @@
 //! User entries shadow a fleet entry with the same id; the disabled set hides
 //! any server from aggregation without deleting it.
 
-use crate::store::{self, Probe, ServerEntry};
+use crate::store::{self, PeerHub, Probe, ServerEntry};
 use crate::{fleet, upstream};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -17,6 +17,9 @@ pub struct AppState {
     pub probes: RwLock<HashMap<String, Probe>>,
     pub started_at: u64,
     pub swept_at: RwLock<u64>,
+    /// Other hubs known by URL (hubs.json) and the last probe of every hub.
+    pub peers: RwLock<Vec<PeerHub>>,
+    pub hubs_cache: RwLock<Option<(u64, Vec<crate::hubs::Hub>)>>,
 }
 
 impl AppState {
@@ -30,6 +33,8 @@ impl AppState {
             probes: RwLock::new(store::load_probes()),
             started_at: store::now(),
             swept_at: RwLock::new(0),
+            peers: RwLock::new(store::load_hubs()),
+            hubs_cache: RwLock::new(None),
         })
     }
 
@@ -40,6 +45,11 @@ impl AppState {
             swept: self.swept.read().await.values().cloned().collect(),
         };
         store::save_hub(&hub);
+    }
+
+    pub async fn persist_hubs(&self) {
+        store::save_hubs(&self.peers.read().await.clone());
+        *self.hubs_cache.write().await = None;
     }
 
     /// sweep ∪ fleet ∪ user — a declared endpoint outranks a swept one (it is

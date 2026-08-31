@@ -116,6 +116,6 @@
         "modes": "read-only by default; write tools need act=true and a mod protocol token",
         "model_auth": "ANTHROPIC_API_KEY \u2192 ~/.mod/hyperliquid/anthropic.key \u2192 claude CLI OAuth"
     },
-    "schema": "Qmc6HEXpr7qpaaPXQV6fZqJDQvDC7RG57rCMZkg98nVSLR",
+    "schema": "QmPFVVjfwqiAc7KATFSjePw3UcmH9AkYp9X3nxKAeFYZNk",
     "gateway_port": 3919
 }

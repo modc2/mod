@@ -10,7 +10,7 @@ import { toast } from 'react-toastify'
 import {
   TERM_FONT, ACCENT, chainName, netInfo, readProvider, short, explorerUrl, type LocalKey,
 } from './shared'
-import { Btn, Input, Pill, Dropdown, DropHead, DropRow, DropRule, Quiet } from './ui'
+import { Btn, Input, Pill, Hint, Dropdown, DropHead, DropRow, DropRule, Quiet } from './ui'
 import { PIXEL, PX, NEON, Sprite } from './arcade'
 import type { ChainWallet } from './WalletBar'
 
@@ -106,14 +106,16 @@ export function AccountPicker({ wallet, network }: { wallet: ChainWallet; networ
       open={open}
       onClick={() => (open ? close() : setOpen(true))}
       blink={!wallet.kind}
-      title={wallet.address || 'sign in'}
+      tip={wallet.address || 'pick who signs — a MetaMask account or a key kept in this browser'}
     >
       {wallet.kind ? (
         <>
           <Sprite seed={wallet.address} size={18} />
           <span>{short(wallet.address, 6, 4)}</span>
-          {tag(wallet.kind === 'browser' ? 'METAMASK' : (wallet.localKeys.find(k => k.address === wallet.address)?.label || 'LOCAL'),
-            wallet.kind === 'browser' ? MM : ACCENT)}
+          <Hint>
+            {tag(wallet.kind === 'browser' ? 'METAMASK' : (wallet.localKeys.find(k => k.address === wallet.address)?.label || 'LOCAL'),
+              wallet.kind === 'browser' ? MM : ACCENT)}
+          </Hint>
         </>
       ) : (
         <span style={{ color: NEON.coin }}>INSERT COIN</span>
@@ -123,7 +125,7 @@ export function AccountPicker({ wallet, network }: { wallet: ChainWallet; networ
 
   return (
     <>
-      <Dropdown open={open} onClose={close} trigger={trigger} color={P1} width={380}>
+      <Dropdown open={open} onClose={close} trigger={trigger} color={P1} width={380} grow={3}>
         {/* who's signing now */}
         {wallet.kind && (
           <div style={{

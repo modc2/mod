@@ -19,6 +19,10 @@ export interface TopTrader {
       server-side by the same `stats_from_returns` formula the live engine
       uses. Default SCORE metric in the leaderboard. */
   sharpe: number;
+  /** Average exit÷entry price ratio over the window's closed trades
+      (`1 + mean per-trade return`) — 1.0 = break-even, -1 = no closed
+      trades (same "unknown" sentinel as winRate). A SCORE preset. */
+  exitEntry: number;
   positions: number;
   marketTitles: string[];
   recentTrades: number;
@@ -928,6 +932,7 @@ export async function fetchTopTradersStream(
           pnl: Number(t.pnl || 0),
           winRate: Number(t.winRate || 0),
           sharpe: Number(t.sharpe || 0),
+          exitEntry: typeof t.exitEntry === "number" ? t.exitEntry : -1,
           positions: Number(t.positions || 0),
           marketTitles: Array.isArray(t.marketTitles) ? (t.marketTitles as string[]) : [],
           recentTrades: Number(t.recentTrades || 0),
@@ -976,6 +981,7 @@ export async function fetchTopTraders(
     pnl: Number(t.pnl || 0),
     winRate: Number(t.winRate || 0),
     sharpe: Number(t.sharpe || 0),
+    exitEntry: typeof t.exitEntry === "number" ? t.exitEntry : -1,
     positions: Number(t.positions || 0),
     marketTitles: Array.isArray(t.marketTitles) ? (t.marketTitles as string[]) : [],
     recentTrades: Number(t.recentTrades || 0),

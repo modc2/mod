@@ -804,7 +804,9 @@ def deploy(owner: str, account: str, network: Optional[str] = None,
         raise OpError(f'the constructor takes {len(ctor_inputs)} argument(s) '
                       f'({", ".join(i["type"] + " " + (i.get("name") or "") for i in ctor_inputs) or "none"}) '
                       f'and got {len(supplied)}')
-    coerced = [_coerce_one(spec_i['type'], value_i)
+    # the spec goes along too: a struct constructor argument (a tuple type)
+    # is only coerced field by field when its components are known
+    coerced = [_coerce_one(spec_i['type'], value_i, spec_i)
                for spec_i, value_i in zip(ctor_inputs, supplied)]
 
     signer = wallet.signer(owner, account, password)

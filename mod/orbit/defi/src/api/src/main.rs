@@ -25,7 +25,9 @@ mod auth;
 mod catalog;
 mod compile;
 mod dex;
+mod finance;
 mod graph;
+mod hub;
 mod mcp;
 mod storage;
 mod treasury;
@@ -51,6 +53,8 @@ pub struct AppState {
     pub dex: dex::Dex,
     pub yields: yields::Yields,
     pub treasury: treasury::Treasury,
+    pub finance: finance::Finance,
+    pub hub: hub::Hub,
     pub secret: Vec<u8>,
     pub challenges: auth::Challenges,
     pub module_dir: std::path::PathBuf,
@@ -116,6 +120,17 @@ async fn main() {
         dex: dex::Dex::from_env(),
         yields: yields::Yields::new(),
         treasury: treasury::Treasury::new(&data_dir),
+        finance: finance::Finance::new(
+            &data_dir,
+            &std::env::var("DEFI_ADAPTERS")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| blocks_dir.parent().map(|p| p.join("adapters.json")).unwrap_or_else(|| module_dir.join("src/api/adapters.json"))),
+        ),
+        hub: hub::Hub::load(
+            &std::env::var("DEFI_HUB")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| blocks_dir.parent().map(|p| p.join("hub.json")).unwrap_or_else(|| module_dir.join("src/api/hub.json"))),
+        ),
         secret: auth::load_secret(&data_dir),
         challenges: auth::Challenges::default(),
         module_dir,
@@ -137,6 +152,8 @@ async fn main() {
         .route("/owner", get(owner_handler))
         .route("/catalog", get(get_catalog))
         .route("/catalog/:id", get(get_block))
+        .route("/catalog/:id/audit", get(get_block_audit))
+        .route("/audits", get(get_audits))
         .route("/templates", get(get_templates))
         .route("/compile/status", get(compile_status))
         .route("/validate", post(post_validate))
@@ -177,6 +194,17 @@ async fn main() {
         .route("/treasury/distribute", post(post_distribute))
         .route("/treasury/claim", post(post_claim))
         .route("/treasury/register", post(post_register))
+        .route("/hub", get(get_hub))
+        .route("/hub/:id", get(get_hub_protocol))
+        .route("/modules", get(get_modules))
+        .route("/modules/facets", get(get_module_facets))
+        .route("/modules/:id", get(get_module))
+        .route("/modules/:id/quote", post(post_module_quote))
+        .route("/modules/:id/enter", post(post_module_enter))
+        .route("/positions", get(get_positions).post(post_position))
+        .route("/positions/:id", get(get_position).delete(delete_position))
+        .route("/positions/:id/exit", post(post_position_exit))
+        .route("/positions/:id/value", get(get_position_value))
         .route("/mcp", get(mcp::describe).post(mcp::rpc))
         .layer(
             CorsLayer::new()
@@ -331,7 +359,28 @@ async fn get_block(
     Ok(Json(serde_json::json!({
         "block": block,
         "artifact": artifact,
+        "audit": state.catalog.audit(&id),
     })))
+}
+
+async fn get_block_audit(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if state.catalog.block(&id).is_none() && id != "common" {
+        return Err(bad(format!("no block '{id}'")));
+    }
+    let audit = state.catalog.audit(&id).ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("block '{id}' has no audit yet") })),
+        )
+    })?;
+    Ok(Json(audit.clone()))
+}
+
+async fn get_audits(State(state): State<Shared>) -> Json<serde_json::Value> {
+    Json(state.catalog.audits_overview())
 }
 
 async fn get_templates(State(state): State<Shared>) -> Json<serde_json::Value> {
@@ -1024,6 +1073,45 @@ async fn get_yield_pool(
     state.yields.pool(&id, history).await.map(Json).map_err(yields_err)
 }
 
+// ── the hub ────────────────────────────────────────────────────────────────
+//
+// The curated front door: hand-vetted protocols joined live with the index.
+// Read-only and unauthenticated, like the rest of the tables.
+
+async fn get_hub(
+    State(state): State<Shared>,
+    raw: axum::extract::RawQuery,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let query = query_value(&raw.0.unwrap_or_default());
+    let chain = query.get("chain").and_then(|v| v.as_str()).filter(|c| !c.is_empty()).map(|c| c.to_lowercase());
+    let min_tvl = query
+        .get("min_tvl")
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(1_000_000.0);
+    let (pools, fetched) = state.yields.all().await.map_err(yields_err)?;
+    Ok(Json(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl)))
+}
+
+async fn get_hub_protocol(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    raw: axum::extract::RawQuery,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let query = query_value(&raw.0.unwrap_or_default());
+    let min_tvl = query
+        .get("min_tvl")
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(1_000_000.0);
+    let (pools, fetched) = state.yields.all().await.map_err(yields_err)?;
+    state
+        .hub
+        .protocol(&id, &pools, &state.finance.registry, fetched, min_tvl)
+        .map(Json)
+        .map_err(|e| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))))
+}
+
 // ── the treasury ───────────────────────────────────────────────────────────
 //
 // Reads are open, like the rest of this module: the schedule and the split are
@@ -1298,4 +1386,155 @@ async fn post_register(
         .await
         .map(Json)
         .map_err(dex_err)
+}
+
+// ── modular finance ────────────────────────────────────────────────────────
+//
+// Every place money can go, as a module with its own returns, liquidity and
+// conditions; and the positions that went in through here. Reads are open.
+// Entering and leaving forward the CALLER'S chain-module token, like the desk.
+
+async fn get_modules(
+    State(state): State<Shared>,
+    raw: axum::extract::RawQuery,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let filter = finance::Filter::from_query(&query_value(&raw.0.unwrap_or_default()));
+    state
+        .finance
+        .modules(&filter, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury)
+        .await
+        .map(Json)
+        .map_err(yields_err)
+}
+
+async fn get_module_facets(
+    State(state): State<Shared>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state
+        .finance
+        .facets(&state.yields, &state.dex, &state.store, &state.catalog, &state.treasury)
+        .await
+        .map(Json)
+        .map_err(yields_err)
+}
+
+async fn get_module(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    raw: axum::extract::RawQuery,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let query = query_value(&raw.0.unwrap_or_default());
+    let history = query.get("history").and_then(|v| v.as_str()) != Some("0");
+    state
+        .finance
+        .module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, history)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))))
+}
+
+async fn post_module_quote(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let token = peer_token(&headers, &body);
+    let module = state
+        .finance
+        .module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false)
+        .await
+        .map_err(bad)?;
+    state
+        .finance
+        .quote(&module, &body, &state.dex, token.as_deref())
+        .await
+        .map(Json)
+        .map_err(dex_err)
+}
+
+async fn post_module_enter(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let mut body = body;
+    body["module"] = serde_json::json!(id);
+    post_position(State(state), headers, Json(body)).await
+}
+
+async fn post_position(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let token = peer_token(&headers, &body);
+    let who = caller(&state, &headers);
+    let id = body
+        .get("module")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| bad("'module' is required — an id from /modules"))?;
+    let module = state
+        .finance
+        .module(id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false)
+        .await
+        .map_err(bad)?;
+    state
+        .finance
+        .enter(&module, &body, who.as_deref(), &state.dex, &state.treasury, token.as_deref())
+        .await
+        .map(Json)
+        .map_err(dex_err)
+}
+
+async fn get_positions(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let who = caller(&state, &headers);
+    state.finance.positions(&state.yields, who.as_deref()).await.map(Json).map_err(yields_err)
+}
+
+async fn get_position(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state
+        .finance
+        .get(&id)
+        .map(|p| Json(serde_json::json!({ "position": p })))
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": format!("no position '{id}'") }))))
+}
+
+async fn delete_position(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let who = require_caller(&state, &headers)?;
+    state
+        .finance
+        .forget(&id, Some(&who), &state.owner)
+        .map(|_| Json(serde_json::json!({ "ok": true, "forgotten": id, "note": "the ledger row is gone; whatever is on chain is still there" })))
+        .map_err(bad)
+}
+
+async fn post_position_exit(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let token = peer_token(&headers, &body);
+    state.finance.exit(&id, &body, &state.dex, token.as_deref()).await.map(Json).map_err(dex_err)
+}
+
+async fn get_position_value(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let token = bearer(&headers);
+    state.finance.value(&id, &state.dex, token.as_deref()).await.map(Json).map_err(dex_err)
 }

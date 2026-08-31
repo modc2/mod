@@ -10,7 +10,10 @@ approvals that let someone else move it.
     m debank/protocols 0xd8da…6045              # DeFi positions, net of borrowing
     m debank/approvals 0xd8da…6045 chain=eth    # who can still take it
     m debank/history 0xd8da…6045 chain=eth      # decoded transactions
-    m debank/tools                              # the eighteen MCP tools
+    m debank/balances 0xd8da…6045             # keyless: native + stables, 8 chains
+    m debank/funds amount=10000                 # savings index funds: ROI + liquidity
+    m debank/savings 0xd8da…6045              # idle vs placed, read from chain
+    m debank/tools                              # the twenty-four MCP tools
 
 The same code answers the REST API, the browser console and the MCP tools, so
 an agent, a shell and a human never see different answers.
@@ -37,7 +40,12 @@ class Mod:
     debank — the DeBank Cloud API as one mod: net worth across every EVM chain,
     token balances priced and ranked, DeFi positions net of debt, NFTs, decoded
     transaction history, and live token approvals ranked by what a spender could
-    take today. Eighteen MCP tools over the same code. BYOK.
+    take today. A bank console that connects to the browser wallet — send,
+    receive, revoke — and a savings desk that places the account's stablecoins
+    into curated index funds of yield venues, each with live projected ROI and
+    the liquidity locked in the protocol. Twenty-four MCP tools over the same
+    code. BYOK, with a keyless floor: native + stablecoin balances on 8 chains
+    via public RPCs.
     """
 
     def __init__(self, key=None, port=None, **kwargs):
@@ -146,6 +154,40 @@ class Mod:
     def chains(self, q=None, refresh=False):
         """Every chain DeBank indexes. Works without a key."""
         return self.client.chains(q=q, refresh=refresh)
+
+    # ── the bank rail (keyless) ─────────────────────────────────
+
+    def balances(self, id, chains=None, min_usd=0.0):
+        """Native + USDC/USDT/DAI on 8 chains via public RPCs. Needs no key."""
+        if isinstance(chains, str):
+            chains = [x for x in chains.split(',') if x.strip()]
+        return self.client.balances(id, chains=chains, min_usd=min_usd)
+
+    def networks(self):
+        """Chain ids, RPCs, explorers and stablecoin contracts a wallet needs."""
+        return self.client.networks()
+
+    # ── the savings desk (keyless) ──────────────────────────────
+
+    def funds(self, amount=None, refresh=False):
+        """The savings index funds: projected ROI + locked liquidity, live."""
+        import savings
+        return savings.funds(amount=amount, refresh=refresh)
+
+    def fund(self, fund, amount=None, refresh=False):
+        """One fund in full; venue:<id> is a fund of one."""
+        import savings
+        return savings.fund(fund, amount=amount, refresh=refresh)
+
+    def savings(self, id):
+        """Idle stablecoins vs money placed in each venue, read from chain."""
+        import savings
+        return savings.savings(id)
+
+    def savings_plan(self, id, fund, amount):
+        """The approve+deposit transactions the owner's wallet must sign."""
+        import savings
+        return savings.plan(id, fund, amount)
 
     # ── keys ─────────────────────────────────────────────────────
 

@@ -23,6 +23,20 @@ export async function proxyToChainApi(request: NextRequest, path: string[]) {
       body,
       cache: 'no-store',
     })
+    // An event stream (the AGENT tab's run) has to reach the tab as it
+    // happens — buffering it into text would hand over every step at once,
+    // after the run, which reads as a hung button for twenty minutes.
+    const type = res.headers.get('Content-Type') || ''
+    if (type.includes('text/event-stream') && res.body) {
+      return new NextResponse(res.body, {
+        status: res.status,
+        headers: {
+          'Content-Type': type,
+          'Cache-Control': 'no-cache',
+          'X-Accel-Buffering': 'no',
+        },
+      })
+    }
     const text = await res.text()
     return new NextResponse(text, {
       status: res.status,

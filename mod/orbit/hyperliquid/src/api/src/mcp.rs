@@ -158,20 +158,38 @@ pub fn tools() -> &'static [Tool] {
         // ── trader analytics (public) ──
         tool("hl_top_traders", "top_traders", "GET", "/traders/top", true,
             "Ranked board of the best-performing wallets over the window, from a \
-             full leaderboard scrape: ROI, PnL, volume, and (for the top rows) \
-             win rate, sharpe and trade count. `rank` picks what 'top' means: \
+             full leaderboard scrape: ROI, PnL, volume and equity for EVERY row \
+             (priced from the leaderboard, free), plus win rate, sharpe and trade \
+             count for the top `enrich` rows by `rank` only — fill stats cost one \
+             throttled query per wallet, so they are rationed to the top. \
+             `pool=all` returns the whole gated universe (~5k active wallets); \
+             filter it with the min_* floors (a sharpe/win/trades floor implies \
+             with_stats) and order it with `sort`. `rank` picks what 'top' means: \
              roi (best return on equity, default), pnl (biggest dollar winners — \
              HL's own leaderboard order) or volume. Pure holders with zero \
              volume are never listed. Served from a cache refreshed in the \
-             background; `updated_at` says how fresh it is. Standard windows \
-             (days 1/7/30 × rank roi/pnl) return in milliseconds. Any address \
+             background; `updated_at` says how fresh it is. Response counts: \
+             `candidates` (gated universe), `priced` (rows before filters), \
+             `matched` (after), `enriched` (rows with fill stats). Any address \
              on the board — or any address at all — can be copied with \
              hl_create_follow / hl_live_start.",
             vec![
                 ("days", p("integer", "window in days, 1-90 (default 7); 1/7/30 are precomputed")),
-                ("pool", p("integer", "how many ranked traders to return, 1-1500 (default 150)")),
-                ("rank", p("string", "roi (default) | pnl | volume — the metric that selects AND sorts the board")),
+                ("pool", json!({"type": ["integer", "string"],
+                    "description": "how many ranked traders to return, 1-1500 (default 150), or \"all\" for every gated wallet on the leaderboard"})),
+                ("enrich", p("integer", "fetch fill stats (win%, sharpe, trades, coins) for the top N rows by `rank` only, 0-400 (default 120 — anything beyond is a cold throttled scan)")),
+                ("sort", p("string", "order the returned rows: roi | pnl | volume | equity | sharpe | win_rate | trades (default = rank); rows without fill stats sink to the bottom on sharpe/win_rate/trades")),
+                ("min_roi", p("number", "keep rows with window ROI ≥ this (percent)")),
+                ("min_pnl", p("number", "keep rows with window PnL ≥ this (USD)")),
+                ("min_volume", p("number", "keep rows with window volume ≥ this (USD)")),
+                ("min_equity", p("number", "keep rows with account value ≥ this (USD)")),
+                ("min_sharpe", p("number", "keep rows with sharpe ≥ this (only enriched rows can qualify)")),
+                ("min_win", p("number", "keep rows with win rate ≥ this (percent; only enriched rows can qualify)")),
+                ("min_trades", p("integer", "keep rows with at least this many fills in the window (only enriched rows can qualify)")),
+                ("with_stats", p("boolean", "keep only rows that have fill stats")),
+                ("rank", p("string", "roi (default) | pnl | volume — the metric that selects the board, picks which top rows get fill stats, and is the default sort")),
                 ("active", p("string", "liveness gate: 24h (default, traded in the last day) | window (traded inside the ranking window)")),
+                ("coins", arr("string", "requirement: only wallets that traded at least one of these coins in the window (e.g. [\"ZEC\",\"ETH\"]). The scan walks the ranked leaderboard until it holds `pool` qualifying wallets; `depth` in the response says how far it went")),
                 ("min_per_day", p("number", "minimum trades per day to qualify (default 1)")),
                 ("seed", arr("string", "extra wallet addresses to force into the board")),
             ], &[]),

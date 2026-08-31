@@ -1,7 +1,8 @@
 # Credits, provider funding, and the margin
 
 A guest who has no OpenRouter or Venice key can still run the agent: they
-top up with USDT/USDC and spend the credits on the module's own provider
+top up with USDT/USDC or ETH — straight from MetaMask in the console, on
+Base or Ethereum — and spend the credits on the module's own provider
 key. This document is how that money moves.
 
 **The loop.** A deposit is the guest pre-funding the provider credits their
@@ -11,7 +12,7 @@ buys OpenRouter/Venice credits out of the deposit float and logs it; the
 treasury says how much has to go over.
 
 ```
-guest deposits USDT/USDC ──▶ credit balance (1 credit = $1)
+guest deposits USDT/USDC/ETH ──▶ credit balance (1 credit = $1)
                                  │
                 run  ──▶ metered provider cost × (1 + fee_rate) debited
                                  │
@@ -78,6 +79,50 @@ closes the run gate again (`is_allowed`).
 | `provider_balance` | live balance across the provider keys |
 | **`topup_needed`** | `funding_required − provider_balance` — send this now |
 
+## Topping up from the console
+
+The credits sidebar (◈ chip, or **Credits** in the account menu) has a
+**Pay with MetaMask** button. Pick the coin (USDC, USDT or ETH), the chain
+(Base or Ethereum), optionally which key the money is *for* (OpenRouter,
+Venice, or any), type an amount and confirm in the wallet. The console:
+
+1. switches the wallet to the chosen chain (`wallet_switchEthereumChain`,
+   adding Base if the wallet lacks it),
+2. sends the transfer — a plain value send for ETH, an ERC-20 `transfer`
+   for the stablecoins, straight to the deposit address,
+3. waits for the receipt on the wallet's own node,
+4. submits the hash to `POST /credits/deposit`, which verifies it over a
+   public RPC and credits the **on-chain sender**.
+
+Nothing about step 4 trusts the browser: the hash is the only thing the
+console hands over, and the same endpoint serves a hash pasted from any
+other wallet ("send from another wallet instead" shows the address + QR).
+A page reload mid-confirmation is fine — the pending hash is kept in
+`localStorage` and picked up when the sidebar opens again.
+
+**ETH is priced by the chain.** A native deposit is credited at the
+Chainlink ETH/USD feed on the chain it landed on (`0x7104…bb70` on Base,
+`0x5f4e…8419` on Ethereum), read with `eth_call` over the same RPC the
+receipt came from. `GET /credits/price?network=` returns the number the
+next deposit would use; the console shows it beside the amount box.
+`AGENT_ETH_USD` pins the price (tests, air-gapped boxes); CoinGecko is the
+fallback when the RPC is unreachable.
+
+**"For OpenRouter" / "for Venice"** is an earmark, not a sub-balance: a
+guest has one credit balance and every run bills it whichever provider the
+model came from. The tag lands in the deposit note and in the treasury's
+`earmarked` per-provider totals, so the owner knows which key guests
+expect to be funded.
+
+The chain metadata the button needs — chain ids, token contracts and
+decimals, explorer URLs — comes from `GET /credits` (`deposit.networks`),
+so the console hardcodes none of it:
+
+```
+base      chain 8453  USDC 0x8335…2913  USDT 0xfde4…9bb2  ETH native
+ethereum  chain 1     USDC 0xa0b8…eb48  USDT 0xdac1…1ec7  ETH native
+```
+
 ## Topping up a provider key
 
 Neither provider sells credits over an API. OpenRouter's Coinbase endpoint
@@ -109,8 +154,9 @@ m agent/credit_verify provider=openrouter     # book what landed on the key
 ## Endpoints
 
 ```
-GET  /credits                 deposit address, pricing, caller's account
-POST /credits/deposit         verify a tx hash, credit the on-chain sender
+GET  /credits                 deposit address, chains + token contracts, pricing, caller's account
+POST /credits/deposit         verify a tx hash {tx_hash, network, provider?}, credit the on-chain sender
+GET  /credits/price?network=  ETH/USD a native deposit is credited at (Chainlink)
 POST /credits/grant           owner: adjust an account (± amount)
 GET  /credits/treasury?live=  owner: the books above (live= skips provider calls)
 POST /credits/topup           owner: record credits bought {provider, amount, ref}
@@ -120,7 +166,8 @@ POST /credits/config          owner: {fee_rate, price_per_step, cost_multiplier,
                                       deposit_address}
 ```
 
-The same actions exist on the mod protocol: `agent treasury`,
+The same actions exist on the mod protocol: `agent credit_deposit
+tx_hash=0x… network=base provider=venice`, `agent credit_price`, `agent treasury`,
 `agent credit_topup provider=openrouter amount=25`, `agent credit_verify
 provider=openrouter`, `agent credit_config fee_rate=0.1`.
 

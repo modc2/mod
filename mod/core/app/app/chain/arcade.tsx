@@ -9,9 +9,9 @@
 // eats four times the width of VT323, and an address or a Solidity file has to
 // stay legible — so addresses, source and logs keep the terminal font.
 
-import { CSSProperties, ReactNode } from 'react'
+import { CSSProperties, ReactNode, createContext } from 'react'
 import { ethers } from 'ethers'
-import { TERM_FONT, ACCENT } from './shared'
+import { ACCENT } from './shared'
 
 export const PIXEL = "var(--font-pixel), 'Press Start 2P', monospace"
 
@@ -30,6 +30,13 @@ export const NEON = {
  */
 export const PX = { xs: '8px', sm: '9px', md: '11px', lg: '14px' }
 
+/**
+ * True inside the marquee's one-row strip, where four pills share what the
+ * title and score leave over — so a pill sets denser type and drops its
+ * secondary hints (see Hint in ui.tsx) instead of clipping them mid-word.
+ */
+export const Strip = createContext(false)
+
 export const ARCADE_CSS = `
 /* globals.css pins every <button> to the terminal face with !important, so an
    inline fontFamily can never win. Chrome that wants pixel type asks for it by
@@ -37,7 +44,19 @@ export const ARCADE_CSS = `
    stays on arc-press alone and keeps the readable face. */
 .arc-pixel { font-family: var(--font-pixel), 'Press Start 2P', monospace !important; }
 
+/* The shell's dark theme sets tertiary text to 25% white and borders to 12% —
+   fine for a text app, mud under a scanline wash. The cabinet lifts its own
+   copy of the dials: labels readable, panel edges visible, a hint of slate in
+   the borders so the metal reads cool rather than grey. Scoped to dark; the
+   light theme keeps the shell's contrast, which is already sufficient. */
+:root.dark .arc-cabinet {
+  --text-secondary: rgba(255, 255, 255, 0.68);
+  --text-tertiary: rgba(255, 255, 255, 0.45);
+  --border-color: rgba(148, 163, 184, 0.28);
+}
+
 @keyframes arc-blink { 0%,49% { opacity: 1 } 50%,100% { opacity: 0 } }
+@keyframes arc-blink-soft { 0%,49% { opacity: 1 } 50%,100% { opacity: .3 } }
 @keyframes arc-sweep { 0% { transform: translateX(-120%) } 100% { transform: translateX(320%) } }
 @keyframes arc-pulse { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
 @keyframes arc-roll { 0% { background-position: 0 0 } 100% { background-position: 0 -100px } }
@@ -49,17 +68,50 @@ export const ARCADE_CSS = `
 .arc-press:hover:not(:disabled) { filter: brightness(1.35); }
 
 .arc-blink { animation: arc-blink 1.1s steps(1) infinite; }
+/* For a call to action: it pulses, but it never disappears — INSERT COIN
+   fully off half the time is a control that looks broken half the time. */
+.arc-blink-soft { animation: arc-blink-soft 1.1s steps(1) infinite; }
 .arc-pulse { animation: arc-pulse 1.6s ease-in-out infinite; }
 
 /* CRT: scanlines over the whole cabinet, plus a vignette. Both are pinned to
    the cabinet box (not the viewport) so the rest of the app stays flat. */
-.arc-cabinet { position: relative; }
+/* isolation makes the cabinet its own stacking context — without it the
+   z:-1 backdrop below slips BEHIND the cabinet's opaque background. */
+.arc-cabinet { position: relative; isolation: isolate; }
+/* The room the cabinet stands in: neon spill off the marquee and a faint
+   floor grid, so empty page below the panels reads as depth, not absence. */
+.arc-cabinet::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: -1;
+  background:
+    radial-gradient(1000px 540px at 18% -60px, color-mix(in srgb, var(--accent-primary, #10b981) 20%, transparent), transparent 62%),
+    radial-gradient(820px 480px at 88% 40px, rgba(34,211,238,.13), transparent 60%),
+    radial-gradient(820px 560px at 50% 105%, rgba(255,46,136,.13), transparent 65%),
+    repeating-linear-gradient(90deg, rgba(148,163,184,.045) 0 1px, transparent 1px 56px),
+    repeating-linear-gradient(0deg, rgba(148,163,184,.045) 0 1px, transparent 1px 56px);
+}
 .arc-cabinet::after {
   content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 30;
   background: repeating-linear-gradient(
-    0deg, rgba(0,0,0,.20) 0px, rgba(0,0,0,.20) 1px, transparent 1px, transparent 3px);
+    0deg, rgba(0,0,0,.13) 0px, rgba(0,0,0,.13) 1px, transparent 1px, transparent 3px);
   animation: arc-roll 14s linear infinite;
-  opacity: .5;
+  opacity: .35;
+}
+
+/* A clickable card. Set its colour with --c; on hover it lifts against its
+   own hard shadow, on press it sits down into it — the same physics as
+   arc-press, but the throw lights up in the card's colour. */
+.arc-card { transition: transform .08s steps(2), box-shadow .08s steps(2), border-color .08s, background .08s; }
+.arc-card:hover:not(:disabled) {
+  border-color: var(--c, var(--accent-primary, #10b981)) !important;
+  box-shadow: 5px 5px 0 0 var(--c, var(--accent-primary, #10b981)) !important;
+  transform: translate(-2px, -2px);
+}
+.arc-card:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: none !important; }
+
+/* A resting tab wakes up under the pointer. The lit tab keeps its own colour. */
+.arc-tab[aria-pressed="false"]:hover:not(:disabled) {
+  color: var(--text-primary) !important;
+  border-color: var(--border-strong, var(--border-color)) !important;
 }
 
 /* Marquee shine — a light bar crossing the title, once every few seconds. */
@@ -69,6 +121,23 @@ export const ARCADE_CSS = `
   background: linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent);
   animation: arc-sweep 5s linear infinite; pointer-events: none;
 }
+
+/* Hover hint in the cabinet's own face. The browser's tooltip is a grey
+   system box that belongs to no theme; this one hangs under the control like
+   a dropdown would, and stays hidden while the real dropdown is open. */
+.arc-tip { position: relative; }
+.arc-tip::after {
+  content: attr(data-tip); position: absolute; left: 0; top: calc(100% + 8px);
+  z-index: 55; width: max-content; max-width: min(360px, calc(100vw - 40px));
+  padding: 6px 10px; font-size: 14px; line-height: 1.3; letter-spacing: 0;
+  white-space: normal; word-break: break-all; text-align: left;
+  border: 2px solid var(--border-color); background: var(--bg-primary);
+  color: var(--text-secondary); box-shadow: 3px 3px 0 0 rgba(0,0,0,.5);
+  opacity: 0; transform: translateY(-4px); pointer-events: none;
+  transition: opacity .12s steps(3), transform .12s steps(3); transition-delay: .25s;
+}
+.arc-tip:hover::after, .arc-tip:focus-visible::after { opacity: 1; transform: none; }
+.arc-tip[aria-expanded="true"]::after, .arc-tip[data-tip=""]::after { display: none; }
 
 /* Corner rivets — four notched brackets that read as a bolted cabinet panel. */
 .arc-bolts { position: relative; }
@@ -160,9 +229,12 @@ export function Sprite({ seed, size = 20, style }: { seed: string; size?: number
 }
 
 /**
- * The cabinet marquee: the game's name across the top, and under it the
- * controls a player reaches for without thinking — which chain, who's
- * signing, what they hold — with the score off to the right.
+ * The cabinet marquee: one strip across the top — the game's name at the
+ * left, the controls a player reaches for without thinking beside it (which
+ * chain, who's signing, what they hold, which project), and the score at the
+ * far right, where a cabinet keeps it. The controls stretch to fill whatever
+ * the title and score leave, so the strip is always full. On a phone there is
+ * no such row: the title takes its own band and the controls wrap under it.
  */
 export function Marquee({
   title, subtitle, controls, readouts = [], compact,
@@ -174,78 +246,100 @@ export function Marquee({
   readouts?: { label: string; value: string; color?: string; led?: LedState }[]
   compact?: boolean
 }) {
-  return (
-    <div
-      className="arc-bolts"
-      style={{
-        border: `3px solid ${ACCENT}`,
-        boxShadow: `4px 4px 0 0 ${NEON.p1}55, 8px 8px 0 0 ${NEON.p2}33`,
-        background: 'linear-gradient(180deg, var(--bg-secondary), var(--bg-primary))',
-        marginBottom: '14px',
+  // the shine needs overflow:hidden and the dropdowns need the opposite, so
+  // the sweep is scoped to the title alone — never to a box holding controls
+  const name = (
+    <span className="arc-shine" style={{
+      display: 'inline-flex', alignItems: 'flex-end', gap: '10px', flexShrink: 0,
+      // room for the glow: the sweep box would otherwise crop it
+      padding: '4px 8px 4px 4px', margin: '-4px -8px -4px -4px',
+    }}>
+      <span style={{
+        fontFamily: PIXEL,
+        fontSize: compact ? '18px' : '24px',
+        letterSpacing: '0.12em',
+        lineHeight: 1,
         color: ACCENT,
-      }}
-    >
-      {/* the shine needs overflow:hidden, and the control row needs the
-          opposite — so the title gets its own band */}
-      <div className="arc-shine" style={{
-        display: 'flex', alignItems: 'flex-end', gap: '14px', flexWrap: 'wrap',
-        padding: compact ? '12px 12px 8px' : '14px 18px 10px',
+        // chromatic offset — the ghosting a real cabinet's shadow mask
+        // gives. One pixel: at two the fringes detach and the word blurs.
+        textShadow: `1px 0 0 ${NEON.p1}, -1px 0 0 ${NEON.p2}, 0 0 16px ${ACCENT}`,
       }}>
-        <span style={{
-          fontFamily: PIXEL,
-          fontSize: compact ? '18px' : '24px',
-          letterSpacing: '0.12em',
-          color: ACCENT,
-          // chromatic offset — the ghosting a real cabinet's shadow mask gives
-          textShadow: `2px 0 0 ${NEON.p1}, -2px 0 0 ${NEON.p2}, 0 0 18px ${ACCENT}`,
-        }}>
-          {title}
-        </span>
-        <span className="arc-blink" style={{
-          fontFamily: PIXEL, fontSize: compact ? '18px' : '24px', color: NEON.coin,
-        }}>
-          ▮
-        </span>
-        {!compact && (
-          <span style={{
-            fontFamily: PIXEL, fontSize: PX.sm, color: 'var(--text-tertiary)',
-            letterSpacing: '0.16em', marginLeft: 'auto', paddingBottom: '4px',
-          }}>
-            {subtitle}
-          </span>
-        )}
-      </div>
+        {title}
+      </span>
+      <span className="arc-blink" style={{
+        fontFamily: PIXEL, fontSize: compact ? '18px' : '24px', lineHeight: 1, color: NEON.coin,
+      }}>
+        ▮
+      </span>
+    </span>
+  )
 
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: compact ? '8px' : '10px', flexWrap: 'wrap',
-        padding: compact ? '10px 12px 12px' : '12px 18px 14px',
-        borderTop: `2px solid ${ACCENT}33`,
-      }}>
-        {controls}
-        {readouts.length > 0 && (
-          <div style={{
-            display: 'flex', gap: '18px', flexWrap: 'wrap', alignItems: 'center',
-            marginLeft: compact ? 0 : 'auto',
+  const score = readouts.length > 0 && (
+    <div style={{ display: 'flex', gap: '22px', alignItems: 'flex-end', marginLeft: 'auto', flexShrink: 0 }}>
+      {readouts.map(r => (
+        <div key={r.label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            fontFamily: PIXEL, fontSize: '7px', color: 'var(--text-tertiary)', letterSpacing: '0.18em',
           }}>
-            {readouts.map(r => (
-              <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 }}>
-                {r.led && <Led state={r.led} />}
-                <span style={{
-                  fontFamily: PIXEL, fontSize: PX.xs, color: 'var(--text-tertiary)',
-                  letterSpacing: '0.12em',
-                }}>
-                  {r.label}
-                </span>
-                <span style={{
-                  fontFamily: TERM_FONT, fontSize: '16px', color: r.color || 'var(--text-primary)',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>
-                  {r.value}
-                </span>
-              </div>
-            ))}
+            {r.led && <Led state={r.led} size={6} />}
+            {r.label}
+          </span>
+          <span style={{
+            fontFamily: PIXEL, fontSize: compact ? PX.lg : '18px', lineHeight: 1,
+            color: r.color || 'var(--text-primary)',
+            textShadow: `0 0 10px ${r.color || ACCENT}88`,
+            whiteSpace: 'nowrap',
+          }}>
+            {r.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+
+  const frame: CSSProperties = {
+    border: `3px solid ${ACCENT}`,
+    boxShadow: `4px 4px 0 0 ${NEON.p1}55, 8px 8px 0 0 ${NEON.p2}33`,
+    background: 'linear-gradient(180deg, var(--bg-secondary), var(--bg-primary))',
+    marginBottom: '14px',
+    color: ACCENT,
+  }
+
+  if (compact) {
+    return (
+      <div className="arc-bolts" style={frame}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '14px', flexWrap: 'wrap', padding: '12px 12px 8px' }}>
+          {name}
+          {score}
+        </div>
+        {controls && (
+          <div style={{
+            display: 'flex', alignItems: 'stretch', gap: '8px', flexWrap: 'wrap',
+            padding: '10px 12px 12px',
+            borderTop: `2px solid ${ACCENT}33`,
+          }}>
+            {controls}
           </div>
         )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="arc-bolts" style={frame}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '12px 18px' }}>
+        {name}
+        {controls && (
+          <Strip.Provider value={true}>
+            <div style={{
+              display: 'flex', alignItems: 'stretch', gap: '10px', flex: '1 1 0', minWidth: 0,
+            }}>
+              {controls}
+            </div>
+          </Strip.Provider>
+        )}
+        {score}
       </div>
     </div>
   )

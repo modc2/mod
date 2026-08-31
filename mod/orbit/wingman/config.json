@@ -111,5 +111,5 @@
         "reads": "a set is addressed by a 16-hex unguessable id; GET /sets (the list) answers only loopback callers or x-wingman-token from ~/.mod/wingman/token",
         "writes": "open on the same terms \u2014 this module holds personal photos, not keys or money; bind to 127.0.0.1 or put it behind the gateway's auth if it must be public"
     },
-    "schema": "QmQ7Gyk7QmUY5QCycoSUfY8EF8X4sCCgmbfwcQyK3eDUSh"
+    "schema": "QmVXLoQ11BJZZMz6qX3ZdtZf7cEm6X5tjraKwyh12AdZhx"
 }

@@ -41,12 +41,18 @@ HISTORY_RECENT = 4
 HISTORY_STEPS_COMPACT = 8
 HISTORY_RECENT_COMPACT = 3
 
+# how much of one skill document reaches the prompt. Skills are written to be
+# read whole, but four of them at 8k characters is a context spent on being
+# taught rather than on working.
+SKILL_CHARS = 6000
+SKILL_CHARS_COMPACT = 1800
+
 # keys the renderer places itself — anything else in working memory is
 # rendered generically under EXTRA, so a run that adds its own context
 # (notes, tool_docs, fork(...)) still reaches the model.
 PLACED = {'goal', 'output_format', 'query', 'tools', 'path', 'pwd', 'steps',
           'step', 'history', 'hint', 'recalled', 'attachments', 'notes',
-          'tool_docs'}
+          'tool_docs', 'skills'}
 
 # the worked example a small model needs. It is a real call with real params:
 # shown an abstract `{"tool": "<tool_name>"}`, small models emit that literally.
@@ -256,6 +262,17 @@ def render(state: Dict[str, Any], compact: bool = False,
     if extra:
         out.append("# CONTEXT\n" + '\n'.join(extra))
 
+    # SKILLS before TOOLS on purpose: a skill is the method for using the
+    # tools, so the model should read what it was taught before it reads the
+    # list of what it can call.
+    skills = state.get('skills')
+    if skills and not answer:
+        block = skill_lines(skills, compact=compact)
+        if block:
+            out.append(f"# SKILLS ({len(block)})\nMethods you have been taught. "
+                       "When one applies to the task, follow it.\n\n" +
+                       '\n\n'.join(block))
+
     tools = state.get('tools')
     if tools and not answer:
         lines = tool_lines(tools, compact=compact)
@@ -282,6 +299,31 @@ def render(state: Dict[str, Any], compact: bool = False,
             block += '\n' + EXAMPLE
         out.append(block)
     return '\n\n'.join(out)
+
+
+def skill_lines(skills: Any, compact: bool = False) -> List[str]:
+    """Skills as prompt text.
+
+    A skill is already markdown written for a model, so it is passed through
+    rather than reformatted — the one thing done to it is a cap, because a run
+    that loaded four 8k-character skills would spend its whole context being
+    taught instead of working. Compact keeps the front of each document, which
+    is where a well-written skill puts "when to use this".
+    """
+    cap = SKILL_CHARS_COMPACT if compact else SKILL_CHARS
+    if isinstance(skills, str):
+        skills = {'': skills}
+    if not isinstance(skills, dict):
+        return []
+    out = []
+    for name, body in skills.items():
+        text = str(body or '').strip()
+        if not text:
+            continue
+        if len(text) > cap:
+            text = text[:cap].rstrip() + "\n… (truncated — the full skill is in the catalog)"
+        out.append((f"## {name}\n{text}" if name else text))
+    return out
 
 
 def size(state: Dict[str, Any], compact: bool = False) -> int:

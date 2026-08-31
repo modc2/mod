@@ -148,8 +148,8 @@ export default function BuildBadge() {
         ? "Verify: clone the repo, run the same sha256-over-manifest script in docker-entrypoint.dev.sh."
         : "Verify: re-pin the build output to IPFS and confirm the CID matches.",
     tx
-      ? "Click 🔗 to view the onchain pin on Polygonscan."
-      : "Click 📌 to pin this CID onchain (sends a 0-value Polygon tx; ~0.01 MATIC gas).",
+      ? "Click TX to view the onchain pin on Polygonscan."
+      : "Click PIN to pin this CID onchain (sends a 0-value Polygon tx; ~0.01 MATIC gas).",
   ]
     .filter(Boolean)
     .join("\n");
@@ -179,11 +179,11 @@ export default function BuildBadge() {
         </button>
         {tx ? (
           <a href={scan} target="_blank" rel="noopener noreferrer" title={`Onchain pin on Polygon\n${tx}`} className={btnCls}>
-            🔗
+            TX
           </a>
         ) : (
           <button onClick={handlePublish} disabled={busy} title={tooltip} className={btnCls + (busy ? " opacity-50 cursor-wait" : "")}>
-            {busy ? "..." : "📌"}
+            {busy ? "..." : "PIN"}
           </button>
         )}
       </div>

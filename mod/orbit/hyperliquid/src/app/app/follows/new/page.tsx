@@ -47,7 +47,7 @@ function Inner() {
   return (
     <div className="max-w-xl space-y-5">
       <div>
-        <h1 className="text-xl text-ink">copy a trader</h1>
+        <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">copy a trader</h1>
         <p className="text-xs text-muted mt-1">
           The engine watches the leader's fills and emits scaled-down signals for your wallet.
           Signals are surfaced in <span className="text-ink">/signals</span>; you sign and submit.

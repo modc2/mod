@@ -16,7 +16,9 @@ so being twice as close is worth twice as much, and so is staking twice as
 much. The default model is `linear` at `tolerance = 1.0`, which is exactly
 `a = 1 − e`: a pure relative-L1 score with no curve on top. Sharpen it by
 dropping the tolerance (0.02 → only calls inside 2% score at all) or swap the
-curve for `l2`/`exponential`/`threshold`.
+curve for `l2`/`exponential`/`threshold`/… — or write your own. The model is a
+**score function** (`curves.py`): an expression over the miss plus its params,
+stored in the library beside the ledger, shareable as a code or a store CID.
 
 A round also takes **free calls**: same price call, same scoring rule, no
 money. A free entry is kept out of the pot entirely — not merely staked at $0 —
@@ -52,10 +54,11 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 try:
     import scoring
+    import curves
     import hyperevm
     import sigauth
 except ImportError:                                  # imported as a package
-    from . import scoring, hyperevm, sigauth
+    from . import scoring, curves, hyperevm, sigauth
 
 
 MICRO = 1_000_000          # ledger resolution: 1 micro-dollar
@@ -66,8 +69,9 @@ MAX_FEE_BPS = 500          # 5% — the protocol cannot take more than this
 DEFAULT_CONFIG = {
     'interval': 604800,      # weekly, the owner's to change
     'entry_cutoff': 3600,    # entries stop this long before the close
-    'model': 'linear',       # scoring.MODELS
-    'tolerance': 1.0,        # 1.0 + linear == accuracy is exactly 1 − relL1
+    'model': 'linear',       # a score function: a default, or one from the library
+    'tolerance': 1.0,        # its `tol` param; 1.0 + linear == accuracy is exactly 1 − relL1
+    'model_params': {},      # the function's other params, overridden by name
     'min_stake': 5.0,        # dollars
     'max_stake': 0.0,        # 0 = uncapped
     'min_withdraw': 1.0,
@@ -76,6 +80,10 @@ DEFAULT_CONFIG = {
     'spot_grace': 900,       # settle off spot if we're this close to the close
     'free_per_round': 3,     # free calls per address per round (0 = off)
     'free_notional': 100.0,  # paper stake a free call's `would_win` is priced at
+    # A DEX token (Solana, Base) must have this many dollars in its pool to be
+    # listed, and to take a stake — a pot on a $900 pool settles against a
+    # price one trade can move. 0 = no floor. The owner's number.
+    'min_liquidity_usd': 10_000.0,
 }
 
 MAX_FREE_PER_ROUND = 50    # a free board is only readable if it is bounded
@@ -92,14 +100,23 @@ def units_to_usd(units: int) -> float:
     return round(int(units) / MICRO, 6)
 
 
-def accuracy(predicted: float, actual: float, model: str, tolerance: float) -> Dict:
-    """The relative-L1 miss and the 0..1 accuracy it earns."""
+def accuracy(predicted: float, actual: float, fn: Dict) -> Dict:
+    """The relative-L1 miss and the 0..1 accuracy it earns under `fn`, a
+    score-function snapshot `{name, expr, params}` (see `curves.resolve`)."""
     err = scoring.normalized_error(predicted, actual)
     if err == float('inf'):
         return {'rel_error': None, 'accuracy': 0.0}
-    value = scoring.MODELS[model](err, tolerance)
+    value = curves.evaluate(fn, err)
     return {'rel_error': round(err, 8),
             'accuracy': round(min(1.0, max(0.0, value)), 8)}
+
+
+def fn_for(model, tolerance: float = None, params: Dict = None,
+           library: 'curves.Library' = None, fallback: Dict = None) -> Dict:
+    """The snapshot a round stores: the named function with the pool's
+    tolerance and overrides folded into its params."""
+    return curves.resolve(model, library, tolerance=tolerance, params=params,
+                          fallback=fallback)
 
 
 def split_pot(pot_units: int, scores: List[float]) -> List[int]:
@@ -131,8 +148,8 @@ def fee_split(gross_units: int, fee_bps: int) -> Tuple[int, int]:
     return fee_units, int(gross_units) - fee_units
 
 
-def settle_asset(entries: List[Dict], actual: float, model: str,
-                 tolerance: float, fee_bps: int) -> Dict:
+def settle_asset(entries: List[Dict], actual: float, fn: Dict,
+                 fee_bps: int) -> Dict:
     """Score one (round, asset) pot and decide who gets what.
 
     Two outcomes. Normally the pot is split by dollars × accuracy. If *nobody*
@@ -143,7 +160,7 @@ def settle_asset(entries: List[Dict], actual: float, model: str,
     """
     scored = []
     for e in entries:
-        acc = accuracy(e['predicted_price'], actual, model, tolerance)
+        acc = accuracy(e['predicted_price'], actual, fn)
         scored.append({
             **e,
             'rel_error': acc['rel_error'],
@@ -183,7 +200,7 @@ def settle_asset(entries: List[Dict], actual: float, model: str,
             'entries': scored}
 
 
-def shadow_payout(predicted: float, actual: float, model: str, tolerance: float,
+def shadow_payout(predicted: float, actual: float, fn: Dict,
                   fee_bps: int, notional: float, paid_score: float = 0.0,
                   paid_gross: float = 0.0) -> Dict:
     """What a free call would have taken, had it been staked `notional`.
@@ -199,7 +216,7 @@ def shadow_payout(predicted: float, actual: float, model: str, tolerance: float,
     Floored to the micro-dollar instead of largest-remainder'd like the real
     split: nobody is being paid here, so the spare unit has nowhere to go.
     """
-    acc = accuracy(predicted, actual, model, tolerance)
+    acc = accuracy(predicted, actual, fn)
     notional = round(float(notional), 6)
     my_score = round(notional * acc['accuracy'], 8)
     total_score = paid_score + my_score
@@ -218,21 +235,24 @@ def shadow_payout(predicted: float, actual: float, model: str, tolerance: float,
 
 
 def settle_free(free_entries: List[Dict], paid_entries: List[Dict], actual: float,
-                model: str, tolerance: float, fee_bps: int) -> List[Dict]:
+                fn: Dict, fee_bps: int) -> List[Dict]:
     """Score every free call in a pot against the pot it never entered."""
     paid_gross = sum(float(e['amount']) for e in paid_entries)
     paid_score = sum(float(e['amount'])
-                     * accuracy(e['predicted_price'], actual, model,
-                                tolerance)['accuracy']
+                     * accuracy(e['predicted_price'], actual, fn)['accuracy']
                      for e in paid_entries)
-    return [{**e, **shadow_payout(e['predicted_price'], actual, model, tolerance,
+    return [{**e, **shadow_payout(e['predicted_price'], actual, fn,
                                   fee_bps, e.get('notional') or 0.0,
                                   paid_score, paid_gross)}
             for e in free_entries]
 
 
-def validate_config(patch: Dict, current: Dict = None) -> Dict:
-    """Merge a config patch over the live config and bounds-check every field."""
+def validate_config(patch: Dict, current: Dict = None,
+                    library: 'curves.Library' = None) -> Dict:
+    """Merge a config patch over the live config and bounds-check every field.
+
+    `library` is where a non-default `model` name is looked up; without one
+    only the built-in functions are accepted."""
     merged = {**DEFAULT_CONFIG, **(current or {})}
     for key, value in (patch or {}).items():
         if key in DEFAULT_CONFIG:
@@ -249,13 +269,24 @@ def validate_config(patch: Dict, current: Dict = None) -> Dict:
         raise ValueError('entry_cutoff must be shorter than the interval — '
                          'otherwise a round closes to entries before it opens')
 
-    if merged['model'] not in scoring.MODELS:
-        raise ValueError(f"unknown model '{merged['model']}' — "
-                         f'have {sorted(scoring.MODELS)}')
-
     merged['tolerance'] = float(merged['tolerance'])
     if merged['tolerance'] <= 0:
         raise ValueError('tolerance must be > 0')
+
+    # The model is a score function; resolving it proves the name exists, the
+    # overrides name real parameters, and the program runs across the grid.
+    merged['model'] = str(merged['model'] or '').strip().lower()
+    raw_params = merged.get('model_params') or {}
+    if isinstance(raw_params, str):
+        try:
+            raw_params = json.loads(raw_params or '{}')
+        except json.JSONDecodeError as exc:
+            raise ValueError(f'model_params must be JSON: {exc.msg}')
+    try:
+        fn = fn_for(merged['model'], merged['tolerance'], raw_params, library)
+    except curves.ExprError as exc:
+        raise ValueError(str(exc))
+    merged['model_params'] = {k: v for k, v in fn['params'].items() if k != 'tol'}
 
     for key in ('min_stake', 'max_stake', 'min_withdraw'):
         merged[key] = float(merged[key])
@@ -282,6 +313,10 @@ def validate_config(patch: Dict, current: Dict = None) -> Dict:
         raise ValueError('free_notional must be > 0 — it is the paper stake a '
                          "free call's would-have-won is priced at")
 
+    merged['min_liquidity_usd'] = float(merged['min_liquidity_usd'])
+    if merged['min_liquidity_usd'] < 0:
+        raise ValueError('min_liquidity_usd must be >= 0 (0 = no floor)')
+
     merged['auto_pay'] = bool(merged['auto_pay'])
     return merged
 
@@ -296,8 +331,12 @@ class Pool:
 
     def __init__(self, store_dir, price_at: Callable = None,
                  price_now: Callable = None, markets: Callable = None,
-                 on_fee: Callable = None):
+                 on_fee: Callable = None, library: 'curves.Library' = None,
+                 liquidity_now: Callable = None):
         self.dir = Path(store_dir)
+        # Score functions live beside the ledger: the defaults plus whatever
+        # has been saved or imported here. Shared with the PREFI predict layer.
+        self.library = library or curves.Library(self.dir / 'functions.json')
         self.dir.mkdir(parents=True, exist_ok=True)
 
         self.state_path = self.dir / 'pool.json'
@@ -312,6 +351,9 @@ class Pool:
         self._price_now = price_now
         self._markets = markets or (lambda: [])
         self._on_fee = on_fee                      # fee → treasury, set by mod
+        # Dollars in a DEX token's pool right now — the owner's liquidity
+        # floor is checked against it before a stake goes in.
+        self._liquidity_now = liquidity_now
         self._chain = None
 
     # ── files ────────────────────────────────────────────────────────
@@ -907,6 +949,34 @@ class Pool:
     def _rounds(self) -> List[Dict]:
         return self._read(self.rounds_path, [])
 
+    def active_fn(self, cfg: Dict = None) -> Dict:
+        """The score function the *next* round will open with — the config's
+        model resolved through the library with its tolerance and overrides."""
+        cfg = cfg or self.state()['config']
+        return fn_for(cfg['model'], cfg['tolerance'], cfg.get('model_params'),
+                      self.library)
+
+    def active_fn_or_default(self, cfg: Dict = None) -> Dict:
+        """`active_fn` for read paths: a config naming a function that has
+        since vanished from the library must not take a page down, so it
+        falls back to the pool default and says so in `error`."""
+        cfg = cfg or self.state()['config']
+        try:
+            return self.active_fn(cfg)
+        except (ValueError, curves.ExprError) as exc:
+            return {**fn_for(DEFAULT_CONFIG['model'], cfg['tolerance']),
+                    'error': f"{cfg['model']}: {exc}"}
+
+    @staticmethod
+    def _fn_of(record: Dict) -> Dict:
+        """The function a round settles under. Rounds opened before functions
+        were snapshotted only carry a built-in name and a tolerance, which is
+        enough to rebuild exactly the program they were sold with."""
+        fn = record.get('fn')
+        if fn:
+            return fn
+        return fn_for(record['model'], record['tolerance'])
+
     def _round_record(self, st, rounds, index: int) -> Dict:
         """Fetch or materialise a round. Materialising snapshots the scoring
         params, which is what stops a mid-round retune from re-pricing bets."""
@@ -920,6 +990,7 @@ class Pool:
             'status': 'open',
             'model': cfg['model'],
             'tolerance': cfg['tolerance'],
+            'fn': self.active_fn(cfg),
             'fee_bps': cfg['fee_bps'],
             'created_at': time.time(),
             'assets': {},
@@ -930,22 +1001,70 @@ class Pool:
 
     # ── staking ──────────────────────────────────────────────────────
 
-    def _pool_market(self, asset: str) -> Dict:
-        """Pool markets must be Hyperliquid-priced — that is the oracle the
-        settlement reads, and a market priced anywhere else could not be settled
-        against it honestly."""
+    # The oracles a pot can settle against: both answer "the price AT a
+    # moment" from a local feed, which is what honest lazy settlement needs.
+    # CoinGecko markets stay out — its free tier can't be relied on at a close.
+    # DEX tokens (Solana, Base) are in: priced per pool, with hourly history
+    # from GeckoTerminal and our own snapshots, behind the owner's liquidity
+    # floor.
+    POOL_SOURCES = ('hyperliquid', 'bittensor', 'dex')
+
+    def _market_of(self, asset: str) -> Optional[Dict]:
         want = (asset or '').strip().upper()
         for m in self._markets():
             if m['symbol'].upper() == want:
-                if m.get('source') != 'hyperliquid':
-                    return {'error': f"{m['symbol']} is priced by "
-                                     f"{m.get('source', 'coingecko')} — the pool "
-                                     'settles on Hyperliquid marks only. '
-                                     f"add it with add_hl_market({want})"}
-                if not m.get('active'):
-                    return {'error': f'{want} market is not active'}
-                return {'market': m}
-        return {'error': f'no market for {want} — list it with add_hl_market'}
+                return m
+        return None
+
+    def _source_of(self, asset: str) -> str:
+        """Which feed prices this asset. Entries predating the Bittensor
+        source have no market lookup to fail — they were Hyperliquid."""
+        m = self._market_of(asset)
+        return (m or {}).get('source') or 'hyperliquid'
+
+    def _quote_of(self, asset: str) -> str:
+        """What the price is denominated in — dollars, or TAO for a subnet."""
+        m = self._market_of(asset) or {}
+        return m.get('quote') or ('TAO' if m.get('source') == 'bittensor' else 'USD')
+
+    def _pool_market(self, asset: str, cfg: Dict = None) -> Dict:
+        """Pool markets must be priced by a feed that can answer historically
+        — Hyperliquid marks, Bittensor subnet prices, or a DEX pool with
+        hourly candles. A market priced anywhere else could not be settled
+        against honestly.
+
+        A DEX token also has to clear the owner's liquidity floor *now*, not
+        just when it was listed: a pool that has drained since is a price one
+        trade can move, and no new money should go into a pot on it.
+        """
+        want = (asset or '').strip().upper()
+        m = self._market_of(want)
+        if m is None:
+            return {'error': f'no market for {want} — list it with add_hl_market, '
+                             'add_bt_market or add_dex_market'}
+        if m.get('source') not in self.POOL_SOURCES:
+            return {'error': f"{m['symbol']} is priced by "
+                             f"{m.get('source', 'coingecko')} — the pool "
+                             'settles on Hyperliquid marks, Bittensor subnet '
+                             'prices and DEX pools on Solana/Base only. add it '
+                             f"with add_hl_market({want}), add_bt_market({want}) "
+                             f"or add_dex_market(chain, {want})"}
+        if not m.get('active'):
+            return {'error': f'{want} market is not active'}
+        if m.get('source') == 'dex':
+            cfg = cfg or self.state()['config']
+            floor = float(cfg.get('min_liquidity_usd') or 0)
+            if floor > 0:
+                liq = self._liquidity_now(m['symbol']) if self._liquidity_now else None
+                if liq is None:
+                    return {'error': f"{m['symbol']} has no liquidity reading right now — "
+                                     'the DEX feed is unreachable, so the owner\'s '
+                                     f'${floor:,.0f} floor cannot be checked'}
+                if liq < floor:
+                    return {'error': f"{m['symbol']}'s pool holds ${liq:,.0f} — under the "
+                                     f'${floor:,.0f} liquidity floor the owner set, so it '
+                                     'cannot take a stake until it refills'}
+        return {'market': m}
 
     def stake(self, address: str, asset: str, predicted_price: float,
               amount: float, signature: str = None, nonce: int = None) -> Dict:
@@ -974,7 +1093,7 @@ class Pool:
         if cfg['max_stake'] and amount > cfg['max_stake']:
             return {'error': f"maximum stake is ${cfg['max_stake']:,.2f}"}
 
-        found = self._pool_market(asset)
+        found = self._pool_market(asset, cfg)
         if 'error' in found:
             return found
         market = found['market']
@@ -1002,7 +1121,7 @@ class Pool:
                              f'available, ${amount:,.2f} needed. deposit USDC or '
                              'USDT0 to the vault first'}
 
-        mark = self._price_now(symbol, 'hyperliquid') if self._price_now else None
+        mark = self._price_now(symbol, self._source_of(symbol)) if self._price_now else None
 
         with self._lock():
             st = self.state()
@@ -1037,6 +1156,7 @@ class Pool:
             'entry_id': entry['id'],
             'round': win['index'],
             'asset': symbol,
+            'quote': self._quote_of(symbol),
             'staked': amount,
             'predicted_price': predicted_price,
             'mark_at_entry': mark,
@@ -1114,7 +1234,7 @@ class Pool:
         if limit <= 0:
             return {'error': 'free play is switched off — stake to enter a round'}
 
-        found = self._pool_market(asset)
+        found = self._pool_market(asset, cfg)
         if 'error' in found:
             return found
         symbol = found['market']['symbol'].upper()
@@ -1147,7 +1267,7 @@ class Pool:
             return {'error': check['error'], 'sign_message': check['message'],
                     'nonce': self.nonce(addr)}
 
-        mark = self._price_now(symbol, 'hyperliquid') if self._price_now else None
+        mark = self._price_now(symbol, self._source_of(symbol)) if self._price_now else None
 
         with self._lock():
             st = self.state()
@@ -1183,6 +1303,7 @@ class Pool:
             'entry_id': entry['id'],
             'round': win['index'],
             'asset': symbol,
+            'quote': self._quote_of(symbol),
             'free': True,
             'staked': 0.0,
             'notional': entry['notional'],
@@ -1240,7 +1361,7 @@ class Pool:
                     paid = [e for e in group if not e.get('free')]
                     free = [e for e in group if e.get('free')]
 
-                    quote = self._price_at(asset, record['closes'], 'hyperliquid') \
+                    quote = self._price_at(asset, record['closes'], self._source_of(asset)) \
                         if self._price_at else {'price': None, 'mode': 'none'}
                     price, mode = quote.get('price'), quote.get('mode')
 
@@ -1258,8 +1379,8 @@ class Pool:
                                         'free_entries': len(free)})
                         continue
 
-                    result = settle_asset(paid, price, record['model'],
-                                          record['tolerance'], record['fee_bps'])
+                    fn = self._fn_of(record)
+                    result = settle_asset(paid, price, fn, record['fee_bps'])
                     if not paid:
                         result['mode'] = 'free-only'
 
@@ -1286,8 +1407,7 @@ class Pool:
                                 'round': record['index'], 'entry': scored['id'],
                                 'asset': asset, 'score': scored['score'],
                             })
-                    for scored in settle_free(free, paid, price, record['model'],
-                                              record['tolerance'],
+                    for scored in settle_free(free, paid, price, fn,
                                               record['fee_bps']):
                         target = next(e for e in entries if e['id'] == scored['id'])
                         target.update({
@@ -1317,6 +1437,7 @@ class Pool:
 
                     record['assets'][asset] = {
                         'settled': True, 'actual_price': price, 'price_mode': mode,
+                        'quote': self._quote_of(asset),
                         'gross': result['gross'], 'fee': result['fee'],
                         'pot': result['pot'], 'mode': result['mode'],
                         'total_score': result['total_score'],
@@ -1389,8 +1510,8 @@ class Pool:
             paid = [e for e in group if not e.get('free')]
             free = [e for e in group if e.get('free')]
 
-            result = settle_asset(paid, price, record['model'],
-                                  record['tolerance'], record['fee_bps'])
+            fn = self._fn_of(record)
+            result = settle_asset(paid, price, fn, record['fee_bps'])
             if not paid:
                 result['mode'] = 'free-only'
             rows = self._ledger()
@@ -1409,8 +1530,7 @@ class Pool:
                         'address': scored['address'], 'amount': scored['payout'],
                         'round': index, 'entry': scored['id'], 'asset': asset,
                         'manual': True})
-            for scored in settle_free(free, paid, price, record['model'],
-                                      record['tolerance'], record['fee_bps']):
+            for scored in settle_free(free, paid, price, fn, record['fee_bps']):
                 target = next(e for e in entries if e['id'] == scored['id'])
                 target.update({'status': 'settled', 'actual_price': price,
                                'price_mode': 'manual',
@@ -1433,6 +1553,7 @@ class Pool:
             rows = self._post(st, rows, ledger_rows)
             record['assets'][asset] = {
                 'settled': True, 'actual_price': price, 'price_mode': 'manual',
+                'quote': self._quote_of(asset),
                 'gross': result['gross'], 'fee': result['fee'], 'pot': result['pot'],
                 'mode': result['mode'], 'total_score': result['total_score'],
                 'winner': result['winner'], 'entries': len(paid),
@@ -1469,7 +1590,9 @@ class Pool:
         if not record:
             record = {**win, 'status': 'open' if index >= self.current_index() else 'empty',
                       'model': cfg['model'], 'tolerance': cfg['tolerance'],
+                      'fn': self.active_fn_or_default(cfg),
                       'fee_bps': cfg['fee_bps'], 'assets': {}, 'settled_at': None}
+        fn = self._fn_of(record)
 
         entries = [e for e in self._read(self.entries_path, []) if e['round'] == index]
         now = time.time()
@@ -1483,14 +1606,12 @@ class Pool:
             free = [e for e in group if e.get('free')]
             settled = record['assets'].get(asset)
             actual = settled['actual_price'] if settled else (
-                self._price_now(asset, 'hyperliquid') if self._price_now else None)
+                self._price_now(asset, self._source_of(asset)) if self._price_now else None)
             rows, free_rows = [], []
             if actual:
-                preview = settle_asset(paid, actual, record['model'],
-                                       record['tolerance'], record['fee_bps'])
+                preview = settle_asset(paid, actual, fn, record['fee_bps'])
                 rows = preview['entries']
-                free_rows = settle_free(free, paid, actual, record['model'],
-                                        record['tolerance'], record['fee_bps'])
+                free_rows = settle_free(free, paid, actual, fn, record['fee_bps'])
                 totals = {'gross': preview['gross'], 'fee': preview['fee'],
                           'pot': preview['pot'], 'total_score': preview['total_score'],
                           'winner': preview['winner'],
@@ -1504,6 +1625,7 @@ class Pool:
                           'winner': None, 'mode': 'unpriced'}
             out_assets.append({
                 'asset': asset,
+                'quote': self._quote_of(asset),
                 'settled': bool(settled),
                 'actual_price': actual,
                 'price_mode': settled['price_mode'] if settled else 'live-mark',
@@ -1530,6 +1652,7 @@ class Pool:
             'entries_open': now < record['entry_deadline'],
             'model': record['model'],
             'tolerance': record['tolerance'],
+            'fn': fn,
             'fee_bps': record['fee_bps'],
             'total_staked': round(sum(float(e['amount']) for e in entries), 6),
             'stakers': len({e['address'] for e in entries if not e.get('free')}),
@@ -1556,6 +1679,7 @@ class Pool:
                 'closes': record['closes'],
                 'model': record['model'],
                 'tolerance': record['tolerance'],
+                'fn': self._fn_of(record),
                 'staked': round(sum(float(e['amount']) for e in mine), 6),
                 'stakers': len({e['address'] for e in mine if not e.get('free')}),
                 'free_calls': sum(1 for e in mine if e.get('free')),
@@ -1839,21 +1963,27 @@ class Pool:
         st = self.state()
         cfg = st['config']
         win = self.window()
+        fn = self.active_fn_or_default(cfg)
         return {
             **cfg,
             'interval_days': round(cfg['interval'] / 86400, 3),
             'schedule': st['schedule'],
             'round': win,
-            'scoring': (f"score = dollars × {cfg['model']}(|called−actual|/actual, "
-                        f"{cfg['tolerance']}) · pot split pro-rata by score"),
+            'fn': fn,
+            'scoring': (f"score = dollars × {cfg['model']}(e = |called−actual|/actual) "
+                        f"where {cfg['model']}(e) = {fn['expr']} with "
+                        f"{json.dumps(fn['params'], sort_keys=True)} · pot split pro-rata by score"),
             'free_play': (f"{cfg['free_per_round']} free calls per address per "
                           f"round, one per asset, scored against a "
                           f"${cfg['free_notional']:,.0f} notional"
                           if cfg['free_per_round'] else 'off'),
+            'dex_floor': (f"a Solana or Base token needs ${cfg['min_liquidity_usd']:,.0f} "
+                          'of pool liquidity to be listed or staked'
+                          if cfg['min_liquidity_usd'] else 'no liquidity floor on DEX tokens'),
             'owner': st.get('owner'),
             'chain_id': st['chain_id'],
             'vault': st.get('vault'),
-            'models': scoring.describe_models(),
+            'models': curves.describe(self.library),
         }
 
     def set_config(self, secret: str = None, owner: str = None,
@@ -1867,6 +1997,19 @@ class Pool:
         patch = {k: v for k, v in patch.items() if k in DEFAULT_CONFIG and v is not None}
         if not patch:
             return {'error': f'nothing to set — fields are {sorted(DEFAULT_CONFIG)}'}
+        if 'model_params' in patch:
+            # Signed as one canonical JSON field, so the wallet message is the
+            # same whether the overrides arrived as a dict or a string.
+            raw_params = patch['model_params']
+            if isinstance(raw_params, str):
+                try:
+                    raw_params = json.loads(raw_params or '{}')
+                except json.JSONDecodeError as exc:
+                    return {'error': f'model_params must be JSON: {exc.msg}'}
+            if not isinstance(raw_params, dict):
+                return {'error': 'model_params must be an object of name → number'}
+            patch['model_params'] = json.dumps(raw_params, sort_keys=True,
+                                               separators=(',', ':'))
 
         deny = self._require_owner(owner, secret, 'set_config',
                                    [(k, str(patch[k])) for k in sorted(patch)],
@@ -1877,7 +2020,7 @@ class Pool:
         with self._lock():
             st = self.state()
             try:
-                merged = validate_config(patch, st['config'])
+                merged = validate_config(patch, st['config'], self.library)
             except ValueError as exc:
                 return {'error': str(exc)}
 
@@ -1926,6 +2069,7 @@ class Pool:
             'stakers': len({e['address'] for e in entries}),
             'free_per_round': st['config']['free_per_round'],
             'free_notional': st['config']['free_notional'],
+            'min_liquidity_usd': st['config']['min_liquidity_usd'],
             'free_calls': len(free),
             'free_open': sum(1 for e in free if e['status'] == 'open'),
             'free_callers': len({e['address'] for e in free}),

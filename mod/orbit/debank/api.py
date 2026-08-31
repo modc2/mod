@@ -24,6 +24,7 @@ if HERE not in sys.path:
 
 import client as C   # noqa: E402
 import mcp           # noqa: E402
+import savings as S  # noqa: E402
 from client import Client, DebankError  # noqa: E402
 
 BASE = os.environ.get('BASE_PATH', '/debank')
@@ -44,7 +45,7 @@ def info():
                  'keystore': f'{C.KEY_FILE} (0600, off-tree)',
                  'env': 'DEBANK_ACCESS_KEY',
                  'rule': "every call spends the caller's own DeBank units — no house key",
-                 'signed_out': 'GET /chains still answers (public catalog fallback)'},
+                 'signed_out': 'GET /chains, /balances and /networks answer with no key'},
         'endpoints': {
             'GET /health': 'liveness, tool count, and whether a key resolved',
             'GET /portfolio': 'id, min_usd — net worth and which chains carry it',
@@ -62,6 +63,20 @@ def info():
             'GET /holders': 'protocol | chain+token, start, limit',
             'GET /gas': 'chain — the current gas market',
             'GET /chains': 'q, refresh — chain catalog (works signed-out)',
+            'GET /balances': 'id, chains, min_usd — native + stablecoins on the bank '
+                             'rail via public RPCs (works signed-out)',
+            'GET /networks': 'the bank rail: chain ids, RPCs, explorers, stablecoin '
+                             'contracts — what a browser wallet needs (works signed-out)',
+            'GET /funds': 'amount — the savings index funds: curated baskets of '
+                          'yield venues with live projected ROI and the liquidity '
+                          'locked in each protocol (works signed-out)',
+            'GET /funds/{id}': 'one fund in full; venue:<id> is a fund of one',
+            'GET /savings': 'id — idle stablecoins vs money already placed in each '
+                            'venue, read from chain, keyless',
+            'GET /savings/plan': 'id, fund, amount — the exact approve+deposit '
+                                 'transactions the wallet must sign, per sleeve',
+            'GET /savings/exit': 'id, venue — the withdraw-everything transaction',
+            'POST /savings/record': '{id, fund, venue, amount, tx} — note a placed leg',
             'GET /account': 'does the key work, and what is left on it',
             'POST /set_key': '{key, persist}',
             'GET|POST /raw': 'path, params, public — any Cloud API route',
@@ -105,7 +120,8 @@ def route(method, path, query, body, key):
     if path in ('', '/'):
         return info()
     if path == '/health':
-        return {'ok': True, 'tools': len(mcp.TOOLS), 'key': c.key_state()['key']}
+        return {'ok': True, 'tools': len(mcp.TOOLS), 'key': c.key_state()['key'],
+                'keyless': ['/chains', '/balances', '/networks']}
     if path == '/portfolio':
         return c.portfolio(_need(arg('id'), 'id'), min_usd=_n(arg('min_usd'), 1.0))
     if path == '/tokens':
@@ -157,6 +173,32 @@ def route(method, path, query, body, key):
         return c.gas(_need(arg('chain'), 'chain'))
     if path == '/chains':
         return c.chains(q=arg('q'), refresh=_b(arg('refresh')))
+    if path == '/balances':
+        chains = arg('chains')
+        if isinstance(chains, str):
+            chains = [x for x in chains.split(',') if x.strip()]
+        return c.balances(_need(arg('id'), 'id'), chains=chains or None,
+                          min_usd=_n(arg('min_usd'), 0.0))
+    if path == '/networks':
+        return c.networks()
+    if path == '/funds':
+        return S.funds(amount=arg('amount'), refresh=_b(arg('refresh')))
+    if path.startswith('/funds/'):
+        return S.fund(path[len('/funds/'):], amount=arg('amount'),
+                      refresh=_b(arg('refresh')))
+    if path == '/savings':
+        return S.savings(_need(arg('id'), 'id'))
+    if path == '/savings/plan':
+        return S.plan(_need(arg('id'), 'id'), _need(arg('fund'), 'fund'),
+                      _need(arg('amount'), 'amount'))
+    if path == '/savings/exit':
+        return S.exit_tx(_need(arg('venue'), 'venue'), _need(arg('id'), 'id'),
+                         shares=arg('shares'))
+    if path == '/savings/record' and method == 'POST':
+        return S.record(_need(b.get('id'), 'id'), _need(b.get('fund'), 'fund'),
+                        _need(b.get('venue'), 'venue'),
+                        _need(b.get('amount'), 'amount'),
+                        _need(b.get('tx'), 'tx'), chain=b.get('chain'))
     if path == '/account':
         return c.account()
     if path == '/set_key' and method == 'POST':

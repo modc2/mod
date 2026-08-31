@@ -1,8 +1,8 @@
 """compute — one interface to every compute market.
 
-Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Nosana, Cathedral
-(confidential TDX), Prime Intellect, Polaris, Shadeform, and your own docker
-hosts, behind one vocabulary:
+Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Clore, Nosana, Aleph
+Cloud, Cathedral (confidential TDX), Prime Intellect, Polaris, Hyperbolic,
+RunPod, Fluence, Shadeform, and your own docker hosts, behind one vocabulary:
 
     m compute/search gpu=H100 max_usd_hr=3      # every market at once, cheapest first
     m compute/quote id=lium:b7095b41 hours=4    # cost + what it costs elsewhere

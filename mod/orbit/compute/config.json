@@ -1,7 +1,7 @@
 {
     "name": "compute",
     "version": "1.0.0",
-    "description": "One interface to every decentralized compute market, and a way to actually use what you rent. Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Clore, Nosana, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, Shadeform and your own docker hosts, normalized to one offer/instance shape priced in USD/hr and addressed as provider:ref. Then compute/deploy turns a rented box into a mod protocol node: it installs mod core over the same transport it rents with, and the browser console gets a shell, the node's module list, and a call button for every function on them \u2014 no port has to be open on the box. Twenty-one MCP tools replace eleven provider APIs. BYOK throughout: every call spends the caller's own credits on their own provider account, and the no-KYC crypto-native markets come first.",
+    "description": "One interface to every decentralized compute market, and a way to actually use what you rent. Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Clore, Nosana, Aleph Cloud, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, RunPod, Fluence, Shadeform and your own docker hosts, normalized to one offer/instance shape priced in USD/hr and addressed as provider:ref. Then compute/deploy turns a rented box into a mod protocol node: it installs mod core over the same transport it rents with, and the browser console gets a shell, the node's module list, and a call button for every function on them \u2014 no port has to be open on the box. Twenty-one MCP tools replace fourteen provider APIs. BYOK throughout: every call spends the caller's own credits on their own provider account, and the no-KYC crypto-native markets come first.",
     "icon": "\u25a6",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
@@ -23,10 +23,13 @@
         "vast": "open GPU marketplace \u2014 crypto funding, no KYC",
         "clore": "blockchain GPU marketplace \u2014 CLORE/BTC/USDT, public catalog, no KYC",
         "nosana": "Solana GPU grid \u2014 NOS, wallet-signed",
+        "aleph": "Aleph Cloud permissionless VMs \u2014 ALEPH streamed per second, wallet-signed",
         "cathedral": "confidential Intel TDX / CC-GPU with signed receipts",
         "prime": "Prime Intellect broker across decentralized + traditional clouds",
         "polaris": "Polaris GPU cloud",
         "hyperbolic": "open marketplace of independently operated GPUs \u2014 crypto or card",
+        "runpod": "community cloud of vetted independent hosts + secure datacenters \u2014 card or crypto",
+        "fluence": "decentralized CPU marketplace, enterprise racks \u2014 USDC or card",
         "shadeform": "multi-cloud aggregator \u2014 the fiat benchmark, not no-KYC",
         "local": "your own docker hosts, billed on-chain (COMPUTE_LOCAL=1)"
     },

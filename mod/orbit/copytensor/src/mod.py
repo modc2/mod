@@ -449,6 +449,7 @@ class Copytensor(m.Mod):
                 "app": f"http://localhost:{app_port}/copytensor",
                 "gateway_api": f"http://localhost:{gateway_port}/api/copytensor",
                 "gateway_app": f"http://localhost:{gateway_port}/copytensor",
+                "mcp": f"http://localhost:{api_port}/mcp",
             }
             cfg["port"] = api_port
             cfg["app_port"] = app_port
@@ -739,6 +740,15 @@ class Copytensor(m.Mod):
         """Run a portfolio pass now. `dry_run=True` returns the same plan
         without signing anything."""
         return self._post(f"/portfolio/sync?dry_run={str(bool(dry_run)).lower()}")
+
+    # MCP
+    def mcp(self) -> Any:
+        """How to connect an MCP client, and every tool it gets. The server
+        is the running API itself (POST /mcp) — nothing extra to start."""
+        out = self._get("/mcp/schema")
+        out["tools"] = [{"name": t["name"], "description": t["description"]}
+                        for t in out.get("tools", [])]
+        return out
 
     # the strat agent
     def agent_status(self) -> Any:

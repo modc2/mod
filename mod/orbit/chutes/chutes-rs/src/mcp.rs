@@ -71,14 +71,22 @@ pub fn tool_list() -> Value {
         },
         {
             "name": "models",
-            "description": "The chute catalog, normalized to {id, chute_id, in_price, out_price, kind, tags, invocations} with USD per 1M tokens.",
+            "description": "Browse the whole chute catalog (~500 chutes): rows are {id, chute_id, slug, in_price, out_price, cache_price, hour_price, kind, tags, invocations, instances (active replicas), gpus, gpu_count, owner, logo, image, description, readme, created_at, updated_at} with token prices in USD per 1M. Filters stack; `facets:true` adds counts per kind/tag/gpu/owner; page with offset+limit.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "search": { "type": "string" },
+                    "search": { "type": "string", "description": "every word must match name, tagline, tags, owner, gpus, image or readme" },
                     "kind": { "type": "string", "enum": ["chat", "image", "embedding", "custom", "any"], "default": "any" },
-                    "sort": { "type": "string", "enum": ["price", "name", "invocations"], "default": "price" },
+                    "tag": { "type": "string", "description": "one tag or a comma list, all required: hot, tee, vllm, sglang, openrouter…" },
+                    "gpu": { "type": "string", "description": "a supported GPU, e.g. h200, pro_6000, a100" },
+                    "owner": { "type": "string", "description": "chute owner username, e.g. chutes" },
+                    "live": { "type": "boolean", "description": "only chutes with an active replica right now", "default": false },
+                    "min_instances": { "type": "number" },
+                    "max_price": { "type": "number", "description": "max input price, USD per 1M" },
+                    "sort": { "type": "string", "enum": ["price", "out_price", "expensive", "name", "invocations", "instances", "newest", "updated", "gpus"], "default": "price" },
+                    "offset": { "type": "integer", "default": 0 },
                     "limit": { "type": "integer", "default": 200 },
+                    "facets": { "type": "boolean", "default": false },
                     "refresh": { "type": "boolean", "default": false }
                 }
             }
@@ -118,7 +126,7 @@ pub fn tool_list() -> Value {
         },
         {
             "name": "get_chute",
-            "description": "Get chute details by id or name.",
+            "description": "Full chute record by chute_id or name (readme, instances, node selector, image, price breakdown). Public — no key needed.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "chute_id": { "type": "string" } },
@@ -253,19 +261,63 @@ fn text_of(resp: &Value) -> String {
 }
 
 /// Filter + sort the normalized catalog. Shared by `models` and `route`.
+fn b(args: &Value, key: &str) -> bool {
+    match args.get(key) {
+        Some(Value::Bool(v)) => *v,
+        Some(Value::String(v)) => v == "1" || v == "true",
+        Some(Value::Number(n)) => n.as_u64().unwrap_or(0) > 0,
+        _ => false,
+    }
+}
+
+fn strs(m: &Value, k: &str) -> Vec<String> {
+    m.get(k)
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|t| t.as_str().map(|s| s.to_lowercase())).collect())
+        .unwrap_or_default()
+}
+
+/// Filter + sort the catalog. Every knob is optional; with none the whole
+/// catalog comes back sorted by price.
 fn rank(mut rows: Vec<Value>, args: &Value, default_kind: &str) -> Vec<Value> {
     let kind = s(args, "kind").unwrap_or(default_kind);
     if kind != "any" {
         rows.retain(|m| m.get("kind").and_then(|v| v.as_str()) == Some(kind));
     }
+    // `tag` may be one tag or a comma list; every one must be present.
+    if let Some(t) = s(args, "tag") {
+        let want: Vec<String> = t.split(',').map(|x| x.trim().to_lowercase()).filter(|x| !x.is_empty()).collect();
+        rows.retain(|m| {
+            let have = strs(m, "tags");
+            want.iter().all(|w| have.contains(w))
+        });
+    }
+    if let Some(g) = s(args, "gpu") {
+        let g = g.to_lowercase();
+        rows.retain(|m| strs(m, "gpus").iter().any(|x| x == &g));
+    }
+    if let Some(o) = s(args, "owner") {
+        let o = o.to_lowercase();
+        rows.retain(|m| m.get("owner").and_then(|v| v.as_str()).map(|x| x.to_lowercase()) == Some(o.clone()));
+    }
+    if b(args, "live") {
+        rows.retain(|m| m.get("instances").and_then(|v| v.as_u64()).unwrap_or(0) > 0);
+    }
+    if let Some(min) = fl(args, "min_instances") {
+        rows.retain(|m| m.get("instances").and_then(|v| v.as_f64()).unwrap_or(0.0) >= min);
+    }
     if let Some(q) = s(args, "search") {
         let ql = q.to_lowercase();
         rows.retain(|m| {
             let hay = format!(
-                "{} {} {}",
+                "{} {} {} {} {} {} {}",
                 m.get("id").and_then(|v| v.as_str()).unwrap_or(""),
                 m.get("description").and_then(|v| v.as_str()).unwrap_or(""),
-                m.get("tags").map(|t| t.to_string()).unwrap_or_default()
+                m.get("tags").map(|t| t.to_string()).unwrap_or_default(),
+                m.get("owner").and_then(|v| v.as_str()).unwrap_or(""),
+                m.get("gpus").map(|t| t.to_string()).unwrap_or_default(),
+                m.get("image").and_then(|v| v.as_str()).unwrap_or(""),
+                m.get("readme").and_then(|v| v.as_str()).unwrap_or(""),
             )
             .to_lowercase();
             ql.split_whitespace().all(|term| hay.contains(term))
@@ -275,22 +327,54 @@ fn rank(mut rows: Vec<Value>, args: &Value, default_kind: &str) -> Vec<Value> {
         rows.retain(|m| m.get("in_price").and_then(|v| v.as_f64()).unwrap_or(0.0) <= max);
     }
     let num = |m: &Value, k: &str| m.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let text = |m: &Value, k: &str| m.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    // A chute with no published price is unknown, not free — it sorts last,
+    // behind everything that quotes a number.
+    let priced = |m: &Value, k: &str| {
+        let v = num(m, k);
+        if v > 0.0 { v } else { f64::MAX }
+    };
     match s(args, "sort").unwrap_or("price") {
-        "invocations" => rows.sort_by(|a, b| num(b, "invocations").total_cmp(&num(a, "invocations"))),
-        "name" => rows.sort_by(|a, b| {
-            a.get("id").and_then(|v| v.as_str()).unwrap_or("").cmp(b.get("id").and_then(|v| v.as_str()).unwrap_or(""))
+        "invocations" | "calls" => rows.sort_by(|a, b| num(b, "invocations").total_cmp(&num(a, "invocations"))),
+        "instances" | "live" => rows.sort_by(|a, b| {
+            num(b, "instances").total_cmp(&num(a, "instances")).then(num(b, "invocations").total_cmp(&num(a, "invocations")))
         }),
-        _ => rows.sort_by(|a, b| {
-            // A chute with no published price is unknown, not free — it sorts
-            // last, behind everything that quotes a number.
-            let key = |m: &Value| {
-                let v = num(m, "in_price");
-                if v > 0.0 { v } else { f64::MAX }
-            };
-            key(a).total_cmp(&key(b))
-        }),
+        "name" => rows.sort_by(|a, b| text(a, "id").to_lowercase().cmp(&text(b, "id").to_lowercase())),
+        "newest" | "created" => rows.sort_by(|a, b| text(b, "created_at").cmp(&text(a, "created_at"))),
+        "updated" => rows.sort_by(|a, b| text(b, "updated_at").cmp(&text(a, "updated_at"))),
+        "gpus" => rows.sort_by(|a, b| num(b, "gpu_count").total_cmp(&num(a, "gpu_count"))),
+        "out_price" => rows.sort_by(|a, b| priced(a, "out_price").total_cmp(&priced(b, "out_price"))),
+        "expensive" => rows.sort_by(|a, b| num(b, "in_price").total_cmp(&num(a, "in_price"))),
+        _ => rows.sort_by(|a, b| priced(a, "in_price").total_cmp(&priced(b, "in_price"))),
     }
     rows
+}
+
+/// Counts per kind / tag / gpu / owner over a set of rows.
+fn facets(rows: &[Value]) -> Value {
+    use std::collections::BTreeMap;
+    let mut kinds: BTreeMap<String, u64> = BTreeMap::new();
+    let mut tags: BTreeMap<String, u64> = BTreeMap::new();
+    let mut gpus: BTreeMap<String, u64> = BTreeMap::new();
+    let mut owners: BTreeMap<String, u64> = BTreeMap::new();
+    let mut live = 0u64;
+    for m in rows {
+        *kinds.entry(m.get("kind").and_then(|v| v.as_str()).unwrap_or("").into()).or_default() += 1;
+        for t in strs(m, "tags") {
+            *tags.entry(t).or_default() += 1;
+        }
+        for g in strs(m, "gpus") {
+            *gpus.entry(g).or_default() += 1;
+        }
+        let o = m.get("owner").and_then(|v| v.as_str()).unwrap_or("");
+        if !o.is_empty() {
+            *owners.entry(o.into()).or_default() += 1;
+        }
+        if m.get("instances").and_then(|v| v.as_u64()).unwrap_or(0) > 0 {
+            live += 1;
+        }
+    }
+    json!({ "kinds": kinds, "tags": tags, "gpus": gpus, "owners": owners, "live": live })
 }
 
 /// Execute a tool. `keys` carries per-request API keys (headers / api_key arg).
@@ -401,13 +485,25 @@ pub async fn call_tool(name: &str, args: &Value, keys: &Keys) -> Result<Value, S
 
         "models" => {
             let refresh = args.get("refresh").and_then(|v| v.as_bool()).unwrap_or(false);
-            let rows = rank(upstream::models(&key, refresh).await.map_err(|e| e.to_string())?, args, "any");
+            let all = upstream::models(&key, refresh).await.map_err(|e| e.to_string())?;
+            let catalog = all.len();
+            let want_facets = b(args, "facets");
+            let facet_val = if want_facets { Some(facets(&all)) } else { None };
+            let rows = rank(all, args, "any");
             let total = rows.len();
+            let offset = u(args, "offset", 0) as usize;
             let limit = u(args, "limit", 200) as usize;
-            Ok(json!({
+            let mut out = json!({
+                "catalog": catalog,
                 "total": total,
-                "items": rows.into_iter().take(limit).collect::<Vec<_>>(),
-            }))
+                "offset": offset,
+                "limit": limit,
+                "items": rows.into_iter().skip(offset).take(limit).collect::<Vec<_>>(),
+            });
+            if let Some(f) = facet_val {
+                out["facets"] = f;
+            }
+            Ok(out)
         }
 
         "status" => {

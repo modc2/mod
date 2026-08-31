@@ -244,6 +244,7 @@ function TraderPageInner() {
       pnl: 0,
       winRate: -1,
       sharpe: 0,
+      exitEntry: -1,
       positions: positions.length,
       marketTitles: positions.map((p) => p.market).slice(0, 20),
       recentTrades: recent.length,

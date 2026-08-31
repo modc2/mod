@@ -36,12 +36,14 @@ pm_live_gates                     why a running session isn't filling
 Same thing over HTTP (owner Bearer required — the whole API is owner-only):
 
 ```
-GET    /copy/book?eoa=0x…
+GET    /copy/book?eoa=0x…  rows + totals, plus `sessions`: sessions RUNNING on this wallet
+                           that are not rows (older strat screens) — the desk shows and can stop them
 POST   /copy/allocations   {address, allocationUsd, label?, enabled?, params?}
 DELETE /copy/allocations/{address}?eoa=0x…
 POST   /copy/rebalance     {bankroll, mode: "equal"|"weighted"}
 POST   /copy/start         {eoa, address?, autoExecute?}
 POST   /copy/stop          {eoa, address?}
+POST   /live/stop          {eoa, strategyId}   stop one of those non-book sessions
 GET    /copy/strats        the book as identity strats — what the worker replays
 
 POST   /polymarket/api/basket  {legs:[{address, allocationUsd}], days, compare?, floors?}
@@ -89,10 +91,12 @@ src/app/app/lib/semanticFilter.ts   one English sentence → filter, and → the
 src/app/app/lib/copyTrades.ts  the join: my fills ↔ the leader trades they mirror
 src/app/app/api/copytrades/route.ts  that join, for the screen and for pm_copy_trades
 src/app/app/components/CopyTradesPanel.tsx  /copy/trades + its compact twin in the sidebar
-src/app/app/components/CopyPanel.tsx  the sidebar book: roster, bulk bar, MEASURE, TRADES
+src/app/app/components/CopyPanel.tsx  the sidebar book (WHO I COPY): roster, bulk bar, BACKTEST, RESULTS
 src/app/app/lib/basketSim.ts   the BASKET replay: one sleeve per leg, on its own capital
 src/app/app/components/BasketSim.tsx  /copy/basket — the roster IS the results table
 src/app/app/api/basket/route.ts  the same replay for agents (pm_copy_basket)
+src/app/app/lib/copyLadder.ts   one leader replayed at several $ — feed/bankroll/resolutions once, a rung per size
+src/app/app/components/DeskAllocationChart.tsx  WHERE THE MONEY IS: $ per trader as bars with the backtest at that $, click → replay at $N + ladder
 src/app/app/lib/copyBook.ts    its client; one function per route, no local state
 src/app/app/lib/server/hubWorker.ts  the backtest worker; reads /copy/strats each pass
 src/mcp.py                     pm_copy_* — the same routes, for agents

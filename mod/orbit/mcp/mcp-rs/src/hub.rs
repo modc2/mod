@@ -1,7 +1,8 @@
 //! The hub's own MCP face: one JSON-RPC 2.0 endpoint whose tool list is the
 //! union of every enabled upstream's tools, each renamed `{server}__{tool}`.
 //! tools/call splits on the first `__` and proxies to the owning upstream.
-//! Two native tools ride along: hub_servers and hub_search.
+//! Native tools ride along: hub_servers, hub_search, hub_catalog, hub_hubs,
+//! hub_connect, web_search and web_fetch.
 
 use crate::state::AppState;
 use crate::store::Probe;
@@ -58,13 +59,39 @@ fn native_tools() -> Vec<Value> {
         }),
         json!({
             "name": "hub_catalog",
-            "description": "Search the public MCP directories (the official registry, Smithery, and a keyless featured list) for servers this hub could connect to. Read-only: registering one is a POST /servers on the hub's REST API.",
+            "description": "Search for MCP servers across every hub this one knows: the public directories (official registry, Smithery, Glama and PulseMCP when keyed, a keyless featured list), the fleet's internet-wide index (mcpscan — rows carry a live/auth/down status), and every peer mod hub added by URL. Read-only; hub_connect registers a row.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "q": { "type": "string", "description": "What the server should do, e.g. 'github issues'" },
-                    "registry": { "type": "string", "description": "featured | official | smithery | all", "default": "all" },
+                    "registry": { "type": "string", "description": "all | featured | official | smithery | glama | pulsemcp | an index id (mcpscan, mcpscan:docker) | a peer hub id — hub_hubs lists them", "default": "all" },
                     "limit": { "type": "integer", "default": 20 }
+                }
+            }
+        }),
+        json!({
+            "name": "hub_hubs",
+            "description": "List every hub type this hub can see and connect to, with what each holds: this mod hub itself (kind mod), peer mod hubs, the fleet's internet-wide index (kind index) and the public directories (kind directory) — servers/live/tools counts, whether a key is needed, and the registry= value that searches it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "refresh": { "type": "boolean", "description": "Re-probe every hub now instead of using the cached view", "default": false }
+                }
+            }
+        }),
+        json!({
+            "name": "hub_connect",
+            "description": "Register an MCP server on this hub so its tools become callable as id__tool. Pass a server URL, or `hub` = a hub id from hub_hubs (mod/index kind) to connect that whole hub — its tools then arrive nested as hub__server__tool. The endpoint is probed first; a server that will not shake hands is refused unless force is true. Needs registry-edit rights (owner/editor wallet or a caller on the hub's host).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "Streamable HTTP MCP endpoint" },
+                    "hub": { "type": "string", "description": "A hub id from hub_hubs, instead of url" },
+                    "id": { "type": "string", "description": "Tool-name prefix (defaults to the host or hub id)" },
+                    "name": { "type": "string" },
+                    "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Sent on every upstream request, e.g. Authorization" },
+                    "note": { "type": "string" },
+                    "force": { "type": "boolean", "default": false }
                 }
             }
         }),
@@ -130,9 +157,56 @@ pub async fn servers_view(state: &Arc<AppState>) -> Vec<Value> {
     server_rows(state).await
 }
 
+/// Register a server from a request body — shared by POST /servers and the
+/// hub_connect tool. Probes first; the caller has already been gated.
+pub async fn register_server(state: &Arc<AppState>, body: &Value) -> Result<Value, String> {
+    let url = body.get("url").and_then(|v| v.as_str()).ok_or("`url` is required")?.trim().to_string();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("`url` must be http(s)".into());
+    }
+    let fallback_id = url
+        .split("//")
+        .nth(1)
+        .unwrap_or("server")
+        .split(['/', ':'])
+        .next()
+        .unwrap_or("server");
+    let id = crate::store::clean_id(body.get("id").and_then(|v| v.as_str()).unwrap_or(fallback_id));
+    let custom_headers: std::collections::HashMap<String, String> = body
+        .get("headers")
+        .and_then(|h| h.as_object())
+        .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+        .unwrap_or_default();
+    let entry = crate::store::ServerEntry {
+        id: id.clone(),
+        name: body.get("name").and_then(|v| v.as_str()).unwrap_or(&id).to_string(),
+        url,
+        headers: custom_headers,
+        source: "user".into(),
+        note: body.get("note").and_then(|v| v.as_str()).unwrap_or("").chars().take(300).collect(),
+        added_at: crate::store::now(),
+        origin: body.get("origin").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        ..Default::default()
+    };
+    let probe = upstream::probe(&entry).await;
+    if !probe.ok && body.get("force").and_then(|v| v.as_bool()) != Some(true) {
+        return Err(format!("probe failed ({}). Pass force:true to register anyway.", probe.error));
+    }
+    {
+        let mut user = state.user.write().await;
+        user.retain(|s| s.id != entry.id);
+        user.push(entry.clone());
+    }
+    state.disabled.write().await.remove(&id);
+    state.persist().await;
+    state.set_probe(&id, probe.clone()).await;
+    Ok(json!({ "added": entry, "probe": probe_json(&probe) }))
+}
+
 /// Route a namespaced tool call. Returns the upstream's tools/call result
-/// verbatim (already MCP-shaped), or a hub-native result.
-pub async fn call_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Result<Value, String> {
+/// verbatim (already MCP-shaped), or a hub-native result. `may_write` is the
+/// registry-edit privilege, which hub_connect needs on top of the call gate.
+pub async fn call_tool(state: &Arc<AppState>, name: &str, args: &Value, may_write: bool) -> Result<Value, String> {
     match name {
         "hub_servers" => {
             let rows = server_rows(state).await;
@@ -183,8 +257,50 @@ pub async fn call_tool(state: &Arc<AppState>, name: &str, args: &Value) -> Resul
             let q = args.get("q").and_then(|v| v.as_str()).unwrap_or("");
             let registry = args.get("registry").and_then(|v| v.as_str()).unwrap_or("all");
             let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
-            let cat = crate::catalog::search(q, registry, limit).await;
+            let cat = crate::catalog::search(state, q, registry, limit).await;
             return Ok(wrap_result(serde_json::to_value(cat).unwrap_or_default()));
+        }
+        "hub_hubs" => {
+            let refresh = args.get("refresh").and_then(|v| v.as_bool()).unwrap_or(false);
+            let max_age = if refresh { 0 } else { crate::hubs::CACHE_SECS };
+            let mut view = crate::hubs::view(state, &crate::store::public_url(), max_age).await;
+            view["manifest"] = crate::hubs::manifest(state, &crate::store::public_url()).await;
+            return Ok(wrap_result(view));
+        }
+        "hub_connect" => {
+            if !may_write {
+                return Err("hub_connect edits the registry: it needs an owner/editor wallet token or a caller on the hub's host (an API key only buys tool calls)".into());
+            }
+            let mut body = args.clone();
+            if let Some(hub_id) = args.get("hub").and_then(|v| v.as_str()).filter(|h| !h.is_empty()) {
+                let hubs = crate::hubs::known(state, &crate::store::public_url()).await;
+                let h = hubs.iter().find(|h| h.id == hub_id).ok_or_else(|| format!("no hub `{hub_id}` — hub_hubs lists them"))?;
+                if h.is_self {
+                    return Err("that is this hub".into());
+                }
+                if h.mcp.is_empty() {
+                    return Err(format!("`{hub_id}` is a {} — it has no MCP endpoint of its own; search it with hub_catalog and connect rows one at a time", h.kind));
+                }
+                body["url"] = json!(h.mcp);
+                if body.get("id").is_none() {
+                    body["id"] = json!(h.id);
+                }
+                if body.get("name").is_none() {
+                    body["name"] = json!(h.name);
+                }
+                if body.get("note").is_none() {
+                    body["note"] = json!(format!("{} hub — tools arrive as {}__server__tool", h.kind, h.id));
+                }
+                if body.get("headers").is_none() {
+                    let peers = state.peers.read().await;
+                    if let Some(p) = peers.iter().find(|p| p.id == h.id) {
+                        body["headers"] = json!(p.headers);
+                    }
+                }
+                body["origin"] = json!(format!("hub:{}", h.id));
+            }
+            let added = register_server(state, &body).await?;
+            return Ok(wrap_result(added));
         }
         _ => {}
     }
@@ -219,16 +335,18 @@ fn rpc_error(id: Value, code: i64, message: &str) -> Value {
 
 /// Handle one JSON-RPC message aimed at the hub itself. None = notification.
 pub async fn handle_message(state: &Arc<AppState>, msg: &Value) -> Option<Value> {
-    handle_message_gated(state, msg, true).await
+    handle_message_gated(state, msg, true, true).await
 }
 
 /// As above, but `may_call = false` refuses tools/call while still answering
 /// initialize and tools/list — an unauthenticated client can see the
 /// catalogue and is told, in the tool result, how to earn the right to run it.
+/// `may_write` is the narrower registry-edit right that hub_connect needs.
 pub async fn handle_message_gated(
     state: &Arc<AppState>,
     msg: &Value,
     may_call: bool,
+    may_write: bool,
 ) -> Option<Value> {
     let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
     let params = msg.get("params").cloned().unwrap_or(json!({}));
@@ -260,7 +378,7 @@ pub async fn handle_message_gated(
         "tools/call" => {
             let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            match call_tool(state, name, &args).await {
+            match call_tool(state, name, &args, may_write).await {
                 Ok(v) => rpc_result(id, v),
                 Err(e) => rpc_result(
                     id,

@@ -22,6 +22,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import hyperevm
 import pool as pool_mod
+
+
+def F(model, tol):
+    """A score-function snapshot — what the settlement helpers now take."""
+    return pool_mod.fn_for(model, tol)
+
 from mod import Mod
 from pool import (Pool, settle_asset, settle_free, shadow_payout, split_pot,
                   accuracy, usd_to_units, units_to_usd)
@@ -144,23 +150,23 @@ class TestAccuracy(unittest.TestCase):
     """linear @ tolerance 1.0 is a pure relative-L1 score: a = 1 − e."""
 
     def test_perfect_call(self):
-        self.assertEqual(accuracy(100.0, 100.0, 'linear', 1.0)['accuracy'], 1.0)
+        self.assertEqual(accuracy(100.0, 100.0, F('linear', 1.0))['accuracy'], 1.0)
 
     def test_is_one_minus_relative_error(self):
-        got = accuracy(90.0, 100.0, 'linear', 1.0)
+        got = accuracy(90.0, 100.0, F('linear', 1.0))
         self.assertAlmostEqual(got['rel_error'], 0.1)
         self.assertAlmostEqual(got['accuracy'], 0.9)
 
     def test_direction_does_not_matter(self):
-        self.assertAlmostEqual(accuracy(110.0, 100.0, 'linear', 1.0)['accuracy'],
-                               accuracy(90.0, 100.0, 'linear', 1.0)['accuracy'])
+        self.assertAlmostEqual(accuracy(110.0, 100.0, F('linear', 1.0))['accuracy'],
+                               accuracy(90.0, 100.0, F('linear', 1.0))['accuracy'])
 
     def test_double_is_worthless(self):
-        self.assertEqual(accuracy(200.0, 100.0, 'linear', 1.0)['accuracy'], 0.0)
+        self.assertEqual(accuracy(200.0, 100.0, F('linear', 1.0))['accuracy'], 0.0)
 
     def test_tolerance_sharpens_it(self):
-        loose = accuracy(102.0, 100.0, 'linear', 1.0)['accuracy']
-        tight = accuracy(102.0, 100.0, 'linear', 0.05)['accuracy']
+        loose = accuracy(102.0, 100.0, F('linear', 1.0))['accuracy']
+        tight = accuracy(102.0, 100.0, F('linear', 0.05))['accuracy']
         self.assertGreater(loose, tight)
 
 
@@ -173,7 +179,7 @@ class TestSettleAsset(unittest.TestCase):
     def test_dollars_times_accuracy(self):
         # Alice: $100 at 1% off → score 99. Bob: $100 at 10% off → score 90.
         out = settle_asset(self._entries((ALICE, 100.0, 101.0), (BOB, 100.0, 110.0)),
-                           100.0, 'linear', 1.0, 0)
+                           100.0, F('linear', 1.0), 0)
         alice, bob = out['entries']
         self.assertAlmostEqual(alice['score'], 99.0)
         self.assertAlmostEqual(bob['score'], 90.0)
@@ -183,7 +189,7 @@ class TestSettleAsset(unittest.TestCase):
 
     def test_more_dollars_wins_a_tie_on_accuracy(self):
         out = settle_asset(self._entries((ALICE, 300.0, 101.0), (BOB, 100.0, 101.0)),
-                           100.0, 'linear', 1.0, 0)
+                           100.0, F('linear', 1.0), 0)
         alice, bob = out['entries']
         self.assertAlmostEqual(alice['payout'], 300.0, places=4)
         self.assertAlmostEqual(bob['payout'], 100.0, places=4)
@@ -192,7 +198,7 @@ class TestSettleAsset(unittest.TestCase):
     def test_accuracy_beats_size(self):
         # $10 dead on vs $1000 half wrong.
         out = settle_asset(self._entries((ALICE, 10.0, 100.0), (BOB, 1000.0, 150.0)),
-                           100.0, 'linear', 1.0, 0)
+                           100.0, F('linear', 1.0), 0)
         alice, bob = out['entries']
         self.assertAlmostEqual(alice['score'], 10.0)
         self.assertAlmostEqual(bob['score'], 500.0)
@@ -202,7 +208,7 @@ class TestSettleAsset(unittest.TestCase):
 
     def test_sole_correct_caller_takes_the_pot(self):
         out = settle_asset(self._entries((ALICE, 50.0, 100.0), (BOB, 150.0, 300.0)),
-                           100.0, 'linear', 1.0, 0)
+                           100.0, F('linear', 1.0), 0)
         alice, bob = out['entries']
         self.assertAlmostEqual(alice['payout'], 200.0, places=4)
         self.assertEqual(bob['payout'], 0.0)
@@ -210,14 +216,14 @@ class TestSettleAsset(unittest.TestCase):
 
     def test_everyone_wrong_is_a_refund_not_a_confiscation(self):
         out = settle_asset(self._entries((ALICE, 100.0, 500.0), (BOB, 50.0, 900.0)),
-                           100.0, 'threshold', 0.01, 300)
+                           100.0, F('threshold', 0.01), 300)
         self.assertEqual(out['mode'], 'refund')
         self.assertEqual(out['fee'], 0.0)
         self.assertEqual([e['payout'] for e in out['entries']], [100.0, 50.0])
 
     def test_fee_comes_off_the_pot(self):
         out = settle_asset(self._entries((ALICE, 100.0, 100.0)), 100.0,
-                           'linear', 1.0, 250)          # 2.5%
+                           F('linear', 1.0), 250)          # 2.5%
         self.assertAlmostEqual(out['fee'], 2.5)
         self.assertAlmostEqual(out['pot'], 97.5)
         self.assertAlmostEqual(out['entries'][0]['payout'], 97.5)
@@ -226,7 +232,7 @@ class TestSettleAsset(unittest.TestCase):
     def test_pot_is_conserved_to_the_unit(self):
         entries = self._entries((ALICE, 33.33, 101.0), (BOB, 66.67, 99.5),
                                 (CAROL, 0.01, 100.2))
-        out = settle_asset(entries, 100.0, 'l2', 0.02, 0)
+        out = settle_asset(entries, 100.0, F('l2', 0.02), 0)
         paid = sum(usd_to_units(e['payout']) for e in out['entries'])
         self.assertEqual(paid, usd_to_units(out['pot']))
 
@@ -238,9 +244,10 @@ class TestShadowPayout(unittest.TestCase):
         return [{'id': i + 1, 'address': a, 'amount': amt, 'predicted_price': px}
                 for i, (a, amt, px) in enumerate(pairs)]
 
-    def _paid(self, entries, actual, model='linear', tol=1.0):
+    def _paid(self, entries, actual, fn=None):
+        fn = fn or F('linear', 1.0)
         return (sum(float(e['amount']) * accuracy(e['predicted_price'], actual,
-                                                  model, tol)['accuracy']
+                                                  fn)['accuracy']
                     for e in entries),
                 sum(float(e['amount']) for e in entries))
 
@@ -250,14 +257,16 @@ class TestShadowPayout(unittest.TestCase):
         paid = self._entries((ALICE, 100.0, 101_000.0), (BOB, 250.0, 97_000.0))
         actual, notional = 100_000.0, 100.0
         for model, tol, fee in (('linear', 1.0, 0), ('l2', 0.05, 250),
-                                ('exponential', 0.02, 100), ('linear', 1.0, 500)):
-            score, gross = self._paid(paid, actual, model, tol)
-            shadow = shadow_payout(99_500.0, actual, model, tol, fee, notional,
+                                ('exponential', 0.02, 100), ('linear', 1.0, 500),
+                                ('cushion', 0.1, 0), ('hinge', 0.05, 250)):
+            fn = F(model, tol)
+            score, gross = self._paid(paid, actual, fn)
+            shadow = shadow_payout(99_500.0, actual, fn, fee, notional,
                                    score, gross)
             real = settle_asset(
                 paid + [{'id': 99, 'address': CAROL, 'amount': notional,
                          'predicted_price': 99_500.0}],
-                actual, model, tol, fee)
+                actual, fn, fee)
             carol = next(e for e in real['entries'] if e['id'] == 99)
             self.assertAlmostEqual(shadow['would_win'], carol['payout'], places=5,
                                    msg=f'{model}/{tol}/{fee} counterfactual drifted')
@@ -265,20 +274,20 @@ class TestShadowPayout(unittest.TestCase):
     def test_the_free_caller_funds_their_own_counterfactual(self):
         # Alone in an empty pot, you get your paper stake back, less the fee —
         # not a windfall out of a pot nobody funded.
-        shadow = shadow_payout(100_000.0, 100_000.0, 'linear', 1.0, 0, 100.0)
+        shadow = shadow_payout(100_000.0, 100_000.0, F('linear', 1.0), 0, 100.0)
         self.assertAlmostEqual(shadow['would_win'], 100.0, places=5)
         self.assertAlmostEqual(shadow['would_net'], 0.0, places=5)
 
     def test_a_better_call_would_have_taken_the_pot(self):
         paid = self._entries((ALICE, 100.0, 110_000.0))       # 10% off
         score, gross = self._paid(paid, 100_000.0)
-        shadow = shadow_payout(100_000.0, 100_000.0, 'linear', 1.0, 0, 100.0,
+        shadow = shadow_payout(100_000.0, 100_000.0, F('linear', 1.0), 0, 100.0,
                                score, gross)
         self.assertGreater(shadow['would_net'], 0)
         self.assertLess(shadow['would_win'], 200.0)           # Alice keeps a share
 
     def test_missing_everything_is_a_refund_not_a_loss(self):
-        shadow = shadow_payout(500_000.0, 100_000.0, 'threshold', 0.01, 300, 100.0)
+        shadow = shadow_payout(500_000.0, 100_000.0, F('threshold', 0.01), 300, 100.0)
         self.assertEqual(shadow['would_mode'], 'refund')
         self.assertEqual(shadow['would_win'], 100.0)
         self.assertEqual(shadow['would_net'], 0.0)
@@ -289,7 +298,7 @@ class TestShadowPayout(unittest.TestCase):
                  'amount': 0.0, 'free': True, 'notional': 100.0},
                 {'id': 11, 'address': CAROL, 'predicted_price': 100_000.0,
                  'amount': 0.0, 'free': True, 'notional': 100.0}]
-        out = settle_free(free, paid, 100_000.0, 'linear', 1.0, 0)
+        out = settle_free(free, paid, 100_000.0, F('linear', 1.0), 0)
         # Two identical free calls each see the same $200 two-way split. Neither
         # dilutes the other, because neither is in the pot.
         self.assertAlmostEqual(out[0]['would_win'], 100.0, places=5)
@@ -346,13 +355,27 @@ class PoolTestBase(unittest.TestCase):
         self.markets = [{'symbol': 'BTC', 'token': 'BTC', 'source': 'hyperliquid',
                          'active': True},
                         {'symbol': 'WETH', 'token': '0xweth', 'source': 'coingecko',
-                         'active': True}]
+                         'active': True},
+                        {'symbol': 'SN64', 'token': 'bt:64', 'source': 'bittensor',
+                         'bt_netuid': 64, 'quote': 'TAO', 'active': True}]
+        self.prices['SN64'] = 0.085
         self.fees = []
+        # Every price lookup records which feed it was asked for, so a test
+        # can assert a subnet pot never settles against Hyperliquid.
+        self.price_calls = []
+
+        def price_at(sym, ts, src=None):
+            self.price_calls.append(('at', sym, src))
+            return {'price': self.prices.get(sym), 'mode': 'historical'}
+
+        def price_now(sym, src=None):
+            self.price_calls.append(('now', sym, src))
+            return self.prices.get(sym)
+
         self.pool = Pool(
             self.tmp,
-            price_at=lambda sym, ts, src=None: {'price': self.prices.get(sym),
-                                                'mode': 'historical'},
-            price_now=lambda sym, src=None: self.prices.get(sym),
+            price_at=price_at,
+            price_now=price_now,
             markets=lambda: self.markets,
             on_fee=self.fees.append,
         )
@@ -460,6 +483,15 @@ class TestStaking(PoolTestBase):
         out = self.pool.stake(ALICE, 'WETH', 3000, 50.0)
         self.assertIn('Hyperliquid', out['error'])
 
+    def test_a_bittensor_subnet_is_stakeable_in_tao(self):
+        self.fund(ALICE, 100.0)
+        out = self.pool.stake(ALICE, 'SN64', 0.09, 50.0)
+        self.assertNotIn('error', out)
+        self.assertEqual(out['quote'], 'TAO')
+        self.assertEqual(out['mark_at_entry'], 0.085)
+        self.assertIn(('now', 'SN64', 'bittensor'), self.price_calls)
+        self.assertNotIn(('now', 'SN64', 'hyperliquid'), self.price_calls)
+
     def test_unknown_market_refused(self):
         self.fund(ALICE, 100.0)
         self.assertIn('no market', self.pool.stake(ALICE, 'DOGE', 1.0, 50.0)['error'])
@@ -483,10 +515,10 @@ class TestStaking(PoolTestBase):
 
 class TestSettlement(PoolTestBase):
 
-    def _closed_round_with(self, *stakes, rewind_extra=0):
+    def _closed_round_with(self, *stakes, rewind_extra=0, asset='BTC'):
         for addr, amount, price in stakes:
             self.fund(addr, amount)
-            out = self.pool.stake(addr, 'BTC', price, amount)
+            out = self.pool.stake(addr, asset, price, amount)
             self.assertNotIn('error', out)
         st = self.pool.state()
         st['schedule']['anchor'] -= st['schedule']['interval'] + 10 + rewind_extra
@@ -510,6 +542,26 @@ class TestSettlement(PoolTestBase):
         self.assertAlmostEqual(alice + bob, 200.0, places=5)
         self.assertGreater(alice, 100.0)
         self.assertLess(bob, 100.0)
+
+    def test_a_subnet_pot_settles_against_the_bittensor_feed_in_tao(self):
+        self.prices['SN64'] = 0.085
+        self._closed_round_with((ALICE, 100.0, 0.086),    # ~1% off
+                                (BOB, 100.0, 0.100),      # ~18% off
+                                asset='SN64')
+        out = self.pool.settle()
+        self.assertEqual(len(out['settled']), 1)
+        pot = out['settled'][0]
+        self.assertEqual(pot['winner']['address'], ALICE)
+        self.assertIn(('at', 'SN64', 'bittensor'), self.price_calls)
+        self.assertFalse([c for c in self.price_calls if c[1] == 'SN64' and c[2] == 'hyperliquid'])
+        record = self.pool.rounds(limit=5)[0]
+        self.assertEqual(record['assets']['SN64']['quote'], 'TAO')
+        self.assertEqual(record['assets']['SN64']['actual_price'], 0.085)
+        # Balances still move in dollars — the quote unit only scores accuracy.
+        alice = self.pool.balance(ALICE)['available']
+        bob = self.pool.balance(BOB)['available']
+        self.assertAlmostEqual(alice + bob, 200.0, places=5)
+        self.assertGreater(alice, bob)
 
     def test_each_asset_gets_its_own_pot(self):
         self.markets.append({'symbol': 'HYPE', 'token': 'HYPE',

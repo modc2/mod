@@ -451,7 +451,7 @@ impl CopyBookStore {
         }
         self.write(|book| {
             let now = now_ms();
-            match book.allocations.iter_mut().find(|a| a.address == address) {
+            let out = match book.allocations.iter_mut().find(|a| a.address == address) {
                 Some(existing) => {
                     existing.allocation_usd = req.allocation_usd;
                     if req.label.is_some() {
@@ -468,7 +468,7 @@ impl CopyBookStore {
                     // the stop-loss someone set in the browser.
                     existing.params.merge(&req.params);
                     existing.updated_at = now;
-                    Ok(existing.clone())
+                    existing.clone()
                 }
                 None => {
                     if book.allocations.len() >= MAX_ALLOCATIONS {
@@ -488,9 +488,18 @@ impl CopyBookStore {
                         updated_at: now,
                     };
                     book.allocations.push(alloc.clone());
-                    Ok(alloc)
+                    alloc
                 }
+            };
+            // Accepting a promise the bankroll can't cover would greet the
+            // user with an over-allocation warning the desk itself created —
+            // a promise taken on raises the target to cover it. Only an
+            // explicit set_bankroll can put the book under water.
+            let promised = book.allocated();
+            if promised > book.bankroll {
+                book.bankroll = round_cents(promised);
             }
+            Ok(out)
         })
     }
 
@@ -744,9 +753,59 @@ fn session_view(state: &AppState, eoa: &str, strategy_id: &str) -> Option<Value>
     }))
 }
 
+/// Sessions RUNNING on this wallet that are not rows of the book.
+///
+/// The engine is keyed by (eoa, strategyId) and the desk only reads the ids
+/// it derives from its own allocations — so a strat session started from an
+/// older console (a multi-trader index, a candle bot) keeps placing real
+/// orders against the same wallet while the desk reports "none running". The
+/// desk has to be able to say what the wallet is doing, all of it, or its
+/// totals are a lie. Running only: a stopped session moves no money.
+fn other_sessions(state: &AppState, eoa: &str, book_ids: &[String]) -> Vec<Value> {
+    state
+        .engines
+        .session_ids(eoa)
+        .into_iter()
+        .filter(|sid| !book_ids.contains(sid))
+        .filter_map(|sid| {
+            let st = state.engines.status_of(eoa, Some(&sid))?;
+            let cfg = state.engines.config_of(eoa, Some(&sid));
+            let ledger = st.strat_stats.get(&sid);
+            let traders: Vec<String> = cfg
+                .as_ref()
+                .map(|c| {
+                    c.traders
+                        .iter()
+                        .filter(|t| t.enabled)
+                        .map(|t| t.address.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(json!({
+                "strategyId": sid,
+                "running": true,
+                "autoExecute": cfg.as_ref().map(|c| c.auto_execute).unwrap_or(false),
+                "capital": cfg.as_ref().map(|c| c.capital),
+                "marketQuery": cfg.as_ref().and_then(|c| c.market_query.clone()),
+                "momentum": cfg.as_ref().map(|c| c.momentum.is_some()).unwrap_or(false),
+                "traders": traders,
+                "status": st.status,
+                "cycles": st.cycle_count,
+                "ordersPlaced": st.total_orders_placed,
+                "balance": st.balance,
+                "error": st.error,
+                "realized": ledger.map(|l| l.realized),
+                "lastFillAt": ledger.map(|l| l.last_fill_at),
+            }))
+        })
+        .collect()
+}
+
 /// The desk, assembled: the book plus, per leader, what their session is doing.
-fn book_response(state: &AppState, eoa: Option<&str>) -> Value {
+pub(crate) fn book_response(state: &AppState, eoa: Option<&str>) -> Value {
     let book = state.copy_book.read();
+    let book_ids: Vec<String> = book.allocations.iter().map(|a| a.strategy_id()).collect();
+    let sessions = eoa.map(|e| other_sessions(state, e, &book_ids)).unwrap_or_default();
     let rows: Vec<Value> = book
         .allocations
         .iter()
@@ -788,6 +847,8 @@ fn book_response(state: &AppState, eoa: Option<&str>) -> Value {
         "updatedAt": book.updated_at,
         "eoa": eoa,
         "allocations": rows,
+        // Running on this wallet, outside the book — see `other_sessions`.
+        "sessions": sessions,
         "totals": {
             "traders": book.allocations.len(),
             "enabled": book.allocations.iter().filter(|a| a.enabled).count(),
@@ -799,6 +860,12 @@ fn book_response(state: &AppState, eoa: Option<&str>) -> Value {
             // Sessions actually placing orders. `running - executing` are in
             // DRY RUN: they compute every mirror and send nothing.
             "executing": executing,
+            // Sessions the desk does not own but the wallet is paying for.
+            "otherRunning": sessions.len(),
+            "otherExecuting": sessions
+                .iter()
+                .filter(|s| s["autoExecute"].as_bool().unwrap_or(false))
+                .count(),
         },
     })
 }
@@ -1280,6 +1347,21 @@ mod tests {
             book.allocations[0].strategy_id(),
             "copy-aaa0000000000000000000000000000000000001"
         );
+    }
+
+    #[test]
+    fn a_promise_the_bankroll_cannot_cover_raises_the_bankroll() {
+        let store = temp_store("bankroll-grows");
+        store.set_bankroll(10.0).unwrap();
+        store.upsert(upsert(100.0, "0xAAA0000000000000000000000000000000000001")).unwrap();
+        assert_eq!(store.read().bankroll, 100.0, "add grew the target to cover the promise");
+        // Lowering the bankroll afterwards is deliberate and sticks.
+        store.set_bankroll(10.0).unwrap();
+        assert_eq!(store.read().bankroll, 10.0);
+        // Shrinking an allocation never shrinks the target back.
+        store.set_bankroll(500.0).unwrap();
+        store.upsert(upsert(50.0, "0xAAA0000000000000000000000000000000000001")).unwrap();
+        assert_eq!(store.read().bankroll, 500.0);
     }
 
     #[test]

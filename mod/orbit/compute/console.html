@@ -466,6 +466,7 @@
        color:var(--ink);display:none;white-space:nowrap;line-height:1.5}
   .tip b{color:var(--gold-hi);font-weight:400}
   .rows{display:flex;flex-direction:column;gap:1px}
+  .rows.all{max-height:236px;overflow-y:auto;scrollbar-width:thin;padding-right:2px}
   .rows .r{display:grid;grid-template-columns:minmax(48px,40%) 1fr auto;gap:7px;align-items:center;
            font-size:10px;line-height:1.3;color:var(--dim);cursor:pointer;padding:0 3px;border:2px solid transparent}
   .dead{margin-top:auto;padding-top:5px;font-size:9px;color:var(--faint)}
@@ -871,6 +872,7 @@ function setToken() {
 let ALL = [], REPORT = {}, TOOK = 0, SHOW = 120, HX = null;
 const PAGE = 120, BUCKETS = 30, TOPN = 8;
 const PICK = {price: null, market: new Set(), gpu: new Set(), vram: new Set()};
+let GPU_ALL = false;   // GPU panel: top-N with an "other" bucket, or every model
 const gpuName = o => (o.gpu || o.kind || '?').replace(/^NVIDIA\s+/i, '')
   .replace(/^GeForce\s+/i, '').replace(/\s+/g, ' ').trim() || '?';
 const TIERS = [['0-8G', 8], ['10-16G', 16], ['20-24G', 24], ['32-48G', 48], ['80G+', 1e9]];
@@ -914,7 +916,10 @@ function tally(rows, key) {
   for (const o of rows) { const k = key(o); m.set(k, (m.get(k) || 0) + 1) }
   return m;
 }
-const gpuKey = o => { const g = gpuName(o); return HX.gpus.includes(g) ? g : '__other' };
+// A gpu pick is by model name; '__other' means "any model outside the top N",
+// so picks survive flipping the panel between TOP and ALL.
+const gpuHit = o => { const g = gpuName(o);
+  return PICK.gpu.has(g) || (PICK.gpu.has('__other') && !HX.gpus.includes(g)) };
 
 // every row that survives the picks — `skip` is the panel asking, which
 // sees the world without its own pick so it can show what is still open
@@ -924,7 +929,7 @@ function passes(o, skip) {
     if (b == null || b < PICK.price[0] || b > PICK.price[1]) return false;
   }
   if (skip !== 'market' && PICK.market.size && !PICK.market.has(o.provider)) return false;
-  if (skip !== 'gpu' && PICK.gpu.size && !PICK.gpu.has(gpuKey(o))) return false;
+  if (skip !== 'gpu' && PICK.gpu.size && !gpuHit(o)) return false;
   if (skip !== 'vram' && PICK.vram.size && !PICK.vram.has(vramTier(o))) return false;
   return true;
 }
@@ -989,12 +994,12 @@ function priceRail(rows) {
   </div>`;
 }
 
-function rail(title, head, items, kind) {
+function rail(title, head, items, kind, extra, cls) {
   // items: [{key, label, tot, cur, on, off, x, title}] — bars against the panel's tallest total
   const peak = Math.max(1, ...items.map(i => i.tot || 0));
   const has = PICK[kind] && PICK[kind].size;
-  return `<div class="dp"><h5>${title} <span>${head}</span>${has ? `<i onclick="clearPick('${kind}')">CLEAR</i>` : ''}</h5>
-    <div class="rows">${items.map(i => i.x
+  return `<div class="dp"><h5>${title} <span>${head}</span>${extra || ''}${has ? `<i onclick="clearPick('${kind}')">CLEAR</i>` : ''}</h5>
+    <div class="rows${cls ? ' ' + cls : ''}">${items.map(i => i.x
       ? `<div class="r x" title="${esc(i.title || '')}"><em>${esc(i.label)}</em><span class="bg"></span><span class="n">x</span></div>`
       : `<div class="r ${i.on ? 'on' : ''} ${!i.tot ? 'off' : ''}" onclick="togglePick('${kind}','${esc(i.key)}')" title="${esc(i.title || '')}">
            <em>${esc(i.label)}</em>
@@ -1019,15 +1024,27 @@ function marketRail() {
 }
 
 function gpuRail() {
-  const tot = tally(ALL, gpuKey), cur = tally(view('gpu'), gpuKey);
-  const items = HX.gpus.map(g => ({key: g, label: g, tot: tot.get(g) || 0, cur: cur.get(g) || 0, on: PICK.gpu.has(g)}));
-  const other = tot.get('__other') || 0;
-  const models = tally(ALL, gpuName).size;
-  if (other) items.push({key: '__other', label: `other (${models - HX.gpus.length})`, tot: other,
-                         cur: cur.get('__other') || 0, on: PICK.gpu.has('__other'),
-                         title: 'every model outside the top ' + HX.gpus.length});
-  return rail('GPU', `${models} models · top ${HX.gpus[0] || '-'}`, items, 'gpu');
+  const tot = tally(ALL, gpuName), cur = tally(view('gpu'), gpuName);
+  const models = tot.size;
+  let items;
+  if (GPU_ALL) {
+    items = [...tot.entries()].sort((a, b) => b[1] - a[1]).map(([g, t]) =>
+      ({key: g, label: g, tot: t, cur: cur.get(g) || 0, on: PICK.gpu.has(g)}));
+  } else {
+    items = HX.gpus.map(g => ({key: g, label: g, tot: tot.get(g) || 0, cur: cur.get(g) || 0, on: PICK.gpu.has(g)}));
+    let oT = 0, oC = 0;
+    for (const [g, t] of tot) if (!HX.gpus.includes(g)) { oT += t; oC += cur.get(g) || 0 }
+    if (oT) items.push({key: '__other', label: `other (${models - HX.gpus.length})`, tot: oT,
+                        cur: oC, on: PICK.gpu.has('__other'),
+                        title: 'every model outside the top ' + HX.gpus.length + ' — or hit ALL to list them'});
+  }
+  const flip = models > HX.gpus.length
+    ? `<i onclick="toggleGpuAll()">${GPU_ALL ? 'TOP ' + HX.gpus.length : 'ALL ' + models}</i>` : '';
+  return rail('GPU', `${models} models · top ${HX.gpus[0] || '-'}`, items, 'gpu',
+              flip, GPU_ALL ? 'all' : '');
 }
+
+function toggleGpuAll() { GPU_ALL = !GPU_ALL; blip('jump'); refresh() }
 
 function vramRail() {
   const tot = tally(ALL, vramTier), cur = tally(view('vram'), vramTier);

@@ -47,10 +47,10 @@ function TradesPageInner() {
       <div className="p-4 space-y-3">
         <div className="flex items-baseline gap-3 flex-wrap">
           <h1 className="text-[15px] font-mono font-semibold tracking-[0.12em] text-pixel-white">
-            MY COPY TRADES
+            RESULTS
           </h1>
           <span className="text-[11px] font-mono text-pixel-gray">
-            every trade the traders I copy made · every fill of mine · joined by market, side and time
+            what the copying did — every trade the traders I copy made, next to every fill of mine
           </span>
           <span className="flex-1" />
           <Link

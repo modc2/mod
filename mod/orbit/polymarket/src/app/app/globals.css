@@ -1230,3 +1230,31 @@ input[type="radio"] {
 [data-theme="mario"] .pixel-btn:active {
   transform: translateY(2px);
 }
+
+/* ── Access gate ───────────────────────────────────────────────────────────
+   The sign-in screen is the first thing anyone sees, so it gets an entrance
+   and a determinate-looking probe bar instead of a bare pulse. */
+@keyframes gate-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.995); }
+  to   { opacity: 1; transform: none; }
+}
+.gate-in { animation: gate-in 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+
+@keyframes gate-sweep {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(320%); }
+}
+.gate-sweep {
+  background: linear-gradient(90deg, transparent, rgb(var(--accent)), transparent);
+  animation: gate-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes gate-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.7; }
+}
+.gate-pulse { animation: gate-pulse 1.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gate-in, .gate-sweep, .gate-pulse { animation: none; }
+}

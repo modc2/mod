@@ -118,6 +118,9 @@ class Deck {
     this.loop = null;
     this.cues = [null, null, null, null];
     this.peaks = M.peaks(buffer, 2400);
+    // A second array at ~160 buckets a second for the zoom view: four seconds
+    // of it is 640 columns, which is what makes a transient look like one.
+    this.fine = M.peaks(buffer, Math.max(2400, Math.min(240000, Math.ceil(buffer.duration * 160))));
     return this;
   }
 

@@ -43,7 +43,7 @@ export default function FollowsPage() {
     <div className="space-y-4">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl text-ink">my follows</h1>
+          <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">my follows</h1>
           <p className="text-xs text-muted mt-1">copy-trade configurations + status</p>
         </div>
         <div className="flex gap-2 items-center">

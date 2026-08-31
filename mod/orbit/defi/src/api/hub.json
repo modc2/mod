@@ -1,0 +1,238 @@
+{
+  "version": "1",
+  "note": "The HUB: a curated shortlist of legitimate protocols this desk is willing to point USD at, joined live with DefiLlama's index. Curation criteria: a multi-year track record or >$1b deposited, a named team, public audits, and a way in for plain USD stablecoins. Curated does not mean safe — every entry still lists what it is subject to, and the live numbers beside it are the index's, not ours.",
+  "protocols": [
+    {
+      "id": "aave-v3",
+      "name": "Aave V3",
+      "category": "Lending",
+      "tier": "core",
+      "since": 2020,
+      "website": "https://aave.com",
+      "llama_projects": ["aave-v3"],
+      "usd_in": ["USDC", "USDT", "DAI", "USDS"],
+      "blurb": "Deposit dollars into a shared lending pool; borrowers post collateral and pay interest to you continuously. Withdraw whenever the pool has liquidity.",
+      "legit": [
+        "the largest onchain lender — around $17b deposited",
+        "live since 2020 with no core-market loss of depositor funds",
+        "audited repeatedly (Trail of Bits, OpenZeppelin, SigmaPrime…) and backstopped by a staked safety module"
+      ],
+      "risks": [
+        "smart-contract risk, as everywhere",
+        "at 100% utilisation withdrawals wait until borrowers repay",
+        "rates and collateral rules are set by token governance"
+      ]
+    },
+    {
+      "id": "morpho",
+      "name": "Morpho",
+      "category": "Curated vaults",
+      "tier": "core",
+      "since": 2022,
+      "website": "https://morpho.org",
+      "llama_projects": ["morpho-blue"],
+      "usd_in": ["USDC", "USDT", "DAI"],
+      "blurb": "Your USD goes into a vault run by a named curator, who lends it across isolated markets. Each vault publishes exactly which markets it touches.",
+      "legit": [
+        "around $14b deposited across curated vaults",
+        "minimal immutable core, formally verified (Certora), audited by Spearbit and OpenZeppelin",
+        "curators are named and their allocations are public onchain"
+      ],
+      "risks": [
+        "you are trusting the curator's market picks",
+        "an isolated market can take bad debt if its oracle or collateral fails",
+        "withdrawal depends on the vault's idle liquidity"
+      ]
+    },
+    {
+      "id": "sky",
+      "name": "Sky (MakerDAO)",
+      "category": "Savings rate",
+      "tier": "core",
+      "since": 2017,
+      "website": "https://sky.money",
+      "llama_projects": ["sky-lending"],
+      "usd_in": ["USDS", "DAI", "USDC"],
+      "blurb": "Swap into the savings token (sUSDS or sDAI) and it grows at the Sky Savings Rate set by governance. Unwind back to dollars instantly, any size.",
+      "legit": [
+        "the oldest DeFi protocol still running — MakerDAO since 2017",
+        "around $8b earning the savings rate",
+        "the savings contract is a simple, heavily-audited ERC-4626 wrapper"
+      ],
+      "risks": [
+        "the rate is a governance decision and moves",
+        "the backing includes real-world assets — offchain counterparty exposure",
+        "USDS/DAI itself is the thing you are holding; its peg is the risk"
+      ]
+    },
+    {
+      "id": "sparklend",
+      "name": "Spark",
+      "category": "Lending",
+      "tier": "core",
+      "since": 2023,
+      "website": "https://spark.fi",
+      "llama_projects": ["sparklend"],
+      "usd_in": ["USDC", "USDS", "DAI"],
+      "blurb": "The Sky ecosystem's lender — an Aave V3 fork seeded with Sky's own liquidity, so dollar deposit rates stay close to the savings rate with pool lending on top.",
+      "legit": [
+        "around $5b supplied",
+        "runs audited Aave V3 code, governed and backstopped by Sky",
+        "deep, stable liquidity — the ecosystem itself is the largest lender"
+      ],
+      "risks": [
+        "smart-contract risk of the fork plus its Sky wiring",
+        "concentrated governance — Sky can retune it quickly",
+        "utilisation can briefly pause withdrawals, as in any pool lender"
+      ]
+    },
+    {
+      "id": "compound-v3",
+      "name": "Compound V3",
+      "category": "Lending",
+      "tier": "core",
+      "since": 2018,
+      "website": "https://compound.finance",
+      "llama_projects": ["compound-v3"],
+      "usd_in": ["USDC", "USDT"],
+      "blurb": "Each market lends exactly one asset — you supply USDC, borrowers post other collateral against it. Simpler than a shared pool, and it reads that way onchain.",
+      "legit": [
+        "lending onchain since 2018 — the protocol that invented the model",
+        "V3's one-borrowable-asset design shrinks what can go wrong",
+        "audited by OpenZeppelin and ChainSecurity, run by a veteran DAO"
+      ],
+      "risks": [
+        "smart-contract risk",
+        "smaller markets can sit at high utilisation",
+        "COMP reward share of the rate comes and goes"
+      ]
+    },
+    {
+      "id": "maple",
+      "name": "Maple · syrupUSDC",
+      "category": "Institutional credit",
+      "tier": "established",
+      "since": 2021,
+      "website": "https://maple.finance",
+      "llama_projects": ["maple"],
+      "usd_in": ["USDC"],
+      "blurb": "Your USDC is lent to vetted institutional borrowers against posted collateral, managed by Maple's credit desk. Yield comes from real borrowing demand, not emissions.",
+      "legit": [
+        "around $4b managed, live since 2021",
+        "borrowers are named institutions under signed agreements, now overcollateralised",
+        "survived a real credit cycle and rebuilt — the 2022 losses reshaped its underwriting"
+      ],
+      "risks": [
+        "credit risk is the product: a borrower default is your loss",
+        "withdrawals can queue while loans mature",
+        "took real losses in 2022 (Orthogonal) under the old uncollateralised model"
+      ]
+    },
+    {
+      "id": "fluid",
+      "name": "Fluid",
+      "category": "Lending",
+      "tier": "established",
+      "since": 2024,
+      "website": "https://fluid.io",
+      "llama_projects": ["fluid-lending"],
+      "usd_in": ["USDC", "USDT"],
+      "blurb": "Instadapp's lender: deposits earn from borrowers whose collateral is simultaneously working as DEX liquidity, so the same dollar earns twice.",
+      "legit": [
+        "built by Instadapp, shipping DeFi infrastructure since 2018",
+        "over $1b deposited within its first year",
+        "audited by MixBytes and Statemind; conservative launch caps"
+      ],
+      "risks": [
+        "young contracts — the design is novel and less battle-tested",
+        "the shared liquidity layer couples lending to DEX flow",
+        "utilisation pauses withdrawals, as in any pool lender"
+      ]
+    },
+    {
+      "id": "ethena",
+      "name": "Ethena · sUSDe",
+      "category": "Basis yield",
+      "tier": "frontier",
+      "since": 2024,
+      "website": "https://ethena.fi",
+      "llama_projects": ["ethena-usde"],
+      "usd_in": ["USDe", "USDC"],
+      "blurb": "USDe is a dollar built from crypto collateral hedged with short futures; staking it earns the funding-rate spread. It is a trade wearing a stablecoin's clothes — the yield is real and so are the ways it can stop.",
+      "legit": [
+        "around $1.3b staked; grew through two full funding cycles",
+        "reserves and hedges are published and attested",
+        "audited (Zellic, Quantstamp…), insurance fund absorbs negative-funding stretches"
+      ],
+      "risks": [
+        "funding can go negative — the yield can drop to zero or the fund can drain",
+        "exchange and custodian failure would hit the backing",
+        "7-day cooldown to unstake natively (or sell the receipt at market)"
+      ]
+    },
+    {
+      "id": "kamino",
+      "name": "Kamino",
+      "category": "Lending",
+      "tier": "established",
+      "since": 2022,
+      "website": "https://kamino.finance",
+      "llama_projects": ["kamino-lend"],
+      "usd_in": ["USDC", "USDT"],
+      "blurb": "Solana's main lending market — deposit dollars, earn from leverage and borrowing demand on the fastest-moving chain. Rates run hotter and swing harder than Ethereum's.",
+      "legit": [
+        "the largest Solana lender — around $1.5b deposited",
+        "live through multiple Solana market cycles since 2022",
+        "audited by OtterSec and Offside Labs, open risk dashboard"
+      ],
+      "risks": [
+        "Solana-grade volatility — rates and liquidity move fast",
+        "oracle and liquidation risk in sharp moves",
+        "chain halts have happened on Solana before"
+      ]
+    },
+    {
+      "id": "save",
+      "name": "Save (Solend)",
+      "category": "Lending",
+      "tier": "established",
+      "since": 2021,
+      "website": "https://save.finance",
+      "llama_projects": ["save"],
+      "usd_in": ["USDC", "USDT"],
+      "blurb": "Solana's original lending pool, rebranded from Solend. Smaller and quieter than Kamino — a second venue for dollar lending on Solana.",
+      "legit": [
+        "lending on Solana since 2021, through every cycle since",
+        "survived the 2022 whale-liquidation and oracle incidents and paid depositors",
+        "conservative asset list after those lessons"
+      ],
+      "risks": [
+        "much smaller pools — around $100m, thinner exits",
+        "took a $1.3m oracle exploit in Nov 2022 (reimbursed)",
+        "the same Solana-wide risks as every venue on the chain"
+      ]
+    },
+    {
+      "id": "curve",
+      "name": "Curve",
+      "category": "Stable LP",
+      "tier": "established",
+      "since": 2020,
+      "website": "https://curve.finance",
+      "llama_projects": ["curve-dex"],
+      "usd_in": ["USDC", "USDT", "DAI", "+ paired"],
+      "paired": true,
+      "blurb": "Put dollars into a stable-swap pool and earn the trading fees of everyone exchanging through it. You hold the pool's mix — if one coin in the pool depegs, part of your dollars become it.",
+      "legit": [
+        "the reference venue for stablecoin swaps since 2020",
+        "battle-tested pool math with billions through it daily",
+        "fees are organic — traders pay them, no emissions needed to exist"
+      ],
+      "risks": [
+        "paired exposure: the weakest coin in the pool is partly yours",
+        "a 2023 reentrancy hit some non-stable pools — the risk is real",
+        "headline APYs on small pools are usually gauge emissions, not fees"
+      ]
+    }
+  ]
+}

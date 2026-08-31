@@ -35,9 +35,16 @@
 
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePathname } from "next/navigation";
 import { useEmbedded } from "../lib/embedded";
 import AccountsPanel, { OPEN_ACCOUNTS_EVENT } from "./AccountsPanel";
 import CopyPanel from "./CopyPanel";
+import DeskRoster from "./DeskRoster";
+import SelectionTray from "./SelectionTray";
+
+/** Anything can ask for the column by name — the finder's "SHOW PANEL →"
+    dispatches this when rows get checked with the column closed. */
+export const OPEN_SIDEBAR_EVENT = "poly-open-sidebar";
 
 const DOCK_MQ = "(min-width: 1024px)";
 const DOCK_KEY = "poly_user_sidebar";
@@ -49,6 +56,7 @@ const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayout
 
 export default function UserSidebar() {
   const embedded = useEmbedded();
+  const pathname = usePathname() || "";
   const [open, setOpen] = useState(false);
   const [docked, setDocked] = useState(false);
   // Set when the wallet chip asks for the accounts block by name — the column
@@ -80,8 +88,15 @@ export default function UserSidebar() {
 
   useEffect(() => {
     const onOpen = () => { setAccountsWanted(true); setDrawer(true); };
+    // Open WITHOUT forcing the accounts block — the caller wants the column
+    // (the selection tray, the copy book), not the wallet list.
+    const onOpenPlain = () => setDrawer(true);
     window.addEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
-    return () => window.removeEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
+    window.addEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
+    return () => {
+      window.removeEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
+      window.removeEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
+    };
   }, [setDrawer]);
 
   // Inset the console for the docked column (CSS var, read by .crt-screen in
@@ -111,11 +126,20 @@ export default function UserSidebar() {
   // Embedded split-screen panes stay lightweight, same as NavMenu.
   if (embedded) return null;
 
+  // On the desk itself the column's copy-book block would be the same
+  // CONTROLS twice, but the desk page scrolls the selection off-screen — so
+  // there it carries a read-only roster of who's selected (finder picks +
+  // the book), with the walkthrough folded beneath. Everywhere else it's the
+  // full copy book you carry while browsing traders and markets.
+  const onDesk = pathname === "/copy";
   const column = (
     <>
       <AccountsPanel initialExpanded={accountsWanted} onClose={() => setDrawer(false)} />
       <div className="flex-1 overflow-y-auto">
-        <CopyPanel />
+        {/* The finder's checked shortlist — replayed, sized and committed
+            right here. Renders nothing while nothing is checked. */}
+        <SelectionTray />
+        {onDesk ? <DeskRoster /> : <CopyPanel />}
       </div>
     </>
   );
@@ -158,20 +182,18 @@ export default function UserSidebar() {
       <button
         onClick={() => setDrawer(!open)}
         aria-expanded={open}
-        title={`${open ? "Hide" : "Show"} your account + copy sidebar`}
-        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-[var(--radius-sm)] transition-colors shrink-0 ${
+        aria-label="Side panel"
+        title={`${open ? "Hide" : "Show"} the side panel — your wallets, and who you copy`}
+        className={`flex items-center px-2 py-2 rounded-[var(--radius-sm)] transition-colors shrink-0 ${
           open ? "bg-pixel-white/[0.06] text-green-400" : "text-pixel-gray hover:bg-pixel-white/[0.06]"
         }`}
       >
         {/* The RIGHT rail fills in when the column is showing — the glyph
             points at the edge the column actually comes from. */}
-        <svg className="w-[13px] h-[13px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg className="w-[15px] h-[15px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="3" y="4" width="18" height="16" rx="2" />
           {open ? <rect x="15" y="4" width="6" height="16" rx="2" fill="currentColor" /> : <path d="M15 4v16" />}
         </svg>
-        <span className="hidden min-[640px]:inline text-[11px] font-mono font-semibold tracking-[0.1em]">
-          COPY
-        </span>
       </button>
 
       {open && createPortal(docked ? dockedSidebar : overlaySidebar, document.body)}

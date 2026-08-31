@@ -36,8 +36,9 @@ DEFAULT_PROTOCOL_VERSION = '2025-03-26'
 
 INSTRUCTIONS = (
     'One interface to every compute market: Targon and Lium (Bittensor), Akash, '
-    'Vast.ai, Nosana, Cathedral (confidential TDX), Prime Intellect, Polaris, '
-    'Shadeform, and your own docker hosts. Offers and rentals share one shape, '
+    'Vast.ai, Clore, Nosana, Aleph Cloud, Cathedral (confidential TDX), Prime '
+    'Intellect, Polaris, Hyperbolic, RunPod, Fluence, Shadeform, and your own '
+    'docker hosts. Offers and rentals share one shape, '
     'priced in USD/hr, addressed as provider:ref. Start with compute_providers '
     '(who is reachable, who needs a key, who is no-KYC), then compute_search '
     '(fan-out, cheapest first), compute_quote (cost for N hours + cheaper '

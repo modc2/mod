@@ -14,6 +14,18 @@ pub fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
+pub fn port() -> u16 {
+    std::env::var("MCP_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(50360)
+}
+
+/// Where this hub says it lives — what goes into client configs and into the
+/// manifest a peer reads.
+pub fn public_url() -> String {
+    std::env::var("MCP_PUBLIC_URL")
+        .map(|u| u.trim_end_matches('/').to_string())
+        .unwrap_or_else(|_| format!("http://localhost:{}", port()))
+}
+
 pub fn hub_dir() -> PathBuf {
     if let Ok(d) = std::env::var("MCP_HUB_DIR") {
         return PathBuf::from(d);
@@ -143,6 +155,31 @@ pub struct Review {
     pub checked_at: u64,
 }
 
+/// Another hub this one knows by URL — a peer mod-protocol hub or an index —
+/// kept in hubs.json. Headers hold whatever the peer wants on every request.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PeerHub {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    pub url: String,
+    /// mod | index
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub headers: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    #[serde(default)]
+    pub added_at: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct HubsFile {
+    #[serde(default)]
+    pub hubs: Vec<PeerHub>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct HubFile {
     #[serde(default)]
@@ -181,6 +218,14 @@ pub fn load_hub() -> HubFile {
 
 pub fn save_hub(h: &HubFile) {
     write_json(&hub_dir().join("hub.json"), h);
+}
+
+pub fn load_hubs() -> Vec<PeerHub> {
+    read_json::<HubsFile>(&hub_dir().join("hubs.json")).hubs
+}
+
+pub fn save_hubs(h: &[PeerHub]) {
+    write_json(&hub_dir().join("hubs.json"), &HubsFile { hubs: h.to_vec() });
 }
 
 pub fn load_probes() -> HashMap<String, Probe> {

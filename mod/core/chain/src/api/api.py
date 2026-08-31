@@ -2286,6 +2286,163 @@ async def system_stats(top: int = 30, authorization: Optional[str] = Header(None
     return await _host_module().collect(top=max(1, min(top, 100)))
 
 
+# ── The agent (Claude Code, through orbit/agent) ────────────────────────────
+#
+# The console's AGENT tab hands the open project to Claude Code. The run does
+# not start here: it is submitted to the orbit/agent module as its shipped
+# `chain-mod` agent, which hands the run to this module's own harness runner
+# (src/agent/mod.py) — so the agent module's owner gate, task ledger and
+# console all see it, exactly like a run started from the agent console. This
+# API is the bridge: it checks the caller's token, names the project, and
+# streams the agent module's events straight back to the tab.
+
+AGENT_API_URL = os.environ.get("AGENT_API_URL", "http://localhost:50117")
+AGENT_PERSONA = "chain-mod"
+AGENT_HARNESS = "chainmod"
+AGENT_STREAM_TIMEOUT = 1800
+_agent_runner = None
+
+
+def _runner():
+    """The harness runner — this module's own, loaded once."""
+    global _agent_runner
+    if _agent_runner is None:
+        # never put src/agent on sys.path: its mod.py would shadow the mod
+        # framework for every later `import mod` in this process
+        try:
+            import mod as m
+            _agent_runner = m.mod("chain.agent")()
+        except Exception:
+            import importlib.util
+            here = os.path.dirname(os.path.abspath(__file__))
+            path = os.path.join(os.path.dirname(here), "agent", "mod.py")
+            spec = importlib.util.spec_from_file_location("chain_agent_runner", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            _agent_runner = module.Mod()
+    return _agent_runner
+
+
+def _agent_get(path: str, timeout: float = 4):
+    try:
+        r = requests.get(f"{AGENT_API_URL}{path}", timeout=timeout)
+        return r.json() if r.ok else None
+    except Exception:
+        return None
+
+
+def _token_owner(key: Optional[str]) -> Optional[str]:
+    """The address a protocol-auth token proves, or None."""
+    if not key:
+        return None
+    try:
+        import mod as m
+        return m.mod("auth")().verify(key).get("key")
+    except Exception:
+        return None
+
+
+@app.get("/agent/status")
+async def agent_status():
+    """Can the AGENT tab run here, and who may press the button."""
+    try:
+        card = _runner().harness()
+    except Exception as e:
+        card = {"name": AGENT_HARNESS, "available": False, "error": str(e)}
+    health = _agent_get("/health")
+    owner = _agent_get("/owner") or {}
+    harness = None
+    for h in (_agent_get("/harnesses") or {}).get("harnesses", []):
+        if h.get("name") == AGENT_HARNESS:
+            harness = h
+    return {
+        "available": bool(card.get("available")) and health is not None and bool(harness),
+        "cli": card.get("version"),
+        "model": card.get("model"),
+        "agent_api": AGENT_API_URL,
+        "agent_up": health is not None,
+        "agent": AGENT_PERSONA,
+        "harness": AGENT_HARNESS,
+        "registered": bool(harness),
+        # harness runs execute on this host's own Claude account, so the agent
+        # module keeps them owner-only — the tab says so instead of 403ing later
+        "owner": owner.get("owner"),
+        "owner_only": bool(owner.get("has_owner", True)),
+        "running": card.get("running", 0),
+        "concurrency": card.get("concurrency"),
+        "error": card.get("error"),
+    }
+
+
+class AgentRunReq(BaseModel):
+    key: str                          # protocol-auth token (wallet-signed)
+    query: str
+    project: Optional[str] = None
+    network: str = "testnet"
+    model: Optional[str] = None       # sonnet | opus | haiku
+    timeout: Optional[int] = None
+
+
+@app.post("/agent/run")
+async def agent_run(req: AgentRunReq):
+    """Hand the project to Claude Code via orbit/agent; SSE of its steps."""
+    from fastapi.responses import StreamingResponse
+
+    address = _token_owner(req.key)
+    if not address:
+        raise HTTPException(status_code=401, detail="sign in first — the agent needs a wallet-signed token")
+    if not (req.query or "").strip():
+        raise HTTPException(status_code=400, detail="say what the agent should do")
+    body = {
+        "query": req.query.strip(),
+        "key": req.key,
+        "agent_type": AGENT_PERSONA,
+        "harness_args": {
+            "project": (req.project or "").strip() or None,
+            "address": address,
+            "network": req.network,
+            "model": req.model or None,
+            "timeout": int(req.timeout) if req.timeout else None,
+        },
+    }
+    body["harness_args"] = {k: v for k, v in body["harness_args"].items() if v is not None}
+
+    def gen():
+        head = {"type": "start", "agent": AGENT_PERSONA, "harness": AGENT_HARNESS,
+                "address": address, "project": body["harness_args"].get("project")}
+        yield f"data: {json.dumps(head)}\n\n"
+        try:
+            with requests.post(f"{AGENT_API_URL}/run/stream", json=body, stream=True,
+                               timeout=(10, AGENT_STREAM_TIMEOUT)) as r:
+                if r.status_code != 200:
+                    detail = (r.text or "")[:500]
+                    yield f"data: {json.dumps({'type': 'error', 'error': f'agent api {r.status_code}: {detail}'})}\n\n"
+                    return
+                for raw in r.iter_lines(decode_unicode=True):
+                    if raw is None:
+                        continue
+                    line = raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
+                    if line.startswith(":"):
+                        yield ": ping\n\n"
+                        continue
+                    if line.startswith("data:"):
+                        yield f"{line}\n\n"
+        except requests.RequestException as e:
+            yield f"data: {json.dumps({'type': 'error', 'error': f'agent api unreachable at {AGENT_API_URL}: {e}'})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/agent/runs")
+async def agent_runs(address: Optional[str] = None, limit: int = 20):
+    """Past agent runs on this address's projects, newest first."""
+    try:
+        return {"runs": _runner().runs(address, limit)}
+    except Exception as e:
+        return {"runs": [], "error": str(e)}
+
+
 @app.get("/info")
 async def info():
     """API info."""
@@ -2310,6 +2467,7 @@ async def info():
             "build/projects", "build/projects/{name}", "build/deployments",
             "build/shared", "build/shared/{id}",
             "build/abi", "build/abi/{cid}", "build/abis",
+            "agent/status", "agent/run", "agent/runs",
             "system/access", "system/challenge", "system/login", "system/stats",
         ],
     }

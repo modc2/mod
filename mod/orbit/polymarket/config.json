@@ -1,6 +1,6 @@
 {
     "name": "polymarket",
-    "version": "2.4.0",
+    "version": "2.5.0",
     "description": "Copy Polymarket traders \u2014 a dollar amount against each name, many of them at once, with a plain-language filter that says which of their trades to copy and a board that shows what you actually got; driven from the console or over MCP",
     "port": 50091,
     "app_port": 3091,
@@ -52,7 +52,7 @@
         },
         "/copy/book": {
             "method": "GET|POST",
-            "docs": "THE COPY BOOK \u2014 which individual traders this deployment copies and with how much. GET ?eoa= returns each allocation plus that wallet's live session for it (running, DRY RUN vs executing, orders placed, realized P&L, last fill) and the roll-up totals. POST {bankroll} sets the desk's target size. Server-owned and plaintext (~/.mod/polymarket/copy/book.json) so the console and an MCP agent read and write the SAME desk"
+            "docs": "THE COPY BOOK \u2014 which individual traders this deployment copies and with how much. GET ?eoa= returns each allocation plus that wallet's live session for it (running, DRY RUN vs executing, orders placed, realized P&L, last fill) and the roll-up totals. POST {bankroll} sets the desk's target size. Server-owned and plaintext (~/.mod/polymarket/copy/book.json) so the console and an MCP agent read and write the SAME desk. Also answers `sessions`: every session RUNNING on this wallet that is NOT a row of the book (a strat started from an older screen, a candle bot) with its mode, capital, leaders, realized P&L, orders and wallet balance, and `totals.otherRunning`/`otherExecuting` \u2014 so the desk can never say \"none running\" over a wallet that is placing orders. Stop one with POST /live/stop {eoa, strategyId}"
         },
         "/copy/allocations": {
             "method": "POST",
@@ -135,7 +135,7 @@
             "docs": "Per-strat agent chat (served by the Next app, owner-gated): {strat, messages, context?} -> {reply, entries, rejected}. The agent reads the strat's settings, its cached backtest and its live session and PROPOSES a parameter patch, validated against the lib/stratPatch whitelist; nothing is written \u2014 the browser applies it on the user's say-so. Runs through the local claude CLI (POLYMARKET_CHAT_MODEL, default claude-opus-5)."
         }
     },
-    "schema": "QmXNyBbkVakr1PAxJC2XDrhpjR8oWYp7tebNF9LnNRciKh",
+    "schema": "QmdyQEtBbaV3keg8geuanPievwwNBkr6CSMPcAsDAz5wYe",
     "gateway_port": 3091,
     "mcp": {
         "stdio": "python3 src/mcp.py",

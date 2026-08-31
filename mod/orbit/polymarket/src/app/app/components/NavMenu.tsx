@@ -50,9 +50,11 @@ const NAV: NavItem[] = [
   },
   {
     // What the copying actually DID: their trades against my fills, and the
-    // coverage number that says how much of the flow I got.
+    // coverage number that says how much of the flow I got. Named RESULTS,
+    // not TRADES — a TRADES tab beside a TRADERS tab read as two spellings of
+    // one thing.
     href: "/copy/trades",
-    label: "TRADES",
+    label: "RESULTS",
     icon: (
       <svg className={ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M3 17l5-6 4 3 5-7" />

@@ -156,9 +156,73 @@ class Mod:
     def health(self):
         return {'up': self._up(), 'url': self.server_url}
 
+    def host(self, store: bool = True):
+        """Who is running this arena: the key the box signs with, the machine,
+        the uptime, every door in, where the bytes went and what it can build.
+
+        A rating is a claim about somebody else's code, so the claim should
+        say whose box it was made on. store=0 skips the round trip to the
+        store module.
+
+            m arena/host
+        """
+        return self._get('/host', store=None if store else '0')
+
+    def fleet(self, module: str = ''):
+        """Every module of this fleet a player can be seated on — or, given a
+        module, the tools that one offers.
+
+        Anything with an MCP server can take a seat: it is asked one of its
+        own tools each move and whatever it says back is read for a move.
+        They are named, not addressed — the call goes through the gateway,
+        which wakes a module that is asleep.
+
+            m arena/fleet
+            m arena/fleet module=bt
+            m arena/seat module=bt tool=bt_ask
+        """
+        return self._get(f'/fleet/{module}/tools' if module else '/fleet')
+
+    def seat(self, module: str, tool: str = '', name: str = '', auth: bool = False,
+             arg: str = '', **kwargs):
+        """Seat a module of this fleet: enter it as an `mcp` player.
+
+        `tool` and `arg` are worked out from the module's own tools/list when
+        they are left off. `auth=1` signs the call with this box's own key,
+        for a module that only answers a caller it can identify.
+
+            m arena/seat module=agent tool=agent_run auth=1
+        """
+        config = {'module': module}
+        if tool:
+            config['tool'] = tool
+        if arg:
+            config['arg'] = arg
+        if auth:
+            config['auth'] = True
+        config.update({k: v for k, v in kwargs.items() if not k.startswith('_')})
+        return self.enter(name or module, 'mcp', config)
+
     def readme(self):
         path = os.path.join(os.path.dirname(self.dir), 'README.md')
         return open(path).read() if os.path.exists(path) else None
+
+    def docs(self, q: str = ''):
+        """The documentation: eight pages, or the sections that match `q`.
+
+            m arena/docs                    # the contents
+            m arena/docs q="illegal move"   # where does it say that
+        """
+        return self._get('/docs/search', q=q) if q else self._get('/docs')
+
+    def doc(self, slug: str = 'start'):
+        """One page, as markdown — the same text `docs_page` returns over MCP
+        and the same bytes behind the resource arena://docs/<slug>.
+
+            m arena/doc slug=mcp
+        """
+        got = self._get(f'/docs/{slug}')
+        return got.get('markdown') if isinstance(got, dict) and got.get('markdown') else got
 
     def abi(self, role: str = 'game', lang: str = 'wasm'):
         """The contract a module implements to become a game or a player.
@@ -346,6 +410,105 @@ class Mod:
                 stored['mod_error'] = str(e)
         return stored
 
+    # ── vibe: write one with the build agent ─────────────────────
+
+    def vibe(self, prompt: str = '', session: str = '', role: str = 'game',
+             lang: str = 'python', from_module: str = '', source: str = '',
+             name: str = '', model: str = '', wait: bool = True, path: str = '',
+             **kwargs):
+        """Write a game or a player with the build agent, a sentence at a time.
+
+            m arena/vibe prompt="tic-tac-toe on a 4x4 board, three in a row wins"
+            m arena/vibe role=player prompt="a connect4 bot that blocks threats"
+            m arena/vibe from_module=connect4 prompt="make it 5 in a row"   # a fork
+            m arena/vibe session=3f2a prompt="also print the board"       # round two
+            m arena/vibe session=3f2a path=mygame.py                       # write it out
+
+        A session is one file under ~/.mod/arena/vibe/<id>/ that the build
+        module's agent (orbit/build) edits in place; it starts from the
+        template or from a stored class. Nothing is stored until `vibe_store`.
+        `from` also works as the argument name. wait=0 returns at once with
+        the job running — `m arena/vibe session=<id>` to look again.
+        """
+        body = {'prompt': prompt, 'role': role, 'lang': lang}
+        from_module = from_module or kwargs.get('from') or kwargs.get('module') or ''
+        if session:
+            body['session'] = session
+        if from_module:
+            body['from'] = from_module
+        if source:
+            body['source'] = source
+        if name:
+            body['name'] = name
+        if model:
+            body['model'] = model
+        card = self._post('/vibe', body)
+        if not isinstance(card, dict) or card.get('error'):
+            return card
+        if wait and card.get('status') == 'running':
+            card = self._wait_vibe(card['session'])
+        if path and card.get('source'):
+            path = os.path.expanduser(path)
+            with open(path, 'w') as f:
+                f.write(card['source'])
+            card['path'] = path
+        return card
+
+    def _wait_vibe(self, session: str, timeout: int = 960):
+        import time as _t
+        deadline = _t.time() + timeout
+        card = self._get(f'/vibe/{session}')
+        while isinstance(card, dict) and card.get('status') == 'running' and _t.time() < deadline:
+            _t.sleep(2)
+            card = self._get(f'/vibe/{session}')
+        return card
+
+    def fork(self, module: str, name: str = '', prompt: str = '', path: str = '', **kwargs):
+        """Fork a stored class — a game or a player — into a vibe session
+        under a new name, ready for a sentence or for editing by hand.
+
+            m arena/fork module=connect4                       # the source, copied
+            m arena/fork module=connect4 prompt="6 columns"    # and one round on it
+            m arena/fork module=center path=mybot.py           # to a file
+        """
+        return self.vibe(prompt=prompt, from_module=module, name=name, path=path, **kwargs)
+
+    def vibes(self, **kwargs):
+        """Every vibe session here, newest first, and whether the build agent
+        is reachable from this arena."""
+        return self._get('/vibe')
+
+    def vibe_status(self, session: str, **kwargs):
+        """One session: status, the file as it is now, what the registry reads
+        it as, every round's transcript tail and cost."""
+        return self._get(f'/vibe/{session}')
+
+    def vibe_store(self, session: str, name: str = '', description: str = '',
+                   enter: bool = True, mint: bool = True, **kwargs):
+        """Put what a session holds into the registry — an upload of the
+        text, so the role is read off the file. A player is entered too.
+
+            m arena/vibe_store session=3f2a name=ttt4
+        """
+        body = {'description': description, 'enter': bool(enter)}
+        if name:
+            body['name'] = name
+        stored = self._post(f'/vibe/{session}/store', body)
+        if not isinstance(stored, dict) or stored.get('error'):
+            return stored
+        if mint and stored.get('role') in ('game', 'player'):
+            try:
+                from . import games as G
+                stored['mod'] = 'arena.' + G.slugify(stored.get('name', ''))
+                G.mint(G.card_from_module(stored, base=self.server_url))
+            except Exception as e:
+                stored['mod_error'] = str(e)
+        return stored
+
+    def vibe_cancel(self, session: str, **kwargs):
+        """Stop a running round. The file keeps what was written by then."""
+        return self._post(f'/vibe/{session}/cancel', {})
+
     def inspect(self, path: str = '', source: str = ''):
         """Describe a file without storing it — a .wasm or a class."""
         import base64
@@ -380,6 +543,7 @@ class Mod:
         m arena/enter name=opus kind=model config='{"model":"anthropic/claude-opus-5"}'
         m arena/enter name=perfect kind=wasm config='{"module":"bot-ttt"}'
         m arena/enter name=center kind=class config='{"module":"center"}'
+        m arena/enter name=bt kind=mcp config='{"module":"bt","tool":"bt_ask"}'
         """
         if isinstance(config, str):
             config = json.loads(config)

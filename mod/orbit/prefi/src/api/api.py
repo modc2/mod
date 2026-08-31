@@ -3,7 +3,8 @@ import sys
 import json
 from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
+from pydantic import BaseModel
+from typing import Any, Dict, List, Optional, Union
 
 prefi_src = os.path.join(os.path.dirname(__file__), '..')
 sys.path.insert(0, prefi_src)
@@ -12,6 +13,25 @@ app = FastAPI(title="PreFi API", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _mod = None
+
+def _dex_snapshot_loop():
+    """Every five minutes, a history point for each listed Solana/Base token.
+    GeckoTerminal is the settlement oracle; this is what a pot settles on if
+    it can't answer for a pool at the close. Off with PREFI_DEX_SNAPSHOTS=0."""
+    import time
+    while True:
+        try:
+            get_mod().dex_snapshot()
+        except Exception:
+            pass
+        time.sleep(300)
+
+@app.on_event("startup")
+def _start_dex_snapshots():
+    if os.environ.get('PREFI_DEX_SNAPSHOTS', '1') not in ('0', 'false', 'no'):
+        import threading
+        threading.Thread(target=_dex_snapshot_loop, name='prefi-dex-snapshots',
+                         daemon=True).start()
 
 def get_mod():
     global _mod
@@ -48,7 +68,7 @@ def add_market(
     token: str = Query(..., description="Token contract address"),
     symbol: str = Query(..., description="Token symbol e.g. WETH"),
     fee_tier: int = Query(3000, description="Uniswap V3 fee tier (500, 3000, 10000)"),
-    source: str = Query("coingecko", description="Price source: coingecko | hyperliquid"),
+    source: str = Query("coingecko", description="Price source: coingecko | hyperliquid | bittensor | dex"),
 ):
     result = get_mod().add_market(token, symbol, fee_tier, source)
     if 'error' in result:
@@ -95,6 +115,82 @@ def add_hl_market(
     if 'error' in result:
         raise HTTPException(status_code=400, detail=result['error'])
     return result
+
+
+# ── Bittensor ────────────────────────────────────────────────────
+# Subnet alpha tokens, priced in TAO through the local `bt` module.
+
+@app.get("/bittensor/assets")
+def bt_assets(
+    search: str = Query("", description="Filter by netuid, SN64, subnet name or alpha glyph"),
+    limit: int = Query(50, description="Max results — 0 for every subnet"),
+):
+    return get_mod().bt_assets(search, limit)
+
+@app.get("/bittensor/stats")
+def bt_stats():
+    """How many subnets the bt indexer quotes, how many are listed here, and
+    how old the snapshot is."""
+    return get_mod().bt_stats()
+
+@app.post("/bittensor/seed")
+def seed_bt_markets(
+    limit: int = Query(20, description="How many subnets to list"),
+    min_volume: float = Query(0, description="Skip subnets under this 24h volume (TAO)"),
+):
+    """List the busiest subnets in one call."""
+    return _ok(get_mod().seed_bt(limit, min_volume))
+
+@app.post("/bittensor/add")
+def add_bt_market(
+    subnet: str = Query(..., description="A subnet: netuid (64), SN64, its name (lium.io) or alpha glyph"),
+):
+    result = get_mod().add_bt_market(subnet)
+    if 'error' in result:
+        raise HTTPException(status_code=400, detail=result['error'])
+    return result
+
+
+# ── DEX tokens: Solana and Base ──────────────────────────────────
+# Priced per pool by DexScreener, settled on GeckoTerminal hourly candles,
+# gated by the pool owner's liquidity floor (`min_liquidity_usd`).
+
+@app.get("/dex/assets")
+def dex_assets(
+    chain: str = Query("solana", description="solana | base"),
+    search: str = Query("", description="Symbol, name or address — empty for the busiest pools"),
+    limit: int = Query(50, description="Max results — 0 for everything"),
+):
+    return get_mod().dex_assets(chain, search, limit)
+
+@app.get("/dex/stats")
+def dex_stats(chain: str = Query("solana", description="solana | base")):
+    """Pools ranked, how many clear the owner's floor, how many are listed,
+    and the floor itself."""
+    return _ok(get_mod().dex_stats(chain))
+
+@app.post("/dex/seed")
+def seed_dex_markets(
+    chain: str = Query("solana", description="solana | base"),
+    limit: int = Query(20, description="How many of the busiest eligible tokens to list"),
+    min_volume: float = Query(0, description="Skip pools under this 24h volume (USD)"),
+):
+    return _ok(get_mod().seed_dex(chain, limit, min_volume))
+
+@app.post("/dex/add")
+def add_dex_market(
+    chain: str = Query(..., description="solana | base"),
+    address: str = Query(..., description="A pool address, a token address, or a symbol"),
+):
+    result = get_mod().add_dex_market(chain, address)
+    if 'error' in result:
+        raise HTTPException(status_code=400, detail=result['error'])
+    return result
+
+@app.post("/dex/snapshot")
+def dex_snapshot():
+    """Record a history point for every listed DEX token now."""
+    return get_mod().dex_snapshot()
 
 
 # ── Positions ────────────────────────────────────────────────────
@@ -176,8 +272,9 @@ def scoring_models():
 
 @app.post("/scoring")
 def set_scoring(
-    model: Optional[str] = Query(None, description="l2 | linear | exponential | threshold"),
-    tolerance: Optional[float] = Query(None, description="Normalized error scale, e.g. 0.02"),
+    model: Optional[str] = Query(None, description="A score function: a default (l2, linear, exponential, threshold, gaussian, tiered, cushion, hinge) or one from /functions"),
+    tolerance: Optional[float] = Query(None, description="Normalized error scale, e.g. 0.02 → the function's `tol`"),
+    model_params: Optional[str] = Query(None, description="JSON overrides for the function's other params"),
     multiplier: Optional[float] = Query(None, description="payout = burn × multiplier × score"),
     horizon: Optional[int] = Query(None, description="Default seconds until resolution"),
     min_burn: Optional[float] = Query(None, description="Smallest accepted burn"),
@@ -185,6 +282,7 @@ def set_scoring(
     free_payout: Optional[float] = Query(None, description="PREFI a perfect free call mints"),
 ):
     result = get_mod().set_scoring(model=model, tolerance=tolerance,
+                                   model_params=model_params,
                                    multiplier=multiplier, horizon=horizon,
                                    min_burn=min_burn, free_per_day=free_per_day,
                                    free_payout=free_payout)
@@ -199,11 +297,114 @@ def score_preview(
     model: Optional[str] = Query(None),
     tolerance: Optional[float] = Query(None),
     burn: Optional[float] = Query(None),
+    model_params: Optional[str] = Query(None, description="JSON overrides"),
 ):
-    result = get_mod().score_preview(predicted, actual, model, tolerance, burn)
+    result = get_mod().score_preview(predicted, actual, model, tolerance, burn,
+                                     model_params)
     if 'error' in result:
         raise HTTPException(status_code=400, detail=result['error'])
     return result
+
+
+# ── Score functions ──────────────────────────────────────────────
+# The scoring rule as a program: list, try, save (signed), share, publish,
+# import. Bodies are JSON so an expression round-trips byte-for-byte between
+# the message a wallet signs and the record the server writes.
+
+class FnBody(BaseModel):
+    name: Optional[str] = None
+    expr: str = ''
+    params: Optional[Union[Dict[str, Any], str]] = None
+    description: Optional[str] = ''
+    address: Optional[str] = None
+    signature: Optional[str] = None
+    nonce: Optional[int] = None
+    tolerance: Optional[float] = None
+    origin_cid: Optional[str] = None
+    author: Optional[str] = None
+    # fn_test only
+    actual: Optional[float] = 100.0
+    calls: Optional[List[float]] = None
+    stake: Optional[float] = 100.0
+    fee_bps: Optional[int] = 0
+
+
+class FnImportBody(BaseModel):
+    source: str
+    address: Optional[str] = None
+    signature: Optional[str] = None
+    nonce: Optional[int] = None
+    name: Optional[str] = None
+
+
+def _token_of(request: Request, token: Optional[str] = None) -> Optional[str]:
+    auth = request.headers.get('authorization') or ''
+    if auth.lower().startswith('bearer '):
+        return auth[7:].strip()
+    return token or None
+
+
+@app.get("/functions")
+def fn_list(sample: bool = Query(True, description="Include each curve's sample points")):
+    return get_mod().fn_list(sample=sample)
+
+@app.get("/functions/language")
+def fn_language():
+    from curves import language
+    return language()
+
+@app.post("/functions/test")
+def fn_test(body: FnBody):
+    return _ok(get_mod().fn_test(body.expr, body.params, body.name, body.tolerance,
+                                 body.actual, body.calls, body.stake, body.fee_bps))
+
+@app.post("/functions/sign")
+def fn_sign(body: FnBody):
+    if not body.address:
+        raise HTTPException(status_code=400, detail='address is required')
+    return _ok(get_mod().fn_sign(body.address, body.name or '', body.expr,
+                                 body.params, body.description or ''))
+
+@app.post("/functions")
+def fn_save(body: FnBody):
+    if not body.address:
+        raise HTTPException(status_code=400, detail='address is required')
+    return _ok(get_mod().fn_save(body.address, body.name or '', body.expr, body.params,
+                                 body.description or '', body.signature, body.nonce,
+                                 body.origin_cid, body.author))
+
+@app.post("/functions/import")
+def fn_import(body: FnImportBody):
+    return _ok(get_mod().fn_import(body.source, body.address, body.signature,
+                                   body.nonce, body.name))
+
+@app.get("/functions/{name}")
+def fn_get(name: str):
+    out = get_mod().fn_get(name)
+    if 'error' in out:
+        raise HTTPException(status_code=404, detail=out['error'])
+    return out
+
+@app.delete("/functions/{name}")
+def fn_delete(name: str, address: str = Query(...),
+              signature: Optional[str] = Query(None), nonce: Optional[int] = Query(None)):
+    return _ok(get_mod().fn_delete(address, name, signature, nonce))
+
+@app.get("/functions/{name}/share")
+def fn_share(name: str):
+    out = get_mod().fn_share(name)
+    if 'error' in out:
+        raise HTTPException(status_code=404, detail=out['error'])
+    return out
+
+@app.post("/functions/{name}/publish")
+def fn_publish(name: str, request: Request,
+               token: Optional[str] = Query(None, description="Protocol token (or send it as Bearer)")):
+    out = get_mod().fn_publish(name, _token_of(request, token))
+    if 'error' in out:
+        raise HTTPException(status_code=int(out.get('status') or 400), detail=out['error'])
+    return out
+
 
 
 # ── PREFI balance ────────────────────────────────────────────────
@@ -330,8 +531,9 @@ def pool_config():
 def set_pool_config(
     interval: Optional[int] = Query(None, description="Round length in seconds (604800 = weekly)"),
     entry_cutoff: Optional[int] = Query(None, description="Entries stop this long before the close"),
-    model: Optional[str] = Query(None, description="linear | l2 | exponential | threshold"),
-    tolerance: Optional[float] = Query(None, description="Error scale; 1.0 + linear = 1 − relL1"),
+    model: Optional[str] = Query(None, description="A score function — a default or any name in /functions"),
+    tolerance: Optional[float] = Query(None, description="Error scale → the function's `tol`; 1.0 + linear = 1 − relL1"),
+    model_params: Optional[str] = Query(None, description="JSON overrides for the function's other params"),
     min_stake: Optional[float] = Query(None),
     max_stake: Optional[float] = Query(None, description="0 = uncapped"),
     min_withdraw: Optional[float] = Query(None),
@@ -340,16 +542,18 @@ def set_pool_config(
     spot_grace: Optional[int] = Query(None),
     free_per_round: Optional[int] = Query(None, description="Free calls per address per round (0 = off)"),
     free_notional: Optional[float] = Query(None, description="Paper stake a free call's would-have-won is priced at"),
+    min_liquidity_usd: Optional[float] = Query(None, description="Dollars a Solana/Base token's pool must hold to be listed or staked (0 = no floor)"),
     secret: Optional[str] = Query(None, description="Owner secret"),
     owner: Optional[str] = Query(None, description="Owner address (with signature)"),
     signature: Optional[str] = Query(None),
 ):
     params = {k: v for k, v in dict(
         interval=interval, entry_cutoff=entry_cutoff, model=model,
-        tolerance=tolerance, min_stake=min_stake, max_stake=max_stake,
+        tolerance=tolerance, model_params=model_params, min_stake=min_stake, max_stake=max_stake,
         min_withdraw=min_withdraw, fee_bps=fee_bps, auto_pay=auto_pay,
         spot_grace=spot_grace, free_per_round=free_per_round,
-        free_notional=free_notional).items() if v is not None}
+        free_notional=free_notional,
+        min_liquidity_usd=min_liquidity_usd).items() if v is not None}
     return _ok(get_mod().set_pool_config(secret=secret, owner=owner,
                                          signature=signature, **params))
 
@@ -424,7 +628,7 @@ def pool_sign(request: Request, action: str = Query(...), address: str = Query(.
 @app.post("/pool/stake")
 def pool_stake(
     address: str = Query(...),
-    asset: str = Query(..., description="A Hyperliquid-priced market, e.g. BTC"),
+    asset: str = Query(..., description="A Hyperliquid- or Bittensor-priced market, e.g. BTC or SN64"),
     predicted_price: float = Query(..., description="Where it closes this round"),
     amount: float = Query(..., description="Dollars to stake"),
     signature: Optional[str] = Query(None),
@@ -436,7 +640,7 @@ def pool_stake(
 @app.post("/pool/free")
 def pool_free_stake(
     address: str = Query(...),
-    asset: str = Query(..., description="A Hyperliquid-priced market, e.g. BTC"),
+    asset: str = Query(..., description="A Hyperliquid- or Bittensor-priced market, e.g. BTC or SN64"),
     predicted_price: float = Query(..., description="Where it closes this round"),
     signature: Optional[str] = Query(None),
     nonce: Optional[int] = Query(None),

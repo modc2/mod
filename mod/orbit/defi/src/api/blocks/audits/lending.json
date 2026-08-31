@@ -1,0 +1,153 @@
+{
+  "block": "lending",
+  "contract": "ModLendingPool",
+  "file": "lending.sol",
+  "audited_at": "2026-08-30",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "critical",
+  "summary": "ModLendingPool is a single-collateral, single-debt over-collateralised market: lenders supply() debtAsset, borrowers post collateral and borrow up to ltvBps of its oracle value with simple interest capitalised on each interaction, and anyone can liquidate below health factor 1 for a 5% (owner-settable up to 30%) bonus. Two findings are fatal as-is: supply() has no counterpart withdraw, so every lender's deposit and all interest are locked forever (LENDING-1); and the recommended AMM-as-oracle wiring is flash-loan manipulable, letting an attacker drain the pool or liquidate everyone in one transaction (LENDING-2). Beyond those, the value math ignores token decimals, the liquidation line equals the borrow line (max borrowers are liquidated next block), and the owner can seize all collateral through setOracle/setRiskParams. It is not safe to deploy with real funds; it is usable as a testnet demo only with a ModFixedOracle, equal-decimal tokens, a timelock governor, and the understanding that supplied liquidity is a donation.",
+  "counts": {
+    "critical": 2,
+    "high": 3,
+    "medium": 6,
+    "low": 2,
+    "info": 1
+  },
+  "findings": [
+    {
+      "id": "LENDING-1",
+      "severity": "critical",
+      "title": "Lenders can never withdraw: supply() is a one-way sink and borrower interest is unreachable by anyone",
+      "where": "supply() L83-L87; whole contract (no withdraw/redeem for suppliers, no owner sweep)",
+      "detail": "supply() pulls debtAsset and bumps a counter (totalSupplied) but records nothing per lender, and there is no function that returns debtAsset to a supplier (or to the owner). The only way debtAsset ever leaves the contract is borrow(), which requires posting collateral. Every unit a lender supplies is permanently locked; the interest borrowers pay via debtOf()/repay() accumulates in the contract with no claimant. The block's summary ('lenders fund the borrowable pool') implies a lending market, but as written it is a donation contract for borrowers' liquidity.",
+      "exploit": "1. Alice calls supply(100_000e18). 2. There is no withdraw(): Alice's only recovery is depositCollateral()+borrow(), which returns at most ltvBps of her OWN collateral value and leaves her with a debt. 3. Bob borrows 50_000e18 and repays 52_000e18 a year later; the 52_000e18 sit in the contract forever. Alice's 100_000e18 are gone the moment supply() succeeds.",
+      "recommendation": "Track supplier shares (ERC20Base or a mapping) and add withdraw(shares) that pays pro-rata from debtAsset balance + outstanding debt, with an available-liquidity check in borrow(). Until then remove supply() or mark the block 'borrow-only, owner-funded'."
+    },
+    {
+      "id": "LENDING-2",
+      "severity": "critical",
+      "title": "AMM spot price on the oracle port is flash-loan manipulable: drain the pool or liquidate every borrower in one transaction",
+      "where": "collateralValue() L60-L62, maxBorrow() L64-L68, liquidate() L121-L134; header comment L7-L8 recommends 'an AMM's price()'",
+      "detail": "The contract reads oracle.price() synchronously at borrow/withdraw/liquidate time and the header comment explicitly suggests wiring ModAMM.price() (reserve1*1e18/reserve0, a raw spot quote) as the feed. The catalog also ships ModFlashLender. Anyone can move the AMM spot arbitrarily within a single transaction, so collateralValue() is attacker-controlled: borrow the whole debtAsset balance against dust collateral, or crash the price to seize every position at a 5-30% bonus. No TWAP, no deviation bound, no sanity check on the returned price.",
+      "exploit": "1. Wire lending.oracle -> ModAMM(collateral, debtAsset). 2. Attacker deposits 1 unit of collateral. 3. flashLoan(debtAsset, X) from ModFlashLender; swap X into the AMM buying collateral, pushing price() up 1000x. 4. borrow(maxBorrow) - the pool pays out its entire debtAsset balance against 1 unit of collateral. 5. Swap the bought collateral back, repay the flash loan, keep the borrowed debtAsset; the 1 unit of collateral is abandoned. Reverse direction: dump collateral into the AMM, liquidate() every account for the bonus, swap back.",
+      "recommendation": "Never wire the AMM directly. Require a manipulation-resistant feed (Chainlink adapter or a TWAP block with a minimum window), reject price()==0, and bound per-call price deviation. Delete the header suggestion."
+    },
+    {
+      "id": "LENDING-3",
+      "severity": "high",
+      "title": "Decimals mismatch: collateralValue() assumes collateral and debt asset share the same decimals",
+      "where": "collateralValue() L60-L62, liquidate() seize math L129, constructor L34-L50 (never reads decimals())",
+      "detail": "collateralValue = rawCollateral * price / 1e18 yields a number in COLLATERAL raw units, which is then compared directly with debt in DEBT raw units (maxBorrow, healthFactorBps, withdrawCollateral, liquidate). IOracle is documented as 'price of one whole token, scaled 1e18' (common.sol L20), which is what a Chainlink-style adapter or ModFixedOracle owner will naturally publish. Whenever collateral.decimals() != debtAsset.decimals() the market is mis-scaled by 10^(dC-dD): WBTC(8)/USDC(6) overvalues collateral 100x; WETH(18)/USDC(6) undervalues it 1e12x (borrow limit rounds to 0, market is bricked, and any borrower is instantly liquidatable).",
+      "exploit": "1. Deploy with collateral=WBTC (8 dec), debtAsset=USDC (6 dec), ModFixedOracle price=60_000e18 ('one whole BTC = 60k'). 2. Attacker deposits 1 WBTC (1e8). collateralValue = 1e8*60_000e18/1e18 = 6e12 = 6,000,000 USDC. 3. borrow(4_500_000e6) at 75% LTV succeeds against $60k of collateral; attacker walks away with the pool.",
+      "recommendation": "Read both decimals() in the constructor and normalise: value = collateral * price * 10**debtDec / (1e18 * 10**colDec). Apply the inverse in the seize formula. Document exactly what unit the oracle must publish."
+    },
+    {
+      "id": "LENDING-4",
+      "severity": "high",
+      "title": "Liquidation threshold equals max LTV: a max borrow is liquidatable in the next block, losing the bonus to MEV",
+      "where": "borrow() L106 (amount <= maxBorrow), healthFactorBps() L70-L74, liquidate() L123",
+      "detail": "maxBorrow lets debt reach exactly collateralValue*ltv. healthFactorBps compares the same limit against debt, so the liquidation line IS the borrow line - there is no buffer. One second of interest accrual (or a 1-wei price tick) makes any max borrower liquidatable. With ltv 75%/bonus 5% the borrower forfeits 3.75% of collateral value to whoever liquidates first; with the owner-settable 30% bonus it is 22.5%.",
+      "exploit": "1. Bob deposits 100 collateral (price 1e18) and calls borrow(75) - the default UI amount. 2. Next block, debtOf(Bob)=75.000000095 > 75, healthFactorBps < 10_000. 3. Searcher calls liquidate(Bob, 75), repays 75, receives 78.75 collateral. Bob's position is closed at a 3.75 loss with no price move at all.",
+      "recommendation": "Add a separate liquidationThresholdBps > ltvBps (e.g. 80% vs 75%) and use it only in healthFactorBps/liquidate; keep ltvBps for borrow/withdraw. Optionally require amount < maxBorrow strictly."
+    },
+    {
+      "id": "LENDING-5",
+      "severity": "high",
+      "title": "Owner can seize all collateral or drain all liquidity via setOracle()/setRiskParams() with no delay or bounds",
+      "where": "setOracle() L138-L141, setRiskParams() L143-L149, Owned.setOwner() common.sol L47-L50",
+      "detail": "The owner can atomically point the oracle at any contract returning any number, drop ltvBps to 1, or raise liquidationBonusBps to 30%. Each of these makes every open position liquidatable in the same transaction, and a high price lets the owner borrow the entire pool against dust. The catalog defaults the governor port to the deployer EOA ($owner) rather than the timelock block. Nothing in the contract capitalises or grace-periods users before a parameter change.",
+      "exploit": "1. Owner deploys EvilOracle{price()=1}. 2. In one tx: setOracle(EvilOracle); for each user: liquidate(user, debtOf(user)) - seize is capped at a.collateral so the owner takes 100% of everyone's collateral for pennies of debtAsset. Or: EvilOracle price=1e30, depositCollateral(1), borrow(entire debtAsset balance).",
+      "recommendation": "Wire governor to the timelock block, bound parameter changes (max delta per call, min delay), reject oracle addresses that return 0 or deviate >X% from the current one, and emit events for every parameter change."
+    },
+    {
+      "id": "LENDING-6",
+      "severity": "medium",
+      "title": "borrowRateBps changes apply retroactively to each account's un-capitalised elapsed period",
+      "where": "setRiskParams() L143-L149, debtOf() L52-L57, _capitalise() L76-L80",
+      "detail": "Interest is computed lazily as principal * borrowRateBps * (now - lastAccrual). setRiskParams overwrites borrowRateBps without capitalising any account, so the NEW rate is applied to the whole period since each borrower last touched the contract. uint16 allows up to 65_535 bps (655% APR).",
+      "exploit": "1. Carol borrows at 4% APR and does not interact for a year (debt 104). 2. Owner calls setRiskParams(7500, 500, 65535). 3. debtOf(Carol) is now 100 + 655 = 755; she is deeply underwater and is liquidated for her entire collateral before she can react.",
+      "recommendation": "Store a global accrual index (rate-weighted cumulative) updated on every rate change, or at minimum cap borrowRateBps and require the change through a timelock."
+    },
+    {
+      "id": "LENDING-7",
+      "severity": "medium",
+      "title": "Bad debt is neither prevented nor handled: no close factor, no minimum position, seize capped at collateral, LTV up to 90% with 5% bonus",
+      "where": "liquidate() L125-L131, setRiskParams() L144-L145, constructor L43",
+      "detail": "When collateralValue < debt the seize cap (L130) means a liquidator repaying `pay` receives less than `pay` in collateral, so nobody liquidates and the shortfall stays as principal on an account with zero collateral forever; there is no write-off, reserve, or socialisation path. At the permitted ltv=9000 with bonus=500 a 5% price move already leaves nothing for the liquidator. There is also no minimum borrow, so dust positions cost more gas than they yield, and no partial-liquidation limit, so one liquidator can wipe a position that was 0.1% under water.",
+      "exploit": "1. ltv=9000. Dave deposits 100, borrows 90. 2. Price falls 12%: collateral worth 88, debt 90. 3. Any liquidator repaying 88/1.05=83.8 takes all 100 collateral (worth 88); the remaining 6.2 debt can never be recovered. Dave himself can run this (self-liquidate) to exit at a 4.2 discount and abandon the residual debt to the pool.",
+      "recommendation": "Enforce ltv + bonus <= threshold with a margin, add a minBorrow, a close factor (e.g. 50%) while HF is above a floor, and a bad-debt accounting path (reserve or socialised write-down)."
+    },
+    {
+      "id": "LENDING-8",
+      "severity": "medium",
+      "title": "Oracle liveness: a stale/reverting feed freezes borrow, withdrawCollateral and liquidate; price()==0 makes liquidate() panic; a never-updated fixed oracle is a price-drift drain",
+      "where": "collateralValue() L61, liquidate() L129, ModFixedOracle.price() oracle.sol L22-L27",
+      "detail": "Every risk path calls oracle.price() unguarded. ModFixedOracle with maxStaleness>0 reverts once the owner stops updating, so collateral cannot be withdrawn even by debt-free accounts and liquidations halt while prices move. ModAMM.price() returns 0 with empty reserves, which makes L129 divide by zero (panic) - liquidations are impossible exactly when reserves were pulled. With maxStaleness=0 (the catalog default is deployer-chosen) the fixed price never expires, so the market silently lends at yesterday's price.",
+      "exploit": "Freeze: owner of ModFixedOracle(maxStaleness=1h) goes offline; every withdrawCollateral() reverts STALE_PRICE, users with zero debt cannot get their collateral out until the owner returns. Drift: fixed price 1e18 never updated; real collateral value halves; every borrower keeps the debtAsset and abandons collateral; the pool is left holding worthless tokens.",
+      "recommendation": "Let debt-free accounts withdraw without a price read; require price()>0 with a clear revert; add a staleness/heartbeat check inside the pool; use a feed with an update commitment."
+    },
+    {
+      "id": "LENDING-9",
+      "severity": "medium",
+      "title": "Public oracle updates are front-runnable: borrow at the old price in the block a drop lands",
+      "where": "borrow() L104-L110 vs ModFixedOracle.setPrice() oracle.sol L34-L39",
+      "detail": "Price updates are ordinary transactions; the pool has no per-block borrow delay, no price-deviation lockout, and the borrow line equals the liquidation line (LENDING-4). A borrower who sees setPrice(lower) in the mempool can borrow max at the stale higher price and be underwater the instant the update executes.",
+      "exploit": "1. Oracle owner broadcasts setPrice(0.5e18) (from 1e18). 2. Eve front-runs: depositCollateral(100), borrow(75). 3. Update lands: collateral worth 50, debt 75; Eve keeps 75 debtAsset and abandons 100 collateral worth 50. Pool loses 25 per 100 collateral, repeatable on every downward update.",
+      "recommendation": "Use a feed that updates in the same block as trading (or a TWAP), and/or add a same-block deposit->borrow delay and a deviation guard that pauses borrows when the price moved more than X% since the last read."
+    },
+    {
+      "id": "LENDING-10",
+      "severity": "medium",
+      "title": "Fee-on-transfer / rebasing tokens are credited at the requested amount, not the received amount",
+      "where": "supply() L84-L85, depositCollateral() L91-L92, repay() L116-L117, liquidate() L126-L127",
+      "detail": "All inflows use SafeTransfer.pull(amount) and then credit `amount`. A deflationary collateral makes accounts[].collateral exceed the contract's real balance, so early withdrawers take later depositors' tokens and the last one reverts; a fee-on-transfer debtAsset makes repay() extinguish more debt than was received. Rebasing tokens desync in the other direction (positive rebases are stranded, negative ones make withdrawals fail).",
+      "exploit": "1. Collateral charges 2% on transfer. 2. Frank deposits 100 (contract receives 98, credit 100). 3. Grace deposits 100 (contract has 196, credits 200). 4. Frank withdraws 100 - succeeds, taking 2 of Grace's tokens; Grace's withdraw(100) reverts on balance.",
+      "recommendation": "Credit balanceOf(this) deltas around each pull, or document that only standard ERC20s (e.g. the catalog token block) may be wired."
+    },
+    {
+      "id": "LENDING-11",
+      "severity": "medium",
+      "title": "Same token allowed as collateral and debt: borrow() pays out other users' collateral and withdrawCollateral() can revert",
+      "where": "constructor L42 (no collateral_ != debtAsset_ check), borrow() L108, withdrawCollateral() L101",
+      "detail": "Collateral and supplied liquidity share one ERC20 balance when the two ports are wired to the same token (nothing in the catalog prevents it). borrow() pushes from that shared balance, so the pool lends out escrowed collateral; later withdrawCollateral() by a debt-free user fails because the tokens are in a borrower's wallet.",
+      "exploit": "1. Deploy with collateral==debtAsset==TOKEN, oracle price 1e18, no supply() ever called. 2. Henry deposits 100 collateral. 3. Ivy deposits 100 collateral and borrows 75 - paid from Henry's escrow. 4. Henry's withdrawCollateral(100) reverts (balance 125); Ivy abandons her position when TOKEN drops. Henry is the unwitting lender.",
+      "recommendation": "require(collateral_ != debtAsset_) in the constructor and track available liquidity separately from collateral."
+    },
+    {
+      "id": "LENDING-12",
+      "severity": "low",
+      "title": "No reentrancy guard; depositCollateral() and liquidate() perform external pulls before state effects",
+      "where": "depositCollateral() L91-L92, liquidate() L126-L127, oracle call L61/L129",
+      "detail": "Interactions precede effects in two functions. With the catalog's ModToken (no hooks) this is not exploitable, and the re-entrant paths examined (re-entering borrow from a transferFrom hook before collateral is credited; nested liquidate of the same user) do not net an attacker anything. But an ERC777/hook token or a malicious oracle on the port makes re-entrancy reachable, and future edits could turn it into a real bug.",
+      "exploit": "With a hook collateral: attacker's tokensToSend re-enters withdrawCollateral() during depositCollateral() - fails today only because the credit happens after the pull. No profitable sequence found with the current code.",
+      "recommendation": "Add a nonReentrant modifier to all state-changing functions and move the credit before the pull (or credit from balance delta)."
+    },
+    {
+      "id": "LENDING-13",
+      "severity": "low",
+      "title": "Interest precision: tiny positions can capitalise every block to zero interest; rounding otherwise favours the protocol",
+      "where": "debtOf() L56, repay() L112-L119",
+      "detail": "Interest = principal*rate*elapsed/(10_000*365 days) rounds down per capitalisation. repay(0) is a free _capitalise() (pull of 0 succeeds on standard tokens). When principal*rate*elapsed < 3.15e11 the increment is 0, so on cheap L2s a borrower with a small (e.g. <1e8 raw units at 400 bps, 12s blocks) principal pays no interest. collateralValue and seize round down (against the user, in favour of the pool) which is the correct direction.",
+      "exploit": "Borrower with principal 1e8 (100 USDC) at 400 bps calls repay(0) every 12s block; each accrual computes 1e8*400*12/3.15e11 = 1.5 -> 1 unit; at 1e7 principal it is 0 forever. Economic only for gas << interest saved.",
+      "recommendation": "Accrue via a global index with 1e27 precision, or require pay > 0 in repay()."
+    },
+    {
+      "id": "LENDING-14",
+      "severity": "info",
+      "title": "Housekeeping: totalSupplied is a cumulative counter not liquidity, no events for collateral moves, oracle_ unchecked in ctor, setOwner(0) freezes wiring",
+      "where": "supply() L85, depositCollateral() L89-L93, withdrawCollateral() L95-L102, constructor L46, Owned.setOwner() common.sol L47-L50",
+      "detail": "totalSupplied is never decremented by borrow() so it does not describe available liquidity (borrow() only fails on the ERC20 push). depositCollateral/withdrawCollateral emit nothing, so indexers cannot reconstruct positions from logs. The constructor accepts oracle_=address(0) (every price read reverts until setOracle). setOwner(address(0)) is allowed and permanently disables setOracle/setRiskParams, which with a fixed oracle freezes the price forever.",
+      "exploit": "Not exploitable on its own; these make monitoring and incident response harder.",
+      "recommendation": "Expose availableLiquidity() = debtAsset.balanceOf(this); emit CollateralDeposited/Withdrawn; require oracle_ != 0; require non-zero new owner or an explicit renounce()."
+    }
+  ],
+  "safe_use": [
+    "Do not accept third-party supply(): fund the pool yourself and treat the debtAsset as unrecoverable until a supplier withdraw is added.",
+    "Never wire the oracle port to ModAMM.price() or any spot quote; use ModFixedOracle only on testnet, or a TWAP/Chainlink adapter with a staleness check in production.",
+    "Only wire collateral and debt tokens with identical decimals() (or publish the oracle price pre-scaled by 10^(debtDecimals-collateralDecimals)) and never the same token for both ports.",
+    "Wire the governor port to the timelock block, not an EOA; changing oracle, LTV, bonus or rate is an immediate, retroactive, fund-moving action.",
+    "Tell borrowers to stay well below maxBorrow (there is no gap between the borrow limit and the liquidation line) and keep ltvBps <= 7500 with the default 5% bonus.",
+    "Use only plain ERC20s (the catalog token block): no fee-on-transfer, rebasing, or hook tokens on either port.",
+    "If the fixed oracle has maxStaleness > 0, run an updater with monitoring: a stale feed blocks all collateral withdrawals, even for debt-free accounts."
+  ]
+}

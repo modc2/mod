@@ -326,6 +326,50 @@ class TestVoids:
                   root=os.path.join(tmpdir, 'arena'))
         return a, state
 
+    def _closed_door(self, tmpdir, reason):
+        calls = {'n': 0}
+
+        def behaviour(agent, path, prompt):
+            calls['n'] += 1
+            return [{'tool': 'error', 'params': {}, 'error': reason}]
+
+        a = Arena(runner=make_runner(behaviour), agents=FakeAgents(),
+                  root=os.path.join(tmpdir, 'arena'))
+        a.set_config(tasks_per_round=2, retries=2)
+        return a, calls
+
+    def test_a_rate_limit_ends_the_round_and_cools_the_board(self, tmpdir):
+        a, calls = self._closed_door(
+            tmpdir, "rate limited: openrouter's free-model quota for today is "
+                    "used up — resets 2099-01-01T00:00:00Z")
+        out = a.run_round(reason='daily')
+        assert out['matches'] == 1 and out['capped_by'] == 'rate_limited'
+        assert calls['n'] == 1                  # no replay into a closed door
+        assert out['results'][0]['void']
+        assert not a.due()
+        st = a.status()
+        assert st['cooldown_until'] > time.time() + 365 * 86400   # the named reset
+        assert 'quota' in st['cooldown_reason']
+        # the scheduler sits it out too — qualifiers included
+        tick = Scheduler(a).tick()
+        assert tick['skipped'] == 'rate_limited'
+        assert a.newcomers()                    # nobody was played meanwhile
+
+    def test_a_raw_429_cools_for_an_hour_when_no_reset_is_named(self, tmpdir):
+        a, calls = self._closed_door(tmpdir, 'Error code: 429 - rate limit exceeded')
+        a.run_round()
+        assert calls['n'] == 1
+        assert 0 < a.status()['cooldown_until'] - time.time() <= 3600
+        # …and the door reopens on its own
+        a._state['cooldown_until'] = time.time() - 1
+        a._state['last_round'] = 0
+        assert a.due()
+
+    def test_a_flaky_endpoint_is_still_retried(self, tmpdir):
+        a, state = self._flaky(tmpdir, fail_first=1)
+        out = a.run_match('alpha', 'agentic/files#0')
+        assert not out['void'] and state['n'] == 2
+
     def test_a_model_error_step_voids_the_match(self, tmpdir):
         a, _ = self._flaky(tmpdir, fail_first=99)
         a.set_config(retries=0)
@@ -462,6 +506,30 @@ class TestRounds:
             arena.run_round()
         assert len(arena._state['rounds']) == 3
         assert arena._state['rounds'][-1]['season'] == 3
+
+    def test_a_task_without_an_eval_suite_still_plays(self, arena, monkeypatch):
+        # a hand-written task has no evals/custom/mod.py behind it — looking
+        # one up used to raise out of the middle of the round
+        arena.set_config(tasks_per_round=1)
+        pool = arena.round_tasks()
+        stray = dict(pool[0], key='custom#stray', suite='custom', custom=True)
+        monkeypatch.setattr(arena, 'round_tasks', lambda n=None: pool + [stray])
+        out = arena.run_round()
+        assert out['matches'] == 3 * 2          # 3 agents x (1 eval task + the stray)
+        assert not arena.due()
+
+    def test_a_round_that_falls_over_is_still_stamped(self, arena, monkeypatch):
+        # unstamped, the scheduler saw it as due on every tick and replayed
+        # its first matches every minute — the free tier was gone by morning
+        def boom(*a, **k):
+            raise RuntimeError('eval not found: custom')
+        monkeypatch.setattr(arena, 'run_match', boom)
+        with pytest.raises(RuntimeError):
+            arena.run_round(reason='daily')
+        assert not arena.due()
+        last = arena._state['rounds'][-1]
+        assert last['error'].startswith('eval not found') and last['matches'] == 0
+        assert not arena._lock.locked()
 
 
 # ═══════════════════════════════════════════════════════════════════════

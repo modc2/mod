@@ -36,6 +36,7 @@ DEFAULTS = {
     'nameservers': [],            # [] = derive ns1/ns2.{host}
     'soa_email': None,            # None = hostmaster@{host}
     'follow_caddy': True,         # adopt the router's host if it has one set
+    'private_ips': True,          # mask addresses for everyone but the owner
 }
 
 

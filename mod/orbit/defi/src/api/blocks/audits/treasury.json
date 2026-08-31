@@ -1,0 +1,108 @@
+{
+  "block": "treasury",
+  "contract": "ModBlocTimeTreasury",
+  "file": "treasury.sol",
+  "audited_at": "2026-08-30",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "high",
+  "summary": "ModBlocTimeTreasury takes irrevocable locks of an ERC20 asset and, once a week on BlocTime's exact window (verified identical to BlocTime.sol's DISTRIBUTION_PERIOD/OFFSET arithmetic), splits either the streamed principal or any surplus balance across a self-registered set of addresses pro-rata to their live BLOC balanceOf. The accounting core is sound: lockedOutstanding + unclaimed correctly fence principal and credits from distributable(), claim()/withdraw() follow checks-effects-interactions, distribute() makes only STATICCALLs so there is no reentrancy surface, slices never strand dust inside a lock, and rescue() genuinely cannot reach the asset. The worst findings are structural rather than arithmetic: the split is a live balance read at whatever instant the (permissionless) caller picks, so borrowed or rented BLOC captures the week's payout, which for a streaming lock is other people's principal; both bounded sets (256 participants, 128 active locks) can be filled permissionlessly for dust with no eviction path, permanently locking out honest registrants or bricking lock() for ten years; and the immutable weight address is never code-checked while the catalog default is a Base Sepolia address, so deploying on any other chain with the port unwired makes distribute() revert forever and loses every streaming lock. Fee-on-transfer assets and the weight token's own admin (ModToken mint, BlocTime setPoints) are further fund-diversion paths the treasury owner cannot stop. Not safe to deploy as-is for real money on a public chain; usable only where the deployer controls the weight token, pre-fills and audits the registered set, uses a plain non-rebasing asset, and verifies the weight address has code on the target chain.",
+  "counts": {
+    "critical": 0,
+    "high": 4,
+    "medium": 2,
+    "low": 1,
+    "info": 2
+  },
+  "findings": [
+    {
+      "id": "TREASURY-1",
+      "severity": "high",
+      "title": "Weight is a live balanceOf read at a caller-chosen instant, so borrowed or rented BLOC captures the week's payout",
+      "where": "distribute() L290-L319, totalWeight() L170-L174, per-holder read L303",
+      "detail": "The split is computed from weight.balanceOf(participant) in the same transaction that anyone may send once the window opens. Nothing is time-weighted and nothing is checkpointed: BlocTime resists this with its _update checkpoint accumulator, but this contract only reads BlocTime from outside (its own header at L32-L40 says so). BLOC is a standard, freely transferable OZ ERC20 (minted by stake(), burned by unstake(), no transfer restriction in _update), so whoever holds the most BLOC for the one block in which distribute() runs takes the largest share, and that holding can be borrowed. For a returnPrincipal=false lock the weekly payout IS the principal, so this diverts other people's locked money, not just yield. The same canvas ships flashlender, amm and lending blocks that can be wired to BLOC; even without a pool, any unregistered BLOC holder (Carol in the tests) can rent their balance to a registrant for one atomic call.",
+      "exploit": "1) Attacker registers address A (register(), L126). 2) At Friday 17:00:00 UTC, in ONE transaction: flash-borrow X BLOC from any pool holding BLOC (ModFlashLender/ModAMM wired to BLOC, or an OTC contract with a non-registered holder), transfer it to A, call treasury.distribute(). totalWeight() = X + honest; claimable[A] = amount * X / (X + honest), which approaches 100% as X grows. 3) Return the BLOC, pay the flash fee. 4) Later call claim() (L321). Repeat every week; honest registrants who have held BLOC all week receive almost nothing.",
+      "recommendation": "Do not read a live balance at a caller-chosen moment. Either (a) require participants to deposit BLOC into the treasury and use those deposited balances (a staking snapshot the contract controls), or (b) record a block-number/timestamp snapshot at window open and read a checkpointed balance (ERC20Votes-style getPastVotes; BlocTime already keeps per-account checkpoints that could be exposed), or (c) at minimum time-weight the balance across the whole window. If the live read is kept, document that any BLOC lending market makes the split gameable and that lockers should only fund treasuries whose registered set they control."
+    },
+    {
+      "id": "TREASURY-2",
+      "severity": "high",
+      "title": "registerFor() is permissionless, the set is capped at 256 and nobody can evict a member, so the set can be filled and captured",
+      "where": "registerFor() L132-L134, _register() L136-L143 (FULL at L139), deregister() L146-L158 (self only), MAX_PARTICIPANTS L56",
+      "detail": "Anyone may enrol any address, the set is hard-capped at 256, and the only way out is deregister() by the member itself. There is no owner/governor removal, no minimum BLOC to register, and zero-weight members are only skipped (L304), never pruned. An attacker who fills the free slots with addresses they control permanently blocks every future registration ('FULL'), and if they do it before honest holders register they own the entire set. The comment at L130-L131 ('enrolling a holder can only ever dilute you') is true for a single call but not for the cap: filling the set is the opposite of dilution. The owner has no remedy short of redeploying, while any lock already placed keeps streaming into the captured set.",
+      "exploit": "1) Immediately after deployment (or at any time while free slots remain) attacker sends registerFor(Ai) for i = 1..256 using addresses they control; one of them holds 1 wei of BLOC. 2) Every honest register()/registerFor() now reverts FULL forever, because deregister() only works for msg.sender and the attacker never leaves. 3) A locker who does not inspect participants() calls lock(1000 USDC, 10, false) from the desk. 4) Each Friday distribute() pays 100% to the attacker's 1-wei address (share = amount*1/1). Even in a partially honest set the attacker permanently excludes all future BLOC holders.",
+      "recommendation": "Gate membership on holding BLOC (require weight.balanceOf(who) >= minWeight at register, and let anyone prune a member whose balance is 0), or make registration self-only plus an owner/governor registerFor with an owner evict(); or drop the fixed cap in favour of a pull-based accumulator. Emit and surface participants() on the desk so a locker sees who will be paid before funds become irrevocable."
+    },
+    {
+      "id": "TREASURY-3",
+      "severity": "high",
+      "title": "lock() is permissionless and activeLocks is capped at 128 with no way to prune, so 128 wei of dust bricks lock() for up to ten years",
+      "where": "lock() L183-L205 (cap check L189), MAX_ACTIVE_LOCKS L57, _vest() L237-L260 (drop only at L252-L258), withdraw() L332-L345 (never touches activeLocks)",
+      "detail": "An active lock only leaves activeLocks when weeksElapsed reaches termWeeks, and weeksElapsed advances by one per SUCCESSFUL distribute() (L241), not per calendar week. termWeeks may be 520. So lock(1 wei, 520, true) occupies a slot for at least 520 distributions (>= 10 years, longer whenever a week is skipped because NO_WEIGHT_REGISTERED or NOTHING_TO_DISTRIBUTE reverted). 128 of them cost 128 wei of the asset plus gas and make every subsequent honest lock() revert TOO_MANY_LOCKS. Withdrawing an escrow lock after unlockTime does not free its slot either (withdraw() never calls _dropActive), so even matured locks keep blocking. Neither the owner nor anyone else can remove a lock.",
+      "exploit": "1) Attacker approves 128 wei of the asset and calls lock(1, 520, true) 128 times (or lock(1, 520, false): 1/520 floors to 0 so it releases nothing for 519 weeks). 2) activeLocks.length == 128. 3) The treasury desk's treasury_lock, and every other depositor, reverts with TOO_MANY_LOCKS for the next 520 successful distributions. 4) The only fix is a new deployment; existing streams keep paying into the old one.",
+      "recommendation": "Require a minimum lock amount (e.g. amount >= termWeeks * minSlice so every slice is non-zero), remove an escrow lock from activeLocks inside withdraw(), let anyone call a prune(id) for locks whose term or unlockTime has passed, and consider replacing the per-lock loop with a per-window aggregate (sum of slices scheduled per window) so the cap is unnecessary."
+    },
+    {
+      "id": "TREASURY-4",
+      "severity": "high",
+      "title": "weight is immutable, never code-checked, and the catalog default is a Base Sepolia address: on any other chain distribute() reverts forever and streaming principal is unrecoverable",
+      "where": "constructor L98-L104, immutable weight L48, totalWeight() L170-L174 read at L293, catalog params.weightToken default 0xF25AAFDd0A842ff50b041595C79210b48d6795bD",
+      "detail": "The constructor only rejects address(0). The catalog tells the user to 'leave the weight port unwired to use the live BlocTime deployment', but that default is the fleet's Base Sepolia instance. On Base mainnet, Ethereum, or a local anvil that address has no code, so weight.balanceOf() returns empty calldata and the ABI decoder reverts. distribute() calls totalWeight() first (L293) and therefore reverts on every call, forever, and the address cannot be changed. rescue() correctly refuses the asset (L359), withdraw() only serves returnPrincipal=true locks (L336), so every returnPrincipal=false lock is lost outright, and escrowed locks are trapped until unlockTime with no yield. A weight token that later self-destructs, is upgraded to revert, or is paused has the same effect.",
+      "exploit": "1) On Base mainnet, deploy the treasury block from the canvas with the weight port unwired (default param). Deployment succeeds. 2) Depositor calls lock(1_000e6 USDC, 10, false). 3) Friday 17:00 UTC: distribute() -> totalWeight() -> STATICCALL to a codeless address -> revert. 4) Every distribute() reverts for the life of the contract; rescue(USDC) reverts ASSET_IS_LOCKED; withdraw(0) reverts STREAMING. 1,000 USDC is permanently stuck.",
+      "recommendation": "In the constructor require(weight_.code.length > 0) and try/catch a balanceOf() probe (and the same for asset_); make the catalog default chain-aware or empty so the composer refuses to deploy an unwired weight port on any chain other than the one the default belongs to. Add a circuit breaker: if distribute() has been impossible for N windows (or the weight call reverts), allow lockers to reclaim their unreleased principal. Never let 'the lock cannot be undone' also mean 'a misconfiguration cannot be undone'."
+    },
+    {
+      "id": "TREASURY-5",
+      "severity": "medium",
+      "title": "Fee-on-transfer or negatively rebasing assets overstate lockedOutstanding; the last escrow withdrawer (or last claimer) reverts and cannot be made whole",
+      "where": "lock() L190 + L203, distributable() L270-L274, withdraw() L338-L343, claim() L326-L327",
+      "detail": "lock() credits lockedOutstanding with the amount REQUESTED, not the amount that arrived (no before/after balance check). With a fee-on-transfer asset, or one whose balance can rebase downward, the contract owes more principal than it holds. distributable() clamps to 0 so payouts simply shrink, but withdraw() and claim() push the full ledgered amount; whoever exits last hits PUSH_FAILED. Because rescue() cannot touch the asset and there is no owner top-up path other than a donation, the shortfall is permanent unless someone gifts the difference. The catalog lets a user paste any ERC20 address as the asset, so this is reachable from the desk.",
+      "exploit": "1) Asset charges a 1% transfer fee. Alice lock(1000, 1, true), Bob lock(1000, 1, true): balance 1980, lockedOutstanding 2000. 2) After unlockTime Alice withdraw(0) receives 1000 (balance 980). 3) Bob withdraw(1) tries to push 1000 from 980 -> PUSH_FAILED forever; Bob's principal is unrecoverable unless a third party donates 20. The same happens to the final claim() after distributions credited more than the contract holds.",
+      "recommendation": "Measure received amount as balanceAfter - balanceBefore in lock() and fund() and ledger that; document that rebasing assets are unsupported (or route them through a wrapper), and consider letting withdraw()/claim() pay min(owed, balance) with the remainder left claimable so one bad token cannot brick every exit."
+    },
+    {
+      "id": "TREASURY-6",
+      "severity": "medium",
+      "title": "Composition: whoever administers the weight token can mint weight to themselves and take the whole payout",
+      "where": "weight read L303 / L172; ModToken.mint() token.sol L26-L29 (owner, mintable); BlocTime setPoints() L131-L140 (multiplier only bounded below) + stake() L205-L226 mints BLOC",
+      "detail": "The treasury has minimal owner powers itself, but it inherits the trust model of the weight token completely. On the canvas the weight port accepts any erc20 provider: a ModToken with mintable=true lets its owner mint arbitrary weight; BlocTime's owner can add a lock point with an enormous multiplier (setPoints only requires multiplier >= 10000 and monotonic) and mint themselves any amount of BLOC with a 1 wei stake, or shrink everyone else's future weight. Lockers hand irrevocable principal to a contract whose beneficiaries are decided by a key they do not hold. The default weight token is the fleet-owned BlocTime, so by default the fleet operator holds this power.",
+      "exploit": "1) Weight = ModToken(mintable=true) owned by Mallory, or a BlocTime owned by Mallory. 2) Mallory register()s. 3) Mallory mint(Mallory, 1e30) (or setPoints([{blocks:1, multiplier:1e15}]) then stake(1, 1)). 4) distribute(): share = amount * 1e30 / (1e30 + honest) ~ 100%. 5) claim(). Lockers cannot recall their principal (by design) and the treasury owner cannot intervene.",
+      "recommendation": "Prefer a weight token with no mint path (mintable=false ModToken, or a BlocTime whose ownership is renounced / behind a timelock); surface the weight token's owner and mintability in the treasury desk before lock(); or take the weight from a deposit the treasury itself holds so no third-party admin can inflate it."
+    },
+    {
+      "id": "TREASURY-7",
+      "severity": "low",
+      "title": "Streams pause indefinitely whenever the registered set holds no BLOC, and a stream's calendar length is measured in successful distributions rather than weeks",
+      "where": "distribute() L294 (NO_WEIGHT_REGISTERED) and L298, _vest() L241, unlockTime() L350-L353, lastDistributionTime L316",
+      "detail": "distribute() reverts with NO_WEIGHT_REGISTERED whenever totalWeight()==0 and with NOTHING_TO_DISTRIBUTE when nothing is in hand, and a reverted week is simply skipped (lastDistributionTime jumps to the current window at L316; there is no catch-up). Because BLOC is burned on unstake, a set whose members' stakes all mature and unstake drops to zero weight and every stream freezes with no admin unstick. weeksElapsed only advances on a successful distribute, so a 10-week stream can take far more than 10 weeks, while an escrow lock's unlockTime is pure wall-clock (windowStart(start) + (term+1) weeks), so the two clocks disagree and an escrow lock can be withdrawn while still 'active'. Also, a lock placed seconds before Friday 17:00 UTC has its first full slice taken seconds later, and depending on where in the window the lock lands the effective escrow is between term and term+1 weeks. None of this loses funds (anyone with 1 wei of BLOC can register and unstick a stream, and skipped slices are deferred, not dropped), which is why it is Low.",
+      "exploit": "1) Alice registers with 100 BLOC; depositor lock(1000, 10, false). 2) Alice's BlocTime stake matures; she unstake()s and her BLOC is burned. 3) Every Friday distribute() reverts NO_WEIGHT_REGISTERED; the stream is frozen until anyone with BLOC registers. The depositor cannot recover the principal and the owner cannot help. Separately: lock(1000, 10, false) placed at 16:59:59 UTC on a Friday vests its first 100 one second later.",
+      "recommendation": "Let distribute() succeed with paid=0 when there is nothing to pay so weeks still advance, or expose a reclaim path for a stream that has been frozen for N windows. Document that a stream's duration is 'termWeeks distributions', not termWeeks calendar weeks, and show the effective escrow unlockTime on the desk before lock()."
+    },
+    {
+      "id": "TREASURY-8",
+      "severity": "info",
+      "title": "returnPrincipal=true has no yield source of its own: only donations or positive rebases are ever distributed",
+      "where": "distributable() L270-L274, lock() docs L178-L182, contract header L25-L28",
+      "detail": "The treasury never deploys the asset anywhere. 'Yield the treasury earns on top' means whatever balance exceeds lockedOutstanding + unclaimed, which only grows if someone transfers/fund()s more asset in or the asset rebases upward. An escrowed lock of a non-rebasing token (USDC, a ModVault share) produces exactly nothing for the registered set for its whole term, and a vault share's appreciation is invisible because the share COUNT does not change. The tests (L138-L151) rely on an explicit fund() call to simulate yield.",
+      "exploit": "1) lock(1000 vault-shares, 52, true). 2) The vault's assets-per-share doubles over the year. 3) Every distribute() reverts NOTHING_TO_DISTRIBUTE; after unlockTime withdraw() returns 1000 shares (now worth 2x) entirely to the locker. The registered set received nothing.",
+      "recommendation": "If the intent is 'park it and share the yield', either pair the escrow with a strategy port (deposit into IStrategy, distribute totalAssets growth) or require a rebasing asset; state plainly on the desk that returnPrincipal=true pays out only what is separately funded."
+    },
+    {
+      "id": "TREASURY-9",
+      "severity": "info",
+      "title": "Integer rounding: sub-proportional holders floor to zero, dust rolls forward, and a distribute where every share floors still consumes the week",
+      "where": "distribute() L305-L306, L311-L318; sliceOf() L231-L232; _vest() L244-L246",
+      "detail": "share = amount*w/total floors, so a holder with w < total/amount receives 0 that week and their portion becomes next week's distributable for everyone (with 18-decimal BLOC and a 6-decimal stable this hits holders below roughly 1e-6 of the set's weight per 1 unit of payout). Dust is not lost while payouts continue, but after the last lock closes any residue smaller than participants.length wei stays in the contract forever because rescue() cannot touch the asset. A distribute() in which every share floors to 0 still runs _vest(), sets lastDistributionTime and increments distributions, so a streamed slice can move to distributable without anyone being credited, and pendingPayout() over-reports by that amount. lock(amount, term) with amount < term streams 0 every week until the final slice. No fund-loss path; included because the desk's projections should not assume paid == amount.",
+      "exploit": "1) alice 750e18 BLOC, bob 250e18, carol 1 BLOC (1e18) registered; fund(1_000_000) of a 6-decimal asset. 2) distribute(): carol's share = 1e6*1e18/1.001e21 = 999 -> fine; but with carol at 1e12 wei (1e-6 BLOC) her share is 0 and 1 wei of the pot rolls forward. 3) After the final lock closes, 2 wei of dust remain unrecoverable.",
+      "recommendation": "Accept it; optionally track the per-week remainder explicitly and let the owner sweep only balance - lockedOutstanding - unclaimed once activeLocks is empty and participants have been paid, or use a fixed-point accumulator so dust is carried per holder."
+    }
+  ],
+  "safe_use": [
+    "Before any lock(), verify on the target chain that weight has code and weight.balanceOf(someone) returns: never leave the weight port unwired outside Base Sepolia (the catalog default 0xF25A...95bD only exists there).",
+    "Register every intended beneficiary immediately after deployment and check participantCount()/participants() before locking; assume any free slot can be filled by a stranger and never be reclaimed.",
+    "Only fund a treasury whose weight token has no mint path you do not control (mintable=false ModToken or a BlocTime with renounced or timelocked ownership) and whose BLOC has no lending/AMM pool that could be flash-borrowed at Friday 17:00 UTC.",
+    "Use a plain, non-rebasing, no-fee asset (USDC, a ModVault share); with fee-on-transfer or negatively rebasing tokens the last withdrawer or claimer loses funds permanently.",
+    "Prefer returnPrincipal=false only for amounts you are content to see split at each Friday's live balances; for returnPrincipal=true understand that nothing is paid unless you separately fund() yield in.",
+    "Treat termWeeks as 'that many successful distributions', not calendar weeks: a week with zero registered weight or nothing to pay is skipped, and the stream extends; escrow unlocks by wall clock regardless.",
+    "Keep the treasury owner key only for rescue() of stray non-asset tokens; it has no other power, and no key can fix a captured set, a full lock table, or a dead weight address short of redeploying."
+  ]
+}

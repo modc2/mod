@@ -472,6 +472,10 @@ class TestAgentsRegistry:
             config = agents.create(name, description="test agent", goal="test goal")
             assert config["name"] == "Test Custom Agent"
             assert name in agents.ls()
+            # the template declares the integrations every agent requires
+            # wired in, and the file written from it carries the declaration
+            assert config["requires"] == ["prompt", "model", "toolbox", "memory"]
+            assert 'requires = ("prompt", "model", "toolbox", "memory")' in (agents._dir / name / "mod.py").read_text()
             # remove
             r = agents.remove(name)
             assert r["removed"] == name
@@ -481,6 +485,12 @@ class TestAgentsRegistry:
             agent_dir = agents._dir / name
             if agent_dir.exists():
                 shutil.rmtree(agent_dir)
+
+    def test_shipped_agents_require_every_integration(self, agents):
+        """An agent written before the template declared `requires` still
+        requires all four — that is what an agent is made of."""
+        for name in ("default", "builder", "reviewer"):
+            assert agents.get(name)["requires"] == ["prompt", "model", "toolbox", "memory"]
 
     def test_create_duplicate_raises(self, agents):
         with pytest.raises(FileExistsError):
@@ -869,7 +879,9 @@ class TestSubComponentTools:
         from src.mod import Agent
         agent = Agent()
         parts = agent.parts()
-        assert set(parts) == {"model", "memory", "toolbox", "tools", "prompt"}
+        assert set(parts) == {"requires", "model", "memory", "toolbox", "tools", "prompt"}
+        # the box is one node; these are the integrations its template requires
+        assert parts["requires"] == ["prompt", "model", "toolbox", "memory"]
         assert parts["memory"]["module"] == "default"
         assert any(o["name"] == "ephemeral" for o in parts["memory"]["options"])
 
@@ -1471,6 +1483,51 @@ class TestMod:
     def test_mod_description(self):
         from src.mod import Mod
         assert len(Mod.description) > 0
+
+    def test_run_state_is_per_thread(self):
+        """One Mod serves every run at once. What a run sets for itself —
+        its step sink, its sandbox, its cwd — must not be visible from the
+        thread running someone else's match."""
+        from src.mod import Agent
+        a = Agent.__new__(Agent)        # no __init__: the local is made lazily
+        a._on_step = 'console'
+        a._allowed_paths = ['/console']
+        a._path = '/console'
+        a._images = ['data:1']
+        seen = {}
+
+        def arena_thread():
+            seen['on_step'] = a._on_step
+            seen['paths'] = a._allowed_paths
+            seen['path'] = a._path
+            seen['images'] = a._images
+            a._on_step = 'arena'
+            a._allowed_paths = ['/arena/work']
+
+        t = threading.Thread(target=arena_thread)
+        t.start()
+        t.join()
+        assert seen == {'on_step': None, 'paths': None, 'path': None, 'images': []}
+        assert a._on_step == 'console' and a._allowed_paths == ['/console']
+        a._clear_run_state()
+        assert a._on_step is None and a._allowed_paths is None and a._images == []
+
+    def test_a_429_is_explained_in_plain_words(self):
+        from src.mod import Agent
+        a = Agent.__new__(Agent)
+        raw = ("Error code: 429 - {'error': {'message': 'Rate limit exceeded: "
+               "free-models-per-day-high-balance. ', 'code': 429, 'metadata': "
+               "{'headers': {'X-RateLimit-Limit': '1000', 'X-RateLimit-Remaining': '0', "
+               "'X-RateLimit-Reset': '1788220800000'}, 'limit_source': "
+               "'openrouter_free_tier_daily'}}}")
+        out = a._explain_rate_limit('openrouter', 'nvidia/nemotron-3-ultra-550b-a55b:free', raw)
+        assert out.startswith('rate limited: openrouter')
+        assert 'free-model quota' in out and 'resets 2026-09-01T00:00:00Z' in out
+        assert 'Spend credits' in out
+        # a paid model's 429 is a different sentence, and anything else passes through
+        assert "rate limited by venice on claude-opus-5" in \
+            a._explain_rate_limit('venice', 'claude-opus-5', 'Error code: 429 - slow down')
+        assert a._explain_rate_limit('venice', 'x', 'No API key found') == 'No API key found'
 
 
 class TestCustomToolsOnAgent:
@@ -3551,7 +3608,7 @@ class TestHarnessRegistry:
 
     def test_ls_lists_runners(self, harness):
         names = [h["name"] for h in harness.ls()]
-        assert names == ["claude", "codex", "claudemod", "buildmod"]
+        assert names == ["claude", "codex", "claudemod", "buildmod", "chainmod"]
         for h in harness.ls():
             assert isinstance(h["available"], bool)   # depends on the host
             assert h["install"]
@@ -3560,6 +3617,10 @@ class TestHarnessRegistry:
         # the two job-server harnesses are whole modules, not a local binary
         assert harness.info("claudemod")["module"] == "claude"
         assert harness.info("buildmod")["module"] == "build"
+        # the chain console's runner is a submodule of core/chain, so the
+        # chain module's own Mod (which dials an RPC on init) never loads here
+        assert harness.info("chainmod")["module"] == "chain"
+        assert harness.RUNNERS["chainmod"] == "chain.agent"
 
     def test_get_unknown_raises(self, harness):
         with pytest.raises(KeyError, match="unknown harness"):
@@ -3571,8 +3632,8 @@ class TestHarnessRegistry:
 
     def test_forward_lists(self, harness):
         r = harness.forward()
-        assert len(r["harnesses"]) == 4
-        assert set(r["available"]) <= {"claude", "codex", "claudemod", "buildmod"}
+        assert len(r["harnesses"]) == 5
+        assert set(r["available"]) <= {"claude", "codex", "claudemod", "buildmod", "chainmod"}
 
     def test_claude_command(self, harness):
         cmd = harness.get("claude").command("fix it", goal="be nice", model="opus")
@@ -3798,8 +3859,8 @@ class TestHarnessGate:
         mod = self._mod(True)
         seen = {}
         def fake_run(name, query, path=None, goal=None, model=None,
-                     timeout=None, on_step=None):
-            seen.update(name=name, query=query, path=path, goal=goal)
+                     timeout=None, on_step=None, key=None, **extra):
+            seen.update(name=name, query=query, path=path, goal=goal, key=key, extra=extra)
             return [{"tool": "finish", "params": {"summary": "ok"}}]
         monkeypatch.setattr(mod.harness, "run", fake_run)
         out = mod._run(agent_type="claude-code", query="hi", key="0xowner",
@@ -3807,6 +3868,25 @@ class TestHarnessGate:
         assert out[0]["params"]["summary"] == "ok"
         assert seen["name"] == "claude" and seen["path"] == "/tmp"
         assert "orbit/agent console" in seen["goal"]
+        # the caller's identity reaches the runner; no knobs when none were given
+        assert seen["key"] == "0xowner" and seen["extra"] == {}
+
+    def test_harness_args_reach_the_runner(self, monkeypatch):
+        """The chain console names a project; the runner is what opens it."""
+        mod = self._mod(True)
+        seen = {}
+        def fake_run(name, query, path=None, goal=None, model=None,
+                     timeout=None, on_step=None, key=None, **extra):
+            seen.update(name=name, extra=extra, goal=goal)
+            return [{"tool": "finish", "params": {"summary": "ok"}}]
+        monkeypatch.setattr(mod.harness, "run", fake_run)
+        mod._run(agent_type="chain-mod", query="add a test", key="0xowner",
+                 harness_args={"project": "token", "address": "0xabc", "network": "testnet",
+                               # the run's own fields can't be smuggled in as knobs
+                               "query": "rm -rf", "on_step": None, "key": "0xother"})
+        assert seen["name"] == "chainmod"
+        assert seen["extra"] == {"project": "token", "address": "0xabc", "network": "testnet"}
+        assert "chain console" in seen["goal"]
 
 
 class TestDefaultAgent:
@@ -4284,3 +4364,138 @@ class TestLocalFirstDefault:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestCreditsMetaMask:
+    """MetaMask top-ups: ETH priced at the chain's own feed, chain metadata
+    for the wallet, and a deposit earmarked for one provider key."""
+    ADDR = "0xAbC0000000000000000000000000000000000aBc"
+    OWNER = "0x7d7c323496eD80E16d47b036607c586fB33dd123"
+    TX = "0x" + "d" * 64
+
+    @pytest.fixture
+    def credits(self, tmpdir, monkeypatch):
+        from src.credits import Credits
+        monkeypatch.delenv("AGENT_ETH_USD", raising=False)
+        return Credits(str(tmpdir), deposit_address=self.OWNER)
+
+    def _feed(self, usd):
+        # latestRoundData() → 5 words; answer (8 decimals) is the second
+        words = [1, int(usd * 10 ** 8), 0, 0, 1]
+        return "0x" + "".join(w.to_bytes(32, "big").hex() for w in words)
+
+    def _rpc_for(self, receipt, tx=None, usd=3000.0):
+        def rpc(network, method, params):
+            if method == "eth_getTransactionReceipt":
+                return receipt
+            if method == "eth_getTransactionByHash":
+                return tx
+            if method == "eth_call":
+                return self._feed(usd)
+            raise AssertionError(method)
+        return rpc
+
+    def test_info_carries_chain_metadata(self, credits):
+        nets = credits.info()["deposit"]["networks"]
+        assert nets["base"]["chain_id"] == 8453 and nets["ethereum"]["chain_id"] == 1
+        for net in nets.values():
+            assert net["native"] == "ETH" and "ETH" in net["tokens"]
+            assert set(net["contracts"]) == {"USDC", "USDT"}
+            assert all(c["decimals"] == 6 and c["address"].startswith("0x")
+                       for c in net["contracts"].values())
+        assert credits.info()["deposit"]["providers"] == ["openrouter", "venice"]
+
+    def test_feed_decode(self, credits):
+        assert credits._decode_feed(self._feed(2543.21)) == 2543.21
+        with pytest.raises(RuntimeError):
+            credits._decode_feed("0x" + "0" * 320)      # zero price
+
+    def test_eth_usd_reads_chainlink(self, credits, monkeypatch):
+        monkeypatch.setattr(credits, "_rpc", self._rpc_for(None, usd=3210.5))
+        out = credits.eth_usd("base")
+        assert out["usd"] == 3210.5 and out["source"] == "chainlink"
+        # cached: a second read never hits the RPC
+        monkeypatch.setattr(credits, "_rpc", lambda *a: (_ for _ in ()).throw(AssertionError("rpc")))
+        assert credits.eth_usd("base")["usd"] == 3210.5
+
+    def test_eth_usd_env_pin(self, credits, monkeypatch):
+        monkeypatch.setenv("AGENT_ETH_USD", "1234")
+        out = credits.eth_usd("ethereum")
+        assert out["usd"] == 1234.0 and out["source"] == "env"
+
+    def test_native_eth_deposit_priced_and_credited(self, credits, monkeypatch):
+        receipt = {"status": "0x1", "logs": []}
+        tx = {"to": self.OWNER.lower(), "from": self.ADDR.lower(),
+              "value": hex(10 ** 16)}                     # 0.01 ETH
+        monkeypatch.setattr(credits, "_rpc", self._rpc_for(receipt, tx, usd=3000.0))
+        out = credits.verify_deposit(self.TX, "base", provider="venice")
+        assert out["token"] == "ETH" and out["credited"] == 30.0
+        assert out["eth"] == 0.01 and out["eth_usd"] == 3000.0
+        assert out["provider"] == "venice"
+        assert out["explorer"].startswith("https://basescan.org/tx/")
+        assert credits.balance(self.ADDR) == 30.0
+        hist = credits.info(self.ADDR)["account"]["history"][0]
+        assert hist["tx"] == self.TX and "venice" in hist["note"] and "ETH" in hist["note"]
+        # the earmark reaches the owner's books; the balance is one ledger
+        book = credits.treasury()
+        assert book["earmarked"] == {"venice": 30.0} and book["deposits"] == 30.0
+
+    def test_native_eth_to_wrong_address_rejected(self, credits, monkeypatch):
+        receipt = {"status": "0x1", "logs": []}
+        tx = {"to": self.ADDR.lower(), "from": self.ADDR.lower(), "value": hex(10 ** 16)}
+        monkeypatch.setattr(credits, "_rpc", self._rpc_for(receipt, tx))
+        with pytest.raises(ValueError, match="no USDT/USDC/ETH transfer"):
+            credits.verify_deposit(self.TX, "base")
+        assert credits.balance(self.ADDR) == 0.0
+
+    def test_stablecoin_deposit_still_works_with_earmark(self, credits, monkeypatch):
+        from src.credits import TRANSFER_TOPIC
+        usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+        pad = lambda a: "0x" + a[2:].lower().rjust(64, "0")
+        receipt = {"status": "0x1", "logs": [{
+            "address": usdc,
+            "topics": [TRANSFER_TOPIC, pad(self.ADDR), pad(self.OWNER)],
+            "data": hex(12_500_000),                        # 12.5 USDC
+        }]}
+        monkeypatch.setattr(credits, "_rpc", self._rpc_for(receipt))
+        out = credits.verify_deposit(self.TX, "base", provider="openrouter")
+        assert out["token"] == "USDC" and out["credited"] == 12.5
+        assert credits.treasury()["earmarked"] == {"openrouter": 12.5}
+
+    def test_unknown_provider_rejected_before_rpc(self, credits, monkeypatch):
+        monkeypatch.setattr(credits, "_rpc", lambda *a: (_ for _ in ()).throw(AssertionError("rpc")))
+        with pytest.raises(ValueError, match="unknown provider"):
+            credits.verify_deposit(self.TX, "base", provider="anthropic")
+
+
+class TestCreditsRoutes:
+    """The HTTP surface the MetaMask button talks to."""
+
+    def _client(self):
+        try:
+            from src.api.api import app
+            from fastapi.testclient import TestClient
+            return TestClient(app)
+        except ImportError:
+            pytest.skip("fastapi not installed")
+
+    def test_info_exposes_chain_metadata(self):
+        d = self._client().get("/credits").json()
+        nets = d["deposit"]["networks"]
+        assert nets["base"]["chain_id"] == 8453 and "ETH" in nets["base"]["tokens"]
+        assert nets["ethereum"]["contracts"]["USDC"]["decimals"] == 6
+        assert d["deposit"]["providers"] == ["openrouter", "venice"]
+
+    def test_price_route(self, monkeypatch):
+        monkeypatch.setenv("AGENT_ETH_USD", "2500")
+        d = self._client().get("/credits/price?network=base").json()
+        assert d["usd"] == 2500.0 and d["source"] == "env"
+        assert "error" in self._client().get("/credits/price?network=polygon").json()
+
+    def test_deposit_route_rejects_bad_earmark_without_rpc(self, monkeypatch):
+        from src.api.api import get_mod
+        credits = get_mod().credits
+        monkeypatch.setattr(credits, "_rpc", lambda *a: (_ for _ in ()).throw(AssertionError("rpc")))
+        d = self._client().post("/credits/deposit", json={
+            "tx_hash": "0x" + "e" * 64, "network": "base", "provider": "anthropic"}).json()
+        assert "unknown provider" in d["error"]

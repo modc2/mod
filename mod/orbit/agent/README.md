@@ -53,6 +53,13 @@ A box with five swappable parts — prompt, model, toolbox, tool registry, memor
 module — all visible in one place (the console's agent box, and `/parts`).
 Wire one on the hub's `AGENTS` canvas, or pick one from the rail.
 
+On the canvas the agent is **one node**. Its template requires four
+integrations wired into it — a prompt, a model, a toolbox and a memory — and
+the node has one input port for each. A port that has nothing on it reads
+`required`, and the agent will not save until every port is wired; the list
+comes from the agent template itself (`requires` in `src/agents/mod.py`,
+reported by `GET /agents/{name}` and `/parts`), not from the console.
+
 The tool registry holds three kinds at once: the 26 tools shipped here, custom
 shell tools you describe and parameterise from the console, and every
 mod-protocol module on the host as `mod.<name>`. The fleet is potential rather
@@ -96,7 +103,7 @@ See `docs/arena.md`.
 ## More
 
 - `docs/arena.md` — scoring, Elo, the openarena bridge, the models board
-- `docs/credits.md` — metering, margin, the treasury panel
+- `docs/credits.md` — metering, margin, MetaMask top-ups (USDC/USDT/ETH on Base or Ethereum), the treasury panel
 - `docs/mcp.md` — the 20 MCP tools, same handlers as the REST routes
 - `docs/memory.md` — the working/episodic/dialogue/semantic layers
 - `docs/models.md` — free models, including WebGPU runs in the visitor's tab

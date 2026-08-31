@@ -4,9 +4,9 @@
 // chrome and terminal type on the data. Everything the chain tabs draw goes
 // through these so the whole console reads as one machine.
 
-import { CSSProperties, ReactNode, useEffect, useRef } from 'react'
+import { CSSProperties, ReactNode, useContext, useEffect, useRef } from 'react'
 import { TERM_FONT, ACCENT, useIsMobile } from './shared'
-import { PIXEL, PX, NEON } from './arcade'
+import { PIXEL, PX, NEON, Strip } from './arcade'
 
 export const panelStyle: CSSProperties = {
   border: '3px solid var(--border-color)',
@@ -103,7 +103,7 @@ export function Btn({
 }
 
 export function Input({
-  value, onChange, placeholder, mono = true, style, onEnter,
+  value, onChange, placeholder, mono = true, style, onEnter, autoFocus,
 }: {
   value: string
   onChange: (v: string) => void
@@ -111,10 +111,13 @@ export function Input({
   mono?: boolean
   style?: CSSProperties
   onEnter?: () => void
+  /** an inline field that just opened — rename, quick-add — should already have the caret */
+  autoFocus?: boolean
 }) {
   const mobile = useIsMobile()
   return (
     <input
+      autoFocus={autoFocus}
       value={value}
       onChange={e => onChange(e.target.value)}
       onKeyDown={onEnter ? e => { if (e.key === 'Enter') onEnter() } : undefined}
@@ -302,12 +305,14 @@ export function Skeleton({ rows = 3, height = 44 }: { rows?: number; height?: nu
 // ── pills + dropdowns ───────────────────────────────────────────────────────
 //
 // The marquee's control row is three of these side by side — network, player,
-// balance — so they share one shape: a pixel label in the control's colour, a
-// terminal-face value, a chevron. Only the OPEN one lights its border, which
-// is what keeps three coloured controls from fighting each other.
+// balance — so they share one shape: a colour bar down the left edge, a pixel
+// label in that colour, a terminal-face value, a chevron flush right. Only the
+// OPEN one lights its whole border, which is what keeps three coloured
+// controls from fighting each other. Each fills the width it's given, so the
+// row reads as one strip of instruments rather than three loose badges.
 
 export function Pill({
-  label, children, color = ACCENT, open, onClick, led, title, style, blink,
+  label, children, color = ACCENT, open, onClick, led, tip, title, style, blink,
 }: {
   label: string
   children: ReactNode
@@ -315,23 +320,32 @@ export function Pill({
   open?: boolean
   onClick?: () => void
   led?: ReactNode
+  /** hover hint, drawn in the cabinet's face — never the browser's grey box */
+  tip?: string
+  /** same as `tip` — kept so a pill written against the old name still hints */
   title?: string
   style?: CSSProperties
   /** the value is a call to action, not a reading — flash it */
   blink?: boolean
 }) {
+  const dense = useContext(Strip)
   return (
     <button
       onClick={onClick}
-      title={title}
-      className="arc-press"
+      data-tip={tip || title || ''}
+      aria-expanded={onClick ? !!open : undefined}
+      className="arc-press arc-tip"
       style={{
-        display: 'flex', alignItems: 'center', gap: '9px',
+        display: 'flex', alignItems: 'center', gap: '10px',
+        width: '100%', height: '100%',
         // line-height 1 + overflow:hidden on the value would clip the tall
         // terminal digits top and bottom — a 0 came out as ()
-        fontFamily: TERM_FONT, fontSize: '17px', lineHeight: 1.3,
-        padding: '0 12px', minHeight: '42px', maxWidth: '100%',
-        border: `2px solid ${open ? color : 'var(--border-color)'}`,
+        fontFamily: TERM_FONT, fontSize: dense ? '15px' : '17px', lineHeight: 1.3,
+        padding: dense ? '0 9px 0 9px' : '0 12px 0 11px', minHeight: dense ? '40px' : '44px',
+        // longhand on every side: mixing the `border` shorthand with a
+        // `borderLeft` override makes React warn on each open/close rerender
+        borderStyle: 'solid', borderWidth: '2px 2px 2px 5px',
+        borderColor: `${open ? color : 'var(--border-color)'} ${open ? color : 'var(--border-color)'} ${open ? color : 'var(--border-color)'} ${color}`,
         background: open ? `${color}14` : 'rgba(0,0,0,0.25)',
         boxShadow: open ? `3px 3px 0 0 ${color}` : '3px 3px 0 0 rgba(0,0,0,0.35)',
         color: 'var(--text-primary)', cursor: onClick ? 'pointer' : 'default',
@@ -347,16 +361,16 @@ export function Pill({
         {label}
       </span>
       <span
-        className={blink ? 'arc-blink' : undefined}
+        className={blink ? 'arc-blink-soft' : undefined}
         style={{
-          display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0,
+          display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}
       >
         {children}
       </span>
       {onClick && (
-        <span style={{ fontSize: '12px', color: open ? color : 'var(--text-tertiary)', flexShrink: 0 }}>
+        <span style={{ fontSize: dense ? '9px' : '11px', color: open ? color : 'var(--text-tertiary)', flexShrink: 0, opacity: open ? 1 : 0.7 }}>
           {open ? '▲' : '▼'}
         </span>
       )}
@@ -365,11 +379,22 @@ export function Pill({
 }
 
 /**
+ * A pill's second reading — the block behind the chain, the wallet's badge,
+ * a project's saved state. Shown where the pill has room; dropped whole in
+ * the marquee strip, where four pills share a line and a hint cut off
+ * mid-word (\"blk 46,\") reads worse than no hint.
+ */
+export function Hint({ children }: { children: ReactNode }) {
+  const dense = useContext(Strip)
+  return dense ? null : <>{children}</>
+}
+
+/**
  * A panel hung under its trigger. Closes on a click anywhere else or Esc;
  * never wider than the phone it drops down on.
  */
 export function Dropdown({
-  open, onClose, trigger, width = 340, align = 'left', color = ACCENT, children,
+  open, onClose, trigger, width = 340, align = 'left', color = ACCENT, children, grow,
 }: {
   open: boolean
   onClose: () => void
@@ -378,6 +403,8 @@ export function Dropdown({
   align?: 'left' | 'right'
   color?: string
   children: ReactNode
+  /** take a share of the row — the marquee pills, so the strip is always full */
+  grow?: number
 }) {
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -395,7 +422,7 @@ export function Dropdown({
   }, [open, onClose])
 
   return (
-    <div ref={box} style={{ position: 'relative', maxWidth: '100%' }}>
+    <div ref={box} style={{ position: 'relative', maxWidth: '100%', minWidth: 0, flex: grow ? `${grow} 1 auto` : undefined }}>
       {trigger}
       {open && (
         <div style={{

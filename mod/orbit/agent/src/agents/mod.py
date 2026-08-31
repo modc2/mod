@@ -43,8 +43,14 @@ except ImportError:  # running the registry standalone
 
 # shipped agents — host-owned; anyone else must clone them into a custom agent
 BUILTINS = {"default", "architect", "reviewer", "debugger", "builder", "refactorer",
-            "safety", "claude-code", "codex", "claude-mod", "build-mod",
+            "safety", "claude-code", "codex", "claude-mod", "build-mod", "chain-mod",
             "task-builder"}
+
+# the integrations an agent is built from. An agent is one node; these are
+# the four things wired into it, and the template written below declares all
+# of them as required — the AGENTS canvas refuses to save an agent with one of
+# them unwired, and get() reports the list so the console never hardcodes it.
+REQUIRES = ("prompt", "model", "toolbox", "memory")
 
 AGENT_TEMPLATE = '''"""{name} agent - {description}"""
 
@@ -58,6 +64,10 @@ class Agent:
     memory = {memory}
     harness = {harness}
     owner = {owner}
+
+    # the integrations this agent requires wired in: its prompt, the model it
+    # calls, the toolbox it may reach, and the memory it thinks with
+    requires = ("prompt", "model", "toolbox", "memory")
 
     goal = """{goal}"""
 '''
@@ -117,6 +127,10 @@ class Agents:
             # set -> the run is handed to an external CLI (see harness/mod.py)
             # instead of this module's own loop
             "harness": getattr(cls, "harness", None),
+            # the integrations the agent's template requires wired in. A
+            # shipped agent written before the template declared them still
+            # requires all four — that is what an agent is made of.
+            "requires": [str(r) for r in (getattr(cls, "requires", None) or REQUIRES)],
             # False -> keep it off the arena board. An agent that writes tasks
             # or answers questions is not a worse coder than the coding agents,
             # it is a different job, and a permanent last place drags every

@@ -13,6 +13,11 @@
 //! through the same execution layer under src/runtime/, which is what makes
 //! "store anything" a safe promise to make.
 //!
+//! The documentation is `docs.rs`: eight markdown pages compiled in and served
+//! three ways — `GET /docs` for the console's docs tab, the `docs_*` tools,
+//! and `arena://docs/<slug>` as MCP resources. One text, so what a person
+//! reads and what an agent is handed cannot drift apart.
+//!
 //! Two more things every stored module is: a mod of its own, minted under
 //! `orbit/arena/mods/` (`games.py`), and an MCP server of its own, served at
 //! `/m/<name>/mcp` (`modmcp.rs`). A game you can open and play a turn at a
@@ -25,6 +30,8 @@
 
 mod arena;
 mod blobs;
+mod docs;
+mod hostcard;
 mod http;
 mod klass;
 mod liquidai;
@@ -37,6 +44,7 @@ mod rsklass;
 mod rustc;
 mod store;
 mod storelink;
+mod vibe;
 mod wasm;
 
 #[tokio::main]

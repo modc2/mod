@@ -199,11 +199,19 @@ def _t_markets(args):
 DEFAULT_ACTIVE_HOURS = 6
 
 
+# The ranking metric is parameterized; winRate is the default, matching the
+# console's SCORE preset. Keys are the server's sort keys verbatim.
+TRADER_SORTS = ('winRate', 'exitEntry', 'sharpe', 'pnl', 'volume')
+
+
 def _t_top_traders(args):
     days = int(args.get('days') or 7)
     limit = int(args.get('limit') or 20)
     hours = args.get('active_hours')
     hours = DEFAULT_ACTIVE_HOURS if hours is None else float(hours)
+    sort = str(args.get('sort') or TRADER_SORTS[0])
+    if sort not in TRADER_SORTS:
+        sort = TRADER_SORTS[0]
     params = {
         'days': days,
         # The pool the server's warmup actually aggregates — any other value is
@@ -212,7 +220,7 @@ def _t_top_traders(args):
         'paged': '1',
         'pageSize': min(max(limit, 1), 100),
         'page': 0,
-        'sort': 'sharpe',
+        'sort': sort,
         'order': 'desc',
         'category': str(args.get('category') or ''),
     }
@@ -783,8 +791,9 @@ TOOLS = {
         'handler': _t_markets,
     },
     'pm_top_traders': {
-        'description': 'The leaderboard: best active traders over a window, ranked by Sharpe, '
-                       'with PnL, win rate and volume. This is what strats seed their '
+        'description': 'The leaderboard: best active traders over a window, ranked by win rate '
+                       'by default (sort parameterizes it: winRate, exitEntry = avg exit÷entry '
+                       'price on closed trades, sharpe, pnl, volume). This is what strats seed their '
                        'watchlists from. Answers from the warm cache (the server re-aggregates '
                        'on its own schedule); only a cold cache is slow (minutes). Defaults to '
                        'traders who have traded in the last 6 hours — a wallet that went quiet '
@@ -796,6 +805,8 @@ TOOLS = {
             'active_hours': {'type': 'number', 'description': 'only traders whose last trade is '
                                                              'within this many hours (default 6; '
                                                              '0 = the whole board, dormants too)'},
+            'sort': {'type': 'string', 'description': 'ranking metric: winRate (default) | '
+                                                      'exitEntry | sharpe | pnl | volume'},
         }},
         'handler': _t_top_traders,
     },

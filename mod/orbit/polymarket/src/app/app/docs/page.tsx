@@ -216,7 +216,7 @@ const COPY_ENDPOINTS: Endpoint[] = [
     method: "GET",
     path: "/polymarket/api/copytrades",
     description:
-      "MY COPY TRADES — every trade the desk's leaders made, joined to every on-chain fill of " +
+      "RESULTS (my copy trades) — every trade the desk's leaders made, joined to every on-chain fill of " +
       "mine. Nothing upstream links them (a fill carries no leader tag), so the join is " +
       "inferred: same market, same side, my fill at or after theirs inside the match window, " +
       "nearest wins, one leader trade claimed once. Answers with coverage (what share of their " +

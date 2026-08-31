@@ -1,163 +1,121 @@
 # musica
 
-A DJ booth and a pattern studio in one browser tab. Two decks with beatmatch,
-EQ, filters, beat loops and hot cues; a step sequencer and piano roll in the FL
-Studio idiom running off the same clock; and Spotify as the crate you plan a set
-from. Every sample is decoded and mixed client-side through Web Audio — the
-module serves the console and answers the Spotify half from your own API keys.
+A DJ booth and a pattern studio in one browser tab — with a crate that digs
+**Spotify, Bandcamp and SoundCloud at once**, and loads Bandcamp and SoundCloud
+tracks straight onto a deck.
+
+- **BOOTH** — two decks with waveforms and a detected beat grid, beatmatch
+  (SYNC pitches and phase-aligns), three-band EQ, a bipolar filter, beat loops,
+  four hot cues, a constant-power crossfader, a tempo-synced echo, a master
+  limiter, and record-the-mix to `.webm`. Both decks show their live key on the
+  Camelot wheel and the mixer says whether the two mix cleanly.
+- **STUDIO** — a step sequencer (16/32/64 steps, swing, accents, eight
+  patterns) and a piano roll in the FL Studio idiom, on the same clock as the
+  decks. Every voice is synthesised; drop a file on a channel to sample it.
+- **CRATE** — one search box for all three platforms, paste-a-link for any
+  Spotify/Bandcamp/SoundCloud URL, the platform's own player for previews, a
+  Bandcamp discover feed by tag, a decoded-audio library, and a set list whose
+  keys light up against whatever is playing.
+
+All audio work is client-side. Files and platform streams are decoded and
+mixed through Web Audio in the tab; tempo and key are detected locally. The
+module's own jobs are to serve the console, answer the three platforms, and
+proxy the one stream that lacks a CORS header.
+
+## Platforms
+
+| | search | open albums / playlists / artists | preview | **load onto a deck** | keys needed |
+|---|---|---|---|---|---|
+| **Bandcamp** | yes | yes | Bandcamp embed | **yes** — the site player's own 128k MP3, proxied by the module | none |
+| **SoundCloud** | yes | yes (sets, users) | SoundCloud widget | **yes** — progressive MP3, fetched by the browser (CORS-open) | none — the web player's client_id is scraped and cached |
+| **Spotify** | with keys | yes | Spotify embed (30s logged out, full logged in) | **no** — DRM | your app's client id + secret (client-credentials grant; no redirect URI) |
+
+Spotify is the one that cannot stream: its audio is DRM-protected and cannot
+be routed through Web Audio. So a Spotify find is for planning — preview it,
+then **FIND ON BANDCAMP / FIND ON SOUNDCLOUD** in the preview panel searches
+the same track where it *can* be loaded.
+
+### Keys
+
+Nothing is committed. `~/.mod/musica/keys.json` (0600) holds what you set:
 
 ```
-m musica                      # null call → info()
-m musica/play                 # serve the console and open a browser
-m musica/serve                # run it under pm2, then register the route
-m musica/decks                # the signal chain, deck by deck
-m musica/kit                  # the sequencer's voices
-m musica/set_key client_id=… client_secret=…
-m musica/search q="four tet"
-m musica/test                 # files + JS syntax + the engine harness
+m musica/set_key client_id=… client_secret=…        # Spotify app keys
+m musica/set_key soundcloud_client_id=…             # optional: pin a SoundCloud id
+```
+
+If **orbit/spotify** already has keys in `~/.mod/spotify/keys.json`, musica
+uses them and none are needed here. If orbit/spotify is also *logged in*
+(`m spotify/login`), musica can read your own playlists (`/my_playlists`) and
+private ones — tokens are read from its `auth.json` and refreshed in memory,
+never written back.
+
+### Bandcamp and datacenter IPs
+
+bandcamp.com fronts datacenter addresses with a JavaScript challenge; a plain
+request gets a 3 KB "enable JavaScript" page. When that happens the module
+clears it once in a headless Chromium (Playwright, if installed) and reuses the
+cookies from `~/.mod/musica/bandcamp_cookies.json`. Without a browser the
+error says so instead of pretending Bandcamp is empty. `m musica/warm` runs
+the warm-up by hand.
+
+## Run
+
+```
+m musica/serve            # pm2 `musica.app` on :50780, then register the route
+m musica/play             # or: serve in this process and open a browser
+m musica/url              # http://localhost:50780/musica
+m musica/test             # files + JS syntax + link detection + engine harness
 m musica/kill
 ```
 
-App `/musica` · API `:50780` (`/api/musica`) · one process serves both
+One process serves both halves of the protocol's URL rule:
 
-## The problem it is shaped around
+- `/musica/*` — the console (prefix kept by the gateway)
+- `/api/musica/*` — the API (prefix stripped by the gateway)
+- `/musica/api/{fn}` — the API as the console calls it, one relative path
 
-Every browser DJ tool has to answer one question first: where does the audio
-come from? Streaming services are the obvious answer and the wrong one —
-Spotify's audio is DRM-protected and cannot be routed through Web Audio at all,
-so anything built on it can play a track but never EQ, loop or scratch it.
+## API
 
-So musica splits the two jobs honestly. **Files you drop in are the sound**:
-decoded in the tab, analysed in the tab, mixed in the tab, never uploaded.
-**Spotify is the crate**: search it to plan the set, find the track, then load
-your own copy onto a deck to actually mix it. The CRATE tab shows both columns
-side by side and labels which is which.
+Every function answers `GET` or `POST` with `{result: …}` or `{error: …}`.
 
-The second question is tempo. Spotify closed `/audio-features` and
-`/audio-analysis` to apps registered after 2024-11-27, so the BPM and key on a
-deck cannot be looked up — they are worked out from the samples, in a worker,
-here. See *Tempo, honestly* below for what that does and does not get right.
+| route | what |
+|---|---|
+| `/search?q=&source=all\|spotify\|bandcamp\|soundcloud&kind=track\|album\|artist\|playlist&limit=` | one platform or all three in parallel (results interleaved; each platform reports its own error). A pasted link resolves instead. |
+| `/resolve?url=` | any Spotify / Bandcamp / SoundCloud link (or `spotify:` URI) → what it names, with tracks |
+| `/stream?source=&id=[&track=]` | where a track's audio is: `direct:true` + CDN URL for SoundCloud; `direct:false` for Bandcamp (use the proxy) |
+| `/stream/bandcamp?id=<page url>[&track=<id>]` | **the MP3 itself**, proxied with Range passthrough — the one non-JSON route |
+| `/discover?tag=&slice=top\|new\|rec&size=` | Bandcamp's discover feed |
+| `/bandcamp_page?url=` | an album or track page, every track listed with `streamable` |
+| `/soundcloud_playlist?id=` · `/soundcloud_user?id=` | a set/album with tracks hydrated · a user's uploads |
+| `/track` · `/album` · `/artist` · `/playlist` | Spotify: one track · album tracks · artist top tracks · playlist tracks |
+| `/my_playlists` | your Spotify playlists (needs orbit/spotify's login) |
+| `/platforms` (alias `/keys`) | what each platform will and won't do here, keys masked |
+| `/decks` · `/kit` · `/info` · `/health` | the signal chain · the sequencer's voices · the null call · liveness |
 
-## The three surfaces
-
-**BOOTH** — two decks either side of a mixer. Each deck has an overview
-waveform, a zoomed view with the detected beat grid drawn over it, four hot
-cues, beat loops from ½ to 8 bars, a ±16% pitch fader with nudge, and SYNC.
-The mixer is a channel strip per deck (gain, 3-band EQ, one bipolar filter
-knob, fader, pre-fader cue) around a constant-power crossfader, with a global
-echo whose delay time follows the sequencer's BPM.
-
-**STUDIO** — eight patterns of 16, 32 or 64 steps across eleven channels, with
-swing on the 16ths. Every voice is synthesised at play time (`m musica/kit`
-lists them), so the module ships with no audio assets. Drop a file on a channel
-name and that channel becomes a sampler, pitched by the piano roll. Patterns
-are kept in `localStorage` and restored next time.
-
-**CRATE** — Spotify search over tracks, albums, artists and playlists, next to
-the local files you have decoded. Local rows show duration, detected BPM and
-Camelot key, and load straight onto a deck.
-
-## Keys
-
-`space` sequencer · `q`/`p` deck A/B · `a`/`s`/`d` crossfader left/centre/right
-· `1`/`2`/`3` tabs. On a knob: drag, `shift`-drag for fine, double-click to
-reset, or scroll.
-
-## Tempo, honestly
-
-The detector runs in two passes over an onset envelope: an autocorrelation with
-a harmonic comb to find the periodicity, then a separate decision about which
-metrical level to call the beat.
-
-That second pass exists because autocorrelation genuinely cannot tell 90 from
-180 — a track with an offbeat hat is periodic at both, and a hypothesis at half
-the true period collects the true period's own peak as its second harmonic. So
-the octave is chosen on a different measurement: mean onset energy *per beat* on
-each candidate's own grid, which a double-time hypothesis has to spend on the
-weak events in between. Where two levels really are equal — 174 against 87, in
-drum and bass — a log-normal prior around 125 BPM decides, the way a person
-tapping along would.
-
-It still gets some tracks wrong, which is why **clicking the BPM readout on a
-deck cycles ×2 and ÷2**, and why the confidence is shown. Every DJ tool has this
-button for the same reason.
-
-Key detection is a chroma vector from Goertzel bins correlated against the
-Krumhansl-Schmuckler profiles, reported as both a name and a Camelot code.
-`tests/engine.mjs` asserts the whole wheel: relatives share a number, fifths are
-adjacent, all 24 codes are reachable.
-
-## What it will not do
-
-- **Mix Spotify audio.** DRM. Load the file.
-- **Give you a real headphone cue.** A booth sends the cue bus to a second
-  output device; a browser only offers that behind `setSinkId` with a device the
-  user has picked. CUE here is a pre-fader solo that ducks the program on the
-  one output you have.
-- **Key-lock the pitch fader.** Pitch is `playbackRate`, so a pitched track
-  changes key. Time-stretching without artefacts is a much larger piece of DSP
-  than this module wants to be.
-- **Persist your audio.** Dropped files are never uploaded and never stored;
-  patterns are, in `localStorage`.
-
-## The API
-
-Reads only — `serve`, `kill` and `set_key` stay on the CLI, because the API
-answers from the public gateway.
-
-| endpoint | what it answers |
-| --- | --- |
-| `/info` | null call — what this module is and what it exposes |
-| `/health` | liveness |
-| `/decks` | the mixer's signal chain, deck by deck |
-| `/kit` | the synthesised voices the sequencer ships with |
-| `/keys`, `/spotify_status` | credential status (masked) and what Spotify will answer |
-| `/search` | `q`, `kind=track\|album\|artist\|playlist`, `limit` |
-| `/track`, `/playlist` | one track's metadata; a public playlist's tracks |
-
-`Mod.CHAIN` and `Mod.KIT` in `mod.py` are the same lists the console builds
-from, so `m musica/decks` and the audio graph cannot drift apart silently.
-
-## Spotify
-
-Optional — the decks and the studio work without it. Register an app at
-[developer.spotify.com/dashboard](https://developer.spotify.com/dashboard); the
-client-credentials grant used here needs no redirect URI and no user login.
+Every row, whatever the source, is one shape:
 
 ```
-m musica/set_key client_id=… client_secret=…
+{source, kind, id, name, artists, album, duration_ms, art, url, embed, streamable, …}
 ```
 
-Credentials go to `~/.mod/musica/keys.json` at mode 0600, or come from
-`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`. They are never committed and
-never echoed back — `keys()` masks them.
+`streamable` is the honest bit — it is `false` for every Spotify row.
 
-## Layout
+## Console keys
 
-```
-mod.py          the anchor — CLI, API surface, CHAIN and KIT
-serve.py        one process: static console + the mod protocol API
-spotify.py      client-credentials Spotify client
-web/index.html  the console
-web/js/engine.js     AudioContext, the two decks, the master bus
-web/js/analyze.js    tempo and key detection — pure, and node-testable
-web/js/synth.js      the drum kit and synth voices
-web/js/sequencer.js  the clock, patterns, the piano roll's data
-web/js/spotify.js    the API client
-web/js/ui.js         knobs, canvases, toasts
-web/js/app.js        the wiring
-tests/engine.mjs     the harness m musica/test runs
-```
+`space` sequencer · `q`/`p` play deck A/B · `a`/`s`/`d` crossfader left/centre/right ·
+`1`/`2`/`3` tabs · `/` jump to the crate · click a BPM readout to halve/double it ·
+right-click a hot cue to clear it · shift-drag a knob for fine control · double-click a knob to reset.
 
-## Tests
+## Files
 
 ```
-m musica/test
+mod.py          the anchor: every function the CLI, gateway and other modules see
+serve.py        static console + API + the /stream proxy, one process for pm2
+spotify.py      Spotify: client-credentials search, embeds, orbit/spotify's keys and login
+platforms.py    Bandcamp + SoundCloud, keyless: search, pages, discover, streams, link detection
+web/            the console: engine.js (decks, mixer), analyze.js (tempo + key),
+                synth.js (voices), sequencer.js, crate.js (API client, Camelot),
+                ui.js (knobs, canvases), app.js (wiring)
+tests/engine.mjs  the engine, the analysers and the crate helpers under node
 ```
-
-Checks every file is present, runs `node --check` over each script, then runs
-`tests/engine.mjs`, which loads the same files the browser loads and drives the
-pure halves against synthetic audio: click tracks at known tempos, chords built
-from known key profiles, the Camelot wheel, the swing grid, the crossfader and
-EQ curves, and pattern resizing. It prints a JSON summary and exits non-zero on
-any failure.

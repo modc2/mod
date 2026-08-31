@@ -264,7 +264,7 @@ The web dashboard includes a FastAPI backend with the following endpoints:
 - `GET /trader/{address}/stats` - Trader statistics
 - `GET /trader/{address}/pnl` - Trader PnL history
 - `GET /trader/{address}/analyze` - Comprehensive trader analysis
-- `GET /traders/top?min_volume=1000000` - Top traders by volume
+- `GET /traders/top?days=7&pool=all&rank=roi&enrich=120&sort=sharpe&min_sharpe=1` - The trader board. `pool=all` = every gated wallet (≥ $1k equity, traded ≤24h; ~5k) priced from the leaderboard; fill stats (win%/sharpe/trades/coins) are fetched for the top `enrich` rows by `rank` only (default 120, max 400). Floors: `min_roi min_pnl min_volume min_equity min_sharpe min_win min_trades with_stats` (a stat floor implies `with_stats`); `sort` = roi|pnl|volume|equity|sharpe|win_rate|trades. Counts: `candidates` (universe), `priced`, `matched`, `enriched`. `coins=ZEC,ENA` is a requirement — the scan walks the leaderboard until `pool` wallets that traded one of them are found; `depth` says how far
 
 ## Example Use Cases
 

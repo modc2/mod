@@ -3,10 +3,11 @@
 **One interface to every decentralized compute market — and a way to actually
 use what you rent.**
 
-Eleven GPU markets and your own hardware, behind one vocabulary, one MCP server
+Fourteen markets and your own hardware, behind one vocabulary, one MCP server
 and one console. Bittensor (Targon SN4, Lium SN51), Akash, Vast.ai, Clore,
-Nosana, Cathedral (confidential Intel TDX), Prime Intellect, Polaris,
-Hyperbolic, Shadeform, and whatever docker hosts you run yourself.
+Nosana, Aleph Cloud, Cathedral (confidential Intel TDX), Prime Intellect,
+Polaris, Hyperbolic, RunPod, Fluence, Shadeform, and whatever docker hosts you
+run yourself.
 
 Renting is half the problem. The other half is that a box you just rented is a
 stranger with an SSH port. `compute/deploy` finishes the job: it installs the
@@ -75,14 +76,28 @@ else in the module changes.
 | `vast` | open marketplace, mostly consumer cards, cheapest | none | crypto or card | full lifecycle |
 | `clore` | blockchain GPU marketplace, **whole catalog public** | none | CLORE / BTC / USDT | full lifecycle |
 | `nosana` | Solana GPU grid | none | NOS | price + **job plan** |
+| `aleph` | Aleph Cloud — permissionless VMs on independent nodes, ALEPH streamed per second | none | ALEPH | price + **aleph-client plan** |
 | `cathedral` | attested Intel TDX / confidential GPU, signed receipts | email | credits | full lifecycle |
 | `prime` | broker over decentralized + traditional clouds | email | crypto or card | full lifecycle |
 | `polaris` | GPU cloud | email | crypto or card | full lifecycle |
 | `hyperbolic` | independently operated GPUs, rented by the node | email | crypto or card | full lifecycle |
+| `runpod` | community cloud of vetted independent hosts + secure DCs, both lanes quoted | email | card or crypto | full lifecycle |
+| `fluence` | decentralized **CPU** marketplace, enterprise racks | email | USDC or card | search + list/stop (rent is a 3-step plan) |
 | `shadeform` | ~20 clouds behind one API — the **fiat benchmark** | account | card | full lifecycle |
 | `local` | your own docker hosts, billed on-chain (`COMPUTE_LOCAL=1`) | none | market tokens | full lifecycle |
 
 `compute_search kyc=none` restricts the fan-out to the permissionless half.
+
+### Markets watched, not yet wired
+
+Adding a market is one adapter file (see Layout), but an adapter needs an API
+that actually answers. As of Aug 2026: **io.net**'s public explorer returns a
+30-device sample with no prices and its cloud API sits behind a login;
+**Golem**'s stats/reputation APIs don't resolve publicly; **Flux**'s price
+calculator times out from outside; **Theta EdgeCloud**, **Aethir** and
+**Render** publish no rentable-catalog API; **TensorDock** v2 requires a key
+even to list and ships no public schema; **Salad** exposes no public catalog.
+Each becomes one file in `providers/` the day its catalog answers.
 
 ### The mod lane — three of these markets are also modules here
 
@@ -258,8 +273,9 @@ mod.py          the fns  →  hub / node
 hub.py          fan-out, spend guard, id routing — knows no provider names
 providers/
   base.py       Provider contract, offer/instance shapes, filters, key resolution
-  targon.py lium.py akash.py vast.py clore.py nosana.py
-  cathedral.py prime.py polaris.py hyperbolic.py shadeform.py local.py
+  targon.py lium.py akash.py vast.py clore.py nosana.py aleph.py
+  cathedral.py prime.py polaris.py hyperbolic.py runpod.py fluence.py
+  shadeform.py local.py
 mods.py         the mod lane: the same markets read through their own modules
 node.py         transports, bootstrap, node registry — the rented box, running mod
 modctl.py       what gets uploaded: JSON in, JSON out, on the far side

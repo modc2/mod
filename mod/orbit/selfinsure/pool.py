@@ -44,27 +44,34 @@ class SelfInsureError(Exception):
 
 # ── money ────────────────────────────────────────────────────────
 
-def minor(x, field='amount', allow_zero=False):
-    """A user-supplied amount → integer cents. Rejects the things that quietly
+def minor(x, field='amount', allow_zero=False, dec=2):
+    """A user-supplied amount → integer minor units (cents for a 2-decimal
+    unit, wei for an 18-decimal one). Goes through Decimal so 0.1 ETH is
+    exactly 10**17 and not one wei less. Rejects the things that quietly
     become zero: '', None, 'abc', negatives, NaN."""
+    from decimal import Decimal, InvalidOperation
     if x is None or x == '':
         raise SelfInsureError(f'{field} is required')
     try:
-        v = float(x)
-    except (TypeError, ValueError):
+        d = Decimal(str(x))
+    except (InvalidOperation, ValueError):
         raise SelfInsureError(f'{field} must be a number, got {x!r}')
-    if v != v or v in (float('inf'), float('-inf')):
+    if not d.is_finite():
         raise SelfInsureError(f'{field} must be a finite number')
-    if v < 0:
+    if d < 0:
         raise SelfInsureError(f'{field} cannot be negative')
-    c = int(round(v * 100))
+    c = int((d * (Decimal(10) ** int(dec or 0))).to_integral_value())
     if c == 0 and not allow_zero:
         raise SelfInsureError(f'{field} must be greater than zero')
     return c
 
 
-def major(c):
-    return round((c or 0) / 100.0, 2)
+def major(c, dec=2):
+    """Integer minor units → a display number. Exact for 2 decimals; for an
+    18-decimal asset the float is a display value and the ledger keeps the int."""
+    from decimal import Decimal
+    dec = int(dec or 0)
+    return float(round(Decimal(c or 0) / (Decimal(10) ** dec), dec))
 
 
 def split_pro_rata(total, weights):
@@ -145,8 +152,9 @@ class _Txn:
         self.state = load()
         return self
 
-    def log(self, kind, pool, **fields):
-        self.entries.append({'at': time.time(), 'kind': kind, 'pool': pool, **fields})
+    def log(self, event, pool, **fields):
+        # `event`, not `kind`: register_agent logs an agent's kind as a field
+        self.entries.append({'at': time.time(), 'kind': event, 'pool': pool, **fields})
 
     def __exit__(self, exc_type, exc, tb):
         try:
@@ -193,6 +201,8 @@ def _pool(state, ref):
     """Find a pool by id, slug or exact name. Ambiguity is an error, not a guess."""
     if not ref:
         raise SelfInsureError('which pool? pass pool=<id>')
+    for p in state['pools'].values():
+        p.setdefault('decimals', 2)
     if ref in state['pools']:
         return state['pools'][ref]
     hits = [p for p in state['pools'].values()
@@ -208,7 +218,7 @@ def _pool(state, ref):
 def create_pool(name, about='', premium=0, coverage=0, unit='USD', period_days=30,
                 deductible=0, fee_bps=0, quorum=1, threshold=0.5, waiting_days=0,
                 agent_policy='open', reserve_floor=0, annual_cap=None, owner=None,
-                **_):
+                decimals=None, **_):
     """Open a pool. Anyone may; there is no gatekeeper and no application."""
     name = (name or '').strip()
     if not name:
@@ -230,22 +240,27 @@ def create_pool(name, about='', premium=0, coverage=0, unit='USD', period_days=3
     if agent_policy not in ('open', 'approved'):
         raise SelfInsureError("agent_policy is 'open' (anyone may adjudicate) or "
                               "'approved' (the pool owner admits adjudicators)")
-    prem = minor(premium, 'premium', allow_zero=True)
-    cov = minor(coverage, 'coverage', allow_zero=True)
+    unit_ = (unit or 'USD').upper()[:8]
+    dec = int(decimals) if decimals not in (None, '') else \
+        {'ETH': 18, 'WEI': 18, 'SOL': 9, 'USDC': 6, 'USDT': 6, 'DAI': 18}.get(unit_, 2)
+    if not 0 <= dec <= 18:
+        raise SelfInsureError('decimals must be between 0 and 18')
+    prem = minor(premium, 'premium', allow_zero=True, dec=dec)
+    cov = minor(coverage, 'coverage', allow_zero=True, dec=dec)
     with _Txn() as t:
         pid = f'{_slug(name)}-{secrets.token_hex(2)}'
         key = _key('owner')
         pool = {
             'id': pid, 'name': name, 'slug': _slug(name), 'about': about or '',
-            'unit': (unit or 'USD').upper()[:8],
+            'unit': unit_, 'decimals': dec,
             'premium': prem, 'coverage': cov,
-            'deductible': minor(deductible, 'deductible', allow_zero=True),
-            'annual_cap': None if annual_cap in (None, '') else minor(annual_cap, 'annual_cap'),
+            'deductible': minor(deductible, 'deductible', allow_zero=True, dec=dec),
+            'annual_cap': None if annual_cap in (None, '') else minor(annual_cap, 'annual_cap', dec=dec),
+            'reserve_floor': minor(reserve_floor, 'reserve_floor', allow_zero=True, dec=dec),
             'period_days': float(period_days or 30),
             'fee_bps': fee_bps, 'quorum': quorum, 'threshold': threshold,
             'waiting_days': float(waiting_days or 0),
             'agent_policy': agent_policy,
-            'reserve_floor': minor(reserve_floor, 'reserve_floor', allow_zero=True),
             'state': 'open',
             'balance': 0, 'fees_accrued': 0, 'premiums_in': 0, 'paid_out': 0,
             'distributed': 0, 'fees_withdrawn': 0,
@@ -318,8 +333,8 @@ def join(pool, name, premium=None, note='', **_):
         if any(m['name'].lower() == name.lower() for m in p['members'].values()):
             raise SelfInsureError(f'{name!r} is already a member of this pool — use '
                                   'si_premium with your member key to top up')
-        amount = p['premium'] if premium in (None, '') else minor(premium, 'premium', dec=p['decimals'])
-                                                                  allow_zero=True)
+        amount = p['premium'] if premium in (None, '') else \
+            minor(premium, 'premium', allow_zero=True, dec=p['decimals'])
         if p['premium'] and amount < p['premium']:
             raise SelfInsureError(f"this pool's premium is {major(p['premium'], p['decimals'])} "
                                   f"{p['unit']} — {major(amount, p['decimals'])} is short")
@@ -852,6 +867,7 @@ def view(p, full=False):
             'agent_policy': p['agent_policy'],
             'reserve_floor': major(p['reserve_floor'], p['decimals']),
         },
+        'decimals': p['decimals'],
         'money': {
             'balance': major(p['balance'], p['decimals']),
             'premiums_in': major(p['premiums_in'], p['decimals']),
@@ -928,8 +944,8 @@ def member(pool, member=None, **_):
            if x['contributed'] - x['received'] - x['refunded'] > 0]
     weights = [x['contributed'] - x['received'] - x['refunded'] for x in mem]
     parts = split_pro_rata(free, weights)
-    v['surplus_share'] = major(next((pt for x, pt in zip(mem, parts, p['decimals'])
-                                     if x['id'] == m['id']), 0))
+    v['surplus_share'] = major(next((pt for x, pt in zip(mem, parts)
+                                     if x['id'] == m['id']), 0), p['decimals'])
     return v
 
 
@@ -983,6 +999,7 @@ def ledger(pool=None, kind=None, limit=100, **_):
     """Every movement, append-only, oldest first. The pool's balance is not a
     number you have to trust — it is the sum of these."""
     rows = []
+    decs = {pid: p.get('decimals', 2) for pid, p in load()['pools'].items()}
     try:
         with open(LEDGER_FILE) as f:
             for line in f:
@@ -995,9 +1012,10 @@ def ledger(pool=None, kind=None, limit=100, **_):
                         continue
                 if kind and e.get('kind') != kind:
                     continue
+                dec = decs.get(e.get('pool'), 2)
                 for k in ('amount', 'fee', 'to_pool', 'balance', 'shortfall'):
                     if isinstance(e.get(k), int):
-                        e[k] = major(e[k])
+                        e[k] = major(e[k], dec)
                 rows.append(e)
     except FileNotFoundError:
         pass

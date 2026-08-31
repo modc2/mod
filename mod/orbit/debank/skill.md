@@ -7,7 +7,7 @@ against it, NFTs, and the standing approvals that let someone else move it all.
 
 BYOK: every call spends the **caller's** DeBank units. No house key.
 
-API `:50720` (`/api/debank`) · console `/debank` · MCP `POST /mcp` (18 tools)
+API `:50720` (`/api/debank`) · console `/debank` · MCP `POST /mcp` (24 tools)
 
 ## When to reach for it
 
@@ -17,6 +17,12 @@ API `:50720` (`/api/debank`) · console `/debank` · MCP `POST /mcp` (18 tools)
 - "what could still be drained from it" — live approvals ranked by exposure
 - whale discovery: biggest holders of a token, biggest depositors in a protocol
 - valuing a position at a past date, or checking what a swap was worth then
+- "where should this wallet's stablecoins earn" — `debank_funds`: curated index
+  funds (Aave/Compound/Morpho/Maple/Sky/Spark) with live projected ROI, the
+  liquidity locked in each protocol read from chain, and exit terms; keyless
+- "place $N into a fund" — `debank_savings_plan` builds the exact
+  approve+deposit txs for the OWNER's wallet; `debank_savings` shows idle vs
+  placed (keyless, from public RPCs). Nothing is signed server-side.
 
 Not for: raw transaction traces or receipts (use a chain explorer / `chain`),
 Bittensor (`bt`, `copytensor`), Hyperliquid perps (`hyperliquid`), Polymarket
@@ -80,6 +86,34 @@ response says so.
 - **Only `debank_chains` works signed-out** (it falls back to DeBank's public
   catalog and labels the answer `source: "public"`). Everything else is a 401
   with the fix in the `hint` field.
+
+## Keyless floor
+
+`debank_balances` and `debank_networks` need no key at all. When
+`debank_portfolio` answers 401, call `debank_balances` — native coin plus
+USDC/USDT/DAI on eth, base, arb, op, matic, bsc, avax, xdai, read from public
+RPCs and priced by CoinGecko. It is deliberately narrow (no LP, no DeFi, no long
+tail) and says so in `coverage`; do not present it as the whole portfolio.
+`debank_networks` is the table a wallet needs to switch chains or encode a
+transfer: hex chain id, RPC, explorer, stablecoin contract + decimals.
+
+The browser console at `/debank` is a bank over the same routes: it connects
+the user's own wallet and signs sends and revokes there. Nothing in this module
+ever holds a private key.
+
+## Keyless floor
+
+`debank_balances` and `debank_networks` need no key at all. When
+`debank_portfolio` answers 401, call `debank_balances` — native coin plus
+USDC/USDT/DAI on eth, base, arb, op, matic, bsc, avax, xdai, read from public
+RPCs and priced by CoinGecko. It is deliberately narrow (no LP, no DeFi, no long
+tail) and says so in `coverage`; do not present it as the whole portfolio.
+`debank_networks` is the table a wallet needs to switch chains or encode a
+transfer: hex chain id, RPC, explorer, stablecoin contract + decimals.
+
+The browser console at `/debank` is a bank over the same routes: it connects
+the user's own wallet and signs sends and revokes there. Nothing in this module
+ever holds a private key.
 
 ## Keys
 

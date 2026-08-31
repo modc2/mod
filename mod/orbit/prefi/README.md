@@ -148,7 +148,7 @@ m prefi/pool-create-vault           # or pool-set-vault address=0x…
 m prefi/pool-tokens verify=true     # re-read symbol/decimals off the chain
 m prefi/add-hl coin=BTC             # a market the pool can settle
 m prefi/pool-claim address=0x…      # take ownership, prints the owner secret
-m prefi/pool-set interval=604800 fee_bps=100 secret=…
+m prefi/pool-set interval=604800 fee_bps=100 min_liquidity_usd=10000 secret=…
 m prefi/deposit tx=0x…              # credit a deposit
 m prefi/round                       # the pot, with live provisional scores
 m prefi/free-stake address=0x… asset=BTC price=80000   # no deposit needed
@@ -161,37 +161,89 @@ A call is scored on its **normalized dollar error** — the miss in dollars over
 the price it was predicting:
 
 ```
-normalized_error = |predicted − actual| / actual
-score            = model(normalized_error, tolerance)     # 0..1
-payout           = burn × multiplier × score              # freshly minted PREFI
+e       = |predicted − actual| / actual         # 0.01 == 1% off
+score   = f(e)                                  # 0..1 — a score FUNCTION
+payout  = burn × multiplier × score             # predictions: freshly minted PREFI
+payout  = pot × (dollars × score) / Σ           # the pool: pro-rata by dollars × score
 ```
 
 Normalizing is what makes the score comparable across assets: being $640 off on
 BTC at $64,000 and $0.004 off on AERO at $0.41 are both a 1% miss and score
-identically. The burn is gone the moment the call is placed; a perfect call
-returns `multiplier`× it, a total miss returns nothing.
+identically.
 
-`src/scoring.py` holds the model registry. Adding a curve is one function plus
-one entry — nothing else in the protocol knows the names.
+### The score function is a program
 
-| model | curve | shape |
-|---|---|---|
-| `l2` *(default)* | `1/(1+(err/tol)²)` | inverse-square; never quite zero. `tolerance=1` reproduces `ScoreL2.sol` |
-| `linear` | `max(0, 1 − err/tol)` | straight ramp, zero past tolerance |
-| `exponential` | `e^(−err/tol)` | 1/e at tolerance, punishes the tail |
-| `threshold` | `err ≤ tol ? 1 : 0` | all or nothing |
+`f` is not a fixed menu. It is a **score function**: a one-line expression
+over `e` plus a dict of named parameters, written in a small sandboxed
+language (`src/curves.py`). The defaults are written in it, and so is anything
+you write yourself:
 
-Parameters live in `~/.mod/prefi/scoring.json` and are settable at runtime:
-`model`, `tolerance` (error scale, default 2%), `multiplier` (payout, default
-3×), `horizon` (default 86400 = one day), `min_burn`.
+| name | expression | params | shape |
+|---|---|---|---|
+| `linear` *(pool default)* | `max(0, 1 - e/tol)` | `tol` | straight ramp; `tol=1` is exactly `1 − e` |
+| `l2` *(predict default)* | `1 / (1 + (e/tol)**2)` | `tol` | inverse-square; never quite zero |
+| `exponential` | `exp(-e/tol)` | `tol` | 1/e at `tol`, punishes the tail |
+| `threshold` | `1 if e <= tol else 0` | `tol` | all or nothing |
+| `gaussian` | `exp(-(e/tol)**2)` | `tol` | flat shoulder, then falls fast |
+| `tiered` | `1 if e <= tol else (0.5 if e <= 2*tol else (0.25 if e <= 4*tol else 0))` | `tol` | a ladder |
+| `cushion` | `max(base, 1 - e/tol)` | `tol`, `base` | ramp with a floor — nobody is zeroed |
+| `hinge` | `max(0, 1 - (e/tol)**power)` | `tol`, `power` | flat then a cliff; `power` sets the corner |
+
+The language: the variable `e` (alias `err`), your parameters by name, numbers,
+`+ - * / ** % //`, comparisons, `and/or/not`, `x if cond else y`, and
+`abs min max exp log sqrt pow tanh floor ceil round clamp(x,lo,hi) where(c,a,b) sign`.
+Nothing else — no attribute access, subscripts, imports or undeclared names; it
+is walked as an AST and evaluated by `curves.py`, never `eval`'d. Output is
+clamped to `0..1`; a division by zero or an overflow scores 0 instead of
+stalling a settlement. `GET /functions/language` is the cheat sheet.
+
+The pool's `tolerance` knob sets the function's `tol` parameter; `model_params`
+overrides the rest by name (`pool-set model=hinge tolerance=0.05
+model_params='{"power":4}'`).
+
+### Write, try, save, share
+
+```bash
+m prefi/functions                                          # defaults + library, curves sampled
+m prefi/fn-test expr='max(base, 1 - e/tol)' params='{"tol":0.05,"base":0.1}'
+                                                           # validate, draw, settle a mock $500 pot
+m prefi/fn-save address=0x… name=soft expr='…' params='…' description='…'
+                                                           # signed like a free call (fn-sign shows the text)
+m prefi/pool-set model=soft tolerance=0.05 secret=…        # the owner switches the pot to it
+m prefi/set-scoring model=soft tolerance=0.02              # …or the predict layer
+m prefi/fn-share name=soft                                 # a share code: prefi.fn.<base64>
+m prefi/fn-publish name=soft [token=…]                     # → a core/store CID (your protocol token)
+m prefi/fn-import source=<code-or-CID> [address=0x… name=…] # preview; with address, save (signed)
+```
+
+HTTP: `GET /functions`, `/functions/{name}`, `/functions/language`,
+`POST /functions/test`, `/functions/sign`, `/functions` (save),
+`DELETE /functions/{name}`, `GET /functions/{name}/share`,
+`POST /functions/{name}/publish` (Bearer token forwarded to the store),
+`POST /functions/import`. The console has a **Functions** tab for all of it.
+
+A saved name belongs to the address that saved it — only that address can edit
+or delete it; defaults can't be touched. An import keeps the original `author`
+and records the `origin_cid`. Publishing uses the *caller's* mod-protocol token,
+so the store's whitelist, quota and terms apply to them, not to this module.
+
+### What is frozen when
+
+A round **snapshots the whole program** — `{name, expr, params}` — the moment
+it opens, and a prediction snapshots it when it is placed. Editing, retuning or
+deleting a function later cannot re-price a bet already on the table; a
+deleted function's old rounds still settle under exactly the rule they were
+sold with. Rounds from before functions existed carry a built-in name and a
+tolerance, which is enough to rebuild the same program.
+
+Predict-layer params live in `~/.mod/prefi/scoring.json` (`model`, `tolerance`,
+`model_params`, `multiplier`, `horizon`, `min_burn`, …); the library is
+`~/.mod/prefi/functions.json`.
 
 ```bash
 m prefi/set_scoring model=exponential tolerance=0.01 multiplier=5
 m prefi/score_preview predicted=64640 actual=64000   # score a hypothetical
 ```
-
-Params are **snapshotted onto each prediction when it is placed**, so retuning
-the score can never re-price a bet already on the table.
 
 Resolution runs lazily on read *and* on demand (`m prefi/resolve_predictions`), and looks up
 the price **at the resolve time** rather than at read time — both price sources
@@ -207,6 +259,13 @@ Markets carry a price `source`:
 - **`hyperliquid`** — **every pair Hyperliquid quotes**: ~180 perps and ~700
   spot books, about 880 markets in all. `add_hl_market` verifies the pair
   exists before listing it, so a typo can't become an unpriceable market.
+- **`bittensor`** — **every Bittensor subnet's alpha token**, priced in TAO,
+  read through the local [`bt`](../bt) module. `add_bt_market` verifies the
+  subnet is in the indexer before listing it. See [Subnets](#subnets).
+- **`dex`** — **any token with a pool on Solana or Base**, priced per pool by
+  DexScreener, settled on GeckoTerminal's hourly candle for that pool, and
+  gated by the pool owner's liquidity floor. See
+  [Solana and Base tokens](#solana-and-base-tokens).
 
 ```bash
 m prefi/hl_stats                      # 878 pairs · 176 perps · 702 spot
@@ -226,6 +285,94 @@ same thing as the **top 20** button in the pair panel.
 The console does the same thing from the **Markets → + Hyperliquid** panel: a
 search over the whole universe with PERP/SPOT tabs, 24h volume and change per
 row, sorted so the liquid end is what you see first.
+
+### Subnets
+
+Every Bittensor subnet has an alpha token whose price the chain sets in TAO,
+and the `bt` module's indexer snapshots all ~130 of them every five minutes
+into SQLite. That is what makes a subnet a listable market here: a mark now
+(`bt_prices_at` with no `ts`) and a mark *at the close* (`bt_prices_at` with
+one) both come from the same feed, so a pot settles against the price the
+indexer actually recorded rather than whatever the chain says when someone
+finally reads the round.
+
+```bash
+m prefi/bt_stats                      # 128 subnets · τ83k 24h volume · 3 listed
+m prefi/bt_assets search=chutes       # by name, netuid, SN64 or the alpha glyph
+m prefi/add_bt_market subnet=64       # netuid
+m prefi/add_bt_market subnet=lium.io  # or name
+m prefi/seed_bt limit=20              # the 20 busiest by 24h alpha volume
+```
+
+A subnet market is `SN{netuid}` (`SN64`), carries `bt_netuid`, `bt_name` and
+`quote: "TAO"`, and **prices in TAO** everywhere — the stake form, the pot, the
+settlement. Stakes and payouts are still dollars; the quote unit only decides
+what a "1% miss" is measured against. `GET /markets` adds a `price_usd` shadow
+when the TAO/USD mid is available from Hyperliquid, for display only. Root
+(netuid 0) is not listable: its price is 1 TAO by definition.
+
+The `bt` module is read the same two-door way as `hyperliquid`
+(`PREFI_BT_API`, default `http://localhost:50280`, then the activator at
+`PREFI_BT_WAKE`, default `http://localhost:9000/api/bt`) and the subnet list is
+cached 15 minutes in memory and on disk (`~/.mod/prefi/bt_universe.json`).
+There is no public fallback — the module *is* the feed — so if it is down, a
+listed subnet has no mark and a due pot stays open rather than settling
+against nothing. The console has the same thing under
+**Markets → + Bittensor**.
+
+### Solana and Base tokens
+
+Anything with a pool on Solana or Base is listable, which is a different shape
+of universe from Hyperliquid's ~880 pairs or Bittensor's ~130 subnets: it is
+unbounded, and most of it is worthless. Two things keep it honest.
+
+A market is **one pool**, not a ticker. `add_dex_market` resolves what you typed
+— a pool address, a token address, or a symbol — to the token's deepest pool on
+that chain and records its address (`dex_pair`). Every later price and every
+settlement reads that pool, so a token can never be quietly re-pointed at a
+thinner one. The symbol carries the chain (`WIF.sol`, `BRETT.base`) because the
+same ticker is on Hyperliquid, Solana and Base at once and the pot on each is a
+different thing.
+
+And the **pool owner sets a dollar floor on liquidity**: `min_liquidity_usd`
+(default $10,000, `0` = no floor) in the pool config, next to the interval and
+the fee, settable the same signed way. A token under it cannot be listed, and a
+listed token whose pool has drained under it **cannot take a stake** until it
+refills — the floor is checked against the live reading at stake time, not the
+one from listing day. A pot on a $900 pool settles against a price one trade
+can move, and the owner is the one whose depositors would pay for that.
+
+```bash
+m prefi/pool-set min_liquidity_usd=25000 secret=…   # the owner's floor
+m prefi/dex-stats chain=solana        # 54 pools ranked · 18 clear the floor · 0 listed
+m prefi/dex-assets chain=base search=BRETT
+m prefi/add-sol address=EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm   # by mint
+m prefi/add-base address=0x532f27101965dd16442E59d40670FaF5eBB142E4    # by token
+m prefi/add-dex chain=solana address=WIF                              # by symbol
+m prefi/seed-dex chain=base limit=20  # the 20 busiest that clear the floor
+```
+
+Spot and liquidity come from DexScreener (no key; one read per chain prices
+every listed pool, cached 60s). Addresses resolve there too — a pool address
+exactly, a token address to its deepest pool. **Symbol searches go to
+GeckoTerminal**, whose search puts the real `$WIF` first; DexScreener's
+returns thirty pump.fun namesakes and a "WIF" with $35k behind it, and a fake
+pool can park tokens to fabricate liquidity but not volume — so a symbol takes
+the *busiest* exact-ticker match, and the browser sorts exact matches first,
+then by 24h volume. The mark at a round's close comes from
+GeckoTerminal's hourly OHLCV for the same pool — the candle opening nearest the
+close, its open *is* the price at that boundary. If GeckoTerminal can't answer,
+the API's own snapshots stand in: it records a point per listed token every
+five minutes (`~/.mod/prefi/dex_history.json`, 30 days, `POST /dex/snapshot`
+to force one, `PREFI_DEX_SNAPSHOTS=0` to stop the timer), and a point within
+30 minutes of the close settles the pot. Only then does it fall back to spot,
+inside the pool's usual `spot_grace`, and says so.
+
+The console has the same thing under **Markets → + Solana / + Base**: the
+chain's busiest pools by default, a search on top, liquidity and
+24h volume per row, and rows under the floor shown greyed with the number
+rather than hidden — the owner's floor is printed on the panel so nobody has
+to find it out on click.
 
 ### The two names of a pair
 
@@ -292,6 +439,8 @@ The app is served under `basePath: /prefi` and talks to the API same-origin at
 | `GET /health` `GET /status` | liveness, protocol totals |
 | `GET /markets` · `POST /markets/add` · `POST /markets/seed` | tradeable assets |
 | `GET /hyperliquid/assets` · `GET /hyperliquid/stats` · `POST /hyperliquid/add` · `POST /hyperliquid/seed` | browse and list any HL pair, perp or spot |
+| `GET /bittensor/assets` · `GET /bittensor/stats` · `POST /bittensor/add` · `POST /bittensor/seed` | browse and list any Bittensor subnet, priced in TAO |
+| `GET /dex/assets?chain=` · `GET /dex/stats` · `POST /dex/add?chain=&address=` · `POST /dex/seed` · `POST /dex/snapshot` | browse and list Solana/Base tokens over the owner's liquidity floor |
 | `POST /position/open` · `POST /position/close` · `GET /positions/{addr}` | trading |
 | `POST /predict` · `GET /predictions[/{addr}]` · `/predictions/board` · `POST /predictions/resolve` | price calls |
 | `GET /scoring` · `/scoring/models` · `/scoring/preview` · `POST /scoring` | the score, and its knobs |

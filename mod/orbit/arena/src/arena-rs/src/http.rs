@@ -7,7 +7,7 @@
 //! stripped) and the console at /arena (prefix kept), so both are served here
 //! and one console works in both places.
 
-use crate::{arena, mcp, mcpout, modmcp, rustc, store, storelink};
+use crate::{arena, hostcard, mcp, mcpout, modmcp, rustc, store, storelink, vibe};
 use axum::{
     body::Body,
     extract::{Path, Query, Request},
@@ -59,10 +59,13 @@ fn info() -> Value {
         "run": "POST /run {game, players[]} — play one headlessly via the node runner",
         "leaderboard": "GET /leaderboard?game=",
         "abi": "GET /abi?role=game&lang=wasm|class — the contract a module implements",
+        "docs": "GET /docs — the contents | GET /docs/:slug (?format=md) | GET /docs/search?q=",
         "runtime": "GET /runtime/host.mjs — the execution layer itself, host.py included",
         "forward": "POST /forward {action, ...args}",
         "tools": "GET /tools",
         "store": "GET /store — the bridge to the store module | POST /store/sync {force?, verify?}",
+        "host": "GET /host — the box running this arena: its key, uptime, store and toolchain",
+        "fleet": "GET /fleet — every module of this fleet a player can be seated on | GET /fleet/:name/tools",
         "console": "GET /arena (browser)"
     });
     v["stdio"] = json!("arena-api --stdio");
@@ -326,6 +329,41 @@ async fn abi(Query(q): Query<HashMap<String, String>>) -> Response {
     via_tool("game_abi", json!(q)).await
 }
 
+/// The documentation. `GET /docs` is the contents, `/docs/search?q=` finds a
+/// section, and `/docs/:slug` is one page — as JSON by default, as the raw
+/// markdown with `?format=md` or an `Accept: text/markdown`, which is what
+/// makes it readable by curl as well as by the console.
+async fn docs_index() -> Response {
+    Json(crate::docs::index()).into_response()
+}
+
+async fn docs_search(Query(q): Query<HashMap<String, String>>) -> Response {
+    via_tool("docs_search", json!(q)).await
+}
+
+async fn docs_page(
+    Path(slug): Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+    req: Request,
+) -> Response {
+    let page = match crate::docs::page(&json!({ "slug": slug })) {
+        Ok(v) => v,
+        Err(e) => return (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    };
+    let raw = q.get("format").map(|f| f == "md" || f == "markdown").unwrap_or(false)
+        || req
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .map(|a| a.contains("text/markdown") || a.contains("text/plain"))
+            .unwrap_or(false);
+    if raw {
+        let body = page["markdown"].as_str().unwrap_or_default().to_string();
+        return ([(header::CONTENT_TYPE, "text/markdown; charset=utf-8")], body).into_response();
+    }
+    Json(page).into_response()
+}
+
 async fn plant() -> Response {
     via_tool("plant_examples", json!({})).await
 }
@@ -380,6 +418,91 @@ async fn runtime_file(Path(name): Path<String>) -> Response {
     }
 }
 
+/// Who is running this arena — the box, its key, its uptime, what it can
+/// build, and where its bytes went. `?store=0` skips the round trip to the
+/// store module.
+async fn host(Query(q): Query<HashMap<String, String>>) -> Json<Value> {
+    let with_store = q.get("store").map(|v| v != "0" && v != "false").unwrap_or(true);
+    Json(hostcard::card(with_store).await)
+}
+
+/// The fleet, as somewhere a player could sit. Every module the MCP hub knows
+/// about, every module the activator can wake, and the servers a class here
+/// may call out to — each addressed through the gateway, which is what makes
+/// naming a module enough.
+async fn fleet() -> Json<Value> {
+    Json(mcpout::fleet().await)
+}
+
+/// What one module of the fleet offers, so a seat can be filled by picking a
+/// tool rather than by knowing one. Also the argument each tool wants the
+/// position in — the console shows it, the mcp driver infers the same thing.
+async fn fleet_tools(Path(name): Path<String>) -> Response {
+    let server = match mcpout::resolve(None, Some(&name), None) {
+        Ok(s) => s,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    };
+    match mcpout::tools_of(&server).await {
+        Ok(tools) => Json(json!({
+            "module": name, "mcp": server.url, "count": tools.len(), "tools": tools,
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": e, "module": name, "mcp": server.url })),
+        )
+            .into_response(),
+    }
+}
+
+// ── vibe ─────────────────────────────────────────────────────────────────
+//
+// Writing a game or a player with the build agent. A session is a file the
+// agent edits a sentence at a time; storing it is an upload of the text, so
+// the registry, not the session, says what it became. An error that begins
+// with `build:` is the agent being unreachable, which is the caller's
+// dependency failing rather than the caller's request being wrong — 424, and
+// never a 5xx, which a proxy in front would replace with a bare code.
+
+fn vibe_response(out: Result<Value, String>) -> Response {
+    match out {
+        Ok(v) => Json(v).into_response(),
+        Err(e) if e.starts_with("build:") => (StatusCode::FAILED_DEPENDENCY, Json(json!({ "error": e }))).into_response(),
+        Err(e) if e.starts_with("no vibe session") || e.starts_with("no module") => {
+            (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn vibe_list() -> Response {
+    let mut v = vibe::list();
+    v["build"] = vibe::availability().await;
+    Json(v).into_response()
+}
+
+async fn vibe_start(Json(body): Json<Value>) -> Response {
+    vibe_response(vibe::vibe(&body).await)
+}
+
+async fn vibe_get(Path(id): Path<String>) -> Response {
+    vibe_response(vibe::get(&id).await)
+}
+
+async fn vibe_delete(Path(id): Path<String>) -> Response {
+    vibe_response(vibe::delete(&id))
+}
+
+async fn vibe_store(Path(id): Path<String>, Json(body): Json<Value>) -> Response {
+    let mut args = body;
+    args["session"] = json!(id);
+    vibe_response(vibe::store(&args).await)
+}
+
+async fn vibe_cancel(Path(id): Path<String>) -> Response {
+    vibe_response(vibe::cancel(&id).await)
+}
+
 fn api_routes() -> Router {
     Router::new()
         .route("/info", get(health))
@@ -399,11 +522,18 @@ fn api_routes() -> Router {
         .route("/blob/:id", get(blob))
         .route("/wasm/:id", get(wasm))
         .route("/toolchain", get(toolchain))
+        .route("/vibe", get(vibe_list).post(vibe_start))
+        .route("/vibe/:id", get(vibe_get).delete(vibe_delete))
+        .route("/vibe/:id/store", post(vibe_store))
+        .route("/vibe/:id/cancel", post(vibe_cancel))
         .route("/store", get(store_status))
         .route("/store/sync", post(store_sync))
         .route("/mcp/call", post(mcp_call))
         .route("/mcp/servers", get(mcp_servers))
         .route("/servers", get(servers))
+        .route("/host", get(host))
+        .route("/fleet", get(fleet))
+        .route("/fleet/:name/tools", get(fleet_tools))
         .route("/m/:name", get(module_card))
         .route("/m/:name/tools", get(module_tools))
         .route(
@@ -418,6 +548,9 @@ fn api_routes() -> Router {
                 )
             }),
         )
+        .route("/docs", get(docs_index))
+        .route("/docs/search", get(docs_search))
+        .route("/docs/:slug", get(docs_page))
         .route("/inspect", post(inspect))
         .route("/players", get(list_players).post(enter_player))
         .route("/players/:id", get(get_player).delete(remove_player))
@@ -434,6 +567,7 @@ fn api_routes() -> Router {
 }
 
 pub async fn serve(port: u16) {
+    hostcard::mark_start();
     mcp::set_base(format!("http://127.0.0.1:{port}"));
     let planted = arena::plant_examples();
     println!(

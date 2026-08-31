@@ -12,11 +12,25 @@ import {
   TERM_FONT, ACCENT, DANGER, READ, chainApi, coerceArgs, short, explorerUrl, txUrl, netInfo, useIsMobile,
 } from './shared'
 import { Panel, Label, Btn, Input, Log, Empty, Banner, Skeleton, panelStyle } from './ui'
-import { PIXEL, PX } from './arcade'
+import { PIXEL, PX, NEON, Sprite } from './arcade'
 import type { ChainWallet } from './WalletBar'
-import { isContract, uniqueName, type ProjectsApi } from './projects'
+import {
+  isContract, isTest, uniqueName, stem, STARTER_CONTRACT, STARTER_TEST, type ProjectsApi,
+} from './projects'
 
 interface Template { key: string; name: string; description: string; files: Record<string, string> }
+
+// Each template card wears its own neon — five cabinet colours, cycled, so a
+// row of them reads as a shelf of different games rather than five grey boxes.
+const CARD_COLORS = [ACCENT, NEON.p2, NEON.p1, NEON.coin, NEON.life]
+
+// The landing strip: what this console does, in the order you'll do it.
+const STEPS: { label: string; note: string; c: string }[] = [
+  { label: 'PICK', note: 'a template below — or open PROJECT up top to start empty, upload a folder, or fork SHARED', c: ACCENT },
+  { label: 'COMPILE', note: 'solc builds the whole project on the chain module', c: NEON.p2 },
+  { label: 'DEPLOY', note: 'your wallet signs it — the key never leaves the browser', c: NEON.p1 },
+  { label: 'PLAY', note: 'call it live, straight from the console', c: NEON.coin },
+]
 interface Artifact {
   name: string
   file: string
@@ -70,6 +84,8 @@ export function BuildTab({
   const [deployed, setDeployed] = useState<
     { address: string; tx: string; abiCid?: string } | null>(null)
 
+  const [addingFile, setAddingFile] = useState(false)
+  const [newFile, setNewFile] = useState('')
   const gutterRef = useRef<HTMLDivElement>(null)
   const mobile = useIsMobile()
   const say = (line: string) => setLog(prev => [...prev, line])
@@ -235,6 +251,20 @@ export function BuildTab({
 
   const lineCount = source.split('\n').length
 
+  // contracts, then tests, then everything else — the order you read a project in
+  const rank = (f: string) => (isContract(f) ? 0 : isTest(f) ? 1 : 2)
+  const files = Object.keys(project?.files || {}).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+
+  const createFile = () => {
+    let p = newFile.trim().replace(/[^A-Za-z0-9_./ -]/g, '').replace(/\s+/g, '-')
+    if (!p || !project) return
+    if (!/\.(sol|js|ts)$/.test(p)) p += '.sol'
+    if (!p.includes('/')) p = `${isTest(p) ? 'test' : 'contracts'}/${p}`
+    const name = stem(p).replace(/[^A-Za-z0-9_]/g, '') || 'Contract'
+    projects.addFile(p, isTest(p) ? STARTER_TEST(name) : isContract(p) ? STARTER_CONTRACT(name) : '')
+    setNewFile(''); setAddingFile(false)
+  }
+
   // A template card says what it is — the old row of one-word buttons only did
   // on hover, which a phone never gets.
   const templateCards = (
@@ -247,27 +277,37 @@ export function BuildTab({
     ) : (
       <div style={{
         display: 'grid', gap: '10px',
-        gridTemplateColumns: mobile ? '1fr' : 'repeat(auto-fill, minmax(232px, 1fr))',
+        gridTemplateColumns: mobile ? '1fr' : 'repeat(auto-fill, minmax(200px, 1fr))',
       }}>
-        {templates.map(t => {
+        {templates.map((t, i) => {
+          const c = CARD_COLORS[i % CARD_COLORS.length]
           const files = Object.keys(t.files || {})
           const sol = files.filter(isContract).length
           return (
             <button
               key={t.key}
               onClick={() => fromTemplate(t)}
-              className="arc-press"
+              className="arc-card"
               style={{
-                ...panelStyle, textAlign: 'left', padding: '14px', cursor: 'pointer',
+                textAlign: 'left', padding: '14px', cursor: 'pointer',
+                // longhand borders: the left edge carries the card's colour,
+                // the same bar the marquee pills wear
+                borderStyle: 'solid', borderWidth: '3px 3px 3px 5px',
+                borderColor: `var(--border-color) var(--border-color) var(--border-color) ${c}`,
+                background: 'var(--bg-secondary)', boxShadow: '3px 3px 0 0 rgba(0,0,0,0.35)',
                 fontFamily: TERM_FONT, color: 'var(--text-secondary)',
                 display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '124px',
+                ['--c' as any]: c,
               }}
             >
-              <div style={{
-                fontFamily: PIXEL, fontSize: PX.sm, lineHeight: 1.6,
-                color: ACCENT, letterSpacing: '0.06em',
-              }}>
-                {t.name.toUpperCase()}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Sprite seed={t.key} size={22} />
+                <span style={{
+                  fontFamily: PIXEL, fontSize: PX.sm, lineHeight: 1.6,
+                  color: c, letterSpacing: '0.06em',
+                }}>
+                  {t.name.toUpperCase()}
+                </span>
               </div>
               <div style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.5, flex: 1 }}>
                 {t.description || 'contract + tests, ready to run'}
@@ -277,7 +317,7 @@ export function BuildTab({
                 fontSize: '13px', color: 'var(--text-tertiary)',
               }}>
                 <span>{sol} contract{sol === 1 ? '' : 's'} · {files.length} files</span>
-                <span style={{ marginLeft: 'auto', color: ACCENT }}>START →</span>
+                <span style={{ marginLeft: 'auto', color: c }}>START →</span>
               </div>
             </button>
           )
@@ -289,15 +329,40 @@ export function BuildTab({
   if (!project) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <Panel>
+        <div>
           <Label style={{ color: ACCENT }}>START HERE</Label>
-          <div style={{ fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-            1 · pick a template below, start an empty project from{' '}
-            <span style={{ color: ACCENT }}>{mobile ? '☰' : 'PROJECTS +'}</span>, or upload one
-            you already have ({mobile ? '☰ → ↑' : 'PROJECTS ↑'} takes a folder).<br />
-            2 · COMPILE PROJECT · 3 · DEPLOY with your wallet · 4 · INTERACT with it.
+          <div style={{
+            display: 'grid', gap: '10px',
+            gridTemplateColumns: mobile ? '1fr' : 'repeat(auto-fit, minmax(210px, 1fr))',
+          }}>
+            {STEPS.map((s, i) => (
+              <div key={s.label} style={{
+                ...panelStyle, padding: '12px 14px',
+                display: 'flex', gap: '12px', alignItems: 'flex-start',
+              }}>
+                <span style={{
+                  fontFamily: PIXEL, fontSize: PX.md, lineHeight: 1, color: '#000',
+                  background: s.c, boxShadow: `0 0 12px ${s.c}66`,
+                  width: '26px', height: '26px', flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {i + 1}
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{
+                    fontFamily: PIXEL, fontSize: PX.sm, color: s.c,
+                    letterSpacing: '0.08em', lineHeight: 1.6, marginBottom: '4px',
+                  }}>
+                    {s.label}
+                  </div>
+                  <div style={{ fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                    {s.note}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-        </Panel>
+        </div>
         <div>
           <Label note="contract + tests, ready to run">TEMPLATES</Label>
           {templateCards}
@@ -314,14 +379,16 @@ export function BuildTab({
                   key={c.name}
                   onClick={() => playFleet(c.name, c.address)}
                   disabled={!!openingFleet}
-                  className="arc-press"
+                  className="arc-card"
                   title={c.address}
                   style={{
-                    ...panelStyle, padding: '9px 12px', cursor: openingFleet ? 'wait' : 'pointer',
+                    ...panelStyle, padding: '8px 12px', cursor: openingFleet ? 'wait' : 'pointer',
                     fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-secondary)',
-                    display: 'flex', alignItems: 'center', gap: '8px',
+                    display: 'flex', alignItems: 'center', gap: '9px',
+                    ['--c' as any]: ACCENT,
                   }}
                 >
+                  <Sprite seed={c.address} size={16} />
                   <span style={{ color: 'var(--text-primary)' }}>
                     {openingFleet === c.name ? 'opening…' : c.name}
                   </span>
@@ -342,26 +409,87 @@ export function BuildTab({
 
       {/* ── Editor ── */}
       <div style={{ ...panelStyle }}>
+        {/* Files are tabs across the top of the editor — contracts first, then
+            tests. The rail that used to list them is gone; this is the list. */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
-          borderBottom: '2px solid var(--border-color)', flexWrap: 'wrap',
+          display: 'flex', alignItems: 'stretch', flexWrap: 'wrap',
+          borderBottom: '2px solid var(--border-color)',
         }}>
-          <span style={{ fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-tertiary)' }}>
-            {project.name} /
-          </span>
-          <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: ACCENT }}>
-            {path || '—'}
-          </span>
-          <Btn size="sm" active={optimize} onClick={() => setOptimize(o => !o)}>
-            OPTIMIZER {optimize ? 'ON' : 'OFF'}
-          </Btn>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)' }}>
+          {files.map(f => {
+            const active = f === path
+            const color = isContract(f) ? ACCENT : isTest(f) ? READ : 'var(--text-secondary)'
+            return (
+              <div key={f} style={{ display: 'flex', alignItems: 'stretch' }}>
+                <button
+                  onClick={() => projects.setActiveFile(f)}
+                  title={f}
+                  style={{
+                    fontFamily: TERM_FONT, fontSize: mobile ? '15px' : '14px',
+                    padding: mobile ? '11px 12px' : '9px 12px', minHeight: '40px',
+                    border: 'none', borderBottom: `3px solid ${active ? color : 'transparent'}`,
+                    marginBottom: '-2px',
+                    background: active ? `${color}14` : 'transparent',
+                    color: active ? color : 'var(--text-tertiary)',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {f.split('/').pop()}
+                </button>
+                {active && files.length > 1 && (
+                  <button
+                    onClick={() => { if (confirm(`Delete ${f}?`)) projects.deleteFile(f) }}
+                    title={`delete ${f}`}
+                    style={{
+                      fontFamily: TERM_FONT, fontSize: '13px', padding: '0 8px', border: 'none',
+                      background: `${color}14`, color: 'var(--text-tertiary)', cursor: 'pointer',
+                      marginBottom: '-2px', borderBottom: `3px solid ${color}`,
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            )
+          })}
+          <button
+            onClick={() => setAddingFile(a => !a)}
+            title="new file"
+            style={{
+              fontFamily: TERM_FONT, fontSize: '16px', padding: '0 12px', minHeight: '40px', border: 'none',
+              background: 'transparent', color: addingFile ? ACCENT : 'var(--text-tertiary)', cursor: 'pointer',
+            }}
+          >
+            +
+          </button>
+          <div style={{
+            marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center',
+            padding: '5px 10px', flexWrap: 'wrap',
+          }}>
+            <Btn size="sm" active={optimize} onClick={() => setOptimize(o => !o)}>
+              OPT {optimize ? 'ON' : 'OFF'}
+            </Btn>
+            <span style={{
+              fontFamily: TERM_FONT, fontSize: '13px',
+              color: projects.dirty ? NEON.coin : 'var(--text-tertiary)',
+            }}>
               {projects.saving ? 'saving…' : projects.dirty ? 'unsaved' : 'saved'}
             </span>
             <Btn size="sm" active={false} onClick={() => projects.save().catch(() => {})}>SAVE</Btn>
           </div>
         </div>
+
+        {addingFile && (
+          <div style={{
+            display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap',
+            padding: '8px 10px', borderBottom: '1px solid var(--border-color)',
+          }}>
+            <div style={{ flex: 1, minWidth: '180px' }}>
+              <Input value={newFile} onChange={setNewFile} placeholder="Vault.sol / Vault.test.js" onEnter={createFile} />
+            </div>
+            <Btn size="sm" onClick={createFile} disabled={!newFile.trim()}>ADD</Btn>
+            <Btn size="sm" active={false} onClick={() => { setAddingFile(false); setNewFile('') }}>CANCEL</Btn>
+          </div>
+        )}
 
         <div style={{ display: 'flex', maxHeight: mobile ? '56vh' : '460px' }}>
           {/* the gutter costs a phone a tenth of its width — drop it there */}

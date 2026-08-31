@@ -183,6 +183,29 @@ fn mint_token() -> Result<String, String> {
     Ok(tok)
 }
 
+/// A mod-protocol token signed by this box's own key, for calls the arena
+/// makes as itself — seating a fleet module that will only answer a signed-in
+/// caller, say. The store's own overrides do not apply here: this is the box's
+/// identity, not a store credential.
+pub async fn protocol_token() -> Result<String, String> {
+    static T: OnceLock<Mutex<Option<Minted>>> = OnceLock::new();
+    let cell = T.get_or_init(|| Mutex::new(None));
+    {
+        let guard = cell.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(m) = guard.as_ref() {
+            if m.at.elapsed() < TOKEN_TTL {
+                return Ok(m.value.clone());
+            }
+        }
+    }
+    let tok = tokio::task::spawn_blocking(mint_token)
+        .await
+        .map_err(|e| format!("the mint task failed: {e}"))??;
+    *cell.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some(Minted { value: tok.clone(), at: Instant::now() });
+    Ok(tok)
+}
+
 /// A token for the store: the environment, then a file beside the registry,
 /// then one the box's own key signs. `fresh` throws the cached one away —
 /// what the store's 401 asks for.

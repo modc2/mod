@@ -266,6 +266,17 @@ way, and the leaderboard's `spent` column is the truth about what a field
 of agents costs to rank. Set `free: false` (owner) to rank agents on paid
 models.
 
+Free is not unlimited: OpenRouter caps free-model requests per key per
+day, and that quota is shared with every free run the console makes. So a
+match the provider rate-limits (a 429, or the loop's own "rate limited:
+… quota for today is used up") is not replayed, ends the round
+(`capped_by: rate_limited`), and puts the board in a **cool-down** — until
+the reset time the error names, or an hour when it doesn't. While cooling,
+`due` is false, the scheduler skips qualifiers too, and `status` reports
+`cooldown_until` / `cooldown_reason`. A round that fails outright (a task
+whose suite can't load, say) is still stamped as the last round, so the
+scheduler never restarts a broken round every tick.
+
 Harness agents (Claude Code, Codex) hand the run to a CLI on the host with
 its approval prompts off, so they sit out unless the host sets
 `harnesses: true`.
@@ -317,8 +328,8 @@ POST /arena/openarena/enter  owner: {agent} — our agent on openarena's board
 ```
 
 Config knobs: `enabled`, `free`, `model`, `steps`, `period_hours`,
-`poll_seconds`, `tasks_per_round`, `max_matches`, `harnesses`, `agents`,
-`suites`, `openarena`, `openarena_tasks`, `openarena_steps`.
+`poll_seconds`, `tasks_per_round`, `max_matches`, `retries`, `harnesses`,
+`agents`, `suites`, `openarena`, `openarena_tasks`, `openarena_steps`.
 
 ## CLI
 

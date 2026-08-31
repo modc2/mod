@@ -1,6 +1,7 @@
 mod chutes;
 mod http;
 mod mcp;
+mod owner;
 mod upstream;
 
 #[tokio::main]

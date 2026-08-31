@@ -21,10 +21,15 @@ use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-#[derive(Clone)]
 /// Widest board the refresher keeps (the UI's largest pool option).
-pub const PREWARM_POOL: usize = 600;
+pub const PREWARM_POOL: usize = traders::ALL;
+/// How far down each window's ROI board the background deepener keeps the
+/// trader index warm, and how many wallets it scrapes per cycle per window.
+/// Sized to stay well under HL's /info budget alongside the board refresh.
+pub const DEEPEN: [(u32, usize); 3] = [(7, 400), (1, 200), (30, 200)];
+pub const DEEPEN_BATCH: usize = 15;
 
+#[derive(Clone)]
 pub struct AppState {
     pub hl: Arc<hl::Client>,
     pub http: reqwest::Client,
@@ -32,6 +37,7 @@ pub struct AppState {
     pub copy: Arc<copytrade::Engine>,
     pub progress: Arc<traders::ProgressTracker>,
     pub boards: Arc<traders::BoardCache>,
+    pub index: Arc<traders::TraderIndex>,
     pub signer: Arc<signer::SignerStore>,
     pub meta: Arc<actions::MetaCache>,
     pub live: Arc<live_engine::EngineRegistry>,
@@ -83,6 +89,8 @@ async fn main() -> anyhow::Result<()> {
     let copy = Arc::new(copytrade::Engine::new(hl.clone(), store.clone()));
     let progress = Arc::new(traders::ProgressTracker::default());
     let boards = Arc::new(traders::BoardCache::load(&data_dir));
+    let index = Arc::new(traders::TraderIndex::load(&data_dir));
+    tracing::info!("trader index: {} entries loaded", index.len());
     let signer = Arc::new(signer::SignerStore::new());
     let meta = Arc::new(actions::MetaCache::new(hl.clone()));
     let live = Arc::new(live_engine::EngineRegistry::new(hl.clone(), signer.clone(), meta.clone()));
@@ -97,11 +105,14 @@ async fn main() -> anyhow::Result<()> {
     // Board refresher: computes each standard window and publishes the result
     // into BoardCache (memory + disk). /traders/top serves from that cache, so
     // request latency is decoupled from HL's 429-throttled scan entirely.
-    // Pool 600 = the widest UI option; enrichment is capped at ENRICH_CAP
-    // inside top_traders, so a wide pool costs no extra /info calls.
+    // Pool = the whole gated leaderboard (every wallet the CDN prices, ~5k
+    // for 24h-active); enrichment is capped at ENRICH_CAP inside top_traders,
+    // so the wide pool costs no extra /info calls — only the top slice by
+    // rank is ever measured from fills.
     let prewarm_hl = hl.clone();
     let prewarm_progress = progress.clone();
     let prewarm_boards = boards.clone();
+    let prewarm_index = index.clone();
     tokio::spawn(async move {
         loop {
             // Standard boards first (ROI + PnL for each window, 24h-active),
@@ -119,26 +130,43 @@ async fn main() -> anyhow::Result<()> {
             for (days, rank, active) in todo {
                 let started = std::time::Instant::now();
                 let r = traders::top_traders_with_progress(
-                    prewarm_hl.clone(), days, 0.5, PREWARM_POOL, vec![],
-                    Some(prewarm_progress.clone()), rank, active,
+                    prewarm_hl.clone(), prewarm_index.clone(), days, PREWARM_POOL, vec![],
+                    Some(prewarm_progress.clone()), rank, active, vec![], traders::ENRICH_CAP,
                 ).await;
                 match r {
-                    Ok(t) => {
+                    Ok(b) => {
                         tracing::info!(
                             "board refresh days={} rank={} active={}: {} traders in {:?}",
-                            days, rank.as_str(), active.as_str(), t.len(), started.elapsed()
+                            days, rank.as_str(), active.as_str(), b.traders.len(), started.elapsed()
                         );
-                        prewarm_boards.put(days, rank, active, PREWARM_POOL, t);
+                        prewarm_boards.put(days, rank, active, PREWARM_POOL, b.traders);
                     }
                     Err(e) => tracing::warn!("board refresh days={days} rank={} failed: {e}", rank.as_str()),
                 }
+            }
+            // Deepen the trader index past the boards' enrichment cap, a few
+            // wallets per cycle, so a coin-filtered scan ("top 50 who trade
+            // ZEC") finds its answers in memory instead of walking 600
+            // wallets through HL's 429s while a visitor waits.
+            for (days, depth) in DEEPEN {
+                let ranked = traders::ranked_addrs(
+                    &prewarm_hl, days, traders::Rank::Roi, traders::Active::Day).await;
+                let top: Vec<String> = ranked.into_iter().take(depth).collect();
+                let now = chrono::Utc::now().timestamp_millis();
+                let stale = prewarm_index.stale(days, &top, now);
+                let batch: Vec<String> = stale.into_iter().take(DEEPEN_BATCH).collect();
+                if batch.is_empty() { continue; }
+                let started = std::time::Instant::now();
+                let n = prewarm_index.enrich(&prewarm_hl, days, &batch, None, 0).await;
+                tracing::info!("index deepen days={days}: {n} wallets in {:?} ({} indexed)",
+                    started.elapsed(), prewarm_index.len());
             }
             tokio::time::sleep(std::time::Duration::from_secs(120)).await;
         }
     });
 
     let state = AppState {
-        hl, http, store, copy, progress, boards, signer, meta, live,
+        hl, http, store, copy, progress, boards, index, signer, meta, live,
         auth: auth::AuthCfg::from_env(),
         self_url: Arc::new(self_url),
     };

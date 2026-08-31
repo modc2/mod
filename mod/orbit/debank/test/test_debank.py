@@ -300,3 +300,273 @@ def test_info_lists_every_declared_fn():
     for fn in cfg['fns']:
         assert callable(getattr(anchor, fn)), f'config.json declares a missing fn: {fn}'
     assert api.info()['mcp']['tools'] == len(mcp.TOOLS)
+
+
+# ── the bank rail (keyless) ──
+
+def stub_rpc(monkeypatch, native_wei, token_units):
+    """Answer client.rpc from fixed hex balances, and pin prices."""
+    calls = []
+
+    def fake_rpc(url, batch):
+        calls.append((url, batch))
+        return [hex(native_wei)] + [hex(token_units)] * (len(batch) - 1)
+
+    monkeypatch.setattr(client, 'rpc', fake_rpc)
+    monkeypatch.setattr(client, 'prices', lambda refresh=False: {
+        'ethereum': 2000.0, 'binancecoin': 600.0, 'matic-network': 0.5,
+        'avalanche-2': 10.0, 'xdai': 1.0, 'usd-coin': 1.0, 'tether': 1.0, 'dai': 1.0})
+    return calls
+
+
+def test_balances_need_no_key_and_price_native_plus_stables(monkeypatch):
+    calls = stub_rpc(monkeypatch, native_wei=10 ** 18, token_units=5 * 10 ** 6)
+    d = Client().balances(VITALIK, chains=['eth'])          # no key anywhere
+    assert d['source'] == 'rpc' and d['errors'] is None
+    assert [c['chain'] for c in d['chains']] == ['eth']
+    eth = d['chains'][0]
+    # 1 ETH at $2000, 5 USDC, 5 USDT, and 5e6 units of 18-decimal DAI (rounds to nothing)
+    assert eth['native_amount'] == 1.0 and eth['usd'] == 2010.0
+    syms = [t['symbol'] for t in d['tokens']]
+    assert syms[0] == 'ETH' and set(syms) == {'ETH', 'USDC', 'USDT', 'DAI'}
+    # one batched POST per chain: getBalance + one balanceOf per stablecoin
+    assert len(calls) == 1 and len(calls[0][1]) == 4
+    assert calls[0][1][1][0] == 'eth_call' and calls[0][1][1][1][0]['data'].startswith('0x70a08231')
+
+
+def test_balances_scan_every_rail_chain_and_report_the_ones_that_fail(monkeypatch):
+    def flaky(url, batch):
+        if 'bsc' in url:
+            raise OSError('timed out')
+        return [hex(2 * 10 ** 18)] + ['0x0'] * (len(batch) - 1)
+    monkeypatch.setattr(client, 'rpc', flaky)
+    monkeypatch.setattr(client, 'prices', lambda refresh=False: {'ethereum': 1000.0})
+    d = client.balances(VITALIK)
+    assert 'bsc' in d['errors'] and 'timed out' in d['errors']['bsc']
+    assert len(d['chains']) == len(client.NETWORKS) - 1
+    assert d['chains'][0]['chain'] in ('eth', 'base', 'arb', 'op')   # ETH chains price highest
+    assert d['coverage'].startswith('native coin + USDC/USDT/DAI on ')
+
+
+def test_balances_refuse_chains_off_the_rail():
+    with pytest.raises(DebankError) as e:
+        client.balances(VITALIK, chains=['solana'])
+    assert e.value.status == 400 and 'bank rail' in str(e.value)
+
+
+def test_networks_give_a_wallet_what_it_needs():
+    d = client.networks()
+    assert d['count'] == len(client.NETWORKS)
+    eth = next(n for n in d['networks'] if n['chain'] == 'eth')
+    assert eth['chain_id'] == 1 and eth['chain_id_hex'] == '0x1'
+    assert eth['rpc'].startswith('https://') and eth['explorer'].startswith('https://')
+    usdc = next(t for t in eth['tokens'] if t['symbol'] == 'USDC')
+    assert usdc['decimals'] == 6 and usdc['address'].startswith('0x') and len(usdc['address']) == 42
+    for n in d['networks']:
+        assert client.chain_id(n['chain']) == n['chain']       # rail ids are canonical DeBank ids
+
+
+def test_rail_routes_answer_signed_out(monkeypatch):
+    stub_rpc(monkeypatch, native_wei=0, token_units=0)
+    assert api.route('GET', '/networks', '', {}, None)['count'] == len(client.NETWORKS)
+    rest = api.route('GET', '/balances', f'id={VITALIK}&chains=eth,base', {}, None)
+    tool = mcp.call_tool('debank_balances', {'id': VITALIK, 'chains': 'eth,base'})
+    assert rest == tool and [c['chain'] for c in rest['chains']] == ['eth', 'base']
+    assert 'keyless' in api.route('GET', '/health', '', {}, None)
+
+
+def test_console_is_the_bank():
+    html = open(os.path.join(HERE, 'console.html')).read()
+    for needle in ('eth_requestAccounts', 'wallet_switchEthereumChain', 'eth_sendTransaction',
+                   '0xa9059cbb', '0x095ea7b3', '/_api', 'x-debank-key'):
+        assert needle in html
+
+
+# ── the savings desk ──
+
+import savings  # noqa: E402
+
+
+YS = {vid: {'apy': 4.0, 'apy_30d': 5.0, 'tvl_usd': 1e8, 'apy_source': 'test'}
+      for vid in savings.registry()['venues']}
+LOCKED = {vid: {'locked_usd': 2e8} for vid in savings.registry()['venues']}
+
+
+@pytest.fixture
+def stub_savings(monkeypatch, tmp_path):
+    monkeypatch.setattr(savings, 'live_yields', lambda refresh=False: YS)
+    monkeypatch.setattr(savings, 'locked_onchain', lambda refresh=False: LOCKED)
+    monkeypatch.setattr(savings, 'LEDGER_DIR', str(tmp_path / 'ledger'))
+
+
+def selector_rpc(monkeypatch, balance_of=0, allowance=0, native=0):
+    """Answer client.rpc by ABI selector, echoing convertToAssets 1:1."""
+    def fake_rpc(url, batch):
+        out = []
+        for method, params in batch:
+            if method != 'eth_call':
+                out.append(hex(native))
+                continue
+            data = params[0]['data']
+            sel = data[:10]
+            if sel == savings.SEL['balance_of']:
+                out.append(hex(balance_of))
+            elif sel == savings.SEL['allowance']:
+                out.append(hex(allowance))
+            elif sel == savings.SEL['convert_to_assets']:
+                out.append('0x' + data[10:74])          # 1 share = 1 asset unit
+            elif sel in (savings.SEL['total_assets'], savings.SEL['total_supply']):
+                out.append(hex(7 * 10 ** 12))
+            else:
+                out.append(hex(0))
+        return out
+    monkeypatch.setattr(client, 'rpc', fake_rpc)
+    monkeypatch.setattr(client, 'prices', lambda refresh=False: {
+        'ethereum': 2000.0, 'usd-coin': 1.0, 'tether': 1.0, 'dai': 1.0})
+
+
+def test_fund_registry_is_coherent_and_on_the_rail():
+    reg = savings.registry()
+    for vid, v in reg['venues'].items():
+        assert v['kind'] in ('erc4626', 'aave_v3', 'compound_v3')
+        assert v['chain'] in client.NETWORKS
+        for c in (v['address'], v['asset']['address'], v['receipt']['address']):
+            assert c.startswith('0x') and len(c) == 42
+        # a venue's asset must be the SAME contract the bank rail reads, so
+        # "your savings" and "what a fund takes" can never disagree
+        rail = client.NETWORKS[v['chain']]['tokens'].get(v['asset']['symbol'])
+        assert rail and rail[0].lower() == v['asset']['address'].lower()
+        assert rail[1] == v['asset']['decimals']
+        assert v['exit']['kind'] and 'note' in v['exit']
+    for f in reg['funds']:
+        assert abs(sum(s['weight'] for s in f['sleeves']) - 1.0) < 1e-9
+        for s in f['sleeves']:
+            v = reg['venues'][s['venue']]
+            assert v['chain'] == f['chain'] and v['asset']['symbol'] == f['asset']
+
+
+def test_funds_carry_projected_roi_and_locked_liquidity(stub_savings):
+    d = savings.funds(amount=10000)
+    assert d['count'] == len(savings.registry()['funds'])
+    f = next(x for x in d['funds'] if x['id'] == 'core-usdc-eth')
+    assert f['projected_apy'] == 5.0 and f['current_apy'] == 4.0
+    assert f['projected_1y_usd'] == 500.0                     # 10k at 5%
+    assert f['liquidity_locked_usd'] == 3 * 2e8               # three sleeves
+    assert f['exit']['kind'] == 'instant'
+    for s in f['sleeves']:
+        assert s['liquidity']['locked_usd'] == 2e8
+        assert s['projected_1y_usd'] == round(10000 * s['weight'] * 0.05, 2)
+    yp = next(x for x in d['funds'] if x['id'] == 'yield-plus-usdc-eth')
+    assert yp['exit']['kind'] == 'request' and yp['exit']['delay_days'] == 1
+
+
+def test_a_single_venue_is_a_fund_of_one(stub_savings):
+    f = savings.fund('venue:sky-sdai-eth', amount=500)
+    assert f['tier'] == 'single' and len(f['sleeves']) == 1
+    assert f['sleeves'][0]['weight'] == 1.0 and f['asset'] == 'DAI'
+    with pytest.raises(DebankError):
+        savings.fund('venue:nope')
+    with pytest.raises(DebankError):
+        savings.fund('not-a-fund')
+
+
+def test_plan_builds_exact_approve_then_deposit_per_sleeve(stub_savings, monkeypatch):
+    selector_rpc(monkeypatch, balance_of=2000 * 10 ** 6, allowance=0)
+    d = savings.plan(VITALIK, 'core-usdc-eth', 1000)
+    assert d['funded'] and d['wallet_has'] == 2000.0 and d['shortfall'] is None
+    assert len(d['legs']) == 3 and d['signatures'] == 6      # approve + deposit each
+    for leg in d['legs']:
+        v = savings.registry()['venues'][leg['venue']]
+        units = int(leg['units'])
+        assert units == int(1000 * leg['weight']) * 10 ** 6
+        approve, deposit = leg['txs']
+        assert approve['to'] == v['asset']['address']
+        assert approve['data'] == savings.SEL['approve'] + \
+            savings._pad(v['address']) + savings._pad(units)
+        assert deposit['to'] == v['address']
+        sel = {'erc4626': 'deposit_4626', 'aave_v3': 'supply_aave',
+               'compound_v3': 'supply_comet'}[v['kind']]
+        assert deposit['data'].startswith(savings.SEL[sel])
+        if v['kind'] == 'aave_v3':                            # onBehalfOf = the owner
+            assert VITALIK[2:] in deposit['data']
+
+
+def test_plan_flags_a_shortfall_and_usdt_gets_its_reset_leg(stub_savings, monkeypatch):
+    selector_rpc(monkeypatch, balance_of=100 * 10 ** 6, allowance=5)
+    d = savings.plan(VITALIK, 'tether-usdt-eth', 900)
+    assert not d['funded'] and d['shortfall'] == 800.0
+    for leg in d['legs']:                                     # dirty USDT allowance
+        assert [t['step'] for t in leg['txs']][0].startswith('reset approval')
+        assert leg['txs'][0]['data'].endswith(savings._pad(0))
+    with pytest.raises(DebankError):
+        savings.plan(VITALIK, 'core-usdc-eth', 0)
+    with pytest.raises(DebankError):
+        savings.plan(VITALIK, 'core-usdc-eth', 'lots')
+
+
+def test_holdings_and_savings_read_from_chain_keyless(stub_savings, monkeypatch):
+    selector_rpc(monkeypatch, balance_of=250 * 10 ** 6, allowance=0)
+    h = savings.holdings(VITALIK)
+    assert h['errors'] is None and len(h['held']) == len(savings.registry()['venues'])
+    usdc = h['held']['aave-v3-usdc-eth']
+    assert usdc['amount'] == 250.0 and usdc['symbol'] == 'USDC'
+    d = savings.savings(VITALIK)
+    assert d['source'].startswith('rpc')
+    assert d['placed']['usd'] > 0 and d['placed']['blended_apy'] == 5.0
+    assert d['total_usd'] == round(d['idle']['usd'] + d['placed']['usd'], 2)
+    assert d['ledger'] == []
+
+
+def test_exit_tx_withdraws_everything(stub_savings, monkeypatch):
+    selector_rpc(monkeypatch, balance_of=9 * 10 ** 18)
+    e = savings.exit_tx('sky-sdai-eth', VITALIK)              # redeem all shares
+    assert e['tx']['data'].startswith(savings.SEL['redeem_4626'])
+    assert savings._pad(9 * 10 ** 18) in e['tx']['data']
+    a = savings.exit_tx('aave-v3-usdc-eth', VITALIK)          # MAX = full balance
+    assert a['tx']['data'].startswith(savings.SEL['withdraw_aave'])
+    assert savings.MAX_UINT in a['tx']['data']
+    c = savings.exit_tx('compound-v3-usdc-eth', VITALIK)
+    assert c['tx']['data'].startswith(savings.SEL['withdraw_comet'])
+    selector_rpc(monkeypatch, balance_of=0)
+    with pytest.raises(DebankError):
+        savings.exit_tx('sky-sdai-eth', VITALIK)
+
+
+def test_ledger_records_placements_off_tree(stub_savings):
+    r = savings.record(VITALIK, 'core-usdc-eth', 'aave-v3-usdc-eth', 400, '0xabc')
+    assert r['count'] == 1 and r['recorded']['chain'] == 'eth'
+    assert savings.LEDGER_DIR in r['stored']
+    assert oct(os.stat(r['stored']).st_mode & 0o777) == '0o600'
+    assert savings.ledger(VITALIK)[0]['tx'] == '0xabc'
+
+
+def test_savings_routes_and_tools_answer_signed_out(stub_savings, monkeypatch):
+    selector_rpc(monkeypatch, balance_of=10 ** 6)
+    rest = api.route('GET', '/funds', 'amount=1000', {}, None)
+    tool = mcp.call_tool('debank_funds', {'amount': 1000})
+    assert rest == tool and rest['count'] >= 4
+    one = api.route('GET', '/funds/core-usdc-base', '', {}, None)
+    assert one['chain'] == 'base' and one['chain_name'] == 'Base'
+    plan = api.route('GET', '/savings/plan',
+                     f'id={VITALIK}&fund=core-usdc-base&amount=50', {}, None)
+    assert plan == mcp.call_tool('debank_savings_plan',
+                                 {'id': VITALIK, 'fund': 'core-usdc-base', 'amount': 50})
+    assert plan['chain_id'] == 8453
+    sav = api.route('GET', '/savings', f'id={VITALIK}', {}, None)
+    assert sav == mcp.call_tool('debank_savings', {'id': VITALIK})
+
+
+def test_console_has_a_savings_desk():
+    html = open(os.path.join(HERE, 'console.html')).read()
+    for needle in ('savings', 'planFund', 'placeLegs', 'withdrawVenue',
+                   '/savings/plan', '/savings/record', 'Index funds'):
+        assert needle in html
+
+
+def test_ledger_survives_concurrent_legs(stub_savings):
+    import threading
+    ts = [threading.Thread(target=savings.record,
+                           args=(VITALIK, 'core-usdc-base', 'spark-usdc-base', i, f'0x{i}'))
+          for i in range(6)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert len(savings.ledger(VITALIK)) == 6

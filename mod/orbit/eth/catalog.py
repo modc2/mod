@@ -1,10 +1,10 @@
 """
 The contracts that ship with this module.
 
-Nine self-contained Solidity files under `templates/`, each one a thing people
+Ten self-contained Solidity files under `templates/`, each one a thing people
 actually deploy: a token, an NFT, a multisig, an escrow, a splitter, a
-key-value registry, a content anchor, a time vault, and a counter to prove the
-pipe works. No imports, so they compile with whatever solc this box has and
+key-value registry, a content anchor, a time vault, a member-owned insurance mutual,
+and a counter to prove the pipe works. No imports, so they compile with whatever solc this box has and
 without a package manager anywhere in the path.
 
 The catalog is read off the files rather than duplicated in a table here — the
@@ -29,10 +29,12 @@ USE: Dict[str, str] = {
     'escrow': 'buyer funds, seller delivers, an arbiter breaks ties after a deadline',
     'anchor': 'timestamp a CID or hash on chain — cheap proof you had it first',
     'vault': 'ETH you cannot spend until a date you set',
+    'mutual': 'a member-owned insurance pool: capped operator fee, pro-rata surplus, '
+              'agent-adjudicated claims, optional oracle, transparency() for everyone',
 }
 
 ORDER = ['counter', 'token', 'nft', 'storage', 'anchor', 'vault', 'escrow',
-         'splitter', 'multisig']
+         'splitter', 'multisig', 'mutual']
 
 
 def _natspec(source: str, tag: str) -> Optional[str]:

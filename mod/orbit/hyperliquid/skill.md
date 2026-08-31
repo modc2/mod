@@ -48,7 +48,13 @@ hl.kill()                      # stop both
 `mod.py` exposes everything as forwardable fns. Highlights:
 
 ```python
-hl.top_traders(days=7, min_per_day=1, pool=200)
+hl.top_traders(days=7, pool=200)
+# The whole gated universe (~5k wallets, priced from the leaderboard for free),
+# fill stats for the top 250 by ROI only, filtered to sharpe >= 1 and ordered by it.
+hl.top_traders(days=7, pool='all', enrich=250, min_sharpe=1.0, sort='sharpe')
+# `coins` is a requirement, not a filter: the scan walks the ranked leaderboard
+# until it holds `pool` active wallets that traded one of them (see `depth`).
+hl.top_traders(days=7, pool=50, coins=['ZEC', 'ENA'])
 hl.analyze_trader('0xabc…', days=14)
 
 hl.create_index(name='Top10', owner='0x…', legs=[

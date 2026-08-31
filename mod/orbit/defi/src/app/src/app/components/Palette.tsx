@@ -1,5 +1,7 @@
 "use client";
 
+import { RiskPill } from "./AuditView";
+
 import { useMemo, useState } from "react";
 import type { BlockSpec, Catalog } from "../lib/types";
 
@@ -63,7 +65,8 @@ export default function Palette({ catalog, onInspect, onAdd }: Props) {
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 14 }}>{block.icon}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>{block.name}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{block.name}</span>
+                    <RiskPill summary={block.audit} compact />
                   </div>
                   <div
                     style={{

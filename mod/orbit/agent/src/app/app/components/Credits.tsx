@@ -1,7 +1,8 @@
 'use client'
 
-// Credits sidebar — top up USDT/USDC to the module's deposit address and
-// spend the credits to run the agent on the module's public API key.
+// Credits sidebar — top up USDT/USDC/ETH to the module's deposit address
+// (straight from MetaMask, or by pasting a tx hash) and spend the credits
+// to run the agent on the module's public API key.
 //
 // A deposit is the guest pre-funding the OpenRouter/Venice credits their
 // own runs burn: a run is billed at what it cost the module's key plus the
@@ -9,7 +10,11 @@
 // loop — it says how much of the deposit float has to go to the providers.
 //
 // Deposits are verified trustlessly by tx hash: the API reads the receipt
-// from a public RPC and credits the ON-CHAIN SENDER, once per hash.
+// from a public RPC and credits the ON-CHAIN SENDER, once per hash. The
+// MetaMask button is only a shortcut to producing that hash — the console
+// switches the wallet to the chosen chain, sends the transfer, waits for the
+// receipt and submits the hash itself. ETH is priced at Chainlink's ETH/USD
+// feed on the chain it landed on.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { API_URL } from '../config'
@@ -22,11 +27,23 @@ export type CreditsHistoryEntry = {
   cost?: number; fee?: number
 }
 
+export type DepositNetwork = {
+  tokens: string[]
+  chain_id?: number
+  native?: string
+  contracts?: Record<string, { address: string; decimals: number }>
+  explorer?: string
+}
+
 export type CreditsInfo = {
   enabled: boolean
   price_per_step: number
   fee_rate?: number
-  deposit: { address: string | null; networks: Record<string, { tokens: string[] }> }
+  deposit: {
+    address: string | null
+    networks: Record<string, DepositNetwork>
+    providers?: string[]
+  }
   account?: { address: string; balance: number; history: CreditsHistoryEntry[] }
   accounts?: { address: string; balance: number }[]
 }
@@ -47,6 +64,7 @@ export type Treasury = {
   deposits: number; grants: number; revenue: number
   provider_cost: number; fees: number; fees_withdrawn: number; fees_available: number
   topups: Record<string, number>; topups_total: number; float: number
+  earmarked?: Record<string, number>   // deposits guests tagged for one provider key
   user_credits: number; funding_required: number; accounts: number
   provider_balance: number | null; topup_needed: number | null
   topup_pending: number | null       // bought on a key, not yet in the books
@@ -66,6 +84,27 @@ type Props = {
 }
 
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
+
+// wallet plumbing — the injected EIP-1193 provider, if the browser has one
+const eth = () => (typeof window !== 'undefined' ? (window as any).ethereum : undefined)
+const CHAINS: Record<number, { chainName: string; rpcUrls: string[]; blockExplorerUrls: string[]; nativeCurrency: { name: string; symbol: string; decimals: number } }> = {
+  8453: { chainName: 'Base', rpcUrls: ['https://mainnet.base.org'], blockExplorerUrls: ['https://basescan.org'],
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 } },
+  1: { chainName: 'Ethereum', rpcUrls: ['https://eth.llamarpc.com'], blockExplorerUrls: ['https://etherscan.io'],
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 } },
+}
+// "12.5" with `decimals` → integer units as a bigint, no float rounding
+const toUnits = (amount: string, decimals: number): bigint => {
+  const [whole, frac = ''] = amount.trim().split('.')
+  const digits = (frac + '0'.repeat(decimals)).slice(0, decimals)
+  return BigInt(whole || '0') * BigInt(10) ** BigInt(decimals) + BigInt(digits || '0')
+}
+const hex = (n: bigint) => '0x' + n.toString(16)
+const pad32 = (h: string) => h.replace(/^0x/, '').toLowerCase().padStart(64, '0')
+// ERC-20 transfer(address,uint256)
+const transferData = (to: string, units: bigint) => '0xa9059cbb' + pad32(to) + pad32(hex(units))
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+const PENDING_KEY = 'agent_pending_deposit'
 const fmtUsd = (n: number) => `$${n.toFixed(2)}`
 // sub-cent charges are the normal case for a small run — show them
 const fmtFine = (n: number) => (Math.abs(n) < 0.01 && n !== 0 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`)
@@ -76,12 +115,19 @@ const fmtTime = (t: number) => {
 }
 
 export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, spend, onSpendChange, onSignIn }: Props) {
-  const [token, setToken] = useState<'USDT' | 'USDC'>('USDT')
+  const [token, setToken] = useState<string>('USDC')
   const [network, setNetwork] = useState('base')
   const [txHash, setTxHash] = useState('')
   const [verifying, setVerifying] = useState(false)
-  const [verifyMsg, setVerifyMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [verifyMsg, setVerifyMsg] = useState<{ ok: boolean; text: string; link?: string } | null>(null)
   const [copied, setCopied] = useState(false)
+  // pay from the wallet: amount typed in the token's own unit, which provider
+  // key the deposit is meant for, and where the send is up to
+  const [amount, setAmount] = useState('')
+  const [fundFor, setFundFor] = useState<string>('')
+  const [pay, setPay] = useState<{ stage: 'idle' | 'wallet' | 'sent' | 'verifying'; hash?: string }>({ stage: 'idle' })
+  const [ethUsd, setEthUsd] = useState<{ usd: number; source: string } | null>(null)
+  const [showManual, setShowManual] = useState(false)
 
   // owner grant form
   const [grantAddr, setGrantAddr] = useState('')
@@ -193,6 +239,141 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
 
   const depositAddr = info?.deposit?.address || null
   const networks = Object.keys(info?.deposit?.networks || { base: 1, ethereum: 1 })
+  const netInfo: DepositNetwork | undefined = info?.deposit?.networks?.[network]
+  const tokens = netInfo?.tokens?.length ? netInfo.tokens : ['USDC', 'USDT', 'ETH']
+  const providers = info?.deposit?.providers || ['openrouter', 'venice']
+  const isNative = token === (netInfo?.native || 'ETH')
+  const explorer = netInfo?.explorer
+
+  // an ETH deposit is credited at the chain's Chainlink price — show the
+  // same number the server will use before the wallet opens
+  useEffect(() => {
+    if (!open || !isNative) return
+    let live = true
+    fetch(`${API_URL}/credits/price?network=${encodeURIComponent(network)}`, { signal: AbortSignal.timeout(15000) })
+      .then(r => r.json())
+      .then(d => { if (live && typeof d?.usd === 'number') setEthUsd({ usd: d.usd, source: d.source }) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [open, isNative, network])
+
+  const typedAmount = parseFloat(amount)
+  const usdEstimate = !isFinite(typedAmount) || typedAmount <= 0 ? null
+    : isNative ? (ethUsd ? typedAmount * ethUsd.usd : null) : typedAmount
+
+  // submit a hash for credit; retried because a public RPC can lag the
+  // wallet's own node by a few seconds right after confirmation
+  const submitHash = useCallback(async (hash: string, net: string, prov: string, tries = 6) => {
+    let last = ''
+    for (let i = 0; i < tries; i++) {
+      try {
+        const res = await fetch(`${API_URL}/credits/deposit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tx_hash: hash, network: net, provider: prov || null, key: auth?.token }),
+          signal: AbortSignal.timeout(30000),
+        })
+        const data = await res.json()
+        if (!data.error) return data
+        last = String(data.error)
+        if (!/not found|pending/i.test(last)) break
+      } catch (e: any) {
+        last = e?.message || 'verification failed'
+      }
+      await sleep(5000)
+    }
+    throw new Error(last || 'verification failed')
+  }, [auth?.token])
+
+  const finishDeposit = useCallback((data: any, hash: string) => {
+    const mine = auth?.address && data.address && auth.address.toLowerCase() === data.address.toLowerCase()
+    const extra = data.eth ? ` (${data.eth} ETH @ $${Number(data.eth_usd).toLocaleString()})` : ''
+    const who = mine ? 'your balance' : `${shortAddr(data.address)} — sign in with that wallet to spend it`
+    setVerifyMsg({
+      ok: true,
+      text: `+${fmtUsd(data.credited)} ${data.token}${extra} credited to ${who}${data.provider ? ` · for ${data.provider}` : ''}`,
+      link: data.explorer || (explorer ? explorer + hash : undefined),
+    })
+    try { localStorage.removeItem(PENDING_KEY) } catch {}
+    onRefresh()
+  }, [auth?.address, explorer, onRefresh])
+
+  // MetaMask: switch to the chain, send the transfer, wait for the receipt,
+  // then hand the hash to the same verifier the paste box uses
+  const payWithWallet = async () => {
+    const provider = eth()
+    if (!provider) { setVerifyMsg({ ok: false, text: 'No wallet found — install MetaMask, or send by hand and paste the hash below' }); return }
+    if (!depositAddr || !isFinite(typedAmount) || typedAmount <= 0) { setVerifyMsg({ ok: false, text: 'enter an amount' }); return }
+    const chainId = netInfo?.chain_id || (network === 'base' ? 8453 : 1)
+    const contract = isNative ? null : netInfo?.contracts?.[token]
+    if (!isNative && !contract) { setVerifyMsg({ ok: false, text: `${token} isn't configured on ${network}` }); return }
+    setVerifyMsg(null)
+    setPay({ stage: 'wallet' })
+    try {
+      const accounts: string[] = await provider.request({ method: 'eth_requestAccounts' })
+      const from = String(accounts?.[0] || '').toLowerCase()
+      if (!from) throw new Error('no account selected')
+      // the chain the deposit address is watched on — add it if the wallet lacks it
+      const want = '0x' + chainId.toString(16)
+      const have = String(await provider.request({ method: 'eth_chainId' }))
+      if (have.toLowerCase() !== want) {
+        try {
+          await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: want }] })
+        } catch (e: any) {
+          if (e?.code !== 4902 || !CHAINS[chainId]) throw e
+          await provider.request({ method: 'wallet_addEthereumChain', params: [{ chainId: want, ...CHAINS[chainId] }] })
+        }
+      }
+      const tx = isNative
+        ? { from, to: depositAddr, value: hex(toUnits(amount, 18)) }
+        : { from, to: contract!.address, data: transferData(depositAddr, toUnits(amount, contract!.decimals)), value: '0x0' }
+      const hash: string = await provider.request({ method: 'eth_sendTransaction', params: [tx] })
+      setPay({ stage: 'sent', hash })
+      try { localStorage.setItem(PENDING_KEY, JSON.stringify({ hash, network, provider: fundFor })) } catch {}
+      // wait for it to mine — the wallet's node sees the receipt first
+      let mined = false
+      for (let i = 0; i < 80 && !mined; i++) {
+        await sleep(3000)
+        try {
+          const r = await provider.request({ method: 'eth_getTransactionReceipt', params: [hash] })
+          if (r) {
+            if (r.status !== '0x1') throw new Error('transaction failed on-chain')
+            mined = true
+          }
+        } catch (e: any) {
+          if (/failed on-chain/.test(e?.message || '')) throw e
+        }
+      }
+      setPay({ stage: 'verifying', hash })
+      const data = await submitHash(hash, network, fundFor)
+      finishDeposit(data, hash)
+      setAmount('')
+    } catch (e: any) {
+      if (e?.code === 4001) setVerifyMsg({ ok: false, text: 'cancelled in the wallet' })
+      else setVerifyMsg({ ok: false, text: e?.message || 'payment failed', link: pay.hash && explorer ? explorer + pay.hash : undefined })
+    }
+    setPay({ stage: 'idle' })
+  }
+
+  // a reload mid-confirmation must not lose the hash — pick it back up
+  useEffect(() => {
+    if (!open || pay.stage !== 'idle') return
+    let pending: { hash: string; network: string; provider: string } | null = null
+    try { pending = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null') } catch {}
+    if (!pending?.hash) return
+    let live = true
+    setPay({ stage: 'verifying', hash: pending.hash })
+    submitHash(pending.hash, pending.network, pending.provider, 3)
+      .then(d => { if (live) finishDeposit(d, pending!.hash) })
+      .catch(e => {
+        if (!live) return
+        if (/already credited/i.test(e?.message || '')) { try { localStorage.removeItem(PENDING_KEY) } catch {} }
+        else setVerifyMsg({ ok: false, text: `${shortAddr(pending!.hash)}: ${e?.message}` })
+      })
+      .finally(() => { if (live) setPay({ stage: 'idle' }) })
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
   const balance = info?.account?.balance ?? 0
   const feeRate = info?.fee_rate ?? book?.fee_rate ?? 0.05
 
@@ -214,23 +395,9 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
     setVerifying(true)
     setVerifyMsg(null)
     try {
-      const res = await fetch(`${API_URL}/credits/deposit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tx_hash: hash, network, key: auth?.token }),
-        signal: AbortSignal.timeout(30000),
-      })
-      const data = await res.json()
-      if (data.error) {
-        setVerifyMsg({ ok: false, text: data.error })
-      } else {
-        setVerifyMsg({
-          ok: true,
-          text: `+${fmtUsd(data.credited)} ${data.token} credited to ${shortAddr(data.address)}`,
-        })
-        setTxHash('')
-        onRefresh()
-      }
+      const data = await submitHash(hash, network, fundFor, 2)
+      finishDeposit(data, hash)
+      setTxHash('')
     } catch (e: any) {
       setVerifyMsg({ ok: false, text: e?.message || 'verification failed' })
     }
@@ -339,8 +506,8 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
             ) : (
               <>
                 {/* token + network pills */}
-                <div className="flex items-center gap-1.5">
-                  {(['USDT', 'USDC'] as const).map(t => (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {tokens.map(t => (
                     <button key={t} onClick={() => setToken(t)}
                       className={`px-2.5 py-1 rounded-full text-[10px] font-mono border transition ${
                         token === t ? 'border-emerald-500/40 text-emerald-200 bg-emerald-500/10' : 'border-white/10 text-gray-500 hover:text-gray-300'
@@ -359,57 +526,123 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
                   ))}
                 </div>
 
-                {/* deposit address + QR */}
-                <div className="flex items-start gap-2.5">
-                  {qr && (
-                    <div className="rounded-md overflow-hidden border border-white/10 shrink-0 bg-white"
-                      dangerouslySetInnerHTML={{ __html: qr }} />
-                  )}
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="text-[10px] text-gray-500">
-                      Send <span className="text-gray-300 font-mono">{token}</span> on{' '}
-                      <span className="text-gray-300 capitalize">{network}</span> to:
-                    </div>
-                    <div className="text-[10px] text-gray-200 font-mono break-all leading-relaxed bg-black/30 border border-white/[0.06] rounded-md px-2 py-1.5">
-                      {depositAddr}
-                    </div>
-                    <button onClick={copyDeposit}
-                      className="px-2 py-1 rounded text-[10px] border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition">
-                      {copied ? '✓ copied' : 'Copy address'}
+                {/* which provider key the money is for — one balance either
+                    way, the tag tells the owner where to send it */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] text-gray-600 uppercase tracking-wider">for</span>
+                  {['', ...providers].map(p => (
+                    <button key={p || 'any'} onClick={() => setFundFor(p)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] border capitalize transition ${
+                        fundFor === p ? 'border-violet-500/40 text-violet-200 bg-violet-500/10' : 'border-white/10 text-gray-500 hover:text-gray-300'
+                      }`}>
+                      {p || 'any model'}
                     </button>
-                  </div>
-                </div>
-                <div className="text-[9px] text-amber-300/70">
-                  Only USDT / USDC on {networks.join(' or ')} — other tokens or networks can&apos;t be credited.
+                  ))}
                 </div>
 
-                {/* verify tx */}
-                <div className="pt-1 space-y-1.5">
-                  <div className="text-[10px] text-gray-500">Sent it? Paste the transaction hash to credit your balance:</div>
-                  <div className="flex items-center gap-1.5">
+                {/* pay from the wallet */}
+                <div className="flex items-center gap-1.5">
+                  <div className="flex-1 min-w-0 flex items-center bg-white/[0.04] border border-white/[0.08] rounded-md focus-within:border-emerald-500/40 transition">
                     <input
-                      value={txHash}
-                      onChange={e => setTxHash(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') verifyDeposit() }}
-                      placeholder="0x… tx hash"
-                      className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-md px-2.5 py-1.5 text-[11px] font-mono text-gray-200 outline-none placeholder:text-gray-600 focus:border-emerald-500/40 transition"
+                      value={amount}
+                      onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                      onKeyDown={e => { if (e.key === 'Enter') payWithWallet() }}
+                      placeholder={isNative ? '0.01' : '10'} inputMode="decimal"
+                      disabled={pay.stage !== 'idle'}
+                      className="flex-1 min-w-0 bg-transparent px-2.5 py-1.5 text-[12px] font-mono text-gray-200 outline-none placeholder:text-gray-600"
                     />
-                    <button onClick={verifyDeposit} disabled={verifying || !txHash.trim()}
-                      className="px-2.5 py-1.5 rounded-md text-[10px] font-medium border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40 transition shrink-0">
-                      {verifying ? 'Verifying…' : 'Verify'}
-                    </button>
+                    <span className="text-[10px] font-mono text-gray-500 pr-2">{token}</span>
                   </div>
-                  {verifyMsg && (
-                    <div className={`text-[10px] rounded-md px-2 py-1.5 border ${
-                      verifyMsg.ok ? 'text-emerald-300 border-emerald-500/25 bg-emerald-500/[0.06]' : 'text-red-400 border-red-500/25 bg-red-500/[0.06]'
-                    }`}>
-                      {verifyMsg.text}
-                    </div>
-                  )}
-                  <div className="text-[9px] text-gray-600">
-                    Credits go to the wallet that sent the transfer; each hash is credited once.
-                  </div>
+                  <button onClick={payWithWallet} disabled={pay.stage !== 'idle' || !amount.trim()}
+                    className="px-3 py-1.5 rounded-md text-[10px] font-medium border border-emerald-500/30 text-emerald-200 bg-emerald-500/[0.06] hover:bg-emerald-500/15 disabled:opacity-40 transition shrink-0">
+                    {pay.stage === 'wallet' ? 'Confirm in wallet…'
+                      : pay.stage === 'sent' ? 'Confirming…'
+                      : pay.stage === 'verifying' ? 'Crediting…'
+                      : 'Pay with MetaMask'}
+                  </button>
                 </div>
+                <div className="flex items-center gap-2 text-[10px] text-gray-500 min-h-[14px]">
+                  {usdEstimate !== null ? (
+                    <span>≈ <span className="text-gray-300 font-mono">{fmtUsd(usdEstimate)}</span> of credit
+                      {isNative && ethUsd && <span className="text-gray-600"> · ETH ${ethUsd.usd.toLocaleString()} via {ethUsd.source}</span>}
+                    </span>
+                  ) : isNative ? (
+                    <span className="text-gray-600">{ethUsd ? `ETH $${ethUsd.usd.toLocaleString()} via ${ethUsd.source} — credited at the chain’s own price` : 'reading ETH/USD…'}</span>
+                  ) : (
+                    <span className="text-gray-600">1 {token} = $1 of credit</span>
+                  )}
+                  {pay.hash && explorer && (
+                    <a href={explorer + pay.hash} target="_blank" rel="noopener noreferrer"
+                      className="ml-auto text-sky-300/80 hover:text-sky-200 font-mono">
+                      {shortAddr(pay.hash)} ↗
+                    </a>
+                  )}
+                </div>
+                <div className="text-[9px] text-gray-600 leading-relaxed">
+                  The wallet is switched to <span className="capitalize text-gray-400">{network}</span>, sends{' '}
+                  {isNative ? 'ETH' : token} to the deposit address, and the hash is verified here the
+                  moment it confirms. Credits go to the wallet that pays.
+                </div>
+
+                {verifyMsg && (
+                  <div className={`text-[10px] rounded-md px-2 py-1.5 border ${
+                    verifyMsg.ok ? 'text-emerald-300 border-emerald-500/25 bg-emerald-500/[0.06]' : 'text-red-400 border-red-500/25 bg-red-500/[0.06]'
+                  }`}>
+                    {verifyMsg.text}
+                    {verifyMsg.link && (
+                      <a href={verifyMsg.link} target="_blank" rel="noopener noreferrer" className="ml-1.5 underline underline-offset-2 opacity-80 hover:opacity-100">tx ↗</a>
+                    )}
+                  </div>
+                )}
+
+                {/* send by hand: address + QR + paste the hash */}
+                <button onClick={() => setShowManual(v => !v)}
+                  className="text-[9px] text-gray-600 hover:text-gray-400 transition">
+                  {showManual ? '▾ hide' : '▸ send from another wallet instead'}
+                </button>
+                {showManual && (
+                  <div className="space-y-2.5 pt-0.5">
+                    <div className="flex items-start gap-2.5">
+                      {qr && (
+                        <div className="rounded-md overflow-hidden border border-white/10 shrink-0 bg-white"
+                          dangerouslySetInnerHTML={{ __html: qr }} />
+                      )}
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <div className="text-[10px] text-gray-500">
+                          Send <span className="text-gray-300 font-mono">{token}</span> on{' '}
+                          <span className="text-gray-300 capitalize">{network}</span> to:
+                        </div>
+                        <div className="text-[10px] text-gray-200 font-mono break-all leading-relaxed bg-black/30 border border-white/[0.06] rounded-md px-2 py-1.5">
+                          {depositAddr}
+                        </div>
+                        <button onClick={copyDeposit}
+                          className="px-2 py-1 rounded text-[10px] border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20 transition">
+                          {copied ? '✓ copied' : 'Copy address'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-[9px] text-amber-300/70">
+                      Only USDT / USDC / ETH on {networks.join(' or ')} — other tokens or networks can&apos;t be credited.
+                    </div>
+                    <div className="text-[10px] text-gray-500">Sent it? Paste the transaction hash to credit your balance:</div>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        value={txHash}
+                        onChange={e => setTxHash(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') verifyDeposit() }}
+                        placeholder="0x… tx hash"
+                        className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-md px-2.5 py-1.5 text-[11px] font-mono text-gray-200 outline-none placeholder:text-gray-600 focus:border-emerald-500/40 transition"
+                      />
+                      <button onClick={verifyDeposit} disabled={verifying || !txHash.trim()}
+                        className="px-2.5 py-1.5 rounded-md text-[10px] font-medium border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40 transition shrink-0">
+                        {verifying ? 'Verifying…' : 'Verify'}
+                      </button>
+                    </div>
+                    <div className="text-[9px] text-gray-600">
+                      Credits go to the wallet that sent the transfer; each hash is credited once.
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -501,6 +734,12 @@ export default function CreditsSidebar({ open, onClose, auth, info, onRefresh, s
                               ? `drift ×${p.metered.ratio}`
                               : `sent ${fmtUsd(p.topups)}`}
                         </span>
+                        {(book.earmarked?.[name] || 0) > 0 && (
+                          <span className="text-[9px] text-violet-300/80 shrink-0"
+                            title={`guests deposited ${fmtUsd(book.earmarked![name])} tagged for this key`}>
+                            {fmtUsd(book.earmarked![name])} tagged
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>

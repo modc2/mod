@@ -3,11 +3,22 @@
 Compose a DeFi protocol out of typed Solidity blocks, see what every DeFi
 protocol is actually paying, lock what you pick into a treasury that pays out
 weekly on BlocTime's clock, and trade on the DEXes of Solana, Ethereum, Base and
-Bittensor. 34 MCP tools, a REST API on `:50500`, a canvas console on `/defi`.
+Bittensor. 45 MCP tools, a REST API on `:50500`, a canvas console on `/defi`.
 
 API `:50500` (`/api/defi`) · console `/defi` · MCP `POST /mcp`
 
 ## When to reach for it
+
+**The hub** — "where can I safely park USD", "which lenders are legit", "is
+Aave on Base", "best stablecoin rate on a protocol I'd trust". `defi_hub` is a
+hand-vetted shortlist (Aave V3, Morpho, Sky, Spark, Compound V3, Maple, Fluid,
+Ethena, Kamino, Save, Curve) joined live with the index: tier, plain-language
+blurb, credentials, risks, and USD pools grouped per chain across every chain
+they run on, each chain flagged enterable-from-here or read-only.
+`defi_hub_protocol` opens one with every USD pool and its `module_id`, which is
+what `defi_module_quote` and `defi_enter` take. Start here, not at
+`defi_modules`, when the user's question is about trust rather than the whole
+market. Curated is not certified — relay the risks with the rate.
 
 **Composing** — "build me a vault that farms", "wire a lending market to an
 oracle", "what would this protocol cost to deploy", "type-check this graph".
@@ -155,5 +166,10 @@ fleet's live BlocTime. It has a real test suite against a real EVM
 (`m defi/test_contract`), because it holds other people's money and promises a
 lock cannot be undone.
 
-The catalog contracts are unaudited reference implementations. Say so when
-someone is about to deploy one with real money behind it.
+The catalog contracts are unaudited reference implementations, and every block
+carries an agent audit: `defi_audit` with no id is every block's verdict, worst
+first; `defi_audit {id}` is the report — findings with the function and line,
+the concrete exploit sequence, the fix, and `safe_use` guidance. `common` is the
+shared base. Read the audit of every block in a graph before `defi_plan`, repeat
+its worst finding to the person deploying, and say plainly that an agent audit
+reduces the unknowns without certifying anything — especially with real money.

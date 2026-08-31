@@ -30,6 +30,7 @@ if HERE not in sys.path:
 import actions          # noqa: E402
 import identity         # noqa: E402
 import mcp              # noqa: E402
+import privacy          # noqa: E402
 import server as dnsd   # noqa: E402
 import settings         # noqa: E402
 
@@ -67,6 +68,9 @@ def info():
         },
         'auth': {'header': 'Authorization: Bearer <mod-protocol token>',
                  'reads': 'open to everyone',
+                 'addresses': 'IP addresses in every response are masked '
+                              '(x.x.x.x) for everyone but the deployment '
+                              'owner — settings.private_ips turns this off',
                  'writes': 'attributed to a signed address',
                  'system': 'the protocol host, the system zone, the listener '
                            'and the router sync belong to the deployment owner',
@@ -212,8 +216,12 @@ class Handler(BaseHTTPRequestHandler):
             code, payload = 500, {'error': f'{type(e).__name__}: {e}'}
         if isinstance(payload, tuple):                 # (bytes, content-type)
             self._send(code, payload[0], payload[1])
-        else:
+        elif isinstance(payload, (bytes, bytearray)):  # already on the wire
             self._send(code, payload)
+        else:
+            # The one door every JSON answer leaves through: addresses are
+            # masked here unless the caller is the deployment owner.
+            self._send(code, privacy.body(payload, token))
 
     def dispatch(self, method, path, a, token):
         parts = [p for p in path.split('/') if p]

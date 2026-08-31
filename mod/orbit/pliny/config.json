@@ -167,7 +167,7 @@
         "runs": "python3 scan.py --run (m pliny/scan)",
         "surfaces": "GET /status \u00b7 pv_status (MCP) \u00b7 m pliny/scan_status \u00b7 the header pill"
     },
-    "schema": "QmQveLjUb93x5A3TStdM8nRLv7Gk4LLm5kXaEPVHd4LDo9",
+    "schema": "QmaAKfFCHndBtLXdHXtcSupWx45nwAKcqukBX5bt6BFQ34",
     "upstream": "https://github.com/elder-plinius",
     "urls": {
         "api": "https://modc2.com/api/plinyville",

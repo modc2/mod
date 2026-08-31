@@ -448,9 +448,36 @@ class Hyperliquid(m.Mod):
         return r.json()
 
     def top_traders(self, days: int = 7, min_per_day: float = 1.0,
-                    pool: int = 150, seed: Optional[List[str]] = None) -> Any:
-        params = {"days": days, "min_per_day": min_per_day, "pool": pool}
+                    pool: Any = 150, seed: Optional[List[str]] = None,
+                    coins: Optional[List[str]] = None, rank: str = "roi",
+                    active: str = "24h", enrich: Optional[int] = None,
+                    sort: Optional[str] = None, min_roi: Optional[float] = None,
+                    min_pnl: Optional[float] = None, min_volume: Optional[float] = None,
+                    min_equity: Optional[float] = None, min_sharpe: Optional[float] = None,
+                    min_win: Optional[float] = None, min_trades: Optional[int] = None,
+                    with_stats: bool = False) -> Any:
+        """Trader board over `days`. Every row is priced from the leaderboard
+        (ROI / PnL / volume / equity, free); fill stats (win% / sharpe / trades /
+        coins) cost one throttled query per wallet, so they are fetched for the
+        top `enrich` rows by `rank` only (default 120, max 400).
+
+        `pool="all"` returns the whole gated universe (~5k wallets with >= $1k
+        equity that traded in the last 24h) — filter it with the `min_*` floors
+        (a sharpe / win / trades floor implies `with_stats`) and order it with
+        `sort` (roi | pnl | volume | equity | sharpe | win_rate | trades).
+        `coins` is a requirement: only wallets that traded at least one of them
+        make the board — the scan walks the ranked leaderboard until it has
+        `pool` of them (response `depth`)."""
+        params: Dict[str, Any] = {"days": days, "min_per_day": min_per_day, "pool": pool,
+                                  "rank": rank, "active": active}
         if seed: params["seed"] = ",".join(seed)
+        if coins: params["coins"] = ",".join(coins)
+        for k, v in (("enrich", enrich), ("sort", sort), ("min_roi", min_roi),
+                     ("min_pnl", min_pnl), ("min_volume", min_volume),
+                     ("min_equity", min_equity), ("min_sharpe", min_sharpe),
+                     ("min_win", min_win), ("min_trades", min_trades)):
+            if v is not None: params[k] = v
+        if with_stats: params["with_stats"] = "true"
         return self._get("/traders/top", **params)
 
     def analyze_trader(self, address: str, days: int = 7) -> Any:

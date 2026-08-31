@@ -26,7 +26,7 @@ try:
 except ImportError:
     m = None
 
-from .agents.mod import Agents
+from .agents.mod import Agents, REQUIRES as AGENT_REQUIRES
 from .memory.mod import Memory
 from .memory.registry import Memories, DEFAULT as DEFAULT_MEMORY
 from .library.mod import Library
@@ -394,6 +394,81 @@ RULES:
         The summary is shown to the user as your response — write the actual
         answer there, not a description of what you did.
     """
+
+    # ── per-run state ────────────────────────────────────────────────
+    # Behind the API this object is one singleton shared by every thread:
+    # the console's runs, MCP calls and the arena scheduler all run on it at
+    # once. What a run sets for itself — where its steps go, which paths it
+    # may write, which directory it is in, which images it carries — has to
+    # live on the thread, not on the object. Held on the object, the arena
+    # match that started a moment after a console run took over the
+    # console's step callback, and the console watched a free-model 429
+    # from a match it never ran while its own Opus run on Venice was fine
+    # (and, the other way round, an arena match could inherit the owner's
+    # unsandboxed write paths). Each of these still reads and writes as a
+    # plain attribute; the storage is threading.local, created lazily so an
+    # Agent built without __init__ (tests) has one too.
+    def _tl(self) -> threading.local:
+        local = self.__dict__.get('_local')
+        if local is None:
+            local = self.__dict__['_local'] = threading.local()
+        return local
+
+    def _run_local(name, default=None):
+        def get(self):
+            return getattr(self._tl(), name, default() if callable(default) else default)
+
+        def set_(self, value):
+            setattr(self._tl(), name, value)
+        return property(get, set_)
+
+    _on_step = _run_local('on_step')
+    _images = _run_local('images', list)
+    _allowed_paths = _run_local('allowed_paths')
+    _path = _run_local('path')
+    _failed_calls = _run_local('failed_calls')
+    _done_calls = _run_local('done_calls')
+    del _run_local
+
+    def _clear_run_state(self) -> None:
+        """Forget this thread's run. Worker threads are reused, and a snap()
+        on a thread that last ran a sandboxed guest would otherwise still
+        think it is sandboxed."""
+        for name in ('on_step', 'images', 'allowed_paths', 'path',
+                     'failed_calls', 'done_calls'):
+            try:
+                delattr(self._tl(), name)
+            except AttributeError:
+                pass
+
+    def _explain_rate_limit(self, short: str, model: str, err: str) -> str:
+        """A provider's 429 in plain words, with what to do about it.
+
+        The raw body is a dict of headers and a `limit_source`, which reads
+        as nonsense next to a balance pill showing money: the credit is real,
+        it just isn't what a free model draws on. Say which door closed —
+        the free-model quota, shared by everything on the key — when it
+        reopens, and the two ways out. Anything that isn't a 429 comes back
+        untouched.
+        """
+        low = err.lower()
+        if '429' not in err and 'rate limit' not in low:
+            return err
+        reset = ''
+        found = re.search(r"X-RateLimit-Reset['\"]?\s*:\s*['\"]?(\d{10,13})", err)
+        if found:
+            ts = int(found.group(1))
+            ts = ts / 1000 if ts > 10 ** 11 else ts
+            reset = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(ts))
+        if 'free-models-per-day' in err or ':free' in (model or ''):
+            return (f"rate limited: {short}'s free-model quota for today is used up, "
+                    f"so {model} can't answer"
+                    + (f" — resets {reset}" if reset else " — resets at 00:00 UTC")
+                    + ". Switch to a paid model (turn 'Spend credits' on), pick "
+                    "another provider, or wait for the reset.")
+        return (f"rate limited by {short} on {model}"
+                + (f" — resets {reset}" if reset else "")
+                + ". Try again shortly, or switch model or provider.")
 
     def __init__(self,
                  # unset: the provider is resolved on first use, and resolves
@@ -865,6 +940,9 @@ RULES:
         """
         active = self.active_tools()
         return {
+            # the box is one node; these are the integrations its template
+            # requires wired in before it runs
+            'requires': list(AGENT_REQUIRES),
             'model': {
                 'provider': self._provider_short(),
                 'model': self.DEFAULT_MODELS.get(self._provider_short()),
@@ -1086,13 +1164,17 @@ RULES:
                 )
                 plan = self.plan(output, safety=safety)
             except Exception as e:
-                print(f"Model error [{short}/{model}]: {e}")
-                err = str(e)
+                # parens, not brackets: the log printer treats [x/y] as markup
+                # and drops it, and the line read "Model error :"
+                print(f"Model error ({short}/{model}): {e}")
+                raw = err = str(e)
                 # providers raise their own missing-key errors at call time —
                 # point the user at the Builder, where keys are entered
                 if 'api key' in err.lower() or 'api_key' in err.lower():
                     err = f"{err} — enter your {short} API key in the Builder (model node)."
-                plan = [{'tool': 'error', 'params': {}, 'error': err}]
+                err = self._explain_rate_limit(short, model, err)
+                plan = [{'tool': 'error', 'params': {}, 'error': err,
+                         **({'detail': raw[:600]} if err != raw else {})}]
                 self._emit_step(plan[-1])
             history.append(plan)
             self.memory.add('history', history)
@@ -1850,7 +1932,7 @@ class Mod(Agent):
                                 # scored, how fast it was, what it burned
                                 'arena_models', 'arena_model', 'arena_task_board',
                                 'key_info', 'balance',
-                                'credits', 'credit_deposit',
+                                'credits', 'credit_deposit', 'credit_price',
                                 # vaults self-scope to the caller's verified
                                 # address (Vaults raises without a sign-in)
                                 'vaults', 'vaults_get', 'vaults_set',
@@ -2107,9 +2189,15 @@ class Mod(Agent):
             addr = None
         return self.credits.info(addr, owner=bool(key) and self.is_owner(key))
 
-    def credit_deposit(self, tx_hash: str, network: str = 'base') -> dict:
-        """Verify a USDT/USDC deposit tx and credit the on-chain sender."""
-        return self.credits.verify_deposit(tx_hash, network)
+    def credit_deposit(self, tx_hash: str, network: str = 'base',
+                       provider: str = None) -> dict:
+        """Verify a USDT/USDC/ETH deposit tx and credit the on-chain sender.
+        `provider` earmarks it for the openrouter or venice key."""
+        return self.credits.verify_deposit(tx_hash, network, provider)
+
+    def credit_price(self, network: str = 'base') -> dict:
+        """ETH/USD a native deposit on `network` is credited at (Chainlink)."""
+        return self.credits.eth_usd(network)
 
     def credit_grant(self, address: str, amount: float, note: str = '',
                      key: str = None) -> dict:
@@ -2591,7 +2679,10 @@ class Mod(Agent):
             recall, episodes, facts, exchanges, memory_state,
             arena, arena_tasks, arena_matches, arena_card, arena_status,
             arena_models, arena_model, arena_task_board,
-            openarena, openarena_task, openarena_sources
+            openarena, openarena_task, openarena_sources,
+            credits, credit_price (network=),
+            credit_deposit (tx_hash=, network=base|ethereum, provider=openrouter|venice)
+                        - credit a USDT/USDC/ETH transfer to the deposit address
 
           Signed-in (self-scoped to the caller's verified address):
             vaults      - List your key-value vaults
@@ -2771,7 +2862,9 @@ class Mod(Agent):
             # credits (prepaid public-key usage)
             'credits': lambda: self.credits_info(key),
             'credit_deposit': lambda: self.credit_deposit(kwargs.get('tx_hash', ''),
-                                                          kwargs.get('network', 'base')),
+                                                          kwargs.get('network', 'base'),
+                                                          kwargs.get('provider')),
+            'credit_price': lambda: self.credit_price(kwargs.get('network', 'base')),
             'credit_grant': lambda: self.credit_grant(kwargs.get('address', ''),
                                                       kwargs.get('amount', 0),
                                                       kwargs.get('note', ''), key),
@@ -3026,6 +3119,7 @@ class Mod(Agent):
             )
         finally:
             self._unbind_memory()
+            self._clear_run_state()
 
     # ── harness runs (external agent CLIs) ───────────────────────────
 
@@ -3077,6 +3171,13 @@ class Mod(Agent):
         # reuse the native step sink: live progress for the console, and the
         # run still lands in the memory subsystem as episodes
         self._on_step = kwargs.get('on_step')
+        # runner-specific knobs ride along untouched — which project the chain
+        # console's runner opens, say. The caller's key goes too, so a runner
+        # that scopes work by identity (whose projects) sees who asked.
+        extra = kwargs.get('harness_args')
+        extra = dict(extra) if isinstance(extra, dict) else {}
+        for reserved in ('query', 'path', 'goal', 'model', 'timeout', 'on_step', 'key'):
+            extra.pop(reserved, None)
         return self.harness.run(
             name,
             query=kwargs.get('query', 'help me with this'),
@@ -3085,6 +3186,8 @@ class Mod(Agent):
             model=model,
             timeout=int(kwargs.get('timeout') or HARNESS_TIMEOUT),
             on_step=self._emit_step,
+            key=kwargs.get('key'),
+            **extra,
         )
 
     # ── arena tasks (hand-written, and drafted by an agent) ──────────

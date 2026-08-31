@@ -184,29 +184,11 @@ export async function driverFor(player, { api, seed, onEvent, mcp = null } = {})
     };
   }
 
-  // An MCP server in a seat. Somebody else's agent, reached the same way this
-  // arena's own agents are reachable — one tool call, a view in and a move
-  // back — which is the whole reason every module here is also a server.
-  if (kind === "mcp") {
-    const { server, tool = "play", timeout_ms } = player.config ?? {};
-    const door = mcp?.async ?? asyncMcp(api.root);
-    if (!server) throw new Error(`player ${player.name}: an mcp player needs config.server`);
-    return {
-      label: `mcp ${server}/${tool}`,
-      timeout: timeout_ms ?? DEFAULT_MOVE_TIMEOUT_MS,
-      async move(view, seat) {
-        const reply = await door({ server, tool, arguments: { view, seat } });
-        if (reply?.error) throw new Error(`${server}: ${reply.error}`);
-        const move = reply?.move ?? reply?.text ?? reply?.action ?? "";
-        return {
-          move: String(move).trim(),
-          raw: JSON.stringify(reply).slice(0, 2000),
-          note: reply?.note ?? "",
-          mcp: [{ request: { server, tool }, reply }],
-        };
-      },
-    };
-  }
+  // An MCP server in a seat — somebody else's module, reached the same way
+  // this arena's own modules are reachable. It is driven by the server rather
+  // than here: the endpoint may want a credential, a player card carries no
+  // config into a tab, and a module of this fleet is named rather than
+  // addressed, so resolving it is the server's job. Falls through.
 
   if (kind === "human") {
     const ask = player.config?.ask ?? onEvent?.human;
@@ -222,7 +204,7 @@ export async function driverFor(player, { api, seed, onEvent, mcp = null } = {})
     };
   }
 
-  // model | agent_mod | http — the server drives these; we only ask.
+  // model | agent_mod | mcp | http — the server drives these; we only ask.
   return {
     label: kind || "remote",
     timeout: player.config?.timeout_ms ?? DEFAULT_MOVE_TIMEOUT_MS,
@@ -336,7 +318,10 @@ export async function runMatch({
             note = r.note ?? "";
             prompt = r.prompt ?? "";
             for (const c of r.mcp ?? []) {
-              tally[seat].mcp++;
+              // A call the match refused never left the sandbox, so it is not
+              // a call out. It stays in the transcript — the refusal is worth
+              // reading — but the seat's count is calls that landed.
+              if (!c.refused) tally[seat].mcp++;
               calls.push({ turn: turnNo, seat, ...c });
             }
           } catch (e) {

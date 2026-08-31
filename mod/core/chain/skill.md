@@ -64,6 +64,22 @@ console — Hub / Interact / Contracts / Control / Protocol / Owner / Docs).
 - **Wallets in the web console**: MetaMask (auto chain-switch/add on send) or a
   browser-local ethers keypair (import/export private key); reads are
   wallet-free via RPC.
+- **Claude Code over a project (AGENT tab)**: `src/agent/mod.py` is a harness
+  runner in the `orbit/agent` sense — `harness()` + `run(query, project=,
+  address=, network=, on_step=)` — registered there as `chainmod` behind the
+  shipped `chain-mod` agent, exactly like the build console's `buildmod`. A run
+  lays the project out as a Hardhat workspace under
+  `~/.mod/chain/build/agent/run/<address>/<project>/`, spawns the `claude` CLI
+  there with `--permission-mode acceptEdits` (edits inside the workspace only),
+  `--allowedTools "Bash(npx hardhat:*)"` (the shell runs hardhat and nothing
+  else) and no web/subagent tools, translates its stream-json into the fleet's
+  step dicts, and writes `contracts/` + `test/` back into the project when it
+  ends (even after a timeout). The console reaches it through `POST /agent/run`
+  → `orbit/agent` `POST /run/stream` (`agent_type: chain-mod`, `harness_args:
+  {project, address, network, model}`) — never straight from the browser — so
+  the agent module's owner gate (harness runs are owner-only: the host's own
+  Claude account) and task ledger apply. `GET /agent/status` says whether it
+  can run here and who may press the button; `GET /agent/runs` is the ledger.
 
 ## Usage
 
@@ -143,6 +159,9 @@ curl -X POST localhost:8800/call -H 'Content-Type: application/json' \
 | POST | `/build/abi` | `{address, name, network, abi, source?}` → `{cid}` — store an ABI for a contract deployed anywhere |
 | GET | `/build/abis?address=` | ABIs that address has in the store |
 | GET | `/cid/{cid}` | Raw stored content (ABI JSON or `.sol` source) |
+| GET | `/agent/status` | Claude Code CLI + orbit/agent reachable, `chainmod` registered, the agent module's owner (harness runs are owner-only) |
+| POST | `/agent/run` | `{key, query, project?, network?, model?}` → SSE bridge to orbit/agent `/run/stream` as `chain-mod`; events `start` / `step` / `done` / `error` |
+| GET | `/agent/runs?address=` | Past agent runs on that address's projects |
 | GET | `/system/access` · `/system/challenge` — POST `/system/login` | Owner sign-in for the host readout (wallet signature → 12h Bearer token) |
 | GET | `/system/stats` | **Owner-only.** CPU per core, memory, disk, network traffic per interface, sockets, top processes |
 
@@ -158,6 +177,8 @@ Used by `hardhat.config.js` / deploy tooling (all optional; sane defaults):
 
 - `config.json` — per-network deployments: addresses + pinned ABI/src CIDs
 - `src/mod.py` — Python orchestrator (the full-power surface)
+- `src/agent/mod.py` — the Claude Code harness runner (`m.mod('chain.agent')`)
+- `tests/test_agent_harness.py` — the runner without the CLI (stubbed `claude`)
 - `src/api/api.py` — FastAPI server; `src/api/start.sh`
 - `src/app/` — Next.js console; `src/app/start.sh` (`DEV=0` → build + start)
 - `src/contracts/<module>/` — Solidity sources, one README per module

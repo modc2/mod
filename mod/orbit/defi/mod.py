@@ -1,5 +1,7 @@
 """
-defi — build DeFi protocols by wiring reusable Solidity modules together.
+defi — modular finance: every place money can go is a MODULE with its own
+return, liquidity and conditions; put money in from one desk. Plus the
+composer that builds new ones out of Solidity blocks.
 
 The premise: a lending market, a yield vault and a liquidity mine are not
 monoliths, they are the same handful of parts wired differently. So this module
@@ -47,6 +49,10 @@ CLI:
     m defi/protocols               # saved designs
     m defi/prompts                 # browse the agent protocol's prompt library
     m defi/compose "a stablecoin vault that farms"   # sentence -> graph
+    m defi/modules chain=base addable=1   # every place money can go, with terms
+    m defi/module_quote llama:<pool> 1000  # in and out, priced today
+    m defi/enter llama:<pool> 1000 --account=dev --confirm=1   # add money
+    m defi/positions               # the book
     m defi/yield_protocols         # the APR for each DeFi protocol, live
     m defi/yields chain=Base organic=1   # …by pool, fees not emissions
     m defi/treasury                # the treasury: allocations, clock, contract
@@ -169,6 +175,17 @@ class Mod:
     def catalog(self):
         """The raw catalog document (blocks, port types, templates)."""
         return self._call('/catalog')
+
+    def audit(self, id):
+        """The agent security audit of one block: risk verdict, every finding
+        with where/exploit/recommendation, and safe-use guidance. `common` is
+        the shared base every block inherits."""
+        return self._call(f'/catalog/{id}/audit')
+
+    def audits(self):
+        """Every block's audit verdict on one page, worst first, with the fleet
+        tally by severity. Read this before picking blocks."""
+        return self._call('/audits')
 
     def templates(self):
         """Starter compositions you can drop straight onto the canvas."""
@@ -397,6 +414,79 @@ class Mod:
             if value:
                 body[key] = value
         return self._call('/treasury/register', 'POST', body, token=token)
+
+    # --- modular finance -----------------------------------------------------
+    #
+    # Every place money can go, as a MODULE with its own return, liquidity and
+    # conditions — DefiLlama's pools on Ethereum, Base and Solana, Bittensor
+    # subnets through bt, your own deployed vaults, the treasury — and the
+    # positions that went in through here. Entering executes through the module
+    # that owns the chain; the token you pass is that module's.
+
+    def hub(self, chain=None, min_tvl=None):
+        """The HUB: hand-vetted protocols for USD, joined live, every chain they run on."""
+        return self._call('/hub' + _qs({'chain': chain, 'min_tvl': min_tvl}))
+
+    def hub_protocol(self, id, min_tvl=None):
+        """One hub protocol in full — every USD pool it runs, per chain, with module ids."""
+        return self._call(f'/hub/{urllib.parse.quote(id, safe="")}' + _qs({'min_tvl': min_tvl}))
+
+    def modules(self, chain=None, kind=None, q=None, addable=False, instant=False,
+                min_tvl=None, stable=False, organic=False, sort='score', limit=40):
+        """The finance modules. `addable` keeps only ones this desk can enter."""
+        query = {'chain': chain, 'kind': kind, 'q': q, 'min_tvl': min_tvl,
+                 'sort': sort, 'limit': limit}
+        for flag, on in (('addable', addable), ('instant', instant),
+                         ('stable', stable), ('organic', organic)):
+            if on:
+                query[flag] = '1'
+        return self._call('/modules' + _qs(query))
+
+    def module_facets(self):
+        """Chains, kinds and adapter kinds in the registry right now."""
+        return self._call('/modules/facets')
+
+    def module(self, id, history=True):
+        """One module in full, with its rate history where the index has one."""
+        return self._call(f'/modules/{urllib.parse.quote(id, safe="")}?history={"1" if history else "0"}')
+
+    def module_quote(self, id, amount, token=None):
+        """What putting `amount` in would do, and what leaving today would cost."""
+        return self._call(f'/modules/{urllib.parse.quote(id, safe="")}/quote', 'POST',
+                          {'amount': str(amount)}, token=token)
+
+    def enter(self, module, amount, account=None, confirm=False, dry_run=False,
+              hotkey=None, password=None, slippage_bps=None, note=None, token=None):
+        """Put money into a module. needs_confirm on mainnet until confirm=True."""
+        body = {'module': module, 'amount': str(amount), 'confirm': bool(confirm),
+                'dryRun': bool(dry_run)}
+        for key, value in (('account', account), ('hotkey', hotkey), ('password', password),
+                           ('slippageBps', slippage_bps), ('note', note)):
+            if value not in (None, ''):
+                body[key] = value
+        return self._call('/positions', 'POST', body, token=token)
+
+    def positions(self, token=None):
+        """The book: what went in, the rate then vs now, days in, projection."""
+        return self._call('/positions', token=token)
+
+    def exit(self, id, amount='all', account=None, confirm=False, hotkey=None,
+             password=None, slippage_bps=None, token=None):
+        """Take money out of a position — 'all', or an amount."""
+        body = {'amount': str(amount), 'confirm': bool(confirm)}
+        for key, value in (('account', account), ('hotkey', hotkey), ('password', password),
+                           ('slippageBps', slippage_bps)):
+            if value not in (None, ''):
+                body[key] = value
+        return self._call(f'/positions/{id}/exit', 'POST', body, token=token)
+
+    def position_value(self, id, token=None):
+        """What a position is worth now, read on chain where this desk can."""
+        return self._call(f'/positions/{id}/value', token=token)
+
+    def forget_position(self, id, token=None):
+        """Drop a ledger row (needs sign-in). The chain is unaffected."""
+        return self._call(f'/positions/{id}', 'DELETE', token=token)
 
     # --- mcp ----------------------------------------------------------------
 

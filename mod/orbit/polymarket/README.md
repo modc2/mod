@@ -42,12 +42,12 @@ The book is a right-hand column on **every page** (`app/components/UserSidebar.t
 
 1. **Select** — paste one address, or paste a whole list: every `0x…` in the blob is added, each with the amount beside it, so "copy these five" is one gesture rather than five. `▦ FIND` goes to the full desk and its market search.
 2. **Fund** — the `$` on each row *is* the sizing model. Check any number of rows and the bulk bar appears: `SET EACH $N`, `▶`, `■`, `PAUSE`, `RESUME`, `DROP`, or hand the selection to the `BASKET` screen. Desk-wide there is `BANKROLL` + `SPLIT EVEN`, and `▶ START ALL` / `■ STOP ALL` behind one TEST·LIVE switch.
-3. **MEASURE** — `$N` over `1D · 3D · 7D · 14D · 30D`, per row, through the same `identityStrat → runBacktest` pipeline the desk cards and the live engine use.
-4. **MY COPY TRADES** — the join (below): what the leaders did, what landed in my wallet, and the coverage number over both. The sentence box filters it, and `ARM AS GATE` turns the same sentence into the rule the checked traders copy under.
+3. **BACKTEST** (was MEASURE) — `$N` over `1D · 3D · 7D · 14D · 30D`, per row, through the same `identityStrat → runBacktest` pipeline the desk cards and the live engine use.
+4. **RESULTS** — the MY COPY TRADES join (below): what the leaders did, what landed in my wallet, and the coverage number over both. The sentence box filters it, and `ARM AS GATE` turns the same sentence into the rule the checked traders copy under.
 
 Three deliberate restraints:
 
-- The block only mounts while it is **expanded**, and MEASURE / MY COPY TRADES are separately collapsible and separately mounted. A docked column is open on every page; a book poll, a replay sweep and a wallet walk on every mount would be a request storm for something nobody is looking at.
+- The block only mounts while it is **expanded**, and BACKTEST / RESULTS are separately collapsible and separately mounted. A docked column is open on every page; a book poll, a replay sweep and a wallet walk on every mount would be a request storm for something nobody is looking at.
 - The sim amount starts **blank**, meaning "each row at its own allocation" — the signature the background worker already replayed, so the default view paints from its cache. Typing an amount is what asks this browser to re-replay, an explicit act with a cost.
 - Dense controls carry `btn-xs` / `input-xs` (`globals.css`). That file loads *after* `@tailwind utilities`, so `.pixel-btn` (13px, 8×14 padding) beats a `text-[9px] px-1.5` on the same element — the two-class variants are how a 340px column gets buttons its own size instead of desk-sized ones that wrap.
 
@@ -119,6 +119,14 @@ Three numbers, in the order they matter:
 2. **`funnel`** — entries observed → entries copied, with the gate that blocked each of the rest. "Flat" is usually "blocked": a leader whose whole flow is gated cannot be copied whatever their own P&L says.
 3. **`pnl`** — and how much of it is `unsettled`: still open at the window's end, valued at the last observed price rather than a real resolution. A large unsettled figure makes the result a hypothesis. (Unresolved marks read *high* — leaders sell winners and let losers expire.)
 
+### Where the money is — the book as a chart
+
+Above the rows, the desk draws the book: one bar per trader, its length the dollars behind them, the share of the desk beside it, and under each bar **the backtest at exactly that amount** — the same per-row replay the rows' chips show (`useHubBacktests` over the identity strat, so the bar's number is a claim about that row, not a lookalike). LIVE / TEST / OFF / PAUSED is a text chip; the bars share one color because they encode one thing, magnitude.
+
+Click a bar and the trader opens on the right, **replayed at any amount**: a `BACKTEST $` box (defaulting to what the row holds, with `ON DESK $N` to snap back), headline tiles (net, return, ends-with, copied-of-observed, walk-forward verdict, % settled), the equity curve, and the ladder — $10 … $2,500 plus the row's own amount and whatever you typed — because copying is not linear in N. `TRY` on any rung moves the box there; `PUT $N ON THEM` writes that amount to the copy book through the same `/copy/allocations` route the row's `$` box uses (a running session is resized in place; nothing is placed until the row is started).
+
+The engine is `lib/copyLadder.ts`: the leader's feed, bankroll and market resolutions are fetched once, then `replayAtSize` runs `identityStrat → runBacktest` synchronously per rung, prior window included for the verdict. The bar's number comes from the background worker's pass over its own feed store and the panel's from a fresh pull, so they can drift as the leader trades — when they do, the panel says what the bar said rather than hiding it.
+
 ### The basket — several traders, different amounts
 
 `/polymarket/copy/basket`. One trader with one amount is a row; **a set of traders with a different amount against each** is the thing you actually have when you have money and a shortlist, and it is not the sum of N per-trader backtests.
@@ -152,12 +160,13 @@ Starting **defaults to DRY RUN**: the engine computes every mirror it would plac
 
 ```bash
 # the desk, over HTTP (owner Bearer required — see AUTH)
-GET    /copy/book?eoa=0x…
+GET    /copy/book?eoa=0x…        # rows + totals, and `sessions`: what else this wallet is RUNNING outside the book
 POST   /copy/allocations         {address, allocationUsd, label?, enabled?, params?}
 DELETE /copy/allocations/{addr}?eoa=0x…
 POST   /copy/rebalance           {bankroll, mode: "equal"|"weighted"}
 POST   /copy/start               {eoa, address?, autoExecute?}   # autoExecute omitted ⇒ DRY RUN
 POST   /copy/stop                {eoa, address?}
+POST   /live/stop                {eoa, strategyId}   # stop a session the book does NOT own (from `sessions`)
 GET    /copy/strats              # the book as identity strats — what the worker replays
 
 # the BASKET (Next app port): several traders, a different amount each, one replay
@@ -176,7 +185,7 @@ GET    /polymarket/api/copytrades?days=7&q=big+buys+on+crypto+under+30c
 - **Trading**: Place limit and market orders via Polymarket CLOB (requires wallet + API credentials)
 - **Copy Trading**: Track top traders by PNL/volume, view their positions and activity
 - **Many leaders at once**: the sidebar book takes a pasted LIST of addresses (every `0x…` in the blob, one amount each), and a checkbox on every row drives a bulk bar — fund each, start, stop, pause, drop, or hand the selection to the basket sizer
-- **MY COPY TRADES** (`/copy/trades`): their trades joined to my on-chain fills by market+side+time, with `COVERAGE` (what share of their flow I actually got), median `LAG`, signed `SLIP` in cents, per-leader roll-up, and every `⊘ MISSED` trade next to the reason it reads as missed
+- **RESULTS** — my copy trades (`/copy/trades`, the RESULTS tab): their trades joined to my on-chain fills by market+side+time, with `COVERAGE` (what share of their flow I actually got), median `LAG`, signed `SLIP` in cents, per-leader roll-up, and every `⊘ MISSED` trade next to the reason it reads as missed
 - **Plain-language trade filter**: "big buys on crypto under 30c", "missed longshots", "politics, not candles" — a concept lexicon so `crypto` reaches a title that only ever says *Bitcoin*, chips for every clause it read, and `ARM AS GATE` to compile the enforceable half onto real allocations (`marketQuery` + `tradeFilters`)
 - **Proportional copy sizing**: mirrors are sized as `leader$ × (accountValue × weightFraction) / leaderBankroll` — the fraction of net worth the leader risked, applied to yours. `accountValue` (free cash + mark value of the strat's positions) and each leader's bankroll (their positions + free USDC) are re-read every cycle, so sizes track the account as it grows or draws down, and a $10k conviction entry copies 100× larger than a $100 punt. Guardrails, all defaulted on: `maxUpscale` 2× (a mirror that could only be placed by inflating it past the order floor is refused as `SUB_SCALE`, not silently placed at the minimum), proportional exits (leader sells 40% of their shares → the strat sells 40% of its own; leader flat → strat flat), `minMinutesToClose` 60m (sub-hour Up/Down candles resolve before a poller can react), `maxTradeAgeSec` 300s, and a BUY budget bounded by real wallet cash rather than the `capital` config. The ratio and clamps are pinned across TypeScript and Rust by `parity.fixture.json`, so the BACKTEST tab previews the sizes live will place
 - **Strategy Index** (`/strats`): Build/edit a basket of traders, set capital + rebalance cadence, then go live. A pre-flight `CHECKLIST` sits at the top of the page — wallet, CLOB auth, strategy, traders, rebalance, capital — and goes from `4/6 complete` → `6/6 · ready to go live` as the user fills each gap

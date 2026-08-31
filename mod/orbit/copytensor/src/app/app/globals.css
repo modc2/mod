@@ -90,8 +90,8 @@
 
   /* Scanline strength — dialled right down on light skins, where a dark
      grille over paper just reads as dirt. */
-  --scan-alpha: 0.20;
-  --grid-alpha: 0.45;
+  --scan-alpha: 0.14;
+  --grid-alpha: 0.28;
 }
 
 /* Everything the components and rules below actually read, derived from
@@ -654,7 +654,13 @@ p { line-height: 1.7; }
 /* Card-sized blurbs. Declared after `.arcade-prose` because both it and a
    Tailwind `text-[…]` utility sit at one-class specificity, so a size on
    the element would lose to the base rule. */
-.arcade-prose-sm { font-size: 18px; max-width: none; }
+.arcade-prose-sm {
+  font-family: 'VT323', 'Silkscreen', ui-monospace, monospace;
+  font-size: 18px;
+  line-height: 1.35;
+  color: var(--fg-muted);
+  max-width: none;
+}
 
 /* ── The screen ──────────────────────────────────────────────────────
    Two fixed layers, both pointer-events:none:
@@ -800,45 +806,31 @@ body::after {
 }
 
 /* ── Page head ───────────────────────────────────────────────────────
-   The cabinet marquee: the title sits in a lit band across the top of
-   the board with the grid floor showing through, and the standfirst
-   hangs under it on the panel. Gives every page the same silhouette and
-   stops the h1 from floating loose on the void. */
+   A heading and one quiet line under it. The boxed marquee (lit band,
+   32px title, standfirst on its own plate) took a third of the first
+   screen before any data appeared. */
 .page-head {
-  border: 2px solid var(--border-strong);
-  background: var(--panel-from);
-  box-shadow: var(--panel-shadow);
-}
-.page-head-band {
   display: flex;
-  align-items: center;
-  /* The band carries a title, a "?" cap and whatever controls the page
-     parks on it — on a narrow board those get a second line rather than
-     squeezing the marquee. */
   flex-wrap: wrap;
-  gap: 12px;
-  padding: 14px 18px;
-  border-bottom: 2px solid var(--border-strong);
-  background:
-    linear-gradient(180deg,
-      rgb(var(--neon-magenta-rgb) / 0.14) 0%, transparent 100%),
-    var(--bg);
+  align-items: flex-end;
+  gap: 10px 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border);
 }
-[data-base="light"] .page-head-band {
-  background:
-    linear-gradient(180deg,
-      rgb(var(--neon-magenta-rgb) / 0.10) 0%, transparent 100%),
-    var(--bg);
+.page-head .arcade-title {
+  font-size: 16px;
+  text-shadow: 2px 2px 0 var(--neon-magenta);
 }
-/* Two stacked bars in the gutter — the marquee's light housing. */
-.page-head-band::before {
-  content: "";
-  flex: none;
-  width: 6px;
-  align-self: stretch;
-  background: repeating-linear-gradient(180deg,
-    var(--neon-cyan) 0 4px, transparent 4px 8px);
+.page-head-sub {
+  font-family: 'VT323', 'Silkscreen', ui-monospace, monospace;
+  font-size: 18px;
+  line-height: 1.3;
+  color: var(--fg-muted);
+  margin-top: 6px;
+  max-width: 80ch;
 }
+/* The dinn skin still styles `.page-head-band`; keep the hook harmless. */
+.page-head-band { display: contents; }
 
 /* ── Controls ────────────────────────────────────────────────────────
    Native elements are squared globally so a stray <select> can't sneak
@@ -1958,3 +1950,195 @@ button, input, select, textarea {
   background-image: repeating-linear-gradient(90deg,
     #fff 0 1px, transparent 1px 4px);
 }
+
+
+/* ════════════════════════════════════════════════════════════════════
+   THE FRONT DOOR — home cards, the one-step copy dialog, MORE menu
+   ════════════════════════════════════════════════════════════════════ */
+.home-hero { padding: 8px 0 4px; }
+.home-hero .arcade-title {
+  font-size: 24px;
+  line-height: 1.6;
+  text-shadow: 3px 3px 0 var(--neon-magenta);
+}
+@media (min-width: 768px) {
+  .home-hero .arcade-title { font-size: 24px; text-shadow: 3px 3px 0 var(--neon-magenta); }
+}
+
+/* One trader, one plate: name, the number that matters, one COPY. */
+.trader-card {
+  display: block;
+  border: 2px solid var(--border-strong);
+  background: var(--panel-from);
+  box-shadow: var(--panel-shadow);
+  padding: 14px 16px 16px;
+  color: var(--fg);
+  min-width: 0;
+}
+a.trader-card:hover { border-color: var(--accent); }
+.trader-card-rank {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Silkscreen', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--accent);
+  border: 2px solid var(--shadow-hard);
+}
+.trader-card-name {
+  font-family: 'Silkscreen', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg);
+  min-width: 0;
+}
+.trader-card-big {
+  font-family: 'VT323', monospace;
+  font-size: 44px;
+  line-height: 1;
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trader-card-sub {
+  font-family: 'VT323', monospace;
+  font-size: 17px;
+  line-height: 1.2;
+  margin-top: 6px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Numbered step block — a smaller "?" block from the sprite sheet. */
+.mario-block-sm {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 12px;
+  color: var(--bg);
+  background: var(--neon-amber);
+  border: 2px solid var(--shadow-hard);
+  box-shadow: 2px 2px 0 var(--shadow-hard);
+}
+
+/* The copy dialog. A hard plate over a dimmed board — no blur, no fade. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgb(0 0 0 / 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal {
+  width: 100%;
+  max-width: 440px;
+  border: 2px solid var(--border-strong);
+  background: var(--panel-from);
+  box-shadow: 6px 6px 0 var(--shadow-hard);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 2px solid var(--border-strong);
+  background: linear-gradient(180deg, rgb(var(--accent-rgb) / 0.12) 0%, transparent 100%);
+}
+.modal-kicker {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  line-height: 1.2;
+}
+.modal-title {
+  font-family: 'Silkscreen', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+.modal-body { padding: 16px 14px 18px; }
+.modal-step {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.modal-error {
+  font-family: 'VT323', monospace;
+  font-size: 17px;
+  color: var(--neon-red);
+  border: 2px solid var(--neon-red);
+  padding: 6px 10px;
+}
+
+/* MORE — the drop that holds everything the rail no longer does. */
+.more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 360px;
+  padding: 4px;
+  background: var(--panel-from);
+  border: 2px solid var(--border-strong);
+  box-shadow: var(--panel-shadow);
+}
+.more-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  font-family: 'Silkscreen', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.more-menu__item:hover { background: var(--btn-bg-hover); }
+.more-menu__item[aria-checked="true"] { color: var(--accent); }
+.more-menu__hint {
+  margin-left: auto;
+  font-family: 'VT323', monospace;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-weight: 400;
+  color: var(--fg-dim);
+}
+.more-menu__sep { height: 2px; margin: 4px 0; background: var(--border); }
+.more-menu__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 6px;
+}
+.more-menu__row > * { max-width: 100%; }
+.more-menu__row .pixel-btn { white-space: nowrap; }

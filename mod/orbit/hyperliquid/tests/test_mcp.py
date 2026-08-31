@@ -321,3 +321,90 @@ def test_gated_tool_without_a_token_is_refused():
                            "arguments": {"follower": "0x" + "de" * 20}})["result"]
     assert r["isError"] is True
     assert "401" in r["content"][0]["text"]
+
+
+# ── coin requirement on the top-traders board ──
+
+def test_top_traders_tool_declares_the_coin_requirement():
+    doc = requests.get(f"{API_URL}/mcp/schema", timeout=10).json()
+    tool = next(t for t in doc["tools"] if t["name"] == "hl_top_traders")
+    props = tool["inputSchema"]["properties"]
+    assert props["coins"]["type"] == "array"
+
+
+def test_unknown_coin_is_rejected_before_the_scan():
+    # A coin nobody trades would otherwise walk the whole scan budget through
+    # HL's throttled fills endpoint to find nothing.
+    r = requests.get(f"{API_URL}/traders/top", params={"days": 7, "pool": 3, "coins": "NOPE_COIN"}, timeout=30)
+    assert r.status_code == 400
+    assert "unknown coin" in r.json()["error"]
+    assert r.json()["coins"] == ["NOPE_COIN"]
+
+
+def test_plain_board_reports_how_it_was_found():
+    r = requests.get(f"{API_URL}/traders/top", params={"days": 7, "pool": 3}, timeout=30).json()
+    assert r["coins"] == []
+    assert r["depth"] == len(r["traders"]) <= 3
+
+
+# ── the whole board, filtered by score; fill stats rationed to the top ──
+
+def test_top_traders_tool_declares_all_pool_enrich_and_score_floors():
+    doc = requests.get(f"{API_URL}/mcp/schema", timeout=10).json()
+    tool = next(t for t in doc["tools"] if t["name"] == "hl_top_traders")
+    props = tool["inputSchema"]["properties"]
+    assert "string" in props["pool"]["type"] and "integer" in props["pool"]["type"]
+    for k in ["enrich", "sort", "min_roi", "min_sharpe", "min_win", "min_equity", "min_volume",
+              "min_trades", "with_stats"]:
+        assert k in props, k
+
+
+def test_pool_all_is_the_whole_gated_leaderboard_with_stats_only_on_top():
+    r = requests.get(f"{API_URL}/traders/top", params={"days": 7, "pool": "all", "enrich": 120}, timeout=120).json()
+    assert r["all"] is True and r["pool"] == "all"
+    rows = r["traders"]
+    # thousands of wallets clear the gates on any given day; a 150-row board was never "all"
+    assert len(rows) > 600, len(rows)
+    assert r["candidates"] == len(rows) == r["priced"] == r["matched"]
+    # every row is priced from the leaderboard ...
+    assert all(t["account_value"] >= 1000 for t in rows)
+    # ... but fill stats were only spent on the top slice by rank
+    assert 0 < r["enriched"] <= 120
+    assert r["enriched"] == sum(1 for t in rows if t["win_rate"] >= 0)
+    # the board is ordered by the rank metric
+    rois = [t["roi"] for t in rows]
+    assert rois == sorted(rois, reverse=True)
+
+
+def test_score_floors_and_sort_apply_server_side():
+    base = {"days": 7, "pool": "all"}
+    every = requests.get(f"{API_URL}/traders/top", params=base, timeout=120).json()
+    r = requests.get(f"{API_URL}/traders/top", params={**base, "min_roi": 5, "min_equity": 10000}, timeout=120).json()
+    assert r["filtered"] is True and r["priced"] == every["priced"]
+    assert r["matched"] == len(r["traders"]) < every["matched"]
+    assert all(t["roi"] >= 5 and t["account_value"] >= 10000 for t in r["traders"])
+    # a sharpe floor can only be met by measured rows, and sorting by sharpe
+    # never lets an unmeasured 0 outrank a measured value
+    r = requests.get(f"{API_URL}/traders/top", params={**base, "min_sharpe": 0, "sort": "sharpe"}, timeout=120).json()
+    assert r["sort"] == "sharpe"
+    assert r["matched"] == r["enriched"] == len(r["traders"]) <= 120
+    sharpes = [t["sharpe"] for t in r["traders"]]
+    assert sharpes == sorted(sharpes, reverse=True) and all(s >= 0 for s in sharpes)
+    # rows without stats sink to the bottom on a stat sort of the unfiltered board
+    r = requests.get(f"{API_URL}/traders/top", params={**base, "sort": "win_rate"}, timeout=120).json()
+    measured = [t["win_rate"] >= 0 for t in r["traders"]]
+    assert measured.index(False) == r["enriched"] and not any(measured[r["enriched"]:])
+
+
+def test_bad_pool_and_sort_are_400s():
+    r = requests.get(f"{API_URL}/traders/top", params={"pool": "lots"}, timeout=30)
+    assert r.status_code == 400 and "pool" in r.json()["error"]
+    r = requests.get(f"{API_URL}/traders/top", params={"sort": "luck"}, timeout=30)
+    assert r.status_code == 400 and "sort" in r.json()["error"]
+
+
+def test_top_n_boards_still_work_and_are_sliced_from_the_whole():
+    r = requests.get(f"{API_URL}/traders/top", params={"days": 7, "pool": 25}, timeout=60).json()
+    assert r["all"] is False and r["pool"] == 25 and len(r["traders"]) == 25
+    whole = requests.get(f"{API_URL}/traders/top", params={"days": 7, "pool": "all"}, timeout=60).json()
+    assert [t["address"] for t in r["traders"]] == [t["address"] for t in whole["traders"][:25]]

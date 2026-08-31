@@ -41,7 +41,10 @@ ALLOWED_TOOLS: List[str] = [f"mcp__copytensor__{t.name}" for t in tools.TOOLS]
 MCP_CONFIG = {"mcpServers": {"copytensor": {
     "command": sys.executable, "args": ["-m", "src.agent.mcp_server"],
     "cwd": ROOT, "env": {"PYTHONPATH": ROOT,
-                         "COPYTENSOR_API_URL": tools.API_URL}}}}
+                         "COPYTENSOR_API_URL": tools.API_URL,
+                         # read-only by construction: the ops tools (ct_sync,
+                         # ct_create_copy...) are not even listed to it
+                         "COPYTENSOR_MCP_SCOPE": "agent"}}}}
 
 SYSTEM_PROMPT = (
     "You are copytensor's strat agent. A *strat* is a weighted basket of "

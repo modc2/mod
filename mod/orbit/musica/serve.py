@@ -11,6 +11,12 @@ is all client side and the Spotify calls are stateless:
                           that resolves the same locally and behind the gateway
     /api/musica/*       → the API (prefix stripped by the gateway, so the
                           protocol routes land at the root)
+    …/stream/bandcamp?id=<page url>[&track=<id>]
+                        → the one non-JSON route: a Bandcamp track's MP3,
+                          proxied with Range passthrough, because bcbits.com
+                          sends no CORS header and the deck needs the bytes.
+                          SoundCloud's CDN does send one, so the browser
+                          fetches those itself.
 
     python3 serve.py [--port 50780] [--host 0.0.0.0]
 """
@@ -19,6 +25,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -77,8 +84,10 @@ class Handler(SimpleHTTPRequestHandler):
 
         The bare ``/musica`` must NOT redirect to ``/musica/``: the gateway 308s
         the directory form back to the bare one, so a redirect here is an
-        infinite loop and the published URL never loads. index.html pins its own
-        <base>, which is what keeps relative assets resolving.
+        infinite loop and the published URL never loads. index.html pins
+        ``<base href="/musica/">`` — absolute, because at the bare ``/musica`` a
+        relative base resolves against the gateway root and css/ and js/ 404
+        there; this handler strips the prefix, so the same base works alone.
         """
         if self.path == PREFIX or self.path.startswith(PREFIX + '?'):
             self.path = '/' + self.path[len(PREFIX):]
@@ -149,6 +158,62 @@ class Handler(SimpleHTTPRequestHandler):
         args.update(body)
         return args
 
+    # ── the stream proxy ─────────────────────────────────────────────────
+
+    def _stream(self):
+        """Proxy one platform track's audio to the deck.
+
+        The upstream URL is resolved here, on every request, from the platform
+        id — the console never sees or chooses the URL, so this cannot be
+        turned into a general-purpose fetch. Range headers pass through, which
+        is what lets a browser seek a half-loaded file.
+        """
+        mod = module()
+        if mod is None:
+            return self._json(503, {'error': f'module not loaded: {_mod_error}'})
+        path = urlparse(self.path).path.rstrip('/')
+        source = path.rsplit('/', 1)[-1]
+        args = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items() if v}
+        if source not in ('bandcamp', 'soundcloud'):
+            return self._json(404, {'error': 'stream/bandcamp or stream/soundcloud'})
+        where = mod.stream(source=source, id=args.get('id'), track=args.get('track'))
+        if where.get('error'):
+            return self._json(502, where)
+        import requests
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        if self.headers.get('Range'):
+            headers['Range'] = self.headers['Range']
+        if where.get('referer'):
+            headers['Referer'] = where['referer']
+        try:
+            up = requests.get(where['url'], headers=headers, stream=True, timeout=30)
+        except requests.RequestException as e:
+            return self._json(502, {'error': f'upstream failed: {e}'})
+        if up.status_code >= 400:
+            return self._json(502, {'error': f'upstream answered {up.status_code}'})
+        self.send_response(up.status_code)
+        for h in ('Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges'):
+            if up.headers.get(h):
+                self.send_header(h, up.headers[h])
+        if not up.headers.get('Content-Type'):
+            self.send_header('Content-Type', 'audio/mpeg')
+        name = f"{where.get('artists') or ''} - {where.get('name') or 'track'}".strip(' -')
+        safe = ''.join(ch if ch.isalnum() or ch in ' -_.' else '_' for ch in name)[:120]
+        self.send_header('Content-Disposition', f'inline; filename="{safe}.mp3"')
+        self.send_header('X-Musica-Source', source)
+        self.end_headers()
+        if self.command == 'HEAD':
+            return
+        try:
+            shutil.copyfileobj(up.raw, self.wfile, 64 * 1024)
+        except (BrokenPipeError, ConnectionResetError):
+            pass                                  # the deck moved on; fine
+        finally:
+            up.close()
+
+    def _is_stream(self) -> bool:
+        return self._route().startswith('stream/')
+
     def _is_api(self) -> bool:
         """Whether this path is asking for a function rather than a file."""
         path = urlparse(self.path).path.rstrip('/')
@@ -166,6 +231,8 @@ class Handler(SimpleHTTPRequestHandler):
         clean = urlparse(self.path).path.rstrip('/')
         if clean in ('/health', '/healthz'):
             return self._json(200, {'ok': True, 'module': NAME})
+        if self._is_stream():
+            return self._stream()
         # GET is not the protocol's call verb, but the console fetches with it
         # and a browser pointed at a function should get its answer rather than
         # a directory listing.
@@ -175,13 +242,17 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_HEAD(self):
         self._strip()
+        if self._is_stream():
+            return self._stream()
         return super().do_HEAD()
 
     def end_headers(self):
         # the console is one static bundle; keep browsers from pinning an old build
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range')
+        self.send_header('Access-Control-Expose-Headers',
+                         'Content-Length, Content-Range, X-Musica-Source')
         super().end_headers()
 
     def do_OPTIONS(self):

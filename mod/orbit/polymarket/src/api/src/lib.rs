@@ -18,6 +18,7 @@ pub mod share;
 pub mod live_engine;
 pub mod sync;
 pub mod copy;
+pub mod copy_actions;
 
 use std::sync::Arc;
 

@@ -17,53 +17,14 @@ import { loadIndexes, getActiveIndexId } from "../lib/indexStore";
 import SyncScheduleChip from "./SyncScheduleChip";
 import { fetchSyncSchedule } from "../lib/syncSchedule";
 
+import {
+  DEFAULT_FORMULA, compileFormula, formatScore, scoreInputs,
+  loadSavedFormula, matchScorePreset, saveFormula,
+} from "../lib/scoreFormula";
+import ScoreRatioChips from "./ScoreRatioChips";
+import Sparkline from "./Sparkline";
+
 type TraderSort = "score" | "volume" | "pnl" | "positions" | "last";
-const DEFAULT_FORMULA = "sharpe";
-// Pre-Sharpe default — persisted copies of it in sessionStorage are the old
-// implicit default (the save-effect writes on mount), not a user choice, so
-// treat them as unset and adopt the new default.
-const LEGACY_DEFAULT_FORMULA = "pnl / volume";
-
-function compileFormula(expr: string): {
-  fn: (t: { sharpe: number; pnl: number; volume: number; positions: number; winRate: number; markets: number }) => number;
-  error: null;
-} | { fn: null; error: string } {
-  try {
-    const raw = new Function(
-      "sharpe", "pnl", "volume", "positions", "winRate", "markets", "Math",
-      `"use strict"; return (${expr});`,
-    ) as (...args: unknown[]) => unknown;
-    const probe = raw(0, 0, 0, 0, 0, 0, Math);
-    if (typeof probe !== "number" && !Number.isNaN(probe)) {
-      return { fn: null, error: "formula must evaluate to a number" };
-    }
-    return {
-      fn: (t) => {
-        try {
-          const v = raw(t.sharpe, t.pnl, t.volume, t.positions, t.winRate, t.markets, Math) as number;
-          return Number.isFinite(v) ? v : Number.NEGATIVE_INFINITY;
-        } catch {
-          return Number.NEGATIVE_INFINITY;
-        }
-      },
-      error: null,
-    };
-  } catch (e) {
-    return { fn: null, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-// Scores are unit-less ratios now (Sharpe by default), so small magnitudes
-// render as plain signed decimals — a Sharpe of 1.52 must read "+1.52",
-// not "+152.00%".
-function formatScore(v: number): string {
-  if (!Number.isFinite(v)) return "---";
-  const abs = Math.abs(v);
-  const prefix = v >= 0 ? "+" : "-";
-  if (abs >= 1_000_000) return `${prefix}${(abs / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000) return `${prefix}${(abs / 1_000).toFixed(2)}k`;
-  return `${prefix}${abs.toFixed(2)}`;
-}
 
 type SortDir = "asc" | "desc";
 const PAGE_SIZE = 50;
@@ -96,49 +57,6 @@ function SortArrow({ active, dir }: { active: boolean; dir: SortDir }) {
     <span className="inline-block w-3 ml-0.5 text-center">
       {active ? (dir === "desc" ? "\u25BC" : "\u25B2") : ""}
     </span>
-  );
-}
-
-/* ── Sparkline ── */
-function Sparkline({ data, width = 120, height = 28 }: { data: number[]; width?: number; height?: number }) {
-  if (!data || data.length < 2) {
-    return (
-      <svg width={width} height={height} className="opacity-20">
-        <line x1={0} y1={height / 2} x2={width} y2={height / 2} stroke="currentColor" strokeWidth={1} strokeDasharray="3,3" />
-      </svg>
-    );
-  }
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const pad = 3;
-  const pts = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * (width - pad * 2) + pad;
-    const y = height - pad - ((v - min) / range) * (height - pad * 2);
-    return `${x},${y}`;
-  }).join(" ");
-  const final = data[data.length - 1];
-  // CSS vars so the light theme gets its darker green/red variants — SVG
-  // attributes don't resolve var(), hence the style={} usage below.
-  const color = final > 0 ? "var(--up)" : final < 0 ? "var(--down)" : "var(--flat)";
-  const zeroY = max <= 0 ? pad : min >= 0 ? height - pad : height - pad - ((0 - min) / range) * (height - pad * 2);
-
-  const areaPoints = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * (width - pad * 2) + pad;
-    const y = height - pad - ((v - min) / range) * (height - pad * 2);
-    return [x, y] as [number, number];
-  });
-  const areaPath = `M${areaPoints[0][0]},${areaPoints[0][1]} ${areaPoints.slice(1).map(p => `L${p[0]},${p[1]}`).join(" ")} L${areaPoints[areaPoints.length - 1][0]},${height - pad} L${areaPoints[0][0]},${height - pad} Z`;
-
-  return (
-    <svg width={width} height={height}>
-      {min < 0 && max > 0 && (
-        <line x1={0} y1={zeroY} x2={width} y2={zeroY} stroke="currentColor" strokeOpacity={0.25} strokeWidth={1} strokeDasharray="2,2" />
-      )}
-      <path d={areaPath} style={{ fill: color }} opacity={0.08} />
-      <polyline points={pts} fill="none" style={{ stroke: color }} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={areaPoints[areaPoints.length - 1][0]} cy={areaPoints[areaPoints.length - 1][1]} r={2} style={{ fill: color }} />
-    </svg>
   );
 }
 
@@ -184,10 +102,11 @@ export default function CopyTrading({
   const [streamedAll, setStreamedAll] = useState<TopTrader[]>([]);
   const [totalTraders, setTotalTraders] = useState(0);
   const [loading, setLoading] = useState(true);
-  // Default sort is SCORE, which is Sharpe out of the box (DEFAULT_FORMULA)
-  // and pages server-side as `sort=sharpe`. P&L ranked the whale who risked
-  // $2M to make 3% above the trader compounding a real edge on $5k — the
-  // wrong end of a leaderboard you copy PROPORTIONALLY from.
+  // Default sort is SCORE, which is the win-rate preset out of the box
+  // (DEFAULT_FORMULA) and pages server-side by the preset's own sort key.
+  // P&L ranked the whale who risked $2M to make 3% above the trader
+  // compounding a real edge on $5k — the wrong end of a leaderboard you
+  // copy PROPORTIONALLY from.
   const [traderSort, setTraderSort] = useState<TraderSort>("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
@@ -207,29 +126,17 @@ export default function CopyTrading({
 
   const [showFilters, setShowFilters] = useState(false);
   const [formula, setFormula] = useState<string>(DEFAULT_FORMULA);
-  useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem("poly8bit_score_formula");
-      if (saved && saved.trim() && saved.trim() !== LEGACY_DEFAULT_FORMULA) setFormula(saved);
-    } catch {}
-  }, []);
-  useEffect(() => {
-    try { sessionStorage.setItem("poly8bit_score_formula", formula); } catch {}
-  }, [formula]);
+  useEffect(() => { setFormula(loadSavedFormula()); }, []);
+  useEffect(() => { saveFormula(formula); }, [formula]);
 
   const compiled = useMemo(() => compileFormula(formula), [formula]);
+  // When the SCORE column pages server-side, a preset formula pages by its
+  // own metric (preset keys ARE the server sort keys); a hand-written formula
+  // falls back to sharpe pool order and is re-ranked client-side when warm.
+  const serverScoreSort = matchScorePreset(formula)?.key ?? "sharpe";
   const scoreFor = useCallback(
-    (t: TopTrader): number => {
-      if (!compiled.fn) return Number.NEGATIVE_INFINITY;
-      return compiled.fn({
-        sharpe: t.sharpe,
-        pnl: t.pnl,
-        volume: t.volume,
-        positions: t.positions,
-        winRate: t.winRate,
-        markets: t.marketTitles.length,
-      });
-    },
+    (t: TopTrader): number =>
+      compiled.fn ? compiled.fn(scoreInputs(t)) : Number.NEGATIVE_INFINITY,
     [compiled],
   );
 
@@ -310,7 +217,7 @@ export default function CopyTrading({
       pg?: number; sort?: string; order?: string; silent?: boolean; force?: boolean;
     } = {}) => {
       const pg = opts.pg ?? pageRef.current;
-      const sortKey = opts.sort || (traderSort === "score" ? "sharpe" : traderSort);
+      const sortKey = opts.sort || (traderSort === "score" ? serverScoreSort : traderSort);
       const orderKey = opts.order || sortDir;
       if (!opts.silent) setRefreshing(true);
       try {
@@ -359,7 +266,7 @@ export default function CopyTrading({
         setRefreshing(false);
       }
     },
-    [days, minTradesPerDay, traderSort, sortDir, search, category, marketQuery,
+    [days, minTradesPerDay, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
      minTrades24h, maxLastTradeHrs],
   );
@@ -526,7 +433,7 @@ export default function CopyTrading({
         await loadStreamRef.current();
       }
     })();
-  }, [cacheWarm, page, traderSort, sortDir, search, category, marketQuery,
+  }, [cacheWarm, page, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
       minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
       minTrades24h, maxLastTradeHrs]);
 
@@ -670,7 +577,7 @@ export default function CopyTrading({
         byAddr.get(addr) ?? {
           address: addr,
           volume: 0, buyVolume: 0, sellVolume: 0,
-          pnl: 0, winRate: 0, sharpe: 0, positions: 0,
+          pnl: 0, winRate: 0, sharpe: 0, exitEntry: -1, positions: 0,
           marketTitles: [], recentTrades: 0,
         },
       );
@@ -813,16 +720,16 @@ export default function CopyTrading({
     [selectedAddresses],
   );
 
-  // The ranking column names what it actually holds: on the default formula
-  // that IS the Sharpe ratio, and "SCORE" hid the one number the board is
-  // sorted by. Any edit to the formula turns it back into a generic SCORE.
+  // The ranking column names what it actually holds: on any preset (win rate
+  // out of the box) that IS the metric, and "SCORE" hid the one number the
+  // board is sorted by. Any edit to the formula turns it back into a generic
+  // SCORE.
+  const scorePreset = matchScorePreset(formula);
   const columns: { key: TraderSort; label: string; hint: string }[] = [
     {
       key: "score",
-      label: formula.trim() === DEFAULT_FORMULA ? "SHARPE" : "SCORE",
-      hint: formula.trim() === DEFAULT_FORMULA
-        ? "Sharpe ratio over the window — mean per-trade return ÷ its stdev. Consistency, not size: it ranks the trader compounding a real edge above the whale who risked millions for 3%."
-        : `Custom score = ${formula}`,
+      label: scorePreset ? scorePreset.label : "SCORE",
+      hint: scorePreset ? scorePreset.hint : `Custom score = ${formula}`,
     },
     { key: "pnl", label: "P&L", hint: "Realized profit over the window — a size story, not a skill one" },
     { key: "volume", label: "VOL", hint: "USDC traded in the window" },
@@ -880,11 +787,6 @@ export default function CopyTrading({
   const recencyHrs = Number(maxLastTradeHrs);
   const snapshotOlderThanWindow =
     Number.isFinite(recencyHrs) && recencyHrs > 0 && staleAgeMs > recencyHrs * 3600_000;
-  const activityHint = activityDropped > 0
-    ? `${activityDropped.toLocaleString()} hidden by LAST TRADE ≤ ${maxLastTradeHrs}H` +
-      (Number(minTrades24h) > 0 ? ` / MIN TRADES 24H ≥ ${minTrades24h}` : "") +
-      (snapshotOlderThanWindow ? ` — and this snapshot is ${formatAgo(staleAgeMs)} old, so ↻ SYNC first` : "")
-    : null;
 
   return (
     <div className="space-y-3">
@@ -953,10 +855,12 @@ export default function CopyTrading({
           {/* Right side: source + filters */}
           <div className="ml-auto flex items-center gap-2 shrink-0">
             {source && (
-              <span className={`text-[12px] font-mono tracking-wider px-1.5 py-0.5 border ${
+              <span
+                title={source === "fresh" ? "Pulled from Polymarket just now" : "Served from the server's cache — press ↻ SYNC for a fresh pull"}
+                className={`text-[12px] font-mono tracking-wider px-1.5 py-0.5 border ${
                 source === "fresh" ? "border-yellow-500/40 text-yellow-400" : "border-pixel-border text-pixel-gray"
               }`}>
-                {source === "memory" ? "MEM" : source === "disk" ? "DISK" : "LIVE"}
+                {source === "fresh" ? "FRESH" : "CACHED"}
               </span>
             )}
             {/* Manual SYNC button — bypasses the 60s cache by routing
@@ -1021,7 +925,7 @@ export default function CopyTrading({
                 pause it, or force a background run. */}
             <SyncScheduleChip />
 
-            <button
+            {stratFilter && <button
               onClick={toggleStratFilter}
               className={`pixel-btn text-[13px] px-2 py-0.5 shrink-0 flex items-center gap-1.5 transition-colors ${
                 stratFilter
@@ -1036,7 +940,7 @@ export default function CopyTrading({
                   {stratName}
                 </span>
               )}
-            </button>
+            </button>}
 
             <button
               onClick={() => setShowFilters((v) => !v)}
@@ -1142,12 +1046,20 @@ export default function CopyTrading({
               ))}
             </div>
 
-            {/* Score formula */}
+            {/* Score formula — preset chips parameterize the metric, and the
+                input shows a preset is just a formula you can keep editing. */}
             <div className="flex items-center gap-2 flex-wrap">
               <label className="text-[12px] text-pixel-gray tracking-wider shrink-0">SCORE =</label>
+              <ScoreRatioChips
+                formula={formula}
+                setFormula={setFormula}
+                canSave={!compiled.error}
+                btnClass="pixel-btn text-[12px] px-2 py-1 shrink-0"
+                idleClass="border-pixel-border text-pixel-gray hover:text-pixel-white"
+              />
               <input type="text" value={formula} onChange={(e) => setFormula(e.target.value)} onKeyDown={onEnter} spellCheck={false}
                 placeholder={DEFAULT_FORMULA} className="pixel-input-sm flex-1 min-w-[140px] font-mono" />
-              <button onClick={() => setFormula(DEFAULT_FORMULA)}
+              <button onClick={() => setFormula(DEFAULT_FORMULA)} title="Back to the default — win rate"
                 className="pixel-btn text-[12px] px-2 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white shrink-0">RST</button>
               {compiled.error
                 ? <span className="text-[12px] text-red-400 shrink-0 truncate max-w-[160px]">ERR: {compiled.error.slice(0, 30)}</span>
@@ -1261,9 +1173,17 @@ export default function CopyTrading({
                 {pageTraders.length === 0 && (
                   <tr>
                     <td colSpan={10} className="text-center py-8 text-[13px] text-pixel-gray">
-                      ALL ROWS HIDDEN BY ACTIVE FILTERS — try switching LIVE off or relaxing FILTERS
-                      {activityHint && (
-                        <div className="mt-1 text-[12px] text-pixel-gray-light">{activityHint}</div>
+                      EVERY ROW IS HIDDEN BY THE CURRENT FILTERS
+                      {activityDropped > 0 && (
+                        <div className="mt-2 text-[12px] text-pixel-gray-light">
+                          {activityDropped.toLocaleString()} hidden because they didn&apos;t trade in the last {maxLastTradeHrs}h.{" "}
+                          <button
+                            onClick={() => { setMaxLastTradeHrs(""); setMinTrades24h(""); }}
+                            className="pixel-btn text-[11px] px-2 py-0.5 ml-1"
+                          >
+                            SHOW EVERYONE
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -1439,10 +1359,42 @@ export default function CopyTrading({
           )}
         </>
       ) : hasLoaded && !loading ? (
-        <div className="pixel-panel p-8 text-center text-[14px] text-pixel-gray">
-          NO TRADERS MATCH CURRENT FILTERS
-          {activityHint && (
-            <div className="mt-2 text-[12px] text-pixel-gray-light">{activityHint}</div>
+        <div className="pixel-panel p-8 text-center space-y-3">
+          <div className="text-[14px] text-pixel-gray tracking-wider">NOTHING TO SHOW</div>
+          {activityDropped > 0 ? (
+            <>
+              <div className="text-[12px] text-pixel-gray-light max-w-[600px] mx-auto leading-relaxed">
+                {activityDropped.toLocaleString()} traders are on the board, but the board only shows
+                people who traded in the last {maxLastTradeHrs}h
+                {Number(minTrades24h) > 0 ? ` (at least ${minTrades24h} today)` : ""}
+                {snapshotOlderThanWindow
+                  ? ` — and the data was last refreshed ${formatAgo(staleAgeMs)} ago, so nobody qualifies yet.`
+                  : "."}
+              </div>
+              <div className="flex justify-center gap-2 flex-wrap">
+                {snapshotOlderThanWindow && (
+                  <button
+                    onClick={() => { void loadStream({ force: true }); }}
+                    disabled={refreshing || loading}
+                    className="pixel-btn text-[12px] px-3 py-1 border-green-400/60 text-green-400 hover:bg-green-400/10 disabled:opacity-40"
+                    title="Pull a fresh leaderboard from Polymarket (takes a few minutes)"
+                  >
+                    ↻ REFRESH THE DATA
+                  </button>
+                )}
+                <button
+                  onClick={() => { setMaxLastTradeHrs(""); setMinTrades24h(""); }}
+                  className="pixel-btn text-[12px] px-3 py-1"
+                  title="Drop the recent-activity filter and show every trader on the board"
+                >
+                  SHOW EVERYONE
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="text-[12px] text-pixel-gray-light">
+              Try a broader keyword, or open FILTERS and loosen them.
+            </div>
           )}
         </div>
       ) : null}

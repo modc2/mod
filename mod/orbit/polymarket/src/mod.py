@@ -509,12 +509,17 @@ class Polymarket(m.Mod):
         return self._get("/", endpoint="events", _limit=str(limit), active="true")
 
     def active_traders(self, days: int = 7, pool: int = 2000,
-                       active_hours: float = 6, limit: int = 50) -> Any:
-        """The leaderboard, from cache: best traders over `days`, ranked by Sharpe.
+                       active_hours: float = 6, limit: int = 50,
+                       sort: str = "winRate") -> Any:
+        """The leaderboard, from cache: best traders over `days`, ranked by win rate.
+
+        `sort` parameterizes the ranking metric: winRate (default), exitEntry
+        (avg exit÷entry price over closed trades), sharpe, pnl, volume.
 
         m polymarket/active_traders                  → top 50, traded in the last 6h
         m polymarket/active_traders active_hours=0   → the whole board, dormants too
         m polymarket/active_traders days=30 limit=10 → top 10 of the 30-day window
+        m polymarket/active_traders sort=exitEntry   → ranked by exit÷entry ratio
         """
         # pool=2000 matches the background warmup's cache key, so the default
         # call returns the pre-aggregated payload instantly instead of
@@ -522,9 +527,11 @@ class Polymarket(m.Mod):
         # way — it answers `cold` rather than aggregating — and lets the
         # recency filter and the row cap run server-side over the cached
         # payload. A trader who hasn't traded in 6h isn't one to copy.
+        if sort not in ("winRate", "exitEntry", "sharpe", "pnl", "volume"):
+            sort = "winRate"
         params = {"days": str(days), "pool": str(pool), "paged": "1",
                   "pageSize": str(max(1, min(int(limit), 100))), "page": "0",
-                  "sort": "sharpe", "order": "desc"}
+                  "sort": sort, "order": "desc"}
         if active_hours and float(active_hours) > 0:
             params["maxLastTradeHrs"] = str(active_hours)
         r = self._get("/active-traders", **params)

@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  COPY_BOOK_CHANGED_EVENT,
   fetchCopyBook, upsertAllocation, removeAllocation, rebalanceBook, setBankroll,
   startCopying, stopCopying, setCopyExecution,
   type CopyBook, type CopyBookRow,
@@ -96,7 +97,14 @@ export function useCopyBook(eoa: string | null): CopyBookState {
   useEffect(() => {
     void reload();
     const t = setInterval(() => void reload(), POLL_MS);
-    return () => clearInterval(t);
+    // A write made outside this hook (the sidebar tray's COPY ALL) announces
+    // itself — re-read now instead of on the next poll.
+    const onChanged = () => void reload();
+    window.addEventListener(COPY_BOOK_CHANGED_EVENT, onChanged);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(COPY_BOOK_CHANGED_EVENT, onChanged);
+    };
   }, [reload]);
 
   /** Run a mutation, surface its error where it can be read, and take the book

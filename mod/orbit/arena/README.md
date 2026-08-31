@@ -155,7 +155,7 @@ instead; nothing else about them differs.
 
 ### 3. The arena
 
-A **player** fills a seat. Six kinds:
+A **player** fills a seat. Seven kinds:
 
 | kind | who moves | where it runs |
 |---|---|---|
@@ -163,8 +163,28 @@ A **player** fills a seat. Six kinds:
 | `wasm` | a stored module exporting `play` | the browser / the runner |
 | `model` | any OpenAI-compatible `/chat/completions` | the server (it holds the key) |
 | `agent_mod` | an agent in this fleet's `agent` module | the server |
+| `mcp` | **any module of this fleet**, over its own MCP server | the server |
 | `http` | your endpoint, posted a view, answering a move | the server |
 | `human` | you, in the console | the tab |
+
+The fifth is the one that makes the fleet playable. Every module here already
+answers on an MCP server, and so does every other module on this box, so
+"which of my modules is any good at this" is a question with an answer:
+
+```console
+$ m arena/fleet                                  # 50-odd modules, each a seat
+$ m arena/fleet module=bt                        # what it offers to be asked
+$ m arena/seat module=bt tool=bt_ask             # entered; now sit it down
+$ m arena/play game=nim players=bt,minimax
+```
+
+A module is **named, never addressed**: the call goes through the fleet
+gateway, which is what wakes a module the activator has put to sleep — being
+seated is enough to bring it back. `tool` and the argument the position goes
+in are read off the module's own `tools/list` when they are not given, a
+server whose argument is called `view` is handed the position rather than the
+brief, and `auth=1` signs the call with this box's own key for a module that
+will only answer a caller it can identify.
 
 A **match** seats N players at a game, shows each one only what `game_view`
 gives that seat, and records every turn: what was seen, what was said, what was
@@ -251,6 +271,23 @@ class MyBot:
 Optional on a game: `turn` (who moves now — several seats for a simultaneous
 game, omitted means alternating), `info`, and the `name` / `players` /
 `max_turns` attributes.
+
+### With the agent
+
+```console
+$ m arena/vibe prompt="tic-tac-toe on a 4x4 board, three in a row wins"
+$ m arena/vibe session=3f2a prompt="print the board every move"
+$ m arena/vibe_store session=3f2a name=ttt4
+```
+
+A vibe session is one file under `~/.mod/arena/vibe/<id>/` that the build
+module's agent (orbit/build — Claude Code with a task ledger) edits a sentence
+at a time, with the contract written beside it as `ARENA.md`. It starts from
+the template or from a fork of any stored class (`m arena/fork module=connect4`;
+every game and player page in the console has a fork button). Nothing is
+stored until you say so, and storing is the same upload as anything typed by
+hand — the registry reads what the agent wrote. `ARENA_BUILD_URL=off` turns
+the agent off; a fork and a template still work without it.
 
 ### As wasm
 
@@ -358,7 +395,7 @@ that works. Rebuild them with `m arena/build examples=1`.
 ```console
 $ m arena/serve                      # builds, then pm2 start arena-api
 $ m arena/test                       # end to end against the running server
-$ pytest src/tests -q                # 39 tests, on a throwaway server
+$ pytest src/tests -q                # end to end, on a throwaway server
 ```
 
 Then the console at `/arena`. It has two nouns and nothing else: **games**
@@ -373,9 +410,35 @@ it is — a class shows its source. **+ add** takes a `.wasm` or a `.py` (or a c
 reads it before storing it, and puts it where it belongs: a game becomes a
 board, a player is entered so it can be sat down at one.
 
+Entering a player is picking where it comes from rather than writing JSON:
+**a module here** lists what is stored, **a module of the fleet** lists every
+module on this box with an MCP server and then lists that module's own tools,
+**an agent** lists the agent module's personas, **a model** takes a model id,
+**an endpoint** takes a URL. The seat selects at a game do the same thing from
+the other end — they hold everyone entered *and* every module that could be,
+and picking one of those enters it on the way to the table.
+
+**host** is whose arena this is, and the chip in the header carries the
+address of the key that signs for the box on every page.
+
+The whole console is built for a phone as well as a desk: below 900px the tabs
+become a bottom bar, the cards go to one column, and every table stacks into
+records that carry their own column headings rather than scrolling sideways.
+Themes come off one button in the header: a menu of swatches — dark, light,
+a green tube, an amber tube, ocean, paper, rose, and mono — plus **system**,
+which follows the OS between dark and light. The pick is remembered in the
+browser; `?theme=<name>` on the URL wears one for that tab without
+remembering it, so a tiled or screenshotted console can be told what to look
+like. A theme is one block of CSS variables and a line in the script.
+
+**docs** is the manual — eight pages,
+rendered from the markdown the server hands out at `GET /docs/:slug`, which is
+the same text `docs_page` returns over MCP. There is one documentation, not a
+page for people and a paragraph for agents.
+
 ### As an MCP server
 
-Nineteen tools, over Streamable HTTP at `/mcp` or stdio:
+Thirty-one tools, over Streamable HTTP at `/mcp` or stdio:
 
 ```console
 $ m arena/mcp_config
@@ -387,6 +450,12 @@ Every REST route dispatches through the same tool layer, so what an agent can
 do over MCP is exactly what a browser can do over HTTP. An agent can read
 `game_abi`, write a class, `put_class` it, enter itself, play and read the
 leaderboard with nobody in the loop — which is the case this was built for.
+
+The documentation is on the same footing: `docs_pages`, `docs_page` and
+`docs_search` are the eight pages of the console's **docs** tab, and each one
+is also an MCP resource at `arena://docs/<slug>`, so a client that would rather
+attach documentation than call a tool for it can. `initialize` says as much in
+its `instructions`, before anything has been called.
 
 ### Playing models
 
@@ -403,6 +472,25 @@ endpoint that serves it.
 `config.base` points the `model` kind at anything that speaks the OpenAI chat
 shape — OpenRouter by default, but a local gateway or ollama works unchanged.
 
+### Whose arena this is
+
+A rating is a claim about somebody else's code, and a claim is worth what its
+host is worth. `GET /host` — `m arena/host`, `arena_host` over MCP, the **host**
+tab in the console — says who is making it: the address of the key this box
+signs with (the same one that signs a store push), the machine, the process and
+its uptime, every door in, how much of the registry has reached the store and
+under which address, the quota left there, and whether this box can compile a
+Rust class at all.
+
+```console
+$ m arena/host
+address   0x7d7c…d123        the key this box signs with
+machine   ams1-blade161-2
+uptime    3h 12m             pid 566520 on linux/x86_64
+store     24 of 24 have a cid · 41 MB of 100 MB left
+rustc     1.95.0 → wasm32-unknown-unknown
+```
+
 ---
 
 ## Layout
@@ -418,11 +506,15 @@ src/
     src/store.rs               modules, players, matches
     src/storelink.rs           the bridge to the store module: every blob is an object there too
     src/rating.rs              Elo for matches with more than two seats
-    src/players.rs             model / agent_mod / http drivers
+    src/players.rs             model / agent_mod / mcp / http drivers
+    src/mcpout.rs              the door out: the servers a class may call, and the fleet
+    src/hostcard.rs            who is running this: the box, its key, its uptime
     src/arena.rs               every capability, once
     src/mcp.rs                 the tool layer
     src/http.rs                REST adapters, blobs, the runtime, the console
-    src/console.html           the console: games and players, one file, no framework
+    src/console.html           the console: games, players, servers, host, docs — one file
+    src/docs.rs                the documentation, as data: REST, tools and resources
+    docs/*.md                  the eight pages themselves
   runtime/                   the execution layer — browser and node both
     host.mjs                   the wasm host: WASI shim, arena shim, auto-stub
     host.py                    the class host: the sandbox a class runs in

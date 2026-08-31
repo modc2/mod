@@ -11,9 +11,13 @@
 //           gradeable spec, and saving it puts it in the arena pool.
 //
 // n8n-style visual agent composer.
-// Drag Prompt / Model / Toolbox / Memory nodes from the palette onto the canvas,
-// wire them into the AGENT node, then save — the graph compiles down to the
-// backend's agent config (goal / tools / model) via POST /agents.
+// The agent is ONE node. Its template requires four integrations — a Prompt,
+// a Model, a Toolbox and a Memory — each with its own input port on the agent
+// node; drag them from the palette, wire them in, then save — the graph
+// compiles down to the backend's agent config (goal / tools / model / memory)
+// via POST /agents. Saving refuses while any required port is unwired: the
+// server's agent template (src/agents/mod.py REQUIRES) declares the list and
+// GET /agents/{name} reports it, so the canvas reads it rather than assuming.
 // Tools are never loose nodes: they all land as chips inside one Toolbox node,
 // mirroring the backend's snap-on bundles (src/toolbox/mod.py). A chip is any
 // name in the registry — a built-in, a custom shell tool, or a fleet module
@@ -42,7 +46,7 @@ const TOOLBOX_W = 268
 const wOf = (n: BNode) => (n.kind === 'toolbox' ? TOOLBOX_W : NODE_W)
 // approximate rendered heights — the DOM is the truth, but a graph is laid out
 // and framed before it paints, so a per-kind estimate is what we plan against
-const hOf = (n: BNode) => ({ agent: 158, prompt: 190, model: 158, toolbox: 220, memory: 104 }[n.kind])
+const hOf = (n: BNode) => ({ agent: 250, prompt: 190, model: 158, toolbox: 220, memory: 104 }[n.kind])
 
 // Frame a whole graph. A starter canvas shows every component an agent is made
 // of, which is taller than one screen at 1:1 — so open zoomed to fit rather
@@ -69,7 +73,7 @@ const BUILTINS = new Set(['default', 'architect', 'reviewer', 'debugger', 'build
                           'safety', 'claude-code', 'codex'])
 const GRAPHS_KEY = 'agent_builder_graphs_v1'
 
-const KIND_META: Record<Exclude<NodeKind, 'agent'>, { label: string; icon: string; accent: string; border: string; wire: string; hint: string }> = {
+const KIND_META: Record<PartKind, { label: string; icon: string; accent: string; border: string; wire: string; hint: string }> = {
   prompt: { label: 'Prompt', icon: '¶', accent: 'text-amber-300', border: 'border-amber-400/30', wire: 'rgb(var(--w-400))', hint: 'system prompt' },
   model:  { label: 'Model',  icon: '⬢', accent: 'text-sky-300',   border: 'border-sky-400/30',   wire: 'rgb(var(--i-400))', hint: 'LLM override' },
   toolbox:{ label: 'Toolbox', icon: '◇', accent: 'text-emerald-300', border: 'border-emerald-400/30', wire: 'rgb(var(--a-400))', hint: 'the tools the agent may use' },
@@ -98,14 +102,29 @@ const foldToolNodes = (nodes: BNode[], edges: BEdge[]): { nodes: BNode[]; edges:
   }
 }
 
-// Every agent carries one of each component — prompt, model, toolbox, memory —
-// and an unset one is not a missing one: an empty Toolbox IS the default
-// loadout (no restriction, every tool), an empty Model IS "use the console's
-// model". So a graph saved before a kind existed reopens with it wired in,
-// empty, rather than with that part of the agent invisible. Extra nodes of a
-// kind are fine; this only fills the gaps.
-const PART_KINDS: Exclude<NodeKind, 'agent'>[] = ['prompt', 'model', 'toolbox', 'memory']
-const PART_DATA: Record<Exclude<NodeKind, 'agent'>, () => Record<string, any>> = {
+// Every agent REQUIRES one of each integration — prompt, model, toolbox,
+// memory — wired into its node; that is what the agent template declares
+// (`requires` in src/agents/mod.py) and what save() enforces. An unset one is
+// still a wired one: an empty Toolbox IS the default loadout (no restriction,
+// every tool), an empty Model IS "use the console's model". So a graph saved
+// before a kind existed reopens with it wired in, empty, rather than with that
+// part of the agent missing. Extra nodes of a kind are fine; this only fills
+// the gaps.
+type PartKind = Exclude<NodeKind, 'agent'>
+const PART_KINDS: PartKind[] = ['prompt', 'model', 'toolbox', 'memory']
+// the agent node carries the list its template requires (from the server when
+// it was loaded); anything older, or a list the canvas can't wire, means all four
+const requiresOf = (src?: BNode | string[] | null): PartKind[] => {
+  const raw: string[] = Array.isArray(src) ? src : ((src?.data?.requires as string[]) || [])
+  const got = raw.filter((k): k is PartKind => (PART_KINDS as string[]).includes(k))
+  return got.length ? got : PART_KINDS
+}
+// where each required integration plugs into the agent node: one input port
+// per row of its REQUIRES block (the header is 43px, then name + description
+// rows, then the block's caption — see nodeBody)
+const AGENT_PORT_TOP = 158
+const AGENT_PORT_STEP = 22
+const PART_DATA: Record<PartKind, () => Record<string, any>> = {
   prompt: () => ({ text: '', promptId: '' }),
   model: () => ({ provider: 'openrouter', model: '' }),
   toolbox: () => ({ names: [] }),
@@ -117,7 +136,7 @@ const PART_DATA: Record<Exclude<NodeKind, 'agent'>, () => Record<string, any>> =
 const withParts = (nodes: BNode[], edges: BEdge[]): { nodes: BNode[]; edges: BEdge[] } => {
   const agent = nodes.find(n => n.kind === 'agent')
   if (!agent) return { nodes, edges }
-  const missing = PART_KINDS.filter(k => !nodes.some(n => n.kind === k))
+  const missing = requiresOf(agent).filter(k => !nodes.some(n => n.kind === k))
   if (!missing.length) return { nodes, edges }
   // stack the additions under the existing left column, clear of everything
   const x = Math.min(...nodes.map(n => n.x))
@@ -209,8 +228,6 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [paletteSearch, setPaletteSearch] = useState('')
-  // which sub-component is open inside the agent box (the encapsulated view)
-  const [openPart, setOpenPart] = useState<Exclude<NodeKind, 'agent'> | null>(null)
   // what's typed into a toolbox node's add-box — one at a time, since only the
   // node you're typing in is the one you're adding to
   const [boxSearch, setBoxSearch] = useState<{ id: string; q: string }>({ id: '', q: '' })
@@ -308,14 +325,15 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   }
 
   // ── graph construction ──
-  // A fresh canvas shows the agent's whole anatomy — every component kind wired
-  // in, none of them doing anything yet. Empty is the default in each case (no
-  // prompt, default model, every tool, no notes), so an untouched starter still
-  // compiles to exactly what it did when only prompt + toolbox were seeded.
+  // The template: one agent node with every integration it requires wired
+  // into its own port, none of them doing anything yet. Empty is the default
+  // in each case (no prompt, default model, every tool, no notes), so an
+  // untouched starter still compiles to exactly what it did when only
+  // prompt + toolbox were seeded — but unwire one and it will not save.
   const starterGraph = useCallback(() => {
     const agentId = nid()
     const ns: BNode[] = [
-      { id: agentId, kind: 'agent', x: 620, y: 300, data: { name: '', icon: '>_', description: '' } },
+      { id: agentId, kind: 'agent', x: 620, y: 300, data: { name: '', icon: '>_', description: '', requires: [...PART_KINDS] } },
       { id: nid(), kind: 'prompt', x: 90, y: 30, data: { text: '', promptId: '' } },
       // no model picked = the console's own model, so a starter agent isn't
       // silently pinned to whatever provider happens to be first
@@ -364,7 +382,9 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
       const agentId = nid()
       const agent: BNode = {
         id: agentId, kind: 'agent', x: 620, y: 300,
-        data: { name, icon: cfg.icon || '>_', description: cfg.description || '' },
+        // the template's own list of what must be wired in
+        data: { name, icon: cfg.icon || '>_', description: cfg.description || '',
+                requires: requiresOf(cfg.requires as string[] | undefined) },
       }
       // every component kind is wired in, set or not: a model the agent doesn't
       // override is an empty Model node (= the console's model), tools it
@@ -469,15 +489,23 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
 
   // the component of a kind this agent is actually built with: the one wired
   // in, else any of that kind on the canvas
-  const partOf = (kind: Exclude<NodeKind, 'agent'>) =>
+  const partOf = (kind: PartKind) =>
     nodes.find(n => n.kind === kind && connectedSources.includes(n.id))
     || nodes.find(n => n.kind === kind)
 
-  // a chip on the AGENT node jumps to the component it summarises — the one
-  // wired in, else any of that kind, else a new one added on the spot
-  const focusKind = (kind: Exclude<NodeKind, 'agent'>) => {
+  // a port row on the AGENT node jumps to the integration it summarises — the
+  // one wired in, else any of that kind (and wires it), else a new one added
+  // and wired on the spot
+  const focusKind = (kind: PartKind) => {
     const hit = partOf(kind)
-    if (hit) { setSelected(hit.id); return }
+    if (hit) {
+      setSelected(hit.id)
+      if (agentNode && !connectedSources.includes(hit.id)) {
+        setEdges(es => [...es, { id: nid(), from: hit.id, to: agentNode.id }])
+        setDirty(true)
+      }
+      return
+    }
     const at = clickPlace()
     addNode(kind, at.x, at.y)
   }
@@ -621,8 +649,11 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     // context for one run (passed when it is used) — same node, two lifetimes
     const memory = srcs.filter(n => n.kind === 'memory')
       .map(n => String(n.data.module || '').trim()).find(Boolean) || null
+    // the template's requirement: every one of these kinds wired into the agent
+    const requires = requiresOf(agent)
+    const missing = requires.filter(k => !srcs.some(n => n.kind === k))
     const slug = slugify(agent.data.name || '')
-    return { slug, agent, goal, toolNames, model, memory, memoryIds }
+    return { slug, agent, goal, toolNames, model, memory, memoryIds, requires, missing }
   }
 
   const save = async (): Promise<string | null> => {
@@ -630,6 +661,11 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     const c = compile()
     if ('error' in c) { flash(false, c.error!); return null }
     if (!c.slug) { flash(false, 'give the agent a name (on the AGENT node)'); return null }
+    if (c.missing.length) {
+      flash(false, `wire in ${c.missing.map(k => `a ${KIND_META[k].label}`).join(', ')} — the agent requires ${
+        c.requires.map(k => KIND_META[k].label.toLowerCase()).join(', ')}`)
+      return null
+    }
     const existing = agents.find(a => a.value === c.slug)
     if (!isHost && (existing?.builtin || (!existing && BUILTINS.has(c.slug)))) {
       flash(false, `"${c.slug}" is a built-in — pick a new name to save your version`); return null
@@ -705,7 +741,15 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
 
   // ── edge geometry ──
   const portOut = (n: BNode) => ({ x: n.x + wOf(n), y: n.y + 21 })
-  const portIn = (n: BNode) => ({ x: n.x, y: n.y + 21 })
+  // the agent node has one input port per integration it requires; a wire
+  // from a kind it doesn't list (or from anything else) lands on its header
+  const portIn = (n: BNode, from?: BNode) => {
+    if (n.kind === 'agent' && from && from.kind !== 'agent') {
+      const i = requiresOf(n).indexOf(from.kind as PartKind)
+      if (i >= 0) return { x: n.x, y: n.y + AGENT_PORT_TOP + i * AGENT_PORT_STEP }
+    }
+    return { x: n.x, y: n.y + 21 }
+  }
   const edgePath = (a: { x: number; y: number }, b: { x: number; y: number }) => {
     const c = Math.max(46, Math.abs(b.x - a.x) * 0.45)
     return `M ${a.x} ${a.y} C ${a.x + c} ${a.y}, ${b.x - c} ${b.y}, ${b.x} ${b.y}`
@@ -748,64 +792,51 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
           </div>
           <input value={n.data.description || ''} onChange={e => patchNode(n.id, { description: e.target.value })} placeholder="description"
             className="w-full bg-white/[0.05] border border-white/[0.09] rounded-md px-2 py-1.5 text-[11px] text-gray-300 outline-none placeholder:text-gray-600 focus:border-emerald-500/50 transition" />
-          {/* one chip per component, always all four — a component that isn't
-              set reads as its default rather than vanishing from the summary.
-              The agent BOX holds its components: clicking a chip opens that
-              component's editor inside this node, so an agent is one thing you
-              read and edit in place rather than four nodes you chase around
-              the canvas. ⤢ still pops it out to its own node on the canvas,
-              for anyone who'd rather wire it than nest it. */}
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            {([
-              { kind: 'prompt',  set: !!c.goal,               label: c.goal ? 'prompt ✓' : 'no prompt',
-                on: 'border-amber-400/30 text-amber-300/90 bg-amber-400/[0.06]',   hover: 'hover:border-amber-400/50' },
-              { kind: 'model',   set: !!c.model,              label: c.model ? String(c.model).split('/').pop() : 'default model',
-                on: 'border-sky-400/30 text-sky-300/90 bg-sky-400/[0.06]',         hover: 'hover:border-sky-400/50' },
-              { kind: 'toolbox', set: !!c.toolNames?.length,  label: c.toolNames?.length ? `${c.toolNames.length} tools` : 'every tool',
-                on: 'border-emerald-400/30 text-emerald-300/90 bg-emerald-400/[0.06]', hover: 'hover:border-emerald-400/50' },
-              { kind: 'memory',  set: !!(c.memory || c.memoryIds?.length),
-                label: [c.memory || 'default memory',
-                        c.memoryIds?.length ? `+${c.memoryIds.length} notes` : ''].filter(Boolean).join(' '),
-                on: 'border-violet-400/30 text-violet-300/90 bg-violet-400/[0.06]',    hover: 'hover:border-violet-400/50' },
-            ] as const).map(chip => {
-              const kind = chip.kind as Exclude<NodeKind, 'agent'>
-              const open = openPart === kind
+          {/* The agent is ONE node. Its template requires four integrations,
+              and each has its own input port here — a row per kind, the port
+              dot on the node's left edge in line with it. A wired row reads
+              what it's wired to; an unwired one reads "required" and save()
+              refuses until it isn't. Clicking a row jumps to that node (or
+              adds and wires one) — the integration is edited where it lives,
+              never inside this box. */}
+          <div className="pt-1">
+            <div className="h-[14px] mb-1 flex items-center gap-1.5 text-[9px] uppercase tracking-wider text-gray-600">
+              requires
+              {c.missing?.length
+                ? <span className="text-red-300/90 normal-case tracking-normal">{c.missing.length} unwired</span>
+                : <span className="text-emerald-400/70 normal-case tracking-normal">all wired</span>}
+            </div>
+            {(c.requires as PartKind[]).map(kind => {
+              const meta = KIND_META[kind]
+              const wired = !c.missing?.includes(kind)
+              const summary =
+                kind === 'prompt'  ? (c.goal ? `${String(c.goal).split(/\s+/).length} words` : 'empty — write one') :
+                kind === 'model'   ? (c.model ? String(c.model).split('/').pop() : 'console model') :
+                kind === 'toolbox' ? (c.toolNames?.length ? `${c.toolNames.length} tools` : 'every tool') :
+                [c.memory || 'default', c.memoryIds?.length ? `+${c.memoryIds.length} notes` : ''].filter(Boolean).join(' ')
               return (
-                <button key={chip.kind}
-                  onClick={() => setOpenPart(open ? null : kind)}
-                  title={`${KIND_META[kind].hint} — click to open it here${chip.set ? '' : ' (unset: the default applies)'}`}
-                  className={`text-[9px] px-1.5 py-0.5 rounded border transition ${chip.hover} ${
-                    open ? 'border-white/25 text-gray-200 bg-white/[0.08]'
-                         : chip.set ? chip.on : 'border-white/10 text-gray-600'}`}>
-                  {KIND_META[kind].icon} {chip.label}
+                <button key={kind} onClick={() => focusKind(kind)}
+                  title={wired
+                    ? `${meta.hint} — click to open its node`
+                    : `required: wire a ${meta.label} node into this port (click to add one)`}
+                  className={`relative w-full h-[22px] flex items-center gap-1.5 px-1.5 rounded-md text-[10px] transition border ${
+                    wired ? `${meta.border} bg-white/[0.02] hover:bg-white/[0.05]`
+                          : 'border-dashed border-red-400/40 bg-red-400/[0.05] hover:bg-red-400/[0.09]'}`}>
+                  <span
+                    className={`absolute -left-[17px] top-1/2 -translate-y-1/2 w-[14px] h-[14px] rounded-full border-2 border-surface-1 ${wired ? '' : 'animate-pulse'}`}
+                    style={wired
+                      ? { background: meta.wire, boxShadow: `0 0 8px ${meta.wire}` }
+                      : { background: 'rgb(248 113 113 / 0.25)', boxShadow: '0 0 0 1px rgb(248 113 113 / 0.6)' }}
+                    title={`${meta.label} port`} />
+                  <span className={`text-[11px] ${meta.accent}`}>{meta.icon}</span>
+                  <span className="text-[9px] uppercase tracking-wider text-gray-400">{meta.label}</span>
+                  <span className={`ml-auto truncate ${wired ? 'text-gray-300' : 'text-red-300/90'}`}>
+                    {wired ? summary : 'required'}
+                  </span>
                 </button>
               )
             })}
           </div>
-          {/* the opened component, rendered by the very same editor its own
-              node uses — one implementation, two places it can live */}
-          {openPart && (() => {
-            const part = partOf(openPart)
-            const meta = KIND_META[openPart]
-            return (
-              <div className={`rounded-lg border ${meta.border} bg-black/20 overflow-hidden`}>
-                <div className="flex items-center gap-1.5 px-2 py-1 border-b border-white/[0.06]">
-                  <span className={`text-[10px] ${meta.accent}`}>{meta.icon}</span>
-                  <span className="text-[10px] text-gray-400 uppercase tracking-wider">{meta.label}</span>
-                  <span className="text-[9px] text-gray-600 truncate">{meta.hint}</span>
-                  <button onClick={() => { setOpenPart(null); focusKind(openPart) }}
-                    className="ml-auto text-[10px] text-gray-600 hover:text-gray-300 transition shrink-0"
-                    title="Open this component as its own node on the canvas">⤢</button>
-                </div>
-                {part ? nodeBody(part) : (
-                  <button onClick={() => { const at = clickPlace(); addNode(openPart, at.x, at.y) }}
-                    className="w-full px-2 py-2 text-[10px] text-gray-500 hover:text-gray-300 transition text-left">
-                    + add a {meta.label.toLowerCase()} component
-                  </button>
-                )}
-              </div>
-            )
-          })()}
         </div>
       )
     }
@@ -1028,7 +1059,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   // top so none of them is buried in a menu.
   const MODES: { key: 'browse' | 'agent' | 'task'; icon: string; label: string; hint: string }[] = [
     { key: 'browse', icon: '✦', label: 'Browse', hint: 'every agent in the registry — each one a folder of code under src/agents/' },
-    { key: 'agent', icon: '◆', label: 'Agent', hint: 'a prompt, a model, a toolbox and memory — wired into an agent' },
+    { key: 'agent', icon: '◆', label: 'Agent', hint: 'one agent node — it requires a prompt, a model, a toolbox and memory wired in' },
     { key: 'task', icon: '◎', label: 'Task', hint: 'write what the agents are scored on — drafted for you, if you like' },
   ]
   const modeBar = (
@@ -1222,8 +1253,8 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
                 const from = nodes.find(n => n.id === e.from)
                 const to = nodes.find(n => n.id === e.to)
                 if (!from || !to) return null
-                const color = from.kind === 'agent' ? 'rgb(var(--a-400))' : KIND_META[from.kind as Exclude<NodeKind, 'agent'>].wire
-                const d = edgePath(portOut(from), portIn(to))
+                const color = from.kind === 'agent' ? 'rgb(var(--a-400))' : KIND_META[from.kind as PartKind].wire
+                const d = edgePath(portOut(from), portIn(to, from))
                 return (
                   <g key={e.id} className="pointer-events-auto">
                     <path d={d} stroke="transparent" strokeWidth={14} fill="none" className="cursor-pointer"
@@ -1237,7 +1268,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
               {connecting && (() => {
                 const from = nodes.find(n => n.id === connecting.from)
                 if (!from) return null
-                const color = KIND_META[from.kind as Exclude<NodeKind, 'agent'>]?.wire || 'rgb(var(--a-400))'
+                const color = KIND_META[from.kind as PartKind]?.wire || 'rgb(var(--a-400))'
                 return <path d={edgePath(portOut(from), { x: connecting.mx, y: connecting.my })}
                   style={{ stroke: color }} strokeWidth={1.8} strokeDasharray="5 4" fill="none" opacity={0.85} />
               })()}
@@ -1248,7 +1279,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
           <div className="absolute inset-0" style={{ transform: `translate(${viewport.x}px,${viewport.y}px) scale(${viewport.k})`, transformOrigin: '0 0', pointerEvents: 'none' }}>
             {nodes.map(n => {
               const isAgent = n.kind === 'agent'
-              const meta = isAgent ? null : KIND_META[n.kind as Exclude<NodeKind, 'agent'>]
+              const meta = isAgent ? null : KIND_META[n.kind as PartKind]
               const sel = selected === n.id
               return (
                 <div
@@ -1280,6 +1311,15 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
                         unwired
                       </span>
                     )}
+                    {isAgent && (() => {
+                      const missing = (compile() as any).missing as PartKind[] | undefined
+                      return missing?.length ? (
+                        <span className="text-[8px] px-1 py-0.5 rounded bg-red-400/[0.08] text-red-300/90 border border-red-400/30"
+                          title={`Won't save until wired: ${missing.map(k => KIND_META[k].label).join(', ')}`}>
+                          requires {missing.length}
+                        </span>
+                      ) : null
+                    })()}
                     <span className="ml-auto" />
                     {!isAgent && (
                       <button
@@ -1294,13 +1334,8 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
 
                   {nodeBody(n)}
 
-                  {/* ports */}
-                  {isAgent ? (
-                    <div
-                      className="absolute -left-[7px] top-[14px] w-[14px] h-[14px] rounded-full bg-emerald-400 border-2 border-surface-1 shadow-[0_0_8px_rgb(var(--glow)/0.7)]"
-                      title="Input — drop wires here"
-                    />
-                  ) : (
+                  {/* ports — the agent's are its REQUIRES rows (see nodeBody) */}
+                  {isAgent ? null : (
                     <div
                       className={`absolute -right-[7px] top-[14px] w-[14px] h-[14px] rounded-full border-2 border-surface-1 cursor-crosshair hover:scale-125 transition-transform ${connected(n.id) ? '' : 'animate-pulse'}`}
                       style={{ background: meta!.wire, boxShadow: `0 0 8px ${meta!.wire}` }}
@@ -1325,7 +1360,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
 
           {/* hints */}
           <div className="absolute bottom-3 left-3 text-[10px] text-gray-700 select-none pointer-events-none space-y-0.5">
-            <div>drag nodes from the palette · wires connect into the <span className="text-emerald-500/80">agent</span></div>
+            <div>one <span className="text-emerald-500/80">agent</span> node · it requires a prompt, a model, a toolbox and memory — one port each</div>
             <div>drag a port ● to rewire · click a wire to disconnect · scroll to zoom · drag canvas to pan</div>
           </div>
           <div className="absolute top-3 right-3 text-[10px] text-gray-700 font-mono select-none pointer-events-none">

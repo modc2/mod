@@ -89,7 +89,7 @@ class Agent:            # agents/<name>/mod.py
 ```bash
 POST /run  {"query": "…", "memory": "ephemeral"}
 GET  /memory/modules       # what an agent can be built with
-GET  /parts                # the whole box: model, memory, toolbox, tools, prompt
+GET  /parts                # the whole box: requires, model, memory, toolbox, tools, prompt
 ```
 
 A dotted name (`agent.memory`, or another mod entirely) is resolved through

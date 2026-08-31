@@ -290,7 +290,7 @@ body::after {
   /* Glassmorphic surface — translucent fill + gradient sheen + depth shadow.
      The hairline top-highlight is what sells the "lit glass" look. */
   .panel {
-    @apply rounded-lg border border-white/[0.07] bg-white/[0.025] bg-panel-grad
+    @apply rounded-lg border border-white/[0.08] bg-white/[0.025] bg-panel-grad
            shadow-panel backdrop-blur-xl;
   }
   .panel-hover {
@@ -344,7 +344,25 @@ body::after {
   .label {
     @apply block text-[10px] font-medium uppercase tracking-[0.14em] text-dim mb-1.5;
   }
+  /* Inline eyebrow — same voice as .label without the block/margin, for
+     tile captions, field captions and table heads. */
+  .eyebrow {
+    @apply text-[10px] font-medium uppercase tracking-[0.14em] text-dim;
+  }
+  /* Ghost call-to-action for repeated row actions: accent outline at rest,
+     fills to the primary gradient when its `group` row is hovered. Fifty
+     solid buttons in a column shout; fifty outlines read as one column. */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1 text-xs
+           font-semibold uppercase tracking-wider rounded-md text-accent
+           border border-accent/25 bg-accent/[0.04] transition-all duration-150
+           hover:bg-accent-grad hover:text-bg hover:border-transparent hover:shadow-glow
+           group-hover:bg-accent-grad group-hover:text-bg group-hover:border-transparent group-hover:shadow-glow
+           active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none;
+  }
   .table-row { @apply border-b border-white/[0.05] transition-colors; }
+  /* Table head strip — a touch of fill so the header reads as a header. */
+  .table-head { @apply border-b border-white/[0.07] bg-white/[0.015]; }
   .stat { @apply text-xs text-muted uppercase tracking-wider; }
   .num { @apply font-mono tabular-nums; }
 

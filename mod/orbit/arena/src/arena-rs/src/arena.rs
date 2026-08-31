@@ -368,7 +368,19 @@ pub fn put_class(args: &Value) -> Result<Value, String> {
 }
 
 pub fn module_bytes(key: &str) -> Result<(String, Vec<u8>), String> {
+    // A module by id, prefix or name — and failing that, the readable source
+    // kept beside a compiled module, which is a blob of its own under its own
+    // hash. `source_id` is on every module card, so it has to be fetchable;
+    // it was not, and the link on the console's code card was dead.
     let id = store::read(|s| s.module(key).map(|m| m.id.clone()))
+        .or_else(|| {
+            store::read(|s| {
+                s.modules
+                    .values()
+                    .find(|m| !m.src.is_empty() && (m.src == key || m.src.starts_with(key)))
+                    .map(|m| m.src.clone())
+            })
+        })
         .ok_or_else(|| format!("no module `{key}`"))?;
     let bytes = blobs::get(&id)?;
     Ok((id, bytes))
@@ -560,6 +572,20 @@ pub fn enter_player(args: &Value) -> Result<Value, String> {
         }
         "http" => {
             config.get("url").and_then(|v| v.as_str()).ok_or("an http player needs config.url")?;
+        }
+        // A module of this fleet in a seat. It is named, not addressed — the
+        // gateway is what turns a name into a running module, including one
+        // that is currently asleep.
+        "mcp" => {
+            let named = ["module", "server", "url"]
+                .iter()
+                .any(|k| config.get(*k).and_then(|v| v.as_str()).map(|s| !s.trim().is_empty()).unwrap_or(false));
+            if !named {
+                return Err("an mcp player needs config.module — a module of this fleet, e.g. \
+                            {\"module\":\"agent\",\"tool\":\"agent_run\"} — or a configured \
+                            `server`, or a `url`"
+                    .into());
+            }
         }
         _ => {}
     }

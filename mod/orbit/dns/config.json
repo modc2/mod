@@ -1,7 +1,7 @@
 {
     "name": "dns",
     "version": "1.0.0",
-    "description": "The name layer of the mod protocol. Derives a zone from the module fleet \u2014 one name per routed module plus the apex, the wildcard and the nameservers \u2014 serves it authoritatively over UDP and TCP, and publishes what the protocol attributes each module to (the owner address it declares, its schema CID, and the key this box signs its module cards with) as _mod TXT records beside the address the name resolves to. Resolves a module name, a hostname, a gateway path or a whole URL into the app, API and MCP addresses behind it, checks what it holds against what a public resolver actually returns, and tells anyone who asks how to run the protocol on a host of their own. Reads are open; every change is attributed to a signed mod-protocol address, with the system zone reserved to the deployment owner and every other zone owned by whoever registered it. A REST API, a browser console, a CLI and 28 MCP tools run the same functions on one port.",
+    "description": "The name layer of the mod protocol. Derives a zone from the module fleet \u2014 one name per routed module plus the apex, the wildcard and the nameservers \u2014 serves it authoritatively over UDP and TCP, and publishes what the protocol attributes each module to (the owner address it declares, its schema CID, and the key this box signs its module cards with) as _mod TXT records beside the address the name resolves to. Resolves a module name, a hostname, a gateway path or a whole URL into the app, API and MCP addresses behind it, checks what it holds against what a public resolver actually returns, and tells anyone who asks how to run the protocol on a host of their own. Reads are open, but the IP addresses in them are private: every HTTP and MCP response masks them (x.x.x.x) unless the caller is the deployment owner. Every change is attributed to a signed mod-protocol address, with the system zone reserved to the deployment owner and every other zone owned by whoever registered it. A REST API, a browser console, a CLI and 28 MCP tools run the same functions on one port.",
     "icon": "\u25c8",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
@@ -36,6 +36,7 @@
         "server.py": "the authoritative listener \u2014 UDP and TCP, wildcards, CNAME chasing, NODATA vs NXDOMAIN",
         "resolver.py": "a mod name in, every address out; the diff against what a public resolver returns; the plan for running the protocol on your own host",
         "identity.py": "who is calling \u2014 one mod-protocol token, three standings (owner, holder, anon)",
+        "privacy.py": "who gets to see an address \u2014 every JSON response leaves through one masking pass: IPs become x.x.x.x unless the caller is the deployment owner (settings.private_ips)",
         "ops.py": "the operation catalog and the append-only change log",
         "guide.py": "the guide \u2014 the beginner surface: a setup checklist scored against the live box, a glossary that says what each word points at here, and plain-word questions matched to hand-written answers grounded in a real lookup. No model",
         "actions.py": "the operations themselves \u2014 the REST API, the MCP tools and the CLI all call these"
@@ -371,7 +372,7 @@
     "standings": {
         "owner": "the deployment owner \u2014 the system zone (the protocol host itself), the settings, the listener and the router sync. Claimed by the first signed caller.",
         "holder": "any signed caller \u2014 registers and fully owns their own host and every record in it, with no permission needed from the owner",
-        "anon": "reads everything: zones, records, the resolver, the change log. Changes nothing."
+        "anon": "reads everything: zones, records, the resolver, the change log — with IP addresses masked. Changes nothing."
     },
     "env": {
         "PORT": "API, console and MCP port (default 5380)",

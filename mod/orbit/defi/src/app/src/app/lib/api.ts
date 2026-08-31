@@ -1,6 +1,6 @@
 "use client";
 
-import type { Catalog, Graph, Plan, Prompt, Protocol, Report } from "./types";
+import type { Audit, Catalog, Graph, Plan, Prompt, Protocol, Report } from "./types";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "/defi";
 const CONFIGURED = process.env.NEXT_PUBLIC_API_URL || "";
@@ -115,7 +115,10 @@ async function call<T>(
 // ── reads ──────────────────────────────────────────────────────────────────
 
 export const getCatalog = () => call<Catalog>("/catalog");
-export const getBlock = (id: string) => call<{ block: any; artifact: any }>(`/catalog/${id}`);
+export const getBlock = (id: string) =>
+  call<{ block: any; artifact: any; audit: Audit | null }>(`/catalog/${id}`);
+export const getAudit = (id: string) => call<Audit>(`/catalog/${id}/audit`);
+export const getAudits = () => call<any>("/audits");
 export const getCompileStatus = () => call<any>("/compile/status");
 export const getProtocols = () => call<{ protocols: Protocol[] }>("/protocols");
 export const getProtocol = (id: string) => call<{ protocol: Protocol }>(`/protocols/${id}`);
@@ -275,3 +278,46 @@ export const claimPayout = (body: Record<string, any>) =>
 
 export const registerHolder = (body: Record<string, any>) =>
   call<any>("/treasury/register", { method: "POST", body: JSON.stringify(body) });
+
+// ── the hub ─────────────────────────────────────────────────────────────────
+// The curated front door: hand-vetted protocols joined live with the index.
+
+export const getHub = (params: Record<string, any> = {}) => call<any>(`/hub${qs(params)}`);
+
+export const getHubProtocol = (id: string) => call<any>(`/hub/${encodeURIComponent(id)}`);
+
+// ── modular finance ────────────────────────────────────────────────────────
+// Every place money can go, as a module with its own returns, liquidity and
+// conditions; and the positions that went in through here. Reads are open.
+// Entering and leaving carry the chain module's bearer, forwarded untouched.
+
+export const getModules = (params: Record<string, any> = {}) =>
+  call<any>(`/modules${qs(params)}`);
+
+export const getModuleFacets = () => call<any>("/modules/facets");
+
+export const getModule = (id: string, history = true) =>
+  call<any>(`/modules/${encodeURIComponent(id)}?history=${history ? 1 : 0}`);
+
+export const quoteModule = (id: string, body: Record<string, any>) =>
+  call<any>(`/modules/${encodeURIComponent(id)}/quote`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const enterModule = (body: Record<string, any>) =>
+  call<any>("/positions", { method: "POST", body: JSON.stringify(body) });
+
+export const getPositions = () => call<any>("/positions");
+
+export const exitPosition = (id: string, body: Record<string, any>) =>
+  call<any>(`/positions/${encodeURIComponent(id)}/exit`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const positionValue = (id: string) =>
+  call<any>(`/positions/${encodeURIComponent(id)}/value`);
+
+export const forgetPosition = (id: string) =>
+  call<any>(`/positions/${encodeURIComponent(id)}`, { method: "DELETE" });

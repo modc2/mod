@@ -32,6 +32,43 @@ export type BlockSpec = {
   ctor: string[];
   wires?: { when: string; method: string; note?: string }[];
   source?: string;
+  audit?: AuditSummary;
+};
+
+export type Severity = "critical" | "high" | "medium" | "low" | "info";
+
+/** The verdict every block carries in the catalog. */
+export type AuditSummary = {
+  risk: Severity | "unknown";
+  counts: Partial<Record<Severity, number>>;
+  findings: number;
+  audited_at?: string;
+  auditor?: string;
+  worst?: { id: string; severity: Severity; title: string } | null;
+};
+
+export type AuditFinding = {
+  id: string;
+  severity: Severity;
+  title: string;
+  where: string;
+  detail: string;
+  exploit: string;
+  recommendation: string;
+};
+
+/** The full agent audit of one block — GET /catalog/{id}/audit. */
+export type Audit = {
+  block: string;
+  contract: string;
+  file: string;
+  audited_at: string;
+  auditor: string;
+  risk: Severity;
+  summary: string;
+  counts: Partial<Record<Severity, number>>;
+  findings: AuditFinding[];
+  safe_use: string[];
 };
 
 export type Template = {

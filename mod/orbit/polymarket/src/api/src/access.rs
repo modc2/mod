@@ -159,6 +159,18 @@ impl AccessStore {
         hex::encode(Sha256::digest(TERMS_TEXT.as_bytes()))
     }
 
+    /// The resolved owner EOA (lowercased), if any. Signed copy-desk actions
+    /// (copy_actions.rs) check recovered signers against it.
+    pub fn owner(&self) -> Option<&str> {
+        self.owner.as_deref()
+    }
+
+    /// HMAC nonce for a signed-action challenge — stateless like the sign-in
+    /// nonce: recomputable at verify time from the same fields.
+    pub fn action_nonce(&self, data: &str) -> String {
+        self.hmac_hex(data)[..16].to_string()
+    }
+
     fn hmac_hex(&self, data: &str) -> String {
         let mut mac = HmacSha256::new_from_slice(&self.secret).expect("hmac key");
         mac.update(data.as_bytes());
@@ -263,7 +275,7 @@ fn eip191_digest(message: &str) -> [u8; 32] {
 
 /// Recover the signer address from a 65-byte (r||s||v) hex signature over
 /// an EIP-191 personal_sign digest. Accepts v ∈ {0,1,27,28}.
-fn recover_address(message: &str, sig_hex: &str) -> Option<String> {
+pub(crate) fn recover_address(message: &str, sig_hex: &str) -> Option<String> {
     let raw = hex::decode(sig_hex.trim_start_matches("0x")).ok()?;
     if raw.len() != 65 {
         return None;
