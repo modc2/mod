@@ -45,7 +45,7 @@ import { useCopyBook } from "../lib/useCopyBook";
 import type { CopyBookRow } from "../lib/copyBook";
 import { identityStrat, shortAddress } from "../lib/identityStrat";
 import { useHubBacktests, HUB_WINDOWS, type HubBacktest } from "../lib/hubBacktest";
-import { confirmGoLive, type TradingMode } from "../lib/tradingMode";
+import { MODE, MODES, confirmGoLive, type TradingMode } from "../lib/tradingMode";
 import { type CompiledGate } from "../lib/semanticFilter";
 import { confirmGate, gatePatch } from "../lib/armGate";
 import CopyTradesPanel from "./CopyTradesPanel";
@@ -192,7 +192,7 @@ function CopyBookBody() {
             title={`${running} session(s) running, ${totals?.executing ?? 0} of them placing real orders`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-            {running} RUNNING{(totals?.executing ?? 0) > 0 ? ` · ${totals?.executing} LIVE` : " · TEST"}
+            {running} RUNNING{(totals?.executing ?? 0) > 0 ? ` · ${totals?.executing} ${MODE.LIVE.label}` : ` · ${MODE.TEST.label}`}
           </span>
         ) : (
           <span className="text-[9.5px] font-mono text-pixel-gray">NOT RUNNING</span>
@@ -412,7 +412,7 @@ function Section({
   );
 }
 
-/** TEST | LIVE, one implementation. The law lives in lib/tradingMode.ts. */
+/** PAPER | REAL, one implementation. The law lives in lib/tradingMode.ts. */
 function ModeSwitch({
   mode, canGoLive, onPick, disabled,
 }: {
@@ -423,7 +423,7 @@ function ModeSwitch({
 }) {
   return (
     <div className="inline-flex items-center rounded-[3px] border border-pixel-border/70 p-[1px] gap-[1px] shrink-0">
-      {(["TEST", "LIVE"] as TradingMode[]).map((m) => {
+      {MODES.map((m) => {
         const active = m === mode;
         const locked = disabled || (m === "LIVE" && !canGoLive);
         return (
@@ -448,7 +448,7 @@ function ModeSwitch({
                   : "Watch and log — no orders placed"
             }
           >
-            {m}
+            {MODE[m].label}
           </button>
         );
       })}

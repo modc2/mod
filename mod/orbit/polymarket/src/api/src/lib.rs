@@ -4,6 +4,7 @@ pub mod proxy;
 pub mod pipeline;
 pub mod cache;
 pub mod categories;
+pub mod fees;
 pub mod types;
 pub mod first_trade;
 pub mod strats;
@@ -20,6 +21,8 @@ pub mod live_engine;
 pub mod sync;
 pub mod copy;
 pub mod copy_actions;
+pub mod sentiment;
+pub mod settled;
 
 use std::sync::Arc;
 

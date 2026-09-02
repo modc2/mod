@@ -48,11 +48,39 @@ to the flat `price_per_step`, so nothing runs free by accident.
 Tallies are per-thread — one Mod instance serves every concurrent run —
 and a chain accumulates across its stages, billed once at the end.
 
+## What a call costs, while it is being spent
+
+A price you only learn from the treasury is a price nobody watches, so
+every run reports its own — billed or not. An owner run costs real money
+on the provider key; it is just not charged to a ledger.
+
+The meter keeps one row per model call (`Meter.last()`, read once and
+cleared) and the loop hands it to the run's `on_usage` callback the
+moment the call resolves — a failed call included, since it burned the
+tokens it burned. From there:
+
+- **the stream** — `/run/stream` emits `{"type": "usage", "usage": {...}}`
+  after each call: `{call, step, model, cost, total, prompt_tokens,
+  completion_tokens, priced}`.
+- **the task row** — every run is a task, and the calls accumulate on it
+  (`cost`, `tokens`, `calls[]`), so `GET /tasks/{id}` answers the same
+  question after the fact.
+- **the answer** — `/run` and the stream's `done` event carry a `usage`
+  block (total, calls, tokens, model, `charged`, and the per-call rows),
+  which is the line the console prints under the message that spent it,
+  counting up while the run is still going.
+- **MCP** — `agent_run` returns the same `usage` block.
+
+`priced: false` means the model isn't in the provider's catalog, so the
+run falls back to `price_per_step` and the console says *unpriced model*
+rather than showing a `$0.00` that would read as free.
+
 ## Who pays
 
 | caller | billed |
 | --- | --- |
 | module owner | never — own key, own money |
+| co-owner | never — the owner's key, the owner's money |
 | guest, spend toggle ON | metered cost + `fee_rate`, clamped to balance |
 | guest, spend toggle OFF | nothing — the run is pinned to free models |
 
@@ -60,6 +88,33 @@ A charge is clamped to the balance and the clamped amount is split on the
 same ratio, so the books still say how much of what was collected is owed
 to the providers. An account never goes negative, and a zero balance
 closes the run gate again (`is_allowed`).
+
+## Co-owners
+
+The owner can hand another address the same standing:
+
+```
+POST /owners {op: "add", address: "0x…", key: <owner token>}
+POST /owners {op: "rm",  address: "0x…", key: <owner token>}
+GET  /owners?key=…            the owner and every co-owner
+GET  /owner                   public: owner + co-owner addresses
+```
+
+A co-owner passes every `is_owner()` gate — admin routes, the treasury,
+the harness agents — and their credit account is an **alias** of the
+owner's: one ledger entry, one balance, one history, whichever of them
+spends it. They run on the owner's provider key unbilled, exactly as the
+owner does, and a deposit either of them sends lands on the same account.
+
+Adding one is handing the module over, so it is the single thing a
+co-owner cannot do: only the primary owner may add or remove them. The
+list is private auth state — `~/.mod/agent/owner.json` (`co_owners`), or
+`AGENT_CO_OWNERS` as a comma-separated list where no writable home
+exists — never the committed config.
+
+```json
+{"owner": "0x89bc…", "co_owners": ["0xd779…"]}
+```
 
 ## The books
 
@@ -164,6 +219,8 @@ POST /credits/topup/verify    owner: book what landed on a key {provider}
 POST /credits/withdraw        owner: take earned margin out {amount}
 POST /credits/config          owner: {fee_rate, price_per_step, cost_multiplier,
                                       deposit_address}
+GET  /owners                  owner: the owner and every co-owner
+POST /owners                  primary owner: add/remove a co-owner {op, address}
 ```
 
 The same actions exist on the mod protocol: `agent credit_deposit

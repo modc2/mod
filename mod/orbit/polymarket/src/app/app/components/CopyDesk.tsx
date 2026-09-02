@@ -841,7 +841,7 @@ function TraderView({
   onView: (v: string) => void;
 }) {
   const word = (r: CopyBookRow) =>
-    !r.enabled ? "PAUSED" : r.live?.running ? (r.live.autoExecute ? "LIVE" : "TEST") : "OFF";
+    !r.enabled ? "PAUSED" : r.live?.running ? MODE[modeOf(r.live.autoExecute)].label : "OFF";
   return (
     <div className="pixel-panel p-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
       <label className="font-mono text-[9px] tracking-[0.14em] text-pixel-gray">TRADER</label>
@@ -1158,7 +1158,18 @@ function LeaderChip({ leader }: { leader: TopTrader | null | undefined }) {
           <span className={leader.pnl > 0 ? "text-pixel-green" : leader.pnl < 0 ? "text-red-400" : "text-pixel-gray"}>
             {formatPnl(leader.pnl)}
           </span>
-          <span className="text-pixel-gray-light">{leader.winRate < 0 ? "—" : `${Math.round(leader.winRate)}%`} win</span>
+          <span
+            className="text-pixel-gray-light"
+            title={
+              leader.winRate < 0
+                ? "No positions settled in this window yet."
+                : `Of ${leader.decidedPositions} position(s) that settled in this window.`
+            }
+          >
+            {leader.winRate < 0
+              ? "— win"
+              : `${Math.round(leader.winRate)}% win of ${leader.decidedPositions}`}
+          </span>
           <span className="text-pixel-gray-light">{leader.recentTrades.toLocaleString()} trades</span>
           <span className="text-pixel-gray">
             last {leader.lastTradeTs ? timeAgo(leader.lastTradeTs * 1000) : "—"}

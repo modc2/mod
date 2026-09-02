@@ -3,7 +3,8 @@
 import { Suspense, useEffect, useRef, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  fetchWalletTradesUntil, fetchPositions, TopTrader, MAX_LOOKBACK_DAYS,
+  fetchWalletTradesUntil, fetchPositions, fetchClosedPositions,
+  TopTrader, ClosedPosition, MAX_LOOKBACK_DAYS,
 } from "../../lib/polymarket";
 import { PolymarketTrade, PolymarketPosition, TradeFilters } from "../../lib/types";
 import TraderProfile from "../../components/TraderProfile";
@@ -139,6 +140,7 @@ function TraderPageInner() {
 
   const [trades, setTrades] = useState<PolymarketTrade[]>([]);
   const [positions, setPositions] = useState<PolymarketPosition[]>([]);
+  const [settled, setSettled] = useState<ClosedPosition[] | null>(null);
   const [loading, setLoading] = useState(true);
   // Non-null when the /activity sync ultimately failed (e.g. upstream
   // rate-limit) — the UI must say so instead of rendering $0 stats that
@@ -174,6 +176,7 @@ function TraderPageInner() {
       prevAddress.current = address;
       setTrades([]);
       setPositions([]);
+      setSettled(null);
       setProgress({ pages: 0, totalTrades: 0, oldestMs: 0, done: false });
     }
     setLoading(true);
@@ -215,6 +218,20 @@ function TraderPageInner() {
         if (!cancelled) setLoading(false);
       });
 
+    // The SETTLED book — one row per position the market has finished
+    // deciding, with realized P&L. It is the only source that contains the
+    // losers: a position that expires worthless leaves no sell and no
+    // redeem, so a win rate counted off the trade feed can only see winners.
+    // `null` stays "unknown" so a failed fetch never renders as a rate.
+    fetchClosedPositions(address)
+      .then((c) => {
+        if (!cancelled) setSettled(c);
+      })
+      .catch(() => {
+        // Leave it null — the profile shows "—" rather than the
+        // exit-only number, which reads high by construction.
+      });
+
     // Fetch positions independently — failure here won't touch trades
     fetchPositions(address)
       .then((p) => {
@@ -243,6 +260,7 @@ function TraderPageInner() {
       sellVolume,
       pnl: 0,
       winRate: -1,
+      decidedPositions: 0,
       sharpe: 0,
       exitEntry: -1,
       positions: positions.length,
@@ -306,6 +324,7 @@ function TraderPageInner() {
           trader={trader}
           trades={trades}
           positions={positions}
+          settled={settled}
           loading={loading && trades.length === 0}
           tradesError={tradesError}
           feedDepthCapped={progress.depthCapped === true}

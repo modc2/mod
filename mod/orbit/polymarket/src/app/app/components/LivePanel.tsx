@@ -946,7 +946,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                 isLive
                   ? "Stop the engine. Open positions are left alone."
                   : canStart
-                    ? `Start the copy engine in ${mode} — ${MODE[mode].meaning}` +
+                    ? `Start the copy engine on ${MODE[mode].label} — ${MODE[mode].meaning}` +
                       (canGoLive ? "" : `. Mirrors are sized against $${paperCapital} of simulated capital.`)
                     : "Complete the checklist above to enable"
               }
@@ -956,7 +956,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                   : "border-green-400 text-green-400 hover:bg-green-400/10 disabled:opacity-30 disabled:cursor-not-allowed"
               }`}
             >
-              {isLive ? "STOP" : `START · ${mode}`}
+              {isLive ? "STOP" : `START · ${MODE[mode].label}`}
             </button>
           </div>
         </div>
@@ -1102,7 +1102,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
           // TEST against paper sizing (the strat's backtest capital). It DOES
           // block LIVE, which is what the switch's locked segment says, so the
           // pill names the same condition in the same words.
-          { ok: true, label: canGoLive ? "CAPITAL" : "CAPITAL — TEST ONLY", action: null },
+          { ok: true, label: canGoLive ? "CAPITAL" : `CAPITAL — ${MODE.TEST.label} ONLY`, action: null },
         ];
         const okCount = items.filter((i) => i.ok).length;
         return (
@@ -2054,7 +2054,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                   <div className="px-3 py-1.5 border-b border-pixel-border/40 flex items-center gap-2 flex-wrap bg-pixel-black/20">
                     <span
                       className="text-[11px] font-mono tracking-[0.14em] text-cyan-300 shrink-0"
-                      title="My ACTUAL executed trades — on-chain fills pulled from Polymarket for the wallet the engine trades through. Ground truth: survives restarts, and stays empty in TEST mode no matter how busy the left column looks."
+                      title="My ACTUAL executed trades — on-chain fills pulled from Polymarket for the wallet the engine trades through. Ground truth: survives restarts, and stays empty on PAPER no matter how busy the left column looks."
                     >
                       THE TRADES I MADE
                     </span>
@@ -2075,9 +2075,9 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                   {!autoExecute && (
                     <div
                       className="px-3 py-1 border-b border-pixel-border/30 text-[11px] font-mono text-amber-400"
-                      title={MODE.TEST.active + " No fills can appear here until the header switch is flipped to LIVE."}
+                      title={MODE.TEST.active + ` No fills can appear here until the header switch is flipped to ${MODE.LIVE.label}.`}
                     >
-                      TEST ○ — copies are simulated, so this column stays empty
+                      {MODE.TEST.label} {MODE.TEST.dot} — copies are simulated, so this column stays empty
                     </div>
                   )}
 

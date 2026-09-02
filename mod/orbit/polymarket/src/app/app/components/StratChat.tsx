@@ -145,7 +145,7 @@ async function liveContext(strat: SavedIndex, eoa: string | null): Promise<strin
     // Same two words the console shows, so the assistant's answer and the
     // header switch can't describe the same session differently.
     return [
-      `Running: ${s.running ? "yes" : "no"}. Mode: ${s.config?.autoExecute ? "LIVE (real orders)" : "TEST (no orders placed)"}.`,
+      `Running: ${s.running ? "yes" : "no"}. Mode: ${s.config?.autoExecute ? "REAL (real orders)" : "PAPER (no orders placed)"}.`,
       `Cycles: ${st.cycleCount ?? 0}. Orders placed: ${st.totalOrdersPlaced ?? 0}. Account value: ${st.accountValue == null ? "unknown" : `$${st.accountValue.toFixed(2)}`}.`,
       `Open positions: ${Object.keys(st.positions ?? {}).length}.`,
     ].join("\n");

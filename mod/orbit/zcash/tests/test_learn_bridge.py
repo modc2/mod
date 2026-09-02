@@ -22,7 +22,7 @@ sys.path.insert(0, _ROOT)
 
 os.environ.setdefault("ZCASH_WALLET_DIR", tempfile.mkdtemp())
 
-from zcash import agent, bridge, learn, sapling  # noqa: E402
+from zcash import agent, bridge, keys as _keys, learn, sapling  # noqa: E402
 
 live = pytest.mark.live
 
@@ -30,6 +30,9 @@ _XSK = sapling.ExtendedSpendingKey.from_seed(bytes(range(32)))
 _Z_ADDRESS = _XSK.address(0).encode()
 _SAPLING_RAW = sapling.decode_payment_address(_Z_ADDRESS).raw
 _T_HASH160 = bytes(range(20))
+# A real, checksum-valid t-address (derived, never funded): the fallback route
+# quotes to one, so a test of that route needs one the router will accept.
+_T_ADDRESS = _keys.derive_account(bytes(range(32)) * 2).address()
 
 _SAPLING_ONLY_UA = sapling.encode_unified_address(
     [(sapling.TYPECODE_SAPLING, _SAPLING_RAW)])
@@ -126,6 +129,135 @@ def test_plan_reports_out_as_unsupported_without_a_node():
     assert bridge.shielded_plan(has_node=False)["out"]["supported"] is False
     assert bridge.shielded_plan(has_node=True)["out"]["supported"] is True
     assert bridge.shielded_plan(has_node=False)["in"]["supported"] is True
+
+
+# ── The router refusing a z-address ─────────────────────────────────────────
+
+# Offline twins of the live test above: the fallback is now load-bearing, and
+# it must not be exercised for the first time on the day the router changes.
+
+def _reject(msg):
+    def fake_quote(*a, **k):
+        raise bridge.BridgeError(f"1Click rejected the quote: {msg}")
+    return fake_quote
+
+
+def test_recipient_rejection_becomes_its_own_exception(monkeypatch):
+    monkeypatch.setattr(bridge, "quote", _reject("recipient is not valid"))
+    with pytest.raises(bridge.ShieldedRouteUnavailable) as e:
+        bridge.shielded_quote("eth:USDC", 25, _Z_ADDRESS, "0x" + "11" * 20)
+    assert "transparent" in str(e.value)
+
+
+def test_other_router_refusals_are_not_dressed_up_as_a_shielded_outage(monkeypatch):
+    """A complaint about refundTo is a different bug and must stay one."""
+    monkeypatch.setattr(bridge, "quote", _reject("refundTo is not valid"))
+    with pytest.raises(bridge.BridgeError) as e:
+        bridge.shielded_quote("eth:USDC", 25, _Z_ADDRESS, "0x" + "11" * 20)
+    assert not isinstance(e.value, bridge.ShieldedRouteUnavailable)
+
+
+def test_fallback_route_is_offered_and_labelled_public(monkeypatch):
+    from zcash.mod import Mod
+
+    calls = {}
+
+    def fake_quote(from_asset, to_asset, amount, recipient, refund_to, **k):
+        calls["recipient"] = recipient
+        if recipient.startswith(("zs1", "u1")):
+            raise bridge.BridgeError("1Click rejected the quote: "
+                                     "recipient is not valid")
+        return {"from": from_asset, "to": "zec:ZEC", "amount_in": str(amount),
+                "amount_out": "0.5", "recipient": recipient, "dry": True}
+
+    monkeypatch.setattr(bridge, "quote", fake_quote)
+    out = Mod().bridge_shielded_in("eth:USDC", 25, "0x" + "11" * 20,
+                                   recipient=_Z_ADDRESS,
+                                   via_transparent=_T_ADDRESS)
+    assert out["shielded"] is False              # never claimed private
+    assert out["route_kind"] == "transparent-then-shield"
+    assert calls["recipient"] == _T_ADDRESS      # second leg quoted publicly
+    assert out["legs"][0]["private"] is False
+    assert "public" in out["note"]
+    assert out["mode"] == "QUOTE"                # nothing reserved
+
+
+def test_fallback_never_reserves_without_explicit_consent(monkeypatch):
+    """Someone who asked to reserve a SHIELDED bridge has not agreed to fund a
+    public one -- the reservation has to wait for them to say so."""
+    from zcash.mod import Mod
+
+    seen = {}
+
+    def fake_quote(from_asset, to_asset, amount, recipient, refund_to, **k):
+        if recipient.startswith(("zs1", "u1")):
+            raise bridge.BridgeError("1Click rejected the quote: "
+                                     "recipient is not valid")
+        seen["dry"] = k.get("dry", True)
+        return {"from": from_asset, "amount_in": str(amount),
+                "amount_out": "0.5", "recipient": recipient,
+                "deposit_address": "0xdeposit"}
+
+    monkeypatch.setattr(bridge, "quote", fake_quote)
+    m = Mod()
+    out = m.bridge_shielded_in("eth:USDC", 25, "0x" + "11" * 20,
+                               recipient=_Z_ADDRESS,
+                               via_transparent=_T_ADDRESS, reserve=True)
+    assert out["mode"] == "QUOTE"
+    assert seen["dry"] is True                    # nothing reserved upstream
+    assert "accept_public_leg" in out["not_reserved"]
+    assert out["reserve_with"]["args"]["accept_public_leg"] is True
+
+    consented = m.bridge_shielded_in("eth:USDC", 25, "0x" + "11" * 20,
+                                     recipient=_Z_ADDRESS,
+                                     via_transparent=_T_ADDRESS, reserve=True,
+                                     accept_public_leg=True)
+    assert consented["mode"] == "RESERVED"
+    assert seen["dry"] is False
+    assert consented["shielded"] is False
+    assert consented["track_with"]["deposit_address"] == "0xdeposit"
+
+
+def test_the_mcp_tool_carries_the_fallback_arguments(monkeypatch):
+    """An MCP caller must be able to reach the fallback the way the app can.
+
+    The two arguments the fallback route turns on live on the Mod method; a
+    tool schema that omits them leaves an agent unable to name a t-address or
+    to consent to the public leg, and its description would still be promising
+    an encrypted arrival. This has already been true once.
+    """
+    import inspect
+    import mcp as mcp_server
+    from zcash.mod import Mod
+
+    tool = mcp_server.TOOLS['zec_bridge_shielded_in']
+    props = tool['inputSchema']['properties']
+    for arg in ('via_transparent', 'accept_public_leg'):
+        assert arg in props, f"{arg} is not reachable over MCP"
+        assert arg in inspect.signature(Mod.bridge_shielded_in).parameters
+
+    seen = {}
+    monkeypatch.setattr(mcp_server, 'get_mod',
+                        lambda: type('M', (), {
+                            'bridge_shielded_in': staticmethod(
+                                lambda **kw: seen.update(kw) or {})})())
+    tool['handler']({'from_asset': 'eth:USDC', 'amount': 25,
+                     'refund_to': '0x' + '11' * 20,
+                     'via_transparent': _T_ADDRESS,
+                     'accept_public_leg': True})
+    assert seen['via_transparent'] == _T_ADDRESS
+    assert seen['accept_public_leg'] is True
+
+
+def test_fallback_without_a_transparent_address_explains_instead_of_failing(monkeypatch):
+    from zcash.mod import Mod
+
+    monkeypatch.setattr(bridge, "quote", _reject("recipient is not valid"))
+    out = Mod().bridge_shielded_in("eth:USDC", 25, "0x" + "11" * 20,
+                                   recipient=_Z_ADDRESS)
+    assert out["route"] == "unavailable"
+    assert "via_transparent" in out["how_to_fix"]
+    assert out["shielded"] is False
 
 
 # ── Lessons ─────────────────────────────────────────────────────────────────
@@ -292,14 +424,38 @@ def test_agent_grounding_survives_a_broken_module():
 # ── Live ────────────────────────────────────────────────────────────────────
 
 @live
-def test_router_accepts_a_shielded_only_unified_address():
-    """The claim the inbound route rests on. If this fails, the router changed
-    its mind about unified addresses and bridge_shielded_in is broken."""
-    quote = bridge.shielded_quote("eth:USDC", 25, _Z_ADDRESS,
-                                  "0x" + "11" * 20, dry=True)
+def test_shielded_in_either_quotes_shielded_or_says_the_router_refused():
+    """The inbound route, against the live router.
+
+    Whether a z-address is a valid recipient is 1Click's decision, and on
+    2026-09-02 it changed: the same quote that a t-address gets is refused for
+    a zs1 and a u1 with "recipient is not valid". Both answers are acceptable
+    here -- what is not acceptable is a shielded quote that silently becomes a
+    transparent payment, so the refusal must arrive as its own exception type
+    and not as a generic BridgeError the caller would surface as "bad
+    address".
+    """
+    try:
+        quote = bridge.shielded_quote("eth:USDC", 25, _Z_ADDRESS,
+                                      "0x" + "11" * 20, dry=True)
+    except bridge.ShieldedRouteUnavailable as e:
+        assert "transparent" in str(e)          # says what to do instead
+        return
     assert quote["to"] == "zec:ZEC"
     assert quote["shielded"] is True
     assert quote["destination_pool"] == "sapling"
+    assert float(quote["amount_out"]) > 0
+
+
+@live
+def test_the_transparent_leg_is_what_the_router_will_still_take():
+    """The fallback is only worth offering if it actually quotes.
+
+    If this fails too, ZEC is not routable at all right now and the shielded
+    refusal is not about shielded addresses.
+    """
+    quote = bridge.quote("eth:USDC", bridge.ZEC_ASSET, 25, _T_ADDRESS,
+                         "0x" + "11" * 20, dry=True)
     assert float(quote["amount_out"]) > 0
 
 

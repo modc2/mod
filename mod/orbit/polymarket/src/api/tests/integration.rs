@@ -141,8 +141,11 @@ async fn active_traders_pipeline_small_pool() {
     let body = resp_json(resp).await;
     assert!(body["count"].as_u64().unwrap() > 0, "should find traders");
     let source = body["source"].as_str().unwrap();
+    // `stale-disk` is a legitimate answer: a board too old to serve fresh but
+    // present on disk is served labelled rather than withheld. This assert
+    // predated that label and failed on any host with a warm cache dir.
     assert!(
-        source == "fresh" || source == "memory" || source == "disk",
+        matches!(source, "fresh" | "memory" | "disk" | "stale-disk"),
         "unexpected source: {}",
         source
     );

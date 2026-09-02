@@ -7,6 +7,7 @@ import {
   shortAddr, ago, Follow, fmtPct,
 } from "../lib/api";
 import { useWallet } from "../lib/wallet";
+import { LegacyNote } from "../components/BoardBits";
 
 export default function FollowsPage() {
   const { address } = useWallet();
@@ -50,6 +51,11 @@ export default function FollowsPage() {
           <button className="btn" onClick={load} disabled={loading}>refresh</button>
         </div>
       </div>
+
+      <LegacyNote>
+        The older copy path — each leader fill scaled by a percentage. To have a
+        sleeve tracked and rebalanced for you automatically, use
+      </LegacyNote>
 
       {follows.length === 0 ? (
         <div className="panel p-6 text-xs text-muted">

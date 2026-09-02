@@ -126,7 +126,7 @@ const COPY_ENDPOINTS: Endpoint[] = [
     path: "/copy/book",
     description:
       "The desk: every copied trader with their allocation, plus (when ?eoa is given) that " +
-      "wallet's session per trader — running, TEST vs LIVE, orders placed, " +
+      "wallet's session per trader — running, PAPER vs REAL, orders placed, " +
       "realized P&L, last fill — and the roll-up totals.",
     params: [
       { name: "eoa", type: "0x…", desc: "Wallet whose sessions to report. Omit for the book alone." },
@@ -174,12 +174,12 @@ const COPY_ENDPOINTS: Endpoint[] = [
     path: "/copy/start",
     description:
       "Start copying — one trader with `address`, or every enabled trader without it. " +
-      "DEFAULTS TO TEST: every mirror is computed and none is placed. The trading wallet is " +
+      "DEFAULTS TO PAPER: every mirror is computed and none is placed. The trading wallet is " +
       "derived from the EOA's backend signer unless you name one.",
     body: [
       { name: "eoa", type: "0x…", desc: "Wallet to run under." },
       { name: "address", type: "0x…?", desc: "One trader. Omit for the whole desk." },
-      { name: "autoExecute", type: "boolean", desc: "true = LIVE — REAL orders with real money. Omitted ⇒ false ⇒ TEST. (The response still spells the mode \"DRY RUN\" for older clients.)" },
+      { name: "autoExecute", type: "boolean", desc: "true = REAL orders with real money. Omitted ⇒ false ⇒ PAPER. (The wire keeps its own spelling: the response says mode \"LIVE\" / \"DRY RUN\" for older clients.)" },
       { name: "proxyAddress", type: "0x…?", desc: "Override the derived trading wallet." },
     ],
   },
@@ -483,7 +483,7 @@ const MCP_TOOLS = [
   {
     name: "pm_copy_book",
     writes: false,
-    desc: "The desk: who is copied, with how much, running or not, TEST or LIVE, orders placed, realized P&L. The place to start.",
+    desc: "The desk: who is copied, with how much, running or not, PAPER or REAL, orders placed, realized P&L. The place to start.",
   },
   {
     name: "pm_copy_backtest",
@@ -510,7 +510,7 @@ const MCP_TOOLS = [
   {
     name: "pm_copy_start",
     writes: true,
-    desc: "Start copying. TEST by default. autoExecute=true means LIVE — real orders — and is REFUSED unless the deployment sets POLYMARKET_MCP_ALLOW_LIVE=1; otherwise a human flips the TEST|LIVE switch here in the browser.",
+    desc: "Start copying. PAPER by default. autoExecute=true means REAL orders — and is REFUSED unless the deployment sets POLYMARKET_MCP_ALLOW_LIVE=1; otherwise a human flips the PAPER|REAL switch here in the browser.",
   },
   { name: "pm_copy_stop", writes: true, desc: "Stop a session, or the whole desk. Always permitted — it only reduces exposure." },
 ];
@@ -659,9 +659,9 @@ export default function DocsPage() {
                 <span className="text-pixel-white">market type</span> (BITCOIN, ELECTIONS, or any
                 topic you type) → read the traders it returns, ranked on{" "}
                 <span className="text-pixel-white">that flow alone</span> → put an amount against
-                one → run them in <span className="text-pixel-white">TEST</span> to confirm they
+                one → run them on <span className="text-pixel-white">PAPER</span> to confirm they
                 produce entries this desk can actually copy → flip the switch to{" "}
-                <span className="text-pixel-white">LIVE</span>. Pasting an address still works,
+                <span className="text-pixel-white">REAL</span>. Pasting an address still works,
                 and skips the first step.
               </p>
               <p>
@@ -838,7 +838,7 @@ export default function DocsPage() {
               </thead>
               <tbody>
                 <tr>
-                  <td className="text-pixel-white font-mono">TEST</td>
+                  <td className="text-pixel-white font-mono">PAPER</td>
                   <td className="text-pixel-gray-light">
                     Running, computing every mirror, placing none. This is the default and it is
                     the answer to most &quot;why did nothing trade&quot; questions — check it
@@ -966,8 +966,8 @@ export default function DocsPage() {
                 <code className="text-pixel-white">autoExecute: true</code>, and it is refused
                 unless the deployment sets{" "}
                 <code className="text-pixel-white">POLYMARKET_MCP_ALLOW_LIVE=1</code>. Without it
-                an agent can research, backtest, allocate and run in TEST — and a human flips
-                the TEST|LIVE switch in this console. Stopping is always allowed: it only reduces exposure.
+                an agent can research, backtest, allocate and run on PAPER — and a human flips
+                the PAPER|REAL switch in this console. Stopping is always allowed: it only reduces exposure.
               </p>
             </div>
             <table className="pixel-table wrap-prose">
@@ -1013,7 +1013,7 @@ export default function DocsPage() {
               <span className="text-pixel-white">propose</span> its own from any aggregation of that history.
             </p>
             <p>
-              The same class runs everywhere: the TEST preview, the top-N sampling shown in the feed, and the LIVE
+              The same class runs everywhere: the backtest preview, the top-N sampling shown in the feed, and the live
               engine all construct the identical class with the identical params, so what you test is what trades.
             </p>
           </div>
@@ -1164,7 +1164,7 @@ export default function DocsPage() {
             </table>
             <div className="text-[10px] text-pixel-gray leading-relaxed">
               The ratio, the clamps and these defaults are pinned across TypeScript and Rust by
-              <span className="font-mono"> parity.fixture.json</span>, so the TEST tab previews the sizes the live engine
+              <span className="font-mono"> parity.fixture.json</span>, so the BACKTEST tab previews the sizes the live engine
               will actually place.
             </div>
           </div>
@@ -1191,7 +1191,7 @@ export default function DocsPage() {
               </tbody>
             </table>
             <div className="text-[10px] text-pixel-gray leading-relaxed">
-              A session runs in TEST until you flip the TEST|LIVE switch (desk row, or the TRADE
+              A session runs on PAPER until you flip the PAPER|REAL switch (desk row, or the LIVE
               tab&apos;s engine header). Resolved positions can&apos;t be sold (no order book): cash
               out via REDEEM.
             </div>

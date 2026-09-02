@@ -2664,6 +2664,93 @@ class TestAgentSelect:
             agent.tools.rm("t_sel")
 
 
+class TestDefaultAgentPick:
+    """The agent an unnamed run lands on — and the caller's own pick of it.
+
+    The pick is per-address private state, so these tests point the module at
+    a prefs file in tmpdir; the real one lives in ~/.mod/agent/prefs.json.
+    """
+
+    def _mod(self, tmpdir, address="0xcafe", owner=False):
+        from src.mod import Mod
+        mod = Mod()
+        mod._prefs_path = Path(tmpdir) / "prefs.json"
+        # a token stands in for a signed-in caller; None is anonymous
+        mod._resolve_address = lambda key=None, verified=False: address if key else None
+        mod.is_owner = lambda key=None: owner
+        return mod
+
+    def test_no_pick_falls_back_to_the_module(self, tmpdir):
+        mod = self._mod(tmpdir)
+        # not the owner, so the harness default is out and the native loop wins
+        assert mod.default_agent("tok") == mod.FALLBACK_AGENT
+        assert mod.agent_pref("tok") is None
+        assert mod.default_agent_info("tok")["source"] == "host"
+
+    def test_pick_wins_and_is_remembered(self, tmpdir):
+        mod = self._mod(tmpdir)
+        r = mod.set_default_agent("architect", key="tok")
+        assert r["pick"] == "architect" and r["source"] == "you"
+        assert mod.default_agent("tok") == "architect"
+        assert json.loads(mod._prefs_path.read_text())["default_agent"] == {"0xcafe": "architect"}
+
+    def test_pick_is_per_address(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_default_agent("architect", key="tok")
+        other = self._mod(tmpdir, address="0xbeef")
+        assert other.default_agent("tok") == other.FALLBACK_AGENT   # not yours
+
+    def test_anonymous_cannot_pick(self, tmpdir):
+        mod = self._mod(tmpdir)
+        with pytest.raises(PermissionError):
+            mod.set_default_agent("architect")
+
+    def test_anonymous_is_nobody_not_the_server(self, tmpdir):
+        """key=None must not fall back to the server's own key: one shared
+        bucket is one anonymous visitor overwriting every other one."""
+        from src.mod import Mod
+        mod = Mod()
+        mod._prefs_path = Path(tmpdir) / "prefs.json"
+        # a real resolver: keyless calls answer with the SERVER's address
+        mod._resolve_address = lambda key=None, verified=False: key or "0xserver"
+        mod.is_owner = lambda key=None: False
+        with pytest.raises(PermissionError):
+            mod.set_default_agent("architect")
+        assert mod.agent_pref() is None
+        assert not mod._prefs_path.exists()
+
+    def test_unknown_agent_rejected(self, tmpdir):
+        mod = self._mod(tmpdir)
+        with pytest.raises(ValueError):
+            mod.set_default_agent("no-such-agent", key="tok")
+
+    def test_harness_agent_needs_the_host(self, tmpdir):
+        mod = self._mod(tmpdir)
+        with pytest.raises(PermissionError):
+            mod.set_default_agent("claude-code", key="tok")   # guest can't run it
+
+    def test_clearing_hands_the_choice_back(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_default_agent("architect", key="tok")
+        r = mod.set_default_agent(None, key="tok")
+        assert r["pick"] is None and r["source"] == "host"
+        assert mod.default_agent("tok") == mod.FALLBACK_AGENT
+
+    def test_a_pick_that_cannot_run_falls_through(self, tmpdir):
+        """A harness pick made as the host stops resolving when it can't run."""
+        mod = self._mod(tmpdir)
+        mod._prefs_path.write_text(json.dumps({"default_agent": {"0xcafe": "claude-code"}}))
+        assert mod.agent_pref("tok") == "claude-code"          # still on record
+        assert mod.default_agent("tok") == mod.FALLBACK_AGENT  # but never served
+        assert mod.default_agent_info("tok")["source"] == "host"
+
+    def test_corrupt_prefs_file_is_not_fatal(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod._prefs_path.write_text("{not json")
+        assert mod.agent_pref("tok") is None
+        assert mod.default_agent("tok") == mod.FALLBACK_AGENT
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  MEMORY SUBSYSTEM (working / episodic / semantic layers)
 # ═══════════════════════════════════════════════════════════════════════
@@ -4558,3 +4645,284 @@ class TestCreditsRoutes:
         d = self._client().post("/credits/deposit", json={
             "tx_hash": "0x" + "e" * 64, "network": "base", "provider": "anthropic"}).json()
         assert "unknown provider" in d["error"]
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  CO-OWNERS  (owner standing handed to another address, on the
+#  owner's own credits)
+# ═══════════════════════════════════════════════════════════════════
+
+class TestCoOwners:
+    OWNER = "0x7d7c323496ed80e16d47b036607c586fb33dd123"
+    CO = "0xd779eb61ced815570f74ab15a52ee8378a66996f"
+    OTHER = "0xAbC0000000000000000000000000000000000aBc"
+
+    def _mod(self, tmp_path, co=None):
+        from src.mod import Mod
+        from src.credits import Credits
+        mod = Mod.__new__(Mod)
+        mod.key = None
+        mod.auth = None
+        mod._owner = self.OWNER
+        mod._co_owners = list(co or [])
+        mod._acl = {}
+        mod._acl_path = tmp_path / "acl.json"
+        mod._public_actions = {"status"}
+        mod.credits = Credits(str(tmp_path), deposit_address=self.OWNER)
+        mod._sync_credit_aliases()
+        return mod
+
+    def test_co_owner_passes_the_owner_gate(self, tmp_path):
+        mod = self._mod(tmp_path, co=[self.CO])
+        assert mod.is_owner(self.CO)
+        assert mod.is_owner(self.OWNER)
+        assert not mod.is_owner(self.OTHER)
+
+    def test_co_owner_spends_the_owner_balance(self, tmp_path):
+        mod = self._mod(tmp_path, co=[self.CO])
+        mod.credits.credit(self.OWNER, 20, kind="grant")
+        assert mod.credits.balance(self.CO) == 20.0
+        mod.credits.charge_usage(self.CO, 1.0)
+        # one shared ledger entry, not two
+        assert mod.credits.balance(self.OWNER) == mod.credits.balance(self.CO) < 20.0
+        assert list(mod.credits._state["accounts"]) == [self.OWNER]
+        acct = mod.credits.info(self.CO)["account"]
+        assert acct["shared_with"] == self.OWNER and acct["caller"] == self.CO
+
+    def test_a_stranger_keeps_their_own_balance(self, tmp_path):
+        mod = self._mod(tmp_path, co=[self.CO])
+        mod.credits.credit(self.OWNER, 20, kind="grant")
+        assert mod.credits.balance(self.OTHER) == 0.0
+
+    def test_only_the_primary_owner_may_add_one(self, tmp_path, monkeypatch):
+        import src.mod as modmod
+        home = tmp_path / "home"
+        (home / ".mod" / "agent").mkdir(parents=True)
+        monkeypatch.setattr(modmod.Path, "home", classmethod(lambda cls: home))
+        mod = self._mod(tmp_path, co=[self.CO])
+        # a co-owner holds owner rights but cannot mint another co-owner
+        with pytest.raises(PermissionError):
+            mod.owners("add", address=self.OTHER, key=self.CO)
+        with pytest.raises(PermissionError):
+            mod.owners("add", address=self.OTHER, key=self.OTHER)
+        out = mod.owners("add", address=self.OTHER, key=self.OWNER)
+        assert self.OTHER.lower() in out["co_owners"]
+        assert mod.credits.aliases[self.OTHER.lower()] == self.OWNER
+        out = mod.owners("rm", address=self.OTHER, key=self.OWNER)
+        assert self.OTHER.lower() not in out["co_owners"]
+        assert self.OTHER.lower() not in mod.credits.aliases
+        saved = json.loads((home / ".mod" / "agent" / "owner.json").read_text())
+        assert saved["co_owners"] == [self.CO] and saved["owner"] == self.OWNER
+
+    def test_list_is_owner_only(self, tmp_path):
+        mod = self._mod(tmp_path, co=[self.CO])
+        assert mod.owners("list", key=self.CO)["co_owners"] == [self.CO]
+        with pytest.raises(PermissionError):
+            mod.owners("list", key=self.OTHER)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  COST PER CALL  (what one model call cost, while the run is running)
+# ═══════════════════════════════════════════════════════════════════
+
+def _bare_agent(replies, catalog=None, model_name='anthropic/claude-opus-5'):
+    """An Agent wired to a scripted model — the loop, nothing else.
+
+    `replies` is a list of raw model outputs, one per call; the last one is
+    repeated if the loop asks for more.
+    """
+    from src.mod import Agent
+    from src.billing import Meter
+    from src.memory.mod import Memory
+    from src.tools.mod import Tools
+    from src.toolbox.mod import Toolboxes
+    from src.agents.mod import Agents
+
+    agent = Agent.__new__(Agent)
+    agent.agents, agent.memory = Agents(), Memory()
+    agent.memory.clear()
+    agent.tools = Tools()
+    agent.toolboxes = Toolboxes(tools=agent.tools)
+    agent._tool_names, agent._snapped, agent._session_keys = None, [], {}
+    agent.goal, agent.output_format = Agent.goal, Agent.output_format
+    agent.anchors = Agent.anchors
+    agent._provider = Agent.PROVIDERS['openrouter']
+    agent.meter = Meter()
+    sent = []
+
+    class FakeClient:
+        def model2info(self):
+            return catalog or {}
+
+        def forward(self, *a, **k):
+            sent.append(a[0] if a else k.get('messages'))
+            i = min(len(sent) - 1, len(replies) - 1)
+            return replies[i]
+
+    client = FakeClient()
+    agent.model = client
+    agent._clients = {Agent.PROVIDERS['openrouter']: client}
+    agent._client_why = {}
+    return agent, sent
+
+
+PRICED = {"anthropic/claude-opus-5": {
+    "pricing": {"prompt": "0.000005", "completion": "0.000025"}}}
+
+
+class TestCostPerCall:
+    """Every model call reports what it cost while the run is still going."""
+
+    def test_meter_hands_back_the_last_call_once(self):
+        from src.billing import Meter
+        meter = Meter()
+        model = TestMeter.FakeModel(TestMeter.OPENROUTER)
+        meter.open(provider="openrouter", model="anthropic/claude-opus-5")
+        meter.watch("y" * 400, model_obj=model, provider="openrouter",
+                    model="anthropic/claude-opus-5", prompt="x" * 4000)
+        call = meter.last()
+        assert call["call"] == 1 and call["priced"] is True
+        assert call["prompt_tokens"] == 1000 and call["completion_tokens"] == 100
+        assert call["cost"] == round(1000 * 5e-6 + 100 * 25e-6, 8)
+        assert call["total"] == call["cost"]
+        # read once: a step that made no model call reports nothing
+        assert meter.last() is None
+
+    def test_a_run_reports_a_price_for_every_call(self):
+        agent, sent = _bare_agent([
+            '<STEP>{"tool": "think", "params": {"thought": "hm"}}</STEP>',
+            '<STEP>{"tool": "finish", "params": {"summary": "done"}}</STEP>',
+        ], catalog=PRICED)
+        seen = []
+        agent.run(query='do a thing', steps=5, model='anthropic/claude-opus-5',
+                  on_usage=seen.append)
+        assert len(seen) == len(sent) == 2
+        assert [u['call'] for u in seen] == [1, 2]
+        assert [u['step'] for u in seen] == [0, 1]
+        assert all(u['cost'] > 0 and u['priced'] for u in seen)
+        # the running total is the sum of the calls so far
+        assert seen[-1]['total'] == round(sum(u['cost'] for u in seen), 8)
+        # …and the tally the biller reads back agrees with it
+        assert agent.meter.take()['cost'] == seen[-1]['total']
+
+    def test_an_unpriced_model_says_so_rather_than_reporting_zero(self):
+        agent, _ = _bare_agent(
+            ['<STEP>{"tool": "finish", "params": {"summary": "done"}}</STEP>'],
+            catalog={})            # model not in the catalog: no rates
+        seen = []
+        agent.run(query='hi', steps=3, model='who/knows', on_usage=seen.append)
+        assert len(seen) == 1
+        assert seen[0]['priced'] is False and seen[0]['cost'] is None
+
+    def test_the_callback_survives_the_forward_hop(self):
+        """`forward('run')` maps its kwargs onto run() by hand, so a callback
+        it forgets is a callback the API passes into a void — which is exactly
+        how the first cut of this shipped, silent and green."""
+        from src.mod import Mod
+        mod = Mod.__new__(Mod)
+        seen = {}
+        mod.run = lambda **kw: seen.update(kw) or []
+        mod.allowed_paths_for = lambda key: None
+        mod.default_agent = lambda key=None: 'default'
+        mod.agents = type('A', (), {'ls': staticmethod(lambda: [])})()
+        mod.library = type('L', (), {'notes': staticmethod(lambda: []),
+                                     'tool_docs': staticmethod(lambda ids: [])})()
+        mod._unbind_memory = lambda: None
+        mod._clear_run_state = lambda: None
+        cb = lambda u: None
+        mod._run(query='x', on_usage=cb, on_step=cb)
+        assert seen['on_usage'] is cb and seen['on_step'] is cb
+
+    def test_the_task_registry_keeps_the_per_call_rows(self):
+        """The API side of the same number: each call lands on the run's task
+        row as it happens, and the run reports a total the console can show."""
+        from src.api.api import _task_usage, _usage_of
+        task = {"model": "anthropic/claude-opus-5", "provider": "openrouter"}
+        _task_usage(task, {"call": 1, "step": 0, "model": "anthropic/claude-opus-5",
+                           "cost": 0.001, "total": 0.001, "priced": True,
+                           "prompt_tokens": 1000, "completion_tokens": 100})
+        _task_usage(task, {"call": 2, "step": 1, "model": "anthropic/claude-opus-5",
+                           "cost": 0.002, "total": 0.003, "priced": True,
+                           "prompt_tokens": 1200, "completion_tokens": 50})
+        u = _usage_of(task)
+        assert u["calls"] == 2 and u["priced"] is True
+        assert u["cost"] == 0.003                     # the running total, not the last call
+        assert u["tokens"] == 1000 + 100 + 1200 + 50
+        assert [c["cost"] for c in u["per_call"]] == [0.001, 0.002]
+
+    def test_a_failed_call_still_reports_what_it_burned(self):
+        agent, _ = _bare_agent(['ignored'], catalog=PRICED)
+
+        def boom(*a, **k):
+            raise RuntimeError('provider exploded')
+        agent._clients[agent._provider].forward = boom
+        seen = []
+        steps = agent.run(query='x', steps=3, model='anthropic/claude-opus-5',
+                          on_usage=seen.append)
+        assert steps[-1]['tool'] == 'error'
+        # nothing was metered (the call never returned), so nothing is claimed
+        assert seen == []
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  THE TASK ACTUALLY HAPPENS  (a run may not end on a promise)
+# ═══════════════════════════════════════════════════════════════════
+
+class TestTheTaskHappens:
+    """A run that stops at "I'll go do that" did not do the task.
+
+    Two things have to be true before the loop pushes back: nothing has run,
+    and the sign-off describes the work in the future tense. An answer that
+    legitimately needed no tools is left alone.
+    """
+
+    def test_a_promise_with_nothing_done_is_sent_back_to_work(self):
+        agent, sent = _bare_agent([
+            "Sure, I'll read the config and fix the port.",
+            '<STEP>{"tool": "think", "params": {"thought": "reading"}}</STEP>',
+            '<STEP>{"tool": "finish", "params": {"summary": "fixed the port"}}</STEP>',
+        ])
+        steps = agent.run(query='fix the port', steps=6, model='x')
+        assert len(sent) == 3                      # it was made to carry on
+        assert steps[-1]['tool'] == 'finish'
+        assert steps[-1]['params']['summary'] == 'fixed the port'
+
+    def test_a_bare_acknowledgement_is_a_promise_too(self):
+        agent, sent = _bare_agent(["On it!"])
+        agent.run(query='fix the port', steps=6, model='x')
+        assert len(sent) == 2                      # nothing said, nothing done
+
+    def test_manners_at_the_top_of_a_real_answer_are_not_a_promise(self):
+        # "Sure" is only a promise while it is the whole message
+        agent, sent = _bare_agent([
+            "Sure. The module runs an agent loop over 26 tools: a registry "
+            "resolves each call, the loop executes it, and the memory "
+            "subsystem keeps what happened. Nothing here needs a tool call "
+            "to answer, which is why you are reading prose and not a trace."
+        ])
+        agent.run(query='what is this module?', steps=6, model='x')
+        assert len(sent) == 1
+
+    def test_an_answer_that_needed_no_tools_is_left_alone(self):
+        agent, sent = _bare_agent(["This module runs an agent loop over 26 tools."])
+        steps = agent.run(query='what is this module?', steps=6, model='x')
+        assert len(sent) == 1                      # answered, not nagged
+        assert steps[-1]['tool'] == 'response'
+
+    def test_the_push_back_is_spent_once(self):
+        agent, sent = _bare_agent(["I'll get started on that right away."])
+        steps = agent.run(query='fix the port', steps=6, model='x')
+        # pushed back once, promised again, and that is the end of it — the
+        # run is not worth a whole budget of the same answer
+        assert len(sent) == 2
+        assert steps[-1]['tool'] == 'response'
+
+    def test_a_run_that_did_work_may_close_on_what_comes_next(self):
+        # thinking is not doing — the run has to have reached for the world
+        agent, sent = _bare_agent([
+            '<STEP>{"tool": "bash", "params": {"command": "echo hi"}}</STEP>',
+            "I read the file. Next I will need the port from you to go further.",
+        ])
+        steps = agent.run(query='fix the port', steps=6, model='x')
+        assert len(sent) == 2                      # a report, not a promise
+        assert steps[-1]['tool'] == 'response'

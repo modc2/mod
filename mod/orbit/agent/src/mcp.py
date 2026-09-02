@@ -300,6 +300,9 @@ def _t_run(a: dict, key):
         'summary': row.get('summary'),
         'step_count': len(steps),
         'trace': steps if full else [_brief(s) for s in steps],
+        # what the run burned on the provider key, and what (if anything) was
+        # billed for it — the same numbers the console shows under the answer
+        'usage': out.get('usage'),
         'charged': out.get('charged'),
     }
 
@@ -328,7 +331,12 @@ def _t_agents(a: dict, key):
         except KeyError:
             return {'error': f'no agent named {name!r}', 'available': mod.agents.ls()}
     out = _clean(_fwd('agents', key))
-    out['default'] = mod.default_agent(key)
+    # the same three fields the REST /agents answers with: where an unnamed
+    # run lands, whether the caller chose it, and what they chose
+    info = mod.default_agent_info(key)
+    out['default'] = info['default']
+    out['default_source'] = info['source']
+    out['default_pick'] = info['pick']
     return out
 
 

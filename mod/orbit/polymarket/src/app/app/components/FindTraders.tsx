@@ -733,7 +733,25 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                           label="WIN"
                           active={ran.sort === "winRate"}
                           value={t.winRate < 0 ? "—" : `${Math.round(t.winRate)}%`}
-                          title="Share of closed positions that made money"
+                          // A rate is only as good as what it divides. Under
+                          // ~10 settled positions the number is noise, and it
+                          // used to render identically to one off hundreds —
+                          // which is how "100%" ended up on screen.
+                          sub={
+                            t.winRate < 0
+                              ? "not settled yet"
+                              : `of ${t.decidedPositions}`
+                          }
+                          dim={t.winRate >= 0 && t.decidedPositions < THIN_SAMPLE}
+                          title={
+                            t.winRate < 0
+                              ? "No positions settled in this window yet — unknown, not zero."
+                              : `Share of the ${t.decidedPositions} position(s) that SETTLED in this window and returned more than they cost. Counts positions that expired worthless, which leave no sell and no redeem.${
+                                  t.decidedPositions < THIN_SAMPLE
+                                    ? " Thin sample — treat as noise."
+                                    : ""
+                                }`
+                          }
                         />
                         <Stat
                           label="TRADES"
@@ -827,25 +845,37 @@ function Field({ label, className = "", children }: { label: string; className?:
 
 /** One number on a trader card — label over value, label lit when it's the
     metric the board is ranked by. */
+/** Settled positions below which a win rate is noise rather than a record. */
+const THIN_SAMPLE = 10;
+
 function Stat({
   label,
   value,
   active = false,
   title,
   valueClass = "text-pixel-gray-light",
+  sub,
+  dim = false,
 }: {
   label: string;
   value: string;
   active?: boolean;
   title?: string;
   valueClass?: string;
+  /** Denominator or unit line under the value — what the number is OF. */
+  sub?: string;
+  /** Greys the value out: shown, but not to be trusted at face value. */
+  dim?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-0.5 min-w-0" title={title}>
       <span className={`font-mono text-[8px] tracking-[0.12em] ${active ? "text-pixel-green" : "text-pixel-gray"}`}>
         {label}
       </span>
-      <span className={`font-mono text-[11px] truncate ${valueClass}`}>{value}</span>
+      <span className={`font-mono text-[11px] truncate ${dim ? "text-pixel-gray" : valueClass}`}>{value}</span>
+      {sub ? (
+        <span className="font-mono text-[7.5px] tracking-[0.08em] text-pixel-gray truncate">{sub}</span>
+      ) : null}
     </div>
   );
 }

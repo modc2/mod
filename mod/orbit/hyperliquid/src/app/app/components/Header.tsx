@@ -2,20 +2,30 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { shortAddr } from "../lib/api";
 import { useWallet } from "../lib/wallet";
+import { useSession } from "../lib/auth";
 import ThemePicker from "./ThemePicker";
 
+// The console is five nouns: three places to find something to back, one book
+// of what you've backed, and the desk agent. Everything else — the money
+// plumbing and the two older copy engines the invest book superseded — lives
+// under MORE, which also holds the primary links when they're hidden on a
+// narrow viewport, so no page is ever unreachable.
 const NAV = [
   { href: "/", label: "Traders" },
-  { href: "/ask", label: "Ask" },
-  { href: "/vaults", label: "Vaults" },
+  { href: "/invest", label: "Invest" },
   { href: "/strats", label: "Strats" },
+  { href: "/vaults", label: "Vaults" },
+  { href: "/ask", label: "Ask" },
+];
+
+const MORE = [
+  { href: "/wallet", label: "Wallet" },
+  { href: "/live", label: "Live engine" },
   { href: "/follows", label: "Follows" },
   { href: "/signals", label: "Signals" },
-  { href: "/live", label: "Live" },
-  { href: "/wallet", label: "Wallet" },
   { href: "/mcp", label: "MCP" },
 ];
 
@@ -50,103 +60,61 @@ const chevron = (open: boolean) => (
 );
 
 // ── Nav ───────────────────────────────────────────────────────────────────
-// The link row is measured against the space the flex row actually leaves it
-// and whatever doesn't fit moves into a "more" menu. Breakpoints can't do
-// this honestly here: the space left over depends on the address length, the
-// theme name and the font, so a hard-coded `hidden lg:flex` either clips
-// links (the old behaviour — an overflow-x row with the scrollbar hidden,
-// which made pages silently unreachable) or hides links that would have fit.
+const linkCls = (active: boolean) =>
+  `whitespace-nowrap text-[11px] font-medium uppercase tracking-wider px-2.5 py-1.5 rounded-md transition-all duration-150
+   ${active
+     ? "text-accent bg-accent/10 shadow-[inset_0_0_0_1px_rgb(var(--c-accent)/0.3)]"
+     : "text-muted hover:text-ink hover:bg-white/[0.04]"}`;
+
+const itemCls = (active: boolean) =>
+  `block px-2 py-1.5 rounded text-[11px] font-medium uppercase tracking-wider transition-colors
+   ${active ? "text-accent bg-accent/10" : "text-muted hover:text-ink hover:bg-white/[0.05]"}`;
+
 function NavBar({ path }: { path: string | null }) {
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const measureRef = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(NAV.length);
   const [open, setOpen] = useState(false);
   const menuRef = useDismiss(open, useCallback(() => setOpen(false), []));
-
-  useLayoutEffect(() => {
-    const wrap = wrapRef.current, measure = measureRef.current;
-    if (!wrap || !measure) return;
-
-    const compute = () => {
-      const kids = Array.from(measure.children) as HTMLElement[];
-      if (kids.length !== NAV.length + 1) return;
-      const gap = 2; // gap-0.5
-      const widths = kids.map((el) => el.getBoundingClientRect().width + gap);
-      const moreW = widths.pop()!;
-      const avail = wrap.getBoundingClientRect().width;
-      if (widths.reduce((a, b) => a + b, 0) <= avail) { setVisible(NAV.length); return; }
-      let used = moreW, n = 0;
-      for (const w of widths) {
-        if (used + w > avail) break;
-        used += w;
-        n += 1;
-      }
-      setVisible(n);
-    };
-
-    compute();
-    const ro = new ResizeObserver(compute);
-    ro.observe(wrap);
-    // Web-font swap changes every label's width — remeasure once it lands.
-    (document as any).fonts?.ready?.then(compute).catch(() => {});
-    return () => ro.disconnect();
-  }, []);
-
-  const shown = NAV.slice(0, visible);
-  const rest = NAV.slice(visible);
-  const activeRest = rest.find((n) => isActive(path, n.href));
-
-  const linkCls = (active: boolean) =>
-    `relative whitespace-nowrap text-[11px] font-medium uppercase tracking-wider px-2.5 py-1.5 rounded-md transition-all duration-150
-     ${active
-       ? "text-accent bg-accent/10 shadow-[inset_0_0_0_1px_rgb(var(--c-accent)/0.3)]"
-       : "text-muted hover:text-ink hover:bg-white/[0.04]"}`;
+  const activeMore = MORE.find((n) => isActive(path, n.href));
 
   return (
-    <div ref={wrapRef} className="relative flex-1 min-w-0 h-8">
-      {/* Off-layout copy used only to measure natural link widths. */}
-      <div ref={measureRef} aria-hidden="true"
-        className="absolute left-0 top-0 flex items-center gap-0.5 invisible pointer-events-none">
-        {NAV.map((n) => <span key={n.href} className={linkCls(false)}>{n.label}</span>)}
-        <span className={linkCls(false)}>More {chevron(false)}</span>
-      </div>
+    <nav className="flex items-center gap-0.5 min-w-0">
+      {NAV.map((n) => (
+        <Link key={n.href} href={n.href}
+          className={`hidden md:inline-block ${linkCls(isActive(path, n.href))}`}>
+          {n.label}
+        </Link>
+      ))}
 
-      <nav className="absolute inset-0 flex items-center gap-0.5">
-        {shown.map((n) => (
-          <Link key={n.href} href={n.href} className={linkCls(isActive(path, n.href))}>
-            {n.label}
-          </Link>
-        ))}
-        {rest.length > 0 && (
-          <div className="relative" ref={menuRef}>
-            <button
-              className={`${linkCls(!!activeRest)} inline-flex items-center gap-1.5`}
-              onClick={() => setOpen((o) => !o)}
-              aria-haspopup="menu"
-              aria-expanded={open}
-              aria-label={`More pages (${rest.length})`}
-            >
-              {activeRest?.label ?? "More"}
-              {chevron(open)}
-            </button>
-            {open && (
-              <div role="menu"
-                className="panel bg-panel absolute left-0 mt-2 w-44 p-1.5 z-50 shadow-lift animate-fadeUp">
-                {rest.map((n) => (
-                  <Link key={n.href} href={n.href} role="menuitem" onClick={() => setOpen(false)}
-                    className={`block px-2 py-1.5 rounded text-[11px] font-medium uppercase tracking-wider transition-colors
-                      ${isActive(path, n.href)
-                        ? "text-accent bg-accent/10"
-                        : "text-muted hover:text-ink hover:bg-white/[0.05]"}`}>
-                    {n.label}
-                  </Link>
-                ))}
-              </div>
-            )}
+      <div className="relative" ref={menuRef}>
+        <button
+          className={`${linkCls(!!activeMore)} inline-flex items-center gap-1.5`}
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="More pages"
+        >
+          {activeMore?.label ?? "More"}
+          {chevron(open)}
+        </button>
+        {open && (
+          <div role="menu"
+            className="panel bg-panel absolute left-0 mt-2 w-44 p-1.5 z-50 shadow-lift animate-fadeUp">
+            {/* Below md the primary links have no row to sit in — they fold
+                in here rather than disappearing. */}
+            <div className="md:hidden">
+              {NAV.map((n) => (
+                <Link key={n.href} href={n.href} role="menuitem" onClick={() => setOpen(false)}
+                  className={itemCls(isActive(path, n.href))}>{n.label}</Link>
+              ))}
+              <div className="my-1 border-t border-white/[0.06]" />
+            </div>
+            {MORE.map((n) => (
+              <Link key={n.href} href={n.href} role="menuitem" onClick={() => setOpen(false)}
+                className={itemCls(isActive(path, n.href))}>{n.label}</Link>
+            ))}
           </div>
         )}
-      </nav>
-    </div>
+      </div>
+    </nav>
   );
 }
 
@@ -159,15 +127,19 @@ function AccountMenu({ onWatchAnother, onSignIn, onConnect, error }: {
   onConnect: () => Promise<void>;
   error: string | null;
 }) {
-  const { address, kind, hasProvider, token, disconnect } = useWallet();
+  const { address, kind, hasProvider, disconnect } = useWallet();
+  // Not `!!token` — a restored token is a claim until /auth/me agrees with it.
+  // The chip used to go green on a week-old token the server had already
+  // stopped accepting, which is how "Signed in" and a 401 coexisted.
+  const { canWrite, isWatching } = useSession();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useDismiss(open, useCallback(() => setOpen(false), []));
 
   if (!address) return null;
-  const authed = kind === "metamask" && !!token;
-  const status = authed ? "Signed in" : kind === "watch" ? "Watch only" : "Sign in to trade";
+  const authed = canWrite;
+  const status = authed ? "Signed in" : isWatching ? "Watch only" : "Sign in to trade";
 
   // The parent owns the error copy, so a rejected signature shows up in this
   // menu instead of vanishing.
@@ -216,7 +188,7 @@ function AccountMenu({ onWatchAnother, onSignIn, onConnect, error }: {
           )}
 
           <div className="border-t border-white/[0.06] pt-1.5 space-y-0.5">
-            {kind === "metamask" && !token && (
+            {kind === "metamask" && !authed && (
               <button className={`${item} text-accent bg-accent/10 hover:bg-accent/15`} disabled={busy}
                 onClick={() => run(onSignIn)}>
                 Sign in
@@ -245,7 +217,8 @@ function AccountMenu({ onWatchAnother, onSignIn, onConnect, error }: {
 
 export default function Header() {
   const path = usePathname();
-  const { address, kind, hasProvider, token, signIn, connect, watch } = useWallet();
+  const { address, kind, hasProvider, signIn, connect, watch } = useWallet();
+  const { canWrite } = useSession();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(address ?? "");
   const [connectErr, setConnectErr] = useState<string | null>(null);
@@ -312,7 +285,7 @@ export default function Header() {
           <ThemePicker />
           {address ? (
             <>
-              {kind === "metamask" && !token && (
+              {kind === "metamask" && !canWrite && (
                 <button className="btn-primary hidden sm:inline-flex" onClick={onSignIn}
                   title="Sign a message to authenticate with the API">
                   sign in

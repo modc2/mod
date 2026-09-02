@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { listSignals, Signal, ago, shortAddr, fmtUsd } from "../lib/api";
 import { useWallet } from "../lib/wallet";
+import { LegacyNote } from "../components/BoardBits";
 
 export default function SignalsPage() {
   const { address } = useWallet();
@@ -40,6 +41,11 @@ export default function SignalsPage() {
           <button className="btn" onClick={load} disabled={loading}>refresh</button>
         </div>
       </div>
+
+      <LegacyNote>
+        Intents from the follows engine — nothing here is submitted for you. For
+        positions that trade themselves, use
+      </LegacyNote>
 
       {sigs.length === 0 ? (
         <div className="panel p-6 text-xs text-muted">

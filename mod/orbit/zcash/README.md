@@ -17,7 +17,7 @@ m zcash/test                  # self-test: chain, signer, bridge, explorer
 | **Send** | builds, signs and broadcasts NU5 v5 transparent transactions |
 | **Shielded** | Sapling + Orchard keys, `zs1` + unified addresses, note decryption, real sends |
 | **Bridge** | ZEC ⇄ Ethereum, Base, Arbitrum, Solana, BTC, Tron and ~30 more |
-| **Private bridge** | another chain → straight into your **shielded** pool, no transparent hop |
+| **Private bridge** | another chain → straight into your **shielded** pool when the router allows it, with an honest two-leg fallback when it does not |
 | **Learn** | plain-language lessons and a glossary, for someone starting from zero |
 | **Ask** | an agent that answers Zcash questions from those lessons plus live reads |
 
@@ -122,13 +122,22 @@ than hiding the difference behind a flag.
 m zcash/bridge_shielded_plan     # what works here, what it needs, what it leaks
 ```
 
-### In — works, and lands encrypted
+### In — lands encrypted when the router will pay a z-address
 
-The 1Click router accepts a **ZIP-316 unified address** as the ZEC recipient
-and rejects a bare `zs1`. A unified address whose only receiver is shielded
-leaves the solver no transparent option, so the payment arrives as a Sapling
-note: no transparent hop, no second transaction, and nothing for this module to
-prove.
+A unified address whose only receiver is shielded leaves the solver no
+transparent option, so the payment arrives as a Sapling note: no transparent
+hop, no second transaction, and nothing for this module to prove. That is the
+route whenever 1Click accepts the address.
+
+Whether it does is the router's decision, not this module's, and it changes.
+As of **2026-09-02** 1Click answers `recipient is not valid` to both a `zs1`
+and a `u1` while quoting the same swap to a `t1` address. When that happens
+`bridge_shielded_in` reserves nothing and returns the two-leg fallback
+instead — bridge to a transparent address you own (`via_transparent=t1...`,
+or the `name=` wallet's own), then `shielded_shield` moves it into the pool.
+The response carries `shielded: false`, both legs, and says in plain words
+that leg one is public. It never quietly downgrades a shielded quote into a
+transparent payment.
 
 ```bash
 m zcash/bridge_shielded_in from_asset=eth:USDC amount=250 \

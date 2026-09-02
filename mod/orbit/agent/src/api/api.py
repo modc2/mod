@@ -68,6 +68,8 @@ Endpoints:
     GET  /credits      - deposit info + caller's credit balance/history
     POST /credits/deposit - verify a USDT/USDC/ETH tx hash, credit the on-chain sender
     GET  /credits/price   - ETH/USD the next native deposit is priced at
+    GET  /owners          - owner: the owner and every co-owner
+    POST /owners          - owner: add/remove a co-owner (owner rights + owner credits)
     POST /credits/grant   - owner: top up (+) or deduct (-) ANY account
     GET  /credits/treasury - owner: deposits in, provider credits out, margin kept
     POST /credits/topup   - owner: record API credits bought at a provider
@@ -216,6 +218,11 @@ class AgentUpdateRequest(BaseModel):
     clear_harness: bool = False  # explicit: back to this module's own loop
     key: Optional[str] = None
 
+class DefaultAgentRequest(BaseModel):
+    """Pick the agent an unnamed run lands on. `name: null` clears the pick."""
+    name: Optional[str] = None
+    key: Optional[str] = None
+
 class GrantRequest(BaseModel):
     address: str
     actions: Optional[List[str]] = None  # default: ['run', 'tool_run']
@@ -336,6 +343,11 @@ class DepositRequest(BaseModel):
     tx_hash: str
     network: str = "base"             # base | ethereum
     provider: Optional[str] = None    # earmark: openrouter | venice
+    key: Optional[str] = None
+
+class OwnersRequest(BaseModel):
+    op: str = "add"                   # add | rm
+    address: str
     key: Optional[str] = None
 
 class CreditGrantRequest(BaseModel):
@@ -652,6 +664,48 @@ def _task_step(t: dict, step) -> None:
             t["trace"] = t["trace"][-MAX_TRACE:]
 
 
+MAX_CALLS = 60         # per-call cost rows kept on a task
+
+
+def _task_usage(t: dict, call: dict) -> None:
+    """Record what one model call cost, as the run makes it.
+
+    The run tally is only readable once the run is over; a caller watching a
+    long run wants the number while it is being spent, so each call lands
+    here (and on the stream) the moment it resolves.
+    """
+    if not isinstance(call, dict):
+        return
+    with TASKS_LOCK:
+        row = {k: call.get(k) for k in
+               ("call", "step", "model", "cost", "priced",
+                "prompt_tokens", "completion_tokens")}
+        t.setdefault("calls", []).append(row)
+        if len(t["calls"]) > MAX_CALLS:
+            t["calls"] = t["calls"][-MAX_CALLS:]
+        t["cost"] = round(float(call.get("total") or 0.0), 8)
+        t["tokens"] = int(t.get("tokens") or 0) + int(call.get("prompt_tokens") or 0) \
+            + int(call.get("completion_tokens") or 0)
+
+
+def _usage_of(t: dict) -> dict:
+    """What this run cost on the provider key — the number the console shows
+    under the answer. Present whether or not anyone was charged for it: an
+    owner run costs real money too, it is just not billed to a ledger."""
+    with TASKS_LOCK:
+        calls = list(t.get("calls") or [])
+        # the model that actually answered, not the one that was asked for —
+        # FREE MODE resolves its own, and a run billed on what it really used
+        # should say what it really used
+        return {"cost": t.get("cost"), "tokens": t.get("tokens") or 0,
+                "calls": len(calls),
+                "model": (calls[-1].get("model") if calls else None) or t.get("model"),
+                "provider": t.get("provider"),
+                "charged": t.get("charged"),
+                "priced": all(c.get("priced") for c in calls) if calls else False,
+                "per_call": calls}
+
+
 def _summary_of(result) -> str:
     """Pull the finish summary (or last response / error) out of a run's step list."""
     if not isinstance(result, list):
@@ -728,9 +782,12 @@ def _charge_run(req: "RunRequest", t: dict) -> Optional[dict]:
         usage = {}
     # every run reports what it burned on the key, billed or not — an owner
     # run costs real money too, it just isn't charged to anyone
-    if usage.get("priced") and usage.get("calls"):
+    if usage.get("calls"):
         with TASKS_LOCK:
-            t["cost"] = round(usage.get("cost", 0.0), 6)
+            if usage.get("priced"):
+                t["cost"] = round(usage.get("cost", 0.0), 8)
+            t["tokens"] = int(usage.get("prompt_tokens") or 0) + \
+                int(usage.get("completion_tokens") or 0)
     if req.free or not t.get("user"):
         return None
     try:
@@ -935,7 +992,30 @@ def get_balance(provider: str = "openrouter"):
 @app.get("/owner")
 def get_owner():
     mod = get_mod()
-    return {"owner": mod._owner, "has_owner": bool(mod._owner)}
+    return {"owner": mod._owner, "has_owner": bool(mod._owner),
+            "co_owners": list(getattr(mod, "_co_owners", []))}
+
+@app.get("/owners")
+def get_owners(key: Optional[str] = None):
+    """The owner and every co-owner. Owner-only."""
+    try:
+        return get_mod().owners('list', key=key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
+@app.post("/owners")
+def set_owners(req: OwnersRequest):
+    """Add or remove a co-owner — owner standing plus the owner's credits.
+
+    Primary owner only: a co-owner can spend the owner's credits but cannot
+    mint another co-owner.
+    """
+    try:
+        return get_mod().owners(req.op, address=req.address, key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e), "code": 400}
 
 @app.get("/whoami")
 def whoami(key: Optional[str] = None):
@@ -1279,12 +1359,32 @@ def _privacy_write(action: str, key, **kwargs):
 def list_agents(key: Optional[str] = None):
     """List all agent personas from agents/ directory.
 
-    `default` is the one a run lands on when none is named — Claude Code for
-    the host, the native agent for everyone else — so a console can preselect
-    it instead of deciding for itself.
+    `default` is the one a run lands on when none is named. A signed-in
+    caller's own pick wins (POST /agents/default); with none on record it is
+    Claude Code for the host and the native agent for everyone else — so a
+    console can preselect it instead of deciding for itself. `default_source`
+    says which of the two answered, and `default_pick` is the caller's own
+    pick even when it isn't runnable right now.
     """
     mod = get_mod()
-    return {**mod.forward('agents'), "default": mod.default_agent(key)}
+    info = mod.default_agent_info(key)
+    return {**mod.forward('agents'), "default": info["default"],
+            "default_source": info["source"], "default_pick": info["pick"]}
+
+
+@app.post("/agents/default")
+def set_default_agent(req: DefaultAgentRequest):
+    """Pick the agent this caller's unnamed runs land on.
+
+    Signed-in only — the pick is remembered per address, so it follows the
+    wallet across browsers rather than living in one tab's localStorage.
+    """
+    try:
+        return get_mod().set_default_agent(req.name, key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e), "code": 400}
 
 @app.get("/agents/{name}")
 def get_agent(name: str):
@@ -2261,7 +2361,8 @@ def _start_arena():
         print(f"arena scheduler not started: {e}")
 
 
-def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None, budget=None):
+def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None, budget=None,
+               on_usage=None):
     """Execute a multi-agent chain, feeding each step's summary into the next."""
     chain_results = []
     context = req.query
@@ -2290,6 +2391,7 @@ def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None, budget=No
                 memory_ids=req.memory_ids,
                 tool_ids=req.tool_ids,
                 on_step=on_step,
+                on_usage=on_usage,
                 budget=budget,
             )
             summary = ""
@@ -2322,13 +2424,14 @@ def run_agent(req: RunRequest):
     if req.chain and len(req.chain) > 0:
         task = _task_create(req, chain=True, agent=resolved_agent)
         results = _run_chain(mod, req, on_step=lambda s: _task_step(task, s),
+                             on_usage=lambda u: _task_usage(task, u),
                              budget=_run_budget(req, task))
         errs = [r.get("error") for r in results if r.get("error")]
         _task_finish(task, 'error' if errs else 'done',
                      errs[0] if errs else (results[-1].get("summary", "") if results else ""))
         charge = _charge_run(req, task)
         return {"query": req.query, "chain": True, "task_id": task["id"],
-                "results": results, "charged": charge}
+                "results": results, "charged": charge, "usage": _usage_of(task)}
 
     # single agent run
     task = _task_create(req, agent=resolved_agent)
@@ -2353,12 +2456,13 @@ def run_agent(req: RunRequest):
             session=req.session,
             harness_args=req.harness_args,
             on_step=lambda s: _task_step(task, s),
+            on_usage=lambda u: _task_usage(task, u),
             budget=_run_budget(req, task),
         )
         _task_finish(task, _status_of(result), _summary_of(result))
         charge = _charge_run(req, task)
         return {"query": req.query, "agent_type": resolved_agent, "task_id": task["id"],
-                "result": result, "charged": charge}
+                "result": result, "charged": charge, "usage": _usage_of(task)}
     except PermissionError as e:
         _task_finish(task, 'error', str(e))
         return {"query": req.query, "error": str(e), "code": 403}
@@ -2396,6 +2500,8 @@ def run_agent_stream(req: RunRequest):
 
     Events (one JSON object per `data:` line):
         {"type": "step",       "step": {...}}                 — a tool step just executed
+        {"type": "usage",      "usage": {...}}                — what the model call
+            behind that step cost: {call, step, model, cost, total, tokens}
         {"type": "chain_step", "index": i, "agent": "name"}  — a chain stage is starting
         {"type": "model_request", "id", "model", "messages", …}  — provider
             'browser': generate this in the tab and POST the text to
@@ -2417,6 +2523,12 @@ def run_agent_stream(req: RunRequest):
         _task_step(task, s)
         emit({"type": "step", "step": s})
 
+    def on_usage(u):
+        # what the call that produced that step cost, on the same stream —
+        # the price of a run should be watchable while it is being spent
+        _task_usage(task, u)
+        emit({"type": "usage", "usage": u})
+
     # a browser run generates in the tab that started it: the session is bound
     # to this worker thread, so the model client parks its requests on this
     # stream and blocks until the tab POSTs the text back
@@ -2435,6 +2547,7 @@ def run_agent_stream(req: RunRequest):
                 results = _run_chain(
                     mod, req,
                     on_step=on_step,
+                    on_usage=on_usage,
                     on_chain_step=lambda i, a: emit({"type": "chain_step", "index": i, "agent": a}),
                     budget=_run_budget(req, task),
                 )
@@ -2443,7 +2556,8 @@ def run_agent_stream(req: RunRequest):
                              errs[0] if errs else (results[-1].get("summary", "") if results else ""))
                 charge = _charge_run(req, task)
                 emit({"type": "done", "chain": True, "task_id": task["id"],
-                      "results": results, "charged": charge})
+                      "results": results, "charged": charge,
+                      "usage": _usage_of(task)})
             else:
                 result = mod.forward('run',
                     key=req.key,
@@ -2465,12 +2579,13 @@ def run_agent_stream(req: RunRequest):
                     session=req.session,
                     harness_args=req.harness_args,
                     on_step=on_step,
+                    on_usage=on_usage,
                     budget=_run_budget(req, task),
                 )
                 _task_finish(task, _status_of(result), _summary_of(result))
                 charge = _charge_run(req, task)
                 emit({"type": "done", "task_id": task["id"], "result": result,
-                      "charged": charge})
+                      "charged": charge, "usage": _usage_of(task)})
         except PermissionError as e:
             _task_finish(task, 'error', str(e))
             emit({"type": "error", "error": str(e), "code": 403})

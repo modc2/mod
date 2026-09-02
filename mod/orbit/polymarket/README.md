@@ -1,27 +1,53 @@
 # polymarket
 
-**Copy Polymarket traders, with an amount against each name — as many of them as you like, filtered in plain language, with a board that says what actually landed in your wallet.**
+**Copy a bench of traders at your own scale. You put capital behind an index of names; every trade they make is re-sized by the ratio between your money and theirs.**
 
-You pick a trader. You put dollars behind them. The engine mirrors their fills with that money, and the ledger tells you what that name — not "the portfolio" — actually made. That list of names and amounts is the **copy book**, and the screen that edits it is the **COPY DESK** at `/polymarket/copy`, the console's front door.
+The console is **three tabs**, and they read left to right as one sentence:
 
-Everything else in this module is machinery under that desk: a strategy engine, a backtest worker, a live copy engine, a Rust API and an MCP server. It is documented below because when a leader isn't being copied, the answer is always in there.
+| tab | route | what you do there |
+|---|---|---|
+| **STRATS** | `/polymarket/strats` | pick a strategy, and set the capital behind it |
+| **TRADERS** | `/polymarket/traders` | put traders on its bench |
+| **TEST & LIVE** | `/polymarket/live` | replay it against history, then run it against the book |
+
+There is no fourth. Money — topping up and taking it back out — is **not a tab**: it is the MONEY block in the right-hand side panel, open from anywhere, over whatever you were looking at (`app/components/MoneyBlock.tsx`). A funding form you have to navigate to is a funding form you navigate *away from a running session* to reach.
+
+### The default strat is a TRADER INDEX
+
+You never set a dollar amount per name. You set one number — **capital** — and the index does the rest:
 
 ```
-   a trader you want to copy
-            │
-            ▼
-   ┌──────────────────┐     the IDENTITY TEMPLATE      ┌────────────────────┐
-   │  allocation      │ ─────────────────────────────► │  identity strat    │
-   │  0xab… → $250    │   one leader, weight 1,        │  id: copy-<addr>   │
-   └──────────────────┘   this row's capital+gates     └─────────┬──────────┘
-            ▲                                                    │
-            │                                        ┌───────────┴───────────┐
-   ┌────────┴─────────┐                              ▼                       ▼
-   │ COPY DESK  (UI)  │                     ┌─────────────────┐    ┌──────────────────┐
-   │ pm_copy_* (MCP)  │                     │ backtest worker │    │  live engine     │
-   └──────────────────┘                     │ walk-forward    │    │  DRY RUN / LIVE  │
-        one book, on the server             └─────────────────┘    └──────────────────┘
+mirror$  =  their$  ×  (yourCapital × weight) / theirBankroll
 ```
+
+They stake 2% of their book on something, you stake 2% of yours. Their $50,000 conviction bet and their $200 punt land on your book 250× apart, which is the only thing worth copying about a whale. `weight` is that trader's share of the bench (equal by default), and `theirBankroll` is their live net worth on Polymarket — positions at mark plus free collateral, read from the same `GET /live/bankroll` the engine divides by.
+
+That expression is `copyRatioFor(..., "bankroll")` in `app/lib/strats/strat.ts`, pinned line-for-line against the Rust engine's `copy_ratio_for`. The layer above it — naming the model, projecting it onto a real trade, and saying what it *cannot* see — is `app/lib/traderIndex.ts`, rendered by `app/components/IndexScaleCard.tsx` and covered by `npx tsx app/lib/__test_trader_index__.ts` (31 checks).
+
+**The honest part.** Bankroll sizing has a cost, and the console states it rather than papering over it. A $1,000 index against a $100,000 trader runs at 1%: their $5,000 entry becomes $50, and their $50 punt becomes 50¢ — under Polymarket's order floor (`max($1, 5 shares × price)`), so the engine refuses it as `SUB_SCALE`. It is **not** inflated to the minimum, because an index whose every order is the same $2.55 is not an index of anything. The SCALE card names the threshold ("the smallest trade of theirs that reaches you is ~$125"), names the capital that would clear it, and offers the other model — `sizing: "flow"`, which divides by the capital they *deployed this window* instead of their whole balance sheet: more coverage, smaller ratio, no longer a risk mirror.
+
+```
+   the best traders of the week                your capital
+            │                                       │
+            ▼                                       ▼
+   ┌──────────────────┐                   ┌──────────────────┐
+   │  the bench       │  ── weight ──►    │  TRADER INDEX    │
+   │  8 addresses     │                   │  one strat       │
+   └──────────────────┘                   └────────┬─────────┘
+                                                   │  ratio per leader
+                                       ┌───────────┴───────────┐
+                                       ▼                       ▼
+                              ┌─────────────────┐    ┌──────────────────┐
+                              │ TEST (backtest) │    │ LIVE (engine)    │
+                              │ same math       │    │ DRY RUN / REAL   │
+                              └─────────────────┘    └──────────────────┘
+```
+
+Everything else in this module is machinery under those three tabs: a strategy engine, a backtest worker, a live copy engine, a Rust API and an MCP server. It is documented below because when a leader isn't being copied, the answer is always in there.
+
+### The per-trader copy desk (`/copy`)
+
+The console's older unit was an **allocation**: one leader, one dollar amount, one session each — the COPY DESK. It is still there, still running, still the thing `pm_copy_*` over MCP reads and writes; it is linked from the bottom of the STRATS board and is no longer the front door. The two models coexist cleanly because they meet at the same object: an allocation is materialized into an *identity strat* (below), and a trader index is a strat with more than one name on it. Same engine, same backtest, same ledger.
 
 ### The copy book
 
@@ -79,6 +105,9 @@ big buys on crypto under 30c        →  BUY · ≥$500 · ≤30¢ · CRYPTO
 politics, not candles               →  POLITICS · NOT CANDLES (screen-only)
 missed longshots last 3 days        →  MISSED · ≤15¢ · LAST 3D
 sports coin flips over $200         →  SPORTS · 40–60¢ · ≥$200
+big buys against the crowd          →  BUY · ≥$500 · AGAINST THE CROWD
+crypto with the crowd, 12h momentum →  CRYPTO · WITH THE CROWD · 12H WINDOW
+buying the dip on politics          →  BUY · AGAINST THE CROWD · POLITICS
 ```
 
 Why it exists: the console's older `marketQuery` matches a market **title** literally, and almost no Polymarket title contains the word "crypto" — the flow is "Bitcoin above $110,000", "ETH up or down", "Will SOL…". So the parser expands a concept lexicon (crypto → btc/eth/sol/…, sports → nba/nfl/lakers/…, candles → "up or down"/5m/…) and pulls the attribute clauses out of the same sentence: a side, a price band (including `longshots`, `favorites`, `coin flips`), a notional band (`whales`, `dust`, `over $500`), a window, an outcome leg, a leader, and a `copied`/`missed` status.
@@ -89,6 +118,38 @@ Two properties make it worth trusting:
 - **`compileGate()` emits the engine's own dialect** — a `marketQuery` in the exact comma-OR / space-AND form `lib/marketQuery.ts` and its Rust mirror `market_matches_query` parse, plus a `TradeFilters` for the attribute half. `ARM AS GATE` writes that pair onto the checked allocations (`params.marketQuery` + `params.tradeFilters`), so the sentence you filtered your history with becomes the rule the session runs under, with no second matcher invented for the browser. A test pins that the two agree title for title.
 
 Anything that **cannot** be expressed that way — the time window, an exclusion (`not candles`), `missed`, a leader filter — comes back in `viewOnly` and is shown dashed and dimmed. The screen never implies the engine is enforcing something it isn't.
+
+### The third gate: MARKET SENTIMENT
+
+`marketQuery` says which **markets**. `tradeFilters` says which **trades** inside them. Neither can see the thing a person actually means by "don't copy that": what the **market** was doing when the leader took the trade. A $2,000 buy at 34¢ is the same row whether the crowd had been walking that outcome up all morning or dumping it since midnight, and those are not the same trade.
+
+`app/lib/marketSentiment.ts` is that dimension, defined as narrowly as the data honestly allows:
+
+```
+drift = p(at the trade) − p(N hours earlier)    on the leader's OWN outcome token
+
+  BULLISH   odds rising into their entry — with the crowd, paying up
+  BEARISH   odds falling — a contrarian entry, buying the dip
+  FLAT      moved less than the flat band (2¢) either way
+  UNKNOWN   no usable price history
+```
+
+Measuring it on the token **they** traded is what makes the sign mean one thing: positive always means the crowd was moving toward what they bought, whichever leg that is. It is price drift on one token over one window — not news, not social sentiment, not a forecast, and the card says so.
+
+**Unknown passes.** A market whose history didn't load has no mood, and a filter that silently rejected it would be this module's oldest bug (a gate nobody chose, refusing most of the flow — see the missing price floor in `tradeFilters.ts`) wearing a new name. `unknown: "block"` exists and is always an explicit choice.
+
+It runs in all four places the market gate runs, and the same way:
+
+| where | file |
+|---|---|
+| the desk — one row of four buttons, plus the receipt | `app/components/SentimentCard.tsx`, `app/lib/useSentimentBook.ts` |
+| the gate | `app/lib/tradeFilters.ts` (`TradeFilters.sentiment`) |
+| the live engine | `api/src/sentiment.rs`, applied as a batched pass over each cycle's candidates |
+| the replay | `Strat.withSentiment(lookup)` — the backtest reads each trade at **its own** timestamp, so it is the reading live would have taken, not today's mood applied to last week |
+
+The gate itself is pure and synchronous; the data behind it is one CLOB `prices-history` request per outcome token. So the fetch happens once, upstream, and arrives at the gate as a lookup — which is also why both engines apply this dimension in a second pass rather than inside their per-trade loop. Nothing is fetched at all when no sentiment filter is set.
+
+**What it costs, stated on the card.** One request per token, capped (120 in the browser, 120 per engine cycle with a 3-minute TTL), and one request can only span 14 days of history — measured against the live CLOB, which answers a 14-day `startTs`/`endTs` range and rejects a 30-day one at any fidelity. So the card always prints the split by mood, how many trades it would KEEP, and **COVERAGE**: a gate over 21% of the flow is a gate over 21% of the flow, whatever the mood button says.
 
 ### The identity template
 
@@ -522,7 +583,13 @@ The background sync aggregates each window at **`pool=2000`**, and the pipeline 
 
 So a leaderboard read that omits `pool` (server default 1000) gets an empty list **forever**, no matter how warm the cache is. That's what made forking a recommended strat seed zero traders. Every console read now asks for `WARMED_CANDIDATE_POOL` (`app/lib/polymarket.ts`); if you add another leaderboard call site, pass that constant.
 
-### The STRAT HUB (`/strats`)
+### The STRATS board (`/strats`)
+
+The board is the console's front door: the strat you're **on**, big, with its capital editable in place and the SCALE card underneath it; your other saved strats, small; and the recipe shelf folded away behind `⌄ MORE RECIPES`, because the default is already the card at the top. `+ NEW TRADER INDEX` forks that default and seeds it from this week's leaderboard. Everything routes through `app/lib/activeStrat.ts` — one answer to "which strat am I on, and what if there isn't one", so three screens can no longer mint three differently-named empty strats.
+
+What follows describes the card-grid hub this route used to be. Its components are archived (`src/_archive`); the backtest-per-card machinery below is still what the workspace and the worker run.
+
+#### The archived hub
 
 The front door to `/strats` is a card grid, and each card's headline is its **N-day backtest** — the same replay engine (`app/lib/backtest.ts`) the BACKTEST tab and the live engine share, run over the same window for every card, so the numbers are comparable. Cards used to print `lastPnl`, a leftover from whatever window that strat was last opened with.
 
@@ -533,6 +600,12 @@ The front door to `/strats` is a card grid, and each card's headline is its **N-
 - **RECOMMENDED strats are backtested too.** A template is materialized into exactly the `SavedIndex` forking it would create — seeded from today's leaderboard via `templateIndex` / `templateRoster` in `app/lib/defaultStrats.ts` — and *that* is what gets replayed, from the same cached roster the fork will use. The number on the card is the strat you actually get.
 - Those rosters are picked *by* trailing P&L over the window they're then scored on, so a recommendation's number is survivorship-biased by construction. The section header says so: **upper bound, not a forecast**. A saved strat carries no such bias — its traders were chosen before the window it's measured over.
 - A strat with nothing to copy reports the reason (`no traders to copy`, `all 1279 entries blocked · time-to-close`, `no price tape for this window`) instead of a `$0` that reads as breaking even.
+
+### Money lives in the side panel
+
+Topping up and taking money out is the **MONEY** block of the right-hand column (`app/components/MoneyBlock.tsx` → `WalletPanel.tsx`), directly under the wallet you're signed in as. Two tiles, one amount box, one button; tap the other tile and the arrow flips, so deposit and withdraw are one flow rather than two forms. `⌄ BRING IT FROM ANOTHER CHAIN` unfolds the bridge and the legacy V1 Safe — once-ever operations that a first-time user should not meet three of at once.
+
+It used to be a `LIVE → WALLET` subtab inside the workspace, which put funding one navigation away from every screen that needed it and gave the engine's own tab rail a stop that had nothing to do with the engine. Anything that discovers it is short of funds — LIVE's `FUND NOW` banner, an engine "not enough balance" — now dispatches `OPEN_MONEY_EVENT` and the drawer opens **over** the page you were on. Device pairing (token + sign-in QR), which shared that subtab, moved to the ACCOUNT block, where it is about who you are signed in as rather than about money.
 
 ### Funding several strats at once (`$ DEPOSIT`)
 
@@ -671,6 +744,46 @@ What this changed on this deployment, replaying the same 3-day window over the s
 | `tpl:crypto-majors` | $0 | −$743 · −74% | 13 / 0 |
 
 The corrected `mrjg86gf` figure is the interesting one: $223 of capital, 257 buys totalling $2,234 of exposure over three days, $1,381 back from sells, $630 from redemptions, **24 positions expired worthless**, ending cash $0.56. That matches what actually happened to the real wallet — the old number did not.
+
+### What a trade costs (fees + gas)
+
+Every cost row in this console used to read **`$0.00 FEES · $0.00 GAS`**, because `TAKER_FEE_BPS` and `GAS_PER_TRADE_USD` were literally `0`. That was true when the constants were written. It is not true now, and a backtest that books zero friction is not a backtest of anything.
+
+`app/lib/fees.ts` is the whole model, and `api/src/fees.rs` is its Rust mirror for the live engine.
+
+**The platform fee is real, per-market, and biggest exactly where this deployment loses money.** The matcher charges the taker at match time:
+
+```
+fee = rate × p × (1 − p) × shares
+```
+
+| category | taker rate | $100 in and out at 50¢ |
+|---|---|---|
+| crypto | 7% | **$7.00** |
+| sports · economics · culture · weather · other | 5% | $5.00 |
+| politics · finance · tech · mentions | 4% | $4.00 |
+| geopolitics | 0 | free |
+
+Makers are never charged. The dollar fee is symmetric around 50¢ — a fill at 30¢ and one at 70¢ pay the same — and it **peaks at a coin flip**, which is the same 40–60¢ band the loss postmortem already identified as where this deployment's money goes. It is also zero at $0 and $1, which is why settling a resolved position costs nothing.
+
+**The rate is measured, not assumed.** The data-api reports `usdcSize`, the USDC that actually moved: `price × size` *plus* the fee on a BUY, *minus* it on a SELL. Divide the difference by `p(1−p)·shares` and the market's own rate falls out exactly, from data the console already fetched. `FeeBook` walks the leader feeds a replay is about to use and takes the **max** rate any fill paid in each market — maker fills measure 0, and a copy engine chasing a leader with a marketable order is a taker every time. Only markets with no fills to measure (the origination replay's, mostly) fall back to the category table. Over the worker's 40 busiest cached feeds — 118,868 fills, 13,517 markets — **11,948 markets are measured, 448 are genuinely fee-free, and 0 are modelled**; those feeds paid **$485,245 of real fees on $41.6M of notional, a blended 117 bps.**
+
+**Gas is per deployment, not per trade — and it is cents.** Who pays what:
+
+| | who submits it | who pays gas |
+|---|---|---|
+| CLOB fill | Polymarket's operator | Polymarket |
+| redeem | Polymarket's relayer | Polymarket |
+| withdraw | Polymarket's relayer | Polymarket |
+| proxy deploy · approvals · deposit | **you** | **you** |
+
+So the gas line is a fixed handful of cents per wallet, priced off the live Polygon base fee and the live POL price (`fetchGasQuote`) rather than invented, and labelled `(est)` until that lands. Booking $0.50/trade would have been as wrong as booking $0.
+
+**Where it shows up.** `BacktestSim.costs` is a full `CostBreakdown` — per-category/per-rate split, effective bps of notional, share of gross P&L eaten, the rebate tier the volume reaches, and how many rates were *measured* vs *modelled*. `PerfPanel` renders it behind a `COSTS` toggle on **both** the LIVE and BACKTEST tabs, off the same component, so the two can't drift. The hub cards carry `fees`/`feeBps`; `pm_backtests` and `pm_copy_backtest` return them; the ASK chat is told them explicitly, because "trade fewer coin flips in crypto" is a real answer to "why is this strat flat".
+
+**What changed in the engine, not just the display.** The order's `feeRateBps` stays **0** — Polymarket's docs are explicit that the schedule is applied at match time and the order must not carry it, and any other value gets the POST rejected as an invalid payload. What did change is everything that has to *budget* for the fee: the browser engine's EP rotation guard used to price a round trip at exactly zero and so churned positions for free, and both engines now free the notional **plus** the fee before placing, since funding exactly the notional buys an order that bounces for insufficient balance.
+
+**Still not modelled, on both sides equally:** the bid/ask spread, and limit orders that never fill. Real friction is at least what the cost row says, never less. The rebate tier the COSTS drawer reports is informational and is *not* netted into any P&L — a rebate only applies from the moment you reach the tier, so counting it in a replay would be inventing money.
 
 ### Where the flow went (the entry funnel)
 

@@ -323,7 +323,7 @@ function TradesInner() {
                 ? "No hits in the loaded tape — scan deeper into history, or clear the filters."
                 : feed === "mine"
                   ? engine?.running && !engine.auto
-                    ? "The engine is in TEST — it computes mirrors but places NO real orders, so no fills exist. Flip the TEST|LIVE switch to LIVE under STRAT → TRADE to trade for real."
+                    ? "The engine is on PAPER — it computes mirrors but places NO real orders, so no fills exist. Flip the PAPER|REAL switch to REAL in the LIVE tab's COPY ENGINE header to trade for real."
                     : engine?.running
                       ? "Engine is LIVE but nothing has filled yet — fills appear here within ~1 min of executing."
                       : "No engine session and no past fills for this wallet. Start the engine under STRAT → TRADE, with the switch on LIVE, to see trades land here."

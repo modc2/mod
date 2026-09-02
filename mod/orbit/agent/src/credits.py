@@ -141,6 +141,11 @@ class Credits:
         self._lock = threading.Lock()
         self._state = self._load()
         self._price_cache: dict = {}
+        # addresses that share another address's account, {alias: primary}.
+        # Set by the module for co-owners: they spend the owner's credits
+        # rather than a balance of their own, so every read and write on an
+        # alias lands on the one shared ledger entry.
+        self.aliases: dict = {}
         cfg = self._state.setdefault('config', {})
         # config file wins, then env, then the module owner as deposit target
         self.deposit_address = (cfg.get('deposit_address')
@@ -194,8 +199,13 @@ class Credits:
 
     # ── accounts ─────────────────────────────────────────────────────
 
-    def _account(self, address: str) -> dict:
+    def _addr(self, address: Optional[str]) -> str:
+        """Normalize an address, following the alias map to the account it shares."""
         addr = (address or '').lower()
+        return self.aliases.get(addr, addr)
+
+    def _account(self, address: str) -> dict:
+        addr = self._addr(address)
         return self._state['accounts'].setdefault(addr, {'balance': 0.0, 'history': []})
 
     def _record(self, acct: dict, kind: str, amount: float, note: str = '', tx: str = None):
@@ -211,7 +221,7 @@ class Credits:
     def balance(self, address: Optional[str]) -> float:
         if not address:
             return 0.0
-        acct = self._state['accounts'].get(address.lower())
+        acct = self._state['accounts'].get(self._addr(address))
         return round(float(acct['balance']), 6) if acct else 0.0
 
     def credit(self, address: str, amount: float, kind: str = 'deposit',
@@ -235,7 +245,7 @@ class Credits:
             self._record(acct, kind, applied, note, tx)
             self._book_credit(kind, applied)
             self._save()
-            return {'address': address.lower(), 'balance': acct['balance'],
+            return {'address': self._addr(address), 'balance': acct['balance'],
                     'credited': applied, 'requested': round(amount, 6)}
 
     # ── charging ─────────────────────────────────────────────────────
@@ -577,12 +587,19 @@ class Credits:
             },
         }
         if address:
-            acct = self._state['accounts'].get(address.lower())
+            shared = self._addr(address)
+            acct = self._state['accounts'].get(shared)
             out['account'] = {
-                'address': address.lower(),
+                'address': shared,
                 'balance': round(float(acct['balance']), 6) if acct else 0.0,
                 'history': list(reversed(acct['history'])) if acct else [],
             }
+            if shared != (address or '').lower():
+                # spending someone else's balance — say whose, so the console
+                # shows "you are on the owner's credits" rather than a balance
+                # that seems to have appeared from nowhere
+                out['account']['shared_with'] = shared
+                out['account']['caller'] = (address or '').lower()
         if owner:
             out['accounts'] = [
                 {'address': a, 'balance': round(float(v['balance']), 6)}

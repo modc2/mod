@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createFollow } from "../../lib/api";
-import { useWallet } from "../../lib/wallet";
+import { createFollow, shortAddr } from "../../lib/api";
+import { useSession } from "../../lib/auth";
+import AuthGate from "../../components/AuthGate";
 
 export default function NewFollowPage() {
   return <Suspense fallback={<div className="text-xs text-muted">loading…</div>}><Inner /></Suspense>;
@@ -13,8 +14,7 @@ function Inner() {
   const router = useRouter();
   const sp = useSearchParams();
   const leader = sp.get("leader") || "";
-  const { address } = useWallet();
-  const [follower, setFollower] = useState(address ?? "");
+  const { me } = useSession();
   const [sizePct, setSizePct] = useState(10);
   const [maxPerTrade, setMaxPerTrade] = useState(0);
   const [allow, setAllow] = useState("");
@@ -23,15 +23,14 @@ function Inner() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => { if (address && !follower) setFollower(address); }, [address, follower]);
-
   const submit = async () => {
-    if (!leader) { setErr("missing leader"); return; }
-    if (!/^0x[a-fA-F0-9]{40}$/.test(follower.trim())) { setErr("invalid follower address"); return; }
+    if (!leader) { setErr("No leader chosen — pick a trader from the board first."); return; }
     setBusy(true); setErr(null);
     try {
+      // No `follower`: it is whoever signed this request. The old free-text
+      // field let you type someone else's address and learn, from a 403, that
+      // you couldn't — a question the UI should never have asked.
       await createFollow({
-        follower: follower.trim().toLowerCase(),
         leader: leader.toLowerCase(),
         size_pct: sizePct,
         max_per_trade_usd: maxPerTrade,
@@ -59,8 +58,9 @@ function Inner() {
           <input className="input w-full num" value={leader} readOnly />
         </Field>
         <Field label="your wallet (follower)">
-          <input className="input w-full num" placeholder="0x…"
-            value={follower} onChange={(e) => setFollower(e.target.value)} />
+          <div className="input w-full num flex items-center text-muted">
+            {me ? <span className="text-ink">{shortAddr(me)}</span> : "sign in to set this"}
+          </div>
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="size (% of leader fill)">
@@ -85,10 +85,12 @@ function Inner() {
             value={vault} onChange={(e) => setVault(e.target.value)} />
         </Field>
         {err && <div className="text-loss text-xs">{err}</div>}
-        <div className="flex gap-2">
-          <button className="btn-primary" onClick={submit} disabled={busy}>
-            {busy ? "saving…" : "start copying"}
-          </button>
+        <div className="flex gap-2 items-start">
+          <AuthGate action="start copying this trader">
+            <button className="btn-primary" onClick={submit} disabled={busy || !leader}>
+              {busy ? "saving…" : "start copying"}
+            </button>
+          </AuthGate>
           <button className="btn" onClick={() => router.back()}>cancel</button>
         </div>
       </div>

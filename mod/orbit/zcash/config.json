@@ -47,6 +47,8 @@
     "bridge_quote",
     "bridge_start",
     "bridge_status",
+    "bridge_payment",
+    "bridge_networks",
     "bridge_send",
     "bridge_maya",
     "bridge_shielded_plan",
@@ -83,7 +85,7 @@
     "transport": "streamable-http",
     "stdio": "python3 /root/mod/mod/orbit/zcash/mcp.py",
     "schema": "GET /mcp",
-    "tools": 42,
+    "tools": 48,
     "auth": "none for reads; the module token (~/.mod/zcash/server.secret, `m zcash/token`) as Authorization: Bearer <token> for anything that spends, deletes, reveals a seed or decrypts a shielded note",
     "docs": "MCP tool server for the zcash module: explorer, HD wallet, real transparent sends (dry run unless broadcast=true), Sapling shielded addresses and note decryption, and a bridge to 30+ chains. Same registry over stdio, over POST /mcp on the REST API, and through the mod protocol as the `mcp` function."
   },

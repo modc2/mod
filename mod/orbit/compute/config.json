@@ -153,7 +153,7 @@
         "COMPUTE_MOD_TIMEOUT": "seconds a sibling module gets in the mod lane (default 12)",
         "COMPUTE_TEST_LIVE": "0 to skip the tests that touch live catalogs"
     },
-    "schema": "QmaTn76GWhhAZ5soWdVhcHk42Lk6H44Fi78KQXXWNAnpdW",
+    "schema": "QmSSDSgxqeENCDniU78jZArC5s2a2YGQEQp6SrcUbXkJzh",
     "mod_lane": {
         "what": "the markets that also run as their own modules on this box, read through those modules and compared with the direct-to-upstream lane",
         "mods": {

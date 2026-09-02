@@ -470,7 +470,7 @@ export default function PerfPanel({
   positionsNote,
   footer,
 }: {
-  /** Mode name in the header — "TEST" / "LIVE". */
+  /** Screen name in the header — "BACKTEST" / "LIVE". */
   label: string;
   /** Mode-specific header controls (RUN/DAYS/FUNDS vs engine controls). */
   controls?: ReactNode;
@@ -486,7 +486,7 @@ export default function PerfPanel({
   onHoverMarker?: (t: number | null) => void;
   emptyHint?: string;
   loading?: boolean;
-  /** Scroll target for "VIEW TEST →" style jumps. */
+  /** Scroll target for "VIEW BACKTEST →" style jumps. */
   chartRef?: React.Ref<HTMLDivElement>;
   positions?: PerfPosition[];
   positionsNote?: ReactNode;

@@ -347,6 +347,68 @@ def test_plain_board_reports_how_it_was_found():
     assert r["depth"] == len(r["traders"]) <= 3
 
 
+# ── the shape behind a row's number ─────────────────────────────────────
+#
+# The board hovers this endpoint once per row, so its contract is unusual:
+# it is not allowed to fail. Everything below is about that.
+
+@needs_api
+def test_curve_is_the_window_rebased_to_zero():
+    row = requests.get(f"{API_URL}/traders/top", params={"days": 7, "pool": 3}, timeout=60).json()["traders"][0]
+    c = requests.get(f"{API_URL}/trader/{row['address']}/curve", params={"days": 7}, timeout=60).json()
+    if not c["available"]:
+        # Upstream, not us — the endpoint still answered in the right shape.
+        assert c["points"] == [] and c["note"]
+        pytest.skip(f"no curve right now: {c['note']}")
+
+    pts = c["points"]
+    assert len(pts) >= 2 and len(pts) <= 64, len(pts)
+    assert [t for t, _ in pts] == sorted(t for t, _ in pts), "oldest first"
+    assert pts[0][1] == 0.0, "the window opens at zero, whatever HL's lifetime figure is"
+    assert pts[-1][1] == c["pnl"], "`pnl` is the last point of the drawn line"
+    assert (c["start_ms"], c["end_ms"]) == (pts[0][0], pts[-1][0])
+    # HL's own "week" runs ~7.9 days; the answer is trimmed to the window asked for.
+    assert c["period"] == "week"
+    assert c["end_ms"] - c["start_ms"] <= 7 * 86_400_000
+
+    # Drawdown is a fall, so it is never negative, never smaller than the drop
+    # from the high to the low, and never larger than the whole range.
+    assert c["max_drawdown"] >= 0
+    assert c["max_drawdown"] >= round(c["high"] - c["low"], 2) - 0.01 or c["high"] <= c["low"]
+    assert c["low"] <= c["pnl"] <= c["high"]
+
+
+@needs_api
+def test_curve_windows_map_to_hyperliquid_periods():
+    addr = requests.get(f"{API_URL}/traders/top", params={"days": 7, "pool": 3}, timeout=60).json()["traders"][0]["address"]
+    for days, period in ((1, "day"), (7, "week"), (30, "month")):
+        c = requests.get(f"{API_URL}/trader/{addr}/curve", params={"days": days}, timeout=60).json()
+        assert c["period"] == period and c["days"] == days
+        if c["available"]:
+            assert c["end_ms"] - c["start_ms"] <= days * 86_400_000
+
+
+@needs_api
+def test_curve_never_answers_a_hover_with_an_error():
+    # A wallet that has never traded, and an address that is not one at all:
+    # both are 200s carrying `available: false` and a sentence, because this
+    # endpoint decorates a row that already has its numbers.
+    for addr in ("0x0000000000000000000000000000000000000000", "not-an-address"):
+        r = requests.get(f"{API_URL}/trader/{addr}/curve", params={"days": 7}, timeout=60)
+        assert r.status_code == 200, r.text[:200]
+        c = r.json()
+        assert c["available"] is False
+        assert c["points"] == [] and isinstance(c["note"], str) and c["note"]
+
+
+@needs_api
+def test_curve_tool_is_public_and_bound_to_the_fn():
+    doc = requests.get(f"{API_URL}/mcp/schema", timeout=10).json()
+    tool = next(t for t in doc["tools"] if t["name"] == "hl_trader_curve")
+    assert tool["mod_fn"] == "trader_curve" and tool["public"] is True
+    assert tool["inputSchema"]["required"] == ["address"]
+
+
 # ── the whole board, filtered by score; fill stats rationed to the top ──
 
 def test_top_traders_tool_declares_all_pool_enrich_and_score_floors():

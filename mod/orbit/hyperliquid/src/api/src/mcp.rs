@@ -172,20 +172,27 @@ pub fn tools() -> &'static [Tool] {
              `candidates` (gated universe), `priced` (rows before filters), \
              `matched` (after), `enriched` (rows with fill stats). Any address \
              on the board — or any address at all — can be copied with \
-             hl_create_follow / hl_live_start.",
+             hl_create_follow / hl_live_start. \
+             READING THE STATS: `win_rate` is a percentage of `closes` (fills \
+             that realised PnL, net of fees), NOT of `trades` (every fill, opens \
+             included) — a row can read 100% off 4 closes out of 40 fills. Always \
+             quote `wins`/`closes` alongside it, prefer `win_rate_lo` (Wilson 95% \
+             lower bound) when comparing wallets, and treat `confidence` = low as \
+             anecdote. `sharpe` is annualised over `sharpe_days`; below 7 days it \
+             is an artifact of the sample and should be reported as unavailable.",
             vec![
                 ("days", p("integer", "window in days, 1-90 (default 7); 1/7/30 are precomputed")),
                 ("pool", json!({"type": ["integer", "string"],
                     "description": "how many ranked traders to return, 1-1500 (default 150), or \"all\" for every gated wallet on the leaderboard"})),
                 ("enrich", p("integer", "fetch fill stats (win%, sharpe, trades, coins) for the top N rows by `rank` only, 0-400 (default 120 — anything beyond is a cold throttled scan)")),
-                ("sort", p("string", "order the returned rows: roi | pnl | volume | equity | sharpe | win_rate | trades (default = rank); rows without fill stats sink to the bottom on sharpe/win_rate/trades")),
+                ("sort", p("string", "order the returned rows: roi | pnl | volume | equity | sharpe | win_rate | trades (default = rank); rows without fill stats sink to the bottom on sharpe/win_rate/trades. `win_rate` orders by `win_rate_lo` and `sharpe` demands 7+ days, so a small perfect sample cannot outrank a large good one")),
                 ("min_roi", p("number", "keep rows with window ROI ≥ this (percent)")),
                 ("min_pnl", p("number", "keep rows with window PnL ≥ this (USD)")),
                 ("min_volume", p("number", "keep rows with window volume ≥ this (USD)")),
                 ("min_equity", p("number", "keep rows with account value ≥ this (USD)")),
-                ("min_sharpe", p("number", "keep rows with sharpe ≥ this (only enriched rows can qualify)")),
-                ("min_win", p("number", "keep rows with win rate ≥ this (percent; only enriched rows can qualify)")),
-                ("min_trades", p("integer", "keep rows with at least this many fills in the window (only enriched rows can qualify)")),
+                ("min_sharpe", p("number", "keep rows with sharpe ≥ this (only enriched rows with at least 7 days of history can qualify — a ratio from fewer days is noise)")),
+                ("min_win", p("number", "keep rows whose DEFENSIBLE win rate ≥ this (percent). Compared against `win_rate_lo`, the Wilson 95% lower bound, not the headline `win_rate` — otherwise a wallet that is 3-for-3 passes a 90% floor. Only enriched rows can qualify")),
+                ("min_trades", p("integer", "keep rows with at least this many fills in the window (only enriched rows can qualify). NOTE: fills, not closes — to require a real track record, floor `min_win` instead, which is sample-size aware")),
                 ("with_stats", p("boolean", "keep only rows that have fill stats")),
                 ("rank", p("string", "roi (default) | pnl | volume — the metric that selects the board, picks which top rows get fill stats, and is the default sort")),
                 ("active", p("string", "liveness gate: 24h (default, traded in the last day) | window (traded inside the ranking window)")),
@@ -196,10 +203,33 @@ pub fn tools() -> &'static [Tool] {
         tool("hl_analyze_trader", "analyze_trader", "GET", "/trader/{address}/analyze", true,
             "Deep analysis of one wallet over `days`: PnL, ROI, win rate, sharpe, \
              volume, per-coin breakdown, open positions, raw fills and the \
-             portfolio PnL history behind the chart.",
+             portfolio PnL history behind the chart. Returns TWO scored windows: \
+             `summary` for the window asked for, and `extended` for every day of \
+             fills on hand (~31, `span_days` says how many) at no extra cost. \
+             Compare them before recommending a wallet — a short window is the \
+             easiest way for a losing book to read as a perfect one, and it is \
+             common for `summary.win_rate` to be 100% while `extended.win_rate` \
+             is under 40% with negative PnL. `fills` spans the extended range, \
+             not the window; scope it with `cutoff_ms` if you need the window. \
+             `win_rate` is over `closes`, not `trades` — see hl_top_traders.",
             vec![
                 ("address", p("string", "0x wallet address")),
                 ("days", p("integer", "lookback window in days, 1-90 (default 7)")),
+            ], &["address"]),
+        tool("hl_trader_curve", "trader_curve", "GET", "/trader/{address}/curve", true,
+            "One wallet's PnL curve for the window — the shape behind its \
+             number. `points` are [ms, cumulative pnl] rebased so the window \
+             opens at zero, from Hyperliquid's own portfolio series (realised \
+             AND unrealised, the same definition the leaderboard prices `pnl` \
+             with). Cheap: one cached call, no fill scan. Use it before \
+             recommending a wallet — `max_drawdown` is the deepest peak-to-\
+             trough fall inside the window, which is what a single PnL figure \
+             hides: +$400 over 30d that fell $3,478 on the way is not the same \
+             book as +$400 that never fell. Never errors — `available: false` \
+             plus a `note` when Hyperliquid is rate-limiting.",
+            vec![
+                ("address", p("string", "0x wallet address")),
+                ("days", p("integer", "window in days, 1-90 (default 7); maps to hyperliquid's day/week/month/allTime period")),
             ], &["address"]),
         tool("hl_leaderboard", "leaderboard", "GET", "/leaderboard", true,
             "Raw Hyperliquid leaderboard scrape (~39k accounts) with per-window \
@@ -224,10 +254,11 @@ pub fn tools() -> &'static [Tool] {
             ], &["id"]),
         tool("hl_create_index", "create_index", "POST", "/indexes", false,
             "Create an index: a named basket of trader legs with weights. \
-             `owner` must be your own address.",
+             `owner` defaults to your signed-in wallet; if you send it, it must \
+             be that same address.",
             vec![
                 ("name", p("string", "display name")),
-                ("owner", eoa()),
+                ("owner", p("string", "owning wallet — optional, defaults to your signed-in address")),
                 ("description", p("string", "optional blurb")),
                 ("legs", json!({
                     "type": "array",
@@ -241,7 +272,7 @@ pub fn tools() -> &'static [Tool] {
                 ("max_leverage", p("number", "leverage cap, 0 = uncapped")),
                 ("notional_pct", p("number", "share of capital to deploy, 0-100 (default 50)")),
                 ("vault_address", p("string", "vault backing this index (optional)")),
-            ], &["name", "owner", "legs"]),
+            ], &["name", "legs"]),
         tool("hl_update_index", "update_index", "PATCH", "/indexes/{id}", false,
             "Edit an index you own — send only the fields you want changed.",
             vec![
@@ -264,10 +295,11 @@ pub fn tools() -> &'static [Tool] {
         tool("hl_delete_index", "delete_index", "DELETE", "/indexes/{id}", false,
             "Delete an index you own.",
             vec![("id", p("string", "index id"))], &["id"]),
-        tool("hl_auto_index", "auto_index", "POST", "/indexes/auto", false,
+        tool("hl_auto_index", "auto_index", "POST", "/indexes/auto", true,
             "Propose index legs automatically from the top traders of the \
              window — returns candidate wallets and normalised weights to review \
-             before saving with hl_create_index.",
+             before saving with hl_create_index. Public: it only ranks the open \
+             leaderboard and saves nothing.",
             vec![
                 ("days", p("integer", "window in days (default 7)")),
                 ("top", p("integer", "how many traders to include, 1-50 (default 10)")),
@@ -326,16 +358,17 @@ pub fn tools() -> &'static [Tool] {
             vec![("follower", eoa())], &["follower"]),
         tool("hl_create_follow", "create_follow", "POST", "/follows", false,
             "Follow a leader wallet: mirror their fills at `size_pct` of your \
-             account, optionally capped per trade and filtered by coin.",
+             account, optionally capped per trade and filtered by coin. \
+             `follower` defaults to your signed-in wallet.",
             vec![
-                ("follower", eoa()),
+                ("follower", p("string", "your wallet — optional, defaults to your signed-in address")),
                 ("leader", p("string", "wallet address to copy")),
                 ("size_pct", p("number", "percent of your account per mirrored trade, 0-100 (default 10)")),
                 ("max_per_trade_usd", p("number", "hard USD cap per trade, 0 = none")),
                 ("coins_allow", arr("string", "only mirror these coins (empty = all)")),
                 ("coins_deny", arr("string", "never mirror these coins")),
                 ("vault_address", vault_opt()),
-            ], &["follower", "leader"]),
+            ], &["leader"]),
         tool("hl_update_follow", "update_follow", "PATCH", "/follows/{id}", false,
             "Edit one of your follows — send only the fields you want changed.",
             vec![
@@ -594,6 +627,92 @@ pub fn tools() -> &'static [Tool] {
             "Live session state for your wallet: config, running flag, last \
              poll, mirrored trade counts and errors.",
             vec![("eoa", eoa())], &["eoa"]),
+
+        // ── the investment book: one verb over vaults, traders and baskets ──
+        tool("hl_invest_preview", "invest_preview", "GET", "/invest/preview", true,
+            "What a given amount would actually buy in a given trader, before \
+             committing anything: the scale against their account equity, the \
+             exact position each dollar amount would open, and which of their \
+             positions are too small to copy at that size. Public — no wallet \
+             needed.",
+            vec![
+                ("trader", p("string", "the trader's wallet address")),
+                ("amount", p("number", "USD you are considering investing")),
+                ("max_leverage", p("number", "gross exposure ceiling as a multiple of the amount (default 1 = never hold more than you put in)")),
+                ("min_order_usd", p("number", "smallest order to bother with (default 12; Hyperliquid's own floor is $10)")),
+                ("coins_allow", p("string", "comma-separated allow-list of coins (default: everything they trade)")),
+            ], &["trader", "amount"]),
+        tool("hl_invest_portfolio", "invest_portfolio", "GET", "/invest", false,
+            "Your whole investment book: every vault deposit and trader sleeve \
+             with live value, PnL and exposure, plus totals and how much of \
+             your account is still uncommitted.",
+            vec![
+                ("investor", p("string", "your wallet address — must match the bearer token's address")),
+                ("include_closed", p("boolean", "also return positions you have already closed")),
+            ], &["investor"]),
+        tool("hl_invest_position", "invest_position", "GET", "/invest/{id}", false,
+            "One position in full: value, open legs, the targets it is aiming \
+             at, every mirrored fill, money in and out, and its event log.",
+            vec![("id", p("string", "position id"))], &["id"]),
+        tool("hl_invest", "invest", "POST", "/invest", false,
+            "Put money to work. `kind=vault` deposits USDC into a Hyperliquid \
+             vault; `kind=trader` opens a sleeve in your own account that \
+             tracks that trader's portfolio scaled to your money; `kind=strat` \
+             splits the amount across a saved basket's traders by weight. \
+             `mode=paper` runs a trader sleeve on simulated fills — same math, \
+             no orders, no risk.",
+            vec![
+                ("investor", eoa()),
+                ("kind", p("string", "vault | trader | strat")),
+                ("target", p("string", "vault address, trader address, or strat id")),
+                ("index_id", p("string", "strat id, when kind=strat")),
+                ("amount_usd", p("number", "USD to invest")),
+                ("name", p("string", "label for your book (optional)")),
+                ("mode", p("string", "live (default) or paper — paper applies to trader sleeves only")),
+                ("risk", json!({"type": "object", "description": "optional guardrails: max_leverage, max_slippage_bps, min_order_usd, coins_allow, coins_deny, stop_loss_pct"})),
+            ], &["investor", "kind", "amount_usd"]),
+        tool("hl_invest_add", "invest_add", "POST", "/invest/{id}/add", false,
+            "Add money to an existing position. Vault positions deposit again; \
+             trader sleeves scale their targets up on the next pass.",
+            vec![
+                ("id", p("string", "position id")),
+                ("amount_usd", p("number", "USD to add")),
+            ], &["id", "amount_usd"]),
+        tool("hl_invest_withdraw", "invest_withdraw", "POST", "/invest/{id}/withdraw", false,
+            "Take money back out. A vault position withdraws to your \
+             Hyperliquid balance (subject to the vault lockup); a trader sleeve \
+             releases the allocation and shrinks its positions to match. \
+             `all=true` takes everything out and closes the position.",
+            vec![
+                ("id", p("string", "position id")),
+                ("amount_usd", p("number", "USD to take out")),
+                ("all", p("boolean", "take everything out and close")),
+            ], &["id"]),
+        tool("hl_invest_pause", "invest_pause", "POST", "/invest/{id}/pause", false,
+            "Stop tracking without closing: existing positions stay exactly as \
+             they are, nothing new is opened.",
+            vec![("id", p("string", "position id"))], &["id"]),
+        tool("hl_invest_resume", "invest_resume", "POST", "/invest/{id}/resume", false,
+            "Track again — the next pass re-aligns the sleeve with the trader.",
+            vec![("id", p("string", "position id"))], &["id"]),
+        tool("hl_invest_close", "invest_close", "POST", "/invest/{id}/close", false,
+            "Close a position out. A vault position withdraws everything \
+             Hyperliquid will release; a trader sleeve is flattened leg by leg \
+             by the engine.",
+            vec![("id", p("string", "position id"))], &["id"]),
+        tool("hl_invest_update", "invest_update", "PATCH", "/invest/{id}", false,
+            "Change a position's guardrails or its label: leverage ceiling, \
+             slippage, minimum order size, coin allow/deny lists, stop-loss.",
+            vec![
+                ("id", p("string", "position id")),
+                ("name", p("string", "new label")),
+                ("mode", p("string", "live | paper — only while the sleeve holds nothing")),
+                ("risk", json!({"type": "object", "description": "max_leverage, max_slippage_bps, min_order_usd, coins_allow, coins_deny, stop_loss_pct"})),
+            ], &["id"]),
+        tool("hl_invest_delete", "invest_delete", "DELETE", "/invest/{id}", false,
+            "Forget a closed position's record. Only works once it is closed — \
+             deleting the row would not close the trades.",
+            vec![("id", p("string", "position id"))], &["id"]),
     ])
 }
 

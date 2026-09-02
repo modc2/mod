@@ -20,13 +20,35 @@ type ToolSchema = { description: string; params: Record<string, any> }
 // images: what the user pasted, as data URLs. thumbs are the tiny copies that
 // survive persistence — localStorage is shared across modc2 modules, so the
 // full-size data never goes in it.
-type Message = { role: 'user' | 'agent' | 'system'; text: string; steps?: any[]; live?: boolean; images?: string[]; thumbs?: string[] }
+// usage: what this one call to the agent cost on the provider key — filled in
+// live from the run's `usage` events, and finalised by its `done` event.
+type Usage = { cost?: number | null; tokens?: number; calls?: number; model?: string
+               priced?: boolean; charged?: number | null; per_call?: any[] }
+type Message = { role: 'user' | 'agent' | 'system'; text: string; steps?: any[]; live?: boolean; images?: string[]; thumbs?: string[]; usage?: Usage }
 // uid/cid/synced tie a conversation to the server-side store: uid is the
 // stable cross-device id, cid the localfs pin, synced whether the server copy
 // is current. Anonymous sessions only ever live in localStorage.
 type TaskEntry = { id: number; query: string; status: 'running' | 'done' | 'error'; stepCount?: number; messages: Message[]; agent_type?: string; startedAt?: number; finishedAt?: number; uid?: string; cid?: string; synced?: boolean }
 
 const genUid = () => `c-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+
+// ── what a call cost, in words a person reads ──
+// Sub-cent runs are the normal case here, so a $0.00 that means "nearly free"
+// and a $0.00 that means "nothing was metered" have to look different: the
+// first keeps digits until it says something, the second is not printed at all.
+const fmtUSD = (c?: number | null) => {
+  if (c == null) return null
+  if (c === 0) return '$0'
+  if (c >= 0.01) return `$${c.toFixed(3)}`
+  if (c >= 0.0001) return `$${c.toFixed(5)}`
+  return `<$0.0001`
+}
+const fmtTok = (t?: number) => !t ? null : t >= 1000 ? `${(t / 1000).toFixed(1)}k` : `${t}`
+// the per-call breakdown, as the footer's tooltip: "cost per call" literally
+const callBreakdown = (u?: Usage) => (u?.per_call || [])
+  .map((c: any, i: number) => `#${c.call ?? i + 1}  ${fmtUSD(c.cost) ?? '—'}  ${
+    fmtTok((c.prompt_tokens || 0) + (c.completion_tokens || 0)) ?? '0'} tok`)
+  .join('\n')
 
 // The console session — one id per browser, kept forever. It rides along with
 // every run so the agent's memory module can file the exchange and read the
@@ -303,13 +325,23 @@ export default function Home() {
   // where a run lands when you haven't picked — the server decides per caller
   // (Claude Code for the host, the native loop for guests), see fetchAgents
   const [defaultAgent, setDefaultAgent] = useState<string>('default')
+  // your own pick, if you made one: the server holds it per address (signed
+  // in) and localStorage holds it otherwise, so an anonymous visitor still
+  // gets to say where their runs land — it just doesn't follow the wallet.
+  const [defaultPick, setDefaultPick] = useState<string | null>(null)
+  const [defaultSource, setDefaultSource] = useState<'you' | 'host'>('host')
+  // the one-time "which agent should your runs land on?" card
+  const [showDefaultPick, setShowDefaultPick] = useState(false)
+  const [defaultErr, setDefaultErr] = useState<string | null>(null)
   const [agentOptions, setAgentOptions] = useState<AgentOption[]>(DEFAULT_AGENTS)
   // agent to preload on the visual builder canvas (null = fresh canvas)
   const [builderAgent, setBuilderAgent] = useState<string | null>(null)
   // the rail's inline agent editor: null = the list, {name: null} = a new
   // agent, {name} = editing that one. Creating and changing an agent is a
   // sidebar job — the canvas is where you go for the wiring, not the naming.
-  const [agentEdit, setAgentEdit] = useState<{ name: string | null } | null>(null)
+  // `from` = a fork: a new agent prefilled from that one, so an agent you
+  // can't change is still somewhere to start.
+  const [agentEdit, setAgentEdit] = useState<{ name: string | null; from?: string | null } | null>(null)
 
   // persona picker: run with a library prompt as system prompt + memory notes as context
   const [libPrompts, setLibPrompts] = useState<LibPrompt[]>([])
@@ -319,6 +351,13 @@ export default function Home() {
   // tool documents installed from Discover, attached to the run as instructions
   const [toolSel, setToolSel] = useState<string[]>([])
   const [showPicker, setShowPicker] = useState(false)
+  // The picker's trigger sits in the runbar, which scrolls horizontally on a
+  // narrow dock — and a scroll box clips in BOTH axes, so an absolutely
+  // positioned dropdown inside it was drawn into a 40px-tall strip and
+  // couldn't be seen, let alone clicked. The panel is `fixed` and measured
+  // off the button instead, which no ancestor can clip.
+  const pickerBtnRef = useRef<HTMLButtonElement>(null)
+  const [pickerPos, setPickerPos] = useState<{ left: number; top: number } | null>(null)
   const [pickerTab, setPickerTab] = useState<'prompts' | 'memory'>('prompts')
   const [pickerSearch, setPickerSearch] = useState('')
   // last refusal from an owner-gated edit/delete, shown in the picker footer
@@ -620,6 +659,18 @@ export default function Home() {
     return () => window.removeEventListener('keydown', onKey)
   }, [showPicker])
 
+  // the picker is positioned off its button, so anything that moves the
+  // button — a resize, a rail drag, opening it from the hero chip rather
+  // than the toolbar — has to re-measure
+  useEffect(() => {
+    if (!showPicker) return
+    placePicker()
+    const on = () => placePicker()
+    window.addEventListener('resize', on)
+    return () => window.removeEventListener('resize', on)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPicker])
+
   const [apiStatus, setApiStatus] = useState<'ok' | 'down' | 'loading'>('loading')
 
   // token: the server answers with the default agent for THIS caller — the
@@ -631,8 +682,19 @@ export default function Home() {
       .then(d => {
         // a pick of your own always wins — the default is only where you land
         if (d.default) {
-          setDefaultAgent(d.default)
-          setAgentType(() => localStorage.getItem('agent_type') || d.default)
+          // signed out there is no address to file a pick under, so the
+          // browser holds it; signed in the server's answer is the truth
+          const local = (() => { try { return localStorage.getItem('agent_default') } catch { return null } })()
+          const pick = d.default_pick || (token ? null : local)
+          const landing = pick || d.default
+          setDefaultPick(pick || null)
+          setDefaultSource(pick ? 'you' : 'host')
+          setDefaultAgent(landing)
+          setAgentType(() => localStorage.getItem('agent_type') || landing)
+          // nobody has said where their runs should land — ask, once
+          if (!pick) setShowDefaultPick(() => {
+            try { return !localStorage.getItem('agent_default_asked') } catch { return false }
+          })
         }
         if (d.schemas && typeof d.schemas === 'object') {
           const fetched: AgentOption[] = Object.entries(d.schemas).map(([key, val]: [string, any]) => ({
@@ -736,6 +798,37 @@ export default function Home() {
     setAgentEdit({ name: name || null })
   }
 
+  // Make an agent the one your runs land on. Signed in it is filed against
+  // your address on the server, so it follows the wallet; signed out the
+  // browser keeps it, which is as far as an anonymous pick can travel.
+  // Resolves to an error string, or null when it took.
+  const setDefaultAgentPick = useCallback(async (name: string): Promise<string | null> => {
+    try { localStorage.setItem('agent_default_asked', '1') } catch {}
+    if (!auth?.token) {
+      try { localStorage.setItem('agent_default', name) } catch {}
+      setDefaultPick(name); setDefaultSource('you'); setDefaultAgent(name)
+      setDefaultErr(null); setShowDefaultPick(false)
+      return null
+    }
+    try {
+      const r = await fetch(`${API_URL}/agents/default`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, key: auth.token }),
+      }).then(x => x.json())
+      if (r?.error) { setDefaultErr(r.error); return r.error }
+      setDefaultPick(r.pick || null)
+      setDefaultSource(r.source === 'you' ? 'you' : 'host')
+      setDefaultAgent(r.default || name)
+      try { localStorage.setItem('agent_default', name) } catch {}
+      setDefaultErr(null); setShowDefaultPick(false)
+      return null
+    } catch (e: any) {
+      const msg = e?.message || 'could not save the default'
+      setDefaultErr(msg)
+      return msg
+    }
+  }, [auth?.token])
+
   const selectAgent = (v: string) => {
     setAgentType(v)
     localStorage.setItem('agent_type', v)
@@ -810,6 +903,28 @@ export default function Home() {
     else { setShowPicker(false); openHub('library') }
   }
 
+  // open the builder on a COPY of this agent — the way to change one that
+  // isn't yours without asking whoever owns it
+  const forkPersona = (p: Persona) => {
+    if (p.kind !== 'agent') { setShowPicker(false); openHub('library'); return }
+    setShowPicker(false)
+    setView('chat')
+    setRailClosed(false)
+    setPane('agents')
+    setAgentEdit({ name: null, from: p.id })
+  }
+
+  // the agent an unnamed run lands on — your own pick if you made one
+  const isDefaultAgent = (id: string) => id === (defaultPick || defaultAgent)
+
+  // asked once. Answering it or waving it away both count as asked, so the
+  // card never stands between anyone and a second run.
+  const dismissDefaultPick = () => {
+    setShowDefaultPick(false)
+    setDefaultErr(null)
+    try { localStorage.setItem('agent_default_asked', '1') } catch {}
+  }
+
   // one row for an agent or a library prompt — the dropdown picker and the
   // rail's AGENTS pane show the same thing, so they share this
   const personaRow = (p: Persona, onPicked?: () => void) => {
@@ -837,6 +952,30 @@ export default function Home() {
               were invisible and still ate 40px of every name. */}
           <span className="truncate flex-1 min-w-0" title={p.label}>{p.label}</span>
           <span className="flex items-center gap-1 shrink-0">
+            {/* the default lives on the row it belongs to: ★ says where an
+                unnamed run lands, and clicking one moves it there */}
+            {p.kind === 'agent' && (
+              <button title={isDefaultAgent(p.id)
+                ? 'your default — unnamed runs land here'
+                : `Make "${p.label}" the agent your runs land on`}
+                onClick={e => { e.stopPropagation(); if (!isDefaultAgent(p.id)) setDefaultAgentPick(p.id) }}
+                className={`w-5 h-5 items-center justify-center rounded text-[10px] transition ${
+                  isDefaultAgent(p.id)
+                    ? 'flex text-emerald-300'
+                    : 'hidden group-hover:flex group-focus-within:flex text-gray-600 hover:text-emerald-300 hover:bg-emerald-500/10'
+                }`}>
+                ★
+              </button>
+            )}
+            {/* an agent you can't change is still a starting point — ⧉ opens
+                it as a new agent of your own */}
+            {p.kind === 'agent' && (
+              <button title={`Open a copy of "${p.label}" as a new agent`}
+                onClick={e => { e.stopPropagation(); forkPersona(p) }}
+                className="hidden group-hover:flex group-focus-within:flex w-5 h-5 items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition">
+                ⧉
+              </button>
+            )}
             {canManage(p) && (
               <>
                 <button title={`Edit this ${p.kind}`}
@@ -1167,6 +1306,10 @@ export default function Home() {
           // eat the whole shared quota in a couple of chats
           images: undefined,
           steps: msg.steps?.slice(0, 60).map((s: any) => ({ ...s, result: clip(s.result) })),
+          // the totals are worth keeping across a reload; the per-call rows
+          // are a tooltip, and localStorage here is shared with every other
+          // module on the origin
+          usage: msg.usage ? { ...msg.usage, per_call: undefined } : undefined,
         })),
       }))
       localStorage.setItem('agent_tasks_v1', JSON.stringify(slim))
@@ -1286,15 +1429,22 @@ export default function Home() {
 
   // derive the final display message from a full step list
   const finalizeSteps = (allSteps: any[], apiError?: string) => {
-    const responseText = allSteps.filter((s: any) => s.tool === 'response' && s.result).map((s: any) => s.result).join('\n')
-    const finishSummary = allSteps.filter((s: any) => s.tool === 'finish').map((s: any) => s.params?.summary).filter(Boolean).join('\n')
+    // what the agent said, in order — a response step's text or a finish
+    // step's summary. The LAST one is the answer: a run can now speak twice,
+    // because a model that signed off on a promise without doing anything is
+    // sent back to work, and what it wrote before doing the job is not it.
+    const said = allSteps
+      .map((s: any) => s.tool === 'response' ? String(s.result || '')
+        : s.tool === 'finish' ? String(s.params?.summary || '') : '')
+      .filter(Boolean)
+    const answerText = said[said.length - 1] || ''
     const errorText = allSteps.filter((s: any) => s.tool === 'error' && s.error).map((s: any) => s.error).join('\n')
     const hasError = !!errorText || !!apiError
     // 'invalid' = a step the model malformed and the loop retried — internal noise
     const visibleSteps = allSteps.filter((s: any) => !['response', 'error', 'invalid'].includes(s.tool))
     const displayText = apiError ? `Error: ${apiError}`
       : errorText ? `Error: ${errorText}`
-      : responseText || finishSummary || (visibleSteps.length ? `Completed ${visibleSteps.length} step(s)` : 'Done')
+      : answerText || (visibleSteps.length ? `Completed ${visibleSteps.length} step(s)` : 'Done')
     return { hasError, displayText, visibleSteps }
   }
 
@@ -1359,14 +1509,22 @@ export default function Home() {
     setActiveTab('output')
     setViewingFile(null)
 
+    // the run's price as it is spent: each model call lands here the moment it
+    // resolves, so the footer counts up instead of appearing at the end. Held
+    // out here because the finish path reads it when the stream cut early.
+    let liveUsage: Usage | null = null
     const patchTask = (patch: Partial<TaskEntry> | ((tk: TaskEntry) => TaskEntry)) => {
       setTasks(t => t.map(tk => tk.id === id
         ? (typeof patch === 'function' ? patch(tk) : { ...tk, ...patch })
         : tk))
     }
-    const finishSingle = (allSteps: any[], apiError?: string) => {
+    const finishSingle = (allSteps: any[], apiError?: string, usage?: Usage) => {
       const fin = finalizeSteps(allSteps, apiError)
-      const agentMsg: Message = { role: fin.hasError ? 'system' : 'agent', text: fin.displayText, steps: fin.visibleSteps }
+      const agentMsg: Message = { role: fin.hasError ? 'system' : 'agent', text: fin.displayText,
+                                  steps: fin.visibleSteps,
+                                  // the server's final tally wins over the one
+                                  // assembled live — it is the one that was billed
+                                  ...(usage?.calls || liveUsage ? { usage: usage || liveUsage! } : {}) }
       patchTask(tk => ({
         ...tk,
         status: fin.hasError ? 'error' : 'done',
@@ -1449,18 +1607,36 @@ export default function Home() {
             }
             return { ...tk, messages: msgs }
           })
+        } else if (ev.type === 'usage' && ev.usage) {
+          const u = ev.usage
+          liveUsage = {
+            cost: u.total ?? liveUsage?.cost,
+            tokens: (liveUsage?.tokens || 0) + (u.prompt_tokens || 0) + (u.completion_tokens || 0),
+            calls: (liveUsage?.calls || 0) + 1,
+            model: u.model || liveUsage?.model,
+            priced: u.priced !== false && (liveUsage?.priced !== false),
+            per_call: [...(liveUsage?.per_call || []), u],
+          }
+          const snap = liveUsage
+          patchTask(tk => {
+            const msgs = [...tk.messages]
+            const last = msgs[msgs.length - 1]
+            if (!last || !last.live) return tk
+            msgs[msgs.length - 1] = { ...last, usage: snap }
+            return { ...tk, messages: msgs }
+          })
         } else if (ev.type === 'model_request') {
           // the run is blocked on this tab — generate and hand the text back.
           // Deliberately not awaited: the stream reader has to keep draining
           // while the worker runs, or the next event would queue behind it.
           serveModelRequest(browserModel(), ev, API_URL)
         } else if (ev.type === 'done') {
-          finishSingle(liveSteps.length ? liveSteps : (ev.result || []))
+          finishSingle(liveSteps.length ? liveSteps : (ev.result || []), undefined, ev.usage)
           // a billed run just moved the balance — the run cost what it cost
           // on the module's key plus the margin, so re-read it
           if (ev.charged?.charged) fetchCredits()
         } else if (ev.type === 'error') {
-          finishSingle(liveSteps, ev.error || 'Unknown error')
+          finishSingle(liveSteps, ev.error || 'Unknown error', ev.usage)
         }
       }
 
@@ -1495,7 +1671,7 @@ export default function Home() {
         clearTimeout(timeout)
         if (apiStatus !== 'ok') setApiStatus('ok')
         const data = await res.json()
-        finishSingle(data.result || [], data.error)
+        finishSingle(data.result || [], data.error, data.usage)
       }
     } catch (e: any) {
       const msg = e.name === 'AbortError'
@@ -2421,10 +2597,19 @@ export default function Home() {
     return name.toLowerCase().includes(s) || (desc || '').toLowerCase().includes(s)
   }
 
+  // where the dropdown lands: under the button, and never off the right edge
+  const placePicker = () => {
+    const r = pickerBtnRef.current?.getBoundingClientRect()
+    if (!r) return
+    const w = 320  // w-80
+    setPickerPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)), top: r.bottom + 4 })
+  }
+
   const personaPicker = (
     <div className="relative min-w-0">
       <button
-        onClick={() => { setShowPicker(v => !v); setPersonaErr(null); if (!showPicker) fetchLibrary() }}
+        ref={pickerBtnRef}
+        onClick={() => { placePicker(); setShowPicker(v => !v); setPersonaErr(null); if (!showPicker) fetchLibrary() }}
         className={`flex items-center gap-1.5 bg-white/5 border rounded-md px-2 py-1.5 text-sm outline-none cursor-pointer transition-colors min-w-0 max-w-[200px] ${
           showPicker ? 'border-emerald-500/40 text-gray-200' : 'border-white/10 text-gray-300 hover:border-white/20'
         }`}
@@ -2471,7 +2656,8 @@ export default function Home() {
       {showPicker && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowPicker(false)} />
-          <div className="absolute left-0 top-full mt-1 w-80 max-h-[65vh] flex flex-col bg-surface-2 border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
+          <div style={pickerPos ? { left: pickerPos.left, top: pickerPos.top } : undefined}
+            className="fixed w-80 max-h-[65vh] flex flex-col bg-surface-2 border border-white/10 rounded-lg z-50 shadow-2xl overflow-hidden">
             {/* tabs */}
             <div className="tab-strip gap-0.5 px-1.5 pt-1.5 border-b border-white/[0.06] shrink-0">
               {([
@@ -2505,7 +2691,7 @@ export default function Home() {
                 <button
                   onClick={() => openAgentEditor()}
                   className="w-full text-left px-2.5 py-2 rounded-md text-xs transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
-                  <span className="w-5 text-center shrink-0">+</span> new agent
+                  <span className="w-5 text-center shrink-0">+</span> build a new agent
                 </button>
               )}
 
@@ -2536,29 +2722,57 @@ export default function Home() {
                 })
               )}
             </div>
+            {/* the default, spelled out: which agent a run lands on when you
+                haven't picked one, and one click to move it to the one you
+                are looking at */}
+            {pickerTab === 'prompts' && (
+              <div className="border-t border-white/[0.06] px-2.5 py-1.5 flex items-center gap-2 shrink-0">
+                <span className="text-[10px] text-gray-600 truncate min-w-0"
+                  title={defaultSource === 'you'
+                    ? (auth ? 'your pick, kept against your address' : 'your pick, kept in this browser')
+                    : 'this module picked it — you have not chosen one'}>
+                  <span className="text-emerald-300/70">★</span>{' '}
+                  default: {agentOptions.find(a => a.value === (defaultPick || defaultAgent))?.label || defaultPick || defaultAgent}
+                  <span className="text-gray-700"> · {defaultSource === 'you' ? 'yours' : 'module'}</span>
+                </span>
+                {!promptSel && !isDefaultAgent(agentType) && (
+                  <button onClick={() => setDefaultAgentPick(agentType)}
+                    className="ml-auto shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 transition"
+                    title={`Make "${currentAgentDef?.label || agentType}" the agent every unnamed run lands on`}>
+                    make {currentAgentDef?.label || agentType} default
+                  </button>
+                )}
+              </div>
+            )}
             {/* footer */}
             <div className="border-t border-white/[0.06] px-2.5 py-2 flex items-center gap-2 shrink-0">
-              <span className={`text-[10px] truncate ${personaErr ? 'text-red-400' : 'text-gray-600'}`}
-                title={personaErr || undefined}>
-                {personaErr
-                  ? personaErr
+              <span className={`text-[10px] truncate min-w-0 ${personaErr || defaultErr ? 'text-red-400' : 'text-gray-600'}`}
+                title={personaErr || defaultErr || undefined}>
+                {personaErr || defaultErr
+                  ? (personaErr || defaultErr)
                   : pickerTab === 'memory'
                   ? 'selected notes ride along as run context'
                   : 'agents bring tools + a model, prompts just set the goal'}
               </span>
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-2 shrink-0">
                 {pickerTab === 'memory' && memSel.length > 0 && (
                   <button onClick={() => { setMemSel([]); try { localStorage.removeItem('agent_mem_sel') } catch {} }}
-                    className="text-[10px] text-gray-500 hover:text-gray-300 transition">
+                    className="text-[10px] text-gray-500 hover:text-gray-300 transition whitespace-nowrap">
                     clear
                   </button>
                 )}
-                <button onClick={() => { setShowPicker(false); openHub('agents') }}
-                  className="text-[10px] text-violet-300/90 hover:text-violet-200 transition">
-                  agents →
+                {/* the builder, on the agent you're actually running as — one
+                    click from the chat to the form that made it. Three links
+                    is the ceiling here: a fourth wrapped the row in two. */}
+                <button onClick={() => { const p = personas.find(x => x.key === `agent:${agentType}`)
+                    ; if (p && !canManage(p)) forkPersona(p); else openAgentEditor(agentType) }}
+                  className="text-[10px] text-emerald-300/90 hover:text-emerald-200 transition whitespace-nowrap"
+                  title={`Open ${currentAgentDef?.label || agentType} in the builder`}>
+                  build →
                 </button>
                 <button onClick={() => { setShowPicker(false); openHub('library') }}
-                  className="text-[10px] text-emerald-300/90 hover:text-emerald-200 transition">
+                  className="text-[10px] text-emerald-300/90 hover:text-emerald-200 transition whitespace-nowrap"
+                  title="The whole library — prompts, tool documents, memory notes and agents">
                   library →
                 </button>
               </div>
@@ -2752,6 +2966,34 @@ export default function Home() {
   // One tool call, drawn the same way wherever it appears: a row you can open
   // for the arguments it went out with and what came back. `n` numbers it in
   // the trace; the transcript leaves it off and leads with the tool name.
+  // one line under a message: total, model calls, tokens, and — when the
+  // caller is a guest paying for it — what was actually charged. The per-call
+  // breakdown is the tooltip, because the total is what is read at a glance
+  // and the calls are what is read when it looks wrong.
+  const costFooter = (msg: Message) => {
+    const u = msg.usage
+    if (!u || !u.calls) return null
+    const cost = u.priced === false ? null : fmtUSD(u.cost)
+    const toks = fmtTok(u.tokens)
+    return (
+      <div className="flex items-center gap-1.5 flex-wrap pt-1.5 mt-1.5 border-t border-white/[0.05] text-[10px] text-gray-600"
+        title={callBreakdown(u) || undefined}>
+        <span className={cost ? 'text-emerald-300/60' : 'text-gray-600'}>
+          {cost || 'unpriced model'}
+        </span>
+        <span>· {u.calls} model call{u.calls === 1 ? '' : 's'}</span>
+        {toks && <span>· {toks} tok</span>}
+        {msg.live && <span className="text-gray-700">· so far</span>}
+        {u.charged != null && (
+          <span className="text-amber-300/60" title="taken from your credit balance — provider cost plus the module's margin">
+            · charged {fmtUSD(u.charged)}
+          </span>
+        )}
+        {u.model && <span className="text-gray-700 truncate max-w-[40%]">· {u.model}</span>}
+      </div>
+    )
+  }
+
   const stepRow = (step: any, key: string, n?: number) => {
     const target = stepTarget(step)
     const open = !!expandedSteps[key]
@@ -2902,6 +3144,25 @@ export default function Home() {
                 title="Change the agent or prompt this runs as">
                 <span className="ctx-chip__d bg-emerald-400/70" />
                 <span className="ctx-chip__n">{promptSel?.name || currentAgentDef?.label || agentType}</span>
+                {!promptSel && isDefaultAgent(agentType) && (
+                  <span className="text-emerald-300/70" title="your default agent">★</span>
+                )}
+              </button>
+              {/* the default is a choice, so it is a control rather than a
+                  fact printed somewhere — this is the way back to it */}
+              <button className="ctx-chip" onClick={() => { setDefaultErr(null); setShowDefaultPick(true) }}
+                title={defaultSource === 'you'
+                  ? 'The agent every new chat starts on — yours to change'
+                  : 'No default picked yet — this module chose one for you'}>
+                <span className="text-emerald-300/70">★</span>
+                default
+                {/* the name only when it isn't the agent already named on the
+                    chip beside it — two chips saying "Default" is one chip */}
+                {!(!promptSel && isDefaultAgent(agentType)) && (
+                  <span className="ctx-chip__n">
+                    {agentOptions.find(a => a.value === (defaultPick || defaultAgent))?.label || defaultAgent}
+                  </span>
+                )}
               </button>
               <button className="ctx-chip" onClick={() => { setActiveTab('tools'); setToolPane('registry') }}
                 title="The tools this run gets — open the registry">
@@ -3037,6 +3298,12 @@ export default function Home() {
                     </button>
                   </div>
                 )}
+                {/* what this call to the agent cost on the provider key. Every
+                    run has a price whether or not anyone is billed for it, and
+                    a price you only learn from the treasury is a price you
+                    don't watch — so it sits under the answer that spent it,
+                    counting up while the run is still going. */}
+                {costFooter(msg)}
               </div>
             </div>
           )})}
@@ -3185,10 +3452,14 @@ export default function Home() {
   // "save + use", and the next message runs as it.
   const agentsPane = agentEdit ? (
     <AgentEditor
-      key={agentEdit.name || 'new'}
+      key={agentEdit.name || (agentEdit.from ? `from:${agentEdit.from}` : 'new')}
       name={agentEdit.name}
+      from={agentEdit.from}
       token={auth?.token}
       isHost={isHost}
+      address={auth?.address}
+      defaultAgent={defaultPick || defaultAgent}
+      onMakeDefault={setDefaultAgentPick}
       onSaved={(name) => { fetchAgents(auth?.token); libChanged(); setAgentEdit({ name }) }}
       onClose={() => setAgentEdit(null)}
       onOpenCanvas={(name) => { setAgentEdit(null); openBuilder(name) }}
@@ -3480,8 +3751,77 @@ export default function Home() {
   )
 
   // overlays shared by both layouts (fullscreen + normal)
+  // --- Pick a default agent — asked once, before the first run ---
+  // Which agent a run lands on used to be decided for you and never said out
+  // loud. It's the one choice that colours every run, so it gets asked: a
+  // card, the agents you can actually run, one click, and it's remembered.
+  const defaultAgentDialog = showDefaultPick && agentOptions.length > 0 ? (
+    <div className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-sm flex items-center justify-center p-5"
+      onClick={dismissDefaultPick}>
+      <div onClick={e => e.stopPropagation()}
+        className="w-full max-w-md max-h-[80vh] flex flex-col bg-surface-2 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/[0.06]">
+          <div className="text-sm text-gray-100 font-medium">Pick your default agent</div>
+          <div className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+            It&apos;s the one every chat starts on — you can still switch per message, and
+            change this any time from the agent menu.
+            {auth ? ' Kept against your address, so it follows your wallet.'
+                  : ' Sign in to keep it across devices; for now this browser holds it.'}
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
+          {agentOptions.map(a => {
+            const locked = !!a.harness && !canRunHarness
+            return (
+              <button key={a.value} disabled={locked}
+                onClick={() => { selectAgent(a.value); setDefaultAgentPick(a.value) }}
+                className={`w-full text-left px-2.5 py-2 rounded-md transition border ${
+                  locked
+                    ? 'border-transparent opacity-40 cursor-not-allowed'
+                    : a.value === defaultAgent
+                    ? 'bg-emerald-500/10 border-emerald-500/25 hover:bg-emerald-500/15'
+                    : 'border-transparent hover:bg-white/[0.05]'
+                }`}
+                title={locked ? `${a.label} runs on the host's own ${a.harness} CLI — host only` : a.description}>
+                <div className="flex items-center gap-2">
+                  <span className="w-5 text-center shrink-0 text-gray-300">{a.icon}</span>
+                  <span className="text-xs text-gray-200 truncate min-w-0">{a.label}</span>
+                  {a.value === defaultAgent && (
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-white/[0.06] text-gray-500 shrink-0">
+                      suggested
+                    </span>
+                  )}
+                  {locked && <span className="text-[9px] text-gray-600 shrink-0 ml-auto">host only</span>}
+                </div>
+                {a.description && (
+                  <div className="text-[10px] text-gray-600 mt-0.5 pl-7 line-clamp-2 leading-relaxed">
+                    {a.description}
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <div className="px-3 py-2 border-t border-white/[0.06] flex items-center gap-2">
+          <span className={`text-[10px] truncate min-w-0 ${defaultErr ? 'text-red-400' : 'text-gray-600'}`}>
+            {defaultErr || 'or build one of your own'}
+          </span>
+          <button onClick={() => { dismissDefaultPick(); openAgentEditor() }}
+            className="ml-auto shrink-0 text-[10px] px-2 py-1 rounded-md border border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 transition">
+            build an agent
+          </button>
+          <button onClick={dismissDefaultPick}
+            className="shrink-0 text-[10px] px-2 py-1 rounded-md border border-white/10 text-gray-500 hover:text-gray-300 transition">
+            not now
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null
+
   const overlays = (
     <>
+      {defaultAgentDialog}
       {showKeyPanel && (
         <KeyPanel
           initialProvider={keyPanelProvider || provider}

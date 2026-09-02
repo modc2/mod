@@ -16,12 +16,12 @@ export const STEPS = [
     body: "The $ next to a name is your whole position size for that trader. Each of their trades is copied at that scale, on the same markets they trade.",
   },
   {
-    title: "START IN TEST",
-    body: "Press START with the switch on TEST. The engine follows their trades live but sends no orders — nothing can move. Watch the backtest and RESULTS.",
+    title: "START ON PAPER",
+    body: "Press START with the switch on PAPER. The engine follows their trades live but sends no orders — nothing can move. Watch the backtest and RESULTS.",
   },
   {
-    title: "GO LIVE WHEN YOU'RE HAPPY",
-    body: "Flip TEST → LIVE and confirm. Real orders on Polymarket, paid from your trading wallet. STOP at any time; open positions are left alone.",
+    title: "GO REAL WHEN YOU'RE HAPPY",
+    body: "Flip PAPER → REAL and confirm. Real orders on Polymarket, paid from your trading wallet. STOP at any time; open positions are left alone.",
   },
 ] as const;
 

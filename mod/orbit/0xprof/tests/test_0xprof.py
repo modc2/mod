@@ -552,6 +552,109 @@ def test_cancelling_a_bounty_returns_the_escrow():
     storage.drop_record('bounties', bounty['id'])
 
 
+def test_a_staked_bounty_wants_a_token_before_a_proof():
+    """No seat, no submission — and nobody can hurry the reset."""
+    import time as clock
+    proof, vkey, signals = fixture('threshold', 'g16')
+    market.grant('0xsposter-test', 20)
+    market.grant('0xsprover-test', 5)
+    before = market.account('0xsprover-test')
+    bounty = bounties.create('0xsposter-test', 'groth16', 10, vkey=vkey,
+                             title='staked', stake=1, settle='daily')
+    try:
+        assert bounty['settles'] > clock.time()
+        with pytest.raises(bounties.BountyError, match='token'):
+            bounties.submit(bounty['id'], '0xsprover-test', proof, signals)
+
+        seat = bounties.join(bounty['id'], '0xsprover-test')
+        assert seat['token']['seq'] == 1
+        after = market.account('0xsprover-test')
+        assert after['credits'] == before['credits'] - 1
+        assert after['escrowed'] == before['escrowed'] + 1
+
+        with pytest.raises(bounties.BountyError, match='one seat'):
+            bounties.join(bounty['id'], '0xsprover-test')
+        with pytest.raises(bounties.BountyError, match='reset'):
+            bounties.settle(bounty['id'])
+    finally:
+        bounties.cancel(bounty['id'], '0xsposter-test')   # returns seat stakes too
+        assert market.account('0xsprover-test')['escrowed'] == before['escrowed']
+        assert market.account('0xsprover-test')['credits'] == before['credits']
+        storage.drop_record('bounties', bounty['id'])
+
+
+def test_the_reset_liquidates_the_tokens_and_settles_the_proof():
+    """Winner: reward + own stake + the no-show's. Honest loser: stake back."""
+    import time as clock
+    proof, vkey, signals = fixture('threshold', 'g16')
+    bad_signals = tamper(signals)
+    market.grant('0xrposter-test', 20)
+    for who in ('0xralice-test', '0xrbob-test', '0xrcarol-test'):
+        market.grant(who, 5)
+    start = {who: market.account(who)['credits']
+             for who in ('0xrposter-test', '0xralice-test', '0xrbob-test',
+                         '0xrcarol-test')}
+    start_escrow = {who: market.account(who)['escrowed'] for who in start}
+    bounty = bounties.create('0xrposter-test', 'groth16', 10, vkey=vkey,
+                             require=[{'index': 1, 'min': 999}],
+                             title='round', stake=1)
+    for who in ('0xralice-test', '0xrbob-test', '0xrcarol-test'):
+        bounties.join(bounty['id'], who)
+
+    with preserved('groth16', proof, vkey, signals), \
+         preserved('groth16', proof, vkey, bad_signals):
+        alice = bounties.submit(bounty['id'], '0xralice-test', proof, signals)
+        assert alice['submission']['accepted'] is True
+        assert alice['bounty']['state'] == 'open'          # recorded, not paid
+        assert market.account('0xralice-test')['credits'] == start['0xralice-test'] - 1
+        bob = bounties.submit(bounty['id'], '0xrbob-test', proof, bad_signals)
+        assert bob['submission']['accepted'] is False      # tried, and that counts
+
+        record = bounties.get(bounty['id'])                # carol never shows up
+        record['settles'] = clock.time() - 1
+        storage.put_record('bounties', bounty['id'], record)
+        settled = bounties.settle(bounty['id'])
+
+    assert settled['state'] == 'paid'
+    assert settled['winner'] == '0xralice-test'
+    assert settled['forfeited_to_winner'] == 1.0
+    # alice: +10 reward, own stake back, +1 forfeit; bob even; carol out a dollar
+    assert market.account('0xralice-test')['credits'] == start['0xralice-test'] + 11
+    assert market.account('0xrbob-test')['credits'] == start['0xrbob-test']
+    assert market.account('0xrcarol-test')['credits'] == start['0xrcarol-test'] - 1
+    assert market.account('0xrposter-test')['credits'] == start['0xrposter-test'] - 10
+    for who in start:
+        assert market.account(who)['escrowed'] == start_escrow[who]
+    storage.drop_record('bounties', bounty['id'])
+
+
+def test_an_unwon_round_liquidates_at_par_and_resets_for_the_next_day():
+    import time as clock
+    market.grant('0xdposter-test', 15)
+    market.grant('0xdidler-test', 5)
+    idler_before = market.account('0xdidler-test')['credits']
+    idler_escrow = market.account('0xdidler-test')['escrowed']
+    bounty = bounties.create('0xdposter-test', 'schnorr', 15, title='daily', stake=1)
+    bounties.join(bounty['id'], '0xdidler-test')
+
+    record = bounties.get(bounty['id'])
+    record['settles'] = clock.time() - 1
+    storage.put_record('bounties', bounty['id'], record)
+    swept = bounties.sweep()                     # the timer path, not the button
+    assert any(r['bounty'] == bounty['id'] for r in swept['rounds'])
+
+    after = bounties.get(bounty['id'])
+    assert after['state'] == 'open'              # the escrow stays on the table
+    assert after['round'] == 2
+    assert after['tokens'] == [] and after['pot'] == 0.0
+    assert after['settles'] > clock.time()
+    assert after['rounds'][-1]['winner'] is None
+    assert market.account('0xdidler-test')['credits'] == idler_before
+    assert market.account('0xdidler-test')['escrowed'] == idler_escrow
+    bounties.cancel(bounty['id'], '0xdposter-test')
+    storage.drop_record('bounties', bounty['id'])
+
+
 def test_requirement_rules_compare_numbers_as_numbers():
     signals = ['0x3e8', '1000']
     assert bounties.check_requirements([{'index': 0, 'equals': '1000'}], signals)['ok']

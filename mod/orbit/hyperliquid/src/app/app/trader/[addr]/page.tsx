@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { analyzeTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago } from "../../lib/api";
+import {
+  analyzeTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago,
+  sharpeMeasured, MIN_SHARPE_DAYS,
+} from "../../lib/api";
 import { buildRoundTrips, fmtDuration } from "../../lib/trips";
 import PnlChart from "../../components/PnlChart";
 
@@ -30,14 +33,29 @@ export default function TraderPage() {
   if (!data) return null;
 
   const s = data.summary;
+  const ext = data.extended;
   const fills = Array.isArray(data.fills) ? data.fills : [];
   const positions = (data.state?.assetPositions ?? []) as any[];
-  const trips = buildRoundTrips(fills);
+
+  // The fills payload is ~31 days regardless of the window, because the client
+  // caches that much per address. Everything below is labelled "(Nd)", so it
+  // has to be scoped to N days or the tables quietly contradict the tiles.
+  const cutoff = Number(data.cutoff_ms ?? 0);
+  const inWindow = (t: number) => Number(t) >= cutoff;
+
+  // Trips are built from ALL fills and filtered afterwards, never before: a
+  // position opened before the window still needs its earlier legs to compute a
+  // real entry price. Filtering first would silently reprice every open trade.
+  const trips = buildRoundTrips(fills).filter(
+    (t) => t.closeTime == null || inWindow(t.closeTime)
+  );
   const closedTripPnl = trips
     .filter((t) => t.closeTime != null)
     .reduce((a, t) => a + t.closedPnl, 0);
-  const fillsDesc = [...fills].sort((a: any, b: any) => Number(b.time) - Number(a.time));
-  const fillsClosedPnl = fills.reduce((a: number, f: any) => a + (Number(f.closedPnl) || 0), 0);
+
+  const windowFills = fills.filter((f: any) => inWindow(f.time));
+  const fillsDesc = [...windowFills].sort((a: any, b: any) => Number(b.time) - Number(a.time));
+  const fillsClosedPnl = windowFills.reduce((a: number, f: any) => a + (Number(f.closedPnl) || 0), 0);
 
   return (
     <div className="space-y-5">
@@ -53,24 +71,80 @@ export default function TraderPage() {
         </div>
       </div>
 
-      {/* Summary tiles */}
+      {/* Summary tiles.
+          Every ratio here carries the count it was computed from. A win rate
+          without its denominator is how "100% · 16 trades" ended up meaning
+          "8 of 8 closes, and the other 8 fills were opens". */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Tile label={`pnl (${days}d)`} value={fmtPnl(s.pnl)} tone={s.pnl >= 0 ? "win" : "loss"} />
-        <Tile label="volume" value={fmtUsd(s.volume)} />
-        <Tile label="win rate" value={s.win_rate < 0 ? "—" : fmtPct(s.win_rate, 0)} />
-        <Tile label="trades" value={`${s.trades}`} />
-        <Tile label="sharpe" value={s.sharpe.toFixed(2)} />
+        <Tile
+          label={`pnl (${days}d)`}
+          value={fmtPnl(s.pnl)}
+          tone={s.pnl >= 0 ? "win" : "loss"}
+          sub={s.fees > 0 ? `after ${fmtUsd(s.fees)} fees` : undefined}
+        />
+        <Tile label="volume" value={fmtUsd(s.volume)} sub={`${s.trades} fills`} />
+        <Tile
+          label="win rate"
+          value={s.win_rate < 0 ? "—" : fmtPct(s.win_rate, 0)}
+          // Below MIN_CLOSES the percent is an anecdote. Say so on the tile
+          // rather than trusting anyone to notice the denominator.
+          tone={s.win_rate >= 0 && s.confidence !== "measured" ? "warn" : undefined}
+          sub={
+            s.win_rate < 0
+              ? "nothing closed yet"
+              : `${s.wins} of ${s.closes} closes` +
+                (s.confidence === "measured" ? "" : " · thin sample")
+          }
+          title={
+            s.win_rate < 0
+              ? "No fill in this window realised PnL, so there is no ratio to take."
+              : `${s.wins} win / ${s.losses} loss over ${s.closes} closes, net of fees. ` +
+                `The other ${s.trades - s.closes} fills were opens, which can neither win nor lose. ` +
+                `At this sample size the defensible rate is ${fmtPct(s.win_rate_lo, 0)} (Wilson 95% lower bound).`
+          }
+        />
+        <Tile
+          label="closes"
+          value={`${s.closes}`}
+          sub={`of ${s.trades} fills`}
+          title="Fills that realised PnL — the denominator the win rate is actually over. The rest are opens."
+        />
+        <Tile
+          label="sharpe"
+          // A ratio built from two days of history is not a Sharpe ratio, and
+          // printing it to two decimals only makes it more convincing.
+          value={sharpeMeasured(s) ? s.sharpe.toFixed(2) : "—"}
+          sub={`${s.sharpe_days} ${s.sharpe_days === 1 ? "day" : "days"} of history`}
+          tone={sharpeMeasured(s) ? undefined : "warn"}
+          title={
+            sharpeMeasured(s)
+              ? "Annualised Sharpe of daily net PnL. Idle days inside the window count as 0-return days."
+              : `Needs at least ${MIN_SHARPE_DAYS} days of history; this wallet has ${s.sharpe_days}. ` +
+                `Over so few days the standard deviation describes the sample, not the strategy.`
+          }
+        />
       </div>
 
-      {/* PnL over time */}
+      {/* The longer view, free: the fills call already caches ~31 days, so the
+          wider window costs no extra request. It is also the only thing on this
+          page that can contradict the tiles above — which is exactly why it is
+          here and not behind a toggle. */}
+      {ext && ext.trades > s.trades && <WiderView days={days} s={s} ext={ext} />}
+
+      {/* PnL over time.
+          `windowPnl` is handed down so the chart can reconcile its endpoint
+          against the tile above rather than quietly disagreeing with it: the
+          curve is equity marked to market, the tile is realised fills, and
+          those are different numbers on any wallet holding risk overnight. */}
       <Panel title={`pnl over time (${days}d)`}>
-        <PnlChart portfolio={data.pnl_history} days={days} />
+        <PnlChart portfolio={data.pnl_history} days={days} windowPnl={s.pnl} />
       </Panel>
 
-      {/* Open positions */}
-      <Panel title="open positions">
+      {/* Open positions — perps only. `clearinghouseState` does not carry spot
+          balances, so "none" here means no perp exposure, not a flat account. */}
+      <Panel title="open positions · perps">
         {positions.length === 0 ? (
-          <Empty>no open positions</Empty>
+          <Empty>no open perp positions — spot balances are not in this table</Empty>
         ) : (
           <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted border-b border-border">
             <div>coin</div><div className="text-right">size</div>
@@ -150,13 +224,13 @@ export default function TraderPage() {
       {/* Recent fills */}
       <Panel
         title={`recent fills (${days}d)`}
-        right={fills.length > 0 ? (
+        right={windowFills.length > 0 ? (
           <span className={`num ${fillsClosedPnl >= 0 ? "text-win" : "text-loss"}`}>
             Σ closed pnl {fmtPnl(fillsClosedPnl)}
           </span>
         ) : undefined}
       >
-        {fills.length === 0 ? (
+        {windowFills.length === 0 ? (
           <Empty>no fills in window</Empty>
         ) : (
           <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1.4fr] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted border-b border-border">
@@ -182,14 +256,104 @@ export default function TraderPage() {
   );
 }
 
-function Tile({ label, value, tone }: { label: string; value: string; tone?: "win" | "loss" }) {
+/**
+ * A stat and the evidence under it.
+ *
+ * `sub` is not decoration. A ratio shown alone invites the reader to supply a
+ * denominator from whatever number is nearest, and on this page the nearest
+ * number was the fill count — twice the real one. The sub-line removes the
+ * guess.
+ */
+function Tile({ label, value, tone, sub, title }: {
+  label: string;
+  value: string;
+  tone?: "win" | "loss" | "warn";
+  sub?: string;
+  title?: string;
+}) {
+  const toneClass =
+    tone === "win" ? "text-win" : tone === "loss" ? "text-loss" : tone === "warn" ? "text-warn" : "";
   return (
-    <div className="panel p-3">
+    <div className="panel p-3" title={title}>
       <div className="stat">{label}</div>
-      <div className={`text-lg num mt-1 ${tone === "win" ? "text-win" : tone === "loss" ? "text-loss" : ""}`}>
-        {value}
-      </div>
+      <div className={`text-lg num mt-1 ${toneClass}`}>{value}</div>
+      {sub && (
+        <div className={`text-[10px] mt-0.5 num ${tone === "warn" ? "text-warn/70" : "text-muted"}`}>
+          {sub}
+        </div>
+      )}
     </div>
+  );
+}
+
+/**
+ * The same wallet over every day of history on hand, next to the window the
+ * tiles describe.
+ *
+ * This exists because a short window is the easiest way to launder a losing
+ * book into a perfect one: crop to the last few days and any trader who has
+ * not lost recently reads as flawless. The fills request already returns ~31
+ * days regardless of the window, so showing the longer view costs nothing and
+ * is the single most useful number on the page for someone deciding whether to
+ * mirror this wallet with real money.
+ */
+function WiderView({ days, s, ext }: { days: number; s: any; ext: any }) {
+  const rows: { label: string; win: string; wide: string; flip: boolean }[] = [];
+
+  const winOf = (x: any) => (x.win_rate < 0 ? "—" : fmtPct(x.win_rate, 0));
+  rows.push({
+    label: "win rate",
+    win: `${winOf(s)}  (${s.wins}/${s.closes})`,
+    wide: `${winOf(ext)}  (${ext.wins}/${ext.closes})`,
+    // Flag it when the short window flatters the wallet by 10 points or more.
+    flip: s.win_rate >= 0 && ext.win_rate >= 0 && s.win_rate - ext.win_rate >= 10,
+  });
+  rows.push({
+    label: "net pnl",
+    win: fmtPnl(s.pnl),
+    wide: fmtPnl(ext.pnl),
+    flip: s.pnl >= 0 && ext.pnl < 0,
+  });
+  rows.push({
+    label: "sharpe",
+    win: sharpeMeasured(s) ? s.sharpe.toFixed(2) : `— (${s.sharpe_days}d)`,
+    wide: sharpeMeasured(ext) ? ext.sharpe.toFixed(2) : `— (${ext.sharpe_days}d)`,
+    flip: sharpeMeasured(ext) && ext.sharpe < 0 && s.sharpe > 0,
+  });
+  rows.push({
+    label: "worst close",
+    win: s.worst_close < 0 ? fmtPnl(s.worst_close) : "—",
+    wide: ext.worst_close < 0 ? fmtPnl(ext.worst_close) : "—",
+    flip: ext.worst_close < s.worst_close * 2 && ext.worst_close < 0,
+  });
+
+  const misleading = rows.some((r) => r.flip);
+
+  return (
+    <Panel
+      title={`the same wallet over ${ext.span_days}d`}
+      right={
+        misleading ? (
+          <span className="text-warn text-[11px]">the {days}d window flatters this book</span>
+        ) : undefined
+      }
+    >
+      <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-muted border-b border-border">
+        <div />
+        <div className="text-right">{days}d window</div>
+        <div className="text-right">{ext.span_days}d, all history</div>
+      </div>
+      {rows.map((r) => (
+        <div key={r.label} className="grid grid-cols-[1.2fr_1fr_1fr] gap-2 px-4 py-1.5 table-row">
+          <div className="text-[11px] text-muted uppercase tracking-wider">{r.label}</div>
+          <div className={`num text-right ${r.flip ? "text-warn" : "text-ink/90"}`}>{r.win}</div>
+          <div className="num text-right text-ink/90">{r.wide}</div>
+        </div>
+      ))}
+      <div className="px-4 py-2 text-[10px] text-muted border-t border-border">
+        Both columns come from the same cached fills — the wider view costs no extra request.
+      </div>
+    </Panel>
   );
 }
 

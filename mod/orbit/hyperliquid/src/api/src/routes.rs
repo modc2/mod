@@ -22,6 +22,33 @@ async fn auth_me(ext: Option<Extension<crate::auth::AuthedUser>>) -> Result<Json
     }
 }
 
+/// 400 with a sentence, not a struct dump.
+fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<Value>) {
+    (StatusCode::BAD_REQUEST, Json(json!({"error": msg.into()})))
+}
+
+/// Resolve whose row this is.
+///
+/// The auth guard has already recovered the caller's address from their token
+/// and pinned any address the body names to it, so an explicit field can only
+/// ever agree — which makes it redundant. Prefer the body when present (open
+/// mode and server-to-server callers still pass it), fall back to the token,
+/// and only fail when neither exists.
+fn caller_address(
+    from_body: Option<&str>,
+    user: Option<Extension<crate::auth::AuthedUser>>,
+    field: &str,
+) -> Result<String, (StatusCode, Json<Value>)> {
+    from_body
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .map(|a| a.to_lowercase())
+        .or_else(|| user.map(|Extension(u)| u.0))
+        .ok_or_else(|| bad_request(format!(
+            "`{field}` is required — sign in, or pass the address explicitly"
+        )))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(info))
@@ -48,6 +75,7 @@ pub fn router() -> Router<AppState> {
         .route("/leaderboard", get(leaderboard))
         .route("/traders/top", get(top_traders))
         .route("/trader/:addr/analyze", get(analyze_trader))
+        .route("/trader/:addr/curve", get(trader_curve))
         .route("/scan/progress", get(scan_progress))
 
         // ── copy-trade ──
@@ -134,6 +162,10 @@ pub fn router() -> Router<AppState> {
 
         // ── generic mod-protocol passthrough ──
         .route("/forward", post(forward))
+
+        // ── the investment book (invest_routes.rs): one verb over vaults,
+        //    traders and strat baskets alike ──
+        .merge(crate::invest_routes::router())
 }
 
 // ── MCP ──
@@ -309,11 +341,27 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
         "description": "Hyperliquid full-stack — one-transaction cross-chain deposits from seven chains, backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server",
         "protocol": "mod",
         "auth": "mod protocol-auth Bearer token (personal_sign) — public reads open, user-scoped routes gated",
+        // A refusal is part of the API, so it is documented like the rest of
+        // it. Every 401/403 carries `reason` (from this list), a `message`
+        // written for a person, and `sign_in` — whether re-signing would fix
+        // it. Clients branch on the code, show the message, and retry once
+        // when sign_in is true, instead of reprinting a status number.
+        "denials": {
+            "no_token":          {"status": 401, "sign_in": true,  "means": "no Authorization header"},
+            "expired_token":     {"status": 401, "sign_in": true,  "means": "past the session window"},
+            "bad_token":         {"status": 401, "sign_in": true,  "means": "malformed, or signature does not recover to its key"},
+            "wrong_wallet":      {"status": 403, "sign_in": false, "means": "request names an address the token does not sign for"},
+            "not_owner":         {"status": 403, "sign_in": false, "means": "the row belongs to another wallet"},
+            "unscoped_query":    {"status": 403, "sign_in": false, "means": "per-wallet list with no ?follower/?eoa scope"},
+            "payload_too_large": {"status": 413, "sign_in": false, "means": "body over 1 MiB"},
+        },
         "testnet": s.hl.testnet,
         "urls": { "app": "/hyperliquid", "api": "/api/hyperliquid" },
         "endpoints": {
-            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/indexes", "/deposit/chains", "/deposit/balances", "/deposit/status", "/mcp", "/mcp/schema"],
-            "gated": ["/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action", "/deposit/quote"],
+            // `crate::auth::is_public` is the authority; mcp::tools() carries
+            // the same flag per tool and a test holds the two in agreement.
+            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
+            "gated": ["/auth/me", "/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action", "/deposit/quote", "POST /indexes", "PATCH|DELETE /indexes/:id"],
         },
         // The mod-protocol fn surface is also an MCP tool server; /mcp/schema
         // publishes the tool → fn → route mapping.
@@ -588,6 +636,19 @@ async fn analyze_trader(State(s): State<AppState>, Path(a): Path<String>, Query(
     crate::traders::analyze(s.hl.clone(), &a, days).await.map(Json).map_err(err500)
 }
 
+/// One wallet's PnL curve for one window — the shape behind the row's number.
+///
+/// Public, and deliberately infallible: the board hovers this per row, so an
+/// upstream 429 comes back as `available: false` with a sentence rather than a
+/// status code that would paint a working row as broken.
+async fn trader_curve(State(s): State<AppState>, Path(a): Path<String>, Query(q): Query<AnalyzeQ>)
+    -> Json<Value>
+{
+    let days = q.days.unwrap_or(7).clamp(1, 90);
+    let c = crate::curve::trader_curve(s.hl.clone(), &a, days).await;
+    Json(serde_json::to_value(c).unwrap_or_else(|_| json!({"available": false})))
+}
+
 // ── follows / copy ──
 
 #[derive(Deserialize)]
@@ -598,7 +659,8 @@ async fn list_follows(State(s): State<AppState>, Query(q): Query<FollowFilter>) 
 
 #[derive(Deserialize)]
 struct CreateFollow {
-    follower: String,
+    /// Optional — defaults to the signed-in wallet. See `CreateIndex::owner`.
+    follower: Option<String>,
     leader: String,
     size_pct: Option<f64>,
     max_per_trade_usd: Option<f64>,
@@ -620,11 +682,15 @@ pub fn validate_follow_pair(follower: &str, leader: &str) -> Result<(String, Str
     Ok((follower, leader))
 }
 
-async fn create_follow(State(s): State<AppState>, Json(b): Json<CreateFollow>)
-    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+async fn create_follow(
+    State(s): State<AppState>,
+    user: Option<Extension<crate::auth::AuthedUser>>,
+    Json(b): Json<CreateFollow>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
-    let (follower, leader) = validate_follow_pair(&b.follower, &b.leader)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({"error": e}))))?;
+    let me = caller_address(b.follower.as_deref(), user, "follower")?;
+    let (follower, leader) = validate_follow_pair(&me, &b.leader)
+        .map_err(bad_request)?;
     let f = Follow {
         id: String::new(),
         follower,
@@ -709,7 +775,12 @@ async fn list_indexes(State(s): State<AppState>) -> Json<Value> {
 #[derive(Deserialize)]
 struct CreateIndex {
     name: String,
-    owner: String,
+    /// Optional: the guard has already proven who is calling, so the default
+    /// owner is the signed-in wallet. Sending it is allowed (the guard pins it
+    /// to the token) but never required — a client that had to plumb its own
+    /// address through just to name itself was one stale render away from
+    /// posting a mismatch.
+    owner: Option<String>,
     description: Option<String>,
     legs: Vec<IndexLeg>,
     days_window: Option<u32>,
@@ -717,13 +788,24 @@ struct CreateIndex {
     notional_pct: Option<f64>,
     vault_address: Option<String>,
 }
-async fn create_index(State(s): State<AppState>, Json(b): Json<CreateIndex>)
-    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+async fn create_index(
+    State(s): State<AppState>,
+    user: Option<Extension<crate::auth::AuthedUser>>,
+    Json(b): Json<CreateIndex>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
+    let owner = caller_address(b.owner.as_deref(), user, "owner")?;
+    let name = b.name.trim().to_string();
+    if name.is_empty() {
+        return Err(bad_request("name is required"));
+    }
+    if b.legs.is_empty() {
+        return Err(bad_request("a strat needs at least one trader leg"));
+    }
     let idx = Index {
         id: String::new(),
-        name: b.name,
-        owner: b.owner.to_lowercase(),
+        name,
+        owner,
         description: b.description.unwrap_or_default(),
         legs: b.legs,
         days_window: b.days_window.unwrap_or(7).clamp(1, 90),

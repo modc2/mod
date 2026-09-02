@@ -33,6 +33,7 @@ import type { HubBacktest, TraderFeed } from "../lib/hubReplay";
 import { shortAddress } from "../lib/identityStrat";
 import { describeMarketQuery } from "../lib/marketTypes";
 import EquityChart from "./EquityChart";
+import { MODE } from "../lib/tradingMode";
 
 const AMOUNT_PRESETS = [25, 100, 500, 1000];
 /** Typing "1000" is one replay, not four. */
@@ -72,8 +73,8 @@ function stateOf(row: CopyBookRow): { label: string; cls: string; title: string 
   if (!row.enabled) return { label: "PAUSED", cls: "text-pixel-gray/70", title: "Paused — in the book, kept out of START ALL" };
   if (row.live?.running) {
     return row.live.autoExecute
-      ? { label: "LIVE", cls: "text-pixel-green", title: "Running LIVE — real orders" }
-      : { label: "TEST", cls: "text-amber-400", title: "Running in TEST — follows their trades, sends no orders" };
+      ? { label: MODE.LIVE.label, cls: "text-pixel-green", title: MODE.LIVE.active }
+      : { label: MODE.TEST.label, cls: "text-amber-400", title: MODE.TEST.active };
   }
   return { label: "OFF", cls: "text-pixel-gray", title: "Not started" };
 }

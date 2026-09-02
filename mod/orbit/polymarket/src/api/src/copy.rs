@@ -741,6 +741,8 @@ fn session_view(state: &AppState, eoa: &str, strategy_id: &str) -> Option<Value>
         "error": st.error,
         "ledger": ledger.map(|l| json!({
             "realized": l.realized,
+            // GROSS realized is before this. Net of it is what the wallet holds.
+            "fees": l.fees,
             "volume": l.volume,
             "buys": l.buys,
             "sells": l.sells,
@@ -795,6 +797,7 @@ fn other_sessions(state: &AppState, eoa: &str, book_ids: &[String]) -> Vec<Value
                 "balance": st.balance,
                 "error": st.error,
                 "realized": ledger.map(|l| l.realized),
+                "fees": ledger.map(|l| l.fees),
                 "lastFillAt": ledger.map(|l| l.last_fill_at),
             }))
         })

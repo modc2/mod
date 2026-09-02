@@ -3,6 +3,7 @@
 // candidate's recent fills, score against the window.
 
 use crate::hl::{parse_fills, Client, Fill};
+use crate::stats::PerfStats;
 use futures::stream::{self, StreamExt};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -94,19 +95,108 @@ impl Drop for ScanClaim {
     fn drop(&mut self) { self.jobs.keys.lock().remove(&self.key); }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TopTrader {
     pub address: String,
     pub roi: f64,           // window return on equity, percent (the ranking metric)
     pub account_value: f64, // current account equity (USD), for context / sizing ROI
     pub volume: f64,        // USD volume in window
     pub pnl: f64,           // closedPnl - fees, summed
-    pub win_rate: f64,      // 0..100, -1 if no realised fills
-    pub trades: usize,
+    pub win_rate: f64,      // 0..100 net of fees, -1 if no realised closes
+    pub trades: usize,      // every fill, opens included
     pub coins: Vec<String>, // distinct coins, top-N
     pub avg_trade_usd: f64,
-    pub sharpe: f64,        // simple daily-pnl Sharpe (if enough days)
+    pub sharpe: f64,        // annualised daily-PnL Sharpe (see stats::score)
     pub last_active: i64,   // ms
+
+    // ── the evidence behind the two ratios above ──
+    //
+    // All `#[serde(default)]`: boards cached to disk by an older build still
+    // deserialize, they just come back with these zeroed until the next
+    // prewarm cycle recomputes them.
+    /// Fills that realised PnL — the actual win-rate denominator. `trades`
+    /// is the wrong number to read `win_rate` against and always was.
+    #[serde(default)]
+    pub closes: usize,
+    #[serde(default)]
+    pub wins: usize,
+    #[serde(default)]
+    pub losses: usize,
+    /// Wilson 95% lower bound on `win_rate`. Rank and filter on this, not on
+    /// `win_rate`: it is the only one of the two that knows `closes`.
+    #[serde(default)]
+    pub win_rate_lo: f64,
+    /// How many closes back `win_rate` — `none` / `low` / `measured`.
+    #[serde(default)]
+    pub confidence: crate::stats::Confidence,
+    /// Days in the Sharpe sample. Under `stats::MIN_SHARPE_DAYS` the ratio is
+    /// noise and the UI shows "—".
+    #[serde(default)]
+    pub sharpe_days: usize,
+    /// Σ fees paid in the window — how much of the gross edge the venue took.
+    #[serde(default)]
+    pub fees: f64,
+    /// Σ wins ÷ |Σ losses|, net of fees. 0 when there were no losses.
+    #[serde(default)]
+    pub profit_factor: f64,
+    /// Worst single realised close in the window (negative USD).
+    #[serde(default)]
+    pub worst_close: f64,
+}
+
+impl TopTrader {
+    /// Fold a scored window onto a row that already carries its leaderboard
+    /// pricing (address / roi / account_value). One place, so a new stat can
+    /// never reach one board and miss another.
+    pub fn apply_stats(&mut self, s: &crate::stats::PerfStats) {
+        self.volume = s.volume;
+        self.pnl = s.pnl;
+        self.win_rate = s.win_rate;
+        self.win_rate_lo = s.win_rate_lo;
+        self.confidence = s.confidence;
+        self.trades = s.trades;
+        self.closes = s.closes;
+        self.wins = s.wins;
+        self.losses = s.losses;
+        self.coins = s.coins.clone();
+        self.avg_trade_usd = s.avg_trade_usd;
+        self.sharpe = s.sharpe;
+        self.sharpe_days = s.sharpe_days;
+        self.fees = s.fees;
+        self.profit_factor = s.profit_factor;
+        self.worst_close = s.worst_close;
+        self.last_active = s.last_active;
+    }
+
+    /// A row is "measured" when its fill stats were actually fetched. Rows
+    /// priced from the leaderboard alone carry `win_rate == -1`.
+    pub fn has_stats(&self) -> bool { self.win_rate >= 0.0 }
+
+    /// True for a row written before the evidence fields existed.
+    ///
+    /// The current scorer cannot produce this combination: no closes means no
+    /// ratio, so `win_rate` would be `-1`. A row carrying a win rate *and*
+    /// zero closes therefore came off disk from an older build — it is a
+    /// percentage with nothing behind it.
+    pub fn is_legacy(&self) -> bool { self.win_rate >= 0.0 && self.closes == 0 }
+
+    /// Downgrade a legacy row to "not measured".
+    ///
+    /// Boards are cached to disk and survive a deploy, so for up to one index
+    /// TTL after this change ships the cache still holds the old numbers —
+    /// including the "100% off 16 fills" that prompted the fix. Serving those
+    /// would reintroduce the exact defect through the back door. Blanking them
+    /// costs one refresh cycle of empty win% cells and is the honest answer:
+    /// we genuinely do not know the denominator for these rows yet.
+    pub fn normalize(&mut self) {
+        if self.is_legacy() {
+            self.win_rate = -1.0;
+            self.win_rate_lo = -1.0;
+            self.confidence = crate::stats::Confidence::None;
+            self.sharpe = 0.0;
+            self.sharpe_days = 0;
+        }
+    }
 }
 
 /// What "top" means. `Roi` is the default board (best return on equity);
@@ -273,47 +363,13 @@ fn parse_lb_ranked(v: &Value, window: &str, rank: Rank, active: Active) -> Vec<(
     scored
 }
 
-fn score_fills(fills: &[Fill], cutoff_ms: i64) -> (f64, f64, f64, usize, Vec<String>, f64, i64) {
-    let mut volume = 0.0;
-    let mut pnl = 0.0;
-    let mut wins = 0usize;
-    let mut realised = 0usize;
-    let mut coins: std::collections::BTreeMap<String, usize> = Default::default();
-    let mut last = 0i64;
-    let mut daily: std::collections::BTreeMap<i64, f64> = Default::default();
-    let mut count = 0usize;
-    for f in fills {
-        if f.time < cutoff_ms { continue; }
-        count += 1;
-        let px: f64 = f.px.parse().unwrap_or(0.0);
-        let sz: f64 = f.sz.parse().unwrap_or(0.0);
-        let cp: f64 = f.closed_pnl.parse().unwrap_or(0.0);
-        let fee: f64 = f.fee.parse().unwrap_or(0.0);
-        volume += px * sz;
-        pnl += cp - fee;
-        if cp != 0.0 {
-            realised += 1;
-            if cp > 0.0 { wins += 1; }
-        }
-        *coins.entry(f.coin.clone()).or_insert(0) += 1;
-        if f.time > last { last = f.time; }
-        let day = f.time / 86_400_000;
-        *daily.entry(day).or_insert(0.0) += cp - fee;
-    }
-    let win_rate = if realised == 0 { -1.0 } else { (wins as f64 / realised as f64) * 100.0 };
-    let sharpe = if daily.len() < 2 {
-        0.0
-    } else {
-        let xs: Vec<f64> = daily.values().copied().collect();
-        let mean = xs.iter().sum::<f64>() / xs.len() as f64;
-        let var = xs.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / xs.len() as f64;
-        let sd = var.sqrt();
-        if sd == 0.0 { 0.0 } else { mean / sd * (xs.len() as f64).sqrt() }
-    };
-    let mut coins_v: Vec<(String, usize)> = coins.into_iter().collect();
-    coins_v.sort_by(|a, b| b.1.cmp(&a.1));
-    let coins: Vec<String> = coins_v.into_iter().take(8).map(|(c, _)| c).collect();
-    (volume, pnl, win_rate, count, coins, sharpe, last)
+/// Score one wallet's fills over a window.
+///
+/// The arithmetic lives in [`crate::stats`] so that the board, `/analyze` and
+/// index-leg performance cannot drift apart again — they were three separate
+/// copies of it, and all three had the same bugs.
+fn score_fills(fills: &[Fill], cutoff_ms: i64) -> crate::stats::PerfStats {
+    crate::stats::score(fills, cutoff_ms, chrono::Utc::now().timestamp_millis())
 }
 
 /// Computed board for one window, kept in memory and mirrored to disk so a
@@ -352,7 +408,11 @@ impl BoardCache {
         Self { path, boards: Mutex::new(boards) }
     }
     pub fn get(&self, days: u32, rank: Rank, active: Active) -> Option<BoardEntry> {
-        self.boards.lock().get(&board_key(days, rank, active)).cloned()
+        let mut e = self.boards.lock().get(&board_key(days, rank, active)).cloned()?;
+        // A board that outlived the build that wrote it may hold ratios with no
+        // evidence attached — see `TopTrader::normalize`.
+        for t in &mut e.traders { t.normalize(); }
+        Some(e)
     }
     /// Every board currently held, decoded — the refresher walks this so any
     /// combination a visitor asked for once keeps getting refreshed.
@@ -395,24 +455,30 @@ impl BoardCache {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexEntry {
     pub scanned_at: i64,    // ms epoch of the fills fetch
-    pub volume: f64,
-    pub pnl: f64,
-    pub win_rate: f64,      // -1 if no realised fills
-    pub trades: usize,
-    pub coins: Vec<String>, // every distinct coin traded in the window, most-traded first
-    pub sharpe: f64,
-    pub avg_trade_usd: f64,
-    pub last_active: i64,
+    /// The whole scored window, verbatim. Flattened so the JSON on disk keeps
+    /// the same flat shape it has always had — an index written by an older
+    /// build decodes straight into this, gaining the new fields as zeros until
+    /// its next refresh.
+    #[serde(flatten)]
+    pub stats: PerfStats,
 }
 
 impl IndexEntry {
     pub fn is_fresh(&self, now_ms: i64) -> bool {
+        // An entry with a win rate but no closes predates the evidence fields;
+        // treat it as stale so the next prewarm rescans it rather than serving
+        // a ratio nothing backs for the rest of its TTL. Ordinary staleness
+        // still applies, so this rides the existing throttled batch path.
+        if self.stats.win_rate >= 0.0 && self.stats.closes == 0 { return false; }
         now_ms - self.scanned_at <= INDEX_TTL_MS
     }
     /// True when this wallet traded at least one of `wanted` (uppercased).
     pub fn trades_any(&self, wanted: &[String]) -> bool {
-        wanted.is_empty() || self.coins.iter().any(|c| wanted.iter().any(|w| w == &c.to_ascii_uppercase()))
+        wanted.is_empty()
+            || self.stats.coins.iter().any(|c| wanted.iter().any(|w| w == &c.to_ascii_uppercase()))
     }
+    /// Fills seen in the window — the freshness signal the scanner gates on.
+    pub fn trades(&self) -> usize { self.stats.trades }
 }
 
 /// How long an index entry counts as current. Coins traded over a window
@@ -524,12 +590,9 @@ impl TraderIndex {
         let stamp = chrono::Utc::now().timestamp_millis();
         for (addr, fills) in scanned {
             let Some(fills) = fills else { continue };
-            let (vol, pnl, wr, n, coins, sharpe, last) = score_fills(&fills, cutoff_ms);
             self.put(days, &addr, IndexEntry {
                 scanned_at: stamp,
-                volume: vol, pnl, win_rate: wr, trades: n, coins, sharpe,
-                avg_trade_usd: if n == 0 { 0.0 } else { vol / n as f64 },
-                last_active: last,
+                stats: score_fills(&fills, cutoff_ms),
             });
         }
         self.save();
@@ -569,14 +632,18 @@ impl ScoreFilter {
         self.with_stats || self.min_sharpe.is_some() || self.min_win.is_some() || self.min_trades.is_some()
     }
     pub fn keeps(&self, t: &TopTrader) -> bool {
-        let has_stats = t.win_rate >= 0.0;
-        if self.needs_stats() && !has_stats { return false; }
+        if self.needs_stats() && !t.has_stats() { return false; }
         self.min_roi.map_or(true, |m| t.roi >= m)
             && self.min_pnl.map_or(true, |m| t.pnl >= m)
             && self.min_volume.map_or(true, |m| t.volume >= m)
             && self.min_equity.map_or(true, |m| t.account_value >= m)
-            && self.min_sharpe.map_or(true, |m| t.sharpe >= m)
-            && self.min_win.map_or(true, |m| t.win_rate >= m)
+            // A Sharpe from three days is not a Sharpe. A floor is a promise
+            // that everything above it cleared the bar, so a row that cannot
+            // be measured must fail the floor rather than sneak past on noise.
+            && self.min_sharpe.map_or(true, |m| t.sharpe_days >= crate::stats::MIN_SHARPE_DAYS && t.sharpe >= m)
+            // Filter on the Wilson lower bound, not the point estimate: asking
+            // for "win rate ≥ 80%" should not hand back a wallet that is 4-for-4.
+            && self.min_win.map_or(true, |m| t.win_rate_lo >= m)
             && self.min_trades.map_or(true, |m| t.trades >= m)
     }
     pub fn apply(&self, rows: &mut Vec<TopTrader>) {
@@ -615,11 +682,19 @@ impl SortKey {
     }
     fn needs_stats(self) -> bool { matches!(self, SortKey::Sharpe | SortKey::WinRate | SortKey::Trades) }
     fn metric(self, t: &TopTrader) -> f64 {
-        if self.needs_stats() && t.win_rate < 0.0 { return f64::NEG_INFINITY; }
+        if self.needs_stats() && !t.has_stats() { return f64::NEG_INFINITY; }
         match self {
             SortKey::Roi => t.roi, SortKey::Pnl => t.pnl, SortKey::Volume => t.volume,
-            SortKey::Equity => t.account_value, SortKey::Sharpe => t.sharpe,
-            SortKey::WinRate => t.win_rate, SortKey::Trades => t.trades as f64,
+            SortKey::Equity => t.account_value,
+            // Both fill-derived ratios rank on the evidence, not the headline.
+            // Ordering by the raw win rate puts every 3-for-3 wallet above every
+            // seasoned book on the board, which is exactly backwards: the small
+            // sample is the *less* trustworthy row, not the better one.
+            SortKey::Sharpe => {
+                if t.sharpe_days >= crate::stats::MIN_SHARPE_DAYS { t.sharpe } else { f64::NEG_INFINITY }
+            }
+            SortKey::WinRate => t.win_rate_lo,
+            SortKey::Trades => t.trades as f64,
         }
     }
     pub fn sort(self, rows: &mut [TopTrader]) {
@@ -630,7 +705,7 @@ impl SortKey {
 /// Rows that carry fill stats (win%/sharpe/trades) — the ones a query was
 /// actually spent on.
 pub fn enriched_count(rows: &[TopTrader]) -> usize {
-    rows.iter().filter(|t| t.win_rate >= 0.0).count()
+    rows.iter().filter(|t| t.has_stats()).count()
 }
 
 /// The ranked, gated leaderboard for one window — the walk order every scan
@@ -654,15 +729,17 @@ fn row_from(addr: &str, lb: &LbRow, e: Option<&IndexEntry>) -> TopTrader {
         avg_trade_usd: 0.0,
         sharpe: 0.0,
         last_active: 0,                // 0 ⇒ UI shows "≤24h" (liveness gate)
+        ..Default::default()
     };
     if let Some(e) = e {
-        if e.trades > 0 {
-            t.win_rate = e.win_rate;
-            t.trades = e.trades;
-            t.coins = e.coins.clone();
-            t.sharpe = e.sharpe;
-            t.avg_trade_usd = e.avg_trade_usd;
-            t.last_active = e.last_active;
+        if e.trades() > 0 {
+            t.apply_stats(&e.stats);
+            // Leaderboard pricing wins for volume and PnL: those are HL's own
+            // official window figures, whereas the fill-derived pair only sees
+            // the fills we managed to fetch. Every *other* field on the row is
+            // fill-derived by definition and keeps the scored value.
+            t.volume = lb.vlm;
+            t.pnl = lb.pnl;
         }
     }
     t
@@ -737,7 +814,7 @@ pub async fn top_traders_with_progress(
             index.enrich(&hl, days, chunk, progress.as_ref(), walked).await;
             for a in chunk {
                 walked += 1;
-                if index.get(days, a).map(|e| e.trades > 0 && e.trades_any(&wanted)).unwrap_or(false) {
+                if index.get(days, a).map(|e| e.trades() > 0 && e.trades_any(&wanted)).unwrap_or(false) {
                     addrs.push(a.clone());
                     if addrs.len() >= pool { break; }
                 }
@@ -770,12 +847,29 @@ pub async fn top_traders_with_progress(
     Ok(Board { traders: out, depth, candidates, coins: wanted })
 }
 
+/// Everything the trader page needs about one wallet.
+///
+/// Returns two scored windows, not one. `summary` is the window that was asked
+/// for; `extended` is every fill the fills call already returned — the client
+/// caches ~31 days per address regardless of the window, so the longer view is
+/// free, costing no extra request and no extra rate-limit budget.
+///
+/// Publishing both is the entire point. A wallet that closed eight green trades
+/// in two days reads "100%" over 7d and something far more sober over 30d, and
+/// a copier deciding whether to mirror it deserves to see the second number
+/// next to the first rather than having to guess that it exists.
 pub async fn analyze(hl: Arc<Client>, addr: &str, days: u32) -> anyhow::Result<Value> {
-    let cutoff_ms: i64 = chrono::Utc::now().timestamp_millis()
-        - (days as i64) * 86_400_000;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let cutoff_ms: i64 = now_ms - (days as i64) * crate::stats::DAY_MS;
     let fills_v = hl.user_fills_by_time(addr, cutoff_ms).await.unwrap_or(Value::Null);
     let fills = parse_fills(&fills_v);
-    let (vol, pnl, wr, n, coins, sharpe, last) = score_fills(&fills, cutoff_ms);
+
+    let stats = crate::stats::score(&fills, cutoff_ms, now_ms);
+    // i64::MIN would overflow the day arithmetic in `score`; 0 is "the epoch",
+    // which is early enough to keep every fill and safe to divide.
+    let extended = crate::stats::score(&fills, 0, now_ms);
+    let earliest = fills.iter().map(|f| f.time).min().unwrap_or(0);
+
     let state = hl.user_state(addr).await.unwrap_or(Value::Null);
     let pnl_hist = hl.user_pnl(addr).await.unwrap_or(Value::Null);
     let open = hl.open_orders(addr).await.unwrap_or(Value::Null);
@@ -786,18 +880,29 @@ pub async fn analyze(hl: Arc<Client>, addr: &str, days: u32) -> anyhow::Result<V
         .and_then(|x| x.as_str())
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(0.0);
-    let roi = if account_value > 0.0 { pnl / account_value * 100.0 } else { 0.0 };
+    let roi = if account_value > 0.0 { stats.pnl / account_value * 100.0 } else { 0.0 };
+
+    let mut summary = TopTrader {
+        address: addr.to_string(),
+        roi,
+        account_value,
+        ..Default::default()
+    };
+    summary.apply_stats(&stats);
+
     Ok(serde_json::json!({
         "address": addr,
         "days": days,
-        "summary": TopTrader {
-            address: addr.to_string(),
-            roi, account_value,
-            volume: vol, pnl, win_rate: wr, trades: n,
-            coins, sharpe,
-            avg_trade_usd: if n == 0 { 0.0 } else { vol / n as f64 },
-            last_active: last,
-        },
+        "summary": summary,
+        // The window boundary, so the client can scope its own tables to the
+        // same span the tiles describe instead of rendering every cached fill
+        // under a "(7d)" heading.
+        "cutoff_ms": cutoff_ms,
+        "now_ms": now_ms,
+        // The same wallet scored over everything on hand — `span_days` says how
+        // much history that actually is, which is not always 31.
+        "extended": extended,
+        "extended_from_ms": earliest,
         "state": state,
         "pnl_history": pnl_hist,
         "open_orders": open,
@@ -923,9 +1028,13 @@ mod tests {
     fn entry(coins: &[&str], age_ms: i64) -> IndexEntry {
         IndexEntry {
             scanned_at: chrono::Utc::now().timestamp_millis() - age_ms,
-            volume: 1.0, pnl: 0.0, win_rate: 50.0, trades: 3,
-            coins: coins.iter().map(|c| c.to_string()).collect(),
-            sharpe: 0.0, avg_trade_usd: 1.0, last_active: 0,
+            stats: PerfStats {
+                volume: 1.0, pnl: 0.0, win_rate: 50.0, win_rate_lo: 25.0, trades: 3, closes: 2,
+                wins: 1, losses: 1, confidence: crate::stats::Confidence::Low,
+                coins: coins.iter().map(|c| c.to_string()).collect(),
+                avg_trade_usd: 1.0,
+                ..Default::default()
+            },
         }
     }
 
@@ -973,11 +1082,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// `stats = Some((win_rate, sharpe, trades))` builds a *measured* row: the
+    /// win rate is given enough closes and the Sharpe enough days to clear the
+    /// evidence gates, so these fixtures exercise the floors rather than the
+    /// small-sample guards (those have their own tests in `crate::stats`).
     fn tt(roi: f64, pnl: f64, equity: f64, stats: Option<(f64, f64, usize)>) -> TopTrader {
         let (win_rate, sharpe, trades) = stats.unwrap_or((-1.0, 0.0, 0));
+        let closes = if win_rate < 0.0 { 0 } else { trades.max(crate::stats::MIN_CLOSES) };
+        let wins = (win_rate.max(0.0) / 100.0 * closes as f64).round() as usize;
         TopTrader {
             address: format!("0x{roi}"), roi, account_value: equity, volume: pnl.abs() * 10.0, pnl,
             win_rate, trades, coins: vec![], avg_trade_usd: 0.0, sharpe, last_active: 0,
+            closes, wins, losses: closes - wins,
+            win_rate_lo: if win_rate < 0.0 { -1.0 } else { crate::stats::wilson_lower(wins, closes) * 100.0 },
+            confidence: if win_rate < 0.0 { crate::stats::Confidence::None } else { crate::stats::Confidence::Measured },
+            sharpe_days: if win_rate < 0.0 { 0 } else { crate::stats::MIN_SHARPE_DAYS },
+            ..Default::default()
         }
     }
 
@@ -1047,13 +1167,55 @@ mod tests {
     }
 
     #[test]
+    fn a_cached_row_from_an_older_build_is_not_trusted() {
+        // Exactly what `/traders/top` served straight after this change
+        // shipped: the win rate and Sharpe the old scorer wrote, with none of
+        // the evidence that justifies them.
+        let mut stale = tt(12.0, 900.0, 40_000.0, Some((100.0, 13.37, 16))); 
+        stale.closes = 0;
+        stale.win_rate_lo = 0.0;
+        stale.sharpe_days = 0;
+        stale.confidence = crate::stats::Confidence::None;
+        assert!(stale.is_legacy());
+
+        stale.normalize();
+        assert_eq!(stale.win_rate, -1.0, "a ratio with no denominator is not a ratio");
+        assert_eq!(stale.sharpe, 0.0);
+        assert!(!stale.has_stats(), "so it must sink on stat sorts and fail stat floors");
+        assert_eq!(stale.trades, 16, "the fill count itself was never in doubt");
+
+        // A genuinely measured row is left alone.
+        let mut good = tt(12.0, 900.0, 40_000.0, Some((70.0, 1.5, 120)));
+        assert!(!good.is_legacy());
+        let before = good.win_rate;
+        good.normalize();
+        assert_eq!(good.win_rate, before);
+
+        // And a row that legitimately closed nothing is already unmeasured, so
+        // it is not mistaken for a legacy one.
+        let none = tt(12.0, 900.0, 40_000.0, None);
+        assert!(!none.is_legacy());
+    }
+
+    #[test]
+    fn a_legacy_index_entry_counts_as_stale_so_it_gets_rescanned() {
+        let now = chrono::Utc::now().timestamp_millis();
+        let fresh = entry(&["ETH"], 0);
+        assert!(fresh.is_fresh(now));
+
+        let mut legacy = entry(&["ETH"], 0);
+        legacy.stats.closes = 0;          // win_rate is still 50.0 from the fixture
+        assert!(!legacy.is_fresh(now), "no denominator ⇒ refetch, do not serve");
+    }
+
+    #[test]
     fn rows_only_take_fill_stats_from_entries_with_trades() {
         let lb = LbRow { roi: 0.05, pnl: 10.0, vlm: 100.0, day_vlm: 1.0, account_value: 5000.0 };
         let t = row_from("0xa", &lb, None);
         assert_eq!(t.roi, 5.0); assert_eq!(t.win_rate, -1.0); assert!(t.coins.is_empty());
         let t = row_from("0xa", &lb, Some(&entry(&["ETH"], 0)));
         assert_eq!(t.trades, 3); assert_eq!(t.coins, vec!["ETH"]);
-        let mut empty = entry(&[], 0); empty.trades = 0;
+        let mut empty = entry(&[], 0); empty.stats.trades = 0;
         let t = row_from("0xa", &lb, Some(&empty));
         assert_eq!(t.win_rate, -1.0);
     }

@@ -62,11 +62,15 @@ paid in the clear. `bridge.shielded_recipient()` re-encodes it without the
 transparent receiver before the router ever sees it. Never bypass that by
 passing an address straight to `bridge.quote()` and calling the result private.
 
-**The router accepts `u1` and rejects `zs1`.** Verified live (201 vs 400
-`recipient is not valid`). That single fact is what makes inbound shielded
-bridging possible at all, and `tests/test_learn_bridge.py` pins both halves as
-`live` tests — if the first fails, `bridge_shielded_in` is broken; if the
-second starts passing, the wrapping is merely redundant.
+**Whether the router pays a shielded address at all is the router's call.**
+It has answered both ways: `u1` accepted and `zs1` rejected (201 vs 400
+`recipient is not valid`), and — since 2026-09-02 — `recipient is not valid`
+for both, while the same swap quotes fine to a `t1`. `shielded_quote()` raises
+`ShieldedRouteUnavailable` for exactly that answer, and `bridge_shielded_in`
+turns it into the transparent-then-shield fallback: nothing reserved, both legs
+labelled, `shielded: false`. Never catch it as a plain `BridgeError` and
+report "bad address" — the address is fine. `tests/test_learn_bridge.py` pins
+this live and fails loudly when the router changes its mind again.
 
 **Which shielded pools are safe to advertise comes from `capabilities()`.**
 `mod._readable_pools()` reads it, and any receiver in a pool the module cannot

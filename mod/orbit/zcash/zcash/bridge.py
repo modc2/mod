@@ -48,6 +48,18 @@ class BridgeError(Exception):
     pass
 
 
+class ShieldedRouteUnavailable(BridgeError):
+    """The router will not pay a shielded Zcash address today.
+
+    1Click quotes ZEC to a t-address and rejects a zs1 or u1 recipient as
+    "recipient is not valid" -- solver support for shielded outputs is a
+    property of the router, not of this module, and it has changed before.
+    Raised as its own type so the caller can offer the two-leg route (bridge
+    to your own t-address, then shield it) instead of passing an opaque
+    third-party error up to someone who pasted a perfectly good z-address.
+    """
+
+
 # ── Token catalog ───────────────────────────────────────────────────────────
 
 def tokens(force: bool = False) -> list:
@@ -311,13 +323,20 @@ def best_quote(to_asset: str, amount_zec, recipient: str, refund_to: str) -> dic
 # user is expected to shield it afterwards, in a second transaction, from a
 # wallet that can prove.
 #
-# It does not have to be that way in the inbound direction. The 1Click router
-# accepts a ZIP-316 **unified address** as a ZEC recipient and rejects a bare
-# `zs1` (verified against the live router: a UA quotes 201, a zs1 answers 400
-# "recipient is not valid"). A unified address whose only receiver is Sapling
-# leaves the sender no transparent option -- so wrapping the user's shielded
-# address in a shielded-only UA is what turns "bridge to Zcash" into "bridge
-# into the shielded pool", with no second transaction and no transparent hop.
+# It does not have to be that way in the inbound direction, when the router
+# cooperates. The 1Click router has accepted a ZIP-316 **unified address** as a
+# ZEC recipient while rejecting a bare `zs1` (a UA quoted 201, a zs1 answered
+# 400 "recipient is not valid"). A unified address whose only receiver is
+# Sapling leaves the sender no transparent option -- so wrapping the user's
+# shielded address in a shielded-only UA is what turns "bridge to Zcash" into
+# "bridge into the shielded pool", with no second transaction and no
+# transparent hop.
+#
+# That acceptance is the router's rule and it moves: since 2026-09-02 the same
+# quote is refused for `u1` as well. `shielded_quote` raises
+# ShieldedRouteUnavailable for exactly that answer so the caller can offer the
+# public two-leg route rather than pass "recipient is not valid" back to
+# someone whose address was fine.
 #
 # The catch, stated plainly because it decides whether funds are private: a
 # unified address that ALSO publishes a transparent receiver is a transparent
@@ -475,13 +494,39 @@ def shielded_recipient(address: str, readable: set = None) -> dict:
     raise BridgeError(f"unrecognised Zcash address {a!r}")
 
 
+def _is_recipient_rejection(e: Exception) -> bool:
+    """Did the router turn the quote down over the recipient address?
+
+    Matched on the message because 1Click answers every bad field with the
+    same 400; the distinguishing detail is the text. Kept deliberately narrow
+    -- a refundTo complaint is a different problem and must not be dressed up
+    as a shielded-support outage.
+    """
+    msg = str(e).lower()
+    return "recipient" in msg and ("not valid" in msg or "invalid" in msg)
+
+
 def shielded_quote(from_asset: str, amount, z_recipient: str, refund_to: str,
                    dry: bool = True, slippage_bps: int = 100,
                    deadline_hours: int = 6, readable: set = None) -> dict:
     """Quote <asset> -> ZEC landing directly in the shielded pool."""
     target = shielded_recipient(z_recipient, readable=readable)
-    q = quote(from_asset, ZEC_ASSET, amount, target["recipient"], refund_to,
-              dry=dry, slippage_bps=slippage_bps, deadline_hours=deadline_hours)
+    try:
+        q = quote(from_asset, ZEC_ASSET, amount, target["recipient"], refund_to,
+                  dry=dry, slippage_bps=slippage_bps,
+                  deadline_hours=deadline_hours)
+    except BridgeError as e:
+        if _is_recipient_rejection(e):
+            raise ShieldedRouteUnavailable(
+                f"the bridge router will not pay a shielded Zcash address "
+                f"right now -- it rejected {target['recipient'][:16]}... as an "
+                f"invalid recipient, while the same quote to a transparent "
+                f"t-address is accepted. Nothing was reserved and nothing was "
+                f"sent. Bridge to a t-address you own and shield it after "
+                f"(shielded_shield), or wait for the router to take z-addresses "
+                f"again. Router said: {e}")
+        raise
+
     q["shielded"] = True
     q["destination_pool"] = target["pool"]
     q["destination_pools"] = target.get("pools", [target["pool"]])
@@ -575,15 +620,23 @@ def shielded_plan(has_node: bool = False) -> dict:
         "in": {
             "supported": True,
             "route": "near-intents",
-            "how": "The router accepts a shielded-only unified address as the "
-                   "ZEC recipient, so the solver's payment lands as a Sapling "
-                   "output. No transparent hop, no second transaction.",
+            "how": "When the router accepts a shielded-only unified address as "
+                   "the ZEC recipient, the solver's payment lands as a Sapling "
+                   "output: no transparent hop, no second transaction.",
             "needs": "nothing beyond a shielded address of your own",
-            "verified": "The router accepts the address and issues a deposit "
-                        "address for it. Whether a given solver then pays a "
-                        "Sapling-only recipient is the solver's business; if "
-                        "one cannot, the swap refunds to your origin-chain "
-                        "refund address rather than paying transparently.",
+            "depends_on_the_router": (
+                "Whether a z-address is a valid recipient at all is the "
+                "router's decision and it has changed before -- 1Click has "
+                "answered 'recipient is not valid' to a zs1 and a u1 while "
+                "quoting the same swap to a t-address. bridge_shielded_in "
+                "detects that answer, reserves nothing, and returns the "
+                "two-leg route instead."),
+            "fallback": "transparent-then-shield: bridge to a t-address you "
+                        "own, then shielded_shield moves it into the pool. Leg "
+                        "one is public, and the response says so.",
+            "verified": "Live, by tests/test_learn_bridge.py -- which quotes "
+                        "for real and fails loudly the day the router stops "
+                        "taking shielded recipients.",
         },
         "out": {
             "supported": bool(has_node),
@@ -612,4 +665,120 @@ def shielded_plan(has_node: bool = False) -> dict:
                    "decrypt' -- shielded_recipient takes the readable set from "
                    "capabilities() and trims anything outside it.",
         },
+    }
+
+
+# ── EVM payment intents ─────────────────────────────────────────────────────
+#
+# Bridging *into* ZEC hands back a deposit address on the origin chain, and for
+# most of those chains that chain is an EVM. This module cannot sign there --
+# it holds Zcash keys, not Ethereum ones -- but a browser wallet can, so the
+# missing piece is not a signer, it is an exact instruction: which chain, which
+# contract, which calldata, to the zatoshi-equivalent unit.
+#
+# That is what payment() returns: a transaction object a wallet can be handed
+# verbatim. Building it here rather than in the browser means the amount is
+# converted with the same Decimal path that priced the quote, and the ERC-20
+# calldata is checked against the same address validator as the recipient --
+# a bridge deposit that is one wei short is a refund at best.
+
+# chain code -> what a wallet needs to be pointed at it. Only chains whose id
+# is certain are listed: a wrong chainId in wallet_addEthereumChain adds a fake
+# network to someone's wallet, which is worse than saying "switch it yourself".
+EVM_NETWORKS = {
+    "eth":    (1,      "Ethereum",          "ETH",   "https://eth.llamarpc.com",              "https://etherscan.io"),
+    "base":   (8453,   "Base",              "ETH",   "https://mainnet.base.org",              "https://basescan.org"),
+    "arb":    (42161,  "Arbitrum One",      "ETH",   "https://arb1.arbitrum.io/rpc",          "https://arbiscan.io"),
+    "op":     (10,     "OP Mainnet",        "ETH",   "https://mainnet.optimism.io",           "https://optimistic.etherscan.io"),
+    "pol":    (137,    "Polygon",           "POL",   "https://polygon-rpc.com",               "https://polygonscan.com"),
+    "bsc":    (56,     "BNB Smart Chain",   "BNB",   "https://bsc-dataseed.binance.org",      "https://bscscan.com"),
+    "avax":   (43114,  "Avalanche C-Chain", "AVAX",  "https://api.avax.network/ext/bc/C/rpc", "https://snowtrace.io"),
+    "gnosis": (100,    "Gnosis",            "XDAI",  "https://rpc.gnosischain.com",           "https://gnosisscan.io"),
+    "scroll": (534352, "Scroll",            "ETH",   "https://rpc.scroll.io",                 "https://scrollscan.com"),
+    "bera":   (80094,  "Berachain",         "BERA",  "https://rpc.berachain.com",             "https://berascan.com"),
+}
+
+# transfer(address,uint256)
+ERC20_TRANSFER = "a9059cbb"
+
+
+def erc20_transfer_data(to: str, base_units) -> str:
+    """Calldata for an ERC-20 transfer, from a checksum-checked address."""
+    if not _evm.is_valid_evm_address(to):
+        raise BridgeError(f"{to!r} is not a valid EVM address")
+    amount = int(base_units)
+    if amount <= 0:
+        raise BridgeError("transfer amount must be positive")
+    return ("0x" + ERC20_TRANSFER
+            + to.lower().removeprefix("0x").rjust(64, "0")
+            + f"{amount:x}".rjust(64, "0"))
+
+
+def payment(from_asset: str, amount, deposit_address: str) -> dict:
+    """The exact EVM transaction that funds a bridge deposit address.
+
+    `from_asset` is the origin asset of a quote ('eth:USDC', 'base:ETH'),
+    `amount` its `amount_in`, `deposit_address` the address the router
+    reserved. Returns a transaction a browser wallet can sign as-is.
+    """
+    src = resolve_asset(from_asset)
+    chain = src["blockchain"]
+    if chain not in EVM_CHAINS:
+        raise BridgeError(
+            f"{chain} is not an EVM chain, so an EVM wallet cannot pay this "
+            f"deposit. Send {amount} {src['symbol']} from a {chain} wallet.")
+    if chain not in EVM_NETWORKS:
+        raise BridgeError(
+            f"{chain} is EVM but this module does not carry a verified chain "
+            "id for it. Point your wallet at that network yourself and send "
+            f"{amount} {src['symbol']} to {deposit_address}.")
+    if not _evm.is_valid_evm_address(deposit_address):
+        raise BridgeError(
+            f"{deposit_address!r} is not a valid {chain} address -- a bridge "
+            "deposit address on an EVM chain always is")
+
+    chain_id, name, native, rpc, explorer = EVM_NETWORKS[chain]
+    units = to_base_units(amount, src["decimals"])
+    contract = src.get("contractAddress")
+
+    if contract:
+        tx = {"to": _evm.to_checksum_address(contract), "value": "0x0",
+              "data": erc20_transfer_data(deposit_address, units)}
+        kind = "erc20"
+    else:
+        tx = {"to": _evm.to_checksum_address(deposit_address),
+              "value": hex(int(units)), "data": "0x"}
+        kind = "native"
+
+    return {
+        "asset": f"{chain}:{src['symbol']}",
+        "symbol": src["symbol"],
+        "decimals": src["decimals"],
+        "kind": kind,
+        "contract": _evm.to_checksum_address(contract) if contract else None,
+        "chain": chain,
+        "chain_name": name,
+        "chain_id": chain_id,
+        "chain_id_hex": hex(chain_id),
+        "native_symbol": native,
+        "amount": str(amount),
+        "amount_base_units": units,
+        "deposit_address": _evm.to_checksum_address(deposit_address),
+        "tx": tx,
+        "explorer_tx": f"{explorer}/tx/",
+        "explorer_address": f"{explorer}/address/",
+        # EIP-3085, for a wallet that has never seen this chain.
+        "add_chain": {
+            "chainId": hex(chain_id),
+            "chainName": name,
+            "nativeCurrency": {"name": native, "symbol": native, "decimals": 18},
+            "rpcUrls": [rpc],
+            "blockExplorerUrls": [explorer],
+        },
+        "note": (f"Send exactly {amount} {src['symbol']} on {name} to "
+                 f"{deposit_address}. "
+                 + ("This is an ERC-20 transfer: the transaction goes to the "
+                    f"{src['symbol']} contract, not to the deposit address."
+                    if contract else
+                    "This is a plain native transfer.")),
     }

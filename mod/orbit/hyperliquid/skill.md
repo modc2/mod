@@ -73,16 +73,55 @@ for keyless mod-protocol consumers.
 ## Auth
 
 Public reads (market data, leaderboards, trader analysis, vaults, index
-browsing) are open. Everything wallet-scoped — follows, signals, signer,
-trading, transfers, live engine — needs a mod protocol-auth token as
-`Authorization: Bearer <token>`, and any `eoa`/`follower`/`owner` you pass
-must be that token's own address. Pass it as `m.mod('hyperliquid')(token=…)`
-or `HYPERLIQUID_TOKEN`; `HYPERLIQUID_ACCESS_OPEN=1` disables the gate for
-local dev.
+browsing, and the `POST /indexes/auto` basket *preview* — it ranks the open
+leaderboard and stores nothing) are open. Everything wallet-scoped — follows,
+signals, signer, trading, transfers, live engine, and saving a strat — needs a
+mod protocol-auth token as `Authorization: Bearer <token>`.
+
+**You usually don't have to supply one.** `m.mod('hyperliquid')()` mints its
+own from `m.key()` on first gated call and re-mints before it goes stale, so
+Python and MCP callers are authenticated out of the box, as the node's key.
+Override with `m.mod('hyperliquid')(token=…)`, `(key='name')`,
+`$HYPERLIQUID_TOKEN` or `$HYPERLIQUID_KEY`. `hl.whoami()` says which address
+the API sees — the first thing to check when a write is refused.
+
+`owner` and `follower` are optional on `create_index` / `create_follow`: the
+API takes them from the token that signed the request. Send them only to be
+explicit, and they must match — the gate pins every `eoa`/`follower`/`owner`
+in a query or body to the token's own address.
+
+### Refusals are part of the API
+
+A 401/403 answers with a stable `reason`, a `message` written for a person,
+and `sign_in` — whether a fresh signature would fix it:
+
+```json
+{ "error": "unauthorized", "reason": "expired_token", "sign_in": true,
+  "message": "Your session expired. Sign in again to continue.",
+  "detail": "sign-in is 29d old, and sessions last 7d" }
+```
+
+| reason | status | sign_in | means |
+| --- | --- | --- | --- |
+| `no_token` | 401 | yes | no Authorization header |
+| `expired_token` | 401 | yes | past the session window (7d, `$HYPERLIQUID_SESSION_TTL`) |
+| `bad_token` | 401 | yes | malformed, or the signature doesn't recover to its key |
+| `wrong_wallet` | 403 | no | you named an address your token doesn't sign for |
+| `not_owner` | 403 | no | the strat/follow belongs to another wallet |
+| `unscoped_query` | 403 | no | a per-wallet list with no `?follower=` / `?eoa=` |
+
+Clients branch on `reason` and show `message`. The web console re-mints and
+replays a write **once** when `sign_in` is true, so an expired session costs
+one wallet prompt rather than a dead end; GETs never trigger a prompt, so a
+background poll can't nag. `GET /auth/me` returns the address behind a token
+(and 401s when it's dead) — the console calls it on load so the header can't
+claim "Signed in" over a session the server has already dropped.
+
+`HYPERLIQUID_ACCESS_OPEN=1` disables the gate for local dev / CI.
 
 ## MCP tool server
 
-The whole fn surface is also an MCP server — 53 tools, one per mod fn,
+The whole fn surface is also an MCP server — one tool per mod fn,
 named `hl_<fn>`. Three transports, so a client connects with whatever it
 already speaks:
 

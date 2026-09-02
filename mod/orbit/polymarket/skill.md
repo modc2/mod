@@ -1,12 +1,34 @@
 ---
 name: polymarket
-description: Copy Polymarket traders — put a dollar amount against a trader's address and the engine mirrors their fills with it. Copy many at once, backtest one before committing (walk-forward verdict + entry funnel), size a BASKET with a different amount against each, gate a leader to one slice of their flow in plain language ("big buys on crypto under 30c" compiles to marketQuery + tradeFilters), and check what actually landed with pm_copy_trades (coverage, lag, slippage, every missed trade). Driven from the COPY DESK console or over MCP (pm_copy_*). Use when asked to copy a trader, allocate money across traders, filter which of their trades to copy, ask whether copying someone would have worked, or find out why a copy session isn't trading.
+description: Copy Polymarket traders as an INDEX sized to your own capital — the default strat mirrors a bench of traders with every trade scaled by yourCapital/theirBankroll (they stake 2% of their book, you stake 2% of yours), no per-name dollar amounts. Console is three tabs: STRATS, TRADERS, TEST & LIVE; money is a side-panel drawer. The older per-trader desk still runs underneath: put a dollar amount against a trader's address and the engine mirrors their fills with it. Copy many at once, backtest one before committing (walk-forward verdict + entry funnel), size a BASKET with a different amount against each, gate a leader to one slice of their flow in plain language ("big buys on crypto under 30c" compiles to marketQuery + tradeFilters), filter by MARKET SENTIMENT (only copy them with the crowd, or only their contrarian entries), and check what actually landed with pm_copy_trades (coverage, lag, slippage, every missed trade). Driven from the COPY DESK console or over MCP (pm_copy_*). Use when asked to copy a trader, allocate money across traders, filter which of their trades to copy, ask whether copying someone would have worked, or find out why a copy session isn't trading.
 type: orbit-module
 ---
 
-# polymarket — the copy desk
+# polymarket — the trader index, and the copy desk under it
 
-The unit is an **allocation**: one trader, one dollar amount.
+The console is **three tabs**: `STRATS` (`/polymarket/strats`) → `TRADERS`
+(`/polymarket/traders`) → `TEST & LIVE` (`/polymarket/live`). Money is not a
+tab; topping up and taking out live in the side panel, open from anywhere.
+
+**The default strat is a TRADER INDEX.** One bench of traders, one pot of
+capital, and no per-name dollar amounts — every trade is re-sized by the ratio
+between your capital and that trader's own net worth:
+
+```
+mirror$ = their$ × (yourCapital × weight) / theirBankroll
+```
+
+They stake 2% of their book, you stake 2% of yours. `sizing: "bankroll"` on the
+strat is what turns this on (`app/lib/traderIndex.ts`; the ratio itself is
+`copyRatioFor` in `app/lib/strats/strat.ts`, parity-pinned to the Rust engine).
+The cost is stated rather than hidden: a small account against a whale produces
+mirrors under Polymarket's `max($1, 5×price)` order floor, and those are refused
+as `SUB_SCALE` rather than inflated to the minimum. Switch `sizing: "flow"` to
+divide by the capital they deployed this window instead — more coverage, smaller
+ratio, no longer a risk mirror.
+
+**Underneath it, the older unit still runs: an allocation.** One trader, one
+dollar amount.
 
 ```
 0xab… → $250      the engine mirrors their fills with $250
@@ -16,7 +38,8 @@ The unit is an **allocation**: one trader, one dollar amount.
 That list is the **copy book**, it lives on the server at
 `~/.mod/polymarket/copy/book.json`, and it is the same book whether you edit it
 in the browser (`/polymarket/copy`) or over MCP (`pm_copy_*`). There is no
-second, client-side copy — that is the point.
+second, client-side copy — that is the point. A trader index and an allocation
+meet at the same object: both become strats, and both run on one engine.
 
 ## Orient yourself
 
@@ -62,13 +85,51 @@ Two things one leader's row cannot express, both first-class:
   to size them against each other.
 - **Part of one leader.** `params.marketQuery` picks the MARKETS (title match,
   commas OR, spaces AND) and `params.tradeFilters`
-  (`{sides,minPrice,maxPrice,minNotional,maxNotional}`) picks the TRADES inside
-  them. `app/lib/semanticFilter.ts` compiles one typed sentence into exactly
+  (`{sides,minPrice,maxPrice,minNotional,maxNotional,categories,sentiment}`)
+  picks the TRADES inside them. `app/lib/semanticFilter.ts` compiles one typed sentence into exactly
   that pair — "big buys on crypto under 30c" → `marketQuery` over the expanded
   crypto lexicon + `{sides:"buy", maxPrice:0.3, minNotional:500}` — and
   anything it cannot express (a time window, `not candles`, `missed`) is
   returned as `viewOnly` and never armed. `pm_copy_trades q=…` returns the same
   compiled gate for an agent to write with `pm_copy_allocate`.
+
+## Filtering by MARKET SENTIMENT
+
+The third gate, and the only one that asks about the MARKET rather than the
+trade: which way had the crowd moved the odds on the outcome they bought, when
+they bought it.
+
+```
+tradeFilters.sentiment = {
+  lean: ["bearish"],     // "bullish" = with the crowd (odds rising into their entry)
+                         // "bearish" = against it (contrarian, buying the dip)
+                         // "flat"    = the market barely moved
+  windowHours: 6,        // how far back the drift is measured (default 6)
+  flatBand: 0.02,        // movement under this is FLAT, not a weak direction
+  minDrift: 0.05,        // optional: require that much movement, signed
+  unknown: "pass",       // "block" to skip markets with no readable history
+}
+```
+
+`drift = p(at the trade) − p(N hours earlier)` on the leader's OWN outcome
+token, so a positive drift always means the crowd was moving toward what they
+bought. It is price drift on one token — not news, not social sentiment.
+
+Three things worth knowing before arming one:
+
+- **Unknown passes.** A market with no usable price history has no mood and is
+  COPIED by default. `unknown: "block"` is the explicit opposite.
+- **Coverage is real and visible.** One CLOB `prices-history` request per
+  outcome token, capped, and one request spans at most 14 days. The console's
+  SENTIMENT card prints the mood split, how many trades the gate would KEEP,
+  and the coverage percentage before anything is armed.
+- **The sentence box speaks it.** "big buys against the crowd", "crypto with
+  the crowd, 12h momentum", "buying the dip on politics under 30c" — all
+  enforceable, all compiled into `tradeFilters.sentiment` by `ARM AS GATE`.
+
+Console: TEST & LIVE → SETTINGS → **MARKET SENTIMENT** (four buttons; the
+window / flat band / min move / unreadable dials are behind MORE).
+Over MCP: `pm_copy_allocate address=0x… params.tradeFilters.sentiment={lean:["bearish"]}`.
 
 ## Did the copying work?
 
@@ -92,6 +153,8 @@ src/app/app/lib/copyTrades.ts  the join: my fills ↔ the leader trades they mir
 src/app/app/api/copytrades/route.ts  that join, for the screen and for pm_copy_trades
 src/app/app/components/CopyTradesPanel.tsx  /copy/trades + its compact twin in the sidebar
 src/app/app/components/CopyPanel.tsx  the sidebar book (WHO I COPY): roster, bulk bar, BACKTEST, RESULTS
+src/app/app/lib/fees.ts        what a trade COSTS: per-market taker fee measured off usdcSize, Polygon gas per deployment
+src/api/src/fees.rs            the same fee model for the live engine's ledger + its funding headroom
 src/app/app/lib/basketSim.ts   the BASKET replay: one sleeve per leg, on its own capital
 src/app/app/components/BasketSim.tsx  /copy/basket — the roster IS the results table
 src/app/app/api/basket/route.ts  the same replay for agents (pm_copy_basket)

@@ -143,7 +143,7 @@
         ],
         "note": "an Authorization bearer is never read as a DeBank key \u2014 the gateway puts its own session tokens there"
     },
-    "schema": "Qma8Uw3koSHhQ1fmX96mqwXFPDA3T5oVkMP6cqRBFgXu89",
+    "schema": "QmTU2fU3qewurar48huS7dHirC54ucvb7ajT1hHMgfdZYQ",
     "wallet": {
         "standard": "EIP-1193 (window.ethereum) \u2014 MetaMask, Rabby, Coinbase Wallet, Brave",
         "actions": [
@@ -151,7 +151,7 @@
             "wallet_switchEthereumChain / wallet_addEthereumChain",
             "eth_sendTransaction (native + ERC-20 transfer)",
             "approve(spender, 0) revoke",
-            "savings: approve(venue, exact) + deposit/supply, redeem/withdraw — ERC-4626, Aave V3, Compound V3"
+            "savings: approve(venue, exact) + deposit/supply, redeem/withdraw \u2014 ERC-4626, Aave V3, Compound V3"
         ],
         "rule": "keys never leave the wallet; this server never sees a private key or signs anything"
     }

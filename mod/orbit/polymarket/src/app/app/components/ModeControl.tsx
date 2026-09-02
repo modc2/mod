@@ -9,8 +9,8 @@
 //
 // The shape both screens now use:
 //
-//     [ TEST | LIVE ]   [ START ] / [ STOP ]
-//      ── mode ──        ── run state ──
+//     [ PAPER | REAL ]   [ START ] / [ STOP ]
+//      ─── mode ───        ── run state ──
 //
 // Two controls because there are two independent facts. The desk used to fuse
 // them (a DRY RUN button and a LIVE button that both *started* the engine, and
@@ -68,7 +68,7 @@ export function ModeSwitch({
                   ? MODE[m].active
                   : running
                     ? MODE[m].pick
-                    : `Arm ${m} — this is the mode START will use. ${MODE[m].meaning}.`
+                    : `Arm ${MODE[m].label} — this is the mode START will use. ${MODE[m].meaning}.`
             }
             onClick={() => {
               if (active || disabled || locked) return;
@@ -94,8 +94,8 @@ export function ModeSwitch({
 
 // ── The chip ──
 
-/** Run state and mode in one badge — "STOPPED", "RUNNING" as `LIVE ●`,
-    "PAUSED · TEST". Used on desk rows, the panel header and the nav tab, so
+/** Run state and mode in one badge — "STOPPED", "RUNNING" as `REAL ●`,
+    "PAUSED · PAPER". Used on desk rows, the panel header and the nav tab, so
     all three agree about what a session is doing. */
 export function SessionChip({
   run, mode, className = "",
@@ -149,11 +149,11 @@ export function NotTradingBanner({
       <span className="text-red-400 text-xl leading-none mt-0.5">⚠</span>
       <div className="flex-1 min-w-[240px]">
         <div className="text-sm font-bold text-red-400">
-          TEST MODE — {count} mirror{count === 1 ? "" : "s"} passed every filter and{" "}
+          {MODE.TEST.label} MODE — {count} mirror{count === 1 ? "" : "s"} passed every filter and{" "}
           {count === 1 ? "was" : "were"} NOT placed. You are not trading.
         </div>
         <div className="text-xs text-pixel-muted mt-1">
-          Your filters are fine — the session is in TEST, so the engine logs what it would
+          Your filters are fine — the session is on {MODE.TEST.label}, so the engine logs what it would
           have done instead of sending it to the CLOB. Nothing is queued: these mirrors are
           gone, not deferred.
         </div>
@@ -163,10 +163,10 @@ export function NotTradingBanner({
             title={MODE.LIVE.pick}
             className="px-2.5 py-1 rounded border border-red-400/70 bg-red-400/15 text-red-300 hover:bg-red-400/25 text-[11px] font-mono tracking-[0.14em]"
           >
-            SWITCH TO LIVE →
+            SWITCH TO {MODE.LIVE.label} →
           </button>
           <span className="text-[10.5px] font-mono text-pixel-muted/70">
-            (the TEST|LIVE switch in the header flips it back any time)
+            (the {MODE.TEST.label}|{MODE.LIVE.label} switch in the header flips it back any time)
           </span>
         </div>
       </div>

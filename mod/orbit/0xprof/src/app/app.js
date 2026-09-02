@@ -487,6 +487,15 @@ async function prove(system) {
 
 // ── bounties ────────────────────────────────────────────────────────
 
+function settlesIn(ts) {
+  const seconds = Math.max(0, Math.floor(ts - Date.now() / 1000));
+  if (!seconds) return 'now — anyone can settle it';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours >= 24 ? `in ${Math.floor(hours / 24)}d ${hours % 24}h`
+    : hours ? `in ${hours}h ${minutes}m` : `in ${minutes}m`;
+}
+
 function bountyCard(bounty) {
   const rules = (bounty.require || []).map((r) => {
     if ('equals' in r) return `signal ${r.index} == ${r.equals}`;
@@ -494,18 +503,30 @@ function bountyCard(bounty) {
     if ('max' in r) return `signal ${r.index} ≤ ${r.max}`;
     return '';
   }).join(', ');
+  const staked = Number(bounty.stake) > 0;
+  const open = bounty.state === 'open';
+  const seats = bounty.tokens || [];
+  const mine = staked && seats.find((t) => t.state === 'locked'
+    && (t.holder || '').toLowerCase() === (state.address || '').toLowerCase());
+  const due = staked && open && bounty.settles <= Date.now() / 1000;
   return `<div class="card">
     <h4>${escape(bounty.title)}</h4>
-    <div class="meta">${escape(bounty.system)} · posted by ${escape(short(bounty.poster, 12))} · ${escape(bounty.state)}</div>
+    <div class="meta">${escape(bounty.system)} · posted by ${escape(short(bounty.poster, 12))} · ${escape(bounty.state)}${staked ? ` · round ${bounty.round || 1}` : ''}</div>
     ${bounty.description ? `<div class="desc">${escape(bounty.description)}</div>` : ''}
     <div class="row" style="margin:8px 0 0">
       <span class="price">${bounty.reward} credits</span>
       <span class="hint">must reach <b>${escape(bounty.accept_status)}</b>${rules ? ` · ${escape(rules)}` : ''}</span>
     </div>
+    ${staked ? `<div class="hint">staked round: <b>${bounty.stake}</b> credit(s) buys 1 token, locked until the
+      ${escape(bounty.settle || 'daily')} reset ${escape(settlesIn(bounty.settles))} ·
+      ${seats.length} prover(s) signed · pot ${bounty.pot || 0} ·
+      first token among accepted proofs wins; a seat that never submits forfeits to the winner${mine ? ` · you hold token #${mine.seq}` : ''}</div>` : ''}
     <div class="hint">${bounty.submissions.length} submission(s)${bounty.winner ? ` · won by ${escape(short(bounty.winner, 12))}` : ''}</div>
     <footer>
-      ${bounty.state === 'open' ? `<button data-act="submit" data-id="${bounty.id}">submit the proof in VERIFY</button>` : ''}
-      ${bounty.state === 'open' && bounty.poster === state.address ? `<button class="ghost" data-act="cancel" data-id="${bounty.id}">cancel</button>` : ''}
+      ${open && staked && !mine ? `<button data-act="join" data-id="${bounty.id}">put in ${bounty.stake} for a token</button>` : ''}
+      ${open && (!staked || mine) ? `<button data-act="submit" data-id="${bounty.id}">submit the proof in VERIFY</button>` : ''}
+      ${due ? `<button data-act="settle" data-id="${bounty.id}">settle the round</button>` : ''}
+      ${open && bounty.poster === state.address ? `<button class="ghost" data-act="cancel" data-id="${bounty.id}">cancel</button>` : ''}
     </footer>
   </div>`;
 }
@@ -813,6 +834,8 @@ async function boot() {
       if (act === 'buy') { const receipt = await api(`/proofs/${id}/buy`, { method: 'POST' }); toast(`bought for ${receipt.charged} credits`); await loadMarket(); await openProof(id); }
       if (act === 'refund') { const receipt = await api(`/proofs/${id}/refund`, { method: 'POST' }); toast(`refunded ${receipt.refunded}`); await loadWallet(); }
       if (act === 'cancel') { await api(`/bounties/${id}/cancel`, { method: 'POST' }); toast('cancelled, escrow returned'); await loadBounties(); }
+      if (act === 'join') { const seat = await api(`/bounties/${id}/join`, { method: 'POST' }); toast(`token #${seat.token.seq} — ${seat.token.stake} credit(s) locked until the reset`); await loadBounties(); }
+      if (act === 'settle') { const settled = await api(`/bounties/${id}/settle`, { method: 'POST' }); toast(settled.winner ? `settled — won by ${short(settled.winner, 12)}` : 'unwon — tokens returned, round reset'); await loadBounties(); }
       if (act === 'submit') { state.bounty = id; showTab('verify'); toast('paste the proof, hit verify, then publish — submissions go to /bounties/' + id + '/submit'); }
     } catch (e) { toast(e.message, true); }
   });
@@ -848,7 +871,7 @@ async function boot() {
   $('#bountyOpen').onclick = () => $('#bountyDlg').showModal();
   $('#bountySweep').onclick = async () => {
     const swept = await api('/bounties/sweep', { method: 'POST' });
-    toast(`${swept.expired} expired bounties returned their escrow`);
+    toast(`${swept.settled || 0} round(s) settled, ${swept.expired} expired bounties returned their escrow`);
     loadBounties();
   };
 
@@ -865,7 +888,11 @@ async function boot() {
         const answer = await api(`/bounties/${state.bounty}/submit`, { method: 'POST',
           body: { proof: state.lastVerified.proof,
                   public_signals: state.lastVerified.public_signals } });
-        toast(answer.submission.accepted ? 'bounty won — reward released' : `not accepted: ${answer.submission.why}`);
+        toast(answer.submission.accepted
+          ? (answer.bounty && answer.bounty.stake
+            ? 'accepted — settles at the reset, when the tokens liquidate'
+            : 'bounty won — reward released')
+          : `not accepted: ${answer.submission.why}`);
         state.bounty = null;
       }
       showTab('market');
@@ -877,6 +904,7 @@ async function boot() {
       await api('/bounties', { method: 'POST', body: {
         title: $('#bTitle').value, system: $('#bSystem').value,
         reward: Number($('#bReward').value), vkey: parse($('#bVkey').value, {}),
+        stake: Number($('#bStake').value) || 0, settle: $('#bSettle').value,
         require: parseRules($('#bRequire').value) } });
       toast('posted and funded'); showTab('bounties');
     } catch (e) { toast(e.message, true); }

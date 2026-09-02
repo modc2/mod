@@ -581,7 +581,10 @@ export default function CopyTrading({
         byAddr.get(addr) ?? {
           address: addr,
           volume: 0, buyVolume: 0, sellVolume: 0,
-          pnl: 0, winRate: 0, sharpe: 0, exitEntry: -1, positions: 0,
+          // Placeholder for a strat address the leaderboard pool never
+          // reached: -1 = unknown, the same sentinel the API uses. A 0 here
+          // would read as "never wins".
+          pnl: 0, winRate: -1, decidedPositions: 0, sharpe: 0, exitEntry: -1, positions: 0,
           marketTitles: [], recentTrades: 0,
         },
       );

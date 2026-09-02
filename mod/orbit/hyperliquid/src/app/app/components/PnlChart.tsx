@@ -3,6 +3,20 @@
 // PnL / equity over time for a single trader, fed by the HL "portfolio" info
 // payload: [[period, { accountValueHistory, pnlHistory, vlm }], ...].
 // Single series ⇒ no legend; identity lives in the panel title + metric pill.
+//
+// The portfolio payload carries TWO curves per window: `week` is the whole
+// account and `perpWeek` is the perps sub-account only. They are not the same
+// number and the gap is not small — there are wallets on the board whose
+// `week` curve is up half a million dollars on zero perp volume, because the
+// entire move is spot bags being repriced. This chart draws the PERP curve,
+// because everything else on the trader page (the tiles, the round trips, the
+// open positions table) is scored from perp fills. Drawing the combined curve
+// next to perp-only tiles is how a page ends up claiming +$666 and -$5.4K at
+// the same time under the same "(7d)" heading.
+//
+// The spot difference is not thrown away — it is `spot` below, and the footer
+// names it, because "your bags moved" is a real answer to "why is the chart
+// red when every trade won".
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtPnl, fmtUsd } from "../lib/api";
@@ -17,6 +31,14 @@ const PAD = { t: 14, r: 14, b: 24, l: 52 };
 
 type Pt = { t: number; v: number };
 type Metric = "pnl" | "equity";
+type Series = {
+  pnl: Pt[];
+  equity: Pt[];
+  /** Combined-minus-perp: what the spot side of the account did, same window. */
+  spot: Pt[];
+  /** True when the perp sub-account curve was available and is what's drawn. */
+  perpOnly: boolean;
+};
 
 function parseHistory(v: any): Pt[] {
   if (!Array.isArray(v)) return [];
@@ -26,19 +48,41 @@ function parseHistory(v: any): Pt[] {
     .sort((a, b) => a.t - b.t);
 }
 
-// Pick the portfolio period that covers the UI window.
-function extract(portfolio: any, days: number): { pnl: Pt[]; equity: Pt[] } {
+/** Cumulative curve rebased to 0 at the window start, so it reads as "this
+ *  window made X" rather than "lifetime stands at X". */
+function rebase(pts: Pt[]): Pt[] {
+  const base = pts.length ? pts[0].v : 0;
+  return pts.map((p) => ({ t: p.t, v: p.v - base }));
+}
+
+/** a - b, joined on timestamp. HL emits both slots on the same sample grid,
+ *  but a missing sample must drop the point rather than invent a zero. */
+function diff(a: Pt[], b: Pt[]): Pt[] {
+  const m = new Map(b.map((p) => [p.t, p.v]));
+  return a.flatMap((p) => (m.has(p.t) ? [{ t: p.t, v: p.v - m.get(p.t)! }] : []));
+}
+
+// Pick the portfolio period that covers the UI window, perp sub-account first.
+function extract(portfolio: any, days: number): Series {
   const want = days <= 1 ? "day" : days <= 7 ? "week" : days <= 30 ? "month" : "allTime";
+  const perpWant = "perp" + want[0].toUpperCase() + want.slice(1);
   const rows: any[] = Array.isArray(portfolio) ? portfolio : [];
   const byName = (n: string) => rows.find((r) => Array.isArray(r) && r[0] === n)?.[1];
-  const slot = byName(want) ?? byName("allTime") ?? rows[0]?.[1];
-  const pnlRaw = parseHistory(slot?.pnlHistory);
-  // Rebase cumulative PnL to the window start so the curve matches the
-  // "pnl (Nd)" tile: it answers "what did this window make", not lifetime.
-  const base = pnlRaw.length ? pnlRaw[0].v : 0;
+
+  const combined = byName(want) ?? byName("allTime") ?? rows[0]?.[1];
+  const perp = byName(perpWant);
+  // Perp is what the rest of the page measures; fall back to combined only
+  // when this wallet has no perp slot at all.
+  const slot = perp ?? combined;
+
+  const pnl = rebase(parseHistory(slot?.pnlHistory));
+  const combinedPnl = rebase(parseHistory(combined?.pnlHistory));
+
   return {
-    pnl: pnlRaw.map((p) => ({ t: p.t, v: p.v - base })),
+    pnl,
     equity: parseHistory(slot?.accountValueHistory),
+    spot: perp ? diff(combinedPnl, pnl) : [],
+    perpOnly: !!perp,
   };
 }
 
@@ -60,7 +104,14 @@ const fmtTime = (ms: number, spanMs: number) => {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 };
 
-export default function PnlChart({ portfolio, days }: { portfolio: any; days: number }) {
+export default function PnlChart({ portfolio, days, windowPnl }: {
+  portfolio: any;
+  days: number;
+  /** The realised, fee-net PnL the "pnl (Nd)" tile shows, from perp fills.
+   *  Passed in so the chart can reconcile itself against the tile instead of
+   *  leaving the reader to assume two different measures are one number. */
+  windowPnl?: number;
+}) {
   const [metric, setMetric] = useState<Metric>("pnl");
   const [hover, setHover] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -133,9 +184,14 @@ export default function PnlChart({ portfolio, days }: { portfolio: any; days: nu
                 : "border-white/[0.08] bg-white/[0.03] text-muted hover:text-ink"
             }`}
           >
-            {m === "pnl" ? "pnl" : "account value"}
+            {m === "pnl" ? (series.perpOnly ? "perp pnl" : "pnl") : "account value"}
           </button>
         ))}
+        <span className="text-[10px] text-muted">
+          {series.perpOnly
+            ? "perps sub-account — the same book the tiles are scored from"
+            : "whole account — no perp-only curve published for this wallet"}
+        </span>
       </div>
 
       <div
@@ -204,6 +260,99 @@ export default function PnlChart({ portfolio, days }: { portfolio: any; days: nu
           </div>
         )}
       </div>
+
+      {metric === "pnl" && <Reconcile series={series} days={days} windowPnl={windowPnl} />}
+    </div>
+  );
+}
+
+/**
+ * Ties the curve's endpoint back to the tile above it.
+ *
+ * These are two honest numbers that measure different things, and the page
+ * used to print both under a "(7d)" heading and let the reader discover the
+ * gap on their own. The curve is equity marked to market — it moves on open
+ * positions, funding and the spot side. The tile is realised PnL on closed
+ * fills. A wallet can close twelve winners for +$666 and still be down $5K on
+ * the day, and that is not a bug in either number; it is the sentence this
+ * strip exists to say out loud.
+ */
+function Reconcile({ series, days, windowPnl }: { series: Series; days: number; windowPnl?: number }) {
+  const curve = series.pnl.length ? series.pnl[series.pnl.length - 1].v : 0;
+  const spot = series.spot.length ? series.spot[series.spot.length - 1].v : null;
+
+  if (windowPnl == null || !Number.isFinite(windowPnl)) return null;
+
+  const gap = curve - windowPnl;
+  // Below this the two measures agree for practical purposes and the
+  // breakdown is just noise on the page.
+  const material = Math.abs(gap) > Math.max(1, Math.abs(windowPnl) * 0.02);
+  const spotMoved = spot != null && Math.abs(spot) > Math.max(1, Math.abs(curve) * 0.01);
+
+  // A quiet perp book is not a quiet account. There are wallets on the board
+  // that traded no perps at all this window and are still up six figures on
+  // spot — every number on this page is legitimately zero for them, and
+  // saying only "the curve agrees with the tile" would be true and useless.
+  if (!material) {
+    return (
+      <div className="px-4 py-2 text-[10px] text-muted border-t border-border">
+        Curve ends at {fmtPnl(curve)} — the same money the pnl ({days}d) tile counts.
+        {spotMoved && (
+          <>
+            {" "}Separately, the spot side of this account moved{" "}
+            <span className={spot! >= 0 ? "text-win" : "text-loss"}>{fmtPnl(spot!)}</span>{" "}
+            over the same {days}d — bags repriced, counted in no tile on this page.
+          </>
+        )}
+      </div>
+    );
+  }
+
+  const rows: { label: string; value: number; note: string; tone?: boolean }[] = [
+    {
+      label: `${series.perpOnly ? "perp" : "account"} equity, marked to market`,
+      value: curve,
+      note: "where this curve ends",
+    },
+    {
+      label: "closed fills, net of fees",
+      value: windowPnl,
+      note: `what the pnl (${days}d) tile counts`,
+    },
+    {
+      label: "difference",
+      value: gap,
+      note: "funding, positions still open at the marks, and the portfolio window's own edges",
+      tone: true,
+    },
+  ];
+  if (spotMoved) {
+    rows.push({
+      label: `spot side, same ${days}d`,
+      value: spot!,
+      note: "bags repriced — no fill, no close, counted in no tile on this page",
+    });
+  }
+
+  return (
+    <div className="border-t border-border">
+      <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted">
+        why the curve isn&apos;t the tile
+      </div>
+      {rows.map((r) => (
+        <div key={r.label} className="grid grid-cols-[1.1fr_0.6fr_1.6fr] gap-2 px-4 py-1 items-baseline">
+          <div className="text-[11px] text-muted">{r.label}</div>
+          <div
+            className={`num text-right text-[11px] ${
+              r.tone ? "text-warn" : r.value >= 0 ? "text-win" : "text-loss"
+            }`}
+          >
+            {fmtPnl(r.value)}
+          </div>
+          <div className="text-[10px] text-muted">{r.note}</div>
+        </div>
+      ))}
+      <div className="h-2" />
     </div>
   );
 }

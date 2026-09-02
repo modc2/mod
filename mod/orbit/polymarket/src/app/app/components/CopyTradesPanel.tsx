@@ -252,7 +252,7 @@ export default function CopyTradesPanel({
             {loading
               ? "reading fills and leader feeds…"
               : all.length === 0
-                ? "Nothing in this window yet. A copy session in TEST places no orders — the leaders' half still fills in."
+                ? "Nothing in this window yet. A copy session on PAPER places no orders — the leaders' half still fills in."
                 : "No row matches that sentence."}
           </div>
         ) : (

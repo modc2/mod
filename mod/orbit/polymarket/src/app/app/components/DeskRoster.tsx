@@ -27,6 +27,7 @@ import { usePicks } from "../lib/pickStore";
 import { shortAddress } from "../lib/identityStrat";
 import { describeMarketQuery } from "../lib/marketTypes";
 import type { CopyBookRow } from "../lib/copyBook";
+import { MODE } from "../lib/tradingMode";
 import DeskGuide from "./DeskGuide";
 
 function fmtUsd(v: number): string {
@@ -61,7 +62,7 @@ export default function DeskRoster() {
                   {t.executing > 0 ? (
                     <span className="text-pixel-green">{t.executing} LIVE</span>
                   ) : (
-                    <span className="text-amber-400">{t.running} in TEST</span>
+                    <span className="text-amber-400">{t.running} on {MODE.TEST.label}</span>
                   )}
                 </>
               ) : (
@@ -131,9 +132,9 @@ function RowState({ row }: { row: CopyBookRow }) {
   }
   if (row.live?.running) {
     return row.live.autoExecute ? (
-      <span className="shrink-0 text-[9px] tracking-[0.1em] text-pixel-green" title="Running LIVE — real orders">LIVE</span>
+      <span className="shrink-0 text-[9px] tracking-[0.1em] text-pixel-green" title={MODE.LIVE.active}>{MODE.LIVE.label}</span>
     ) : (
-      <span className="shrink-0 text-[9px] tracking-[0.1em] text-amber-400" title="Running in TEST — follows their trades, sends no orders">TEST</span>
+      <span className="shrink-0 text-[9px] tracking-[0.1em] text-amber-400" title={MODE.TEST.active}>{MODE.TEST.label}</span>
     );
   }
   return <span className="shrink-0 text-[9px] tracking-[0.1em] text-pixel-gray" title="Not started">OFF</span>;

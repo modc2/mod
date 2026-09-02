@@ -18,11 +18,13 @@ pub struct MarketMetric {
     pub sell_volume: f64,
     pub pnl: f64,
     pub trades: u32,
-    /// Bought positions whose outcome saturated to $1 — redeemed for a
-    /// payout or exited at ≥95¢. Numerator of buy-accuracy.
+    /// Settled positions in this market that returned more than they cost.
+    /// Numerator of buy-accuracy. Sourced from `/closed-positions` (see
+    /// `settled.rs`), not from observable exits — a losing position leaves no
+    /// sell and no redeem, so counting exits drops losers only.
     pub wins: u32,
-    /// Bought positions with a known outcome (won, redeemed, or fully
-    /// exited). Denominator of buy-accuracy.
+    /// Settled positions in this market — the market has finished deciding
+    /// them, win or burn. Denominator of buy-accuracy.
     pub decided: u32,
     /// Per-closed-SELL fractional returns `(price − avgCost) / avgCost` in
     /// this market — lets `apply_pagination` recompute Sharpe scoped to the
@@ -64,6 +66,12 @@ pub struct Trader {
     /// payloads loadable.
     #[serde(rename = "exitEntry", default = "unknown_stat")]
     pub exit_entry: f64,
+    /// How many positions the win rate is computed over — the denominator,
+    /// carried so the UI never renders "100%" off four settled legs the same
+    /// way it renders it off four hundred. `0` = nothing settled in the
+    /// window, which is what `winRate: -1` means.
+    #[serde(rename = "decidedPositions", default)]
+    pub decided_positions: u32,
     pub positions: u32,
     #[serde(rename = "marketTitles")]
     pub market_titles: Vec<String>,

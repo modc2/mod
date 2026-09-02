@@ -5,6 +5,7 @@
 // every value is handed in by the page so a tile can never disagree with the
 // table it sits above.
 
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 /** Deterministic two-hue gradient disc for an address — cheap identity so a
@@ -104,6 +105,22 @@ export function PageHead({ title, blurb, right }: { title: ReactNode; blurb?: Re
   );
 }
 
+/**
+ * Banner for the pages the Invest book superseded. Three copy engines shipped
+ * here in sequence — signal intents you sign yourself, a fill mirror, and the
+ * reconciler behind Invest — and the older two are still wired up and still
+ * useful to an operator. This just makes sure nobody lands on one thinking
+ * it's the main path.
+ */
+export function LegacyNote({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[11px] text-muted">
+      {children}{" "}
+      <Link href="/invest" className="text-accent2 hover:text-accent">Invest →</Link>
+    </div>
+  );
+}
+
 /** Freshness pill for a PageHead's `right` slot. */
 export function Freshness({ loading, label }: { loading: boolean; label: string }) {
   return (
@@ -156,6 +173,54 @@ export function DataBar({ value, max, className = "" }: { value: number; max: nu
   return (
     <div className={`ml-auto mt-1 h-[3px] w-14 rounded-full bg-white/[0.05] overflow-hidden ${className}`} aria-hidden>
       <div className={`h-full rounded-full ${value >= 0 ? "bg-win/60" : "bg-loss/60"}`} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+/** A PnL curve small enough to live inside a table row.
+ *
+ *  `points` are `[ms, cumulative pnl]`, already rebased so the window opens at
+ *  zero — which is why zero is always in frame: on a sparkline with no axis,
+ *  the baseline IS the axis, and a curve you cannot place against zero is a
+ *  squiggle. Colour comes from the caller's text colour (win / loss), so one
+ *  glance says direction and shape at once.
+ *
+ *  Stretches to its container with `preserveAspectRatio="none"` rather than
+ *  measuring itself — a ResizeObserver per row would be 250 observers for a
+ *  30px drawing. The stroke opts out of that scaling (`non-scaling-stroke`)
+ *  and the end dot is a positioned element, so neither is distorted by it. */
+export function Spark({ points, height = 30, className = "" }: {
+  points: [number, number][]; height?: number; className?: string;
+}) {
+  if (points.length < 2) return null;
+  const W = 100, PAD = 2;                       // viewBox units; PAD keeps the line off the edges
+  const t0 = points[0][0], t1 = points[points.length - 1][0];
+  const vs = points.map((p) => p[1]);
+  let lo = Math.min(0, ...vs), hi = Math.max(0, ...vs);
+  if (hi === lo) { hi += 1; lo -= 1; }          // a perfectly flat wallet still gets its baseline
+  const pad = (hi - lo) * 0.12;
+  lo -= pad; hi += pad;
+  const X = (t: number) => ((t - t0) / (t1 - t0 || 1)) * W;
+  const Y = (v: number) => PAD + (1 - (v - lo) / (hi - lo)) * (height - PAD * 2);
+
+  const line = points.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(2)},${Y(p[1]).toFixed(2)}`).join("");
+  const zero = Y(0);
+  const area = `${line}L${W},${zero.toFixed(2)}L0,${zero.toFixed(2)}Z`;
+  const end = points[points.length - 1];
+
+  return (
+    <div className={`relative ${className}`} style={{ height }} aria-hidden>
+      <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none"
+        className="block h-full w-full overflow-visible">
+        <path d={area} fill="currentColor" fillOpacity={0.12} />
+        <line x1={0} x2={W} y1={zero} y2={zero} stroke="var(--chart-zero)" strokeWidth={1}
+          strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+        <path d={line} fill="none" stroke="currentColor" strokeWidth={1.75}
+          strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      </svg>
+      {/* Round in any aspect ratio, because it is not inside the stretched svg. */}
+      <span className="absolute h-[5px] w-[5px] -ml-[2.5px] -mt-[2.5px] rounded-full bg-current shadow-glow"
+        style={{ left: "100%", top: `${(Y(end[1]) / height) * 100}%` }} />
     </div>
   );
 }

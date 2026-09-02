@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react'
 import { call, usd } from './api'
 import { Button, C, Code, Copy, Field, Input, Note, Panel, Spinner, Stat } from './ui'
+import { PayWithWallet, UseWallet, WalletChip, useMetaMask } from './wallet'
 
 type Dir = 'in' | 'out'
 
@@ -23,6 +24,10 @@ export function PrivateBridge({ caps }: { caps: any }) {
   const [dir, setDir] = useState<Dir>('in')
   const [plan, setPlan] = useState<any>(null)
   const [err, setErr] = useState('')
+  // Set when the last inbound quote came back on the public fallback route.
+  // The privacy card describes the DIRECT route, and leaving it graded "good"
+  // next to a quote that lands in the clear is the same lie twice.
+  const [degraded, setDegraded] = useState(false)
 
   useEffect(() => {
     call('bridge_shielded_plan').then(setPlan).catch(e => setErr(e.message))
@@ -35,9 +40,11 @@ export function PrivateBridge({ caps }: { caps: any }) {
       <Panel title="Private bridge">
         <Note kind="info">
           Money can arrive in your shielded pool straight off a bridge — no
-          transparent hop, no second transaction. Leaving it cannot be private:
-          the value has to become transparent to exit Zcash at all. Both are
-          below, labelled honestly.
+          transparent hop, no second transaction — whenever the router will pay
+          a z-address. Leaving the pool cannot be private: the value has to
+          become transparent to exit Zcash at all. Both are below, labelled
+          honestly, and a quote that is not the private route says so on its
+          face.
         </Note>
 
         <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
@@ -54,10 +61,11 @@ export function PrivateBridge({ caps }: { caps: any }) {
 
       {!plan && <Panel><Spinner label="checking what this deployment can do" /></Panel>}
 
-      {plan && dir === 'in' && <BridgeIn plan={plan} />}
+      {plan && dir === 'in' && <BridgeIn plan={plan} onRoute={setDegraded} />}
       {plan && dir === 'out' && <BridgeOut plan={plan} caps={caps} />}
 
-      {plan && <PrivacyCard privacy={plan.privacy?.[dir]} />}
+      {plan && <PrivacyCard privacy={plan.privacy?.[dir]}
+        degraded={dir === 'in' && degraded} />}
     </>
   )
 }
@@ -83,16 +91,21 @@ function DirTab({ active, onClick, title, note, ok }: {
 
 // ── inbound ─────────────────────────────────────────────────────────────────
 
-function BridgeIn({ plan }: { plan: any }) {
+function BridgeIn({ plan, onRoute }: { plan: any, onRoute: (d: boolean) => void }) {
   const [asset, setAsset] = useState('eth:USDC')
   const [amount, setAmount] = useState('100')
   const [recipient, setRecipient] = useState('')
   const [wallet, setWallet] = useState('')
   const [refund, setRefund] = useState('')
+  const [viaT, setViaT] = useState('')
   const [target, setTarget] = useState<any>(null)
   const [quote, setQuote] = useState<any>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  // The inbound leg is paid on the ORIGIN chain, which is usually an EVM. This
+  // module cannot sign there and never will -- but the wallet in this browser
+  // can, on a transaction the module builds down to the calldata.
+  const mm = useMetaMask()
 
   const checkAddress = async () => {
     setErr(''); setTarget(null)
@@ -102,16 +115,20 @@ function BridgeIn({ plan }: { plan: any }) {
     } catch (e: any) { setErr(e.message) }
   }
 
-  const go = async (reserve: boolean) => {
+  const go = async (reserve: boolean, acceptPublicLeg = false) => {
     setBusy(true); setErr(''); if (!reserve) setQuote(null)
     try {
       const args: any = {
         from_asset: asset, amount: Number(amount), refund_to: refund.trim(), reserve,
       }
+      if (acceptPublicLeg) args.accept_public_leg = true
       if (recipient.trim()) args.recipient = recipient.trim()
       else args.name = wallet.trim()
-      setQuote(await call('bridge_shielded_in', args))
-    } catch (e: any) { setErr(e.message) }
+      if (viaT.trim()) args.via_transparent = viaT.trim()
+      const q = await call('bridge_shielded_in', args)
+      onRoute(q?.shielded === false)
+      setQuote(q)
+    } catch (e: any) { setErr(e.message); onRoute(false) }
     finally { setBusy(false) }
   }
 
@@ -121,10 +138,17 @@ function BridgeIn({ plan }: { plan: any }) {
     <>
       {err && <Note kind="error">{err}</Note>}
 
-      <Panel title="Bridge into your shielded pool">
+      <Panel title="Bridge into your shielded pool" right={<WalletChip mm={mm} compact />}>
         <Note kind="ok">
           {plan.in?.how}
         </Note>
+        {plan.in?.fallback && (
+          <Note kind="info">
+            If the router turns a z-address down — its decision, not this
+            module&apos;s — nothing is reserved and you are offered{' '}
+            {plan.in.fallback}
+          </Note>
+        )}
 
         <Input label="Pay with" value={asset}
           onChange={(e: any) => setAsset(e.target.value)}
@@ -144,10 +168,20 @@ function BridgeIn({ plan }: { plan: any }) {
           placeholder="my-wallet"
           hint="uses that wallet's own shielded address instead" />
 
-        <Input label="Refund address on the origin chain" value={refund}
-          onChange={(e: any) => setRefund(e.target.value)}
-          placeholder="0x…"
-          hint="where the money returns if the swap fails. It cannot be a Zcash address — a refund is paid on the chain you sent from." />
+        <div style={{ position: 'relative' }}>
+          <Input label="Refund address on the origin chain" value={refund}
+            onChange={(e: any) => setRefund(e.target.value)}
+            placeholder="0x…"
+            hint="where the money returns if the swap fails. It cannot be a Zcash address — a refund is paid on the chain you sent from." />
+          <span style={{ position: 'absolute', top: 0, right: 0 }}>
+            <UseWallet mm={mm} onPick={setRefund} />
+          </span>
+        </div>
+
+        <Input label="Fallback: a transparent address you own" value={viaT}
+          onChange={(e: any) => setViaT(e.target.value)}
+          placeholder="t1… (optional)"
+          hint="only used if the router refuses to pay a z-address. Then the ZEC lands here in the open and you shield it afterwards — a wallet name already covers this." />
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Button variant="ghost" onClick={checkAddress}
@@ -167,17 +201,54 @@ function BridgeIn({ plan }: { plan: any }) {
 
       {quote && (
         <Panel title={quote.mode === 'RESERVED' ? 'Deposit address reserved' : 'Quote — nothing reserved'}>
+          {/* The module falls back to a public first leg when the router
+              refuses a z-address. A card that still said "lands shielded"
+              would be the single most expensive lie this tab could tell. */}
+          {quote.shielded === false && (
+            <Note kind="warn">
+              Not the shielded route. {quote.shielded_direct_unavailable}
+            </Note>
+          )}
+
           <div style={{
             display: 'grid', gap: 10, marginBottom: 12,
             gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
           }}>
             <Stat label="You send" value={`${quote.amount_in}`}
               sub={`${quote.from} · ${usd(quote.amount_in_usd)}`} />
-            <Stat label="Lands shielded" value={`${quote.amount_out} ZEC`}
-              sub={usd(quote.amount_out_usd)} />
+            <Stat label={quote.shielded === false ? 'Lands in the clear' : 'Lands shielded'}
+              value={`${quote.amount_out} ZEC`} sub={usd(quote.amount_out_usd)} />
             <Stat label="ETA" value={`${quote.eta_seconds}s`}
               sub={`pool: ${quote.destination_pool}`} />
           </div>
+
+          {(quote.legs || []).map((leg: any) => (
+            <div key={leg.leg} style={{ display: 'flex', gap: 8, fontSize: 12.5,
+              padding: '6px 0', borderTop: `1px solid ${C.line}` }}>
+              <span style={{ color: leg.private ? C.green : C.gold, minWidth: 44 }}>
+                leg {leg.leg}
+              </span>
+              <span style={{ flex: 1 }}>
+                {leg.what}
+                <span style={{ display: 'block', color: C.dim, fontSize: 11, marginTop: 2 }}>
+                  {leg.why}
+                </span>
+              </span>
+            </div>
+          ))}
+
+          {/* Reserving is the one irreversible-feeling step here, and the
+              fallback is not the route they asked for -- so it stops and asks
+              rather than handing back a public deposit address. */}
+          {quote.not_reserved && (
+            <>
+              <Note kind="warn">{quote.not_reserved}</Note>
+              <Button variant="ghost" disabled={busy}
+                onClick={() => go(true, true)}>
+                Reserve the public route anyway
+              </Button>
+            </>
+          )}
 
           {quote.recipient_rewritten && (
             <Note kind="warn">{quote.recipient_note}</Note>
@@ -188,11 +259,17 @@ function BridgeIn({ plan }: { plan: any }) {
               <Note kind="warn">
                 Send <b>exactly {quote.amount_in} {quote.from}</b> to the address
                 below before {quote.deadline}. It is on {String(quote.from).split(':')[0]},
-                not on Zcash, so this module cannot pay it for you.
+                not on Zcash, so this module cannot sign that payment — it can
+                only tell your wallet exactly what to sign.
               </Note>
               <Field label="Deposit address" mono
                 value={<>{quote.deposit_address}<Copy text={quote.deposit_address} /></>} />
               <Field label="Arrives at" mono value={quote.recipient} />
+              {/* The one place the whole private-inbound route used to stop.
+                  Paying from the browser wallet keeps the shielded output
+                  intact: the solver still creates it, we only fund the leg. */}
+              <PayWithWallet mm={mm} fromAsset={quote.from} amount={quote.amount_in}
+                depositAddress={quote.deposit_address} />
               <Note kind="info">
                 Once it lands it is an encrypted note — nothing will show in an
                 explorer. Find it with a shielded scan covering the blocks around
@@ -237,6 +314,7 @@ function BridgeOut({ plan, caps }: { plan: any, caps: any }) {
   const [asset, setAsset] = useState('ETH')
   const [amount, setAmount] = useState('0.5')
   const [recipient, setRecipient] = useState('')
+  const mm = useMetaMask()
   const [result, setResult] = useState<any>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -285,8 +363,13 @@ function BridgeOut({ plan, caps }: { plan: any, caps: any }) {
           placeholder="ETH, eth:USDC, BTC…" />
         <Input label="Amount (ZEC from your shielded notes)" value={amount}
           onChange={(e: any) => setAmount(e.target.value)} />
-        <Input label="Recipient on the destination chain" value={recipient}
-          onChange={(e: any) => setRecipient(e.target.value)} placeholder="0x…" />
+        <div style={{ position: 'relative' }}>
+          <Input label="Recipient on the destination chain" value={recipient}
+            onChange={(e: any) => setRecipient(e.target.value)} placeholder="0x…" />
+          <span style={{ position: 'absolute', top: 0, right: 0 }}>
+            <UseWallet mm={mm} onPick={setRecipient} />
+          </span>
+        </div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Button onClick={() => go(false)} disabled={busy || !ready}>
@@ -357,17 +440,25 @@ function BridgeOut({ plan, caps }: { plan: any, caps: any }) {
 
 // ── privacy ─────────────────────────────────────────────────────────────────
 
-function PrivacyCard({ privacy }: { privacy: any }) {
+function PrivacyCard({ privacy, degraded }: { privacy: any, degraded?: boolean }) {
   if (!privacy) return null
-  const grade = privacy.grade === 'good' ? C.green : C.gold
+  const grade = degraded ? C.gold
+    : privacy.grade === 'good' ? C.green : C.gold
   return (
     <Panel title="What this direction hides"
       right={<span style={{
         fontSize: 10, letterSpacing: 1, textTransform: 'uppercase', color: grade,
-      }}>{privacy.grade}</span>}>
+      }}>{degraded ? 'not this quote' : privacy.grade}</span>}>
       <div style={{ fontSize: 12, color: C.dim, marginBottom: 12 }}>
         {privacy.direction}
       </div>
+      {degraded && (
+        <Note kind="warn">
+          This describes the direct shielded route. The quote above is the
+          two-leg fallback: the ZEC arrives transparent and is public until
+          you shield it, so nothing below applies to leg one.
+        </Note>
+      )}
       <PrivacyList label="Hidden" items={privacy.hidden} color={C.green} />
       <PrivacyList label="Still visible" items={privacy.visible} color={C.red} />
       <PrivacyList label="Do better" items={privacy.better} color={C.blue} />

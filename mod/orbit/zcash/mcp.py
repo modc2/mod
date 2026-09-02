@@ -488,6 +488,16 @@ def _t_bridge_start(a):
         slippage_bps=int(a.get('slippage_bps') or 100))
 
 
+def _t_bridge_payment(a):
+    return get_mod().bridge_payment(
+        from_asset=a['from_asset'], amount=float(a['amount']),
+        deposit_address=a['deposit_address'])
+
+
+def _t_bridge_networks(a):
+    return get_mod().bridge_networks()
+
+
 def _t_bridge_status(a):
     return get_mod().bridge_status(deposit_address=a['deposit_address'])
 
@@ -523,6 +533,8 @@ def _t_bridge_shielded_in(a):
         refund_to=a['refund_to'], recipient=a.get('recipient'),
         name=a.get('wallet') or a.get('name'),
         reserve=bool(a.get('reserve')),
+        via_transparent=a.get('via_transparent'),
+        accept_public_leg=bool(a.get('accept_public_leg')),
         slippage_bps=int(a.get('slippage_bps') or 100))
 
 
@@ -1119,15 +1131,20 @@ TOOLS = {
     'zec_bridge_shielded_in': {
         'description': 'Bridge an asset from another chain STRAIGHT INTO the '
                        'shielded pool — the funds arrive as an encrypted note, '
-                       'with no transparent hop and no second transaction. '
-                       'This is the one shielded operation that works without '
-                       'a proving node, because the solver creates the '
-                       'shielded output rather than this module. `refund_to` '
-                       'is on the ORIGIN chain: a refund cannot be paid into '
-                       'the shielded pool. Quotes only unless reserve=true; '
-                       'reserving returns a deposit address the user funds '
-                       'themselves from the origin chain, since it is not on '
-                       'Zcash and this module cannot pay it.',
+                       'with no transparent hop and no second transaction, '
+                       'whenever the router will pay a shielded address. '
+                       'Whether it will is the ROUTER\'s decision and it has '
+                       'changed: when it refuses, nothing is reserved and this '
+                       'returns the two-leg fallback instead (bridge to a '
+                       'transparent address you own, then zec_shielded_shield) '
+                       'with `shielded: false` and both legs labelled. Read '
+                       'that field before telling anyone the money lands '
+                       'private. `refund_to` is on the ORIGIN chain: a refund '
+                       'cannot be paid into the shielded pool. Quotes only '
+                       'unless reserve=true; reserving returns a deposit '
+                       'address the user funds themselves from the origin '
+                       'chain, since it is not on Zcash and this module cannot '
+                       'pay it.',
         'inputSchema': {'type': 'object', 'properties': {
             'from_asset': _str("what you are paying with: 'eth:USDC', 'ETH', "
                                "'BTC', 'base:ETH' — zec_bridge_chains lists them"),
@@ -1138,7 +1155,17 @@ TOOLS = {
             'wallet': _str('a wallet name instead, to use its shielded address'),
             'reserve': _bool('false (default) only quotes; true reserves a real '
                              'deposit address and starts the clock'),
-            'slippage_bps': _int('slippage tolerance in basis points (100 = 1%)')},
+            'slippage_bps': _int('slippage tolerance in basis points (100 = 1%)'),
+            'via_transparent': _str('a t-address the USER owns, used only if '
+                                    'the router refuses the shielded address: '
+                                    'the ZEC lands there in the open and they '
+                                    'shield it afterwards. A `wallet` already '
+                                    'supplies one'),
+            'accept_public_leg': _bool('false (default). reserve=true on the '
+                                       'fallback route needs this too, because '
+                                       'someone who asked to reserve a SHIELDED '
+                                       'bridge has not agreed to fund a public '
+                                       'one — ask them first')},
             'required': ['from_asset', 'amount', 'refund_to']},
         'annotations': _WRITE, 'fns': ['bridge_shielded_in'],
         'handler': _t_bridge_shielded_in,
@@ -1187,6 +1214,31 @@ TOOLS = {
             'broadcast': _BROADCAST},
             'required': ['wallet', 'password', 'to_asset', 'amount', 'recipient']},
         'annotations': _SPEND, 'fns': ['bridge_send'], 'handler': _t_bridge_send,
+    },
+    'zec_bridge_payment': {
+        'description': 'The exact EVM transaction that funds a bridge deposit '
+                       'address. Bridging INTO ZEC is paid on the origin chain, '
+                       'where this module holds no keys — so instead of signing '
+                       'it hands back what to sign: chain id, to, value and '
+                       'ERC-20 calldata, with the amount in base units. Give it '
+                       'the origin asset, the amount_in and the deposit address '
+                       'from zec_bridge_start, and pass the result to any '
+                       'EIP-1193 wallet (MetaMask) or EVM signer.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'from_asset': _str("the origin asset of the quote, e.g. 'eth:USDC' "
+                               "or 'base:ETH'"),
+            'amount': _num('exactly the amount_in the quote asked for'),
+            'deposit_address': _str('the deposit address the router reserved')},
+            'required': ['from_asset', 'amount', 'deposit_address']},
+        'annotations': _READ, 'fns': ['bridge_payment'], 'handler': _t_bridge_payment,
+    },
+    'zec_bridge_networks': {
+        'description': 'EVM networks a browser wallet can be pointed at to fund a '
+                       'ZEC bridge deposit — chain ids, RPC and explorer for each, '
+                       'plus the EVM chains the router reaches for which no chain '
+                       'id is verified here.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'annotations': _READ, 'fns': ['bridge_networks'], 'handler': _t_bridge_networks,
     },
     'zec_bridge_status': {
         'description': 'Track a bridge by the deposit address it was given: whether '

@@ -1,4 +1,5 @@
 import LivePanel from "../components/LivePanel";
+import { LegacyNote } from "../components/BoardBits";
 
 export default function LiveRoute() {
   return (
@@ -11,6 +12,11 @@ export default function LiveRoute() {
           fills until you stop it — survives API restarts.
         </p>
       </div>
+      <LegacyNote>
+        Mirrors a leader’s fills from the moment you start it. To buy into a
+        trader’s whole book instead, and have it kept in sync, use
+      </LegacyNote>
+
       <LivePanel />
     </div>
   );

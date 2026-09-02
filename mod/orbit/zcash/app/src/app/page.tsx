@@ -5,6 +5,7 @@ import { call, get, getToken, num, setToken, timeAgo, usd, zatToZec, zec } from 
 import { Button, C, Code, Copy, Field, Input, Note, Panel, Spinner, Stat } from './ui'
 import { Ask, Learn } from './learn'
 import { PrivateBridge } from './private'
+import { PayWithWallet, UseWallet, WalletChip, WalletNetworks, useMetaMask } from './wallet'
 
 // Spending functions need the module token (~/.mod/zcash/server.secret,
 // printed by `m zcash/token`). Reads work without it.
@@ -422,6 +423,24 @@ function Wallet() {
 
 // ── Shielded ────────────────────────────────────────────────────────────────
 
+// Two shielded pools now live here, and a note that does not say which one it
+// came out of is a note you cannot reason about — Orchard knows whether it is
+// spent from the nullifiers alone, Sapling needs the commitment tree. So the
+// pool travels with the value everywhere it is shown.
+const POOL_COLOR: Record<string, string> = {
+  orchard: C.gold, sapling: C.green, transparent: C.dim,
+}
+
+function Pool({ pool }: { pool: string }) {
+  return (
+    <span style={{
+      fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase',
+      color: POOL_COLOR[pool] || C.dim, border: `1px solid ${C.line}`,
+      borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap',
+    }}>{pool}</span>
+  )
+}
+
 // Receive, read, and — since the prover landed — spend. The three shielded
 // acts are three panels: an address to be paid at, a scan of what arrived,
 // and ShieldedSend, which owns the whole prover/sync/spend ladder because
@@ -436,6 +455,7 @@ function Shielded({ caps }: { caps: any }) {
   const [txScan, setTxScan] = useState<any>(null)
   const [keys, setKeys] = useState<any>(null)
   const [depth, setDepth] = useState('500')
+  const [orchard, setOrchard] = useState(true)
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
 
@@ -461,7 +481,6 @@ function Shielded({ caps }: { caps: any }) {
   }
 
   const node = caps?.node?.reachable
-  const sapling = caps?.shielded_sapling
 
   return (
     <>
@@ -493,6 +512,14 @@ function Shielded({ caps }: { caps: any }) {
             <Field label="Sapling address" mono
               value={<>{account.addresses[0].address}
                 <Copy text={account.addresses[0].address} /></>} />
+            {account.pools?.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '2px 0 8px' }}>
+                <span style={{ fontSize: 11, color: C.dim, alignSelf: 'center' }}>
+                  receivers in the unified address:
+                </span>
+                {account.pools.map((p: string) => <Pool key={p} pool={p} />)}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
               <Button disabled={!pw || !!busy} onClick={() => run(
                 'new', 'shielded_new_address', { name, password: pw },
@@ -526,14 +553,31 @@ function Shielded({ caps }: { caps: any }) {
             <Input label="Scan last N blocks" value={depth}
               onChange={(e: any) => setDepth(e.target.value)} />
           </div>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center',
+            fontSize: 12.5, color: C.dim, marginBottom: 14 }}>
+            <input type="checkbox" checked={orchard}
+              onChange={e => setOrchard(e.target.checked)} />
+            Orchard too
+          </label>
           <Button disabled={!name || !pw || !!busy} style={{ marginBottom: 12 }}
             onClick={() => run('scan', 'shielded_scan',
-              { name, password: pw, blocks: Number(depth) }, setScan)}>
+              { name, password: pw, blocks: Number(depth), orchard }, setScan)}>
             {busy === 'scan' ? 'scanning…' : 'Scan'}
           </Button>
         </div>
 
-        {busy === 'scan' && <Spinner label="trial-decrypting every Sapling output" />}
+        {!node && (
+          <div style={{ fontSize: 11, color: C.dim, marginBottom: 8 }}>
+            Without a node the explorer serves Sapling ciphertexts inside its
+            block rows but never Orchard actions, so an Orchard scan fetches
+            each candidate transaction whole — slower, and capped at a shorter
+            range. Uncheck it for the cheap Sapling-only pass over more blocks.
+          </div>
+        )}
+
+        {busy === 'scan' && <Spinner label={orchard
+          ? 'trial-decrypting every Sapling output and Orchard action'
+          : 'trial-decrypting every Sapling output'} />}
 
         {scan && (
           <>
@@ -545,8 +589,39 @@ function Shielded({ caps }: { caps: any }) {
               <Stat label="Shielded txs seen" value={num(scan.shielded_transactions_seen)}
                 sub={`${scan.from_height}–${scan.to_height}`} />
             </div>
+
+            {/* Both pools were read, so both pools get a number — a single
+                total hides which half of the wallet the money is in. */}
+            {(scan.pools_scanned || []).length > 1 && (
+              <div style={{ display: 'grid', gap: 10, marginBottom: 12,
+                gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
+                {scan.pools_scanned.map((p: string) => {
+                  const b = scan.by_pool?.[p]
+                  return (
+                    <Stat key={p} label={`${p} received`}
+                      value={zec(b?.received_zec || 0)}
+                      sub={b ? `${b.notes} note${b.notes === 1 ? '' : 's'}${
+                        b.unspent_zec != null ? ` · ${zec(b.unspent_zec)} unspent` : ''}`
+                        : 'nothing found'} />
+                  )
+                })}
+              </div>
+            )}
+
             {scan.warning && <Note kind="warn">{scan.warning}</Note>}
             {scan.note && <Note kind="info">{scan.note}</Note>}
+            {scan.unreadable_transactions > 0 && (
+              <Note kind="warn">
+                {num(scan.unreadable_transactions)} transaction(s) in this range
+                use a shielded serialization this module cannot read; they were
+                not examined and are not counted as empty.
+                {(scan.unreadable_sample || []).slice(0, 1).map((u: any) => (
+                  <div key={u.txid} style={{ fontSize: 11, marginTop: 4 }}>
+                    {u.txid}: {u.reason}
+                  </div>
+                ))}
+              </Note>
+            )}
             {(scan.notes || []).map((n: any, i: number) => (
               <div key={i} style={{ borderTop: `1px solid ${C.line}`, padding: '9px 0', fontSize: 12.5 }}>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -554,8 +629,12 @@ function Shielded({ caps }: { caps: any }) {
                     {n.direction === 'incoming' ? '← received' : '→ sent'}
                   </span>
                   <strong>{zec(n.value_zec)}</strong>
+                  <Pool pool={n.pool || 'sapling'} />
                   <span style={{ color: C.dim }}>block {num(n.height)}</span>
                   {n.spent === true && <span style={{ color: C.dim }}>spent</span>}
+                  {n.spent == null && n.direction === 'incoming' && (
+                    <span style={{ color: C.dim }}>spent? unknown</span>
+                  )}
                 </div>
                 {n.memo && <div style={{ color: C.dim, marginTop: 3 }}>memo: {n.memo}</div>}
                 <div style={{ color: C.dim, fontSize: 11, marginTop: 3, wordBreak: 'break-all' }}>{n.txid}</div>
@@ -569,7 +648,11 @@ function Shielded({ caps }: { caps: any }) {
               </div>
             )}
             <div style={{ fontSize: 11, color: C.dim, marginTop: 10 }}>
-              Sapling only — Orchard notes are not read by this module.
+              Pools read: {(scan.pools_scanned || ['sapling']).join(' + ')}
+              {(scan.pools_not_scanned || []).length > 0
+                && ` — ${scan.pools_not_scanned.join(' and ')} not looked at, so a payment into that pool would not appear here.`}
+              {scan.raw_transactions_fetched != null
+                && ` ${num(scan.raw_transactions_fetched)} transaction(s) fetched whole for Orchard.`}
             </div>
           </>
         )}
@@ -586,14 +669,24 @@ function Shielded({ caps }: { caps: any }) {
         </Button>
         {txScan && (
           <div style={{ marginTop: 12 }}>
-            <Field label="Sapling outputs" value={num(txScan.sapling_outputs)} />
+            <Field label="Sapling outputs" value={num(
+              txScan.sapling_outputs ?? txScan.bundles?.sapling_outputs)} />
+            <Field label="Orchard actions"
+              value={num(txScan.bundles?.orchard_actions ?? 0)} />
             <Field label="Ours" value={`${txScan.found} note(s), ${zec(txScan.received_zec)}`}
               color={txScan.found ? C.green : C.dim} />
             {(txScan.notes || []).map((n: any, i: number) => (
               <Note key={i} kind="ok">
-                {zec(n.value_zec)} {n.direction}{n.memo ? ` — memo: ${n.memo}` : ''}
+                {zec(n.value_zec)} {n.direction} ({n.pool || 'sapling'})
+                {n.memo ? ` — memo: ${n.memo}` : ''}
               </Note>
             ))}
+            {txScan.warning && <Note kind="warn">{txScan.warning}</Note>}
+            <div style={{ fontSize: 11, color: C.dim, marginTop: 6 }}>
+              Pools read: {(txScan.pools_scanned || ['sapling']).join(' + ')}
+              {(txScan.pools_not_scanned || []).length > 0
+                && ` — ${txScan.pools_not_scanned.join(' and ')} not looked at.`}
+            </div>
             {txScan.found === 0 && (
               <div style={{ fontSize: 12, color: C.dim }}>
                 Nothing in this transaction opens with this wallet&apos;s keys.
@@ -990,12 +1083,19 @@ function Send() {
 // and replaced by a real 1Click quote the moment both addresses look valid.
 
 const EVM_RE = /^0x[0-9a-fA-F]{40}$/
+// Chains whose addresses are EVM-style — the same set bridge.py validates
+// against. A browser wallet can hold an address on any of them.
+const EVM_CHAINS = new Set(['eth', 'arb', 'base', 'op', 'pol', 'bsc', 'avax',
+  'gnosis', 'scroll', 'bera', 'monad', 'xlayer', 'abs', 'plasma', 'adi',
+  'linea', 'zksync'])
 const TADDR_RE = /^t[13][a-km-zA-HJ-NP-Z1-9]{20,40}$/
 const POPULAR = ['eth:ETH', 'btc:BTC', 'eth:USDC', 'base:ETH', 'sol:SOL', 'near:NEAR']
 
 type Asset = { id: string, chain: string, symbol: string, price?: number }
 
 const ZEC_ASSET: Asset = { id: 'ZEC', chain: 'zec', symbol: 'ZEC' }
+
+const isEvm = (a: Asset) => EVM_CHAINS.has((a.chain || '').toLowerCase())
 
 // 'eth:USDC' and 'USDC' both resolve server-side; keep whatever the user picked.
 const symbolOf = (id: string) => (id.includes(':') ? id.split(':')[1] : id).toUpperCase()
@@ -1205,18 +1305,21 @@ function Leg({ tag, amount, onAmount, assetNode, usdValue, note, readOnly, title
 
 // Address input with a live verdict dot -- an EVM recipient or a t-address is
 // checkable here, so say so before the router has to reject it.
-function AddrInput({ label, value, onChange, placeholder, ok, hint }: {
+function AddrInput({ label, value, onChange, placeholder, ok, hint, action }: {
   label: string, value: string, onChange: (v: string) => void,
-  placeholder?: string, ok: boolean | null, hint?: string
+  placeholder?: string, ok: boolean | null, hint?: string, action?: ReactNode
 }) {
   const color = value ? (ok === false ? C.red : ok ? C.green : C.line) : C.line
   return (
     <label style={{ display: 'block' }}>
       <div style={{
-        display: 'flex', justifyContent: 'space-between',
+        display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center',
         fontSize: 11, color: C.dim, marginBottom: 4,
       }}>
         <span>{label}</span>
+        {/* An EVM address is 42 characters of hex nobody should retype; when a
+            wallet is in the browser, offer its own address instead. */}
+        {action && <span style={{ marginLeft: 'auto' }}>{action}</span>}
         {value && ok != null && (
           <span style={{ color: ok ? C.green : C.red, fontSize: 10.5 }}>
             {ok ? 'looks valid' : 'wrong format'}
@@ -1323,6 +1426,9 @@ function Bridge({ caps }: { caps: any }) {
   const [quoting, setQuoting] = useState(false)
   const [zecUsd, setZecUsd] = useState<number | null>(null)
   const [err, setErr] = useState('')
+  // A browser wallet in the same tab: it fills in the EVM addresses, and when
+  // the origin chain is an EVM it is what actually funds the deposit.
+  const mm = useMetaMask()
 
   useEffect(() => {
     call('bridge_chains').then(r => setChains(r.chains || [])).catch(e => setErr(e.message))
@@ -1347,8 +1453,7 @@ function Bridge({ caps }: { caps: any }) {
   const verdict = (addr: string, a: Asset): boolean | null => {
     if (!addr) return null
     if (a.symbol === 'ZEC') return TADDR_RE.test(addr.trim())
-    if (addr.startsWith('0x') || /^(eth|base|arb|op|pol|bsc|avax|linea|scroll|zksync|gnosis|abs)$/.test(a.chain))
-      return EVM_RE.test(addr.trim())
+    if (addr.startsWith('0x') || isEvm(a)) return EVM_RE.test(addr.trim())
     return null
   }
   const recipientOk = verdict(recipient, other)
@@ -1423,7 +1528,12 @@ function Bridge({ caps }: { caps: any }) {
     <>
       {err && <Note kind="error">{err}</Note>}
 
-      <Panel title="Bridge" right={<RouteHealth />}>
+      <Panel title="Bridge" right={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <WalletChip mm={mm} compact />
+          <RouteHealth />
+        </div>
+      }>
         <div style={{ display: 'grid', gap: 6 }}>
           <Leg
             tag={`YOU SEND · ${chainName(origin.chain).toUpperCase()}`}
@@ -1506,10 +1616,12 @@ function Bridge({ caps }: { caps: any }) {
           <AddrInput
             label={`Recipient address on ${chainName(other.chain || other.symbol)}`}
             value={recipient} onChange={setRecipient} ok={recipientOk}
+            action={isEvm(other) ? <UseWallet mm={mm} onPick={setRecipient} /> : null}
             placeholder={other.symbol === 'ZEC' ? 't1…' : '0x…'} />
           <AddrInput
             label={`Refund address on ${chainName(origin.chain || origin.symbol)}`}
             value={refund} onChange={setRefund} ok={refundOk}
+            action={isEvm(origin) ? <UseWallet mm={mm} onPick={setRefund} /> : null}
             hint="Where the funds go if the swap misses its deadline."
             placeholder={origin.symbol === 'ZEC' ? 't1…' : '0x…'} />
         </div>
@@ -1560,6 +1672,14 @@ function Bridge({ caps }: { caps: any }) {
               sub={usd(order.amount_out_usd)} />
             <Stat label="Paid to" value={<span style={{ fontSize: 12 }}>{order.recipient}</span>} />
           </div>
+          {/* The origin chain is where this has to be paid. When that is ZEC
+              the module's own signer can do it; when it is an EVM the browser
+              wallet can, and the module supplies the exact transaction. */}
+          {!order.from.startsWith('zec') && (
+            <PayWithWallet mm={mm} fromAsset={order.from} amount={order.amount_in}
+              depositAddress={order.deposit_address}
+              onPaid={() => doTrack(order.deposit_address)} />
+          )}
           <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
             <Button variant="ghost" onClick={() => doTrack(order.deposit_address)} disabled={busy}>
               {busy ? '…' : 'Check status'}
@@ -1611,8 +1731,10 @@ function Bridge({ caps }: { caps: any }) {
             ~35 chains) and Maya. You are given a deposit address on the origin chain;
             a solver watches it and pays the destination. Bridging <b style={{ color: C.text }}>out of</b> ZEC
             can be funded straight from a wallet on the Send tab; bridging{' '}
-            <b style={{ color: C.text }}>into</b> ZEC is funded from your wallet on the origin chain.
-            Quotes reserve nothing.
+            <b style={{ color: C.text }}>into</b> ZEC is funded from your wallet on the origin chain
+            — connect MetaMask and the deposit is one signature, on a transaction
+            this module builds and never signs. Quotes reserve nothing.
+            <div style={{ marginTop: 6 }}><WalletNetworks /></div>
           </div>
         </Panel>
       )}

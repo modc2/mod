@@ -513,6 +513,13 @@ class Polymarket(m.Mod):
                        sort: str = "winRate", min_history_days: float = 0) -> Any:
         """The leaderboard, from cache: best traders over `days`, ranked by win rate.
 
+        `winRate` is the share of positions the market SETTLED inside the
+        window that returned more than they cost, over `decidedPositions`. It
+        counts positions that expired worthless — those leave no sell and no
+        redeem in the trade feed, so a rate built from the feed alone sees
+        only winners. `-1` means nothing settled in the window (or the
+        settled book was unreachable): unknown, not zero.
+
         `sort` parameterizes the ranking metric: winRate (default), exitEntry
         (avg exit÷entry price over closed trades), sharpe, pnl, volume, history
         (longest track record first).

@@ -562,9 +562,11 @@ class Mod:
     def shielded_export(self, name: str, password: str, account: int = None) -> dict:
         """Export this account's shielded spending and viewing keys.
 
-        The extended spending key is what a proving wallet needs to *send*
-        shielded ZEC with these notes -- this module can read them and build
-        them, but cannot produce the zk-SNARK proof a spend requires.
+        The extended spending key is what any wallet needs to *send* shielded
+        ZEC with these notes. This module can spend them itself once the local
+        light client is installed (shielded_send); exporting is for spending
+        the same notes somewhere else -- Zashi, Ywallet, zingo, zcashd. Same
+        seed, same account, same notes.
         """
         try:
             secret = _wallet.reveal(name, password)
@@ -1171,6 +1173,39 @@ class Mod:
         except _bridge.BridgeError as e:
             return _err(e)
 
+    def bridge_payment(self, from_asset: str, amount: float,
+                       deposit_address: str) -> dict:
+        """The exact EVM transaction that funds a bridge deposit address.
+
+        Bridging *into* ZEC is funded on the origin chain, and this module
+        holds no keys there -- so instead of a signature it returns the
+        transaction itself: chain id, `to`, `value` and ERC-20 calldata, with
+        the amount converted by the same path that priced the quote. A browser
+        wallet (MetaMask and anything else speaking EIP-1193) can sign it
+        as-is; nothing here ever sees a private key from that chain.
+        """
+        try:
+            return _bridge.payment(from_asset, amount, deposit_address)
+        except _bridge.BridgeError as e:
+            return _err(e)
+
+    def bridge_networks(self) -> dict:
+        """EVM networks a browser wallet can be pointed at to fund a deposit."""
+        nets = [{'chain': c, 'chain_id': v[0], 'chain_id_hex': hex(v[0]),
+                 'name': v[1], 'native_symbol': v[2], 'rpc': v[3],
+                 'explorer': v[4]}
+                for c, v in sorted(_bridge.EVM_NETWORKS.items(),
+                                   key=lambda kv: kv[1][0])]
+        unverified = sorted(_bridge.EVM_CHAINS - set(_bridge.EVM_NETWORKS))
+        return {
+            'count': len(nets), 'networks': nets,
+            'evm_without_verified_chain_id': unverified,
+            'note': 'bridge_payment builds a signable transaction for these '
+                    'chains. Other EVM chains the router reaches are listed '
+                    'under evm_without_verified_chain_id -- pay those from a '
+                    'wallet already pointed at that network.',
+        }
+
     def bridge_maya(self, to_asset: str = None, amount: float = None,
                     destination: str = None) -> dict:
         """Maya Protocol route health, or a ZEC quote when given all three args."""
@@ -1315,7 +1350,9 @@ class Mod:
     def bridge_shielded_in(self, from_asset: str, amount: float,
                            refund_to: str, recipient: str = None,
                            name: str = None, reserve: bool = False,
-                           slippage_bps: int = 100) -> dict:
+                           slippage_bps: int = 100,
+                           via_transparent: str = None,
+                           accept_public_leg: bool = False) -> dict:
         """Bridge another chain's asset straight into your shielded pool.
 
         `recipient` is your own zs1 or u1 address (or pass `name` to use a
@@ -1324,6 +1361,16 @@ class Mod:
 
         Quotes only, unless reserve=True: reserving returns a real deposit
         address you fund yourself from the origin chain.
+
+        Whether the router pays a z-address at all is the router's decision,
+        not this module's, and it has changed. When it refuses, this falls
+        back to the two-leg route -- bridge to a transparent address you own
+        (`via_transparent`, or the wallet's first one), then shield it with
+        shielded_shield -- and says plainly that the first leg is public.
+
+        The fallback only ever quotes. Reserving a deposit address on it takes
+        `accept_public_leg=True` as well, because someone who asked to reserve
+        a *shielded* bridge has not agreed to fund a public one.
         """
         try:
             target = recipient
@@ -1338,10 +1385,16 @@ class Mod:
                         "shielded_upgrade")
                 target = account['addresses'][0]['unified_address']
 
-            quote = _bridge.shielded_quote(from_asset, amount, target,
-                                           refund_to, dry=not reserve,
-                                           slippage_bps=slippage_bps,
-                                           readable=self._readable_pools())
+            try:
+                quote = _bridge.shielded_quote(from_asset, amount, target,
+                                               refund_to, dry=not reserve,
+                                               slippage_bps=slippage_bps,
+                                               readable=self._readable_pools())
+            except _bridge.ShieldedRouteUnavailable as e:
+                return self._shield_in_two_legs(
+                    e, from_asset, amount, refund_to, target, name,
+                    via_transparent, reserve and accept_public_leg,
+                    slippage_bps, asked_to_reserve=reserve)
             if name:
                 quote['wallet'] = name
             if not reserve:
@@ -1366,6 +1419,90 @@ class Mod:
             return quote
         except (ValueError, _wallet.WalletError, _bridge.BridgeError) as e:
             return _err(e)
+
+    def _shield_in_two_legs(self, why, from_asset, amount, refund_to, target,
+                            name, via_transparent, reserve, slippage_bps,
+                            asked_to_reserve=False):
+        """The router refused the z-address. Bridge public, then shield.
+
+        This is a worse route and is returned saying so: the ZEC lands in the
+        clear and is only private after the second leg. It is still the honest
+        answer, because the alternative -- handing back "recipient is not
+        valid" -- reads as "your address is wrong" when the address is fine.
+
+        `reserve` here has already been ANDed with the caller's explicit
+        consent to the public leg; `asked_to_reserve` is what they originally
+        wanted, and is what the response uses to tell them the reservation did
+        not happen.
+        """
+        t_addr = via_transparent
+        if not t_addr and name:
+            entries = _wallet.addresses(name)
+            if entries:
+                t_addr = entries[0]['address']
+        if not t_addr:
+            return {
+                'error': str(why),
+                'route': 'unavailable',
+                'shielded': False,
+                'how_to_fix': (
+                    'Pass via_transparent (a t-address you control) or name (a '
+                    'wallet with one) and this returns the two-leg route: '
+                    'bridge to that t-address, then shielded_shield moves it '
+                    'into the pool.'),
+            }
+        quote = _bridge.quote(from_asset, _bridge.ZEC_ASSET, amount, t_addr,
+                              refund_to, dry=not reserve,
+                              slippage_bps=slippage_bps)
+        quote.update({
+            'route_kind': 'transparent-then-shield',
+            'shielded': False,
+            'shielded_direct_unavailable': str(why),
+            'recipient_given': target.get('given') if isinstance(target, dict)
+                               else target,
+            'destination_pool': 'transparent (leg 1) -> sapling (leg 2)',
+            'mode': 'RESERVED' if reserve else 'QUOTE',
+            'legs': [
+                {'leg': 1, 'what': f"{from_asset} -> ZEC at {t_addr}",
+                 'private': False,
+                 'why': 'the solver pays a transparent address, so this much '
+                        'ZEC is visible on the Zcash chain'},
+                {'leg': 2, 'what': 'shielded_shield moves it into the pool',
+                 'private': True, 'fn': 'shielded_shield',
+                 'why': 'a shielding transaction is a shielded output; after '
+                        'it, the balance is encrypted -- but the amount that '
+                        'entered the pool, and when, stays public'},
+            ],
+            'shield_with': {'fn': 'shielded_shield',
+                            'args': {'name': name, 'broadcast': True}}
+                           if name else
+                           {'fn': 'shielded_shield',
+                            'note': 'needs a wallet in this module that owns '
+                                    f'{t_addr}'},
+        })
+        if asked_to_reserve and not reserve:
+            quote['not_reserved'] = (
+                'You asked to reserve a shielded bridge and this is not one. '
+                'Nothing was reserved. Re-run with accept_public_leg=True to '
+                'reserve a deposit address whose ZEC lands in the clear at '
+                f'{t_addr}, or wait for the router to take z-addresses again.')
+            quote['reserve_with'] = {
+                'fn': 'bridge_shielded_in',
+                'args': {'from_asset': from_asset, 'amount': amount,
+                         'refund_to': refund_to, 'via_transparent': t_addr,
+                         'reserve': True, 'accept_public_leg': True},
+            }
+        quote['note'] = (
+            ('Deposit address reserved. ' if reserve else 'QUOTE ONLY - '
+             'nothing reserved and nothing sent. ') +
+            f"The direct shielded route is refused by the router right now, so "
+            f"this bridges to your transparent address {t_addr} first. That leg "
+            f"is public: ~{quote.get('amount_out')} ZEC will be visible there "
+            f"until you shield it.")
+        if reserve and quote.get('deposit_address'):
+            quote['track_with'] = {'fn': 'bridge_status',
+                                   'deposit_address': quote['deposit_address']}
+        return quote
 
     def bridge_shielded_out(self, name: str, password: str, to_asset: str,
                             amount: float, recipient: str,

@@ -525,6 +525,13 @@ pub struct TradeFilters {
     /// Category slugs the market title must match at least ONE of.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub categories: Option<Vec<String>>,
+    /// MARKET SENTIMENT — which way the crowd had moved the odds on the
+    /// leader's own outcome token when they took the trade (sentiment.rs).
+    /// The one dimension here that is a property of the MARKET rather than of
+    /// the trade, so it needs data the trade doesn't carry: it is applied in a
+    /// second pass over the cycle's candidates, NOT by `trade_filter_reject`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sentiment: Option<crate::sentiment::SentimentFilter>,
 }
 
 /// Apply the semantic per-trade gate — mirror of `tradeMatchesFilters` in
@@ -543,6 +550,13 @@ fn trade_passes_filters(t: &ObservedTrade, filters: &Option<TradeFilters>) -> bo
 /// the trade. A strat whose filters exclude 100% of its leaders' flow is
 /// indistinguishable from a broken engine unless the cycle can say WHY it
 /// mirrored nothing — this is what the heartbeat reports.
+///
+/// The SENTIMENT dimension is deliberately absent here. Every gate in this
+/// function answers from the trade alone; sentiment answers from the market's
+/// price history, which is a network call. Applying it inside the per-trader
+/// parse loop would mean one blocking fetch per trade. It runs instead as a
+/// batched pass over `mirror_candidates` after the loop — same AND, same gate
+/// names, one round of requests. See `apply_sentiment_gate`.
 fn trade_filter_reject(t: &ObservedTrade, filters: &Option<TradeFilters>) -> Option<&'static str> {
     let default_filters = TradeFilters::default();
     let f = filters.as_ref().unwrap_or(&default_filters);
@@ -826,9 +840,22 @@ pub struct OpenPosition {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StratStats {
     /// Σ realized PnL in USDC: (exit proceeds − cost basis) over every SELL
-    /// and redeem attributed to this strat.
+    /// and redeem attributed to this strat. GROSS — before the taker fees in
+    /// `fees` below, exactly like `BacktestSim.grossPnl` is before its own.
+    /// The net the wallet actually holds is `realized - fees`.
     #[serde(default)]
     pub realized: f64,
+    /// Σ Polymarket taker fees this strat has paid, entry and exit, priced at
+    /// each market's own rate (`crate::fees`). This used to be structurally
+    /// absent — the engine signed every order with fee_rate_bps 0 and
+    /// concluded from that that trading was free. It is not: a round trip in a
+    /// crypto market at 50¢ costs 7% of the position.
+    ///
+    /// No gas rides along, because a trading engine pays none: CLOB fills are
+    /// matched on-chain by Polymarket's operator and redeems go through its
+    /// relayer.
+    #[serde(default)]
+    pub fees: f64,
     /// Σ notional across all fills (BUY + SELL + redeem value).
     #[serde(default)]
     pub volume: f64,
@@ -2176,6 +2203,7 @@ impl EngineRegistry {
                             stats.sells += 1;
                             stats.volume += sold * bid;
                             stats.realized += sold * (bid - tracked.entry_price);
+                            stats.fees += crate::fees::fee_for_fill(&pos.market, sold, bid);
                             stats.last_fill_at = now;
                             push_realized(
                                 &mut s.realized_events,
@@ -2808,6 +2836,67 @@ impl EngineRegistry {
                 }
             }
 
+            // ── MARKET SENTIMENT — the gate that needs the tape ──
+            // The last dimension of `tradeFilters`, applied here instead of in
+            // the loop above because it is the only one that cannot be
+            // answered from the trade: it asks which way the crowd had moved
+            // the odds on the outcome the leader bought, which is price
+            // history. Batched into one round of requests over the cycle's
+            // distinct candidate tokens, TTL-cached, and read AT THE TRADE'S
+            // OWN TIMESTAMP so a fill discovered ten minutes late is still
+            // judged by the market it was actually taken in.
+            //
+            // ENTRIES only, exactly like the rest of the trade filter — a
+            // leader's exit of something we hold is never gated, or the
+            // position would have nothing left that can close it.
+            let sentiment_note: Option<String> = if crate::sentiment::filter_active(
+                &cfg.trade_filters.as_ref().and_then(|f| f.sentiment.clone()),
+            ) {
+                let sf = cfg.trade_filters.as_ref().and_then(|f| f.sentiment.clone());
+                let tokens: Vec<String> = mirror_candidates
+                    .iter()
+                    .filter(|c| c.trade.side == "BUY")
+                    .map(|c| c.trade.token_id.clone())
+                    .filter(|t| !t.is_empty())
+                    .collect();
+                let asked = tokens.len();
+                let (readings, over_budget) =
+                    crate::sentiment::fetch_sentiment(&self.http, &tokens, cycle_started_at, &sf).await;
+                let before = mirror_candidates.len();
+                let mut unreadable = 0usize;
+                mirror_candidates.retain(|c| {
+                    if c.trade.side != "BUY" {
+                        return true;
+                    }
+                    let reading = readings.get(&c.trade.token_id);
+                    if reading.map(|r| r.lean.as_str()).unwrap_or("unknown") == "unknown" {
+                        unreadable += 1;
+                    }
+                    crate::sentiment::sentiment_reject(reading, &sf).is_none()
+                });
+                let dropped = before - mirror_candidates.len();
+                if dropped > 0 {
+                    // One bucket, named the way the gate names itself, so the
+                    // heartbeat's "why did nothing get copied" tally reads the
+                    // same as every other dimension.
+                    gated.entry("sentiment").or_default().count += dropped;
+                }
+                Some(format!(
+                    "SENTIMENT {} · read {}/{} markets · {} cut{}",
+                    crate::sentiment::describe(&sf),
+                    asked.saturating_sub(unreadable),
+                    asked,
+                    dropped,
+                    if over_budget > 0 {
+                        format!(" · {} past budget", over_budget)
+                    } else {
+                        String::new()
+                    },
+                ))
+            } else {
+                None
+            };
+
             // ── Trader FILTER — keep only the top-ranked traders ──
             // Ranking is a whole-watchlist decision, so it runs once the loop
             // above has scored everyone, and it drops CANDIDATES rather than
@@ -2944,6 +3033,21 @@ impl EngineRegistry {
                         id: format!("filter-{}", cycle_ended_at),
                         timestamp: cycle_ended_at,
                         kind: "FILTER".into(),
+                        reason: Some(note.clone()),
+                        trader_address: None,
+                        trades_seen: None,
+                    });
+                }
+                // Same reasoning for SENTIMENT, and one number in particular:
+                // how many of the cycle's candidate markets the mood could
+                // actually be READ for. A sentiment gate over markets with no
+                // price history is a gate over nothing, and that has to be
+                // visible in the feed rather than inferred from a quiet book.
+                if let Some(note) = &sentiment_note {
+                    push_log(&mut s.log, LogEntry {
+                        id: format!("sentiment-{}", cycle_ended_at),
+                        timestamp: cycle_ended_at,
+                        kind: "SENTIMENT".into(),
                         reason: Some(note.clone()),
                         trader_address: None,
                         trades_seen: None,
@@ -3445,13 +3549,19 @@ impl EngineRegistry {
             // ── Capital-aware rebalance ──
             // If this candidate doesn't fit in free capital, try to sell the
             // lowest-score holdings it sufficiently out-scores to make room.
-            if notional > free_capital && cfg.rebalance_enabled {
-                let needed = notional - free_capital;
+            // Free the fee too. The matcher debits `notional + taker fee`, so
+            // freeing exactly the notional funds an order that then bounces
+            // for insufficient balance — see crate::fees::fee_headroom.
+            let with_fee = notional + crate::fees::fee_headroom_at(
+                notional, price, crate::fees::rate_for_market(&trade.market),
+            );
+            if with_fee > free_capital && cfg.rebalance_enabled {
+                let needed = with_fee - free_capital;
                 free_capital += self
                     .free_capital_via_sells(cfg, state, cancel, &trade, needed)
                     .await;
             }
-            if notional > free_capital + 1e-6 {
+            if with_fee > free_capital + 1e-6 {
                 // No (or not enough) lower-score position to liquidate — skip,
                 // but mark copied so we don't reconsider this same leader trade
                 // every cycle. A future, higher-score-relative candidate can
@@ -3463,8 +3573,8 @@ impl EngineRegistry {
                         "REBALANCE_SKIP",
                         &trade.id,
                         format!(
-                            "score {:.3} · need ${:.2}, free ${:.2} — no lower-score hold to sell · {}",
-                            trade.score, notional, free_capital, trade.market
+                            "score {:.3} · need ${:.2} (incl. ${:.2} taker fee), free ${:.2} — no lower-score hold to sell · {}",
+                            trade.score, with_fee, with_fee - notional, free_capital, trade.market
                         ),
                         Some(&trade.trader),
                     ));
@@ -3553,6 +3663,7 @@ impl EngineRegistry {
                             .or_default();
                         stats.buys += 1;
                         stats.volume += notional;
+                        stats.fees += crate::fees::fee_for_fill(&trade.market, size, price);
                         stats.last_fill_at = opened_at;
                         push_log(&mut s.log, mk_log(
                             "COPY_BUY",
@@ -3704,6 +3815,7 @@ impl EngineRegistry {
                         stats.sells += 1;
                         stats.volume += proceeds;
                         stats.realized += proceeds - cost_basis;
+                        stats.fees += crate::fees::fee_for_fill(&p.market, size, limit_price);
                         stats.last_fill_at = now;
                         push_realized(&mut s.realized_events, key, proceeds - cost_basis, cost_basis, now);
                         push_log(&mut s.log, mk_log(
@@ -3828,6 +3940,7 @@ impl EngineRegistry {
                             .or_default();
                         stats.buys += 1;
                         stats.volume += notional;
+                        stats.fees += crate::fees::fee_for_fill(&p.market, size, limit_price);
                         stats.last_fill_at = now;
                         push_log(&mut s.log, mk_log(
                             "COPY_BUY",
@@ -3986,6 +4099,7 @@ impl EngineRegistry {
                         stats.sells += 1;
                         stats.volume += proceeds;
                         stats.realized += proceeds - cost_basis;
+                        stats.fees += crate::fees::fee_for_fill(&trade.market, size, bid);
                         stats.last_fill_at = now;
                         push_realized(&mut s.realized_events, key, proceeds - cost_basis, cost_basis, now);
                         push_log(&mut s.log, mk_log(
@@ -4105,6 +4219,7 @@ impl EngineRegistry {
                         stats.sells += 1;
                         stats.volume += proceeds;
                         stats.realized += proceeds - cost_basis;
+                        stats.fees += crate::fees::fee_for_fill(&pos.market, pos.size, bid);
                         stats.last_fill_at = now;
                         push_realized(&mut s.realized_events, key, proceeds - cost_basis, cost_basis, now);
                         push_log(&mut s.log, mk_log(
@@ -4202,6 +4317,7 @@ impl EngineRegistry {
                         stats.sells += 1;
                         stats.volume += proceeds;
                         stats.realized += proceeds - cost_basis;
+                        stats.fees += crate::fees::fee_for_fill(&pos.market, pos.size, bid);
                         stats.last_fill_at = now;
                         push_realized(&mut s.realized_events, key, proceeds - cost_basis, cost_basis, now);
                         let entry = if tp_hit {

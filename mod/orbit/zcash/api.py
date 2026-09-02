@@ -39,7 +39,7 @@ for p in (_root, os.path.join(_root, 'zcash')):
 
 import mcp as mcp_server  # noqa: E402  -- this module's mcp.py; _root leads sys.path
 
-app = FastAPI(title="Zcash", version="2.0.0")
+app = FastAPI(title="Zcash", version="2.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o for o in os.environ.get(
@@ -53,6 +53,9 @@ OPEN_FNS = {
     'info', 'block', 'tx', 'address', 'mempool', 'price', 'network', 'search',
     'validate', 'estimate_fee', 'capabilities', 'status', 'test',
     'bridge_chains', 'bridge_quote', 'bridge_status', 'bridge_maya',
+    # Building the EVM transaction that funds a deposit address reveals
+    # nothing and signs nothing -- the browser wallet holds those keys.
+    'bridge_payment', 'bridge_networks',
     # Teaching and the agent are public: someone who does not yet know what a
     # z-address is has no token, and gating the explanation behind the thing
     # it explains is how people end up guessing instead.
@@ -117,8 +120,9 @@ def index(request: Request):
     return {
         "module": "zcash",
         "version": app.version,
-        "what": "Zcash explorer, HD wallet with real transparent sends, Sapling "
-                "shielded addresses and note decryption, and a bridge to 30+ chains",
+        "what": "Zcash explorer, HD wallet with real transparent sends, real "
+                "Sapling/Orchard shielded addresses, shielded sends proved "
+                "locally by a built-in light client, and a bridge to 30+ chains",
         "surfaces": {
             "POST /<fn>": "any module function by name, arguments as a JSON body",
             "GET /fns": "which functions are open and which need the token",

@@ -218,7 +218,8 @@ impl PipelineState {
                     pnl: 0.0,
                     win_rate: 0.0,
                     sharpe: 0.0,
-                    exit_entry: -1.0,
+                                        decided_positions: 0,
+exit_entry: -1.0,
                     positions: 0,
                     market_titles: vec![],
                     recent_trades: 0,
@@ -316,6 +317,15 @@ impl PipelineState {
             .await;
 
         let mut out: Vec<Trader> = enriched.into_iter().flatten().collect();
+
+        // Accuracy pass, deliberately AFTER the activity fan-out rather than
+        // inside it. Both endpoints are data-api and share one rate limit;
+        // interleaved with a 64-wide activity storm every settled-book fetch
+        // came back 429 and 67 of 90 traders scored "unknown". Run as its own
+        // bounded pass it lands. Only surviving traders are asked about, so
+        // this is a fraction of the requests the enrichment above spends.
+        fill_settled_accuracy(&self.http, DATA_API, &mut out, cutoff_sec).await;
+
         out.sort_by(|a, b| b.pnl.partial_cmp(&a.pnl).unwrap_or(std::cmp::Ordering::Equal));
         // Newly resolved account ages go to disk here too, so an on-demand
         // run (SYNC NOW, a cold `days=` the warmup hasn't reached) keeps what
@@ -338,6 +348,55 @@ impl PipelineState {
             synced_at: chrono::Utc::now().timestamp(),
             traders: out,
         })
+    }
+}
+
+/// Fill `win_rate` / `decided_positions` (and the per-market split behind a
+/// filtered board) from each trader's settled book.
+///
+/// Traders whose settled book cannot be fetched keep `win_rate = -1`. That is
+/// the point: the activity-derived number these rows used to carry could only
+/// see winners, so "unknown" is the only honest fallback. A blank cell is
+/// recoverable; a fabricated 100% gets copied with money.
+pub async fn fill_settled_accuracy(
+    http: &reqwest::Client,
+    base_url: &str,
+    traders: &mut [Trader],
+    cutoff_sec: u64,
+) {
+    let addrs: Vec<String> = traders.iter().map(|t| t.address.clone()).collect();
+    let fetched: Vec<Option<crate::settled::SettledAccuracy>> = stream::iter(addrs)
+        .map(|addr| {
+            let http = http.clone();
+            async move {
+                crate::settled::fetch_settled_legs(&http, base_url, &addr, cutoff_sec)
+                    .await
+                    .map(|legs| crate::settled::accuracy_from_legs(&legs, cutoff_sec))
+            }
+        })
+        // The settled fetch has its own internal concurrency gate; this bound
+        // just keeps the futures from all queueing at once.
+        .buffer_unordered(8)
+        .collect()
+        .await;
+
+    for (trader, acc) in traders.iter_mut().zip(fetched) {
+        let Some(acc) = acc else { continue };
+        trader.decided_positions = acc.decided;
+        trader.win_rate = if acc.decided > 0 {
+            ((acc.wins as f64 / acc.decided as f64) * 100.0).round().min(100.0)
+        } else {
+            -1.0
+        };
+        // The filtered board (routes.rs) recomputes the rate by summing these,
+        // so it has to see the same settled book the unfiltered number does.
+        if let Some(ref mut mm) = trader.market_metrics {
+            for m in mm.iter_mut() {
+                let (w, d) = acc.per_title.get(&m.title).copied().unwrap_or((0, 0));
+                m.wins = w;
+                m.decided = d;
+            }
+        }
     }
 }
 
@@ -503,14 +562,14 @@ async fn enrich_trader_with_url(
     }
     trader.positions = metrics.count; // use trade count as "positions" field
 
-    // Accuracy: of the positions this trader BOUGHT in the window, the share
-    // whose outcome ended up winning — price saturated to $1 (redeemed for a
-    // payout, or exited at ≥95¢). Only decided positions count; capped at 100.
-    trader.win_rate = if metrics.decided > 0 {
-        ((metrics.wins as f64 / metrics.decided as f64) * 100.0).round().min(100.0)
-    } else {
-        -1.0
-    };
+    // Accuracy is NOT derived here. `/activity` can only show a position
+    // ending when the ending leaves a row — a sell or a redeem — and losers
+    // leave neither: the tokens burn to zero and nobody pays gas to claim $0.
+    // Counting observable endings therefore drops losers only, which is how
+    // this column read 100%. `fill_settled_accuracy` runs afterwards, off the
+    // settled book. Until it does, the honest value is "unknown".
+    trader.win_rate = -1.0;
+    trader.decided_positions = 0;
 
     trader.market_metrics = if metrics.per_market.is_empty() { None } else { Some(metrics.per_market) };
 
@@ -523,28 +582,18 @@ struct WindowMetrics {
     sell_volume: f64,
     pnl: f64,
     count: u32,
-    /// Bought positions (opened in-window) whose outcome saturated to $1.
-    wins: u32,
-    /// Bought positions (opened in-window) with a known outcome.
-    decided: u32,
     /// Per-closed-SELL fractional returns `(price − avgCost) / avgCost`
     /// realized in-window — the series Sharpe is computed from.
     returns: Vec<f64>,
     per_market: Vec<MarketMetric>,
 }
 
-/// Exit price at/above which a bought outcome is considered to have
-/// saturated to $1 — i.e. the market resolved (or is resolving) the
-/// trader's way. CLOB caps sells at 99¢, so winners exit in the 95¢–99¢
-/// band or via CTF redeem.
-const WIN_SATURATION_PRICE: f64 = 0.95;
-
 fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
     let mut sorted: Vec<&Value> = trades.iter()
         .filter(|t| {
             let ty = t.get("type").and_then(|v| v.as_str()).unwrap_or("TRADE");
-            // REDEEMs carry no volume but are the ground-truth "this buy won"
-            // signal for the accuracy metric.
+            // REDEEMs carry no volume, but they are settlement events and
+            // must not be mistaken for trades in the volume/count pass.
             ty == "TRADE" || ty == "REDEEM"
         })
         .collect();
@@ -569,13 +618,6 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
     let curve_now_sec = chrono::Utc::now().timestamp() as u64;
     let curve_bucket_size = (curve_now_sec.saturating_sub(cutoff_sec) / CURVE_BUCKETS as u64).max(1);
 
-    // Per-position outcome tracker for buy-accuracy: a bought position "ends
-    // up winning" when its price saturates to $1 — a REDEEM with a payout or
-    // an exit at ≥ WIN_SATURATION_PRICE. A position is "decided" once it won,
-    // was redeemed (payout or not), or was fully exited.
-    struct PosOutcome { title: String, bought: f64, sold: f64, in_window_buy: bool, won: bool, redeemed: bool }
-    let mut outcomes: HashMap<String, PosOutcome> = HashMap::new();
-
     for t in sorted {
         let ts = normalize_ts(t);
         let in_window = ts >= cutoff_sec;
@@ -588,33 +630,11 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
         let ty = t.get("type").and_then(|v| v.as_str()).unwrap_or("TRADE");
         let side = t.get("side").and_then(|v| v.as_str()).unwrap_or("").to_uppercase();
 
+        // A REDEEM settles a position; it carries no price or size to book
+        // into volume, PnL or the return series. Win/loss for it is read off
+        // the settled book instead — see settled.rs.
         if ty == "REDEEM" {
-            if !key.is_empty() {
-                let o = outcomes.entry(key).or_insert(PosOutcome {
-                    title: title.to_string(), bought: 0.0, sold: 0.0,
-                    in_window_buy: false, won: false, redeemed: false,
-                });
-                o.redeemed = true;
-                // Redeeming losing tokens pays $0 — only a payout marks a win.
-                if usdc_size > 0.0 { o.won = true; }
-                if o.title.is_empty() && !title.is_empty() { o.title = title.to_string(); }
-            }
             continue;
-        }
-
-        if !key.is_empty() && (side == "BUY" || side == "SELL") {
-            let o = outcomes.entry(key.clone()).or_insert(PosOutcome {
-                title: title.to_string(), bought: 0.0, sold: 0.0,
-                in_window_buy: false, won: false, redeemed: false,
-            });
-            if side == "BUY" {
-                o.bought += size;
-                if in_window { o.in_window_buy = true; }
-            } else {
-                o.sold += size;
-                if price >= WIN_SATURATION_PRICE { o.won = true; }
-            }
-            if o.title.is_empty() && !title.is_empty() { o.title = title.to_string(); }
         }
 
         let pos = book.entry(key).or_insert((0.0, 0.0));
@@ -678,26 +698,10 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
         }
     }
 
-    // Fold decided positions into the accuracy counters — only positions the
-    // trader actually BOUGHT inside the window count.
-    let mut wins_total = 0u32;
-    let mut decided_total = 0u32;
-    for o in outcomes.values() {
-        if !o.in_window_buy { continue; }
-        let fully_exited = o.bought > 0.0 && o.sold >= o.bought * 0.99;
-        if !(o.won || o.redeemed || fully_exited) { continue; }
-        decided_total += 1;
-        if o.won { wins_total += 1; }
-        if !o.title.is_empty() {
-            let mkt = per_market.entry(o.title.clone()).or_insert(MktAccum {
-                volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-                pnl: 0.0, trades: 0, wins: 0, decided: 0, returns: Vec::new(),
-                curve: vec![0.0; CURVE_BUCKETS],
-            });
-            mkt.decided += 1;
-            if o.won { mkt.wins += 1; }
-        }
-    }
+    // Accuracy counters stay at zero here. They used to be folded in from
+    // the exits visible in this activity pull, which structurally could not
+    // see a loser — `enrich_trader_with_url` fills them from the settled book
+    // (settled.rs) after this returns.
 
     let market_metrics: Vec<MarketMetric> = per_market.into_iter().map(|(title, m)| {
         MarketMetric {
@@ -714,8 +718,6 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
         sell_volume,
         pnl,
         count,
-        wins: wins_total,
-        decided: decided_total,
         returns,
         per_market: market_metrics,
     }
@@ -1021,7 +1023,14 @@ mod tests {
         assert_eq!(m.count, 1);
     }
 
-    // ── buy-accuracy (wins / decided) ────────────────────────────
+    // ── settlement rows ──────────────────────────────────────────
+    //
+    // Buy-accuracy is no longer derived here. It used to be, and it could
+    // only ever see the endings that leave an activity row — which is every
+    // winner and no loser. The counters now come from the settled book; see
+    // `settled.rs` and `win_rate_counts_losers_that_left_no_activity_row`.
+    // What is still this function's job is not letting REDEEM rows leak into
+    // the money numbers.
 
     fn redeem(ts: u64, usdc: f64, cid: &str) -> Value {
         json!({
@@ -1035,115 +1044,18 @@ mod tests {
     }
 
     #[test]
-    fn accuracy_buy_then_winning_redeem() {
+    fn redeems_do_not_move_volume_pnl_or_returns() {
+        // A redeem has no price and no side. Booking it as a trade would
+        // inflate volume and push a bogus return into the Sharpe series.
         let trades = vec![
             trade(2000, "BUY", 0.60, 100.0, "mkt1"),
             redeem(3000, 100.0, "mkt1"),
         ];
         let m = compute_window_metrics(&trades, 1000);
-        assert_eq!(m.wins, 1);
-        assert_eq!(m.decided, 1);
-    }
-
-    #[test]
-    fn accuracy_buy_then_zero_payout_redeem_is_loss() {
-        // Redeeming losing tokens pays $0 → decided but not won.
-        let trades = vec![
-            trade(2000, "BUY", 0.60, 100.0, "mkt1"),
-            redeem(3000, 0.0, "mkt1"),
-        ];
-        let m = compute_window_metrics(&trades, 1000);
-        assert_eq!(m.wins, 0);
-        assert_eq!(m.decided, 1);
-    }
-
-    #[test]
-    fn accuracy_buy_then_saturated_sell_wins() {
-        // Exit at ≥95¢ = price saturated to $1 → win.
-        let trades = vec![
-            trade(2000, "BUY", 0.60, 100.0, "mkt1"),
-            trade(3000, "SELL", 0.97, 100.0, "mkt1"),
-        ];
-        let m = compute_window_metrics(&trades, 1000);
-        assert_eq!(m.wins, 1);
-        assert_eq!(m.decided, 1);
-    }
-
-    #[test]
-    fn accuracy_full_exit_below_saturation_is_loss() {
-        // Sold everything at 40¢ — decided, but the buy didn't end up winning.
-        let trades = vec![
-            trade(2000, "BUY", 0.60, 100.0, "mkt1"),
-            trade(3000, "SELL", 0.40, 100.0, "mkt1"),
-        ];
-        let m = compute_window_metrics(&trades, 1000);
-        assert_eq!(m.wins, 0);
-        assert_eq!(m.decided, 1);
-    }
-
-    #[test]
-    fn accuracy_open_position_is_undecided() {
-        let trades = vec![trade(2000, "BUY", 0.60, 100.0, "mkt1")];
-        let m = compute_window_metrics(&trades, 1000);
-        assert_eq!(m.wins, 0);
-        assert_eq!(m.decided, 0);
-    }
-
-    #[test]
-    fn accuracy_pre_window_buy_excluded() {
-        // Position opened before the window never enters the accuracy counters,
-        // even if it wins inside the window.
-        let trades = vec![
-            trade(500, "BUY", 0.60, 100.0, "mkt1"),
-            redeem(2000, 100.0, "mkt1"),
-        ];
-        let m = compute_window_metrics(&trades, 1000);
-        assert_eq!(m.wins, 0);
-        assert_eq!(m.decided, 0);
-    }
-
-    #[test]
-    fn accuracy_never_exceeds_decided() {
-        // Multiple win signals on one position (saturated sell + redeem)
-        // still count it once — the rate can saturate at 100, never above.
-        let trades = vec![
-            trade(2000, "BUY", 0.60, 100.0, "mkt1"),
-            trade(2500, "SELL", 0.98, 50.0, "mkt1"),
-            redeem(3000, 50.0, "mkt1"),
-        ];
-        let m = compute_window_metrics(&trades, 1000);
-        assert_eq!(m.wins, 1);
-        assert_eq!(m.decided, 1);
-        assert!(m.wins <= m.decided);
-    }
-
-    fn trade_titled(ts: u64, side: &str, price: f64, size: f64, cid: &str, title: &str) -> Value {
-        json!({
-            "type": "TRADE",
-            "timestamp": ts,
-            "side": side,
-            "price": price,
-            "size": size,
-            "conditionId": cid,
-            "title": title,
-        })
-    }
-
-    #[test]
-    fn accuracy_per_market_counters_match() {
-        let trades = vec![
-            trade_titled(2000, "BUY", 0.60, 100.0, "c1", "Will BTC win?"),
-            trade_titled(3000, "SELL", 0.99, 100.0, "c1", "Will BTC win?"),
-            trade_titled(2000, "BUY", 0.60, 100.0, "c2", "Will ETH win?"),
-            trade_titled(3000, "SELL", 0.10, 100.0, "c2", "Will ETH win?"),
-        ];
-        let m = compute_window_metrics(&trades, 1000);
-        assert_eq!(m.wins, 1);
-        assert_eq!(m.decided, 2);
-        let win_mkt = m.per_market.iter().find(|x| x.title == "Will BTC win?").unwrap();
-        assert_eq!((win_mkt.wins, win_mkt.decided), (1, 1));
-        let loss_mkt = m.per_market.iter().find(|x| x.title == "Will ETH win?").unwrap();
-        assert_eq!((loss_mkt.wins, loss_mkt.decided), (0, 1));
+        assert_eq!(m.count, 1, "only the BUY is a trade");
+        assert_eq!(m.sell_volume, 0.0);
+        assert_eq!(m.pnl, 0.0, "a redeem books no realized PnL here");
+        assert!(m.returns.is_empty(), "a redeem is not a closed-trade return");
     }
 
     #[test]
@@ -1353,6 +1265,131 @@ mod tests {
 
     // ── enrich_trader return shape ───────────────────────────────
 
+    /// A zero-valued Trader row — every enrichment test starts from one and
+    /// asserts on what the pipeline filled in.
+    fn blank_trader(address: &str) -> Trader {
+        Trader {
+            address: address.to_string(),
+            volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0,
+            positions: 0, decided_positions: 0,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0,
+            last_trade_ts: None, first_trade_ts: None,
+            pnl_curve: None, market_metrics: None,
+        }
+    }
+
+    /// The regression behind "your winrate says 100% but man its bs".
+    ///
+    /// This wallet made four calls in the window: two winners it redeemed for
+    /// a payout, and two losers it never touched again — the markets resolved
+    /// against it and the tokens burned to zero, leaving no SELL and no
+    /// REDEEM in `/activity`. Reading accuracy off observable exits sees only
+    /// the two winners and scores 100%. The settled book has all four.
+    #[tokio::test]
+    async fn win_rate_counts_losers_that_left_no_activity_row() {
+        let now = chrono::Utc::now().timestamp() as u64;
+        let cutoff = now - 7 * 86400;
+
+        let settled = serde_json::to_string(&vec![
+            json!({"title":"Won A","realizedPnl": 50.0,"curPrice":1.0,"totalBought":50.0,"timestamp": now-100}),
+            json!({"title":"Won B","realizedPnl": 50.0,"curPrice":1.0,"totalBought":50.0,"timestamp": now-100}),
+            json!({"title":"Lost A","realizedPnl":-50.0,"curPrice":0.0,"totalBought":50.0,"timestamp": now-100}),
+            json!({"title":"Lost B","realizedPnl":-50.0,"curPrice":0.0,"totalBought":50.0,"timestamp": now-100}),
+        ]).unwrap();
+
+        let mut server = mockito::Server::new_async().await;
+        let _c = server.mock("GET", mockito::Matcher::Regex(r"^/closed-positions.*".to_string()))
+            .with_status(200).with_header("content-type", "application/json")
+            .with_body(&settled).expect_at_least(1).create_async().await;
+
+        // Two of the four markets are on the row's per-market breakdown; the
+        // filtered board recomputes the rate by summing those, so they have to
+        // pick up the losers too.
+        let mut t = blank_trader("0xburned");
+        t.market_metrics = Some(vec![
+            mkt_metric("Won A"),
+            mkt_metric("Lost A"),
+        ]);
+        let mut traders = vec![t];
+
+        fill_settled_accuracy(&reqwest::Client::new(), &server.url(), &mut traders, cutoff).await;
+
+        assert_eq!(traders[0].win_rate, 50.0, "two of four settled positions won");
+        assert_eq!(traders[0].decided_positions, 4, "all four settled legs are the denominator");
+
+        let mm = traders[0].market_metrics.as_ref().unwrap();
+        let won = mm.iter().find(|m| m.title == "Won A").unwrap();
+        let lost = mm.iter().find(|m| m.title == "Lost A").unwrap();
+        assert_eq!((won.wins, won.decided), (1, 1));
+        assert_eq!((lost.wins, lost.decided), (0, 1), "the loser must be in the per-market denominator");
+    }
+
+    /// A failed settled-book fetch must read as unknown — never as the
+    /// exit-derived number, which is the biased one.
+    #[tokio::test]
+    async fn win_rate_is_unknown_when_the_settled_book_is_unreachable() {
+        let now = chrono::Utc::now().timestamp() as u64;
+        let mut server = mockito::Server::new_async().await;
+        let _c = server.mock("GET", mockito::Matcher::Regex(r"^/closed-positions.*".to_string()))
+            .with_status(404).expect_at_least(1).create_async().await;
+
+        let mut traders = vec![blank_trader("0xnofetch")];
+        traders[0].win_rate = -1.0;
+
+        fill_settled_accuracy(&reqwest::Client::new(), &server.url(), &mut traders, now - 7 * 86400).await;
+
+        assert_eq!(traders[0].win_rate, -1.0, "unknown, not the 100% the exits imply");
+        assert_eq!(traders[0].decided_positions, 0);
+    }
+
+    /// A trader who settled nothing in the window is unknown, not 0%.
+    #[tokio::test]
+    async fn win_rate_is_unknown_when_nothing_settled() {
+        let now = chrono::Utc::now().timestamp() as u64;
+        let mut server = mockito::Server::new_async().await;
+        let _c = server.mock("GET", mockito::Matcher::Regex(r"^/closed-positions.*".to_string()))
+            .with_status(200).with_header("content-type", "application/json")
+            .with_body("[]").expect_at_least(1).create_async().await;
+
+        let mut traders = vec![blank_trader("0xnothing")];
+        fill_settled_accuracy(&reqwest::Client::new(), &server.url(), &mut traders, now - 7 * 86400).await;
+
+        assert_eq!(traders[0].win_rate, -1.0);
+        assert_eq!(traders[0].decided_positions, 0);
+    }
+
+    /// The enrichment pass leaves accuracy unknown — it has no source for it.
+    #[tokio::test]
+    async fn enrichment_alone_does_not_claim_a_win_rate() {
+        let now = chrono::Utc::now().timestamp() as u64;
+        let activity = serde_json::to_string(&vec![
+            json!({"type":"TRADE","timestamp": now-6000,"side":"BUY","price":0.50,"size":100.0,"conditionId":"w1","title":"Won A","usdcSize":50.0}),
+            json!({"type":"REDEEM","timestamp": now-100,"conditionId":"w1","title":"Won A","usdcSize":100.0}),
+        ]).unwrap();
+
+        let mut server = mockito::Server::new_async().await;
+        let _a = server.mock("GET", mockito::Matcher::Regex(r"^/activity.*".to_string()))
+            .with_status(200).with_header("content-type", "application/json")
+            .with_body(&activity).expect_at_least(1).create_async().await;
+
+        let (out, _) = enrich_trader_with_url(
+            reqwest::Client::new(), blank_trader("0xenrich"), now - 7 * 86400, 1, &server.url()).await;
+        let t = out.expect("trader should enrich");
+
+        assert_eq!(t.win_rate, -1.0, "the redeemed winner alone is not a 100% record");
+        assert!(t.volume > 0.0, "the rest of the row is still real");
+    }
+
+    /// A zero-valued per-market row — the accuracy pass fills wins/decided.
+    fn mkt_metric(title: &str) -> MarketMetric {
+        MarketMetric {
+            title: title.to_string(),
+            volume: 0.0, buy_volume: 0.0, sell_volume: 0.0, pnl: 0.0,
+            trades: 0, wins: 0, decided: 0, returns: vec![], curve: vec![],
+        }
+    }
+
     #[tokio::test]
     async fn enrich_empty_trades_returns_none() {
         // Mock HTTP client that returns empty arrays (no trades for this address)
@@ -1368,7 +1405,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1399,7 +1436,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1437,7 +1474,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1463,6 +1500,7 @@ mod tests {
                     address: "0xaaa".to_string(),
                     volume: 5000.0, buy_volume: 3000.0, sell_volume: 2000.0,
                     pnl: 150.0, win_rate: 65.0, sharpe: 0.0, exit_entry: -1.0, positions: 10,
+                    decided_positions: 0,
                     market_titles: vec!["Market A".into()], recent_trades: 10, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
                     pnl_curve: Some(vec![0.0; 12]), market_metrics: None,
                 },
@@ -1470,6 +1508,7 @@ mod tests {
                     address: "0xbbb".to_string(),
                     volume: 3000.0, buy_volume: 1500.0, sell_volume: 1500.0,
                     pnl: -50.0, win_rate: 40.0, sharpe: 0.0, exit_entry: -1.0, positions: 5,
+                    decided_positions: 0,
                     market_titles: vec![], recent_trades: 5, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
                     pnl_curve: None, market_metrics: None,
                 },
@@ -1509,6 +1548,7 @@ mod tests {
                 address: "0xccc".to_string(),
                 volume: 100.0, buy_volume: 60.0, sell_volume: 40.0,
                 pnl: 5.0, win_rate: 50.0, sharpe: 0.0, exit_entry: -1.0, positions: 2,
+                    decided_positions: 0,
                 market_titles: vec!["Test".into()], recent_trades: 2, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
                 pnl_curve: Some(vec![1.0, 2.0, 3.0]), market_metrics: None,
             }],
@@ -1547,6 +1587,7 @@ mod tests {
             sell_volume: 5345.67,
             pnl: -420.69,
             win_rate: 55.0,
+            decided_positions: 0,
             sharpe: 1.25,
             exit_entry: 1.08,
             positions: 42,
@@ -1590,7 +1631,7 @@ mod tests {
         let trader = Trader {
             address: "0x".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0,
+            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
             pnl_curve: None, market_metrics: None,
         };

@@ -1620,6 +1620,7 @@ mod tests {
             win_rate: -1.0,
             sharpe: 0.0,
             exit_entry: -1.0,
+            decided_positions: 0,
             positions: 0,
             market_titles: markets.iter().map(|(t, _, _)| (*t).to_string()).collect(),
             recent_trades: markets.iter().map(|(_, _, n)| n).sum(),

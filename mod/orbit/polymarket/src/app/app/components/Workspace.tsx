@@ -17,23 +17,9 @@ import Link from "next/link";
 import TopBar from "./TopBar";
 import CopyIndex from "./CopyIndex";
 import { ensureActiveStrat } from "../lib/activeStrat";
-import { isTraderIndex } from "../lib/traderIndex";
 import type { SavedIndex } from "../lib/types";
 
 type Mode = "BACKTEST" | "LIVE";
-
-const COPY: Record<Mode, { label: string; blurb: string; accent: string }> = {
-  BACKTEST: {
-    label: "BACKTEST",
-    blurb: "replaying your bench against real past trades — simulated money",
-    accent: "text-amber-400",
-  },
-  LIVE: {
-    label: "LIVE",
-    blurb: "running your bench against the live book",
-    accent: "text-cyan-300",
-  },
-};
 
 export default function Workspace({ mode }: { mode: Mode }) {
   const [strat, setStrat] = useState<SavedIndex | null>(null);
@@ -51,23 +37,20 @@ export default function Workspace({ mode }: { mode: Mode }) {
   }, [refresh]);
 
   const bench = strat ? strat.traders.filter((t) => t.enabled !== false).length : 0;
-  const copy = COPY[mode];
 
   return (
     <div className="max-w-[1920px] mx-auto">
       <TopBar showSearch={false} />
       <div className="p-4 space-y-3">
-        {/* One line: which screen, on which bench. No strat picker — the copy
-            book in the side panel is the one place strats are switched. */}
-        <div className="flex flex-wrap items-baseline gap-2 text-[12px] font-mono">
-          <span className={`${copy.accent} font-bold tracking-[0.16em]`}>{copy.label}</span>
-          <span className="text-pixel-gray-light">{copy.blurb}</span>
-          <span className="text-pixel-border/60">·</span>
-          <Link href="/traders" className="text-pixel-gray hover:text-pixel-white">
-            {bench} {bench === 1 ? "trader" : "traders"}
-            {strat && isTraderIndex(strat) ? " · sized to your capital" : ""} →
-          </Link>
-        </div>
+        {/* No page-title strip here. It said "LIVE · running your bench
+            against the live book · 8 traders" directly above a SETTINGS row
+            that already named the strat, the bench and the window, directly
+            above a bordered strip holding two pills, directly above the
+            engine's own header — four bars of chrome before the first number,
+            and the word LIVE printed twice on one screen meaning two different
+            things. The nav tab says which screen this is; the SETTINGS row
+            (CopyIndex) carries the bench and the window; the engine header
+            carries the mode. */}
 
         {strat && bench === 0 && !strat.momentum && (
           <div className="pixel-panel p-4 text-[12px] leading-relaxed text-pixel-gray-light">

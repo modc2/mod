@@ -1,18 +1,56 @@
 // Thin client over the Rust /hl/* proxy.
 
+/** How much evidence sits behind a row's win rate. See `stats.rs`. */
+export type Confidence = "none" | "low" | "measured";
+
 export type TopTrader = {
   address: string;
   roi: number;            // window return on equity, percent (ranking metric)
   account_value: number;  // current account equity (USD)
   volume: number;
-  pnl: number;
+  pnl: number;            // net of fees
+  /** Net-of-fee win rate, 0-100. `-1` means unmeasurable, not 0%. */
   win_rate: number;
+  /** Every fill in the window, opens included. NOT the win-rate denominator. */
   trades: number;
   coins: string[];
   avg_trade_usd: number;
   sharpe: number;
   last_active: number;
+
+  // ── the evidence behind the two ratios above ──
+  // Rows served from a board cached by an older API arrive without these;
+  // treat 0/undefined as "unknown" rather than as a real measurement.
+  /** Fills that realised PnL — the actual denominator of `win_rate`. */
+  closes: number;
+  wins: number;
+  losses: number;
+  /** Wilson 95% lower bound on `win_rate`. Rank and filter on this. */
+  win_rate_lo: number;
+  confidence: Confidence;
+  /** Days behind `sharpe`. Under 7 the ratio is noise — render "—". */
+  sharpe_days: number;
+  fees: number;
+  /** Σ wins ÷ |Σ losses|. `-1` when there were no losses (undefined, not bad). */
+  profit_factor: number;
+  worst_close: number;
 };
+
+/** Closes below which a win rate is anecdote. Mirrors `stats::MIN_CLOSES`. */
+export const MIN_CLOSES = 10;
+/** Days below which a Sharpe is noise. Mirrors `stats::MIN_SHARPE_DAYS`. */
+export const MIN_SHARPE_DAYS = 7;
+
+/** The win rate a row has earned the right to claim, or `null` if none. */
+export const defensibleWin = (t: Partial<TopTrader>): number | null => {
+  if ((t.win_rate ?? -1) < 0) return null;
+  const lo = t.win_rate_lo;
+  return lo == null || lo < 0 ? (t.win_rate as number) : lo;
+};
+
+/** True when `sharpe` rests on enough days to be worth showing at all. */
+export const sharpeMeasured = (t: Partial<TopTrader>): boolean =>
+  (t.sharpe_days ?? 0) >= MIN_SHARPE_DAYS;
 
 export type Follow = {
   id: string;
@@ -75,23 +113,113 @@ function authToken(): string | null {
   } catch { return null; }
 }
 
-// Not every error body is ours: a proxy timing out in front of the API answers
-// with its own HTML page, and dumping that verbatim into the UI is how a 524
-// ends up rendered as a wall of markup. Keep the API's `error` field when
-// there is one, otherwise a short readable line.
-function brief(body: string): string {
-  try {
-    const j = JSON.parse(body);
-    const msg = j?.error ?? j?.message;
-    if (typeof msg === "string") return msg;
-  } catch { /* not ours */ }
-  const text = body.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-  return text.length > 160 ? `${text.slice(0, 160)}…` : text;
+// ── Errors that read like sentences ───────────────────────────────────────
+//
+// The old client threw `new Error("/indexes 401 unauthorized")` and pages
+// printed it verbatim. That is a status code wearing a trench coat: it tells
+// the person who just spent two minutes picking traders nothing about what
+// went wrong or what to do. The API now answers refusals with a `message`
+// written for a human plus a stable `reason`; this carries both, and keeps
+// the route and status on the object for the console.
+export class ApiError extends Error {
+  readonly status: number;
+  readonly path: string;
+  /** Stable code from the API gate: no_token | expired_token | not_owner | … */
+  readonly reason: string | null;
+  /** The gate believes a fresh signature would fix this. */
+  readonly signIn: boolean;
+  readonly body: unknown;
+
+  constructor(o: { status: number; path: string; message: string; reason?: string | null;
+                   signIn?: boolean; body?: unknown }) {
+    super(o.message);
+    this.name = "ApiError";
+    this.status = o.status;
+    this.path = o.path;
+    this.reason = o.reason ?? null;
+    this.signIn = !!o.signIn;
+    this.body = o.body;
+  }
+
+  /** What the console logs — the human line plus where it came from. */
+  get detail(): string { return `${this.message} (${this.status} ${this.path})`; }
 }
 
-async function j<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = authToken();
-  const r = await fetch(`${BASE}${path}`, {
+// Not every error body is ours: a proxy timing out in front of the API answers
+// with its own HTML page, and dumping that verbatim into the UI is how a 524
+// ends up rendered as a wall of markup. Prefer the API's human `message`, then
+// its `error`/`detail`, then a short readable line of whatever came back.
+function explain(status: number, body: string): { message: string; reason: string | null; signIn: boolean; parsed: unknown } {
+  let parsed: any = null;
+  try { parsed = JSON.parse(body); } catch { /* not ours */ }
+
+  if (parsed && typeof parsed === "object") {
+    const message = [parsed.message, parsed.error, parsed.detail]
+      .find((v: unknown) => typeof v === "string" && v.trim());
+    if (message) {
+      return {
+        message: String(message),
+        reason: typeof parsed.reason === "string" ? parsed.reason : null,
+        signIn: parsed.sign_in === true,
+        parsed,
+      };
+    }
+  }
+  const text = body.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return {
+    // A bare status is still better than a wall of proxy markup.
+    message: text ? (text.length > 160 ? `${text.slice(0, 160)}…` : text) : httpFallback(status),
+    reason: null,
+    signIn: status === 401,
+    parsed,
+  };
+}
+
+function httpFallback(status: number): string {
+  if (status === 401) return "Sign in with your wallet to do that.";
+  if (status === 403) return "That belongs to a different wallet.";
+  if (status === 404) return "Not found.";
+  if (status === 429) return "Too many requests right now — try again in a moment.";
+  if (status >= 500) return "The Hyperliquid API is having trouble. Try again shortly.";
+  return `Request failed (${status}).`;
+}
+
+// ── Session recovery ──────────────────────────────────────────────────────
+//
+// A mod-protocol token is a signature over a timestamp, so it expires — and
+// the only way to renew one is to ask the wallet to sign again. lib/auth.tsx
+// registers that ability here at mount, which lets a write that lands on an
+// expired session recover itself: one MetaMask prompt, then the original
+// request is replayed. It is the difference between "your session expired,
+// here is a 401" and the save simply going through.
+//
+// Three rules keep that from becoming a nuisance:
+//   1. Writes only. A background poll must never summon a signature prompt,
+//      so GETs just report the 401 and let the UI offer sign-in.
+//   2. One prompt. Concurrent 401s share a single in-flight refresh.
+//   3. One try. A retry that fails again is a real failure, not a loop.
+type Refresher = () => Promise<string | null>;
+let refresher: Refresher | null = null;
+let inFlight: Promise<string | null> | null = null;
+let lastFailureMs = 0;
+const REFRESH_COOLDOWN_MS = 10_000;
+
+export function setTokenRefresher(fn: Refresher | null) { refresher = fn; }
+
+async function refreshToken(): Promise<string | null> {
+  if (!refresher) return null;
+  if (Date.now() - lastFailureMs < REFRESH_COOLDOWN_MS) return null;
+  if (!inFlight) {
+    inFlight = refresher()
+      .catch(() => null)
+      .then((t) => { if (!t) lastFailureMs = Date.now(); return t; })
+      .finally(() => { inFlight = null; });
+  }
+  return inFlight;
+}
+
+function send(path: string, init: RequestInit | undefined, token: string | null) {
+  return fetch(`${BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -100,14 +228,35 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
     },
     cache: "no-store",
   });
+}
+
+async function j<T>(path: string, init?: RequestInit): Promise<T> {
+  const isWrite = !!init?.method && init.method.toUpperCase() !== "GET";
+  let r = await send(path, init, authToken());
+
+  if (r.status === 401 && isWrite && typeof window !== "undefined") {
+    const fresh = await refreshToken();
+    if (fresh) r = await send(path, init, fresh);
+  }
+
   if (r.status === 401 && typeof window !== "undefined") {
-    // Stale/invalid session — tell WalletProvider to drop the token so the
-    // header shows "sign in" instead of silently failing everywhere.
+    // Still refused after (at most) one re-sign — the session really is dead.
+    // Tell WalletProvider to drop the token so the header stops claiming to
+    // be signed in and starts offering the way back.
     window.dispatchEvent(new CustomEvent("hl:unauthorized"));
   }
-  if (!r.ok) throw new Error(`${path} ${r.status} ${brief(await r.text().catch(() => ""))}`);
+
+  if (!r.ok) {
+    const raw = await r.text().catch(() => "");
+    const e = explain(r.status, raw);
+    throw new ApiError({ status: r.status, path, message: e.message,
+                         reason: e.reason, signIn: e.signIn, body: e.parsed });
+  }
   return r.json() as Promise<T>;
 }
+
+/** Who the API thinks you are. 401 here means the stored token is dead. */
+export const authMe = () => j<{ ok: boolean; address: string }>(`/auth/me`);
 
 // ── market ──
 // All mid prices, coin → price string (perps by ticker; spot/dex/prediction
@@ -168,11 +317,37 @@ export const fetchBoard = (o: {
 export const analyzeTrader = (addr: string, days: number) =>
   j<any>(`/trader/${addr}/analyze?days=${days}`);
 
+// The shape behind a row's number: cumulative PnL across the window, rebased
+// so the window opens at zero. Sourced from Hyperliquid's own portfolio
+// series — the same definition the leaderboard prices `pnl` with — so the
+// curve and the column agree. `available: false` carries a `note` instead of
+// throwing: this is decoration on a row that already has its numbers, and a
+// hover that errors looks like a broken row.
+export type TraderCurve = {
+  address: string;
+  days: number;
+  period: string;            // hyperliquid portfolio period backing the points
+  points: [number, number][]; // [ms epoch, cumulative pnl]
+  start_ms: number;
+  end_ms: number;
+  pnl: number;               // last point — what the drawn line ends at
+  high: number;
+  low: number;
+  max_drawdown: number;      // deepest peak → trough fall, USD (>= 0)
+  max_drawdown_pct: number;
+  available: boolean;
+  note?: string;
+};
+export const fetchTraderCurve = (addr: string, days: number) =>
+  j<TraderCurve>(`/trader/${addr}/curve?days=${days}`);
+
 // ── follows ──
 export const listFollows = (follower?: string) =>
   j<{ follows: Follow[] }>(`/follows${follower ? `?follower=${follower}` : ""}`);
 
-export const createFollow = (b: Partial<Follow> & { follower: string; leader: string }) =>
+// `follower` is optional on purpose: the API takes it from the token that
+// signed the request. A client that has to name itself can name itself wrong.
+export const createFollow = (b: Partial<Follow> & { leader: string }) =>
   j<Follow>(`/follows`, { method: "POST", body: JSON.stringify(b) });
 
 export const updateFollow = (id: string, b: Partial<Follow>) =>
@@ -197,7 +372,8 @@ export const listIndexes = () =>
 
 export const getIndex = (id: string) => j<Index>(`/indexes/${id}`);
 
-export const createIndex = (b: Partial<Index> & { name: string; owner: string; legs: IndexLeg[] }) =>
+// `owner` likewise comes from the signed-in wallet — see createFollow.
+export const createIndex = (b: Partial<Index> & { name: string; legs: IndexLeg[] }) =>
   j<Index>(`/indexes`, { method: "POST", body: JSON.stringify(b) });
 
 export const updateIndex = (id: string, b: Partial<Index>) =>
@@ -531,3 +707,8 @@ export const ago = (ms: number) => {
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 };
+
+// The investment book's client lives in `lib/invest.ts` — it is a feature of
+// its own and does not need to grow this file. It borrows the transport, so
+// auth, the 401 → re-sign event and the basePath rewrite stay in one place.
+export const apiCall = j;

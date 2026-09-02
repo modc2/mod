@@ -80,6 +80,44 @@ REPEAT_TEMPERATURE = 0.7
 # files in a row is exactly what a good run looks like.
 SAME_TOOL_STREAK = 3
 
+# ── a run that ends on a promise ────────────────────────────────────
+#
+# The most expensive failure in this loop isn't a wrong answer, it's a run
+# that never happened: the model writes "I'll read the config and fix the
+# port" as its finish summary and stops, having called nothing. The caller
+# reads a plan, believes the work was done, and the task quietly didn't
+# happen. Two things have to be true to call it that — no tool ever ran, and
+# the sign-off announces work rather than reporting it — because an answer
+# that legitimately needed no tools ("what does this module do?") looks the
+# same from the outside except for how it is written.
+#
+# Tools that are the agent talking to itself. None of them is doing the task.
+NON_WORK_TOOLS = {'finish', 'response', 'error', 'invalid', 'think', 'todo'}
+
+# "I'll", "let me", "I'm going to", "next I will", "the plan is to" — future
+# tense aimed at the task itself.
+PROMISE_RE = re.compile(
+    r"\b(i'?ll\b|i will\b|i am going to\b|i'?m going to\b|let me\b|let'?s\b"
+    r"|going to (?:start|begin|check|look|read|run|open|create|write|update|fix)"
+    r"|first,? i\b|next,? i\b|the plan is\b)",
+    re.I)
+
+# …and the version with no verb in it at all. "Sure!" is only a promise while
+# it is the whole message — said at the top of a real answer it is manners,
+# which is why this one is length-bound and the one above is not.
+ACK_RE = re.compile(r"^(sure|ok(ay)?|got it|on it|will do|absolutely|of course|"
+                    r"happy to|no problem)\b", re.I)
+MAX_ACK_CHARS = 200
+
+DO_THE_WORK_HINT = (
+    "You ended without doing anything: no tool has run in this task, and your "
+    "last message describes work rather than reporting it. Do it now — call "
+    "the tools the task needs, one step at a time — and only finish once the "
+    "work is actually done, with the summary saying what you did and what "
+    "changed. If the task genuinely needs no tools, answer it outright, "
+    "without saying you are about to."
+)
+
 # ── what one step is allowed to cost a local model ──────────────────
 
 # A step is one small JSON object, but the default cap is sized for a hosted
@@ -423,6 +461,7 @@ RULES:
         return property(get, set_)
 
     _on_step = _run_local('on_step')
+    _on_usage = _run_local('on_usage')
     _images = _run_local('images', list)
     _allowed_paths = _run_local('allowed_paths')
     _path = _run_local('path')
@@ -434,7 +473,7 @@ RULES:
         """Forget this thread's run. Worker threads are reused, and a snap()
         on a thread that last ran a sandboxed guest would otherwise still
         think it is sandboxed."""
-        for name in ('on_step', 'images', 'allowed_paths', 'path',
+        for name in ('on_step', 'on_usage', 'images', 'allowed_paths', 'path',
                      'failed_calls', 'done_calls'):
             try:
                 delattr(self._tl(), name)
@@ -1014,6 +1053,7 @@ RULES:
             allowed_paths: list = None,
             free: bool = False,
             on_step=None,
+            on_usage=None,
             images: list = None,
             budget=None,
             session: str = None,
@@ -1040,6 +1080,11 @@ RULES:
                            Non-owners are restricted to their portal directory.
             on_step: optional callable invoked with each executed step dict as the
                      loop progresses — used by the API to stream live progress.
+            on_usage: optional callable invoked after each model call with what
+                     that call cost on the provider key — {call, model, tokens,
+                     cost, total}. A run's price is the sum of its calls, and
+                     waiting for the end to say so hides it while it is being
+                     spent.
             budget: optional callable given the run's metered provider cost so far;
                     returning False stops the loop. A paying guest's credits are
                     finite, and a charge clamped to their balance would leave the
@@ -1065,6 +1110,7 @@ RULES:
                 f"No API key available for provider '{short}'. "
                 f"Add a key — or unlock your encrypted key — in the Builder (model node)."))
         self._on_step = on_step
+        self._on_usage = on_usage
         self._images = [i for i in (images or []) if isinstance(i, str) and i.strip()][:8]
         model = self._model_for(prov, model)
         # FREE MODE resolves the model here rather than letting the provider
@@ -1120,6 +1166,8 @@ RULES:
         )
         history = []
         consecutive_errors = 0
+        # spent once, on a run that ended by describing the task (see below)
+        nudged = False
         # consecutive steps that were calls the run had already made, and the
         # temperature the next step is sampled at (raised to break a loop)
         repeats, step_temp = 0, temperature
@@ -1195,9 +1243,22 @@ RULES:
                 plan = [{'tool': 'error', 'params': {}, 'error': err,
                          **({'detail': raw[:600]} if err != raw else {})}]
                 self._emit_step(plan[-1])
+            # what that call cost, while the run is still going — a failed call
+            # burned tokens too, so this is outside the try
+            self._emit_usage(step_i)
             history.append(plan)
             self.memory.add('history', history)
             if plan and plan[-1]['tool'].lower() in ('finish', 'response'):
+                # …unless it signed off on a promise. A model that answers
+                # "sure, I'll read the file and fix it" ends the run on step 0
+                # with nothing done, and the caller reads an answer that only
+                # describes the task. Say so once and let it go do the work.
+                if not nudged and self._promised_without_doing(history):
+                    nudged = True
+                    self.memory.rm('hint')
+                    self.memory.add('hint', DO_THE_WORK_HINT)
+                    print('Agent promised without doing anything — pushing back')
+                    continue
                 print('Agent finished')
                 break
             if plan and plan[-1]['tool'].lower() == 'error':
@@ -1243,6 +1304,7 @@ RULES:
             answer = self._force_answer(client=client, short=short, model=model,
                                         max_tokens=max_tokens,
                                         temperature=temperature, free=free)
+            self._emit_usage(len(history) - 1)
             if answer:
                 history[-1] = history[-1] + [answer]
         # the exchange goes to the memory module, which is where the next run
@@ -1301,6 +1363,28 @@ RULES:
             'content': [{'type': 'text', 'text': 'Images the user attached to this task:'}]
                        + [{'type': 'image_url', 'image_url': {'url': u}} for u in self._images],
         }]
+
+    @classmethod
+    def _promised_without_doing(cls, history: List[list]) -> bool:
+        """True when the run is about to end having only said what it would do.
+
+        Requires both halves: not one tool call in the whole run, and a
+        sign-off written in the future tense. Either alone is legitimate —
+        a question answered from knowledge calls nothing, and a run that read
+        six files may well close by naming what it would do next.
+        """
+        for plan in history or []:
+            for s in plan or []:
+                if isinstance(s, dict) and str(s.get('tool') or '').lower() not in NON_WORK_TOOLS:
+                    return False
+        text = cls._answer_text(history)
+        if not text:
+            return False
+        # only the opening matters: a long report that mentions "I'll" in its
+        # last paragraph is a report, not a promise
+        text = text.strip()
+        return bool(PROMISE_RE.search(text[:400])
+                    or (len(text) <= MAX_ACK_CHARS and ACK_RE.match(text)))
 
     @staticmethod
     def _has_answer(history: List[list]) -> bool:
@@ -1383,6 +1467,23 @@ RULES:
         if last:
             line += f"\n\nThe last result was:\n{str(last)[:800]}"
         return line
+
+    def _emit_usage(self, step_i: int):
+        """Hand the live callback what the model call for this step cost.
+
+        Reads the meter's last call (and clears it), so a step that made no
+        call — or a run nobody is metering — emits nothing. Never raises: a
+        price is not worth losing a run over.
+        """
+        cb = getattr(self, '_on_usage', None)
+        if not cb:
+            return
+        try:
+            call = self.meter.last()
+            if call:
+                cb({'step': step_i, **call})
+        except Exception:
+            pass
 
     def _emit_step(self, step):
         """Notify the live-progress callback (if any) and record the step as an
@@ -1819,6 +1920,11 @@ Dev = Agent
 class Mod(Agent):
     description = "Autonomous coding agent. Built-in tools, custom shell tools, and the whole fleet."
 
+    # addresses holding the owner's standing beside the owner. Loaded from
+    # ~/.mod/agent/owner.json in __init__; the empty default keeps every
+    # owner gate working on a Mod built without one.
+    _co_owners = ()
+
     # the agent a run lands on when the caller named none — the Claude Code
     # CLI on this host. It's a harness agent, so it only holds for the owner
     # with the CLI installed; everyone else falls back to the native loop
@@ -1855,6 +1961,13 @@ class Mod(Agent):
         if not owner and self.key:
             owner = self.key.address
         self._owner = owner.lower() if owner else None
+        # co-owners: addresses the owner has handed the same standing to.
+        # They pass every is_owner() gate and, because a co-owner's credit
+        # account is aliased to the owner's, they run on the owner's credits
+        # rather than a balance of their own. Private auth state, so the list
+        # lives off-tree in ~/.mod/agent/owner.json (env override for a
+        # containerised deploy) and never in the committed config.
+        self._co_owners = self._load_co_owners()
         self._mods_root = (m.paths['orbit']['mods']
                            if m and hasattr(m, 'paths') else
                            str(self.module_dir.parent / 'registry' / 'mods'))
@@ -1869,9 +1982,13 @@ class Mod(Agent):
             state_dir.mkdir(parents=True, exist_ok=True)
             self._acl_path = state_dir / 'acl.json'
             self._vault_dir = state_dir / 'vault'
+            # per-address preferences (which agent your runs land on) —
+            # private state, same treatment as the ACL
+            self._prefs_path = state_dir / 'prefs.json'
         except Exception:
             self._acl_path = self.module_dir / '.acl.json'
             self._vault_dir = self.module_dir / '.vault'
+            self._prefs_path = self.module_dir / '.prefs.json'
         self._acl = self._load_acl()
         # a remembered unlock survives restarts — resume it before anything
         # asks for a model, so the key is live without a passphrase prompt
@@ -1881,6 +1998,8 @@ class Mod(Agent):
         # credits to run on the module's public provider key. Ledger state
         # is private, off-tree, next to the ACL.
         self.credits = Credits(self._acl_path.parent, deposit_address=self._owner)
+        # a co-owner spends the owner's balance, not one of their own
+        self._sync_credit_aliases()
         # the ledger owns the pricing knobs; the meter just applies them
         self.meter.multiplier = self.credits.cost_multiplier
 
@@ -1991,16 +2110,103 @@ class Mod(Agent):
 
     # ── permissions (Claude module interface) ────────────────────────────
 
+    @property
+    def _owner_file(self) -> Path:
+        return Path.home() / '.mod' / 'agent' / 'owner.json'
+
     def _load_owner_file(self):
         """Read owner from ~/.mod/agent/owner.json (claude-style, import-independent)."""
         try:
-            p = Path.home() / '.mod' / 'agent' / 'owner.json'
+            p = self._owner_file
             if p.exists():
                 with open(p) as f:
                     return json.load(f).get('owner')
         except Exception:
             pass
         return None
+
+    def _load_co_owners(self) -> list:
+        """Addresses that hold the owner's standing beside the owner.
+
+        Read from ~/.mod/agent/owner.json (`co_owners`) and, for deploys with
+        no writable home, AGENT_CO_OWNERS as a comma-separated list. The
+        primary owner is never in this list — they are `_owner`.
+        """
+        found = []
+        try:
+            p = self._owner_file
+            if p.exists():
+                with open(p) as f:
+                    data = json.load(f)
+                found += list(data.get('co_owners') or data.get('owners') or [])
+        except Exception:
+            pass
+        found += [a for a in (os.environ.get('AGENT_CO_OWNERS') or '').split(',') if a.strip()]
+        out = []
+        for a in found:
+            a = str(a).strip().lower()
+            if a.startswith('0x') and len(a) == 42 and a != self._owner and a not in out:
+                out.append(a)
+        return out
+
+    def _save_co_owners(self):
+        """Persist the co-owner list next to the owner, off-tree."""
+        p = self._owner_file
+        data = {}
+        try:
+            if p.exists():
+                with open(p) as f:
+                    data = json.load(f) or {}
+        except Exception:
+            data = {}
+        data['owner'] = data.get('owner') or self._owner
+        data['co_owners'] = list(self._co_owners)
+        data.pop('owners', None)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix('.json.tmp')
+        with open(tmp, 'w') as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, p)
+
+    def _sync_credit_aliases(self):
+        """Point every co-owner's credit account at the owner's."""
+        credits = getattr(self, 'credits', None)
+        if not credits or not self._owner:
+            return
+        credits.aliases = {a: self._owner for a in self._co_owners}
+
+    def owners(self, op: str = 'list', address: str = None, key: str = None) -> dict:
+        """List / add / remove co-owners. The primary owner alone may change it.
+
+        A co-owner passes every owner gate and shares the owner's credit
+        account, so adding one is handing over the module — hence it is the
+        one thing a co-owner cannot do themselves.
+        """
+        op = (op or 'list').lower()
+        if op in ('list', ''):
+            self.require_owner(key, 'owners')
+            return {'owner': self._owner, 'co_owners': list(self._co_owners)}
+        # mutations: primary owner only
+        addr = self._resolve_address(key, verified=True)
+        if not self._owner or (addr or '').lower() != self._owner:
+            raise PermissionError(
+                "Permission denied: only the primary owner can add or remove co-owners.")
+        target = str(address or '').strip().lower()
+        if not (target.startswith('0x') and len(target) == 42):
+            raise ValueError('a 0x address is required')
+        if op == 'add':
+            if target == self._owner:
+                raise ValueError('that address is already the owner')
+            if target not in self._co_owners:
+                self._co_owners = list(self._co_owners) + [target]
+        elif op in ('rm', 'remove', 'delete'):
+            self._co_owners = [a for a in self._co_owners if a != target]
+        else:
+            raise ValueError(f'unknown op: {op}')
+        self._save_co_owners()
+        self._sync_credit_aliases()
+        return {'owner': self._owner, 'co_owners': list(self._co_owners),
+                'op': op, 'address': target}
 
     def _resolve_address(self, key=None, verified: bool = False) -> str:
         """Resolve a key/address/token to an address string.
@@ -2026,13 +2232,14 @@ class Mod(Agent):
         return key_str
 
     def is_owner(self, key=None) -> bool:
-        """Check if key/address/token belongs to the module owner."""
+        """Check if key/address/token belongs to the owner or a co-owner."""
         if not self._owner:
             return True
         addr = self._resolve_address(key, verified=True)
         if not addr:
             return False
-        return addr.lower() == self._owner.lower()
+        addr = addr.lower()
+        return addr == self._owner.lower() or addr in getattr(self, '_co_owners', ())
 
     def require_owner(self, key=None, operation: str = "this operation"):
         """Raise PermissionError if caller is not the owner."""
@@ -3132,6 +3339,7 @@ class Mod(Agent):
                 allowed_paths=allowed_paths,
                 free=kwargs.get('free', False),
                 on_step=kwargs.get('on_step'),
+                on_usage=kwargs.get('on_usage'),
                 images=kwargs.get('images'),
                 budget=kwargs.get('budget'),
                 session=kwargs.get('session'),
@@ -3144,13 +3352,38 @@ class Mod(Agent):
 
     # ── harness runs (external agent CLIs) ───────────────────────────
 
+    def _runnable_agent(self, name: str, key=None) -> bool:
+        """Whether this caller could actually run that agent right now.
+
+        The only thing that can stop them is a harness: the run leaves this
+        loop for a CLI on the host's own shell, so it wants the owner and an
+        installed binary. Everything else is runnable by anyone.
+        """
+        try:
+            harness = self.agents.get(name).get('harness')
+        except Exception:      # missing/unloadable — never offer it as a default
+            return False
+        if not harness:
+            return True
+        return bool(self.is_owner(key) and self.harness.get(harness).available())
+
     def default_agent(self, key=None) -> str:
         """The agent to run as when the caller picked none.
 
-        Claude Code by default — this host's own CLI, with its own tools and
-        model. That is a harness run, which is owner-only and needs the binary
-        installed, so anyone else (or a host without it) gets the native agent.
+        A caller's own pick wins: whoever signs in can name the agent their
+        runs land on (set_default_agent), and it is remembered per address,
+        so the default follows the wallet rather than the browser.
+
+        With no pick on record it is Claude Code — this host's own CLI, with
+        its own tools and model. That is a harness run, which is owner-only
+        and needs the binary installed, so anyone else (or a host without it)
+        gets the native agent.
         """
+        pick = self.agent_pref(key)
+        # a pick that can no longer be run (a harness gone, an agent deleted)
+        # falls through rather than 403-ing every unnamed run
+        if pick and self._runnable_agent(pick, key):
+            return pick
         try:
             harness = self.agents.get(self.DEFAULT_AGENT).get('harness')
             if harness and not (self.is_owner(key)
@@ -3159,6 +3392,92 @@ class Mod(Agent):
             return self.DEFAULT_AGENT
         except Exception:      # default agent missing/unloadable — never block a run
             return self.FALLBACK_AGENT
+
+    # ── the caller's own default agent ───────────────────────────────
+    # Which agent an unnamed run lands on is a preference, not a permission,
+    # but it is still per-address state, so it lives off-tree in
+    # ~/.mod/agent/prefs.json beside the ACL rather than in the module dir.
+
+    def _load_prefs(self) -> dict:
+        try:
+            if self._prefs_path.exists():
+                with open(self._prefs_path) as f:
+                    return json.load(f)
+        except Exception:      # a corrupt prefs file is not worth a 500
+            pass
+        return {}
+
+    def _save_prefs(self, prefs: dict):
+        with open(self._prefs_path, 'w') as f:
+            json.dump(prefs, f, indent=2)
+
+    def _pref_address(self, key=None) -> str:
+        """The address a preference is filed under, or '' for anonymous.
+
+        `key=None` is nobody — NOT this server's own key, which is what
+        _resolve_address falls back to. A pref bucket shared by every
+        anonymous caller is one anonymous caller overwriting the rest.
+        """
+        if not key:
+            return ''
+        return (self._resolve_address(key, verified=True) or '').lower()
+
+    def agent_pref(self, key=None) -> Optional[str]:
+        """The default agent this caller picked, or None. Anonymous = None.
+
+        Reads never raise: this is consulted on the way into every unnamed
+        run, and a module built without an identity (or without the prefs
+        path) has no pick rather than a broken run.
+        """
+        try:
+            addr = self._pref_address(key)
+            if not addr:
+                return None
+            return (self._load_prefs().get('default_agent') or {}).get(addr)
+        except Exception:
+            return None
+
+    def set_default_agent(self, name: Optional[str] = None, key=None) -> dict:
+        """Pick the agent unnamed runs land on. Signed-in callers only.
+
+        `name=None` clears the pick and hands the choice back to the module.
+        A harness agent can only be picked by someone who could run it — a
+        default that 403s every run is worse than no default at all.
+        """
+        addr = self._pref_address(key)
+        if not addr:
+            raise PermissionError(
+                'sign in to set a default agent — it is remembered per address')
+        prefs = self._load_prefs()
+        picks = dict(prefs.get('default_agent') or {})
+        if name:
+            name = str(name).strip()
+            try:
+                cfg = self.agents.get(name)
+            except Exception:
+                raise ValueError(f'unknown agent: {name}')
+            harness = cfg.get('harness')
+            if harness and not self._runnable_agent(name, key):
+                raise PermissionError(
+                    f"'{name}' hands its run to the {harness} CLI on this "
+                    f"host's own shell, so only the host can run it — pick a "
+                    f"native agent as your default.")
+            picks[addr] = name
+        else:
+            picks.pop(addr, None)
+        prefs['default_agent'] = picks
+        self._save_prefs(prefs)
+        return {'default': self.default_agent(key), 'pick': picks.get(addr),
+                'source': 'you' if picks.get(addr) else 'host', 'address': addr}
+
+    def default_agent_info(self, key=None) -> dict:
+        """The default plus where it came from — the caller, or this module."""
+        pick = self.agent_pref(key)
+        resolved = self.default_agent(key)
+        return {'default': resolved,
+                'pick': pick,
+                # 'you' only when the pick is the one actually in force
+                'source': 'you' if pick and pick == resolved else 'host'}
 
     def harness_for(self, agent_type: str = None) -> Optional[str]:
         """The harness an agent hands its run to, or None for a native run."""

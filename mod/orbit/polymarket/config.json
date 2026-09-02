@@ -1,7 +1,7 @@
 {
     "name": "polymarket",
-    "version": "2.5.0",
-    "description": "Copy Polymarket traders \u2014 a dollar amount against each name, many of them at once, with a plain-language filter that says which of their trades to copy and a board that shows what you actually got; driven from the console or over MCP",
+    "version": "2.7.0",
+    "description": "Copy a bench of Polymarket traders as an INDEX sized to your own capital \u2014 the default strat scales every one of their trades by yourCapital/theirBankroll, so when they stake 2% of their book you stake 2% of yours, with no per-name dollar amounts. Gate what you copy by MARKET SENTIMENT \u2014 only their with-the-crowd entries, or only their contrarian ones. Three tabs: STRATS, TRADERS, TEST & LIVE; topping up and taking money out live in the side panel. The older per-trader copy desk still runs underneath. Driven from the console or over MCP",
     "port": 50091,
     "app_port": 3091,
     "urls": {
@@ -56,7 +56,7 @@
         },
         "/copy/allocations": {
             "method": "POST",
-            "docs": "Copy a trader with N dollars: {address, allocationUsd, label?, notes?, enabled?, params?}. Idempotent by address \u2014 one leader, one allocation, one session; a running session is reconfigured in place keeping its execution mode. `params` patches the identity template (minTrade/maxTrade/maxPerCycle/maxOpenPositions/pollMinutes/backtestDays/sizing/turnover/stopLoss/takeProfit/minMinutesToClose/maxTradeAgeSec/marketQuery/tradeFilters); omitted knobs keep their value. The GATE pair is `marketQuery` (which markets, by title \u2014 commas OR, spaces AND) + `tradeFilters` ({sides,minPrice,maxPrice,minNotional,maxNotional}: which trades inside them), which is what the console's sentence box compiles a plain-language filter into. Places nothing"
+            "docs": "Copy a trader with N dollars: {address, allocationUsd, label?, notes?, enabled?, params?}. Idempotent by address \u2014 one leader, one allocation, one session; a running session is reconfigured in place keeping its execution mode. `params` patches the identity template (minTrade/maxTrade/maxPerCycle/maxOpenPositions/pollMinutes/backtestDays/sizing/turnover/stopLoss/takeProfit/minMinutesToClose/maxTradeAgeSec/marketQuery/tradeFilters); omitted knobs keep their value. The GATE is `marketQuery` (which markets, by title \u2014 commas OR, spaces AND) + `tradeFilters` ({sides,minPrice,maxPrice,minNotional,maxNotional,categories}: which trades inside them) + `tradeFilters.sentiment` ({lean:[bullish|bearish|flat],windowHours,flatBand,minDrift,maxDrift,unknown}: MARKET SENTIMENT \u2014 which way the crowd had moved the odds on the outcome they bought, so a strat can copy only their with-the-crowd entries or only their contrarian ones; a market with no readable price history passes unless `unknown:\"block\"`), which is what the console's sentence box compiles a plain-language filter into. Places nothing"
         },
         "/copy/allocations/{address}": {
             "method": "DELETE",
@@ -135,7 +135,7 @@
             "docs": "Per-strat agent chat (served by the Next app, owner-gated): {strat, messages, context?} -> {reply, entries, rejected}. The agent reads the strat's settings, its cached backtest and its live session and PROPOSES a parameter patch, validated against the lib/stratPatch whitelist; nothing is written \u2014 the browser applies it on the user's say-so. Runs through the local claude CLI (POLYMARKET_CHAT_MODEL, default claude-opus-5)."
         }
     },
-    "schema": "QmQvXZ6aXBuHUmcH9aDjmGs76rsuuT5VidvTxewFc9TEff",
+    "schema": "QmZj8btgZUDF5iq3QGX6fPyegrcxwePL2k4CTPrgJDMdXR",
     "gateway_port": 3091,
     "mcp": {
         "stdio": "python3 src/mcp.py",

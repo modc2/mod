@@ -322,6 +322,12 @@ def _t_backtests(args):
         s = bt.get('settlement') or {}
         rows.append({
             'key': key, 'name': owned.get(key), 'pnl': bt.get('pnl'), 'roi': bt.get('roi'),
+            # Polymarket's taker fee, already deducted from `pnl`. Carried
+            # separately because it is the usual reason a strat with a real
+            # edge still loses: the fee is `rate x p x (1-p) x shares`, 4-7%
+            # by category, and it PEAKS at 50c. A strat trading coin flips in
+            # crypto markets pays ~3.5% of notional per side.
+            'fees': bt.get('fees'), 'fee_bps_of_volume': bt.get('feeBps'),
             'trades': bt.get('trades'), 'capital': bt.get('capital'),
             'traders': bt.get('traders'), 'note': bt.get('note'),
             'ran_at': bt.get('at'), 'by': bt.get('by'),
@@ -599,6 +605,9 @@ def _t_copy_backtest(args):
         'address': addr, 'strategyId': sid, 'days': bt.get('days'),
         'addedToDesk': added,
         'pnl': bt.get('pnl'), 'roi': bt.get('roi'), 'trades': bt.get('trades'),
+        # Already inside `pnl`; broken out because it is the cost a copy of a
+        # busy leader pays whether or not the leader's edge survives it.
+        'fees': bt.get('fees'), 'feeBpsOfVolume': bt.get('feeBps'),
         'capital': bt.get('capital'), 'ranAt': bt.get('at'), 'note': bt.get('note'),
         # The number alone is one window. This is whether it survived being
         # tested on a window it didn't get to see. `held` is the only pass.
@@ -801,7 +810,10 @@ TOOLS = {
     'pm_top_traders': {
         'description': 'The leaderboard: best active traders over a window, ranked by win rate '
                        'by default (sort parameterizes it: winRate, exitEntry = avg exit÷entry '
-                       'price on closed trades, sharpe, pnl, volume). This is what strats seed their '
+                       'price on closed trades, sharpe, pnl, volume). `winRate` is the share of '
+                       'positions the market SETTLED in the window that returned more than they '
+                       'cost, and `decidedPositions` is its denominator; `-1` means nothing '
+                       'settled, not zero. This is what strats seed their '
                        'watchlists from. Answers from the warm cache (the server re-aggregates '
                        'on its own schedule); only a cold cache is slow (minutes). Defaults to '
                        'traders who have traded in the last 6 hours — a wallet that went quiet '
@@ -819,9 +831,11 @@ TOOLS = {
                                                                  "Set it to `days` on a long window — a "
                                                                  "wallet that opened last week can top the "
                                                                  "30-day board on days it did not exist"},
-            'sort': {'type': 'string', 'description': 'ranking metric: winRate (default) | '
-                                                      'exitEntry | sharpe | pnl | volume | '
-                                                      'history (longest track record first)'},
+            'sort': {'type': 'string', 'description': 'ranking metric: winRate (default; share '
+                                                      'of SETTLED positions that made money — read '
+                                                      'it with decidedPositions, a rate off five '
+                                                      'legs is noise) | exitEntry | sharpe | pnl | '
+                                                      'volume | history (longest track record first)'},
         }},
         'handler': _t_top_traders,
     },

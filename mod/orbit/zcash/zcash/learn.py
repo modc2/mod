@@ -364,9 +364,18 @@ LESSONS = [
             "destination, and a unified address whose only receiver is "
             "shielded leaves the solver no transparent option. So the payment "
             "arrives as an encrypted note. No transparent hop, no second "
-            "transaction, nothing to shield afterwards -- which matters "
-            "especially here, because this module could not perform that "
-            "second step itself.",
+            "transaction, nothing to shield afterwards.",
+
+            "That is the good route, and it is not always on offer. Whether a "
+            "shielded address is a valid destination is the router's rule, and "
+            "it has said both things: it has taken a unified address, and it "
+            "has refused every shielded form while quoting the same swap to a "
+            "transparent one. When it refuses, this module reserves nothing "
+            "and offers the two-leg route instead -- bridge to a transparent "
+            "address you own, then shield it -- and labels that answer "
+            "unshielded, because the money really is in the open until the "
+            "second step. Take a quote first: quotes are free and tell you "
+            "which of the two you are being given.",
 
             "This module builds that address for you. If you give it your zs1 "
             "address it wraps it, because the router rejects a bare zs1. If "

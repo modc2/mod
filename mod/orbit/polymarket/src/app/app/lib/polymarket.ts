@@ -14,7 +14,13 @@ export interface TopTrader {
   buyVolume: number;     // in-window USDC on BUYs
   sellVolume: number;    // in-window USDC on SELLs
   pnl: number;
+  /** Share of SETTLED positions that made money, 0-100. `-1` = nothing
+      settled in the window (or the settled book was unreachable) — render it
+      as unknown, never as 0. Read it together with `decidedPositions`: this
+      is a percentage, and a percentage of four is not a track record. */
   winRate: number;
+  /** How many settled positions `winRate` is computed over. */
+  decidedPositions: number;
   /** Sharpe ratio over the window (per-closed-trade returns), computed
       server-side by the same `stats_from_returns` formula the live engine
       uses. Default SCORE metric in the leaderboard. */
@@ -976,7 +982,8 @@ export async function fetchTopTradersStream(
           buyVolume: Number(t.buyVolume || 0),
           sellVolume: Number(t.sellVolume || 0),
           pnl: Number(t.pnl || 0),
-          winRate: Number(t.winRate || 0),
+          winRate: Number(t.winRate ?? -1),
+          decidedPositions: Number(t.decidedPositions || 0),
           sharpe: Number(t.sharpe || 0),
           exitEntry: typeof t.exitEntry === "number" ? t.exitEntry : -1,
           positions: Number(t.positions || 0),
@@ -1025,7 +1032,8 @@ export async function fetchTopTraders(
     buyVolume: Number(t.buyVolume || 0),
     sellVolume: Number(t.sellVolume || 0),
     pnl: Number(t.pnl || 0),
-    winRate: Number(t.winRate || 0),
+    winRate: Number(t.winRate ?? -1),
+    decidedPositions: Number(t.decidedPositions || 0),
     sharpe: Number(t.sharpe || 0),
     exitEntry: typeof t.exitEntry === "number" ? t.exitEntry : -1,
     positions: Number(t.positions || 0),

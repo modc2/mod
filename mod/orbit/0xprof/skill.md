@@ -45,11 +45,21 @@ m 0xprof/buy id=<proof id>
 m 0xprof/bounty system=groth16 reward=25 vkey=vkey.json \
                 require='[{"index":1,"min":1000}]' title="prove you clear 1000"
 m 0xprof/submit id=<bounty id> proof=proof.json public_signals=public.json
+m 0xprof/join   id=<bounty id>       # staked rounds: 1 credit locks token #N
+m 0xprof/settle id=<bounty id>       # run the reset, once it is due
 ```
 
 Bounty specs are mechanical: the verification key pins the circuit, and
 `equals` / `min` / `max` rules pin the public signals. A submission that
 verifies but fails a rule is recorded, and not paid.
+
+A bounty posted with `stake=1` runs in staked rounds: provers lock the stake
+for a numbered token before they may submit, and everything settles at the
+reset — the next UTC midnight (`settle=daily`, the default) or the seventh out
+(`weekly`). Lowest token number among accepted submissions wins the reward
+plus the stakes of seats that never submitted; anyone who submitted gets
+their stake back; an unwon round liquidates at par and resets with the same
+escrow. Nothing settles early — the lock is the mechanism.
 
 ## Re-verify a listing (signed)
 

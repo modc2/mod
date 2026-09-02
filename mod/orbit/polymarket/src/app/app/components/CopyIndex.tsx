@@ -1959,6 +1959,55 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
   // ── RENDER ──
   // ══════════════════════════════════════════
 
+  // ── Subtab rail ──
+  //
+  //   Defined here, rendered in ONE of two places. Under the three-tab console
+  //   (forcedMode) it is the bottom row of the SETTINGS panel: two pills do not
+  //   deserve a bordered panel of their own, and stacking one under the page
+  //   header, under the nav, put four header bars above the first number on
+  //   the screen. Without forcedMode it stays where it was, under the
+  //   TEST/LIVE tabs it belongs to.
+  const subtabRail = (
+    <div key={mode} className="subtab-rail flex items-center gap-1.5 flex-wrap">
+      {SUBTABS[mode].map((s) => {
+        const active = activeSub === s.id;
+        const accent = SUB_ACCENT[mode];
+        return (
+          <button
+            key={s.id}
+            onClick={() => pickSub(mode, s.id)}
+            title={s.title}
+            style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.14em" }}
+            className={`group inline-flex items-center gap-1.5 px-3 py-1 text-[11px] font-bold uppercase rounded-full border transition-all duration-200 ${
+              active
+                ? accent
+                : "border-pixel-border/50 text-pixel-gray hover:text-pixel-white hover:border-pixel-border hover:bg-pixel-white/[0.04]"
+            }`}
+          >
+            <span className={`font-mono normal-case tracking-normal text-[10px] transition-opacity ${active ? "opacity-90" : "opacity-50 group-hover:opacity-80"}`}>
+              {s.glyph}
+            </span>
+            {s.label}
+          </button>
+        );
+      })}
+      {mode === "LIVE" && isLive && engineState && (
+        <span
+          className="ml-auto text-[12px] font-mono text-pixel-gray shrink-0"
+          title="Free cash · time to next poll cycle — full breakdown on the DESK"
+        >
+          <span className="text-pixel-white">
+            {engineState.balance !== null ? `$${engineState.balance.toFixed(2)}` : "$—"}
+          </span>
+          {" · "}
+          <span className="text-green-400">
+            {formatCountdown((engineState.nextCycleAt ?? 0) - railNow)}
+          </span>
+        </span>
+      )}
+    </div>
+  );
+
   return (
     <div className="min-w-0 space-y-2">
       {/* ── STRAT — the whole editor, above TEST and LIVE ──
@@ -1996,21 +2045,55 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
             >
               {activeIndex.name}
             </span>
-            {activeIndex.lastPnlAfterCosts !== undefined && (
-              <span className={`text-[13px] font-mono shrink-0 ${activeIndex.lastPnlAfterCosts >= 0 ? "text-green-400" : "text-red-400"}`}>
-                {activeIndex.lastPnlAfterCosts >= 0 ? "+" : ""}${activeIndex.lastPnlAfterCosts.toFixed(0)}
+            {/* The last saved backtest, as evidence for running this thing —
+                and ONLY on the screen that isn't already showing one. On
+                BACKTEST it sat one line above the panel's own P&L, two
+                numbers under the same word disagreeing with each other
+                (a saved run vs the one on screen). */}
+            {mode !== "BACKTEST" && activeIndex.lastPnlAfterCosts !== undefined && (
+              <span
+                className={`text-[13px] font-mono shrink-0 ${activeIndex.lastPnlAfterCosts >= 0 ? "text-green-400" : "text-red-400"}`}
+                title="The last backtest saved for this strat — P&L after fees and gas. Re-run it on BACKTEST; a bare number here read as a live balance to more than one person."
+              >
+                LAST BACKTEST {activeIndex.lastPnlAfterCosts >= 0 ? "+" : "−"}${Math.abs(activeIndex.lastPnlAfterCosts).toFixed(0)}
               </span>
             )}
-            <span className="text-[12px] text-pixel-gray/70 font-mono tracking-wider truncate">
-              {backtestDateRange.from} → {backtestDateRange.to}
+            {/* The bench, and what it's pointed at — the two facts the page
+                header used to repeat one line above this one ("running your
+                bench against the live book · 8 traders"). One row now: this
+                one. */}
+            <Link
+              href="/traders"
+              className="text-[12px] font-mono text-pixel-gray-light hover:text-pixel-white shrink-0"
+              title="Who is on the bench — edit on TRADERS"
+            >
+              {watchlist.length} {watchlist.length === 1 ? "trader" : "traders"} →
+            </Link>
+            <span className="text-pixel-border/40 shrink-0">·</span>
+            {/* Window + markets: what every number below is measured over.
+                Was a second row that only appeared when the panel was
+                collapsed, which made the header change height as you opened
+                it. */}
+            <span
+              className="text-[12px] text-pixel-gray/70 font-mono tracking-wider truncate"
+              title={`Window the stats below cover — ${backtestDateRange.from} to ${backtestDateRange.to}`}
+            >
+              {backtestDays}d · {backtestDateRange.from} → {backtestDateRange.to}
             </span>
             <span className="text-pixel-border/40 shrink-0">·</span>
-            <span className="text-[11px] text-pixel-gray font-mono shrink-0" title="Current time (UTC)">
-              UTC {new Date(utcNow).toISOString().slice(11, 19)}
+            <span
+              className={`text-[12px] font-mono truncate ${marketQuery.trim() ? "text-amber-300" : "text-pixel-gray/70"}`}
+              title="Markets copied — expand SETTINGS to change"
+            >
+              {marketQuery.trim() || "all markets"}
             </span>
+            {/* Freshness, pushed to the right edge: identity on the left, "is
+                this data moving" on the right. A stalled poll loop is still
+                diagnosable from the header without reading past the strat
+                name to find it. */}
+            <span className="ml-auto flex items-center gap-2 shrink-0">
             {lastUpdated && fetchAgeMs != null && (
               <>
-                <span className="text-pixel-border/40 shrink-0">·</span>
                 <span
                   className={`text-[11px] font-mono shrink-0 ${
                     fetchAgeMs < 90_000 ? "text-pixel-gray/70"
@@ -2025,7 +2108,9 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
             )}
             {lastTradeAgeMs != null && (
               <>
-                <span className="text-pixel-border/40 shrink-0">·</span>
+                {lastUpdated && fetchAgeMs != null && (
+                  <span className="text-pixel-border/40 shrink-0">·</span>
+                )}
                 <span
                   className={`text-[11px] font-mono shrink-0 ${
                     lastTradeAgeMs < 5 * 60_000 ? "text-green-400"
@@ -2038,23 +2123,13 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
                 </span>
               </>
             )}
+            </span>
           </div>
 
-          {/* No rail here any more. It carried BUILD / SOURCE / MARKET; two
-              of those are archived and BUILD alone is not a choice, so a
-              collapsed panel just states what the settings currently say and
-              the caret above opens them. */}
-          {!stratOpen && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="ml-auto text-[11px] font-mono text-pixel-gray truncate" title="Markets copied · backtest window — expand to edit">
-                <span className={marketQuery.trim() ? "text-amber-300" : ""}>
-                  {marketQuery.trim() || "all markets"}
-                </span>
-                {" · "}
-                {backtestDays}d
-              </span>
-            </div>
-          )}
+          {/* No second row when collapsed. It used to restate the market
+              filter and the window under the title — a whole extra bar that
+              appeared and vanished with the caret. Both facts are in the row
+              above now, open or shut. */}
 
           {stratOpen && (
           <>
@@ -2601,6 +2676,14 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
           </div>
           </>
           )}
+
+          {/* The rail, as this panel's footer — see `subtabRail` above. */}
+          {forcedMode && (
+            <>
+              <div className="h-px -mx-3 bg-gradient-to-r from-transparent via-pixel-border/70 to-transparent" />
+              {subtabRail}
+            </>
+          )}
         </div>
       )}
 
@@ -2614,14 +2697,16 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
           `src/_archive` if that changes back. */}
 
       {/* ── Header: main tabs + subtab rail ──
-          The main TEST / LIVE row only renders when nothing upstream has
-          already picked a side. Under the three-tab console it never does:
-          BACKTEST and LIVE are routes, the global nav is the switch, and all
-          that is left here is the contextual subtab rail. Money is not here
-          at all — topping up and taking out live in the side panel. */}
+          Only for the un-pinned embed. Under the three-tab console the routes
+          ARE the mode switch, so this whole panel used to render as a bordered
+          strip containing nothing but two pills — a fourth header bar above
+          the first number on the screen. Pinned, the rail moves into the
+          SETTINGS panel's footer instead and this doesn't render at all. Money
+          is not here either way — topping up and taking out live in the side
+          panel. */}
+      {!forcedMode && (
       <div className="pixel-panel px-3 py-2 space-y-2">
         {/* Tabs */}
-        {!forcedMode && (
         <div className="flex items-center gap-2">
           {(
             [
@@ -2647,7 +2732,7 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
               // the accent maps, the localStorage subtab keys and every mode
               // check in this file — so `id: "BACKTEST"` reading TEST is
               // deliberate, not a leftover.
-              { id: "BACKTEST", label: "TEST", disabled: false },
+              { id: "BACKTEST", label: "BACKTEST", disabled: false },
               { id: "LIVE", label: "LIVE", disabled: false },
             ] as { id: MainTab; label: string; disabled: boolean }[]
           ).map((t) => {
@@ -2689,56 +2774,13 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
           })}
 
         </div>
-        )}
 
-        {/* ── Subtab rail — contextual second row, re-animates on mode swap
-            (key={mode}). Pills carry the mode's accent; WALLET is always
-            amber. Right side echoes free cash + next-cycle countdown while
-            the engine runs, so no subtab ever hides the numbers that
-            matter minute-to-minute. */}
-        {!forcedMode && (
-          <div className="h-px -mx-1 bg-gradient-to-r from-transparent via-pixel-border/80 to-transparent" />
-        )}
-        <div key={mode} className="subtab-rail flex items-center gap-1.5 flex-wrap">
-          {SUBTABS[mode].map((s) => {
-            const active = activeSub === s.id;
-            const accent = SUB_ACCENT[mode];
-            return (
-              <button
-                key={s.id}
-                onClick={() => pickSub(mode, s.id)}
-                title={s.title}
-                style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif', letterSpacing: "0.14em" }}
-                className={`group inline-flex items-center gap-1.5 px-3 py-1 text-[11px] font-bold uppercase rounded-full border transition-all duration-200 ${
-                  active
-                    ? accent
-                    : "border-pixel-border/50 text-pixel-gray hover:text-pixel-white hover:border-pixel-border hover:bg-pixel-white/[0.04]"
-                }`}
-              >
-                <span className={`font-mono normal-case tracking-normal text-[10px] transition-opacity ${active ? "opacity-90" : "opacity-50 group-hover:opacity-80"}`}>
-                  {s.glyph}
-                </span>
-                {s.label}
-              </button>
-            );
-          })}
-          {mode === "LIVE" && isLive && engineState && (
-            <span
-              className="ml-auto text-[12px] font-mono text-pixel-gray shrink-0"
-              title="Free cash · time to next poll cycle — full breakdown on the DESK"
-            >
-              <span className="text-pixel-white">
-                {engineState.balance !== null ? `$${engineState.balance.toFixed(2)}` : "$—"}
-              </span>
-              {" · "}
-              <span className="text-green-400">
-                {formatCountdown((engineState.nextCycleAt ?? 0) - railNow)}
-              </span>
-            </span>
-          )}
-        </div>
+        {/* ── Subtab rail — contextual second row under the mode tabs. ── */}
+        <div className="h-px -mx-1 bg-gradient-to-r from-transparent via-pixel-border/80 to-transparent" />
+        {subtabRail}
 
       </div>
+      )}
 
       {/* The money panels used to render HERE, as a LIVE → WALLET subtab.
           They are in the SIDE PANEL now (components/MoneyBlock.tsx) — see the
@@ -2826,7 +2868,7 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
             const costWarning = costTotal > 5 && (grossPnl <= 0 || costTotal > grossPnl * 0.5);
             return (
             <PerfPanel
-              label="TEST"
+              label="BACKTEST"
               chartRef={chartPanelRef}
               loading={loading}
               controls={<>
@@ -3001,7 +3043,7 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
                     ) : (
                       <>⚠ NO PRICE TAPE FOR THIS WINDOW — this strat trades a market&apos;s
                       own odds, and none came back for the window selected, so there is
-                      nothing to replay. {priceTape?.note ?? "Try a shorter window, or run the engine in TEST against the live feed."}</>
+                      nothing to replay. {priceTape?.note ?? "Try a shorter window, or run the engine on PAPER against the live feed."}</>
                     )}
                   </div>
                 )}

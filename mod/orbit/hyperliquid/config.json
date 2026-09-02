@@ -1,6 +1,6 @@
 {
     "name": "hyperliquid",
-    "version": "0.6.0",
+    "version": "0.6.1",
     "description": "Hyperliquid full-stack \u2014 one-transaction cross-chain deposits from seven chains, backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server, ask-the-desk agent",
     "anchor": "src/mod.py",
     "fns": [
@@ -25,8 +25,10 @@
         "strat",
         "list_strats",
         "run_strat",
+        "whoami",
         "top_traders",
         "analyze_trader",
+        "trader_curve",
         "leaderboard",
         "list_indexes",
         "get_index",
@@ -48,6 +50,17 @@
         "vault_intent",
         "create_vault",
         "vault_transfer",
+        "invest_preview",
+        "invest_portfolio",
+        "invest_position",
+        "invest",
+        "invest_add",
+        "invest_withdraw",
+        "invest_pause",
+        "invest_resume",
+        "invest_close",
+        "invest_update",
+        "invest_delete",
         "signer_address",
         "agent_status",
         "approve_agent_intent",
@@ -116,6 +129,6 @@
         "modes": "read-only by default; write tools need act=true and a mod protocol token",
         "model_auth": "ANTHROPIC_API_KEY \u2192 ~/.mod/hyperliquid/anthropic.key \u2192 claude CLI OAuth"
     },
-    "schema": "QmPFVVjfwqiAc7KATFSjePw3UcmH9AkYp9X3nxKAeFYZNk",
+    "schema": "QmYjTp7SP3nkYJyT283NNAzzyduhuBD8fg3f4fV7JuMXAj",
     "gateway_port": 3919
 }

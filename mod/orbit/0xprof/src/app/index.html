@@ -217,7 +217,15 @@ dave</textarea></label>
     <h3>Post a bounty</h3>
     <label>title<input id="bTitle" placeholder="prove your balance clears 1000"></label>
     <label>system<select id="bSystem"></select></label>
-    <label>reward in credits<input id="bReward" type="number" value="10" min="0.1" step="0.5"></label>
+    <label>reward in credits — what the proof is worth<input id="bReward" type="number" value="10" min="0.1" step="0.5"></label>
+    <label>stake per token in credits — provers put this in to sign for the round;
+      it locks until the reset, and a seat that never submits forfeits to the
+      winner (0 = open entry, pays on the spot)
+      <input id="bStake" type="number" value="1" min="0" step="0.5"></label>
+    <label>settles<select id="bSettle">
+      <option value="daily" selected>daily reset — next UTC midnight</option>
+      <option value="weekly">weekly — the seventh midnight out</option>
+    </select></label>
     <label>verification key — pins the circuit, and with it the statement
       <textarea id="bVkey" rows="4" spellcheck="false" placeholder="paste verification_key.json"></textarea></label>
     <label>required public signals, one rule per line: <code>index equals value</code>,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { fetchBoard, fetchScanProgress, BoardMeta, ScanProgress, TopTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago } from "../lib/api";
+import { fetchBoard, fetchScanProgress, BoardMeta, ScanProgress, TopTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago, defensibleWin, sharpeMeasured } from "../lib/api";
 import Link from "next/link";
 import { DataBar, Field, Freshness, Identicon, Kpi, Medal, Meter, PageHead, SparkBars, SplitBar, Switch } from "./BoardBits";
 
@@ -21,12 +21,19 @@ const RANKS: { k: Rank; label: string; hint: string }[] = [
   { k: "volume", label: "volume", hint: "fill stats for the most active books" },
 ];
 const PAGE = 250;
+const FILTERS_KEY = "hl.board.filtersOpen";
+const FLOOR_KEYS = ["roi", "equity", "volume", "sharpe", "win", "trades"] as const;
 
 // Score floors — applied on the client over the full list, so they're instant.
 type Floors = { roi: string; sharpe: string; win: string; equity: string; volume: string; trades: string; stats: boolean };
 const NO_FLOORS: Floors = { roi: "", sharpe: "", win: "", equity: "", volume: "", trades: "", stats: false };
 const num = (s: string) => { const v = parseFloat(s.replace(/[,$%\s]/g, "")); return Number.isFinite(v) ? v : null; };
 const hasStats = (t: TopTrader) => t.win_rate >= 0;
+// What a row's win rate is worth once its sample size is taken into account:
+// the Wilson 95% lower bound. Sorting and filtering use this, the column shows
+// both. On the point estimate alone a 3-for-3 wallet outranks a 180-of-200 one,
+// which is exactly backwards — the small sample is the less trustworthy row.
+const winScore = (t: TopTrader) => defensibleWin(t) ?? -1;
 // Stat columns are only real on measured rows — an unmeasured 0 must never
 // outrank a measured negative.
 const STAT_KEYS: SortKey[] = ["win_rate", "trades", "sharpe"];
@@ -60,10 +67,18 @@ export default function TopTraders() {
   const [coinFilter, setCoinFilter] = useState<Set<string>>(new Set());
   const [seedOpen, setSeedOpen] = useState(false);
   const [coinsExpanded, setCoinsExpanded] = useState(false);
+  // The filter bar rides along at the top of the board while the table
+  // scrolls, so it can also be folded down to a one-line summary of what is
+  // currently being asked of the board.
+  const [filtersOpen, setFiltersOpen] = useState(true);
   const [coinDraft, setCoinDraft] = useState("");
   const [floors, setFloors] = useState<Floors>(NO_FLOORS);
   const [visible, setVisible] = useState(PAGE);
   const coinKey = useMemo(() => Array.from(coinFilter).sort().join(","), [coinFilter]);
+
+  // Folded or open is a preference, not a per-visit decision.
+  useEffect(() => { if (localStorage.getItem(FILTERS_KEY) === "0") setFiltersOpen(false); }, []);
+  useEffect(() => { localStorage.setItem(FILTERS_KEY, filtersOpen ? "1" : "0"); }, [filtersOpen]);
 
   // While a scan request is in flight, poll the API's live scan progress so
   // the user sees "X of N wallets" instead of an opaque spinner. Cached
@@ -156,6 +171,15 @@ export default function TopTraders() {
   const floorsActive = useMemo(() => floors.stats || (Object.keys(floors) as (keyof Floors)[])
     .some((k) => k !== "stats" && num(floors[k] as string) != null), [floors]);
 
+  // What the folded bar says instead of the controls: every floor that is
+  // actually doing something, in the words of the input it came from.
+  const floorSummary = useMemo(() => {
+    const out = FLOOR_KEYS.filter((k) => num(floors[k]) != null)
+      .map((k) => `${k} ≥ ${floors[k].trim()}`);
+    if (floors.stats) out.push("measured only");
+    return out;
+  }, [floors]);
+
   const filtered = useMemo(() => {
     const f = {
       roi: num(floors.roi), sharpe: num(floors.sharpe), win: num(floors.win),
@@ -171,8 +195,10 @@ export default function TopTraders() {
       if (f.roi != null && t.roi < f.roi) return false;
       if (f.equity != null && t.account_value < f.equity) return false;
       if (f.volume != null && t.volume < f.volume) return false;
-      if (f.sharpe != null && t.sharpe < f.sharpe) return false;
-      if (f.win != null && t.win_rate < f.win) return false;
+      // A floor promises everything above it cleared the bar, so a row that
+      // cannot be measured has to fail it rather than slip past on noise.
+      if (f.sharpe != null && (!sharpeMeasured(t) || t.sharpe < f.sharpe)) return false;
+      if (f.win != null && winScore(t) < f.win) return false;
       if (f.trades != null && t.trades < f.trades) return false;
       return true;
     });
@@ -181,8 +207,13 @@ export default function TopTraders() {
   const sorted = useMemo(() => {
     const arr = [...filtered];
     const statSort = STAT_KEYS.includes(sortKey);
-    const metric = (t: TopTrader) =>
-      statSort && !hasStats(t) ? -Infinity : (t[sortKey] as number);
+    const metric = (t: TopTrader) => {
+      if (statSort && !hasStats(t)) return -Infinity;
+      // Both fill-derived ratios rank on their evidence, not their headline.
+      if (sortKey === "win_rate") return winScore(t);
+      if (sortKey === "sharpe") return sharpeMeasured(t) ? t.sharpe : -Infinity;
+      return t[sortKey] as number;
+    };
     arr.sort((a, b) => {
       const ma = metric(a), mb = metric(b);
       // Unmeasured rows sink to the bottom in either direction.
@@ -226,7 +257,9 @@ export default function TopTraders() {
     if (sorted.length === 0) return null;
     const vol = sorted.reduce((s, t) => s + (t.volume > 0 ? t.volume : 0), 0);
     const best = sorted.reduce((m, t) => (t.roi ?? -Infinity) > (m.roi ?? -Infinity) ? t : m, sorted[0]);
-    const wins = sorted.map((t) => t.win_rate).filter((w) => w >= 0).sort((a, b) => a - b);
+    // Median of the defensible rates, not the headline ones — a board full of
+    // 3-for-3 wallets would otherwise report a median win rate near 100%.
+    const wins = sorted.map(winScore).filter((w) => w >= 0).sort((a, b) => a - b);
     const medianWin = wins.length ? wins[Math.floor(wins.length / 2)] : null;
     const measured = sorted.filter(hasStats).length;
     // Polarity of the board: who is up vs down over the window.
@@ -339,37 +372,72 @@ export default function TopTraders() {
         </div>
       )}
 
-      {/* Filters — window / measure depth, then score floors, then coins */}
-      <div className="panel p-3 space-y-3">
+      {/* Filters — rides at the top of the board on scroll, and folds down to a
+          one-line summary when the table is what you're reading. Window /
+          measure depth, then score floors, then coins. */}
+      <div className="panel bg-bg/90 sticky top-16 z-20 p-3 space-y-3">
         <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-          <Field label="window" title="ROI window">
-            <div className="seg">
-              {DAY_OPTIONS.map((d) => (
-                <button key={d} onClick={() => setDays(d)}
-                  className={`seg-btn ${days === d ? "seg-btn-active" : ""}`}>{d}d</button>
+          <button
+            className={`btn !px-2.5 self-center ${filtersOpen ? "" : "!text-ink"}`}
+            title={filtersOpen ? "Fold the filters away" : "Open the filters"}
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((v) => !v)}>
+            <span className={`inline-block w-0 h-0 border-y-[4px] border-y-transparent
+              border-l-[5px] border-l-current transition-transform duration-150
+              ${filtersOpen ? "rotate-90" : ""}`} />
+            filters
+          </button>
+          {filtersOpen ? (
+            <>
+              <Field label="window" title="ROI window">
+                <div className="seg">
+                  {DAY_OPTIONS.map((d) => (
+                    <button key={d} onClick={() => setDays(d)}
+                      className={`seg-btn ${days === d ? "seg-btn-active" : ""}`}>{d}d</button>
+                  ))}
+                </div>
+              </Field>
+              <Field label="measure" title="which top wallets get fill stats — win%, sharpe, trades, coins">
+                <div className="seg">
+                  <span className="px-1.5 text-[9px] uppercase tracking-wider text-dim">top</span>
+                  {ENRICH_OPTIONS.map((n) => (
+                    <button key={n} onClick={() => setEnrich(n)}
+                      className={`seg-btn ${enrich === n ? "seg-btn-active" : ""}`}>{n}</button>
+                  ))}
+                  <span className="px-1.5 text-[9px] uppercase tracking-wider text-dim">by</span>
+                  {RANKS.map((r) => (
+                    <button key={r.k} onClick={() => setRank(r.k)} title={r.hint}
+                      className={`seg-btn ${rank === r.k ? "seg-btn-active" : ""}`}>{r.label}</button>
+                  ))}
+                </div>
+              </Field>
+            </>
+          ) : (
+            // Folded: everything the board is being asked for, as pills. Click
+            // any of them to get the controls back.
+            <button className="flex flex-wrap items-center gap-1.5 self-center text-left"
+              title="Open the filters" onClick={() => setFiltersOpen(true)}>
+              <span className="pill !text-ink !border-white/20">{days}d</span>
+              <span className="pill">top {enrich} · {rank}</span>
+              {floorSummary.map((f) => (
+                <span key={f} className="pill !border-accent/40 !text-accent !bg-accent/10">{f}</span>
               ))}
-            </div>
-          </Field>
-          <Field label="measure" title="which top wallets get fill stats — win%, sharpe, trades, coins">
-            <div className="seg">
-              <span className="px-1.5 text-[9px] uppercase tracking-wider text-dim">top</span>
-              {ENRICH_OPTIONS.map((n) => (
-                <button key={n} onClick={() => setEnrich(n)}
-                  className={`seg-btn ${enrich === n ? "seg-btn-active" : ""}`}>{n}</button>
-              ))}
-              <span className="px-1.5 text-[9px] uppercase tracking-wider text-dim">by</span>
-              {RANKS.map((r) => (
-                <button key={r.k} onClick={() => setRank(r.k)} title={r.hint}
-                  className={`seg-btn ${rank === r.k ? "seg-btn-active" : ""}`}>{r.label}</button>
-              ))}
-            </div>
-          </Field>
+              {coinList.length > 0 && (
+                <span className="pill !border-accent/40 !text-accent !bg-accent/10">
+                  {coinList.slice(0, 4).join(" / ")}{coinList.length > 4 ? ` +${coinList.length - 4}` : ""}
+                </span>
+              )}
+              {!floorsActive && coinList.length === 0 && (
+                <span className="text-[10px] uppercase tracking-wider text-dim">no score floors</span>
+              )}
+            </button>
+          )}
           <div className="ml-auto flex items-center gap-2 pb-0.5">
             <Switch on={autoRefresh} onChange={setAutoRefresh} label="auto" />
             <button
               className={`btn ${seedOpen || seed.trim() ? "!border-accent/40 !text-accent" : ""}`}
               title="Seed the scan with specific wallets"
-              onClick={() => setSeedOpen((v) => !v)}>
+              onClick={() => { setFiltersOpen(true); setSeedOpen((v) => !v); }}>
               seeds{seed.trim() ? " ●" : ""}
             </button>
             <button className="btn-primary min-w-[6.5rem]" onClick={load} disabled={loading || scanning}>
@@ -377,29 +445,31 @@ export default function TopTraders() {
             </button>
           </div>
         </div>
-        {seedOpen && (
+        {filtersOpen && seedOpen && (
           <input className="input w-full font-mono" autoFocus
             placeholder="seed wallets — 0xabc…, 0xdef… (comma-separated)"
             value={seed} onChange={(e) => setSeed(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && load()} />
         )}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-white/[0.05] pt-3">
-          <span className="eyebrow mr-1"
-            title="Score floors — applied instantly to every wallet on the board">score</span>
-          {floorInput("roi", "roi", "%", "window return on equity, percent — priced for every wallet")}
-          {floorInput("equity", "equity", "$", "account value — priced for every wallet", "w-20")}
-          {floorInput("volume", "volume", "$", "window volume — priced for every wallet", "w-20")}
-          {floorInput("sharpe", "sharpe", "1.0", "daily-PnL sharpe — only measured rows qualify")}
-          {floorInput("win", "win", "%", "win rate, percent — only measured rows qualify", "w-14")}
-          {floorInput("trades", "trades", "n", "fills in the window — only measured rows qualify", "w-14")}
-          <span title="Hide rows that haven't been measured from fills (no win% / sharpe yet)">
-            <Switch on={floors.stats} onChange={(v) => setFloors((f) => ({ ...f, stats: v }))} label="measured only" />
-          </span>
-          {floorsActive && (
-            <button className="pill hover:text-ink" onClick={() => setFloors(NO_FLOORS)}>✕ clear</button>
-          )}
-        </div>
-        {(coinOptions.length > 0 || !loading) && (
+        {filtersOpen && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-white/[0.05] pt-3">
+            <span className="eyebrow mr-1"
+              title="Score floors — applied instantly to every wallet on the board">score</span>
+            {floorInput("roi", "roi", "%", "window return on equity, percent — priced for every wallet")}
+            {floorInput("equity", "equity", "$", "account value — priced for every wallet", "w-20")}
+            {floorInput("volume", "volume", "$", "window volume — priced for every wallet", "w-20")}
+            {floorInput("sharpe", "sharpe", "1.0", "daily-PnL sharpe — only measured rows qualify")}
+            {floorInput("win", "win", "%", "win rate a row can defend at its sample size (Wilson 95% lower bound) — only measured rows qualify", "w-14")}
+            {floorInput("trades", "trades", "n", "fills in the window — only measured rows qualify", "w-14")}
+            <span title="Hide rows that haven't been measured from fills (no win% / sharpe yet)">
+              <Switch on={floors.stats} onChange={(v) => setFloors((f) => ({ ...f, stats: v }))} label="measured only" />
+            </span>
+            {floorsActive && (
+              <button className="pill hover:text-ink" onClick={() => setFloors(NO_FLOORS)}>✕ clear</button>
+            )}
+          </div>
+        )}
+        {filtersOpen && (coinOptions.length > 0 || !loading) && (
           <div className="flex flex-wrap items-center gap-1.5 border-t border-white/[0.05] pt-3">
             <span className="eyebrow mr-1"
               title="Requirement: the scan keeps walking the leaderboard until it has enough wallets that traded one of these">coins</span>
@@ -473,7 +543,7 @@ export default function TopTraders() {
           <div>{sortHeader("roi", "roi")}</div>
           <div>{sortHeader("account_value", "equity")}</div>
           <div>{sortHeader("volume", "volume")}</div>
-          <div>{sortHeader("win_rate", "win%", "right", "measured rows first")}</div>
+          <div>{sortHeader("win_rate", "win%", "right", "ranked by the rate each row can defend at its sample size, not the headline percent")}</div>
           <div>{sortHeader("sharpe", "sharpe", "right", "measured rows first")}</div>
           <div className="eyebrow !tracking-wider text-right">last</div>
           <div />
@@ -544,13 +614,37 @@ export default function TopTraders() {
             </div>
             <div className="num text-right text-ink/80">{t.account_value > 0 ? fmtUsd(t.account_value) : "—"}</div>
             <div className="num text-right text-ink/90">{t.volume > 0 ? fmtUsd(t.volume) : "—"}</div>
-            <div className="text-right" title={hasStats(t) ? undefined : `not measured — only the top ${enrich} by ${rank} get fill stats`}>
-              <div className="num text-ink/90">{t.win_rate < 0 ? "—" : fmtPct(t.win_rate, 0)}</div>
+            <div
+              className="text-right"
+              title={
+                !hasStats(t)
+                  ? `not measured — only the top ${enrich} by ${rank} get fill stats`
+                  : `${t.wins} win / ${t.losses} loss over ${t.closes} closes, net of fees` +
+                    ` (${t.trades} fills total; opens can neither win nor lose).` +
+                    ` Defensible rate at this sample size: ${fmtPct(winScore(t), 0)}.`
+              }
+            >
+              <div className={`num ${t.confidence === "low" ? "text-warn" : "text-ink/90"}`}>
+                {t.win_rate < 0 ? "—" : fmtPct(t.win_rate, 0)}
+              </div>
+              {/* The denominator, not the fill count. "70% · 130 tx" invites the
+                  reader to assume 130 decided trades when it may have been 9.
+                  Never substitute `trades` when `closes` is missing — that is
+                  the same substitution this whole change exists to undo. */}
               <div className="num text-[10px] leading-tight text-dim">
-                {t.win_rate < 0 ? "" : `${t.trades} tx`}
+                {t.win_rate < 0 ? "" : t.closes > 0 ? `${t.closes} closes` : `${t.trades} fills`}
               </div>
             </div>
-            <div className="num text-right text-ink/90">{t.win_rate < 0 ? "—" : t.sharpe.toFixed(2)}</div>
+            <div
+              className="num text-right text-ink/90"
+              title={
+                !hasStats(t) ? undefined
+                  : sharpeMeasured(t) ? `annualised, over ${t.sharpe_days} days`
+                  : `only ${t.sharpe_days} days of history — too few for a Sharpe ratio`
+              }
+            >
+              {!hasStats(t) || !sharpeMeasured(t) ? "—" : t.sharpe.toFixed(2)}
+            </div>
             <div className="text-right text-[11px] text-muted">{t.last_active > 0 ? ago(t.last_active) : "≤24h"}</div>
             <div className="flex justify-end">
               <Link href={`/follows/new?leader=${t.address}`} className="btn-ghost">copy</Link>

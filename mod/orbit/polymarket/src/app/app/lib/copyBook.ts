@@ -373,7 +373,7 @@ export function stallReason(row: CopyBookRow): string | null {
   if (!live || !live.running) return null;
   if (live.error) return live.error;
   if (!live.autoExecute) {
-    return "TEST — computing every mirror, placing none. Flip the switch to LIVE to send them.";
+    return "PAPER — computing every mirror, placing none. Flip the switch to REAL to send them.";
   }
   if (row.allocationUsd <= 0) return "no allocation — nothing to size against";
   if (live.balance !== null && live.balance <= 0) {

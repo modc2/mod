@@ -1,44 +1,46 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import {
-  agentStatus, vaultDetails, vaultTransfer, walletConfig,
-  fmtUsd, fmtPnl, shortAddr, type WalletNetConfig,
-} from "../lib/api";
-import { approveAgentFlow } from "../lib/hlActions";
-import { useWallet } from "../lib/wallet";
+/**
+ * Your money in one Hyperliquid vault.
+ *
+ * Investing runs through the book (`InvestPanel` → `POST /invest`), so a vault
+ * deposit shows up on the Invest page next to everything else you own. Taking
+ * money out does *not* go through the book, deliberately: Hyperliquid is the
+ * authority on what you hold in a vault, and you may well have deposited into
+ * one before this console existed. The withdraw side therefore talks straight
+ * to `vaultTransfer` against whatever `followerState` reports, so no position
+ * can ever become unreachable just because we have no row for it.
+ */
 
-// Deposit / withdraw USDC between the connected account and a Hyperliquid
-// vault (native vaults and strat-linked vaults are the same thing on HL).
-//
-// vaultTransfer is an L1 action, so it's signed by the user's backend agent
-// key — which the user authorizes ONCE with a MetaMask signature (the
-// "enable transfers" step below). Withdrawals return funds to the user's HL
-// perp balance; cashing out to Arbitrum lives on the Wallet page.
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { fmtPnl, fmtUsd, shortAddr, vaultDetails, vaultTransfer } from "../lib/api";
+import { portfolio, type Position } from "../lib/invest";
+import { useSession } from "../lib/auth";
+import InvestPanel from "./InvestPanel";
+import AuthGate from "./AuthGate";
+
 export default function VaultTransferPanel({ vault, vaultName }: { vault: string; vaultName?: string }) {
-  const { address: eoa, kind, signTypedData, ensureChain, sendTransaction } = useWallet();
+  const { me } = useSession();
 
   const [d, setD] = useState<any>(null);
-  const [cfg, setCfg] = useState<WalletNetConfig | null>(null);
-  const [approved, setApproved] = useState<boolean | null>(null);
-
+  const [held, setHeld] = useState<Position | null>(null);
   const [amount, setAmount] = useState("");
-  const [mode, setMode] = useState<"deposit" | "withdraw">("deposit");
   const [busy, setBusy] = useState(false);
-  const [approving, setApproving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    try { setD(await vaultDetails(vault, eoa ?? undefined)); } catch { /* stats are optional */ }
-  }, [vault, eoa]);
+    try { setD(await vaultDetails(vault, me ?? undefined)); } catch { /* stats are optional */ }
+    if (!me) { setHeld(null); return; }
+    try {
+      const book = await portfolio(me);
+      setHeld(book.positions.find(
+        (p) => p.kind === "vault" && p.target.toLowerCase() === vault.toLowerCase()) ?? null);
+    } catch { setHeld(null); }
+  }, [vault, me]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { walletConfig().then(setCfg).catch(() => {}); }, []);
-  useEffect(() => {
-    if (!eoa) { setApproved(null); return; }
-    agentStatus(eoa).then((r) => setApproved(r.approved)).catch(() => setApproved(null));
-  }, [eoa]);
 
   const fs = d?.followerState;
   const myEquity = fs ? Number(fs.vaultEquity) : 0;
@@ -46,36 +48,22 @@ export default function VaultTransferPanel({ vault, vaultName }: { vault: string
   const maxWithdraw = Number(d?.maxWithdrawable ?? 0);
   const lockupUntil = fs ? Number(fs.lockupUntil) : 0;
   const locked = lockupUntil > Date.now();
-  const depositsOpen = d?.allowDeposits !== false && !d?.isClosed;
   const name = vaultName || d?.name || shortAddr(vault);
 
-  const enableTransfers = async () => {
-    if (!eoa || !cfg) return;
-    setApproving(true); setErr(null);
-    try {
-      await approveAgentFlow({ signTypedData, ensureChain, sendTransaction }, cfg, eoa);
-      setApproved(true);
-      setMsg("Transfers enabled — your wallet authorized the trading agent.");
-    } catch (e: any) {
-      setErr(e?.code === 4001 ? "Signature rejected in MetaMask." : String(e?.message ?? e));
-    } finally { setApproving(false); }
-  };
-
-  const submit = async () => {
+  const takeOut = async () => {
     setMsg(null); setErr(null);
-    if (!eoa) { setErr("Connect your wallet first."); return; }
     const amt = Number(amount);
-    if (!(amt > 0)) { setErr("Enter an amount in USD."); return; }
-    if (mode === "withdraw" && amt > maxWithdraw + 1e-9) {
-      setErr(`Max withdrawable right now is ${fmtUsd(maxWithdraw)}.`); return;
+    if (!(amt > 0)) { setErr("Enter an amount."); return; }
+    if (amt > maxWithdraw + 1e-9) {
+      setErr(`Hyperliquid will only release ${fmtUsd(maxWithdraw)} right now.`); return;
     }
     setBusy(true);
     try {
-      const res = await vaultTransfer({ eoa, vault, is_deposit: mode === "deposit", amount_usd: amt });
+      const res = await vaultTransfer({ eoa: me!, vault, is_deposit: false, amount_usd: amt });
       if (res?.status === "err" || res?.error) {
         setErr(typeof res.error === "string" ? res.error : JSON.stringify(res));
       } else {
-        setMsg(`${mode === "deposit" ? "Deposited" : "Withdrew"} ${fmtUsd(amt)} — ${mode === "deposit" ? "into" : "from"} ${name}.`);
+        setMsg(`Withdrew ${fmtUsd(amt)} from ${name} — it's back in your Hyperliquid balance.`);
         setAmount("");
       }
       await load();
@@ -83,85 +71,58 @@ export default function VaultTransferPanel({ vault, vaultName }: { vault: string
     finally { setBusy(false); }
   };
 
-  const needsApproval = approved === false;
-  const canSignApproval = kind === "metamask";
-
   return (
-    <div className="panel p-5 space-y-4">
-      {/* Your position */}
-      {eoa && (
-        myEquity > 0 ? (
+    <div className="space-y-4">
+      {/* What you already hold here, per Hyperliquid itself. */}
+      {me && myEquity > 0 && (
+        <div className="panel p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="eyebrow !mb-0">your position in this vault</span>
+            {held && (
+              <Link href={`/invest/${held.id}`} className="text-[11px] text-accent2 hover:text-accent">
+                manage →
+              </Link>
+            )}
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <Stat label="your equity" value={fmtUsd(myEquity)} />
-            <Stat label="pnl" value={fmtPnl(myPnl)} cls={myPnl >= 0 ? "text-win" : "text-loss"} />
-            <Stat label="withdrawable" value={fmtUsd(maxWithdraw)} />
+            <Stat label="worth now" value={fmtUsd(myEquity)} />
+            <Stat label="profit" value={fmtPnl(myPnl)} cls={myPnl >= 0 ? "text-win" : "text-loss"} />
+            <Stat label="you can take out" value={fmtUsd(maxWithdraw)} />
             <Stat label="lockup"
               value={locked ? `until ${new Date(lockupUntil).toLocaleDateString()}` : "none"}
               cls={locked ? "text-warn" : "text-muted"} />
           </div>
-        ) : (
-          <p className="text-xs text-muted">You have no deposit in {name} yet.</p>
-        )
-      )}
 
-      <div className="flex gap-1">
-        <button onClick={() => setMode("deposit")}
-          className={`btn ${mode === "deposit" ? "border-accent text-accent" : ""}`}>invest</button>
-        <button onClick={() => setMode("withdraw")}
-          className={`btn ${mode === "withdraw" ? "border-accent text-accent" : ""}`}>withdraw</button>
-      </div>
-
-      {!eoa ? (
-        <p className="text-xs text-muted">Connect your wallet (top right) to invest.</p>
-      ) : needsApproval ? (
-        <div className="space-y-2">
-          <p className="text-xs text-muted max-w-xl">
-            One-time setup: sign a MetaMask message authorizing this app's agent wallet to move
-            funds between your Hyperliquid account and vaults. The agent can trade and rebalance
-            for you but can <span className="text-ink">never withdraw funds out of your account</span> —
-            withdrawals to your wallet always require your own signature.
-          </p>
-          {canSignApproval ? (
-            <button className="btn-primary" onClick={enableTransfers} disabled={approving || !cfg}>
-              {approving ? "check MetaMask…" : "enable transfers (1 signature)"}
-            </button>
-          ) : (
-            <p className="text-xs text-warn">You're in watch-only mode — connect MetaMask (top right) to sign.</p>
-          )}
-        </div>
-      ) : (
-        <>
-          <div>
-            <div className="label">amount (USDC)</div>
-            <div className="flex gap-2 items-center">
-              <input className="input w-48 num" type="number" min={0} step={10} placeholder="0.00"
-                value={amount} onChange={(e) => setAmount(e.target.value)} />
-              {mode === "withdraw" && maxWithdraw > 0 && (
-                <button className="btn" onClick={() => setAmount(String(maxWithdraw))}>max</button>
-              )}
-            </div>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <AuthGate action="withdraw from this vault">
+              <>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">$</span>
+                  <input className="input num w-36 !pl-7" type="number" min={0} step={10}
+                    placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+                </div>
+                {maxWithdraw > 0 && (
+                  <button className="btn" onClick={() => setAmount(String(maxWithdraw))}>all</button>
+                )}
+                <button className="btn" onClick={takeOut} disabled={busy || maxWithdraw <= 0}>
+                  {busy ? "working…" : "take money out"}
+                </button>
+              </>
+            </AuthGate>
+            {locked && (
+              <span className="text-[11px] text-warn">
+                Locked until {new Date(lockupUntil).toLocaleString()}.
+              </span>
+            )}
           </div>
 
-          {mode === "deposit" && !depositsOpen &&
-            <div className="text-xs text-loss">This vault is not accepting deposits.</div>}
-          {mode === "withdraw" && locked &&
-            <div className="text-xs text-warn">Funds are locked until {new Date(lockupUntil).toLocaleString()}.</div>}
-
-          <button className="btn-primary" onClick={submit}
-            disabled={busy || (mode === "deposit" && !depositsOpen)}>
-            {busy ? "submitting…" : mode === "deposit" ? "invest" : "withdraw"}
-          </button>
-
-          <p className="text-[10px] text-muted">
-            {mode === "deposit"
-              ? "Deposits come from your Hyperliquid perp balance — top it up on the Wallet page."
-              : "Withdrawals return to your Hyperliquid perp balance; cash out to Arbitrum from the Wallet page."}
-          </p>
-        </>
+          {msg && <div className="text-xs text-win">{msg}</div>}
+          {err && <div className="text-xs text-loss break-words">{err}</div>}
+        </div>
       )}
 
-      {msg && <div className="text-xs text-win">{msg}</div>}
-      {err && <div className="text-xs text-loss break-words">{err}</div>}
+      {/* Putting money in — the same panel used everywhere else. */}
+      <InvestPanel kind="vault" target={vault} name={name} onDone={load} />
     </div>
   );
 }

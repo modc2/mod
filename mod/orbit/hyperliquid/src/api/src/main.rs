@@ -2,6 +2,8 @@ mod agent;
 mod auth;
 mod deposit;
 mod hl;
+mod curve;
+mod stats;
 mod traders;
 mod vaults;
 mod copytrade;
@@ -14,6 +16,9 @@ mod sign_l1;
 mod sign_user;
 mod actions;
 mod live_engine;
+mod invest;
+mod invest_engine;
+mod invest_routes;
 
 use axum::Router;
 use std::net::SocketAddr;
@@ -43,6 +48,10 @@ pub struct AppState {
     pub signer: Arc<signer::SignerStore>,
     pub meta: Arc<actions::MetaCache>,
     pub live: Arc<live_engine::EngineRegistry>,
+    /// The investment book: every position a wallet has funded.
+    pub invest: Arc<invest::InvestStore>,
+    /// The reconciler that keeps trader sleeves aligned with their leader.
+    pub engine: Arc<invest_engine::InvestEngine>,
     pub auth: Arc<auth::AuthCfg>,
     /// Where this server can reach itself — MCP tool calls loop back through
     /// the REST surface so the auth guard stays the single authority.
@@ -97,8 +106,19 @@ async fn main() -> anyhow::Result<()> {
     let meta = Arc::new(actions::MetaCache::new(hl.clone()));
     let live = Arc::new(live_engine::EngineRegistry::new(hl.clone(), signer.clone(), meta.clone()));
 
+    // The investment book and its reconciler. There is no start/stop here:
+    // the book is the instruction, so a funded position resumes tracking on
+    // its own after any restart.
+    let invest_store = Arc::new(invest::InvestStore::load(&data_dir));
+    tracing::info!("invest book: {} positions loaded", invest_store.count());
+    let engine = Arc::new(invest_engine::InvestEngine::new(
+        hl.clone(), http.clone(), signer.clone(), meta.clone(), invest_store.clone()));
+
     // Resume any live sessions that were active before this restart.
     live.resume_persisted();
+
+    let engine_bg = engine.clone();
+    tokio::spawn(async move { engine_bg.run().await });
 
     // Existing background loops.
     let copy_bg = copy.clone();
@@ -169,6 +189,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState {
         hl, http, store, copy, progress, boards, index, signer, meta, live,
+        invest: invest_store, engine,
         scans: traders::ScanJobs::new(),
         auth: auth::AuthCfg::from_env(),
         self_url: Arc::new(self_url),
