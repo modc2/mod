@@ -98,6 +98,15 @@ async function backtestContext(strat: SavedIndex): Promise<string | undefined> {
     const lines = [
       `Window: ${bt.days}d. P&L $${bt.pnl.toFixed(2)} (${bt.roi.toFixed(1)}% of $${bt.capital}) over ${bt.trades} trades, ${bt.skipped} skipped.`,
     ];
+    if (bt.fees != null && bt.fees > 0) {
+      // Fees are the reason a lot of "almost profitable" strats aren't, so the
+      // model gets them explicitly rather than having to infer them.
+      lines.push(
+        `Polymarket taker fees inside that P&L: $${bt.fees.toFixed(2)}`
+        + (bt.feeBps ? ` (${bt.feeBps} bps of traded notional)` : "")
+        + `. The fee is rate x price x (1 - price) x shares, charged on every fill: 7% crypto, 5% sports/economics, 4% politics/finance, free on geopolitics. It peaks at 50c, so trading coin flips is the most expensive thing this strat can do; fewer, bigger, more one-sided entries pay less.`,
+      );
+    }
     if (bt.funnel) {
       const f = bt.funnel;
       lines.push(

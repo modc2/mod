@@ -516,6 +516,7 @@ const MCP_TOOLS = [
 ];
 
 const NAV = [
+  ["#index", "TRADER INDEX"],
   ["#copy", "COPY DESK"],
   ["#agents", "AGENTS / MCP"],
   ["#strategy", "STRATEGY CLASS"],
@@ -547,7 +548,7 @@ export default function DocsPage() {
                 Documentation
               </span>
               <span className="text-pixel-gray text-[10px] tracking-widest leading-tight">
-                POLYMARKET · COPY DESK
+                POLYMARKET · TRADER INDEX
               </span>
             </div>
           </div>
@@ -567,18 +568,75 @@ export default function DocsPage() {
           <div className="text-[12px] text-pixel-white tracking-wider">OVERVIEW</div>
           <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
             <p>
-              This module copies individual Polymarket traders.{" "}
-              <span className="text-pixel-white">You put a dollar amount against a name</span>, the
-              engine mirrors that trader&apos;s fills with it, and the ledger tells you what each
-              name made. That list of names and amounts is the{" "}
-              <Link href="#copy" className="text-green-400">COPY BOOK</Link>.
+              This module copies Polymarket traders, and its default unit is an{" "}
+              <Link href="#index" className="text-green-400">INDEX</Link> of them:{" "}
+              <span className="text-pixel-white">one bench, one pot of capital, no per-name dollar
+              amounts</span>. Every trade they make is re-sized by the ratio between your capital
+              and that trader&apos;s own net worth — they stake 2% of their book, you stake 2% of
+              yours.
             </p>
             <p>
-              Everything below the desk is machinery in service of it. The rest of this page
-              documents that machinery — the strategy class each allocation materializes into, how
-              a mirror is sized, what the live engine does per cycle — because when a leader
-              isn&apos;t being copied, the answer is always in there.
+              The console is three tabs and they read as one sentence:{" "}
+              <Link href="/traders" className="text-green-400">TRADERS</Link> (pick who to copy) →{" "}
+              <Link href="/backtest" className="text-green-400">BACKTEST</Link> (test them against
+              real past trades, on simulated money) →{" "}
+              <Link href="/live" className="text-green-400">LIVE</Link> (run them for real). There
+              is no fourth. Capital is set in SETTINGS above the charts, and money is not a tab:
+              topping up and taking it out is a drawer in the side panel, open over whatever you
+              were looking at.
             </p>
+            <p>
+              Underneath it the older per-trader{" "}
+              <Link href="#copy" className="text-green-400">COPY DESK</Link> still runs — one
+              leader, one dollar amount, one session each — and the two meet at the same object,
+              because both become strats on one engine. The rest of this page documents that
+              machinery — the strategy class, how a mirror is sized, what the live engine does per
+              cycle — because when a leader isn&apos;t being copied, the answer is always in there.
+            </p>
+          </div>
+        </div>
+
+        {/* ── TRADER INDEX — the default unit ── */}
+        <div className="space-y-4">
+          <SectionTitle id="index">TRADER INDEX</SectionTitle>
+          <div className="pixel-panel p-4 space-y-3">
+            <div className="text-[11px] text-pixel-gray-light leading-relaxed space-y-2">
+              <p>
+                A trader index is a strat with a bench of traders on it and one number behind it:{" "}
+                <span className="text-pixel-white">capital</span>. There is no amount per name.
+              </p>
+              <pre className="text-[10px] font-mono text-green-400 leading-relaxed">{`mirror$ = their$ × (yourCapital × weight) / theirBankroll`}</pre>
+              <p>
+                <span className="text-pixel-white">weight</span> is that trader&apos;s share of the
+                bench (equal by default, redistributed when you disable someone).{" "}
+                <span className="text-pixel-white">theirBankroll</span> is their live net worth on
+                Polymarket — open positions at mark plus free collateral. So a leader&apos;s
+                $50,000 conviction entry and their $200 punt land on your book 250× apart, which is
+                the only thing worth copying about a whale. Turned on by{" "}
+                <span className="font-mono">sizing: &quot;bankroll&quot;</span>, which is the
+                default.
+              </p>
+              <p>
+                <span className="text-pixel-white">What it costs, stated out loud.</span> A $1,000
+                index against a $100,000 trader runs at 1%: their $5,000 entry becomes $50, and
+                their $50 punt becomes 50¢ — under the exchange floor of max($1, 5 shares), so the
+                engine refuses it as <span className="font-mono">SUB_SCALE</span>. It is not
+                inflated to the minimum, because an index whose every order is the same $2.55 is
+                not an index of anything. The <span className="text-pixel-white">YOUR SCALE</span>{" "}
+                card on STRATS names the threshold (&ldquo;the smallest trade of theirs that
+                reaches you is ~$125&rdquo;), names the capital that would clear it, and points at
+                the alternative: <span className="font-mono">sizing: &quot;flow&quot;</span>,
+                which divides by the capital they deployed <em>this window</em> instead of their
+                whole balance sheet — more coverage, smaller ratio, no longer a risk mirror.
+              </p>
+              <p className="text-[10px] text-pixel-gray">
+                The ratio is <span className="font-mono">copyRatioFor</span> in{" "}
+                <span className="text-pixel-white">app/lib/strats/strat.ts</span>, pinned
+                line-for-line to the Rust engine&apos;s <span className="font-mono">copy_ratio_for</span>.
+                The layer that projects it onto a real trade is{" "}
+                <span className="text-pixel-white">app/lib/traderIndex.ts</span>.
+              </p>
+            </div>
           </div>
         </div>
 

@@ -1,5 +1,8 @@
 // Polymarket 8-bit types
 
+import type { SentimentFilter } from "./marketSentiment";
+export type { SentimentFilter, SentimentLean, MarketSentiment } from "./marketSentiment";
+
 /** What a mirror is sized proportionally TO — see `copyRatioFor` (strat.ts).
     "bankroll" = the leader's net worth (risk fidelity, needs capital in their
     league); "flow" = the capital they deployed in the window (conviction
@@ -161,6 +164,14 @@ export interface TradeFilters {
       at least ONE of. Empty/undefined ⇒ all categories. Uses the same
       keyword buckets as the leaderboard category filter. */
   categories?: string[];
+  /** MARKET SENTIMENT — the only dimension here that is not a property of the
+      trade itself but of the MARKET it was taken in: which way the crowd has
+      moved the leader's own outcome token over the last few hours.
+      `{lean:["bearish"]}` copies only their contrarian entries;
+      `{lean:["bullish"], minDrift:0.05}` only the ones taken into odds that
+      have already gained 5¢. See lib/marketSentiment.ts — undefined ⇒ no
+      sentiment gate and no price-history fetch at all. */
+  sentiment?: SentimentFilter;
 }
 
 /** Which per-trader number the FILTER ranks on. All four are derived from the

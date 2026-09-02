@@ -1195,8 +1195,10 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
           </div>
           <button
             onClick={() => {
-              // Deposit/withdraw is the STRAT page's WALLET tab now — switch
-              // tabs via the parent; fall back to scrolling if unhosted.
+              // Money is the SIDE PANEL's MONEY block — the host (CopyIndex)
+              // dispatches OPEN_MONEY_EVENT so the drawer opens OVER this
+              // running session instead of navigating away from it. Fall back
+              // to scrolling when this panel is rendered unhosted.
               if (onFundNow) onFundNow();
               else document.getElementById("sidebar-wallet-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
             }}
@@ -1536,10 +1538,10 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
               LEADER_DUST:
                 "your leaders' own trades are under Polymarket's order floor — there is nothing big enough to mirror.",
               SUB_SCALE:
-                "your capital makes each mirror smaller than the $1 CLOB floor. Raise capital or raise MAX UPSCALE.",
+                "your capital makes each mirror smaller than Polymarket's order floor, so proportionality can't be honored. YOUR SCALE on the STRATS board says how much capital would clear it; or raise MAX UPSCALE, or switch SIZING to conviction.",
               FILTER:
                 "your trade filters (side / price band / notional) reject this flow. Widen them in RISK.",
-              NO_CASH: "the trading wallet is empty — fund it on the WALLET tab.",
+              NO_CASH: "the trading wallet is empty — open MONEY in the side panel and top it up.",
               NO_EDGE: "the scorer found no positive edge on these trades.",
               LEADER_FLAT: "your leaders opened and closed before we could mirror them.",
               MAX_POSITIONS:

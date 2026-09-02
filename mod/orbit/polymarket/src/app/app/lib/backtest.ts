@@ -24,20 +24,36 @@ import type { TraderTrade as StratTraderTrade, StratHistory, SizingModel } from 
 import { marketMatchesQuery } from "./marketQuery";
 import { legKey, legOutcome } from "./leg";
 import { computeFifoTrades, aggregateToRebalanceWindows } from "./pnlEngine";
+import {
+  CostLedger, FeeBook, FALLBACK_GAS_QUOTE, NEW_DEPLOYMENT_GAS_OPS, sessionGasUsd,
+  type CostBreakdown, type GasOps, type GasQuote,
+} from "./fees";
 import { mergeSims, runOriginationSim, type PriceTape } from "./originationBacktest";
 // Type-only: the sim reports its wallet in the same row shapes the LIVE panel
 // renders, so one component draws both (never fork the markup).
 import type { EquitySnapshot, EquityMarker } from "../components/EquityChart";
 import type { PerfPosition } from "../components/PerfPanel";
 
-// Polymarket costs — kept at LIVE-engine parity. The CLOB charges no
-// taker/maker fee on these markets (the engine places every order with
-// fee_rate_bps 0) and proxy-wallet trades are relayer-paid, i.e. gasless for
-// the user. The sim books the same zero costs so the backtest curve and a
-// live session measure the same thing; real friction (spread, unfilled GTC
-// limits) is unmodeled on BOTH sides. Bump these only if Polymarket starts
-// charging AND the live engine models the same charge.
-export const TAKER_FEE_BPS = 0;
+// Polymarket costs — see lib/fees.ts for the whole model. Two facts drive
+// everything here:
+//
+//   FEES ARE REAL and they are per-market. The matcher charges the taker
+//   `rate x p x (1-p) x shares`, rate 4–7% by category and 0 on geopolitics.
+//   The rate for each market is MEASURED off the leader feed the sim already
+//   loaded (`usdcSize` minus `price x size` is the fee that actually moved)
+//   and only modelled when there is nothing to measure.
+//
+//   GAS IS NOT PER TRADE. CLOB fills are matched on-chain by Polymarket's
+//   operator and redeems/withdrawals go through its relayer — the trader pays
+//   for none of them. What they do pay for is deploying and funding the proxy
+//   wallet, so gas is a fixed few cents per deployment, priced off the live
+//   Polygon base fee (`fetchGasQuote`).
+//
+// Both sides of parity moved together: the live engine signs its orders with
+// fee_rate_bps 0 (per Polymarket's docs the matcher applies the schedule, the
+// order does not carry it) and the LIVE cost row reads the fee it actually
+// paid off its own fills. Still unmodeled on BOTH sides: spread and unfilled
+// GTC limits.
 export const GAS_PER_TRADE_USD = 0;
 export const DEFAULT_CAPITAL = 1000;
 
@@ -136,6 +152,10 @@ export interface BacktestSim {
   grossPnl: number;  // netPnl before fees/gas
   fees: number;
   gas: number;
+  /** The whole cost model behind `fees` + `gas` — per-rate split, effective
+      bps, rebate tier, and where each market's rate came from. Rendered by
+      the COSTS breakdown both PerfPanel tabs share. */
+  costs: CostBreakdown;
   volume: number;    // total executed notional
   /** Simulated wallet at the end of the replay — the same three numbers
       the LIVE panel reads off the real wallet, so both render identically
@@ -242,6 +262,14 @@ export interface BacktestInput {
       bankroll model, exactly as before. */
   sizing?: SizingModel;
   turnover?: number;
+  /** Live Polygon gas price + POL price. Defaults to `FALLBACK_GAS_QUOTE`, so
+      a sim that never fetched one still books a plausible (and clearly
+      labelled) gas bill instead of zero. */
+  gasQuote?: GasQuote;
+  /** On-chain operations this deployment pays gas for. Defaults to a fresh
+      deployment: deploy the proxy, approve twice, fund once. Fills are NOT in
+      here — they are relayer-matched and cost the trader nothing. */
+  gasOps?: GasOps;
   /** When the window ENDS (ms epoch). Defaults to now, which is every replay
       the console shows you. Set it back and the engine replays a window that
       already closed: the window is [asOf − days, asOf], and NOTHING a leader
@@ -511,11 +539,25 @@ export function runBacktestSim(
     minTrade, maxTrade, maxOpenPositions, stopLossPct, takeProfitFrac, marketQuery,
     rebalancePeriod = 0, rebalanceHour = 0, samplePct = 100, showAllTrades = false, loading = false,
     resolved = new Map<string, number>(),
+    gasQuote = FALLBACK_GAS_QUOTE, gasOps = NEW_DEPLOYMENT_GAS_OPS,
   } = input;
+
+  // ── The cost model ──
+  // Every market's taker rate is measured off the leader feeds this replay
+  // already holds — the fee is the gap between `usdcSize` (the USDC that
+  // actually moved) and `price x size`. Built from the WHOLE feed, before the
+  // market-query filter, because a rate measured on a trade the strat skips
+  // is still that market's rate.
+  const feeBook = FeeBook.from(traderTrades.values());
+  const ledger = new CostLedger(feeBook, gasQuote);
 
   const empty: BacktestSim = {
     rows: [], equityHistory: [], markers: [],
-    skipped: 0, funnel, netPnl: 0, grossPnl: 0, fees: 0, gas: 0, volume: 0,
+    // An empty replay deployed nothing, so it owes no gas either — `gasOps`
+    // is deliberately not applied here, or the cost row and the COSTS drawer
+    // would disagree about a wallet that never existed.
+    skipped: 0, funnel, netPnl: 0, grossPnl: 0, fees: 0, gas: 0,
+    costs: ledger.breakdown({}, 0), volume: 0,
     cash: capital, posValue: 0, unrealized: 0, costBasis: 0, open: [],
     settlement: emptySettlement(),
   };
@@ -735,7 +777,9 @@ export function runBacktestSim(
         settlement.resolved++;
         settlement.resolvedUsd += proceeds;
       }
-      cash += proceeds - GAS_PER_TRADE_USD;
+      // Redeems go through Polymarket's relayer — no gas, and no taker fee
+      // either (a redeem is not a CLOB fill; at p = 0 or 1 the fee is 0 anyway).
+      cash += proceeds;
       settles++;
       book.delete(k);
       markers.push({
@@ -773,9 +817,12 @@ export function runBacktestSim(
       const topped = book.get(key);
       if (topped && topped.shares > 1e-9 && takeProfitTriggered(t.price, takeProfitFrac)) {
         const proceeds = topped.shares * t.price;
-        const sellFee = topped.shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
+        const sellFee = ledger.charge({
+          conditionId: t.conditionId, market: topped.market, slug: t.stratTrade.slug,
+          shares: topped.shares, price: t.price, notional: proceeds,
+        });
         const tpRealized = (t.price - topped.avgPx) * topped.shares;
-        cash += proceeds - sellFee - GAS_PER_TRADE_USD;
+        cash += proceeds - sellFee;
         fees += sellFee;
         volume += proceeds;
         book.delete(key);
@@ -807,9 +854,12 @@ export function runBacktestSim(
       const stopped = book.get(key);
       if (stopped && stopped.shares > 1e-9 && stopLossTriggered(stopped.avgPx, t.price, (100 - stopLossPct) / 100)) {
         const proceeds = stopped.shares * t.price;
-        const sellFee = stopped.shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
+        const sellFee = ledger.charge({
+          conditionId: t.conditionId, market: stopped.market, slug: t.stratTrade.slug,
+          shares: stopped.shares, price: t.price, notional: proceeds,
+        });
         const stopRealized = (t.price - stopped.avgPx) * stopped.shares;
-        cash += proceeds - sellFee - GAS_PER_TRADE_USD;
+        cash += proceeds - sellFee;
         fees += sellFee;
         volume += proceeds;
         book.delete(key);
@@ -872,8 +922,13 @@ export function runBacktestSim(
     if (t.side === "BUY") {
       amount = gatedAmount;
       const shares = t.price > 0 ? amount / t.price : 0;
-      fee = shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
-      const cost = amount + fee + GAS_PER_TRADE_USD;
+      fee = ledger.charge({
+        conditionId: t.conditionId, market: t.market, slug: t.stratTrade.slug,
+        shares, price: t.price, notional: amount,
+      });
+      // The taker fee comes out of cash on top of the notional, exactly like
+      // live: the matcher debits `price x size + fee`.
+      const cost = amount + fee;
       // Live MAX_POSITIONS gate: opening a NEW market past the cap is
       // skipped; topping up an already-held one always passes.
       const held = book.get(key);
@@ -897,8 +952,11 @@ export function runBacktestSim(
           if (cost <= cash) break;
           const mark = markOf(k, lastPx, b.avgPx);
           const proceeds = b.shares * mark;
-          const sellFee = b.shares * Math.min(mark, 1 - mark) * (TAKER_FEE_BPS / 10_000);
-          cash += proceeds - sellFee - GAS_PER_TRADE_USD;
+          const sellFee = ledger.charge({
+            conditionId: b.conditionId, market: b.market, slug: t.stratTrade.slug,
+            shares: b.shares, price: mark, notional: proceeds,
+          });
+          cash += proceeds - sellFee;
           fees += sellFee;
           volume += proceeds;
           book.delete(k);
@@ -948,8 +1006,11 @@ export function runBacktestSim(
       }
       const shares = Math.min(t.price > 0 ? gatedAmount / t.price : 0, held);
       amount = shares * t.price;
-      fee = shares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
-      cash += amount - fee - GAS_PER_TRADE_USD;
+      fee = ledger.charge({
+        conditionId: t.conditionId, market: t.market, slug: t.stratTrade.slug,
+        shares, price: t.price, notional: amount,
+      });
+      cash += amount - fee;
       realized = (t.price - b.avgPx) * shares;
       b.shares -= shares;
       if (b.shares <= 1e-9) book.delete(key);
@@ -997,7 +1058,10 @@ export function runBacktestSim(
   const nowPos = posValue(curPx);
   equityHistory.push({ t: endMs, liq: cash, pos: nowPos });
 
-  const gas = (rows.length + settles) * GAS_PER_TRADE_USD;
+  // Gas is per DEPLOYMENT, not per trade — the fills above cost the trader no
+  // gas at all. `settles` is counted only so the caller can see how many
+  // relayer-paid redeems happened.
+  const gas = sessionGasUsd(gasOps, gasQuote);
   const netPnl = round2(cash + nowPos - capital);
 
   // What the simulated wallet is still holding, in the same row shape the
@@ -1041,7 +1105,8 @@ export function runBacktestSim(
     netPnl,
     grossPnl: round2(netPnl + fees + gas),
     fees: round2(fees),
-    gas: round2(gas),
+    gas,
+    costs: ledger.breakdown(gasOps, netPnl + fees + gas),
     volume: round2(volume),
     cash: round2(cash),
     posValue: round2(nowPos),

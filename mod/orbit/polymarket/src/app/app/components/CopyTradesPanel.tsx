@@ -26,6 +26,7 @@ import Link from "next/link";
 
 import { useCopyTrades } from "../lib/useCopyTrades";
 import { applySemanticQuery, parseSemanticQuery, type SemanticQuery } from "../lib/semanticFilter";
+import { useSentimentBook } from "../lib/useSentimentBook";
 import type { CopyTradeRow } from "../lib/copyTrades";
 import { shortAddress } from "../lib/identityStrat";
 import SemanticFilterBar from "./SemanticFilterBar";
@@ -91,9 +92,14 @@ export default function CopyTradesPanel({
   }, [all, view]);
 
   const q = useMemo(() => parsed ?? parseSemanticQuery(query), [parsed, query]);
+  // A MARKET SENTIMENT clause ("against the crowd") needs the tape. Warmed
+  // only when the sentence actually carries one; without it every row reads
+  // `unknown` and passes, so a board with no price history shows the flow
+  // unfiltered rather than showing nothing.
+  const sentiment = useSentimentBook(viewed, q.sentiment);
   const { rows, dropped, reasons } = useMemo(
-    () => applySemanticQuery(viewed, q, { now: Date.now(), rank: false }),
-    [viewed, q],
+    () => applySemanticQuery(viewed, q, { now: Date.now(), rank: false, sentiment: sentiment.book.lookup }),
+    [viewed, q, sentiment.book],
   );
 
   const s = data?.summary;

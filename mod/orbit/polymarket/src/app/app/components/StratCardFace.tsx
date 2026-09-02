@@ -202,6 +202,22 @@ export function BacktestBlock({
           <span className={`text-[12px] font-mono ${up ? "text-green-400/80" : "text-red-400/80"}`}>
             {bt.roi >= 0 ? "+" : ""}{bt.roi.toFixed(2)}%
           </span>
+          {/* What the P&L above is already net of. A card that trades a lot in
+              expensive markets can hand back its whole edge here, and the
+              headline number alone never shows you that. */}
+          {bt.fees != null && bt.fees > 0.005 && (
+            <span
+              className="text-[11px] font-mono text-amber-400/80"
+              title={
+                `Polymarket's taker fee on this replay: $${bt.fees.toFixed(2)}`
+                + (bt.feeBps ? ` — ${bt.feeBps} bps of the notional traded` : "")
+                + ". Charged by the matcher on every fill as rate x price x (1 - price) x shares, "
+                + "4–7% by category, biggest at 50¢. Already deducted from the P&L on the left."
+              }
+            >
+              −${bt.fees.toFixed(2)} fees
+            </span>
+          )}
           {running && <span className="text-[10px] font-mono text-amber-400 animate-pulse">↻</span>}
         </div>
       ) : (

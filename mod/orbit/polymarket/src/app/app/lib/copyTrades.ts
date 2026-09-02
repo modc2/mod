@@ -188,6 +188,10 @@ export function buildCopyTrades(input: BuildInput, opts: BuildOptions = {}): {
         notional: tradeNotional(t),
         timestamp: t.timestamp,
         outcome: t.outcome ?? null,
+        // The CTF outcome token, carried so a MARKET SENTIMENT clause has
+        // something to read the market's mood against (lib/marketSentiment.ts).
+        // Absent on rows fetched before the data-api's `asset` was stored.
+        asset: t.asset,
         leader: address,
         leaderLabel: name,
         copied: false,
@@ -249,6 +253,7 @@ export function buildCopyTrades(input: BuildInput, opts: BuildOptions = {}): {
       notional: tradeNotional(t),
       timestamp: t.timestamp,
       outcome: t.outcome ?? null,
+      asset: t.asset,
       leader: best?.leader ?? null,
       leaderLabel: best?.leaderLabel ?? null,
       lagSec,

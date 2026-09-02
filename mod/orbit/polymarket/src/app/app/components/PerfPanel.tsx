@@ -21,11 +21,13 @@
 //     wallet; backtest: the simulated wallet at the end of the replay)
 //   UNREAL  — open-position P&L vs average entry
 //   P&L/ROI — equity change across the window the chart plots
-//   costs   — executed notional + fees/gas, on the shared zero-fee model
-//             (see TAKER_FEE_BPS / GAS_PER_TRADE_USD in CopyIndex)
+//   costs   — executed notional + the friction it paid, on the ONE cost model
+//             both sides book (lib/fees.ts): per-market taker fees measured
+//             off real fills, and Polygon gas priced per deployment
 
 import { useEffect, useState, type ReactNode } from "react";
 import EquityChart, { type EquitySnapshot, type EquityMarker } from "./EquityChart";
+import { fmtGasUsd, type CostBreakdown } from "../lib/fees";
 
 // ── Shared data shapes ─────────────────────────────────────────────────
 
@@ -56,6 +58,10 @@ export interface PerfCosts {
   txs: number;
   /** P&L before fees/gas. */
   gross: number;
+  /** The full cost model behind `fees` + `gas` — per-rate split, effective
+      bps, rebate tier, and whether each rate was measured or modelled.
+      Renders the COSTS drawer; omit it and the row still shows the totals. */
+  breakdown?: CostBreakdown;
   /** Trades the wallet could not place (backtest only today). */
   skipped?: number;
   skippedTitle?: string;
@@ -165,6 +171,138 @@ function SignedMetric({
 }
 
 const Dot = () => <span className="text-pixel-border/60">·</span>;
+
+// ── COSTS drawer — where the friction actually went ───────────────────
+//
+// The FEES cell is one number and one number cannot answer the question people
+// actually have, which is "why is it that much, and do you even know?". So the
+// drawer says three things:
+//
+//   1. WHAT WAS CHARGED, split by the rate that charged it. A 7% crypto market
+//      and a fee-free geopolitics market in the same replay are two different
+//      businesses and the average of them means nothing.
+//   2. HOW BIG IT IS relative to something — bps of notional traded, and the
+//      share of gross P&L it ate.
+//   3. WHERE THE RATE CAME FROM. A rate measured off a real fill's USDC is a
+//      fact; a rate inferred from the market's title is a model, and the row
+//      says how many of each so nobody mistakes one for the other.
+
+function CostsDrawer({ bd, gross }: { bd: CostBreakdown; gross: number }) {
+  const total = bd.fees + bd.gas;
+  const cov = bd.coverage;
+  const measuredPct = cov.markets > 0
+    ? ((cov.measured + cov.feeFree) / (cov.measured + cov.feeFree + cov.modelled)) * 100
+    : 0;
+  return (
+    <div className="border-t border-pixel-border/40 pt-2 space-y-2">
+      <div className="flex items-center gap-4 flex-wrap text-[12px] font-mono">
+        <span className="text-pixel-gray tracking-[0.15em]">COSTS</span>
+        <Dot />
+        <span className="text-pixel-gray/80">
+          fee = <span className="text-pixel-white">rate x p x (1-p) x shares</span>, taker side only
+        </span>
+        <Dot />
+        <span className="text-pixel-gray/80">
+          <span className="text-amber-400">{bd.effectiveBps.toFixed(0)} bps</span> of ${bd.volume.toFixed(0)} traded
+        </span>
+        {bd.dragPct != null && (
+          <>
+            <Dot />
+            <span className={bd.dragPct > 50 ? "text-red-400" : "text-pixel-gray/80"}>
+              ate <span className={bd.dragPct > 50 ? "text-red-400" : "text-amber-400"}>{bd.dragPct.toFixed(0)}%</span> of gross P&amp;L
+            </span>
+          </>
+        )}
+      </div>
+
+      {bd.buckets.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12px] font-mono">
+            <thead>
+              <tr className="text-pixel-gray/70 tracking-[0.1em] text-left">
+                <th className="font-normal py-0.5 pr-3">CATEGORY</th>
+                <th className="font-normal py-0.5 pr-3">RATE</th>
+                <th className="font-normal py-0.5 pr-3 text-right">FILLS</th>
+                <th className="font-normal py-0.5 pr-3 text-right">NOTIONAL</th>
+                <th className="font-normal py-0.5 pr-3 text-right">FEES</th>
+                <th className="font-normal py-0.5 text-right">BPS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bd.buckets.map((b) => (
+                <tr key={`${b.category}:${b.rate}`} className="border-t border-pixel-border/20">
+                  <td className="py-0.5 pr-3 text-pixel-white">{b.category.toUpperCase()}</td>
+                  <td className="py-0.5 pr-3 text-pixel-gray">
+                    {b.rate > 0 ? `${(b.rate * 100).toFixed(0)}%` : "FREE"}
+                  </td>
+                  <td className="py-0.5 pr-3 text-right text-pixel-gray">{b.txs}</td>
+                  <td className="py-0.5 pr-3 text-right text-pixel-gray">${b.volume.toFixed(2)}</td>
+                  <td className="py-0.5 pr-3 text-right text-amber-400">${b.fees.toFixed(2)}</td>
+                  <td className="py-0.5 text-right text-pixel-gray">
+                    {b.volume > 0 ? ((b.fees / b.volume) * 10_000).toFixed(0) : "0"}
+                  </td>
+                </tr>
+              ))}
+              <tr className="border-t border-pixel-border/40">
+                <td
+                  className="py-0.5 pr-3 text-pixel-gray"
+                  title="Deploying the trading wallet, approving it and funding it. Fills, redeems and withdrawals are paid for by Polymarket's operator and relayer."
+                >
+                  GAS (POLYGON)
+                </td>
+                <td className="py-0.5 pr-3 text-pixel-gray/70" colSpan={3}>
+                  {bd.gasQuote.gasPriceGwei.toFixed(1)} gwei · ${bd.gasQuote.polUsd.toFixed(3)}/POL
+                  {bd.gasQuote.source === "fallback" && " (est)"}
+                </td>
+                <td className="py-0.5 pr-3 text-right text-amber-400">{fmtGasUsd(bd.gas)}</td>
+                <td className="py-0.5 text-right text-pixel-gray/50">—</td>
+              </tr>
+              <tr className="border-t border-pixel-border/40">
+                <td className="py-0.5 pr-3 text-pixel-white tracking-[0.1em]">TOTAL</td>
+                <td className="py-0.5 pr-3" colSpan={3} />
+                <td className="py-0.5 pr-3 text-right text-amber-400">${total.toFixed(2)}</td>
+                <td className="py-0.5 text-right text-pixel-gray/50">—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="flex items-center gap-4 flex-wrap text-[11px] font-mono text-pixel-gray/70">
+        <span
+          title={
+            "MEASURED means the rate was read straight off a real fill: the data-api reports the USDC that actually "
+            + "moved, and the gap between that and price x size IS the fee. MODELLED means no fill was available for "
+            + "that market, so its category's published rate was used instead."
+          }
+        >
+          RATES <span className={measuredPct >= 60 ? "text-green-400" : "text-amber-400"}>{measuredPct.toFixed(0)}% MEASURED</span>
+          {" "}({cov.measured} charged · {cov.feeFree} fee-free · {cov.modelled} modelled)
+        </span>
+        {bd.tier.rebate > 0 && (
+          <span
+            title={
+              "Polymarket's Taker Rebate Program pays a share of your fees back daily, by 30-day weighted volume "
+              + "(size x (1 - price) x category weight). NOT netted into the P&L above — a rebate only applies from the "
+              + "moment you reach the tier, so counting it in a replay would be inventing money."
+            }
+          >
+            <Dot /> REBATE TIER <span className="text-green-400">{bd.tier.name}</span>
+            {" "}— {(bd.tier.rebate * 100).toFixed(0)}% back at ${Math.round(bd.weightedVolume).toLocaleString()} wV
+          </span>
+        )}
+        <span title="Neither this replay nor the live engine charges itself for the bid/ask spread or for a limit order that never fills. Real friction is at least this much, never less.">
+          <Dot /> SPREAD + UNFILLED LIMITS NOT MODELLED
+        </span>
+      </div>
+      {gross > 0 && total > gross * 0.5 && (
+        <div className="text-[11px] font-mono text-red-400">
+          FEES ATE MOST OF THE EDGE — this strat trades in expensive markets or trades too often for what it wins.
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Pie — cash vs positions, the other view of the same two series the
 //    equity curve plots. Lives here so both tabs get it. ──
@@ -369,6 +507,8 @@ export default function PerfPanel({
   };
 
   const costTotal = costs.fees + costs.gas;
+  const [showCosts, setShowCosts] = useState(false);
+  const bd = costs.breakdown;
 
   return (
     <div className="pixel-panel px-3 py-2.5 space-y-3">
@@ -439,20 +579,52 @@ export default function PerfPanel({
       </div>
 
       {/* ── Cost row — executed notional and the friction it paid. Both modes
-             book the same zero-fee, zero-gas model, so the numbers agree. ── */}
+             book the ONE cost model (lib/fees.ts), so the numbers agree. The
+             totals live here; click COSTS for where each dollar went. ── */}
       <div className="flex items-center justify-between flex-wrap gap-3 text-[13px] font-mono border-t border-pixel-border/40 pt-2">
         <div className="flex items-center gap-4">
           <Metric label="AMOUNT" value={`$${costs.amount.toFixed(2)}`} title="Total notional traded in this window (sum of BUY/SELL amounts)" />
           <Dot />
-          <Metric label="FEES" value={`$${costs.fees.toFixed(2)}`} tone="amber" />
+          <Metric
+            label="FEES"
+            value={`$${costs.fees.toFixed(2)}`}
+            tone="amber"
+            title={
+              "Polymarket's taker fee, charged by the matcher on every fill: rate x price x (1 - price) x shares. "
+              + "The rate is per category (crypto 7%, sports/economics 5%, politics/finance 4%, geopolitics free) and the "
+              + "dollar fee PEAKS at 50\u00a2 — a fill at 30\u00a2 and one at 70\u00a2 pay the same. Makers are never charged; "
+              + "this console takes liquidity, so it always pays."
+              + (bd && bd.volume > 0 ? ` Here: ${bd.effectiveBps.toFixed(0)} bps of the $${bd.volume.toFixed(0)} traded.` : "")
+            }
+          />
           <Dot />
-          <Metric label="GAS" value={`$${costs.gas.toFixed(2)}`} tone="amber" />
+          <Metric
+            label="GAS"
+            value={fmtGasUsd(costs.gas)}
+            tone="amber"
+            title={
+              "Polygon gas — and almost none of it is trading. CLOB fills are matched on-chain by Polymarket's operator, "
+              + "and redeems and withdrawals go through its relayer, so the trader pays for none of those. What you do pay "
+              + "for is deploying the trading wallet once, approving it, and funding it. That makes gas a fixed few cents "
+              + "per deployment, not a per-trade cost."
+              + (bd ? ` Priced at ${bd.gasQuote.gasPriceGwei.toFixed(1)} gwei and $${bd.gasQuote.polUsd.toFixed(3)}/POL (${bd.gasQuote.source}).` : "")
+            }
+          />
           <Dot />
           <div className="flex items-baseline gap-1.5">
             <span className="text-[12px] text-pixel-gray tracking-[0.15em]">TOTAL</span>
             <span className="text-amber-400">${costTotal.toFixed(2)}</span>
             <span className="text-[12px] text-pixel-gray/70">({costs.txs} TXS)</span>
           </div>
+          {bd && (
+            <button
+              onClick={() => setShowCosts((v) => !v)}
+              className="text-[11px] tracking-[0.15em] px-2 py-0.5 border border-pixel-border/60 text-pixel-gray hover:text-pixel-white hover:border-pixel-border transition-colors"
+              title="Where every cent of friction went — per category, per rate, and how much of it was measured rather than modelled"
+            >
+              {showCosts ? "HIDE COSTS" : "COSTS"} {showCosts ? "\u25be" : "\u25b8"}
+            </button>
+          )}
           {costs.skipped != null && costs.skipped > 0 && (
             <>
               <Dot />
@@ -492,6 +664,8 @@ export default function PerfPanel({
         </div>
         <SignedMetric label="GROSS" value={costs.gross} text={fmtSigned(costs.gross)} dim />
       </div>
+
+      {bd && showCosts && <CostsDrawer bd={bd} gross={costs.gross} />}
 
       {/* ── Chart — caption + the SAME EquityChart, same props, both modes.
              markerLine="pos" because a fill moves the Positions line (BUY:

@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { shortAddress } from "../lib/auth";
 import { fundedUsd } from "../lib/funding";
+import WalletTokenPanel from "./WalletTokenPanel";
 
 /** Header chip → sidebar handshake. The chip dispatches this to open the
  *  sidebar with the accounts section already expanded. */
@@ -49,6 +50,8 @@ export default function AccountsPanel({
   // listener below covers the sidebar already being open.
   const [expanded, setExpanded] = useState(initialExpanded);
   const [copied, setCopied] = useState(false);
+  /** Device pairing (token + sign-in QR) — folded away by default. */
+  const [showPairing, setShowPairing] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [draftLabel, setDraftLabel] = useState("");
   // Funded USDC per wallet (deposit-wallet collateral), keyed by lowercased
@@ -330,6 +333,28 @@ export default function AccountsPanel({
             {!hasWallet && (
               <div className="text-[10px] text-pixel-gray mt-1.5 text-center">
                 Install a wallet extension to switch accounts.
+              </div>
+            )}
+          </div>
+
+          {/* ── Carry this session to another device ──
+              The wallet + local-token + sign-in-QR panel. It used to sit on a
+              WALLET subtab inside the live workspace, next to the deposit
+              forms, which made "pair my phone" a thing you found while
+              looking for money. It is about WHO you are signed in as, so it
+              belongs here — folded away, because it is a once-per-device act
+              and the block above is what you open this column for. */}
+          <div className="px-2 pt-2">
+            <button
+              onClick={() => setShowPairing((v) => !v)}
+              className="text-[10px] font-mono tracking-[0.16em] text-pixel-gray hover:text-pixel-white"
+              aria-expanded={showPairing}
+            >
+              {showPairing ? "⌃ HIDE DEVICE PAIRING" : "⌄ USE THIS ACCOUNT ON ANOTHER DEVICE"}
+            </button>
+            {showPairing && (
+              <div className="pt-2">
+                <WalletTokenPanel />
               </div>
             )}
           </div>

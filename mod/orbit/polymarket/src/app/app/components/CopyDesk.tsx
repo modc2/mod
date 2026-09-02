@@ -797,9 +797,10 @@ function OtherSessions({
             <div className="flex items-center gap-4 font-mono text-[10px]">
               <Field
                 label="REALIZED"
-                value={fmtSigned(s.realized)}
-                tone={s.realized === null ? undefined : s.realized >= 0 ? "up" : "down"}
+                value={fmtSigned(s.realized === null ? null : s.realized - (s.fees ?? 0))}
+                tone={s.realized === null ? undefined : s.realized - (s.fees ?? 0) >= 0 ? "up" : "down"}
               />
+              {(s.fees ?? 0) > 0 && <Field label="FEES" value={`-${fmtUsd(s.fees ?? 0)}`} tone="down" />}
               <Field label="ORDERS" value={String(s.ordersPlaced)} />
               <Field label="LAST FILL" value={ago(s.lastFillAt || null)} />
               <Field label="WALLET" value={fmtUsd(s.balance, 0)} />
@@ -899,7 +900,9 @@ function TraderRow({
   const running = !!live?.running;
   const executing = running && !!live?.autoExecute;
   const stall = stallReason(row);
-  const realized = live?.ledger?.realized ?? null;
+  // NET of fees — what the wallet kept, not what the exits grossed.
+  const realized = live?.ledger ? live.ledger.realized - (live.ledger.fees ?? 0) : null;
+  const feesPaid = live?.ledger?.fees ?? 0;
   const rowBusy = busy?.endsWith(row.address) ?? false;
 
   const commit = () => {
@@ -1032,10 +1035,21 @@ function TraderRow({
             <div className="flex flex-wrap items-baseline gap-x-3">
               <span
                 className={realized === null ? "text-pixel-gray" : realized >= 0 ? "text-pixel-green" : "text-red-400"}
-                title="Booked P&L from this leader's mirrors. Open positions are excluded — a mark reads high."
+                title={
+                  "Booked P&L from this leader's mirrors, NET of Polymarket's taker fee. Open positions are excluded — a mark reads high."
+                  + (feesPaid > 0 ? ` Gross ${fmtSigned(live!.ledger!.realized)} less ${fmtUsd(feesPaid)} of fees.` : "")
+                }
               >
                 {fmtSigned(realized)} realized
               </span>
+              {feesPaid > 0 && (
+                <span
+                  className="text-amber-400"
+                  title="Polymarket's taker fee on this row's fills — rate x price x (1 - price) x shares, charged by the matcher on both the way in and the way out."
+                >
+                  -{fmtUsd(feesPaid)} fees
+                </span>
+              )}
               <span className="text-pixel-gray-light">{live.ordersPlaced} orders</span>
               <span className="text-pixel-gray">last fill {ago(live.ledger?.lastFillAt || null)}</span>
               {live.balance !== null && (

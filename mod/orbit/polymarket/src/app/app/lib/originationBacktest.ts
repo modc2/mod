@@ -52,13 +52,18 @@ import {
 } from "./strats/strat";
 import type { MarketPriceSeries, ProposedTrade, StratHistory } from "./strats/strat";
 import { legKey, legOutcome } from "./leg";
-// Costs come from the copy replay's constants so both halves book the same
-// friction: the CLOB charges no fee on these markets and proxy-wallet trades
-// are relayer-paid. If that ever changes it changes in ONE place.
-import {
-  GAS_PER_TRADE_USD, emptyFunnel, emptySettlement,
+// Costs come from the SAME model the copy replay books (lib/fees.ts) so both
+// halves of a strat pay the same friction. One difference is structural: an
+// origination replay has no leader fills to measure a market's fee rate off,
+// so every rate here is inferred from the market's category — which is exactly
+// why `CostBreakdown.coverage` reports how many rates were modelled.
+import { emptyFunnel, emptySettlement,
   type BacktestSim, type EntryFunnel, type LinkedTrade, type Settlement,
 } from "./backtest";
+import {
+  CostLedger, FeeBook, FALLBACK_GAS_QUOTE, NEW_DEPLOYMENT_GAS_OPS, mergeCostBreakdowns,
+  sessionGasUsd, type GasOps, type GasQuote,
+} from "./fees";
 import type { EquityMarker, EquitySnapshot } from "../components/EquityChart";
 import type { PerfPosition } from "../components/PerfPanel";
 
@@ -124,6 +129,10 @@ export interface OriginationInput {
   days: number;
   /** Window end (ms epoch); the window is [asOf − days, asOf]. */
   asOf?: number;
+  /** Live Polygon gas price + POL price; defaults to `FALLBACK_GAS_QUOTE`. */
+  gasQuote?: GasQuote;
+  /** On-chain ops this deployment pays gas for; defaults to a fresh one. */
+  gasOps?: GasOps;
 }
 
 interface Hold {
@@ -207,16 +216,19 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
   const book = new Map<string, Hold>();
   const cooldown = new Map<string, number>();
   let cash = capital;
-  // No taker fee on these markets and no gas on a relayer-paid proxy wallet —
-  // the same zero the copy replay books (TAKER_FEE_BPS / GAS_PER_TRADE_USD).
-  const fees = 0;
+  const gasQuote: GasQuote = input.gasQuote ?? FALLBACK_GAS_QUOTE;
+  const gasOps: GasOps = input.gasOps ?? NEW_DEPLOYMENT_GAS_OPS;
+  // No fills to measure rates off (see the import note) — the ledger's fee
+  // book is empty, so every market prices off its category.
+  const ledger = new CostLedger(new FeeBook(), gasQuote);
   let volume = 0;
   let skipped = 0;
   let settles = 0;
 
   const empty: BacktestSim = {
     rows: [], equityHistory: [], markers: [], skipped: 0, funnel,
-    netPnl: 0, grossPnl: 0, fees: 0, gas: 0, volume: 0,
+    netPnl: 0, grossPnl: 0, fees: 0, gas: 0,
+    costs: ledger.breakdown({}, 0), volume: 0,
     cash: capital, posValue: 0, unrealized: 0, costBasis: 0, open: [],
     settlement,
   };
@@ -256,6 +268,7 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
   const record = (
     t: number, side: "BUY" | "SELL", hold: Pick<Hold, "market" | "conditionId" | "outcome">,
     amount: number, price: number, realized: number, prevEquity: number, label: string,
+    fee = 0,
   ) => {
     const pos = posValue(t);
     const equity = cash + pos;
@@ -269,7 +282,7 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
       side,
       amount: round2(amount),
       price,
-      fee: 0,
+      fee: round2(fee),
       realized: round2(realized),
       runningPnl: round2(equity - capital),
       pnlDelta: round2(equity - prevEquity),
@@ -300,7 +313,8 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
         settlement.resolved++;
         settlement.resolvedUsd += proceeds;
       }
-      cash += proceeds - GAS_PER_TRADE_USD;
+      // Relayer-paid, and a resolution is not a CLOB fill — no gas, no fee.
+      cash += proceeds;
       settles++;
       book.delete(k);
       markers.push({
@@ -320,10 +334,14 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
     const prevEquity = cash + posValue(t);
     const proceeds = b.shares * px;
     const realized = (px - b.avgPx) * b.shares;
-    cash += proceeds - GAS_PER_TRADE_USD;
+    const fee = ledger.charge({
+      conditionId: b.conditionId, market: b.market,
+      shares: b.shares, price: px, notional: proceeds,
+    });
+    cash += proceeds - fee;
     volume += proceeds;
     book.delete(k);
-    record(t, "SELL", b, proceeds, px, realized, prevEquity, `${label} · ${b.market}`);
+    record(t, "SELL", b, proceeds, px, realized, prevEquity, `${label} · ${b.market}`, fee);
   };
 
   const cycleMs = Math.max(MIN_POLL_MINUTES, pollMinutes || MIN_POLL_MINUTES) * 60_000;
@@ -473,11 +491,15 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
         cooldown.set(dedupKey, t);
         const proceeds = b.shares * mark;
         const realized = (mark - b.avgPx) * b.shares;
-        cash += proceeds - GAS_PER_TRADE_USD;
+        const exitFee = ledger.charge({
+          conditionId: b.conditionId, market: b.market,
+          shares: b.shares, price: mark, notional: proceeds,
+        });
+        cash += proceeds - exitFee;
         volume += proceeds;
         book.delete(key);
         record(t, "SELL", b, proceeds, mark, realized, prevEquity,
-          `${p.reason ?? "EXIT"} · ${b.market}`);
+          `${p.reason ?? "EXIT"} · ${b.market}`, exitFee);
         continue;
       }
 
@@ -506,13 +528,19 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
         cooldown.set(dedupKey, t); // live marks the signal acted-on either way
         continue;
       }
-      if (notional + GAS_PER_TRADE_USD > cash + 1e-6) {
+      // The matcher debits `notional + taker fee`, so the fee has to fit too.
+      const fee = ledger.quote(p.conditionId, size, mark, p.market, undefined);
+      if (notional + fee > cash + 1e-6) {
         skipped++; funnel.skipped++;
         tally(funnel, "out of cash");
         continue;
       }
       cooldown.set(dedupKey, t);
-      cash -= notional + GAS_PER_TRADE_USD;
+      ledger.charge({
+        conditionId: p.conditionId, market: p.market,
+        shares: size, price: mark, notional,
+      });
+      cash -= notional + fee;
       freeCapital -= notional;
       volume += notional;
       const b = held ?? {
@@ -526,7 +554,7 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
       b.shares = newShares;
       book.set(key, b);
       record(t, "BUY", b, notional, mark, 0, prevEquity,
-        `${p.reason ?? "ENTRY"} · ${b.market} @ ${Math.round(mark * 100)}¢`);
+        `${p.reason ?? "ENTRY"} · ${b.market} @ ${Math.round(mark * 100)}¢`, fee);
     }
   }
 
@@ -563,7 +591,10 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
   }
   open.sort((a, b) => a.pnlUsd - b.pnlUsd);
 
-  const gas = (rows.length + settles) * GAS_PER_TRADE_USD;
+  // Per DEPLOYMENT, not per trade — see the note in lib/fees.ts. `settles`
+  // stays counted because every one of them was a relayer-paid redeem.
+  const gas = sessionGasUsd(gasOps, gasQuote);
+  const fees = ledger.fees;
   const netPnl = round2(cash + nowPos - capital);
   funnel.executed = rows.filter((r) => r.side === "BUY").length;
 
@@ -576,7 +607,8 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
     netPnl,
     grossPnl: round2(netPnl + fees + gas),
     fees: round2(fees),
-    gas: round2(gas),
+    gas,
+    costs: ledger.breakdown(gasOps, netPnl + fees + gas),
     volume: round2(volume),
     cash: round2(cash),
     posValue: round2(nowPos),
@@ -629,7 +661,8 @@ export function mergeSims(copy: BacktestSim, orig: BacktestSim, capital: number)
     netPnl: round2(copy.netPnl + orig.netPnl),
     grossPnl: round2(copy.grossPnl + orig.grossPnl),
     fees: round2(copy.fees + orig.fees),
-    gas: round2(copy.gas + orig.gas),
+    gas: copy.gas + orig.gas,
+    costs: mergeCostBreakdowns(copy.costs, orig.costs, copy.grossPnl + orig.grossPnl),
     volume: round2(copy.volume + orig.volume),
     cash: round2(copy.cash + orig.cash - capital),
     posValue: round2(copy.posValue + orig.posValue),

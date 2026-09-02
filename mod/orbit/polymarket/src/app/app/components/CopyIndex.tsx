@@ -3,9 +3,11 @@
 import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, fetchTopTraderAddresses, TopTrader, CATEGORIES, TRADER_SYNC_MIN_MS } from "../lib/polymarket";
+import { fetchPositions, fetchWalletTradesUntil, fetchWalletTradesIncremental, formatVolume, formatPnl, fetchTradersPage, TopTrader, CATEGORIES, TRADER_SYNC_MIN_MS } from "../lib/polymarket";
 import { PolymarketPosition, PolymarketTrade, SavedIndex, TradeFilters, TraderFilter, TraderMetric } from "../lib/types";
 import { tradeMatchesFilters, tradeFiltersActive } from "../lib/tradeFilters";
+import { useSentimentBook } from "../lib/useSentimentBook";
+import type { SentimentFilter } from "../lib/marketSentiment";
 import { Strat, rankTraders, formatAgeShort, DEFAULT_FILTER_TOP_N, DEFAULT_MAX_STALE_HOURS, DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES, DEFAULT_MIN_MINUTES_TO_CLOSE, DEFAULT_MAX_UPSCALE } from "../lib/strats/strat";
 import type { TraderTrade as StratTraderTrade } from "../lib/strats/strat";
 import { marketMatchesQuery } from "../lib/marketQuery";
@@ -18,6 +20,7 @@ import { useCopyEngine } from "../context/CopyEngineContext";
 import CopyTrading from "./CopyTrading";
 import PerfPanel from "./PerfPanel";
 import TraderFilterCard from "./TraderFilterCard";
+import SentimentCard from "./SentimentCard";
 import CapitalPlanCard from "./CapitalPlanCard";
 import type { CapitalPlanInput } from "../lib/capitalPlan";
 import type { CurvePoint } from "./PnlChart";
@@ -28,9 +31,13 @@ import { fetchResolvedLegs } from "../lib/hubCache";
 // every saved strat through the exact same functions, so a card and this tab
 // can never disagree about what a strat did.
 import {
-  runBacktest, keepInSample, TAKER_FEE_BPS, GAS_PER_TRADE_USD, DEFAULT_CAPITAL,
+  runBacktest, keepInSample, DEFAULT_CAPITAL,
   type BacktestSim,
 } from "../lib/backtest";
+import {
+  FeeBook, NEW_DEPLOYMENT_GAS_OPS, fetchGasQuote, fmtGasUsd, sessionGasUsd, takerFeeUsd,
+  type GasQuote,
+} from "../lib/fees";
 import { tapeFor } from "../lib/momentumTape";
 import type { PriceTape } from "../lib/originationBacktest";
 import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId, equalWeightTraders } from "../lib/indexStore";
@@ -39,15 +46,21 @@ import { fetchTraderBankrolls } from "../lib/liveSessions";
 import LivePanel, { type LiveTab, normalizeLiveTab } from "./LivePanel";
 import { modeOf } from "../lib/tradingMode";
 import { SessionChip } from "./ModeControl";
-import WalletTokenPanel from "./WalletTokenPanel";
-import WalletPanel from "./WalletPanel";
-import WalletFundingPanel from "./WalletFundingPanel";
-import PolymarketAccountPanel from "./PolymarketAccountPanel";
+import { OPEN_MONEY_EVENT } from "./MoneyBlock";
+import { templateIndex, templateRoster, traderIndexTemplate } from "../lib/defaultStrats";
+import { isTraderIndex } from "../lib/traderIndex";
+import IndexScaleCard from "./IndexScaleCard";
 
 // ══════════════════════════════════════════
-// ── Subtab rail — second-level nav under the main BACKTEST / TRADE tabs.
-//    WALLET lives HERE (under TRADE) instead of eating a main tab: it funds
-//    the engine, so it sits next to the engine.
+// ── Subtab rail — second-level nav under the main TEST / TRADE tabs.
+//
+//    There is NO WALLET stop on this rail any more. Topping up and taking
+//    money out live in the SIDE PANEL (components/MoneyBlock.tsx), reachable
+//    from every screen with the column already open — money is a drawer, not
+//    a destination, and a funding form parked inside the engine's own tab rail
+//    made "add money" something you navigated AWAY from your session to do.
+//    LIVE's FUND NOW banner now dispatches OPEN_MONEY_EVENT, which opens that
+//    drawer over whatever you were looking at.
 //
 //    Each main tab gets its own accent, but note what those accents are NOT:
 //    they are wayfinding, not mode. "Is the money real?" is answered only by
@@ -62,7 +75,7 @@ import PolymarketAccountPanel from "./PolymarketAccountPanel";
 // ══════════════════════════════════════════
 type MainTab = "BACKTEST" | "LIVE";
 type BacktestSub = "results" | "trades";
-type LiveSub = LiveTab | "wallet";
+type LiveSub = LiveTab;
 
 const SUBTABS: Record<MainTab, { id: string; glyph: string; label: string; title: string }[]> = {
   BACKTEST: [
@@ -74,18 +87,15 @@ const SUBTABS: Record<MainTab, { id: string; glyph: string; label: string; title
     // of a single question ("is it working, and did anything reach my
     // wallet?") that could never be on screen together. See LivePanel.
     { id: "desk", glyph: "◔", label: "DESK", title: "Equity curve · engine vitals · every trade — mine vs the traders I copy, copied vs filtered out" },
-    { id: "wallet", glyph: "$", label: "WALLET", title: "Deposit / withdraw / bridge — the wallet the engine trades through" },
     { id: "help", glyph: "?", label: "HELP", title: "Which wallet do I use?" },
   ],
 };
 
 // Active-pill accents (static strings — Tailwind can't see computed classes).
-// WALLET always glows amber ($$$) no matter which mode owns it.
 const SUB_ACCENT: Record<MainTab, string> = {
   BACKTEST: "border-amber-400/60 text-amber-400 bg-amber-400/[0.08] shadow-[0_0_16px_rgba(251,191,36,0.25)]",
   LIVE: "border-cyan-400/60 text-cyan-300 bg-cyan-400/[0.08] shadow-[0_0_16px_rgba(34,211,238,0.25)]",
 };
-const WALLET_ACCENT = "border-amber-400/60 text-amber-400 bg-amber-400/[0.08] shadow-[0_0_16px_rgba(251,191,36,0.25)]";
 
 // Main-tab accents mirror the subtab rail's per-screen tones so BACKTEST and
 // TRADE read as two distinct places from the top row alone.
@@ -259,12 +269,18 @@ function computeBacktest(
   const traderVol = Math.max(buyVolume, sellVolume, 1);
   const copyRatio = capital / traderVol;
   const totalNotional = (buyVolume + sellVolume) * copyRatio;
-  // Polymarket fee uses min(price, 1-price) per trade; approximate as avg ~40% of notional
+  // Real taker fees, at each market's OWN rate — measured off this trader's
+  // own fills where their `usdcSize` reveals it, inferred from the market's
+  // category where it doesn't (lib/fees.ts).
+  const feeBook = new FeeBook().observeAll(windowTrades);
   const totalFees = windowTrades.reduce((sum, t) => {
-    const mirrorShares = t.size * copyRatio;
-    return sum + mirrorShares * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000);
+    const rate = feeBook.rateFor(t.conditionId, t.market, t.slug);
+    return sum + takerFeeUsd(t.size * copyRatio, t.price, rate);
   }, 0);
-  const totalGas = windowTrades.length * GAS_PER_TRADE_USD;
+  // Gas is per DEPLOYMENT, not per trade: fills are relayer-matched. One
+  // wallet deploy + approvals + funding, at the fallback Polygon quote (this
+  // estimate is synchronous; the full sim uses a live quote).
+  const totalGas = sessionGasUsd(NEW_DEPLOYMENT_GAS_OPS);
   // Scale PnL to simulated capital (matches the ROI metric)
   const scaledPnl = estimatedPnl * copyRatio;
   const pnlAfterCosts = scaledPnl - totalFees - totalGas;
@@ -274,8 +290,10 @@ function computeBacktest(
     const traderNotional = t.price * t.size;
     const mirrorNotional = Math.round(traderNotional * copyRatio * 100) / 100;
     const mirrorSize = Math.round(t.size * copyRatio * 100) / 100;
-    const fee = Math.round(mirrorSize * Math.min(t.price, 1 - t.price) * (TAKER_FEE_BPS / 10_000) * 100) / 100;
-    const gas = GAS_PER_TRADE_USD;
+    const fee = Math.round(
+      takerFeeUsd(mirrorSize, t.price, feeBook.rateFor(t.conditionId, t.market, t.slug)) * 100,
+    ) / 100;
+    const gas = 0; // relayer-matched fill — see `totalGas` above
     const netCost = t.side === "BUY"
       ? Math.round((mirrorNotional + fee + gas) * 100) / 100
       : Math.round((mirrorNotional - fee - gas) * 100) / 100;
@@ -438,6 +456,12 @@ function AddTraderBar({ watchlist, onAdd }: { watchlist: string[]; onAdd: (addr:
 interface CopyIndexProps {
   searchFilter: string;
   compact?: boolean;
+  /** Pin the workspace to one screen and hide the internal TEST|LIVE row.
+      BACKTEST and LIVE are top-level tabs in the global nav now — a second
+      switch inside the panel is the same choice offered twice, and the two
+      drift apart the moment one of them remembers a position. Routes pass
+      this; nothing else should. */
+  forcedMode?: MainTab;
 }
 
 // Labeled input/select group used across the backtest controls. Renders a
@@ -491,7 +515,7 @@ function ParamGroup({
   );
 }
 
-export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
+export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyIndexProps) {
   const router = useRouter();
   const filterQs = useFilterParams({ excludeSearch: true });
   const { localToken, auth } = useAuth();
@@ -619,13 +643,15 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // ── Weights (local state, persisted on change) ──
   const [traderWeights, setTraderWeights] = useState<Record<string, number>>({});
 
-  // ── Mode toggle (BACKTEST = test, LIVE = copy) ──
-  // Land on TEST: it always has content (a strat + a window is enough),
-  // unlike LIVE which is blank until a wallet's connected and an engine is
-  // running. The LIVE tab badges itself RUNNING so a live session is still
-  // obvious at a glance from here. The strat itself isn't a mode any more —
-  // it's the panel above, open or collapsed over both tabs.
-  const [mode, setMode] = useState<MainTab>("BACKTEST");
+  // ── Which screen this is (BACKTEST = replay history, LIVE = run it) ──
+  // Normally the ROUTE decides: /backtest and /live are two of the console's
+  // three tabs and each pins this with `forcedMode`. The local state is the
+  // fallback for anywhere the workspace is rendered without a route saying
+  // which half it is; it lands on TEST because that always has content, while
+  // LIVE is blank until a wallet is connected and an engine is running.
+  const [localMode, setLocalMode] = useState<MainTab>("BACKTEST");
+  const mode = forcedMode ?? localMode;
+  const setMode = setLocalMode;
 
   // ── Subtabs — one remembered position per main tab, so flipping
   // TEST → LIVE → TEST lands back where you were. Read after mount
@@ -655,7 +681,10 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       // portfolio / stats / trades / positions all folded into DESK — migrate
       // any persisted value so an old entry doesn't select a dead subtab.
       // WALLET and HELP are unaffected.
-      const lsMapped = ls === "wallet" || ls === "help" ? ls : normalizeLiveTab(ls);
+      // A persisted "wallet" is a pointer at a subtab that no longer exists
+      // (it moved to the side panel) — land on the DESK rather than on a
+      // blank screen.
+      const lsMapped = ls === "help" ? ls : normalizeLiveTab(ls === "wallet" ? "desk" : ls);
       if (ls) setLiveSub(lsMapped as LiveSub);
     } catch { /* storage unavailable — keep defaults */ }
   }, []);
@@ -780,18 +809,17 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       } catch {}
     }
 
-    // Always ensure at least one strat exists
+    // Always ensure at least one strat exists — and make it the console's
+    // DEFAULT one. This used to mint a nameless `{name: "Default", traders:
+    // []}` shell whose every param was an engine fallback, so a first-time
+    // user's first backtest described a strategy nobody had chosen. Now it is
+    // a TRADER INDEX: the shelf's default recipe, sized off the ratio between
+    // your capital and each leader's (lib/traderIndex.ts). `templateIndex`
+    // materializes exactly what forking that card on the STRATS board would
+    // give you, so the two entry points cannot produce different strategies.
     let seeded: SavedIndex | null = null;
     if (indexes.length === 0) {
-      const now = Date.now();
-      const def: SavedIndex = {
-        id: now.toString(36),
-        name: "Default",
-        traders: [],
-        backtestDays: 3,
-        createdAt: now,
-        updatedAt: now,
-      };
+      const def = templateIndex(traderIndexTemplate());
       saveIndex(def);
       indexes = [def];
       seeded = def;
@@ -804,14 +832,12 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     setActiveIndex(active);
     setActiveIndexId(active.id);
 
-    // Brand-new strat with nobody on it — seed it with the top 10 traders
-    // matching the current leaderboard filters instead of leaving it at 0
-    // traders (which used to render an empty "NO TRADES" feed by default).
+    // Brand-new strat with nobody on it — seed it from the TEMPLATE's own
+    // roster rule (top traders of the last week), not from whatever the
+    // leaderboard browser happens to be filtered to. A default strat whose
+    // bench depends on a filter the user hasn't touched yet is not a default.
     if (seeded) {
-      fetchTopTraderAddresses(
-        { days: browseDays, minPerDay: browseMinTradesPerDay, category: browseCategory, marketQuery: browseMarketQuery },
-        10,
-      ).then((addrs) => {
+      templateRoster(traderIndexTemplate()).then((addrs) => {
         if (addrs.length === 0) return;
         const traders = equalWeightTraders(addrs);
         updateIndex(seeded!.id, { traders, updatedAt: Date.now() });
@@ -1484,23 +1510,59 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   };
 
 
+  // ── MARKET SENTIMENT ──
+  // The bench's own BUYs inside the market gate — the sample the sentiment
+  // card previews against, and the set the book is warmed for. Sentiment
+  // gates ENTRIES, exactly like the rest of the trade filter, so exits are
+  // not in the sample and never in the fetch.
+  const sentimentSample = useMemo(() => {
+    // Clamped to the REPLAY WINDOW, not to everything cached. `traderTrades`
+    // holds up to 30 days; one price-history request spans at most 14
+    // (`MAX_HISTORY_SPAN_MS`), so asking about the whole cache would put most
+    // of the sample outside anything the tape can answer and paint a honest
+    // but useless "COVERAGE 0%". The window is also the flow this preview is
+    // actually about.
+    const cutoff = Date.now() - backtestDays * 86400_000;
+    const out: PolymarketTrade[] = [];
+    for (const addr of watchlist) {
+      for (const t of traderTrades.get(addr) || []) {
+        if (t.side !== "BUY") continue;
+        if (t.timestamp < cutoff) continue;
+        if (!marketMatchesQuery(t.market, marketQuery)) continue;
+        out.push(t);
+      }
+    }
+    return out;
+  }, [watchlist, traderTrades, marketQuery, backtestDays]);
+
+  // Warms only when a sentiment gate is actually on — an unused dimension
+  // costs zero price-history requests. Each trade is read AT ITS OWN
+  // timestamp, so the preview is the reading the live engine would have taken
+  // at the moment it saw the trade, not today's mood applied to last week.
+  const sentiment = useSentimentBook(sentimentSample, tradeFilters.sentiment);
+  const filterCtx = useMemo(
+    () => ({ sentiment: sentiment.book.lookup }),
+    [sentiment.book],
+  );
+
   // ── Backtests ──
   const backtests = useMemo((): TraderBacktest[] => {
     return watchlist.map((addr) => {
       // Honor BOTH strat gates so the preview P&L reflects only the flow the
       // live strat would actually copy: the market-topic query, and the
-      // semantic per-trade filter (side / entry price / size / category).
+      // semantic per-trade filter (side / entry price / size / category /
+      // market sentiment).
       // The trade filter gates ENTRIES only — same as the live engine, which
       // keeps every leader SELL so exits always clear. computeBacktest then
       // drops SELLs with no surviving BUY behind them, so filtering out a BUY
       // takes its exit with it.
       const trades = (traderTrades.get(addr) || [])
         .filter((t) => marketMatchesQuery(t.market, marketQuery))
-        .filter((t) => t.side !== "BUY" || tradeMatchesFilters(t, tradeFilters));
+        .filter((t) => t.side !== "BUY" || tradeMatchesFilters(t, tradeFilters, filterCtx));
       const positions = traderData.get(addr) || [];
       return computeBacktest(trades, positions, backtestDays, addr, capital, rebalancePeriod, rebalanceHour);
     }).sort((a, b) => b.estimatedPnl - a.estimatedPnl);
-  }, [watchlist, traderTrades, traderData, backtestDays, capital, rebalancePeriod, rebalanceHour, marketQuery, tradeFilters]);
+  }, [watchlist, traderTrades, traderData, backtestDays, capital, rebalancePeriod, rebalanceHour, marketQuery, tradeFilters, filterCtx]);
 
   const totalBacktestPnl = backtests.reduce((s, b) => s + b.estimatedPnl, 0);
   // Only sum weights of enabled traders
@@ -1544,9 +1606,15 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       // mirror, so the tab showed a momentum strat doing nothing while its
       // live session traded every cycle — the same gap the hub card had.
       ...(activeIndex?.momentum && { momentum: activeIndex.momentum }),
-    }),
+    })
+      // The MARKET SENTIMENT readings. The strat's gate is synchronous, so the
+      // price history is fetched above (`useSentimentBook`) and attached here
+      // as a lookup — this is what makes the replay honor the sentiment gate
+      // the live engine enforces instead of quietly ignoring it.
+      .withSentiment(sentiment.book.lookup),
     [maxPerCycle, marketQuery, tradeFilters, traderFilter, minMinutesToClose,
-     maxUpscale, activeIndex?.sizing, activeIndex?.turnover, activeIndex?.momentum],
+     maxUpscale, activeIndex?.sizing, activeIndex?.turnover, activeIndex?.momentum,
+     sentiment.book],
   );
 
   // ── The ORIGINATION price tape ──
@@ -1636,6 +1704,19 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
   // top-N rank race → the simulated-wallet replay. The HUB replays every
   // saved strat through this same function, so a card's number and this tab's
   // number are produced by the same code, not by two copies of it.
+  // ── Live Polygon gas price ──
+  // Fetched once per mount. The cost model works without it (there is a
+  // labelled fallback quote), so nothing waits on this — it just upgrades the
+  // GAS line from "estimate" to "measured" when it lands.
+  const [gasQuote, setGasQuote] = useState<GasQuote | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    fetchGasQuote()
+      .then((q) => { if (live) setGasQuote(q); })
+      .catch(() => { /* the fallback quote is already in play */ });
+    return () => { live = false; };
+  }, []);
+
   const backtest = useMemo(() => runBacktest({
     watchlist,
     traderTrades,
@@ -1662,13 +1743,16 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
     sizing: activeIndex?.sizing,
     turnover: activeIndex?.turnover,
     resolved: resolvedLegs,
+    // Live Polygon gas price + POL price, so the GAS line is a real number
+    // rather than a constant. Falls back to a labelled estimate until it lands.
+    gasQuote,
     // Origination replay input — undefined for copy strats.
     tape: priceTape,
   }), [watchlist, traderTrades, traderData, traderWeights, traderBankrolls, backtestStrat,
        backtestDays, capital, minTrade, maxTrade, maxOpenPositions, stopLossPct, takeProfitFrac,
        marketQuery, activeIndex?.livePollMinutes, rebalanceMinutes, rebalancePeriod,
        rebalanceHour, samplePct, showAllTrades, loading, activeIndex?.sizing,
-       activeIndex?.turnover, resolvedLegs, priceTape]);
+       activeIndex?.turnover, resolvedLegs, gasQuote, priceTape]);
 
   const traderCopyRatio = backtest.copyRatio;
   const backtestHistory = backtest.history;
@@ -1974,20 +2058,25 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
 
           {stratOpen && (
           <>
-          {/* ── LEADER — who this workspace copies ──
-              Read-only, and that is the point. This used to be a watchlist
-              editor: a leaderboard browser, an add bar, N trader rows with
-              weight sliders that had to sum to 100, plus EQ / NORM / PRUNE /
-              RESET. A strat was a basket, and copying one person was the
-              basket with a single name in it.
-              The console only copies ONE person now. The leader IS the row's
-              identity — it is in the URL, in the strat id (`copy-<address>`),
-              in the engine's session key and in the ledger bucket — so it is
-              not editable here: changing it would be asking for a different
-              row. Copy someone else and they get their own workspace. */}
+          {/* ── WHO THIS COPIES ──
+              A readout, not the editor. Picking WHO goes on the bench is the
+              TRADERS tab's whole job — this row shows the result, drops a name
+              you regret (✕), and the quick-add bar below takes an address you
+              already have. There are no weight sliders any more: an index is
+              equal-weight and the sizing that matters is the ratio between
+              your capital and each leader's book, not a hand-tuned percentage.
+
+              Two shapes, one row. An IDENTITY strat (a copy-desk row) copies
+              exactly one person and that person IS its identity — in the URL,
+              in the strat id (`copy-<address>`), in the engine's session key
+              and in the ledger bucket. A TRADER INDEX copies a bench, each
+              name weighted, every mirror sized by this capital against THEIR
+              book. Both are ordinary strats to everything downstream. */}
           <div className="border-t border-pixel-border/40 pt-2.5">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <span className="text-[11px] font-bold text-pixel-white tracking-[0.26em]">LEADER</span>
+              <span className="text-[11px] font-bold text-pixel-white tracking-[0.26em]">
+                {leaderAddress ? "LEADER" : "BENCH"}
+              </span>
               {leaderAddress ? (
                 <>
                   <button
@@ -2014,14 +2103,48 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                     copy desk →
                   </Link>
                 </>
+              ) : watchlist.length > 0 ? (
+                // A trader INDEX. Every name, clickable, in weight order —
+                // capital is split across them and each one's mirrors are
+                // sized against their own book (see the SCALE card below).
+                <>
+                  {watchlist.slice(0, 12).map((addr) => (
+                    <span key={addr} className="group inline-flex items-center gap-1">
+                      <button
+                        onClick={() => goToTrader(addr)}
+                        className="font-mono text-[12px] text-green-400 hover:text-pixel-white transition-colors"
+                        title={`${addr} — their own trading record`}
+                      >
+                        {shortAddress(addr)}
+                      </button>
+                      <button
+                        onClick={() => removeTrader(addr)}
+                        className="text-[11px] text-pixel-gray hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Drop this trader — the rest re-weight evenly"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                  {watchlist.length > 12 && (
+                    <span className="font-mono text-[11px] text-pixel-gray">
+                      +{watchlist.length - 12} more
+                    </span>
+                  )}
+                  <span className="flex-1" />
+                  <Link
+                    href="/traders"
+                    className="text-[11px] font-mono text-pixel-gray hover:text-green-400"
+                    title="Add or drop traders on this index"
+                  >
+                    edit the bench →
+                  </Link>
+                </>
               ) : (
-                // Only reachable when a pre-archive multi-trader strat is
-                // still the active id in localStorage. Say so plainly rather
-                // than render an editor for a shape nothing runs any more.
                 <span className="text-[11px] font-mono text-amber-400">
-                  this strat isn&apos;t a single-trader copy —{" "}
-                  <Link href="/copy" className="underline">
-                    open the copy desk
+                  nobody on the bench —{" "}
+                  <Link href="/traders" className="underline">
+                    pick some traders
                   </Link>
                 </span>
               )}
@@ -2414,6 +2537,25 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 </span>
               </ParamGroup>
 
+              {/* MARKET SENTIMENT — the third gate, and the only one that
+                  asks about the MARKET rather than the trade: which way had
+                  the crowd moved the odds on the outcome they bought when
+                  they bought it. Off by default and free when off; when on,
+                  the card prints what it would keep and how much of the flow
+                  it can read before anything is armed. */}
+              <ParamGroup
+                title="MARKET SENTIMENT"
+                hint="copy them only when the crowd was moving a particular way"
+                className="lg:col-span-2"
+              >
+                <SentimentCard
+                  value={tradeFilters.sentiment}
+                  onChange={(next: SentimentFilter | undefined) => patchTradeFilters({ sentiment: next })}
+                  state={sentiment}
+                  sampleLabel={`${backtestDays}d of bench entries`}
+                />
+              </ParamGroup>
+
               {/* No TRADER FILTER card here. It ranked the watched traders
                   every scan and copied only the top N — a gate on WHICH of
                   many leaders to mirror. With exactly one leader it can only
@@ -2440,6 +2582,21 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                   }}
                 />
               </ParamGroup>
+
+              {/* ── YOUR SCALE ──
+                  Only on a TRADER INDEX, and only there because on a
+                  conviction-sized strat the leader's net worth is not the
+                  denominator and the card would be describing arithmetic the
+                  engine isn't doing. This is the strategy made legible: the
+                  ratio between this capital and each leader's book, what one
+                  of their trades becomes at that ratio, and which of their
+                  trades never reach you at this size. See
+                  components/IndexScaleCard.tsx. */}
+              {activeIndex && isTraderIndex(activeIndex) && (
+                <div className="lg:col-span-2">
+                  <IndexScaleCard strat={activeIndex} capital={capital} />
+                </div>
+              )}
             </div>
           </div>
           </>
@@ -2457,11 +2614,14 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
           `src/_archive` if that changes back. */}
 
       {/* ── Header: main tabs + subtab rail ──
-          Two-level nav: BACKTEST / TRADE on top, a contextual subtab rail
-          below (the strat is the panel above, not a tab). Wallet/token/QR +
-          trading wallet + funding live under TRADE → WALLET ($ pill). */}
+          The main TEST / LIVE row only renders when nothing upstream has
+          already picked a side. Under the three-tab console it never does:
+          BACKTEST and LIVE are routes, the global nav is the switch, and all
+          that is left here is the contextual subtab rail. Money is not here
+          at all — topping up and taking out live in the side panel. */}
       <div className="pixel-panel px-3 py-2 space-y-2">
         {/* Tabs */}
+        {!forcedMode && (
         <div className="flex items-center gap-2">
           {(
             [
@@ -2481,13 +2641,14 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
               // and "test trading" could mean either a backtest or a dry run
               // depending on who you asked.
               //
-              // Now: BACKTEST replays history, TRADE runs the engine, and
-              // whether the engine's money is real is the TEST|LIVE switch
-              // inside it (mirrored on the chip below). Ids are unchanged —
-              // they key the accent maps, the localStorage subtab keys and
-              // every mode check in this file.
-              { id: "BACKTEST", label: "BACKTEST", disabled: false },
-              { id: "LIVE", label: "TRADE", disabled: false },
+              // Now: TEST replays history, LIVE runs the engine, and whether
+              // the engine's money is real is the DRY RUN|REAL switch inside
+              // it (mirrored on the chip below). Ids are unchanged — they key
+              // the accent maps, the localStorage subtab keys and every mode
+              // check in this file — so `id: "BACKTEST"` reading TEST is
+              // deliberate, not a leftover.
+              { id: "BACKTEST", label: "TEST", disabled: false },
+              { id: "LIVE", label: "LIVE", disabled: false },
             ] as { id: MainTab; label: string; disabled: boolean }[]
           ).map((t) => {
             const active = mode === t.id;
@@ -2528,17 +2689,20 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
           })}
 
         </div>
+        )}
 
         {/* ── Subtab rail — contextual second row, re-animates on mode swap
             (key={mode}). Pills carry the mode's accent; WALLET is always
             amber. Right side echoes free cash + next-cycle countdown while
             the engine runs, so no subtab ever hides the numbers that
             matter minute-to-minute. */}
-        <div className="h-px -mx-1 bg-gradient-to-r from-transparent via-pixel-border/80 to-transparent" />
+        {!forcedMode && (
+          <div className="h-px -mx-1 bg-gradient-to-r from-transparent via-pixel-border/80 to-transparent" />
+        )}
         <div key={mode} className="subtab-rail flex items-center gap-1.5 flex-wrap">
           {SUBTABS[mode].map((s) => {
             const active = activeSub === s.id;
-            const accent = s.id === "wallet" ? WALLET_ACCENT : SUB_ACCENT[mode];
+            const accent = SUB_ACCENT[mode];
             return (
               <button
                 key={s.id}
@@ -2576,33 +2740,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
 
       </div>
 
-      {/* ── LIVE → WALLET subtab ──
-          The MONEY panel (one flow for deposit / withdraw / send) is the
-          hero, full width at the top — LIVE's FUND NOW banner jumps here
-          via onFundNow. Session pairing, cross-chain bridging and the
-          legacy V1 Safe are secondary and sit in a grid below it.
-          Renders regardless of watchlist — you can fund before you copy. */}
-      {mode === "LIVE" && liveSub === "wallet" && (
-        <div className="space-y-2 max-w-[1100px]">
-          {/* ONE money panel: both balances, one amount, one button. */}
-          <div id="sidebar-wallet-panel">
-            <WalletPanel />
-          </div>
-          <div className="grid md:grid-cols-2 gap-2 items-start">
-            <div className="space-y-2 min-w-0">
-              {/* Full wallet + token + sign-in-QR pairing panel. */}
-              <WalletTokenPanel />
-            </div>
-            <div className="space-y-2 min-w-0">
-              {/* Bridge / send funds into Polygon USDC from any chain. */}
-              <WalletFundingPanel />
-              {/* Legacy V1 Safe — only renders once there's a leftover balance. */}
-              <PolymarketAccountPanel />
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* The money panels used to render HERE, as a LIVE → WALLET subtab.
+          They are in the SIDE PANEL now (components/MoneyBlock.tsx) — see the
+          subtab-rail note at the top of this file. */}
 
       {/* ── Add trader bar (TEST — the strat panel above has its own) ──
           Hidden for origination strats: they copy nobody, so a permanent
@@ -2627,11 +2767,9 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
       {/* ── Active view ── */}
       {activeIndex && (
         <>
-          {/* Empty trader state — suppressed for ORIGINATION strats (they are
-              complete with zero traders) and under LIVE → WALLET, where the
-              screen is about funding rather than about who is copied. */}
-          {watchlist.length === 0 && !originates &&
-            !(mode === "LIVE" && liveSub === "wallet") && (
+          {/* Empty trader state — suppressed for ORIGINATION strats, which are
+              complete with zero traders. */}
+          {watchlist.length === 0 && !originates && (
             // Real empty state, not a nag line: the panel is the CTA. The old
             // copy pointed at a breadcrumb ("ADD TRADERS FROM PARAMS →
             // TRADERS + PARAMS") that named the panel it was sitting under,
@@ -2648,16 +2786,15 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 </svg>
               </div>
               <div className="font-display text-[15px] font-semibold tracking-[0.08em] text-pixel-white">
-                NO LEADER
+                NOBODY ON THE BENCH
               </div>
               <div className="text-[12.5px] leading-5 text-pixel-gray-light max-w-[46ch]">
-                This workspace copies one trader, and it hasn&apos;t got one.
-                That means a strat saved before the console narrowed to
-                single-trader copying is still selected. Pick a leader off the
-                desk and this fills in.
+                This strat copies traders and it hasn&apos;t got any, so a test
+                would replay an empty tape and a live session would sit idle.
+                Put some names on it and everything below fills in.
               </div>
               <Link
-                href="/copy"
+                href="/traders"
                 className="mt-1 rounded-[var(--radius)] px-4 py-2 text-[12px] font-bold tracking-[0.1em] transition-all hover:brightness-110 hover:-translate-y-px active:translate-y-0"
                 style={{
                   color: "#06130c",
@@ -2665,11 +2802,11 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                   boxShadow: "0 1px 0 rgba(255,255,255,0.25) inset, 0 8px 22px -10px rgb(var(--accent) / 0.55)",
                 }}
               >
-                OPEN THE COPY DESK
+                FIND TRADERS
               </Link>
               {mode === "BACKTEST" && (
                 <div className="text-[11px] text-pixel-gray tracking-wider">
-                  A BACKTEST REPLAYS HISTORY ON SIMULATED FUNDS — NO WALLET OR DEPOSIT NEEDED.
+                  A TEST REPLAYS HISTORY ON SIMULATED FUNDS — NO WALLET OR DEPOSIT NEEDED.
                 </div>
               )}
             </div>
@@ -2897,6 +3034,7 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
                 amount: volume,
                 fees,
                 gas,
+                breakdown: backtestSim.costs,
                 txs: linkedTrades.length,
                 gross: grossPnl,
                 skipped,
@@ -3197,11 +3335,13 @@ export default function CopyIndex({ searchFilter, compact }: CopyIndexProps) {
 
           {/* ── Live Panel — controlled by the header's subtab rail; the
               WALLET subtab renders its own panels above instead. ── */}
-          {mode === "LIVE" && liveSub !== "wallet" && (watchlist.length > 0 || originates) && (
+          {mode === "LIVE" && (watchlist.length > 0 || originates) && (
             <LivePanel
               tab={liveSub}
               onTabChange={(t) => pickSub("LIVE", t)}
-              onFundNow={() => pickSub("LIVE", "wallet")}
+              // Open the MONEY drawer over this screen instead of navigating
+              // away from a running session to a funding tab.
+              onFundNow={() => window.dispatchEvent(new Event(OPEN_MONEY_EVENT))}
             />
           )}
         </>

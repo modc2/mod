@@ -125,6 +125,12 @@ export interface TapeCoverage {
 export interface HubBacktest {
   /** Net PnL of the replay ($) — costs modeled exactly as the live engine. */
   pnl: number;
+  /** Polymarket taker fees the replay paid, and what they came to in basis
+      points of the notional it traded. `pnl` is already net of these; they are
+      carried so a card can say WHY a busy strat with a real edge still lost.
+      Absent on snapshots written before fees were priced (which booked 0). */
+  fees?: number;
+  feeBps?: number;
   /** pnl as a % of the paper capital the replay started with. */
   roi: number;
   trades: number;
@@ -428,6 +434,8 @@ export async function backtestOne(
   return {
     pnl: sim.netPnl,
     roi: roiOf(sim.netPnl),
+    fees: sim.fees,
+    feeBps: Math.round(sim.costs.effectiveBps),
     trades: sim.rows.length,
     skipped: sim.skipped,
     funnel: sim.funnel,

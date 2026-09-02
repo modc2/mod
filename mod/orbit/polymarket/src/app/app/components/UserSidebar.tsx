@@ -9,11 +9,17 @@
 // eight strategies is selected" but "whose trades am I copying, with how
 // much, and would that much have worked".
 //
-// Two blocks, in the order the decision is made:
+// Three blocks, in the order the decision is made:
 //
 //   ACCOUNT  (AccountsPanel)  — every wallet this browser has signed in as and
 //                               the USDC each holds. It carries the column's
 //                               × close, so the user block IS the header.
+//   MONEY    (MoneyBlock)     — topping up and taking money back out. It was a
+//                               subtab of the live workspace, which put funding
+//                               a navigation away from every screen that needed
+//                               it; money is a drawer, not a destination. Any
+//                               screen that finds itself short fires
+//                               OPEN_MONEY_EVENT and this opens over it.
 //   COPY     (CopyPanel)      — the copy book: pick a leader, set the dollars
 //                               behind them, replay $N over the last M days,
 //                               start or stop each one.
@@ -39,6 +45,7 @@ import { usePathname } from "next/navigation";
 import { useEmbedded } from "../lib/embedded";
 import AccountsPanel, { OPEN_ACCOUNTS_EVENT } from "./AccountsPanel";
 import CopyPanel from "./CopyPanel";
+import MoneyBlock, { OPEN_MONEY_EVENT } from "./MoneyBlock";
 import DeskRoster from "./DeskRoster";
 import SelectionTray from "./SelectionTray";
 
@@ -89,13 +96,18 @@ export default function UserSidebar() {
   useEffect(() => {
     const onOpen = () => { setAccountsWanted(true); setDrawer(true); };
     // Open WITHOUT forcing the accounts block — the caller wants the column
-    // (the selection tray, the copy book), not the wallet list.
+    // (the selection tray, the copy book, the money panel), not the wallet
+    // list. MoneyBlock listens for OPEN_MONEY_EVENT itself and expands; this
+    // only has to make sure there is a column for it to expand INSIDE, which
+    // is why the same event is handled in both places rather than relayed.
     const onOpenPlain = () => setDrawer(true);
     window.addEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
     window.addEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
+    window.addEventListener(OPEN_MONEY_EVENT, onOpenPlain);
     return () => {
       window.removeEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
       window.removeEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
+      window.removeEventListener(OPEN_MONEY_EVENT, onOpenPlain);
     };
   }, [setDrawer]);
 
@@ -136,6 +148,9 @@ export default function UserSidebar() {
     <>
       <AccountsPanel initialExpanded={accountsWanted} onClose={() => setDrawer(false)} />
       <div className="flex-1 overflow-y-auto">
+        {/* Money first, under the wallet it belongs to: top up, take out.
+            Collapsed to one line until you want it. */}
+        <MoneyBlock />
         {/* The finder's checked shortlist — replayed, sized and committed
             right here. Renders nothing while nothing is checked. */}
         <SelectionTray />
@@ -183,7 +198,7 @@ export default function UserSidebar() {
         onClick={() => setDrawer(!open)}
         aria-expanded={open}
         aria-label="Side panel"
-        title={`${open ? "Hide" : "Show"} the side panel — your wallets, and who you copy`}
+        title={`${open ? "Hide" : "Show"} the side panel — your wallets, your money, and who you copy`}
         className={`flex items-center px-2 py-2 rounded-[var(--radius-sm)] transition-colors shrink-0 ${
           open ? "bg-pixel-white/[0.06] text-green-400" : "text-pixel-gray hover:bg-pixel-white/[0.06]"
         }`}

@@ -171,6 +171,12 @@ export interface Sleeve {
   pct: number;
   endEquity: number;
   volume: number;
+  /** Polymarket taker fees this sleeve paid, and what they came to in basis
+      points of the notional it traded. A leader whose flow lives in 7% crypto
+      markets is a more expensive sleeve than one in fee-free geopolitics at
+      the same P&L — this is where that shows up. */
+  fees: number;
+  feeBps: number;
   trades: number;
   /** Leader BUYs the gate saw, and how many were actually mirrored. */
   observed: number;
@@ -220,7 +226,7 @@ export function summarizeSleeve(
   if (!result) {
     return {
       address: leg.address, label: name, allocationUsd: leg.allocationUsd, weight,
-      net: 0, pct: 0, endEquity: leg.allocationUsd, volume: 0, trades: 0,
+      net: 0, pct: 0, endEquity: leg.allocationUsd, volume: 0, fees: 0, feeBps: 0, trades: 0,
       observed: 0, executed: 0, skipped: 0, ratio: 0, drawdown: 0, confidence: 1,
       note: leg.allocationUsd > 0 ? "no trade history for this leader yet" : "no dollars behind this leg",
       markets: [], equity: [], markers: [],
@@ -237,6 +243,8 @@ export function summarizeSleeve(
     pct: leg.allocationUsd > 0 ? (sim.netPnl / leg.allocationUsd) * 100 : 0,
     endEquity: sim.cash + sim.posValue,
     volume: sim.volume,
+    fees: sim.fees,
+    feeBps: sim.costs.effectiveBps,
     trades: sim.rows.length,
     observed: sim.funnel.observed,
     executed: sim.funnel.executed,
@@ -312,6 +320,10 @@ export interface BasketPortfolio {
   pct: number;
   endEquity: number;
   volume: number;
+  /** Taker fees across every sleeve, and what they came to in basis points of
+      the basket's traded notional. */
+  fees: number;
+  feeBps: number;
   trades: number;
   observed: number;
   executed: number;
@@ -381,6 +393,12 @@ export function assemblePortfolio(sleeves: Sleeve[]): BasketPortfolio {
     pct: capital > 0 ? (net / capital) * 100 : 0,
     endEquity: capital + net,
     volume: sleeves.reduce((s, x) => s + x.volume, 0),
+    fees: sleeves.reduce((s, x) => s + x.fees, 0),
+    feeBps: (() => {
+      const vol = sleeves.reduce((s, x) => s + x.volume, 0);
+      const fee = sleeves.reduce((s, x) => s + x.fees, 0);
+      return vol > 0 ? (fee / vol) * 10_000 : 0;
+    })(),
     trades: sleeves.reduce((s, x) => s + x.trades, 0),
     observed: sleeves.reduce((s, x) => s + x.observed, 0),
     executed: sleeves.reduce((s, x) => s + x.executed, 0),

@@ -20,6 +20,10 @@ import { fetchPositions, fetchUserTrades, type GlobalTrade } from "../lib/polyma
 import { fetchLiveSessions } from "../lib/liveSessions";
 import { loadIndexes } from "../lib/indexStore";
 import { computeFifoTrades } from "../lib/pnlEngine";
+import {
+  CostLedger, FALLBACK_GAS_QUOTE, FeeBook, NEW_DEPLOYMENT_GAS_OPS, fetchGasQuote,
+  sessionGasUsd, type GasQuote,
+} from "../lib/fees";
 import type { PolymarketPosition, PolymarketTrade } from "../lib/types";
 import { type EquitySnapshot, type EquityMarker } from "./EquityChart";
 import PerfPanel from "./PerfPanel";
@@ -521,15 +525,51 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
     return { delta: total - start, since: first.t, start };
   }, [history, total]);
 
-  // Executed notional + friction, on the SAME zero-fee model the backtest
-  // books (CLOB charges no fee at fee_rate_bps 0; proxy trades are
-  // relayer-paid). Keeping the model identical is what lets the two panels'
-  // cost rows be compared at all — see PerfPanel's header comment.
+  // Live Polygon gas price, so the GAS line is measured rather than assumed.
+  const [gasQuote, setGasQuote] = useState<GasQuote>(FALLBACK_GAS_QUOTE);
+  useEffect(() => {
+    let live = true;
+    fetchGasQuote()
+      .then((q) => { if (live) setGasQuote(q); })
+      .catch(() => { /* the labelled fallback stays */ });
+    return () => { live = false; };
+  }, []);
+
+  // Executed notional + friction, through the SAME cost model the backtest
+  // books (lib/fees.ts). Keeping the model identical is what lets the two
+  // panels' cost rows be compared at all — see PerfPanel's header comment.
+  //
+  // These are MY fills, so where the feed reports the USDC that actually moved
+  // the fee is not modelled at all: it is the difference between that and
+  // `price x size`, to the cent. Where it doesn't, the market's category
+  // prices it, and the COSTS drawer says which happened.
   const costs = useMemo(() => {
-    const amount = fills.reduce((s, f) => s + f.price * f.size, 0);
+    const ledger = new CostLedger(new FeeBook().observeAll(fills), gasQuote);
+    let amount = 0;
+    for (const f of fills) {
+      const notional = f.price * f.size;
+      amount += notional;
+      ledger.charge({
+        conditionId: f.conditionId, market: f.market, slug: f.slug,
+        shares: f.size, price: f.price, notional,
+      });
+    }
     const pnl = sessionDelta?.delta ?? 0;
-    return { amount, fees: 0, gas: 0, txs: fills.length, gross: pnl };
-  }, [fills, sessionDelta]);
+    // The wallet is already deployed and funded by the time it has fills, so
+    // its gas is spent, not pending — but it IS what the account paid to exist.
+    const gas = sessionGasUsd(NEW_DEPLOYMENT_GAS_OPS, gasQuote);
+    // Same definition as the replay's: GROSS is the P&L before friction, and
+    // the friction was already paid out of this equity change.
+    const gross = pnl + ledger.fees + gas;
+    return {
+      amount,
+      fees: ledger.fees,
+      gas,
+      breakdown: ledger.breakdown(NEW_DEPLOYMENT_GAS_OPS, gross),
+      txs: fills.length,
+      gross,
+    };
+  }, [fills, sessionDelta, gasQuote]);
 
   // ── Rotation queue ──
   // Mirror the live engine's forward-EP ranking so the user can see which
@@ -592,7 +632,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
           ? (sessionDelta.delta / sessionDelta.start) * 100
           : null,
         pnlTitle: sessionDelta
-          ? `Equity change since the oldest snapshot (${fmtUsd(sessionDelta.start)} ${fmtRelTime(Date.now(), sessionDelta.since)}) — fees and gas already paid out of cash. Same accounting as the TEST curve.`
+          ? `Equity change since the oldest snapshot (${fmtUsd(sessionDelta.start)} ${fmtRelTime(Date.now(), sessionDelta.since)}) — Polymarket's taker fee and Polygon gas already paid out of cash. Same accounting as the TEST curve; open COSTS for what they came to.`
           : "Equity change over the plotted window — not enough history yet.",
       }}
       costs={costs}

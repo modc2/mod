@@ -693,6 +693,12 @@ export interface GlobalTrade {
   price: number;       // 0..1
   size: number;        // shares
   timestamp: number;   // ms
+  /** USDC that actually moved, when the endpoint reports it. That number is
+      `price x size` PLUS the taker fee on a BUY and MINUS it on a SELL, which
+      makes it the only place a fill's REAL fee can be read (lib/fees.ts
+      `observedFeeUsd`). The data-api's `/trades` does not carry it today;
+      `/activity` does, so anything mapped from there arrives priced. */
+  usdcSize?: number;
 }
 
 export async function fetchGlobalTrades(limit = 100, offset = 0): Promise<GlobalTrade[]> {
@@ -731,6 +737,7 @@ function mapDataApiTrades(raw: unknown): GlobalTrade[] {
         price: Number(t.price || 0),
         size: Number(t.size || 0),
         timestamp,
+        usdcSize: Number(t.usdcSize) > 0 ? Number(t.usdcSize) : undefined,
       };
     })
     .filter((t) => t.timestamp > 0 && t.size > 0);

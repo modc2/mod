@@ -30,7 +30,12 @@ export interface SessionPosition {
 }
 
 export interface SessionStratLedger {
+  /** GROSS realized PnL — exit proceeds minus cost basis, before `fees`. */
   realized?: number;
+  /** Polymarket taker fees this strat has paid, entry and exit, at each
+      market's own rate. Absent on state written before the engine priced
+      them, which reads as 0 — the same zero it used to actually book. */
+  fees?: number;
   volume?: number;
   buys?: number;
   sells?: number;

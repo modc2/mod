@@ -34,6 +34,10 @@
 //     says so out loud rather than pretending the gate covers it.
 
 import type { TradeFilters } from "./types";
+import {
+  leanLabel, sentimentFilterActive, sentimentReject,
+  type SentimentFilter, type SentimentLean, type SentimentLookup,
+} from "./marketSentiment";
 
 /** The minimum a row needs to be filtered. Both halves of the copy trades
     board (my fills and the leaders' trades) satisfy it — see lib/copyTrades.ts. */
@@ -57,6 +61,10 @@ export interface SemanticTrade {
   copied?: boolean;
   /** True on my own fills. */
   mine?: boolean;
+  /** CTF outcome token — what a MARKET SENTIMENT clause is read against.
+      Absent ⇒ the row has no mood and a sentiment clause can't judge it. */
+  asset?: string;
+  tokenId?: string;
 }
 
 /** One expanded word of the topic. `word` is what the user typed; `terms` is
@@ -72,7 +80,7 @@ export interface TopicUnit {
 export interface Clause {
   kind:
     | "topic" | "exclude" | "side" | "price" | "notional"
-    | "time" | "outcome" | "leader" | "status";
+    | "time" | "outcome" | "leader" | "status" | "sentiment";
   /** Short label for the chip. */
   label: string;
   /** Longer text for its tooltip. */
@@ -97,6 +105,10 @@ export interface SemanticQuery {
   /** Rolling window in ms, measured back from `now`. */
   windowMs?: number;
   outcome?: "yes" | "no";
+  /** MARKET SENTIMENT clause — which way the crowd had moved the outcome the
+      leader bought. Enforceable: it compiles straight into
+      `TradeFilters.sentiment`. See lib/marketSentiment.ts. */
+  sentiment?: SentimentFilter;
   /** Address fragment or label fragment the row's leader must contain. */
   who?: string;
   status?: "copied" | "missed" | "mine";
@@ -323,6 +335,59 @@ export function parseSemanticQuery(raw: string): SemanticQuery {
       detail: `Only rows whose leader's address or label contains "${m[1]}". Per-leader gating is what the copy book's rows already are.` };
   });
 
+  // ── MARKET SENTIMENT. Before the side clause, because these are PHRASES
+  //    ("buying the dip") whose verb must survive to be read as a side too:
+  //    every pattern here matches only the mood words, never the verb.
+  //
+  //    Enforceable — unlike a time window, this compiles into a real gate the
+  //    live engine runs (TradeFilters.sentiment). What it costs is stated on
+  //    the chip: the reading needs the market's price history, and a market
+  //    with none reads `unknown` and is let through.
+  /** Record a mood. Returns false when it was already asked for, so a
+      sentence that says it twice ("with the crowd … momentum") gets one chip
+      rather than two identical ones. */
+  const lean = (l: SentimentLean): boolean => {
+    const cur = q.sentiment?.lean ?? [];
+    if (cur.includes(l)) return false;
+    q.sentiment = { ...(q.sentiment ?? {}), lean: [...cur, l] };
+    return true;
+  };
+
+  // The WINDOW first, and with a LOOKAHEAD: "12h momentum" has to give up its
+  // "12h" to the window and still leave "momentum" behind for the mood
+  // patterns below, or the sentence would set a window and no direction.
+  eat(/\b(\d+)\s*h(?:ours?|rs?)?\s+(?:of\s+)?(?=drift|momentum|sentiment|move)/g, (m) => {
+    const h = Math.max(1, Math.min(168, Number(m[1])));
+    q.sentiment = { ...(q.sentiment ?? {}), windowHours: h };
+    return { kind: "sentiment", label: `${h}H WINDOW`, enforceable: true,
+      detail: `Sentiment is measured over the last ${h} hours instead of the default 6.` };
+  });
+  eat(/\b(?:with the (?:crowd|market|flow|tape)|momentum|into strength|rising odds|climbing|trending up|hot markets?|breakouts?|chasing)\b/g, () => {
+    if (!lean("bullish")) return null;
+    return { kind: "sentiment", label: "WITH THE CROWD", enforceable: true,
+      detail: "Only trades taken while the odds on the outcome they bought were RISING — they paid up into strength. Measured as price drift on their own token over the sentiment window (6h by default)." };
+  });
+  eat(/\b(?:against the (?:crowd|market|flow|tape)|contrarian|fad(?:e|ing)|the dip|dip[- ]?buy(?:s|ing)?|falling odds|sliding|sinking|out of favou?r|catching (?:a|the) knife|cold markets?)\b/g, () => {
+    if (!lean("bearish")) return null;
+    return { kind: "sentiment", label: "AGAINST THE CROWD", enforceable: true,
+      detail: "Only their CONTRARIAN entries — the odds on what they bought had been falling. Measured as price drift on their own token over the sentiment window (6h by default)." };
+  });
+  eat(/\b(?:quiet|calm|flat|sideways|unmoved|still)\s+markets?\b/g, () => {
+    if (!lean("flat")) return null;
+    return { kind: "sentiment", label: "QUIET MARKETS", enforceable: true,
+      detail: "Only markets that have barely moved — under the flat band (2¢ by default) either way over the sentiment window." };
+  });
+
+  // How much movement counts, and over how long. Both only ever tighten a
+  // clause that is already there — a drift threshold with no direction is a
+  // filter nobody could read, so it attaches to whichever lean was asked for.
+  eat(new RegExp(String.raw`\bmoved?\s+(?:by\s+)?(\d+(?:\.\d+)?)\s*${CENT_UNIT}`, "g"), (m) => {
+    const d = price(m[1]);
+    const bear = (q.sentiment?.lean ?? []).includes("bearish");
+    q.sentiment = { ...(q.sentiment ?? {}), ...(bear ? { maxDrift: -d } : { minDrift: d }) };
+    return { kind: "sentiment", label: `${bear ? "−" : "+"}${cents(d)} MOVE`, enforceable: true,
+      detail: `The odds must have ${bear ? "lost" : "gained"} at least ${cents(d)} over the sentiment window.` };
+  });
   // ── Side. ──
   eat(/\b(buys?|bought|buying|entries|entry|enter(?:ed|s)?|longs?|adds?)\b/g, () => {
     q.sides = "buy";
@@ -461,7 +526,8 @@ export function parseSemanticQuery(raw: string): SemanticQuery {
     q.groups.length === 0 && q.exclude.length === 0 && !q.sides && !q.status &&
     q.minPrice === undefined && q.maxPrice === undefined &&
     q.minNotional === undefined && q.maxNotional === undefined &&
-    q.windowMs === undefined && !q.outcome && !q.who;
+    q.windowMs === undefined && !q.outcome && !q.who &&
+    !sentimentFilterActive(q.sentiment);
   return q;
 }
 
@@ -504,11 +570,17 @@ export interface MatchResult {
 }
 
 /** Apply a parsed query to one trade. `now` defaults to wall clock and is a
-    parameter so tests (and a server render) are deterministic. */
+    parameter so tests (and a server render) are deterministic.
+ *
+ *  `sentiment` is the same lookup the copy gate takes (`warmSentiment().lookup`).
+ *  Omit it and a MARKET SENTIMENT clause reads every row as `unknown` — which,
+ *  by the filter's own default, passes. A screen that has not fetched price
+ *  history shows the rows unfiltered rather than showing an empty board. */
 export function semanticMatch(
   trade: SemanticTrade,
   q: SemanticQuery,
   now: number = Date.now(),
+  sentiment?: SentimentLookup,
 ): MatchResult {
   if (q.empty) return { pass: true, hits: [], score: 0 };
   const title = (trade.market || "").toLowerCase();
@@ -548,6 +620,13 @@ export function semanticMatch(
   if (q.status === "missed" && (trade.copied || trade.mine)) {
     return { pass: false, reason: "this one was copied", hits: [], score: 0 };
   }
+  if (sentimentFilterActive(q.sentiment)) {
+    const reading = sentiment?.(trade);
+    if (sentimentReject(reading, q.sentiment)) {
+      const mood = reading?.lean ?? "unknown";
+      return { pass: false, reason: `market was ${leanLabel(mood)}`, hits: [], score: 0 };
+    }
+  }
 
   for (const unit of q.exclude) {
     const hit = unitHits(title, unit);
@@ -586,13 +665,13 @@ export function semanticMatch(
 export function applySemanticQuery<T extends SemanticTrade>(
   rows: T[],
   q: SemanticQuery,
-  opts: { now?: number; rank?: boolean } = {},
+  opts: { now?: number; rank?: boolean; sentiment?: SentimentLookup } = {},
 ): { rows: (T & { _hits?: string[]; _score?: number })[]; dropped: number; reasons: Record<string, number> } {
   const now = opts.now ?? Date.now();
   const reasons: Record<string, number> = {};
   const kept: (T & { _hits?: string[]; _score?: number })[] = [];
   for (const r of rows) {
-    const m = semanticMatch(r, q, now);
+    const m = semanticMatch(r, q, now, opts.sentiment);
     if (m.pass) kept.push(m.hits.length ? { ...r, _hits: m.hits, _score: m.score } : r);
     else if (m.reason) reasons[m.reason] = (reasons[m.reason] ?? 0) + 1;
   }
@@ -660,6 +739,9 @@ export function compileGate(q: SemanticQuery): CompiledGate {
   if (q.maxNotional !== undefined && Number.isFinite(q.maxNotional)) {
     tradeFilters.maxNotional = q.maxNotional;
   }
+  // The MARKET SENTIMENT half. Enforceable like the rest — the live engine
+  // runs this gate — so it goes in the armed filter, not in `viewOnly`.
+  if (sentimentFilterActive(q.sentiment)) tradeFilters.sentiment = q.sentiment;
 
   const marketQuery = dedupe(groups).join(", ");
   return {
@@ -685,6 +767,10 @@ export function describeGate(gate: CompiledGate): string {
   if (f.minNotional !== undefined || f.maxNotional !== undefined) {
     parts.push(`$${short(f.minNotional ?? 0)}–$${short(f.maxNotional ?? Infinity)}`);
   }
+  if (sentimentFilterActive(f.sentiment)) {
+    const moods = f.sentiment!.lean ?? [];
+    parts.push(moods.length ? moods.map(leanLabel).join(" or ") : "sentiment");
+  }
   return parts.length ? parts.join(" · ") : "no gate";
 }
 
@@ -696,4 +782,6 @@ export const SEMANTIC_EXAMPLES = [
   "missed longshots",
   "sports coin flips over $200",
   "ai and elections this week",
+  "big buys against the crowd",
+  "crypto with the crowd, 12h momentum",
 ] as const;

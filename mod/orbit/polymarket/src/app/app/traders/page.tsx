@@ -6,27 +6,18 @@ import CopyTrading from "../components/CopyTrading";
 import PnlChart from "../components/PnlChart";
 import type { CurvePoint } from "../components/PnlChart";
 import { useFilters, useUrlSync } from "../context/FiltersContext";
-import { loadIndexes, getActiveIndexId, saveIndex, updateIndex } from "../lib/indexStore";
+import { updateIndex } from "../lib/indexStore";
+import { announceStratChange, ensureActiveStrat } from "../lib/activeStrat";
 import { fetchWalletTrades, fetchPositions } from "../lib/polymarket";
 import { computeFifoTrades, buildTradeByTradeCombinedCurve, buildPnlCurve } from "../lib/pnlEngine";
-import type { SavedIndex, IndexTrader } from "../lib/types";
+import type { IndexTrader } from "../lib/types";
 
-function getOrCreateActiveIndex(): SavedIndex {
-  const indexes = loadIndexes();
-  const activeId = getActiveIndexId();
-  const active = activeId ? indexes.find((i) => i.id === activeId) : indexes[0];
-  if (active) return active;
-  const now = Date.now();
-  const newIdx: SavedIndex = {
-    id: `idx_${now}`,
-    name: "Strategy 1",
-    traders: [],
-    createdAt: now,
-    updatedAt: now,
-  };
-  saveIndex(newIdx);
-  return newIdx;
-}
+// The bench you're editing is the ACTIVE strat's — the one the STRATS tab put
+// on the desk and the one TEST & LIVE runs. This page used to mint its own
+// blank "Strategy 1" when the store was empty, which is how a user could end
+// up with three empty strats named by three different screens; `ensureActiveStrat`
+// is the one place that answers "which strat, and what if there isn't one".
+const getOrCreateActiveIndex = ensureActiveStrat;
 
 const TRADES_PAGE_SIZE = 50;
 
@@ -83,7 +74,7 @@ function TradersInner() {
 
     updateIndex(idx.id, { traders: newTraders, updatedAt: Date.now() });
     setSelectedAddresses(newTraders.map((t) => t.address));
-    window.dispatchEvent(new Event("strat-updated"));
+    announceStratChange();
   }, []);
 
   // Load backtest data when selected addresses change and backtest is visible

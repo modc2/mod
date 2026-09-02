@@ -34,7 +34,16 @@ import {
 import {
   applySemanticQuery, compileGate, parseSemanticQuery, semanticMatch,
 } from "./semanticFilter";
+import {
+  describeSentiment, readSentiment, sentimentBreakdown, sentimentFilterActive,
+  sentimentReject, type MarketSentiment, type SentimentLookup,
+} from "./marketSentiment";
+import { tradeFilterReject, tradeMatchesFilters } from "./tradeFilters";
 import { buildCopyTrades, scoreLeaders } from "./copyTrades";
+import {
+  FeeBook, NEW_DEPLOYMENT_GAS_OPS, TAKER_FEE_RATE, categoryForMarket, fmtGasUsd,
+  inferredRate, observedFeeUsd, observedRate, roundTripFeePct, sessionGasUsd, takerFeeUsd,
+} from "./fees";
 import { marketMatchesQuery } from "./marketQuery";
 import type { PolymarketPosition, PolymarketTrade } from "./types";
 
@@ -211,9 +220,16 @@ console.log("\n─ settlement: a winner is booked at $1, not at the last print �
   ok(sim.settlement.resolved === 1, "the winning leg settles as RESOLVED");
   ok(sim.netPnl > 0, `and pays out — P&L ${sim.netPnl.toFixed(2)}`);
   // 60¢ entry → $1: the mirror grows by 2/3 of its cost, whatever the mirror
-  // size worked out to.
+  // size worked out to — LESS the taker fee the entry paid. The redeem itself
+  // is free (p = 1 → the fee formula is zero there, and a relayer submits it).
   const cost = sim.rows.filter((r) => r.side === "BUY").reduce((s, r) => s + r.amount, 0);
-  near(sim.netPnl, cost * (1 / 0.6 - 1), 0.05, "payout is the full 60¢ → $1 move");
+  ok(sim.fees > 0, `the entry paid a real taker fee — $${sim.fees.toFixed(2)}`);
+  near(
+    sim.netPnl,
+    cost * (1 / 0.6 - 1) - sim.fees - sim.gas,
+    0.05,
+    "payout is the full 60¢ → $1 move, net of the fee that bought it",
+  );
 }
 
 console.log("\n─ a resolved leg beats a stale live price ─");
@@ -737,6 +753,125 @@ console.log("\n── Semantic filter (semanticFilter.ts) ──");
   ok(compileGate(q).any === false, "…and arms nothing");
 }
 
+// ── MARKET SENTIMENT ──────────────────────────────────────────────────────
+//
+// lib/marketSentiment.ts is the third gate: not what the trade was, but what
+// the MARKET was doing when they took it. Two properties have to hold or the
+// dimension is worse than useless.
+//
+//   1. The reading is measured on the LEADER'S OWN TOKEN, so the sign always
+//      means the same thing — positive = the crowd moving toward what they
+//      bought — whichever leg that is.
+//   2. UNKNOWN PASSES. A market whose history didn't load must not be
+//      silently treated as a rejection; that is the exact shape of the
+//      missing-price-floor bug this module already paid for once.
+
+console.log("\n── Market sentiment (marketSentiment.ts) ──");
+
+/** A 6h+ series ending now, drifting by `delta` in total. */
+function tape(delta: number, start = 0.4, points = 80, endMs = Date.now()) {
+  const step = 5 * 60_000;
+  return Array.from({ length: points }, (_, i) => ({
+    t: endMs - (points - 1 - i) * step,
+    p: start + (delta * i) / (points - 1),
+  }));
+}
+
+{
+  const now = Date.now();
+  const up = readSentiment(tape(0.14), now, "tok", 6, 0.02);
+  const down = readSentiment(tape(-0.14, 0.6), now, "tok", 6, 0.02);
+  const still = readSentiment(tape(0.005), now, "tok", 6, 0.02);
+  ok(up.lean === "bullish", `odds walking up read BULLISH (drift ${up.drift.toFixed(3)})`);
+  ok(down.lean === "bearish", `odds walking down read BEARISH (drift ${down.drift.toFixed(3)})`);
+  ok(still.lean === "flat", "a market inside the flat band reads FLAT, not a weak direction");
+  ok(up.drift > 0 && down.drift < 0, "the sign is the direction — measured on the leader's own token");
+
+  // The window is a real window: the same tape read over 1h sees a slice.
+  const short = readSentiment(tape(0.14), now, "tok", 1, 0.02);
+  ok(short.drift < up.drift, `a 1h window sees less drift than a 6h one (${short.drift.toFixed(3)} < ${up.drift.toFixed(3)})`);
+}
+
+{
+  // No history, not enough history, and history that starts AFTER the trade
+  // are all `unknown` — three different notes, one behaviour.
+  const now = Date.now();
+  ok(readSentiment([], now, "tok").lean === "unknown", "an empty series is unknown");
+  ok(readSentiment(tape(0.1, 0.4, 4), now, "tok", 6).lean === "unknown",
+    "20 minutes of history cannot answer a 6h question — unknown, not 'flat'");
+  ok(readSentiment(tape(0.1), now - 90 * 86400_000, "tok", 6).lean === "unknown",
+    "a trade older than the whole series is unknown, never marked at a future price");
+  ok(readSentiment(tape(0.1), now, "tok", 6).note === undefined, "a real reading carries no excuse");
+}
+
+{
+  // The gate. Unknown is the load-bearing case.
+  const bull = readSentiment(tape(0.14), Date.now(), "tok", 6, 0.02);
+  ok(sentimentReject(bull, { lean: ["bullish"] }) === null, "a bullish market passes a bullish filter");
+  ok(sentimentReject(bull, { lean: ["bearish"] }) === "sentiment", "…and fails a contrarian one");
+  ok(sentimentReject(bull, { lean: ["bullish"], minDrift: 0.5 }) === "sentiment-drift",
+    "a drift floor cuts a move that is real but small");
+  ok(sentimentReject(undefined, { lean: ["bullish"] }) === null,
+    "AN UNREADABLE MARKET PASSES — the default never rejects flow on missing data");
+  ok(sentimentReject(undefined, { lean: ["bullish"], unknown: "block" }) === "sentiment-unknown",
+    "…and blocking it is available, but only by asking");
+  ok(!sentimentFilterActive({}) && !sentimentFilterActive(undefined),
+    "an empty sentiment filter is inactive — no fetch, no gate");
+  ok(!sentimentFilterActive({ windowHours: 12 }),
+    "…and so is one that only names a window: a dial with no direction gates nothing");
+}
+
+{
+  // Composition with the rest of TradeFilters, through the one gate the engine
+  // and the console share.
+  const now = Date.now();
+  const book = new Map<string, MarketSentiment>([
+    ["bull", readSentiment(tape(0.14), now, "bull", 6, 0.02)],
+    ["bear", readSentiment(tape(-0.14, 0.6), now, "bear", 6, 0.02)],
+  ]);
+  const lookup: SentimentLookup = (t) => book.get(t.tokenId ?? t.asset ?? "");
+  const mk = (asset: string, over: Partial<{ price: number; size: number }> = {}) => ({
+    side: "BUY" as const, price: 0.34, size: 1000, market: "Bitcoin above $200k?",
+    asset, timestamp: now, ...over,
+  });
+
+  const contrarian = { sides: "buy" as const, minNotional: 100, sentiment: { lean: ["bearish" as const] } };
+  ok(tradeMatchesFilters(mk("bear"), contrarian, { sentiment: lookup }),
+    "a big buy into falling odds passes 'big contrarian buys'");
+  ok(tradeFilterReject(mk("bull"), contrarian, { sentiment: lookup }) === "sentiment",
+    "…the same trade in a rising market is rejected BY NAME, so the funnel can say why");
+  ok(tradeFilterReject(mk("bear", { size: 10 }), contrarian, { sentiment: lookup }) === "size",
+    "…and the other dimensions still get the credit when they are the ones cutting");
+  ok(tradeMatchesFilters(mk("unlisted"), contrarian, { sentiment: lookup }),
+    "a market the book never covered passes — coverage gaps are not rejections");
+  ok(tradeMatchesFilters(mk("bull"), contrarian),
+    "AND A CALLER THAT FORGOT TO WARM THE BOOK GETS AN OPEN GATE, never a closed one");
+
+  const counts = sentimentBreakdown([mk("bull"), mk("bear"), mk("bear"), mk("nope")],
+    { series: new Map(), asked: 0, covered: 0, overBudget: 0, coversFromMs: 0, spanCapped: false, lookup });
+  ok(counts.bullish === 1 && counts.bearish === 2 && counts.unknown === 1,
+    `the breakdown tallies the bench's flow by mood — ${JSON.stringify(counts)}`);
+}
+
+{
+  // One sentence → the gate the live engine runs.
+  const gate = compileGate(parseSemanticQuery("big buys against the crowd"));
+  ok(gate.tradeFilters.sentiment?.lean?.[0] === "bearish",
+    "'against the crowd' compiles into TradeFilters.sentiment, not into viewOnly");
+  ok(gate.viewOnly.length === 0, "…so nothing about it is view-only — the engine enforces it");
+  ok(gate.tradeFilters.sides === "buy" && gate.tradeFilters.minNotional === 500,
+    "…and the rest of the sentence still compiles beside it");
+
+  const win = compileGate(parseSemanticQuery("crypto with the crowd, 12h momentum"));
+  ok(win.tradeFilters.sentiment?.windowHours === 12 && win.tradeFilters.sentiment?.lean?.[0] === "bullish",
+    "'12h momentum' sets the window AND keeps the direction — the lookahead leaves the mood word behind");
+  ok(describeSentiment(win.tradeFilters.sentiment).includes("12h"), "…and it says so out loud");
+
+  const dip = parseSemanticQuery("buying the dip");
+  ok(dip.sides === "buy" && dip.sentiment?.lean?.[0] === "bearish",
+    "'buying the dip' is BOTH a side and a mood — the mood pattern never eats the verb");
+}
+
 // ── MY COPY TRADES ────────────────────────────────────────────────────────
 //
 // lib/copyTrades.ts joins my fills to the leader trades they mirror. The join
@@ -806,6 +941,136 @@ console.log("\n── Copy trades (copyTrades.ts) ──");
   const byLeader = scoreLeaders(rows);
   ok(byLeader.length === 1 && byLeader[0].trades === 3 && byLeader[0].copied === 1,
     "the per-leader roll-up counts the same trades the summary does");
+}
+
+// ── The cost model (fees.ts) ──────────────────────────────────────────
+// Every number below is checked against Polymarket's published fee tables
+// (docs.polymarket.com/polymarket-learn/trading/fees) or against a fill whose
+// USDC we can reconcile by hand. The old model was `TAKER_FEE_BPS = 0`, which
+// is why none of this existed.
+
+console.log("\n─ fee formula: rate x p x (1-p) x shares ─");
+{
+  // Published table, Crypto (7%), 100 shares.
+  near(takerFeeUsd(100, 0.50, 0.07), 1.75, 0.005, "100 crypto shares at 50¢ cost $1.75");
+  near(takerFeeUsd(100, 0.10, 0.07), 0.63, 0.005, "…and at 10¢ cost $0.63");
+  near(takerFeeUsd(100, 0.90, 0.07), 0.63, 0.005, "…and at 90¢ the same $0.63 — symmetric around a coin flip");
+  near(takerFeeUsd(100, 0.50, 0.05), 1.25, 0.005, "sports (5%) at 50¢ is $1.25");
+  near(takerFeeUsd(100, 0.50, 0.04), 1.00, 0.005, "politics (4%) at 50¢ is $1.00");
+  ok(takerFeeUsd(100, 0.50, TAKER_FEE_RATE.geopolitics) === 0, "geopolitics is free, as published");
+  ok(takerFeeUsd(100, 1, 0.07) === 0 && takerFeeUsd(100, 0, 0.07) === 0,
+    "a resolved leg (p = 0 or 1) is free — which is why redeems cost nothing");
+
+  // The number that decides whether a copied edge survives: 3.5% of notional
+  // on the way in and 3.5% on the way out.
+  near(roundTripFeePct(0.5, 0.5, 0.07) * 100, 7, 0.01,
+    "a 50¢ crypto round trip costs 7% of the position");
+  near(roundTripFeePct(0.9, 0.9, 0.07) * 100, 1.4, 0.01,
+    "…and the same round trip at 90¢ costs 1.4% — the 40–60¢ band is the expensive one");
+}
+
+console.log("\n─ the rate is MEASURED off the feed, not assumed ─");
+{
+  // A real fill, from the data-api: a BUY pays notional PLUS the fee.
+  const buy = { side: "BUY" as const, price: 0.528, size: 1803.74, usdcSize: 974.856059 };
+  near(observedRate(buy)! * 100, 5, 0.2, "a leader's BUY reveals the market's 5% rate");
+  near(observedFeeUsd(buy)!, 974.856059 - 0.528 * 1803.74, 0.01, "…and the fee is the USDC that moved, exactly");
+
+  // A SELL nets the fee OUT of the proceeds — opposite sign, same rate.
+  const sell = { side: "SELL" as const, price: 0.49, size: 91.4, usdcSize: 43.64396 };
+  near(observedRate(sell)! * 100, 5, 0.2, "a SELL reveals the same 5%, netted out of the proceeds");
+
+  // Makers are never charged, so a maker fill measures 0 — which must NOT be
+  // read as "this market is free" on its own.
+  const maker = { side: "BUY" as const, price: 0.23, size: 10, usdcSize: 2.3 };
+  ok(observedRate(maker) === 0, "a maker fill measures zero");
+
+  const book = new FeeBook();
+  book.observe({ ...maker, conditionId: MKT });
+  ok(book.info(MKT).rate > 0,
+    "one zero-fee fill does not make a market free — the taker rate still applies");
+  book.observe({ ...buy, conditionId: MKT });
+  near(book.rateFor(MKT) * 100, 5, 0.01, "the highest rate any fill paid is the taker rate — 5%");
+  ok(book.info(MKT).source === "observed", "…and it is reported as MEASURED, not modelled");
+
+  // THE MARKET-MAKER TRAP. A leader who only ever makes pays nothing on any
+  // fill — but a copier chasing them with a marketable order is a taker on
+  // every one. A book that read "no fee observed" as "free" replayed 151
+  // weather fills at zero cost for a copier who would really have paid 5%.
+  const mm = new FeeBook();
+  const makerOnly = "0xmakeronly";
+  for (let i = 0; i < 8; i++) {
+    mm.observe({ conditionId: makerOnly, market: "Highest temperature in Buenos Aires on September 1?",
+                 side: "BUY", price: 0.4, size: 50, usdcSize: 20 });
+  }
+  ok(mm.rateFor(makerOnly) > 0,
+    "eight maker fills do NOT make a market free — the copier still pays the taker rate");
+  // …and when another market of the same kind was measured, THAT rate is used
+  // rather than the published table.
+  mm.observe({ conditionId: "0xother-weather", market: "Highest temperature in Paris on September 1?",
+               side: "BUY", price: 0.5, size: 100, usdcSize: 51.75 });
+  near(mm.rateFor(makerOnly) * 100, 7, 0.2,
+    "a 7% fill in a sibling market sets the rate for the market we couldn't measure");
+
+  // The only genuinely free markets are the fee-free CATEGORY.
+  const geo = new FeeBook();
+  ok(geo.rateFor("0xgeo", "Will Russia and Ukraine sign a peace deal?") === 0,
+    "geopolitics is free because Polymarket says so, not because we saw no fee");
+}
+
+console.log("\n─ no fills to measure: the market's category prices it ─");
+{
+  ok(categoryForMarket("Bitcoin Up or Down", "btc-updown-5m-1788297300") === "crypto",
+    "a BTC candle is crypto");
+  near(inferredRate(undefined, "btc-updown-5m-1788297300"), 0.07, 1e-9,
+    "…so it charges the 7% crypto rate — the most expensive on the platform");
+  ok(categoryForMarket("Seattle Mariners vs. Boston Red Sox: O/U 7.5", "mlb-sea-bos-2026-09-01-total-7pt5") === "sports",
+    "an MLB total is sports");
+  ok(categoryForMarket("Will the U.S. invade Iran before 2027?") === "geopolitics",
+    "a war market is geopolitics, checked BEFORE politics");
+  near(inferredRate("Will the U.S. invade Iran before 2027?"), 0, 1e-9, "…and geopolitics is free");
+  ok(categoryForMarket("Will there be no change in Fed interest rates after the September meeting") === "economics",
+    "a Fed market is economics");
+  ok(categoryForMarket("") === "other" && inferredRate("") === 0.05,
+    "nothing to go on falls back to the published 5% general rate");
+}
+
+console.log("\n─ gas is per DEPLOYMENT, not per trade ─");
+{
+  const gas = sessionGasUsd(NEW_DEPLOYMENT_GAS_OPS);
+  ok(gas > 0, `a real deployment pays real gas — ${fmtGasUsd(gas)}`);
+  ok(gas < 0.10, "…but it is cents on Polygon, not dollars");
+  ok(sessionGasUsd({ deposits: 1 }) < sessionGasUsd({ deposits: 10 }),
+    "ten deposits cost ten times one deposit");
+  ok(sessionGasUsd({ redeems: 0 }) === sessionGasUsd({}),
+    "and a fill or a relayer-paid redeem adds nothing, because the trader pays neither");
+  ok(fmtGasUsd(0.0037) === "$0.0037" && fmtGasUsd(0) === "$0.00",
+    "sub-cent gas renders as a number, not as $0.00");
+}
+
+console.log("\n─ the replay pays them ─");
+{
+  // Same 60¢ → $1 winner as the settlement test, but now told which market it
+  // is in. The crypto market's 7% comes out of the entry; the fee-free
+  // geopolitics market's does not.
+  const feed = [trade({ side: "BUY", price: 0.60, size: 100, hoursAgo: 48, outcome: "Yes", market: "Bitcoin above $200k?" })];
+  const crypto = replay(feed, { resolved: new Map([[legKey(MKT, "Yes"), 1]]) });
+  ok(crypto.fees > 0, `a crypto entry pays a fee — $${crypto.fees.toFixed(2)}`);
+  near(crypto.costs.buckets[0]?.rate ?? 0, 0.07, 1e-9, "…charged at the crypto rate");
+  ok(crypto.costs.effectiveBps > 0, `and the console can quote it as ${crypto.costs.effectiveBps.toFixed(0)} bps of notional`);
+  ok(crypto.costs.coverage.modelled > 0,
+    "the breakdown admits the rate was modelled — these fixtures carry no usdcSize to measure");
+
+  const free = replay(
+    [trade({ side: "BUY", price: 0.60, size: 100, hoursAgo: 48, outcome: "Yes", market: "Will Russia and Ukraine sign a peace deal?" })],
+    { resolved: new Map([[legKey(MKT, "Yes"), 1]]) },
+  );
+  ok(free.fees === 0, "a geopolitics entry pays nothing — Polymarket takes no fee there");
+  ok(free.netPnl > crypto.netPnl, "so the same trade nets more in the fee-free market");
+
+  // The fee is money that LEFT the wallet: gross − net is exactly costs.
+  near(crypto.grossPnl - crypto.netPnl, crypto.fees + crypto.gas, 0.02,
+    "gross minus net is exactly the fees and gas booked");
 }
 
 activityCeilingChecks().then(() => {

@@ -37,7 +37,11 @@ export interface CopyLive {
   accountValue: number | null;
   error: string | null;
   ledger: {
+    /** GROSS — exit proceeds minus cost basis, before `fees`. */
     realized: number;
+    /** Polymarket taker fees this session paid, at each market's own rate.
+        Real money out of the wallet; `realized - fees` is what it kept. */
+    fees: number;
     volume: number;
     buys: number;
     sells: number;
@@ -85,6 +89,7 @@ export interface OtherSession {
   balance: number | null;
   error: string | null;
   realized: number | null;
+  fees: number | null;
   lastFillAt: number | null;
 }
 
@@ -350,6 +355,14 @@ export function fetchCopyReceipts(
     high because leaders sell winners and let losers expire. */
 export function realizedPnl(row: CopyBookRow): number | null {
   return row.live?.ledger ? row.live.ledger.realized : null;
+}
+
+/** What this row actually KEPT: realized P&L minus the taker fees it paid to
+    get it. `realizedPnl` above is the gross — the two differ by real money, so
+    anything reporting performance should use this one. */
+export function netRealizedPnl(row: CopyBookRow): number | null {
+  const l = row.live?.ledger;
+  return l ? l.realized - (l.fees ?? 0) : null;
 }
 
 /** Why a running session might not be trading, in the order worth checking.

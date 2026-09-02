@@ -7,6 +7,12 @@
 // within weeks, while "top 10 crypto traders over the last 7 days" stays
 // fresh forever.
 //
+// TRADER INDEX is the DEFAULT and the first card on the shelf. It is the only
+// recipe here that sizes off `bankroll` — the ratio between your capital and
+// each leader's net worth — which is what makes it an INDEX of traders rather
+// than a list of dollar amounts. See lib/traderIndex.ts for the model and
+// components/IndexScaleCard.tsx for how it is shown.
+//
 // COPY TRADES is the shelf's plain-copy card and the one the COPY DESK and
 // this gallery share: its params are IMPORTED from `identityStrat.ts`, the
 // same template the desk turns each per-trader allocation into. Fork it and
@@ -64,6 +70,11 @@ import {
   updateIndex,
 } from "./indexStore";
 import { fetchTopTraderAddresses } from "./polymarket";
+import {
+  TRADER_INDEX_SEED_DAYS,
+  TRADER_INDEX_SIZE,
+  TRADER_INDEX_SLUG,
+} from "./traderIndex";
 
 /** The market lane a template belongs to — how the hub groups the shelf, and
     what "the default strat for X" is answered against. */
@@ -110,10 +121,72 @@ export function templateOriginates(t: StratTemplate): boolean {
 
 export const DEFAULT_STRATS: StratTemplate[] = [
   {
+    // ── THE DEFAULT. See lib/traderIndex.ts for the model. ──
+    //
+    // A trader INDEX, not a pile of per-trader dollar amounts: one bench of
+    // leaders, one pot of capital, and every trade re-sized by the ratio
+    // between your slice and that trader's net worth. They stake 2% of their
+    // book on something, you stake 2% of yours — their conviction bets land
+    // big on your book and their punts land small, automatically, with no
+    // per-name amount to guess at.
+    //
+    // This is the ONE recipe on the shelf that uses `sizing: "bankroll"`.
+    // Everything else copies CONVICTION (`flow`: our allocation spread across
+    // the capital they deployed that window), which is the pragmatic model for
+    // a small account. Bankroll is the honest one — it mirrors the RISK they
+    // took — and it is the console's default because it is the only model that
+    // answers "what would it be like to be them, at my size" rather than "how
+    // do I get orders placed". Where that costs coverage, the SCALE card says
+    // so out loud (`projectMirror` → SUB_SCALE) instead of the engine silently
+    // skipping trades.
+    slug: TRADER_INDEX_SLUG,
+    name: "TRADER INDEX",
+    lane: "any",
+    isDefault: true,
+    description:
+      "The default. One index over the best traders of the week, sized to YOU: every trade they make is scaled by your capital against theirs, so when they put 2% of their book on something you put 2% of yours. Their big conviction bets land big on your book and their small punts land small — no dollar amount to set per name, and their exits are your exits.",
+    seed: { days: TRADER_INDEX_SEED_DAYS, count: TRADER_INDEX_SIZE },
+    params: {
+      // THE knob this template exists for. `bankroll` = mirror$ is their$ ×
+      // (yourCapital × weight) / theirBankroll — see `copyRatioFor`.
+      sizing: "bankroll",
+      // The bench, and what a four-figure account can carry across it.
+      capital: 1000,
+      minTrade: IDENTITY_MIN_TRADE,
+      maxTrade: IDENTITY_MAX_TRADE,
+      // Eight leaders fire independently; 3/cycle deferred most of a busy
+      // minute to the next poll, by which time the price has moved.
+      maxPerCycle: 6,
+      // Room for the bench to hold ~2–3 positions each without the newest
+      // leader's entries being refused for lack of a slot.
+      maxOpenPositions: 24,
+      stopLoss: IDENTITY_STOP_LOSS,
+      takeProfit: IDENTITY_TAKE_PROFIT,
+      // Proportional FIDELITY, stated rather than inherited: a mirror that
+      // lands under the CLOB floor may be rounded up to it only while that
+      // stays within 2× the honest size. Past that the trade is skipped
+      // (SUB_SCALE) rather than inflated — an index whose every order is the
+      // same $2.55 minimum is not an index of anything. The SCALE card shows
+      // exactly which of their trades that costs you, and at what capital
+      // they come back.
+      maxUpscale: 2,
+      // The two gates that make late mirroring survivable — same numbers as
+      // the copy desk's identity template.
+      minMinutesToClose: IDENTITY_MIN_MINUTES_TO_CLOSE,
+      maxTradeAgeSec: IDENTITY_MAX_TRADE_AGE_SEC,
+      backtestDays: IDENTITY_BACKTEST_DAYS,
+      rebalanceMinutes: IDENTITY_POLL_MINUTES,
+      livePollMinutes: IDENTITY_POLL_MINUTES,
+      // No `tradeFilters`. An index copies the bench whole, buys AND sells —
+      // a side or price gate would drop their exits and leave this holding
+      // positions its own leaders have already closed. The filtered variants
+      // are the other cards on the shelf.
+    },
+  },
+  {
     slug: "copy-trades",
     name: "COPY TRADES",
     lane: "any",
-    isDefault: true,
     description:
       "Plain copy trading, the COPY DESK's own settings: mirror the 5 best traders of the last week trade for trade — their buys AND their sells, so their exits are your exits — sized to the conviction behind each trade rather than to their net worth. Nothing resolving inside the hour, nothing older than five minutes.",
     seed: { days: 7, count: 5 },
@@ -534,7 +607,13 @@ export const DEFAULT_STRATS: StratTemplate[] = [
 // expressed once, in data, rather than re-decided by each screen that renders
 // a shelf.
 
-export const SHELF_ORDER: StratLane[] = ["btc", "any", "crypto", "sports", "politics", "weather"];
+// ALL MARKETS leads, because the shelf's first card is the console's default
+// strat (TRADER INDEX) and a default that isn't the first thing you meet is
+// not a default. Bitcoin follows: it is the lane with the most measured
+// history behind it, and inside every lane the copy strats come before the
+// origination ones — the "copy trading is the default for BTC markets" rule,
+// expressed once, in data, rather than re-decided by each screen.
+export const SHELF_ORDER: StratLane[] = ["any", "btc", "crypto", "sports", "politics", "weather"];
 
 export function laneOf(t: StratTemplate): StratLane {
   return t.lane ?? "any";
@@ -570,6 +649,19 @@ export function templatesByLane(
     label: LANE_LABEL[lane],
     templates: ordered.filter((t) => laneOf(t) === lane),
   })).filter((g) => g.templates.length > 0);
+}
+
+/** THE default recipe — the TRADER INDEX. Anything that needs to answer "what
+    is a new strat?" (the strats board's + NEW INDEX, the workspace's
+    ensure-one-exists path) resolves it through here rather than hand-rolling
+    a blank SavedIndex, so a strat you never configured is still the console's
+    actual strategy and not an empty shell with engine defaults. */
+export function traderIndexTemplate(): StratTemplate {
+  const t = DEFAULT_STRATS.find((x) => x.slug === TRADER_INDEX_SLUG);
+  // Unreachable while the template is in the array above; typed away rather
+  // than `!` so deleting the card is a compile-time conversation.
+  if (!t) throw new Error("TRADER INDEX template is missing from DEFAULT_STRATS");
+  return t;
 }
 
 /** What this console suggests for a lane. `defaultTemplateForLane("btc")` is

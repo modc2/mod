@@ -43,7 +43,8 @@
 import { PolymarketTrade, PolymarketPosition, TraderRoiStats, IndexTrader } from "../types";
 import type { TradeFilters, MomentumParams, TraderFilter, TraderMetric, SizingModel } from "../types";
 import { marketMatchesQuery } from "../marketQuery";
-import { tradeMatchesFilters, describeTradeFilters } from "../tradeFilters";
+import { tradeMatchesFilters, tradeFilterReject, describeTradeFilters } from "../tradeFilters";
+import { describeReading, describeSentiment, leanLabel, type SentimentLookup } from "../marketSentiment";
 
 // ── Shared per-trade context the strat sees ──────────────────────
 
@@ -300,9 +301,29 @@ export class Strat {
       logs so a running engine can always show its exact configuration. */
   readonly params: StratParams;
 
+  /** MARKET SENTIMENT readings for the flow this strat is being run over.
+   *
+   *  The one gate whose data is not in the trade — it asks what the market was
+   *  doing, which is price history, which is a fetch. Every hook here is
+   *  synchronous, so the fetch happens in the async layer above
+   *  (`warmSentiment`) and is attached here as a pure lookup.
+   *
+   *  Leaving it unset is always safe and never silent: a strat with no
+   *  sentiment filter never reads it, and one WITH a sentiment filter but no
+   *  book reads every market as `unknown` — which passes by default. A caller
+   *  that forgets to warm the book gets an open gate, never a closed one. */
+  sentiment?: SentimentLookup;
+
   constructor(params: StratParams = {}) {
     this.params = params;
     this.name = params.name ?? "strat";
+  }
+
+  /** Attach the readings and return `this`, so a caller can warm and run in
+      one expression: `strat.withSentiment(book.lookup)`. */
+  withSentiment(lookup: SentimentLookup | undefined): this {
+    this.sentiment = lookup;
+    return this;
   }
 
   // ── Hook 1: per-cycle BUY cap ──
@@ -340,7 +361,7 @@ export class Strat {
     // credit for a rejection, and the funnel and the LIVE panel's gate tally
     // are the same explanation of "why did this strat trade nothing".
     return (
-      tradeMatchesFilters(trade, this.params.tradeFilters ?? {}) &&
+      tradeMatchesFilters(trade, this.params.tradeFilters ?? {}, { sentiment: this.sentiment }) &&
       this.traderPassesFilter(trade.trader, history) &&
       this.freshEnough(trade) &&
       this.resolvesLateEnough(trade)
@@ -391,7 +412,20 @@ export class Strat {
       return `market "${trade.market}" doesn't match "${this.params.marketQuery}"`;
     }
     if (trade.side === "SELL") return "";
-    if (!tradeMatchesFilters(trade, this.params.tradeFilters ?? {})) {
+    const tfWhy = tradeFilterReject(trade, this.params.tradeFilters ?? {}, { sentiment: this.sentiment });
+    if (tfWhy) {
+      // Sentiment gets its own sentence. "trade filter · against the crowd"
+      // would leave the reader guessing which way the market actually went;
+      // the reading is the whole explanation, and when it is `unknown` the
+      // honest answer is that the tape could not be read, not that the market
+      // disagreed.
+      if (tfWhy.startsWith("sentiment")) {
+        const r = this.sentiment?.(trade);
+        const mood = r && r.lean !== "unknown"
+          ? `${leanLabel(r.lean)} (${describeReading(r)})`
+          : `unreadable${r?.note ? ` — ${r.note}` : ""}`;
+        return `SENTIMENT · market was ${mood}, gate wants ${describeSentiment(this.params.tradeFilters?.sentiment)}`;
+      }
       const desc = describeTradeFilters(this.params.tradeFilters) || "no filters — every trade";
       return `trade filter · ${desc}`;
     }

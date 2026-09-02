@@ -522,7 +522,9 @@ export default function StratHub({
                 </span>
                 <span
                   className={`shrink-0 ${totalPnl > 0 ? "text-green-400" : totalPnl < 0 ? "text-red-400" : "text-pixel-gray"}`}
-                  title={money ? `$${money.moneyIn.toFixed(2)} deployed · realized ${fmtUsd(money.realized)} · unrealized ${fmtUsd(money.unrealized)}` : "No fills from your wallet in this strat yet"}
+                  title={money
+                    ? `$${money.moneyIn.toFixed(2)} deployed · realized ${fmtUsd(money.realized)} (gross) · fees -${fmtUsd(money.fees)} · unrealized ${fmtUsd(money.unrealized)}`
+                    : "No fills from your wallet in this strat yet"}
                 >
                   {money ? `${totalPnl >= 0 ? "+" : ""}${fmtUsd(totalPnl)}` : "—"}
                 </span>
