@@ -2052,12 +2052,29 @@ impl EngineRegistry {
         Some((cfg, state))
     }
 
-    /// Every EOA with a persisted session on disk. Used by the scheduled
-    /// liquidation task to flatten all known accounts — deduped, since one
-    /// wallet now writes one file per funded strat.
+    /// EOAs the scheduled liquidation task is allowed to flatten — deduped,
+    /// since one wallet now writes one file per funded strat.
+    ///
+    /// NOT "every EOA with a config on disk". A flatten sells the deposit
+    /// wallet's ENTIRE on-chain book at best bid, including positions the
+    /// engine never bought, so it must only ever fire for a wallet whose
+    /// owner has actually opted into real order placement: the session has
+    /// to be still running (`stopped: false` — `stop_one` deliberately keeps
+    /// the config file so the console can still read the ledger) AND have
+    /// `auto_execute` on. A wallet that only ever dry-ran, or whose sessions
+    /// were all stopped, is never touched.
     pub fn persisted_eoas(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        for (eoa, _) in self.persisted_sessions() {
+        let Ok(rd) = std::fs::read_dir(&self.disk_dir) else { return out };
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if !p.is_file() { continue; }
+            let Some(name) = p.file_name().and_then(|n| n.to_str()) else { continue };
+            if !name.ends_with(".config.json") { continue; }
+            let Ok(raw) = std::fs::read_to_string(&p) else { continue };
+            let Ok(cfg) = serde_json::from_str::<EngineConfig>(&raw) else { continue };
+            if cfg.stopped || !cfg.auto_execute { continue; }
+            let eoa = cfg.eoa.to_lowercase();
             if !out.contains(&eoa) { out.push(eoa); }
         }
         out

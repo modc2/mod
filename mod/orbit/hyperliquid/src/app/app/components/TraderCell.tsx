@@ -28,7 +28,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { fetchTraderCurve, fmtPnl, fmtUsd, shortAddr, type TraderCurve } from "../lib/api";
+import { fmtPnl, fmtUsd, shortAddr, type TraderCurve } from "../lib/api";
+import { fresh, loadCurve } from "../lib/curves";
 import { Identicon, Spark } from "./BoardBits";
 
 /** Marks the row element a cell listens to for hover. The table puts this on
@@ -40,81 +41,9 @@ export const ROW_ATTR = "data-trader-row";
  *  copyable core perp, so neither belongs on a badge. */
 export const isCoreCoin = (c: string) => !c.includes(":") && !c.startsWith("@");
 
-// ── Fetch discipline ──────────────────────────────────────────────────────
-//
-// One shared cache for every cell on the board. Curves are keyed by wallet +
-// window because a 1d curve and a 30d curve are different drawings of the
-// same account.
-
-type Cached = { at: number; curve: TraderCurve };
-
-const cache = new Map<string, Cached>();
-const pending = new Map<string, Promise<TraderCurve>>();
-
-/** How long a successful curve stands. The API caches Hyperliquid's portfolio
- *  payload for 5 minutes upstream, so a shorter TTL here would only re-fetch
- *  the same bytes. */
-const TTL_MS = 5 * 60_000;
-/** Failures stand for seconds, not minutes — a rate limit clears, and a curve
- *  that says "try again in a moment" must mean it. */
-const FAIL_TTL_MS = 20_000;
-/** Hover must be intent, not transit. Below ~120ms you are still moving. */
-const INTENT_MS = 140;
-/** Curves in flight at once. Hyperliquid answers /info per IP; three keeps a
- *  fast scroll from turning into a 429 storm that punishes the whole board. */
-const MAX_INFLIGHT = 3;
-
-let inflight = 0;
-const waiting: (() => void)[] = [];
-
-function acquire(): Promise<void> {
-  return new Promise((resolve) => {
-    if (inflight < MAX_INFLIGHT) { inflight++; resolve(); return; }
-    waiting.push(() => { inflight++; resolve(); });
-  });
-}
-function release() {
-  inflight--;
-  waiting.shift()?.();
-}
-
-/** A failure wearing the same shape as an answer, so every consumer has one
- *  code path: `available: false` plus a sentence. */
-function unavailable(address: string, days: number, note: string): TraderCurve {
-  return {
-    address, days, period: "", points: [], start_ms: 0, end_ms: 0,
-    pnl: 0, high: 0, low: 0, max_drawdown: 0, max_drawdown_pct: 0,
-    available: false, note,
-  };
-}
-
-function fresh(key: string): TraderCurve | null {
-  const hit = cache.get(key);
-  if (!hit) return null;
-  const ttl = hit.curve.available ? TTL_MS : FAIL_TTL_MS;
-  if (Date.now() - hit.at > ttl) { cache.delete(key); return null; }
-  return hit.curve;
-}
-
-function loadCurve(address: string, days: number): Promise<TraderCurve> {
-  const key = `${address}:${days}`;
-  const hit = fresh(key);
-  if (hit) return Promise.resolve(hit);
-  const already = pending.get(key);
-  if (already) return already;
-
-  const p = acquire()
-    .then(() => fetchTraderCurve(address, days))
-    .catch((e: any) => unavailable(address, days, e?.message ?? "could not load this curve"))
-    .then((curve) => {
-      release();
-      cache.set(key, { at: Date.now(), curve });
-      pending.delete(key);
-      return curve;
-    });
-  pending.set(key, p);
-  return p;
-}
+// Fetching, caching and rate-limiting curves lives in `lib/curves` — the cards
+// on this same board draw the same curves, and two caches would mean two
+// requests per wallet.
 
 // ── The cell ──────────────────────────────────────────────────────────────
 
@@ -127,7 +56,7 @@ export default function TraderCell({ address, coins, days, href }: {
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [hot, setHot] = useState(false);
-  const [curve, setCurve] = useState<TraderCurve | null>(() => fresh(`${address}:${days}`));
+  const [curve, setCurve] = useState<TraderCurve | null>(() => fresh(address, days));
 
   // Follow the row's hover, not this cell's: the cursor is usually parked over
   // the ROI or volume column when the question "what did this look like?"
@@ -158,7 +87,7 @@ export default function TraderCell({ address, coins, days, href }: {
   // A curve already in cache paints on the first frame of the hover; a cold
   // one waits out the intent delay so crossing the board costs nothing.
   useEffect(() => {
-    const cached = fresh(`${address}:${days}`);
+    const cached = fresh(address, days);
     setCurve(cached);
     if (!hot || cached) return;
     let alive = true;

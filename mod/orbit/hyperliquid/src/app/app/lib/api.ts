@@ -341,6 +341,14 @@ export type TraderCurve = {
 export const fetchTraderCurve = (addr: string, days: number) =>
   j<TraderCurve>(`/trader/${addr}/curve?days=${days}`);
 
+// A page of curves in one request. The board draws a curve on every card, so
+// a screenful is thirty-odd of them: one round trip instead of thirty. The
+// API caps a batch (`max_batch`) and reports `requested` vs `served` rather
+// than silently truncating — the client pages against that cap.
+export const fetchTraderCurves = (addrs: string[], days: number) =>
+  j<{ days: number; requested: number; served: number; max_batch: number; curves: TraderCurve[] }>(
+    `/traders/curves?days=${days}&addrs=${encodeURIComponent(addrs.join(","))}`);
+
 // ── follows ──
 export const listFollows = (follower?: string) =>
   j<{ follows: Follow[] }>(`/follows${follower ? `?follower=${follower}` : ""}`);

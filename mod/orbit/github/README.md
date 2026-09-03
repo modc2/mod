@@ -140,6 +140,35 @@ m github/trending language=python days=7
 m github/candidates "…"                     # stage 2 only, unranked
 ```
 
+## Root push (temporary)
+
+One push at the top of the mod repo stands in for every module underneath it,
+so nothing gets uploaded by hand and nobody else has to update their own
+subtree. A `pm2` loop (`github-rootpush`) looks at the tree every 60s and
+pushes when two things are both true: the tree is dirty (or there are commits
+the remote doesn't have) **and** the last push was more than `every` seconds
+ago. An edit made two minutes after a push therefore waits out the rest of the
+hour and rides the next tick — one commit an hour, not forty.
+
+```bash
+m github/root                  # pending files, next push due, last result
+m github/root_push dry=1       # exactly what it would commit
+m github/root_push force=1     # push now, ignore the cooldown
+m github/root_auto every=3600  # start the loop
+m github/root_auto on=0        # stop it (the state file is the switch)
+m github/root_log              # recent pushes and failures
+```
+
+State lives in `~/.mod/github/root.json`; `/api/root` and `/api/root_log` need
+a `write` token and `/api/root_push` / `/api/root_auto` need `admin`, so this
+is never reachable from the public console.
+
+Two guards stand between the loop and a bad commit: it refuses more than
+`ROOT_MAX_FILES` (4000) or `ROOT_MAX_BYTES` (256MB) of changes without
+`force=1`, which is what catches a build directory nobody gitignored. What
+actually gets committed is decided by `.gitignore` alone — there is no second
+hidden exclusion list here to go stale.
+
 ## Related modules
 
 | module | does |
