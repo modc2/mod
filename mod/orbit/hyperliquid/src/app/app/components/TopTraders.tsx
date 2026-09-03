@@ -4,9 +4,28 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchBoard, fetchScanProgress, BoardMeta, ScanProgress, TopTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago, defensibleWin, sharpeMeasured } from "../lib/api";
 import Link from "next/link";
 import { DataBar, Field, Freshness, Identicon, Kpi, Medal, Meter, PageHead, SparkBars, SplitBar, Switch } from "./BoardBits";
+import TraderCell, { ROW_ATTR, isCoreCoin } from "./TraderCell";
+import TraderCard from "./TraderCard";
+import { useCurves } from "../lib/curves";
 
 type SortKey = "roi" | "pnl" | "volume" | "account_value" | "win_rate" | "trades" | "sharpe";
 type Rank = "roi" | "pnl" | "volume";
+
+// How the board is drawn. Cards are the default: a card has room for the PnL
+// curve next to the number it explains, which is the question anyone picking
+// a wallet to copy is actually asking. The table is still here because
+// nothing beats it for scanning five thousand rows against a score floor.
+type View = "cards" | "table";
+const VIEW_KEY = "hl.board.view";
+const SORT_LABELS: { k: SortKey; label: string }[] = [
+  { k: "roi", label: "roi" },
+  { k: "pnl", label: "pnl" },
+  { k: "volume", label: "volume" },
+  { k: "account_value", label: "equity" },
+  { k: "win_rate", label: "win rate" },
+  { k: "sharpe", label: "sharpe" },
+  { k: "trades", label: "trades" },
+];
 
 // HL's native ROI windows are day / week / month — 1, 7, 30 days. Other values
 // would just bucket back to these, so we don't pretend to offer them.
@@ -20,7 +39,10 @@ const RANKS: { k: Rank; label: string; hint: string }[] = [
   { k: "pnl", label: "pnl", hint: "fill stats for the biggest dollar winners (HL's own order)" },
   { k: "volume", label: "volume", hint: "fill stats for the most active books" },
 ];
-const PAGE = 250;
+// How many rows a "page" of the board is, per view. A card is roughly twenty
+// table rows of pixels and costs one Hyperliquid call for its curve, so it
+// pages in screenfuls; the table costs nothing per row and pages in slabs.
+const PAGE: Record<View, number> = { cards: 36, table: 250 };
 const FILTERS_KEY = "hl.board.filtersOpen";
 const FLOOR_KEYS = ["roi", "equity", "volume", "sharpe", "win", "trades"] as const;
 
@@ -38,10 +60,9 @@ const winScore = (t: TopTrader) => defensibleWin(t) ?? -1;
 // outrank a measured negative.
 const STAT_KEYS: SortKey[] = ["win_rate", "trades", "sharpe"];
 
-// Fill coins arrive raw from HL: HIP-3 builder-dex perps as "dex:TICKER"
-// (e.g. "xyz:HYUNDAI") and spot markets as "@123" indices. Neither is a
-// copyable core perp, so they're excluded from badges and the positions filter.
-const isCoreCoin = (c: string) => !c.includes(":") && !c.startsWith("@");
+// `isCoreCoin` — HIP-3 builder-dex perps ("dex:TICKER") and spot markets
+// ("@123") are not copyable core perps — comes from TraderCell, which is where
+// the same rule already governed the badges it draws.
 
 // Shared column template: trader | roi(+pnl) | equity | volume | win%(+trades) | sharpe | last | copy.
 const GRID = "grid grid-cols-[minmax(0,2.6fr)_1.15fr_1fr_1fr_1fr_0.9fr_0.9fr_auto] gap-2 px-4";
@@ -73,12 +94,24 @@ export default function TopTraders() {
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [coinDraft, setCoinDraft] = useState("");
   const [floors, setFloors] = useState<Floors>(NO_FLOORS);
-  const [visible, setVisible] = useState(PAGE);
+  const [view, setView] = useState<View>("cards");
+  const [visible, setVisible] = useState(PAGE.cards);
   const coinKey = useMemo(() => Array.from(coinFilter).sort().join(","), [coinFilter]);
 
-  // Folded or open is a preference, not a per-visit decision.
+  // Folded or open is a preference, not a per-visit decision. So is cards vs
+  // table: someone who reads this board as a spreadsheet should not have to
+  // say so again on every visit.
   useEffect(() => { if (localStorage.getItem(FILTERS_KEY) === "0") setFiltersOpen(false); }, []);
   useEffect(() => { localStorage.setItem(FILTERS_KEY, filtersOpen ? "1" : "0"); }, [filtersOpen]);
+  useEffect(() => {
+    const saved = localStorage.getItem(VIEW_KEY);
+    if (saved === "table" || saved === "cards") { setView(saved); setVisible(PAGE[saved]); }
+  }, []);
+  const switchView = (v: View) => {
+    setView(v);
+    setVisible(PAGE[v]);
+    localStorage.setItem(VIEW_KEY, v);
+  };
 
   // While a scan request is in flight, poll the API's live scan progress so
   // the user sees "X of N wallets" instead of an opaque spinner. Cached
@@ -131,7 +164,7 @@ export default function TopTraders() {
   // Refetch when requirements change.
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [days, rank, enrich, coinKey]);
   // Any change to what's shown restarts paging from the top.
-  useEffect(() => { setVisible(PAGE); }, [days, rank, enrich, coinKey, floors, sortKey, sortDir]);
+  useEffect(() => { setVisible(PAGE[view]); }, [days, rank, enrich, coinKey, floors, sortKey, sortDir, view]);
 
   // Auto-refresh every 60s (matches the API-side cache TTL ceiling).
   useEffect(() => {
@@ -297,6 +330,17 @@ export default function TopTraders() {
   const fmtN = (n: number) => n.toLocaleString("en-US");
   const coinList = Array.from(coinFilter);
 
+  // Curves for exactly the cards on screen — one request per screenful, and
+  // none at all in table view, where the curve is a hover. `lib/curves` caches
+  // by wallet+window, so re-sorting a drawn grid re-renders without fetching.
+  const shownAddrs = useMemo(() => shown.map((t) => t.address), [shown]);
+  const curves = useCurves(shownAddrs, days, view === "cards");
+
+  // Why a row has no win rate / sharpe / coins — the board's own rule, said in
+  // the place the missing number is, rather than left as a bare dash.
+  const enrichNote = `Not measured — only the top ${enrich} wallets by ${rank} get fill stats.` +
+    ` Raise "measure · top" in the filters, or rank by something this wallet is near the top of.`;
+
   return (
     <section className="space-y-5">
       {/* Page heading — what this board is, and how fresh it is */}
@@ -358,6 +402,24 @@ export default function TopTraders() {
                   ))}
                 </div>
               </Field>
+              {/* Cards have no column headers to click, so the sort lives in
+                  the toolbar. It drives the same state the table's headers do,
+                  so switching views never loses the order you chose. */}
+              <Field label="order" title="how the board is sorted — the stat every card lights">
+                <div className="seg">
+                  <select className="seg-btn !text-ink bg-transparent outline-none cursor-pointer"
+                    value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
+                    {SORT_LABELS.map((s) => (
+                      <option key={s.k} value={s.k} className="bg-bg text-ink">{s.label}</option>
+                    ))}
+                  </select>
+                  <button className="seg-btn seg-btn-active"
+                    title={sortDir === "desc" ? "best first — click for worst first" : "worst first — click for best first"}
+                    onClick={() => setSortDir(sortDir === "desc" ? "asc" : "desc")}>
+                    {sortDir === "desc" ? "best first" : "worst first"}
+                  </button>
+                </div>
+              </Field>
             </>
           ) : (
             // Folded: everything the board is being asked for, as pills. Click
@@ -380,6 +442,12 @@ export default function TopTraders() {
             </button>
           )}
           <div className="ml-auto flex items-center gap-2 pb-0.5">
+            <div className="seg" title="Cards show each wallet's pnl curve; the table packs more rows on screen">
+              <button onClick={() => switchView("cards")}
+                className={`seg-btn ${view === "cards" ? "seg-btn-active" : ""}`}>cards</button>
+              <button onClick={() => switchView("table")}
+                className={`seg-btn ${view === "table" ? "seg-btn-active" : ""}`}>table</button>
+            </div>
             <Switch on={autoRefresh} onChange={setAutoRefresh} label="auto" />
             <button
               className={`btn ${seedOpen || seed.trim() ? "!border-accent/40 !text-accent" : ""}`}

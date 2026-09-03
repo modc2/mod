@@ -1049,9 +1049,9 @@ function AgentBoardView({ board, cfg, address, quota, round }: any) {
         dollars you can withdraw. Locking more, for longer, or calling better all move the same number.
       </p>
       {!(cfg?.fee_bps > 0) && (
-        <p className="note mt-3 warn">
-          This pool&apos;s protocol fee is <b>0%</b>, and the agent pot is a slice of that fee — so calls are
-          scored and ranked but pay nothing until the owner sets one.
+        <p className="note mt-3">
+          This pool&apos;s protocol fee is <b className="warn">0%</b>, and the agent pot is a slice of that
+          fee — so calls are scored and ranked but pay nothing until the owner sets one.
         </p>
       )}
     </div>

@@ -2,6 +2,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Router;
+use tower_http::compression::predicate::{NotForContentType, Predicate, SizeAbove};
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
@@ -47,19 +49,24 @@ async fn main() -> anyhow::Result<()> {
     ));
     // Resume any live sessions that were running before the previous restart.
     // resume_persisted scans the persist dir and re-spawns tokio tasks for
-    // every <eoa>.config.json present (explicit STOP deletes those files).
+    // every <eoa>.config.json present. An explicit STOP KEEPS its file (so the
+    // console can still read that strat's ledger) but marks it `stopped: true`,
+    // and resume skips those.
     engines.resume_persisted();
 
     // Scheduled "flatten everything" — sell every held position on a fixed
-    // cadence. The interval is a PARAMETER via POLYMARKET_LIQUIDATE_EVERY_HOURS
-    // (default 6h; 0 disables). First run is one full period after boot so a
-    // process restart never triggers an unexpected instant flatten. Each pass
-    // iterates every persisted session and sells its deposit-wallet positions.
+    // cadence. OFF unless POLYMARKET_LIQUIDATE_EVERY_HOURS is set to a positive
+    // number of hours: a pass sells the deposit wallet's ENTIRE on-chain book
+    // at best bid, including positions the engine never bought, so it is opt-in
+    // rather than a default a stock deployment applies to a real wallet.
+    // First run is one full period after boot so a process restart never
+    // triggers an unexpected instant flatten, and `persisted_eoas` limits each
+    // pass to wallets with a running, auto_execute session.
     let liq_engines = engines.clone();
     let liq_hours: f64 = std::env::var("POLYMARKET_LIQUIDATE_EVERY_HOURS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(6.0);
+        .unwrap_or(0.0);
     if liq_hours > 0.0 {
         let period = std::time::Duration::from_secs_f64(liq_hours * 3600.0);
         tracing::info!(hours = liq_hours, "scheduled liquidation enabled");
@@ -92,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
             }
         });
     } else {
-        tracing::info!("scheduled liquidation disabled (POLYMARKET_LIQUIDATE_EVERY_HOURS=0)");
+        tracing::info!("scheduled liquidation disabled (set POLYMARKET_LIQUIDATE_EVERY_HOURS to enable)");
     }
 
     let user_strats = Arc::new(polymarket_api::UserStratStore::new());
@@ -222,6 +229,27 @@ async fn main() -> anyhow::Result<()> {
             polymarket_api::access::guard,
         ))
         .layer(cors)
+        // Wire-size, not server time: the leaderboard is ~150KB of JSON and
+        // /live/sessions ~1MB, and every byte of it was going out raw — over
+        // anything but loopback that transfer IS the page load. gzip/br take
+        // those to a few percent of the size.
+        //
+        // The predicate is the important part. Progress streams
+        // (application/x-ndjson: a cold /active-traders?stream=1 emits one
+        // event per pipeline stage over ~10 minutes) must NOT be buffered
+        // into a compressor, or the console's progress bar arrives all at
+        // once at the end. SizeAbove(512) skips the bodies where a
+        // compression frame costs more than it saves — /health, /access/check
+        // and the rest of the small probes.
+        .layer(
+            CompressionLayer::new().gzip(true).br(true).compress_when(
+                SizeAbove::new(512)
+                    .and(NotForContentType::new("application/x-ndjson"))
+                    .and(NotForContentType::new("text/event-stream"))
+                    .and(NotForContentType::GRPC)
+                    .and(NotForContentType::IMAGES),
+            ),
+        )
         .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = ([0, 0, 0, 0], port).into();

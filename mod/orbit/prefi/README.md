@@ -76,6 +76,16 @@ a guaranteed ~0 error and drain the BTC stakers. Pots are keyed (round, asset)
 and only ever pay their own stakers. Pool markets must be Hyperliquid-priced
 (`m prefi/add-hl coin=BTC`), because the HL mark at the close is the oracle.
 
+**Three ways to answer the same question.** Every entry is a price call scored
+by the same rule; what differs is what backs it, and each is paid from a
+different place so none can dilute another:
+
+| | backed by | enters the pot | paid from |
+|---|---|---|---|
+| **stake** | dollars at risk | yes | the pot, by `dollars × accuracy` |
+| **agent** | bloctime locked | no | the protocol's fee, by `usd_seconds × accuracy` |
+| **free** | nothing | no | nothing — it is scored and ranked only |
+
 ### Free calls
 
 You do not need a deposit to play. Every address gets `free_per_round` calls a
@@ -109,6 +119,64 @@ would have a meaningless accuracy and a would-have-won number advertising a bet
 nobody could have placed. Free callers rank on their own board — the paid board
 ranks by dollars won, and a free caller has won none. `m prefi/pool-set
 free_per_round=0` switches the whole thing off.
+
+### Agent calls — stake time instead of dollars
+
+An agent puts no money down either, but it is not playing for free. It plays
+for **locked time**, and it gets paid in real dollars.
+
+The qualification is [bloctime](../bloctime), the time-weighted staking
+contract on Base Sepolia. An agent's weight in a round is exactly the quantity
+bloctime mints BLOC for, scoped to that round:
+
+```
+usd_seconds = Σ  (USD value of a lock) × (seconds its lock window overlaps the round)
+```
+
+Lock $100 for the whole of a weekly round and you carry 60,480,000 usd·seconds.
+Lock the same $100 for the last day of it and you carry 8,640,000. Lock nothing
+and you cannot call at all. Nothing about the agent's own balance enters this —
+only what it committed, and for how long.
+
+```bash
+m prefi/agent-stake address=0x… asset=BTC price=80000   # no dollars, time down
+m prefi/agent-quota address=0x…                         # calls left + live weight
+m prefi/agent-board                                     # agents by what they earned
+```
+
+**What agents split is the protocol's own profit, never a staker's pot.** When
+a pot settles, `agent_share_bps` of its protocol fee (50% by default) becomes
+an agent pot for that asset, divided by `usd_seconds × accuracy` and credited
+to the ledger as real, withdrawable dollars. The rest of the fee goes to the
+treasury as it always did. A test asserts the conservation directly: for every
+settled pot, `agent_paid + treasury == fee`, to the micro-dollar. An agent
+therefore cannot cost a staker a cent — the money it wins is money the pool
+had already taken off the top.
+
+Three consequences worth stating, because they are the design and not
+accidents of it:
+
+- **A pool with no fee pays agents nothing.** The agent pot is a slice of the
+  fee, so at `fee_bps=0` calls are scored, ranked and settled but pay $0. The
+  UI says so where an agent would otherwise read "50% of the fee" and expect
+  money. Set a fee to fund it.
+- **Weight is recomputed at settlement and the larger of the two wins.** The
+  weight snapshotted at entry is a floor, so locking *more* later in a round
+  still counts, and a lock that expires mid-round keeps the seconds it served.
+- **An unreachable bloctime feed is never read as zero.** `agent_weight`
+  returns `None` rather than `0.0`, entry refuses with "cannot verify", and
+  settlement falls back to the snapshot. A dead feed must not silently
+  disqualify everyone who locked.
+
+The same two caps as free play — one call per asset, `agent_per_round` (10)
+overall — and the same signature, because a call that claims a share of real
+fee money has to prove it owns the address claiming it. `m prefi/pool-set
+agent_per_round=0` switches agent play off; `agent_share_bps=0` keeps the
+board but sends the whole fee to the treasury.
+
+Agents read their weight through the local bloctime module (`PREFI_BLOCTIME_API`,
+default `:8851`), falling back to the activator at `:9000/api/bloctime` — that
+module is scale-to-zero, so a refused direct call means asleep, not absent.
 
 ### Money in, money out
 
@@ -152,6 +220,7 @@ m prefi/pool-set interval=604800 fee_bps=100 min_liquidity_usd=10000 secret=…
 m prefi/deposit tx=0x…              # credit a deposit
 m prefi/round                       # the pot, with live provisional scores
 m prefi/free-stake address=0x… asset=BTC price=80000   # no deposit needed
+m prefi/agent-stake address=0x… asset=BTC price=80000  # backed by bloctime, not dollars
 m prefi/settle                      # settle closed rounds (safe on a cron)
 ```
 
@@ -453,6 +522,7 @@ The app is served under `basePath: /prefi` and talks to the API same-origin at
 | `POST /pool/deposit?tx=` · `POST /pool/sync` · `GET /pool/balance/{addr}` · `/pool/ledger` | money in |
 | `GET /pool/sign` · `POST /pool/stake` | the message to sign, and the stake |
 | `POST /pool/free` · `GET /pool/free/{addr}` · `/pool/free/leaderboard` | a call with no money down, the quota, the board |
+| `POST /pool/agent` · `GET /pool/agent/{addr}` · `/pool/agent/leaderboard` | a call backed by bloctime, the quota + live weight, the board |
 | `GET /pool/round` · `/pool/rounds` · `/pool/entries` · `/pool/leaderboard` · `POST /pool/settle` | pots |
 | `POST /pool/withdraw` · `GET /pool/withdrawals` · `POST /pool/withdrawals/{id}/pay` | money out |
 | `GET /hyperevm` | RPC reachability and chain id |

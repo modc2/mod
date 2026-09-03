@@ -25,17 +25,30 @@ signs real money through the deposit wallet and a mis-prompted agent must not
 reach it. The one thing that CAN spend money is `pm_copy_start` with
 `autoExecute: true`, and it is refused unless the deployment sets
 POLYMARKET_MCP_ALLOW_LIVE=1 — without it, an agent can research, allocate,
-backtest and DRY RUN, and a human flips the last switch in the browser. Stopping
-is always allowed; it only ever reduces exposure.
+backtest and DRY RUN, and a human flips the last switch in the browser. The
+same gate covers RE-sizing a session a human already flipped live: without
+ALLOW_LIVE, pm_copy_allocate and pm_copy_rebalance refuse while any session on
+that wallet is executing, so an ungated agent can never grow real exposure.
+Stopping is always allowed; it only ever reduces exposure.
 
 Transports:
     python3 src/mcp.py                    # stdio — one JSON-RPC msg per line
     python3 src/mcp.py --http [--port N]  # Streamable HTTP — POST /mcp (:50092)
+    python3 src/mcp.py --token            # print an owner Bearer token for --http
 
-Auth: this deployment is owner-only (api/src/access.rs). The server mints the
-same Bearer token the console's sign-in issues, from the HMAC secret at
-~/.mod/polymarket/server.secret — so it works exactly when the local owner's
-console works, and not otherwise. Nothing here accepts a token from a caller.
+Auth. UPSTREAM: this deployment is owner-only (api/src/access.rs), and the
+server mints the same Bearer token the console's sign-in issues, from the HMAC
+secret at ~/.mod/polymarket/server.secret — so it works exactly when the local
+owner's console works, and not otherwise.
+
+DOWNSTREAM: because that mint is unconditional, the transport itself decides
+who may drive the desk. stdio is trusted by construction (the caller already
+runs as the owner's user and can read the secret directly). The HTTP transport
+is NOT: it therefore requires `Authorization: Bearer <owner token>` on every
+POST and verifies it exactly as the Rust gate does, failing closed when no
+owner or secret resolves. It also binds 127.0.0.1 by default — set
+POLYMARKET_MCP_HTTP_HOST to widen it deliberately. Mint a token for a client
+with `--token`.
 """
 import hashlib
 import hmac
@@ -113,6 +126,45 @@ def _token() -> str:
     owner, exp = _owner(), int(time.time()) + 7 * 24 * 3600
     sig = hmac.new(secret, f'pma1|{owner}|{exp}'.encode(), hashlib.sha256).hexdigest()
     return f'pma1.{owner}.{exp}.{sig}'
+
+
+def _verify_owner_token(token: str) -> bool:
+    """Is `token` a valid owner token for THIS deployment?
+
+    Mirrors the Rust gate (api/src/access.rs::verify_token) field for field:
+    `pma1.<addr>.<exp>.<sig>`, unexpired, HMAC-SHA256 over `pma1|addr|exp`
+    with the persisted server secret, compared in constant time, and the
+    address re-checked against the current owner so rotating the owner
+    immediately locks old tokens out. Fails CLOSED — any missing secret,
+    missing owner or malformed token is a rejection, never a pass.
+    """
+    try:
+        parts = token.split('.')
+        if len(parts) != 4 or parts[0] != 'pma1':
+            return False
+        _, addr, exp, sig = parts
+        if int(exp) <= int(time.time()):
+            return False
+        secret = bytes.fromhex(
+            open(os.path.join(_state_dir(), 'server.secret')).read().strip())
+        expect = hmac.new(secret, f'pma1|{addr}|{int(exp)}'.encode(),
+                          hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expect):
+            return False
+        return addr.strip().lower() == _owner()
+    except Exception:
+        return False
+
+
+def _truthy(v) -> bool:
+    """Strict truthiness for tool arguments.
+
+    `bool("false")` is True, and this flag decides whether real money moves —
+    so the string forms an LLM actually emits are parsed, not coerced.
+    """
+    if isinstance(v, str):
+        return v.strip().lower() in ('1', 'true', 'yes', 'on')
+    return bool(v)
 
 
 def _get(url: str, timeout: float = 30.0):
@@ -515,6 +567,8 @@ def _t_copy_allocate(args):
     if isinstance(args.get('params'), dict):
         body['params'] = args['params']
     eoa = _copy_eoa(args)
+    if not _live_allowed() and _executing(eoa):
+        return _live_gate_error('re-sizing a live allocation')
     res = _post(_copy_url('/allocations', eoa), body)
     return {
         'ok': res.get('ok'),
@@ -541,6 +595,8 @@ def _t_copy_remove(args):
 
 def _t_copy_rebalance(args):
     eoa = _copy_eoa(args)
+    if not _live_allowed() and _executing(eoa):
+        return _live_gate_error('rebalancing a live book')
     body = {'bankroll': float(args['bankroll']), 'mode': str(args.get('mode') or 'equal')}
     res = _post(_copy_url('/rebalance', eoa), body)
     return {'ok': res.get('ok'), 'reconfiguredRunningSessions': res.get('reconfigured'),
@@ -759,9 +815,35 @@ def _live_allowed() -> bool:
     return (os.environ.get('POLYMARKET_MCP_ALLOW_LIVE') or '').strip() == '1'
 
 
+def _live_gate_error(what: str) -> dict:
+    return {'error': f'{what} is not available over MCP on this deployment',
+            'why': 'POLYMARKET_MCP_ALLOW_LIVE is not set to 1 and this wallet has a '
+                   'session placing real orders',
+            'what_you_can_do': 'a human changes real-money sizing from the COPY DESK in '
+                               'the browser. pm_copy_stop always works — it only ever '
+                               'reduces exposure.'}
+
+
+def _executing(eoa: str) -> bool:
+    """Is any session on this wallet placing real orders right now?
+
+    The ALLOW_LIVE gate on pm_copy_start only guards a COLD start; allocate and
+    rebalance reconfigure a session that is already running, and a running
+    session picks the new size up on its next cycle. So once a human has
+    flipped one session live, those two tools are a real-money control surface
+    and go through the same gate. Fails CLOSED: if the book can't be read we
+    cannot prove the wallet is dry, so we assume it is not.
+    """
+    try:
+        return bool(((_get(_copy_url('/book', eoa), timeout=30) or {})
+                     .get('totals') or {}).get('executing'))
+    except Exception:
+        return True
+
+
 def _t_copy_start(args):
     eoa = _copy_eoa(args)
-    auto = bool(args.get('autoExecute'))
+    auto = _truthy(args.get('autoExecute'))
     if auto and not _live_allowed():
         # Refused loudly rather than silently downgraded: an agent told "it
         # started" would report a live desk that is dry-running.
@@ -1165,8 +1247,22 @@ def serve_stdio():
             sys.stdout.flush()
 
 
-def serve_http(port: int):
-    """Streamable HTTP without SSE: one JSON-RPC message per POST /mcp."""
+# Bodies are JSON-RPC messages, not uploads; 4 MiB is far past the largest
+# tool call and stops an unauthenticated socket from buffering a process to
+# death before the token is even checked.
+MAX_BODY = 4 * 1024 * 1024
+
+
+def serve_http(port: int, host: str = '127.0.0.1'):
+    """Streamable HTTP without SSE: one JSON-RPC message per POST /mcp.
+
+    AUTHENTICATED. Every forwarded call carries a self-minted owner token
+    (`_token()`), so an open port here is the whole access gate handed to
+    whoever can reach it. Each POST must present that same owner token as
+    `Authorization: Bearer …` and it is verified against the server secret
+    before the message is parsed as JSON-RPC. Binds loopback by default; widen
+    with POLYMARKET_MCP_HTTP_HOST only behind something that authenticates.
+    """
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     paths = ('/mcp', f'{BASE_PATH.rstrip("/")}/mcp')
@@ -1179,15 +1275,25 @@ def serve_http(port: int):
             self.send_response(code)
             self.send_header('content-type', ctype)
             self.send_header('content-length', str(len(data)))
-            self.send_header('access-control-allow-origin', '*')
-            self.send_header('access-control-allow-headers', '*')
+            # No wildcard CORS: this endpoint drives a real trading desk, and
+            # `*` invited every page open in a browser on this network to
+            # preflight its way in.
+            self.send_header('vary', 'origin')
             self.end_headers()
             self.wfile.write(data)
+
+        def _authed(self) -> bool:
+            auth = self.headers.get('authorization') or ''
+            if not auth.lower().startswith('bearer '):
+                return False
+            return _verify_owner_token(auth[7:].strip())
 
         def do_OPTIONS(self):
             self._send(204, b'', 'text/plain')
 
         def do_GET(self):
+            # Liveness only — deliberately the one unauthenticated route, and
+            # it reveals nothing but "a process is listening".
             if self.path.rstrip('/').endswith('/health'):
                 return self._send(200, b'ok', 'text/plain')
             self._send(405, b'POST JSON-RPC 2.0 messages to this endpoint', 'text/plain')
@@ -1195,7 +1301,14 @@ def serve_http(port: int):
         def do_POST(self):
             if self.path.split('?')[0].rstrip('/') not in paths:
                 return self._send(404, b'not found', 'text/plain')
+            if not self._authed():
+                return self._send(401, _error(
+                    None, -32001,
+                    'unauthorized: POST /mcp requires the owner Bearer token '
+                    '(mint one with `python3 src/mcp.py --token`)'))
             n = int(self.headers.get('content-length') or 0)
+            if n > MAX_BODY:
+                return self._send(413, _error(None, -32600, 'request body too large'))
             try:
                 body = json.loads(self.rfile.read(n) or b'')
             except Exception:
@@ -1208,15 +1321,22 @@ def serve_http(port: int):
         def log_message(self, *a):  # quiet: pm2 logs are for real events
             pass
 
-    print(f'polymarket mcp on :{port} — POST {paths[1]}', flush=True)
-    ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()
+    print(f'polymarket mcp on {host}:{port} — POST {paths[1]} (owner token required)',
+          flush=True)
+    ThreadingHTTPServer((host, port), Handler).serve_forever()
 
 
 if __name__ == '__main__':
     argv = sys.argv[1:]
-    if '--http' in argv:
+    if '--token' in argv:
+        # For configuring an HTTP client. Same token the console's sign-in
+        # issues; it is a full owner credential, so treat it like one.
+        print(_token())
+    elif '--http' in argv:
         i = argv.index('--port') + 1 if '--port' in argv else -1
         port = int(argv[i] if i > 0 else os.environ.get('MCP_PORT', 50092))
-        serve_http(port)
+        j = argv.index('--host') + 1 if '--host' in argv else -1
+        host = argv[j] if j > 0 else (os.environ.get('POLYMARKET_MCP_HTTP_HOST') or '127.0.0.1')
+        serve_http(port, host)
     else:
         serve_stdio()

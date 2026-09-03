@@ -1,167 +1,168 @@
 {
-    "name": "polymarket",
-    "version": "2.7.0",
-    "description": "Copy a bench of Polymarket traders as an INDEX sized to your own capital \u2014 the default strat scales every one of their trades by yourCapital/theirBankroll, so when they stake 2% of their book you stake 2% of yours, with no per-name dollar amounts. Gate what you copy by MARKET SENTIMENT \u2014 only their with-the-crowd entries, or only their contrarian ones. Three tabs: STRATS, TRADERS, TEST & LIVE; topping up and taking money out live in the side panel. The older per-trader copy desk still runs underneath. Driven from the console or over MCP",
-    "port": 50091,
-    "app_port": 3091,
-    "urls": {
-        "api": "http://localhost:50091",
-        "app": "http://localhost:3091/polymarket",
-        "gateway": "http://localhost:3000/polymarket"
+  "name": "polymarket",
+  "version": "2.7.0",
+  "description": "Copy a bench of Polymarket traders as an INDEX sized to your own capital — the default strat scales every one of their trades by yourCapital/theirBankroll, so when they stake 2% of their book you stake 2% of yours, with no per-name dollar amounts. Gate what you copy by MARKET SENTIMENT — only their with-the-crowd entries, or only their contrarian ones. Three tabs: STRATS, TRADERS, TEST & LIVE; topping up and taking money out live in the side panel. The older per-trader copy desk still runs underneath. Driven from the console or over MCP",
+  "port": 50091,
+  "app_port": 3091,
+  "urls": {
+    "api": "http://localhost:50091",
+    "app": "http://localhost:3091/polymarket",
+    "gateway": "http://localhost:3000/polymarket"
+  },
+  "fns": [
+    "serve",
+    "kill",
+    "status",
+    "build",
+    "logs",
+    "search",
+    "markets",
+    "trending",
+    "events",
+    "active_traders",
+    "sync",
+    "forward",
+    "backtests",
+    "mcp"
+  ],
+  "endpoints": {
+    "/health": {
+      "method": "GET",
+      "docs": "Health check (public)"
     },
-    "fns": [
-        "serve",
-        "kill",
-        "status",
-        "build",
-        "logs",
-        "search",
-        "markets",
-        "trending",
-        "events",
-        "active_traders",
-        "sync",
-        "forward",
-        "backtests",
-        "mcp"
-    ],
-    "endpoints": {
-        "/health": {
-            "method": "GET",
-            "docs": "Health check (public)"
-        },
-        "/access/info": {
-            "method": "GET",
-            "docs": "Access gate info: owner-only mode + Terms of Use text/version/hash (public)"
-        },
-        "/access/challenge": {
-            "method": "GET",
-            "docs": "Owner sign-in challenge for ?address= \u2014 message embeds the terms hash, signing = accepting (public)"
-        },
-        "/access/verify": {
-            "method": "POST",
-            "docs": "Exchange {address, timestamp, signature} for a Bearer token; only the sudo/owner address is accepted; acceptance recorded to terms_accepted.json (public)"
-        },
-        "/access/check": {
-            "method": "GET",
-            "docs": "Probe whether the Bearer token is still valid"
-        },
-        "/active-traders": {
-            "method": "GET",
-            "docs": "Active traders pipeline (streaming/paged/json). `paged=1` answers from the warm cache and never aggregates \u2014 it returns {cold:true} instead \u2014 and takes the board-wide filters: search/category/marketQuery, minVolume/minPnl/minTrades/minBuyVolume/minSellVolume, and the activity floors `maxLastTradeHrs` (default lens in the console: 6h since the trader's last fill) + `minTrades24h`. All are applied before the sort and the page slice, so `total` counts the filtered board; `activityDropped` reports how many the activity floors took"
-        },
-        "/copy/book": {
-            "method": "GET|POST",
-            "docs": "THE COPY BOOK \u2014 which individual traders this deployment copies and with how much. GET ?eoa= returns each allocation plus that wallet's live session for it (running, DRY RUN vs executing, orders placed, realized P&L, last fill) and the roll-up totals. POST {bankroll} sets the desk's target size. Server-owned and plaintext (~/.mod/polymarket/copy/book.json) so the console and an MCP agent read and write the SAME desk. Also answers `sessions`: every session RUNNING on this wallet that is NOT a row of the book (a strat started from an older screen, a candle bot) with its mode, capital, leaders, realized P&L, orders and wallet balance, and `totals.otherRunning`/`otherExecuting` \u2014 so the desk can never say \"none running\" over a wallet that is placing orders. Stop one with POST /live/stop {eoa, strategyId}"
-        },
-        "/copy/allocations": {
-            "method": "POST",
-            "docs": "Copy a trader with N dollars: {address, allocationUsd, label?, notes?, enabled?, params?}. Idempotent by address \u2014 one leader, one allocation, one session; a running session is reconfigured in place keeping its execution mode. `params` patches the identity template (minTrade/maxTrade/maxPerCycle/maxOpenPositions/pollMinutes/backtestDays/sizing/turnover/stopLoss/takeProfit/minMinutesToClose/maxTradeAgeSec/marketQuery/tradeFilters); omitted knobs keep their value. The GATE is `marketQuery` (which markets, by title \u2014 commas OR, spaces AND) + `tradeFilters` ({sides,minPrice,maxPrice,minNotional,maxNotional,categories}: which trades inside them) + `tradeFilters.sentiment` ({lean:[bullish|bearish|flat],windowHours,flatBand,minDrift,maxDrift,unknown}: MARKET SENTIMENT \u2014 which way the crowd had moved the odds on the outcome they bought, so a strat can copy only their with-the-crowd entries or only their contrarian ones; a market with no readable price history passes unless `unknown:\"block\"`), which is what the console's sentence box compiles a plain-language filter into. Places nothing"
-        },
-        "/copy/allocations/{address}": {
-            "method": "DELETE",
-            "docs": "Stop copying a trader: ends their session (with ?eoa=) and drops them from the book. Realized P&L survives in the engine ledger"
-        },
-        "/copy/rebalance": {
-            "method": "POST",
-            "docs": "Split a bankroll across every ENABLED trader: {bankroll, mode: equal|weighted}. `weighted` rescales the amounts already set, so conviction survives a deposit. Running sessions pick up their new size immediately"
-        },
-        "/copy/start": {
-            "method": "POST",
-            "docs": "Start copying: {eoa, address?, autoExecute?, proxyAddress?}. One trader with `address`, every enabled trader without it. DEFAULTS TO DRY RUN \u2014 autoExecute omitted/false computes every mirror and places none. The trading wallet is derived from the EOA's backend signer unless named"
-        },
-        "/copy/stop": {
-            "method": "POST",
-            "docs": "Stop copying: {eoa, address?}. One trader, or every session on the desk. The allocation and the ledger survive"
-        },
-        "/copy/strats": {
-            "method": "GET",
-            "docs": "The book as IDENTITY STRATS \u2014 the exact objects the live engine runs (one leader at weight 1, the row's capital and gates). The background backtest worker reads this every pass, which is why a leader added over MCP gets a card without a browser ever opening"
-        },
-        "/sync/status": {
-            "method": "GET",
-            "docs": "Background sync schedule: cadence, last run, next run, last error"
-        },
-        "/sync/config": {
-            "method": "POST",
-            "docs": "Owner sets the sync cadence: {enabled?, intervalSecs|intervalMinutes|intervalHours} (5min\u20137d); persists to ~/.mod/polymarket/sync.json"
-        },
-        "/sync/run": {
-            "method": "POST",
-            "docs": "Run one background sync cycle now (bypasses the freshness skip)"
-        },
-        "/?endpoint=markets": {
-            "method": "GET",
-            "docs": "Proxy: list markets (gamma-api)"
-        },
-        "/?endpoint=events": {
-            "method": "GET",
-            "docs": "Proxy: list events (gamma-api)"
-        },
-        "/?endpoint=activity": {
-            "method": "GET",
-            "docs": "Proxy: user activity (data-api)"
-        },
-        "/?endpoint=positions": {
-            "method": "GET",
-            "docs": "Proxy: user positions (data-api)"
-        },
-        "/?endpoint=prices-history": {
-            "method": "GET",
-            "docs": "Proxy: price history (clob)"
-        },
-        "/user-strats/{id}/share": {
-            "method": "POST",
-            "docs": "Bundle a strat + store it content-addressably (localfs default) -> CID"
-        },
-        "/user-strats/import": {
-            "method": "POST",
-            "docs": "Import a strat by CID as a private copy you own"
-        },
-        "/polymarket/api/hub": {
-            "method": "GET|POST|PUT",
-            "docs": "Background backtest worker (served by the Next app, owner-gated): GET ?days=N returns the cached per-strat backtests + funnels + the walk-forward verdict (each strat replayed over the PREVIOUS window too, then judged held/faded/recovered/no-edge/stalled/untested/idle) and the worker's schedule; POST {days,strats} publishes the roster to keep warm (POST ?run=1 queues a pass); PUT runs a pass synchronously"
-        },
-        "/polymarket/api/basket": {
-            "method": "POST",
-            "docs": "THE BASKET \u2014 replay a SET of traders, each on its OWN capital, as one portfolio. {legs:[{address, allocationUsd, params?}], days} or {fromDesk:true} to replay the copy desk as it stands; `total`+`split` rescale the legs. Answers what a per-trader backtest cannot: `legsTrading`/`legs` and `idleUsd` say how much of the money never traded (an underfunded leg takes NO position \u2014 its mirror lands under the order floor), `floors:true` names the smallest amount each leg needs, `compare:true` scores the split against dividing the same total evenly. Replays out of the worker's feed store; places nothing, writes nothing. Owner-gated on the Next app port"
-        },
-        "/polymarket/api/copytrades": {
-            "method": "GET",
-            "docs": "MY COPY TRADES \u2014 every trade the desk's leaders made joined to every on-chain fill of mine, by market, side and time (a fill carries no leader tag, so the join is inferred: same market, same side, mine at or after theirs within `matchMinutes`, nearest wins, one leader trade claimed once). Answers with `summary.coverage` (what share of their flow actually landed in my wallet), medianLagSec, avgSlipCents, per-leader roll-up and the rows themselves. Fills with no leader behind them are reported as `unattributed`, never credited to one. `?q=` filters in plain language (\"big buys on crypto under 30c\", \"missed longshots\") and echoes both how the sentence was read and the enforceable gate it compiles to. Leaders come from the worker's feed store, so it costs one wallet walk, not one per leader. Owner-gated on the Next app port"
-        },
-        "/polymarket/api/strat-chat": {
-            "method": "POST",
-            "docs": "Per-strat agent chat (served by the Next app, owner-gated): {strat, messages, context?} -> {reply, entries, rejected}. The agent reads the strat's settings, its cached backtest and its live session and PROPOSES a parameter patch, validated against the lib/stratPatch whitelist; nothing is written \u2014 the browser applies it on the user's say-so. Runs through the local claude CLI (POLYMARKET_CHAT_MODEL, default claude-opus-5)."
-        }
+    "/access/info": {
+      "method": "GET",
+      "docs": "Access gate info: owner-only mode + Terms of Use text/version/hash (public)"
     },
-    "schema": "QmZj8btgZUDF5iq3QGX6fPyegrcxwePL2k4CTPrgJDMdXR",
-    "gateway_port": 3091,
-    "mcp": {
-        "stdio": "python3 src/mcp.py",
-        "http": "python3 src/mcp.py --http --port 50092",
-        "port": 50092,
-        "path": "/mcp",
-        "tools": [
-            "pm_health",
-            "pm_markets",
-            "pm_top_traders",
-            "pm_trader",
-            "pm_copy_book",
-            "pm_copy_allocate",
-            "pm_copy_remove",
-            "pm_copy_rebalance",
-            "pm_copy_backtest",
-            "pm_copy_trades",
-            "pm_copy_basket",
-            "pm_copy_start",
-            "pm_copy_stop",
-            "pm_strats",
-            "pm_backtests",
-            "pm_backtest_run",
-            "pm_live_sessions",
-            "pm_live_gates"
-        ],
-        "docs": "The COPY DESK's other front end. pm_copy_* call the SAME /copy/* routes the browser calls \u2014 one server-owned copy book, two clients \u2014 so an agent and a person are looking at the same desk: read it (pm_copy_book), replay copying ONE trader with its walk-forward verdict and entry funnel (pm_copy_backtest), size a whole SET of them against each other \u2014 different amount per trader, one portfolio, with the legs that never traded and the dollars idle in them called out (pm_copy_basket), see what the copying actually DID \u2014 their trades against my fills, with the coverage/lag/slippage that judges it, filtered in plain language (pm_copy_trades), put dollars against a name, optionally gated to one slice of their flow (pm_copy_allocate params:{marketQuery,tradeFilters}), split a bankroll (pm_copy_rebalance), start and stop (pm_copy_start/stop). Plus research (markets, leaderboard, one leader's sub-hour candle share) and diagnosis (live sessions, the gate tally that says why a running session isn't filling). SAFETY: no order-placing tool by design; pm_copy_start DEFAULTS TO DRY RUN and refuses real execution unless POLYMARKET_MCP_ALLOW_LIVE=1, so a human flips the last switch in the browser. Stopping is always allowed."
+    "/access/challenge": {
+      "method": "GET",
+      "docs": "Owner sign-in challenge for ?address= — message embeds the terms hash, signing = accepting (public)"
+    },
+    "/access/verify": {
+      "method": "POST",
+      "docs": "Exchange {address, timestamp, signature} for a Bearer token; only the sudo/owner address is accepted; acceptance recorded to terms_accepted.json (public)"
+    },
+    "/access/check": {
+      "method": "GET",
+      "docs": "Probe whether the Bearer token is still valid"
+    },
+    "/active-traders": {
+      "method": "GET",
+      "docs": "Active traders pipeline (streaming/paged/json). `paged=1` answers from the warm cache and never aggregates — it returns {cold:true} instead — and takes the board-wide filters: search/category/marketQuery, minVolume/minPnl/minTrades/minBuyVolume/minSellVolume, and the activity floors `maxLastTradeHrs` (default lens in the console: 6h since the trader's last fill) + `minTrades24h`. All are applied before the sort and the page slice, so `total` counts the filtered board; `activityDropped` reports how many the activity floors took"
+    },
+    "/copy/book": {
+      "method": "GET|POST",
+      "docs": "THE COPY BOOK — which individual traders this deployment copies and with how much. GET ?eoa= returns each allocation plus that wallet's live session for it (running, DRY RUN vs executing, orders placed, realized P&L, last fill) and the roll-up totals. POST {bankroll} sets the desk's target size. Server-owned and plaintext (~/.mod/polymarket/copy/book.json) so the console and an MCP agent read and write the SAME desk. Also answers `sessions`: every session RUNNING on this wallet that is NOT a row of the book (a strat started from an older screen, a candle bot) with its mode, capital, leaders, realized P&L, orders and wallet balance, and `totals.otherRunning`/`otherExecuting` — so the desk can never say \"none running\" over a wallet that is placing orders. Stop one with POST /live/stop {eoa, strategyId}"
+    },
+    "/copy/allocations": {
+      "method": "POST",
+      "docs": "Copy a trader with N dollars: {address, allocationUsd, label?, notes?, enabled?, params?}. Idempotent by address — one leader, one allocation, one session; a running session is reconfigured in place keeping its execution mode. `params` patches the identity template (minTrade/maxTrade/maxPerCycle/maxOpenPositions/pollMinutes/backtestDays/sizing/turnover/stopLoss/takeProfit/minMinutesToClose/maxTradeAgeSec/marketQuery/tradeFilters); omitted knobs keep their value. The GATE is `marketQuery` (which markets, by title — commas OR, spaces AND) + `tradeFilters` ({sides,minPrice,maxPrice,minNotional,maxNotional,categories}: which trades inside them) + `tradeFilters.sentiment` ({lean:[bullish|bearish|flat],windowHours,flatBand,minDrift,maxDrift,unknown}: MARKET SENTIMENT — which way the crowd had moved the odds on the outcome they bought, so a strat can copy only their with-the-crowd entries or only their contrarian ones; a market with no readable price history passes unless `unknown:\"block\"`), which is what the console's sentence box compiles a plain-language filter into. Places nothing"
+    },
+    "/copy/allocations/{address}": {
+      "method": "DELETE",
+      "docs": "Stop copying a trader: ends their session (with ?eoa=) and drops them from the book. Realized P&L survives in the engine ledger"
+    },
+    "/copy/rebalance": {
+      "method": "POST",
+      "docs": "Split a bankroll across every ENABLED trader: {bankroll, mode: equal|weighted}. `weighted` rescales the amounts already set, so conviction survives a deposit. Running sessions pick up their new size immediately"
+    },
+    "/copy/start": {
+      "method": "POST",
+      "docs": "Start copying: {eoa, address?, autoExecute?, proxyAddress?}. One trader with `address`, every enabled trader without it. DEFAULTS TO DRY RUN — autoExecute omitted/false computes every mirror and places none. The trading wallet is derived from the EOA's backend signer unless named"
+    },
+    "/copy/stop": {
+      "method": "POST",
+      "docs": "Stop copying: {eoa, address?}. One trader, or every session on the desk. The allocation and the ledger survive"
+    },
+    "/copy/strats": {
+      "method": "GET",
+      "docs": "The book as IDENTITY STRATS — the exact objects the live engine runs (one leader at weight 1, the row's capital and gates). The background backtest worker reads this every pass, which is why a leader added over MCP gets a card without a browser ever opening"
+    },
+    "/sync/status": {
+      "method": "GET",
+      "docs": "Background sync schedule: cadence, last run, next run, last error"
+    },
+    "/sync/config": {
+      "method": "POST",
+      "docs": "Owner sets the sync cadence: {enabled?, intervalSecs|intervalMinutes|intervalHours} (5min–7d); persists to ~/.mod/polymarket/sync.json"
+    },
+    "/sync/run": {
+      "method": "POST",
+      "docs": "Run one background sync cycle now (bypasses the freshness skip)"
+    },
+    "/?endpoint=markets": {
+      "method": "GET",
+      "docs": "Proxy: list markets (gamma-api)"
+    },
+    "/?endpoint=events": {
+      "method": "GET",
+      "docs": "Proxy: list events (gamma-api)"
+    },
+    "/?endpoint=activity": {
+      "method": "GET",
+      "docs": "Proxy: user activity (data-api)"
+    },
+    "/?endpoint=positions": {
+      "method": "GET",
+      "docs": "Proxy: user positions (data-api)"
+    },
+    "/?endpoint=prices-history": {
+      "method": "GET",
+      "docs": "Proxy: price history (clob)"
+    },
+    "/user-strats/{id}/share": {
+      "method": "POST",
+      "docs": "Bundle a strat + store it content-addressably (localfs default) -> CID"
+    },
+    "/user-strats/import": {
+      "method": "POST",
+      "docs": "Import a strat by CID as a private copy you own"
+    },
+    "/polymarket/api/hub": {
+      "method": "GET|POST|PUT",
+      "docs": "Background backtest worker (served by the Next app, owner-gated): GET ?days=N returns the cached per-strat backtests + funnels + the walk-forward verdict (each strat replayed over the PREVIOUS window too, then judged held/faded/recovered/no-edge/stalled/untested/idle) and the worker's schedule; POST {days,strats} publishes the roster to keep warm (POST ?run=1 queues a pass); PUT runs a pass synchronously"
+    },
+    "/polymarket/api/basket": {
+      "method": "POST",
+      "docs": "THE BASKET — replay a SET of traders, each on its OWN capital, as one portfolio. {legs:[{address, allocationUsd, params?}], days} or {fromDesk:true} to replay the copy desk as it stands; `total`+`split` rescale the legs. Answers what a per-trader backtest cannot: `legsTrading`/`legs` and `idleUsd` say how much of the money never traded (an underfunded leg takes NO position — its mirror lands under the order floor), `floors:true` names the smallest amount each leg needs, `compare:true` scores the split against dividing the same total evenly. Replays out of the worker's feed store; places nothing, writes nothing. Owner-gated on the Next app port"
+    },
+    "/polymarket/api/copytrades": {
+      "method": "GET",
+      "docs": "MY COPY TRADES — every trade the desk's leaders made joined to every on-chain fill of mine, by market, side and time (a fill carries no leader tag, so the join is inferred: same market, same side, mine at or after theirs within `matchMinutes`, nearest wins, one leader trade claimed once). Answers with `summary.coverage` (what share of their flow actually landed in my wallet), medianLagSec, avgSlipCents, per-leader roll-up and the rows themselves. Fills with no leader behind them are reported as `unattributed`, never credited to one. `?q=` filters in plain language (\"big buys on crypto under 30c\", \"missed longshots\") and echoes both how the sentence was read and the enforceable gate it compiles to. Leaders come from the worker's feed store, so it costs one wallet walk, not one per leader. Owner-gated on the Next app port"
+    },
+    "/polymarket/api/strat-chat": {
+      "method": "POST",
+      "docs": "Per-strat agent chat (served by the Next app, owner-gated): {strat, messages, context?} -> {reply, entries, rejected}. The agent reads the strat's settings, its cached backtest and its live session and PROPOSES a parameter patch, validated against the lib/stratPatch whitelist; nothing is written — the browser applies it on the user's say-so. Runs through the local claude CLI (POLYMARKET_CHAT_MODEL, default claude-opus-5)."
     }
+  },
+  "schema": "QmZj8btgZUDF5iq3QGX6fPyegrcxwePL2k4CTPrgJDMdXR",
+  "gateway_port": 3091,
+  "mcp": {
+    "stdio": "python3 src/mcp.py",
+    "http": "python3 src/mcp.py --http --port 50092",
+    "port": 50092,
+    "path": "/mcp",
+    "tools": [
+      "pm_health",
+      "pm_markets",
+      "pm_top_traders",
+      "pm_trader",
+      "pm_copy_book",
+      "pm_copy_allocate",
+      "pm_copy_remove",
+      "pm_copy_rebalance",
+      "pm_copy_backtest",
+      "pm_copy_trades",
+      "pm_copy_basket",
+      "pm_copy_start",
+      "pm_copy_stop",
+      "pm_strats",
+      "pm_backtests",
+      "pm_backtest_run",
+      "pm_live_sessions",
+      "pm_live_gates"
+    ],
+    "docs": "The COPY DESK's other front end. pm_copy_* call the SAME /copy/* routes the browser calls — one server-owned copy book, two clients — so an agent and a person are looking at the same desk: read it (pm_copy_book), replay copying ONE trader with its walk-forward verdict and entry funnel (pm_copy_backtest), size a whole SET of them against each other — different amount per trader, one portfolio, with the legs that never traded and the dollars idle in them called out (pm_copy_basket), see what the copying actually DID — their trades against my fills, with the coverage/lag/slippage that judges it, filtered in plain language (pm_copy_trades), put dollars against a name, optionally gated to one slice of their flow (pm_copy_allocate params:{marketQuery,tradeFilters}), split a bankroll (pm_copy_rebalance), start and stop (pm_copy_start/stop). Plus research (markets, leaderboard, one leader's sub-hour candle share) and diagnosis (live sessions, the gate tally that says why a running session isn't filling). SAFETY: no order-placing tool by design; pm_copy_start DEFAULTS TO DRY RUN and refuses real execution unless POLYMARKET_MCP_ALLOW_LIVE=1, so a human flips the last switch in the browser. Re-sizing a session a human already flipped live (pm_copy_allocate/pm_copy_rebalance) goes through the same gate. Stopping is always allowed. The HTTP transport is owner-token authenticated and loopback-bound by default.",
+    "auth": "stdio needs nothing (the caller already runs as the owner). HTTP requires `Authorization: Bearer <owner token>` on every POST — the same token the console's sign-in issues; mint one with `python3 src/mcp.py --token`. It binds 127.0.0.1 unless POLYMARKET_MCP_HTTP_HOST widens it."
+  }
 }

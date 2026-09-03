@@ -366,6 +366,11 @@ input[type="number"] { -moz-appearance: textfield; }
 
 .note { font-size: 0.75rem; color: var(--text-3); line-height: 1.55; }
 .note b, .note strong { color: var(--text-2); font-weight: 500; }
+/* A tone inside a note still reads as that tone — .note's colour would
+   otherwise win on order, and .note b on specificity. */
+.note .warn, .note b.warn { color: var(--warn); }
+.note .teal, .note b.teal { color: var(--teal); }
+.note .violet, .note b.violet { color: var(--violet); }
 .link { color: var(--accent); text-decoration: none; }
 .link:hover { text-decoration: underline; }
 

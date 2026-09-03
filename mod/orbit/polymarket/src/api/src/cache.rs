@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::RwLock;
@@ -259,7 +260,14 @@ const DISK_MAX_AGE: Duration = Duration::from_secs(86400); // 24h — keep disk 
 const MEM_ENTRIES_MAX: usize = 4;
 
 struct PipelineCacheEntry {
-    payload: AggPayload,
+    /// Behind an `Arc` because serving a hit used to DEEP-CLONE this — ~2k
+    /// traders with pnl curves and per-market metrics, tens of megabytes —
+    /// and the console's leaderboard is one paged read off it per keystroke.
+    /// The clone was the whole cost of a cache HIT (~330ms), on a payload the
+    /// reader only ever reads. Sharing the pointer makes a hit a refcount
+    /// bump; nothing mutates a cached payload in place, a rebuild replaces
+    /// the whole entry.
+    payload: Arc<AggPayload>,
     /// When this aggregate was computed — the TTL clock. Never bumped by a
     /// read, or a busy window would serve indefinitely stale traders.
     created_at: Instant,
@@ -283,10 +291,10 @@ impl PipelineCache {
         }
     }
 
-    /// A write lock for a read: serving a hit already clones a 30MB payload,
-    /// so the cost of taking the exclusive lock is noise next to it, and it is
-    /// what lets a read record itself for the eviction order below.
-    pub fn get(&self, key: &str) -> Option<AggPayload> {
+    /// A write lock for a read — it is what lets a read record itself for the
+    /// eviction order below. Cheap now that the hit clones an `Arc` and not
+    /// the payload: the critical section is a hash lookup and a refcount bump.
+    pub fn get(&self, key: &str) -> Option<Arc<AggPayload>> {
         let mut entries = self.entries.write();
         if let Some(entry) = entries.get_mut(key) {
             if entry.created_at.elapsed() < AGG_TTL {
@@ -297,17 +305,18 @@ impl PipelineCache {
         None
     }
 
-    pub fn get_or_disk(&self, key: &str) -> Option<(AggPayload, &'static str)> {
+    pub fn get_or_disk(&self, key: &str) -> Option<(Arc<AggPayload>, &'static str)> {
         // Memory first
         if let Some(payload) = self.get(key) {
             return Some((payload, "memory"));
         }
         // Disk fallback
         if let Some(payload) = self.load_from_disk(key) {
+            let payload = Arc::new(payload);
             let mut entries = self.entries.write();
             let now = Instant::now();
             entries.insert(key.to_string(), PipelineCacheEntry {
-                payload: payload.clone(),
+                payload: Arc::clone(&payload),
                 created_at: now,
                 last_access: now,
             });
@@ -327,8 +336,9 @@ impl PipelineCache {
     /// far better than none, as long as the caller says so: this returns the
     /// payload's real `syncedAt` and the route labels the source `stale-disk`
     /// so the UI's sync-age chip tells the truth.
-    pub fn get_stale_disk(&self, key: &str) -> Option<AggPayload> {
+    pub fn get_stale_disk(&self, key: &str) -> Option<Arc<AggPayload>> {
         self.load_from_disk_max_age(key, Duration::from_secs(86_400 * 365))
+            .map(Arc::new)
     }
 
     /// When this window was last actually rebuilt, memory or disk, regardless
@@ -350,11 +360,12 @@ impl PipelineCache {
     }
 
     pub fn set(&self, key: &str, payload: AggPayload) {
+        let payload = Arc::new(payload);
         // Memory
         let mut entries = self.entries.write();
         let now = Instant::now();
         entries.insert(key.to_string(), PipelineCacheEntry {
-            payload: payload.clone(),
+            payload: Arc::clone(&payload),
             created_at: now,
             last_access: now,
         });

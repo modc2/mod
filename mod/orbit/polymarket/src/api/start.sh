@@ -30,9 +30,14 @@ export POLYMARKET_DATA_DIR="${POLYMARKET_DATA_DIR:-$HOME/.mod/polymarket}"
 mkdir -p "$POLYMARKET_DATA_DIR"
 
 # ── Scheduled liquidation ("flatten everything") ──
-# How often the backend sells EVERY held position, in hours. Override by
-# exporting POLYMARKET_LIQUIDATE_EVERY_HOURS before launch; 0 disables it.
-export POLYMARKET_LIQUIDATE_EVERY_HOURS="${POLYMARKET_LIQUIDATE_EVERY_HOURS:-6}"
+# How often the backend sells EVERY position held in the deposit wallet, in
+# hours. OFF (0) by default and deliberately opt-in: a pass sells the whole
+# on-chain book at best bid, including positions the copy engine never bought,
+# so it must never be something a stock deployment does to a real wallet on a
+# timer. Set POLYMARKET_LIQUIDATE_EVERY_HOURS=6 before launch to enable it.
+# Even then it only touches wallets with a RUNNING session that has
+# auto_execute on (see EngineRegistry::persisted_eoas).
+export POLYMARKET_LIQUIDATE_EVERY_HOURS="${POLYMARKET_LIQUIDATE_EVERY_HOURS:-0}"
 
 # ── API log ──
 # The backend logs via `tracing` to stdout; without a redirect those lines

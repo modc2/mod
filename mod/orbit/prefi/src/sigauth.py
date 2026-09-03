@@ -6,11 +6,16 @@ every action that *spends* a balance (staking, withdrawing) has to prove the
 caller holds the key for the address they are spending from, and every action
 that changes the rules has to prove the caller is the owner.
 
-The proof is an EIP-191 `personal_sign` over a human-readable message — the
-same thing MetaMask shows in its signing dialog, so a user can read exactly
-what they are authorising instead of squinting at a hex blob. A nonce makes
-each signature single-use: replaying yesterday's withdrawal signature fails
-because the account's nonce has moved on.
+The proof is a signature over a human-readable message — the same thing the
+wallet shows in its signing dialog, so a user can read exactly what they are
+authorising instead of squinting at a hex blob. A nonce makes each signature
+single-use: replaying yesterday's withdrawal signature fails because the
+account's nonce has moved on.
+
+*Which* signature scheme is not decided here. `identity.py` picks the verifier
+off the shape of the address, so an EVM wallet signing EIP-191 and a TAO
+wallet (SubWallet, Talisman) signing sr25519 both land in the same ledger, and
+a new key type is added there without touching this file.
 
 `PREFI_UNSAFE_NO_SIG=1` disables the check for local development and the test
 suite. It is refused whenever a real vault key is configured — a hot wallet
@@ -20,6 +25,11 @@ by typo.
 
 import os
 from typing import Dict, List, Optional, Tuple
+
+try:                                            # package or flat import
+    import identity
+except ImportError:                             # pragma: no cover
+    from . import identity
 
 PREFIX = 'PreFi Pool'
 
@@ -34,25 +44,25 @@ def action_message(action: str, address: str, fields: List[Tuple[str, str]],
 
     Field order is the caller's, not a dict's, because the message is a hash
     input: reordering it invalidates every signature ever made against it.
+    The address is the canonical one for its key type — the same string the
+    ledger keys by — so a wallet showing a Polkadot-prefixed form of a TAO
+    account still signs for the account the server is about to debit.
     """
-    lines = [PREFIX, f'action: {action}', f'address: {(address or "").lower()}']
+    lines = [PREFIX, f'action: {action}',
+             f'address: {identity.normalize(address)}']
     lines += [f'{k}: {v}' for k, v in fields]
     lines.append(f'nonce: {int(nonce)}')
     return '\n'.join(lines)
 
 
 def recover(message: str, signature: str) -> Optional[str]:
-    """Address that produced this personal_sign signature, or None."""
-    try:
-        from eth_account import Account
-        from eth_account.messages import encode_defunct
-    except ImportError:
-        return None
-    try:
-        return Account.recover_message(
-            encode_defunct(text=message), signature=signature).lower()
-    except Exception:
-        return None
+    """Address that produced this EIP-191 signature, or None.
+
+    Only meaningful for secp256k1, where the key is recovered from the
+    signature. sr25519 and ed25519 verify against a known public key instead —
+    there is nothing to recover — so use `verify` for anything key-agnostic.
+    """
+    return identity._evm_check(message, signature, '').get('signer')
 
 
 def verify(action: str, address: str, fields: List[Tuple[str, str]], nonce: int,
@@ -64,19 +74,17 @@ def verify(action: str, address: str, fields: List[Tuple[str, str]], nonce: int,
     authorise the action it actually describes.
     """
     message = action_message(action, address, fields, nonce)
+    addr = identity.normalize(address)
 
     if not signature:
         if signatures_disabled():
-            return {'ok': True, 'signer': (address or '').lower(),
-                    'unsigned': True, 'message': message}
+            return {'ok': True, 'signer': addr, 'unsigned': True,
+                    'message': message}
         return {'ok': False, 'error': 'signature required', 'message': message}
 
-    signer = recover(message, signature)
-    if not signer:
-        return {'ok': False, 'error': 'signature could not be recovered',
-                'message': message}
-    if signer != (address or '').lower():
-        return {'ok': False,
-                'error': f'signature is from {signer}, not {(address or "").lower()}',
-                'message': message}
-    return {'ok': True, 'signer': signer, 'message': message}
+    result = identity.verify(message, signature, address)
+    if not result['ok']:
+        return {'ok': False, 'error': result.get('error', 'signature rejected'),
+                'scheme': result.get('scheme'), 'message': message}
+    return {'ok': True, 'signer': result['signer'], 'scheme': result['scheme'],
+            'curve': result.get('curve'), 'message': message}
