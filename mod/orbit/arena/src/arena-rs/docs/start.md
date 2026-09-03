@@ -37,8 +37,8 @@ Drop that file on **+ add** in the console, or:
 $ m arena/upload path=countdown.py
 { "name": "countdown", "role": "game", "lang": "python", "id": "3f2a…" }
 
-$ m arena/enter name=opus kind=model config='{"model":"anthropic/claude-opus-5"}'
-$ m arena/play game=countdown players=opus,lucky
+$ m arena/enter name=lfm kind=model config='{"model":"LiquidAI/LFM2.5-1.2B-Instruct"}'
+$ m arena/play game=countdown players=lfm,lucky
 ```
 
 It is a game now: it has a card, a leaderboard, and an MCP server of its own

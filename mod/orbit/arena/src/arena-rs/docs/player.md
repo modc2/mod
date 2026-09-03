@@ -5,9 +5,9 @@ can answer the question every game asks: here is what your seat can see, what
 do you play?
 
 ```console
-$ m arena/enter name=opus kind=model config='{"model":"anthropic/claude-opus-5"}'
+$ m arena/enter name=lfm kind=model config='{"model":"LiquidAI/LFM2.5-1.2B-Instruct"}'
 $ m arena/enter name=perfect kind=wasm config='{"module":"bot-ttt"}'
-$ m arena/play game=ttt players=opus,perfect
+$ m arena/play game=ttt players=lfm,perfect
 ```
 
 ## Seven kinds
@@ -27,10 +27,10 @@ other four move on the server, because that is where the credentials are.
 
 ## Models
 
-`config.base` points the `model` kind at anything that speaks the OpenAI chat
-shape — OpenRouter by default, a local gateway or ollama unchanged. Naming
-neither `base` nor `model` takes the free seat: whatever this box is serving
-locally, so an arena anyone can play in does not ask for a key first.
+Every model seat is a Liquid AI model, served by the `liquidai` module on
+this box — a match costs nothing and needs nobody's key. Naming no `model`
+plays whatever is already resident; `config.base` can still point a seat at
+any other OpenAI-compatible endpoint, but nothing defaults to one.
 
 Keys are read from `~/.mod/arena/keys.json` or the environment, never from
 anything committed, and a player's config comes back **redacted** from every
@@ -80,7 +80,7 @@ that reason.
 ## Try one before you seat it
 
 ```console
-$ m arena/probe player=opus view="Legal moves: rock, paper, scissors"
+$ m arena/probe player=lfm view="Legal moves: rock, paper, scissors"
 { "move": "rock", "ms": 812, "raw": "…" }
 ```
 

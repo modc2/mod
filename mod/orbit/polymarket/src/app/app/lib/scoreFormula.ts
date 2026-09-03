@@ -12,34 +12,50 @@
 import type { TopTrader } from "./polymarket";
 
 /** The variables a formula can use, in the order they're passed in. */
-export const FORMULA_VARS = ["sharpe", "pnl", "volume", "positions", "winRate", "markets", "exitEntry"] as const;
+export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry"] as const;
 
 /** Named formulas the SCORE can be parameterized with — the first is the
     default. A preset is just a formula string, so an edited preset degrades
-    gracefully into a custom score. */
+    gracefully into a custom score.
+
+    `poolSort` is the SERVER sort the CUSTOM SCORE pool is pulled under —
+    usually the preset's own key, but a formula the server can't rank
+    (pnl/buyVolume) names its closest server-side proxy instead, and the
+    client re-ranks the pool exactly. */
 export const SCORE_PRESETS = [
   {
     key: "roi",
     label: "ROI",
     formula: "100 * pnl / volume",
+    poolSort: "roi",
     hint: "P&L per $100 traded over the window — return on turnover. Ranks the trader compounding a real edge on $5k above the whale who ground out 3% on a million. — = no volume yet.",
+  },
+  {
+    key: "pnlBuy",
+    label: "P&L/BUY",
+    formula: "100 * pnl / buyVolume",
+    poolSort: "roi",
+    hint: "P&L per $100 put INTO positions — return on the capital deployed. ROI's denominator counts sells too, so a trader who buys and exits looks half as sharp there; this divides by buys alone, which is closer to what copying their entries costs you. — = no buys yet.",
   },
   {
     key: "winRate",
     label: "WIN RATE",
     formula: "winRate",
+    poolSort: "winRate",
     hint: "Of the positions this trader bought that have a known outcome, the % that resolved their way. -1 = nothing decided yet.",
   },
   {
     key: "exitEntry",
     label: "EXIT/ENTRY",
     formula: "exitEntry",
+    poolSort: "exitEntry",
     hint: "Average exit price over entry price across closed trades — 1.00 is break-even, 1.15 means they got out 15% above what they put in. -1 = no closed trades.",
   },
   {
     key: "sharpe",
     label: "SHARPE",
     formula: "sharpe",
+    poolSort: "sharpe",
     hint: "Mean per-trade return ÷ its stdev over the window. Consistency, not size: it ranks the trader compounding a real edge above the whale who risked millions for 3%.",
   },
 ] as const;
@@ -50,6 +66,19 @@ export const DEFAULT_FORMULA: string = SCORE_PRESETS[0].formula;
 export function matchScorePreset(formula: string): (typeof SCORE_PRESETS)[number] | null {
   const f = formula.trim();
   return SCORE_PRESETS.find((p) => p.formula === f) ?? null;
+}
+
+/** The server sort key the CUSTOM SCORE pool should be pulled under for this
+    formula — the preset's `poolSort`, or Sharpe for a hand-written one. */
+export function scorePoolSortKey(formula: string): string {
+  return matchScorePreset(formula)?.poolSort ?? "sharpe";
+}
+
+/** What `scorePoolSortKey` orders by, as a label for the "your formula ranks
+    the top N by …" note. */
+export function scorePoolSortLabel(formula: string): string {
+  const key = scorePoolSortKey(formula);
+  return SCORE_PRESETS.find((p) => p.key === key)?.label ?? "Sharpe";
 }
 
 // Formulas persisted under the OLD key can be the old implicit defaults
@@ -70,6 +99,8 @@ export interface ScoreInputs {
   sharpe: number;
   pnl: number;
   volume: number;
+  buyVolume: number;
+  sellVolume: number;
   positions: number;
   winRate: number;
   markets: number;
@@ -81,6 +112,8 @@ export function scoreInputs(t: TopTrader): ScoreInputs {
     sharpe: t.sharpe,
     pnl: t.pnl,
     volume: t.volume,
+    buyVolume: t.buyVolume,
+    sellVolume: t.sellVolume,
     positions: t.positions,
     winRate: t.winRate,
     markets: t.marketTitles.length,
@@ -127,8 +160,10 @@ export function scoreIsUnknown(formula: string, t: ScoreInputs): boolean {
   if (!preset) return false;
   return (preset.key === "winRate" && t.winRate < 0)
     || (preset.key === "exitEntry" && t.exitEntry < 0)
-    // ROI divides by volume — no dollars traded means no ratio, not a 0% one.
-    || (preset.key === "roi" && t.volume <= 0);
+    // The ratio presets divide by dollars — none traded means no ratio,
+    // not a 0% one.
+    || (preset.key === "roi" && t.volume <= 0)
+    || (preset.key === "pnlBuy" && t.buyVolume <= 0);
 }
 
 // Scores are unit-less numbers (a win-rate percentage, an exit/entry ratio,

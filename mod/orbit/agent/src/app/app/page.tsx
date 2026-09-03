@@ -237,7 +237,9 @@ const STARTERS: { q: string; s: string; icon: JSX.Element }[] = [
 // compact JSON {"data":…,"time":…}. Identity = the recovered signer.
 
 // local: signed by a keypair generated in this browser (no wallet extension)
-type AuthInfo = { address: string; token: string; isOwner: boolean; local?: boolean }
+// harnesses: the CLI harness names /whoami says this caller may run — the
+// host's, plus any a console module (claude, codex, build, chain) vouches for
+type AuthInfo = { address: string; token: string; isOwner: boolean; local?: boolean; harnesses?: string[] }
 
 const AUTH_KEY = 'agent_auth'
 const TOKEN_TTL_MS = 23 * 3600 * 1000 // server max_age is 24h — refresh before that
@@ -907,11 +909,15 @@ export default function Home() {
   const isHost = auth ? auth.isOwner || owner === '' : true
   // Running a harness agent is a different question from managing one, and it
   // can't be answered optimistically: the run leaves this loop for a CLI on
-  // the host's own shell, so the server allows the module owner and nobody
-  // else. Signed out with an owner on record, we already know the answer is
-  // no — saying so up front beats offering a run that comes back a refusal.
+  // the host's own shell, so the server allows the module owner — and, per
+  // harness, whoever the console behind it (claude, codex, build, chain)
+  // vouches for; /whoami hands that list back with the role. Signed out with
+  // an owner on record, we already know the answer is no — saying so up front
+  // beats offering a run that comes back a refusal.
   // `owner` is null until /owner answers; unknown stays permissive.
-  const canRunHarness = owner === null || owner === '' || !!auth?.isOwner
+  const canRunHarness = (harness?: string | null) =>
+    owner === null || owner === '' || !!auth?.isOwner ||
+    (!!harness && !!auth?.harnesses?.includes(harness))
   const ownedByMe = (p: Owned) =>
     !!auth && p.owner_source === 'item' &&
     (p.owner || '').toLowerCase() === auth.address.toLowerCase()
@@ -1031,16 +1037,16 @@ export default function Home() {
               what it is called — and down here it costs the name nothing */}
           {p.harness && (
             <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 flex items-center gap-0.5 ${
-              canRunHarness
+              canRunHarness(p.harness)
                 ? 'bg-violet-400/10 border border-violet-400/25 text-violet-300/90'
                 : 'bg-white/[0.03] border border-white/[0.08] text-gray-600'
             }`}
-              title={canRunHarness
-                ? `runs on the ${p.harness} CLI installed on this host — host owner only`
-                : `runs on the ${p.harness} CLI on the host's own shell — only the host can start it`}>
+              title={canRunHarness(p.harness)
+                ? `runs on the ${p.harness} CLI installed on this host`
+                : `runs on the ${p.harness} CLI on the host's own shell — sign in as the host or that console's owner to start it`}>
               {/* a padlock rather than a word: the chip is already the name of
                   the CLI, and there is no emoji font on this host */}
-              {!canRunHarness && (
+              {!canRunHarness(p.harness) && (
                 <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                   <rect x="4" y="11" width="16" height="10" rx="2" />
                   <path d="M8 11V7a4 4 0 0 1 8 0v4" />
@@ -1119,13 +1125,15 @@ export default function Home() {
   // resolve the role server-side and persist — shared by both sign-in paths
   const finishSignIn = async (address: string, token: string, local: boolean) => {
     let isOwner = false
+    let harnesses: string[] = []
     try {
       const who = await fetch(`${API_URL}/whoami?key=${encodeURIComponent(token)}`,
         { signal: AbortSignal.timeout(8000) }).then(r => r.json())
       if (who?.error) throw new Error(who.error)
       isOwner = !!who?.is_owner
+      harnesses = Array.isArray(who?.harnesses) ? who.harnesses : []
     } catch {} // API offline — still sign in locally, role resolves on next load
-    const next = { address, token, isOwner, local }
+    const next = { address, token, isOwner, local, harnesses }
     setAuth(next)
     persistAuth(next)
     setShowUserMenu(false)
@@ -1203,7 +1211,8 @@ export default function Home() {
       fetch(`${API_URL}/whoami?key=${encodeURIComponent(v.token)}`, { signal: AbortSignal.timeout(8000) })
         .then(r => r.json())
         .then(who => {
-          if (who?.signed_in) setAuth(a => a ? { ...a, isOwner: !!who.is_owner } : a)
+          if (who?.signed_in) setAuth(a => a ? { ...a, isOwner: !!who.is_owner,
+            harnesses: Array.isArray(who.harnesses) ? who.harnesses : [] } : a)
         })
         .catch(() => {})
     } catch {}
@@ -2849,14 +2858,14 @@ export default function Home() {
     }`}>
       {/* The selected agent runs on a CLI this visitor can't start. Say so on
           the composer, before a prompt gets written into a refusal. */}
-      {!promptSel && currentAgentDef?.harness && !canRunHarness && (
+      {!promptSel && currentAgentDef?.harness && !canRunHarness(currentAgentDef.harness) && (
         <div className="flex items-center gap-2 pb-2 text-[11px] text-violet-200/70">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-violet-300/80">
             <rect x="4" y="11" width="16" height="10" rx="2" />
             <path d="M8 11V7a4 4 0 0 1 8 0v4" />
           </svg>
           <span className="min-w-0 truncate">
-            {currentAgentDef.label} runs on the host&apos;s own {currentAgentDef.harness} CLI — host only.
+            {currentAgentDef.label} runs on the host&apos;s own {currentAgentDef.harness} CLI — sign in as the host or that console&apos;s owner.
           </span>
           <button onClick={() => selectAgent('default')}
             className="shrink-0 px-1.5 py-0.5 rounded border border-violet-400/25 text-violet-200/90 hover:bg-violet-400/10 transition">
@@ -3864,7 +3873,7 @@ export default function Home() {
         </div>
         <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
           {agentOptions.map(a => {
-            const locked = !!a.harness && !canRunHarness
+            const locked = !!a.harness && !canRunHarness(a.harness)
             return (
               <button key={a.value} disabled={locked}
                 onClick={() => { selectAgent(a.value); setDefaultAgentPick(a.value) }}

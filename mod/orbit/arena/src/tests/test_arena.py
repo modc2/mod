@@ -920,15 +920,13 @@ def test_a_module_nobody_stored_is_an_error_rather_than_a_server(arena):
     assert 'no module' in out['error']['message']
 
 
-def test_the_index_of_servers_names_a_mod_and_an_endpoint_for_each(arena):
-    _, out = get(arena, '/servers')
-    by_name = {s['name']: s for s in out['servers']}
-    assert by_name['nim']['mod'] == 'arena.nim'
-    assert by_name['nim']['mcp'].endswith('/m/nim/mcp')
-    assert 'open' in by_name['nim']['tools']
-    # And the same list is on the arena's own server, so an agent needs one
-    # connection to find all the others.
-    assert mcp(arena, 'module_servers', {'role': 'game'})['count'] >= 1
+def test_the_servers_index_is_gone_but_every_module_still_answers(arena):
+    # The /servers index and the /host card were cut: two nouns, games and
+    # agents, and nothing else to explain. The per-module servers stay.
+    assert requests.get(arena + '/servers', timeout=30).status_code == 404
+    assert requests.get(arena + '/host', timeout=30).status_code == 404
+    out = module_rpc(arena, 'nim', 'tools/list')
+    assert any(t['name'] == 'open' for t in out['result']['tools'])
 
 
 def test_a_tool_on_a_modules_server_is_reachable_from_the_arenas_own(arena):
@@ -1066,20 +1064,6 @@ def test_the_fleet_is_a_list_of_seats(arena):
     assert out['count'] == len(out['modules'])
     for m in out['modules']:
         assert m['name'] and m['mcp'].endswith('/mcp')
-
-
-def test_the_host_says_whose_arena_this_is(arena):
-    """A rating is a claim; this is the page that says who is making it."""
-    _, out = get(arena, '/host?store=0')
-    assert out['module'] == 'arena' and out['host']['machine']
-    assert out['uptime_seconds'] >= 0 and out['host']['pid'] > 0
-    assert out['counts']['modules'] >= 13
-    assert out['state']['dir'].endswith('arena') or 'arena' in out['state']['dir']
-    assert 'mcp' in out['player_kinds']
-    # The store costs a round trip, so it is only there when asked for.
-    assert 'store' not in out
-    _, full = get(arena, '/host')
-    assert 'store' in full
 
 
 def test_the_same_door_is_open_to_a_caller_that_is_not_a_class(arena):

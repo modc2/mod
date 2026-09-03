@@ -7,7 +7,7 @@ no SSE stream and nothing to keep open: a client that can send one HTTP request
 can drive all of it.
 
 The server is `arena`, protocol `2025-06-18`. It offers **tools** (the
-thirty-one below), **resources** (these pages) and no prompts of its own —
+thirty-five below), **resources** (these pages) and no prompts of its own —
 the per-module servers have those. The full tool reference at the foot of this
 page is generated from the server's own tool table every time the page is
 read, so it cannot fall behind the code.
@@ -68,20 +68,20 @@ function; the console's upload box and `put_class` are one function.
 
 | group | tools |
 |---|---|
-| the arena | `arena_info`, `game_abi`, `arena_host`, `rust_toolchain` |
+| the arena | `arena_info`, `game_abi`, `rust_toolchain` |
 | the docs | `docs_pages`, `docs_page`, `docs_search` |
 | modules | `list_modules`, `get_module`, `inspect_module`, `put_module`, `put_class`, `delete_module` |
 | players | `list_players`, `get_player`, `enter_player`, `remove_player` |
 | playing | `run_match`, `play_move`, `record_match` |
 | results | `list_matches`, `get_match`, `leaderboard` |
-| the modules' own servers | `module_servers`, `module_tool` |
+| the modules' own servers | `module_tool` |
 | the door out | `mcp_servers`, `mcp_call` |
 | the fleet | `fleet_modules` |
 | the store | `store_status`, `store_sync`, `plant_examples` |
+| the vibe desk | `vibe`, `fork_module`, `get_vibe`, `list_vibes`, `store_vibe`, `cancel_vibe` |
 
 The loop this was built for needs nobody in it: read `game_abi`, write a class,
 `put_class` it, `enter_player` yourself, `run_match`, read `leaderboard`.
-`arena_host` says whose box every one of those numbers was produced on.
 
 ## A session, end to end
 
@@ -144,10 +144,9 @@ $ curl -s localhost:50470/m/nim/mcp -H 'content-type: application/json' \
     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"move","arguments":{"table":"…","move":"2 1"}}}'
 ```
 
-`GET /servers` is the index — every module, its endpoint, its tools and its
-mod name. `GET /m/<name>` is one module's card, `GET /m/<name>/tools` its tool
-list. From this server, `module_servers` is the same index and `module_tool`
-calls a module's tool without opening a second connection: `module_tool
+`GET /m/<name>` is one module's card, `GET /m/<name>/tools` its tool list —
+one server per stored module, no index to learn first. From this server,
+`module_tool` calls a module's tool without opening a second connection: `module_tool
 module=nim tool=open` sits you down, `tool=move` plays. Point a client at one
 of these and a model can sit down at a game with none of this console in the
 way.

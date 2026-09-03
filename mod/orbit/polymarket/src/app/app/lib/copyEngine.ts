@@ -35,7 +35,12 @@ export type CopyEngineStatus = "stopped" | "starting" | "running" | "paused" | "
 export interface ExecutionLogEntry {
   id: string;
   timestamp: number;
-  type: "COPY_BUY" | "COPY_SELL" | "SKIP" | "ERROR" | "BALANCE" | "CYCLE_START" | "CYCLE_END" | "REDEEM" | "WATCHLIST";
+  // RESTING: the CLOB accepted a GTC limit order that did NOT cross — it is
+  // sitting on the book unfilled. Deliberately not COPY_BUY/COPY_SELL: no
+  // shares moved, no PnL is realized, and for an exit the position and its
+  // stop are still open. The server engine emits it; the browser engine
+  // shares this type so both feeds render the same way.
+  type: "COPY_BUY" | "COPY_SELL" | "SKIP" | "ERROR" | "BALANCE" | "CYCLE_START" | "CYCLE_END" | "REDEEM" | "WATCHLIST" | "RESTING";
   traderAddress?: string;
   market?: string;
   conditionId?: string;

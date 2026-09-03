@@ -79,36 +79,63 @@ pub struct PublishBody {
 pub struct StratStore {
     cache: RwLock<HashMap<String, TokenStore>>,
     disk_dir: PathBuf,
+    /// Where private blobs used to live: `/tmp/polymarket-strats`, under a
+    /// 16-char name. Read-only now — see `legacy_disk_path`.
+    legacy_dir: PathBuf,
     /// Public gallery — one plaintext JSON file per published strat. Lives on
     /// the persistent data volume (POLYMARKET_DATA_DIR) so published strats
-    /// survive container recreates; private blobs keep their existing spot.
+    /// survive container recreates.
     public_dir: PathBuf,
 }
 
 impl StratStore {
     pub fn new() -> Self {
-        let disk_dir = std::env::temp_dir().join("polymarket-strats");
-        std::fs::create_dir_all(&disk_dir).ok();
+        // Private strat blobs are per-deployment state, so they belong on the
+        // persistent data volume with the rest of it. They used to live in
+        // `std::env::temp_dir()` unconditionally, where a reboot or a tmp
+        // sweep silently dropped every saved strat.
         let data_dir = std::env::var("POLYMARKET_DATA_DIR")
             .ok()
             .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir);
+            .unwrap_or_else(crate::access::state_dir);
+        let disk_dir = data_dir.join("polymarket-strats");
+        std::fs::create_dir_all(&disk_dir).ok();
+        let legacy_dir = std::env::temp_dir().join("polymarket-strats");
         let public_dir = data_dir.join("polymarket-public-strats");
         std::fs::create_dir_all(&public_dir).ok();
         Self {
             cache: RwLock::new(HashMap::new()),
             disk_dir,
+            legacy_dir,
             public_dir,
         }
     }
 
+    /// Filename for one sync token's blob.
+    ///
+    /// A digest of the WHOLE token. The old scheme kept the first 16
+    /// alphanumeric characters verbatim, which made the filename lossy in two
+    /// ways: two tokens sharing a 16-char prefix mapped to one file, and so
+    /// did any pair differing only in punctuation (`a-b` and `ab` both became
+    /// `ab`). Either way one browser read and overwrote another's strats.
     fn disk_path(&self, token_id: &str) -> PathBuf {
+        let mut h = <sha2::Sha256 as sha2::Digest>::new();
+        sha2::Digest::update(&mut h, token_id.as_bytes());
+        self.disk_dir
+            .join(format!("{}.json", hex::encode(sha2::Digest::finalize(h))))
+    }
+
+    /// The pre-digest filename, in both the old `/tmp` directory and the
+    /// current one. Read-only fallback so a deployment that upgrades doesn't
+    /// look like it lost every saved strat; `load` migrates what it finds.
+    fn legacy_disk_paths(&self, token_id: &str) -> [PathBuf; 2] {
         let safe: String = token_id
             .chars()
             .filter(|c| c.is_alphanumeric())
             .take(16)
             .collect();
-        self.disk_dir.join(format!("{}.json", safe))
+        let name = format!("{}.json", safe);
+        [self.disk_dir.join(&name), self.legacy_dir.join(&name)]
     }
 
     fn load(&self, token_id: &str) -> TokenStore {
@@ -129,6 +156,16 @@ impl StratStore {
                     return store;
                 }
             }
+        }
+        // Nothing under the digest name — try the pre-migration locations and
+        // rewrite what we find under the new one, so this runs at most once
+        // per token.
+        for legacy in self.legacy_disk_paths(token_id) {
+            let Ok(data) = std::fs::read_to_string(&legacy) else { continue };
+            let Ok(store) = serde_json::from_str::<TokenStore>(&data) else { continue };
+            tracing::info!(from = %legacy.display(), to = %path.display(), "migrating strat blob");
+            self.save(token_id, &store);
+            return store;
         }
         TokenStore { strats: vec![] }
     }

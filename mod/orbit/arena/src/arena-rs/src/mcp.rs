@@ -191,7 +191,7 @@ pub fn tool_list() -> Value {
         },
         {
             "name": "enter_player",
-            "description": "Enter a player. `model` calls any OpenAI-compatible /chat/completions endpoint (config: model, base?, key?, system?, temperature?) — OpenRouter by default. `wasm` plays with a stored module that exports `play` (config: module). `agent_mod` runs an agent from this fleet's agent module (config: agent?, model?, base?, steps?, free?). `mcp` seats an MCP server — anything with a tool that takes a view and returns a move, including another module's own /m/<name>/mcp (config: server, tool?). `http` posts the view to config.url and reads a move back. `human` is asked in the console. Entering a name that already exists updates it and keeps its record.",
+            "description": "Connect an agent (enter a player). `agent_mod` connects an agent of this fleet over the agent mod protocol (config: agent?, model?, base?, steps?, free?). `model` plays a Liquid AI model served by the liquidai module on this box — leave config.model blank for whatever is resident (config: model?, base?, key?, system?, temperature?). `wasm` plays with a stored module that exports `play` (config: module). `mcp` seats an MCP server — anything with a tool that takes a view and returns a move, including another module's own /m/<name>/mcp (config: server, tool?). `http` posts the view to config.url and reads a move back. `human` is asked in the console. Entering a name that already exists updates it and keeps its record.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -314,14 +314,6 @@ pub fn tool_list() -> Value {
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "module_servers",
-            "description": "Every stored module with the MCP server it answers on and the mod name it goes by. Each game and each agent here is a server of its own at /m/<name>/mcp — a game you can `open` a table at and play a turn at a time, an agent you can hand a view and get a move back from. This is the index of them.",
-            "inputSchema": {
-                "type": "object",
-                "properties": { "role": { "type": "string", "enum": ["game", "player", "class", "command", "wasm"] } }
-            }
-        },
-        {
             "name": "module_tool",
             "description": "Call a tool on one module's own server without opening a second MCP connection to it. `module_tool module=nim tool=open` sits you down at nim; `tool=move` plays. Exactly what /m/<name>/mcp does, from here.",
             "inputSchema": {
@@ -366,14 +358,6 @@ pub fn tool_list() -> Value {
                     "force": { "type": "boolean", "default": false },
                     "verify": { "type": "boolean", "default": false }
                 }
-            }
-        },
-        {
-            "name": "arena_host",
-            "description": "Who is running this arena. A rating is a claim about somebody else's code, and this says whose box the claim was made on: the address of the key this box signs with, the machine, the uptime, every door in, how much of the registry has reached the store, and whether it can compile a Rust class. store=false skips the round trip to the store module.",
-            "inputSchema": {
-                "type": "object",
-                "properties": { "store": { "type": "boolean", "default": true } }
             }
         },
         {
@@ -866,35 +850,13 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
         "leaderboard" => arena::leaderboard(args),
         "plant_examples" => Ok(arena::plant_examples()),
 
-        "module_servers" => {
-            let role = s(args, "role").to_lowercase();
-            let base = base();
-            Ok(crate::store::read(|st| {
-                let list = st
-                    .module_list()
-                    .into_iter()
-                    .filter(|m| role.is_empty() || m.role == role)
-                    .map(|m| {
-                        json!({
-                            "name": m.name, "role": m.role, "lang": m.lang(),
-                            "id": m.short(), "description": m.description,
-                            "mod": format!("arena.{}", m.name),
-                            "mcp": format!("{base}/m/{}/mcp", m.name),
-                            "tools": crate::modmcp::tools_for(&m.role).as_array()
-                                .map(|a| a.iter().filter_map(|t| t["name"].as_str())
-                                    .collect::<Vec<_>>()).unwrap_or_default(),
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                json!({ "count": list.len(), "arena": format!("{base}/mcp"), "servers": list })
-            }))
-        }
         "module_tool" => {
             let key = s(args, "module");
             let tool = s(args, "tool");
             if key.is_empty() || tool.is_empty() {
-                return Err("module_tool requires `module` and `tool` — call module_servers \
-                            to see which modules there are and what each one offers"
+                return Err("module_tool requires `module` and `tool` — call list_modules \
+                            to see which modules there are; every stored module answers \
+                            on /m/<name>/mcp"
                     .into());
             }
             let inner = args.get("arguments").cloned().unwrap_or_else(|| json!({}));
@@ -913,10 +875,6 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
             }
             Ok(crate::mcpout::call(args).await)
         }
-        "arena_host" => Ok(crate::hostcard::card(
-            args.get("store").and_then(|v| v.as_bool()).unwrap_or(true),
-        )
-        .await),
         "fleet_modules" => {
             let name = s(args, "module");
             if name.is_empty() {

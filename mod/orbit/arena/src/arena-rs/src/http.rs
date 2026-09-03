@@ -7,7 +7,7 @@
 //! stripped) and the console at /arena (prefix kept), so both are served here
 //! and one console works in both places.
 
-use crate::{arena, hostcard, mcp, mcpout, modmcp, rustc, store, storelink, vibe};
+use crate::{arena, mcp, mcpout, modmcp, rustc, storelink, vibe};
 use axum::{
     body::Body,
     extract::{Path, Query, Request},
@@ -64,8 +64,7 @@ fn info() -> Value {
         "forward": "POST /forward {action, ...args}",
         "tools": "GET /tools",
         "store": "GET /store — the bridge to the store module | POST /store/sync {force?, verify?}",
-        "host": "GET /host — the box running this arena: its key, uptime, store and toolchain",
-        "fleet": "GET /fleet — every module of this fleet a player can be seated on | GET /fleet/:name/tools",
+        "fleet": "GET /fleet — every module of this fleet an agent can be seated from | GET /fleet/:name/tools",
         "console": "GET /arena (browser)"
     });
     v["stdio"] = json!("arena-api --stdio");
@@ -212,39 +211,6 @@ async fn module_tools(Path(name): Path<String>) -> Response {
         .into_response(),
         Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
     }
-}
-
-/// Every module, with the endpoint and the mod name each one answers to. The
-/// index for the whole "one module, one server, one mod" idea.
-async fn servers() -> Json<Value> {
-    let base = mcp::base();
-    let list = store::read(|s| {
-        s.module_list()
-            .into_iter()
-            .map(|m| {
-                json!({
-                    "name": m.name,
-                    "role": m.role,
-                    "lang": m.lang(),
-                    "id": m.short(),
-                    "description": m.description,
-                    "mod": format!("arena.{}", m.name),
-                    "mcp": format!("{base}/m/{}/mcp", m.name),
-                    "tools": modmcp::tools_for(&m.role).as_array()
-                        .map(|a| a.iter().filter_map(|t| t["name"].as_str())
-                            .collect::<Vec<_>>()).unwrap_or_default(),
-                })
-            })
-            .collect::<Vec<_>>()
-    });
-    Json(json!({
-        "count": list.len(),
-        "arena": format!("{base}/mcp"),
-        "servers": list,
-        "how": "every stored module is also an MCP server of its own and a mod of its own \
-                under orbit/arena/mods/. `m arena/mint` writes the directories; the servers \
-                are here whether or not anybody minted anything.",
-    }))
 }
 
 async fn toolchain() -> Json<Value> {
@@ -418,14 +384,6 @@ async fn runtime_file(Path(name): Path<String>) -> Response {
     }
 }
 
-/// Who is running this arena — the box, its key, its uptime, what it can
-/// build, and where its bytes went. `?store=0` skips the round trip to the
-/// store module.
-async fn host(Query(q): Query<HashMap<String, String>>) -> Json<Value> {
-    let with_store = q.get("store").map(|v| v != "0" && v != "false").unwrap_or(true);
-    Json(hostcard::card(with_store).await)
-}
-
 /// The fleet, as somewhere a player could sit. Every module the MCP hub knows
 /// about, every module the activator can wake, and the servers a class here
 /// may call out to — each addressed through the gateway, which is what makes
@@ -530,8 +488,6 @@ fn api_routes() -> Router {
         .route("/store/sync", post(store_sync))
         .route("/mcp/call", post(mcp_call))
         .route("/mcp/servers", get(mcp_servers))
-        .route("/servers", get(servers))
-        .route("/host", get(host))
         .route("/fleet", get(fleet))
         .route("/fleet/:name/tools", get(fleet_tools))
         .route("/m/:name", get(module_card))
@@ -567,13 +523,16 @@ fn api_routes() -> Router {
 }
 
 pub async fn serve(port: u16) {
-    hostcard::mark_start();
     mcp::set_base(format!("http://127.0.0.1:{port}"));
     let planted = arena::plant_examples();
     println!(
         "arena: {} example module(s) in the registry",
         planted["planted"].as_u64().unwrap_or(0)
     );
+    let seated = arena::plant_agents();
+    if seated > 0 {
+        println!("arena: {seated} Liquid AI agent(s) seated");
+    }
     // From here on an upload pushes itself to the store; what was planted
     // before now, and anything older without a cid, goes in one pass.
     storelink::backfill_later();

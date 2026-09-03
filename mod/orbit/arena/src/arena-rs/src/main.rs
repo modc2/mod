@@ -31,7 +31,6 @@
 mod arena;
 mod blobs;
 mod docs;
-mod hostcard;
 mod http;
 mod klass;
 mod liquidai;

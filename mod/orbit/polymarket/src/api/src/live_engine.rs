@@ -34,7 +34,8 @@ use serde_json::Value;
 use tokio::task::JoinHandle;
 
 use crate::order_place::{
-    place_order, ClobCreds, OrderSide, OrderTimeInForce, PlaceOrderArgs, PlaceOrderRequest,
+    order_id_of, order_is_resting, place_order, ClobCreds, OrderSide, OrderTimeInForce,
+    PlaceOrderArgs, PlaceOrderRequest,
 };
 use crate::signer::SignerStore;
 
@@ -1180,7 +1181,7 @@ pub struct LiquidationLeg {
     pub size: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub price: Option<f64>,
-    /// "placed" | "skipped" | "failed"
+    /// "placed" (crossed) | "resting" (accepted, unfilled) | "skipped" | "failed"
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
@@ -2216,6 +2217,43 @@ impl EngineRegistry {
             };
 
             match place_order(&self.http, &self.signer_store, req).await {
+                // Accepted but RESTING — the flatten is not done for this leg.
+                // Say so in the leg (an operator reading `placed: 17` needs to
+                // know how many actually crossed) and realize nothing. The
+                // wallet-wide cooldown still applies so the exit passes don't
+                // stack another order on this one.
+                Ok(resp) if order_is_resting(&resp) => {
+                    result.skipped += 1;
+                    result.legs.push(LiquidationLeg {
+                        token_id: pos.token_id.clone(),
+                        market: pos.market.clone(),
+                        size: pos.size,
+                        price: Some(bid),
+                        status: "resting".into(),
+                        detail: Some(match order_id_of(&resp) {
+                            Some(id) => format!("accepted but unfilled — resting on the book (order {})", id),
+                            None => "accepted but unfilled — resting on the book".into(),
+                        }),
+                    });
+                    self.mark_exited_all_sessions(
+                        eoa,
+                        &pos.token_id,
+                        chrono::Utc::now().timestamp_millis(),
+                    );
+                    if let Some(h) = &handle {
+                        let mut s = h.state.write();
+                        s.total_orders_placed += 1;
+                        push_log(&mut s.log, mk_log(
+                            "RESTING",
+                            &pos.token_id,
+                            format!(
+                                "LIQUIDATE SELL {:.0} @ {:.0}¢ accepted but UNFILLED — resting on the book · {}",
+                                pos.size, bid * 100.0, pos.market
+                            ),
+                            None,
+                        ));
+                    }
+                }
                 Ok(_) => {
                     result.placed += 1;
                     result.legs.push(LiquidationLeg {
@@ -3671,6 +3709,39 @@ impl EngineRegistry {
             placed_this_cycle += 1;
 
             match place_order(&self.http, &self.signer_store, req).await {
+                // Accepted but RESTING on the book — nothing was bought, so
+                // record no position and no volume. The capital IS committed
+                // (the order can cross at any moment), so the budget is
+                // debited exactly as a fill would debit it, and the trade is
+                // marked copied so the next cycle doesn't stack a second
+                // order on top of this one. If it later trades, the on-chain
+                // reconciler adopts the holding.
+                Ok(resp) if order_is_resting(&resp) => {
+                    free_capital = (free_capital - committed).max(0.0);
+                    {
+                        let mut s = state.write();
+                        s.total_orders_placed += 1;
+                        // The gates let this one through — only the book
+                        // didn't cross. Clearing the tallies keeps the console
+                        // from telling the owner their filters blocked
+                        // everything about flow that reached the CLOB.
+                        s.gated_recently.clear();
+                        s.dry_run_recently = GateTally::default();
+                        insert_copied_id(&mut s.copied_ids, trade.id.clone());
+                        push_log(&mut s.log, mk_log(
+                            "RESTING",
+                            &trade.id,
+                            format!(
+                                "BUY {:.0} @ {:.0}¢ (${:.2}) accepted but UNFILLED — resting on the book{} · {}",
+                                size, price * 100.0, notional,
+                                order_id_of(&resp).map(|id| format!(" (order {})", id)).unwrap_or_default(),
+                                trade.market
+                            ),
+                            Some(&trade.trader),
+                        ));
+                    }
+                    tracing::info!(eoa = %cfg.eoa, market = %trade.market, size, price, response = %resp, "mirror buy resting (unfilled)");
+                }
                 Ok(resp) => {
                     free_capital = (free_capital - committed).max(0.0);
                     {
@@ -3860,6 +3931,29 @@ impl EngineRegistry {
                     },
                 };
                 match place_order(&self.http, &self.signer_store, req).await {
+                    // Resting, not filled: the shares are still ours, so keep
+                    // the ledger position (and its stop) intact and book no
+                    // realized PnL or freed capital. The exit cooldown stops
+                    // this cycle's order from being stacked on next cycle;
+                    // once it lapses the exit re-prices and retries.
+                    Ok(resp) if order_is_resting(&resp) => {
+                        let mut s = state.write();
+                        s.total_orders_placed += 1;
+                        s.exited_recently.insert(p.token_id.clone(), now);
+                        push_log(&mut s.log, mk_log(
+                            "RESTING",
+                            &log_id,
+                            format!(
+                                "SELL {:.0} @ {:.0}¢ accepted but UNFILLED — resting on the book{} · position and stop kept · {}",
+                                size, limit_price * 100.0,
+                                order_id_of(&resp).map(|id| format!(" (order {})", id)).unwrap_or_default(),
+                                p.market
+                            ),
+                            None,
+                        ));
+                        drop(s);
+                        tracing::info!(eoa = %cfg.eoa, market = %p.market, size, price = limit_price, response = %resp, "momentum sell resting (unfilled)");
+                    }
                     Ok(resp) => {
                         let proceeds = size * limit_price;
                         let cost_basis = size * pos.entry_price;
@@ -3965,6 +4059,28 @@ impl EngineRegistry {
                 };
                 placed_this_cycle += 1;
                 match place_order(&self.http, &self.signer_store, req).await {
+                    // Resting, not filled — no position to record. The budget
+                    // is still debited: the order is live and can cross.
+                    Ok(resp) if order_is_resting(&resp) => {
+                        free_capital = (free_capital - notional).max(0.0);
+                        let mut s = state.write();
+                        s.total_orders_placed += 1;
+                        s.gated_recently.clear();
+                        s.dry_run_recently = GateTally::default();
+                        push_log(&mut s.log, mk_log(
+                            "RESTING",
+                            &log_id,
+                            format!(
+                                "BUY {:.0} @ {:.0}¢ (${:.2}) accepted but UNFILLED — resting on the book{} · {}",
+                                size, limit_price * 100.0, notional,
+                                order_id_of(&resp).map(|id| format!(" (order {})", id)).unwrap_or_default(),
+                                p.market
+                            ),
+                            None,
+                        ));
+                        drop(s);
+                        tracing::info!(eoa = %cfg.eoa, market = %p.market, size, price = limit_price, notional, response = %resp, "momentum entry resting (unfilled)");
+                    }
                     Ok(resp) => {
                         free_capital = (free_capital - notional).max(0.0);
                         let mut s = state.write();
@@ -4139,6 +4255,30 @@ impl EngineRegistry {
                 },
             };
             match place_order(&self.http, &self.signer_store, req).await {
+                // Resting, not filled — the shares are still held, so leave
+                // the ledger position (and its stop) alone and book nothing.
+                Ok(resp) if order_is_resting(&resp) => {
+                    let mut s = state.write();
+                    s.total_orders_placed += 1;
+                    insert_copied_id(&mut s.copied_ids, trade.id.clone());
+                    s.exited_recently.insert(
+                        trade.token_id.clone(),
+                        chrono::Utc::now().timestamp_millis(),
+                    );
+                    push_log(&mut s.log, mk_log(
+                        "RESTING",
+                        &trade.id,
+                        format!(
+                            "SELL {:.0} @ {:.0}¢ accepted but UNFILLED — resting on the book{} · position and stop kept · {}",
+                            size, bid * 100.0,
+                            order_id_of(&resp).map(|id| format!(" (order {})", id)).unwrap_or_default(),
+                            trade.market
+                        ),
+                        Some(&trade.trader),
+                    ));
+                    drop(s);
+                    tracing::info!(eoa = %cfg.eoa, market = %trade.market, size, price = bid, response = %resp, "mirror sell resting (unfilled)");
+                }
                 Ok(resp) => {
                     let proceeds = size * bid;
                     let cost_basis = size * pos.entry_price;
@@ -4265,6 +4405,32 @@ impl EngineRegistry {
             };
 
             match place_order(&self.http, &self.signer_store, req).await {
+                // Resting, not filled — no capital was actually freed, so
+                // report none. Reporting it would fund a BUY against money
+                // this wallet does not have yet and the matcher would bounce
+                // the entry for insufficient balance. Position kept.
+                Ok(resp) if order_is_resting(&resp) => {
+                    {
+                        let mut s = state.write();
+                        s.total_orders_placed += 1;
+                        s.exited_recently.insert(
+                            pos.token_id.clone(),
+                            chrono::Utc::now().timestamp_millis(),
+                        );
+                        push_log(&mut s.log, mk_log(
+                            "RESTING",
+                            &pos.token_id,
+                            format!(
+                                "SELL {:.0} @ {:.0}¢ accepted but UNFILLED — resting on the book{} · no capital freed · {}",
+                                pos.size, bid * 100.0,
+                                order_id_of(&resp).map(|id| format!(" (order {})", id)).unwrap_or_default(),
+                                pos.market
+                            ),
+                            None,
+                        ));
+                    }
+                    tracing::info!(eoa = %cfg.eoa, market = %pos.market, size = pos.size, price = bid, response = %resp, "rebalance sell resting (unfilled)");
+                }
                 Ok(resp) => {
                     let cost_basis = pos.size * pos.entry_price;
                     freed += cost_basis;
@@ -4364,6 +4530,35 @@ impl EngineRegistry {
                 },
             };
             match place_order(&self.http, &self.signer_store, req).await {
+                // THE case this whole branch exists for: a protective exit
+                // that was accepted and never crossed. Booking it as a fill
+                // dropped the position from the ledger, which silently
+                // removed the only stop protecting it. Keep the position, book
+                // nothing, and let the cooldown lapse into a retry at a fresh
+                // bid.
+                Ok(resp) if order_is_resting(&resp) => {
+                    {
+                        let mut s = state.write();
+                        s.total_orders_placed += 1;
+                        s.exited_recently.insert(
+                            pos.token_id.clone(),
+                            chrono::Utc::now().timestamp_millis(),
+                        );
+                        push_log(&mut s.log, mk_log(
+                            "RESTING",
+                            &pos.token_id,
+                            format!(
+                                "{} SELL {:.0} @ {:.0}¢ accepted but UNFILLED — resting on the book{} · position and stop kept, will re-price · {}",
+                                if tp_hit { "TAKE_PROFIT" } else { "STOP_LOSS" },
+                                pos.size, bid * 100.0,
+                                order_id_of(&resp).map(|id| format!(" (order {})", id)).unwrap_or_default(),
+                                pos.market
+                            ),
+                            None,
+                        ));
+                    }
+                    tracing::warn!(eoa = %cfg.eoa, market = %pos.market, size = pos.size, bid, take_profit = tp_hit, response = %resp, "protective exit resting (unfilled)");
+                }
                 Ok(resp) => {
                     let cost_basis = pos.size * pos.entry_price;
                     let proceeds = pos.size * bid;

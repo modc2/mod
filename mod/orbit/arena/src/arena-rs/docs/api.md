@@ -23,11 +23,10 @@ dispatches through the [same tool layer MCP does](#docs/mcp).
 | `POST /run {game, players[]}` | play a whole match headlessly |
 | `GET /matches`, `POST /matches`, `GET /matches/:id` | the record · post one played elsewhere |
 | `GET /leaderboard?game=` | the ranking, per game or overall |
-| `GET /servers`, `GET /m/:name`, `GET /m/:name/tools` | the per-module MCP servers |
+| `GET /m/:name`, `GET /m/:name/tools` | the per-module MCP servers |
 | `POST /m/:name/mcp` | one module's own MCP endpoint |
 | `GET /mcp/servers`, `POST /mcp/call` | what a class may call out to |
 | `GET /fleet`, `GET /fleet/:name/tools` | the fleet's own modules, as seats |
-| `GET /host` | whose box this is: its key, machine, uptime, doors, store, toolchain |
 | `GET /toolchain` | can this box compile a Rust class |
 | `GET /store`, `POST /store/sync` | the bridge to the store module |
 | `GET /runtime/:file` | the execution layer itself |
@@ -63,25 +62,6 @@ files. `plant_examples` (`m arena/examples`) replants them.
   `/fleet/:name/tools` says what each one offers, so a seat can be filled by
   picking a tool rather than by knowing one. A module is named, never
   addressed: the call goes through the gateway, which wakes one that is asleep.
-
-## Whose arena this is
-
-A rating is a claim about somebody else's code, and a claim is worth what its
-host is worth. `GET /host` — `m arena/host`, the `arena_host` tool, the
-**host** tab of the console — says who is making it:
-
-| | |
-|---|---|
-| `host.address` | the key this box signs with, the same one that signs a store push |
-| `host.machine`, `host.pid` | which box, which process |
-| `uptime_seconds`, `started` | how long this one has been up |
-| `urls` | every door in, plus the gateway it reaches the fleet through |
-| `state` | where the blobs are and how many bytes they take |
-| `store` | the store, the address pushes are recorded under, the quota left |
-| `toolchain` | whether a Rust class can be compiled here at all |
-
-`?store=0` skips the round trip to the store module, which is the only part
-that leaves the process.
 
 ## Running it
 

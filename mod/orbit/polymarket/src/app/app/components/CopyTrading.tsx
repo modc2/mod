@@ -21,7 +21,7 @@ import { fetchSyncSchedule } from "../lib/syncSchedule";
 
 import {
   DEFAULT_FORMULA, compileFormula, formatScore, scoreInputs, scoreIsUnknown,
-  loadSavedFormula, matchScorePreset, saveFormula,
+  loadSavedFormula, matchScorePreset, saveFormula, scorePoolSortKey,
 } from "../lib/scoreFormula";
 import ScoreRatioChips from "./ScoreRatioChips";
 import Sparkline from "./Sparkline";
@@ -134,9 +134,10 @@ export default function CopyTrading({
 
   const compiled = useMemo(() => compileFormula(formula), [formula]);
   // When the SCORE column pages server-side, a preset formula pages by its
-  // own metric (preset keys ARE the server sort keys); a hand-written formula
-  // falls back to sharpe pool order and is re-ranked client-side when warm.
-  const serverScoreSort = matchScorePreset(formula)?.key ?? "sharpe";
+  // `poolSort` — its own metric, or the closest server sort for one the
+  // server can't rank (P&L/BUY pools by ROI); a hand-written formula falls
+  // back to sharpe pool order and is re-ranked client-side when warm.
+  const serverScoreSort = scorePoolSortKey(formula);
   const scoreFor = useCallback(
     (t: TopTrader): number =>
       compiled.fn ? compiled.fn(scoreInputs(t)) : Number.NEGATIVE_INFINITY,

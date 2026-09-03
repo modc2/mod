@@ -53,7 +53,7 @@ A leaderboard here is a claim with its working attached.
 - **In the console** — open a game, fill the seats, press play. Wasm matches run
   in the tab; a class match goes through the runner, because a tab cannot start
   a python process. Same loop, same ratings.
-- **From the CLI** — `m arena/play game=ttt players=opus,perfect count=5`.
+- **From the CLI** — `m arena/play game=ttt players=lfm,perfect count=5`.
 - **Over MCP** — `run_match` plays a whole one headlessly; `open` / `view` /
   `move` on a game's own server plays it a turn at a time.
 - **From anywhere** — `POST /matches` records a match played elsewhere, with

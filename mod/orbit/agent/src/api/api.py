@@ -1041,6 +1041,14 @@ def whoami(key: Optional[str] = None):
         return {**out, "error": "could not resolve address"}
     out.update(signed_in=True, address=addr.lower(),
                is_owner=mod.is_owner(key))
+    # the harnesses this caller may hand a run to — the host gets them all,
+    # and a console's own owner (claude, codex, build, chain) gets the ones
+    # that console vouches for, so the picker can unlock exactly those
+    try:
+        out["harnesses"] = [h for h in mod.harness.names()
+                            if mod._harness_trusted(h, key)]
+    except Exception:
+        out["harnesses"] = []
     return out
 
 # ── credits (prepaid USDT/USDC top-ups for the public key) ───────────

@@ -30,7 +30,7 @@ import { MARKET_TYPES, matchPreset } from "../lib/marketTypes";
 import { shortAddress } from "../lib/identityStrat";
 import {
   DEFAULT_FORMULA, FORMULA_VARS, compileFormula, formatScore, scoreInputs, scoreIsUnknown,
-  loadSavedFormula, matchScorePreset, saveFormula,
+  loadSavedFormula, matchScorePreset, saveFormula, scorePoolSortKey, scorePoolSortLabel,
 } from "../lib/scoreFormula";
 import ScoreRatioChips from "./ScoreRatioChips";
 import Sparkline from "./Sparkline";
@@ -73,7 +73,7 @@ function tooNewForWindow(t: TopTrader, windowDays: number): boolean {
 const PAGE_SIZE = 12;
 /** CUSTOM SCORE is a client-side rank (the formula is JS), so the server
     can't page it. Instead the panel pulls this many rows — ordered by the
-    score preset's own metric (win rate by default), or by Sharpe for a
+    score preset's `poolSort` (ROI by default), or by Sharpe for a
     hand-written formula — and ranks THEM with the formula. */
 const SCORE_POOL = 200;
 type SortDir = "asc" | "desc";
@@ -117,10 +117,11 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
   useEffect(() => { setFormula(loadSavedFormula()); }, []);
   useEffect(() => { saveFormula(formula); }, [formula]);
   const compiled = useMemo(() => compileFormula(formula), [formula]);
-  // The pool the formula re-ranks is server-ordered — by the preset's own
-  // metric when the formula IS a preset (win rate out of the box), by Sharpe
-  // for hand-written expressions.
-  const scorePoolSort = matchScorePreset(formula)?.key ?? "sharpe";
+  // The pool the formula re-ranks is server-ordered — by the preset's
+  // `poolSort` when the formula IS a preset (its own metric, or the closest
+  // server-side proxy for one the server can't rank), by Sharpe for
+  // hand-written expressions.
+  const scorePoolSort = scorePoolSortKey(formula);
   const scoreFor = useCallback(
     (t: TopTrader): number =>
       compiled.fn ? compiled.fn(scoreInputs(t)) : Number.NEGATIVE_INFINITY,
@@ -490,7 +491,7 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
           <div className="font-mono text-[10px] text-red-400">formula: {compiled.error}</div>
         ) : (
           <div className="font-mono text-[9px] text-pixel-gray">
-            your formula ranks the top {SCORE_POOL} by {matchScorePreset(formula)?.label ?? "Sharpe"} — variables: {FORMULA_VARS.join(" · ")}, plus Math.
+            your formula ranks the top {SCORE_POOL} by {scorePoolSortLabel(formula)} — variables: {FORMULA_VARS.join(" · ")}, plus Math.
             Write your own ratio (pnl / volume) and + SAVE keeps it as a chip. Shared with the /traders board.
           </div>
         )

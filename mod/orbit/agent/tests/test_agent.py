@@ -3989,7 +3989,7 @@ class TestHarnessGate:
 
     def test_guest_is_refused(self):
         mod = self._mod(False)
-        with pytest.raises(PermissionError, match="owner-only"):
+        with pytest.raises(PermissionError, match="held to this host's owner"):
             mod._run(agent_type="claude-code", query="hi", key="0xguest")
 
     def test_refusal_names_the_agent_that_was_picked(self):
@@ -4033,6 +4033,60 @@ class TestHarnessGate:
         assert seen["name"] == "chainmod"
         assert seen["extra"] == {"project": "token", "address": "0xabc", "network": "testnet"}
         assert "chain console" in seen["goal"]
+
+
+class TestHarnessAuthSync:
+    """A harness is also unlocked by the console module behind it: the claude
+    module's owner may run Claude Code here, the codex module's owner Codex —
+    one shared identity (m.mod('auth')), no second ACL. HARNESS_AUTH names the
+    console that vouches for each harness; _harness_trusted asks its is_owner
+    for the address recovered from the caller's verified token."""
+
+    def _mod(self, addr="0xconsoleowner"):
+        from src.mod import Mod
+        mod = Mod.__new__(Mod)
+        mod.is_owner = lambda key=None: False
+        mod._resolve_address = lambda key=None, verified=False: addr
+        return mod
+
+    def _patch_peer(self, monkeypatch, vouches: dict):
+        """m.mod(name)() answers is_owner from the vouches table."""
+        import src.mod as agent_mod
+
+        class Peer:
+            def __init__(self, name): self.name = name
+            def is_owner(self, addr): return vouches.get(self.name, False)
+
+        class FakeM:
+            @staticmethod
+            def mod(name): return lambda: Peer(name)
+        monkeypatch.setattr(agent_mod, "m", FakeM)
+
+    def test_console_owner_is_vouched_for(self, monkeypatch):
+        mod = self._mod()
+        self._patch_peer(monkeypatch, {"codex": True, "claude": False})
+        assert mod._harness_trusted("codex", key="tok") is True
+        assert mod._harness_trusted("claude", key="tok") is False
+        # and the verdict feeds _runnable_agent / the picker
+        assert mod.HARNESS_AUTH["codex"] == "codex"
+        assert mod.HARNESS_AUTH["claudemod"] == "claude"
+
+    def test_anonymous_and_unverified_stay_refused(self, monkeypatch):
+        self._patch_peer(monkeypatch, {"codex": True})
+        mod = self._mod()
+        assert mod._harness_trusted("codex", key=None) is False       # no token
+        mod2 = self._mod(addr="")                                     # token didn't verify
+        assert mod2._harness_trusted("codex", key="tok") is False
+
+    def test_a_console_that_wont_load_vouches_for_nobody(self, monkeypatch):
+        import src.mod as agent_mod
+
+        class FakeM:
+            @staticmethod
+            def mod(name): raise RuntimeError("module gone")
+        monkeypatch.setattr(agent_mod, "m", FakeM)
+        mod = self._mod()
+        assert mod._harness_trusted("codex", key="tok") is False
 
 
 class TestHarnessUsage:
@@ -4132,7 +4186,7 @@ class TestArenaHarnessPass:
     def test_arena_match_cannot_be_forged_through_kwargs(self):
         """arena_match is computed from the pass, never read as a caller knob."""
         mod = self._mod(True)
-        with pytest.raises(PermissionError, match="owner-only"):
+        with pytest.raises(PermissionError, match="held to this host's owner"):
             mod._run(agent_type="claude-code", query="hi", key="0xguest",
                      arena_match=True)
 
@@ -4140,7 +4194,7 @@ class TestArenaHarnessPass:
         """__new__-built mods carry no pass; keyless must still be a guest."""
         mod = self._mod(True)
         del mod._arena_pass
-        with pytest.raises(PermissionError, match="owner-only"):
+        with pytest.raises(PermissionError, match="held to this host's owner"):
             mod._run(agent_type="claude-code", query="hi", key=None)
 
 

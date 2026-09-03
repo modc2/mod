@@ -661,6 +661,74 @@ pub async fn place_order(
     Ok(json)
 }
 
+/// Did the CLOB take this order onto the book WITHOUT crossing it?
+///
+/// `POST /order` answers 200 for two very different outcomes: `matched` (the
+/// order crossed — shares really moved) and `live`/`delayed` (a GTC limit is
+/// now RESTING on the book and may never trade). Every caller used to treat
+/// acceptance as a fill: realized PnL banked, ledger position dropped. For an
+/// exit that means a stop-loss "executed" at 40¢ that never fills leaves the
+/// position live with no stop remaining, and its PnL booked twice when the
+/// reconciler re-adopts it and the exit fires again.
+///
+/// An absent or unrecognised `status` keeps the old behaviour deliberately:
+/// reading a response we can't parse as "unfilled" would strand real fills
+/// outside the ledger, which is the worse of the two errors.
+pub fn order_is_resting(resp: &serde_json::Value) -> bool {
+    matches!(
+        resp.get("status")
+            .and_then(serde_json::Value::as_str)
+            .map(|s| s.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("live") | Some("delayed") | Some("unmatched")
+    )
+}
+
+/// The CLOB's id for an order, so a resting one can be found (and cancelled)
+/// upstream from the log. `orderID` is the documented spelling; the others
+/// show up on some responses.
+pub fn order_id_of(resp: &serde_json::Value) -> Option<String> {
+    ["orderID", "orderId", "id"]
+        .iter()
+        .find_map(|k| resp.get(*k).and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .filter(|s| !s.is_empty())
+}
+
+#[cfg(test)]
+mod resting_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn matched_is_a_fill() {
+        assert!(!order_is_resting(&json!({"status": "matched", "orderID": "0xab"})));
+    }
+
+    #[test]
+    fn live_and_delayed_are_resting() {
+        assert!(order_is_resting(&json!({"status": "live"})));
+        assert!(order_is_resting(&json!({"status": "DELAYED"})));
+        assert!(order_is_resting(&json!({"status": "unmatched"})));
+    }
+
+    #[test]
+    fn unknown_status_books_as_before() {
+        // No status field at all, or one we don't recognise: keep the legacy
+        // "acceptance is a fill" path rather than losing a real fill.
+        assert!(!order_is_resting(&json!({"success": true})));
+        assert!(!order_is_resting(&json!({"status": "something-new"})));
+    }
+
+    #[test]
+    fn order_id_reads_the_documented_spelling() {
+        assert_eq!(order_id_of(&json!({"orderID": "0xab"})), Some("0xab".into()));
+        assert_eq!(order_id_of(&json!({"orderId": "0xcd"})), Some("0xcd".into()));
+        assert_eq!(order_id_of(&json!({"orderID": ""})), None);
+        assert_eq!(order_id_of(&json!({})), None);
+    }
+}
+
 // ─── HMAC L2 auth (mirrors clobClient.ts buildL2Headers) ────────────────
 
 fn build_hmac_signature(

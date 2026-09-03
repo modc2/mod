@@ -1966,6 +1966,22 @@ class Mod(Agent):
     DEFAULT_AGENT = 'claude-code'
     FALLBACK_AGENT = 'default'
 
+    # harness -> the console module whose own sign-in also vouches for a
+    # caller. The CLI drivers (claudecode, codexcli) carry no identity of
+    # their own, so the console that fronts the same agent answers for them:
+    # whoever the claude module's auth calls owner may run Claude Code here,
+    # the codex module's owner may run Codex, and so on. Identity is the
+    # fleet's one auth module (m.mod('auth')) end to end — the token this
+    # module verifies is the same token those consoles verify — so there is
+    # no second ACL to keep in sync.
+    HARNESS_AUTH = {
+        'claude': 'claude',
+        'claudemod': 'claude',
+        'codex': 'codex',
+        'buildmod': 'build',
+        'chainmod': 'chain',
+    }
+
     def __init__(self, key=None, **kwargs):
         super().__init__(**kwargs)
         self.src_dir = Path(__file__).parent
@@ -3398,12 +3414,48 @@ class Mod(Agent):
 
     # ── harness runs (external agent CLIs) ───────────────────────────
 
+    def _harness_trusted(self, harness: str, key=None) -> bool:
+        """Whether this caller may hand a run to that harness.
+
+        The host (owner + co-owners) always may. Beyond that the question is
+        delegated: the console module behind the harness (HARNESS_AUTH) is
+        asked its own is_owner for the address recovered from the caller's
+        token — the same gate its own interface enforces — so standing on the
+        claude or codex console is standing on its harness here. Verdicts are
+        cached briefly because the picker asks on every render and a console's
+        owner check may go to disk or chain.
+        """
+        if self.is_owner(key):
+            return True
+        peer = self.HARNESS_AUTH.get(harness)
+        if not (peer and key and m):
+            return False
+        try:
+            addr = (self._resolve_address(key, verified=True) or '').lower()
+        except Exception:   # no verifier wired up — nobody to vouch through
+            return False
+        if not addr:
+            return False
+        cache = getattr(self, '_harness_trust', None)
+        if cache is None:
+            cache = self._harness_trust = {}
+        hit = cache.get((peer, addr))
+        if hit and time.time() - hit[1] < 60:
+            return hit[0]
+        try:
+            verdict = bool(m.mod(peer)().is_owner(addr))
+        except Exception:   # a console that won't load vouches for nobody
+            verdict = False
+        cache[(peer, addr)] = (verdict, time.time())
+        return verdict
+
     def _runnable_agent(self, name: str, key=None) -> bool:
         """Whether this caller could actually run that agent right now.
 
         The only thing that can stop them is a harness: the run leaves this
-        loop for a CLI on the host's own shell, so it wants the owner and an
-        installed binary. Everything else is runnable by anyone.
+        loop for a CLI on the host's own shell, so it wants a trusted caller
+        (the host, or the harnessed console's own owner — _harness_trusted)
+        and an installed binary. Everything else is runnable by anyone.
         """
         try:
             harness = self.agents.get(name).get('harness')
@@ -3411,7 +3463,8 @@ class Mod(Agent):
             return False
         if not harness:
             return True
-        return bool(self.is_owner(key) and self.harness.get(harness).available())
+        return bool(self._harness_trusted(harness, key)
+                    and self.harness.get(harness).available())
 
     def default_agent(self, key=None) -> str:
         """The agent to run as when the caller picked none.
@@ -3431,9 +3484,7 @@ class Mod(Agent):
         if pick and self._runnable_agent(pick, key):
             return pick
         try:
-            harness = self.agents.get(self.DEFAULT_AGENT).get('harness')
-            if harness and not (self.is_owner(key)
-                                and self.harness.get(harness).available()):
+            if not self._runnable_agent(self.DEFAULT_AGENT, key):
                 return self.FALLBACK_AGENT
             return self.DEFAULT_AGENT
         except Exception:      # default agent missing/unloadable — never block a run
@@ -3554,15 +3605,16 @@ class Mod(Agent):
                 f"the arena is not allowed to play harness agents on this "
                 f"host — opt in with arena config harnesses=true before "
                 f"putting a {name} agent on the board.")
-        if not (arena_match or self.is_owner(kwargs.get('key'))):
+        if not (arena_match or self._harness_trusted(name, kwargs.get('key'))):
             # name the agent that was picked, not the harness behind it — the
             # caller chose "Build Console", and being told about "buildmod"
             # sends them looking for something they never asked for
             agent = kwargs.get('agent_type') or kwargs.get('agent') or name
             raise PermissionError(
                 f"'{agent}' hands the run to the {name} CLI on this host's own "
-                f"shell, so it is owner-only. Pick a native agent to run on "
-                f"this module's own loop, sandboxed to your directory.")
+                f"shell, so it is held to this host's owner and the console it "
+                f"belongs to. Pick a native agent to run on this module's own "
+                f"loop, sandboxed to your directory.")
         path = kwargs.get('path') or (m.dp(kwargs['mod']) if m and kwargs.get('mod')
                                       else os.getcwd())
         # reuse the native step sink: live progress for the console, and the

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#080a0f">
-<title>arena — games and players</title>
+<title>arena — games and agents</title>
 <style>
   /* One sheet, many themes, no framework. A theme is one block of variables
      and nothing more — every rule below reads var(--x), so adding a palette
@@ -130,18 +130,6 @@
   .counts { color: var(--dim); font-size: 12px; flex: 1; min-width: 0;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .counts b { color: var(--ink); font-weight: 600; }
-  /* Who is running this. It is in the chrome rather than on a page somewhere
-     because a leaderboard is a claim, and this says who is making it. */
-  .hostchip {
-    display: flex; align-items: center; gap: 7px; cursor: pointer; flex: none;
-    background: var(--panel2); border: 1px solid var(--line); color: var(--dim);
-    border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 11.5px;
-    max-width: 42vw; overflow: hidden; white-space: nowrap;
-  }
-  .hostchip:hover { color: var(--ink); border-color: var(--accent); }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); flex: none;
-         box-shadow: 0 0 8px var(--good); }
-  .dot.off { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
 
   main { padding: 18px; max-width: 1180px; margin: 0 auto; }
   section[hidden], [hidden] { display: none !important; }
@@ -414,7 +402,6 @@
     #toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
   }
   @media (max-width: 560px) {
-    .hostchip { max-width: 40vw; }
     .brand { font-size: 13px; letter-spacing: .12em; }
     input, select, textarea { font-size: 16px; }   /* iOS zooms the page below 16px */
     .stats { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
@@ -428,13 +415,10 @@
   <button class="brand" id="brand" title="games"><span class="mark"></span><b>ARENA</b></button>
   <nav class="tabs" id="tabs">
     <button data-tab="games" aria-selected="true">games</button>
-    <button data-tab="players">players</button>
-    <button data-tab="servers">servers</button>
-    <button data-tab="host">host</button>
+    <button data-tab="agents">agents</button>
     <button data-tab="docs">docs</button>
   </nav>
   <span class="counts" id="banner">loading…</span>
-  <button class="hostchip" id="hostchip" hidden></button>
   <button class="act sm" id="add-open">+ add</button>
   <span class="themewrap">
     <button class="ghost sm" id="theme" aria-haspopup="menu" aria-expanded="false">theme</button>
@@ -449,7 +433,7 @@
        entered and goes to the players list. There is nothing to declare. -->
   <div class="card" id="add" hidden>
     <div class="row" style="margin-bottom:10px">
-      <h2 class="grow" style="margin:0">add a game or a player</h2>
+      <h2 class="grow" style="margin:0">add a game or an agent</h2>
       <button class="link" id="add-close">close</button>
     </div>
 
@@ -568,7 +552,7 @@
     <div class="card">
       <h2>leaderboard</h2>
       <div class="tw"><table class="stack"><thead><tr>
-        <th></th><th>player</th><th>kind</th><th>elo</th><th>matches</th><th>w/d/l</th><th>avg score</th>
+        <th></th><th>agent</th><th>kind</th><th>elo</th><th>matches</th><th>w/d/l</th><th>avg score</th>
       </tr></thead><tbody id="g-board"></tbody></table></div>
     </div>
 
@@ -610,30 +594,30 @@
     </details>
   </section>
 
-  <!-- ── players ──────────────────────────────────────────────────────── -->
-  <section id="view-players" hidden>
-    <div class="cards" id="players" style="margin-bottom:14px"></div>
+  <!-- ── agents ──────────────────────────────────────────────────────── -->
+  <section id="view-agents" hidden>
+    <div class="cards" id="agents" style="margin-bottom:14px"></div>
 
-    <!-- Entering a player is picking where it comes from. Four of the five
-         sources are a list to choose from rather than JSON to type, because
-         every one of those lists is something this box already knows: the
-         modules stored here, the modules of the fleet, the agents next door,
-         and the models. -->
+    <!-- Connecting an agent is picking where it comes from. The front door is
+         the agent mod protocol — an agent of this fleet, reached through the
+         gateway — and every source is a list to choose from rather than JSON
+         to type, because every one of those lists is something this box
+         already knows. -->
     <div class="card">
-      <h2>enter a player</h2>
+      <h2>connect an agent</h2>
       <div class="seg" id="p-src">
-        <button data-src="module" aria-selected="true">a module here</button>
+        <button data-src="agent" aria-selected="true">an agent (mod protocol)</button>
         <button data-src="fleet">a module of the fleet</button>
-        <button data-src="agent">an agent</button>
-        <button data-src="model">a model</button>
+        <button data-src="module">a bot stored here</button>
+        <button data-src="model">a liquid ai model</button>
         <button data-src="http">an endpoint</button>
       </div>
       <p class="dim small" id="p-hint" style="margin:10px 0"></p>
 
-      <div id="p-form-module" class="row">
+      <div id="p-form-module" class="row" hidden>
         <select id="p-module" class="grow"></select>
         <input id="p-name-module" placeholder="name it (optional)" style="width:180px">
-        <button class="act" data-enter="module">enter</button>
+        <button class="act" data-enter="module">connect</button>
       </div>
 
       <div id="p-form-fleet" class="row" hidden>
@@ -643,32 +627,33 @@
         <label class="check" title="sign the call with this box's own key — for a module that only answers a signed-in caller">
           <input type="checkbox" id="p-fleet-auth"> signed
         </label>
-        <button class="act" data-enter="fleet">enter</button>
+        <button class="act" data-enter="fleet">connect</button>
       </div>
 
-      <div id="p-form-agent" class="row" hidden>
+      <div id="p-form-agent" class="row">
         <select id="p-agent" class="grow"></select>
         <input id="p-name-agent" placeholder="name it (optional)" style="width:180px">
-        <button class="act" data-enter="agent">enter</button>
+        <button class="act" data-enter="agent">connect</button>
       </div>
 
       <div id="p-form-model" class="row" hidden>
         <input id="p-model" class="grow" list="model-list"
-               placeholder="model, e.g. anthropic/claude-opus-5 — blank plays on this box's own model">
+               placeholder="a Liquid AI model — blank plays whatever the box is already serving">
         <datalist id="model-list">
-          <option value="anthropic/claude-opus-5"></option>
-          <option value="anthropic/claude-sonnet-5"></option>
-          <option value="openai/gpt-5"></option>
-          <option value="google/gemini-2.5-pro"></option>
+          <option value="LiquidAI/LFM2.5-350M"></option>
+          <option value="LiquidAI/LFM2.5-1.2B-Instruct"></option>
+          <option value="LiquidAI/LFM2.5-1.2B-Thinking"></option>
+          <option value="LiquidAI/LFM2.5-2.6B"></option>
+          <option value="LiquidAI/LFM2.5-8B-A1B"></option>
         </datalist>
         <input id="p-name-model" placeholder="name it (optional)" style="width:180px">
-        <button class="act" data-enter="model">enter</button>
+        <button class="act" data-enter="model">connect</button>
       </div>
 
       <div id="p-form-http" class="row" hidden>
         <input id="p-url" class="grow" placeholder="https://… — posted the view, answers {&quot;move&quot;:&quot;…&quot;}">
         <input id="p-name-http" placeholder="name it" style="width:180px">
-        <button class="act" data-enter="http">enter</button>
+        <button class="act" data-enter="http">connect</button>
       </div>
 
       <details style="margin-top:12px">
@@ -676,17 +661,17 @@
         <div class="row" style="margin-top:10px">
           <input id="p-name" placeholder="name" style="width:160px">
           <select id="p-kind"></select>
-          <input id="p-config" class="grow" placeholder='{"model":"anthropic/claude-opus-5"}'>
-          <button class="act" id="p-add">enter</button>
+          <input id="p-config" class="grow" placeholder='{"model":"LiquidAI/LFM2.5-1.2B-Instruct"}'>
+          <button class="act" id="p-add">connect</button>
         </div>
       </details>
     </div>
   </section>
 
-  <!-- ── one player: who it is, and every number the match loop counted ── -->
-  <section id="view-player" hidden>
+  <!-- ── one agent: who it is, and every number the match loop counted ── -->
+  <section id="view-agent" hidden>
     <div class="crumb">
-      <button class="link" id="pl-back">← players</button>
+      <button class="link" id="pl-back">← agents</button>
       <h2 id="pl-name"></h2>
       <span class="tag player" id="pl-kind"></span>
       <span class="grow"></span>
@@ -701,7 +686,7 @@
          and class players: they read the view directly and get no prompt. -->
     <div class="card" id="pl-prompt-card" hidden>
       <h2>prompt</h2>
-      <p class="dim small" style="margin-top:-4px">what this player is sent every move — {view} is the position, {seat} its seat</p>
+      <p class="dim small" style="margin-top:-4px">what this agent is sent every move — {view} is the position, {seat} its seat</p>
       <div id="pl-system-wrap" hidden>
         <div class="dim" style="font-size:10.5px;letter-spacing:.08em;text-transform:uppercase">system</div>
         <pre id="pl-system" style="margin:4px 0 10px;white-space:pre-wrap"></pre>
@@ -746,104 +731,11 @@
       <pre id="pl-code" style="max-height:520px"></pre>
     </div>
 
-    <details class="card"><summary class="dim" style="cursor:pointer">what this player is</summary>
+    <details class="card"><summary class="dim" style="cursor:pointer">what this agent is</summary>
       <pre id="pl-body" style="margin-top:10px"></pre>
     </details>
   </section>
 
-  <!-- ── servers ──────────────────────────────────────────────────────
-       Every stored module is an MCP server of its own and a mod of its own;
-       so is every module of the fleet. This is the index of both, and the
-       fleet half is a list of players nobody has entered yet. -->
-  <section id="view-servers" hidden>
-    <div class="card">
-      <h2>one server per module stored here</h2>
-      <p class="dim small" style="margin-top:-4px">
-        <code id="s-arena"></code> is the whole arena. Each row below is that
-        module alone — a game you can <code>open</code> a table at and play a
-        turn at a time, an agent you can hand a view to. The same modules are
-        mods: <code>m arena/mint</code> writes them under <code>orbit/arena/mods/</code>.
-      </p>
-      <div class="tw"><table class="stack"><thead><tr>
-        <th>name</th><th>role</th><th>lang</th><th>mod</th><th>tools</th><th>endpoint</th>
-      </tr></thead><tbody id="servers"></tbody></table></div>
-    </div>
-
-    <div class="card">
-      <div class="row" style="margin-bottom:6px">
-        <h2 class="grow" style="margin:0">every module of this fleet</h2>
-        <button class="ghost sm" id="fleet-reload">reload</button>
-      </div>
-      <p class="dim small" style="margin-top:-4px">
-        Anything with an MCP server can take a seat: it is asked one of its own
-        tools each move and whatever it says back is read for a move. They are
-        named, not addressed — the call goes out through <code id="fl-gw"></code>,
-        which is what wakes a module that is asleep.
-      </p>
-      <div class="tw"><table class="stack"><thead><tr>
-        <th>module</th><th>tools</th><th>state</th><th>endpoint</th><th></th>
-      </tr></thead><tbody id="fleet"></tbody></table></div>
-    </div>
-
-    <div class="card">
-      <h2>what a class may call out to</h2>
-      <p class="dim small" style="margin-top:-4px">
-        A class has no network. It names one of these servers — never a URL —
-        and this arena makes the call for it, so the credentials never reach
-        the code that uses them. Run a match with MCP on and the calls are
-        counted onto the seat that made them.
-      </p>
-      <div class="tw"><table class="stack"><thead><tr>
-        <th>name</th><th>description</th><th>auth</th><th>on</th>
-      </tr></thead><tbody id="outward"></tbody></table></div>
-    </div>
-  </section>
-
-  <!-- ── host ─────────────────────────────────────────────────────────
-       Whose box this is. A rating is a claim about somebody else's code, and
-       this is the page that says who is making it: with what key, on what
-       machine, for how long, and where the bytes behind every module went. -->
-  <section id="view-host" hidden>
-    <div class="card">
-      <div class="row" style="margin-bottom:12px">
-        <h2 class="grow" style="margin:0">the host</h2>
-        <span class="tag on" id="h-up">up</span>
-        <button class="ghost sm" id="h-reload">reload</button>
-      </div>
-      <div class="kv" id="h-who"></div>
-    </div>
-
-    <div class="card">
-      <h2>doors</h2>
-      <div class="kv" id="h-urls"></div>
-    </div>
-
-    <div class="stats" id="h-counts" style="margin-bottom:14px"></div>
-
-    <div class="card">
-      <div class="row" style="margin-bottom:10px">
-        <h2 class="grow" style="margin:0">the store</h2>
-        <button class="ghost sm" id="h-sync">push what is missing</button>
-      </div>
-      <p class="dim small" style="margin-top:-6px">
-        Every module stored here is pushed to the store module as a public
-        object and hashed there into a CID, kept beside the SHA-256. That is
-        what makes a game readable by somebody who does not trust this arena.
-      </p>
-      <div class="kv" id="h-store"></div>
-      <div style="margin-top:12px" id="h-quota"></div>
-    </div>
-
-    <div class="card">
-      <h2>what this box can build</h2>
-      <div class="kv" id="h-build"></div>
-    </div>
-
-    <div class="card">
-      <h2>where the bytes are</h2>
-      <div class="kv" id="h-state"></div>
-    </div>
-  </section>
 </main>
 
 <nav class="bottom" id="bottom"></nav>
@@ -855,10 +747,11 @@
 // no behaviour of its own — if something can be done here it can be done from
 // an MCP client, and the other way round.
 //
-// There are two nouns: games and players. A game is a leaderboard you can
-// play into; a player is a row on every board it has ever appeared on. A
-// player can be a module stored here, a module of this fleet, an agent, a
-// model or an endpoint — five sources, one seat.
+// There are two nouns: games and agents. A game is a leaderboard you can
+// play into; an agent is a row on every board it has ever appeared on. An
+// agent connects over the agent mod protocol, or is a module of this fleet,
+// a bot stored here, a Liquid AI model or an endpoint — five sources, one
+// seat.
 
 // Served at /arena behind the fleet router and at / standalone. Both worlds
 // answer on /api/arena, so the only question is whether there is a prefix.
@@ -919,7 +812,6 @@ let players = [];          // everyone entered
 let boards = new Map();    // game id → its leaderboard rows
 let pending = null;        // a dropped file, inspected but not stored
 let openGame = null;       // the game being looked at
-let hostCard = null;       // who is running this
 let fleetCard = null;      // every module of the fleet, cached
 let kinds = ["wasm", "class", "model", "agent_mod", "mcp", "http"];
 
@@ -931,9 +823,7 @@ const playerModules = () => modules.filter((m) => m.role === "player");
 // on a phone, where the top of a screen is the hardest place to reach.
 const TABS = [
   ["games", "<path d='M3 7.5h18v9H3z'/><path d='M7 12h3M8.5 10.5v3'/><circle cx='16' cy='11.4' r='.9'/><circle cx='17.7' cy='13.5' r='.9'/>"],
-  ["players", "<circle cx='9' cy='8' r='3'/><path d='M3.5 19c.6-3 3-4.6 5.5-4.6S14 16 14.6 19'/><path d='M16 6.6a3 3 0 0 1 0 5.8M18 14.6c2 .7 3.2 2.2 3.6 4.4'/>"],
-  ["servers", "<rect x='3' y='4' width='18' height='6' rx='1.5'/><rect x='3' y='14' width='18' height='6' rx='1.5'/><path d='M7 7h.01M7 17h.01'/>"],
-  ["host", "<path d='M12 3l8 4v5c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V7z'/><path d='M9.4 12.2l1.9 1.9 3.4-3.7'/>"],
+  ["agents", "<circle cx='9' cy='8' r='3'/><path d='M3.5 19c.6-3 3-4.6 5.5-4.6S14 16 14.6 19'/><path d='M16 6.6a3 3 0 0 1 0 5.8M18 14.6c2 .7 3.2 2.2 3.6 4.4'/>"],
   ["docs", "<path d='M5 4h9l5 5v11H5z'/><path d='M14 4v5h5'/><path d='M8.5 13h7M8.5 16.5h7'/>"],
 ];
 $("bottom").replaceChildren(...TABS.map(([name, paths]) => {
@@ -944,20 +834,17 @@ $("bottom").replaceChildren(...TABS.map(([name, paths]) => {
 
 function show(view) {
   for (const s of document.querySelectorAll("main section")) s.hidden = s.id !== `view-${view}`;
-  const tab = view === "players" || view === "player" ? "players"
+  const tab = view === "agent" ? "agents"
             : view === "game" ? "games" : view;
   document.querySelectorAll("nav button[data-tab]").forEach((b) =>
     b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
-  if (view === "servers") renderServers();
-  if (view === "host") renderHost();
   if (view === "docs") openDocs();
   window.scrollTo({ top: 0 });
 }
 $("tabs").querySelectorAll("button").forEach((b) => (b.onclick = () => show(b.dataset.tab)));
 $("brand").onclick = () => show("games");
 $("g-back").onclick = () => show("games");
-$("pl-back").onclick = () => show("players");
-$("hostchip").onclick = () => show("host");
+$("pl-back").onclick = () => show("agents");
 
 // Themes. One button opens a palette of swatches; the pick is remembered,
 // "system" follows the OS between dark and light, and ?theme=<name> on the
@@ -1080,31 +967,12 @@ async function refresh() {
     if (Array.isArray(info.player_kinds)) kinds = info.player_kinds;
     $("banner").replaceChildren(
       el("b", { textContent: info.games }), " games · ",
-      el("b", { textContent: info.players }), " players · ",
+      el("b", { textContent: info.players }), " agents · ",
       el("b", { textContent: info.matches }), " matches");
     $("banner").className = "counts";
     $("p-kind").replaceChildren(...kinds.filter((k) => k !== "human")
       .map((k) => el("option", { value: k, textContent: k })));
   }
-}
-
-/** Who is running this — fetched once at boot for the chip in the chrome, and
- *  again whenever the host page is opened. */
-async function loadHost(force = false) {
-  if (hostCard && !force) return hostCard;
-  hostCard = await call("/host").catch((e) => ({ error: e.message }));
-  const chip = $("hostchip");
-  chip.hidden = false;
-  const addr = hostCard?.host?.address;
-  chip.replaceChildren(
-    el("span", { className: `dot${hostCard?.error ? " off" : ""}` }),
-    el("span", { textContent: addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}`
-                                   : (hostCard?.host?.machine || "host") }),
-  );
-  chip.title = hostCard?.error
-    ? hostCard.error
-    : `${addr || "no key"} on ${hostCard?.host?.machine} — open the host page`;
-  return hostCard;
 }
 
 async function loadFleet(force = false) {
@@ -1227,7 +1095,7 @@ async function renderBoard() {
     return tr;
   }));
   if (!rows.length) {
-    $("g-board").replaceChildren(empty("nobody has played it yet — sit two players down below", 7));
+    $("g-board").replaceChildren(empty("nobody has played it yet — sit two agents down below", 7));
   }
 }
 
@@ -1316,7 +1184,7 @@ function renderSeats() {
   }));
   if (!players.length && !playerModules().length) {
     $("g-seats").replaceChildren(el("p", { className: "dim", style: "margin:0",
-      textContent: "nobody is entered and nothing stored here defines play — enter a player first" }));
+      textContent: "nobody is connected and nothing stored here defines play — connect an agent first" }));
   }
 }
 
@@ -1351,7 +1219,7 @@ $("g-play").onclick = async () => {
       const p = await seatPlayer($(`g-seat-${i}`)?.value);
       if (p) seated.push(p);
     }
-    if (seated.length < 2) throw new Error("pick two players");
+    if (seated.length < 2) throw new Error("pick two agents");
     await refreshPlayersOnly();
 
     const count = Math.min(Math.max(Number($("g-count").value) || 1, 1), 50);
@@ -1429,19 +1297,20 @@ function turnRow(t, seated) {
   ]);
 }
 
-// ── players ──────────────────────────────────────────────────────────────
+// ── agents ──────────────────────────────────────────────────────────────
 //
-// Five sources, one seat. Four of them are a list rather than a JSON blob to
-// type, because every one of those lists is something this box already knows.
+// Five sources, one seat. The front door is the agent mod protocol; every
+// source is a list rather than a JSON blob to type, because every one of
+// those lists is something this box already knows.
 
 const HINTS = {
-  module: "a module stored here that defines play — a wasm bot, a python class or a rust class. It runs in the sandbox, never on the server.",
+  agent: "an agent of this fleet, connected over the agent mod protocol — the call goes through the gateway to the agent module, which runs the persona and answers with a move.",
   fleet: "any module of this fleet that answers on an MCP server. It is asked one of its own tools each move, through the gateway, which wakes it if it is asleep. Tick `signed` for a module that only answers a caller it can identify.",
-  agent: "an agent in this fleet's agent module — a persona with a model and a toolbox behind it.",
-  model: "any OpenAI-compatible endpoint. Leave the model blank to play on the model this box is already running, which costs nothing.",
+  module: "a bot stored here that defines play — a wasm bot, a python class or a rust class. It runs in the sandbox, never on the server.",
+  model: "a Liquid AI model, served by the liquidai module on this box. Leave it blank to play whatever is already resident — either way a match costs nothing.",
   http: "your own endpoint: it is posted the view and expected to answer {\"move\":\"…\"}.",
 };
-let source = "module";
+let source = "agent";
 $("p-src").querySelectorAll("button").forEach((b) => (b.onclick = () => {
   source = b.dataset.src;
   $("p-src").querySelectorAll("button").forEach((x) =>
@@ -1452,7 +1321,7 @@ $("p-src").querySelectorAll("button").forEach((b) => (b.onclick = () => {
   $("p-hint").textContent = HINTS[source];
   if (source === "fleet" || source === "agent") loadFleet();
 }));
-$("p-hint").textContent = HINTS.module;
+$("p-hint").textContent = HINTS.agent;
 
 /** The modules stored here that could take a seat, and whether one already has. */
 function renderModulePicker() {
@@ -1523,14 +1392,14 @@ document.querySelectorAll("[data-enter]").forEach((b) => (b.onclick = async () =
                kind: "model", config: model ? { model } : {} };
     } else {
       const url = $("p-url").value.trim();
-      if (!url) throw new Error("an endpoint player needs a url");
+      if (!url) throw new Error("an endpoint agent needs a url");
       body = { name: $("p-name-http").value.trim() || new URL(url).hostname,
                kind: "http", config: { url } };
     }
     const p = await post("/players", body);
     await refreshPlayersOnly();
     renderSeats();
-    toast(`${p.name} is entered — sit it at a game`);
+    toast(`${p.name} is connected — sit it at a game`);
   } catch (e) { toast(e.message, true); }
 }));
 
@@ -1576,7 +1445,7 @@ function renderPlayers() {
       // A server-driven player is asked something each move; say what, in a
       // line. The card carries `system` (null or text) only for those kinds.
       "system" in p ? el("p", { className: "dim small", style: "margin:0 0 8px",
-        title: "open the player to read the whole prompt" }, [
+        title: "open the agent to read the whole prompt" }, [
         el("b", { textContent: "prompt " }),
         (p.system || p.brief || "").trim()
           ? (p.system || p.brief).trim().replace(/\s+/g, " ").slice(0, 130)
@@ -1601,7 +1470,7 @@ function renderPlayers() {
     card.onkeydown = (e) => { if (e.key === "Enter") open(); };
     return card;
   });
-  $("players").replaceChildren(...(rows.length ? rows : [
+  $("agents").replaceChildren(...(rows.length ? rows : [
     el("p", { className: "dim", textContent: "nobody entered yet — enter one below" }),
   ]));
 }
@@ -1617,7 +1486,7 @@ async function openPlayerPage(id) {
   let p;
   try { p = await call(`/players/${id}`); }
   catch (e) { return toast(e.message, true); }
-  show("player");
+  show("agent");
   $("pl-name").textContent = p.name;
   $("pl-kind").textContent = p.model || p.kind;
   $("pl-note").textContent = p.note || "";
@@ -1719,7 +1588,7 @@ async function openPlayerPage(id) {
     $("pl-hashes").replaceChildren(el("div", { className: "dim small", textContent:
       p.module ? "its module is gone — deleted from under it"
       : p.via ? `no bytes to hash — ${p.via} is a module of this fleet, running on its own port and asked over MCP`
-      : `no bytes to hash — a ${p.model || p.kind} player is driven by the arena, not stored in it` }));
+      : `no bytes to hash — a ${p.model || p.kind} agent is driven by the arena, not stored in it` }));
     $("pl-code-lang").textContent = p.kind;
     $("pl-code").textContent = body;
   }
@@ -1728,7 +1597,7 @@ async function openPlayerPage(id) {
   $("pl-out").onclick = async () => {
     if (!confirm(`withdraw ${p.name}?`)) return;
     await call(`/players/${p.id}`, { method: "DELETE" });
-    show("players");
+    show("agents");
     await refresh();
   };
 }
@@ -1831,11 +1700,11 @@ async function landed(m) {
         kind: m.lang === "wasm" ? "wasm" : "class",
         config: { module: m.id },
       });
-      toast(`${m.name} is a player — entered`);
+      toast(`${m.name} is an agent — connected`);
     } catch (e) { toast(`stored ${m.name}, but not entered: ${e.message}`, true); }
     $("add").hidden = true;
     await refresh();
-    return show("players");
+    return show("agents");
   }
   await refresh();
   if (m.role === "game") {
@@ -1844,86 +1713,6 @@ async function landed(m) {
     return openGamePage(m.id);
   }
   toast(`stored ${m.name} — it defines neither a game nor a player`);
-}
-
-// ── servers ──────────────────────────────────────────────────────────────
-//
-// The index of the other half of this thing. Everything stored here answers
-// on its own MCP endpoint, so a model with an MCP client can sit down at a
-// game without any of this console — and everything in the fleet answers on
-// one too, which is exactly why a module of the fleet can sit down here.
-
-async function renderServers() {
-  const [list, outward] = await Promise.all([
-    call("/servers").catch((e) => ({ error: e.message, servers: [] })),
-    call("/mcp/servers").catch((e) => ({ error: e.message, servers: [] })),
-  ]);
-  $("s-arena").textContent = list.arena || `${API}/mcp`;
-
-  $("servers").replaceChildren(...(list.servers ?? []).map((s) =>
-    el("tr", {}, [
-      td("name", { className: "first" }, [el("b", { textContent: s.name }),
-        el("div", { className: "dim small", textContent: s.description || "" })]),
-      td("role", {}, el("span", { className: `tag ${s.role}`, textContent: s.role })),
-      td("lang", { className: "dim", textContent: langLabel(s.lang) }),
-      td("mod", { style: "white-space:nowrap" }, el("code", { textContent: s.mod })),
-      td("tools", { className: "dim small", textContent: (s.tools ?? []).join(" ") }),
-      td("endpoint", { style: "white-space:nowrap" },
-         el("code", { className: "dim", title: s.mcp, textContent: path(s.mcp) })),
-    ])));
-
-  $("outward").replaceChildren(...(outward.servers ?? []).map((s) =>
-    el("tr", {}, [
-      td("name", { className: "first" }, el("b", { textContent: s.name })),
-      td("description", { className: "dim", textContent: s.description || s.url }),
-      td("auth", { className: "dim", textContent: s.authenticated ? "a key is held here" : "none" }),
-      td("on", {}, el("span", { className: `tag ${s.enabled ? "on" : "off"}`,
-                                textContent: s.enabled ? "on" : "off" })),
-    ])));
-  if (!(outward.servers ?? []).length) {
-    $("outward").replaceChildren(el("tr", {}, td("", {
-      colSpan: 4, className: "dim",
-      textContent: `nothing configured — add one to ${outward.config ?? "~/.mod/arena/mcp_servers.json"}`,
-    })));
-  }
-
-  await loadFleet();
-  renderFleetTable();
-}
-$("fleet-reload").onclick = async () => {
-  $("fleet").replaceChildren(empty("asking the fleet…", 5));
-  await loadFleet(true);
-  renderFleetTable();
-};
-
-function renderFleetTable() {
-  $("fl-gw").textContent = fleetCard?.gateway || "the gateway";
-  const rows = (fleetCard?.modules || []).map((m) => {
-    const seat = el("button", { className: "ghost sm", textContent: "seat it" });
-    seat.onclick = async (e) => {
-      e.stopPropagation();
-      try {
-        await post("/players", { name: m.name, kind: "mcp", config: { module: m.name } });
-        await refreshPlayersOnly();
-        renderSeats();
-        toast(`${m.name} is entered — sit it at a game`);
-      } catch (err) { toast(err.message, true); }
-    };
-    return el("tr", {}, [
-      td("module", { className: "first" }, [
-        el("b", { textContent: m.name }),
-        el("div", { className: "dim small", textContent: (m.description || "").slice(0, 130) }),
-      ]),
-      td("tools", { className: "dim", textContent: m.tools ?? "—" }),
-      td("state", {}, el("span", { className: `tag ${m.up ? "on" : "off"}`,
-                                   textContent: m.up ? "up" : "asleep" })),
-      td("endpoint", { style: "white-space:nowrap" },
-         el("code", { className: "dim", title: m.mcp, textContent: path(m.mcp) })),
-      td("", {}, seat),
-    ]);
-  });
-  $("fleet").replaceChildren(...(rows.length ? rows
-    : [empty(fleetCard?.error || "no fleet modules found — is the gateway running?", 5)]));
 }
 
 /** Everything stored that is neither a game nor a player. It is not nothing —
@@ -1986,119 +1775,7 @@ function codeCard(prefix, m) {
 // signs for the box, the machine, how long the process has been up, where the
 // bytes went, and what this box can build.
 
-const bytes = (n) => (n > 1e6 ? `${(n / 1e6).toFixed(1)} MB`
-                    : n > 1e3 ? `${(n / 1e3).toFixed(0)} kB` : `${n || 0} B`);
-const dur = (s) => {
-  s = Math.max(0, Math.round(s || 0));
-  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
-  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m ${s % 60}s` : `${s}s`;
-};
-/** A key/value block whose values can be copied — an address is only useful
- *  if it can leave the page. */
-function kv(target, pairs) {
-  const out = [];
-  for (const [k, v, copyable] of pairs) {
-    if (v === null || v === undefined || v === "") continue;
-    out.push(el("div", { textContent: k }));
-    const val = el("div", { textContent: String(v) });
-    if (copyable) {
-      val.className = "copy";
-      val.title = "copy";
-      val.onclick = () => copy(String(v), `copied ${k}`);
-    }
-    out.push(val);
-  }
-  $(target).replaceChildren(...out);
-}
 
-async function renderHost() {
-  const h = await loadHost(true);
-  if (h.error) {
-    $("h-up").textContent = "unreachable";
-    $("h-up").className = "tag off";
-    return kv("h-who", [["error", h.error]]);
-  }
-  $("h-up").textContent = `up ${dur(h.uptime_seconds)}`;
-  $("h-up").className = "tag on";
-
-  kv("h-who", [
-    ["address", h.host?.address || "no key on this box", true],
-    ["machine", h.host?.machine, true],
-    ["signs with", h.host?.signs_with],
-    ["module", `arena ${h.version} · ${h.protocol}`],
-    ["backend", h.backend],
-    ["mcp protocol", h.mcp_protocol],
-    ["process", `pid ${h.host?.pid} on ${h.host?.os}/${h.host?.arch}`],
-    ["started", when(h.started)],
-    ["uptime", dur(h.uptime_seconds)],
-    ["player kinds", (h.player_kinds || []).join(" · ")],
-    ["executes in", (h.executes_in || []).join(" · ")],
-  ]);
-  kv("h-urls", [
-    ["api", h.urls?.api, true],
-    ["console", h.urls?.console, true],
-    ["mcp", h.urls?.mcp, true],
-    ["per module", h.urls?.per_module_mcp, true],
-    ["gateway", h.urls?.gateway, true],
-    ["behind the router", h.urls?.behind_the_router],
-    ["port", h.port],
-  ]);
-  const c = h.counts || {};
-  $("h-counts").replaceChildren(
-    stat("modules", c.modules ?? 0), stat("games", c.games ?? 0),
-    stat("classes", c.classes ?? 0), stat("players", c.players ?? 0),
-    stat("matches", c.matches ?? 0), stat("blobs", h.state?.blobs ?? 0));
-
-  const s = h.store || {};
-  kv("h-store", [
-    ["store", s.store || "off", true],
-    ["reachable", s.enabled === false ? "the bridge is off" : s.reachable ? "yes" : "no"],
-    ["pushes as", s.address, true],
-    ["authorized", s.authorized === undefined ? null : s.authorized ? "yes" : "no"],
-    ["terms", s.terms ? (s.terms.accepted ? `accepted, v${s.terms.version}` : "not accepted") : null],
-    ["modules", s.modules === undefined ? null
-      : `${s.stored} of ${s.modules} have a cid${s.missing ? ` · ${s.missing} missing` : ""}`],
-    ["key", s.key],
-  ]);
-  const q = s.quota;
-  if (q && q.limit_bytes) {
-    $("h-quota").replaceChildren(
-      el("div", { className: "row small dim", style: "justify-content:space-between;margin-bottom:5px" }, [
-        el("span", { textContent: `quota ${bytes(q.used_bytes)} of ${bytes(q.limit_bytes)}` }),
-        el("span", { textContent: `${bytes(q.remaining_bytes)} left` }),
-      ]),
-      el("div", { className: "meter" },
-        el("i", { style: `width:${Math.min(100, (q.used_bytes / q.limit_bytes) * 100).toFixed(1)}%` })));
-  } else {
-    $("h-quota").replaceChildren();
-  }
-
-  const t = h.toolchain || {};
-  kv("h-build", [
-    ["rust class", t.available ? "yes — a .rs class is compiled here on upload"
-                               : "no — this box has no rustc, so only wasm and python classes run"],
-    ["rustc", t.rustc],
-    ["target", t.target],
-    ["knows target", t.knows_target === undefined ? null
-      : t.knows_target ? "yes" : "no — `rustup target add wasm32-unknown-unknown`"],
-    ["cache", t.cache],
-  ]);
-  kv("h-state", [
-    ["state", h.state?.dir, true],
-    ["registry", h.state?.registry, true],
-    ["blobs", `${h.state?.blobs ?? 0} files · ${bytes(h.state?.bytes)}`],
-  ]);
-}
-$("h-reload").onclick = renderHost;
-$("h-sync").onclick = async () => {
-  $("h-sync").disabled = true;
-  try {
-    const r = await post("/store/sync", {});
-    toast(`${r.stored} of ${r.modules} in the store — ${r.pushed} pushed`);
-    await renderHost();
-  } catch (e) { toast(e.message, true); }
-  finally { $("h-sync").disabled = false; }
-};
 
 // ── writing one ──────────────────────────────────────────────────────────
 async function template(role) {
@@ -2136,10 +1813,10 @@ $("w-store").onclick = async () => {
       }
       vibeReset();
       if (m.role === "player" && m.entered && !m.entered.error) {
-        toast(`${m.name} is a player — entered`);
+        toast(`${m.name} is an agent — connected`);
         $("add").hidden = true;
         await refresh();
-        return show("players");
+        return show("agents");
       }
       return landed(m);
     }
@@ -2500,7 +2177,6 @@ function markdown(src) {
 // ── boot ─────────────────────────────────────────────────────────────────
 try {
   await refresh();
-  loadHost().catch(() => {});
   loadFleet().catch(() => {});
   if (location.hash.startsWith("#docs/")) show("docs");
 } catch (e) {

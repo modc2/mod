@@ -52,16 +52,15 @@ CLI (via `m`):
     m arena/template role=game lang=rust > game.rs  # a class to fill in
     m arena/upload path=game.rs                     # it is now playable
     m arena/abi lang=rust                           # the contract, in full
-    m arena/enter name=opus kind=model config='{"model":"anthropic/claude-opus-5"}'
+    m arena/enter name=lfm kind=model config='{"model":"LiquidAI/LFM2.5-1.2B-Instruct"}'
     m arena/enter name=perfect kind=class config='{"module":"bot-perfect"}'
-    m arena/play game=ttt players=opus,perfect      # play it
+    m arena/play game=ttt players=lfm,perfect       # play it
     m arena/leaderboard game=ttt
     m arena/run module=hello                        # run any module headlessly
 
     m arena/mint                                    # every module, as a mod
     m arena.nim-rs/open                             # sit down at one
     m arena.bot-perfect/ask view='Legal moves: 1, 2, 3'
-    m arena/servers                                 # one MCP server per module
     m arena/mcp_servers                             # what a class may call out to
 """
 
@@ -155,18 +154,6 @@ class Mod:
 
     def health(self):
         return {'up': self._up(), 'url': self.server_url}
-
-    def host(self, store: bool = True):
-        """Who is running this arena: the key the box signs with, the machine,
-        the uptime, every door in, where the bytes went and what it can build.
-
-        A rating is a claim about somebody else's code, so the claim should
-        say whose box it was made on. store=0 skips the round trip to the
-        store module.
-
-            m arena/host
-        """
-        return self._get('/host', store=None if store else '0')
 
     def fleet(self, module: str = ''):
         """Every module of this fleet a player can be seated on — or, given a
@@ -540,7 +527,7 @@ class Mod:
               note: str = '', **kwargs):
         """Enter a player. Re-entering a name updates it and keeps its record.
 
-        m arena/enter name=opus kind=model config='{"model":"anthropic/claude-opus-5"}'
+        m arena/enter name=lfm kind=model config='{"model":"LiquidAI/LFM2.5-1.2B-Instruct"}'
         m arena/enter name=perfect kind=wasm config='{"module":"bot-ttt"}'
         m arena/enter name=center kind=class config='{"module":"center"}'
         m arena/enter name=bt kind=mcp config='{"module":"bt","tool":"bt_ask"}'
@@ -622,14 +609,6 @@ class Mod:
     # two halves below are the same door in opposite directions: `servers` and
     # `tool` are modules serving MCP, `mcp_servers` and `mcp_call` are modules
     # *calling* it.
-
-    def servers(self, role: str = None):
-        """Every module with the MCP endpoint and the mod name it answers to."""
-        got = self._get('/servers')
-        if role and isinstance(got, dict) and got.get('servers'):
-            got['servers'] = [s for s in got['servers'] if s.get('role') == role]
-            got['count'] = len(got['servers'])
-        return got
 
     def tools(self, module: str = ''):
         """The MCP tools on offer — the arena's own, or one module's."""

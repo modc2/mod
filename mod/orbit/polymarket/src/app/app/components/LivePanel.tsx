@@ -220,6 +220,10 @@ function LogIcon({ type }: { type: ExecutionLogEntry["type"] }) {
     case "CYCLE_END": return <span className="text-green-400">END</span>;
     case "REDEEM": return <span className="text-amber-400">RDM</span>;
     case "WATCHLIST": return <span className="text-amber-400">WLST</span>;
+    // Order accepted by the CLOB but sitting UNFILLED on the book. Not a
+    // trade — nothing was bought or sold, and for an exit it means the
+    // position (and its stop) is still open.
+    case "RESTING": return <span className="text-amber-400">REST</span>;
     default: return <span className="text-pixel-gray">???</span>;
   }
 }
