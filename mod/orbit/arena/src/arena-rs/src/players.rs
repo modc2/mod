@@ -5,9 +5,10 @@
 //! needs something a tab should not have: an API key, or an origin that will
 //! not answer a cross-site request.
 //!
-//!     model      any OpenAI-compatible /chat/completions endpoint — the
-//!                `liquidai` module on this box by default, so a match costs
-//!                nothing; OpenRouter, a local gateway or ollama work unchanged
+//!     model      a Liquid AI model, served by the `liquidai` module on this
+//!                box — every model seat here is an LFM, so a match costs
+//!                nothing and needs nobody's key. `base` can still point the
+//!                seat somewhere else, but nothing defaults to anywhere else.
 //!     agent_mod  an agent in this fleet's `agent` module, over POST /run
 //!     http       any endpoint that takes a view and hands back a move
 //!
@@ -30,7 +31,6 @@ use std::time::Duration;
 /// both move in the execution layer rather than on the server.
 pub const KINDS: [&str; 7] = ["wasm", "class", "model", "agent_mod", "mcp", "http", "human"];
 
-const OPENROUTER: &str = "https://openrouter.ai/api/v1";
 const AGENT_MOD_BASE: &str = "http://127.0.0.1:50117";
 
 fn client() -> &'static reqwest::Client {
@@ -251,25 +251,25 @@ pub async fn play(p: &Player, view: &str, seat: usize) -> Result<Answer, String>
     }
 }
 
-/// Any OpenAI-compatible chat endpoint.
+/// A Liquid AI model, served by the liquidai module on this box.
 ///
-/// Naming neither `base` nor `model` is the free seat: the liquidai module on
-/// this box runs LFM weights here, so an arena anyone can play in doesn't ask
-/// for a key first. It is only ever a default — `base` and `model` win, and if
-/// nothing local is serving this falls back to OpenRouter as it always did.
+/// Every model seat is an LFM: there is no fallback to a paid gateway, no key
+/// to hold, and a match costs what a match on this box costs — nothing.
+/// Naming no `model` plays whatever is already resident (loading a model
+/// costs more than any move is worth), else the default LFM. `base` still
+/// wins for anyone who insists on pointing a seat elsewhere, but nothing
+/// defaults to anywhere but liquidai.
 ///
 /// config: { model?, base?, key?, system?, temperature?, max_tokens? }
 async fn model(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
     let asked = cfg(p, "base").map(|b| b.trim_end_matches('/').to_string());
-    // probe only when the answer could be local: a player pointed at OpenRouter
+    // probe only when the answer is local: a seat somebody pointed elsewhere
     // shouldn't wait on a health check for a module it isn't calling
     let local = match asked.as_deref() {
         Some(b) if !liquidai::is_local(b) => None,
         _ => liquidai::serving(client()).await,
     };
-    let base = asked.unwrap_or_else(|| {
-        if local.is_some() { liquidai::base() } else { OPENROUTER.to_string() }
-    });
+    let base = asked.unwrap_or_else(liquidai::base);
     let name = match cfg(p, "model") {
         Some(n) => n.to_string(),
         None if liquidai::is_local(&base) => {
@@ -307,10 +307,6 @@ async fn model(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
     if let Some(key) = key {
         req = req.bearer_auth(key);
     }
-    // OpenRouter attributes traffic by these; harmless everywhere else.
-    req = req
-        .header("HTTP-Referer", "https://mod.arena")
-        .header("X-Title", "mod arena");
 
     let resp = req.send().await.map_err(|e| format!("{base} unreachable: {e}"))?;
     let status = resp.status();

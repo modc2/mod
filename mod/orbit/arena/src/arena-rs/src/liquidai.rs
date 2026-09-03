@@ -1,11 +1,10 @@
-//! The free default: the `liquidai` module running on this box.
+//! The house model provider: the `liquidai` module running on this box.
 //!
-//! A model player that named no `base` used to mean OpenRouter — a key, and a
-//! bill for every move of every friendly game. The liquidai module runs LFM
-//! weights here, so when it is serving it is the better default in the one way
-//! an arena cares about: a match costs nothing and needs nobody's credentials.
-//! Anyone who wants Opus still says so — `config.base` and `config.model` win,
-//! and when nothing local answers the fallback is OpenRouter exactly as before.
+//! Every model seat in this arena is a Liquid AI model. The liquidai module
+//! runs LFM weights here, which is the right shape in the one way an arena
+//! cares about: a match costs nothing and needs nobody's credentials. There
+//! is no fallback to a paid gateway — a seat that names its own `base` is
+//! still honoured, but nothing defaults to anywhere but here.
 //!
 //! Auth: liquidai gates `/v1` behind a session token, and mints one for a shell
 //! on this box out of `~/.mod/liquidai/server.secret` (0600) — reading that file

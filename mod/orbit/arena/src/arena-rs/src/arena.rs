@@ -508,6 +508,34 @@ pub fn plant_examples() -> Value {
             "dirs": dirs.iter().map(|d| d.to_string_lossy()).collect::<Vec<_>>() })
 }
 
+/// The house agents: one seat per Liquid AI model worth rating, entered at
+/// startup so a fresh arena has somebody to play against. Only names nobody
+/// holds are entered — deleting or reconfiguring one of these sticks, the
+/// same way the example pack never overwrites a module somebody renamed.
+pub fn plant_agents() -> usize {
+    const ROSTER: [(&str, &str, &str); 4] = [
+        ("lfm-350m", "LiquidAI/LFM2.5-350M", "the smallest LFM that can hold a board"),
+        ("lfm-1.2b", "LiquidAI/LFM2.5-1.2B-Instruct", "the default LFM — what an unnamed model seat plays"),
+        ("lfm-thinking", "LiquidAI/LFM2.5-1.2B-Thinking", "the same weights, told to think first"),
+        ("lfm-2.6b", "LiquidAI/LFM2.5-2.6B", "the biggest dense LFM on the box"),
+    ];
+    let mut entered = 0;
+    for (name, model, note) in ROSTER {
+        if store::read(|s| s.player(name).is_some()) {
+            continue;
+        }
+        let ok = enter_player(&json!({
+            "name": name,
+            "kind": "model",
+            "note": note,
+            "config": { "model": model },
+        }))
+        .is_ok();
+        entered += usize::from(ok);
+    }
+    entered
+}
+
 // ── players ──────────────────────────────────────────────────────────────
 
 pub fn enter_player(args: &Value) -> Result<Value, String> {
