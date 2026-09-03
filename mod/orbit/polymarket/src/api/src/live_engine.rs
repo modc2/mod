@@ -2601,7 +2601,15 @@ impl EngineRegistry {
                             }
                             cfg.traders = list;
                             self.persist_config(&cfg);
-                            if let Some(h) = self.engines.get(&cfg.eoa.to_lowercase()) {
+                            // Engines are keyed `eoa::strategyId`, not by EOA
+                            // alone — a bare-EOA lookup here always missed, so
+                            // the handle kept the pre-refresh roster and the
+                            // next `set_auto_execute` (which reads the handle's
+                            // config) persisted it back, reverting the refresh.
+                            if let Some(h) = self
+                                .engines
+                                .get(&session_key(&cfg.eoa, &cfg.strategy_id))
+                            {
                                 *h.config.write() = cfg.clone();
                             }
                         }

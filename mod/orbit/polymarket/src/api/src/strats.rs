@@ -278,14 +278,14 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/strats", get(list_strats))
         // Community gallery: published strats are plaintext and world-readable.
-        // Registered before the {id} routes on a deeper path so the two never
+        // Registered before the :id routes on a deeper path so the two never
         // collide.
         .route("/strats/public", get(list_public_strats))
         .route(
-            "/strats/public/{id}",
+            "/strats/public/:id",
             put(publish_strat).delete(unpublish_strat),
         )
-        .route("/strats/{id}", put(upsert_strat).delete(delete_strat))
+        .route("/strats/:id", put(upsert_strat).delete(delete_strat))
 }
 
 async fn list_strats(

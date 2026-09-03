@@ -512,9 +512,13 @@ async fn enrich_trader_with_url(
     // pulled per trader so this adds zero network cost.
     let now_sec = chrono::Utc::now().timestamp() as u64;
     let cutoff_24h = now_sec.saturating_sub(86_400);
+    // Through `normalize_ts`, not a raw `as_u64()`: data-api rows come back in
+    // both seconds and milliseconds, and a raw ms value is ~1000× the cutoff so
+    // every row passed the 24h test, while a float-typed second value read as
+    // `None` and dropped the row entirely.
     trader.trades_24h = all_trades
         .iter()
-        .filter_map(|t| t.get("timestamp").and_then(|v| v.as_u64()))
+        .map(normalize_ts)
         .filter(|&ts| ts >= cutoff_24h)
         .count() as u32;
     // Stamp the most recent in-window trade so the leaderboard can show
@@ -523,7 +527,8 @@ async fn enrich_trader_with_url(
     // trades_24h above so no extra network cost.
     trader.last_trade_ts = all_trades
         .iter()
-        .filter_map(|t| t.get("timestamp").and_then(|v| v.as_u64()))
+        .map(normalize_ts)
+        .filter(|&ts| ts > 0)
         .max();
     trader.volume = metrics.volume;
     trader.buy_volume = metrics.buy_volume;
