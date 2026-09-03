@@ -76,6 +76,7 @@ pub fn router() -> Router<AppState> {
         .route("/traders/top", get(top_traders))
         .route("/trader/:addr/analyze", get(analyze_trader))
         .route("/trader/:addr/curve", get(trader_curve))
+        .route("/traders/curves", get(trader_curves))
         .route("/scan/progress", get(scan_progress))
 
         // ── copy-trade ──
@@ -647,6 +648,37 @@ async fn trader_curve(State(s): State<AppState>, Path(a): Path<String>, Query(q)
     let days = q.days.unwrap_or(7).clamp(1, 90);
     let c = crate::curve::trader_curve(s.hl.clone(), &a, days).await;
     Json(serde_json::to_value(c).unwrap_or_else(|_| json!({"available": false})))
+}
+
+#[derive(Deserialize)]
+struct CurvesQ { addrs: Option<String>, days: Option<u32> }
+
+/// A page of curves in one request — what the trader board's cards need.
+///
+/// Every card draws the shape behind its own number, so a screenful is 30-odd
+/// curves. Asking for them one at a time is 30 round trips through the
+/// gateway before the first card is finished; asking for them together is
+/// one, and lets the API bound how many Hyperliquid calls that page is
+/// allowed to spend (`curve::MAX_BATCH` wallets, four in flight). Anything
+/// past the cap is simply not returned — the client pages, and `requested`
+/// vs `served` says so out loud rather than silently truncating.
+///
+/// Infallible per wallet, exactly like the single-curve route: one wallet
+/// Hyperliquid will not answer for arrives as `available: false` with a
+/// sentence and does not take the page down with it.
+async fn trader_curves(State(s): State<AppState>, Query(q): Query<CurvesQ>) -> Json<Value> {
+    let days = q.days.unwrap_or(7).clamp(1, 90);
+    let addrs: Vec<String> = q.addrs.unwrap_or_default()
+        .split(',').map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect();
+    let requested = addrs.len();
+    let curves = crate::curve::trader_curves(s.hl.clone(), &addrs, days).await;
+    Json(json!({
+        "days": days,
+        "requested": requested,
+        "served": curves.len(),
+        "max_batch": crate::curve::MAX_BATCH,
+        "curves": curves,
+    }))
 }
 
 // ── follows / copy ──

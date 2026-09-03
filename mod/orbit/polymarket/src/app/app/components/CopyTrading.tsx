@@ -11,6 +11,8 @@ import {
   DEFAULT_ACTIVE_HOURS,
 } from "../lib/polymarket";
 import { traderMatchesMarketQuery, marketQueryMatchCount } from "../lib/marketQuery";
+import { fetchCopyBook, COPY_BOOK_CHANGED_EVENT } from "../lib/copyBook";
+import { fetchPublicStrats } from "../lib/stratSync";
 import { shortAddress } from "@/lib/auth";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { loadIndexes, getActiveIndexId } from "../lib/indexStore";
@@ -18,7 +20,7 @@ import SyncScheduleChip from "./SyncScheduleChip";
 import { fetchSyncSchedule } from "../lib/syncSchedule";
 
 import {
-  DEFAULT_FORMULA, compileFormula, formatScore, scoreInputs,
+  DEFAULT_FORMULA, compileFormula, formatScore, scoreInputs, scoreIsUnknown,
   loadSavedFormula, matchScorePreset, saveFormula,
 } from "../lib/scoreFormula";
 import ScoreRatioChips from "./ScoreRatioChips";
@@ -84,7 +86,7 @@ interface CopyTradingProps {
 }
 
 export default function CopyTrading({
-  days = 7,
+  days = 30,
   minTradesPerDay = 0,
   reloadKey = 0,
   search = "",
@@ -102,11 +104,12 @@ export default function CopyTrading({
   const [streamedAll, setStreamedAll] = useState<TopTrader[]>([]);
   const [totalTraders, setTotalTraders] = useState(0);
   const [loading, setLoading] = useState(true);
-  // Default sort is SCORE, which is the win-rate preset out of the box
+  // Default sort is SCORE, which is the ROI preset out of the box
   // (DEFAULT_FORMULA) and pages server-side by the preset's own sort key.
   // P&L ranked the whale who risked $2M to make 3% above the trader
   // compounding a real edge on $5k — the wrong end of a leaderboard you
-  // copy PROPORTIONALLY from.
+  // copy PROPORTIONALLY from. ROI is that ordering inverted: return per
+  // dollar traded, which is what a copied dollar actually earns.
   const [traderSort, setTraderSort] = useState<TraderSort>("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
@@ -740,6 +743,88 @@ export default function CopyTrading({
     [selectedAddresses],
   );
 
+  // ── MONEY ON EACH TRADER ──
+  // Every card answers two questions the leaderboard numbers can't: "how much
+  // have I put on this trader" and "how much has everyone else". YOU is the
+  // COPY DESK allocation (GET /copy/book — server state, the same rows the
+  // desk edits, so a $ typed there shows here on the next read). COMMUNITY is
+  // every strat published to the public gallery (GET /strats/public —
+  // plaintext by definition), each strat's capital split across its enabled
+  // traders by weight. A trader in neither map shows a quiet "—".
+  const [myPlaced, setMyPlaced] = useState<Map<string, { usd: number; enabled: boolean }>>(
+    new Map(),
+  );
+  const [communityPlaced, setCommunityPlaced] = useState<
+    Map<string, { usd: number; strats: number; backers: number }>
+  >(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    const loadBook = async () => {
+      try {
+        const book = await fetchCopyBook();
+        if (cancelled) return;
+        const m = new Map<string, { usd: number; enabled: boolean }>();
+        for (const row of book.allocations) {
+          m.set(row.address.toLowerCase(), { usd: row.allocationUsd, enabled: row.enabled });
+        }
+        setMyPlaced(m);
+      } catch {
+        /* keep the last map — a blank strip over a transient error reads as "removed" */
+      }
+    };
+    const loadCommunity = async () => {
+      try {
+        const entries = await fetchPublicStrats();
+        if (cancelled) return;
+        const acc = new Map<string, { usd: number; strats: number; backers: Set<string> }>();
+        for (const e of entries) {
+          const traders = (e.strat.traders ?? []).filter((t) => t.enabled !== false);
+          if (traders.length === 0) continue;
+          // SavedIndex.capital defaults to 1000 everywhere else in the app;
+          // weights are meant to sum to 1 but re-normalize defensively so a
+          // hand-edited strat can't mint more community dollars than it holds.
+          const capital = e.strat.capital ?? 1000;
+          const weightSum = traders.reduce((s, t) => s + Math.max(0, t.weight), 0);
+          for (const t of traders) {
+            const share =
+              weightSum > 0 ? Math.max(0, t.weight) / weightSum : 1 / traders.length;
+            const addr = t.address.toLowerCase();
+            const cur = acc.get(addr) ?? { usd: 0, strats: 0, backers: new Set<string>() };
+            cur.usd += capital * share;
+            cur.strats += 1;
+            if (e.owner) cur.backers.add(e.owner);
+            acc.set(addr, cur);
+          }
+        }
+        setCommunityPlaced(
+          new Map(
+            [...acc].map(([k, v]) => [
+              k,
+              { usd: v.usd, strats: v.strats, backers: v.backers.size },
+            ]),
+          ),
+        );
+      } catch {
+        /* same as the book: keep what we had */
+      }
+    };
+    void loadBook();
+    void loadCommunity();
+    // The desk announces its own writes; the gallery has no event, so both
+    // ride a slow poll as the catch-all.
+    const onBookChanged = () => void loadBook();
+    window.addEventListener(COPY_BOOK_CHANGED_EVENT, onBookChanged);
+    const t = setInterval(() => {
+      void loadBook();
+      void loadCommunity();
+    }, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      window.removeEventListener(COPY_BOOK_CHANGED_EVENT, onBookChanged);
+    };
+  }, [reloadKey]);
+
   // The ranking column names what it actually holds: on any preset (win rate
   // out of the box) that IS the metric, and "SCORE" hid the one number the
   // board is sorted by. Any edit to the formula turns it back into a generic
@@ -826,7 +911,7 @@ export default function CopyTrading({
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="text-[13px] text-pixel-gray tracking-wider">DAYS</span>
             <input type="text" inputMode="numeric" value={daysAgo} onChange={onInt(setDaysAgo, 365)}
-              onKeyDown={onEnter} placeholder="7"
+              onKeyDown={onEnter} placeholder="30"
               className="pixel-input-sm w-10 text-center font-mono text-[13px]" />
           </div>
 
@@ -1154,234 +1239,256 @@ export default function CopyTrading({
         </div>
       ) : traders.length > 0 ? (
         <>
-          <div className="pixel-panel overflow-hidden">
-            <div className="overflow-x-auto">
-            <table className="pixel-table" style={{ minWidth: "920px", tableLayout: "fixed" }}>
-              <colgroup>
-                <col style={{ width: "32px" }} />
-                <col style={{ width: "130px" }} />
-                <col style={{ width: "140px" }} />
-                <col style={{ width: "100px" }} />
-                <col style={{ width: "100px" }} />
-                <col style={{ width: "100px" }} />
-                <col style={{ width: "72px" }} />
-                <col style={{ width: "80px" }} />
-                <col style={{ width: "64px" }} />
-                <col style={{ width: "72px" }} />
-                <col style={{ width: "100px" }} />
-              </colgroup>
-              <thead className="sticky">
-                <tr>
-                  <th className="num text-center">#</th>
-                  <th>ADDRESS</th>
-                  <th className="text-center">P&L CURVE</th>
-                  {columns.map((col) => (
-                    <th key={col.key}
-                      className={`sortable num ${traderSort === col.key ? "sorted" : ""} text-right`}
-                      title={col.hint}
-                      onClick={() => handleSort(col.key)}>
-                      {col.label}
-                      <SortArrow active={traderSort === col.key} dir={sortDir} />
-                    </th>
-                  ))}
-                  <th className="num text-right" title="Trades in last 24h — flags dormant traders">24H</th>
-                  {/* RECORD sits beside LAST on purpose: "how long have
-                      they been doing this" and "when did they last do it" are
-                      the two halves of whether a windowed number means
-                      anything. */}
-                  <th
-                    className={`sortable num ${traderSort === "history" ? "sorted" : ""} text-right`}
-                    title="How long this wallet has been trading — time since its first-ever trade. Shorter than the ranking window means part of that window predates the trader."
-                    onClick={() => handleSort("history")}>
-                    RECORD
-                    <SortArrow active={traderSort === "history"} dir={sortDir} />
-                  </th>
-                  <th
-                    className={`sortable num ${traderSort === "last" ? "sorted" : ""} text-right`}
-                    title="Time since this trader's most recent trade"
-                    onClick={() => handleSort("last")}>
-                    LAST
-                    <SortArrow active={traderSort === "last"} dir={sortDir} />
-                  </th>
-                  <th className="text-center"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageTraders.length === 0 && (
-                  <tr>
-                    <td colSpan={11} className="text-center py-8 text-[13px] text-pixel-gray">
-                      EVERY ROW IS HIDDEN BY THE CURRENT FILTERS
-                      {activityDropped > 0 && (
-                        <div className="mt-2 text-[12px] text-pixel-gray-light">
-                          {activityDropped.toLocaleString()} hidden because they didn&apos;t trade in the last {maxLastTradeHrs}h.{" "}
-                          <button
-                            onClick={() => { setMaxLastTradeHrs(""); setMinTrades24h(""); }}
-                            className="pixel-btn text-[11px] px-2 py-0.5 ml-1"
-                          >
-                            SHOW EVERYONE
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                )}
-                {pageTraders.map((trader, i) => {
-                  const rowNum = safePage * PAGE_SIZE + i + 1;
-                  const pnlColor = trader.pnl > 0 ? "text-green-400" : trader.pnl < 0 ? "text-red-400" : "text-pixel-gray-light";
-                  const sc = scoreFor(trader);
-                  const scValid = Number.isFinite(sc);
-                  const scCls = !scValid ? "text-pixel-gray" : sc > 0 ? "text-green-400" : sc < 0 ? "text-red-400" : "text-pixel-gray-light";
-
-                  return (
-                    <tr key={trader.address} className="cursor-pointer group" onClick={() => goToTrader(trader.address)}>
-                      <td className="text-center !px-0">
-                        <RankBadge rank={rowNum} />
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-pixel-white font-mono text-[14px] group-hover:text-green-400 transition-colors truncate">
-                            {shortAddress(trader.address)}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="!px-2">
-                        <div className="flex items-center justify-center">
-                          <Sparkline data={trader.pnlCurve || []} width={120} height={26} />
-                        </div>
-                      </td>
-                      <td className={`num text-right font-mono ${scCls}`} title={`score = ${formula}`}>
-                        {scValid ? formatScore(sc) : "---"}
-                      </td>
-                      <td className={`num text-right font-mono ${pnlColor}`}>
-                        {formatPnl(trader.pnl)}
-                      </td>
-                      <td className="num text-right text-pixel-white font-mono">
-                        {formatVolume(trader.volume)}
-                      </td>
-                      <td className="num text-right text-pixel-gray-light font-mono">
-                        {trader.recentTrades || trader.positions}
-                      </td>
-                      {/* 24H column — color-coded so active traders pop:
-                          0 = red (dormant), 1-2 = amber, 3+ = green. */}
-                      {(() => {
-                        const c24 = trader.trades24h ?? 0;
-                        const cls = c24 === 0
-                          ? "text-red-400"
-                          : c24 < 3
-                            ? "text-amber-400"
-                            : "text-green-400";
-                        const title = c24 === 0
-                          ? "No trades in last 24h — likely dormant"
-                          : `${c24} trade${c24 === 1 ? "" : "s"} in last 24h`;
-                        return (
-                          <td className={`num text-right font-mono ${cls}`} title={title}>
-                            {c24}
-                          </td>
-                        );
-                      })()}
-                      {/* RECORD — days of track record. Amber when it is
-                          SHORTER than the window being ranked: the numbers to
-                          the left then cover days this account did not exist,
-                          which is the single most misleading thing a long
-                          window can do. "—" = not resolved yet, not new. */}
-                      {(() => {
-                        const age = historyDays(trader);
-                        const cls = age === null
-                          ? "text-pixel-gray"
-                          : age < days
-                            ? "text-amber-400"
-                            : "text-pixel-gray-light";
-                        const title = age === null
-                          ? "Track record not resolved yet — fills in on the next sync"
-                          : age < days
-                            ? `Only ${Math.floor(age)} days of history — SHORTER than the ${days}D window, so these numbers cover days before this account existed`
-                            : `Trading for ${Math.floor(age)} days`;
-                        return (
-                          <td className={`num text-right font-mono ${cls}`} title={title}>
-                            {formatHistory(trader)}
-                          </td>
-                        );
-                      })()}
-                      {/* LAST TRADE — relative timestamp of most recent
-                          in-window trade. Green if < 1h (firing now),
-                          amber if < 24h (recent), red if older (dormant).
-                          Falls back to "—" when the backend payload pre-
-                          dates the lastTradeTs field (older disk cache). */}
-                      {(() => {
-                        const ts = trader.lastTradeTs;
-                        if (!ts) return <td className="num text-right text-pixel-gray-light font-mono" title="No last-trade timestamp in payload — sync to refresh">—</td>;
-                        const ageSec = Math.max(0, Math.floor(Date.now() / 1000) - ts);
-                        const cls = ageSec < 3600
-                          ? "text-green-400"
-                          : ageSec < 86_400
-                            ? "text-amber-400"
-                            : "text-red-400";
-                        const label = ageSec < 60
-                          ? `${ageSec}s`
-                          : ageSec < 3600
-                            ? `${Math.floor(ageSec / 60)}m`
-                            : ageSec < 86_400
-                              ? `${Math.floor(ageSec / 3600)}h`
-                              : `${Math.floor(ageSec / 86_400)}d`;
-                        return (
-                          <td
-                            className={`num text-right font-mono ${cls}`}
-                            title={`Last trade ${new Date(ts * 1000).toLocaleString()}`}
-                          >
-                            {label}
-                          </td>
-                        );
-                      })()}
-                      <td
-                        className="text-center !px-2 relative"
-                        onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(trader.address); }}
-                      >
-                        {onSelect ? (
-                          selectedLower.has(trader.address.toLowerCase()) ? (
-                            // IN STRAT: bright filled GREEN — selection
-                            // status reads at a glance. Hover swaps to RED
-                            // (with REMOVE label) so the destructive action
-                            // signals before the click.
-                            // Notes:
-                            //  - `group` on the button itself anchors the
-                            //    `group-hover:` label swap; without it the
-                            //    REMOVE text would never appear.
-                            //  - `!` prefix is required because `.pixel-btn`
-                            //    in globals.css sets border/color/background
-                            //    after `@tailwind utilities;` and would
-                            //    otherwise win the cascade and flatten every
-                            //    state to neutral grey.
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); onSelect(trader.address); }}
-                              className="pixel-btn group text-[12px] px-2 py-0.5 !border-green-400 !text-green-300 !bg-green-500/25 font-semibold hover:!border-red-400 hover:!text-red-200 hover:!bg-red-500/40 transition-all whitespace-nowrap"
-                              title="In strat — click to remove"
-                            >
-                              <span className="group-hover:hidden">✓ IN STRAT</span>
-                              <span className="hidden group-hover:inline">✕ REMOVE</span>
-                            </button>
-                          ) : (
-                            // + ADD: dashed amber outline — visually distinct
-                            // from the filled IN STRAT state without competing
-                            // for attention. Hover brightens to solid.
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); onSelect(trader.address); }}
-                              className="pixel-btn text-[12px] px-2 py-0.5 !border !border-dashed !border-amber-400/50 !text-amber-300/80 !bg-transparent hover:!border-solid hover:!border-amber-400 hover:!text-amber-200 hover:!bg-amber-500/15 transition-all whitespace-nowrap"
-                              title="Add to active strat"
-                            >
-                              + ADD
-                            </button>
-                          )
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            </div>
+          {/* SORT rail — the table headers used to carry these clicks; on a
+              card grid the ranking needs its own row. Same handleSort, same
+              keys, so server-side paging by sort is unchanged. */}
+          <div className="flex items-center gap-1.5 flex-wrap px-1">
+            <span className="text-[11px] text-pixel-gray tracking-wider shrink-0">RANK BY</span>
+            {([
+              ...columns,
+              {
+                key: "history" as TraderSort,
+                label: "RECORD",
+                hint: "How long this wallet has been trading — time since its first-ever trade. Shorter than the ranking window means part of that window predates the trader.",
+              },
+              {
+                key: "last" as TraderSort,
+                label: "LAST",
+                hint: "Time since this trader's most recent trade",
+              },
+            ]).map((col) => (
+              <button
+                key={col.key}
+                onClick={() => handleSort(col.key)}
+                title={col.hint}
+                className={`pixel-btn text-[11px] px-2 py-0.5 transition-colors ${
+                  traderSort === col.key
+                    ? "border-green-400 text-green-400 bg-green-400/10"
+                    : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+                }`}
+              >
+                {col.label}
+                <SortArrow active={traderSort === col.key} dir={sortDir} />
+              </button>
+            ))}
           </div>
+
+          {pageTraders.length === 0 ? (
+            <div className="pixel-panel p-8 text-center text-[13px] text-pixel-gray">
+              EVERY CARD IS HIDDEN BY THE CURRENT FILTERS
+              {activityDropped > 0 && (
+                <div className="mt-2 text-[12px] text-pixel-gray-light">
+                  {activityDropped.toLocaleString()} hidden because they didn&apos;t trade in the last {maxLastTradeHrs}h.{" "}
+                  <button
+                    onClick={() => { setMaxLastTradeHrs(""); setMinTrades24h(""); }}
+                    className="pixel-btn text-[11px] px-2 py-0.5 ml-1"
+                  >
+                    SHOW EVERYONE
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* One card per trader: who they are, the shape of their P&L, the
+               numbers behind it, whose money is on them, and the strat toggle. */
+            <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
+              {pageTraders.map((trader, i) => {
+                const rowNum = safePage * PAGE_SIZE + i + 1;
+                const pnlColor = trader.pnl > 0 ? "text-green-400" : trader.pnl < 0 ? "text-red-400" : "text-pixel-gray-light";
+                const sc = scoreFor(trader);
+                // A preset score can be its metric's -1 "unknown" sentinel
+                // (nothing settled in the window) — that's no data, not a
+                // score of minus one.
+                const scUnknown = scoreIsUnknown(formula, scoreInputs(trader));
+                const scValid = Number.isFinite(sc) && !scUnknown;
+                const scCls = !scValid ? "text-pixel-gray" : sc > 0 ? "text-green-400" : sc < 0 ? "text-red-400" : "text-pixel-gray-light";
+
+                // 24H — color-coded so active traders pop:
+                // 0 = red (dormant), 1-2 = amber, 3+ = green.
+                const c24 = trader.trades24h ?? 0;
+                const c24Cls = c24 === 0 ? "text-red-400" : c24 < 3 ? "text-amber-400" : "text-green-400";
+                const c24Title = c24 === 0
+                  ? "No trades in last 24h — likely dormant"
+                  : `${c24} trade${c24 === 1 ? "" : "s"} in last 24h`;
+
+                // RECORD — days of track record. Amber when it is SHORTER
+                // than the window being ranked: the numbers on the card then
+                // cover days this account did not exist. "—" = not resolved
+                // yet, not new.
+                const age = historyDays(trader);
+                const recCls = age === null ? "text-pixel-gray" : age < days ? "text-amber-400" : "text-pixel-gray-light";
+                const recTitle = age === null
+                  ? "Track record not resolved yet — fills in on the next sync"
+                  : age < days
+                    ? `Only ${Math.floor(age)} days of history — SHORTER than the ${days}D window, so these numbers cover days before this account existed`
+                    : `Trading for ${Math.floor(age)} days`;
+
+                // LAST TRADE — green < 1h (firing now), amber < 24h, red
+                // older (dormant). "—" when the payload predates lastTradeTs.
+                const ts = trader.lastTradeTs;
+                const lastAgeSec = ts ? Math.max(0, Math.floor(Date.now() / 1000) - ts) : null;
+                const lastCls = lastAgeSec === null
+                  ? "text-pixel-gray-light"
+                  : lastAgeSec < 3600 ? "text-green-400" : lastAgeSec < 86_400 ? "text-amber-400" : "text-red-400";
+                const lastLabel = lastAgeSec === null
+                  ? "—"
+                  : lastAgeSec < 60 ? `${lastAgeSec}s`
+                    : lastAgeSec < 3600 ? `${Math.floor(lastAgeSec / 60)}m`
+                      : lastAgeSec < 86_400 ? `${Math.floor(lastAgeSec / 3600)}h`
+                        : `${Math.floor(lastAgeSec / 86_400)}d`;
+                const lastTitle = ts
+                  ? `Last trade ${new Date(ts * 1000).toLocaleString()}`
+                  : "No last-trade timestamp in payload — sync to refresh";
+
+                const addrLower = trader.address.toLowerCase();
+                const mine = myPlaced.get(addrLower);
+                const mineOn = !!mine && mine.usd > 0;
+                const comm = communityPlaced.get(addrLower);
+
+                return (
+                  <div
+                    key={trader.address}
+                    onClick={() => goToTrader(trader.address)}
+                    className="pixel-panel p-2.5 flex flex-col gap-2 cursor-pointer group hover:border-pixel-white/60 transition-colors"
+                  >
+                    {/* Who — rank, address, recency at a glance */}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <RankBadge rank={rowNum} />
+                      <span className="text-pixel-white font-mono text-[13px] group-hover:text-green-400 transition-colors truncate" title={trader.address}>
+                        {shortAddress(trader.address)}
+                      </span>
+                      <span className={`ml-auto font-mono text-[10px] shrink-0 ${lastCls}`} title={lastTitle}>
+                        {lastLabel}
+                      </span>
+                    </div>
+
+                    {/* Headline windowed P&L + curve */}
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className={`font-mono text-[16px] leading-none ${pnlColor}`} title="Realized + marked P&L over the window">
+                        {formatPnl(trader.pnl)}
+                      </span>
+                      <span className="font-mono text-[9px] tracking-wider text-pixel-gray">{days}D P&L</span>
+                    </div>
+                    {trader.pnlCurve && trader.pnlCurve.length > 1 ? (
+                      <div className="w-full" title="Cumulative realized P&L across the window">
+                        <Sparkline data={trader.pnlCurve} width={250} height={40} stretch />
+                      </div>
+                    ) : (
+                      <div className="h-[40px] flex items-center justify-center font-mono text-[9px] text-pixel-gray border border-dashed border-pixel-border/40">
+                        no P&L curve for this slice yet — the next sync draws it
+                      </div>
+                    )}
+
+                    {/* The numbers behind the ranking */}
+                    <div className="grid grid-cols-3 gap-x-2 gap-y-1">
+                      <div className="min-w-0" title={scUnknown ? "unknown — nothing settled in this window yet" : `score = ${formula}`}>
+                        <div className={`text-[9px] tracking-wider ${traderSort === "score" ? "text-green-400" : "text-pixel-gray"}`}>{columns[0].label}</div>
+                        <div className={`font-mono text-[12px] truncate ${scCls}`}>{scValid ? formatScore(sc) : "—"}</div>
+                      </div>
+                      <div className="min-w-0" title="USDC traded in the window">
+                        <div className={`text-[9px] tracking-wider ${traderSort === "volume" ? "text-green-400" : "text-pixel-gray"}`}>VOL</div>
+                        <div className="font-mono text-[12px] truncate text-pixel-white">{formatVolume(trader.volume)}</div>
+                      </div>
+                      <div className="min-w-0" title="Positions taken in the window">
+                        <div className={`text-[9px] tracking-wider ${traderSort === "positions" ? "text-green-400" : "text-pixel-gray"}`}>TRADES</div>
+                        <div className="font-mono text-[12px] truncate text-pixel-gray-light">{trader.recentTrades || trader.positions}</div>
+                      </div>
+                      <div className="min-w-0" title={c24Title}>
+                        <div className="text-[9px] tracking-wider text-pixel-gray">24H</div>
+                        <div className={`font-mono text-[12px] truncate ${c24Cls}`}>{c24}</div>
+                      </div>
+                      <div className="min-w-0" title={recTitle}>
+                        <div className={`text-[9px] tracking-wider ${traderSort === "history" ? "text-green-400" : "text-pixel-gray"}`}>RECORD</div>
+                        <div className={`font-mono text-[12px] truncate ${recCls}`}>{formatHistory(trader)}</div>
+                      </div>
+                      <div className="min-w-0" title={lastTitle}>
+                        <div className={`text-[9px] tracking-wider ${traderSort === "last" ? "text-green-400" : "text-pixel-gray"}`}>LAST</div>
+                        <div className={`font-mono text-[12px] truncate ${lastCls}`}>{lastLabel}</div>
+                      </div>
+                    </div>
+
+                    {/* Whose money is on them — your desk allocation next to
+                        the community gallery's, so "am I the only one?" is
+                        answered on the card itself. */}
+                    <div className="grid grid-cols-2 gap-1">
+                      <div
+                        className={`border px-1.5 py-1 ${mineOn ? "border-green-400/50 bg-green-400/5" : "border-pixel-border/60"}`}
+                        title={
+                          mineOn
+                            ? `Your COPY DESK allocation on this trader: $${mine.usd.toFixed(2)}${mine.enabled ? "" : " — currently paused"}`
+                            : "You have nothing on this trader — + ADD them to your strat, then size them on the desk"
+                        }
+                      >
+                        <div className="text-[9px] text-pixel-gray tracking-wider">YOU PLACED</div>
+                        <div className={`font-mono text-[13px] leading-tight ${mineOn ? "text-green-400" : "text-pixel-gray"}`}>
+                          {mineOn ? formatVolume(mine.usd) : "$0"}
+                          {mineOn && !mine.enabled && <span className="text-[9px] text-amber-400 ml-1">PAUSED</span>}
+                        </div>
+                      </div>
+                      <div
+                        className={`border px-1.5 py-1 ${comm ? "border-pixel-gray-light/40 bg-pixel-white/[0.03]" : "border-pixel-border/60"}`}
+                        title={
+                          comm
+                            ? `$${comm.usd.toFixed(0)} on this trader across ${comm.strats} published strat${comm.strats === 1 ? "" : "s"} from ${comm.backers} backer${comm.backers === 1 ? "" : "s"} in the community gallery (yours included if you published)`
+                            : "No published strat in the community gallery backs this trader yet"
+                        }
+                      >
+                        <div className="text-[9px] text-pixel-gray tracking-wider">COMMUNITY</div>
+                        <div className={`font-mono text-[13px] leading-tight ${comm ? "text-pixel-white" : "text-pixel-gray"}`}>
+                          {comm ? formatVolume(comm.usd) : "$0"}
+                          {comm && (
+                            <span className="text-[9px] text-pixel-gray-light ml-1">
+                              · {comm.backers} backer{comm.backers === 1 ? "" : "s"}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {onSelect && (
+                      selectedLower.has(addrLower) ? (
+                        // IN STRAT: bright filled GREEN — selection status
+                        // reads at a glance. Hover swaps to RED (with REMOVE
+                        // label) so the destructive action signals before the
+                        // click.
+                        // Notes:
+                        //  - `group/btn` anchors the label swap; the card
+                        //    already uses `group` for the address hover, so
+                        //    the button needs its own named group or hovering
+                        //    anywhere on the card would flip it to REMOVE.
+                        //  - `!` prefix is required because `.pixel-btn`
+                        //    in globals.css sets border/color/background
+                        //    after `@tailwind utilities;` and would
+                        //    otherwise win the cascade and flatten every
+                        //    state to neutral grey.
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onSelect(trader.address); }}
+                          className="pixel-btn group/btn mt-auto w-full text-[12px] px-2 py-1 !border-green-400 !text-green-300 !bg-green-500/25 font-semibold hover:!border-red-400 hover:!text-red-200 hover:!bg-red-500/40 transition-all whitespace-nowrap"
+                          title="In strat — click to remove"
+                        >
+                          <span className="group-hover/btn:hidden">✓ IN STRAT</span>
+                          <span className="hidden group-hover/btn:inline">✕ REMOVE</span>
+                        </button>
+                      ) : (
+                        // + ADD: dashed amber outline — visually distinct
+                        // from the filled IN STRAT state without competing
+                        // for attention. Hover brightens to solid.
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onSelect(trader.address); }}
+                          className="pixel-btn mt-auto w-full text-[12px] px-2 py-1 !border !border-dashed !border-amber-400/50 !text-amber-300/80 !bg-transparent hover:!border-solid hover:!border-amber-400 hover:!text-amber-200 hover:!bg-amber-500/15 transition-all whitespace-nowrap"
+                          title="Add to active strat"
+                        >
+                          + ADD
+                        </button>
+                      )
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (

@@ -1039,6 +1039,16 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
             // SCORE preset — avg exit÷entry ratio; -1 "no closed trades"
             // sentinel naturally sinks below every real ratio on desc.
             "exitEntry" => a.exit_entry.partial_cmp(&b.exit_entry),
+            // ROI — P&L per dollar traded over the window. Both terms are the
+            // query-scoped recomputes when a market filter is on, so this is
+            // return on turnover IN the queried markets. Volume of zero has no
+            // ratio; NEG_INFINITY sinks those rows below every real one on desc.
+            "roi" => {
+                let roi = |t: &crate::types::Trader| {
+                    if t.volume > 0.0 { t.pnl / t.volume } else { f64::NEG_INFINITY }
+                };
+                roi(a).partial_cmp(&roi(b))
+            }
             // Missing timestamp (pre-lastTradeTs disk cache) sinks to the
             // bottom on desc — unknown recency must not outrank known.
             "last" => Some(a.last_trade_ts.unwrap_or(0).cmp(&b.last_trade_ts.unwrap_or(0))),
@@ -1687,6 +1697,30 @@ mod tests {
         // …and the numbers on the row are the bitcoin ones, not the lifetime ones.
         assert_eq!(result["traders"][0]["pnl"].as_f64(), Some(4_200.0));
         assert_eq!(result["traders"][0]["recentTrades"].as_u64(), Some(12));
+    }
+
+    /// `sort=roi` ranks P&L per dollar traded, not raw P&L — the trader
+    /// turning $5k into $7.5k outranks the whale grinding 3% on a million.
+    /// Zero volume has no ratio and sinks below every real one.
+    #[test]
+    fn sort_by_roi_ranks_return_on_turnover() {
+        let mut whale = trader_with_markets("0xwhale", &[("Bitcoin above $110,000", 0.0, 1)]);
+        whale.volume = 1_000_000.0;
+        whale.pnl = 30_000.0; // 3%
+        let mut edge = trader_with_markets("0xedge", &[("Bitcoin above $110,000", 0.0, 1)]);
+        edge.volume = 5_000.0;
+        edge.pnl = 2_500.0; // 50%
+        let mut ghost = trader_with_markets("0xghost", &[("Bitcoin above $110,000", 0.0, 1)]);
+        ghost.volume = 0.0;
+        ghost.pnl = 0.0;
+
+        let result = apply_pagination(
+            &payload(vec![whale, edge, ghost]),
+            &paged_query(json!({"sort": "roi", "order": "desc"})),
+            "memory",
+        );
+
+        assert_eq!(addresses(&result), vec!["0xedge", "0xwhale", "0xghost"]);
     }
 
     /// Match count still decides — it just decides ties now, which is what

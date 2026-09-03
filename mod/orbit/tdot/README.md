@@ -31,6 +31,7 @@ App   http://localhost:50321/tdot  (Next.js + MapLibre GL)
 | **Apartment building scores** | graduated circles | Apartment Building Evaluation (`apartment-building-evaluation`) |
 | **Predicted vs actual score** | diverging circles | the score model (see below) |
 | **What homes cost** | choropleth, 16 metrics | Neighbourhood Profiles, 2021 Census |
+| **Lots for affordable housing** | full lot polygons, highlighted and tiered | Real Estate Asset Inventory (land) |
 | **Registered rental buildings** | circles sized by units | Apartment Building Registration |
 | **Toronto Community Housing** | circles sized by units | `toronto-community-housing-data` |
 | **Subsidized housing** | points by provider type | `subsidized-housing-listings` |
@@ -42,9 +43,25 @@ App   http://localhost:50321/tdot  (Next.js + MapLibre GL)
 | **Serious traffic collisions** | heatmap + points | Motor Vehicle Collisions (KSI) |
 | **Former municipalities / neighbourhoods / wards** | outlines | `former-municipality-boundaries`, `neighbourhoods`, `city-wards` |
 
-Basemaps are CARTO's free raster tiles (dark/light) and OpenStreetMap's own
-tiles; geocoding is OpenStreetMap Nominatim; the renderer is MapLibre GL
-(BSD-3).
+Basemaps are OpenFreeMap's key-free hosted vector styles (`dark`, `positron`,
+`liberty`); geocoding is OpenStreetMap Nominatim; the renderer is MapLibre GL
+(BSD-3). A **3D** toggle in the header tilts the camera, extrudes real
+building heights from the basemap's vector tiles, and raises each candidate
+housing lot to the massing it could carry (right-drag rotates).
+
+### Lots for affordable housing
+
+The `housing_lots` layer screens the city's own Real Estate Asset Inventory —
+every parcel the city holds, with full lot polygons — down to the land
+affordable housing actually gets built on: city-owned vacant land, surface
+parking (the Housing Now model) and anything declared surplus, at least
+450 m², never parks or linear scraps. Each lot is scored 0–100 (35 size,
+30 rapid-transit distance, 20 current use, 15 surplus status) and tiered
+PRIME / STRONG / POSSIBLE; the full lot boundary is drawn with a glow so the
+land under discussion is unmistakable, and each lot carries a rough massing
+estimate (45% coverage, 90 m² per home) that the 3-D view extrudes. The
+`tdot_housing_lots` agent tool answers "where could housing go?" and turns
+the layer on.
 
 `m tdot/housing` lists every open housing dataset the city publishes and what
 this module does with each — drawn as a layer, fed to the score model, open but
@@ -186,7 +203,7 @@ fraction of its raw size.
 
 ## MCP
 
-The 17 tools the **Ask** panel plays are also published over the Model Context
+The 18 tools the **Ask** panel plays are also published over the Model Context
 Protocol, so any MCP client can drive the map. Both transports dispatch through
 the same `mcp_server.rpc`, so they cannot drift apart:
 

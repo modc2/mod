@@ -680,3 +680,73 @@ def test_mod_publishes_a_config_for_both_transports():
     servers = cfg['mcpServers']
     assert servers['tdot']['args'] == ['-m', 'tdotgis.mcp_server']
     assert servers['tdot-http']['url'].endswith('/mcp')
+
+
+# ── housing lots (no network: the scoring is pure) ──────────────────────────
+
+from tdotgis import lots as LO          # noqa: E402
+
+
+def test_lot_score_rewards_the_housing_now_shape():
+    """A big surplus parking lot at a station is the canonical PRIME site."""
+    prime = LO.score_lot(28000, 250, 'Parking Facility', 'Declared Surplus')
+    weak = LO.score_lot(500, 2500, 'Vacant Land', 'City Use')
+    assert prime >= 90
+    assert weak < 45
+    assert LO.tier_of(prime) == 'PRIME'
+    assert LO.tier_of(weak) == 'POSSIBLE'
+
+
+def test_lot_score_is_bounded_and_transit_decays():
+    assert 0 <= LO.score_lot(1e9, 0, 'Parking Facility', 'Declared Surplus') <= 100
+    near = LO.score_lot(2000, 300, 'Vacant Land', 'City Use')
+    far = LO.score_lot(2000, 3000, 'Vacant Land', 'City Use')
+    assert near > far
+    # No station at all is scored like a very distant one, not an error.
+    assert LO.score_lot(2000, None, 'Vacant Land', 'City Use') <= far
+
+
+def test_massing_steps_with_lot_size():
+    s_small, h_small, _ = LO._massing(600)
+    s_big, h_big, height = LO._massing(20000)
+    assert s_small == 4 and s_big == 12
+    assert h_big > h_small
+    assert height == pytest.approx(12 * 3.2)
+
+
+def test_merge_polys_folds_parcels_into_one_lot():
+    a = {'type': 'Polygon', 'coordinates': [[[0, 0], [0, 1], [1, 1], [0, 0]]]}
+    b = {'type': 'MultiPolygon',
+         'coordinates': [[[[2, 2], [2, 3], [3, 3], [2, 2]]]]}
+    merged = LO._merge_polys([a, b])
+    assert merged['type'] == 'MultiPolygon'
+    assert len(merged['coordinates']) == 2
+    assert LO._merge_polys([{'type': 'Point', 'coordinates': [0, 0]}]) is None
+
+
+def test_housing_lots_layer_is_registered():
+    ids = {l['id'] for l in L.LAYERS}
+    assert 'housing_lots' in ids
+    assert 'housing_lots' in L.LOADERS
+    spec = next(l for l in L.LAYERS if l['id'] == 'housing_lots')
+    assert spec['style']['highlight'] is True
+    assert set(spec['style']['classes']) == {'PRIME', 'STRONG', 'POSSIBLE'}
+
+
+@pytest.mark.network
+def test_housing_lots_build_live():
+    fc = LO.candidates()
+    assert fc['type'] == 'FeatureCollection'
+    assert len(fc['features']) > 100
+    p = fc['features'][0]['properties']
+    assert p['score'] <= 100 and p['tier'] in ('PRIME', 'STRONG', 'POSSIBLE')
+    # Parcels of one property fold together. Distinct unnumbered lots can
+    # share a placeholder address ("0 Bloor St W"), so the test is that no
+    # address *dominates* — before the fix, 777 Victoria Park was six of the
+    # top eight rows.
+    from collections import Counter
+    top_addrs = Counter(f['properties']['address'] for f in fc['features'][:20])
+    assert max(top_addrs.values()) <= 2
+    # Parks must never be proposed, whatever their status.
+    assert all(f['properties']['use'] != 'Park/Rec/Open Space'
+               for f in fc['features'])

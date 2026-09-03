@@ -1,0 +1,34 @@
+{
+    "name": "stake",
+    "description": "Stake BlocTime (BLOC) on the apps registered in the on-chain Registry. Each registered app is a staking pool: back an app with BLOC as a curation signal, unstake any time (never locked), and app owners can add BLOC rewards that split pro-rata across their stakers. AppStaking.sol on Base Sepolia against the live BlocTime + Registry, one-page console + JSON API.",
+    "version": "0.1.0",
+    "port": 50840,
+    "route": true,
+    "urls": {
+        "api": "http://localhost:50840",
+        "app": "http://localhost:50840"
+    },
+    "fns": [
+        "info",
+        "apps",
+        "app",
+        "positions",
+        "contract",
+        "stake",
+        "unstake",
+        "reward",
+        "claim",
+        "serve"
+    ],
+    "contracts": {
+        "testnet": {
+            "chainId": 84532,
+            "rpc": "https://sepolia.base.org",
+            "AppStaking": "0x19DfA8C037E8c7aBBCE64a4C0B96CC00e9949138",
+            "BlocTime": "0xF25AAFDd0A842ff50b041595C79210b48d6795bD",
+            "Registry": "0xF7a5498369d7ceA13461BcfDC65995B8743baE97",
+            "deployTx": "753d4ae561132c8791ae447e0e7ad6eb8eb8ff4c4ec5390c24a0660d677bda7b"
+        }
+    },
+    "schema": "QmdQZG8RdCnDQMmggqBa3yNWwBmX7z6LySqQ9QovB1XvYP"
+}

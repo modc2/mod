@@ -42,7 +42,12 @@
         "serve",
         "kill",
         "worker",
-        "stop_worker"
+        "stop_worker",
+        "root",
+        "root_push",
+        "root_auto",
+        "root_loop",
+        "root_log"
     ],
     "key": "github",
     "schema": "Qmc1fi7BrUWoZoJX2YTCgPcfNApEempmCLkeohYPECA8F6"

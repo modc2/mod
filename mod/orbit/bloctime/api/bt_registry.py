@@ -12,15 +12,40 @@ the address must actually respond like a BlocTime contract, and its
 owner() is recorded as the authoritative instance owner.
 """
 
+import ipaddress
 import json
 import os
 import re
+import socket
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 MODULE_DIR = Path(__file__).parent.parent
 STORE_DIR = Path(os.path.expanduser('~/.mod/bloctime'))
 REGISTRY_PATH = STORE_DIR / 'registry.json'
+MAX_INSTANCES = 200
+
+
+def assert_public_rpc(url):
+    """SSRF guard for the unauthenticated API paths: the rpc URL the server
+    will connect to (and re-probe on every /registry call) must be an http(s)
+    endpoint on a public address — never loopback, RFC1918, link-local or
+    the cloud metadata range. The local CLI path may still use any RPC."""
+    p = urlparse(str(url))
+    if p.scheme not in ('http', 'https') or not p.hostname:
+        raise ValueError("rpc must be an http(s) URL")
+    try:
+        infos = socket.getaddrinfo(
+            p.hostname, p.port or (443 if p.scheme == 'https' else 80),
+            proto=socket.IPPROTO_TCP,
+        )
+    except socket.gaierror as e:
+        raise ValueError(f"rpc host does not resolve: {e}")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global:
+            raise ValueError(f"rpc must resolve to a public address (got {ip})")
 
 EXPLORERS = {
     '1': 'https://etherscan.io',
@@ -142,6 +167,8 @@ def add_instance(name, rpc, bloctime, native_token=None, description='', verify=
         'chainId': '', 'nativeToken': native_token or '', 'owner': '', 'totalBlocTime': '0',
     }
     entries = _load()
+    if len(entries) >= MAX_INSTANCES:
+        raise ValueError(f"Registry is full ({MAX_INSTANCES} instances)")
     base = slugify(name)
     existing_ids = {e['id'] for e in entries} | {'official'}
     slug, n = base, 2

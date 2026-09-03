@@ -252,6 +252,59 @@ pub async fn trader_curve(hl: Arc<Client>, address: &str, days: u32) -> Curve {
     }
 }
 
+/// Most wallets one batch request will price.
+///
+/// The board draws a curve on every card, so it asks for a screenful at a
+/// time rather than one wallet per hover. Sixty is a comfortable page: warm
+/// it is a single memory read, cold it is sixty portfolio calls at
+/// [`BATCH_CONCURRENCY`], and the request URL that carries sixty addresses is
+/// still under 3KB.
+pub const MAX_BATCH: usize = 60;
+
+/// Portfolio fetches in flight inside one batch.
+///
+/// Hyperliquid rate-limits `/info` per IP, and the background board refresher
+/// is already spending part of that budget. Four fills a page of cards while
+/// the reader is still on the first one without pushing the refresher into
+/// 429 backoff — the same reasoning as the hover path's `MAX_INFLIGHT`, one
+/// layer down.
+const BATCH_CONCURRENCY: usize = 4;
+
+/// The wallets a batch will actually price: normalised, de-duplicated in the
+/// caller's order, and cut to [`MAX_BATCH`].
+///
+/// Split out from [`trader_curves`] because this is the whole contract a
+/// caller can reason about — how many curves come back, and in what order —
+/// and it is worth pinning without a network.
+fn batch_targets(addresses: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    addresses
+        .iter()
+        .map(|a| a.trim().to_lowercase())
+        .filter(|a| !a.is_empty() && seen.insert(a.clone()))
+        .take(MAX_BATCH)
+        .collect()
+}
+
+/// Curves for a page of wallets, in the order they were asked for.
+///
+/// Each one is [`trader_curve`], so the per-wallet failure contract is
+/// unchanged: a wallet Hyperliquid will not answer for comes back as
+/// `available: false` with a sentence, and never takes the rest of the page
+/// down with it. Duplicates collapse to one upstream call, because a board
+/// can list the same wallet twice (seeded *and* ranked) and one wallet has
+/// one curve.
+pub async fn trader_curves(hl: Arc<Client>, addresses: &[String], days: u32) -> Vec<Curve> {
+    use futures::stream::{self, StreamExt};
+    stream::iter(batch_targets(addresses).into_iter().map(|a| {
+        let hl = hl.clone();
+        async move { trader_curve(hl, &a, days).await }
+    }))
+    .buffered(BATCH_CONCURRENCY)
+    .collect()
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,6 +434,20 @@ mod tests {
         assert!(!is_wallet("85ecf584f25db6f146718b86d493e33c5af72052"));   // no 0x
         assert!(!is_wallet("0xZZecf584f25db6f146718b86d493e33c5af72052")); // not hex
         assert!(!is_wallet(""));
+    }
+
+    #[test]
+    fn a_batch_keeps_order_dedupes_and_stops_at_the_cap() {
+        let a = "0xAAAA".to_string();
+        let b = "  0xbbbb  ".to_string();
+        let targets = batch_targets(&[a.clone(), b, a.clone(), "".into(), "0xcccc".into()]);
+        assert_eq!(targets, vec!["0xaaaa", "0xbbbb", "0xcccc"],
+            "normalised, de-duped, in the order asked for");
+
+        let many: Vec<String> = (0..MAX_BATCH + 25).map(|i| format!("0x{i:040x}")).collect();
+        let targets = batch_targets(&many);
+        assert_eq!(targets.len(), MAX_BATCH, "a page is a page — the rest is the next request");
+        assert_eq!(targets[0], many[0], "the cut comes off the tail, not the head");
     }
 
     #[test]

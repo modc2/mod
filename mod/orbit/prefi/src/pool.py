@@ -27,6 +27,15 @@ is `would_win`: what that call *would* have taken had it been staked
 `free_notional`, computed against the pot that actually formed. It is the only
 honest way to show someone what they missed.
 
+And a round takes **agent calls**: no dollars down either, but the stake is
+time. An agent qualifies by having value locked on bloctime across the round,
+and its weight is exactly what bloctime mints BLOC for — USD locked × seconds
+locked, counted only inside the round's window. What agents split is the
+protocol's own profit: `agent_share_bps` of each settled pot's fee becomes an
+agent pot for that asset, divided by `usd_seconds × accuracy` and credited to
+the ledger as real, withdrawable dollars. Agent calls never enter the money
+pot, so a staker's dollars are never diluted by someone who risked none.
+
 Three design points that are load-bearing:
 
 * **One pot per asset, never a shared one.** Normalised error is comparable
@@ -80,6 +89,10 @@ DEFAULT_CONFIG = {
     'spot_grace': 900,       # settle off spot if we're this close to the close
     'free_per_round': 3,     # free calls per address per round (0 = off)
     'free_notional': 100.0,  # paper stake a free call's `would_win` is priced at
+    'agent_per_round': 10,   # agent calls per address per round (0 = off)
+    # The slice of each settled pot's protocol fee that agent play pays out,
+    # split by bloctime weight × accuracy. The rest still goes to the treasury.
+    'agent_share_bps': 5000,
     # A DEX token (Solana, Base) must have this many dollars in its pool to be
     # listed, and to take a stake — a pot on a $900 pool settles against a
     # price one trade can move. 0 = no floor. The owner's number.
@@ -247,6 +260,42 @@ def settle_free(free_entries: List[Dict], paid_entries: List[Dict], actual: floa
             for e in free_entries]
 
 
+def agent_pot_units(fee_usd: float, share_bps: int) -> int:
+    """The slice of a pot's protocol fee that agent play pays out, in
+    micro-dollars. One definition, so the settle path and the preview agree."""
+    return usd_to_units(fee_usd) * int(share_bps) // 10000
+
+
+def settle_agents(agent_entries: List[Dict], actual: float, fn: Dict,
+                  pot_units: int) -> List[Dict]:
+    """Score agent calls and split the agent pot by usd·seconds × accuracy.
+
+    An agent's stake is time, not dollars: `usd_seconds` is the dollar value
+    of bloctime locked across the round's window — USD × seconds, the exact
+    quantity bloctime mints BLOC for. The pot flows toward whoever committed
+    the most locked value for the longest, corrected by how good the call was.
+    Zero weight or zero accuracy earns zero; if every agent scored zero the
+    pot is not split and the caller keeps it for the treasury. Largest
+    remainder like the real pot: Σ payouts == pot to the last unit.
+    """
+    scored = []
+    for e in agent_entries:
+        acc = accuracy(e['predicted_price'], actual, fn)
+        weight = float(e.get('usd_seconds') or 0.0)
+        scored.append({
+            **e,
+            'rel_error': acc['rel_error'],
+            'accuracy': acc['accuracy'],
+            'score': round(weight * acc['accuracy'], 8),
+        })
+    total = sum(e['score'] for e in scored)
+    payouts = split_pot(int(pot_units), [e['score'] for e in scored])
+    for e, units in zip(scored, payouts):
+        e['payout'] = units_to_usd(units)
+        e['share'] = round(e['score'] / total, 8) if total > 0 else 0.0
+    return scored
+
+
 def validate_config(patch: Dict, current: Dict = None,
                     library: 'curves.Library' = None) -> Dict:
     """Merge a config patch over the live config and bounds-check every field.
@@ -313,6 +362,16 @@ def validate_config(patch: Dict, current: Dict = None,
         raise ValueError('free_notional must be > 0 — it is the paper stake a '
                          "free call's would-have-won is priced at")
 
+    merged['agent_per_round'] = int(merged['agent_per_round'])
+    if not 0 <= merged['agent_per_round'] <= MAX_FREE_PER_ROUND:
+        raise ValueError(f'agent_per_round must be 0..{MAX_FREE_PER_ROUND} '
+                         '(0 switches agent play off)')
+
+    merged['agent_share_bps'] = int(merged['agent_share_bps'])
+    if not 0 <= merged['agent_share_bps'] <= 10000:
+        raise ValueError('agent_share_bps must be 0..10000 — the slice of the '
+                         'protocol fee agent play pays out')
+
     merged['min_liquidity_usd'] = float(merged['min_liquidity_usd'])
     if merged['min_liquidity_usd'] < 0:
         raise ValueError('min_liquidity_usd must be >= 0 (0 = no floor)')
@@ -332,7 +391,7 @@ class Pool:
     def __init__(self, store_dir, price_at: Callable = None,
                  price_now: Callable = None, markets: Callable = None,
                  on_fee: Callable = None, library: 'curves.Library' = None,
-                 liquidity_now: Callable = None):
+                 liquidity_now: Callable = None, bloc_weight: Callable = None):
         self.dir = Path(store_dir)
         # Score functions live beside the ledger: the defaults plus whatever
         # has been saved or imported here. Shared with the PREFI predict layer.
@@ -354,6 +413,9 @@ class Pool:
         # Dollars in a DEX token's pool right now — the owner's liquidity
         # floor is checked against it before a stake goes in.
         self._liquidity_now = liquidity_now
+        # (address, opens, closes) → USD·seconds of bloctime locked across
+        # that window, read off the bloctime contract. None = feed unreachable.
+        self._bloc_weight = bloc_weight
         self._chain = None
 
     # ── files ────────────────────────────────────────────────────────
@@ -723,7 +785,7 @@ class Pool:
         """What one address has, and where it is."""
         addr = hyperevm.normalize(address)
         available_units = 0
-        deposited = withdrawn = staked = won = refunded = 0.0
+        deposited = withdrawn = staked = won = refunded = agent_won = 0.0
         for row in self._ledger():
             if row.get('address') != addr:
                 continue
@@ -741,6 +803,8 @@ class Pool:
                 won += amt
             elif kind == 'refund':
                 refunded += amt
+            elif kind == 'agent_payout':
+                agent_won += amt
 
         at_stake = sum(float(e['amount']) for e in self._read(self.entries_path, [])
                        if e['address'] == addr and e['status'] == 'open')
@@ -757,7 +821,8 @@ class Pool:
             'staked_lifetime': round(staked, 6),
             'won': round(won, 6),
             'refunded': round(refunded, 6),
-            'net': round(won + refunded - staked, 6),
+            'agent_won': round(agent_won, 6),
+            'net': round(won + refunded + agent_won - staked, 6),
             'nonce': self.nonce(addr),
         }
 
@@ -992,6 +1057,7 @@ class Pool:
             'tolerance': cfg['tolerance'],
             'fn': self.active_fn(cfg),
             'fee_bps': cfg['fee_bps'],
+            'agent_share_bps': cfg['agent_share_bps'],
             'created_at': time.time(),
             'assets': {},
             'settled_at': None,
@@ -1319,6 +1385,212 @@ class Pool:
                      f"what ${entry['notional']:,.0f} on it would have won"),
         }
 
+    # ── agent play ───────────────────────────────────────────────────
+
+    def _agent_entries(self, index: int, address: str = None) -> List[Dict]:
+        rows = [e for e in self._read(self.entries_path, [])
+                if e.get('agent') and e['round'] == index]
+        if address:
+            addr = hyperevm.normalize(address)
+            rows = [e for e in rows if e['address'] == addr]
+        return rows
+
+    @staticmethod
+    def _agent_share_of(record: Dict, cfg: Dict) -> int:
+        """The fee share a round's agent pot forms at. Rounds opened before
+        agent play existed carry no snapshot — they take the live config,
+        which only ever moves the protocol's own cut, never a staker's."""
+        share = record.get('agent_share_bps')
+        return int(cfg['agent_share_bps'] if share is None else share)
+
+    def agent_weight(self, address: str, index: int = None) -> Optional[float]:
+        """USD·seconds of bloctime locked across a round's window, or None
+        when the bloctime feed cannot answer right now."""
+        if not self._bloc_weight or not hyperevm.is_address(address or ''):
+            return None
+        win = self.window(index)
+        try:
+            weight = self._bloc_weight(hyperevm.normalize(address),
+                                       win['opens'], win['closes'])
+        except Exception:
+            return None
+        return None if weight is None else round(float(weight), 6)
+
+    def _reweigh_agents(self, agents: List[Dict], record: Dict) -> List[Dict]:
+        """Recompute each agent's usd·seconds against the round that actually
+        ran — a lock placed after the call still covered the period, so it
+        still counts. The entry snapshot is the floor: a position unstaked
+        since must not erase time that was genuinely locked across the round,
+        and a dead bloctime feed at settlement must not zero anybody."""
+        out = []
+        for e in agents:
+            weight = float(e.get('usd_seconds') or 0.0)
+            if self._bloc_weight:
+                try:
+                    live = self._bloc_weight(e['address'],
+                                             record['opens'], record['closes'])
+                except Exception:
+                    live = None
+                if live is not None:
+                    weight = max(weight, float(live))
+            out.append({**e, 'usd_seconds': round(weight, 6)})
+        return out
+
+    def agent_quota(self, address: str, index: int = None) -> Dict:
+        """Agent calls left this round, and the bloctime weight behind them."""
+        st = self.state()
+        cfg = st['config']
+        win = self.window(index)
+        limit = int(cfg['agent_per_round'])
+        if not hyperevm.is_address(address or ''):
+            used, assets, weight = 0, [], None
+        else:
+            mine = self._agent_entries(win['index'], address)
+            used, assets = len(mine), sorted({e['asset'] for e in mine})
+            weight = self.agent_weight(address, win['index'])
+        return {
+            'address': hyperevm.normalize(address) if address else None,
+            'round': win['index'],
+            'enabled': limit > 0 and self._bloc_weight is not None,
+            'limit': limit,
+            'used': used,
+            'remaining': max(0, limit - used),
+            'assets_used': assets,
+            'usd_seconds': weight,
+            'eligible': bool(weight and weight > 0),
+            'agent_share_bps': cfg['agent_share_bps'],
+            'entries_close': win['entry_deadline'],
+            'resets_at': win['closes'],
+            'entries_open': time.time() < win['entry_deadline'],
+        }
+
+    def agent_stake(self, address: str, asset: str, predicted_price: float,
+                    signature: str = None, nonce: int = None) -> Dict:
+        """Call a price with time down instead of dollars.
+
+        The qualification is bloctime: value locked on the bloctime contract
+        whose lock window overlaps this round. The weight snapshotted here is
+        USD locked × seconds inside the round — what bloctime mints BLOC for —
+        and it is recomputed at settlement so a lock placed later in the round
+        still counts. The entry never enters the money pot; what it wins is a
+        share of the protocol's fee, split by weight × accuracy and credited
+        as real, withdrawable dollars.
+        """
+        if not hyperevm.is_address(address):
+            return {'error': 'a valid 0x address is required'}
+        addr = hyperevm.normalize(address)
+
+        try:
+            predicted_price = float(predicted_price)
+        except (TypeError, ValueError):
+            return {'error': 'predicted_price must be a number'}
+        if predicted_price <= 0:
+            return {'error': 'predicted price must be positive'}
+
+        st = self.state()
+        cfg = st['config']
+        limit = int(cfg['agent_per_round'])
+        if limit <= 0:
+            return {'error': 'agent play is switched off — stake to enter a round'}
+        if not self._bloc_weight:
+            return {'error': 'no bloctime reader is configured on this '
+                             'deployment — agent play needs one'}
+
+        found = self._pool_market(asset, cfg)
+        if 'error' in found:
+            return found
+        symbol = found['market']['symbol'].upper()
+
+        win = self.window()
+        now = time.time()
+        if now >= win['entry_deadline']:
+            return {'error': 'entries for this round are closed — '
+                             f"{int(win['closes'] - now)}s until it settles, "
+                             'your call would land in the next round',
+                    'round': win['index'], 'next_opens': win['closes']}
+
+        mine = self._agent_entries(win['index'], addr)
+        if len(mine) >= limit:
+            return {'error': f'out of agent calls — {limit} per round. '
+                             'the next round resets them',
+                    'round': win['index'], 'resets_at': win['closes']}
+        if any(e['asset'] == symbol for e in mine):
+            return {'error': f'you already have an agent call on {symbol} this '
+                             'round — one per asset, so the board means something',
+                    'round': win['index']}
+
+        weight = self.agent_weight(addr, win['index'])
+        if weight is None:
+            return {'error': 'the bloctime feed is unreachable — cannot verify '
+                             'locked time, try again in a moment'}
+        if weight <= 0:
+            return {'error': 'no bloctime locked across this round — stake on '
+                             'bloctime first; USD locked × seconds inside the '
+                             'round is what your calls are weighted by'}
+
+        # Signed like a stake. It costs no dollars, but it writes to a public
+        # record and claims a share of real fee money.
+        check = sigauth.verify('agent_stake', addr, [
+            ('asset', symbol), ('price', f'{predicted_price:.8f}'),
+            ('round', str(win['index'])),
+        ], self.nonce(addr) if nonce is None else int(nonce), signature)
+        if not check['ok']:
+            return {'error': check['error'], 'sign_message': check['message'],
+                    'nonce': self.nonce(addr)}
+
+        mark = self._price_now(symbol, self._source_of(symbol)) if self._price_now else None
+
+        with self._lock():
+            st = self.state()
+            rounds = self._rounds()
+            self._round_record(st, rounds, win['index'])
+            entries = self._read(self.entries_path, [])
+            entry = {
+                'id': self._next(st, 'entry'),
+                'round': win['index'],
+                'address': addr,
+                'asset': symbol,
+                'predicted_price': predicted_price,
+                'amount': 0.0,
+                'agent': True,
+                # The weight at entry. Settlement recomputes and takes the
+                # larger, so this is a floor, never a ceiling.
+                'usd_seconds': weight,
+                'mark_at_entry': mark,
+                'created_at': now,
+                'status': 'open',
+                'rel_error': None, 'accuracy': None, 'score': None,
+                'payout': None, 'net': None,
+            }
+            entries.append(entry)
+            # No ledger row until settlement — the ledger is money, and an
+            # agent call only becomes money if it earns a fee share.
+            self._write(self.entries_path, entries)
+            self._write(self.rounds_path, rounds)
+            st['nonces'][addr] = int(st['nonces'].get(addr, 0)) + 1
+            self._save_state(st)
+
+        return {
+            'entry_id': entry['id'],
+            'round': win['index'],
+            'asset': symbol,
+            'quote': self._quote_of(symbol),
+            'agent': True,
+            'staked': 0.0,
+            'usd_seconds': weight,
+            'predicted_price': predicted_price,
+            'mark_at_entry': mark,
+            'implied_move_pct': round((predicted_price - mark) / mark * 100, 2)
+                                if mark else None,
+            'entries_close': win['entry_deadline'],
+            'settles': win['closes'],
+            'model': cfg['model'],
+            'agent_remaining': max(0, limit - len(mine) - 1),
+            'note': (f"weighted by {weight:,.0f} usd·seconds of bloctime — "
+                     f"agents split {cfg['agent_share_bps'] / 100:.0f}% of the "
+                     "pot's protocol fee by weight × accuracy"),
+        }
+
     # ── settlement ───────────────────────────────────────────────────
 
     def settle(self, force: bool = False) -> Dict:
@@ -1356,10 +1628,13 @@ class Pool:
                     by_asset.setdefault(e['asset'], []).append(e)
 
                 for asset, group in by_asset.items():
-                    # Free calls are held out of the pot, not staked at zero —
-                    # the money math never sees an entry that risked nothing.
-                    paid = [e for e in group if not e.get('free')]
+                    # Free and agent calls are held out of the pot, not staked
+                    # at zero — the money math never sees an entry that put no
+                    # dollars in it.
+                    paid = [e for e in group
+                            if not e.get('free') and not e.get('agent')]
                     free = [e for e in group if e.get('free')]
+                    agents = [e for e in group if e.get('agent')]
 
                     quote = self._price_at(asset, record['closes'], self._source_of(asset)) \
                         if self._price_at else {'price': None, 'mode': 'none'}
@@ -1376,7 +1651,8 @@ class Pool:
                         waiting.append({'round': record['index'], 'asset': asset,
                                         'reason': f'no settlement price ({mode})',
                                         'entries': len(paid),
-                                        'free_entries': len(free)})
+                                        'free_entries': len(free),
+                                        'agent_entries': len(agents)})
                         continue
 
                     fn = self._fn_of(record)
@@ -1423,14 +1699,49 @@ class Pool:
                             'settled_at': now,
                         })
 
-                    if result['fee'] > 0:
+                    # Agents take their share of the fee before the treasury
+                    # does. An agent pot nobody scored into stays with the fee.
+                    share_bps = self._agent_share_of(record, cfg)
+                    pot_for_agents = agent_pot_units(result['fee'], share_bps) \
+                        if agents else 0
+                    agent_paid_units = 0
+                    for scored in settle_agents(
+                            self._reweigh_agents(agents, record),
+                            price, fn, pot_for_agents):
+                        target = next(e for e in entries if e['id'] == scored['id'])
+                        target.update({
+                            'status': 'settled',
+                            'actual_price': price,
+                            'price_mode': mode,
+                            'rel_error': scored['rel_error'],
+                            'accuracy': scored['accuracy'],
+                            'score': scored['score'],
+                            'share': scored['share'],
+                            'usd_seconds': scored['usd_seconds'],
+                            'payout': scored['payout'],
+                            'net': scored['payout'],
+                            'settled_at': now,
+                        })
+                        if scored['payout'] > 0:
+                            agent_paid_units += usd_to_units(scored['payout'])
+                            ledger_rows.append({
+                                'kind': 'agent_payout',
+                                'address': scored['address'],
+                                'amount': scored['payout'],
+                                'round': record['index'], 'entry': scored['id'],
+                                'asset': asset, 'score': scored['score'],
+                            })
+
+                    fee_units = usd_to_units(result['fee']) - agent_paid_units
+                    if fee_units > 0:
                         ledger_rows.append({
-                            'kind': 'fee', 'address': None, 'amount': result['fee'],
+                            'kind': 'fee', 'address': None,
+                            'amount': units_to_usd(fee_units),
                             'round': record['index'], 'asset': asset,
                         })
                         if self._on_fee:
                             try:
-                                self._on_fee(result['fee'])
+                                self._on_fee(units_to_usd(fee_units))
                             except Exception:
                                 pass
                     rows = self._post(st, rows, ledger_rows)
@@ -1443,6 +1754,9 @@ class Pool:
                         'total_score': result['total_score'],
                         'winner': result['winner'], 'entries': len(paid),
                         'free_entries': len(free),
+                        'agent_entries': len(agents),
+                        'agent_pot': units_to_usd(pot_for_agents),
+                        'agent_paid': units_to_usd(agent_paid_units),
                     }
                     settled.append({'round': record['index'], 'asset': asset,
                                     'pot': result['pot'], 'mode': result['mode'],
@@ -1507,8 +1821,9 @@ class Pool:
                      and e['asset'] == asset and e['status'] == 'open']
             if not group:
                 return {'error': f'no open entries for {asset} in round {index}'}
-            paid = [e for e in group if not e.get('free')]
+            paid = [e for e in group if not e.get('free') and not e.get('agent')]
             free = [e for e in group if e.get('free')]
+            agents = [e for e in group if e.get('agent')]
 
             fn = self._fn_of(record)
             result = settle_asset(paid, price, fn, record['fee_bps'])
@@ -1541,13 +1856,38 @@ class Pool:
                                'would_win': scored['would_win'],
                                'would_net': scored['would_net'],
                                'settled_at': now})
-            if result['fee'] > 0:
+            share_bps = self._agent_share_of(record, self.state()['config'])
+            pot_for_agents = agent_pot_units(result['fee'], share_bps) \
+                if agents else 0
+            agent_paid_units = 0
+            for scored in settle_agents(self._reweigh_agents(agents, record),
+                                        price, fn, pot_for_agents):
+                target = next(e for e in entries if e['id'] == scored['id'])
+                target.update({'status': 'settled', 'actual_price': price,
+                               'price_mode': 'manual',
+                               'rel_error': scored['rel_error'],
+                               'accuracy': scored['accuracy'],
+                               'score': scored['score'],
+                               'share': scored['share'],
+                               'usd_seconds': scored['usd_seconds'],
+                               'payout': scored['payout'],
+                               'net': scored['payout'],
+                               'settled_at': now})
+                if scored['payout'] > 0:
+                    agent_paid_units += usd_to_units(scored['payout'])
+                    ledger_rows.append({
+                        'kind': 'agent_payout', 'address': scored['address'],
+                        'amount': scored['payout'], 'round': index,
+                        'entry': scored['id'], 'asset': asset,
+                        'score': scored['score'], 'manual': True})
+            fee_units = usd_to_units(result['fee']) - agent_paid_units
+            if fee_units > 0:
                 ledger_rows.append({'kind': 'fee', 'address': None,
-                                    'amount': result['fee'], 'round': index,
-                                    'asset': asset})
+                                    'amount': units_to_usd(fee_units),
+                                    'round': index, 'asset': asset})
                 if self._on_fee:
                     try:
-                        self._on_fee(result['fee'])
+                        self._on_fee(units_to_usd(fee_units))
                     except Exception:
                         pass
             rows = self._post(st, rows, ledger_rows)
@@ -1557,7 +1897,10 @@ class Pool:
                 'gross': result['gross'], 'fee': result['fee'], 'pot': result['pot'],
                 'mode': result['mode'], 'total_score': result['total_score'],
                 'winner': result['winner'], 'entries': len(paid),
-                'free_entries': len(free)}
+                'free_entries': len(free),
+                'agent_entries': len(agents),
+                'agent_pot': units_to_usd(pot_for_agents),
+                'agent_paid': units_to_usd(agent_paid_units)}
             if not [e for e in entries if e['round'] == index and e['status'] == 'open']:
                 record['status'] = 'settled'
                 record['settled_at'] = now
@@ -1600,29 +1943,39 @@ class Pool:
         for e in entries:
             assets.setdefault(e['asset'], []).append(e)
 
+        share_bps = self._agent_share_of(record, cfg)
         out_assets = []
         for asset, group in sorted(assets.items()):
-            paid = [e for e in group if not e.get('free')]
+            paid = [e for e in group if not e.get('free') and not e.get('agent')]
             free = [e for e in group if e.get('free')]
+            agents = [e for e in group if e.get('agent')]
             settled = record['assets'].get(asset)
             actual = settled['actual_price'] if settled else (
                 self._price_now(asset, self._source_of(asset)) if self._price_now else None)
-            rows, free_rows = [], []
+            rows, free_rows, agent_rows = [], [], []
             if actual:
                 preview = settle_asset(paid, actual, fn, record['fee_bps'])
                 rows = preview['entries']
                 free_rows = settle_free(free, paid, actual, fn, record['fee_bps'])
+                # Provisional agent split off snapshot weights — a read path
+                # never goes back to the bloctime feed, settlement does.
+                pot_for_agents = agent_pot_units(preview['fee'], share_bps) \
+                    if agents else 0
+                agent_rows = settle_agents(agents, actual, fn, pot_for_agents)
                 totals = {'gross': preview['gross'], 'fee': preview['fee'],
                           'pot': preview['pot'], 'total_score': preview['total_score'],
                           'winner': preview['winner'],
+                          'agent_pot': units_to_usd(pot_for_agents),
                           'mode': preview['mode'] if paid else 'free-only'}
             else:
                 rows = [{**e, 'accuracy': None, 'score': None, 'payout': None} for e in paid]
                 free_rows = [{**e, 'accuracy': None, 'score': None,
                               'would_win': None, 'would_net': None} for e in free]
+                agent_rows = [{**e, 'accuracy': None, 'score': None,
+                               'payout': None} for e in agents]
                 totals = {'gross': round(sum(float(e['amount']) for e in paid), 6),
                           'fee': 0.0, 'pot': None, 'total_score': None,
-                          'winner': None, 'mode': 'unpriced'}
+                          'winner': None, 'agent_pot': None, 'mode': 'unpriced'}
             out_assets.append({
                 'asset': asset,
                 'quote': self._quote_of(asset),
@@ -1632,8 +1985,10 @@ class Pool:
                 'provisional': not settled,
                 'stakers': len({e['address'] for e in paid}),
                 'free_callers': len({e['address'] for e in free}),
+                'agent_callers': len({e['address'] for e in agents}),
                 'entries': sorted(rows, key=lambda r: -(r.get('score') or 0)),
                 'free': sorted(free_rows, key=lambda r: -(r.get('accuracy') or 0)),
+                'agent': sorted(agent_rows, key=lambda r: -(r.get('score') or 0)),
                 **totals,
             })
 
@@ -1655,11 +2010,16 @@ class Pool:
             'fn': fn,
             'fee_bps': record['fee_bps'],
             'total_staked': round(sum(float(e['amount']) for e in entries), 6),
-            'stakers': len({e['address'] for e in entries if not e.get('free')}),
+            'stakers': len({e['address'] for e in entries
+                            if not e.get('free') and not e.get('agent')}),
             'free_calls': sum(1 for e in entries if e.get('free')),
             'free_callers': len({e['address'] for e in entries if e.get('free')}),
             'free_per_round': cfg['free_per_round'],
             'free_notional': cfg['free_notional'],
+            'agent_calls': sum(1 for e in entries if e.get('agent')),
+            'agent_callers': len({e['address'] for e in entries if e.get('agent')}),
+            'agent_per_round': cfg['agent_per_round'],
+            'agent_share_bps': share_bps,
             'assets': out_assets,
             'mine': mine,
             'is_current': index == self.current_index(),
@@ -1681,8 +2041,10 @@ class Pool:
                 'tolerance': record['tolerance'],
                 'fn': self._fn_of(record),
                 'staked': round(sum(float(e['amount']) for e in mine), 6),
-                'stakers': len({e['address'] for e in mine if not e.get('free')}),
+                'stakers': len({e['address'] for e in mine
+                                if not e.get('free') and not e.get('agent')}),
                 'free_calls': sum(1 for e in mine if e.get('free')),
+                'agent_calls': sum(1 for e in mine if e.get('agent')),
                 'assets': record['assets'],
                 'paid': round(sum(a.get('pot', 0) or 0
                                   for a in record['assets'].values()), 6),
@@ -1703,7 +2065,7 @@ class Pool:
         book = {}
         all_entries = self._read(self.entries_path, [])
         for e in all_entries:
-            if e.get('free'):
+            if e.get('free') or e.get('agent'):
                 continue          # $0 rows do not belong on a board ranked by $
             row = book.setdefault(e['address'], {
                 'address': e['address'], 'staked': 0.0, 'returned': 0.0,
@@ -1793,6 +2155,51 @@ class Pool:
         # Accuracy first, but an unsettled caller has none — rank them last
         # rather than at 0%, which would read as a bad call instead of no call.
         out.sort(key=lambda r: (-(r['settled'] > 0), -r['avg_accuracy'], -r['settled']))
+        return out[:max(1, int(limit))]
+
+    def agent_leaderboard(self, limit: int = 50) -> List[Dict]:
+        """Agent play, ranked by what locked time actually earned.
+
+        Its own board for the same reason free play has one: agents are not
+        ranked on dollars they staked — they staked none — but on the fee
+        share their bloctime weight × accuracy took home. `usd_seconds` is
+        the average weight their settled calls carried, so a big earner is
+        legible as either very locked, very accurate, or both.
+        """
+        self.settle()
+        book = {}
+        for e in self._read(self.entries_path, []):
+            if not e.get('agent'):
+                continue
+            row = book.setdefault(e['address'], {
+                'address': e['address'], 'calls': 0, 'settled': 0,
+                'earned': 0.0, 'usd_seconds_sum': 0.0,
+                'accuracy_sum': 0.0, 'best_accuracy': None, 'assets': set()})
+            row['calls'] += 1
+            row['assets'].add(e['asset'])
+            if e['status'] == 'settled':
+                row['settled'] += 1
+                row['earned'] += float(e.get('payout') or 0)
+                row['usd_seconds_sum'] += float(e.get('usd_seconds') or 0)
+                acc = e.get('accuracy')
+                if acc is not None:
+                    row['accuracy_sum'] += acc
+                    row['best_accuracy'] = max(row['best_accuracy'] or 0, acc)
+
+        out = []
+        for row in book.values():
+            settled = row['settled'] or 1
+            assets = sorted(row.pop('assets'))
+            usd_seconds_sum = row.pop('usd_seconds_sum')
+            out.append({
+                **row,
+                'assets': assets,
+                'earned': round(row['earned'], 2),
+                'avg_usd_seconds': round(usd_seconds_sum / settled, 2),
+                'avg_accuracy': round(row['accuracy_sum'] / settled, 4),
+            })
+        out.sort(key=lambda r: (-r['earned'], -(r['settled'] > 0),
+                                -r['avg_accuracy'], -r['settled']))
         return out[:max(1, int(limit))]
 
     # ── withdrawals ──────────────────────────────────────────────────
@@ -1977,6 +2384,12 @@ class Pool:
                           f"round, one per asset, scored against a "
                           f"${cfg['free_notional']:,.0f} notional"
                           if cfg['free_per_round'] else 'off'),
+            'agent_play': (f"{cfg['agent_per_round']} agent calls per address per "
+                           'round, one per asset, weighted by bloctime locked '
+                           'across the round (USD × seconds); agents split '
+                           f"{cfg['agent_share_bps'] / 100:.1f}% of each pot's "
+                           'protocol fee by weight × accuracy'
+                           if cfg['agent_per_round'] else 'off'),
             'dex_floor': (f"a Solana or Base token needs ${cfg['min_liquidity_usd']:,.0f} "
                           'of pool liquidity to be listed or staked'
                           if cfg['min_liquidity_usd'] else 'no liquidity floor on DEX tokens'),
@@ -2045,8 +2458,9 @@ class Pool:
     def stats(self) -> Dict:
         """One call for the dashboard tiles and `status`."""
         rows = self._read(self.entries_path, [])
-        entries = [e for e in rows if not e.get('free')]
+        entries = [e for e in rows if not e.get('free') and not e.get('agent')]
         free = [e for e in rows if e.get('free')]
+        agent = [e for e in rows if e.get('agent')]
         ledger = self._ledger()
         open_entries = [e for e in entries if e['status'] == 'open']
         st = self.state()
@@ -2073,6 +2487,13 @@ class Pool:
             'free_calls': len(free),
             'free_open': sum(1 for e in free if e['status'] == 'open'),
             'free_callers': len({e['address'] for e in free}),
+            'agent_per_round': st['config']['agent_per_round'],
+            'agent_share_bps': st['config']['agent_share_bps'],
+            'agent_calls': len(agent),
+            'agent_open': sum(1 for e in agent if e['status'] == 'open'),
+            'agent_callers': len({e['address'] for e in agent}),
+            'agent_paid': round(sum(float(r['amount']) for r in ledger
+                                    if r['kind'] == 'agent_payout'), 2),
             'deposited': round(sum(float(r['amount']) for r in ledger
                                    if r['kind'] == 'deposit'), 2),
             'paid_out': round(sum(float(r['amount']) for r in ledger

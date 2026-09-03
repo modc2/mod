@@ -29,7 +29,7 @@ import { marketMatchesQuery } from "../lib/marketQuery";
 import { MARKET_TYPES, matchPreset } from "../lib/marketTypes";
 import { shortAddress } from "../lib/identityStrat";
 import {
-  DEFAULT_FORMULA, FORMULA_VARS, compileFormula, formatScore, scoreInputs,
+  DEFAULT_FORMULA, FORMULA_VARS, compileFormula, formatScore, scoreInputs, scoreIsUnknown,
   loadSavedFormula, matchScorePreset, saveFormula,
 } from "../lib/scoreFormula";
 import ScoreRatioChips from "./ScoreRatioChips";
@@ -43,6 +43,7 @@ const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 /** Windows the hourly warmup aggregates (`warmup_cycle`, pipeline.rs). */
 const WINDOWS = [1, 7, 14, 30] as const;
 const SORTS = [
+  { key: "roi", label: "ROI" },
   { key: "pnl", label: "P&L" },
   { key: "sharpe", label: "SHARPE" },
   { key: "winRate", label: "WIN %" },
@@ -98,10 +99,12 @@ interface Props {
 
 export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing }: Props) {
   const [query, setQuery] = useState("");
-  // 1D is the window the warmup always has ready — the panel opens on a
-  // search that answers, not on a cold-cache apology.
-  const [days, setDays] = useState<number>(1);
-  const [sort, setSort] = useState<string>("pnl");
+  // 30D is the DEEPEST window the warmup keeps cached — the panel opens on
+  // ROI over the longest record there is, answered from cache (memory → disk
+  // → stale-disk). Only a brand-new deployment is cold, and that path offers
+  // WARM IT NOW.
+  const [days, setDays] = useState<number>(30);
+  const [sort, setSort] = useState<string>("roi");
   const [order, setOrder] = useState<SortDir>("desc");
   const [activeOnly, setActiveOnly] = useState(true);
   // Track-record floor, in days. Off by default — see HISTORY_FLOORS.
@@ -128,7 +131,7 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
   const [total, setTotal] = useState(0);
   const [poolCount, setPoolCount] = useState(0);
   const [syncedAt, setSyncedAt] = useState(0);
-  const [ran, setRan] = useState({ query: "", days: 1, activeOnly: true, sort: "pnl", order: "desc" as SortDir, minHistoryDays: 0 });
+  const [ran, setRan] = useState({ query: "", days: 30, activeOnly: true, sort: "roi", order: "desc" as SortDir, minHistoryDays: 0 });
   const [dropped, setDropped] = useState(0);
   const [historyDropped, setHistoryDropped] = useState(0);
   const [historyKnown, setHistoryKnown] = useState(0);
@@ -627,6 +630,9 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                   const basketed = inBasket?.has(addr) ?? false;
                   const curve = t.pnlCurve;
                   const score = ran.sort === "score" ? scoreFor(t) : null;
+                  // Preset scores carry their metric's -1 "unknown" sentinel —
+                  // render that as no data, not as a score of minus one.
+                  const scoreUnknown = score !== null && scoreIsUnknown(formula, scoreInputs(t));
                   return (
                     <div
                       key={t.address}
@@ -728,7 +734,23 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                         </div>
                       )}
 
-                      <div className={`grid ${score !== null ? "grid-cols-5" : "grid-cols-4"} gap-1`}>
+                      <div className={`grid ${score !== null ? "grid-cols-6" : "grid-cols-5"} gap-1`}>
+                        <Stat
+                          label="ROI"
+                          active={ran.sort === "roi"}
+                          value={t.volume > 0 ? `${((t.pnl / t.volume) * 100).toFixed(1)}%` : "—"}
+                          valueClass={
+                            t.volume <= 0 ? "text-pixel-gray"
+                              : t.pnl > 0 ? "text-pixel-green"
+                              : t.pnl < 0 ? "text-red-400"
+                              : "text-pixel-gray"
+                          }
+                          title={
+                            t.volume > 0
+                              ? "P&L per dollar traded over the window — what a copied dollar would have returned"
+                              : "No volume in this window yet — no ratio to show"
+                          }
+                        />
                         <Stat
                           label="WIN"
                           active={ran.sort === "winRate"}
@@ -766,7 +788,7 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                           title="Mean / stdev of per-trade returns"
                         />
                         <Stat
-                          label="VOLUME"
+                          label="VOL"
                           active={ran.sort === "volume"}
                           value={formatVolume(t.volume)}
                           title="Dollars traded over the window"
@@ -775,9 +797,9 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                           <Stat
                             label="SCORE"
                             active
-                            value={formatScore(score)}
-                            valueClass={score > 0 ? "text-pixel-green" : score < 0 ? "text-red-400" : "text-pixel-gray"}
-                            title={`score = ${formula}`}
+                            value={scoreUnknown ? "—" : formatScore(score)}
+                            valueClass={scoreUnknown ? "text-pixel-gray" : score > 0 ? "text-pixel-green" : score < 0 ? "text-red-400" : "text-pixel-gray"}
+                            title={scoreUnknown ? "unknown — nothing settled in this window yet" : `score = ${formula}`}
                           />
                         )}
                       </div>

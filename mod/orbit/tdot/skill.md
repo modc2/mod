@@ -5,7 +5,11 @@ neighbourhood, the full open housing record (rental buildings, community and
 subsidized housing, health and fire violations, the development pipeline, census
 dwelling values), TTC subway/streetcar, cycling, green space, serious traffic
 collisions, boundaries. All public key-free open data. Also carries a model that
-predicts a building's RentSafeTO inspection score from open data.
+predicts a building's RentSafeTO inspection score from open data, a
+`housing_lots` layer that screens the city's land inventory for lots affordable
+housing could be built on (city-owned vacant land, surface parking, surplus
+property — full lot polygons, highlighted and tiered PRIME/STRONG/POSSIBLE),
+and a 3-D map mode that extrudes buildings and each lot's potential massing.
 
 **Ports:** API `50320`, app `50321` at `/tdot`. Start with `m tdot/serve`.
 
@@ -26,7 +30,12 @@ m tdot/housing role=closed         # the ones that are NOT open data (MLS prices
 m tdot/score                       # score-model accuracy, drivers, caveats
 m tdot/outliers limit=10           # buildings scoring worst vs comparable ones
 m tdot/building 4153587            # one building: prediction + what drives it
+
+m tdot/layer housing_lots          # scored lots for affordable housing (612 lots)
 ```
+
+The agent tool `tdot_housing_lots` (MCP + Ask panel) lists the best lots —
+optionally filtered by ward or minimum score — and switches the layer on.
 
 ## The score model (`tdotgis/score.py`)
 

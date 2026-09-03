@@ -319,59 +319,6 @@ export default function TopTraders() {
         }
       />
 
-      {/* Board stats — one glance before the table */}
-      {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi label="Traders on board"
-            value={
-              <>
-                {fmtN(stats.count)}
-                {stats.count !== traders.length && (
-                  <span className="text-sm font-normal text-dim"> / {fmtN(traders.length)}</span>
-                )}
-              </>
-            }
-            sub={
-              coinFilter.size > 0
-                ? <span title={`top ${enrich} active wallets that traded ${coinList.join(", ")} — ${meta?.depth ?? "?"} leaderboard rows walked to find them`}>
-                    trade {coinList.join(" / ")} · walked {meta?.depth ?? "—"}
-                  </span>
-                : <span title={`every wallet on the leaderboard with ≥ $1k equity that traded in the last 24h (${fmtN(universe)}); fill stats fetched for the top ${enrich} by ${rank} only`}>
-                    <span className="text-win">{fmtN(stats.up)} up</span> · <span className="text-loss">{fmtN(stats.down)} down</span>
-                    {" · "}{floorsActive ? `of ${fmtN(universe)} active` : `stats on top ${fmtN(measuredTotal)}`}
-                  </span>
-            }>
-            <SplitBar up={stats.up} down={stats.down} />
-          </Kpi>
-
-          <Kpi label="Combined volume" value={fmtUsd(stats.vol)}
-            sub={<>{days}d window · top 3 books are {fmtPct(stats.top3Share * 100, 0)} of it</>}>
-            <SparkBars values={stats.byVol.map((t) => t.volume)}
-              titles={stats.byVol.map((t) => `${shortAddr(t.address)} · ${fmtUsd(t.volume)}`)} />
-          </Kpi>
-
-          <Kpi label="Best ROI"
-            tone={(stats.best.roi ?? 0) >= 0 ? "win" : "loss"}
-            value={stats.best.roi == null ? "—" : `${stats.best.roi >= 0 ? "+" : ""}${fmtPct(stats.best.roi, 1)}`}
-            sub={
-              <Link href={`/trader/${stats.best.address}?days=${days}`}
-                className="inline-flex items-center gap-1.5 font-mono text-ink/80 hover:text-accent transition-colors">
-                <Identicon address={stats.best.address} size={12} />
-                {shortAddr(stats.best.address)}
-              </Link>
-            }>
-            <SparkBars values={stats.byRoi.map((t) => t.roi ?? 0)} hot={0}
-              titles={stats.byRoi.map((t) => `${shortAddr(t.address)} · ${(t.roi ?? 0) >= 0 ? "+" : ""}${fmtPct(t.roi ?? 0, 1)}`)} />
-          </Kpi>
-
-          <Kpi label="Median win rate"
-            value={stats.medianWin == null ? "—" : fmtPct(stats.medianWin, 0)}
-            sub={<>across {fmtN(stats.measured)} measured trader{stats.measured === 1 ? "" : "s"}</>}>
-            <Meter pct={stats.medianWin ?? 0} />
-          </Kpi>
-        </div>
-      )}
-
       {/* Filters — rides at the top of the board on scroll, and folds down to a
           one-line summary when the table is what you're reading. Window /
           measure depth, then score floors, then coins. */}
@@ -497,6 +444,59 @@ export default function TopTraders() {
           </div>
         )}
       </div>
+
+      {/* Board stats — one glance before the table */}
+      {stats && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Kpi label="Traders on board"
+            value={
+              <>
+                {fmtN(stats.count)}
+                {stats.count !== traders.length && (
+                  <span className="text-sm font-normal text-dim"> / {fmtN(traders.length)}</span>
+                )}
+              </>
+            }
+            sub={
+              coinFilter.size > 0
+                ? <span title={`top ${enrich} active wallets that traded ${coinList.join(", ")} — ${meta?.depth ?? "?"} leaderboard rows walked to find them`}>
+                    trade {coinList.join(" / ")} · walked {meta?.depth ?? "—"}
+                  </span>
+                : <span title={`every wallet on the leaderboard with ≥ $1k equity that traded in the last 24h (${fmtN(universe)}); fill stats fetched for the top ${enrich} by ${rank} only`}>
+                    <span className="text-win">{fmtN(stats.up)} up</span> · <span className="text-loss">{fmtN(stats.down)} down</span>
+                    {" · "}{floorsActive ? `of ${fmtN(universe)} active` : `stats on top ${fmtN(measuredTotal)}`}
+                  </span>
+            }>
+            <SplitBar up={stats.up} down={stats.down} />
+          </Kpi>
+
+          <Kpi label="Combined volume" value={fmtUsd(stats.vol)}
+            sub={<>{days}d window · top 3 books are {fmtPct(stats.top3Share * 100, 0)} of it</>}>
+            <SparkBars values={stats.byVol.map((t) => t.volume)}
+              titles={stats.byVol.map((t) => `${shortAddr(t.address)} · ${fmtUsd(t.volume)}`)} />
+          </Kpi>
+
+          <Kpi label="Best ROI"
+            tone={(stats.best.roi ?? 0) >= 0 ? "win" : "loss"}
+            value={stats.best.roi == null ? "—" : `${stats.best.roi >= 0 ? "+" : ""}${fmtPct(stats.best.roi, 1)}`}
+            sub={
+              <Link href={`/trader/${stats.best.address}?days=${days}`}
+                className="inline-flex items-center gap-1.5 font-mono text-ink/80 hover:text-accent transition-colors">
+                <Identicon address={stats.best.address} size={12} />
+                {shortAddr(stats.best.address)}
+              </Link>
+            }>
+            <SparkBars values={stats.byRoi.map((t) => t.roi ?? 0)} hot={0}
+              titles={stats.byRoi.map((t) => `${shortAddr(t.address)} · ${(t.roi ?? 0) >= 0 ? "+" : ""}${fmtPct(t.roi ?? 0, 1)}`)} />
+          </Kpi>
+
+          <Kpi label="Median win rate"
+            value={stats.medianWin == null ? "—" : fmtPct(stats.medianWin, 0)}
+            sub={<>across {fmtN(stats.measured)} measured trader{stats.measured === 1 ? "" : "s"}</>}>
+            <Meter pct={stats.medianWin ?? 0} />
+          </Kpi>
+        </div>
+      )}
 
       {/* Sync progress — shown while the API is actively scanning Hyperliquid */}
       {(loading || scanning) && (

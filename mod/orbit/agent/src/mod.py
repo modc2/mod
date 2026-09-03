@@ -462,6 +462,7 @@ RULES:
 
     _on_step = _run_local('on_step')
     _on_usage = _run_local('on_usage')
+    _on_live = _run_local('on_live')
     _images = _run_local('images', list)
     _allowed_paths = _run_local('allowed_paths')
     _path = _run_local('path')
@@ -473,8 +474,8 @@ RULES:
         """Forget this thread's run. Worker threads are reused, and a snap()
         on a thread that last ran a sandboxed guest would otherwise still
         think it is sandboxed."""
-        for name in ('on_step', 'on_usage', 'images', 'allowed_paths', 'path',
-                     'failed_calls', 'done_calls'):
+        for name in ('on_step', 'on_usage', 'on_live', 'images', 'allowed_paths',
+                     'path', 'failed_calls', 'done_calls'):
             try:
                 delattr(self._tl(), name)
             except AttributeError:
@@ -563,6 +564,10 @@ RULES:
         # prices each model call from the provider's live catalog, so a guest's
         # credits pay for the provider spend their run actually creates
         self.meter = Meter()
+        # arena matches run keyless, so this object IS their standing: it can
+        # only be held by code in this process — JSON off the wire can't forge
+        # object identity — which is what lets the harness gate trust it
+        self._arena_pass = object()
         if goal:
             self.goal = goal
         self._tool_names = tools  # optional filter
@@ -1054,6 +1059,7 @@ RULES:
             free: bool = False,
             on_step=None,
             on_usage=None,
+            on_live=None,
             images: list = None,
             budget=None,
             session: str = None,
@@ -1085,6 +1091,13 @@ RULES:
                      cost, total}. A run's price is the sum of its calls, and
                      waiting for the end to say so hides it while it is being
                      spent.
+            on_live: optional callable invoked with ephemeral progress the
+                     watcher renders and drops — {'event': 'token', 'text'}
+                     as the model's output streams in, {'event': 'tool_start',
+                     'tool', 'params', 'i', 'n'} the moment a call begins,
+                     {'event': 'model_start', 'step', 'model'} when a call
+                     goes out. Nothing here is recorded; the step dicts on
+                     on_step remain the run's record.
             budget: optional callable given the run's metered provider cost so far;
                     returning False stops the loop. A paying guest's credits are
                     finite, and a charge clamped to their balance would leave the
@@ -1111,6 +1124,7 @@ RULES:
                 f"Add a key — or unlock your encrypted key — in the Builder (model node)."))
         self._on_step = on_step
         self._on_usage = on_usage
+        self._on_live = on_live
         self._images = [i for i in (images or []) if isinstance(i, str) and i.strip()][:8]
         model = self._model_for(prov, model)
         # FREE MODE resolves the model here rather than letting the provider
@@ -1216,6 +1230,9 @@ RULES:
                 # accumulates — a run that recovered on step 3 was still being
                 # told about step 2's malformed JSON on step 20.
                 self.memory.rm('hint')
+                # say the call went out before it comes back — the watcher's
+                # "thinking…" starts when the model does, not when it answers
+                self._emit_live({'event': 'model_start', 'step': step_i, 'model': model})
                 output = self.meter.watch(
                     client.forward(
                         context,
@@ -1500,6 +1517,18 @@ RULES:
             except Exception:
                 pass
 
+    def _emit_live(self, ev: dict):
+        """Hand the live-events callback something ephemeral — a chunk of the
+        model's output as it streams, a tool call the moment it starts. This
+        is progress a watcher renders and throws away: nothing here lands in
+        memory or the run's history, and it must never kill the loop."""
+        cb = getattr(self, '_on_live', None)
+        if cb:
+            try:
+                cb(ev)
+            except Exception:
+                pass
+
     def _strip_anchors(self, text: str) -> str:
         """Drop plan/step scaffolding from text meant for the user's eyes.
 
@@ -1623,6 +1652,7 @@ RULES:
                 continue
             chunks.append(chunk)
             print(chunk, end='')
+            self._emit_live({'event': 'token', 'text': chunk})
             buf += chunk
             while True:
                 end = buf.find(close_tag, scan)
@@ -1886,6 +1916,10 @@ RULES:
                 if name == 'git':
                     params['cwd'] = params.get('cwd') or allowed[0]
 
+            # announce the call before it runs, not after it returns — a slow
+            # bash command is exactly when a watcher wants to see what's up
+            self._emit_live({'event': 'tool_start', 'tool': name,
+                             'params': params, 'i': i + 1, 'n': len(plan)})
             try:
                 # the registry knows all three kinds; a bare module name the
                 # model reached for without the prefix still resolves via m.tool
@@ -3240,6 +3274,15 @@ class Mod(Agent):
         goal and tool overrides before running.
         """
         key = kwargs.get('key')
+        # the arena's pass is standing, not identity — swap it for None before
+        # anything downstream tries to resolve an address out of it. Identity
+        # is what makes it trustworthy: it can only arrive from arena_run,
+        # never from JSON off the wire.
+        # getattr + None guard: test mods are built via __new__ and carry no
+        # pass, and a missing pass must never make a keyless run a match
+        arena_match = key is not None and key is getattr(self, '_arena_pass', None)
+        if arena_match:
+            key = kwargs['key'] = None
         # an explicit sandbox wins over key resolution: an arena match has no
         # caller behind it, and it belongs in its own scratch dir either way
         allowed_paths = kwargs.get('allowed_paths') or self.allowed_paths_for(key)
@@ -3284,8 +3327,10 @@ class Mod(Agent):
         if agent_harness:
             kw = dict(kwargs)
             kw.pop('model', None)   # a provider model id means nothing to a CLI
+            kw.pop('arena_match', None)   # standing is computed here, never a caller knob
             return self._run_harness(agent_harness, goal=agent_goal,
-                                     model=agent_config.get('model'), **kw)
+                                     model=agent_config.get('model'),
+                                     arena_match=arena_match, **kw)
 
         # selected library memory notes ride along as run context
         extra = {}
@@ -3340,6 +3385,7 @@ class Mod(Agent):
                 free=kwargs.get('free', False),
                 on_step=kwargs.get('on_step'),
                 on_usage=kwargs.get('on_usage'),
+                on_live=kwargs.get('on_live'),
                 images=kwargs.get('images'),
                 budget=kwargs.get('budget'),
                 session=kwargs.get('session'),
@@ -3489,15 +3535,26 @@ class Mod(Agent):
             return None
 
     def _run_harness(self, name: str, goal: str = None, model: str = None,
-                     **kwargs) -> List[Dict[str, Any]]:
+                     arena_match: bool = False, **kwargs) -> List[Dict[str, Any]]:
         """Hand the run to an external agent CLI and stream back its steps.
 
         Owner only. The CLIs run with their approval prompts off — nobody is
         at the other end of a server-side run to answer them — so a harness run
         is effectively the host's own shell. Guests stay on this module's loop,
         which is sandboxed to their portal directory.
+
+        The one exception is the board: an arena match (arena_match is set by
+        _run alone, off the in-process pass) may play a harness agent once the
+        host has opted in with the arena's `harnesses` knob — that knob IS the
+        owner's standing consent, and without this door it could never work,
+        because a match has no caller to be the owner.
         """
-        if not self.is_owner(kwargs.get('key')):
+        if arena_match and not self.arena.config().get('harnesses'):
+            raise PermissionError(
+                f"the arena is not allowed to play harness agents on this "
+                f"host — opt in with arena config harnesses=true before "
+                f"putting a {name} agent on the board.")
+        if not (arena_match or self.is_owner(kwargs.get('key'))):
             # name the agent that was picked, not the harness behind it — the
             # caller chose "Build Console", and being told about "buildmod"
             # sends them looking for something they never asked for
@@ -3518,7 +3575,7 @@ class Mod(Agent):
         extra = dict(extra) if isinstance(extra, dict) else {}
         for reserved in ('query', 'path', 'goal', 'model', 'timeout', 'on_step', 'key'):
             extra.pop(reserved, None)
-        return self.harness.run(
+        steps = self.harness.run(
             name,
             query=kwargs.get('query', 'help me with this'),
             path=path,
@@ -3529,6 +3586,39 @@ class Mod(Agent):
             key=kwargs.get('key'),
             **extra,
         )
+        self._meter_harness(name, steps)
+        return steps
+
+    def _meter_harness(self, name: str, steps: List[Dict[str, Any]]):
+        """Land a harness run's own bill on this thread's meter.
+
+        A CLI run never touches our providers, so without this the meter reads
+        zero and every harness run looks free — the arena would score it as
+        burning no tokens, and the console's task row would show none. Runners
+        that report (claudecode puts the CLI's exact usage on the terminal
+        step) get exact numbers; runners that don't still read zero. Never
+        raises: accounting must not fail the run it is counting.
+        """
+        usage = None
+        for step in reversed(steps or []):
+            if isinstance(step, dict):
+                u = (step.get('params') or {}).get('usage')
+                if isinstance(u, dict) and u:
+                    usage = u
+                    break
+        if not usage:
+            return
+        try:
+            tally = self.meter.open(provider=usage.get('provider') or f'harness:{name}',
+                                    model=usage.get('model') or name)
+            tally['calls'] += max(1, int(usage.get('turns') or 0))
+            tally['prompt_tokens'] += int(usage.get('prompt_tokens') or 0)
+            tally['completion_tokens'] += int(usage.get('completion_tokens') or 0)
+            # the CLI's own USD figure, not a catalog estimate — priced stays
+            # True so downstream reads it as an exact bill
+            tally['cost'] += float(usage.get('cost') or 0.0)
+        except Exception:
+            pass
 
     # ── arena tasks (hand-written, and drafted by an agent) ──────────
 
@@ -3768,7 +3858,11 @@ class Mod(Agent):
         try:
             last = self._run(query=prompt, agent_type=agent, model=model, steps=steps,
                              free=free, path=path, provider=provider,
-                             allowed_paths=[path] if path else None, key=None,
+                             allowed_paths=[path] if path else None,
+                             # the pass, not a caller key: a match has nobody
+                             # behind it, but the harness gate needs to know
+                             # the board itself asked (see _run_harness)
+                             key=getattr(self, '_arena_pass', None),
                              on_step=trace.append)
         finally:
             try:

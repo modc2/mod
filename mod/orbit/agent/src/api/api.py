@@ -2362,7 +2362,7 @@ def _start_arena():
 
 
 def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None, budget=None,
-               on_usage=None):
+               on_usage=None, on_live=None):
     """Execute a multi-agent chain, feeding each step's summary into the next."""
     chain_results = []
     context = req.query
@@ -2392,6 +2392,7 @@ def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None, budget=No
                 tool_ids=req.tool_ids,
                 on_step=on_step,
                 on_usage=on_usage,
+                on_live=on_live,
                 budget=budget,
             )
             summary = ""
@@ -2499,6 +2500,14 @@ def run_agent_stream(req: RunRequest):
     """Run the agent loop, streaming each executed step live as SSE events.
 
     Events (one JSON object per `data:` line):
+        {"type": "token",      "text": "..."}                 — the model's output,
+            live as it streams off the provider (coalesced into small pieces).
+            Raw loop output: prose plus the <STEP>{...}</STEP> scaffolding —
+            renderers show the prose and fold the scaffolding into an indicator
+        {"type": "model_start","step": i, "model": "..."}     — a model call just
+            went out; nothing will stream until it starts answering
+        {"type": "tool_start", "tool", "params", "i", "n"}    — a tool call is
+            STARTING; its "step" event lands when it returns
         {"type": "step",       "step": {...}}                 — a tool step just executed
         {"type": "usage",      "usage": {...}}                — what the model call
             behind that step cost: {call, step, model, cost, total, tokens}
@@ -2519,13 +2528,40 @@ def run_agent_stream(req: RunRequest):
 
     task = _task_create(req, chain=bool(req.chain), agent=resolved_agent)
 
+    # the model's own output, forwarded as it streams. Providers hand back a
+    # chunk per token; a frame per token is hundreds of SSE events a step, so
+    # tokens coalesce until ~48 chars or 120ms have built up. Everything else
+    # (a tool starting, a step landing) flushes first, so order is preserved.
+    tok_buf: List[str] = []
+    tok_at = [0.0]
+
+    def flush_tokens():
+        if tok_buf:
+            text = ''.join(tok_buf)
+            tok_buf.clear()
+            emit({"type": "token", "text": text})
+
+    def on_live(ev):
+        kind = ev.get('event')
+        if kind == 'token':
+            tok_buf.append(ev.get('text') or '')
+            now = time.monotonic()
+            if sum(len(t) for t in tok_buf) >= 48 or now - tok_at[0] >= 0.12:
+                tok_at[0] = now
+                flush_tokens()
+        elif kind:
+            flush_tokens()
+            emit({"type": kind, **{k: v for k, v in ev.items() if k != 'event'}})
+
     def on_step(s):
+        flush_tokens()
         _task_step(task, s)
         emit({"type": "step", "step": s})
 
     def on_usage(u):
         # what the call that produced that step cost, on the same stream —
         # the price of a run should be watchable while it is being spent
+        flush_tokens()
         _task_usage(task, u)
         emit({"type": "usage", "usage": u})
 
@@ -2548,6 +2584,7 @@ def run_agent_stream(req: RunRequest):
                     mod, req,
                     on_step=on_step,
                     on_usage=on_usage,
+                    on_live=on_live,
                     on_chain_step=lambda i, a: emit({"type": "chain_step", "index": i, "agent": a}),
                     budget=_run_budget(req, task),
                 )
@@ -2580,8 +2617,10 @@ def run_agent_stream(req: RunRequest):
                     harness_args=req.harness_args,
                     on_step=on_step,
                     on_usage=on_usage,
+                    on_live=on_live,
                     budget=_run_budget(req, task),
                 )
+                flush_tokens()
                 _task_finish(task, _status_of(result), _summary_of(result))
                 charge = _charge_run(req, task)
                 emit({"type": "done", "task_id": task["id"], "result": result,

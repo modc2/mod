@@ -51,6 +51,7 @@ export default function Page() {
   const [crimeBusy, setCrimeBusy] = useState(false)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [basemap, setBasemap] = useState<BasemapId>(theme.basemap)
+  const [view3d, setView3d] = useState(false)
   const [panelOpen, setPanelOpen] = useState(true)
   const [flyTo, setFlyTo] = useState<{ lng: number; lat: number; zoom?: number; nonce: number } | null>(null)
   const [boot, setBoot] = useState<string | null>(null)
@@ -196,6 +197,7 @@ export default function Page() {
         layerData={layerData}
         basemap={basemap}
         base={base}
+        view3d={view3d}
         flyTo={flyTo}
         onFeatureClick={setSelection}
         onMapReady={() => {}}
@@ -239,6 +241,14 @@ export default function Page() {
                 {b.label}
               </button>
             ))}
+            <button
+              onClick={() => setView3d((v) => !v)}
+              aria-pressed={view3d}
+              className="chip px-2 py-1 text-[11px]"
+              title="Tilt the camera and extrude buildings. Drag with the right mouse button to rotate."
+            >
+              3D
+            </button>
           </div>
           <div className="panel flex gap-0.5 p-0.5">
             <button

@@ -24,7 +24,10 @@ const TRADES_PAGE_SIZE = 50;
 function TradersInner() {
   useUrlSync();
   const { search, category, marketQuery, daysAgo, minPerDay, reloadKey } = useFilters();
-  const days = Number(daysAgo) > 0 ? Number(daysAgo) : 7;
+  // Default to the DEEPEST window the hourly warmup keeps cached (30D) — the
+  // board answers from cache, and the ROI it ranks on covers the longest
+  // record there is. Any typed DAYS still wins.
+  const days = Number(daysAgo) > 0 ? Number(daysAgo) : 30;
   const minTradesPerDay =
     minPerDay !== "" && Number.isFinite(Number(minPerDay))
       ? Math.max(0, Number(minPerDay))

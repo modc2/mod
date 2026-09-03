@@ -4035,6 +4035,115 @@ class TestHarnessGate:
         assert "chain console" in seen["goal"]
 
 
+class TestHarnessUsage:
+    """A harness run's own bill reaches the meter, so the arena and the task
+    ledger can say what a CLI run actually burned — otherwise every harness
+    run reads as free."""
+
+    RESULT = {"type": "result", "subtype": "success", "result": "done",
+              "total_cost_usd": 0.0421, "num_turns": 3, "duration_ms": 8000,
+              "usage": {"input_tokens": 12, "cache_creation_input_tokens": 4000,
+                        "cache_read_input_tokens": 30000, "output_tokens": 900}}
+
+    def _claude_session(self):
+        from src.harness.mod import Harness
+        return Harness().get("claude").session()
+
+    def test_claude_result_usage_rides_the_finish_step(self):
+        s = self._claude_session()
+        s.steps({"type": "system", "subtype": "init", "model": "claude-opus-5"})
+        out = s.steps(self.RESULT)
+        u = out[0]["params"]["usage"]
+        # prompt = everything the API processed, cached or not
+        assert u["prompt_tokens"] == 34012 and u["completion_tokens"] == 900
+        assert u["cost"] == 0.0421 and u["turns"] == 3
+        assert u["model"] == "claude-opus-5" and u["provider"] == "claude-code"
+        assert out[0]["params"]["summary"] == "done"
+
+    def test_claude_error_result_still_reports_its_bill(self):
+        s = self._claude_session()
+        out = s.steps(dict(self.RESULT, subtype="error_max_turns", result=""))
+        assert out[0]["tool"] == "error"
+        assert out[0]["params"]["usage"]["completion_tokens"] == 900
+
+    def test_no_usage_means_no_usage_key(self):
+        s = self._claude_session()
+        out = s.steps({"type": "result", "subtype": "success", "result": "ok"})
+        assert out[0]["params"] == {"summary": "ok"}
+
+    def test_meter_harness_lands_the_terminal_steps_bill(self):
+        from src.mod import Mod
+        from src.billing import Meter
+        mod = Mod.__new__(Mod)
+        mod.meter = Meter()
+        mod._meter_harness("claude", [
+            {"tool": "bash", "params": {}},
+            {"tool": "finish", "params": {"summary": "x", "usage": {
+                "prompt_tokens": 100, "completion_tokens": 10, "cost": 0.05,
+                "turns": 2, "model": "claude-opus-5", "provider": "claude-code"}}},
+        ])
+        u = mod.meter.take()
+        assert u["prompt_tokens"] == 100 and u["completion_tokens"] == 10
+        assert u["cost"] == 0.05 and u["priced"] and u["calls"] == 2
+        assert u["model"] == "claude-opus-5" and u["provider"] == "claude-code"
+
+    def test_a_run_with_no_reported_usage_meters_nothing(self):
+        from src.mod import Mod
+        from src.billing import Meter
+        mod = Mod.__new__(Mod)
+        mod.meter = Meter()
+        mod._meter_harness("claude", [{"tool": "finish", "params": {"summary": "x"}}])
+        assert mod.meter.take()["calls"] == 0
+
+
+class TestArenaHarnessPass:
+    """The board may play a harness agent — but only holding the in-process
+    pass, and only once the host opted in with the arena `harnesses` knob."""
+
+    def _mod(self, opted_in):
+        from src.mod import Mod
+        from src.harness.mod import Harness
+        mod = Mod.__new__(Mod)
+        mod.agents = Agents()
+        mod.harness = Harness()
+        mod.memories = Memories()
+        mod.memory = Memory()
+        mod.is_owner = lambda key=None: False   # the board is never the owner
+        mod.allowed_paths_for = lambda key=None: None
+        mod.library = None
+        mod._arena_pass = object()
+        mod.arena = type("A", (), {"config": lambda self: {"harnesses": opted_in}})()
+        return mod
+
+    def test_the_pass_opens_the_gate_once_opted_in(self, monkeypatch):
+        mod = self._mod(True)
+        monkeypatch.setattr(mod.harness, "run",
+                            lambda *a, **k: [{"tool": "finish", "params": {"summary": "ok"}}])
+        out = mod._run(agent_type="claude-code", query="hi", path="/tmp",
+                       key=mod._arena_pass)
+        assert out[0]["params"]["summary"] == "ok"
+
+    def test_the_pass_is_refused_while_opted_out(self):
+        mod = self._mod(False)
+        with pytest.raises(PermissionError, match="harnesses=true"):
+            mod._run(agent_type="claude-code", query="hi", path="/tmp",
+                     key=mod._arena_pass)
+
+    def test_arena_match_cannot_be_forged_through_kwargs(self):
+        """arena_match is computed from the pass, never read as a caller knob."""
+        mod = self._mod(True)
+        with pytest.raises(PermissionError, match="owner-only"):
+            mod._run(agent_type="claude-code", query="hi", key="0xguest",
+                     arena_match=True)
+
+    def test_a_missing_pass_never_makes_a_keyless_run_a_match(self):
+        """__new__-built mods carry no pass; keyless must still be a guest."""
+        mod = self._mod(True)
+        del mod._arena_pass
+        with pytest.raises(PermissionError, match="owner-only"):
+            mod._run(agent_type="claude-code", query="hi", key=None)
+
+
 class TestDefaultAgent:
     """An unnamed run lands on Claude Code — for whoever is allowed to run it."""
 
@@ -4926,3 +5035,43 @@ class TestTheTaskHappens:
         steps = agent.run(query='fix the port', steps=6, model='x')
         assert len(sent) == 2                      # a report, not a promise
         assert steps[-1]['tool'] == 'response'
+
+
+class TestLiveEvents:
+    """The stream's ephemeral extras: tokens as the model writes them, a tool
+    call the moment it starts. Rendered and dropped — never part of history."""
+
+    def test_run_emits_tokens_tool_starts_and_model_starts(self):
+        agent, _ = _bare_agent([
+            # a list reply streams chunk by chunk, the way a provider does
+            ['Reading it now. ', '<STEP>{"tool": "bash", "params": {"command": "echo hi"}}</STEP>'],
+            ['<STEP>{"tool": "finish", "params": {"summary": "done"}}</STEP>'],
+        ])
+        live = []
+        steps = agent.run(query='look around', steps=4, model='x', on_live=live.append)
+        kinds = [e['event'] for e in live]
+        assert 'model_start' in kinds and 'token' in kinds and 'tool_start' in kinds
+        assert ''.join(e['text'] for e in live if e['event'] == 'token'
+                       ).startswith('Reading it now.')
+        start = next(e for e in live if e['event'] == 'tool_start')
+        assert start['tool'] == 'bash'
+        # params are the resolved ones the call actually runs with (cwd added)
+        assert start['params']['command'] == 'echo hi'
+        assert steps[-1]['tool'] == 'finish'
+
+    def test_a_live_callback_that_raises_never_kills_the_run(self):
+        agent, _ = _bare_agent(
+            [['<STEP>{"tool": "finish", "params": {"summary": "ok"}}</STEP>']])
+        steps = agent.run(query='x', steps=2, model='x', on_live=lambda ev: 1 / 0)
+        assert steps[-1]['tool'] == 'finish'
+
+    def test_tool_start_lands_before_the_result_does(self):
+        agent, _ = _bare_agent([
+            ['<STEP>{"tool": "bash", "params": {"command": "echo hi"}}</STEP>'],
+            ['<STEP>{"tool": "finish", "params": {"summary": "done"}}</STEP>'],
+        ])
+        order = []
+        agent.run(query='x', steps=4, model='x',
+                  on_live=lambda ev: ev['event'] == 'tool_start' and order.append('start'),
+                  on_step=lambda s: s.get('tool') == 'bash' and order.append('step'))
+        assert order == ['start', 'step']

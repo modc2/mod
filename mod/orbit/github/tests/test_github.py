@@ -119,3 +119,75 @@ def test_repo_and_readme_are_keyless(gh):
     r = gh.repo('bytecodealliance/wasmtime')
     assert r['name'] == 'bytecodealliance/wasmtime'
     assert gh.readme('bytecodealliance/wasmtime', n=200)
+
+
+# --- root push -------------------------------------------------------------
+# These run against a throwaway repo in tmp_path, never the real one, and never
+# reach a remote: the point is the gating (cooldown, guards, porcelain parsing),
+# not git itself.
+
+@pytest.fixture
+def repo(gh, tmp_path, monkeypatch):
+    # never let a test write the real ~/.mod/github/root.json
+    monkeypatch.setattr(gh, 'root_path', str(tmp_path / 'root.json'))
+    import subprocess
+    d = tmp_path / 'repo'
+    d.mkdir()
+    for args in (('init', '-b', 'main'), ('config', 'user.email', 't@t'),
+                 ('config', 'user.name', 't')):
+        subprocess.run(('git',) + args, cwd=d, capture_output=True)
+    (d / 'a.txt').write_text('one\n')
+    subprocess.run(['git', 'add', '-A'], cwd=d, capture_output=True)
+    subprocess.run(['git', 'commit', '-m', 'init'], cwd=d, capture_output=True)
+    return str(d)
+
+
+def test_root_paths_keeps_the_leading_status_column():
+    from mod.orbit.github.mod import Mod
+    # ' M path' (unstaged) and 'M  path' (staged) must both yield 'path'
+    assert Mod._root_paths(' M mod/a.py\nM  mod/b.py\n?? c/\n') == [
+        'mod/a.py', 'mod/b.py', 'c/']
+    assert Mod._root_paths('R  old.py -> new.py') == ['new.py']
+
+
+def test_root_reports_pending_work(gh, repo):
+    open(os.path.join(repo, 'b.txt'), 'w').write('two\n')
+    st = gh.root(repo=repo)
+    assert st['branch'] == 'main' and st['dirty'] is True
+    assert st['pending_files'] == 1 and 'b.txt' in st['sample']
+
+
+def test_root_push_dry_never_commits(gh, repo):
+    open(os.path.join(repo, 'b.txt'), 'w').write('two\n')
+    out = gh.root_push(repo=repo, dry=True)
+    assert out['dry'] and out['would_commit'] == 1
+    assert gh.root(repo=repo)['pending_files'] == 1
+
+
+def test_root_push_skips_a_clean_tree(gh, repo):
+    assert gh.root_push(repo=repo, dry=True)['skipped'] == 'clean'
+
+
+def test_root_push_honours_the_cooldown(gh, repo, monkeypatch):
+    import time as _t
+    monkeypatch.setattr(gh, '_root_state', lambda: {
+        'enabled': True, 'every': 3600, 'last_push': _t.time() - 10,
+        'last_error': None, 'history': []})
+    open(os.path.join(repo, 'b.txt'), 'w').write('two\n')
+    out = gh.root_push(repo=repo)
+    assert out['skipped'] == 'cooldown' and out['next_push_in'] > 3500
+    # force ignores it — dry, so still no commit
+    assert gh.root_push(repo=repo, force=True, dry=True)['would_commit'] == 1
+
+
+def test_root_push_guards_an_implausible_diff(gh, repo, monkeypatch):
+    import mod.orbit.github.mod as gmod
+    monkeypatch.setattr(gmod, 'ROOT_MAX_FILES', 0)
+    open(os.path.join(repo, 'b.txt'), 'w').write('two\n')
+    with pytest.raises(ValueError, match='exceeds'):
+        gh.root_push(repo=repo, dry=True)
+
+
+def test_root_rejects_a_non_repo(gh, tmp_path):
+    with pytest.raises(ValueError, match='not a git repo'):
+        gh.root(repo=str(tmp_path))

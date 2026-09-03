@@ -55,6 +55,17 @@ CLI:
     m github/rate                                  # rate limit left
     m github/oauth                                 # raise it (via the git mod)
     m github/serve                                 # app+api on :50520
+
+ROOT PUSH (temporary)
+The whole mod repo, committed and pushed on a timer, so one push at the root
+stands in for every module underneath it and nobody else has to update:
+
+    m github/root                # what is pending, when the next push is due
+    m github/root_push dry=1     # what it would commit, without doing it
+    m github/root_push force=1   # push now, ignoring the hourly cooldown
+    m github/root_auto every=3600  # start the pm2 loop (github-rootpush)
+    m github/root_auto on=0        # stop it
+    m github/root_log            # the last pushes and any failures
 """
 import concurrent.futures as futures
 import contextlib
@@ -84,6 +95,20 @@ MAX_CACHE = 400                           # entries kept before the oldest go
 EMBED_MODEL = os.environ.get('GITHUB_EMBED_MODEL', 'all-MiniLM-L6-v2')
 AGENT_MOD = 'agent'                       # optional query rewriter
 REPO_RE = re.compile(r'(?:https?://github\.com/)?([\w.-]+)/([\w.-]+?)(?:\.git)?/?$')
+
+# Root push (temporary): the whole mod repo, committed and pushed on a timer so
+# nothing has to be uploaded by hand. Four dirnames up from this file is the
+# repo root — github/ → orbit/ → mod/ → the checkout itself.
+ROOT_REPO = os.environ.get('GITHUB_ROOT_REPO') or os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+ROOT_STATE = '~/.mod/github/root.json'    # enabled, interval, last push, history
+ROOT_LOCK = '/tmp/github-rootpush.lock'   # one pusher at a time
+ROOT_REMOTE = 'origin'
+ROOT_EVERY = 3600                         # seconds between pushes, at most one
+ROOT_TICK = 60                            # how often the loop looks at the tree
+ROOT_HISTORY = 50                         # pushes kept in the state file
+ROOT_MAX_FILES = 4000                     # a bigger diff than this wants a human
+ROOT_MAX_BYTES = 256 * 1024 * 1024
 
 # Query expansion: the cheap half of "semantic". A question is tokenized and
 # every hit here contributes extra lexical queries and topic filters, which is
@@ -151,6 +176,7 @@ class Mod:
         self.access_path = m.abspath(ACCESS)
         self.owner_path = m.abspath(OWNER)
         self.host_owner_path = m.abspath(HOST_OWNER)
+        self.root_path = m.abspath(ROOT_STATE)
         self._model = None
 
     # --- github rest (keyless by default) -----------------------------------
@@ -695,6 +721,239 @@ class Mod:
             return {'ok': False, 'address': self._token_address(headers or {}),
                     'error': str(e)}
 
+    # --- root push (temporary) ----------------------------------------------
+    #
+    # One push at the top of the repo stands in for every module underneath it:
+    # nobody has to commit their own subtree, so "everyone else" never has to
+    # update. A push fires at most once per `every` seconds — an edit landing
+    # two minutes after a push waits out the rest of the hour and rides the
+    # next tick, which is what keeps a busy tree from turning into 40 commits.
+    #
+    # This is deliberately a thin wrapper over the git CLI rather than a second
+    # git module: it needs to run headless from a pm2 loop, and the only thing
+    # it cares about is "is the tree dirty, and has the hour elapsed".
+
+    def _root_repo(self, repo: str = None) -> str:
+        path = os.path.abspath(os.path.expanduser(repo or ROOT_REPO))
+        if not os.path.isdir(os.path.join(path, '.git')):
+            raise ValueError(f'{path} is not a git repo')
+        return path
+
+    @staticmethod
+    def _git(repo: str, *args, timeout: int = 900):
+        """Run one git command. The askpass vars are scrubbed on purpose: a
+        dead VS Code server leaves GIT_ASKPASS pointing at a socket that no
+        longer exists, and git reports that as a confusing ENOENT instead of
+        falling through to the stored credential."""
+        import subprocess
+        env = {k: v for k, v in os.environ.items()
+               if k not in ('GIT_ASKPASS', 'SSH_ASKPASS', 'VSCODE_GIT_ASKPASS_NODE',
+                            'VSCODE_GIT_ASKPASS_MAIN', 'VSCODE_GIT_ASKPASS_EXTRA_ARGS',
+                            'VSCODE_GIT_IPC_HANDLE')}
+        env['GIT_TERMINAL_PROMPT'] = '0'
+        try:
+            r = subprocess.run(('git',) + args, cwd=repo, capture_output=True,
+                               text=True, timeout=timeout, env=env)
+        except subprocess.TimeoutExpired:
+            return 124, f'timeout after {timeout}s: git {" ".join(args)}'
+        return r.returncode, (r.stdout or '') + (r.stderr or '')
+
+    def _root_state(self) -> dict:
+        st = m.get(self.root_path, {}) or {}
+        st.setdefault('enabled', False)
+        st.setdefault('every', ROOT_EVERY)
+        st.setdefault('last_push', 0)
+        st.setdefault('last_error', None)
+        st.setdefault('history', [])
+        return st
+
+    def _root_save(self, st: dict) -> dict:
+        st['history'] = st.get('history', [])[-ROOT_HISTORY:]
+        m.put(self.root_path, st)
+        return st
+
+    @staticmethod
+    def _root_paths(porcelain: str) -> list:
+        """Working-tree paths out of `git status --porcelain -uall`. Renames
+        arrive as `old -> new`; only the new side exists on disk."""
+        out = []
+        for line in porcelain.splitlines():
+            if len(line) < 4:
+                continue
+            p = line[3:].split(' -> ')[-1].strip()
+            if p.startswith('"') and p.endswith('"'):
+                p = p[1:-1].encode().decode('unicode_escape')
+            if p:
+                out.append(p)
+        return out
+
+    def _root_branch(self, path: str) -> str:
+        _, branch = self._git(path, 'rev-parse', '--abbrev-ref', 'HEAD')
+        return branch.strip() or 'HEAD'
+
+    def _root_pending(self, path: str, branch: str) -> dict:
+        """What a push would carry: dirty files plus commits already made but
+        not yet on the remote."""
+        _, porcelain = self._git(path, 'status', '--porcelain', '-uall')
+        files = self._root_paths(porcelain)
+        size = 0
+        for f in files:
+            full = os.path.join(path, f)
+            with contextlib.suppress(OSError):
+                size += os.path.getsize(full)
+        ahead = 0
+        code, out = self._git(path, 'rev-list', '--count', f'{ROOT_REMOTE}/{branch}..HEAD')
+        if code == 0 and out.strip().isdigit():
+            ahead = int(out.strip())
+        return {'files': files, 'count': len(files), 'bytes': size, 'ahead': ahead}
+
+    def root(self, repo: str = None) -> dict:
+        """Status of the hourly root push: what is pending, when the next one
+        is allowed, and how the last one went."""
+        path = self._root_repo(repo)
+        st = self._root_state()
+        branch = self._root_branch(path)
+        pend = self._root_pending(path, branch)
+        wait = max(0, int(st['every']) - int(time.time() - st['last_push']))
+        return {
+            'repo': path, 'branch': branch, 'remote': ROOT_REMOTE,
+            'enabled': bool(st['enabled']), 'every': int(st['every']),
+            'pending_files': pend['count'], 'pending_bytes': pend['bytes'],
+            'unpushed_commits': pend['ahead'],
+            'dirty': bool(pend['count'] or pend['ahead']),
+            'last_push': st['last_push'],
+            'last_push_ago': int(time.time() - st['last_push']) if st['last_push'] else None,
+            'next_push_in': wait if (pend['count'] or pend['ahead']) else None,
+            'last_error': st['last_error'],
+            'worker': self.ROOT_PM2,
+            'sample': pend['files'][:20],
+        }
+
+    def root_push(self, message: str = None, force: bool = False, dry: bool = False,
+                  repo: str = None, branch: str = None) -> dict:
+        """Stage everything, commit, push. Refuses inside the cooldown unless
+        `force`; refuses an implausibly large commit unless `force`, which is
+        the guard against a stray build directory that nobody gitignored."""
+        import fcntl
+        path = self._root_repo(repo)
+        lock = open(ROOT_LOCK, 'a+')
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return {'ok': False, 'skipped': 'busy', 'repo': path}
+        try:
+            st = self._root_state()
+            since = time.time() - st['last_push']
+            if not force and not dry and st['last_push'] and since < st['every']:
+                return {'ok': True, 'skipped': 'cooldown', 'repo': path,
+                        'next_push_in': int(st['every'] - since)}
+            branch = branch or self._root_branch(path)
+            if branch == 'HEAD':
+                raise ValueError('detached HEAD — check out a branch first')
+            pend = self._root_pending(path, branch)
+            if not pend['count'] and not pend['ahead']:
+                return {'ok': True, 'skipped': 'clean', 'repo': path, 'branch': branch}
+            if not force and pend['count'] > ROOT_MAX_FILES:
+                raise ValueError(f"{pend['count']} changed files exceeds the "
+                                 f'{ROOT_MAX_FILES} guard — pass force=1 if that is real')
+            if not force and pend['bytes'] > ROOT_MAX_BYTES:
+                raise ValueError(f"{pend['bytes'] / 1e6:.0f}MB of changes exceeds the "
+                                 f'{ROOT_MAX_BYTES / 1e6:.0f}MB guard — pass force=1 '
+                                 'if that is real')
+            stamp = time.strftime('%Y-%m-%d %H:%M', time.localtime())
+            msg = message or f"root push · {pend['count']} files · {stamp}"
+            if dry:
+                return {'ok': True, 'dry': True, 'repo': path, 'branch': branch,
+                        'would_commit': pend['count'], 'bytes': pend['bytes'],
+                        'unpushed_commits': pend['ahead'], 'message': msg,
+                        'sample': pend['files'][:40]}
+            entry = {'at': int(time.time()), 'branch': branch, 'files': pend['count'],
+                     'bytes': pend['bytes'], 'message': msg}
+            if pend['count']:
+                code, out = self._git(path, 'add', '-A')
+                if code:
+                    raise RuntimeError(f'git add failed: {out.strip()[-800:]}')
+                code, out = self._git(path, 'commit', '-m', msg)
+                # "nothing to commit" is fine when every dirty path was ignored
+                if code and 'nothing to commit' not in out:
+                    raise RuntimeError(f'git commit failed: {out.strip()[-800:]}')
+            code, out = self._git(path, 'push', ROOT_REMOTE, f'HEAD:refs/heads/{branch}')
+            if code:
+                raise RuntimeError(f'git push failed: {out.strip()[-800:]}')
+            _, head = self._git(path, 'rev-parse', '--short', 'HEAD')
+            entry.update(ok=True, commit=head.strip())
+            st.update(last_push=int(time.time()), last_error=None)
+            st['history'].append(entry)
+            self._root_save(st)
+            return {'ok': True, 'repo': path, 'branch': branch, 'commit': head.strip(),
+                    'files': pend['count'], 'bytes': pend['bytes'], 'message': msg,
+                    'pushed_to': f'{ROOT_REMOTE}/{branch}'}
+        except Exception as e:
+            st = self._root_state()
+            st['last_error'] = {'at': int(time.time()), 'error': str(e)}
+            st['history'].append({'at': int(time.time()), 'ok': False, 'error': str(e)})
+            self._root_save(st)
+            raise
+        finally:
+            with contextlib.suppress(Exception):
+                fcntl.flock(lock, fcntl.LOCK_UN)
+            lock.close()
+
+    def root_log(self, n: int = 20) -> dict:
+        st = self._root_state()
+        return {'enabled': bool(st['enabled']), 'every': int(st['every']),
+                'last_push': st['last_push'], 'last_error': st['last_error'],
+                'history': st['history'][-int(n):][::-1]}
+
+    ROOT_PM2 = 'github-rootpush'
+
+    def root_auto(self, on: bool = True, every: int = None, repo: str = None) -> dict:
+        """Turn the hourly loop on or off. The state file is the switch and the
+        pm2 process only reads it, so flipping this off stops pushes even if
+        the process outlives the call."""
+        import subprocess
+        st = self._root_state()
+        st['enabled'] = bool(on) and str(on).lower() not in ('0', 'false', 'no')
+        if every:
+            st['every'] = max(60, int(every))
+        if repo:
+            st['repo'] = self._root_repo(repo)
+        self._root_save(st)
+        if not st['enabled']:
+            subprocess.run(['pm2', 'delete', self.ROOT_PM2], capture_output=True, text=True)
+            subprocess.run(['pm2', 'save'], capture_output=True, text=True)
+            return {'enabled': False, 'worker': 'stopped'}
+        here = os.path.dirname(os.path.abspath(__file__))
+        runner = os.path.join(here, 'run_rootpush.py')
+        root = os.path.dirname(os.path.dirname(os.path.dirname(here)))
+        subprocess.run(['pm2', 'delete', self.ROOT_PM2], capture_output=True, text=True)
+        r = subprocess.run(['pm2', 'start', runner, '--name', self.ROOT_PM2,
+                            '--interpreter', 'python3', '--cwd', root, '--time'],
+                           capture_output=True, text=True, env=dict(os.environ))
+        if r.returncode != 0:
+            raise RuntimeError(f'pm2 start failed: {r.stderr or r.stdout}')
+        subprocess.run(['pm2', 'save'], capture_output=True, text=True)
+        return {'enabled': True, 'worker': self.ROOT_PM2, 'every': int(st['every']),
+                'repo': st.get('repo', ROOT_REPO)}
+
+    def root_loop(self, tick: int = ROOT_TICK, repo: str = None):
+        """Foreground loop (pm2 entrypoint). Wakes every `tick` seconds, pushes
+        when the tree is dirty AND the cooldown has expired — so a change made
+        during the hour is picked up as soon as the hour is up."""
+        tick = max(5, int(tick))
+        print(f'github root push loop — tick {tick}s', flush=True)
+        while True:
+            try:
+                st = self._root_state()
+                if st['enabled']:
+                    r = self.root_push(repo=repo or st.get('repo'))
+                    if not r.get('skipped'):
+                        print(f"pushed {r.get('files')} files as {r.get('commit')} "
+                              f"→ {r.get('pushed_to')}", flush=True)
+            except Exception as e:
+                print(f'root push failed: {e}', flush=True)
+            time.sleep(tick)
+
     # --- app + api ----------------------------------------------------------
 
     def serve(self, port=APP_PORT, host='0.0.0.0', background=True):
@@ -803,15 +1062,21 @@ class Mod:
             '/api/readme': ('readme', ('repo', 'n', 'branch')),
             '/api/trending': ('trending', ('language', 'days', 'n')),
             '/api/rate': ('rate', ()), '/api/cache': ('cache', ()),
-            '/api/access': ('access', ()), '/api/github': ('github', ('address',))}
+            '/api/access': ('access', ()), '/api/github': ('github', ('address',)),
+            '/api/root': ('root', ('repo',)),
+            '/api/root_log': ('root_log', ('n',))}
         WRITES = {'/api/clear_cache': ('clear_cache', (), 'write'),
                   '/api/connect': ('connect', ('token', 'address'), 'write'),
                   '/api/disconnect': ('disconnect', ('address', 'login'), 'write'),
                   '/api/oauth': ('oauth', ('address', 'scope'), 'write'),
                   '/api/grant': ('grant', ('address', 'role'), 'admin'),
-                  '/api/revoke': ('revoke', ('address',), 'admin')}
-        INTS = {'n', 'pages', 'stars', 'readmes', 'days'}
-        BOOLS = {'fresh', 'agent', 'dense', 'explain'}
+                  '/api/revoke': ('revoke', ('address',), 'admin'),
+                  '/api/root_push': ('root_push',
+                                     ('message', 'force', 'dry', 'repo', 'branch'),
+                                     'admin'),
+                  '/api/root_auto': ('root_auto', ('on', 'every', 'repo'), 'admin')}
+        INTS = {'n', 'pages', 'stars', 'readmes', 'days', 'every', 'tick'}
+        BOOLS = {'fresh', 'agent', 'dense', 'explain', 'force', 'dry', 'on'}
 
         def coerce(k, v):
             if k in INTS:
@@ -863,6 +1128,11 @@ class Mod:
                 q = {k: v[0] for k, v in parse_qs(u.query).items()}
                 if path == '/api/whoami':
                     return self._send(200, gh.whoami(dict(self.headers)))
+                if path in ('/api/root', '/api/root_log'):
+                    try:
+                        gh._authorize(dict(self.headers), need='write')
+                    except PermissionError as e:
+                        return self._send(403, {'error': str(e)})
                 spec = READS.get(path)
                 if not spec:
                     return self._send(404, {'error': f'unknown endpoint {path}'})

@@ -24,13 +24,39 @@ type ToolSchema = { description: string; params: Record<string, any> }
 // live from the run's `usage` events, and finalised by its `done` event.
 type Usage = { cost?: number | null; tokens?: number; calls?: number; model?: string
                priced?: boolean; charged?: number | null; per_call?: any[] }
-type Message = { role: 'user' | 'agent' | 'system'; text: string; steps?: any[]; live?: boolean; images?: string[]; thumbs?: string[]; usage?: Usage }
+// draft/running exist only while a run streams: draft is the model's output
+// landing token by token, running is the tool call in flight right now. Both
+// are superseded by the real step events and dropped when the run finishes.
+type RunningTool = { tool: string; params?: any; i?: number; n?: number }
+type Message = { role: 'user' | 'agent' | 'system'; text: string; steps?: any[]; live?: boolean; images?: string[]; thumbs?: string[]; usage?: Usage; draft?: string; running?: RunningTool | null }
 // uid/cid/synced tie a conversation to the server-side store: uid is the
 // stable cross-device id, cid the localfs pin, synced whether the server copy
 // is current. Anonymous sessions only ever live in localStorage.
 type TaskEntry = { id: number; query: string; status: 'running' | 'done' | 'error'; stepCount?: number; messages: Message[]; agent_type?: string; startedAt?: number; finishedAt?: number; uid?: string; cid?: string; synced?: boolean }
 
 const genUid = () => `c-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+
+// What of the streaming draft is fit to show. The raw stream is the loop's
+// own output: prose, a thinking model's <think> scratchpad, and the
+// <STEP>{...}</STEP> tool-call JSON. The prose streams as-is; an unfinished
+// STEP block folds into "writing a <tool> call…" (the tool name is readable
+// long before the JSON closes); a finished one is about to arrive as a real
+// step event, so it just disappears.
+const draftView = (draft: string) => {
+  let t = draft.replace(/<\/?PLAN>/g, '')
+  let composing: string | null = null
+  const i = t.indexOf('<STEP>')
+  if (i >= 0) {
+    const rest = t.slice(i)
+    if (!rest.includes('</STEP>')) {
+      const m = /"tool"\s*:\s*"([\w./-]+)"/.exec(rest)
+      composing = m ? m[1] : ''
+    }
+    t = t.slice(0, i)
+  }
+  const prose = t.replace(/<\/?think>/gi, '').replace(/<\|[^|]{0,40}\|>/g, '').trimStart()
+  return { prose, composing }
+}
 
 // ── what a call cost, in words a person reads ──
 // Sub-cent runs are the normal case here, so a $0.00 that means "nearly free"
@@ -1583,9 +1609,33 @@ export default function Home() {
       const liveSteps: any[] = []
       let receivedAny = false
 
+      // patch the trailing live message (creating it if the run hasn't
+      // spoken yet) — the streaming events all land on the same bubble
+      const patchLive = (fn: (last: Message) => Message) => {
+        patchTask(tk => {
+          const msgs = [...tk.messages]
+          const last = msgs[msgs.length - 1]
+          if (!last || !last.live) msgs.push(fn({ role: 'agent', text: '', steps: [], live: true }))
+          else msgs[msgs.length - 1] = fn(last)
+          return { ...tk, messages: msgs }
+        })
+      }
+
       const onEvent = (ev: any) => {
         if (apiStatus !== 'ok') setApiStatus('ok')
-        if (ev.type === 'step' && ev.step) {
+        if (ev.type === 'token' && ev.text) {
+          // the model's answer landing token by token. Clipped from the
+          // front: only the tail is on screen, and a mid-run persist of an
+          // unbounded draft would eat the shared localStorage quota
+          patchLive(last => ({ ...last, draft: ((last.draft || '') + ev.text).slice(-8000) }))
+        } else if (ev.type === 'model_start') {
+          // a fresh model call — whatever streamed before belongs to the
+          // last step now, and the tool that was running has returned
+          patchLive(last => ({ ...last, draft: '', running: null }))
+        } else if (ev.type === 'tool_start' && ev.tool) {
+          patchLive(last => ({ ...last, draft: '',
+            running: { tool: ev.tool, params: ev.params, i: ev.i, n: ev.n } }))
+        } else if (ev.type === 'step' && ev.step) {
           liveSteps.push(ev.step)
           const step = ev.step
           patchTask(tk => {
@@ -1598,6 +1648,9 @@ export default function Home() {
               last = { ...last, steps: [...(last.steps || [])] }
               msgs[msgs.length - 1] = last
             }
+            // the executed step supersedes the live indicators for it
+            last.draft = undefined
+            last.running = null
             if (step.tool === 'response' && step.result) {
               last.text = last.text ? `${last.text}\n${step.result}` : String(step.result)
             } else if (step.tool === 'finish') {
@@ -1650,7 +1703,7 @@ export default function Home() {
             ...tk,
             status: 'error',
             finishedAt: Date.now(),
-            messages: [...tk.messages.map(msg => msg.live ? { ...msg, live: undefined } : msg),
+            messages: [...tk.messages.map(msg => msg.live ? { ...msg, live: undefined, draft: undefined, running: null } : msg),
               { role: 'system', text: 'Stream interrupted — the agent may still be running on the server.' }],
           }))
         }
@@ -3270,32 +3323,72 @@ export default function Home() {
                   </>
                 ) : (
                   <div className="whitespace-pre-wrap text-sm text-gray-300 leading-relaxed">
-                    {msg.text ? renderText(msg.text)
-                      : msg.live && !msg.steps?.length ? (
-                        <span className="text-gray-600 shimmer-text">thinking…</span>
-                      ) : null}
+                    {msg.text ? renderText(msg.text) : null}
+                    {/* the model's output, landing as it streams. Prose shows
+                        with a caret; a tool call being written folds into an
+                        indicator naming the tool it is shaping up to be */}
+                    {msg.live && msg.draft ? (() => {
+                      const d = draftView(msg.draft)
+                      return (
+                        <>
+                          {d.prose && (
+                            <span className="text-gray-400">
+                              {msg.text ? '\n' : ''}{d.prose}
+                              <span className="text-emerald-400 animate-pulse">▋</span>
+                            </span>
+                          )}
+                          {d.composing != null && (
+                            <div className="flex items-center gap-2 mt-1 text-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                              <span className="text-gray-600 shimmer-text">
+                                writing a <span className="text-emerald-300/80 font-mono">{d.composing || 'tool'}</span> call…
+                              </span>
+                            </div>
+                          )}
+                          {!d.prose && d.composing == null && !msg.text && !msg.steps?.length && (
+                            <span className="text-gray-600 shimmer-text">thinking…</span>
+                          )}
+                        </>
+                      )
+                    })() : msg.live && !msg.text && !msg.steps?.length && !msg.running ? (
+                      <span className="text-gray-600 shimmer-text">thinking…</span>
+                    ) : null}
                   </div>
                 )}
                 {/* the calls themselves, in the transcript. What the agent
                     reached for is half of what it did, and it used to be a
                     count you had to leave the conversation to read. */}
-                {msg.steps && msg.steps.length > 0 && (
+                {((msg.steps && msg.steps.length > 0) || (msg.live && msg.running)) && (
                   <div className="mt-2 space-y-0.5">
-                    {msg.steps.map((step: any, j: number) => stepRow(step, `m${i}-${j}`))}
-                    {/* still going: the next call hasn't landed yet */}
-                    {msg.live && (
+                    {(msg.steps || []).map((step: any, j: number) => stepRow(step, `m${i}-${j}`))}
+                    {/* still going: the call in flight, by name, while it
+                        runs — or a plain pulse when nothing is executing */}
+                    {msg.live && (msg.running ? (
+                      <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-md border border-emerald-500/20 bg-emerald-500/[0.04]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                        <span className="text-emerald-300 font-mono shrink-0 shimmer-text">{msg.running.tool}</span>
+                        {stepTarget(msg.running) && (
+                          <span className="text-gray-600 truncate font-mono">{shortPath(String(stepTarget(msg.running)))}</span>
+                        )}
+                        {(msg.running.n || 0) > 1 && (
+                          <span className="text-gray-700 ml-auto shrink-0 text-[10px]">{msg.running.i}/{msg.running.n}</span>
+                        )}
+                      </div>
+                    ) : (
                       <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                         <span className="text-gray-600 shimmer-text">working…</span>
                       </div>
+                    ))}
+                    {(msg.steps?.length || 0) > 0 && (
+                      <button onClick={() => setActiveTab('tools')}
+                        title="Open the full trace"
+                        className="inline-flex items-center gap-1.5 pt-0.5 px-2.5 text-[10px] text-gray-600 hover:text-emerald-300 transition">
+                        {msg.steps!.length} call{msg.steps!.length === 1 ? '' : 's'}
+                        {msg.steps!.some((s: any) => s.error) && <span className="text-red-400/80">· errors</span>}
+                        <span className="text-gray-700">· full trace →</span>
+                      </button>
                     )}
-                    <button onClick={() => setActiveTab('tools')}
-                      title="Open the full trace"
-                      className="inline-flex items-center gap-1.5 pt-0.5 px-2.5 text-[10px] text-gray-600 hover:text-emerald-300 transition">
-                      {msg.steps.length} call{msg.steps.length === 1 ? '' : 's'}
-                      {msg.steps.some((s: any) => s.error) && <span className="text-red-400/80">· errors</span>}
-                      <span className="text-gray-700">· full trace →</span>
-                    </button>
                   </div>
                 )}
                 {/* what this call to the agent cost on the provider key. Every

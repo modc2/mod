@@ -279,7 +279,18 @@ scheduler never restarts a broken round every tick.
 
 Harness agents (Claude Code, Codex) hand the run to a CLI on the host with
 its approval prompts off, so they sit out unless the host sets
-`harnesses: true`.
+`harnesses: true`. That knob is the owner's standing consent: a match has no
+caller to be the owner, so the board's own runs carry an in-process pass that
+the harness gate honors only while the knob is on — flipping it back off
+closes the door again, scheduler and manual matches alike. Know what opting
+in means: every daily round then plays those CLIs on the host's own accounts.
+
+A harness match is metered from the CLI's own report, not the module's
+estimate — the claude runner reads exact token counts and USD off the run's
+result event — so its `tokens`, `cost` and `model` land on the match record
+and the boards price it honestly. Measured here (2026-09): on small tasks the
+bill is fixed per-turn context, not verbosity, so the levers that move
+`cost_per_point` are fewer turns and a smaller model, not prompt exhortations.
 
 ## State
 

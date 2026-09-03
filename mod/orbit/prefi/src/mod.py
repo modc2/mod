@@ -85,6 +85,8 @@ class Mod:
         # Same two-door memory for the bt module (Bittensor subnets).
         self._bt_base = None
         self._bt_last = None
+        # And for the bloctime module (agent-play weights).
+        self._bloctime_base = None
         # Where the last DEX read (DexScreener / GeckoTerminal) came from.
         self._dex_last = None
         self._pool = None
@@ -400,6 +402,13 @@ class Mod:
     # port means "asleep", not "no feed", so we knock on the activator before
     # falling through to the public endpoint.
     HL_WAKE_URL = os.environ.get('PREFI_HL_WAKE', 'http://localhost:9000/api/hyperliquid')
+    # The bloctime module — time-weighted staking on Base Sepolia. Agent play
+    # reads an address's lock positions off it to weigh calls by USD × seconds
+    # locked across a round. Same two-door pattern: its own port, then the
+    # activator in case it is scale-to-zero on this host.
+    BLOCTIME_MOD_URL = os.environ.get('PREFI_BLOCTIME_API', 'http://localhost:8851')
+    BLOCTIME_WAKE_URL = os.environ.get('PREFI_BLOCTIME_WAKE',
+                                       'http://localhost:9000/api/bloctime')
     # The pair list moves when HL lists a coin, not by the second. Fifteen
     # minutes of cache is what keeps a market-picker keystroke off the feed.
     HL_UNIVERSE_TTL = 900
@@ -2875,8 +2884,82 @@ class Mod:
                 on_fee=self._pool_fee_to_treasury,
                 liquidity_now=self._dex_liquidity,
                 library=self.fns,
+                bloc_weight=self._bloc_usd_seconds,
             )
         return self._pool
+
+    # -- bloctime (agent-play weights) ---------------------------------
+
+    def _bloctime_req(self, method: str, path: str, body: Dict = None,
+                      timeout: int = 10):
+        """One request to the local bloctime module. None if it isn't
+        reachable. Its own port first, then the activator — bloctime can be
+        scale-to-zero, and a refused direct call means asleep, not dead."""
+        bases, seen = [], set()
+        for base in (self._bloctime_base, self.BLOCTIME_MOD_URL,
+                     self.BLOCTIME_WAKE_URL):
+            if base and base not in seen:
+                seen.add(base)
+                bases.append(base)
+        for base in bases:
+            try:
+                wait = max(timeout, 30) if base == self.BLOCTIME_WAKE_URL else timeout
+                if method == 'GET':
+                    resp = requests.get(f'{base}{path}', timeout=wait)
+                else:
+                    resp = requests.post(f'{base}{path}', json=body or {},
+                                         timeout=wait)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception:
+                continue
+            self._bloctime_base = base
+            return data
+        return None
+
+    def _bloc_price_usd(self) -> float:
+        """The owner-set USD price of the staked token, cached 10 minutes.
+        Falls back to the contract's deployed default ($1) when bloctime is
+        up but the price endpoint predates priceUsdMicro."""
+        cached = self._price_cache.get('_bloc_price')
+        if cached and (time.time() - cached['ts']) < 600:
+            return cached['price']
+        data = self._bloctime_req('GET', '/price')
+        price = None
+        if isinstance(data, dict):
+            price = (data.get('result') or {}).get('priceUsd')
+        if not price or price <= 0:
+            price = cached['price'] if cached else 1.0
+        self._price_cache['_bloc_price'] = {'price': float(price), 'ts': time.time()}
+        return float(price)
+
+    def _bloc_usd_seconds(self, address: str, opens: float,
+                          closes: float) -> Optional[float]:
+        """USD·seconds of bloctime locked across [opens, closes] — the agent
+        weight. For every lock the address holds: the USD value of the locked
+        amount × the seconds its lock window overlaps the round. This is the
+        same quantity the bloctime contract mints BLOC for, scoped to the
+        period, so 'use bloctime' is literal. None = feed unreachable, which
+        the pool treats as 'cannot verify', never as zero.
+        """
+        data = self._bloctime_req('POST', '/overview', {'address': address})
+        if not isinstance(data, dict) or 'result' not in data:
+            return None
+        positions = (data.get('result') or {}).get('positions') or []
+        price = self._bloc_price_usd()
+        total = 0.0
+        for p in positions:
+            try:
+                start = float(p.get('startTime') or 0)
+                lock = float(p.get('lockSeconds') or 0)
+                amount = int(p.get('amount') or 0) / 1e18
+            except (TypeError, ValueError):
+                continue
+            overlap = min(float(closes), start + lock) - max(float(opens), start)
+            if overlap <= 0 or amount <= 0:
+                continue
+            total += amount * price * overlap
+        return round(total, 6)
 
     @property
     def fns(self) -> curves.Library:
@@ -2995,6 +3078,21 @@ class Mod:
     def pool_free_leaderboard(self, limit: int = 50) -> List[Dict]:
         """Free players ranked by accuracy, and by what they would have made."""
         return self.pool.free_leaderboard(limit)
+
+    def pool_agent_stake(self, address: str, asset: str, predicted_price: float,
+                         signature: str = None, nonce: int = None) -> Dict:
+        """An agent's price call — no dollars down, weighted by bloctime
+        locked across the round (USD × seconds), paid from the fee share."""
+        return self.pool.agent_stake(address, asset, predicted_price,
+                                     signature=signature, nonce=nonce)
+
+    def pool_agent_quota(self, address: str, index: int = None) -> Dict:
+        """Agent calls left this round, plus the caller's live usd·seconds."""
+        return self.pool.agent_quota(address, index)
+
+    def pool_agent_leaderboard(self, limit: int = 50) -> List[Dict]:
+        """Agents ranked by fee dollars their locked time earned."""
+        return self.pool.agent_leaderboard(limit)
 
     def pool_round(self, index: int = None, address: str = None) -> Dict:
         """One round with live provisional scores — the pot table."""
@@ -3887,6 +3985,16 @@ class Mod:
                 kwargs.get('address', ''),
                 int(kwargs['round']) if kwargs.get('round') else None),
             'free-board': lambda: self.pool_free_leaderboard(
+                int(kwargs.get('limit', 50))),
+            'agent-stake': lambda: self.pool_agent_stake(
+                kwargs.get('address', ''), kwargs.get('asset', ''),
+                float(kwargs.get('price', 0)),
+                signature=kwargs.get('signature'),
+                nonce=int(kwargs['nonce']) if kwargs.get('nonce') else None),
+            'agent-quota': lambda: self.pool_agent_quota(
+                kwargs.get('address', ''),
+                int(kwargs['round']) if kwargs.get('round') else None),
+            'agent-board': lambda: self.pool_agent_leaderboard(
                 int(kwargs.get('limit', 50))),
             'round': lambda: self.pool_round(
                 int(kwargs['round']) if kwargs.get('round') else None,

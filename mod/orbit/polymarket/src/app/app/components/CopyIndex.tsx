@@ -640,6 +640,20 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
   const [simTradeLimit, setSimTradeLimit] = useState<Record<string, number>>({});
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // ── PARAMS fold — the full knob wall, CLOSED by default. The defaults ARE
+  //    the strat; opening this is opting into tuning it. Remembered per
+  //    browser so a tuner isn't re-opening it on every visit. ──
+  const [paramsOpen, setParamsOpen] = useState(false);
+  useEffect(() => {
+    try { setParamsOpen(localStorage.getItem("poly_index_params_open") === "1"); } catch {}
+  }, []);
+  const toggleParams = () =>
+    setParamsOpen((v) => {
+      const next = !v;
+      try { localStorage.setItem("poly_index_params_open", next ? "1" : "0"); } catch {}
+      return next;
+    });
+
   // ── Weights (local state, persisted on change) ──
   const [traderWeights, setTraderWeights] = useState<Record<string, number>>({});
 
@@ -2227,14 +2241,27 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
           </div>
 
           {/* ── PARAMS — every knob; the filters gate the traders above,
-              and the FILT column re-counts on every edit here ── */}
-          <div className="border-t border-pixel-border/40 pt-3 space-y-2">
-            <div className="flex items-baseline gap-2 flex-wrap">
-              <span className="text-[11px] font-bold text-pixel-white tracking-[0.26em]">PARAMS</span>
-              <span className="text-[10px] text-pixel-gray">
-                apply to the selected traders above — every edit re-runs the backtest and steers the live engine
+              and the FILT column re-counts on every edit here. Folded and
+              CLOSED by default: the defaults are the strat, and a wall of
+              inputs above the results buried the answer under the tuning. ── */}
+          <div className="border-t border-pixel-border/40 pt-2 space-y-2">
+            <button
+              onClick={toggleParams}
+              aria-expanded={paramsOpen}
+              className="w-full flex items-baseline gap-2 text-left group py-0.5"
+              title="Every knob — sizing, risk, engine cadence, market + trade filters. Every edit re-runs the backtest and steers the live engine."
+            >
+              <span className={`text-[11px] font-bold tracking-[0.26em] transition-colors ${paramsOpen ? "text-pixel-white" : "text-pixel-gray group-hover:text-pixel-white"}`}>
+                PARAMS
               </span>
-            </div>
+              <span className="text-[10px] text-pixel-gray/70 truncate min-w-0">
+                {paramsOpen
+                  ? "apply to the selected traders above — every edit re-runs the backtest and steers the live engine"
+                  : "sizing · risk · engine · market + trade filters"}
+              </span>
+              <span className="ml-auto text-[9px] text-pixel-gray shrink-0">{paramsOpen ? "▲" : "▼"}</span>
+            </button>
+            {paramsOpen && (
             <div className="grid gap-2 lg:grid-cols-2">
               <ParamGroup title="SIZING" hint="how much each mirror bets">
                 <Field label="CAPITAL" prefix="$">
@@ -2673,6 +2700,7 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
                 </div>
               )}
             </div>
+            )}
           </div>
           </>
           )}

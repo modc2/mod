@@ -542,6 +542,8 @@ def set_pool_config(
     spot_grace: Optional[int] = Query(None),
     free_per_round: Optional[int] = Query(None, description="Free calls per address per round (0 = off)"),
     free_notional: Optional[float] = Query(None, description="Paper stake a free call's would-have-won is priced at"),
+    agent_per_round: Optional[int] = Query(None, description="Agent calls per address per round (0 = off)"),
+    agent_share_bps: Optional[int] = Query(None, description="Slice of each pot's protocol fee agent play pays out (0..10000)"),
     min_liquidity_usd: Optional[float] = Query(None, description="Dollars a Solana/Base token's pool must hold to be listed or staked (0 = no floor)"),
     secret: Optional[str] = Query(None, description="Owner secret"),
     owner: Optional[str] = Query(None, description="Owner address (with signature)"),
@@ -552,7 +554,8 @@ def set_pool_config(
         tolerance=tolerance, model_params=model_params, min_stake=min_stake, max_stake=max_stake,
         min_withdraw=min_withdraw, fee_bps=fee_bps, auto_pay=auto_pay,
         spot_grace=spot_grace, free_per_round=free_per_round,
-        free_notional=free_notional,
+        free_notional=free_notional, agent_per_round=agent_per_round,
+        agent_share_bps=agent_share_bps,
         min_liquidity_usd=min_liquidity_usd).items() if v is not None}
     return _ok(get_mod().set_pool_config(secret=secret, owner=owner,
                                          signature=signature, **params))
@@ -659,6 +662,30 @@ def pool_free_leaderboard(limit: int = Query(50)):
 def pool_free_quota(address: str, index: Optional[int] = Query(None)):
     """Free calls this address has left in the round."""
     return get_mod().pool_free_quota(address, index)
+
+@app.post("/pool/agent")
+def pool_agent_stake(
+    address: str = Query(...),
+    asset: str = Query(..., description="A pool-priced market, e.g. BTC or SN64"),
+    predicted_price: float = Query(..., description="Where it closes this round"),
+    signature: Optional[str] = Query(None),
+    nonce: Optional[int] = Query(None),
+):
+    """An agent's price call — no dollars down. Weighted by bloctime locked
+    across the round (USD × seconds); agents split a share of each pot's
+    protocol fee by weight × accuracy, paid as real withdrawable dollars."""
+    return _ok(get_mod().pool_agent_stake(address, asset, predicted_price,
+                                          signature=signature, nonce=nonce))
+
+# Ahead of /pool/agent/{address} — same ordering trap as /pool/free.
+@app.get("/pool/agent/leaderboard")
+def pool_agent_leaderboard(limit: int = Query(50)):
+    return get_mod().pool_agent_leaderboard(limit)
+
+@app.get("/pool/agent/{address}")
+def pool_agent_quota(address: str, index: Optional[int] = Query(None)):
+    """Agent calls this address has left, and its live bloctime weight."""
+    return get_mod().pool_agent_quota(address, index)
 
 @app.get("/pool/round")
 def pool_round(index: Optional[int] = Query(None), address: Optional[str] = Query(None)):

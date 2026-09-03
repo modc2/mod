@@ -4,7 +4,8 @@
 /* ─── Tokens ─────────────────────────────────────────────────────
    Near-black base, one saturated accent (signal lime) for the thing
    you are meant to press, mono numerals everywhere money is shown.
-   Up/down stay green/red; free play is violet; warnings amber.       */
+   Up/down stay green/red; free play is violet, agent play teal;
+   warnings amber.                                                    */
 :root {
   --bg: #07080b;
   --surface: #0f1116;
@@ -204,6 +205,9 @@ body::before {
 .btn-violet { background: rgba(182, 156, 255, 0.12); color: var(--violet); border-color: rgba(182, 156, 255, 0.28); }
 .btn-violet:hover:not(:disabled) { background: rgba(182, 156, 255, 0.2); }
 
+.btn-teal { background: rgba(94, 232, 210, 0.12); color: var(--teal); border-color: rgba(94, 232, 210, 0.28); }
+.btn-teal:hover:not(:disabled) { background: rgba(94, 232, 210, 0.2); }
+
 .btn-sm { padding: 6px 10px; font-size: 0.75rem; border-radius: 8px; }
 .btn-xs { padding: 4px 8px; font-size: 0.6875rem; border-radius: 7px; }
 .btn-lg { padding: 13px 20px; font-size: 0.9375rem; border-radius: 12px; }
@@ -219,6 +223,7 @@ body::before {
 .seg-btn.active { background: var(--surface-3); color: var(--text); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 3px rgba(0, 0, 0, 0.4); }
 .seg-btn.active.accent { background: var(--accent); color: var(--accent-ink); }
 .seg-btn.active.violet { background: rgba(182, 156, 255, 0.22); color: var(--violet); }
+.seg-btn.active.teal { background: rgba(94, 232, 210, 0.22); color: var(--teal); }
 .seg-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* Chips (filters) */
@@ -288,6 +293,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .warn { color: var(--warn); }
 .accent { color: var(--accent); }
 .violet { color: var(--violet); }
+.teal { color: var(--teal); }
 .t2 { color: var(--text-2); }
 .t3 { color: var(--text-3); }
 

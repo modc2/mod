@@ -204,6 +204,36 @@ export default function Inspector({ selection, catalog, category, onClose }: Pro
           <PredictedScore props={p} />
         )}
 
+        {selection.layerId === 'housing_lots' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Stat label="Site score" value={`${p.score}`} big
+                    tone={p.tier === 'PRIME' ? 'good' : undefined} />
+              <Stat label="Homes it could carry" value={`~${count(p.est_homes)}`} big />
+            </div>
+            {p.why && (
+              <p className="text-[11.5px] leading-relaxed text-ink-2">
+                {String(p.why).charAt(0).toUpperCase() + String(p.why).slice(1)}.
+              </p>
+            )}
+            <Meta rows={[
+              ['Lot area', `${count(p.area_m2)} m²`],
+              ['Current use', p.use],
+              ['Status', p.status],
+              ['Owner', p.owner],
+              ['Managed by', titleCase(String(p.managed_by || ''))],
+              ['Ward', p.ward],
+              ['Nearest station', p.station],
+              ['Distance', p.station_m != null ? `${count(p.station_m)} m` : null],
+              ['Rough massing', `${p.est_storeys} storeys`],
+            ]} />
+            <p className="text-[10.5px] leading-snug text-muted">
+              The estimate assumes 45% lot coverage at 90 m² per home — a
+              feasibility hunch from open data, not a zoning opinion.
+            </p>
+          </div>
+        )}
+
         {selection.layerId === 'collisions' && (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
@@ -258,7 +288,7 @@ export default function Inspector({ selection, catalog, category, onClose }: Pro
 const KNOWN = [
   'crime', 'incidents', 'ttc_lines', 'streetcars', 'subway_stations',
   'cycling_network', 'green_spaces', 'apartments', 'predicted_scores',
-  'collisions', 'municipalities', 'neighbourhoods', 'wards',
+  'housing_lots', 'collisions', 'municipalities', 'neighbourhoods', 'wards',
 ]
 
 /**
@@ -383,6 +413,7 @@ function headline(sel: Selection): string {
     case 'green_spaces': return p.name || 'Green space'
     case 'apartments':
     case 'predicted_scores': return titleCase(p.address || 'Building')
+    case 'housing_lots': return titleCase(p.address || p.name || 'City lot')
     case 'collisions':
       return p.killed > 0
         ? `${p.killed} killed`

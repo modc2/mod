@@ -836,6 +836,192 @@ class TestFreePlay(PoolTestBase):
         self.assertIn('no market', self.pool.free_stake(ALICE, 'DOGE', 1.0)['error'])
 
 
+class TestAgentPlay(PoolTestBase):
+    """An agent stakes time, not dollars: bloctime locked across the round,
+    weighted as USD × seconds. What agents split is the protocol's own fee —
+    never a dollar out of the stakers' pot."""
+
+    def setUp(self):
+        super().setUp()
+        # address → usd·seconds (None = the bloctime feed is unreachable)
+        self.weights = {}
+        self.weight_calls = []
+
+        def bloc_weight(addr, opens, closes):
+            self.weight_calls.append((addr, opens, closes))
+            return self.weights.get(addr)
+
+        self.pool._bloc_weight = bloc_weight
+        self.pool.set_config(fee_bps=500, agent_share_bps=5000)
+
+    def _close_round(self):
+        st = self.pool.state()
+        st['schedule']['anchor'] -= st['schedule']['interval'] + 10
+        self.pool._save_state(st)
+        rounds = self.pool._rounds()
+        for record in rounds:
+            record.update(self.pool.window(record['index']))
+        self.pool._write(self.pool.rounds_path, rounds)
+
+    def test_no_bloctime_locked_means_no_entry(self):
+        self.assertIn('unreachable',
+                      self.pool.agent_stake(BOB, 'BTC', 101_000.0)['error'])
+        self.weights[BOB] = 0.0
+        self.assertIn('no bloctime locked',
+                      self.pool.agent_stake(BOB, 'BTC', 101_000.0)['error'])
+
+    def test_an_agent_call_needs_no_balance_and_writes_no_money(self):
+        self.weights[BOB] = 604_800.0
+        out = self.pool.agent_stake(BOB, 'BTC', 101_000.0)
+        self.assertNotIn('error', out)
+        self.assertTrue(out['agent'])
+        self.assertEqual(out['staked'], 0.0)
+        self.assertEqual(out['usd_seconds'], 604_800.0)
+        self.assertEqual(self.pool.ledger(BOB), [])
+        self.assertEqual(self.pool.liabilities()['total'], 0.0)
+
+    def test_agents_split_the_fee_share_never_the_pot(self):
+        self.prices['BTC'] = 100_000.0
+        self.fund(ALICE, 100.0)
+        self.pool.stake(ALICE, 'BTC', 100_500.0, 100.0)
+        self.weights[BOB] = 200.0
+        self.weights[CAROL] = 100.0
+        self.pool.agent_stake(BOB, 'BTC', 100_000.0)      # perfect, 2× weight
+        self.pool.agent_stake(CAROL, 'BTC', 100_000.0)    # perfect, 1× weight
+        self._close_round()
+        self.pool.settle()
+
+        # Alice keeps the whole pot: gross 100, fee 5, pot 95 — hers alone.
+        self.assertEqual(self.pool.balance(ALICE)['available'], 95.0)
+        # The $5 fee splits: $2.50 to agents 2:1 by weight, $2.50 to treasury.
+        bob = self.pool.balance(BOB)
+        carol = self.pool.balance(CAROL)
+        self.assertAlmostEqual(bob['available'], 1.666667, places=6)
+        self.assertAlmostEqual(carol['available'], 0.833333, places=6)
+        self.assertEqual(bob['agent_won'], bob['available'])
+        self.assertAlmostEqual(sum(self.fees), 2.5, places=6)
+        pot = self.pool._rounds()[0]['assets']['BTC']
+        self.assertEqual(pot['agent_entries'], 2)
+        self.assertAlmostEqual(pot['agent_pot'], 2.5, places=6)
+        self.assertAlmostEqual(pot['agent_paid'], 2.5, places=6)
+        # Conservation to the micro-dollar: fee == agents + treasury.
+        self.assertAlmostEqual(pot['agent_paid'] + sum(self.fees),
+                               pot['fee'], places=6)
+
+    def test_an_unclaimed_agent_pot_stays_with_the_treasury(self):
+        self.prices['BTC'] = 100_000.0
+        self.fund(ALICE, 100.0)
+        self.pool.stake(ALICE, 'BTC', 100_500.0, 100.0)
+        self.weights[BOB] = 1_000.0
+        self.pool.agent_stake(BOB, 'BTC', 200_000.0)      # 100% off → accuracy 0
+        self._close_round()
+        self.pool.settle()
+        self.assertEqual(self.pool.balance(BOB)['available'], 0.0)
+        self.assertAlmostEqual(sum(self.fees), 5.0, places=6)
+
+    def test_no_fee_means_agents_are_scored_but_unpaid(self):
+        self.pool.set_config(fee_bps=0)
+        self.prices['BTC'] = 100_000.0
+        self.fund(ALICE, 100.0)
+        self.pool.stake(ALICE, 'BTC', 100_500.0, 100.0)
+        self.weights[BOB] = 1_000.0
+        self.pool.agent_stake(BOB, 'BTC', 100_000.0)
+        self._close_round()
+        self.pool.settle()
+        bob = self.pool.entries(BOB)[0]
+        self.assertEqual(bob['status'], 'settled')
+        self.assertEqual(bob['accuracy'], 1.0)
+        self.assertEqual(bob['payout'], 0.0)
+
+    def test_quota_runs_out_and_one_call_per_asset(self):
+        self.pool.set_config(agent_per_round=2)
+        self.markets.append({'symbol': 'ETH', 'token': 'ETH',
+                             'source': 'hyperliquid', 'active': True})
+        self.markets.append({'symbol': 'SOL', 'token': 'SOL',
+                             'source': 'hyperliquid', 'active': True})
+        self.prices.update({'ETH': 3000.0, 'SOL': 200.0})
+        self.weights[BOB] = 500.0
+        self.assertNotIn('error', self.pool.agent_stake(BOB, 'BTC', 101_000.0))
+        self.assertIn('already have an agent call',
+                      self.pool.agent_stake(BOB, 'BTC', 99_000.0)['error'])
+        self.assertNotIn('error', self.pool.agent_stake(BOB, 'ETH', 3_100.0))
+        self.assertIn('out of agent calls',
+                      self.pool.agent_stake(BOB, 'SOL', 210.0)['error'])
+        quota = self.pool.agent_quota(BOB)
+        self.assertEqual(quota['remaining'], 0)
+        self.assertEqual(quota['usd_seconds'], 500.0)
+        self.assertTrue(quota['eligible'])
+
+    def test_the_owner_can_switch_it_off(self):
+        self.pool.set_config(agent_per_round=0)
+        self.weights[BOB] = 500.0
+        self.assertIn('switched off',
+                      self.pool.agent_stake(BOB, 'BTC', 1.0)['error'])
+
+    def test_settlement_reweighs_upward_never_down(self):
+        self.prices['BTC'] = 100_000.0
+        self.fund(ALICE, 100.0)
+        self.pool.stake(ALICE, 'BTC', 100_500.0, 100.0)
+        self.weights[BOB] = 100.0
+        self.pool.agent_stake(BOB, 'BTC', 100_000.0)
+        # A lock placed after the call still covered the round: more weight.
+        self.weights[BOB] = 900.0
+        self._close_round()
+        self.pool.settle()
+        self.assertEqual(self.pool.entries(BOB)[0]['usd_seconds'], 900.0)
+
+        # And a feed outage at settlement keeps the snapshot, never zeroes.
+        self.weights[CAROL] = 300.0
+        self.pool.agent_stake(CAROL, 'BTC', 100_000.0)
+        del self.weights[CAROL]
+        self._close_round()
+        self.pool.settle()
+        self.assertEqual(self.pool.entries(CAROL)[0]['usd_seconds'], 300.0)
+
+    def test_boards_stay_separate(self):
+        self.prices['BTC'] = 100_000.0
+        self.fund(ALICE, 100.0)
+        self.pool.stake(ALICE, 'BTC', 100_500.0, 100.0)
+        self.weights[BOB] = 250.0
+        self.pool.agent_stake(BOB, 'BTC', 100_000.0)
+        self._close_round()
+        self.pool.settle()
+        # The dollar board is stakers only; agents have their own.
+        self.assertEqual([r['address'] for r in self.pool.leaderboard()], [ALICE])
+        board = self.pool.agent_leaderboard()
+        self.assertEqual(board[0]['address'], BOB)
+        self.assertAlmostEqual(board[0]['earned'], 2.5, places=2)
+        self.assertEqual(board[0]['avg_accuracy'], 1.0)
+        self.assertEqual(board[0]['avg_usd_seconds'], 250.0)
+
+    def test_round_view_shows_provisional_agent_split(self):
+        self.prices['BTC'] = 100_000.0
+        self.fund(ALICE, 100.0)
+        self.pool.stake(ALICE, 'BTC', 100_500.0, 100.0)
+        self.weights[BOB] = 250.0
+        self.pool.agent_stake(BOB, 'BTC', 100_000.0)
+        view = self.pool.round()
+        self.assertEqual(view['agent_calls'], 1)
+        self.assertEqual(view['stakers'], 1)
+        asset = view['assets'][0]
+        self.assertEqual(asset['agent_callers'], 1)
+        self.assertAlmostEqual(asset['agent_pot'], 2.5, places=6)
+        self.assertEqual(asset['agent'][0]['address'], BOB)
+        self.assertAlmostEqual(asset['agent'][0]['payout'], 2.5, places=6)
+
+    def test_share_bps_is_snapshotted_at_round_open(self):
+        self.prices['BTC'] = 100_000.0
+        self.fund(ALICE, 100.0)
+        self.pool.stake(ALICE, 'BTC', 100_500.0, 100.0)
+        self.weights[BOB] = 250.0
+        self.pool.agent_stake(BOB, 'BTC', 100_000.0)
+        self.pool.set_config(agent_share_bps=10000)   # retune mid-round
+        self._close_round()
+        self.pool.settle()
+        # Still the 50% the round opened with, not the retuned 100%.
+        self.assertAlmostEqual(self.pool.balance(BOB)['available'], 2.5, places=6)
+
+
 class TestConfigMigration(PoolTestBase):
     """A pool older than a setting still has to be able to read its config."""
 

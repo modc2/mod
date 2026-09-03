@@ -33,6 +33,16 @@ pub const PREWARM_POOL: usize = traders::ALL;
 /// Sized to stay well under HL's /info budget alongside the board refresh.
 pub const DEEPEN: [(u32, usize); 3] = [(7, 400), (1, 200), (30, 200)];
 pub const DEEPEN_BATCH: usize = 15;
+/// How many of each ROI board's top wallets get their PnL curve fetched in
+/// the background.
+///
+/// The board draws a curve on every card, so the first screenful is the one
+/// that decides whether the page feels instant or feels like it is loading.
+/// One `portfolio` call per wallet covers *every* window at once (the payload
+/// carries day / week / month / allTime together, and `hl::Client` caches it
+/// whole), so this is one screenful's worth of calls per board refresh, not
+/// one per window per card.
+pub const CURVE_PREWARM: usize = 36;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -161,7 +171,19 @@ async fn main() -> anyhow::Result<()> {
                             "board refresh days={} rank={} active={}: {} traders in {:?}",
                             days, rank.as_str(), active.as_str(), b.traders.len(), started.elapsed()
                         );
+                        // Warm the curves the cards on the first screen will
+                        // ask for. Only the ROI board, because that is the
+                        // board the page opens on, and the portfolio payload
+                        // it caches serves the PnL board's overlap for free.
+                        let heads: Vec<String> = if rank == traders::Rank::Roi {
+                            b.traders.iter().take(CURVE_PREWARM).map(|t| t.address.clone()).collect()
+                        } else { Vec::new() };
                         prewarm_boards.put(days, rank, active, PREWARM_POOL, b.traders);
+                        if !heads.is_empty() {
+                            let warmed = curve::trader_curves(prewarm_hl.clone(), &heads, days).await;
+                            let ok = warmed.iter().filter(|c| c.available).count();
+                            tracing::info!("curve prewarm days={days}: {ok}/{} available", warmed.len());
+                        }
                     }
                     Err(e) => tracing::warn!("board refresh days={days} rank={} failed: {e}", rank.as_str()),
                 }

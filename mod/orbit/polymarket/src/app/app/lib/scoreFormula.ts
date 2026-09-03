@@ -3,10 +3,11 @@
 // The /traders board (CopyTrading) and the copy desk's ADD A TRADER panel
 // (FindTraders) rank on the same user-editable expression, persisted under one
 // sessionStorage key so a formula written on either surface follows the user
-// to the other. The default is PARAMETERIZED as a preset row (win rate,
+// to the other. The default is PARAMETERIZED as a preset row (ROI, win rate,
 // exit÷entry, Sharpe) — a preset is nothing more than a named formula, so
 // picking one and hand-editing it are the same mechanism. Out of the box the
-// score IS the win rate.
+// score IS the ROI: what a copied dollar would have returned, which is the
+// number a copy desk actually ranks on.
 
 import type { TopTrader } from "./polymarket";
 
@@ -17,6 +18,12 @@ export const FORMULA_VARS = ["sharpe", "pnl", "volume", "positions", "winRate", 
     default. A preset is just a formula string, so an edited preset degrades
     gracefully into a custom score. */
 export const SCORE_PRESETS = [
+  {
+    key: "roi",
+    label: "ROI",
+    formula: "100 * pnl / volume",
+    hint: "P&L per $100 traded over the window — return on turnover. Ranks the trader compounding a real edge on $5k above the whale who ground out 3% on a million. — = no volume yet.",
+  },
   {
     key: "winRate",
     label: "WIN RATE",
@@ -54,6 +61,10 @@ export function matchScorePreset(formula: string): (typeof SCORE_PRESETS)[number
 export const FORMULA_STORAGE_KEY = "poly8bit_score_formula_v2";
 const LEGACY_STORAGE_KEY = "poly8bit_score_formula";
 const LEGACY_IMPLICIT_DEFAULTS = ["pnl / volume", "sharpe"];
+// "winRate" was the v2 default until ROI took over — and the save-effect
+// wrote it on mount, so a stored "winRate" is overwhelmingly the old implicit
+// default rather than a deliberate pick. Same treatment as the legacy ones.
+const V2_IMPLICIT_DEFAULT = "winRate";
 
 export interface ScoreInputs {
   sharpe: number;
@@ -104,6 +115,20 @@ export function compileFormula(expr: string): {
   } catch (e) {
     return { fn: null, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/** True when a preset score IS its metric's -1 "unknown" sentinel for this
+    trader. winRate and exitEntry use -1 for "nothing decided / no closed
+    trades"; fed straight through formatScore that prints as a red "-1.00",
+    which reads as a terrible number instead of no data. Only presets are
+    checked — a hand-written formula can legitimately evaluate to -1. */
+export function scoreIsUnknown(formula: string, t: ScoreInputs): boolean {
+  const preset = matchScorePreset(formula);
+  if (!preset) return false;
+  return (preset.key === "winRate" && t.winRate < 0)
+    || (preset.key === "exitEntry" && t.exitEntry < 0)
+    // ROI divides by volume — no dollars traded means no ratio, not a 0% one.
+    || (preset.key === "roi" && t.volume <= 0);
 }
 
 // Scores are unit-less numbers (a win-rate percentage, an exit/entry ratio,
@@ -211,7 +236,7 @@ export function suggestRatioName(formula: string): string {
 export function loadSavedFormula(): string {
   try {
     const saved = sessionStorage.getItem(FORMULA_STORAGE_KEY);
-    if (saved && saved.trim()) return saved;
+    if (saved && saved.trim() && saved.trim() !== V2_IMPLICIT_DEFAULT) return saved;
     const legacy = sessionStorage.getItem(LEGACY_STORAGE_KEY);
     if (legacy && legacy.trim() && !LEGACY_IMPLICIT_DEFAULTS.includes(legacy.trim())) return legacy;
   } catch {}

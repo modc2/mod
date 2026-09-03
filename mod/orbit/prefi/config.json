@@ -85,6 +85,9 @@
         "pool_free_stake",
         "pool_free_quota",
         "pool_free_leaderboard",
+        "pool_agent_stake",
+        "pool_agent_quota",
+        "pool_agent_leaderboard",
         "pool_round",
         "pool_rounds",
         "pool_entries",
@@ -103,5 +106,5 @@
         "serve_app",
         "kill"
     ],
-    "schema": "QmQ5vasNdNgDgZ9g33tawFzSzmXXCZvFocehB66gozapQ5"
+    "schema": "QmZtoJNFiFZZNNxdMtWKPZbsT4Tvi7VQyehCzEc5fPpYdV"
 }
