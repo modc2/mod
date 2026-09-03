@@ -19,6 +19,7 @@ import type {
   Trade,
   TraderBoard,
   Universe,
+  Coverage,
 } from "./types";
 
 // All requests go through the Next.js rewrite at /api/copytensor → backend.
@@ -65,8 +66,13 @@ export const fetchCurve = (ss58: string, days = 7) =>
   j<CurveData>(`/account/${ss58}/curve?days=${days}`);
 
 // ── leaderboard ──
+// days = 0 asks for every day of history the index holds.
 export const fetchLeaderboard = (days = 7, top = 50) =>
   j<LeaderboardEntry[]>(`/leaderboard?days=${days}&top=${top}`);
+
+// How far back the index reaches, and how many traders each offered horizon
+// really covers — what the window rail labels itself with.
+export const fetchCoverage = () => j<Coverage>("/coverage");
 
 // ── trader pool ──
 // The leaderboard ranks the coldkeys we watch, so the pool size IS how many
@@ -326,3 +332,15 @@ export const ago = (ts: string) => {
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 };
+
+// ── time windows ──
+// One vocabulary for the horizon, everywhere. `0` is the all-history window;
+// it has no fixed length, so it never gets a "Nd" label.
+export const WINDOW_DAYS = [1, 3, 7, 14, 30, 0];
+
+export const windowLabel = (days: number) =>
+  days === 0 ? "ALL" : days === 1 ? "24H" : `${days}D`;
+
+/** "last 7 days" / "all history" — the same window, spelled out in prose. */
+export const windowPhrase = (days: number) =>
+  days === 0 ? "all history" : days === 1 ? "last 24 hours" : `last ${days} days`;

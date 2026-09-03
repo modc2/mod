@@ -71,6 +71,8 @@ class Copytensor(m.Mod):
         "traders", "trader_history", "flows",
         # watchlist + the trader pool the leaderboard ranks
         "watch", "unwatch", "watches", "discover", "universe", "set_pool",
+        # how deep the index actually is, per horizon
+        "coverage",
         # the strat agent — talk to it, get a basket back
         "ask", "agent_status",
         # copy management (needs wallet)
@@ -673,6 +675,10 @@ class Copytensor(m.Mod):
     def universe(self) -> Any:
         """How many traders we rank vs how many exist on-chain."""
         return self._get("/universe")
+
+    def coverage(self) -> Any:
+        """How far back the index goes, and which horizons it can fill."""
+        return self._get("/coverage")
 
     def set_pool(self, size: int = 250, refresh: bool = False) -> Any:
         """Watch the top `size` coldkeys by stake. Grows in the background."""

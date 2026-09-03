@@ -605,7 +605,8 @@ def subnet_history(netuid: int, hours: int = Query(168, ge=1, le=8760)):
 # ── accounts ─────────────────────────────────────────────────────
 
 @app.get("/account/{ss58}", response_model=AccountResponse)
-def get_account(ss58: str, days: int = Query(7, ge=1, le=365)):
+def get_account(ss58: str, days: int = Query(7, ge=0, le=365)):
+    days = _win(days)
     positions = _client.get_stake_for_coldkey(ss58)
 
     # Get subnet names
@@ -654,7 +655,8 @@ def get_account(ss58: str, days: int = Query(7, ge=1, le=365)):
 
 
 @app.get("/account/{ss58}/pnl", response_model=PnlResponse)
-def get_account_pnl(ss58: str, days: int = Query(7, ge=1, le=365)):
+def get_account_pnl(ss58: str, days: int = Query(7, ge=0, le=365)):
+    days = _win(days)
     pnl = calculate_pnl(_client, _db, ss58, days)
     return PnlResponse(
         ss58=pnl.ss58,
@@ -686,7 +688,7 @@ def get_account_history(ss58: str, limit: int = Query(50, ge=1, le=500)):
 
 
 @app.get("/account/{ss58}/curve")
-def get_account_curve(ss58: str, days: int = Query(7, ge=1, le=365),
+def get_account_curve(ss58: str, days: int = Query(7, ge=0, le=365),
                       min_tao: float = Query(FLOW_MIN_TAO, ge=0.0),
                       min_frac: float = Query(FLOW_MIN_FRACTION, ge=0.0, le=1.0),
                       points: int = Query(400, ge=20, le=2000)):
@@ -696,6 +698,7 @@ def get_account_curve(ss58: str, days: int = Query(7, ge=1, le=365),
     block, and each trade carries the curve value at its timestamp so the
     chart can pin the marker exactly on the line.
     """
+    days = _win(days)
     if not is_valid_ss58(ss58):
         raise HTTPException(400, f"invalid ss58 address: {ss58}")
 
@@ -719,8 +722,9 @@ def get_account_curve(ss58: str, days: int = Query(7, ge=1, le=365),
 # ── trader details ───────────────────────────────────────────────
 
 @app.get("/trader/{ss58}")
-def get_trader_details(ss58: str, days: int = Query(7, ge=1, le=365)):
+def get_trader_details(ss58: str, days: int = Query(7, ge=0, le=365)):
     """Full trader profile — allocations, PnL breakdown, performance."""
+    days = _win(days)
     positions = _client.get_stake_for_coldkey(ss58)
 
     subnet_names = {}
@@ -801,9 +805,28 @@ def get_trader_details(ss58: str, days: int = Query(7, ge=1, le=365)):
 # hit the same entry; serve stale + refresh in the background so the UI
 # never waits once a horizon is warm.
 LEADERBOARD_TTL_SEC = 120
+# `days=0` on /leaderboard means "every day of history there is". It maps to
+# one fixed horizon rather than to the measured depth so the cache key stays
+# put — the depth grows by a day every day, and keying on it would rebuild
+# the board from scratch each time it ticked over.
+ALL_DAYS = 365
 # Warm order, not just a set: the UI opens on 7d, so price that first and
-# let the rest fill in behind it.
-LEADERBOARD_HORIZONS = [7, 1, 3, 14, 30]
+# let the rest fill in behind it. ALL_DAYS comes last and doubles as the
+# measurement /coverage reads its depth off.
+LEADERBOARD_HORIZONS = [7, 1, 3, 14, 30, ALL_DAYS]
+# The horizons the console offers as buttons. /coverage reports, for each,
+# how many indexed traders actually have that much history behind them.
+WINDOW_CHOICES = [1, 3, 7, 14, 30]
+
+
+def _win(days: int) -> int:
+    """`days=0` on any windowed read means "all the history there is".
+
+    The console keeps one horizon across every page, so the all-history
+    window has to be spelled the same way to /account and /leaderboard
+    alike — otherwise picking ALL on the board 422s the trader page.
+    """
+    return ALL_DAYS if not days else days
 _lb_cache: Dict[int, tuple] = {}             # days -> (ts, entries)
 _lb_refreshing: set = set()
 _lb_build_sec: Dict[int, float] = {}         # days -> last build duration
@@ -935,9 +958,13 @@ def _leaderboard_cached(days: int):
 
 
 @app.get("/leaderboard", response_model=List[LeaderboardEntryResponse])
-def leaderboard(days: int = Query(7, ge=1, le=365),
+def leaderboard(days: int = Query(7, ge=0, le=365),
                 top: int = Query(50, ge=1, le=2000),
                 min_subnets: int = Query(0, ge=0)):
+    # days=0 = "as far back as the index goes". Every row then reports its
+    # own window_days, which is the honest answer when traders were indexed
+    # on different days.
+    days = _win(days)
     entries = [e for e in _leaderboard_cached(days)
                if e.num_subnets >= min_subnets][:top]
     return [
@@ -956,6 +983,74 @@ def leaderboard(days: int = Query(7, ge=1, le=365),
         )
         for e in entries
     ]
+
+
+# ── how far back the numbers go ───────────────────────────────────
+
+# Coverage is derived from one deep board, so it costs a board build at
+# most once every few minutes. It only moves when bt indexes a new trader
+# or another day accumulates.
+COVERAGE_TTL_SEC = 300
+_coverage_cache: Optional[tuple] = None      # (ts, payload)
+_coverage_lock = threading.Lock()
+
+
+def _coverage() -> Dict:
+    """What history actually exists behind the horizons the UI offers.
+
+    Every row of the deepest board carries `window_days` — the span bt has
+    really indexed for that coldkey — so one board answers both questions:
+    how far back we can go at all, and how many traders survive each
+    horizon. Without this the console happily offered a 30-day window over
+    an index that was 12 days old and nothing said so; the rows just came
+    back quietly measured over less.
+    """
+    global _coverage_cache
+    with _coverage_lock:
+        if _coverage_cache and time.time() - _coverage_cache[0] < COVERAGE_TTL_SEC:
+            return _coverage_cache[1]
+
+    rows = _leaderboard_cached(ALL_DAYS)
+    spans = sorted(e.window_days for e in rows
+                   if e.baseline is not False and (e.window_days or 0) > 0)
+    depth = spans[-1] if spans else 0.0
+    median = spans[len(spans) // 2] if spans else 0.0
+
+    def bucket(w: int) -> Dict:
+        # 90% of the horizon counts as covering it: snapshots land on an
+        # interval, so a "30 day" trader is indexed at 29.5 and demanding
+        # the full span would call every row short.
+        full = [s for s in spans if s >= w * 0.9]
+        return {
+            "days": w,
+            "covered": len(full),
+            "pct": round(100.0 * len(full) / len(spans), 1) if spans else 0.0,
+            # Offer it while anyone can answer it; the count says how thin.
+            "ok": bool(full),
+        }
+
+    payload = {
+        # Whole days, rounded down — claiming 37 when the deepest row is
+        # 36.8 is the kind of rounding that makes a window look covered.
+        "depth_days": int(depth),
+        "depth_days_exact": round(depth, 2),
+        "median_days": round(median, 2),
+        "oldest_ts": int(time.time() - depth * 86400) if depth else None,
+        "traders": len(rows),
+        "priced": len(spans),
+        "indexed": _bt_indexed(),
+        "windows": [bucket(w) for w in WINDOW_CHOICES],
+        "updated_at": int(time.time()),
+    }
+    with _coverage_lock:
+        _coverage_cache = (time.time(), payload)
+    return payload
+
+
+@app.get("/coverage")
+def coverage():
+    """How deep the trader index is, and which horizons it can honestly fill."""
+    return _coverage()
 
 
 @app.post("/discover")

@@ -1956,18 +1956,24 @@ button, input, select, textarea {
    THE FRONT DOOR — home cards, the one-step copy dialog, MORE menu
    ════════════════════════════════════════════════════════════════════ */
 .home-hero { padding: 8px 0 4px; }
+/* 2px, not 3: at 24px on an 8px design grid the third pixel of magenta
+   sits under the next glyph's stem and the line reads as smear rather
+   than as a drop shadow. */
 .home-hero .arcade-title {
   font-size: 24px;
   line-height: 1.6;
-  text-shadow: 3px 3px 0 var(--neon-magenta);
+  text-shadow: 2px 2px 0 var(--neon-magenta);
 }
 @media (min-width: 768px) {
-  .home-hero .arcade-title { font-size: 24px; text-shadow: 3px 3px 0 var(--neon-magenta); }
+  .home-hero .arcade-title { font-size: 24px; text-shadow: 2px 2px 0 var(--neon-magenta); }
 }
 
-/* One trader, one plate: name, the number that matters, one COPY. */
+/* One trader, one plate: name, the number that matters, one COPY.
+   A column, not a block: a card that earned an extra qualifier chip would
+   otherwise push its own buttons below its neighbours' in the same row. */
 .trader-card {
-  display: block;
+  display: flex;
+  flex-direction: column;
   border: 2px solid var(--border-strong);
   background: var(--panel-from);
   box-shadow: var(--panel-shadow);
@@ -2142,3 +2148,146 @@ a.trader-card:hover { border-color: var(--accent); }
 }
 .more-menu__row > * { max-width: 100%; }
 .more-menu__row .pixel-btn { white-space: nowrap; }
+
+
+/* ════════════════════════════════════════════════════════════════════
+   THE WINDOW RAIL — the horizon, and how much history is behind it
+   ════════════════════════════════════════════════════════════════════
+   Declared after `.pixel-btn` so the chip sizing wins without !important:
+   a chip is a cap at two-thirds scale, and the rail is the one place the
+   console says out loud how far back its numbers can reach. */
+.filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 11px;
+  border: 2px solid var(--border);
+  background: rgb(var(--pixel-panel-rgb) / 0.55);
+}
+.filter-bar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  min-width: 0;
+}
+.window-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+/* "history" / "rank by" / "book" — the question each rail answers. A row
+   of bare pills reading "1D 3D 7D" reads as a refresh rate. */
+.window-rail-k {
+  font-family: 'Silkscreen', monospace;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-right: 4px;
+  align-self: center;
+}
+.pixel-btn.window-chip {
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  box-shadow: 2px 2px 0 var(--shadow-hard);
+  min-height: 28px;
+}
+.pixel-btn.window-chip:active { transform: translate(2px, 2px); }
+.pixel-btn.window-chip-on,
+.pixel-btn.window-chip-on:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+/* A horizon only part of the index can answer. Still pressable — some
+   traders do cover it — but it says so on the cap rather than handing
+   back a board silently measured over less. */
+.pixel-btn.window-chip-thin { border-color: var(--neon-amber); }
+.window-chip-note {
+  font-family: 'VT323', monospace;
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.75;
+}
+.window-rail-note {
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  line-height: 1.25;
+  color: var(--fg-dim);
+}
+.window-rail-em { color: var(--accent); }
+
+@media (min-width: 1024px) {
+  /* On a desktop the rail and its rows sit on one line each; the label
+     stays glued to its own chips instead of drifting to the margin. */
+  .filter-bar { padding: 11px 14px 12px; }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   TRADER PLATES — the front-door cards, qualified
+   ════════════════════════════════════════════════════════════════════ */
+/* A hairline in the sign's colour along the top edge, so a grid of nine
+   reads green/red before you've read a single number. */
+.trader-card {
+  position: relative;
+  transition: border-color 0.08s steps(2, end), transform 0.08s steps(2, end);
+}
+.trader-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--plate-tone, transparent);
+}
+.trader-card-up   { --plate-tone: var(--neon-lime); }
+.trader-card-down { --plate-tone: var(--neon-red); }
+.trader-card-live { --plate-tone: var(--neon-cyan); }
+.trader-card:hover { border-color: var(--plate-tone, var(--accent)); }
+
+.trader-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* Top three get the scoreboard plate the board's rank column uses. */
+.trader-card-rank.medal-1 { background: #ffcf28; border-color: var(--shadow-hard); }
+.trader-card-rank.medal-2 { background: #c9d4e8; }
+.trader-card-rank.medal-3 { background: #ff8a1f; }
+
+.trader-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 9px;
+}
+/* Whatever the plate carries above it, the buttons land on one line
+   across the row. */
+.trader-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+/* The qualifiers — history behind the number, money that walked in the
+   door. Small, but on the plate: they're the difference between a real
+   record and one good week. */
+.trader-tag {
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  line-height: 1;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+.trader-tag-warn {
+  border-color: rgb(var(--neon-amber-rgb) / 0.6);
+  color: var(--neon-amber);
+}

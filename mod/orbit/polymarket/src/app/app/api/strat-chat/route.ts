@@ -213,6 +213,12 @@ function runAgent(prompt: string): Promise<{ ok: true; text: string } | { ok: fa
       finish(out.trim() ? { ok: true, text: out } : { ok: false, error: "the agent returned nothing" });
     });
 
+    // A CLI that exits before reading STDIN makes this write emit EPIPE on the
+    // pipe, and an unhandled 'error' event on a stream throws at the process
+    // level — a missing or instantly-crashing `claude` binary would take the
+    // whole Next server down with it. Swallow it here; the `error`/`close`
+    // handlers above are what report the failure to the caller.
+    child.stdin.on("error", () => {});
     child.stdin.end(prompt);
   });
 }

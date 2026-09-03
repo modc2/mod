@@ -199,9 +199,23 @@ impl ProxyCache {
         let safe: String = key.chars()
             .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
             .collect();
-        // Cap filename length to avoid filesystem issues
-        let name = if safe.len() > 200 { &safe[..200] } else { &safe };
-        self.disk_dir.join(format!("{}.json", name))
+        // Cap filename length to avoid filesystem issues. A bare truncation
+        // made the tail of the key invisible to the filename, so two long
+        // queries sharing a 200-char prefix — which every multi-id
+        // `condition_ids=…` request does — mapped to ONE file and served each
+        // other's data for the endpoint's whole TTL. Keep a readable prefix
+        // and pin the identity with a digest of the FULL key.
+        if safe.chars().count() > 200 {
+            let mut h = <sha2::Sha256 as sha2::Digest>::new();
+            sha2::Digest::update(&mut h, key.as_bytes());
+            let digest = hex::encode(sha2::Digest::finalize(h));
+            // `.chars().take()` rather than a byte slice: `is_alphanumeric`
+            // passes non-ASCII letters through, and slicing those mid-codepoint
+            // panics.
+            let prefix: String = safe.chars().take(184).collect();
+            return self.disk_dir.join(format!("{}-{}.json", prefix, &digest[..16]));
+        }
+        self.disk_dir.join(format!("{}.json", safe))
     }
 
     fn save_to_disk(&self, key: &str, data: &Value) {

@@ -333,6 +333,21 @@ export type TraderBoard = {
 };
 
 // How many traders the leaderboard ranks, against how many the chain has.
+// How deep the trader index actually is. `depth_days` is the deepest span
+// any indexed coldkey has behind it — ask for a longer window than that and
+// the numbers quietly come back measured over less.
+export type Coverage = {
+  depth_days: number;
+  depth_days_exact: number;
+  median_days: number;
+  oldest_ts: number | null;
+  traders: number;
+  priced: number;
+  indexed: number | null;
+  windows: { days: number; covered: number; pct: number; ok: boolean }[];
+  updated_at: number;
+};
+
 export type Universe = {
   // Which horizons are priced, which are still building, which engine priced
   // each ("bt" = bt's index, "rpc" = the fallback chain walk), and how many

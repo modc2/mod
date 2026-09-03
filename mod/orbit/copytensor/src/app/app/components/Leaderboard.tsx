@@ -5,28 +5,34 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { LeaderboardEntry, Universe } from "../lib/types";
 import { fetchLeaderboard, fetchUniverse, fmtCompact,
-         setPool, shortSs58 } from "../lib/api";
+         setPool, shortSs58, windowLabel, windowPhrase } from "../lib/api";
 import PnlBadge from "./PnlBadge";
 import Identicon from "./Identicon";
 import StatTile from "./StatTile";
 import { useFilters, type SortKey } from "../context/FiltersContext";
 import { useCurrency, fmtValue } from "../context/CurrencyContext";
 import { useSidebar } from "../context/SidebarContext";
+import { useCoverage } from "../lib/useCoverage";
+import WindowRail from "./WindowRail";
+import { RankBy, StakeFloor } from "./BoardFilters";
 
-// How far back PnL is measured. 7d is the default everywhere — long enough
-// that a single good day doesn't top the board, short enough that most of
-// bt's index has that much history.
-const WINDOWS = [1, 3, 7, 14, 30];
+// `days = 0` means "every day the index holds"; the server prices that as
+// its ALL_DAYS horizon, so that is the number /universe reports it under.
+const ALL_HORIZON = 365;
 // Trader-pool sizes. Every step is real coldkeys ranked by on-chain stake;
 // bigger pools take longer to price (one historical read per trader).
 const POOL_SIZES = [100, 250, 500, 1000];
 
 export default function Leaderboard() {
-  const { days, setDays, search, sortKey, sortDir, toggleSort, minSubnets,
-          setMinSubnets, reloadKey, reload } = useFilters();
+  const { days, search, sortKey, sortDir, toggleSort, minSubnets,
+          setMinSubnets, minStake, reloadKey, reload } = useFilters();
   const { currency, usdPerTao } = useCurrency();
   const { openStrat } = useSidebar();
+  const cov = useCoverage();
   const router = useRouter();
+  // What /universe calls this horizon.
+  const horizon = days === 0 ? ALL_HORIZON : days;
+  const win = windowLabel(days);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   // Ticked rows. A basket is the point of the board — "copy these twelve"
   // used to mean twelve trips through the drawer, one COPY click each.
@@ -61,7 +67,7 @@ export default function Leaderboard() {
           if (stop) return;
           setUniverse(u);
           const building =
-            u.status === "discovering" || (u.board?.building || []).includes(days);
+            u.status === "discovering" || (u.board?.building || []).includes(horizon);
           if (wasBuilding && !building) {
             setBusy(false);
             reload();               // rows are ready — refetch the board
@@ -74,7 +80,7 @@ export default function Leaderboard() {
         .catch(() => {});
     tick();
     return () => { stop = true; };
-  }, [reloadKey, busy, days, reload]);
+  }, [reloadKey, busy, horizon, reload]);
 
   const grow = (size: number) => {
     setBusy(true);
@@ -89,8 +95,12 @@ export default function Leaderboard() {
     // A wallet that emptied itself over the window reads as −100% total on
     // +150% market and used to top the board. Dust books are hidden unless
     // you're searching for one by name.
+    // Dust books top a percentage board and can't be copied at size. The
+    // floor is a control now (`book` chips); searching by name always wins,
+    // otherwise you can't find a wallet you already know about.
+    const floor = Math.max(minStake, 1);
     let r = entries.filter(
-      (e) => e.num_subnets >= minSubnets && (needle ? true : e.total_stake_tao >= 1));
+      (e) => e.num_subnets >= minSubnets && (needle ? true : e.total_stake_tao >= floor));
     if (needle) {
       r = r.filter((e) =>
         (e.label || "").toLowerCase().includes(needle) ||
@@ -104,7 +114,7 @@ export default function Leaderboard() {
       return (av - bv) * dir;
     });
     return r;
-  }, [entries, search, minSubnets, sortKey, sortDir]);
+  }, [entries, search, minSubnets, minStake, sortKey, sortDir]);
 
   const totals = useMemo(() => {
     const stake = filtered.reduce((a, e) => a + e.total_stake_tao, 0);
@@ -170,12 +180,12 @@ export default function Leaderboard() {
                     : "all with history"} />
         <StatTile label="combined stake" value={fmtValue(totals.stake, currency, usdPerTao)} />
         <StatTile
-          label={`${days}d combined pnl`}
+          label={`combined pnl · ${win}`}
           value={fmtValue(totals.pnl, currency, usdPerTao)}
           tone={totals.pnl >= 0 ? "up" : "down"}
         />
         <StatTile
-          label={`best ${days}d market`}
+          label={`best return · ${win}`}
           value={totals.best
             ? `${(totals.best.market_pct ?? 0) >= 0 ? "+" : ""}${(totals.best.market_pct ?? 0).toFixed(1)}%`
             : "—"}
@@ -265,35 +275,18 @@ export default function Leaderboard() {
         )}
 
         {/* Controls, in the order you actually reach for them: the horizon
-            first, on a rail you can thumb; the pool and the subnet floor are
-            set-once knobs and fold behind ⚙ on a phone rather than filling
-            three rows of the screen with pills. */}
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            {/* Bleeds off the left edge only — the ⚙ has to stay pinned where
-                a thumb can find it, and inside a scrolling rail it scrolls
-                away with everything else. */}
-            <div className="rail no-scrollbar -ml-3 pl-3 lg:ml-0 lg:pl-0 min-w-0">
-              {/* Unlabelled, a row of "1d 3d 7d" reads as a refresh rate.
-                  It's how much history every number on the board covers. */}
-              <span className="text-[11px] text-pixel-gray-light mr-1">history</span>
-              {WINDOWS.map((w) => (
-                <button
-                  key={w}
-                  onClick={() => setDays(w)}
-                  className={`pixel-btn text-[11px] px-3 py-1 ${
-                    days === w ? "border-green-400 text-green-400" : "text-pixel-gray-light"
-                  }`}
-                >
-                  {w}d
-                </button>
-              ))}
-            </div>
+            first (with the history behind each one printed on it), then what
+            the ranking means and how big a book has to be to appear. Pool
+            size and the subnet floor are set-once knobs and fold behind ⚙ on
+            a phone rather than filling the screen with pills. */}
+        <div className="filter-bar">
+          <div className="flex items-start gap-2 min-w-0">
+            <WindowRail caption={false} className="flex-1 min-w-0" />
             <button
               onClick={() => setKnobs((k) => !k)}
               aria-expanded={knobs}
               title="Pool size and subnet floor"
-              className={`pixel-btn text-[11px] px-3 py-1 shrink-0 lg:hidden ${
+              className={`pixel-btn window-chip shrink-0 lg:hidden ${
                 knobs ? "nav-active" : "text-pixel-gray-light"
               }`}
             >
@@ -301,8 +294,29 @@ export default function Leaderboard() {
             </button>
           </div>
 
+          <div className="filter-bar-row">
+            <RankBy />
+            <StakeFloor />
+          </div>
+
+          {/* What the window rail is measured against. Without it the board
+              happily offered 30 days over an index twelve days old. */}
+          <p className="window-rail-note">
+            {cov ? (
+              <>
+                showing {windowPhrase(days)} · index reaches back{" "}
+                <span className="window-rail-em">{cov.depth_days} days</span>
+                {" · "}
+                {cov.priced} of {cov.traders} traders priced
+                {universe?.board?.source?.[String(horizon)] === "rpc" && " · walked from chain"}
+              </>
+            ) : (
+              <>measuring how far back the index goes…</>
+            )}
+          </p>
+
           <div
-            className={`${knobs ? "flex" : "hidden"} lg:flex flex-wrap items-center gap-x-3 gap-y-2 lg:ml-auto`}
+            className={`${knobs ? "flex" : "hidden"} lg:flex flex-wrap items-center gap-x-3 gap-y-2`}
           >
             {/* How many traders we rank. The board can only show accounts we
                 watch, so this is the control that answers "why so few?". */}
@@ -356,8 +370,8 @@ export default function Leaderboard() {
           <p className="text-pixel-gray text-sm py-4 text-center">loading leaderboard…</p>
         ) : filtered.length === 0 ? (
           <p className="text-pixel-gray text-sm py-4 text-center px-4">
-            {universe && (universe.board?.building || []).includes(days)
-              ? `pricing ${universe.watched} traders over ${days}d — first pass takes a couple of minutes, rows appear here`
+            {universe && (universe.board?.building || []).includes(horizon)
+              ? `pricing ${universe.watched} traders over ${windowPhrase(days)} — first pass takes a couple of minutes, rows appear here`
               : universe?.status === "discovering"
                 ? "adding traders to the pool…"
                 : "No matches. Widen the filters, or grow the pool above."}
@@ -409,8 +423,8 @@ export default function Leaderboard() {
               {/* The PnL pair is the widest thing on the row — "+229.5635 τ
                   (+63.52%)" needs the room, and used to get 150px and an
                   ellipsis right through the number you came to read. */}
-              <Th k="pnl_tao" label={`${days}d PnL`} num width={230} />
-              <Th k="pnl_pct" label={`${days}d %`} num width={120} />
+              <Th k="pnl_tao" label={`${win} PnL`} num width={230} />
+              <Th k="pnl_pct" label={`${win} %`} num width={120} />
               <Th k="market_pct" label="Market %" num width={130} />
               <Th k="num_subnets" label="SNs" num width={70} />
               <th style={{ width: 104 }}></th>
@@ -426,8 +440,8 @@ export default function Leaderboard() {
             ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={9} className="text-center text-pixel-gray py-6">
-                  {universe && (universe.board?.building || []).includes(days) ? (
-                    <>pricing {universe.watched} traders over {days}d — first
+                  {universe && (universe.board?.building || []).includes(horizon) ? (
+                    <>pricing {universe.watched} traders over {windowPhrase(days)} — first
                        pass takes a couple of minutes, rows appear here</>
                   ) : universe?.status === "discovering" ? (
                     <>adding traders to the pool…</>
@@ -509,12 +523,17 @@ export default function Leaderboard() {
                           {e.pnl_pct >= 0 ? "+" : ""}{e.pnl_pct.toFixed(2)}%
                           {/* Rows whose history is shorter than the horizon
                               are not comparable to the rest — say so. */}
-                          {e.window_days > 0 && e.window_days < days * 0.9 && (
+                          {/* Over the all-history window every row has its
+                              own length, so print the span rather than
+                              flagging every one of them as short. */}
+                          {e.window_days > 0 && (days === 0 || e.window_days < days * 0.9) && (
                             <span
-                              className="block text-[9px] text-pixel-gray"
-                              title={`Only ${e.window_days}d of history for this trader — not a full ${days}d window`}
+                              className={`block text-[9px] ${days === 0 ? "text-pixel-gray" : "text-amber-400"}`}
+                              title={days === 0
+                                ? `${e.window_days}d of history behind this number`
+                                : `Only ${e.window_days}d of history for this trader — not a full ${days}d window`}
                             >
-                              {e.window_days}d only
+                              {e.window_days}d{days === 0 ? " history" : " only"}
                             </span>
                           )}
                         </td>
@@ -578,6 +597,7 @@ function TraderCard({
   onCopy: () => void;
 }) {
   const { currency, usdPerTao } = useCurrency();
+  const win = windowLabel(days);
   const warming = e.baseline === false;
 
   return (
@@ -626,7 +646,7 @@ function TraderCard({
           <p className="row-card-v">{fmtValue(e.total_stake_tao, currency, usdPerTao)}</p>
         </div>
         <div>
-          <p className="row-card-k">{days}d pnl</p>
+          <p className="row-card-k">{win} pnl</p>
           <p className="row-card-v">
             {warming ? (
               <span className="text-pixel-gray">— warming</span>
@@ -638,11 +658,13 @@ function TraderCard({
         {!warming && (
           <>
             <div>
-              <p className="row-card-k">{days}d %</p>
+              <p className="row-card-k">{win} %</p>
               <p className={`row-card-v ${e.pnl_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
                 {e.pnl_pct >= 0 ? "+" : ""}{e.pnl_pct.toFixed(2)}%
-                {e.window_days > 0 && e.window_days < days * 0.9 && (
-                  <span className="text-pixel-gray text-[11px] ml-1">({e.window_days}d only)</span>
+                {e.window_days > 0 && (days === 0 || e.window_days < days * 0.9) && (
+                  <span className="text-pixel-gray text-[11px] ml-1">
+                    ({e.window_days}d{days === 0 ? "" : " only"})
+                  </span>
                 )}
               </p>
             </div>

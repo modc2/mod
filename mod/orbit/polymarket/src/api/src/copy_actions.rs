@@ -62,6 +62,13 @@ pub struct CopyActionState {
     access: Arc<AccessStore>,
     app: AppState,
     receipts_path: PathBuf,
+    /// Serializes the whole replay-check → apply → append sequence in
+    /// `execute`. Without it the guard was read-check-apply-write with no
+    /// lock: two concurrent POSTs of the SAME signature both read a receipts
+    /// file that didn't contain the digest yet, both passed the single-use
+    /// check, and a signed `LOAD $500` applied twice. The critical section
+    /// contains no `.await`, so a plain mutex is the whole fix.
+    execute_lock: Arc<std::sync::Mutex<()>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -266,15 +273,27 @@ async fn execute(
     if recovered != eoa {
         return forbidden("signature was not made by the wallet named in the action");
     }
-    if let Some(owner) = st.access.owner() {
-        if recovered != owner {
-            tracing::warn!(address = %recovered, "signed copy action DENIED — not the owner");
-            return forbidden("only the owner wallet can authorize copy-desk actions");
-        }
+    // Fails CLOSED, like `verify_token` does: with POLYMARKET_ACCESS_OPEN=1 and
+    // no owner file this used to skip the check entirely, so any caller who
+    // could reach the route could sign their own money movements.
+    let Some(owner) = st.access.owner() else {
+        tracing::warn!("signed copy action DENIED — no owner configured");
+        return forbidden(
+            "no owner wallet is configured — signed copy-desk actions are unavailable",
+        );
+    };
+    if recovered != owner {
+        tracing::warn!(address = %recovered, "signed copy action DENIED — not the owner");
+        return forbidden("only the owner wallet can authorize copy-desk actions");
     }
 
     // Single use: the digest of every executed message is persisted, and a
-    // repeat dies here even inside the freshness window.
+    // repeat dies here even inside the freshness window. Held from the check
+    // through the append so two racing replays can't both pass it.
+    let _replay_guard = match st.execute_lock.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
     let digest = hex::encode(Sha256::digest(message.as_bytes()));
     let mut receipts = read_receipts(&st.receipts_path);
     if receipts.iter().any(|r| r.get("digest").and_then(Value::as_str) == Some(digest.as_str())) {
@@ -460,6 +479,7 @@ pub fn router(access: Arc<AccessStore>, app: AppState) -> Router {
         access,
         app,
         receipts_path: dir.join("receipts.json"),
+        execute_lock: Arc::new(std::sync::Mutex::new(())),
     };
     Router::new()
         // POST /copy/signed/challenge  {action, trader, amountUsd?, eoa}

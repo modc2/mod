@@ -482,7 +482,7 @@ class Polymarket(m.Mod):
 
     # ── data passthroughs ────────────────────────────────────────
 
-    def _get(self, path: str, **params) -> Any:
+    def _get(self, path: str, timeout: float = 30, **params) -> Any:
         # The API is owner-gated (access.rs): data routes 401 without a
         # Bearer token minted via /access/verify. CLI callers export
         # POLYMARKET_ACCESS_TOKEN (copy it from the signed-in browser's
@@ -492,7 +492,7 @@ class Polymarket(m.Mod):
         tok = os.environ.get("POLYMARKET_ACCESS_TOKEN")
         if tok:
             headers["Authorization"] = f"Bearer {tok}"
-        r = requests.get(f"{self.api_url}{path}", params=params, headers=headers, timeout=30)
+        r = requests.get(f"{self.api_url}{path}", params=params, headers=headers, timeout=timeout)
         r.raise_for_status()
         return r.json()
 
@@ -554,8 +554,12 @@ class Polymarket(m.Mod):
             params["minHistoryDays"] = str(min_history_days)
         r = self._get("/active-traders", **params)
         if isinstance(r, dict) and r.get("cold"):
-            # Nothing cached for this window yet — pay for it once.
-            return self._get("/active-traders", days=str(days), pool=str(pool))
+            # Nothing cached for this window yet — pay for it once. A cold
+            # aggregation of this pool is a MULTI-MINUTE pipeline run, so the
+            # default 30s read timeout turned the one call that does the work
+            # into a guaranteed ReadTimeout.
+            return self._get("/active-traders", timeout=900,
+                             days=str(days), pool=str(pool))
         return r
 
     # ── background sync schedule ─────────────────────────────────
@@ -633,10 +637,19 @@ class Polymarket(m.Mod):
 
         m polymarket/mcp                 → stdio (for an MCP client to spawn)
         m polymarket/mcp http=true       → Streamable HTTP on :50092, POST /mcp
+                                           (loopback, owner Bearer token required
+                                            — mint one with `python3 src/mcp.py
+                                            --token`)
 
-        Read-only tools: markets, leaderboard, trader flow, strats, cached
-        backtests + funnels, live sessions and the live gate tally. No tool
-        can place an order.
+        Reads: markets, leaderboard, trader flow, strats, cached backtests +
+        funnels, live sessions and the live gate tally.
+
+        WRITES — these are not read-only. pm_copy_allocate / pm_copy_remove /
+        pm_copy_rebalance change the copy book, and pm_copy_start /
+        pm_copy_stop start and stop live sessions. There is no order-placing
+        tool, starting defaults to DRY RUN, and anything that touches a wallet
+        already placing real orders is refused unless the deployment sets
+        POLYMARKET_MCP_ALLOW_LIVE=1.
         """
         script = os.path.join(SRC_DIR, "mcp.py")
         argv = ["python3", script] + (["--http", "--port", str(port)] if http else [])
@@ -644,6 +657,9 @@ class Polymarket(m.Mod):
             return {"stdio": " ".join(argv),
                     "claude_code": f"claude mcp add polymarket -- python3 {script}",
                     "tools": ["pm_health", "pm_markets", "pm_top_traders", "pm_trader",
+                              "pm_copy_book", "pm_copy_allocate", "pm_copy_remove",
+                              "pm_copy_rebalance", "pm_copy_backtest", "pm_copy_trades",
+                              "pm_copy_basket", "pm_copy_start", "pm_copy_stop",
                               "pm_strats", "pm_backtests", "pm_backtest_run",
                               "pm_live_sessions", "pm_live_gates"]}
         subprocess.run(argv, check=False)

@@ -63,7 +63,17 @@ interface StoreFile {
   unknown: Record<string, number>;
 }
 
-const emptyStore = (): StoreFile => ({ resolved: {}, unknown: {} });
+/** A prototype-less map. Both halves of the store are keyed by
+    caller-supplied condition ids, and on a plain `{}` a lookup for
+    "constructor" (or "toString", "__proto__"…) hits `Object.prototype` and
+    answers with a truthy non-resolution — `POST /api/hub {"resolve":
+    ["constructor"]}` then threw on `hit.legs` and 500'd. `Object.create(null)`
+    has no inherited keys, so a miss is a miss. */
+function bareMap<T>(src?: Record<string, T>): Record<string, T> {
+  return Object.assign(Object.create(null) as Record<string, T>, src ?? {});
+}
+
+const emptyStore = (): StoreFile => ({ resolved: bareMap(), unknown: bareMap() });
 
 function storePath(): string {
   const dir = stateDir();
@@ -77,7 +87,7 @@ function load(): StoreFile {
   if (mem) return mem;
   try {
     const raw = JSON.parse(readFileSync(storePath(), "utf8")) as Partial<StoreFile>;
-    mem = { resolved: raw.resolved ?? {}, unknown: raw.unknown ?? {} };
+    mem = { resolved: bareMap(raw.resolved), unknown: bareMap(raw.unknown) };
   } catch {
     mem = emptyStore();
   }

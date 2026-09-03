@@ -1993,6 +1993,27 @@ impl EngineRegistry {
         claimed
     }
 
+    /// Record a just-sold token's exit cooldown on EVERY session of this EOA.
+    ///
+    /// One EOA derives ONE deposit wallet, so a wallet-wide flatten sells
+    /// tokens that ANY of its sessions may be tracking or eligible to adopt.
+    /// Stamping the cooldown on a single arbitrary session left the siblings
+    /// free to adopt the still-listed holding on their next cycle (the
+    /// data-api lists it until the fill settles) and sell it a second time.
+    fn mark_exited_all_sessions(&self, eoa: &str, token_id: &str, now_ms: i64) {
+        let prefix = format!("{}::", eoa.to_lowercase());
+        for e in self.engines.iter() {
+            if !e.key().starts_with(&prefix) {
+                continue;
+            }
+            e.value()
+                .state
+                .write()
+                .exited_recently
+                .insert(token_id.to_string(), now_ms);
+        }
+    }
+
     pub fn status_of(&self, eoa: &str, strategy_id: Option<&str>) -> Option<EngineState> {
         let key = self.resolve_key(eoa, strategy_id)?;
         self.engines.get(&key).map(|h| h.state.read().clone())
@@ -2205,10 +2226,16 @@ impl EngineRegistry {
                         status: "placed".into(),
                         detail: None,
                     });
+                    // Cooldown first, on every session of the wallet — see
+                    // `mark_exited_all_sessions`. The ledger booking below
+                    // still belongs to the one session that tracked the token.
+                    self.mark_exited_all_sessions(
+                        eoa,
+                        &pos.token_id,
+                        chrono::Utc::now().timestamp_millis(),
+                    );
                     if let Some(h) = &handle {
                         let mut s = h.state.write();
-                        s.exited_recently
-                            .insert(pos.token_id.clone(), chrono::Utc::now().timestamp_millis());
                         // Realize PnL into the owning strat's ledger when the
                         // engine tracked this token (on-chain holds it never
                         // bought have no known entry — nothing to realize).
@@ -3577,8 +3604,17 @@ impl EngineRegistry {
             // Free the fee too. The matcher debits `notional + taker fee`, so
             // freeing exactly the notional funds an order that then bounces
             // for insufficient balance — see crate::fees::fee_headroom.
-            let with_fee = notional + crate::fees::fee_headroom_at(
-                notional, price, crate::fees::rate_for_market(&trade.market),
+            // Budget against the cash the matcher will really debit —
+            // `size * price` AFTER the whole-share ceil, the `min_shares`
+            // floor and the slippage widening. Each of those raises the spend
+            // above the planned `notional`, and on a floor-clamped mirror the
+            // gap is large (a $3.45 plan at 90¢ with a 5-share floor commits
+            // $4.55+), so debiting `notional` let a cycle spend several times
+            // its budget. `notional` stays the planned figure the TS engine,
+            // the backtest and the logs all agree on.
+            let committed = size * price;
+            let with_fee = committed + crate::fees::fee_headroom_at(
+                committed, price, crate::fees::rate_for_market(&trade.market),
             );
             if with_fee > free_capital && cfg.rebalance_enabled {
                 let needed = with_fee - free_capital;
@@ -3599,7 +3635,7 @@ impl EngineRegistry {
                         &trade.id,
                         format!(
                             "score {:.3} · need ${:.2} (incl. ${:.2} taker fee), free ${:.2} — no lower-score hold to sell · {}",
-                            trade.score, with_fee, with_fee - notional, free_capital, trade.market
+                            trade.score, with_fee, with_fee - committed, free_capital, trade.market
                         ),
                         Some(&trade.trader),
                     ));
@@ -3636,7 +3672,7 @@ impl EngineRegistry {
 
             match place_order(&self.http, &self.signer_store, req).await {
                 Ok(resp) => {
-                    free_capital = (free_capital - notional).max(0.0);
+                    free_capital = (free_capital - committed).max(0.0);
                     {
                         let mut s = state.write();
                         s.total_orders_placed += 1;

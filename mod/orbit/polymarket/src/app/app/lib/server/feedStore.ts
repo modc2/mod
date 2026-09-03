@@ -144,7 +144,7 @@ function readJsonFile<T>(path: string): T | null {
 
 /** Write via tmp + rename: the fetch loop and a replay pass live in the same
     process but not the same tick, and a reader must never see a truncation. */
-function writeAtomic(path: string, body: string): void {
+export function writeAtomic(path: string, body: string): void {
   const tmp = `${path}.${process.pid}.tmp`;
   try {
     writeFileSync(tmp, body);

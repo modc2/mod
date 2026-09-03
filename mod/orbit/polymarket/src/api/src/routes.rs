@@ -684,7 +684,9 @@ async fn active_traders(
                 candidate_pool: payload.candidate_pool,
                 days_window: payload.days_window,
                 min_trades_per_day: payload.min_trades_per_day,
-                traders: payload.traders,
+                // `get_or_disk` hands back an `Arc<AggPayload>` — clone the
+                // rows out rather than trying to move them from behind it.
+                traders: payload.traders.clone(),
             };
             let body = format!("{}\n", serde_json::to_string(&evt).unwrap_or_default());
             return axum::response::Response::builder()

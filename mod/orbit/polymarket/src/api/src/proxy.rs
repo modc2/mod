@@ -55,7 +55,7 @@ fn rewrite_endpoint(endpoint: &str) -> &str {
 /// Order-independent form of a query string, for cache keying only. Repeated
 /// keys (gamma's `condition_ids`) are kept — sorting preserves every pair, so
 /// two requests differing in which ids they ask for still get separate entries.
-fn normalize_query(qs: &str) -> String {
+pub fn normalize_query(qs: &str) -> String {
     if qs.is_empty() {
         return String::new();
     }

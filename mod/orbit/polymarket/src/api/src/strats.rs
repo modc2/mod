@@ -249,6 +249,13 @@ impl StratStore {
 
 // ── HMAC Validation ──
 
+/// Transport-integrity check on the strat-sync body — NOT authentication.
+///
+/// The signing key is `NEXT_PUBLIC_STRAT_HMAC_SECRET`, which is compiled into
+/// the public client bundle (next.config.mjs), so anyone who loads the console
+/// has it. What actually gates these routes is the owner access gate in
+/// `access.rs` that wraps every route in the API; this only catches a mangled
+/// or truncated body. Treating it as a second credential would be a mistake.
 fn validate_hmac(headers: &HeaderMap, body: &[u8]) -> Result<(), StatusCode> {
     let secret = std::env::var("STRAT_HMAC_SECRET").unwrap_or_default();
     if secret.is_empty() {
@@ -265,10 +272,11 @@ fn validate_hmac(headers: &HeaderMap, body: &[u8]) -> Result<(), StatusCode> {
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     mac.update(body);
 
-    let expected = hex::encode(mac.finalize().into_bytes());
-    if sig != expected {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
+    // `mac.verify_slice` is constant-time; `sig != expected` on hex strings
+    // short-circuits at the first differing character.
+    let sig_bytes = hex::decode(sig).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    mac.verify_slice(&sig_bytes)
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
     Ok(())
 }
 

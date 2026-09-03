@@ -84,7 +84,8 @@ m copytensor/create_copy target_ss58=... our_hotkey=...
 | GET | `/market` | Network totals (alpha mcap, 24h volume, block, TAO/USD) + top gainers/losers |
 | GET | `/subnets/{netuid}` | Pool state + on-chain identity + validator rankings |
 | GET | `/subnets/{netuid}/history?hours=168` | Indexed price / mcap / volume series |
-| GET | `/leaderboard?days=7&top=50` | Top performers by alpha PnL |
+| GET | `/leaderboard?days=7&top=50` | Top performers by alpha PnL (`days=0` = all history) |
+| GET | `/coverage` | How deep the index is: `depth_days`, `oldest_ts`, per-horizon `covered`/`pct` |
 | GET | `/account/{ss58}?days=7` | Allocations + PnL |
 | GET | `/account/{ss58}/pnl?days=7` | Detailed per-subnet PnL |
 | GET | `/account/{ss58}/curve?days=7` | Equity/PnL curve from local snapshots + the trades on it |
@@ -306,6 +307,24 @@ first-timer doesn't need: STRATS, AGENT, the two drawer caps (WATCHLIST, STRAT
 MAKER), the skin picker and the RPC readout. Under `lg` the rail scrolls under the
 logo and MORE's contents become the `☰` sheet. `/leaderboard` still redirects to
 `/traders`.
+
+**The window is a first-class control, and it says how deep the index is
+(v0.11.0).** `WindowRail.tsx` is the one horizon picker — 24H · 3D · 7D · 14D ·
+30D · ALL — rendered on the front page, the board and the trader profile, all
+driven by the single `days` in `FiltersContext`. `days = 0` is the all-history
+window: `/leaderboard`, `/account/*` and `/trader/*` all map it through
+`_win()` onto the server's `ALL_DAYS` (365) horizon, so the cache key stays put
+while the real depth grows a day a day. `GET /coverage` derives, from one deep
+board's per-row `window_days`, how far back the index actually reaches
+(`depth_days`, `oldest_ts`) and how many traders clear each offered horizon;
+`lib/useCoverage.ts` fetches it once per tab and every rail labels itself with
+it — ALL carries the depth, a horizon only part of the index can answer is
+marked amber with its percentage, and one that nothing can answer is disabled.
+This existed because the console happily offered 30 days over a 12-day index
+and the rows came back silently measured over less. `BoardFilters.tsx` adds the
+other two knobs the front page used to hide in a constant: RANK BY
+(return / total % / size / spread) and the τ book floor (`minStake`, default
+25 τ), both shared with the board through the same context.
 
 Charts are plotted on the pixel lattice, not drawn: `Sparkline.tsx` snaps vertices to
 a 2px grid and emits an axis-aligned staircase, and the Recharts areas use

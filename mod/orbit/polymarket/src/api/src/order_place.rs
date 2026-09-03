@@ -643,6 +643,21 @@ pub async fn place_order(
     if !status.is_success() {
         return Err(anyhow!("CLOB /order HTTP {}: {}", status, json));
     }
+    // A REJECTION CAN ARRIVE AS HTTP 200. The CLOB answers body-level refusals
+    // ("not enough balance / allowance", "invalid order") with 200 and
+    // `{"success": false, "errorMsg": "…"}`. Every caller treats `Ok` as
+    // "the order is on the book" and books the fill against its ledger, so a
+    // 200 rejection was banked as a real trade. Only an explicit `false`
+    // fails — the field is absent on some responses and absence is not a
+    // rejection.
+    if json.get("success").and_then(serde_json::Value::as_bool) == Some(false) {
+        let msg = json
+            .get("errorMsg")
+            .and_then(serde_json::Value::as_str)
+            .filter(|m| !m.is_empty())
+            .unwrap_or("no errorMsg");
+        return Err(anyhow!("CLOB /order rejected (HTTP 200, success=false): {}", msg));
+    }
     Ok(json)
 }
 

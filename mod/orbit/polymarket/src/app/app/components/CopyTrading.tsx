@@ -461,16 +461,13 @@ export default function CopyTrading({
     return () => clearInterval(t);
   }, [loadPage, cacheWarm, lastUpdated]);
 
-  // Background source-data refresh. The page-cache check above keeps the
-  // CLIENT view fresh, but the chip the user sees ("sync 18h 31m ago") is
-  // server `syncedAt` — when Polymarket data was actually pulled. Once that
-  // crosses the SERVER's sync cadence (sync.rs; hourly by default, owner-set)
-  // we kick off `loadStream({ force: true })` from the browser as a safety
-  // net — the schedule is the contract, so a tab left open must not re-pull
-  // on its own faster than the owner asked for. Floor of 10min keeps the old
-  // behavior for deployments that pause auto-sync entirely. Guarded by
-  // inFlightRef and a per-attempt cooldown so a long-running force-sync (the
-  // pipeline takes 2–5 minutes on a cold scan) doesn't queue up.
+  // Source-data freshness is the SERVER's job, never this tab's. The backend
+  // scheduler (sync.rs; hourly, owner-set) re-pulls Polymarket on its own and
+  // every read here is served from that cache — the browser never kicks off a
+  // pipeline run. We still poll the schedule (read-only) so the staleness
+  // chip can color itself against the owner's cadence, and the silent
+  // page-cache re-fetch above picks up new rows once a backend sync lands.
+  // The only force-pull left is the user explicitly clicking ↻ SYNC.
   const [serverIntervalMs, setServerIntervalMs] = useState<number | null>(null);
   const sourceStalenessMs = Math.max(10 * 60_000, serverIntervalMs ?? 0);
   useEffect(() => {
@@ -482,32 +479,6 @@ export default function CopyTrading({
     const t = setInterval(read, 5 * 60_000);
     return () => clearInterval(t);
   }, []);
-  const lastForceAtRef = useRef(0);
-  // Flagged true when the most recent loadStream was kicked off by the
-  // auto-refresh path (vs the user clicking ↻ SYNC or initial cold start).
-  // Drives the SYNCING IN PROGRESS banner so we only surface it for the
-  // background auto-trigger — the user pressing ↻ SYNC already sees the
-  // SYNCING badge animate, no banner needed for that case.
-  const [autoSyncActive, setAutoSyncActive] = useState(false);
-  useEffect(() => {
-    const MAX_SOURCE_STALENESS_MS = sourceStalenessMs;
-    const MIN_RETRY_MS = 2 * 60_000;
-    const TICK_MS = 30_000;
-    const t = setInterval(() => {
-      if (inFlightRef.current) return;
-      const stamp = syncedAt ?? lastUpdated;
-      if (!stamp) return;
-      const age = Date.now() - stamp;
-      if (age < MAX_SOURCE_STALENESS_MS) return;
-      if (Date.now() - lastForceAtRef.current < MIN_RETRY_MS) return;
-      lastForceAtRef.current = Date.now();
-      setAutoSyncActive(true);
-      void loadStreamRef.current({ force: true }).finally(() => {
-        setAutoSyncActive(false);
-      });
-    }, TICK_MS);
-    return () => clearInterval(t);
-  }, [syncedAt, lastUpdated, sourceStalenessMs]);
 
   // 5-second tick so the "Xs ago" label re-renders even when nothing else changes.
   useEffect(() => {
@@ -877,12 +848,12 @@ export default function CopyTrading({
   // Staleness signal lives on the header's color-coded "sync {age}" chip
   // (green <5min → amber <30min → red) plus the always-present ↻ SYNC button,
   // so we don't duplicate it with a separate STALE DATA stripe. The only
-  // full-width banner we keep is the transient AUTO-SYNCING notice, which
-  // explains why a fresh pull kicked off after the data went stale.
+  // full-width banner we keep is the transient SYNCING notice while a pull
+  // the user asked for (or the initial cold load) replaces stale data.
   const staleStamp = syncedAt ?? lastUpdated;
   const staleAgeMs = staleStamp ? nowTick - staleStamp : 0;
   const isStale = staleStamp != null && staleAgeMs >= sourceStalenessMs;
-  const showSyncingBanner = isStale && (autoSyncActive || loading || refreshing);
+  const showSyncingBanner = isStale && (loading || refreshing);
 
   // Why the board is empty. Under the default 6h lens the answer is almost
   // never "no good traders in this window" — it's "everyone good has been
@@ -898,7 +869,7 @@ export default function CopyTrading({
       {showSyncingBanner && (
         <div className="pixel-panel px-4 py-1.5 border border-green-400/60 bg-green-400/5 text-green-400 flex items-center gap-2 font-mono text-[12px]">
           <span className="w-1.5 h-1.5 bg-green-400 animate-pulse shrink-0" />
-          <span className="tracking-wider shrink-0">AUTO-SYNCING</span>
+          <span className="tracking-wider shrink-0">SYNCING</span>
           <span className="text-pixel-gray-light shrink-0">leaderboard was {formatAgo(staleAgeMs)} stale</span>
         </div>
       )}

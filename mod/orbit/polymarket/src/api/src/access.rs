@@ -465,10 +465,13 @@ mod tests {
         let store = test_store(Some(addr.clone()));
         let (token, _exp) = store.issue_token(&addr);
         assert_eq!(store.verify_token(&token), Some(addr.clone()));
-        // Tampered signature → rejected.
+        // Tampered signature → rejected. Flip the last hex nibble to a
+        // DIFFERENT one: unconditionally appending '0' left the token
+        // untouched whenever the signature already ended in '0', which made
+        // this assertion pass or fail on the expiry timestamp of the day.
         let mut broken = token.clone();
-        broken.pop();
-        broken.push('0');
+        let last = broken.pop().unwrap();
+        broken.push(if last == '0' { '1' } else { '0' });
         assert_eq!(store.verify_token(&broken), None);
         // Owner rotated after issuance → old token dies immediately.
         let rotated = test_store(Some("0x2222222222222222222222222222222222222222".into()));

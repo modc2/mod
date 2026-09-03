@@ -27,7 +27,7 @@
 // being its own service. A second engine is how backtest and live drifted
 // apart the last time (see lib/strats/parity.fixture.json).
 
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 
 import { API_BASE, serverAuthHeaders, setServerAuthToken } from "../polymarket";
@@ -38,7 +38,7 @@ import {
   type HubBacktest, type TraderFeed,
 } from "../hubReplay";
 import type { SavedIndex } from "../types";
-import { coverage, pruneFeeds, type FeedCoverage } from "./feedStore";
+import { coverage, pruneFeeds, writeAtomic, type FeedCoverage } from "./feedStore";
 import { TRADES_TTL_MS, feedSession, refreshRoster } from "./feedFetcher";
 import { mintOwnerToken, stateDir } from "./ownerToken";
 import { resolutionCoverage, resolutionsFor } from "./resolutionStore";
@@ -216,8 +216,11 @@ export function readManifest(): HubManifest {
   return readJson<HubManifest>(manifestPath(), { days: HUB_BACKTEST_DAYS, strats: [], at: 0 });
 }
 
+// tmp + rename, via feedStore's writer: `/api/hub` reads these files from the
+// same process on another tick, and a plain writeFileSync let a reader catch
+// a truncated backtests.json mid-write and fall back to an empty cache.
 export function writeManifest(m: HubManifest): void {
-  writeFileSync(manifestPath(), JSON.stringify(m));
+  writeAtomic(manifestPath(), JSON.stringify(m));
 }
 
 export function readCache(): HubCacheFile {
@@ -228,7 +231,7 @@ export function readCache(): HubCacheFile {
 }
 
 function writeCache(c: HubCacheFile): void {
-  writeFileSync(cachePath(), JSON.stringify(c));
+  writeAtomic(cachePath(), JSON.stringify(c));
 }
 
 const EMPTY_FEED_STATUS: FeedStatus = {
@@ -241,7 +244,7 @@ export function readFeedStatus(): FeedStatus {
 }
 
 function writeFeedStatus(s: FeedStatus): void {
-  writeFileSync(feedStatusPath(), JSON.stringify(s));
+  writeAtomic(feedStatusPath(), JSON.stringify(s));
 }
 
 // ── Template rosters (disk-cached) ──────────────────────────────
@@ -277,7 +280,7 @@ async function resolveRosters(): Promise<Map<string, string[]>> {
       out.set(t.slug, []);
     }
   }
-  if (dirty) writeFileSync(rosterPath(), JSON.stringify(file));
+  if (dirty) writeAtomic(rosterPath(), JSON.stringify(file));
   return out;
 }
 

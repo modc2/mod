@@ -185,7 +185,14 @@ async fn main() -> anyhow::Result<()> {
                 format!("endpoint=markets&_limit=100&active=true&closed=false&order=end_date_min&ascending=false&end_date_min={}", today),
             ];
             for qs in &warmup_queries {
-                let cache_key = format!("proxy:{}", qs);
+                // Through the SAME normalizer the proxy handler keys with —
+                // it sorts the pairs, so keying the raw string here wrote
+                // entries no reader ever looked up and the warmup burned
+                // three upstream requests a cycle warming nothing.
+                let cache_key = format!(
+                    "proxy:{}",
+                    polymarket_api::proxy::normalize_query(qs)
+                );
                 // Skip if already cached and fresh
                 if let Some((_, true)) = warmup_cache.get(&cache_key, "markets") {
                     continue;

@@ -312,140 +312,145 @@ Alignment + legibility pass:
 ## Usage
 
 ### Python
+
+`src/mod.py` is an OPERATOR surface — start/stop the services, read the cached
+boards, drive the background sync. It places no orders: everything that moves
+money goes through the COPY DESK in the console (owner-signed) or the `/copy/*`
+routes on the API. `m polymarket/<fn>` and `p.<fn>()` are the same functions.
+
 ```python
 import mod as m
 p = m.mod('polymarket')()
 
-# Read-only
+# Services
+p.serve()                            # API + Next app under pm2 (mode='docker' too)
+p.api(port=50091)                    # just the Rust API
+p.app(port=3091)                     # just the Next console
+p.status(); p.logs(target="api", lines=50); p.kill()
+p.build()                            # build the Rust binary + the Next bundle
+p.test()                             # hit the key endpoints and report
+
+# Reads (all proxied through the owner-gated API)
 p.search("election")
+p.markets(limit=20)
 p.trending(limit=20)
-p.markets(limit=100, order="volume")
-p.market("0x...")                   # single market by condition_id
-p.by_liquidity(limit=20)
-p.ending_soon(limit=20)
-p.events(limit=50, tag="crypto")
-p.orderbook("0x...")                # order book by token_id
-p.midpoint("0x...")                 # midpoint price
-p.tags()                            # all categories
+p.events(limit=20)
+p.active_traders(days=30, limit=50, sort="winRate", min_history_days=30)
+p.backtests(days=1)                  # the worker's cached strat cards
 
-# Trading (requires private_key)
-p = m.mod('polymarket')(private_key="0x...")
-p.auth()                            # derive CLOB API credentials
-p.buy("0x...", price=0.5, size=10)
-p.sell("0x...", price=0.7, size=10)
-p.market_buy("0x...", size=10)
-p.market_sell("0x...", size=10)
-p.positions()
-p.open_orders()
-p.cancel(order_id)
-p.cancel_all()
+# Background sync
+p.sync()                             # show the cadence
+p.sync(minutes=30); p.sync(enabled=False); p.sync(now=True)
 
-# Scraping
-p.discover(count=50)                # auto-track top markets
-p.scrape(interval=60)               # start background scraper
-p.scrape_status()
-p.stored_prices("0x...", start=0, end=9999999999)
-p.stored_trades("0x...")
-p.store_stats()
+# Build provenance
+p.build_cid(); p.publish_build(); p.build_onchain()
 
-# Backtesting
-p.backtest(start=0, end=9999999999, strategy="threshold",
-           buy_threshold=0.3, sell_threshold=0.7,
-           initial_capital=1000, position_size_pct=10)
-
-# Server
-p.serve()                           # start API + Next.js app
-p.serve(api_only=True)              # API only
-p.kill()                            # stop all services
-p.status()                          # check service status
+# MCP
+p.mcp()                              # stdio config for an MCP client
+p.mcp(http=True, port=50092)         # loopback HTTP, owner Bearer token required
 ```
+
+Reads need a token: the API is owner-gated (`access.rs`), so export
+`POLYMARKET_ACCESS_TOKEN` (copy `poly_access_token` out of the signed-in
+browser's localStorage, or mint one with `python3 src/mcp.py --token`).
 
 ### CLI
 ```bash
+m polymarket/serve
+m polymarket/status
+m polymarket/logs target=api lines=100
+m polymarket/kill
 m polymarket/search query=election
 m polymarket/markets limit=20
 m polymarket/trending limit=10
-m polymarket/by_liquidity limit=10
-m polymarket/ending_soon limit=10
-m polymarket/orderbook token_id=0x...
-m polymarket/buy token_id=0x... price=0.5 size=10
-m polymarket/sell token_id=0x... price=0.7 size=10
-m polymarket/positions
-m polymarket/open_orders
-m polymarket/backtest start=0 end=9999999999 strategy=threshold
-m polymarket/scrape interval=60
-m polymarket/scrape_stop
-m polymarket/sync hours=6
-m polymarket/serve
-m polymarket/kill
-m polymarket/status
+m polymarket/events limit=20
+m polymarket/active_traders days=30 limit=10 sort=exitEntry
+m polymarket/active_traders days=30 min_history_days=30
+m polymarket/backtests days=1
+m polymarket/sync minutes=30
+m polymarket/sync now=true
+m polymarket/mcp
 m polymarket/test
 ```
 
 ## API Endpoints
 
+Every route except `/health` and `/access/*` is behind the owner access gate —
+send `Authorization: Bearer <token>`. `config.json`'s `endpoints` block is the
+authoritative list; this is the same set with one-line descriptions.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /health | Health check |
-| GET | /markets | List markets (params: _limit, order, active, end_date_min, end_date_max) |
-| GET | /markets/{condition_id} | Get single market |
-| GET | /search | Search markets (params: q, _limit) |
-| GET | /trending | Trending by volume |
-| GET | /orderbook/{token_id} | Get order book |
-| GET | /positions | Get positions (params: user) |
-| GET | /trades | Get trade history (params: user) |
-| POST | /order | Place limit order (auth required) |
-| POST | /market-order | Place market order (auth required) |
-| POST | /backtest | Run backtest |
+| GET | /health | Liveness (public) |
+| GET | /access/info | Owner-only mode + Terms of Use text/version/hash (public) |
+| GET | /access/challenge | Sign-in challenge for `?address=` (public) |
+| POST | /access/verify | `{address, timestamp, signature}` → Bearer token (public) |
+| GET | /access/check | Is this Bearer token still valid |
+| GET | /active-traders | The leaderboard pipeline (`paged=1` answers from cache, never aggregates) |
+| GET/POST | /copy/book | The COPY BOOK: allocations + each one's live session; POST sets the bankroll |
+| POST | /copy/allocations | Add or resize a trader on the desk |
+| DELETE | /copy/allocations/{address} | Drop a trader (stops their session first) |
+| POST | /copy/rebalance | Re-split the bankroll across the book |
+| POST | /copy/start | Start a session — DRY RUN unless `autoExecute: true` |
+| POST | /copy/stop | Stop a session |
+| GET | /copy/strats | The desk's traders as runnable strats |
+| POST | /copy/signed/challenge | Bytes for the wallet to `personal_sign` for a money move |
+| POST | /copy/signed/execute | Apply a wallet-signed load / remove / drop |
+| GET | /copy/signed/receipts | The verifiable audit trail of signed actions |
+| GET | /sync/status | Background sync cadence + last/next run |
+| POST | /sync/config | Set the cadence / pause it |
+| POST | /sync/run | Run one sync cycle now |
+| GET | /?endpoint=… | Cached upstream proxy: markets, events, activity, positions, prices-history |
+| GET/PUT/DELETE | /strats, /strats/{id} | Client-encrypted strat blobs, scoped by browser token |
+| GET/PUT/DELETE | /strats/public, /strats/public/{id} | The plaintext community gallery |
+| POST | /user-strats/{id}/share | Publish a strat by CID |
+| POST | /user-strats/import | Import one back |
+
+Next-side routes (owner-token gated the same way, served by the console):
+`/polymarket/api/hub`, `/polymarket/api/basket`, `/polymarket/api/copytrades`,
+`/polymarket/api/strat-chat`.
+
+There is no `POST /order` on this API. Order placement happens inside the live
+engine (`src/api/src/live_engine.rs` → `order_place.rs`), signed by the
+per-wallet backend key, and is reachable only by starting a session.
 
 ## Structure
 
 ```
 polymarket/
-├── config.json              # mod config (ports 50091/3091)
-├── skill.md                 # this file
-├── polymarket/
-│   └── mod.py               # Python module (Polymarket class)
-└── app/                     # Next.js 14 app (Mario-themed terminal)
-    ├── app/
-    │   ├── page.tsx          # main page (markets, copy trading, portfolio tabs)
-    │   ├── docs/page.tsx     # API documentation page
-    │   ├── layout.tsx        # root layout with CRT overlay
-    │   ├── globals.css       # pixel/Mario theme CSS
-    │   ├── components/
-    │   │   ├── TopBar.tsx                # logo + nav + search + wallet chip + profile menu
-    │   │   ├── MarketTicker.tsx          # live-updating price tape (8s poll, marquee, Δ chips)
-    │   │   ├── MarketCard.tsx            # market row (question, YES/NO bars, price-flash on change)
-    │   │   ├── MarketsGrid.tsx           # paginated market list (silent 15s re-poll feeds flashes)
-    │   │   ├── TradePanel.tsx            # order placement (limit/market, YES/NO)
-    │   │   ├── CopyTrading.tsx           # top trader leaderboard
-    │   │   ├── CopyIndex.tsx             # strategy basket editor (right sidebar host)
-    │   │   ├── PreconditionChecklist.tsx # /strats top-of-page checklist + CLOB refresh button
-    │   │   ├── LivePanel.tsx             # go-live engine controls + per-cycle log
-    │   │   ├── WalletChip.tsx            # connect/disconnect + trading-ready dot
-    │   │   ├── WalletFundingPanel.tsx    # network ▾ + asset chips (each with live balance)
-    │   │   ├── PositionsTable.tsx        # portfolio positions
-    │   │   ├── PnlChart.tsx              # cumulative PnL chart
-    │   │   ├── ProfileMenu.tsx           # right-sidebar toggle ("PANEL ▶")
-    │   │   └── AuthPanel.tsx             # SIWE / CLOB auth panel
-    │   ├── context/
-    │   │   └── AuthContext.tsx # wallet + CLOB auth state
-    │   ├── lib/
-    │   │   ├── types.ts            # TypeScript interfaces
-    │   │   ├── polymarket.ts       # API helpers, categories, normalization
-    │   │   ├── useLiveMarkets.ts   # hook: interval poll + prev-price diffs (powers ticker + flashes)
-    │   │   ├── networks.ts         # multi-chain network configs + RPC fallback
-    │   │   ├── lifi.ts             # LiFi bridge quote / execute
-    │   │   ├── clobClient.ts       # L2 HMAC-signed CLOB calls (balance, orders, cancel)
-    │   │   ├── copyEngine.ts       # live trading engine (rebalance loop, fills)
-    │   │   ├── stratSync.ts        # persisted strategy CRUD
-    │   │   └── auth.ts             # EIP-712 signing, credential derivation
-    │   └── api/
-    │       ├── polymarket/route.ts # proxy to Gamma/Data API
-    │       └── clob/route.ts      # proxy to CLOB API (auth forwarding)
-    ├── tailwind.config.ts
-    ├── next.config.mjs
-    └── package.json
+├── config.json              # mod config (ports 50091 api / 3091 app / 50092 mcp)
+├── skill.md                 # the agent-facing brief
+├── README.md                # this file
+├── src/
+│   ├── mod.py               # Python operator surface (the fns above)
+│   ├── mcp.py               # MCP server — stdio, or loopback HTTP with an owner token
+│   ├── strats/              # shipped strat definitions
+│   ├── api/                 # the Rust API + live engine
+│   │   ├── start.sh         # pins POLYMARKET_DATA_DIR, rotates api.log
+│   │   └── src/
+│   │       ├── main.rs          # wiring, warmup loops, optional scheduled flatten
+│   │       ├── access.rs        # THE owner gate: challenge, token, deny-by-default guard
+│   │       ├── routes.rs        # route table
+│   │       ├── proxy.rs         # cached upstream proxy (gamma / data-api / clob)
+│   │       ├── cache.rs         # memory + disk cache
+│   │       ├── pipeline.rs      # the trader leaderboard aggregation
+│   │       ├── copy.rs          # the COPY BOOK store
+│   │       ├── copy_actions.rs  # wallet-signed desk actions + receipts
+│   │       ├── live_engine.rs   # the copy engine: gates, sizing, exits, ledger
+│   │       ├── order_place.rs   # CLOB order construction + placement
+│   │       ├── order_signing.rs # EIP-712 order signing
+│   │       ├── signer.rs        # per-EOA encrypted backend keys
+│   │       ├── strats.rs        # encrypted strat sync + public gallery
+│   │       └── …               # fees, sentiment, settled, relayer, sync, first_trade
+│   └── app/                 # Next.js 14 console
+│       └── app/
+│           ├── page.tsx, layout.tsx, globals.css
+│           ├── components/  # TopBar, MarketsGrid, CopyTrading, LivePanel, …
+│           ├── lib/         # types, polymarket client, strats/, backtest, stratSync
+│           ├── lib/server/  # hubWorker, feedStore, resolutionStore, ownerToken
+│           └── api/         # hub, basket, copytrades, strat-chat (owner-gated)
+├── Dockerfile, docker-compose.yml, docker-entrypoint.sh, Caddyfile
+└── start.sh / stop.sh / dev.sh
 ```
 
 ## Search
@@ -867,7 +872,9 @@ m polymarket/mcp                        # same, via the module fn
 
 The loop an agent is told to follow: `pm_top_traders` / `pm_trader` to find a leader and check they aren't a candle bot → `pm_copy_backtest` to replay copying *them* → `pm_copy_basket` when there is more than one name and the question is how to split the money → `pm_copy_allocate` → `pm_copy_start` → `pm_live_gates` when it runs but doesn't fill.
 
-**Safety.** There is no order-placing tool and there won't be: the console signs real money through the deposit wallet and a mis-prompted agent must not reach it. The one thing that *can* spend money is `pm_copy_start` with `autoExecute: true`, and it is **refused unless the deployment sets `POLYMARKET_MCP_ALLOW_LIVE=1`** — without it an agent can research, allocate, backtest and dry-run, and a human flips the last switch in the browser. Stopping is always allowed; it only reduces exposure. Auth is the owner token minted from `server.secret` — the server works exactly when the local owner's console works, and never accepts a caller-supplied token.
+**Safety.** There is no order-placing tool and there won't be: the console signs real money through the deposit wallet and a mis-prompted agent must not reach it. Three things *can* reach real money — `pm_copy_start` with `autoExecute: true`, and `pm_copy_allocate` / `pm_copy_rebalance` against a wallet that already has a session placing real orders (both reconfigure it live) — and all three are **refused unless the deployment sets `POLYMARKET_MCP_ALLOW_LIVE=1`**. Without it an agent can research, allocate on a dry wallet, backtest and dry-run, and a human flips the last switch in the browser. Stopping is always allowed; it only reduces exposure.
+
+**Auth.** Every forwarded call carries an owner token this process mints itself from `server.secret`, so an open port here IS the access gate. `--http` therefore binds **loopback** by default and **requires that same owner token** as `Authorization: Bearer …` on every POST — mint one with `python3 src/mcp.py --token`. There is no wildcard CORS. `GET /health` is the one unauthenticated route and reveals only that a process is listening. Widen the bind with `POLYMARKET_MCP_HTTP_HOST` only behind something that authenticates.
 
 Register it with Claude Code:
 
@@ -891,9 +898,16 @@ Parameter mapping: `search→q`, `daysAgo→days`, `category→cat`, `marketQuer
 |----------|-------------|
 | NEXT_PUBLIC_API_URL | Backend API URL (default http://localhost:50091) |
 | NEXT_PUBLIC_BASE_PATH | Base path for app routing (default /polymarket) |
-| POLYMARKET_PRIVATE_KEY | Wallet private key for trading (Python only) |
+| POLYMARKET_ACCESS_TOKEN | Owner Bearer token for CLI/Python reads (`python3 src/mcp.py --token` mints one) |
+| POLYMARKET_DATA_DIR | Where private state lives: backend signer keys, live-engine sessions, the copy book. `src/api/start.sh` pins it to `~/.mod/polymarket`; docker-compose to `/data`. **Unset, it falls back to `~/.mod/polymarket` — never leave wallet keys somewhere a reboot clears** |
+| POLYMARKET_SIGNER_MASTER_KEY | Optional 64-hex pin for the AES master key. Unset ⇒ auto-generated and persisted to `<data dir>/polymarket-signer-store/.master` (mode 0600) |
 | POLYMARKET_SYNC_INTERVAL_SECS | Initial background-sync cadence (default 300; owner setting in `~/.mod/polymarket/sync.json` overrides) |
-| POLYMARKET_MCP_ALLOW_LIVE | `1` lets `pm_copy_start` place **real orders** over MCP. Unset (the default) ⇒ agents can only DRY RUN, and a human turns on execution from the COPY DESK |
+| POLYMARKET_LIQUIDATE_EVERY_HOURS | Scheduled **flatten**: every N hours, redeem settled winnings and sell every position the deposit wallet holds at best bid — including positions the engine never bought. **`0` (off) by default and deliberately opt-in.** Even when on, a pass only touches wallets with a RUNNING session that has `autoExecute` on |
+| POLYMARKET_LOG_MAX_BYTES | `src/api/start.sh` rotates `api.log` to `api.log.1` on start once it exceeds this (default 64MB) |
+| POLYMARKET_MCP_ALLOW_LIVE | `1` lets MCP touch real money: `pm_copy_start` with `autoExecute`, and `pm_copy_allocate`/`pm_copy_rebalance` against a wallet that is already executing. Unset (the default) ⇒ agents can only DRY RUN, and a human turns on execution from the COPY DESK |
+| POLYMARKET_MCP_HTTP_HOST | Bind address for `--http` (default `127.0.0.1`). Widen it only behind something that authenticates |
+| POLYMARKET_ACCESS_OPEN | `1` drops the owner-only restriction on the gate. Signed copy-desk actions still require a configured owner and fail closed without one |
+| STRAT_HMAC_SECRET | Body-integrity tag on the strat-sync routes. **Not a credential** — the matching key ships in the public client bundle as `NEXT_PUBLIC_STRAT_HMAC_SECRET`. The owner gate is the auth |
 
 ## Mod Protocol
 
@@ -902,4 +916,5 @@ Parameter mapping: `search→q`, `daysAgo→days`, `category→cat`, `marketQuer
 - **Serve**: `m polymarket/serve` (FastAPI + Next.js)
 - **Kill**: `m polymarket/kill`
 - **Config**: `config.json` with endpoints, fns, ports
-- **Logs**: `/tmp/polymarket/api.log`, `/tmp/polymarket/app.log`
+- **Logs**: `src/api/api.log` (rotated by `start.sh`; gitignored), `pm2 logs polymarket-app`
+- **State**: `~/.mod/polymarket/` — owner, server secret, copy book, signer keystore, live sessions
