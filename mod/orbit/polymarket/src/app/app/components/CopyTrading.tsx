@@ -306,6 +306,20 @@ export default function CopyTrading({
         if (typeof result.syncedAt === "number" && result.syncedAt > 0) {
           setSyncedAt(result.syncedAt * 1000);
         }
+        // Remember the landing page for this view so the next load paints it
+        // before any network. Page 0 only — deeper pages aren't a landing.
+        if (pg === 0) {
+          saveBoardSnapshot(snapKeyFor(sortKey, orderKey), {
+            traders: result.traders,
+            total: result.total,
+            activityDropped: result.activityDropped ?? 0,
+            source: result.source as "memory" | "disk" | "fresh",
+            syncedAt:
+              typeof result.syncedAt === "number" && result.syncedAt > 0
+                ? result.syncedAt * 1000
+                : null,
+          });
+        }
         return true;
       } catch {
         return false;
@@ -315,7 +329,7 @@ export default function CopyTrading({
     },
     [days, minTradesPerDay, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
-     minTrades24h, maxLastTradeHrs, minHistoryDays],
+     minTrades24h, maxLastTradeHrs, minHistoryDays, snapKeyFor],
   );
 
   // Streaming load — used for cold cache (pipeline needs to run) AND
@@ -404,9 +418,13 @@ export default function CopyTrading({
       } catch (e) {
         // AbortError = a newer SYNC click replaced this one; leave the
         // previous traders visible (the new request will repopulate).
-        // Any other failure clears the table so the user knows.
+        // Any other failure clears the table so the user knows — unless
+        // rows are already showing (a hydrated localStorage snapshot, or a
+        // previous page): a stale board with an honest age chip beats a
+        // blank one, and blanking it erased the snapshot's whole point
+        // when the API is asleep or unreachable.
         const aborted = e instanceof Error && e.name === "AbortError";
-        if (!aborted) setTraders([]);
+        if (!aborted) setTraders((prev) => (prev.length > 0 ? prev : []));
       } finally {
         // Only reset inFlight if THIS controller is still the current
         // one — a re-click during this finally would have replaced it
@@ -451,16 +469,36 @@ export default function CopyTrading({
 
   // Initial load: try paged first, fall back to streaming
   // Fires when the pipeline parameters change (days window, min trades/day)
+  //
+  // Before any network, paint the last board this exact view showed
+  // (localStorage snapshot, stale-while-revalidate). The paged fetch below
+  // still runs and replaces it — the snapshot only buys the first paint, and
+  // when the API was slept and has to re-aggregate, it's the difference
+  // between reading yesterday's board and watching a progress bar. The
+  // snapshot's REAL server `syncedAt` drives the staleness chip, so old rows
+  // look old instead of freshly loaded.
   useEffect(() => {
-    setTraders([]);
-    setTotalTraders(0);
-    setSource(null);
     setProgress(null);
     setRateInfo(null);
     rateSamplesRef.current = [];
     setCacheWarm(false);
     setPage(0);
     pageRef.current = 0;
+    const snap = loadBoardSnapshot(snapKeyRef.current);
+    if (snap) {
+      setTraders(snap.traders);
+      setTotalTraders(snap.total);
+      setActivityDropped(snap.activityDropped);
+      setSource(snap.source);
+      setSyncedAt(snap.syncedAt);
+      setLastUpdated(snap.savedAt);
+      setLoading(false);
+      setHasLoaded(true);
+    } else {
+      setTraders([]);
+      setTotalTraders(0);
+      setSource(null);
+    }
     (async () => {
       const warm = await loadPageRef.current({ pg: 0 });
       if (!warm) await loadStreamRef.current();

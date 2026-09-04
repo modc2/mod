@@ -68,6 +68,13 @@ export function loadBoardSnapshot(key: string): BoardSnapshot | null {
   }
 }
 
+// `marketTitles` is ~95% of a page's bytes (hundreds of titles per trader,
+// ~630KB for 50 rows) and the hydrated first paint never reads it — the warm
+// path renders rows as-is, and the client-side filter that does read titles
+// only runs against the streamed dataset. Keep a taste of it for safety,
+// drop the rest: 50 rows land at ~60KB.
+const MAX_TITLES = 12;
+
 export function saveBoardSnapshot(
   key: string,
   snap: Omit<BoardSnapshot, "savedAt">,
@@ -75,7 +82,14 @@ export function saveBoardSnapshot(
   if (typeof window === "undefined") return;
   let payload: string;
   try {
-    payload = JSON.stringify({ ...snap, savedAt: Date.now() });
+    payload = JSON.stringify({
+      ...snap,
+      traders: snap.traders.map((t) => ({
+        ...t,
+        marketTitles: (t.marketTitles ?? []).slice(0, MAX_TITLES),
+      })),
+      savedAt: Date.now(),
+    });
   } catch {
     return;
   }
