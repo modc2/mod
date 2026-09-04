@@ -18,6 +18,7 @@ import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { loadIndexes, getActiveIndexId } from "../lib/indexStore";
 import SyncScheduleChip from "./SyncScheduleChip";
 import { fetchSyncSchedule } from "../lib/syncSchedule";
+import { boardKey, loadBoardSnapshot, saveBoardSnapshot } from "../lib/boardCache";
 
 import {
   DEFAULT_FORMULA, compileFormula, formatScore, scoreInputs, scoreIsUnknown,
@@ -217,6 +218,44 @@ export default function CopyTrading({
   // a new sync starts (setProgress(null)).
   const rateSamplesRef = useRef<Array<{ ts: number; done: number; phase: string }>>([]);
   const [rateInfo, setRateInfo] = useState<{ rate: number; etaSec: number; phase: string } | null>(null);
+
+  // Identity of a page-0 board read: same tuple → the server would answer
+  // with the same rows, so a stored copy of the last answer is a legitimate
+  // first paint for the view. Every filter loadPage sends is in the key —
+  // a snapshot must never leak across views that the server would filter
+  // differently.
+  const snapKeyFor = useCallback(
+    (sortKey: string, orderKey: string) =>
+      boardKey({
+        days,
+        minPerDay: minTradesPerDay,
+        sort: sortKey,
+        order: orderKey,
+        search,
+        category,
+        marketQuery,
+        minVolume: Number(minVolume) || 0,
+        minPnl: minPnl !== "" && Number.isFinite(Number(minPnl)) ? Number(minPnl) : "",
+        minTrades: Number(minTrades) || 0,
+        minBuyVolume: Number(minBuyVolume) || 0,
+        minSellVolume: Number(minSellVolume) || 0,
+        minTrades24h: Number(minTrades24h) || 0,
+        maxLastTradeHrs: Number(maxLastTradeHrs) || 0,
+        minHistoryDays: Number(minHistoryDays) || 0,
+      }),
+    [days, minTradesPerDay, search, category, marketQuery,
+     minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
+     minTrades24h, maxLastTradeHrs, minHistoryDays],
+  );
+  // The initial-load effect below keys on [days, minTradesPerDay, reloadKey]
+  // only — it reads the CURRENT view's key through this ref so the hydrate
+  // matches whatever sort/filters the render actually has (URL-seeded
+  // filters included) without widening the effect's dependency list.
+  const snapKeyRef = useRef("");
+  snapKeyRef.current = snapKeyFor(
+    traderSort === "score" ? serverScoreSort : traderSort,
+    sortDir,
+  );
 
   // Server-side paginated fetch — used when cache is warm
   const loadPage = useCallback(
