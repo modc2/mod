@@ -7,7 +7,7 @@
     "bt_url": "http://localhost:50280",
     "cooldown_sec": 60,
     "daily_limit_tao": 100.0,
-    "description": "Bittensor dTAO copy trading — mirror subnet allocations of top performers; the leaderboard and every read are served by the bt module's local index (public RPCs as fallback), a strat agent you can talk to builds the baskets, and an MCP server (POST /mcp) drives the book — create copies, sync the portfolio, backtest",
+    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers; the leaderboard and every read are served by the bt module's local index (public RPCs as fallback), a strat agent you can talk to builds the baskets, and an MCP server (POST /mcp) drives the book \u2014 create copies, sync the portfolio, backtest",
     "endpoints": {
         "/account/{ss58}": {
             "docs": "Coldkey allocations + N-day PnL",
@@ -22,7 +22,7 @@
             "method": "GET"
         },
         "/agent": {
-            "docs": "Strat-agent status — auth, model, and the tools it can reach",
+            "docs": "Strat-agent status \u2014 auth, model, and the tools it can reach",
             "method": "GET"
         },
         "/agent/ask": {
@@ -34,7 +34,7 @@
             "method": "GET"
         },
         "/copy": {
-            "docs": "Create a copy config (target → our hotkey)",
+            "docs": "Create a copy config (target \u2192 our hotkey)",
             "method": "POST"
         },
         "/copy/{id}/pause": {
@@ -66,7 +66,7 @@
             "method": "GET"
         },
         "/leaderboard": {
-            "docs": "Top performers by N-day alpha PnL, ranked out of bt's trader index (?days=7&top=50; days=0 = every day of history there is) — PnL split into market move vs stake flow",
+            "docs": "Top performers by N-day alpha PnL, ranked out of bt's trader index (?days=7&top=50; days=0 = every day of history there is) \u2014 PnL split into market move vs stake flow",
             "method": "GET"
         },
         "/market": {
@@ -74,15 +74,15 @@
             "method": "GET"
         },
         "/mcp": {
-            "docs": "MCP streamable-HTTP endpoint (JSON-RPC 2.0, batches ok) — 25 tools: every read the strat agent has plus the ops set (ct_copies, ct_create_copy, ct_sync, ct_portfolio, ct_backtest...). `claude mcp add --transport http copytensor <this url>`",
+            "docs": "MCP streamable-HTTP endpoint (JSON-RPC 2.0, batches ok) \u2014 25 tools: every read the strat agent has plus the ops set (ct_copies, ct_create_copy, ct_sync, ct_portfolio, ct_backtest...). `claude mcp add --transport http copytensor <this url>`",
             "method": "POST"
         },
         "/mcp/schema": {
-            "docs": "Transports, scope and the full MCP tool list — read before connecting",
+            "docs": "Transports, scope and the full MCP tool list \u2014 read before connecting",
             "method": "GET"
         },
         "/pool": {
-            "docs": "Resize the trader pool (?size=250&refresh=false) — grows in background",
+            "docs": "Resize the trader pool (?size=250&refresh=false) \u2014 grows in background",
             "method": "POST"
         },
         "/portfolio": {
@@ -105,11 +105,11 @@
             ]
         },
         "/strats/backtest": {
-            "docs": "Replay a basket over the last N days (inline basket, no id needed) — equity curve, stats, per-trader contribution",
+            "docs": "Replay a basket over the last N days (inline basket, no id needed) \u2014 equity curve, stats, per-trader contribution",
             "method": "POST"
         },
         "/strats/hub": {
-            "docs": "The public shelf — every published strat",
+            "docs": "The public shelf \u2014 every published strat",
             "method": "GET"
         },
         "/strats/{id}": {
@@ -149,7 +149,7 @@
             "method": "GET"
         },
         "/traders/{ss58}": {
-            "docs": "Indexed profile — positions, equity curve, inferred trades",
+            "docs": "Indexed profile \u2014 positions, equity curve, inferred trades",
             "method": "GET"
         },
         "/traders/{ss58}/flows": {
@@ -173,7 +173,7 @@
             "method": "GET"
         },
         "/wallet/set": {
-            "docs": "Set wallet (mnemonic or seed_hex) — only needed to stake",
+            "docs": "Set wallet (mnemonic or seed_hex) \u2014 only needed to stake",
             "method": "POST"
         },
         "/watch": {
@@ -185,7 +185,7 @@
             "method": "GET"
         },
         "/whoami": {
-            "docs": "Your strat-owner fingerprint — the id someone whitelists to let you in",
+            "docs": "Your strat-owner fingerprint \u2014 the id someone whitelists to let you in",
             "method": "GET"
         }
     },
@@ -240,8 +240,8 @@
         "endpoint": "POST /mcp",
         "schema": "GET /mcp/schema",
         "scopes": {
-            "agent": "COPYTENSOR_MCP_SCOPE=agent — the strat agent's read-only set",
-            "all": "default over HTTP — reads + the copy book + ct_sync"
+            "agent": "COPYTENSOR_MCP_SCOPE=agent \u2014 the strat agent's read-only set",
+            "all": "default over HTTP \u2014 reads + the copy book + ct_sync"
         },
         "stdio": "python3 -m src.agent.mcp_server"
     },
@@ -263,7 +263,7 @@
     ],
     "rebalance_threshold_pct": 5.0,
     "route": true,
-    "schema": "Qmaki7xRDsAtJR9yD32de8MmDtoXuEmokq3BSi8mkHmYWP",
+    "schema": "QmPWsocbWzx23ZnzPvvru2CdFZvegBGqAxqdcjGfGiCRKY",
     "seed_validators": [
         {
             "label": "Top delegate #1 owner",

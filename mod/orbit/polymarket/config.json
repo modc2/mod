@@ -135,7 +135,7 @@
             "docs": "Per-strat agent chat (served by the Next app, owner-gated): {strat, messages, context?} -> {reply, entries, rejected}. The agent reads the strat's settings, its cached backtest and its live session and PROPOSES a parameter patch, validated against the lib/stratPatch whitelist; nothing is written \u2014 the browser applies it on the user's say-so. Runs through the local claude CLI (POLYMARKET_CHAT_MODEL, default claude-opus-5)."
         }
     },
-    "schema": "QmVRWy26dVCaD9eZSpSd1xXDbKLxvyPEyEzhYbiy5BzopC",
+    "schema": "QmWgKv7DWSSVXHR3P9625MQtBJ3HUvjWQyNNfNtQ8k7wPq",
     "gateway_port": 3091,
     "mcp": {
         "stdio": "python3 src/mcp.py",
