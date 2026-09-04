@@ -8,6 +8,7 @@ import Market from './components/Market'
 import Builder from './components/Builder'
 import AgentEditor from './components/AgentEditor'
 import CreditsSidebar, { CreditsInfo } from './components/Credits'
+import AuthGate, { type AuthNeed } from './components/AuthGate'
 import Select from './components/Select'
 import Tools from './components/Tools'
 import Arena from './components/Arena'
@@ -425,6 +426,10 @@ export default function Home() {
   const [authBusy, setAuthBusy] = useState(false)
   const [authErr, setAuthErr] = useState<string | null>(null)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  // an action waiting on identity: the AuthGate modal is open and whoever
+  // called requireAuth() is awaiting the promise held in authAskResolve
+  const [authAsk, setAuthAsk] = useState<AuthNeed | null>(null)
+  const authAskResolve = useRef<((a: AuthInfo | null) => void) | null>(null)
 
   // Escape closes the account menu. The click-catcher behind it already
   // handled the pointer; the keyboard had no way out.
@@ -830,9 +835,12 @@ export default function Home() {
   // your address on the server, so it follows the wallet; signed out the
   // browser keeps it, which is as far as an anonymous pick can travel.
   // Resolves to an error string, or null when it took.
-  const setDefaultAgentPick = useCallback(async (name: string): Promise<string | null> => {
+  // token override: a caller holding an identity fresher than the closure
+  // (requireAuth just signed in) passes it so the pick lands server-side
+  const setDefaultAgentPick = useCallback(async (name: string, token?: string): Promise<string | null> => {
     try { localStorage.setItem('agent_default_asked', '1') } catch {}
-    if (!auth?.token) {
+    const authToken = token || auth?.token
+    if (!authToken) {
       try { localStorage.setItem('agent_default', name) } catch {}
       setDefaultPick(name); setDefaultSource('you'); setDefaultAgent(name)
       setDefaultErr(null); setShowDefaultPick(false)
@@ -841,7 +849,7 @@ export default function Home() {
     try {
       const r = await fetch(`${API_URL}/agents/default`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, key: auth.token }),
+        body: JSON.stringify({ name, key: authToken }),
       }).then(x => x.json())
       if (r?.error) { setDefaultErr(r.error); return r.error }
       setDefaultPick(r.pick || null)
@@ -1039,11 +1047,17 @@ export default function Home() {
             <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 flex items-center gap-0.5 ${
               canRunHarness(p.harness)
                 ? 'bg-violet-400/10 border border-violet-400/25 text-violet-300/90'
-                : 'bg-white/[0.03] border border-white/[0.08] text-gray-600'
+                : 'bg-white/[0.03] border border-white/[0.08] text-gray-600 hover:text-gray-400 hover:border-white/20 cursor-pointer'
             }`}
+              // the padlock is a door, not just a sign: clicking it raises the
+              // in-app sign-in prompt for exactly this harness
+              onClick={canRunHarness(p.harness) ? undefined : e => {
+                e.stopPropagation()
+                void requireAuth({ kind: 'harness', harness: p.harness!, agentLabel: p.label })
+              }}
               title={canRunHarness(p.harness)
                 ? `runs on the ${p.harness} CLI installed on this host`
-                : `runs on the ${p.harness} CLI on the host's own shell — sign in as the host or that console's owner to start it`}>
+                : `runs on the ${p.harness} CLI on the host's own shell — click to sign in as the host or that console's owner`}>
               {/* a padlock rather than a word: the chip is already the name of
                   the CLI, and there is no emoji font on this host */}
               {!canRunHarness(p.harness) && (
@@ -1122,8 +1136,10 @@ export default function Home() {
     } catch {}
   }
 
-  // resolve the role server-side and persist — shared by both sign-in paths
-  const finishSignIn = async (address: string, token: string, local: boolean) => {
+  // resolve the role server-side and persist — shared by both sign-in paths.
+  // Returns the fresh AuthInfo so a caller mid-action (requireAuth, run) can
+  // use it before React has flushed the state update.
+  const finishSignIn = async (address: string, token: string, local: boolean): Promise<AuthInfo> => {
     let isOwner = false
     let harnesses: string[] = []
     try {
@@ -1137,16 +1153,18 @@ export default function Home() {
     setAuth(next)
     persistAuth(next)
     setShowUserMenu(false)
+    return next
   }
 
-  const signInWallet = async () => {
+  const signInWallet = async (): Promise<AuthInfo | null> => {
     const provider = eth()
     if (!provider) {
       setAuthErr('No wallet found — install MetaMask, or use a local wallet')
-      return
+      return null
     }
     setAuthBusy(true)
     setAuthErr(null)
+    let signed: AuthInfo | null = null
     try {
       const accounts = await provider.request({ method: 'eth_requestAccounts' })
       const address = String(accounts?.[0] || '').toLowerCase()
@@ -1158,29 +1176,32 @@ export default function Home() {
         method: 'personal_sign',
         params: [JSON.stringify({ data, time }), address],
       })
-      await finishSignIn(address, b64url({ data, time, key: address, signature }), false)
+      signed = await finishSignIn(address, b64url({ data, time, key: address, signature }), false)
     } catch (e: any) {
       if (e?.code !== 4001) setAuthErr(e?.message || 'sign-in failed') // 4001 = user rejected
     }
     setAuthBusy(false)
+    return signed
   }
 
   // sign in with a keypair generated and kept in this browser — no extension
   // needed. Same EIP-191 signature a wallet would produce, so the server
   // verifies it unchanged; the address is a device-local pseudonym.
-  const signInLocal = async () => {
+  const signInLocal = async (): Promise<AuthInfo | null> => {
     setAuthBusy(true)
     setAuthErr(null)
+    let signed: AuthInfo | null = null
     try {
       const id = getOrCreateLocalIdentity()
       const data = { scope: 'agent' }
       const time = (Date.now() / 1000).toString()
       const signature = await localSign(id, JSON.stringify({ data, time }))
-      await finishSignIn(id.address, b64url({ data, time, key: id.address, signature }), true)
+      signed = await finishSignIn(id.address, b64url({ data, time, key: id.address, signature }), true)
     } catch (e: any) {
       setAuthErr(e?.message || 'local sign-in failed')
     }
     setAuthBusy(false)
+    return signed
   }
 
   // default entry point (components' "sign in" buttons): wallet when one is
@@ -1191,6 +1212,46 @@ export default function Home() {
     setAuth(null)
     setShowUserMenu(false)
     persistAuth(null)
+  }
+
+  // ── requireAuth — prompt for identity at the moment it's needed ─────
+  // Anything about to hit an auth wall awaits this instead of letting the
+  // request come back a refusal: satisfied already, it resolves at once;
+  // otherwise the AuthGate modal opens, sign-in happens in the app, the need
+  // is re-checked against the fresh /whoami, and the caller carries on with
+  // the identity it got — or null if the person waved it away.
+  const authSatisfies = (a: AuthInfo | null, need: AuthNeed): boolean => {
+    if (!a) return false
+    if (need.kind === 'harness') return a.isOwner || !!a.harnesses?.includes(need.harness)
+    return true
+  }
+
+  const settleAuthAsk = (a: AuthInfo | null) => {
+    authAskResolve.current?.(a)
+    authAskResolve.current = null
+    setAuthAsk(null)
+  }
+
+  const requireAuth = (need: AuthNeed): Promise<AuthInfo | null> => {
+    if (authSatisfies(auth, need)) return Promise.resolve(auth)
+    return new Promise(resolve => {
+      authAskResolve.current?.(null) // a newer ask supersedes a forgotten one
+      authAskResolve.current = resolve
+      setAuthAsk(need)
+    })
+  }
+
+  // modal buttons: run the normal sign-in, then re-judge the need. A sign-in
+  // that lands but doesn't satisfy (signed in, not vouched for the harness)
+  // keeps the modal open — it re-renders into its "not vouched" wording off
+  // the now-set auth state, offering another account.
+  const authAskWallet = async () => {
+    const a = await signInWallet()
+    if (a && authAsk && authSatisfies(a, authAsk)) settleAuthAsk(a)
+  }
+  const authAskLocal = async () => {
+    const a = await signInLocal()
+    if (a && authAsk && authSatisfies(a, authAsk)) settleAuthAsk(a)
   }
 
   // restore session; a stale token is dropped so the UI shows "sign in"
@@ -1526,6 +1587,15 @@ export default function Home() {
   const run = async () => {
     const shots = attachments
     if ((!query.trim() && shots.length === 0) || loading) return
+    // A harness agent hands the run to a CLI this caller can't start yet —
+    // ask for the sign-in here, in the app, and continue with the identity
+    // it produces. Declined = nothing sent, the composer keeps the prompt.
+    let runAuth = auth
+    if (!promptSel && currentAgentDef?.harness && !canRunHarness(currentAgentDef.harness)) {
+      const a = await requireAuth({ kind: 'harness', harness: currentAgentDef.harness, agentLabel: currentAgentDef.label })
+      if (!a) return
+      runAuth = a
+    }
     const q = query.trim() || 'look at the attached image(s)'
     setQuery('')
     setAttachments([])
@@ -1588,7 +1658,7 @@ export default function Home() {
         body.images = shots.map(a => a.url)      // vision-capable models only
         body.thumbs = shots.map(a => a.thumb)    // previews for the task registry
       }
-      if (auth?.token) body.key = auth.token   // signed identity rides along
+      if (runAuth?.token) body.key = runAuth.token   // signed identity rides along
       // always named: an omitted agent means "server's default", which would
       // turn an explicit pick of the native agent into a Claude Code run
       if (agentType) body.agent_type = agentType
@@ -1609,7 +1679,7 @@ export default function Home() {
       if (toolSel.length) body.tool_ids = toolSel
       // guests pick how runs are powered: spend credits on the module's
       // public key, or stay on free models (never charged)
-      if (auth && !auth.isOwner && !spendCredits) body.free = true
+      if (runAuth && !runAuth.isOwner && !spendCredits) body.free = true
 
       const controller = new AbortController()
       abortRef.current = controller
@@ -2867,6 +2937,10 @@ export default function Home() {
           <span className="min-w-0 truncate">
             {currentAgentDef.label} runs on the host&apos;s own {currentAgentDef.harness} CLI — sign in as the host or that console&apos;s owner.
           </span>
+          <button onClick={() => void requireAuth({ kind: 'harness', harness: currentAgentDef.harness!, agentLabel: currentAgentDef.label })}
+            className="shrink-0 px-1.5 py-0.5 rounded border border-emerald-500/30 text-emerald-200/90 hover:bg-emerald-500/10 transition">
+            sign in
+          </button>
           <button onClick={() => selectAgent('default')}
             className="shrink-0 px-1.5 py-0.5 rounded border border-violet-400/25 text-violet-200/90 hover:bg-violet-400/10 transition">
             use a native agent
@@ -3867,24 +3941,36 @@ export default function Home() {
           <div className="text-[11px] text-gray-500 mt-1 leading-relaxed">
             It&apos;s the one every chat starts on — you can still switch per message, and
             change this any time from the agent menu.
-            {auth ? ' Kept against your address, so it follows your wallet.'
-                  : ' Sign in to keep it across devices; for now this browser holds it.'}
+            {auth ? ' Kept against your address, so it follows your wallet.' : <>
+              {' '}
+              <button onClick={() => void requireAuth({ kind: 'signin', reason: 'Sign in and your default agent files against your address — it follows your wallet across browsers and devices.' })}
+                className="underline decoration-dotted underline-offset-2 text-emerald-300/90 hover:text-emerald-200 transition">
+                Sign in
+              </button>
+              {' '}to keep it across devices; for now this browser holds it.
+            </>}
           </div>
         </div>
         <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
           {agentOptions.map(a => {
             const locked = !!a.harness && !canRunHarness(a.harness)
             return (
-              <button key={a.value} disabled={locked}
-                onClick={() => { selectAgent(a.value); setDefaultAgentPick(a.value) }}
+              <button key={a.value}
+                // a locked row still answers a click: it raises the sign-in
+                // prompt right here, and a sign-in that carries the standing
+                // makes the pick — nobody leaves the app to authenticate
+                onClick={locked
+                  ? () => void requireAuth({ kind: 'harness', harness: a.harness!, agentLabel: a.label })
+                      .then(got => { if (got) { selectAgent(a.value); setDefaultAgentPick(a.value, got.token) } })
+                  : () => { selectAgent(a.value); setDefaultAgentPick(a.value) }}
                 className={`w-full text-left px-2.5 py-2 rounded-md transition border ${
                   locked
-                    ? 'border-transparent opacity-40 cursor-not-allowed'
+                    ? 'border-transparent opacity-40 hover:opacity-70 hover:bg-white/[0.04]'
                     : a.value === defaultAgent
                     ? 'bg-emerald-500/10 border-emerald-500/25 hover:bg-emerald-500/15'
                     : 'border-transparent hover:bg-white/[0.05]'
                 }`}
-                title={locked ? `${a.label} runs on the host's own ${a.harness} CLI — host only` : a.description}>
+                title={locked ? `${a.label} runs on the host's own ${a.harness} CLI — sign in as the host or that console's owner to unlock it` : a.description}>
                 <div className="flex items-center gap-2">
                   <span className="w-5 text-center shrink-0 text-gray-300">{a.icon}</span>
                   <span className="text-xs text-gray-200 truncate min-w-0">{a.label}</span>
@@ -3893,7 +3979,7 @@ export default function Home() {
                       suggested
                     </span>
                   )}
-                  {locked && <span className="text-[9px] text-gray-600 shrink-0 ml-auto">host only</span>}
+                  {locked && <span className="text-[9px] text-gray-600 shrink-0 ml-auto">sign in to run</span>}
                 </div>
                 {a.description && (
                   <div className="text-[10px] text-gray-600 mt-0.5 pl-7 line-clamp-2 leading-relaxed">
@@ -3924,6 +4010,18 @@ export default function Home() {
   const overlays = (
     <>
       {defaultAgentDialog}
+      {/* the sign-in prompt raised by requireAuth — above every other layer,
+          because whatever opened it is paused until this answers */}
+      <AuthGate
+        ask={authAsk}
+        auth={auth}
+        busy={authBusy}
+        err={authErr}
+        onWallet={() => void authAskWallet()}
+        onLocal={() => void authAskLocal()}
+        onCancel={() => settleAuthAsk(null)}
+        onFallback={() => { selectAgent('default'); settleAuthAsk(null) }}
+      />
       {showKeyPanel && (
         <KeyPanel
           initialProvider={keyPanelProvider || provider}

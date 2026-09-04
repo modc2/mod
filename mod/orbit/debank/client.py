@@ -378,6 +378,114 @@ def balances(id, chains=None, min_usd=0.0):
                     'history and approvals'}
 
 
+# ── proof of humanity: the tag on the id ──
+#
+# The bank's account id is a bare address; nothing about it says a person is
+# behind it. These registries do — each one an on-chain record that a human
+# (Kleros-vouched video + deposit, or a KYC'd Coinbase account) controls the
+# address. All of them sit on rail chains, so the check is keyless: the same
+# public RPCs, one eth_call each. Selectors are hardcoded like _balance_of —
+# the stdlib has no keccak. Verified live 2026-09-04 against each contract.
+HUMANITY_REGISTRIES = [
+    {'source': 'poh-v2', 'name': 'Proof of Humanity v2', 'chain': 'eth',
+     'contract': '0xbE9834097A4E97689d9B667441acafb456D0480A',
+     'selector': '0xf72c436f', 'kind': 'bool',       # isHuman(address)
+     'register': 'https://v2.proofofhumanity.id'},
+    {'source': 'poh-v2-gnosis', 'name': 'Proof of Humanity v2 (Gnosis)',
+     'chain': 'xdai',
+     'contract': '0xa4AC94C4fa65Bb352eFa30e3408e64F72aC857bc',
+     'selector': '0xf72c436f', 'kind': 'bool',       # isHuman(address)
+     'register': 'https://v2.proofofhumanity.id'},
+    {'source': 'poh-v1', 'name': 'Proof of Humanity v1', 'chain': 'eth',
+     'contract': '0xC5E9dDebb09Cd64DfaCab4011A0D5cEDaf7c9BDb',
+     'selector': '0xc3c5a547', 'kind': 'bool',       # isRegistered(address)
+     'register': 'https://app.proofofhumanity.id'},
+    {'source': 'coinbase', 'name': 'Coinbase Verified Account', 'chain': 'base',
+     'contract': '0x2c7eE1E5f416dfF40054c27A62f7B357C4E8619C',
+     'selector': '0xab2717dd', 'kind': 'uid',        # getAttestationUid(address,bytes32)
+     'suffix': 'f8b05c79f090979bf4a80270aba232dff11a10d9ca55c4f88de95317970f0de9',
+     'register': 'https://www.coinbase.com/onchain-verify'},
+]
+
+TAG_SCHEME = 'debank.humanity.v1'
+
+
+def _humanity_tag(addr, evidence):
+    """The tag itself: SHA3-256 over the canonical evidence string.
+
+    The registries bind humanity to the address with today's signatures
+    (ECDSA), which a large quantum computer would eventually forge. The tag
+    doesn't try to outlive that with more signatures — it commits the *state*
+    (which registry said yes, in which contract, at which block) under a
+    hash that keeps ~128-bit security against Grover. Archive the tag and the
+    basis string anywhere durable and the claim "this id was human-verified
+    at that block" stays checkable, and unforgeable, after ECDSA falls.
+    """
+    import hashlib
+    basis = TAG_SCHEME + '|' + addr + '|' + ';'.join(
+        f"{e['source']}:{e['chain']}:{e['contract'].lower()}:"
+        f"{e.get('block') if e.get('block') is not None else '?'}:{int(bool(e['verified']))}"
+        for e in evidence)
+    return {'scheme': 'sha3-256', 'basis': basis,
+            'value': hashlib.sha3_256(basis.encode()).hexdigest()}
+
+
+def humanity(id):
+    """Is a human behind this id? Read from on-chain registries, keyless.
+
+    One batched eth_call per chain, in parallel, exactly like balances().
+    A registry that can't be reached is reported in errors and counted as
+    unverified — the tag only ever asserts what was actually read.
+    """
+    addr = _addr(id)
+    by_chain = {}
+    for reg in HUMANITY_REGISTRIES:
+        by_chain.setdefault(reg['chain'], []).append(reg)
+
+    results, errors = {}, {}
+
+    def one(chain, regs):
+        calls = [('eth_blockNumber', [])] + [
+            ('eth_call', [{'to': r['contract'],
+                           'data': r['selector'] + addr[2:].rjust(64, '0')
+                                   + r.get('suffix', '')}, 'latest'])
+            for r in regs]
+        try:
+            res = rpc(NETWORKS[chain]['rpc'], calls)
+            block = int(res[0], 16) if res[0] else None
+            for r, v in zip(regs, res[1:]):
+                results[r['source']] = (block, v)
+        except Exception as e:
+            errors[chain] = f'{type(e).__name__}: {e}'
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=len(by_chain)) as pool:
+        list(pool.map(lambda kv: one(*kv), by_chain.items()))
+
+    sources = []
+    for reg in HUMANITY_REGISTRIES:
+        block, raw = results.get(reg['source'], (None, None))
+        word = (raw or '')[2:].rjust(64, '0')
+        verified = bool(raw) and int(word or '0', 16) != 0
+        sources.append({'source': reg['source'], 'name': reg['name'],
+                        'chain': reg['chain'], 'contract': reg['contract'],
+                        'verified': verified, 'block': block,
+                        'result': raw if verified else None,
+                        'register': reg['register']})
+    human = any(s['verified'] for s in sources)
+    return {'id': addr, 'human': human,
+            'verified_by': [s['name'] for s in sources if s['verified']] or None,
+            'tag': _humanity_tag(addr, sources),
+            'sources': sources, 'errors': errors or None,
+            'source': 'rpc', 'checked_at': int(time.time()),
+            'note': 'keyless — on-chain humanity registries read straight from '
+                    'public RPCs; nothing here identifies the person, only that '
+                    'a registry accepted one',
+            'pq': 'the tag is a SHA3-256 commitment to the evidence (hash-based, '
+                  'quantum-resistant); keep tag.basis and tag.value and the claim '
+                  'can be re-verified even if ECDSA signatures stop being proof'}
+
+
 class Client:
     """One DeBank account's view of the chains. Stateless apart from the key."""
 
@@ -740,6 +848,10 @@ class Client:
 
     def networks(self):
         return networks()
+
+    def humanity(self, id):
+        """The proof-of-humanity tag on an id. Needs no key."""
+        return humanity(id)
 
     # ── chains & gas ──
 

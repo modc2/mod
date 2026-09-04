@@ -570,3 +570,103 @@ def test_ledger_survives_concurrent_legs(stub_savings):
           for i in range(6)]
     [t.start() for t in ts]; [t.join() for t in ts]
     assert len(savings.ledger(VITALIK)) == 6
+
+
+# ── the proof-of-humanity tag on the id ──
+
+WORD_TRUE = '0x' + '0' * 63 + '1'
+WORD_FALSE = '0x' + '0' * 64
+WORD_UID = '0x' + 'ab' * 32
+
+
+def stub_humanity_rpc(monkeypatch, answers):
+    """Answer client.rpc per chain host: {host_fragment: [results after block]}."""
+    def fake_rpc(url, batch):
+        for key, rows in answers.items():
+            if key in url:
+                if isinstance(rows, Exception):
+                    raise rows
+                assert len(rows) == len(batch) - 1, f'{key}: wrong batch size'
+                assert batch[0][0] == 'eth_blockNumber'
+                return ['0x14a3bc4'] + rows
+        raise AssertionError(f'unexpected rpc host: {url}')
+    monkeypatch.setattr(client, 'rpc', fake_rpc)
+
+
+def test_humanity_reads_the_registries_keyless(monkeypatch):
+    stub_humanity_rpc(monkeypatch, {
+        'ethereum-rpc': [WORD_TRUE, WORD_FALSE],   # poh-v2 yes, poh-v1 lapsed
+        'gnosis-rpc': [WORD_FALSE],
+        'base-rpc': [WORD_UID],                    # coinbase attestation uid
+    })
+    d = client.humanity(VITALIK)                   # no key anywhere
+    assert d['human'] is True and d['source'] == 'rpc' and d['errors'] is None
+    assert d['verified_by'] == ['Proof of Humanity v2', 'Coinbase Verified Account']
+    assert len(d['sources']) == len(client.HUMANITY_REGISTRIES)
+    poh2 = next(s for s in d['sources'] if s['source'] == 'poh-v2')
+    assert poh2['verified'] and poh2['block'] == 0x14a3bc4 and poh2['result'] == WORD_TRUE
+    lapsed = next(s for s in d['sources'] if s['source'] == 'poh-v1')
+    assert not lapsed['verified'] and lapsed['result'] is None
+
+
+def test_humanity_tag_is_a_recomputable_sha3_commitment(monkeypatch):
+    import hashlib
+    stub_humanity_rpc(monkeypatch, {
+        'ethereum-rpc': [WORD_TRUE, WORD_FALSE],
+        'gnosis-rpc': [WORD_FALSE], 'base-rpc': [WORD_FALSE]})
+    a = client.humanity(VITALIK)['tag']
+    b = client.humanity(VITALIK)['tag']
+    assert a == b                                   # same chain state, same tag
+    assert a['scheme'] == 'sha3-256'
+    assert a['basis'].startswith('debank.humanity.v1|' + VITALIK + '|')
+    # anyone can recompute the tag from the published basis — that IS the proof
+    assert a['value'] == hashlib.sha3_256(a['basis'].encode()).hexdigest()
+    # ... and it moves when the evidence moves
+    stub_humanity_rpc(monkeypatch, {
+        'ethereum-rpc': [WORD_FALSE, WORD_FALSE],
+        'gnosis-rpc': [WORD_FALSE], 'base-rpc': [WORD_FALSE]})
+    assert client.humanity(VITALIK)['tag']['value'] != a['value']
+
+
+def test_humanity_reports_unreachable_registries_instead_of_guessing(monkeypatch):
+    stub_humanity_rpc(monkeypatch, {
+        'ethereum-rpc': OSError('timed out'),
+        'gnosis-rpc': [WORD_FALSE], 'base-rpc': [WORD_FALSE]})
+    d = client.humanity(VITALIK)
+    assert d['human'] is False
+    assert 'eth' in d['errors'] and 'timed out' in d['errors']['eth']
+    for s in d['sources']:
+        if s['chain'] == 'eth':
+            assert not s['verified'] and s['block'] is None
+
+
+def test_humanity_registries_sit_on_the_rail():
+    for r in client.HUMANITY_REGISTRIES:
+        assert r['chain'] in client.NETWORKS       # keyless by construction
+        assert r['selector'].startswith('0x') and len(r['selector']) == 10
+        assert r['contract'].startswith('0x') and len(r['contract']) == 42
+        assert r['register'].startswith('https://')
+        if r['kind'] == 'uid':
+            assert len(r['suffix']) == 64
+
+
+def test_humanity_answers_signed_out(monkeypatch):
+    stub_humanity_rpc(monkeypatch, {
+        'ethereum-rpc': [WORD_TRUE, WORD_FALSE],
+        'gnosis-rpc': [WORD_FALSE], 'base-rpc': [WORD_FALSE]})
+    rest = api.route('GET', '/humanity', f'id={VITALIK}', {}, None)
+    tool = mcp.call_tool('debank_humanity', {'id': VITALIK})
+    assert rest['human'] is True and rest['tag'] == tool['tag']
+    assert '/humanity' in api.route('GET', '/health', '', {}, None)['keyless']
+
+
+def test_humanity_needs_a_real_address():
+    with pytest.raises(DebankError) as e:
+        client.humanity('vitalik.eth')
+    assert e.value.status == 400
+
+
+def test_console_wears_the_humanity_tag():
+    html = open(os.path.join(HERE, 'console.html')).read()
+    for needle in ('/humanity', 'humanTag', 'HUMAN', 'proofofhumanity'):
+        assert needle in html

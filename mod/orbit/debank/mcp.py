@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""debank mcp — twenty-four tools that answer "what does this address own?"
+"""debank mcp — twenty-five tools that answer "what does this address own?"
 — and, since the savings desk, "where should its stablecoins sit?"
+— and, since the humanity tag, "is a human behind it?"
 
 The tools are ordered the way the question actually gets answered: start at
 `debank_portfolio` (the total and which chains carry it), then drill — tokens,
@@ -51,7 +52,9 @@ INSTRUCTIONS = (
     'venues with live projected ROI and per-protocol locked liquidity), '
     'debank_fund, debank_savings (idle vs placed, read from chain) and '
     'debank_savings_plan (the approve+deposit transactions for the owner\'s '
-    'wallet — nothing is signed server-side).'
+    'wallet — nothing is signed server-side). debank_humanity is signed-out too: '
+    'the proof-of-humanity tag on an address, read from on-chain registries and '
+    'committed under a quantum-resistant SHA3-256 hash.'
 )
 
 
@@ -153,6 +156,10 @@ def _t_balances(a):
 
 def _t_networks(a):
     return _client(a).networks()
+
+
+def _t_humanity(a):
+    return _client(a).humanity(a['id'])
 
 
 def _t_funds(a):
@@ -402,6 +409,20 @@ TOOLS = {
                        'ERC-20 transfer. Answers with no key.',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': _t_networks,
+    },
+    'debank_humanity': {
+        'description': 'The proof-of-humanity tag on an id: whether on-chain '
+                       'humanity registries — Proof of Humanity v2 (Ethereum and '
+                       'Gnosis), Proof of Humanity v1, Coinbase Verified Account '
+                       '(Base) — say a human controls this address, read keylessly '
+                       'from public RPCs. Returns per-registry evidence (contract, '
+                       'block, result) and a SHA3-256 tag over it: a hash-based, '
+                       'quantum-resistant commitment, so the claim stays checkable '
+                       'even if ECDSA signatures stop being proof. Verifies the '
+                       'person exists, not who they are.',
+        'inputSchema': {'type': 'object', 'properties': {'id': _ID},
+                        'required': ['id']},
+        'handler': _t_humanity,
     },
     'debank_account': {
         'description': 'Whether the caller\'s AccessKey works, where it was resolved '

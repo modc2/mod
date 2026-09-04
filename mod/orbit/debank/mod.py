@@ -13,7 +13,8 @@ approvals that let someone else move it.
     m debank/balances 0xd8da…6045             # keyless: native + stables, 8 chains
     m debank/funds amount=10000                 # savings index funds: ROI + liquidity
     m debank/savings 0xd8da…6045              # idle vs placed, read from chain
-    m debank/tools                              # the twenty-four MCP tools
+    m debank/humanity 0xd8da…6045             # proof-of-humanity tag on the id
+    m debank/tools                              # the twenty-five MCP tools
 
 The same code answers the REST API, the browser console and the MCP tools, so
 an agent, a shell and a human never see different answers.
@@ -43,9 +44,11 @@ class Mod:
     take today. A bank console that connects to the browser wallet — send,
     receive, revoke — and a savings desk that places the account's stablecoins
     into curated index funds of yield venues, each with live projected ROI and
-    the liquidity locked in the protocol. Twenty-four MCP tools over the same
-    code. BYOK, with a keyless floor: native + stablecoin balances on 8 chains
-    via public RPCs.
+    the liquidity locked in the protocol. A proof-of-humanity tag on the id:
+    on-chain humanity registries read keylessly, committed under a
+    quantum-resistant SHA3-256 hash. Twenty-five MCP tools over the same code.
+    BYOK, with a keyless floor: native + stablecoin balances on 8 chains via
+    public RPCs.
     """
 
     def __init__(self, key=None, port=None, **kwargs):
@@ -166,6 +169,10 @@ class Mod:
     def networks(self):
         """Chain ids, RPCs, explorers and stablecoin contracts a wallet needs."""
         return self.client.networks()
+
+    def humanity(self, id):
+        """The proof-of-humanity tag on an id — on-chain registries, keyless."""
+        return self.client.humanity(id)
 
     # ── the savings desk (keyless) ──────────────────────────────
 

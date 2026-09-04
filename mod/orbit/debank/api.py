@@ -67,6 +67,10 @@ def info():
                              'rail via public RPCs (works signed-out)',
             'GET /networks': 'the bank rail: chain ids, RPCs, explorers, stablecoin '
                              'contracts — what a browser wallet needs (works signed-out)',
+            'GET /humanity': 'id — the proof-of-humanity tag on the id: on-chain '
+                             'humanity registries (Proof of Humanity v1/v2, Coinbase '
+                             'Verified Account) read keylessly, bound into a SHA3-256 '
+                             'tag that stays verifiable post-quantum (works signed-out)',
             'GET /funds': 'amount — the savings index funds: curated baskets of '
                           'yield venues with live projected ROI and the liquidity '
                           'locked in each protocol (works signed-out)',
@@ -121,7 +125,7 @@ def route(method, path, query, body, key):
         return info()
     if path == '/health':
         return {'ok': True, 'tools': len(mcp.TOOLS), 'key': c.key_state()['key'],
-                'keyless': ['/chains', '/balances', '/networks']}
+                'keyless': ['/chains', '/balances', '/networks', '/humanity']}
     if path == '/portfolio':
         return c.portfolio(_need(arg('id'), 'id'), min_usd=_n(arg('min_usd'), 1.0))
     if path == '/tokens':
@@ -181,6 +185,8 @@ def route(method, path, query, body, key):
                           min_usd=_n(arg('min_usd'), 0.0))
     if path == '/networks':
         return c.networks()
+    if path == '/humanity':
+        return c.humanity(_need(arg('id'), 'id'))
     if path == '/funds':
         return S.funds(amount=arg('amount'), refresh=_b(arg('refresh')))
     if path.startswith('/funds/'):

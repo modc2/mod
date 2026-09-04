@@ -1,7 +1,7 @@
 {
     "name": "debank",
-    "version": "0.3.0",
-    "description": "A bank for a browser wallet. Connect MetaMask (or any EIP-1193 wallet) and the console becomes your account: total balance across every chain, accounts per chain, send and receive native coin or stablecoins, a statement of decoded history, the standing permissions that let someone else move your money \u2014 with one-click revoke \u2014 and a savings desk that places the account's stablecoins into curated index funds of yield venues (Aave, Compound, Morpho, Maple, Sky, Spark), each with live projected ROI and the liquidity locked in the protocol read from chain, entered with exact-amount approve+deposit signatures built here and signed only in the wallet. Powered by DeBank Cloud for the full picture (tokens, DeFi net of debt, NFTs, history, approvals \u2014 BYOK, every call spends the caller's own units) with a keyless floor that always works: native + USDC/USDT/DAI on 8 chains read straight from public RPCs. Twenty-four MCP tools, a REST API and the console over one port and one client.",
+    "version": "0.4.0",
+    "description": "A bank for a browser wallet. Connect MetaMask (or any EIP-1193 wallet) and the console becomes your account: total balance across every chain, accounts per chain, send and receive native coin or stablecoins, a statement of decoded history, the standing permissions that let someone else move your money \u2014 with one-click revoke \u2014 and a savings desk that places the account's stablecoins into curated index funds of yield venues (Aave, Compound, Morpho, Maple, Sky, Spark), each with live projected ROI and the liquidity locked in the protocol read from chain, entered with exact-amount approve+deposit signatures built here and signed only in the wallet. Powered by DeBank Cloud for the full picture (tokens, DeFi net of debt, NFTs, history, approvals \u2014 BYOK, every call spends the caller's own units) with a keyless floor that always works: native + USDC/USDT/DAI on 8 chains read straight from public RPCs. A proof-of-humanity tag on the account id \u2014 on-chain humanity registries (Proof of Humanity v1/v2, Coinbase Verified Account) read keylessly and bound into a SHA3-256 evidence commitment that stays verifiable in a post-quantum world. Twenty-five MCP tools, a REST API and the console over one port and one client.",
     "icon": "\u25e9",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
@@ -48,6 +48,7 @@
         "debank_chains",
         "debank_balances",
         "debank_networks",
+        "debank_humanity",
         "debank_funds",
         "debank_fund",
         "debank_savings",
@@ -76,6 +77,7 @@
         "chains": "GET /chains?q=&refresh= \u2014 the one route that answers signed-out",
         "balances": "GET /balances?id=&chains=&min_usd= \u2014 keyless: native + USDC/USDT/DAI on 8 chains via public RPCs",
         "networks": "GET /networks \u2014 keyless: the bank rail a wallet can switch to (chain ids, RPCs, explorers, stablecoin contracts)",
+        "humanity": "GET /humanity?id= \u2014 keyless: the proof-of-humanity tag on the id \u2014 on-chain registries (PoH v1/v2, Coinbase Verified Account) plus a SHA3-256 evidence commitment that stays verifiable post-quantum",
         "funds": "GET /funds?amount= \u2014 keyless: the savings index funds with live projected ROI and per-protocol locked liquidity; GET /funds/{id} for one (venue:<id> = fund of one)",
         "savings": "GET /savings?id= \u2014 keyless: idle stablecoins vs money placed in each venue, read from chain",
         "savings_plan": "GET /savings/plan?id=&fund=&amount= \u2014 the approve+deposit txs the owner's wallet must sign",
@@ -110,6 +112,7 @@
         "chains",
         "balances",
         "networks",
+        "humanity",
         "funds",
         "fund",
         "savings",
@@ -131,7 +134,7 @@
         "schema": "GET /tools",
         "transport": "streamable-http (JSON-RPC 2.0) + stdio (`python3 mcp.py`)",
         "tool_prefix": "debank_",
-        "auth": "BYOK \u2014 x-debank-key header, DEBANK_ACCESS_KEY, or ~/.mod/debank/key.json; debank_chains, debank_balances and debank_networks answer without one"
+        "auth": "BYOK \u2014 x-debank-key header, DEBANK_ACCESS_KEY, or ~/.mod/debank/key.json; debank_chains, debank_balances, debank_networks and debank_humanity answer without one"
     },
     "auth": {
         "model": "BYOK \u2014 this module holds no house key",
@@ -143,7 +146,7 @@
         ],
         "note": "an Authorization bearer is never read as a DeBank key \u2014 the gateway puts its own session tokens there"
     },
-    "schema": "QmTU2fU3qewurar48huS7dHirC54ucvb7ajT1hHMgfdZYQ",
+    "schema": "QmexAcL1QwcMv67rVZ1SMBwHddJdsR5weBy3gnK1manTWu",
     "wallet": {
         "standard": "EIP-1193 (window.ethereum) \u2014 MetaMask, Rabby, Coinbase Wallet, Brave",
         "actions": [

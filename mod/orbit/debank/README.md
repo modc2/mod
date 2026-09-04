@@ -70,8 +70,29 @@ m debank/approvals 0xd8da…6045 chain=eth                               # who c
 m debank/history   0xd8da…6045 chain=eth                               # decoded transactions
 m debank/balances  0xd8da…6045                                         # keyless: native + stables, 8 chains
 m debank/networks                                                      # keyless: what a wallet needs to switch
+m debank/humanity  0xd8da…6045                                         # keyless: proof-of-humanity tag on the id
 m debank/chains                                                        # works without a key
 ```
+
+## The proof-of-humanity tag
+
+A bank account id here is a bare address; the humanity tag says a person is
+behind it. `GET /humanity?id=` reads the on-chain humanity registries keylessly
+— Proof of Humanity v2 (Ethereum + Gnosis), Proof of Humanity v1, and the
+Coinbase Verified Account attestation on Base — one `eth_call` each over the
+same public RPCs the bank rail uses. It verifies the person *exists*, not who
+they are.
+
+The answer carries the per-registry evidence (contract, block, result) and a
+**tag**: a SHA3-256 hash over the canonical evidence string (`tag.basis`).
+The registries bind humanity to the address with today's ECDSA signatures,
+which a large quantum computer would eventually forge; the tag doesn't add more
+signatures, it commits the observed chain state under a hash that keeps
+~128-bit security against Grover. Archive `tag.basis` + `tag.value` anywhere
+durable and "this id was human-verified at that block" stays checkable — and
+unforgeable — after ECDSA falls. The console wears the tag on the account
+header: `HUMAN · <registry>` when a registry vouches (click to copy the tag),
+`unverified id` linking to registration when none does.
 
 ## Tool calling
 
@@ -97,6 +118,7 @@ is:
 | `debank_chains` | every chain DeBank indexes — answers signed-out |
 | `debank_balances` | **keyless** — native + USDC/USDT/DAI on the 8-chain bank rail via public RPCs; the fallback when portfolio 401s |
 | `debank_networks` | **keyless** — chain ids (dec + hex), RPCs, explorers, stablecoin contracts: what `wallet_switchEthereumChain` / an ERC-20 transfer needs |
+| `debank_humanity` | **keyless** — the proof-of-humanity tag on an id: PoH v1/v2 + Coinbase Verified Account read from chain, committed under a quantum-resistant SHA3-256 hash |
 | `debank_funds` | **keyless** — the savings index funds: curated baskets of yield venues with live projected ROI and per-protocol locked liquidity read from chain |
 | `debank_fund` | **keyless** — one fund in full; `venue:<id>` is a fund of one |
 | `debank_savings` | **keyless** — idle stablecoins vs money already placed in each venue, with blended APY and projected yearly income |

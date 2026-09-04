@@ -466,6 +466,19 @@ const chainSelect = (id, value, rail = false) => `<select id="${id}" class="sm">
   (rail ? state.networks : (state.chains.length ? state.chains : state.networks)).map((c) =>
     `<option value="${esc(c.chain)}"${c.chain === value ? ' selected' : ''}>${esc(c.name || c.chain)}</option>`).join('')}</select>`;
 const mineLabel = () => same(state.me, state.view) ? '<span class="chip mint">your account</span>' : '<span class="chip">watching</span>';
+// The proof-of-humanity tag on the id. Verified: which registry vouched, and a
+// click copies the SHA3-256 evidence tag (hash-based, so the claim outlives
+// ECDSA — keep it somewhere durable). Unverified: a click opens registration.
+const humanTag = (hum) => {
+  if (!hum || !hum.tag) return '';
+  if (hum.human) {
+    const by = (hum.verified_by || []).join(', ');
+    return ` <span class="chip mint" style="cursor:pointer" onclick="copy('${esc(hum.tag.scheme)}:${esc(hum.tag.value)}')"
+      title="Proof of humanity: ${esc(by)} — read from the registry contract on chain, no key. Click to copy the post-quantum tag (SHA3-256 over the on-chain evidence).">HUMAN · ${esc(by.split(',')[0])}</span>`;
+  }
+  return ` <a class="chip" style="text-decoration:none;cursor:pointer" href="https://v2.proofofhumanity.id" target="_blank" rel="noopener"
+    title="No on-chain humanity registry vouches for this address yet (checked Proof of Humanity v1/v2 and Coinbase Verified Account). Click to register as a human.">unverified id</a>`;
+};
 
 /* ── data: the two floors ── */
 async function overviewData(id) {
@@ -482,7 +495,9 @@ async function overviewData(id) {
 /* ── views ── */
 const VIEWS = {
   async overview(id) {
+    const humP = get('/humanity', { id }).catch(() => null);
     const { rail, full, fullErr } = await overviewData(id);
+    const hum = await humP;
     if (rail.error && !full) throw rail.error;
     const total = full ? full.total_usd : rail.total_usd;
     let change = '';
@@ -508,7 +523,7 @@ const VIEWS = {
         <div class="hero-total">${usdBig(total)}</div>
         <div class="sub">${change || (full ? 'tokens + DeFi positions, net of debt' : `native coin + stablecoins on ${rail.chains.length} chains`)}
           · as of ${clock()} · ${full ? 'DeBank' : 'public RPCs, priced by CoinGecko'}</div>
-        <div class="side">${mineLabel()}<div class="mono faint" style="margin-top:6px;font-size:12px">${short(id)}</div></div>
+        <div class="side">${mineLabel()}${humanTag(hum)}<div class="mono faint" style="margin-top:6px;font-size:12px">${short(id)}</div></div>
       </div>
       <div class="actions">
         <button class="action" onclick="go('send')"><b>Send</b><span>native or stablecoins</span></button>

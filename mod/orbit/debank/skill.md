@@ -96,6 +96,11 @@ RPCs and priced by CoinGecko. It is deliberately narrow (no LP, no DeFi, no long
 tail) and says so in `coverage`; do not present it as the whole portfolio.
 `debank_networks` is the table a wallet needs to switch chains or encode a
 transfer: hex chain id, RPC, explorer, stablecoin contract + decimals.
+`debank_humanity` is keyless too: the proof-of-humanity tag on an id — Proof of
+Humanity v1/v2 and the Coinbase Verified Account attestation read straight from
+their registry contracts, with a SHA3-256 commitment over the evidence so the
+claim stays verifiable post-quantum. It says a human is behind the address, not
+who they are; `human: false` means no registry vouches, not that it's a bot.
 
 The browser console at `/debank` is a bank over the same routes: it connects
 the user's own wallet and signs sends and revokes there. Nothing in this module
@@ -110,6 +115,11 @@ RPCs and priced by CoinGecko. It is deliberately narrow (no LP, no DeFi, no long
 tail) and says so in `coverage`; do not present it as the whole portfolio.
 `debank_networks` is the table a wallet needs to switch chains or encode a
 transfer: hex chain id, RPC, explorer, stablecoin contract + decimals.
+`debank_humanity` is keyless too: the proof-of-humanity tag on an id — Proof of
+Humanity v1/v2 and the Coinbase Verified Account attestation read straight from
+their registry contracts, with a SHA3-256 commitment over the evidence so the
+claim stays verifiable post-quantum. It says a human is behind the address, not
+who they are; `human: false` means no registry vouches, not that it's a bot.
 
 The browser console at `/debank` is a bank over the same routes: it connects
 the user's own wallet and signs sends and revokes there. Nothing in this module
