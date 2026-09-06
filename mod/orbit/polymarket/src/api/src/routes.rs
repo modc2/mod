@@ -135,6 +135,12 @@ pub fn router() -> Router<AppState> {
         // Share a strat → CID (content-addressable; localfs default).
         .route("/user-strats/:id/share", post(user_strats_share))
         .route("/user-strats/:id/:kind", get(user_strats_read).delete(user_strats_delete))
+        // THE COPY BOOK — per-trader allocations (copy.rs). The desk this
+        // deployment leads with: one leader, one dollar amount, materialized
+        // through the identity template into the same engine and the same
+        // backtest every other strat runs on. Server-owned and plaintext so
+        // the console and an MCP agent share one desk.
+        .merge(crate::copy::router())
         // Encrypted strat storage
         .merge(crate::strats::router())
         // CLOB L1 auth proxy (derive/create api keys)
@@ -678,7 +684,9 @@ async fn active_traders(
                 candidate_pool: payload.candidate_pool,
                 days_window: payload.days_window,
                 min_trades_per_day: payload.min_trades_per_day,
-                traders: payload.traders,
+                // `get_or_disk` hands back an `Arc<AggPayload>` — clone the
+                // rows out rather than trying to move them from behind it.
+                traders: payload.traders.clone(),
             };
             let body = format!("{}\n", serde_json::to_string(&evt).unwrap_or_default());
             return axum::response::Response::builder()
@@ -700,9 +708,38 @@ async fn active_traders(
     }
     }
 
-    // Paged but cold cache. force=1 skips this "cold" early return so the
-    // request falls through to run_pipeline below and the client gets the
-    // freshly-aggregated paged result instead of an empty COLD payload.
+    // Nothing fresh enough to serve — but there may still be an OLD copy on
+    // disk, and for the deep windows that is usually the whole story. A 30D
+    // board takes ~10 minutes to rebuild and the fleet activator stops this
+    // process after ~60s idle, so a window that falls past the 24h disk
+    // ceiling can never claw its way back on demand: every request restarts
+    // the rebuild, and every rebuild gets killed. The console showed "the 30D
+    // leaderboard hasn't been aggregated yet" over a file that was sitting
+    // right there, three days old.
+    //
+    // Serve it, labelled. `source: "stale-disk"` plus the real `syncedAt`
+    // gives the UI everything it needs to show the age, and the warmup — now
+    // ordered stalest-first — replaces it in the background.
+    if !force {
+        if let Some(payload) = state.pipeline.cache.get_stale_disk(&cache_key) {
+            if paged {
+                return Json(apply_pagination(&payload, &q, "stale-disk")).into_response();
+            }
+            return Json(json!({
+                "count": payload.count,
+                "candidatePool": payload.candidate_pool,
+                "daysWindow": payload.days_window,
+                "minTradesPerDay": payload.min_trades_per_day,
+                "traders": payload.traders,
+                "source": "stale-disk",
+                "syncedAt": payload.synced_at,
+            })).into_response();
+        }
+    }
+
+    // Paged, and genuinely nothing anywhere. force=1 skips this "cold" early
+    // return so the request falls through to run_pipeline below and the client
+    // gets the freshly-aggregated paged result instead of an empty COLD payload.
     if paged && !force {
         return Json(json!({
             "traders": [],
@@ -842,14 +879,40 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
                     t.win_rate = if total_decided > 0 {
                         (total_wins as f64 / total_decided as f64 * 100.0).round().min(100.0)
                     } else { -1.0 };
-                    // Sharpe scoped to the matching markets' closed-trade
-                    // returns — same query-scoped recompute the other stats
-                    // get, via the ONE `stats_from_returns` formula.
+                    // Sharpe + exit/entry scoped to the matching markets'
+                    // closed-trade returns — same query-scoped recompute the
+                    // other stats get, via the ONE `stats_from_returns`
+                    // formula (mirrors the pipeline's whole-window pass).
                     let scoped_returns: Vec<f64> = matching.iter()
                         .flat_map(|m| m.returns.iter().copied())
                         .collect();
-                    t.sharpe = crate::live_engine::stats_from_returns(&scoped_returns).sharpe;
-                    t.pnl_curve = None; // curve reflects all trades, clear for consistency
+                    let rs = crate::live_engine::stats_from_returns(&scoped_returns);
+                    t.sharpe = rs.sharpe;
+                    t.exit_entry = if rs.sample_size > 0 { 1.0 + rs.roi } else { -1.0 };
+                    // Query-scoped curve: each market carries its own
+                    // 12-bucket realized-PnL deltas (same bucketing as the
+                    // trader-level curve) — sum the matching markets
+                    // element-wise and cum-sum into a curve of ONLY the
+                    // filtered slice. Older cached payloads have no
+                    // per-market deltas; those show no curve rather than
+                    // the all-markets one under a filtered board.
+                    let n = matching.iter().map(|m| m.curve.len()).max().unwrap_or(0);
+                    t.pnl_curve = if n == 0 {
+                        None
+                    } else {
+                        let mut curve = vec![0.0f64; n];
+                        for m in &matching {
+                            for (i, v) in m.curve.iter().enumerate() {
+                                curve[i] += v;
+                            }
+                        }
+                        let mut cum = 0.0f64;
+                        for v in curve.iter_mut() {
+                            cum += *v;
+                            *v = (cum * 100.0).round() / 100.0;
+                        }
+                        Some(curve)
+                    };
                 }
                 true
             } else {
@@ -891,16 +954,126 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
         }
     }
 
-    // Sort. With a category selected, rank first by how many of the
-    // trader's market titles fall in the category — so the leaderboard
-    // surfaces traders heavily in the vibe before falling back to the
-    // primary metric (P&L / volume / etc.) as a tiebreaker.
+    // Activity floors — "is this trader firing right now", not "did they look
+    // good last week". Both read fields the cached payload already carries, so
+    // the board-wide filter costs one pass over the warm aggregate; the point
+    // is that `total` and the page slice below agree with it.
+    //
+    // The console used to apply these to the 50 rows the server had already
+    // handed it. That filtered a PAGE, not a board: a full page rendered as
+    // five rows, the pager still counted the unfiltered total and offered
+    // pages of traders the filter had removed, and the row you wanted sat on
+    // page 7 of a board whose first six pages were empty. Here they run before
+    // the sort and the slice, where they belong.
+    let before_activity = traders.len();
+    if let Some(min_24h) = q.min_trades_24h {
+        if min_24h > 0 {
+            traders.retain(|t| t.trades_24h >= min_24h);
+        }
+    }
+    if let Some(hrs) = q.max_last_trade_hrs {
+        if hrs > 0.0 {
+            let now = chrono::Utc::now().timestamp().max(0) as f64;
+            let cutoff = (now - hrs * 3600.0).max(0.0) as u64;
+            // No timestamp = unknown recency (a pre-`lastTradeTs` disk payload,
+            // or a trader with no enriched fills). Unknown is not recent.
+            traders.retain(|t| t.last_trade_ts.is_some_and(|ts| ts >= cutoff));
+        }
+    }
+    // How many the activity floors took. An empty board reads very differently
+    // depending on this: "nobody trades this topic" vs "everybody who does went
+    // quiet — or the cache snapshot is older than the recency window you asked
+    // for", and only the server knows which.
+    let activity_dropped = before_activity - traders.len();
+
+    // Track-record floor — the user's own answer to "why is my 30D backtest
+    // flat for 25 days". A wallet that opened six days ago can top a 30D
+    // board on six days of luck, and the copy sim will happily quote it a
+    // 30-day return. This drops anyone with less than N days behind them, N
+    // chosen in the console.
+    //
+    // Counted separately from the activity floors above even though both run
+    // here: the console names the reason rows disappeared, and "quiet for 6h"
+    // and "too new" are different reasons with different fixes.
+    //
+    // Unlike the recency gate, a MISSING timestamp is KEPT, not cut.
+    // `firstTradeTs` is resolved per wallet and cached forever, so a payload
+    // written before the field existed — or one whose upstream lookup 429'd —
+    // has none, and treating that as "no history" would empty the whole board
+    // over a data gap. Unknown recency isn't recent; unknown age isn't young.
+    let before_history = traders.len();
+    if let Some(min_days) = q.min_history_days {
+        if min_days > 0.0 {
+            let now = chrono::Utc::now().timestamp().max(0) as u64;
+            traders.retain(|t| {
+                crate::first_trade::history_days(t.first_trade_ts, now)
+                    .is_none_or(|d| d >= min_days)
+            });
+        }
+    }
+    let history_dropped = before_history - traders.len();
+    let history_known = traders.iter().filter(|t| t.first_trade_ts.is_some()).count();
+
+    // Sort by the metric the caller asked for, ALWAYS.
+    //
+    // Topic/category match count is a TIEBREAKER, not the primary key. It used
+    // to sort first, which quietly made the sort column decorative the moment a
+    // market filter was on: `category=btc&sort=pnl` ranked by "who trades the
+    // most bitcoin markets", so the top of the board was the 5-minute candle
+    // bots with 2000 titles and $0 P&L, and the actual best bitcoin trader was
+    // hundreds of rows down. That ordering made sense before the block above
+    // existed — when the stats were lifetime, match count was the only topic
+    // signal there was. Now every number on the row is already recomputed from
+    // ONLY the matching markets, so the metric IS the topic metric and match
+    // count is just a way to break its ties.
     let dir: f64 = if order == "asc" { 1.0 } else { -1.0 };
     let cat_sort = cat.clone();
     let mq_sort = mq.clone();
     traders.sort_by(|a, b| {
-        // Topic-query match count is the most specific signal — rank by it
-        // first so the traders heaviest in the queried topic lead.
+        let cmp = match sort {
+            "volume" => a.volume.partial_cmp(&b.volume),
+            "positions" => a.positions.partial_cmp(&b.positions),
+            "winRate" => a.win_rate.partial_cmp(&b.win_rate),
+            "trades" => Some(a.recent_trades.cmp(&b.recent_trades)),
+            // Default SCORE metric — lets server pagination order the whole
+            // set by Sharpe instead of the old pnl proxy.
+            "sharpe" => a.sharpe.partial_cmp(&b.sharpe),
+            // SCORE preset — avg exit÷entry ratio; -1 "no closed trades"
+            // sentinel naturally sinks below every real ratio on desc.
+            "exitEntry" => a.exit_entry.partial_cmp(&b.exit_entry),
+            // ROI — P&L per dollar traded over the window. Both terms are the
+            // query-scoped recomputes when a market filter is on, so this is
+            // return on turnover IN the queried markets. Volume of zero has no
+            // ratio; NEG_INFINITY sinks those rows below every real one on desc.
+            "roi" => {
+                let roi = |t: &crate::types::Trader| {
+                    if t.volume > 0.0 { t.pnl / t.volume } else { f64::NEG_INFINITY }
+                };
+                roi(a).partial_cmp(&roi(b))
+            }
+            // Missing timestamp (pre-lastTradeTs disk cache) sinks to the
+            // bottom on desc — unknown recency must not outrank known.
+            "last" => Some(a.last_trade_ts.unwrap_or(0).cmp(&b.last_trade_ts.unwrap_or(0))),
+            // Longest track record first on desc. An OLDER first trade is a
+            // LONGER record, so the comparison is reversed relative to the
+            // timestamp; unresolved ages sort as u64::MAX (= "brand new"),
+            // which sinks them on desc — the filter keeps them, but they
+            // should not lead a board ranked by seniority.
+            "history" => Some(
+                b.first_trade_ts.unwrap_or(u64::MAX)
+                    .cmp(&a.first_trade_ts.unwrap_or(u64::MAX)),
+            ),
+            _ => a.pnl.partial_cmp(&b.pnl),
+        };
+        let c = cmp.unwrap_or(std::cmp::Ordering::Equal);
+        let c = if dir < 0.0 { c.reverse() } else { c };
+        if c != std::cmp::Ordering::Equal {
+            return c;
+        }
+        // Tied on the metric — the trader heavier in the queried topic leads.
+        // (Ties are the norm under a filter: thousands of traders share a $0
+        // scoped P&L, and "more of their flow is in this market" is the right
+        // way to order those.)
         if !mq_sort.is_empty() {
             let a_q = crate::categories::query_match_count(&a.market_titles, &mq_sort);
             let b_q = crate::categories::query_match_count(&b.market_titles, &mq_sort);
@@ -915,20 +1088,8 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
                 return b_match.cmp(&a_match);
             }
         }
-        let cmp = match sort {
-            "volume" => a.volume.partial_cmp(&b.volume),
-            "positions" => a.positions.partial_cmp(&b.positions),
-            "winRate" => a.win_rate.partial_cmp(&b.win_rate),
-            // Default SCORE metric — lets server pagination order the whole
-            // set by Sharpe instead of the old pnl proxy.
-            "sharpe" => a.sharpe.partial_cmp(&b.sharpe),
-            // Missing timestamp (pre-lastTradeTs disk cache) sinks to the
-            // bottom on desc — unknown recency must not outrank known.
-            "last" => Some(a.last_trade_ts.unwrap_or(0).cmp(&b.last_trade_ts.unwrap_or(0))),
-            _ => a.pnl.partial_cmp(&b.pnl),
-        };
-        let c = cmp.unwrap_or(std::cmp::Ordering::Equal);
-        if dir < 0.0 { c.reverse() } else { c }
+        // Still tied — order by address so paging is stable across requests.
+        a.address.cmp(&b.address)
     });
 
     let total = traders.len();
@@ -941,6 +1102,16 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
     json!({
         "traders": sliced,
         "total": total,
+        "activityDropped": activity_dropped,
+        // Cut by the track-record floor specifically, so the console can say
+        // "412 hidden: less than 30 days of history" instead of blaming the
+        // recency filter for it.
+        "historyDropped": history_dropped,
+        // How many rows on this board have a resolved account age at all.
+        // The floor fails open on the rest, so a board that is mostly
+        // unresolved is a floor that is mostly not applied — the console
+        // needs to be able to say so rather than imply a clean cut.
+        "historyKnown": history_known,
         "page": page,
         "pageSize": page_size,
         "count": payload.count,
@@ -1425,5 +1596,365 @@ async fn user_strats_template(
             StatusCode::NOT_FOUND,
             Json(json!({"error": format!("no template named '{}'", name)})),
         ).into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{AggPayload, MarketMetric, Trader};
+
+    /// A trader whose whole record is the given (title, pnl, trades) markets.
+    fn trader_with_markets(address: &str, markets: &[(&str, f64, u32)]) -> Trader {
+        let metrics: Vec<MarketMetric> = markets
+            .iter()
+            .map(|(title, pnl, trades)| MarketMetric {
+                title: (*title).to_string(),
+                volume: 100.0,
+                buy_volume: 60.0,
+                sell_volume: 40.0,
+                pnl: *pnl,
+                trades: *trades,
+                wins: 0,
+                decided: 0,
+                returns: vec![],
+                curve: vec![],
+            })
+            .collect();
+        Trader {
+            address: address.to_string(),
+            volume: 100.0 * markets.len() as f64,
+            buy_volume: 0.0,
+            sell_volume: 0.0,
+            // Lifetime numbers deliberately unlike the per-market ones: a test
+            // that passes on these has proven the filter recomputed the stats.
+            pnl: 999_999.0,
+            win_rate: -1.0,
+            sharpe: 0.0,
+            exit_entry: -1.0,
+            decided_positions: 0,
+            positions: 0,
+            market_titles: markets.iter().map(|(t, _, _)| (*t).to_string()).collect(),
+            recent_trades: markets.iter().map(|(_, _, n)| n).sum(),
+            trades_24h: 0,
+            last_trade_ts: None, first_trade_ts: None,
+            pnl_curve: None,
+            market_metrics: Some(metrics),
+        }
+    }
+
+    fn paged_query(extra: Value) -> ActiveTradersQuery {
+        let mut base = json!({"paged": "1", "pool": 2000, "days": 7, "pageSize": 25});
+        if let (Some(b), Some(e)) = (base.as_object_mut(), extra.as_object()) {
+            for (k, v) in e {
+                b.insert(k.clone(), v.clone());
+            }
+        }
+        serde_json::from_value(base).expect("valid query")
+    }
+
+    fn addresses(result: &Value) -> Vec<String> {
+        result["traders"]
+            .as_array()
+            .expect("traders array")
+            .iter()
+            .map(|t| t["address"].as_str().unwrap_or_default().to_string())
+            .collect()
+    }
+
+    fn payload(traders: Vec<Trader>) -> AggPayload {
+        AggPayload {
+            count: traders.len(),
+            candidate_pool: 2000,
+            days_window: 7,
+            min_trades_per_day: 0.0,
+            synced_at: 0,
+            traders,
+        }
+    }
+
+    /// The regression this file's sort was rewritten for: under a market
+    /// filter, `sort=pnl` must still mean "best P&L in those markets". It used
+    /// to mean "most markets matched", which put the $0 candle bots on top of
+    /// every bitcoin search and buried the trader actually making money.
+    #[test]
+    fn market_query_does_not_override_the_requested_sort() {
+        let busy = trader_with_markets(
+            "0xbusy",
+            &[
+                ("Bitcoin Up or Down - 3:45pm", 0.0, 500),
+                ("Bitcoin Up or Down - 3:50pm", 0.0, 500),
+                ("Bitcoin Up or Down - 3:55pm", 0.0, 500),
+            ],
+        );
+        let good = trader_with_markets("0xgood", &[("Bitcoin above $110,000 on Friday", 4_200.0, 12)]);
+
+        let result = apply_pagination(
+            &payload(vec![busy, good]),
+            &paged_query(json!({"marketQuery": "bitcoin", "sort": "pnl", "order": "desc"})),
+            "memory",
+        );
+
+        assert_eq!(addresses(&result), vec!["0xgood", "0xbusy"]);
+        // …and the numbers on the row are the bitcoin ones, not the lifetime ones.
+        assert_eq!(result["traders"][0]["pnl"].as_f64(), Some(4_200.0));
+        assert_eq!(result["traders"][0]["recentTrades"].as_u64(), Some(12));
+    }
+
+    /// `sort=roi` ranks P&L per dollar traded, not raw P&L — the trader
+    /// turning $5k into $7.5k outranks the whale grinding 3% on a million.
+    /// Zero volume has no ratio and sinks below every real one.
+    #[test]
+    fn sort_by_roi_ranks_return_on_turnover() {
+        let mut whale = trader_with_markets("0xwhale", &[("Bitcoin above $110,000", 0.0, 1)]);
+        whale.volume = 1_000_000.0;
+        whale.pnl = 30_000.0; // 3%
+        let mut edge = trader_with_markets("0xedge", &[("Bitcoin above $110,000", 0.0, 1)]);
+        edge.volume = 5_000.0;
+        edge.pnl = 2_500.0; // 50%
+        let mut ghost = trader_with_markets("0xghost", &[("Bitcoin above $110,000", 0.0, 1)]);
+        ghost.volume = 0.0;
+        ghost.pnl = 0.0;
+
+        let result = apply_pagination(
+            &payload(vec![whale, edge, ghost]),
+            &paged_query(json!({"sort": "roi", "order": "desc"})),
+            "memory",
+        );
+
+        assert_eq!(addresses(&result), vec!["0xedge", "0xwhale", "0xghost"]);
+    }
+
+    /// Match count still decides — it just decides ties now, which is what
+    /// "rank the traders heavier in this topic first" was always after.
+    #[test]
+    fn topic_match_count_breaks_ties_on_the_metric() {
+        let one = trader_with_markets("0xaaa", &[("Bitcoin above $110,000", 0.0, 5)]);
+        let three = trader_with_markets(
+            "0xbbb",
+            &[
+                ("Bitcoin above $110,000", 0.0, 5),
+                ("Bitcoin above $120,000", 0.0, 5),
+                ("Bitcoin Up or Down - 3:45pm", 0.0, 5),
+            ],
+        );
+
+        let result = apply_pagination(
+            &payload(vec![one, three]),
+            &paged_query(json!({"marketQuery": "bitcoin", "sort": "pnl", "order": "desc"})),
+            "memory",
+        );
+
+        assert_eq!(addresses(&result), vec!["0xbbb", "0xaaa"]);
+    }
+
+    /// A trader with nothing in the queried markets is not a trader in those
+    /// markets — the filter drops them rather than showing lifetime numbers.
+    #[test]
+    fn market_query_drops_traders_with_no_matching_markets() {
+        let btc = trader_with_markets("0xbtc", &[("Bitcoin above $110,000", 10.0, 3)]);
+        let politics = trader_with_markets("0xpol", &[("Who wins the 2028 election?", 5_000.0, 40)]);
+
+        let result = apply_pagination(
+            &payload(vec![btc, politics]),
+            &paged_query(json!({"marketQuery": "bitcoin", "sort": "pnl", "order": "desc"})),
+            "memory",
+        );
+
+        assert_eq!(addresses(&result), vec!["0xbtc"]);
+        assert_eq!(result["total"].as_u64(), Some(1));
+    }
+
+    /// A market filter must produce a curve of ONLY the filtered slice —
+    /// the matching markets' per-bucket deltas summed and cum-summed. The
+    /// non-matching market's swings must not appear in it.
+    #[test]
+    fn market_query_builds_scoped_curve_from_matching_markets() {
+        let mut t = trader_with_markets(
+            "0xbtc",
+            &[("Bitcoin above $110,000", 10.0, 3), ("Who wins the 2028 election?", 5_000.0, 40)],
+        );
+        t.pnl_curve = Some(vec![9_999.0; 12]); // lifetime curve — must be replaced
+        if let Some(mm) = t.market_metrics.as_mut() {
+            mm[0].curve = vec![5.0, 0.0, -2.0, 3.0]; // bitcoin deltas
+            mm[1].curve = vec![1_000.0, 1_000.0, 1_000.0, 1_000.0]; // politics — filtered out
+        }
+
+        let result = apply_pagination(
+            &payload(vec![t]),
+            &paged_query(json!({"marketQuery": "bitcoin", "sort": "pnl", "order": "desc"})),
+            "memory",
+        );
+
+        let curve: Vec<f64> = result["traders"][0]["pnlCurve"]
+            .as_array().expect("scoped pnlCurve")
+            .iter().map(|v| v.as_f64().unwrap()).collect();
+        assert_eq!(curve, vec![5.0, 5.0, 3.0, 6.0]);
+    }
+
+    /// Older cached payloads carry no per-market deltas — a filtered board
+    /// then shows NO curve rather than the misleading all-markets one.
+    #[test]
+    fn market_query_without_market_curves_clears_the_curve() {
+        let mut t = trader_with_markets("0xbtc", &[("Bitcoin above $110,000", 10.0, 3)]);
+        t.pnl_curve = Some(vec![9_999.0; 12]);
+
+        let result = apply_pagination(
+            &payload(vec![t]),
+            &paged_query(json!({"marketQuery": "bitcoin", "sort": "pnl", "order": "desc"})),
+            "memory",
+        );
+
+        assert!(result["traders"][0]["pnlCurve"].is_null());
+    }
+
+    /// A trader whose last fill landed `hours_ago`, with `trades_24h` fills in
+    /// the last day. Nothing else matters to the activity floors.
+    fn trader_last_seen(address: &str, hours_ago: f64, trades_24h: u32) -> Trader {
+        let mut t = trader_with_markets(address, &[("Bitcoin above $110,000", 10.0, 3)]);
+        t.trades_24h = trades_24h;
+        let now = chrono::Utc::now().timestamp() as f64;
+        t.last_trade_ts = Some((now - hours_ago * 3600.0).max(0.0) as u64);
+        t
+    }
+
+    /// The default lens: a trader who has been quiet all day is not one you
+    /// can copy, so the board must not contain them — and `total` must agree,
+    /// or the pager offers pages of traders the filter already removed.
+    #[test]
+    fn recency_floor_drops_traders_quiet_longer_than_the_window() {
+        let fresh = trader_last_seen("0xfresh", 2.0, 8);
+        let stale = trader_last_seen("0xstale", 9.0, 1);
+        let mut unknown = trader_with_markets("0xunknown", &[("Bitcoin above $110,000", 10.0, 3)]);
+        unknown.last_trade_ts = None; // pre-lastTradeTs disk payload
+
+        let result = apply_pagination(
+            &payload(vec![fresh, stale, unknown]),
+            &paged_query(json!({"maxLastTradeHrs": 6})),
+            "memory",
+        );
+
+        assert_eq!(addresses(&result), vec!["0xfresh"]);
+        assert_eq!(result["total"].as_u64(), Some(1));
+        assert_eq!(result["activityDropped"].as_u64(), Some(2));
+    }
+
+    /// 0 (or absent) means "no recency lens" — the whole board, dormants and
+    /// unknown-recency rows included.
+    #[test]
+    fn recency_floor_off_keeps_everyone() {
+        let traders = vec![trader_last_seen("0xa", 2.0, 8), trader_last_seen("0xb", 400.0, 0)];
+        let all = apply_pagination(&payload(traders.clone()), &paged_query(json!({})), "memory");
+        assert_eq!(all["total"].as_u64(), Some(2));
+
+        let zeroed = apply_pagination(
+            &payload(traders),
+            &paged_query(json!({"maxLastTradeHrs": 0})),
+            "memory",
+        );
+        assert_eq!(zeroed["total"].as_u64(), Some(2));
+        assert_eq!(zeroed["activityDropped"].as_u64(), Some(0));
+    }
+
+    /// The 24h trade floor reads the cached `trades24h` — it is the other half
+    /// of the same "still trading" question and pages identically.
+    #[test]
+    fn min_trades_24h_drops_dormants() {
+        let result = apply_pagination(
+            &payload(vec![
+                trader_last_seen("0xactive", 1.0, 4),
+                trader_last_seen("0xdormant", 1.0, 0),
+            ]),
+            &paged_query(json!({"minTrades24h": 1})),
+            "memory",
+        );
+
+        assert_eq!(addresses(&result), vec!["0xactive"]);
+        assert_eq!(result["total"].as_u64(), Some(1));
+    }
+
+    /// A trader whose first-ever trade was `days_ago`.
+    fn trader_aged(address: &str, days_ago: f64) -> Trader {
+        let mut t = trader_with_markets(address, &[("Bitcoin above $110,000", 10.0, 3)]);
+        let now = chrono::Utc::now().timestamp() as f64;
+        t.first_trade_ts = Some((now - days_ago * 86_400.0).max(0.0) as u64);
+        t
+    }
+
+    /// The point of the whole thing: a 30D window is only meaningful over a
+    /// trader who existed for 30 days, so the user can demand that much
+    /// record before a name is allowed onto the board.
+    #[test]
+    fn history_floor_drops_traders_younger_than_the_window() {
+        let veteran = trader_aged("0xveteran", 90.0);
+        let month = trader_aged("0xmonth", 31.0);
+        let rookie = trader_aged("0xrookie", 6.0); // the wallet from the flat 30D curve
+
+        let result = apply_pagination(
+            &payload(vec![veteran, month, rookie]),
+            &paged_query(json!({"minHistoryDays": 30, "sort": "pnl"})),
+            "memory",
+        );
+
+        let addrs = addresses(&result);
+        assert!(addrs.contains(&"0xveteran".to_string()), "{addrs:?}");
+        assert!(addrs.contains(&"0xmonth".to_string()), "{addrs:?}");
+        assert!(!addrs.contains(&"0xrookie".to_string()), "{addrs:?}");
+        assert_eq!(result["total"].as_u64(), Some(2));
+        assert_eq!(result["historyDropped"].as_u64(), Some(1));
+        // The recency floor didn't run — the console must be able to name the
+        // right reason for the missing row.
+        assert_eq!(result["activityDropped"].as_u64(), Some(0));
+    }
+
+    /// An unresolved age is not a young age. `firstTradeTs` is filled in
+    /// per-wallet over time, so cutting on its absence would blank the board
+    /// the first time the filter is used on a not-yet-enriched payload.
+    #[test]
+    fn history_floor_keeps_traders_whose_age_is_unknown() {
+        let mut unknown = trader_with_markets("0xunknown", &[("Bitcoin above $110,000", 10.0, 3)]);
+        unknown.first_trade_ts = None;
+
+        let result = apply_pagination(
+            &payload(vec![unknown, trader_aged("0xrookie", 2.0)]),
+            &paged_query(json!({"minHistoryDays": 30})),
+            "memory",
+        );
+
+        assert_eq!(addresses(&result), vec!["0xunknown"]);
+        assert_eq!(result["historyKnown"].as_u64(), Some(0));
+    }
+
+    /// 0 / absent = off, same convention as every other floor.
+    #[test]
+    fn history_floor_off_keeps_everyone() {
+        let traders = vec![trader_aged("0xa", 200.0), trader_aged("0xb", 1.0)];
+        let off = apply_pagination(&payload(traders.clone()), &paged_query(json!({})), "memory");
+        assert_eq!(off["total"].as_u64(), Some(2));
+        assert_eq!(off["historyDropped"].as_u64(), Some(0));
+
+        let zeroed = apply_pagination(
+            &payload(traders),
+            &paged_query(json!({"minHistoryDays": 0})),
+            "memory",
+        );
+        assert_eq!(zeroed["total"].as_u64(), Some(2));
+    }
+
+    /// `sort=history` desc = longest record first. The oldest first trade is
+    /// the longest record, so this must NOT be a plain timestamp sort.
+    #[test]
+    fn sort_by_history_puts_the_longest_record_first() {
+        let result = apply_pagination(
+            &payload(vec![
+                trader_aged("0xnew", 3.0),
+                trader_aged("0xold", 300.0),
+                trader_aged("0xmid", 40.0),
+            ]),
+            &paged_query(json!({"sort": "history", "order": "desc"})),
+            "memory",
+        );
+
+        assert_eq!(addresses(&result), vec!["0xold", "0xmid", "0xnew"]);
     }
 }

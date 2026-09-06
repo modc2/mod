@@ -34,14 +34,15 @@
 // name, live dot, trader count, keyword count — sitting immediately left of
 // the wallet chip, and both toggle the same column. It is deliberately not a
 // dropdown: the list belongs in the column, so the header stays a row of
-// things you can read at a glance. + NEW STRAT and ▦ STRAT HUB used to be
-// icon buttons next to it; they live in the column now, so the top-right is
-// two readouts (who / what) and nothing else.
+// things you can read at a glance. + NEW STRAT used to be an icon button next
+// to it; it lives in the column now, so the top-right is two readouts
+// (who / what) and nothing else.
 //
-// A DEFAULT STRATS gallery at the bottom forks curated templates
-// (lib/defaultStrats.ts) into user-owned strats, and ▦ opens the STRAT HUB
-// (/strats), where every strat is a card
-// showing its 1-day backtest. Every mutation goes through useStratManager
+// This column IS the strat hub — the /strats board it used to link out to is
+// retired, because a strat is capital plus a bench and both are edited where
+// they are used (SETTINGS in the workspace, and the TRADERS tab). A DEFAULT
+// STRATS gallery at the bottom forks curated templates (lib/defaultStrats.ts)
+// into user-owned strats. Every mutation goes through useStratManager
 // (lib/stratManager.ts) — indexStore localStorage store, `strat-updated`
 // window event, best-effort server sync — so the hub, CopyIndex, the LIVE
 // checklist and this sidebar can never disagree about which strat is active.
@@ -50,11 +51,14 @@ import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { useEmbedded } from "../lib/embedded";
+import { useAuth } from "../context/AuthContext";
 import { DEFAULT_STRATS, type StratTemplate } from "../lib/defaultStrats";
 import { useStratStats, fmtUsd } from "../lib/stratStats";
 import { useStratManager } from "../lib/stratManager";
 import { describeTraderFilter } from "../lib/strats/strat";
 import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
+import DepositPanel from "./DepositPanel";
+import StratChat from "./StratChat";
 import AccountsPanel, { OPEN_ACCOUNTS_EVENT } from "./AccountsPanel";
 
 // Wide enough for a real column beside the console; below this the sidebar
@@ -71,12 +75,13 @@ const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayout
 
 export default function StratSidebar() {
   const embedded = useEmbedded();
+  const { auth } = useAuth();
   // The store, the mutations and the server sync all live in the shared strat
   // manager — the HUB drives the exact same hook.
   const {
     indexes, activeId, select: selectStrat, create: createStrat, fork: forkStrat,
     forkDefault: forkDefaultInto, rename, requestDelete, pendingDelete,
-    confirmDelete, cancelDelete, stopStrat: stopStratSession,
+    confirmDelete, cancelDelete, stopStrat: stopStratSession, broadcast,
   } = useStratManager();
   const [open, setOpen] = useState(false);
   const [docked, setDocked] = useState(false);
@@ -86,9 +91,20 @@ export default function StratSidebar() {
   const [accountsWanted, setAccountsWanted] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  // Which strat's chat is open. Held by ID, not by object: the list reloads
+  // every couple of seconds, and an open panel must follow the strat's edits
+  // rather than pin a stale copy of it.
+  const [chatId, setChatId] = useState<string | null>(null);
+  // The multi-strat DEPOSIT screen. It lives here rather than in a page
+  // because the money question is the column's question — and because from
+  // here it reaches every strat, not just the one a route happens to be on.
+  const [depositOpen, setDepositOpen] = useState(false);
   // Per-strat live PnL from the backend engine's tagged fills + the deposit
   // wallet's USDC cash — rendered as a second line on each sidebar row.
   const { stats: stratStats, cash, running: liveStratIds } = useStratStats();
+  // Resolved fresh each render, so an applied patch shows up in the panel's
+  // own "current settings" on the next poll.
+  const chatStrat = chatId === null ? null : indexes.find((i) => i.id === chatId) ?? null;
   const router = useRouter();
   const pathname = usePathname();
 
@@ -155,14 +171,14 @@ export default function StratSidebar() {
     };
   }, [open, docked, setDrawer]);
 
-  /** Switch the active strat. On /strats that also means opening its
-      workspace — the hub and the workspace are the same route, keyed by ?id. */
+  /** Switch the active strat. Whatever screen you are on re-renders around
+      the new one — `strat-updated` reaches TRADERS, BACKTEST and LIVE alike,
+      so there is nowhere to navigate to. */
   const select = (id: string) => {
     selectStrat(id);
     // A docked sidebar stays put — switching strats is something you do a few
     // times in a row, and the column isn't covering anything.
     if (!docked) setDrawer(false);
-    if (pathname?.startsWith("/strats")) router.push(`/strats?id=${id}`);
   };
 
   // Everything the wallet has at work, across every strat's open positions.
@@ -189,13 +205,11 @@ export default function StratSidebar() {
   const create = () => {
     const idx = createStrat();
     if (!docked) setDrawer(false);
-    if (pathname?.startsWith("/strats")) router.push(`/strats?id=${idx.id}`);
   };
 
   const forkDefault = (t: StratTemplate) => {
     const idx = forkDefaultInto(t);
     if (!docked) setDrawer(false);
-    if (pathname?.startsWith("/strats")) router.push(`/strats?id=${idx.id}`);
   };
 
   // Embedded split-screen panes stay lightweight, same as NavMenu.
@@ -237,6 +251,15 @@ export default function StratSidebar() {
             {cash === null ? "…" : fmtUsd(cash)}
           </span>
         </span>
+        {/* Funding several strats is one decision — split this wallet across
+            them — so it gets one button, next to the wallet it spends. */}
+        <button
+          onClick={() => setDepositOpen(true)}
+          title="Deposit into several strats at once — allocate this wallet across them and arm each one"
+          className="shrink-0 px-2 py-0.5 rounded-[var(--radius-sm)] border border-pixel-border text-[9.5px] font-mono font-semibold tracking-[0.1em] text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors"
+        >
+          $ DEPOSIT
+        </button>
       </div>
       <div className="flex-1 overflow-y-auto p-1.5 flex flex-col gap-0.5">
         {indexes.length === 0 && (
@@ -303,7 +326,7 @@ export default function StratSidebar() {
                       </span>
                     )}
                     {idx.visibility === "public" && (
-                      <span className="ml-1.5 text-[9px] tracking-[0.1em] text-green-400/90" title="Published to the PUBLIC gallery — anyone can view and fork it from the STRAT HUB">
+                      <span className="ml-1.5 text-[9px] tracking-[0.1em] text-green-400/90" title="Published to the PUBLIC gallery — anyone with the link can view and fork it">
                         PUB
                       </span>
                     )}
@@ -362,6 +385,17 @@ export default function StratSidebar() {
                 {openPositions > 0 ? fmtUsd(inPlay) : <span className="opacity-40">—</span>}
               </span>
               <span className="text-[10px] text-pixel-gray shrink-0">{idx.traders.length}T</span>
+              {/* Every strat has a chat. It reads this strat's settings and
+                  proposes parameter changes you apply by hand — the fastest
+                  path from "it's buying too many longshots" to the setting
+                  that stops it. */}
+              <button
+                onClick={(e) => { e.stopPropagation(); setChatId(idx.id); }}
+                className="text-[9.5px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 shrink-0"
+                title={`Chat about "${idx.name}" — ask for a change in words and apply the patch it proposes`}
+              >
+                ASK
+              </button>
               <button
                 onClick={(e) => { e.stopPropagation(); fork(idx.id); }}
                 className="text-[11px] text-pixel-gray hover:text-green-400 shrink-0"
@@ -401,12 +435,6 @@ export default function StratSidebar() {
           className="mt-0.5 rounded-[var(--radius-sm)] border border-dashed border-pixel-border px-3 py-2 text-left text-[11px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors"
         >
           + NEW STRAT
-        </button>
-        <button
-          onClick={() => { if (!docked) setDrawer(false); router.push("/strats"); }}
-          className="rounded-[var(--radius-sm)] px-3 py-2 text-left text-[11px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 hover:bg-pixel-white/[0.06] transition-colors"
-        >
-          ▦ STRAT HUB
         </button>
 
         {/* Curated starting points — forking one materializes a fresh
@@ -458,7 +486,7 @@ export default function StratSidebar() {
         </div>
         <div className="text-[9.5px] font-mono leading-snug text-pixel-gray">
           {liveStratIds.size === 0
-            ? "No strat is running. Arm one from the LIVE tab."
+            ? "No strat is running. Start one from the TRADE tab."
             : `${liveStratIds.size} strat${liveStratIds.size > 1 ? "s" : ""} running.`}
         </div>
       </div>
@@ -562,6 +590,33 @@ export default function StratSidebar() {
         onConfirm={confirmDelete}
         onCancel={cancelDelete}
       />
+
+      {/* Allocate the wallet across several strats and arm them in one pass.
+          Portals itself, so it floats above the column that opened it. */}
+      {depositOpen && (
+        <DepositPanel
+          indexes={indexes}
+          stats={stratStats}
+          cash={cash}
+          running={liveStratIds}
+          eoa={auth.address}
+          onClose={() => setDepositOpen(false)}
+          onDone={broadcast}
+        />
+      )}
+
+      {/* The per-strat chat. Rendered from the sidebar (not from a page) so
+          the strat you're asking about is the row you clicked, from anywhere
+          in the console — and portaled for the same reason the column is. */}
+      {chatStrat && createPortal(
+        <StratChat
+          strat={chatStrat}
+          eoa={auth.address}
+          onClose={() => setChatId(null)}
+          onApplied={() => broadcast()}
+        />,
+        document.body,
+      )}
     </div>
   );
 }

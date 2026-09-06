@@ -1,9 +1,23 @@
 'use client'
 
-// Builder — n8n-style visual agent composer.
-// Drag Prompt / Model / Toolbox / Memory nodes from the palette onto the canvas,
-// wire them into the AGENT node, then save — the graph compiles down to the
-// backend's agent config (goal / tools / model) via POST /agents.
+// Builder — where an agent is composed, and where the tasks it competes on
+// are written. Three modes, one tab:
+//
+//   BROWSE — AgentsPanel.tsx: the whole registry as a list, each agent's
+//            prompt / model / tools / memory readable and editable in one
+//            screen, and its mod.py readable beside it.
+//   AGENT — the n8n-style canvas below.
+//   TASK  — TaskBuilder.tsx: describe a task, the task-builder agent drafts a
+//           gradeable spec, and saving it puts it in the arena pool.
+//
+// n8n-style visual agent composer.
+// The agent is ONE node. Its template requires four integrations — a Prompt,
+// a Model, a Toolbox and a Memory — each with its own input port on the agent
+// node; drag them from the palette, wire them in, then save — the graph
+// compiles down to the backend's agent config (goal / tools / model / memory)
+// via POST /agents. Saving refuses while any required port is unwired: the
+// server's agent template (src/agents/mod.py REQUIRES) declares the list and
+// GET /agents/{name} reports it, so the canvas reads it rather than assuming.
 // Tools are never loose nodes: they all land as chips inside one Toolbox node,
 // mirroring the backend's snap-on bundles (src/toolbox/mod.py). A chip is any
 // name in the registry — a built-in, a custom shell tool, or a fleet module
@@ -12,6 +26,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { API_URL } from '../config'
 import Select from './Select'
+import TaskBuilder from './TaskBuilder'
+import AgentsPanel from './AgentsPanel'
 
 type NodeKind = 'agent' | 'prompt' | 'model' | 'toolbox' | 'memory'
 type BNode = { id: string; kind: NodeKind; x: number; y: number; data: Record<string, any> }
@@ -20,6 +36,7 @@ type Viewport = { x: number; y: number; k: number }
 
 type LibPrompt = { id: string; name: string; description?: string; body?: string }
 type MemNote = { id: string; name: string; content?: string }
+type MemModule = { name: string; label?: string; description?: string; layers?: string[]; default?: boolean }
 type ProviderInfo = { key: string; models: string[]; default_model: string; configured?: boolean; encrypted?: boolean; unlocked?: boolean; keyless?: boolean; runtime?: string | null; hint?: string | null }
 type AgentInfo = { value: string; label: string; icon: string; builtin?: boolean }
 type BoxPreset = { name: string; description?: string; tools: string[]; builtin?: boolean }
@@ -27,16 +44,40 @@ type BoxPreset = { name: string; description?: string; tools: string[]; builtin?
 const NODE_W = 228
 const TOOLBOX_W = 268
 const wOf = (n: BNode) => (n.kind === 'toolbox' ? TOOLBOX_W : NODE_W)
+// approximate rendered heights — the DOM is the truth, but a graph is laid out
+// and framed before it paints, so a per-kind estimate is what we plan against
+const hOf = (n: BNode) => ({ agent: 250, prompt: 190, model: 158, toolbox: 220, memory: 104 }[n.kind])
+
+// Frame a whole graph. A starter canvas shows every component an agent is made
+// of, which is taller than one screen at 1:1 — so open zoomed to fit rather
+// than with the memory node parked below the fold.
+const fitViewport = (ns: BNode[], rect?: DOMRect | null): Viewport => {
+  if (!ns.length || !rect?.width || !rect?.height) return { x: 0, y: 0, k: 1 }
+  const pad = 26
+  const padB = 58 // the hint legend floats over the bottom of the canvas
+  const x0 = Math.min(...ns.map(n => n.x))
+  const y0 = Math.min(...ns.map(n => n.y))
+  const w = Math.max(...ns.map(n => n.x + wOf(n))) - x0
+  const h = Math.max(...ns.map(n => n.y + hOf(n))) - y0
+  const availW = rect.width - pad * 2
+  const availH = rect.height - pad - padB
+  const k = Math.max(0.4, Math.min(1, availW / w, availH / h))
+  return {
+    x: pad - x0 * k + Math.max(0, availW - w * k) / 2,
+    y: pad - y0 * k + Math.max(0, availH - h * k) / 2,
+    k,
+  }
+}
 // fallback only — the live list from /agents carries an authoritative builtin flag
 const BUILTINS = new Set(['default', 'architect', 'reviewer', 'debugger', 'builder', 'refactorer',
                           'safety', 'claude-code', 'codex'])
 const GRAPHS_KEY = 'agent_builder_graphs_v1'
 
-const KIND_META: Record<Exclude<NodeKind, 'agent'>, { label: string; icon: string; accent: string; border: string; wire: string; hint: string }> = {
+const KIND_META: Record<PartKind, { label: string; icon: string; accent: string; border: string; wire: string; hint: string }> = {
   prompt: { label: 'Prompt', icon: '¶', accent: 'text-amber-300', border: 'border-amber-400/30', wire: 'rgb(var(--w-400))', hint: 'system prompt' },
   model:  { label: 'Model',  icon: '⬢', accent: 'text-sky-300',   border: 'border-sky-400/30',   wire: 'rgb(var(--i-400))', hint: 'LLM override' },
   toolbox:{ label: 'Toolbox', icon: '◇', accent: 'text-emerald-300', border: 'border-emerald-400/30', wire: 'rgb(var(--a-400))', hint: 'the tools the agent may use' },
-  memory: { label: 'Memory', icon: '◈', accent: 'text-violet-300', border: 'border-violet-400/30', wire: 'rgb(var(--v-400))', hint: 'note injected as context' },
+  memory: { label: 'Memory', icon: '◈', accent: 'text-violet-300', border: 'border-violet-400/30', wire: 'rgb(var(--v-400))', hint: 'the memory it thinks with' },
 }
 
 let idSeq = 0
@@ -61,6 +102,78 @@ const foldToolNodes = (nodes: BNode[], edges: BEdge[]): { nodes: BNode[]; edges:
   }
 }
 
+// Every agent REQUIRES one of each integration — prompt, model, toolbox,
+// memory — wired into its node; that is what the agent template declares
+// (`requires` in src/agents/mod.py) and what save() enforces. An unset one is
+// still a wired one: an empty Toolbox IS the default loadout (no restriction,
+// every tool), an empty Model IS "use the console's model". So a graph saved
+// before a kind existed reopens with it wired in, empty, rather than with that
+// part of the agent missing. Extra nodes of a kind are fine; this only fills
+// the gaps.
+type PartKind = Exclude<NodeKind, 'agent'>
+const PART_KINDS: PartKind[] = ['prompt', 'model', 'toolbox', 'memory']
+// the agent node carries the list its template requires (from the server when
+// it was loaded); anything older, or a list the canvas can't wire, means all four
+const requiresOf = (src?: BNode | string[] | null): PartKind[] => {
+  const raw: string[] = Array.isArray(src) ? src : ((src?.data?.requires as string[]) || [])
+  const got = raw.filter((k): k is PartKind => (PART_KINDS as string[]).includes(k))
+  return got.length ? got : PART_KINDS
+}
+// where each required integration plugs into the agent node: one input port
+// per row of its REQUIRES block (the header is 43px, then name + description
+// rows, then the block's caption — see nodeBody)
+const AGENT_PORT_TOP = 158
+const AGENT_PORT_STEP = 22
+const PART_DATA: Record<PartKind, () => Record<string, any>> = {
+  prompt: () => ({ text: '', promptId: '' }),
+  model: () => ({ provider: 'openrouter', model: '' }),
+  toolbox: () => ({ names: [] }),
+  // a memory node carries two different things: which memory module the agent
+  // thinks with (the component — persistent or ephemeral), and which library
+  // notes ride along as context. Empty module = the default one.
+  memory: () => ({ noteId: '', module: '' }),
+}
+const withParts = (nodes: BNode[], edges: BEdge[]): { nodes: BNode[]; edges: BEdge[] } => {
+  const agent = nodes.find(n => n.kind === 'agent')
+  if (!agent) return { nodes, edges }
+  const missing = requiresOf(agent).filter(k => !nodes.some(n => n.kind === k))
+  if (!missing.length) return { nodes, edges }
+  // stack the additions under the existing left column, clear of everything
+  const x = Math.min(...nodes.map(n => n.x))
+  let y = Math.max(...nodes.map(n => n.y + hOf(n))) + 40
+  const added = missing.map(kind => {
+    const node: BNode = { id: nid(), kind, x, y, data: PART_DATA[kind]() }
+    y += hOf(node) + 40
+    return node
+  })
+  return {
+    nodes: [...nodes, ...added],
+    edges: [...edges, ...added.map(n => ({ id: nid(), from: n.id, to: agent.id }))],
+  }
+}
+
+// A palette search is a fleet search too, once typing stops: there are hundreds
+// of modules, so they're fetched per query rather than held. Both the palette
+// and a toolbox node's own add-box run through this.
+function useFleetSearch(query: string) {
+  const [fleet, setFleet] = useState<Record<string, { description?: string; kind?: string }>>({})
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 2) { setFleet({}); return }
+    const t = setTimeout(() => {
+      fetch(`${API_URL}/tools?mods=true&q=${encodeURIComponent(q)}&limit=25`,
+        { signal: AbortSignal.timeout(10000) })
+        .then(r => r.json())
+        .then(d => setFleet(Object.fromEntries((d.tools || [])
+          .filter((t: any) => t.kind === 'mod')
+          .map((t: any) => [t.name, { description: t.description, kind: 'mod' }]))))
+        .catch(() => {})
+    }, 250)
+    return () => clearTimeout(t)
+  }, [query])
+  return fleet
+}
+
 type Props = {
   onUseAgent: (name: string, memoryIds: string[]) => void
   onAgentsChanged: () => void
@@ -77,9 +190,19 @@ type Props = {
   isHost?: boolean
   // wallet sign-in, so the canvas can offer it where saving is blocked
   onSignIn?: () => void
+  // the signed-in address — TASK mode marks which stored tasks are yours
+  address?: string | null
+  // TASK mode saves into the arena pool, so it offers a way over to the board
+  onOpenArena?: () => void
+  // BROWSE mode hands a prompt straight to an agent: select it in the console
+  // and put the text in the box. Falls back to onUseAgent when absent.
+  onRunAgent?: (name: string, prompt: string, memoryIds: string[]) => void
 }
 
-export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onManageKey, keyVersion, token, isHost, onSignIn }: Props) {
+export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onManageKey, keyVersion, token, isHost, onSignIn, address, onOpenArena, onRunAgent }: Props) {
+  // BROWSE reads the registry, AGENT builds the thing, TASK builds what it is
+  // measured on
+  const [mode, setMode] = useState<'browse' | 'agent' | 'task'>('agent')
   // an agent is filed under the address that made it, so saving takes a
   // sign-in — the server refuses an unsigned create either way
   const canSave = !!token || !!isHost
@@ -95,16 +218,22 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
 
   // ── catalog data ──
   const [tools, setTools] = useState<Record<string, { description?: string; kind?: string }>>({})
-  // fleet matches for the current palette search — fetched, not held: there are
-  // hundreds of modules and only the ones you look for belong in the list
-  const [fleet, setFleet] = useState<Record<string, { description?: string; kind?: string }>>({})
   // the backend's snap-on bundles — a toolbox node can be filled from one
   const [boxes, setBoxes] = useState<BoxPreset[]>([])
   const [prompts, setPrompts] = useState<LibPrompt[]>([])
   const [notes, setNotes] = useState<MemNote[]>([])
+  // the memory modules an agent can be built with (GET /memory/modules) —
+  // memory is a component here, picked the same way a model is
+  const [memModules, setMemModules] = useState<MemModule[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [paletteSearch, setPaletteSearch] = useState('')
+  // what's typed into a toolbox node's add-box — one at a time, since only the
+  // node you're typing in is the one you're adding to
+  const [boxSearch, setBoxSearch] = useState<{ id: string; q: string }>({ id: '', q: '' })
+  // fleet matches, fetched per query: for the palette, and for the box you're editing
+  const fleet = useFleetSearch(paletteSearch)
+  const boxFleet = useFleetSearch(boxSearch.q)
 
   const canvasRef = useRef<HTMLDivElement>(null)
   const nodeEls = useRef<Record<string, HTMLDivElement | null>>({})
@@ -159,24 +288,10 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
       .then(r => r.json()).then(d => setPrompts((d.items || []).filter((i: any) => i.kind === 'prompt'))).catch(() => {})
     fetch(`${API_URL}/memory`, { signal: AbortSignal.timeout(8000) })
       .then(r => r.json()).then(d => setNotes(d.memory || [])).catch(() => {})
+    fetch(`${API_URL}/memory/modules`, { signal: AbortSignal.timeout(8000) })
+      .then(r => r.json()).then(d => setMemModules(d.memories || [])).catch(() => {})
     fetchAgentList()
   }, [fetchAgentList])
-
-  // a palette search is a fleet search too, once typing stops
-  useEffect(() => {
-    const q = paletteSearch.trim()
-    if (q.length < 2) { setFleet({}); return }
-    const t = setTimeout(() => {
-      fetch(`${API_URL}/tools?mods=true&q=${encodeURIComponent(q)}&limit=25`,
-        { signal: AbortSignal.timeout(10000) })
-        .then(r => r.json())
-        .then(d => setFleet(Object.fromEntries((d.tools || [])
-          .filter((t: any) => t.kind === 'mod')
-          .map((t: any) => [t.name, { description: t.description, kind: 'mod' }]))))
-        .catch(() => {})
-    }, 250)
-    return () => clearTimeout(t)
-  }, [paletteSearch])
 
   // providers carry key state (configured / encrypted / unlocked) — refetch after key changes
   useEffect(() => {
@@ -210,15 +325,25 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   }
 
   // ── graph construction ──
+  // The template: one agent node with every integration it requires wired
+  // into its own port, none of them doing anything yet. Empty is the default
+  // in each case (no prompt, default model, every tool, no notes), so an
+  // untouched starter still compiles to exactly what it did when only
+  // prompt + toolbox were seeded — but unwire one and it will not save.
   const starterGraph = useCallback(() => {
     const agentId = nid()
-    const promptId = nid()
-    setNodes([
-      { id: agentId, kind: 'agent', x: 520, y: 150, data: { name: '', icon: '>_', description: '' } },
-      { id: promptId, kind: 'prompt', x: 120, y: 130, data: { text: '', promptId: '' } },
-    ])
-    setEdges([{ id: nid(), from: promptId, to: agentId }])
-    setViewport({ x: 0, y: 0, k: 1 })
+    const ns: BNode[] = [
+      { id: agentId, kind: 'agent', x: 620, y: 300, data: { name: '', icon: '>_', description: '', requires: [...PART_KINDS] } },
+      { id: nid(), kind: 'prompt', x: 90, y: 30, data: { text: '', promptId: '' } },
+      // no model picked = the console's own model, so a starter agent isn't
+      // silently pinned to whatever provider happens to be first
+      { id: nid(), kind: 'model', x: 90, y: 250, data: { provider: 'openrouter', model: '' } },
+      { id: nid(), kind: 'toolbox', x: 90, y: 440, data: { names: [] } },
+      { id: nid(), kind: 'memory', x: 90, y: 690, data: { noteId: '', module: '' } },
+    ]
+    setNodes(ns)
+    setEdges(ns.filter(n => n.kind !== 'agent').map(n => ({ id: nid(), from: n.id, to: agentId })))
+    setViewport(fitViewport(ns, canvasRef.current?.getBoundingClientRect()))
     setSelected(null)
     setLoadedName(null)
     setDirty(false)
@@ -238,9 +363,13 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     const saved = readGraphs()[name]
     if (saved?.nodes?.length) {
       const folded = foldToolNodes(saved.nodes, saved.edges || [])
-      setNodes(folded.nodes)
-      setEdges(folded.edges)
-      setViewport(saved.viewport || { x: 0, y: 0, k: 1 })
+      const ready = withParts(folded.nodes, folded.edges)
+      setNodes(ready.nodes)
+      setEdges(ready.edges)
+      // a layout that grew new component nodes no longer fits its saved frame
+      setViewport(ready.nodes.length !== folded.nodes.length
+        ? fitViewport(ready.nodes, canvasRef.current?.getBoundingClientRect())
+        : saved.viewport || { x: 0, y: 0, k: 1 })
       setLoadedName(name)
       setSelected(null)
       setDirty(false)
@@ -251,29 +380,30 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
       const cfg = await r.json()
       if (cfg.error) { flash(false, cfg.error); return }
       const agentId = nid()
-      const ns: BNode[] = [{
-        id: agentId, kind: 'agent', x: 560, y: 170,
-        data: { name, icon: cfg.icon || '>_', description: cfg.description || '' },
-      }]
-      const es: BEdge[] = []
-      const promptId = nid()
-      ns.push({ id: promptId, kind: 'prompt', x: 90, y: 60, data: { text: cfg.goal || '', promptId: '' } })
-      es.push({ id: nid(), from: promptId, to: agentId })
-      if (cfg.model) {
-        const mId = nid()
-        const prov = providers.find(p => p.models.includes(cfg.model))?.key || providers[0]?.key || 'openrouter'
-        ns.push({ id: mId, kind: 'model', x: 90, y: 330, data: { provider: prov, model: cfg.model } })
-        es.push({ id: nid(), from: mId, to: agentId })
+      const agent: BNode = {
+        id: agentId, kind: 'agent', x: 620, y: 300,
+        // the template's own list of what must be wired in
+        data: { name, icon: cfg.icon || '>_', description: cfg.description || '',
+                requires: requiresOf(cfg.requires as string[] | undefined) },
       }
+      // every component kind is wired in, set or not: a model the agent doesn't
+      // override is an empty Model node (= the console's model), tools it
+      // doesn't restrict are an empty Toolbox (= every tool). Unset components
+      // are where the editing starts, so they're on the canvas, not hidden.
+      const prov = cfg.model
+        ? providers.find(p => p.models.includes(cfg.model))?.key || providers[0]?.key || 'openrouter'
+        : 'openrouter'
       const toolNames: string[] = (cfg.tools || cfg.skills) || []
-      if (toolNames.length) {
-        const boxId = nid()
-        ns.push({ id: boxId, kind: 'toolbox', x: 90, y: 330, data: { names: Array.from(new Set(toolNames)) } })
-        es.push({ id: nid(), from: boxId, to: agentId })
-      }
+      const parts: BNode[] = [
+        { id: nid(), kind: 'prompt', x: 90, y: 30, data: { text: cfg.goal || '', promptId: '' } },
+        { id: nid(), kind: 'model', x: 90, y: 250, data: { provider: prov, model: cfg.model || '' } },
+        { id: nid(), kind: 'toolbox', x: 90, y: 440, data: { names: Array.from(new Set(toolNames)) } },
+        { id: nid(), kind: 'memory', x: 90, y: 690, data: { noteId: '', module: cfg.memory || '' } },
+      ]
+      const ns = [agent, ...parts]
       setNodes(ns)
-      setEdges(es)
-      setViewport({ x: 0, y: 0, k: 1 })
+      setEdges(parts.map(n => ({ id: nid(), from: n.id, to: agentId })))
+      setViewport(fitViewport(ns, canvasRef.current?.getBoundingClientRect()))
       setLoadedName(name)
       setSelected(null)
       setDirty(false)
@@ -296,16 +426,58 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     }
   }
 
+  // ── toolbox contents ──
+  // A tool is never a node of its own: it's a chip inside a toolbox. Adding one
+  // targets the box you dropped it on, else the box wired into the agent, else
+  // a new box created and wired on the spot.
+  const boxFor = (boxId?: string): BNode | undefined => {
+    const cur = nodesRef.current
+    if (boxId) {
+      const hit = cur.find(n => n.id === boxId && n.kind === 'toolbox')
+      if (hit) return hit
+    }
+    const wired = new Set(edges.filter(e => e.to === agentNode?.id).map(e => e.from))
+    return cur.find(n => n.kind === 'toolbox' && wired.has(n.id)) || cur.find(n => n.kind === 'toolbox')
+  }
+
+  const addTools = (names: string[], boxId?: string) => {
+    const clean = names.filter(Boolean)
+    if (!clean.length) return
+    const target = boxFor(boxId)
+    if (target) {
+      setNodes(ns => ns.map(n => n.id === target.id
+        ? { ...n, data: { ...n.data, names: Array.from(new Set([...(n.data.names || []), ...clean])) } }
+        : n))
+    } else {
+      const at = clickPlace()
+      const node: BNode = { id: nid(), kind: 'toolbox', x: at.x, y: at.y, data: { names: Array.from(new Set(clean)) } }
+      setNodes(ns => [...ns, node])
+      if (agentNode) setEdges(es => [...es, { id: nid(), from: node.id, to: agentNode.id }])
+      setSelected(node.id)
+    }
+    setDirty(true)
+  }
+
+  const removeTool = (boxId: string, name: string) => {
+    setNodes(ns => ns.map(n => n.id === boxId
+      ? { ...n, data: { ...n.data, names: ((n.data.names as string[]) || []).filter(t => t !== name) } }
+      : n))
+    setDirty(true)
+  }
+
   // ── add node (palette click or drop) ──
   const addNode = (spec: string, wx: number, wy: number) => {
-    const [kind, arg] = spec.split(':') as [NodeKind, string?]
+    const [kind, arg] = spec.split(':') as [NodeKind | 'tool', string?]
     if (kind === 'agent') return
+    // a tool lands in a toolbox, not on the canvas
+    if (kind === 'tool') { addTools([arg || '']); return }
     let data: Record<string, any> = {}
     if (kind === 'prompt') data = { text: '', promptId: '' }
     if (kind === 'model') {
       const p = providers[0]
       data = { provider: p?.key || 'openrouter', model: p?.default_model || '' }
     }
+    if (kind === 'toolbox') data = { names: [] }
     if (kind === 'memory') data = { noteId: arg || notes[0]?.id || '' }
     const node: BNode = { id: nid(), kind, x: wx - NODE_W / 2, y: wy - 20, data }
     setNodes(ns => [...ns, node])
@@ -313,6 +485,29 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     if (agentNode) setEdges(es => [...es, { id: nid(), from: node.id, to: agentNode.id }])
     setSelected(node.id)
     setDirty(true)
+  }
+
+  // the component of a kind this agent is actually built with: the one wired
+  // in, else any of that kind on the canvas
+  const partOf = (kind: PartKind) =>
+    nodes.find(n => n.kind === kind && connectedSources.includes(n.id))
+    || nodes.find(n => n.kind === kind)
+
+  // a port row on the AGENT node jumps to the integration it summarises — the
+  // one wired in, else any of that kind (and wires it), else a new one added
+  // and wired on the spot
+  const focusKind = (kind: PartKind) => {
+    const hit = partOf(kind)
+    if (hit) {
+      setSelected(hit.id)
+      if (agentNode && !connectedSources.includes(hit.id)) {
+        setEdges(es => [...es, { id: nid(), from: hit.id, to: agentNode.id }])
+        setDirty(true)
+      }
+      return
+    }
+    const at = clickPlace()
+    addNode(kind, at.x, at.y)
   }
 
   const removeNode = (id: string) => {
@@ -420,6 +615,18 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     e.preventDefault()
     const spec = e.dataTransfer.getData('text/agent-node')
     if (!spec) return
+    // a tool dropped straight onto a box goes in that box — anywhere else on
+    // the canvas and it goes to the agent's own toolbox
+    if (spec.startsWith('tool:')) {
+      const hit = nodesRef.current.filter(n => n.kind === 'toolbox').find(n => {
+        const el = nodeEls.current[n.id]
+        if (!el) return false
+        const r = el.getBoundingClientRect()
+        return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
+      })
+      addTools([spec.slice(5)], hit?.id)
+      return
+    }
     const w = toWorld(e.clientX, e.clientY)
     addNode(spec, w.x, w.y)
   }
@@ -438,8 +645,15 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
       .flatMap(n => (n.data.names as string[]) || []).filter(Boolean)))
     const model = srcs.find(n => n.kind === 'model')?.data.model || null
     const memoryIds = srcs.filter(n => n.kind === 'memory').map(n => n.data.noteId).filter(Boolean)
+    // the memory module is part of the agent (saved with it); the notes are
+    // context for one run (passed when it is used) — same node, two lifetimes
+    const memory = srcs.filter(n => n.kind === 'memory')
+      .map(n => String(n.data.module || '').trim()).find(Boolean) || null
+    // the template's requirement: every one of these kinds wired into the agent
+    const requires = requiresOf(agent)
+    const missing = requires.filter(k => !srcs.some(n => n.kind === k))
     const slug = slugify(agent.data.name || '')
-    return { slug, agent, goal, toolNames, model, memoryIds }
+    return { slug, agent, goal, toolNames, model, memory, memoryIds, requires, missing }
   }
 
   const save = async (): Promise<string | null> => {
@@ -447,6 +661,11 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     const c = compile()
     if ('error' in c) { flash(false, c.error!); return null }
     if (!c.slug) { flash(false, 'give the agent a name (on the AGENT node)'); return null }
+    if (c.missing.length) {
+      flash(false, `wire in ${c.missing.map(k => `a ${KIND_META[k].label}`).join(', ')} — the agent requires ${
+        c.requires.map(k => KIND_META[k].label.toLowerCase()).join(', ')}`)
+      return null
+    }
     const existing = agents.find(a => a.value === c.slug)
     if (!isHost && (existing?.builtin || (!existing && BUILTINS.has(c.slug)))) {
       flash(false, `"${c.slug}" is a built-in — pick a new name to save your version`); return null
@@ -465,6 +684,9 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
         ...(existing
           ? (c.model ? { model: c.model } : { clear_model: true })
           : { model: c.model }),
+        ...(existing
+          ? (c.memory ? { memory: c.memory } : { clear_memory: true })
+          : { memory: c.memory }),
       }
       const res = existing
         ? await fetch(`${API_URL}/agents/${c.slug}`, {
@@ -518,8 +740,16 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   }
 
   // ── edge geometry ──
-  const portOut = (n: BNode) => ({ x: n.x + NODE_W, y: n.y + 21 })
-  const portIn = (n: BNode) => ({ x: n.x, y: n.y + 21 })
+  const portOut = (n: BNode) => ({ x: n.x + wOf(n), y: n.y + 21 })
+  // the agent node has one input port per integration it requires; a wire
+  // from a kind it doesn't list (or from anything else) lands on its header
+  const portIn = (n: BNode, from?: BNode) => {
+    if (n.kind === 'agent' && from && from.kind !== 'agent') {
+      const i = requiresOf(n).indexOf(from.kind as PartKind)
+      if (i >= 0) return { x: n.x, y: n.y + AGENT_PORT_TOP + i * AGENT_PORT_STEP }
+    }
+    return { x: n.x, y: n.y + 21 }
+  }
   const edgePath = (a: { x: number; y: number }, b: { x: number; y: number }) => {
     const c = Math.max(46, Math.abs(b.x - a.x) * 0.45)
     return `M ${a.x} ${a.y} C ${a.x + c} ${a.y}, ${b.x - c} ${b.y}, ${b.x} ${b.y}`
@@ -530,6 +760,12 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
   const filteredTools = Object.keys(tools).filter(s =>
     !paletteSearch.trim() || s.toLowerCase().includes(paletteSearch.trim().toLowerCase()))
     .concat(Object.keys(fleet).filter(f => !(f in tools)))
+
+  // the box the palette adds to — the one wired into the agent — so a tool
+  // already in it renders as on and clicks back off
+  const activeBox = nodes.find(n => n.kind === 'toolbox' && connectedSources.includes(n.id))
+    || nodes.find(n => n.kind === 'toolbox')
+  const boxTools: string[] = (activeBox?.data.names as string[]) || []
 
   const zoomBy = (f: number) => {
     const el = canvasRef.current
@@ -556,21 +792,50 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
           </div>
           <input value={n.data.description || ''} onChange={e => patchNode(n.id, { description: e.target.value })} placeholder="description"
             className="w-full bg-white/[0.05] border border-white/[0.09] rounded-md px-2 py-1.5 text-[11px] text-gray-300 outline-none placeholder:text-gray-600 focus:border-emerald-500/50 transition" />
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            <span className={`text-[9px] px-1.5 py-0.5 rounded border ${c.goal ? 'border-amber-400/30 text-amber-300/90 bg-amber-400/[0.06]' : 'border-white/10 text-gray-600'}`}>
-              ¶ prompt {c.goal ? '✓' : '—'}
-            </span>
-            <span className={`text-[9px] px-1.5 py-0.5 rounded border ${c.toolNames?.length ? 'border-emerald-400/30 text-emerald-300/90 bg-emerald-400/[0.06]' : 'border-white/10 text-gray-600'}`}>
-              ◇ {c.toolNames?.length ? `${c.toolNames.length} tools` : 'every tool'}
-            </span>
-            <span className={`text-[9px] px-1.5 py-0.5 rounded border ${c.model ? 'border-sky-400/30 text-sky-300/90 bg-sky-400/[0.06]' : 'border-white/10 text-gray-600'}`}>
-              ⬢ {c.model ? String(c.model).split('/').pop() : 'default model'}
-            </span>
-            {c.memoryIds?.length > 0 && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded border border-violet-400/30 text-violet-300/90 bg-violet-400/[0.06]">
-                ◈ {c.memoryIds.length} notes
-              </span>
-            )}
+          {/* The agent is ONE node. Its template requires four integrations,
+              and each has its own input port here — a row per kind, the port
+              dot on the node's left edge in line with it. A wired row reads
+              what it's wired to; an unwired one reads "required" and save()
+              refuses until it isn't. Clicking a row jumps to that node (or
+              adds and wires one) — the integration is edited where it lives,
+              never inside this box. */}
+          <div className="pt-1">
+            <div className="h-[14px] mb-1 flex items-center gap-1.5 text-[9px] uppercase tracking-wider text-gray-600">
+              requires
+              {c.missing?.length
+                ? <span className="text-red-300/90 normal-case tracking-normal">{c.missing.length} unwired</span>
+                : <span className="text-emerald-400/70 normal-case tracking-normal">all wired</span>}
+            </div>
+            {(c.requires as PartKind[]).map(kind => {
+              const meta = KIND_META[kind]
+              const wired = !c.missing?.includes(kind)
+              const summary =
+                kind === 'prompt'  ? (c.goal ? `${String(c.goal).split(/\s+/).length} words` : 'empty — write one') :
+                kind === 'model'   ? (c.model ? String(c.model).split('/').pop() : 'console model') :
+                kind === 'toolbox' ? (c.toolNames?.length ? `${c.toolNames.length} tools` : 'every tool') :
+                [c.memory || 'default', c.memoryIds?.length ? `+${c.memoryIds.length} notes` : ''].filter(Boolean).join(' ')
+              return (
+                <button key={kind} onClick={() => focusKind(kind)}
+                  title={wired
+                    ? `${meta.hint} — click to open its node`
+                    : `required: wire a ${meta.label} node into this port (click to add one)`}
+                  className={`relative w-full h-[22px] flex items-center gap-1.5 px-1.5 rounded-md text-[10px] transition border ${
+                    wired ? `${meta.border} bg-white/[0.02] hover:bg-white/[0.05]`
+                          : 'border-dashed border-red-400/40 bg-red-400/[0.05] hover:bg-red-400/[0.09]'}`}>
+                  <span
+                    className={`absolute -left-[17px] top-1/2 -translate-y-1/2 w-[14px] h-[14px] rounded-full border-2 border-surface-1 ${wired ? '' : 'animate-pulse'}`}
+                    style={wired
+                      ? { background: meta.wire, boxShadow: `0 0 8px ${meta.wire}` }
+                      : { background: 'rgb(248 113 113 / 0.25)', boxShadow: '0 0 0 1px rgb(248 113 113 / 0.6)' }}
+                    title={`${meta.label} port`} />
+                  <span className={`text-[11px] ${meta.accent}`}>{meta.icon}</span>
+                  <span className="text-[9px] uppercase tracking-wider text-gray-400">{meta.label}</span>
+                  <span className={`ml-auto truncate ${wired ? 'text-gray-300' : 'text-red-300/90'}`}>
+                    {wired ? summary : 'required'}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </div>
       )
@@ -649,18 +914,119 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
         </div>
       )
     }
-    // memory
+    if (n.kind === 'toolbox') {
+      const names: string[] = (n.data.names as string[]) || []
+      const q = (boxSearch.id === n.id ? boxSearch.q : '').trim().toLowerCase()
+      // the registry plus whatever the fleet search turned up, minus what's in
+      const pool = Array.from(new Set([...Object.keys(tools), ...Object.keys(boxFleet)]))
+      const matches = q
+        ? pool.filter(t => !names.includes(t) && t.toLowerCase().includes(q)).slice(0, 7)
+        : []
+      const chip = (name: string) => {
+        const isMod = name.startsWith('mod.') || (tools[name] || boxFleet[name])?.kind === 'mod'
+        const known = name in tools || name in boxFleet || isMod
+        return (
+          <span key={name}
+            title={tools[name]?.description || boxFleet[name]?.description || (known ? name : `${name} — not in the registry`)}
+            className={`inline-flex items-center gap-1 pl-1.5 pr-1 py-0.5 rounded border text-[10px] font-mono max-w-full ${
+              !known ? 'border-amber-400/25 bg-amber-400/[0.06] text-amber-300/90'
+              : isMod ? 'border-violet-400/25 bg-violet-400/[0.06] text-violet-200/90'
+                      : 'border-emerald-400/25 bg-emerald-400/[0.06] text-emerald-200/90'}`}>
+            <span className="truncate">{name}</span>
+            <button onClick={() => removeTool(n.id, name)}
+              className="text-gray-500 hover:text-red-400 transition shrink-0 px-0.5"
+              title={`Remove ${name} from this toolbox`}>✕</button>
+          </span>
+        )
+      }
+      return (
+        <div className="p-2.5 space-y-2" onPointerDown={e => e.stopPropagation()}>
+          {/* a preset drops a whole bundle in — the same boxes the console snaps on */}
+          <Select
+            size="sm" accent="emerald" className="w-full" placeholder="+ add a preset…"
+            value=""
+            title="Merge a toolbox preset's tools into this box"
+            onChange={v => { const b = boxes.find(x => x.name === v); if (b) addTools(b.tools, n.id) }}
+            options={boxes.map(b => ({
+              value: b.name, label: b.name, icon: '◇',
+              hint: `${b.tools.length} · ${b.description || ''}`,
+              badge: b.builtin ? 'preset' : undefined,
+            }))} />
+          <input
+            value={boxSearch.id === n.id ? boxSearch.q : ''}
+            onChange={e => setBoxSearch({ id: n.id, q: e.target.value })}
+            onKeyDown={e => {
+              if (e.key !== 'Enter') return
+              const pick = matches[0] || (q ? q : '')
+              if (pick) { addTools([pick], n.id); setBoxSearch({ id: n.id, q: '' }) }
+            }}
+            placeholder="add a tool or mod.<module>…"
+            className="w-full bg-white/[0.05] border border-white/[0.09] rounded-md px-2 py-1.5 text-[11px] text-gray-300 outline-none placeholder:text-gray-600 focus:border-emerald-400/40 transition font-mono" />
+          {!!matches.length && (
+            <div className="rounded-md border border-white/[0.08] bg-surface-1 divide-y divide-white/[0.04] overflow-hidden">
+              {matches.map(t => {
+                const isMod = (tools[t] || boxFleet[t])?.kind === 'mod'
+                return (
+                  <button key={t}
+                    onClick={() => { addTools([t], n.id); setBoxSearch({ id: n.id, q: '' }) }}
+                    title={tools[t]?.description || boxFleet[t]?.description || t}
+                    className="w-full flex items-center gap-1.5 px-2 py-1 text-left hover:bg-white/[0.05] transition">
+                    <span className={`text-[10px] shrink-0 ${isMod ? 'text-violet-400/70' : 'text-emerald-400/70'}`}>◇</span>
+                    <span className="text-[10px] font-mono text-gray-300 truncate">{t}</span>
+                    <span className="ml-auto text-gray-700 text-[10px] shrink-0">+</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          {names.length ? (
+            <div className="flex flex-wrap gap-1 max-h-[164px] overflow-y-auto">{names.map(chip)}</div>
+          ) : (
+            <div className="text-[10px] text-gray-600 leading-snug">
+              empty — the agent gets <span className="text-emerald-400/70">every tool</span>. Add one
+              above, or drag one in from the palette.
+            </div>
+          )}
+          <div className="flex items-center gap-2 pt-0.5">
+            <span className="text-[9px] text-gray-600">{names.length || 'no'} tool{names.length === 1 ? '' : 's'}</span>
+            {!!names.length && (
+              <button onClick={() => patchNode(n.id, { names: [] })}
+                className="ml-auto text-[9px] text-gray-600 hover:text-red-400 transition"
+                title="Empty this toolbox — back to every tool">
+                clear
+              </button>
+            )}
+          </div>
+        </div>
+      )
+    }
+    // memory — the module the agent thinks with, then the notes it carries
     const note = notes.find(x => x.id === n.data.noteId)
+    const mod = memModules.find(x => x.name === (n.data.module || ''))
     return (
       <div className="p-2.5 space-y-1" onPointerDown={e => e.stopPropagation()}>
         <Select
-          size="sm" accent="violet" className="w-full" placeholder="no notes in library"
+          size="sm" accent="violet" className="w-full" placeholder="memory module…"
+          value={n.data.module || ''}
+          onChange={v => patchNode(n.id, { module: v })}
+          options={[
+            { value: '', label: 'default memory', icon: '◈',
+              hint: 'layered, persistent, retrievable' },
+            ...memModules.filter(x => !x.default).map(x => ({
+              value: x.name, label: x.label || x.name, icon: '◈', hint: x.description,
+            })),
+          ]} />
+        <Select
+          size="sm" accent="violet" className="w-full"
+          placeholder={notes.length ? 'pick a note…' : 'no notes in library'}
           value={n.data.noteId || ''}
           onChange={v => patchNode(n.id, { noteId: v })}
           disabled={notes.length === 0}
           options={notes.map(x => ({ value: x.id, label: x.name, icon: '◈' }))} />
         <div className="text-[10px] text-gray-600 leading-snug line-clamp-2">
-          {note?.content?.slice(0, 110) || 'context injected at run time'}
+          {note?.content?.slice(0, 110)
+            || mod?.description
+            || 'recalls facts, past turns and steps it already took'}
         </div>
       </div>
     )
@@ -687,8 +1053,72 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
     </div>
   )
 
+  // ── mode bar ──
+  // The three halves of the same job: the agents that exist, the one being
+  // wired, and the task that says whether it is any good. One strip across the
+  // top so none of them is buried in a menu.
+  const MODES: { key: 'browse' | 'agent' | 'task'; icon: string; label: string; hint: string }[] = [
+    { key: 'browse', icon: '✦', label: 'Browse', hint: 'every agent in the registry — each one a folder of code under src/agents/' },
+    { key: 'agent', icon: '◆', label: 'Agent', hint: 'one agent node — it requires a prompt, a model, a toolbox and memory wired in' },
+    { key: 'task', icon: '◎', label: 'Task', hint: 'write what the agents are scored on — drafted for you, if you like' },
+  ]
+  const modeBar = (
+    <div className="shrink-0 border-b border-white/[0.06] bg-surface-1 px-3 py-2 flex items-center gap-3">
+      <div className="flex items-center gap-1 p-0.5 rounded-lg border border-white/[0.07] bg-white/[0.02]">
+        {MODES.map(md => (
+          <button key={md.key} onClick={() => setMode(md.key)} title={md.hint}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] transition ${
+              mode === md.key
+                ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/25'
+                : 'border border-transparent text-gray-500 hover:text-gray-300 hover:bg-white/[0.04]'
+            }`}>
+            <span className="text-xs">{md.icon}</span>
+            <span className="uppercase tracking-wider font-medium">{md.label}</span>
+          </button>
+        ))}
+      </div>
+      <span className="text-[10px] text-gray-600 truncate min-w-0">
+        {MODES.find(md => md.key === mode)!.hint}
+      </span>
+    </div>
+  )
+
+  // BROWSE — the registry itself. Editing one there writes the same mod.py the
+  // canvas does, so a change made either way shows up in the other.
+  if (mode === 'browse') {
+    return (
+      <div className="h-full flex flex-col min-h-0">
+        {modeBar}
+        <div className="flex-1 min-h-0">
+          <AgentsPanel
+            token={token} address={address} isHost={isHost} onSignIn={onSignIn}
+            onEditOnCanvas={name => { setMode('agent'); loadAgent(name) }}
+            onRun={(name, prompt, memoryIds) => onRunAgent
+              ? onRunAgent(name, prompt, memoryIds)
+              : onUseAgent(name, memoryIds)}
+            onChanged={() => { fetchAgentList(); onAgentsChanged() }}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (mode === 'task') {
+    return (
+      <div className="h-full flex flex-col min-h-0">
+        {modeBar}
+        <div className="flex-1 min-h-0">
+          <TaskBuilder token={token} address={address} isHost={isHost}
+            onSignIn={onSignIn} onOpenArena={onOpenArena} />
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="h-full flex min-h-0">
+    <div className="h-full flex flex-col min-h-0">
+      {modeBar}
+      <div className="flex-1 flex min-h-0">
       {/* ── palette ── */}
       <div className="w-56 shrink-0 border-r border-white/[0.06] flex flex-col min-h-0 bg-surface-1">
         <div className="px-3 py-2.5 border-b border-white/[0.06] shrink-0">
@@ -698,15 +1128,17 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
         <div className="p-2 space-y-1 shrink-0">
           {paletteItem('prompt', '¶', 'Prompt', 'system prompt / persona', 'text-amber-300')}
           {paletteItem('model', '⬢', 'Model', 'provider + model override', 'text-sky-300')}
-          {paletteItem('memory', '◈', 'Memory', 'library note as context', 'text-violet-300')}
+          {paletteItem('toolbox', '◇', 'Toolbox', 'the tools this agent may use', 'text-emerald-300')}
+          {paletteItem('memory', '◈', 'Memory', 'memory module + notes', 'text-violet-300')}
         </div>
-        <div className="px-3 pt-2 pb-1.5 border-t border-white/[0.06] shrink-0 flex items-center gap-2">
+        <div className="px-3 pt-2 pb-0.5 border-t border-white/[0.06] shrink-0 flex items-center gap-2">
           <span className="text-[10px] text-emerald-300/80 uppercase tracking-wider font-medium">◇ Tools</span>
           <span className="text-[9px] text-gray-700">{Object.keys(tools).length}</span>
           {!!Object.keys(fleet).length && (
             <span className="ml-auto text-[9px] text-violet-300/70">+{Object.keys(fleet).length} fleet</span>
           )}
         </div>
+        <div className="px-3 pb-1.5 shrink-0 text-[9px] text-gray-700">click or drag → the agent&apos;s toolbox</div>
         <div className="px-2 pb-1.5 shrink-0">
           <input value={paletteSearch} onChange={e => setPaletteSearch(e.target.value)}
             placeholder="filter tools + the fleet…"
@@ -716,23 +1148,26 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
           {filteredTools.map(s => {
             const meta = tools[s] || fleet[s] || {}
             const isMod = meta.kind === 'mod'
+            // already in the agent's toolbox → the row toggles it back out
+            const inBox = boxTools.includes(s)
             return (
               <div key={s}
                 draggable
                 onDragStart={e => { e.dataTransfer.setData('text/agent-node', `tool:${s}`); e.dataTransfer.effectAllowed = 'copy' }}
                 onClick={() => {
-                  const at = clickPlace()
-                  addNode(`tool:${s}`, at.x, at.y)
+                  if (inBox && activeBox) removeTool(activeBox.id, s)
+                  else addTools([s])
                 }}
-                className={`flex items-center gap-2 px-2 py-1.5 rounded-md border border-transparent cursor-grab active:cursor-grabbing transition select-none group ${
-                  isMod ? 'hover:border-violet-500/20 hover:bg-violet-500/[0.05]'
-                        : 'hover:border-emerald-500/20 hover:bg-emerald-500/[0.05]'
+                className={`flex items-center gap-2 px-2 py-1.5 rounded-md border cursor-grab active:cursor-grabbing transition select-none group ${
+                  inBox ? (isMod ? 'border-violet-500/25 bg-violet-500/[0.07]' : 'border-emerald-500/25 bg-emerald-500/[0.07]')
+                        : isMod ? 'border-transparent hover:border-violet-500/20 hover:bg-violet-500/[0.05]'
+                                : 'border-transparent hover:border-emerald-500/20 hover:bg-emerald-500/[0.05]'
                 }`}
-                title={meta.description || s}
+                title={inBox ? `In the toolbox — click to remove\n${meta.description || s}` : (meta.description || s)}
               >
-                <span className={`text-[11px] shrink-0 ${isMod ? 'text-violet-400/70' : 'text-emerald-400/70'}`}>◇</span>
-                <span className="text-[11px] text-gray-400 group-hover:text-gray-200 font-mono truncate">{s}</span>
-                <span className="ml-auto text-gray-800 group-hover:text-gray-600 text-[10px] shrink-0">⠿</span>
+                <span className={`text-[11px] shrink-0 ${isMod ? 'text-violet-400/70' : 'text-emerald-400/70'}`}>{inBox ? '✓' : '◇'}</span>
+                <span className={`text-[11px] font-mono truncate ${inBox ? 'text-gray-200' : 'text-gray-400 group-hover:text-gray-200'}`}>{s}</span>
+                <span className="ml-auto text-gray-800 group-hover:text-gray-600 text-[10px] shrink-0">{inBox ? '−' : '⠿'}</span>
               </div>
             )
           })}
@@ -818,8 +1253,8 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
                 const from = nodes.find(n => n.id === e.from)
                 const to = nodes.find(n => n.id === e.to)
                 if (!from || !to) return null
-                const color = from.kind === 'agent' ? 'rgb(var(--a-400))' : KIND_META[from.kind as Exclude<NodeKind, 'agent'>].wire
-                const d = edgePath(portOut(from), portIn(to))
+                const color = from.kind === 'agent' ? 'rgb(var(--a-400))' : KIND_META[from.kind as PartKind].wire
+                const d = edgePath(portOut(from), portIn(to, from))
                 return (
                   <g key={e.id} className="pointer-events-auto">
                     <path d={d} stroke="transparent" strokeWidth={14} fill="none" className="cursor-pointer"
@@ -833,7 +1268,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
               {connecting && (() => {
                 const from = nodes.find(n => n.id === connecting.from)
                 if (!from) return null
-                const color = KIND_META[from.kind as Exclude<NodeKind, 'agent'>]?.wire || 'rgb(var(--a-400))'
+                const color = KIND_META[from.kind as PartKind]?.wire || 'rgb(var(--a-400))'
                 return <path d={edgePath(portOut(from), { x: connecting.mx, y: connecting.my })}
                   style={{ stroke: color }} strokeWidth={1.8} strokeDasharray="5 4" fill="none" opacity={0.85} />
               })()}
@@ -844,7 +1279,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
           <div className="absolute inset-0" style={{ transform: `translate(${viewport.x}px,${viewport.y}px) scale(${viewport.k})`, transformOrigin: '0 0', pointerEvents: 'none' }}>
             {nodes.map(n => {
               const isAgent = n.kind === 'agent'
-              const meta = isAgent ? null : KIND_META[n.kind as Exclude<NodeKind, 'agent'>]
+              const meta = isAgent ? null : KIND_META[n.kind as PartKind]
               const sel = selected === n.id
               return (
                 <div
@@ -855,7 +1290,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
                       ? `bg-gradient-to-b from-emerald-500/[0.10] to-surface-1 ${sel ? 'border-emerald-400/60 shadow-[0_0_24px_rgb(var(--glow)/0.25)]' : 'border-emerald-500/35 shadow-[0_0_18px_rgb(var(--glow)/0.10)]'}`
                       : `bg-surface-2 ${sel ? 'border-white/30' : meta!.border}`
                   }`}
-                  style={{ left: n.x, top: n.y, width: NODE_W, pointerEvents: 'auto' }}
+                  style={{ left: n.x, top: n.y, width: wOf(n), pointerEvents: 'auto' }}
                   onPointerDown={e => { e.stopPropagation(); setSelected(n.id) }}
                 >
                   {/* header = drag handle */}
@@ -876,6 +1311,15 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
                         unwired
                       </span>
                     )}
+                    {isAgent && (() => {
+                      const missing = (compile() as any).missing as PartKind[] | undefined
+                      return missing?.length ? (
+                        <span className="text-[8px] px-1 py-0.5 rounded bg-red-400/[0.08] text-red-300/90 border border-red-400/30"
+                          title={`Won't save until wired: ${missing.map(k => KIND_META[k].label).join(', ')}`}>
+                          requires {missing.length}
+                        </span>
+                      ) : null
+                    })()}
                     <span className="ml-auto" />
                     {!isAgent && (
                       <button
@@ -890,13 +1334,8 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
 
                   {nodeBody(n)}
 
-                  {/* ports */}
-                  {isAgent ? (
-                    <div
-                      className="absolute -left-[7px] top-[14px] w-[14px] h-[14px] rounded-full bg-emerald-400 border-2 border-surface-1 shadow-[0_0_8px_rgb(var(--glow)/0.7)]"
-                      title="Input — drop wires here"
-                    />
-                  ) : (
+                  {/* ports — the agent's are its REQUIRES rows (see nodeBody) */}
+                  {isAgent ? null : (
                     <div
                       className={`absolute -right-[7px] top-[14px] w-[14px] h-[14px] rounded-full border-2 border-surface-1 cursor-crosshair hover:scale-125 transition-transform ${connected(n.id) ? '' : 'animate-pulse'}`}
                       style={{ background: meta!.wire, boxShadow: `0 0 8px ${meta!.wire}` }}
@@ -921,13 +1360,14 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onM
 
           {/* hints */}
           <div className="absolute bottom-3 left-3 text-[10px] text-gray-700 select-none pointer-events-none space-y-0.5">
-            <div>drag nodes from the palette · wires connect into the <span className="text-emerald-500/80">agent</span></div>
+            <div>one <span className="text-emerald-500/80">agent</span> node · it requires a prompt, a model, a toolbox and memory — one port each</div>
             <div>drag a port ● to rewire · click a wire to disconnect · scroll to zoom · drag canvas to pan</div>
           </div>
           <div className="absolute top-3 right-3 text-[10px] text-gray-700 font-mono select-none pointer-events-none">
             {Math.round(viewport.k * 100)}%
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

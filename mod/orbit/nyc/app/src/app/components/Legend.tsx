@@ -2,7 +2,10 @@
 
 import type { Breaks, Options } from '@/lib/api'
 import { byFormat } from '@/lib/format'
-import { DIVERGING, LAYER_COLOR, NO_DATA, SEQUENTIAL, ZONE_COLOR, rampOf } from '@/lib/palette'
+import {
+  DIVERGING, LAYER_COLOR, NO_DATA, SEQUENTIAL, SPEED_BAND, SPEED_BAND_LABEL,
+  ZONE_COLOR, rampOf,
+} from '@/lib/palette'
 import { SALE_BREAKS } from './MapView'
 
 type Props = {
@@ -107,6 +110,25 @@ export default function Legend({
     )
   }
 
+  if (active.includes('traffic_speeds')) {
+    rows.push(
+      <Row key="speeds" title="Speed now">
+        <ul className="space-y-1">
+          {SPEED_BAND_LABEL.map(([key, label]) => (
+            <li key={key} className="flex items-center gap-2 text-[10.5px] text-nes-ink2">
+              <span className="h-1.5 w-4 shrink-0 ring-2 ring-black"
+                    style={{ background: SPEED_BAND[key] }} />
+              <span className="tabular-nums">{label}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-1 text-[9.5px] leading-snug text-nes-ink3">
+          Highway and arterial sensors only — local streets have no detector.
+        </p>
+      </Row>,
+    )
+  }
+
   if (active.includes('collisions')) {
     rows.push(
       <Row key="collisions" title="Traffic injuries">
@@ -120,6 +142,8 @@ export default function Legend({
   }
 
   const dots: [string, string, string][] = []
+  if (active.includes('traffic_volume'))
+    dots.push(['traffic_volume', 'Traffic volume', 'circle size = vehicles/day, floored'])
   if (active.includes('subway_ridership'))
     dots.push(['subway_ridership', 'Station ridership', 'circle size = riders'])
   if (active.includes('affordable_housing'))
@@ -172,6 +196,7 @@ export default function Legend({
 const ENCODED = [
   'sales', 'evacuation_zones', 'collisions', 'subway_ridership',
   'affordable_housing', 'subway_stations', 'bike_routes', 'parks', 'subway_lines',
+  'traffic_speeds', 'traffic_volume',
 ]
 
 /**

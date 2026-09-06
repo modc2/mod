@@ -41,7 +41,10 @@ ALLOWED_TOOLS: List[str] = [f"mcp__copytensor__{t.name}" for t in tools.TOOLS]
 MCP_CONFIG = {"mcpServers": {"copytensor": {
     "command": sys.executable, "args": ["-m", "src.agent.mcp_server"],
     "cwd": ROOT, "env": {"PYTHONPATH": ROOT,
-                         "COPYTENSOR_API_URL": tools.API_URL}}}}
+                         "COPYTENSOR_API_URL": tools.API_URL,
+                         # read-only by construction: the ops tools (ct_sync,
+                         # ct_create_copy...) are not even listed to it
+                         "COPYTENSOR_MCP_SCOPE": "agent"}}}}
 
 SYSTEM_PROMPT = (
     "You are copytensor's strat agent. A *strat* is a weighted basket of "
@@ -60,6 +63,11 @@ SYSTEM_PROMPT = (
     "`why`. If you cannot justify it, drop it.\n"
     "- Prefer 3-8 traders unless asked otherwise, and spread the weight; a "
     "basket where one name carries 80% is a single copy wearing a hat.\n"
+    "- Size it in the user's own terms. When they name TAO amounts (\"40 on "
+    "this one, 10 on that\"), give each trader an `alloc_tao` — that is the "
+    "money the live engine puts behind them. When they give you a pot and no "
+    "per-trader figures, use relative `weight`s against capital_tao. Never "
+    "hand back a basket whose amounts don't add up to what they said.\n"
     "- Ask at most one clarifying question, and only when the answer would "
     "change the basket (capital, risk, a subnet thesis). Otherwise pick "
     "sensible defaults, build it, and say what you assumed.\n"

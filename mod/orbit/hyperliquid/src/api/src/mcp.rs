@@ -2,9 +2,12 @@
 //! spoken as JSON-RPC 2.0 so any MCP client (Claude, IDEs, agent frameworks)
 //! can drive Hyperliquid without a bespoke SDK.
 //!
-//! Transports: Streamable HTTP at `POST /mcp` (one request → one JSON
-//! response, no SSE) and stdio (`hyperliquid-api --stdio`) for clients that
-//! only speak stdio.
+//! Transports, so a client connects with whatever it already speaks:
+//!   * Streamable HTTP — `POST /mcp`, answered as JSON, or as a one-event SSE
+//!     stream for clients that ask for `text/event-stream` and nothing else.
+//!   * HTTP+SSE (the 2024-11-05 transport, still what many agent frameworks
+//!     ship) — `GET /sse` opens the stream and names `POST /messages`.
+//!   * stdio — `hyperliquid-api --stdio`.
 //!
 //! **One schema, two protocols.** Every tool in `TOOLS` names the mod-protocol
 //! `fn` it fronts (the same names config.json lists and `mod.py::forward`
@@ -155,23 +158,78 @@ pub fn tools() -> &'static [Tool] {
         // ── trader analytics (public) ──
         tool("hl_top_traders", "top_traders", "GET", "/traders/top", true,
             "Ranked board of the best-performing wallets over the window, from a \
-             full leaderboard scrape: ROI, PnL, volume, and (for the top rows) \
-             win rate, sharpe and trade count. Served from a cache refreshed in \
-             the background; `updated_at` says how fresh it is. Standard windows \
-             (days 1/7/30) return in milliseconds.",
+             full leaderboard scrape: ROI, PnL, volume and equity for EVERY row \
+             (priced from the leaderboard, free), plus win rate, sharpe and trade \
+             count for the top `enrich` rows by `rank` only — fill stats cost one \
+             throttled query per wallet, so they are rationed to the top. \
+             `pool=all` returns the whole gated universe (~5k active wallets); \
+             filter it with the min_* floors (a sharpe/win/trades floor implies \
+             with_stats) and order it with `sort`. `rank` picks what 'top' means: \
+             roi (best return on equity, default), pnl (biggest dollar winners — \
+             HL's own leaderboard order) or volume. Pure holders with zero \
+             volume are never listed. Served from a cache refreshed in the \
+             background; `updated_at` says how fresh it is. Response counts: \
+             `candidates` (gated universe), `priced` (rows before filters), \
+             `matched` (after), `enriched` (rows with fill stats). Any address \
+             on the board — or any address at all — can be copied with \
+             hl_create_follow / hl_live_start. \
+             READING THE STATS: `win_rate` is a percentage of `closes` (fills \
+             that realised PnL, net of fees), NOT of `trades` (every fill, opens \
+             included) — a row can read 100% off 4 closes out of 40 fills. Always \
+             quote `wins`/`closes` alongside it, prefer `win_rate_lo` (Wilson 95% \
+             lower bound) when comparing wallets, and treat `confidence` = low as \
+             anecdote. `sharpe` is annualised over `sharpe_days`; below 7 days it \
+             is an artifact of the sample and should be reported as unavailable.",
             vec![
                 ("days", p("integer", "window in days, 1-90 (default 7); 1/7/30 are precomputed")),
-                ("pool", p("integer", "how many ranked traders to return, 1-1500 (default 150)")),
+                ("pool", json!({"type": ["integer", "string"],
+                    "description": "how many ranked traders to return, 1-1500 (default 150), or \"all\" for every gated wallet on the leaderboard"})),
+                ("enrich", p("integer", "fetch fill stats (win%, sharpe, trades, coins) for the top N rows by `rank` only, 0-400 (default 120 — anything beyond is a cold throttled scan)")),
+                ("sort", p("string", "order the returned rows: roi | pnl | volume | equity | sharpe | win_rate | trades (default = rank); rows without fill stats sink to the bottom on sharpe/win_rate/trades. `win_rate` orders by `win_rate_lo` and `sharpe` demands 7+ days, so a small perfect sample cannot outrank a large good one")),
+                ("min_roi", p("number", "keep rows with window ROI ≥ this (percent)")),
+                ("min_pnl", p("number", "keep rows with window PnL ≥ this (USD)")),
+                ("min_volume", p("number", "keep rows with window volume ≥ this (USD)")),
+                ("min_equity", p("number", "keep rows with account value ≥ this (USD)")),
+                ("min_sharpe", p("number", "keep rows with sharpe ≥ this (only enriched rows with at least 7 days of history can qualify — a ratio from fewer days is noise)")),
+                ("min_win", p("number", "keep rows whose DEFENSIBLE win rate ≥ this (percent). Compared against `win_rate_lo`, the Wilson 95% lower bound, not the headline `win_rate` — otherwise a wallet that is 3-for-3 passes a 90% floor. Only enriched rows can qualify")),
+                ("min_trades", p("integer", "keep rows with at least this many fills in the window (only enriched rows can qualify). NOTE: fills, not closes — to require a real track record, floor `min_win` instead, which is sample-size aware")),
+                ("with_stats", p("boolean", "keep only rows that have fill stats")),
+                ("rank", p("string", "roi (default) | pnl | volume — the metric that selects the board, picks which top rows get fill stats, and is the default sort")),
+                ("active", p("string", "liveness gate: 24h (default, traded in the last day) | window (traded inside the ranking window)")),
+                ("coins", arr("string", "requirement: only wallets that traded at least one of these coins in the window (e.g. [\"ZEC\",\"ETH\"]). The scan walks the ranked leaderboard until it holds `pool` qualifying wallets; `depth` in the response says how far it went")),
                 ("min_per_day", p("number", "minimum trades per day to qualify (default 1)")),
                 ("seed", arr("string", "extra wallet addresses to force into the board")),
             ], &[]),
         tool("hl_analyze_trader", "analyze_trader", "GET", "/trader/{address}/analyze", true,
             "Deep analysis of one wallet over `days`: PnL, ROI, win rate, sharpe, \
              volume, per-coin breakdown, open positions, raw fills and the \
-             portfolio PnL history behind the chart.",
+             portfolio PnL history behind the chart. Returns TWO scored windows: \
+             `summary` for the window asked for, and `extended` for every day of \
+             fills on hand (~31, `span_days` says how many) at no extra cost. \
+             Compare them before recommending a wallet — a short window is the \
+             easiest way for a losing book to read as a perfect one, and it is \
+             common for `summary.win_rate` to be 100% while `extended.win_rate` \
+             is under 40% with negative PnL. `fills` spans the extended range, \
+             not the window; scope it with `cutoff_ms` if you need the window. \
+             `win_rate` is over `closes`, not `trades` — see hl_top_traders.",
             vec![
                 ("address", p("string", "0x wallet address")),
                 ("days", p("integer", "lookback window in days, 1-90 (default 7)")),
+            ], &["address"]),
+        tool("hl_trader_curve", "trader_curve", "GET", "/trader/{address}/curve", true,
+            "One wallet's PnL curve for the window — the shape behind its \
+             number. `points` are [ms, cumulative pnl] rebased so the window \
+             opens at zero, from Hyperliquid's own portfolio series (realised \
+             AND unrealised, the same definition the leaderboard prices `pnl` \
+             with). Cheap: one cached call, no fill scan. Use it before \
+             recommending a wallet — `max_drawdown` is the deepest peak-to-\
+             trough fall inside the window, which is what a single PnL figure \
+             hides: +$400 over 30d that fell $3,478 on the way is not the same \
+             book as +$400 that never fell. Never errors — `available: false` \
+             plus a `note` when Hyperliquid is rate-limiting.",
+            vec![
+                ("address", p("string", "0x wallet address")),
+                ("days", p("integer", "window in days, 1-90 (default 7); maps to hyperliquid's day/week/month/allTime period")),
             ], &["address"]),
         tool("hl_leaderboard", "leaderboard", "GET", "/leaderboard", true,
             "Raw Hyperliquid leaderboard scrape (~39k accounts) with per-window \
@@ -196,10 +254,11 @@ pub fn tools() -> &'static [Tool] {
             ], &["id"]),
         tool("hl_create_index", "create_index", "POST", "/indexes", false,
             "Create an index: a named basket of trader legs with weights. \
-             `owner` must be your own address.",
+             `owner` defaults to your signed-in wallet; if you send it, it must \
+             be that same address.",
             vec![
                 ("name", p("string", "display name")),
-                ("owner", eoa()),
+                ("owner", p("string", "owning wallet — optional, defaults to your signed-in address")),
                 ("description", p("string", "optional blurb")),
                 ("legs", json!({
                     "type": "array",
@@ -213,7 +272,7 @@ pub fn tools() -> &'static [Tool] {
                 ("max_leverage", p("number", "leverage cap, 0 = uncapped")),
                 ("notional_pct", p("number", "share of capital to deploy, 0-100 (default 50)")),
                 ("vault_address", p("string", "vault backing this index (optional)")),
-            ], &["name", "owner", "legs"]),
+            ], &["name", "legs"]),
         tool("hl_update_index", "update_index", "PATCH", "/indexes/{id}", false,
             "Edit an index you own — send only the fields you want changed.",
             vec![
@@ -236,10 +295,11 @@ pub fn tools() -> &'static [Tool] {
         tool("hl_delete_index", "delete_index", "DELETE", "/indexes/{id}", false,
             "Delete an index you own.",
             vec![("id", p("string", "index id"))], &["id"]),
-        tool("hl_auto_index", "auto_index", "POST", "/indexes/auto", false,
+        tool("hl_auto_index", "auto_index", "POST", "/indexes/auto", true,
             "Propose index legs automatically from the top traders of the \
              window — returns candidate wallets and normalised weights to review \
-             before saving with hl_create_index.",
+             before saving with hl_create_index. Public: it only ranks the open \
+             leaderboard and saves nothing.",
             vec![
                 ("days", p("integer", "window in days (default 7)")),
                 ("top", p("integer", "how many traders to include, 1-50 (default 10)")),
@@ -298,16 +358,17 @@ pub fn tools() -> &'static [Tool] {
             vec![("follower", eoa())], &["follower"]),
         tool("hl_create_follow", "create_follow", "POST", "/follows", false,
             "Follow a leader wallet: mirror their fills at `size_pct` of your \
-             account, optionally capped per trade and filtered by coin.",
+             account, optionally capped per trade and filtered by coin. \
+             `follower` defaults to your signed-in wallet.",
             vec![
-                ("follower", eoa()),
+                ("follower", p("string", "your wallet — optional, defaults to your signed-in address")),
                 ("leader", p("string", "wallet address to copy")),
                 ("size_pct", p("number", "percent of your account per mirrored trade, 0-100 (default 10)")),
                 ("max_per_trade_usd", p("number", "hard USD cap per trade, 0 = none")),
                 ("coins_allow", arr("string", "only mirror these coins (empty = all)")),
                 ("coins_deny", arr("string", "never mirror these coins")),
                 ("vault_address", vault_opt()),
-            ], &["follower", "leader"]),
+            ], &["leader"]),
         tool("hl_update_follow", "update_follow", "PATCH", "/follows/{id}", false,
             "Edit one of your follows — send only the fields you want changed.",
             vec![
@@ -493,6 +554,44 @@ pub fn tools() -> &'static [Tool] {
                 ("code", p("string", "referral code")),
             ], &["eoa", "code"]),
 
+        // ── cross-chain deposit rails ──
+        tool("hl_deposit_chains", "deposit_chains", "GET", "/deposit/chains", true,
+            "Chains Hyperliquid can be funded from (Ethereum, Arbitrum, Base, OP, \
+             Polygon, BNB Chain, Avalanche) and the tokens accepted on each, with \
+             chain ids, RPC/explorer URLs and the minimum deposit.",
+            vec![], &[]),
+        tool("hl_deposit_balances", "deposit_balances", "GET", "/deposit/balances", true,
+            "Every balance an address holds across those chains, priced in USD off \
+             Hyperliquid's own mids and sorted richest first. Use it to answer \
+             'what can I fund with?' before quoting a route. `sources[]` is the \
+             flat list of spendable (chain, token) pairs; `max` already reserves \
+             native gas.",
+            vec![("eoa", p("string", "0x wallet address to scan"))], &["eoa"]),
+        tool("hl_deposit_quote", "deposit_quote", "POST", "/deposit/quote", false,
+            "Quote a route that funds a Hyperliquid account from another chain and \
+             return the transaction for the wallet to sign. The default \
+             destination is the Hyperliquid perps account itself, so one signed \
+             transaction completes the deposit — no Arbitrum hop. Set to_chain_id \
+             to bridge Arbitrum USDC back out instead. This only builds an \
+             unsigned transaction; nothing moves until the wallet signs it.",
+            vec![
+                ("from_chain_id", p("integer", "source chain id: 1, 10, 56, 137, 8453, 42161 or 43114")),
+                ("token", p("string", "what to spend: \"usdc\", \"native\", a symbol like \"WETH\", or a token address")),
+                ("amount", p("string", "amount in whole token units, e.g. \"120.5\"")),
+                ("eoa", eoa()),
+                ("to_chain_id", p("integer", "destination chain id (default: Hyperliquid, 1337)")),
+                ("to_address", p("string", "recipient on the destination chain (default: eoa)")),
+            ], &["from_chain_id", "token", "amount", "eoa"]),
+        tool("hl_deposit_status", "deposit_status", "GET", "/deposit/status", true,
+            "Track a submitted deposit by its source-chain transaction hash: \
+             PENDING / DONE / FAILED, plus how much USDC arrived. NOT_FOUND right \
+             after broadcast is normal — the indexer lags the chain.",
+            vec![
+                ("tx_hash", p("string", "transaction hash on the source chain")),
+                ("from_chain_id", p("integer", "source chain id the transaction was sent on")),
+                ("to_chain_id", p("integer", "destination chain id (default: Hyperliquid, 1337)")),
+            ], &["tx_hash", "from_chain_id"]),
+
         // ── live copy-trade engine ──
         tool("hl_live_start", "live_start", "POST", "/live/start", false,
             "Start an autonomous copy-trade session: poll the given traders and \
@@ -528,6 +627,92 @@ pub fn tools() -> &'static [Tool] {
             "Live session state for your wallet: config, running flag, last \
              poll, mirrored trade counts and errors.",
             vec![("eoa", eoa())], &["eoa"]),
+
+        // ── the investment book: one verb over vaults, traders and baskets ──
+        tool("hl_invest_preview", "invest_preview", "GET", "/invest/preview", true,
+            "What a given amount would actually buy in a given trader, before \
+             committing anything: the scale against their account equity, the \
+             exact position each dollar amount would open, and which of their \
+             positions are too small to copy at that size. Public — no wallet \
+             needed.",
+            vec![
+                ("trader", p("string", "the trader's wallet address")),
+                ("amount", p("number", "USD you are considering investing")),
+                ("max_leverage", p("number", "gross exposure ceiling as a multiple of the amount (default 1 = never hold more than you put in)")),
+                ("min_order_usd", p("number", "smallest order to bother with (default 12; Hyperliquid's own floor is $10)")),
+                ("coins_allow", p("string", "comma-separated allow-list of coins (default: everything they trade)")),
+            ], &["trader", "amount"]),
+        tool("hl_invest_portfolio", "invest_portfolio", "GET", "/invest", false,
+            "Your whole investment book: every vault deposit and trader sleeve \
+             with live value, PnL and exposure, plus totals and how much of \
+             your account is still uncommitted.",
+            vec![
+                ("investor", p("string", "your wallet address — must match the bearer token's address")),
+                ("include_closed", p("boolean", "also return positions you have already closed")),
+            ], &["investor"]),
+        tool("hl_invest_position", "invest_position", "GET", "/invest/{id}", false,
+            "One position in full: value, open legs, the targets it is aiming \
+             at, every mirrored fill, money in and out, and its event log.",
+            vec![("id", p("string", "position id"))], &["id"]),
+        tool("hl_invest", "invest", "POST", "/invest", false,
+            "Put money to work. `kind=vault` deposits USDC into a Hyperliquid \
+             vault; `kind=trader` opens a sleeve in your own account that \
+             tracks that trader's portfolio scaled to your money; `kind=strat` \
+             splits the amount across a saved basket's traders by weight. \
+             `mode=paper` runs a trader sleeve on simulated fills — same math, \
+             no orders, no risk.",
+            vec![
+                ("investor", eoa()),
+                ("kind", p("string", "vault | trader | strat")),
+                ("target", p("string", "vault address, trader address, or strat id")),
+                ("index_id", p("string", "strat id, when kind=strat")),
+                ("amount_usd", p("number", "USD to invest")),
+                ("name", p("string", "label for your book (optional)")),
+                ("mode", p("string", "live (default) or paper — paper applies to trader sleeves only")),
+                ("risk", json!({"type": "object", "description": "optional guardrails: max_leverage, max_slippage_bps, min_order_usd, coins_allow, coins_deny, stop_loss_pct"})),
+            ], &["investor", "kind", "amount_usd"]),
+        tool("hl_invest_add", "invest_add", "POST", "/invest/{id}/add", false,
+            "Add money to an existing position. Vault positions deposit again; \
+             trader sleeves scale their targets up on the next pass.",
+            vec![
+                ("id", p("string", "position id")),
+                ("amount_usd", p("number", "USD to add")),
+            ], &["id", "amount_usd"]),
+        tool("hl_invest_withdraw", "invest_withdraw", "POST", "/invest/{id}/withdraw", false,
+            "Take money back out. A vault position withdraws to your \
+             Hyperliquid balance (subject to the vault lockup); a trader sleeve \
+             releases the allocation and shrinks its positions to match. \
+             `all=true` takes everything out and closes the position.",
+            vec![
+                ("id", p("string", "position id")),
+                ("amount_usd", p("number", "USD to take out")),
+                ("all", p("boolean", "take everything out and close")),
+            ], &["id"]),
+        tool("hl_invest_pause", "invest_pause", "POST", "/invest/{id}/pause", false,
+            "Stop tracking without closing: existing positions stay exactly as \
+             they are, nothing new is opened.",
+            vec![("id", p("string", "position id"))], &["id"]),
+        tool("hl_invest_resume", "invest_resume", "POST", "/invest/{id}/resume", false,
+            "Track again — the next pass re-aligns the sleeve with the trader.",
+            vec![("id", p("string", "position id"))], &["id"]),
+        tool("hl_invest_close", "invest_close", "POST", "/invest/{id}/close", false,
+            "Close a position out. A vault position withdraws everything \
+             Hyperliquid will release; a trader sleeve is flattened leg by leg \
+             by the engine.",
+            vec![("id", p("string", "position id"))], &["id"]),
+        tool("hl_invest_update", "invest_update", "PATCH", "/invest/{id}", false,
+            "Change a position's guardrails or its label: leverage ceiling, \
+             slippage, minimum order size, coin allow/deny lists, stop-loss.",
+            vec![
+                ("id", p("string", "position id")),
+                ("name", p("string", "new label")),
+                ("mode", p("string", "live | paper — only while the sleeve holds nothing")),
+                ("risk", json!({"type": "object", "description": "max_leverage, max_slippage_bps, min_order_usd, coins_allow, coins_deny, stop_loss_pct"})),
+            ], &["id"]),
+        tool("hl_invest_delete", "invest_delete", "DELETE", "/invest/{id}", false,
+            "Forget a closed position's record. Only works once it is closed — \
+             deleting the row would not close the trades.",
+            vec![("id", p("string", "position id"))], &["id"]),
     ])
 }
 
@@ -560,6 +745,28 @@ pub fn schema_doc(testnet: bool) -> Value {
             "supportedVersions": SUPPORTED_PROTOCOL_VERSIONS,
             "auth": "Authorization: Bearer <mod protocol token> — required for non-public tools",
             "instructions": INSTRUCTIONS,
+            // Every way in, so a client can pick the one it already speaks.
+            "transports": [
+                {
+                    "type": "streamable-http",
+                    "endpoint": "/mcp",
+                    "note": "one JSON-RPC message (or batch) per POST; \
+                             answered as JSON, or as SSE if that is all you accept",
+                },
+                {
+                    "type": "sse",
+                    "endpoint": "/sse",
+                    "messages": "/messages?sessionId=<id>",
+                    "note": "the 2024-11-05 HTTP+SSE transport — GET /sse, then \
+                             POST to the endpoint named by its first event",
+                },
+                {
+                    "type": "stdio",
+                    "command": "hyperliquid-api --stdio",
+                    "note": "set HL_API_URL to this API and HYPERLIQUID_TOKEN to \
+                             authorize wallet-scoped tools",
+                },
+            ],
         },
         "tools": Value::Array(tools().iter().map(|t| json!({
             "name": t.name,
@@ -773,6 +980,108 @@ pub async fn handle_message(
     })
 }
 
+/// Handle one *payload*: either a single JSON-RPC message or a batch array
+/// (which the 2025-03-26 revision requires servers to accept). `None` means
+/// every message in it was a notification — nothing to reply with.
+pub async fn handle_payload(
+    base: &str,
+    payload: &Value,
+    authorization: Option<&str>,
+) -> Option<Value> {
+    let Some(batch) = payload.as_array() else {
+        return handle_message(base, payload, authorization).await;
+    };
+    // An empty batch is malformed JSON-RPC; say so rather than 202-ing it into
+    // a client that will then wait forever for a response.
+    if batch.is_empty() {
+        return Some(rpc_error(Value::Null, -32600, "invalid request: empty batch"));
+    }
+    let mut out = Vec::new();
+    for msg in batch {
+        if let Some(resp) = handle_message(base, msg, authorization).await {
+            out.push(resp);
+        }
+    }
+    (!out.is_empty()).then(|| Value::Array(out))
+}
+
+// ─── HTTP+SSE transport sessions (the 2024-11-05 transport) ────────────
+//
+// `GET /sse` opens a stream and, per that spec, its first event names the URL
+// the client POSTs messages to. Responses come back down the stream rather
+// than in the POST body, so each open stream needs a mailbox keyed by session.
+
+pub struct Session {
+    tx: tokio::sync::mpsc::UnboundedSender<String>,
+    /// Authorization captured when the stream opened. Clients that only send
+    /// credentials on the SSE request still get their identity applied to the
+    /// messages they POST afterwards.
+    pub authorization: Option<String>,
+    /// Open order, for evicting the oldest when the cap is hit.
+    seq: u64,
+}
+
+/// A session is normally reaped when its stream drops. That relies on the
+/// client's disconnect reaching us — a buffering proxy in front can hold the
+/// upstream socket open after the client is gone, which would let dead
+/// sessions pile up. Cap them and evict the oldest so the ceiling is fixed.
+const MAX_SESSIONS: usize = 128;
+
+fn sessions() -> &'static dashmap::DashMap<String, Session> {
+    static SESSIONS: OnceLock<dashmap::DashMap<String, Session>> = OnceLock::new();
+    SESSIONS.get_or_init(dashmap::DashMap::new)
+}
+
+/// Register a stream and return the receiver its events are pumped from.
+pub fn open_session(
+    id: String,
+    authorization: Option<String>,
+) -> tokio::sync::mpsc::UnboundedReceiver<String> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let map = sessions();
+    map.insert(id, Session { tx, authorization, seq });
+    while map.len() > MAX_SESSIONS {
+        let Some(oldest) = map
+            .iter()
+            .min_by_key(|s| s.seq)
+            .map(|s| s.key().clone())
+        else {
+            break;
+        };
+        tracing::warn!("mcp: {MAX_SESSIONS} SSE sessions open — evicting {oldest}");
+        map.remove(&oldest);
+    }
+    rx
+}
+
+pub fn close_session(id: &str) {
+    sessions().remove(id);
+}
+
+pub fn session_count() -> usize {
+    sessions().len()
+}
+
+pub fn session_exists(id: &str) -> bool {
+    sessions().contains_key(id)
+}
+
+/// Authorization the stream was opened with, if any.
+pub fn session_authorization(id: &str) -> Option<String> {
+    sessions().get(id).and_then(|s| s.authorization.clone())
+}
+
+/// Push one JSON-RPC response down a session's stream. False = no such
+/// session (or the client already went away).
+pub fn session_send(id: &str, msg: &Value) -> bool {
+    match sessions().get(id) {
+        Some(s) => s.tx.send(msg.to_string()).is_ok(),
+        None => false,
+    }
+}
+
 /// stdio transport: newline-delimited JSON-RPC on stdin/stdout, proxying to a
 /// running API (`HL_API_URL`, default the local port). Register with e.g.
 /// `claude mcp add hyperliquid -- /path/to/hyperliquid-api --stdio`.
@@ -800,7 +1109,7 @@ pub async fn run_stdio(base: String) {
                 continue;
             }
         };
-        if let Some(resp) = handle_message(&base, &msg, auth.as_deref()).await {
+        if let Some(resp) = handle_payload(&base, &msg, auth.as_deref()).await {
             let _ = stdout.write_all(format!("{resp}\n").as_bytes()).await;
             let _ = stdout.flush().await;
         }
@@ -892,6 +1201,50 @@ mod tests {
         // Missing path param fails before any network call.
         let t = find_tool("hl_orderbook").unwrap();
         assert!(build_url("http://x", t, &json!({})).is_err());
+    }
+
+    /// A batch must come back as an array of the *answerable* messages —
+    /// answering only the first (or dropping the lot into a 202) leaves the
+    /// client waiting forever for ids it will never see.
+    #[tokio::test]
+    async fn batches_answer_every_request_and_skip_notifications() {
+        let batch = json!([
+            {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        ]);
+        let out = handle_payload("http://127.0.0.1:1", &batch, None).await.unwrap();
+        let out = out.as_array().unwrap();
+        assert_eq!(out.len(), 2, "notification must not get a response");
+        assert_eq!(out[0]["id"], json!(1));
+        assert_eq!(out[1]["id"], json!(2));
+        assert_eq!(out[1]["result"]["tools"].as_array().unwrap().len(), tools().len());
+
+        // All-notification batch: nothing to say, so the route 202s.
+        let quiet = json!([{"jsonrpc": "2.0", "method": "notifications/initialized"}]);
+        assert!(handle_payload("http://127.0.0.1:1", &quiet, None).await.is_none());
+
+        // An empty batch is malformed — say so instead of hanging the client.
+        let empty = handle_payload("http://127.0.0.1:1", &json!([]), None).await.unwrap();
+        assert_eq!(empty["error"]["code"], json!(-32600));
+    }
+
+    /// The HTTP+SSE transport's mailbox: a POST finds the stream its session
+    /// belongs to, and a closed stream stops accepting.
+    #[test]
+    fn sse_sessions_route_responses_and_reap() {
+        let id = "session-under-test".to_string();
+        let mut rx = open_session(id.clone(), Some("Bearer t".into()));
+        assert!(session_exists(&id));
+        assert_eq!(session_authorization(&id).as_deref(), Some("Bearer t"));
+
+        assert!(session_send(&id, &json!({"jsonrpc": "2.0", "id": 1, "result": {}})));
+        let got: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
+        assert_eq!(got["id"], json!(1));
+
+        close_session(&id);
+        assert!(!session_exists(&id));
+        assert!(!session_send(&id, &json!({})), "a closed session must not accept");
     }
 
     #[test]

@@ -11,7 +11,8 @@
         "testnet": {
             "chainId": "84532",
             "url": "https://sepolia.base.org",
-            "bloctime": "0xF25AAFDd0A842ff50b041595C79210b48d6795bD",
+            "bloctime": "0x703065eB49Eb383fbb15417571049536Ee884CD9",
+            "bloctimeV1": "0xF25AAFDd0A842ff50b041595C79210b48d6795bD",
             "nativeToken": "0xB9b6F5CdB25f8BC9fC88CA171381B509Df907b51"
         },
         "localhost": {
@@ -21,5 +22,5 @@
             "nativeToken": "0x72aC6A36de2f72BD39e9c782e9db0DCc41FEbfe2"
         }
     },
-    "schema": "QmbAS1vqjziaNTsNE3HrPsokUxvRuT53XoCiMNghL5zebF"
+    "schema": "QmPn88qV3VeYgoF1nSs1wxBjd3CmLPphikSDVqsyf9Jo5B"
 }

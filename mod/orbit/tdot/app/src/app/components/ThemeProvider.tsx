@@ -60,7 +60,7 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
 
   const value = useMemo<Ctx>(() => {
     const theme = themeOf(id)
-    return { theme, base: theme.base, palette: mapPalette(theme.base), setTheme }
+    return { theme, base: theme.base, palette: mapPalette(theme.base, theme.id), setTheme }
   }, [id, setTheme])
 
   return <ThemeCtx.Provider value={value}>{children}</ThemeCtx.Provider>

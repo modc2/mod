@@ -80,8 +80,10 @@ class Hyperliquid(m.Mod):
         "ask", "ask_status",
         # strategies (modular Python classes)
         "strat", "list_strats", "run_strat",
+        # identity
+        "whoami",
         # data passthroughs
-        "top_traders", "analyze_trader", "leaderboard",
+        "top_traders", "analyze_trader", "trader_curve", "leaderboard",
         # indexes
         "list_indexes", "get_index", "create_index", "update_index",
         "delete_index", "index_perf", "auto_index",
@@ -91,6 +93,10 @@ class Hyperliquid(m.Mod):
         # vaults
         "list_vaults", "vault_details", "vault_perf", "vault_intent",
         "create_vault", "vault_transfer",
+        # the investment book — one verb over vaults, traders and baskets
+        "invest_preview", "invest_portfolio", "invest_position", "invest",
+        "invest_add", "invest_withdraw", "invest_pause", "invest_resume",
+        "invest_close", "invest_update", "invest_delete",
         # backend signer / agent
         "signer_address", "agent_status", "approve_agent_intent",
         # trading
@@ -98,6 +104,8 @@ class Hyperliquid(m.Mod):
         "update_isolated_margin", "schedule_cancel", "action",
         # transfers / bridging
         "usd_class_transfer", "withdraw", "usd_send", "spot_send",
+        # cross-chain deposit rails
+        "deposit_chains", "deposit_balances", "deposit_quote", "deposit_status",
         # referrer
         "set_referrer",
         # live copy-trade engine
@@ -111,14 +119,79 @@ class Hyperliquid(m.Mod):
     app_port = 3919
 
     def __init__(self, testnet: bool = False, api_url: Optional[str] = None,
-                 token: Optional[str] = None, **kwargs):
+                 token: Optional[str] = None, key: Optional[str] = None, **kwargs):
         self.testnet = testnet or os.environ.get("HYPERLIQUID_TESTNET", "").lower() == "true"
         self.api_url = api_url or os.environ.get(
             "HL_API_URL", f"http://localhost:{self.api_port}"
         )
-        # Wallet-scoped fns (follows, signer, trading, live engine) are gated
-        # behind a mod protocol-auth token. Public reads need none.
-        self.token = token or os.environ.get("HYPERLIQUID_TOKEN", "")
+        # Wallet-scoped fns (follows, indexes, signer, trading, live engine)
+        # are gated behind a mod protocol-auth token. Public reads need none.
+        #
+        # Three sources, in order: an explicit `token=`, $HYPERLIQUID_TOKEN, or
+        # — the useful default — one minted on demand from a mod key. A caller
+        # who has a key already has an identity; making them hand-assemble a
+        # bearer token out of it was the difference between `hl.create_index(…)`
+        # working and answering 401. See `_mint_token`.
+        self._explicit_token = token or os.environ.get("HYPERLIQUID_TOKEN", "")
+        self.key_name = key or os.environ.get("HYPERLIQUID_KEY") or None
+        self._minted: Optional[Dict[str, Any]] = None
+
+    # ── identity ─────────────────────────────────────────────────────
+
+    #: Sessions last 7 days server-side; re-mint with a day to spare.
+    _TOKEN_TTL = 6 * 24 * 3600
+
+    def _mint_token(self) -> str:
+        """Sign a mod protocol-auth token with this node's key.
+
+        Byte-for-byte the same envelope the browser builds (see
+        `src/api/src/auth.rs`): base64url of {data, time, key, signature},
+        where the signature covers the compact JSON `{"data":…,"time":…}`.
+        The API accepts both EIP-191 personal_sign (browser wallets) and the
+        plain keccak256 an in-process mod key produces, so no shimming.
+
+        The identity is the *node's* key — the operator of this module — which
+        is the right default for server-side and MCP callers. Pass `token=` to
+        act as somebody else.
+        """
+        k = m.key(self.key_name) if self.key_name else m.key()
+        data = {"scope": "hyperliquid"}
+        stamp = str(time.time())
+        sig_data = json.dumps({"data": data, "time": stamp}, separators=(",", ":"))
+        signature = k.sign(sig_data, mode="hex")
+        envelope = json.dumps({
+            "data": data, "time": stamp,
+            "key": k.address.lower(), "signature": signature,
+        }).encode()
+        import base64
+        return base64.urlsafe_b64encode(envelope).decode().rstrip("=")
+
+    @property
+    def token(self) -> str:
+        """The bearer token used for gated calls, minted lazily and re-minted
+        before it goes stale. Empty string when no key is reachable — public
+        reads still work, and gated ones get a 401 that says why."""
+        if self._explicit_token:
+            return self._explicit_token
+        now = time.time()
+        if self._minted and now - self._minted["at"] < self._TOKEN_TTL:
+            return self._minted["token"]
+        try:
+            tok = self._mint_token()
+        except Exception:
+            return ""
+        self._minted = {"token": tok, "at": now}
+        return tok
+
+    @token.setter
+    def token(self, v: Optional[str]) -> None:
+        self._explicit_token = v or ""
+        self._minted = None
+
+    def whoami(self) -> Any:
+        """Who the API thinks you are — the address recovered from your token.
+        The first thing to check when a write comes back 401 or 403."""
+        return self._get("/auth/me")
 
     # ── lifecycle ────────────────────────────────────────────────────
 
@@ -414,7 +487,39 @@ class Hyperliquid(m.Mod):
     # ── data passthroughs (use the Rust API) ──────────────────────
 
     def _headers(self) -> Dict[str, str]:
-        return {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        tok = self.token
+        return {"Authorization": f"Bearer {tok}"} if tok else {}
+
+    @staticmethod
+    def _check(r: "requests.Response") -> Any:
+        """Raise with the API's own sentence, not `requests`' status line.
+
+        `raise_for_status()` turns a refusal into "401 Client Error:
+        Unauthorized for url: …", which names the URL and nothing about the
+        cause. The gate answers with `message` (what a person should do) and
+        `reason` (a stable code); both belong in the exception.
+        """
+        if r.ok:
+            return r.json()
+        try:
+            body = r.json()
+        except Exception:
+            body = {}
+        msg = body.get("message") or body.get("error") or r.text.strip()[:200] or r.reason
+        reason = body.get("reason")
+        detail = body.get("detail")
+        parts = [f"{r.status_code} {msg}"]
+        if reason:
+            parts.append(f"[{reason}]")
+        if detail and detail != msg:
+            parts.append(f"— {detail}")
+        if body.get("sign_in"):
+            parts.append(
+                "— this call needs a mod protocol token; pass token=… , set "
+                "$HYPERLIQUID_TOKEN, or make sure `m.key()` resolves (check "
+                "`whoami()`)"
+            )
+        raise RuntimeError(" ".join(parts))
 
     def _get(self, path: str, _timeout: float = 30, **params) -> Any:
         # Top-traders scan can legitimately take ~60s under HL's /info
@@ -422,44 +527,85 @@ class Hyperliquid(m.Mod):
         # short timeouts for everything else but give the scan budget.
         if path.startswith("/traders/top") or path.startswith("/trader/"):
             _timeout = max(_timeout, 120)
-        r = requests.get(f"{self.api_url}{path}", params=params,
-                         headers=self._headers(), timeout=_timeout)
-        r.raise_for_status()
-        return r.json()
+        return self._check(requests.get(
+            f"{self.api_url}{path}", params=params,
+            headers=self._headers(), timeout=_timeout))
 
     def _post(self, path: str, body: Any) -> Any:
-        r = requests.post(f"{self.api_url}{path}", json=body,
-                          headers=self._headers(), timeout=60)
-        r.raise_for_status()
-        return r.json()
+        return self._check(requests.post(
+            f"{self.api_url}{path}", json=body, headers=self._headers(), timeout=60))
 
     def _patch(self, path: str, body: Any) -> Any:
-        r = requests.patch(f"{self.api_url}{path}", json=body,
-                           headers=self._headers(), timeout=30)
-        r.raise_for_status()
-        return r.json()
+        return self._check(requests.patch(
+            f"{self.api_url}{path}", json=body, headers=self._headers(), timeout=30))
 
     def _delete(self, path: str) -> Any:
-        r = requests.delete(f"{self.api_url}{path}",
-                            headers=self._headers(), timeout=15)
-        r.raise_for_status()
-        return r.json()
+        return self._check(requests.delete(
+            f"{self.api_url}{path}", headers=self._headers(), timeout=15))
 
     def top_traders(self, days: int = 7, min_per_day: float = 1.0,
-                    pool: int = 150, seed: Optional[List[str]] = None) -> Any:
-        params = {"days": days, "min_per_day": min_per_day, "pool": pool}
+                    pool: Any = 150, seed: Optional[List[str]] = None,
+                    coins: Optional[List[str]] = None, rank: str = "roi",
+                    active: str = "24h", enrich: Optional[int] = None,
+                    sort: Optional[str] = None, min_roi: Optional[float] = None,
+                    min_pnl: Optional[float] = None, min_volume: Optional[float] = None,
+                    min_equity: Optional[float] = None, min_sharpe: Optional[float] = None,
+                    min_win: Optional[float] = None, min_trades: Optional[int] = None,
+                    with_stats: bool = False) -> Any:
+        """Trader board over `days`. Every row is priced from the leaderboard
+        (ROI / PnL / volume / equity, free); fill stats (win% / sharpe / trades /
+        coins) cost one throttled query per wallet, so they are fetched for the
+        top `enrich` rows by `rank` only (default 120, max 400).
+
+        `pool="all"` returns the whole gated universe (~5k wallets with >= $1k
+        equity that traded in the last 24h) — filter it with the `min_*` floors
+        (a sharpe / win / trades floor implies `with_stats`) and order it with
+        `sort` (roi | pnl | volume | equity | sharpe | win_rate | trades).
+        `coins` is a requirement: only wallets that traded at least one of them
+        make the board — the scan walks the ranked leaderboard until it has
+        `pool` of them (response `depth`)."""
+        params: Dict[str, Any] = {"days": days, "min_per_day": min_per_day, "pool": pool,
+                                  "rank": rank, "active": active}
         if seed: params["seed"] = ",".join(seed)
+        if coins: params["coins"] = ",".join(coins)
+        for k, v in (("enrich", enrich), ("sort", sort), ("min_roi", min_roi),
+                     ("min_pnl", min_pnl), ("min_volume", min_volume),
+                     ("min_equity", min_equity), ("min_sharpe", min_sharpe),
+                     ("min_win", min_win), ("min_trades", min_trades)):
+            if v is not None: params[k] = v
+        if with_stats: params["with_stats"] = "true"
         return self._get("/traders/top", **params)
 
     def analyze_trader(self, address: str, days: int = 7) -> Any:
         return self._get(f"/trader/{address}/analyze", days=days)
+
+    def trader_curve(self, address: str, days: int = 7) -> Any:
+        """One wallet's PnL curve for the window — the shape behind its number.
+
+        `points` are `[ms, cumulative pnl]` rebased so the window opens at
+        zero, taken from Hyperliquid's own portfolio series (realised AND
+        unrealised — the same definition the leaderboard prices `pnl` with).
+        Also reports the deepest peak-to-trough fall inside the window, which
+        is the risk read a single PnL figure hides. Never raises on upstream
+        trouble: `available` comes back false with a `note`.
+        """
+        return self._get(f"/trader/{address}/curve", days=days)
 
     def leaderboard(self) -> Any: return self._get("/leaderboard")
 
     # indexes
     def list_indexes(self) -> Any: return self._get("/indexes")
     def get_index(self, id: str) -> Any: return self._get(f"/indexes/{id}")
-    def create_index(self, **body) -> Any: return self._post("/indexes", body)
+    def create_index(self, **body) -> Any:
+        """Create a strat (a weighted basket of traders).
+
+            hl.create_index(name='top 10 roi',
+                            legs=[{'address': '0x…', 'weight': 0.1}, …])
+
+        `owner` is optional — the API reads it off the token that signed the
+        request. Pass it only to act on another wallet's behalf, and only with
+        that wallet's token."""
+        return self._post("/indexes", body)
     def update_index(self, id: str, **body) -> Any: return self._patch(f"/indexes/{id}", body)
     def delete_index(self, id: str) -> Any: return self._delete(f"/indexes/{id}")
     def index_perf(self, id: str, days: Optional[int] = None) -> Any:
@@ -469,7 +615,9 @@ class Hyperliquid(m.Mod):
     # follows
     def list_follows(self, follower: Optional[str] = None) -> Any:
         return self._get("/follows", **({"follower": follower} if follower else {}))
-    def create_follow(self, **body) -> Any: return self._post("/follows", body)
+    def create_follow(self, **body) -> Any:
+        """Copy a leader wallet. `follower` is optional — see `create_index`."""
+        return self._post("/follows", body)
     def update_follow(self, id: str, **body) -> Any: return self._patch(f"/follows/{id}", body)
     def delete_follow(self, id: str) -> Any: return self._delete(f"/follows/{id}")
     def pause_follow(self, id: str) -> Any: return self._post(f"/follows/{id}/pause", {})
@@ -487,6 +635,130 @@ class Hyperliquid(m.Mod):
         body: Dict[str, Any] = {"initial_usd": initial_usd}
         if nonce is not None: body["nonce"] = nonce
         return self._post(f"/indexes/{index_id}/vault/intent", body)
+
+    # ── the investment book ──
+    #
+    # One verb. "Invest $250" means the same thing whether the money goes into
+    # a Hyperliquid vault (a real USDC deposit the leader trades) or into a
+    # trader (a sleeve inside your own account that holds what they hold,
+    # scaled to your money). The engine in the Rust API reconciles trader
+    # sleeves toward their target continuously — there is no session to start.
+
+    def invest_preview(self, trader: str, amount: float,
+                       max_leverage: Optional[float] = None,
+                       min_order_usd: Optional[float] = None,
+                       coins_allow: Optional[List[str]] = None) -> Any:
+        """What `amount` would actually buy in `trader` — public, no wallet.
+
+        Returns the scale against their account equity, the position each
+        dollar figure would open, and which of their positions are too small
+        to copy at that size (Hyperliquid will not take a $3 order).
+        """
+        params: Dict[str, Any] = {"trader": trader, "amount": amount}
+        if max_leverage is not None: params["max_leverage"] = max_leverage
+        if min_order_usd is not None: params["min_order_usd"] = min_order_usd
+        if coins_allow: params["coins_allow"] = ",".join(coins_allow)
+        return self._get("/invest/preview", **params)
+
+    def invest_portfolio(self, investor: str, include_closed: bool = False) -> Any:
+        """Every position this wallet holds, valued live, with totals."""
+        return self._get("/invest", investor=investor,
+                         include_closed="true" if include_closed else "false")
+
+    def invest_position(self, id: str) -> Any:
+        """One position in full: legs, targets, fills, flows, events."""
+        return self._get(f"/invest/{id}")
+
+    def invest(self, investor: str, kind: str, amount_usd: float,
+               target: Optional[str] = None, index_id: Optional[str] = None,
+               name: Optional[str] = None, mode: Optional[str] = None,
+               risk: Optional[Dict[str, Any]] = None) -> Any:
+        """Put money to work.
+
+        kind="vault"  → deposit USDC into a Hyperliquid vault (`target` = vault)
+        kind="trader" → open a sleeve tracking `target`, scaled to `amount_usd`
+        kind="strat"  → split `amount_usd` across a saved basket's legs
+
+        mode="paper" runs a trader sleeve on simulated fills: same planning,
+        same ledger, no orders. Use it to measure a trader before funding one.
+        """
+        body: Dict[str, Any] = {"investor": investor, "kind": kind,
+                                "amount_usd": amount_usd}
+        if target is not None: body["target"] = target
+        if index_id is not None: body["index_id"] = index_id
+        if name is not None: body["name"] = name
+        if mode is not None: body["mode"] = mode
+        if risk is not None: body["risk"] = risk
+        return self._post("/invest", body)
+
+    def invest_add(self, id: str, amount_usd: float, investor: Optional[str] = None) -> Any:
+        body: Dict[str, Any] = {"amount_usd": amount_usd}
+        if investor: body["investor"] = investor
+        return self._post(f"/invest/{id}/add", body)
+
+    def invest_withdraw(self, id: str, amount_usd: Optional[float] = None,
+                        all: bool = False, investor: Optional[str] = None) -> Any:
+        """Take money back out — `all=True` closes the position."""
+        body: Dict[str, Any] = {"all": all}
+        if amount_usd is not None: body["amount_usd"] = amount_usd
+        if investor: body["investor"] = investor
+        return self._post(f"/invest/{id}/withdraw", body)
+
+    def invest_pause(self, id: str, investor: Optional[str] = None) -> Any:
+        return self._post(f"/invest/{id}/pause", {"investor": investor} if investor else {})
+
+    def invest_resume(self, id: str, investor: Optional[str] = None) -> Any:
+        return self._post(f"/invest/{id}/resume", {"investor": investor} if investor else {})
+
+    def invest_close(self, id: str, investor: Optional[str] = None) -> Any:
+        return self._post(f"/invest/{id}/close", {"investor": investor} if investor else {})
+
+    def invest_update(self, id: str, name: Optional[str] = None,
+                      mode: Optional[str] = None,
+                      risk: Optional[Dict[str, Any]] = None,
+                      investor: Optional[str] = None) -> Any:
+        body: Dict[str, Any] = {}
+        if name is not None: body["name"] = name
+        if mode is not None: body["mode"] = mode
+        if risk is not None: body["risk"] = risk
+        if investor: body["investor"] = investor
+        return self._patch(f"/invest/{id}", body)
+
+    def invest_delete(self, id: str) -> Any:
+        """Forget a closed position's record (it must be closed first)."""
+        return self._delete(f"/invest/{id}")
+
+    # ── cross-chain deposit rails ──
+
+    def deposit_chains(self) -> Any:
+        """Source chains and the tokens each one can be funded from."""
+        return self._get("/deposit/chains")
+
+    def deposit_balances(self, eoa: str) -> Any:
+        """Every spendable balance this address holds across those chains."""
+        return self._get("/deposit/balances", eoa=eoa)
+
+    def deposit_quote(self, from_chain_id: int, token: str, amount: str, eoa: str,
+                      to_chain_id: Optional[int] = None,
+                      to_address: Optional[str] = None) -> Any:
+        """A route into Hyperliquid, with the transaction for the wallet to sign.
+
+        `token` is "usdc", "native", a symbol, or a token address. Leaving
+        `to_chain_id` unset routes straight into the Hyperliquid perps
+        account; set it to bridge Arbitrum USDC back out to another chain.
+        """
+        body: Dict[str, Any] = {"from_chain_id": from_chain_id, "token": token,
+                                "amount": str(amount), "eoa": eoa}
+        if to_chain_id is not None: body["to_chain_id"] = to_chain_id
+        if to_address is not None: body["to_address"] = to_address
+        return self._post("/deposit/quote", body)
+
+    def deposit_status(self, tx_hash: str, from_chain_id: int,
+                       to_chain_id: Optional[int] = None) -> Any:
+        """Where a submitted deposit is — by its source-chain transaction hash."""
+        params: Dict[str, Any] = {"tx_hash": tx_hash, "from_chain_id": from_chain_id}
+        if to_chain_id is not None: params["to_chain_id"] = to_chain_id
+        return self._get("/deposit/status", **params)
 
     # ── market / wallet data passthroughs ──
 
@@ -712,7 +984,8 @@ class Hyperliquid(m.Mod):
             return text
 
     def mcp_config(self) -> Dict[str, Any]:
-        """Client config snippets for registering this server (stdio + HTTP)."""
+        """Client config snippets for registering this server — one per
+        transport, so a client connects with whatever it already speaks."""
         binary = self._api_binary() or os.path.join(
             API_DIR, "target", "release", "hyperliquid-api")
         return {
@@ -727,9 +1000,17 @@ class Hyperliquid(m.Mod):
                 "url": f"{self.api_url}/mcp",
                 "headers": {"Authorization": "Bearer <mod protocol token>"},
             },
+            # The 2024-11-05 HTTP+SSE transport: GET /sse names the endpoint
+            # to POST messages to. For clients that predate streamable HTTP.
+            "sse": {
+                "type": "sse",
+                "url": f"{self.api_url}/sse",
+                "headers": {"Authorization": "Bearer <mod protocol token>"},
+            },
             # Same server through the public gateway (mod protocol URL shape).
             "gateway": {"type": "http", "url": "/api/hyperliquid/mcp"},
-            "add_cmd": f"claude mcp add hyperliquid -- {binary} --stdio",
+            "add_cmd": f"claude mcp add --transport http hyperliquid {self.api_url}/mcp",
+            "add_cmd_stdio": f"claude mcp add hyperliquid -- {binary} --stdio",
         }
 
     # ── Agent (see agent.py) — asks/acts through the MCP server above ──

@@ -1,5 +1,5 @@
 import { BrowserProvider, Contract, JsonRpcProvider, formatUnits, type JsonRpcSigner } from "ethers";
-import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, TraderRoiStats, TradeFilters, TraderFilter, MomentumParams } from "./types";
+import { ClobCredentials, IndexTrader, PolymarketTrade, PolymarketPosition, PolymarketMarket, TraderRoiStats, TradeFilters, TraderFilter, MomentumParams } from "./types";
 import { placeOrder, detectSigType, ClobOrderResult } from "./clobClient";
 import { fetchWalletTradesUntil, fetchWalletTradesIncremental, fetchPositions, fetchTraderRoiStats, searchMarkets, fetchPriceHistory, fetchPriceHistoryLive, fetchMidpointLive, fetchMarketBySlug } from "./polymarket";
 import { getTradeCache } from "./cache";
@@ -18,10 +18,13 @@ import {
   POLYMARKET_MIN_SHARES,
   successProbability,
   copyRatioFor,
+  MAX_MOMENTUM_QUERIES,
   type SizingModel,
 } from "./strats/strat";
-import { marketMatchesQuery } from "./marketQuery";
+import { marketMatchesQuery, marketQueryGroups } from "./marketQuery";
+import { feeHeadroomUsd, inferredRate, takerFeeUsd } from "./fees";
 import { tradeMatchesFilters } from "./tradeFilters";
+import { sentimentFilterActive, sentimentReject, warmSentiment } from "./marketSentiment";
 import { networkById, ensureChain, withRpcFallback } from "./networks";
 import { USDC_E } from "./polymarketContracts";
 
@@ -32,7 +35,12 @@ export type CopyEngineStatus = "stopped" | "starting" | "running" | "paused" | "
 export interface ExecutionLogEntry {
   id: string;
   timestamp: number;
-  type: "COPY_BUY" | "COPY_SELL" | "SKIP" | "ERROR" | "BALANCE" | "CYCLE_START" | "CYCLE_END" | "REDEEM" | "WATCHLIST";
+  // RESTING: the CLOB accepted a GTC limit order that did NOT cross — it is
+  // sitting on the book unfilled. Deliberately not COPY_BUY/COPY_SELL: no
+  // shares moved, no PnL is realized, and for an exit the position and its
+  // stop are still open. The server engine emits it; the browser engine
+  // shares this type so both feeds render the same way.
+  type: "COPY_BUY" | "COPY_SELL" | "SKIP" | "ERROR" | "BALANCE" | "CYCLE_START" | "CYCLE_END" | "REDEEM" | "WATCHLIST" | "RESTING";
   traderAddress?: string;
   market?: string;
   conditionId?: string;
@@ -256,11 +264,19 @@ const MARKET_PRICES_TTL_MS = 2 * 60_000;
 // at most one generation (~15s) stale, and it's only 2–3 requests per
 // refresh for the single live candle.
 const CANDLE_PRICES_TTL_MS = 15_000;
-// 0 — the matcher's fee schedule for binary markets returns 0, and a
-// hardcoded 200 bps was making every CLOB POST reject with HTTP 400
-// "Invalid order payload" because the signed feeRateBps didn't match
-// what the matcher expected. Per-market fee lookup is a TODO but 0 is
-// the safe default for taker-side fills on standard CTF markets.
+// 0, and it must stay 0 — but NOT because trading is free.
+//
+// Polymarket charges a real taker fee (`rate x p x (1-p) x shares`, 4–7% by
+// category, see lib/fees.ts). It is applied BY THE MATCHER at match time, and
+// per Polymarket's own docs the order does not carry it: "Fees are set by the
+// protocol and applied at match time — you don't include fee information in
+// your orders." A hardcoded 200 bps here made every CLOB POST reject with HTTP
+// 400 "Invalid order payload" because the signed feeRateBps didn't match what
+// the matcher expected, and any non-zero value would do the same.
+//
+// So this constant is a WIRE FORMAT, not a cost model. What the fee costs is
+// modelled in lib/fees.ts and charged in the rotation guard below, in the
+// replay, and in both cost rows.
 const TAKER_FEE_BPS = 0;
 // Polymarket's CLOB rejects any order below 5 SHARES (not $5 — five
 // outcome tokens) with `order ... is invalid. Size (N) lower than the
@@ -636,6 +652,29 @@ export class CopyEngine {
         });
       }
     }
+    // ── MARKET SENTIMENT — the one gate that needs the tape ──
+    // `tradeMatchesFilters` above skipped this dimension, because it is the
+    // only one that cannot be answered from the trade: it asks which way the
+    // crowd had moved the odds on the outcome the leader bought. So it runs
+    // here, once, over the candidates that survived everything else — one
+    // batch of price-history requests instead of one per trade, and nothing
+    // at all when no sentiment gate is set. Same two-pass shape the Rust
+    // engine uses, and each trade is read at its OWN timestamp.
+    const sentimentFilter = this.config.tradeFilters?.sentiment;
+    if (sentimentFilterActive(sentimentFilter) && candidates.length > 0) {
+      const book = await warmSentiment(candidates.map((c) => c.trade), { filter: sentimentFilter });
+      const before = candidates.length;
+      for (let i = candidates.length - 1; i >= 0; i--) {
+        if (sentimentReject(book.lookup(candidates[i].trade), sentimentFilter)) {
+          candidates.splice(i, 1);
+        }
+      }
+      const dropped = before - candidates.length;
+      if (dropped > 0) {
+        opts.onProgress?.(`sentiment gate cut ${dropped} of ${before} · read ${book.covered}/${book.asked} markets`);
+      }
+    }
+
     candidates.sort((a, b) => b.trade.notional - a.trade.notional);
     const picked = candidates.slice(0, topN);
     opts.onProgress?.(`${candidates.length} candidates · firing top ${picked.length}…`);
@@ -915,17 +954,23 @@ export class CopyEngine {
         // Rank open positions by forward expected profit (lowest first) and
         // keep only those the new buy beats by the churn guard. The guard:
         //   targetEP ≥ (forwardEP + roundTripFee) × 1.20
-        // round-trip fee = exit fee on this position + entry fee on the
-        // replacement buy. TAKER_FEE_BPS is 0 today, so this reduces to a
-        // 20% margin over forward EP — kept general for when fees return.
-        const feeRate = TAKER_FEE_BPS / 10_000;
+        // round-trip fee = the exit fee on THIS position plus the entry fee on
+        // the replacement buy. That used to be identically zero, so the engine
+        // churned positions for free; it isn't, and rotating a $200 hold in a
+        // 5% market at 50¢ burns $5 before the new trade has an opinion. The
+        // exit leg is priced exactly (we know the shares, the mark and the
+        // market); the entry leg has no price yet, so it takes the worst-case
+        // bound (`feeHeadroomUsd`) — deliberately conservative, since the cost
+        // of a wrong rotation is realized and its benefit is not.
         const ranked = positions
           .filter((p) => p.size > 0)
           .map((p) => {
             const stored = this.positionEP[this.posKey(p.conditionId, p.outcome)];
             const forwardEP = stored ? Math.max(0, stored.entryEP - p.pnlUsd) : 0;
+            const exitRate = inferredRate(p.market);
             const roundTripFee =
-              2 * feeRate * p.value + feeRate * (opts.fundingNeededUsd ?? p.value);
+              takerFeeUsd(p.size, p.currentPrice, exitRate)
+              + feeHeadroomUsd(opts.fundingNeededUsd ?? p.value);
             const hurdle = (forwardEP + roundTripFee) * 1.2;
             return { p, forwardEP, hurdle };
           })
@@ -1154,9 +1199,12 @@ export class CopyEngine {
         let freedAnything = false;
         if (bestCandidate) {
           // Free enough to clear the gate AND cover the new buy's size.
+          // Free the notional PLUS the taker fee the matcher will take on top
+          // of it — freeing exactly the notional funds an order that then
+          // bounces for insufficient balance.
           const fundingNeeded = Math.max(
             this.config.capital * 0.05 - effective,
-            bestCandidate.mirrorNotional,
+            bestCandidate.mirrorNotional + feeHeadroomUsd(bestCandidate.mirrorNotional),
           );
           this.addLog({
             id: uid(),
@@ -2031,8 +2079,36 @@ export class CopyEngine {
     }
 
     const query = mo.query || this.strat.params.marketQuery || "bitcoin";
-    const markets = await searchMarkets(query, 60);
-    const candidates = markets
+    // One search PER OR-group, merged — "bitcoin, ethereum, solana" is three
+    // requests. Gamma ranks a multi-word query by whole-phrase relevance, so
+    // the one-request version lands on the event family that NAMES several
+    // coins ("top performing crypto this week") instead of the coins' own
+    // markets: measured, 50 markets with $315k of top-20 volume against 250
+    // and $53M for the same query fanned out, sharing not one market. A group
+    // that fails is skipped, not fatal: momentum works off whatever slice of
+    // the feed resolved, and losing Solana shouldn't cost us Bitcoin.
+    const groups = marketQueryGroups(query).slice(0, MAX_MOMENTUM_QUERIES);
+    const pool: PolymarketMarket[] = [];
+    const seen = new Set<string>();
+    for (const g of groups.length > 0 ? groups : [query]) {
+      let found: PolymarketMarket[] = [];
+      try {
+        found = await searchMarkets(g, 60);
+      } catch {
+        continue;
+      }
+      for (const m of found) {
+        const cid = m.conditionId?.toLowerCase();
+        if (!cid || seen.has(cid)) continue;
+        seen.add(cid);
+        pool.push(m);
+      }
+    }
+    // No title re-filter on the results: `marketMatchesQuery` is a substring
+    // test, and the tickers a crypto query wants ("eth", "sol") are substrings
+    // of ordinary English ("whether", "sold"). Gamma's own relevance is the
+    // scope; the volume sort below is what keeps the tracked set serious.
+    const candidates = pool
       .filter((m) =>
         m.active &&
         m.conditionId &&

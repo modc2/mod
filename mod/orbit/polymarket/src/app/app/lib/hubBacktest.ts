@@ -88,7 +88,25 @@ export interface HubBacktestState {
   refresh: () => void;
 }
 
-export function useHubBacktests(indexes: SavedIndex[], days = HUB_BACKTEST_DAYS): HubBacktestState {
+export interface HubBacktestOptions {
+  /** Hand this roster to the background worker. TRUE for the strat hub, whose
+      strats live in localStorage and are invisible to the server otherwise.
+      FALSE for the COPY DESK, whose leaders the worker reads straight from the
+      copy book (api/src/copy.rs) — publishing them here would overwrite the
+      hub's manifest with the desk's roster and stop the worker replaying the
+      saved strats entirely. */
+  publish?: boolean;
+  /** Also replay the RECOMMENDED templates. The hub renders them as cards; the
+      desk doesn't, and each one costs a leaderboard query. */
+  templates?: boolean;
+}
+
+export function useHubBacktests(
+  indexes: SavedIndex[],
+  days = HUB_BACKTEST_DAYS,
+  options: HubBacktestOptions = {},
+): HubBacktestState {
+  const { publish: shouldPublish = true, templates: withTemplates = true } = options;
   const [results, setResults] = useState<Record<string, HubBacktest>>({});
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -136,9 +154,10 @@ export function useHubBacktests(indexes: SavedIndex[], days = HUB_BACKTEST_DAYS)
   // test strats it knows about, and they live in this browser's localStorage.
   const sigs = indexes.map((i) => `${i.id}:${signature(i, days)}`).join("|");
   useEffect(() => {
+    if (!shouldPublish) return;
     void publishHubManifest(indexes, days);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sigs]);
+  }, [sigs, shouldPublish]);
 
   // Fill the gaps the worker hasn't covered: strats it has never seen, strats
   // edited since its last pass, or a window it doesn't run.
@@ -175,7 +194,9 @@ export function useHubBacktests(indexes: SavedIndex[], days = HUB_BACKTEST_DAYS)
       // A template's signature depends on a roster only a fetch can resolve,
       // so its freshness is the TTL alone — which is also what you want: the
       // recommendation is "top N as of now", and it should age like one.
-      const templateQueue = DEFAULT_STRATS.filter((t) => !fresh(templateBacktestKey(t.slug)));
+      const templateQueue = withTemplates
+        ? DEFAULT_STRATS.filter((t) => !fresh(templateBacktestKey(t.slug)))
+        : [];
       if (queue.length === 0 && templateQueue.length === 0) return;
       setPending(new Set([
         ...queue.map((i) => i.id),
@@ -203,7 +224,7 @@ export function useHubBacktests(indexes: SavedIndex[], days = HUB_BACKTEST_DAYS)
     void run();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sigs, days, nonce, loading]);
+  }, [sigs, days, nonce, loading, withTemplates]);
 
   return { results, pending, loading, worker, refresh };
 }

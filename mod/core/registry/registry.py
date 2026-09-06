@@ -916,6 +916,152 @@ class Registry:
             'changed_files': changed,
         }
 
+    # --- Source root hash (one hash over every module's source on this node) ---
+
+    # Only source counts. Build output, vendored deps, binaries and logs are
+    # skipped so the root moves when someone edits code, not when a server writes.
+    SRC_SKIP_DIRS = {
+        'node_modules', '.next', '__pycache__', 'target', 'target-docker',
+        'vendor', 'dist', 'build', 'out', 'venv', '.venv', '.git', '.turbo',
+        '.cache', '.mypy_cache', '.pytest_cache', 'coverage', 'logs',
+    }
+    SRC_SKIP_FILES = {'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Cargo.lock'}
+    SRC_SKIP_EXTS = {
+        '.log', '.db', '.sqlite', '.sqlite3', '.pyc', '.pyo', '.so', '.a', '.o',
+        '.rlib', '.rmeta', '.dylib', '.dll', '.bin', '.pack', '.ptau', '.zkey',
+        '.wasm', '.tsbuildinfo', '.lock', '.png', '.jpg', '.jpeg', '.gif',
+        '.webp', '.mp4', '.mov', '.woff', '.woff2', '.ttf', '.ico', '.pdf',
+        '.zip', '.tar', '.gz',
+    }
+    SRC_MAX_FILE_SIZE = 2 * 1024 * 1024
+
+    def src_root_hash(self) -> Dict[str, Any]:
+        """Hash the source of every module on this node into a single root.
+
+        Per module: sha256 over its sorted {relpath: sha256(file)} map.
+        Root: sha256 over the sorted {space/module: module_hash} map, so a
+        changed file moves exactly one module hash and the root with it.
+
+        Returns:
+            {'root': <sha256>, 'mods': {name: <sha256>}, 'n_mods': int,
+             'n_files': int, 'n_skipped': int, 'ms': int}
+        """
+        import hashlib, json as _json
+        t0 = time.time()
+        root_dir = m.paths['mod']
+        mods, n_files, n_skipped = {}, 0, 0
+
+        for space in sorted(os.listdir(root_dir)):
+            space_dir = os.path.join(root_dir, space)
+            if not os.path.isdir(space_dir) or space.startswith('.') or space in self.SRC_SKIP_DIRS:
+                continue
+            for name in sorted(os.listdir(space_dir)):
+                mod_dir = os.path.join(space_dir, name)
+                if not os.path.isdir(mod_dir) or name.startswith('.'):
+                    continue
+                files = {}
+                for dirpath, dirnames, filenames in os.walk(mod_dir):
+                    dirnames[:] = [d for d in dirnames
+                                   if d not in self.SRC_SKIP_DIRS and not d.startswith('.')]
+                    for fname in sorted(filenames):
+                        if fname.startswith('.') or fname in self.SRC_SKIP_FILES:
+                            continue
+                        if os.path.splitext(fname)[1].lower() in self.SRC_SKIP_EXTS:
+                            continue
+                        fpath = os.path.join(dirpath, fname)
+                        try:
+                            if os.path.getsize(fpath) > self.SRC_MAX_FILE_SIZE:
+                                n_skipped += 1
+                                continue
+                            with open(fpath, 'rb') as f:
+                                data = f.read()
+                        except OSError:
+                            n_skipped += 1
+                            continue
+                        files[os.path.relpath(fpath, mod_dir)] = hashlib.sha256(data).hexdigest()
+                        n_files += 1
+                if files:
+                    blob = _json.dumps(files, sort_keys=True).encode()
+                    mods[f'{space}/{name}'] = hashlib.sha256(blob).hexdigest()
+
+        root = hashlib.sha256(_json.dumps(mods, sort_keys=True).encode()).hexdigest() if mods else None
+        return {
+            'root': root,
+            'mods': mods,
+            'n_mods': len(mods),
+            'n_files': n_files,
+            'n_skipped': n_skipped,
+            'ms': int((time.time() - t0) * 1000),
+        }
+
+    def _root_diff(self, current: dict, committed: dict) -> List[Dict[str, str]]:
+        """Modules whose hash differs between two {name: hash} maps."""
+        changed = []
+        for name in sorted(set(current) | set(committed)):
+            cur, exp = current.get(name), committed.get(name)
+            if cur == exp:
+                continue
+            changed.append({'mod': name,
+                            'status': 'added' if exp is None else ('removed' if cur is None else 'modified')})
+        return changed
+
+    # A forced rehash still can't be hammered: within this window it serves cache.
+    ROOT_HASH_MIN_INTERVAL = 5
+
+    def root_hash(self, update=False, max_age=3600) -> Dict[str, Any]:
+        """Cached source root hash, compared against the last committed root.
+
+        Recomputes when the cache is older than max_age seconds or update=True;
+        otherwise serves the cached value so callers can poll cheaply.
+        """
+        path = self.path('root_hash.json')
+        cached = m.get(path, None)
+        have_cache = isinstance(cached, dict) and bool(cached.get('root'))
+        age = (m.time() - cached.get('time', 0)) if have_cache else None
+        if age is None or age >= max_age or (update and age >= self.ROOT_HASH_MIN_INTERVAL):
+            cached = self.src_root_hash()
+            cached['time'] = m.time()
+            m.put(path, cached)
+            age = 0
+
+        committed = m.get(self.path('root_committed.json'), None) or {}
+        result = {k: v for k, v in cached.items() if k != 'mods'}
+        result['age'] = int(age)
+        result['max_age'] = max_age
+        result['committed'] = committed.get('root')
+        result['committed_time'] = committed.get('time')
+        result['committed_cid'] = committed.get('cid')
+        result['valid'] = bool(committed.get('root')) and committed['root'] == cached['root']
+        result['changed'] = self._root_diff(cached.get('mods', {}), committed.get('mods', {})) if committed else []
+        return result
+
+    def commit_root_hash(self, comment=None) -> Dict[str, Any]:
+        """Recompute the source root hash and pin it as the committed root.
+
+        Stores the {module: hash} map as a CID and chains it to the previous
+        commit, so the node has a signed-off state to compare drift against.
+        """
+        info = self.src_root_hash()
+        if not info.get('root'):
+            return {'error': 'no modules found', **info}
+        info['time'] = m.time()
+        m.put(self.path('root_hash.json'), info)
+
+        prev = m.get(self.path('root_committed.json'), None) or {}
+        record = {**info, 'comment': comment, 'prev': prev.get('root'), 'prev_cid': prev.get('cid')}
+        record['cid'] = self.put({k: record[k] for k in
+                                  ('root', 'mods', 'n_mods', 'n_files', 'time', 'comment', 'prev')})
+        m.put(self.path('root_committed.json'), record)
+        return {
+            'root': record['root'],
+            'cid': record['cid'],
+            'prev': record['prev'],
+            'n_mods': record['n_mods'],
+            'n_files': record['n_files'],
+            'time': record['time'],
+            'ms': record['ms'],
+        }
+
     def dp(self, path: str, key=None) -> str:
         key = self.key_address(key)
         if key != self.key.address:

@@ -1,0 +1,36 @@
+{
+    "name": "addup",
+    "description": "A drill: six sums, longer and wider each round. Scores a count of right answers, so the board reads as arithmetic accuracy rather than wins.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "664308c8f0b07213c71cb0bdd1f0b4c9dffe3b383acacbaceba9e15f38be1f73",
+    "bytes": 5155,
+    "author": "arena",
+    "tags": [
+        "example",
+        "game",
+        "class",
+        "python",
+        "drill",
+        "arithmetic"
+    ],
+    "defines": [
+        "__init__",
+        "deal",
+        "question",
+        "answer",
+        "turn",
+        "view",
+        "step",
+        "done",
+        "result"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/addup/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

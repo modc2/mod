@@ -140,8 +140,12 @@ export default function StratAgent() {
         ss58: t.ss58,
         label: t.label ?? null,
         weight: t.weight,
+        // Carry the resolved sleeve, so the basket opens in the strat maker
+        // showing the same money the agent sized it with.
+        alloc_tao: t.alloc_tao ?? null,
         enabled: true,
       })),
+      sizing: strat.sizing ?? "tao",
       daily_limit_tao: strat.capital_tao,
       max_tao_per_tx: strat.max_tao_per_tx,
       rebalance_threshold_pct: strat.rebalance_threshold_pct,
@@ -340,7 +344,7 @@ function StratCard({ item, onSave, onOpen }: {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-display text-[13px] text-cyan-400">{s.name}</span>
         <span className="pixel-badge text-pixel-gray">{s.traders.length} TRADERS</span>
-        <span className="pixel-badge text-pixel-gray">{fmtTao(s.capital_tao)}/DAY</span>
+        <span className="pixel-badge text-pixel-gray">{fmtTao(s.capital_tao)}</span>
         {item.savedId && (
           <span className="pixel-badge border-green-400 text-green-400">SAVED</span>
         )}
@@ -352,7 +356,10 @@ function StratCard({ item, onSave, onOpen }: {
         {s.traders.map((t) => (
           <li key={t.ss58} className="border-t-2 border-pixel-border pt-1 first:border-t-0 first:pt-0">
             <div className="flex items-center gap-2 text-[12px] font-mono min-w-0">
-              <span className="text-cyan-400 w-12 shrink-0">{t.share_pct}%</span>
+              {/* The money, then the share of the book it represents. */}
+              <span className="text-cyan-400 w-16 shrink-0" title={`${t.share_pct}% of the basket`}>
+                {t.alloc_tao != null ? fmtTao(t.alloc_tao) : `${t.share_pct}%`}
+              </span>
               <Link href={`/traders/${t.ss58}`} className="text-pixel-white truncate no-underline hover:text-green-400">
                 {t.label || shortSs58(t.ss58)}
               </Link>
@@ -368,7 +375,7 @@ function StratCard({ item, onSave, onOpen }: {
               </span>
             </div>
             {t.why && (
-              <div className="arcade-prose arcade-prose-sm pl-12">{t.why}</div>
+              <div className="arcade-prose arcade-prose-sm pl-16">{t.why}</div>
             )}
           </li>
         ))}

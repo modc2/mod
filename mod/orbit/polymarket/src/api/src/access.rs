@@ -159,6 +159,18 @@ impl AccessStore {
         hex::encode(Sha256::digest(TERMS_TEXT.as_bytes()))
     }
 
+    /// The resolved owner EOA (lowercased), if any. Signed copy-desk actions
+    /// (copy_actions.rs) check recovered signers against it.
+    pub fn owner(&self) -> Option<&str> {
+        self.owner.as_deref()
+    }
+
+    /// HMAC nonce for a signed-action challenge — stateless like the sign-in
+    /// nonce: recomputable at verify time from the same fields.
+    pub fn action_nonce(&self, data: &str) -> String {
+        self.hmac_hex(data)[..16].to_string()
+    }
+
     fn hmac_hex(&self, data: &str) -> String {
         let mut mac = HmacSha256::new_from_slice(&self.secret).expect("hmac key");
         mac.update(data.as_bytes());
@@ -263,7 +275,7 @@ fn eip191_digest(message: &str) -> [u8; 32] {
 
 /// Recover the signer address from a 65-byte (r||s||v) hex signature over
 /// an EIP-191 personal_sign digest. Accepts v ∈ {0,1,27,28}.
-fn recover_address(message: &str, sig_hex: &str) -> Option<String> {
+pub(crate) fn recover_address(message: &str, sig_hex: &str) -> Option<String> {
     let raw = hex::decode(sig_hex.trim_start_matches("0x")).ok()?;
     if raw.len() != 65 {
         return None;
@@ -453,10 +465,13 @@ mod tests {
         let store = test_store(Some(addr.clone()));
         let (token, _exp) = store.issue_token(&addr);
         assert_eq!(store.verify_token(&token), Some(addr.clone()));
-        // Tampered signature → rejected.
+        // Tampered signature → rejected. Flip the last hex nibble to a
+        // DIFFERENT one: unconditionally appending '0' left the token
+        // untouched whenever the signature already ended in '0', which made
+        // this assertion pass or fail on the expiry timestamp of the day.
         let mut broken = token.clone();
-        broken.pop();
-        broken.push('0');
+        let last = broken.pop().unwrap();
+        broken.push(if last == '0' { '1' } else { '0' });
         assert_eq!(store.verify_token(&broken), None);
         // Owner rotated after issuance → old token dies immediately.
         let rotated = test_store(Some("0x2222222222222222222222222222222222222222".into()));

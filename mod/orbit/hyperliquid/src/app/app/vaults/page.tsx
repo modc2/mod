@@ -51,7 +51,7 @@ export default function VaultsPage() {
   return (
     <section className="space-y-4">
       <div>
-        <h1 className="text-xl text-ink">Vaults</h1>
+        <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">Vaults</h1>
         <p className="text-xs text-muted mt-1">
           Deposit USDC into a Hyperliquid vault and the leader trades it for you — native copy-trading,
           ranked by APR. Open vaults only; closed and dust vaults filtered out.
@@ -132,7 +132,7 @@ export default function VaultsPage() {
               <div className="num text-right text-ink/90">{fmtUsd(v.tvl)}</div>
               <div className="num text-right text-muted">{v.age_days}d</div>
               <div className="flex justify-end opacity-80 group-hover:opacity-100 transition-opacity">
-                <Link href={`/vaults/${v.address}`} className="btn-primary">invest</Link>
+                <Link href={`/vaults/${v.address}`} className="btn-ghost">invest</Link>
               </div>
             </div>
           );

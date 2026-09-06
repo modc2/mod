@@ -1,0 +1,80 @@
+{
+  "block": "strategy",
+  "contract": "ModFixedYieldStrategy",
+  "file": "strategy.sol",
+  "audited_at": "2026-08-30",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "high",
+  "summary": "ModFixedYieldStrategy is a test-bench strategy: a ModVault pushes principal in, the contract accrues simple interest on it, and pays that interest out of a reserve the owner tops up with fund(). The worst finding is that a freshly deployed strategy has no vault set, and in that state deposit()/withdraw() are open to any caller and withdraw() has no cap, so anyone can take the whole balance (reserve plus principal) until the separate post-deploy setVault wiring transaction lands, or forever if the block is deployed without a vault on its port. Once wired, the remaining serious issues are accounting rather than access: totalAssets() reports pending yield the reserve cannot pay, which lets early vault withdrawers take other depositors' principal and can strand the last ones, and the owner can re-point `vault` at any address and drain everything with no delay. It is acceptable for testnet composition when the vault wire is applied before any fund() or allocate() and the governor port is a timelock; it is not safe to hold real value as-is.",
+  "counts": {
+    "critical": 1,
+    "high": 2,
+    "medium": 1,
+    "low": 1,
+    "info": 1
+  },
+  "findings": [
+    {
+      "id": "STRATEGY-1",
+      "severity": "critical",
+      "title": "With no vault wired, deposit()/withdraw() are open to everyone and withdraw() has no cap: anyone drains reserve and principal",
+      "where": "deposit() L56-L61, withdraw() L63-L70, setVault() L74-L76",
+      "detail": "Both entry points are gated by `require(vault == address(0) || msg.sender == vault)`. The constructor never sets `vault` (the catalog ctor is asset, rateBps_, owner), so every fresh deployment is in the open state until the post-deploy `setVault` wiring call lands. In that state withdraw() is callable by any address and does not check `amount <= principal + accrued`: it clamps principal and accrued to zero and pushes `amount` straight out of the contract balance, which includes the owner-funded reserve and any principal already deposited. The composer's plan (graph.rs) emits deploy steps and the `vault -> strategy setVault($self)` wire as separate transactions signed one by one in the browser, so the window is real in the intended flow; a strategy placed on the canvas without a vault on its port is never wired at all and stays open forever.",
+      "exploit": "1) Deployer deploys ModFixedYieldStrategy (vault == 0). 2) Deployer calls fund(100_000e6) to seed the yield reserve before (or instead of) the setVault wiring tx, or the wire tx fails/gets dropped. 3) Attacker calls withdraw(100_000e6): NOT_VAULT passes because vault == 0, _accrue() runs, principal/accrued clamp to 0, underlying.push(attacker, 100_000e6) succeeds. Whole reserve gone. Same for any principal pushed in by an unwired caller.",
+      "recommendation": "Require a non-zero vault: `require(msg.sender == vault, \"NOT_VAULT\")` with no address(0) escape, take the vault in the constructor or make deposit/withdraw revert until setVault is called. Independently cap withdrawals: `require(amount <= principal + accrued, \"EXCEEDS_ASSETS\")` so the reserve can never leave through withdraw(). Give the owner an explicit `defund(amount)` that can only take `balance - principal - accrued`."
+    },
+    {
+      "id": "STRATEGY-2",
+      "severity": "high",
+      "title": "totalAssets() reports unbacked pending yield: the vault's share price inflates, early withdrawers take other depositors' principal, last withdrawers revert",
+      "where": "totalAssets() L34-L36, _pending() L38-L42, _accrue() L44-L54",
+      "detail": "_accrue() correctly caps recognised yield at what the reserve can pay (`backed = reserve - principal - accrued`), but the view `totalAssets()` adds the raw `_pending()` with no such cap. The docs promise the block 'never reports assets it cannot pay out'; the view does exactly that whenever the reserve is empty or short, and the gap grows linearly with time since the last accrual (up to 100% APR). ModVault.totalAssets() (vault.sol L41) reads this view to price shares, so convertToShares/convertToAssets use phantom assets: new depositors are minted fewer shares, and a withdrawer is paid `shares * (real + phantom) / supply`. ModVault.withdraw then calls strategy.withdraw(assets - idle); the strategy runs _accrue() (drops the phantom), then push() for the inflated amount. If the contract balance covers it the withdrawer is overpaid out of everybody else's principal; if it does not, the push reverts and that user cannot exit at all until they shrink the request. The overpayment is then permanent: the survivors' claims exceed backing. Composition amplifies it: the vault's share token is an `erc20` output that can be wired into staking, an AMM pair or lending as collateral, so the inflated price propagates.",
+      "exploit": "Reserve never funded (or funded short), rateBps = 10_000. Alice and Bob each deposit 100 into the vault, owner allocate(200) into the strategy. One year passes with no accrual. strategy.totalAssets() = 200 principal + 200 pending = 400, vault.totalAssets() = 400. Alice withdraws all her shares: assets = 100/200 * 400 = 200; vault calls strategy.withdraw(200): _accrue realises 0, principal -> 0, push(alice, 200) succeeds because the contract holds exactly 200. Alice leaves with Bob's 100. Bob's withdraw now reverts (balance 0). At lower rates the same happens pro-rata every time the reserve lags.",
+      "recommendation": "Make the view honest: compute `backed` inside a view and return `principal + accrued + min(_pending(), backed)` from totalAssets(), i.e. the same number _accrue() would realise, so the vault can never price shares above the contract balance. Consider also asserting `underlying.balanceOf(this) >= principal + accrued` after every withdraw."
+    },
+    {
+      "id": "STRATEGY-3",
+      "severity": "high",
+      "title": "Owner can re-point `vault` at any address and drain all principal; the only way to recover the reserve is that same door",
+      "where": "setVault() L74-L76, withdraw() L63-L70, fund() L85-L87",
+      "detail": "setVault() is onlyOwner, takes any address with no asset or interface check, and has no delay. Because withdraw() is uncapped (STRATEGY-1) the owner can point `vault` at an EOA and call withdraw(balance), taking the vault users' principal as well as the reserve. There is no owner-only defund() for the reserve, so the legitimate operation 'take unused reserve back' and the rug are the same call sequence, which makes the action impossible to distinguish or restrict. The catalog wires the `governor` port to the owner; unless that port is a ModTimelock/ModGovernor, this is a single hot key with instant custody of every asset the vault allocated.",
+      "exploit": "Vault users deposit; owner allocate()s 1,000,000 into the strategy. Owner (or whoever holds the owner key) calls setVault(ownerEOA), then withdraw(1,000,000 + reserve). All funds leave in two transactions; the vault's totalAssets() collapses to idle only.",
+      "recommendation": "Make `vault` settable once (or immutable via the constructor), cap withdraw() at principal + accrued, and add `defund(amount)` limited to `balance - principal - accrued` so the reserve has a safe exit. Deployers should wire the governor port to ModTimelock so any re-wiring is visible in advance."
+    },
+    {
+      "id": "STRATEGY-4",
+      "severity": "medium",
+      "title": "Unbacked yield is forfeited (not deferred) on every accrual, and any vault user can trigger an accrual to front-run the owner's fund()",
+      "where": "_accrue() L44-L54, withdraw() L63-L70, fund() L85-L87",
+      "detail": "_accrue() advances lastAccrual unconditionally and keeps only `min(pending, backed)`; the unbacked remainder is dropped forever. Yield is therefore only earned if the reserve was already funded during the interval. Any accrual resets the clock, and an accrual is reachable by any vault user: ModVault.withdraw() calls strategy.withdraw() whenever `idle < assets`, which is the normal state after allocate(). So a user who withdraws even one share while the reserve is empty zeroes the interval's yield for everyone. This is also an MEV target: an owner's fund() tx in the mempool can be front-run with a dust withdraw that wipes the pending balance the fund was meant to back.",
+      "exploit": "Reserve empty, principal 1,000,000, 5% APR, 30 days pass (pending ~4,110). Owner broadcasts fund(5,000). Attacker front-runs with vault.withdraw(1 share) -> strategy.withdraw(dust) -> _accrue(): backed 0, realised 0, lastAccrual = now. Owner's fund() lands; the 4,110 of yield for the month is gone and starts again from zero. Repeat every funding cycle.",
+      "recommendation": "Either carry unbacked pending forward (store `owedUnbacked` and realise it on later accruals/fund()), or document loudly that the reserve must be funded before allocation and kept ahead of accrual. Have fund() call _accrue() after the pull so newly-added reserve immediately backs the outstanding interval."
+    },
+    {
+      "id": "STRATEGY-5",
+      "severity": "low",
+      "title": "Non-standard ERC20s on the asset port break accounting: fee-on-transfer/rebasing tokens overstate principal, no-return-value tokens (USDT-style) revert every call",
+      "where": "deposit() L59-L60, withdraw() L69, fund() L86; SafeTransfer.pull/push common.sol L121-L127",
+      "detail": "deposit() records `principal += amount` without measuring the balance actually received, so a fee-on-transfer token leaves the contract short and the last vault withdrawer reverts; a negatively-rebasing token has the same effect, while a positively-rebasing one silently counts the rebase as reserve and pays it out as 'yield'. SafeTransfer requires a bool return from transfer/transferFrom, so tokens that return nothing (USDT, BNB) revert on every deposit/withdraw/fund: nothing is lost, but the block cannot be used with them. The catalog's own ModToken is a plain ERC20, so this only matters when the asset port is an external token.",
+      "exploit": "Wire a 1% fee-on-transfer token as asset. Vault allocate(100): strategy receives 99, principal = 100. Vault later withdraws 100 -> push(100) reverts BALANCE; the vault's last withdrawer is stuck until the owner tops up via fund().",
+      "recommendation": "Measure `balanceAfter - balanceBefore` in deposit()/fund() and account for that, or state that only standard, non-rebasing 18/6-decimal tokens are supported. Use a low-level call that tolerates empty return data if USDT-class assets are wanted."
+    },
+    {
+      "id": "STRATEGY-6",
+      "severity": "info",
+      "title": "Simple interest only, rounds down per accrual, and the rate is owner-mutable without notice",
+      "where": "_pending() L38-L42, setRate() L78-L82",
+      "detail": "Yield is linear on `principal` only (accrued does not compound), and each accrual truncates `principal * rateBps * elapsed / (10_000 * 365 days)`. With low-decimal tokens and small principal, frequent accruals (every vault withdraw) can truncate most of the yield to zero: e.g. 1 USDC of principal at 5% APR earns 0 per 12-second block. rateBps can be set anywhere in 0..10_000 at any time by the owner; a 'fixed' rate is only as fixed as the governor behind it. Neither is a fund-loss path but both affect what a deployer should promise users.",
+      "exploit": "Owner calls setRate(0) after users deposit expecting 5%; setRate() accrues the past interval first so nothing is stolen, but future yield stops immediately and nothing in the contract signals it beyond the storage change.",
+      "recommendation": "Emit an event from setRate(), and if the rate is advertised as fixed, make it immutable or route setRate through ModTimelock. Prefer 18-decimal assets or a larger principal floor if yield must be visible at block granularity."
+    }
+  ],
+  "safe_use": [
+    "Always place a ModVault on this block's port so the plan emits the `setVault(vault)` wire, and confirm on-chain that vault() == the ModVault address before calling fund() or the vault's allocate(). Never fund an unwired strategy.",
+    "Fund the reserve before the vault allocates, and keep it ahead of accrual (reserve >= principal * rate * time); unbacked yield is dropped, not deferred, and the vault's share price will overstate assets while the reserve lags.",
+    "Wire the governor port to ModTimelock (or a ModGovernor over a timelock). The owner key can re-point `vault` and withdraw every asset in one block.",
+    "Use a plain, non-rebasing, non-fee-on-transfer ERC20 that returns bool from transfer/transferFrom (the catalog's ModToken qualifies; USDT does not).",
+    "Do not use the vault's share token as collateral or pricing input elsewhere on the canvas until STRATEGY-2 is fixed; its price includes phantom yield whenever the reserve is short.",
+    "Treat this as a reference implementation for end-to-end tests, not a venue for real capital."
+  ]
+}

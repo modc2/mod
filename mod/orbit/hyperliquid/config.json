@@ -1,7 +1,7 @@
 {
     "name": "hyperliquid",
-    "version": "0.5.0",
-    "description": "Hyperliquid full-stack — backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server, ask-the-desk agent",
+    "version": "0.6.1",
+    "description": "Hyperliquid full-stack \u2014 one-transaction cross-chain deposits from seven chains, backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server, ask-the-desk agent",
     "anchor": "src/mod.py",
     "fns": [
         "forward",
@@ -25,8 +25,10 @@
         "strat",
         "list_strats",
         "run_strat",
+        "whoami",
         "top_traders",
         "analyze_trader",
+        "trader_curve",
         "leaderboard",
         "list_indexes",
         "get_index",
@@ -48,6 +50,17 @@
         "vault_intent",
         "create_vault",
         "vault_transfer",
+        "invest_preview",
+        "invest_portfolio",
+        "invest_position",
+        "invest",
+        "invest_add",
+        "invest_withdraw",
+        "invest_pause",
+        "invest_resume",
+        "invest_close",
+        "invest_update",
+        "invest_delete",
         "signer_address",
         "agent_status",
         "approve_agent_intent",
@@ -63,6 +76,10 @@
         "withdraw",
         "usd_send",
         "spot_send",
+        "deposit_chains",
+        "deposit_balances",
+        "deposit_quote",
+        "deposit_status",
         "set_referrer",
         "live_start",
         "live_stop",
@@ -89,27 +106,29 @@
     },
     "layout": {
         "src/mod.py": "Python orchestrator (serve/kill/status/forward, plus typed wrappers for every endpoint)",
-        "src/api/": "Rust REST API (axum, tokio) — backend agent signer, action signing, /exchange poster, live engine, MCP tool server",
-        "src/api/src/mcp.rs": "MCP tool registry + JSON-RPC dispatch — one schema for the mod fn surface and the MCP tool list",
-        "src/agent.py": "Claude agent whose only toolbox is this module's MCP server — read-only by default, write tools behind act=true + a token",
-        "src/api/src/agent.rs": "POST /ask (SSE) + GET /ask/status — spawns src/agent.py and streams its run",
-        "src/app/": "Next.js 14 app (copy-trade UI, indexes, vaults, live panel)"
+        "src/api/": "Rust REST API (axum, tokio) \u2014 backend agent signer, action signing, /exchange poster, live engine, MCP tool server",
+        "src/api/src/mcp.rs": "MCP tool registry + JSON-RPC dispatch \u2014 one schema for the mod fn surface and the MCP tool list",
+        "src/agent.py": "Claude agent whose only toolbox is this module's MCP server \u2014 read-only by default, write tools behind act=true + a token",
+        "src/api/src/agent.rs": "POST /ask (SSE) + GET /ask/status \u2014 spawns src/agent.py and streams its run",
+        "src/app/": "Next.js 14 app (copy-trade UI, indexes, vaults, live panel)",
+        "src/api/src/deposit.rs": "Cross-chain deposit rails \u2014 multicall balance scan across 7 chains, LI.FI routing straight into the Hyperliquid perps account"
     },
     "mcp": {
         "endpoint": "POST /mcp",
         "schema": "GET /mcp/schema",
-        "transport": "streamable-http (JSON-RPC 2.0, one message per POST) + stdio (`hyperliquid-api --stdio`)",
-        "auth": "optional — same Authorization: Bearer <mod protocol token> as the REST API; public tools work signed-out",
+        "connect": "http://localhost:3919/hyperliquid/mcp \u2014 endpoints, per-client config and the live tool list",
+        "transport": "streamable-http (JSON-RPC 2.0, one message or batch per POST) + HTTP+SSE (GET /sse \u2192 POST /messages) + stdio (`hyperliquid-api --stdio`)",
+        "auth": "optional \u2014 same Authorization: Bearer <mod protocol token> as the REST API; public tools work signed-out",
         "tool_prefix": "hl_",
-        "docs": "Every MCP tool fronts a mod-protocol fn from `fns` and executes as a loopback call to its REST route, so the auth gate applies unchanged. GET /mcp/schema publishes the tool → fn → route mapping."
+        "docs": "Every MCP tool fronts a mod-protocol fn from `fns` and executes as a loopback call to its REST route, so the auth gate applies unchanged. GET /mcp/schema publishes the tool \u2192 fn \u2192 route mapping."
     },
     "agent": {
         "endpoint": "POST /ask (SSE)",
         "status": "GET /ask/status (public)",
-        "toolbox": "this module's own MCP server over stdio — the agent holds no authority of its own",
+        "toolbox": "this module's own MCP server over stdio \u2014 the agent holds no authority of its own",
         "modes": "read-only by default; write tools need act=true and a mod protocol token",
-        "model_auth": "ANTHROPIC_API_KEY → ~/.mod/hyperliquid/anthropic.key → claude CLI OAuth"
+        "model_auth": "ANTHROPIC_API_KEY \u2192 ~/.mod/hyperliquid/anthropic.key \u2192 claude CLI OAuth"
     },
-    "schema": "QmYeiUtZU7LJz5bapi4v2P5eiMb8oqupuiMAmPBryzPZdP",
+    "schema": "QmYjTp7SP3nkYJyT283NNAzzyduhuBD8fg3f4fV7JuMXAj",
     "gateway_port": 3919
 }

@@ -1,46 +1,123 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { fetchTopTraders, fetchScanProgress, ScanProgress, TopTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago } from "../lib/api";
+import { fetchBoard, fetchScanProgress, BoardMeta, ScanProgress, TopTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago, defensibleWin, sharpeMeasured } from "../lib/api";
 import Link from "next/link";
+import { DataBar, Field, Freshness, Identicon, Kpi, Medal, Meter, PageHead, SparkBars, SplitBar, Switch } from "./BoardBits";
+import TraderCell, { ROW_ATTR, isCoreCoin } from "./TraderCell";
+import TraderCard from "./TraderCard";
+import { useCurves } from "../lib/curves";
 
-type SortKey = "roi" | "pnl" | "volume" | "win_rate" | "trades" | "sharpe";
+type SortKey = "roi" | "pnl" | "volume" | "account_value" | "win_rate" | "trades" | "sharpe";
+type Rank = "roi" | "pnl" | "volume";
+
+// How the board is drawn. Cards are the default: a card has room for the PnL
+// curve next to the number it explains, which is the question anyone picking
+// a wallet to copy is actually asking. The table is still here because
+// nothing beats it for scanning five thousand rows against a score floor.
+type View = "cards" | "table";
+const VIEW_KEY = "hl.board.view";
+const SORT_LABELS: { k: SortKey; label: string }[] = [
+  { k: "roi", label: "roi" },
+  { k: "pnl", label: "pnl" },
+  { k: "volume", label: "volume" },
+  { k: "account_value", label: "equity" },
+  { k: "win_rate", label: "win rate" },
+  { k: "sharpe", label: "sharpe" },
+  { k: "trades", label: "trades" },
+];
 
 // HL's native ROI windows are day / week / month — 1, 7, 30 days. Other values
 // would just bucket back to these, so we don't pretend to offer them.
 const DAY_OPTIONS = [1, 7, 30];
-const POOL_OPTIONS = [50, 150, 300, 600];
+// How many top rows (by rank) get fill stats. Every row past the leaderboard
+// scrape costs one throttled /info query, so this is the only knob that
+// spends anything — the board itself is always the whole gated universe.
+const ENRICH_OPTIONS = [120, 250, 400];
+const RANKS: { k: Rank; label: string; hint: string }[] = [
+  { k: "roi", label: "roi", hint: "fill stats for the best return-on-equity wallets" },
+  { k: "pnl", label: "pnl", hint: "fill stats for the biggest dollar winners (HL's own order)" },
+  { k: "volume", label: "volume", hint: "fill stats for the most active books" },
+];
+// How many rows a "page" of the board is, per view. A card is roughly twenty
+// table rows of pixels and costs one Hyperliquid call for its curve, so it
+// pages in screenfuls; the table costs nothing per row and pages in slabs.
+const PAGE: Record<View, number> = { cards: 36, table: 250 };
+const FILTERS_KEY = "hl.board.filtersOpen";
+const FLOOR_KEYS = ["roi", "equity", "volume", "sharpe", "win", "trades"] as const;
 
-// Fill coins arrive raw from HL: HIP-3 builder-dex perps as "dex:TICKER"
-// (e.g. "xyz:HYUNDAI") and spot markets as "@123" indices. Neither is a
-// copyable core perp, so they're excluded from badges and the positions filter.
-const isCoreCoin = (c: string) => !c.includes(":") && !c.startsWith("@");
+// Score floors — applied on the client over the full list, so they're instant.
+type Floors = { roi: string; sharpe: string; win: string; equity: string; volume: string; trades: string; stats: boolean };
+const NO_FLOORS: Floors = { roi: "", sharpe: "", win: "", equity: "", volume: "", trades: "", stats: false };
+const num = (s: string) => { const v = parseFloat(s.replace(/[,$%\s]/g, "")); return Number.isFinite(v) ? v : null; };
+const hasStats = (t: TopTrader) => t.win_rate >= 0;
+// What a row's win rate is worth once its sample size is taken into account:
+// the Wilson 95% lower bound. Sorting and filtering use this, the column shows
+// both. On the point estimate alone a 3-for-3 wallet outranks a 180-of-200 one,
+// which is exactly backwards — the small sample is the less trustworthy row.
+const winScore = (t: TopTrader) => defensibleWin(t) ?? -1;
+// Stat columns are only real on measured rows — an unmeasured 0 must never
+// outrank a measured negative.
+const STAT_KEYS: SortKey[] = ["win_rate", "trades", "sharpe"];
 
-// Shared column template: trader | roi(+pnl) | volume | win%(+trades) | sharpe | last | copy.
-const GRID = "grid grid-cols-[minmax(0,2.6fr)_1.1fr_1fr_1fr_0.9fr_0.9fr_auto] gap-2 px-4";
+// `isCoreCoin` — HIP-3 builder-dex perps ("dex:TICKER") and spot markets
+// ("@123") are not copyable core perps — comes from TraderCell, which is where
+// the same rule already governed the badges it draws.
+
+// Shared column template: trader | roi(+pnl) | equity | volume | win%(+trades) | sharpe | last | copy.
+const GRID = "grid grid-cols-[minmax(0,2.6fr)_1.15fr_1fr_1fr_1fr_0.9fr_0.9fr_auto] gap-2 px-4";
 
 export default function TopTraders() {
   const [days, setDays] = useState(7);
-  const [pool, setPool] = useState(50);
+  const [rank, setRank] = useState<Rank>("roi");
+  const [enrich, setEnrich] = useState(120);
   const [seed, setSeed] = useState("");
   const [traders, setTraders] = useState<TopTrader[]>([]);
+  const [meta, setMeta] = useState<BoardMeta | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("roi");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [prog, setProg] = useState<ScanProgress | null>(null);
+  // The API walks a cold board in the background rather than holding the
+  // request open past a gateway timeout — `scanning` means the rows on screen
+  // are the last good board and a fresh one is still being built.
+  const [scanning, setScanning] = useState(false);
   const [coinFilter, setCoinFilter] = useState<Set<string>>(new Set());
   const [seedOpen, setSeedOpen] = useState(false);
   const [coinsExpanded, setCoinsExpanded] = useState(false);
+  // The filter bar rides along at the top of the board while the table
+  // scrolls, so it can also be folded down to a one-line summary of what is
+  // currently being asked of the board.
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [coinDraft, setCoinDraft] = useState("");
+  const [floors, setFloors] = useState<Floors>(NO_FLOORS);
+  const [view, setView] = useState<View>("cards");
+  const [visible, setVisible] = useState(PAGE.cards);
+  const coinKey = useMemo(() => Array.from(coinFilter).sort().join(","), [coinFilter]);
+
+  // Folded or open is a preference, not a per-visit decision. So is cards vs
+  // table: someone who reads this board as a spreadsheet should not have to
+  // say so again on every visit.
+  useEffect(() => { if (localStorage.getItem(FILTERS_KEY) === "0") setFiltersOpen(false); }, []);
+  useEffect(() => { localStorage.setItem(FILTERS_KEY, filtersOpen ? "1" : "0"); }, [filtersOpen]);
+  useEffect(() => {
+    const saved = localStorage.getItem(VIEW_KEY);
+    if (saved === "table" || saved === "cards") { setView(saved); setVisible(PAGE[saved]); }
+  }, []);
+  const switchView = (v: View) => {
+    setView(v);
+    setVisible(PAGE[v]);
+    localStorage.setItem(VIEW_KEY, v);
+  };
 
   // While a scan request is in flight, poll the API's live scan progress so
   // the user sees "X of N wallets" instead of an opaque spinner. Cached
   // fast-path responses resolve before the first poll — no flash.
   useEffect(() => {
-    if (!loading) { setProg(null); return; }
+    if (!loading && !scanning) { setProg(null); return; }
     let alive = true;
     const poll = () => fetchScanProgress()
       .then((p) => { if (alive) setProg(p.running ? p : null); })
@@ -48,7 +125,7 @@ export default function TopTraders() {
     poll();
     const id = setInterval(poll, 1000);
     return () => { alive = false; clearInterval(id); };
-  }, [loading]);
+  }, [loading, scanning]);
 
   const pct = prog && prog.total > 0
     ? Math.min(100, Math.round((prog.scanned / prog.total) * 100)) : null;
@@ -57,18 +134,37 @@ export default function TopTraders() {
     setLoading(true); setErr(null);
     try {
       const seedArr = seed.split(",").map((s) => s.trim()).filter(Boolean);
-      // Liveness filtering is server-side (traded in last 24h); no trades/day knob.
-      const res = await fetchTopTraders(days, 0, pool, seedArr);
-      setTraders(res.traders ?? []);
-      // Server reports when the board was actually computed — show that, not
-      // when we happened to fetch it.
-      setUpdatedAt(res.updated_at ?? Date.now());
-    } catch (e: any) { setErr(e.message ?? String(e)); setTraders([]); }
+      const coins = Array.from(coinFilter);
+      // Plain board = EVERY wallet that clears the gates (equity ≥ $1k, traded
+      // ≤24h), priced from the leaderboard; only the top `enrich` by `rank`
+      // are measured from fills. A coin requirement can only be checked from
+      // fills, so that mode walks the ranked list for `enrich` qualifying
+      // wallets instead.
+      const res = await fetchBoard({
+        days, pool: coins.length ? enrich : "all", rank, enrich, seed: seedArr, coins,
+      });
+      const { traders: rows, ...m } = res;
+      // A scanning answer with no rows yet must not blank a board we already
+      // have on screen — the walk it kicked off will fill it in.
+      if (!m.scanning || (rows?.length ?? 0) > 0) { setTraders(rows ?? []); setMeta(m); }
+      setScanning(!!m.scanning);
+    } catch (e: any) { setErr(e.message ?? String(e)); setTraders([]); setMeta(null); setScanning(false); }
     finally { setLoading(false); }
   };
 
-  // Refetch when filters change.
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [days, pool]);
+  // While the API is walking a board in the background, come back for it —
+  // the answer lands in its cache the moment the walk finishes.
+  useEffect(() => {
+    if (!scanning || loading) return;
+    const id = setTimeout(() => load(), 5_000);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line
+  }, [scanning, loading, days, rank, enrich, coinKey]);
+
+  // Refetch when requirements change.
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [days, rank, enrich, coinKey]);
+  // Any change to what's shown restarts paging from the top.
+  useEffect(() => { setVisible(PAGE[view]); }, [days, rank, enrich, coinKey, floors, sortKey, sortDir, view]);
 
   // Auto-refresh every 60s (matches the API-side cache TTL ceiling).
   useEffect(() => {
@@ -76,17 +172,26 @@ export default function TopTraders() {
     const id = setInterval(() => { if (!loading) load(); }, 60_000);
     return () => clearInterval(id);
     // eslint-disable-next-line
-  }, [autoRefresh, days, pool, seed, loading]);
+  }, [autoRefresh, days, rank, enrich, seed, coinKey, loading]);
 
-  // Coins seen across the current board (core perps only), most-traded first —
-  // these become the positions-filter pills.
+  // Coin pills: whatever is required right now, pinned first, then the coins
+  // seen across the measured rows (core perps only), most-traded first.
   const coinOptions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const t of traders)
       for (const c of t.coins)
         if (isCoreCoin(c)) counts.set(c, (counts.get(c) ?? 0) + 1);
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c).slice(0, 14);
-  }, [traders]);
+    const seen = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
+    const pinned = Array.from(coinFilter);
+    return [...pinned, ...seen.filter((c) => !coinFilter.has(c))].slice(0, Math.max(14, pinned.length));
+  }, [traders, coinFilter]);
+
+  const addCoin = () => {
+    const c = coinDraft.trim().toUpperCase();
+    if (!c) return;
+    setCoinFilter((prev) => new Set(prev).add(c));
+    setCoinDraft("");
+  };
 
   const toggleCoin = (c: string) => {
     setCoinFilter((prev) => {
@@ -96,16 +201,61 @@ export default function TopTraders() {
     });
   };
 
+  const floorsActive = useMemo(() => floors.stats || (Object.keys(floors) as (keyof Floors)[])
+    .some((k) => k !== "stats" && num(floors[k] as string) != null), [floors]);
+
+  // What the folded bar says instead of the controls: every floor that is
+  // actually doing something, in the words of the input it came from.
+  const floorSummary = useMemo(() => {
+    const out = FLOOR_KEYS.filter((k) => num(floors[k]) != null)
+      .map((k) => `${k} ≥ ${floors[k].trim()}`);
+    if (floors.stats) out.push("measured only");
+    return out;
+  }, [floors]);
+
+  const filtered = useMemo(() => {
+    const f = {
+      roi: num(floors.roi), sharpe: num(floors.sharpe), win: num(floors.win),
+      equity: num(floors.equity), volume: num(floors.volume), trades: num(floors.trades),
+    };
+    // A sharpe / win% / trade-count floor can only be met by a measured row.
+    const needStats = floors.stats || f.sharpe != null || f.win != null || f.trades != null;
+    // The API already applied the coin requirement; re-applying it here only
+    // keeps a stale board honest while the next scan is in flight.
+    return traders.filter((t) => {
+      if (coinFilter.size > 0 && !t.coins.some((c) => coinFilter.has(c.toUpperCase()))) return false;
+      if (needStats && !hasStats(t)) return false;
+      if (f.roi != null && t.roi < f.roi) return false;
+      if (f.equity != null && t.account_value < f.equity) return false;
+      if (f.volume != null && t.volume < f.volume) return false;
+      // A floor promises everything above it cleared the bar, so a row that
+      // cannot be measured has to fail it rather than slip past on noise.
+      if (f.sharpe != null && (!sharpeMeasured(t) || t.sharpe < f.sharpe)) return false;
+      if (f.win != null && winScore(t) < f.win) return false;
+      if (f.trades != null && t.trades < f.trades) return false;
+      return true;
+    });
+  }, [traders, coinFilter, floors]);
+
   const sorted = useMemo(() => {
-    // Positions filter: keep traders that traded at least one selected coin.
-    const arr = coinFilter.size === 0 ? [...traders]
-      : traders.filter((t) => t.coins.some((c) => coinFilter.has(c)));
+    const arr = [...filtered];
+    const statSort = STAT_KEYS.includes(sortKey);
+    const metric = (t: TopTrader) => {
+      if (statSort && !hasStats(t)) return -Infinity;
+      // Both fill-derived ratios rank on their evidence, not their headline.
+      if (sortKey === "win_rate") return winScore(t);
+      if (sortKey === "sharpe") return sharpeMeasured(t) ? t.sharpe : -Infinity;
+      return t[sortKey] as number;
+    };
     arr.sort((a, b) => {
-      const cmp = (a[sortKey] as number) - (b[sortKey] as number);
+      const ma = metric(a), mb = metric(b);
+      // Unmeasured rows sink to the bottom in either direction.
+      if (ma === -Infinity || mb === -Infinity) return ma === mb ? 0 : ma === -Infinity ? 1 : -1;
+      const cmp = ma - mb;
       return sortDir === "desc" ? -cmp : cmp;
     });
     return arr;
-  }, [traders, sortKey, sortDir, coinFilter]);
+  }, [filtered, sortKey, sortDir]);
 
   const togglePick = (a: string) => {
     setPicked((p) => {
@@ -115,17 +265,24 @@ export default function TopTraders() {
     });
   };
 
-  const sortHeader = (k: SortKey, label: string, align: "left" | "right" = "right") => (
-    <button
-      className={`text-[10px] uppercase tracking-wider text-muted hover:text-ink
-        ${align === "right" ? "text-right" : "text-left"} w-full`}
-      onClick={() => {
-        if (sortKey === k) setSortDir(sortDir === "desc" ? "asc" : "desc");
-        else { setSortKey(k); setSortDir("desc"); }
-      }}>
-      {label}{sortKey === k ? (sortDir === "desc" ? " ▼" : " ▲") : ""}
-    </button>
-  );
+  const sortHeader = (k: SortKey, label: string, align: "left" | "right" = "right", title?: string) => {
+    const on = sortKey === k;
+    return (
+      <button
+        title={title}
+        className={`eyebrow !tracking-wider w-full inline-flex items-center gap-1 transition-colors hover:text-ink
+          ${align === "right" ? "justify-end" : "justify-start"} ${on ? "!text-accent" : ""}`}
+        onClick={() => {
+          if (on) setSortDir(sortDir === "desc" ? "asc" : "desc");
+          else { setSortKey(k); setSortDir("desc"); }
+        }}>
+        {label}
+        <span className={`text-[8px] transition-opacity ${on ? "opacity-100" : "opacity-0"}`}>
+          {on && sortDir === "asc" ? "▲" : "▼"}
+        </span>
+      </button>
+    );
+  };
 
   // Board-level stats for the tile strip — computed from what's on screen so
   // the tiles always agree with the table below them.
@@ -133,10 +290,26 @@ export default function TopTraders() {
     if (sorted.length === 0) return null;
     const vol = sorted.reduce((s, t) => s + (t.volume > 0 ? t.volume : 0), 0);
     const best = sorted.reduce((m, t) => (t.roi ?? -Infinity) > (m.roi ?? -Infinity) ? t : m, sorted[0]);
-    const wins = sorted.map((t) => t.win_rate).filter((w) => w >= 0).sort((a, b) => a - b);
+    // Median of the defensible rates, not the headline ones — a board full of
+    // 3-for-3 wallets would otherwise report a median win rate near 100%.
+    const wins = sorted.map(winScore).filter((w) => w >= 0).sort((a, b) => a - b);
     const medianWin = wins.length ? wins[Math.floor(wins.length / 2)] : null;
-    return { count: sorted.length, vol, best, medianWin };
+    const measured = sorted.filter(hasStats).length;
+    // Polarity of the board: who is up vs down over the window.
+    const up = sorted.filter((t) => (t.roi ?? 0) > 0).length;
+    const down = sorted.filter((t) => (t.roi ?? 0) < 0).length;
+    // Volume concentration: the biggest books first, so the tile shows how
+    // top-heavy the flow is.
+    const byVol = [...sorted].filter((t) => t.volume > 0).sort((a, b) => b.volume - a.volume).slice(0, 40);
+    const top3Share = vol > 0 ? byVol.slice(0, 3).reduce((s, t) => s + t.volume, 0) / vol : 0;
+    // ROI spread, best first — the best is the lit bar.
+    const byRoi = [...sorted].filter((t) => t.roi != null).sort((a, b) => (b.roi ?? 0) - (a.roi ?? 0)).slice(0, 40);
+    const maxAbsRoi = Math.max(...sorted.map((t) => Math.abs(t.roi ?? 0)), 1e-9);
+    return { count: sorted.length, vol, best, medianWin, measured, up, down, byVol, top3Share, byRoi, maxAbsRoi };
   }, [sorted]);
+
+  const measuredTotal = useMemo(() => traders.filter(hasStats).length, [traders]);
+  const universe = meta?.candidates ?? traders.length;
 
   const indexBuildHref = useMemo(() => {
     if (picked.size === 0) return "/strats/new";
@@ -144,88 +317,181 @@ export default function TopTraders() {
     return `/strats/new?seed=${encodeURIComponent(seedQ)}&days=${days}`;
   }, [picked, days]);
 
-  return (
-    <section className="space-y-4">
-      {/* Board stats — one glance before the table */}
-      {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="panel px-4 py-3">
-            <div className="stat">Traders on board</div>
-            <div className="text-xl font-semibold mt-0.5">{stats.count}</div>
-            <div className="text-[10px] text-dim mt-0.5">active ≤24h · pool {pool}</div>
-          </div>
-          <div className="panel px-4 py-3">
-            <div className="stat">Combined volume</div>
-            <div className="text-xl font-semibold mt-0.5">{fmtUsd(stats.vol)}</div>
-            <div className="text-[10px] text-dim mt-0.5">{days}d window</div>
-          </div>
-          <div className="panel px-4 py-3">
-            <div className="stat">Best ROI</div>
-            <div className={`text-xl font-semibold mt-0.5 ${(stats.best.roi ?? 0) >= 0 ? "text-win" : "text-loss"}`}>
-              {stats.best.roi == null ? "—" : `${stats.best.roi >= 0 ? "+" : ""}${fmtPct(stats.best.roi, 1)}`}
-            </div>
-            <div className="text-[10px] text-dim mt-0.5 font-mono">{shortAddr(stats.best.address)}</div>
-          </div>
-          <div className="panel px-4 py-3">
-            <div className="stat">Median win rate</div>
-            <div className="text-xl font-semibold mt-0.5">
-              {stats.medianWin == null ? "—" : fmtPct(stats.medianWin, 0)}
-            </div>
-            <div className="text-[10px] text-dim mt-0.5">across traders with fills</div>
-          </div>
-        </div>
-      )}
+  const floorInput = (k: keyof Floors, label: string, ph: string, title: string, w = "w-16") => (
+    <label className="flex items-center gap-1.5 text-[10px] text-muted" title={title}>
+      <span className="uppercase tracking-wider">{label} ≥</span>
+      <input className={`input !py-0 !px-2 h-[22px] ${w} text-[10px] font-mono`}
+        placeholder={ph} value={floors[k] as string}
+        onChange={(e) => setFloors((f) => ({ ...f, [k]: e.target.value }))} />
+    </label>
+  );
 
-      {/* Filters — one compact row; seed input tucked behind a toggle */}
-      <div className="panel p-3 space-y-2.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="seg" title="ROI window">
-            {DAY_OPTIONS.map((d) => (
-              <button key={d} onClick={() => setDays(d)}
-                className={`seg-btn ${days === d ? "seg-btn-active" : ""}`}>{d}d</button>
-            ))}
-          </div>
-          <div className="seg" title="candidate pool size — traders scanned from the leaderboard">
-            <span className="px-1.5 text-[9px] uppercase tracking-wider text-dim">pool</span>
-            {POOL_OPTIONS.map((p) => (
-              <button key={p} onClick={() => setPool(p)}
-                className={`seg-btn ${pool === p ? "seg-btn-active" : ""}`}>{p}</button>
-            ))}
-          </div>
-          <button className="btn-primary" onClick={load} disabled={loading}>
-            {loading ? (pct != null ? `syncing ${pct}%` : "syncing…") : "scan"}
-          </button>
+  const shown = sorted.slice(0, visible);
+  const fmtN = (n: number) => n.toLocaleString("en-US");
+  const coinList = Array.from(coinFilter);
+
+  // Curves for exactly the cards on screen — one request per screenful, and
+  // none at all in table view, where the curve is a hover. `lib/curves` caches
+  // by wallet+window, so re-sorting a drawn grid re-renders without fetching.
+  const shownAddrs = useMemo(() => shown.map((t) => t.address), [shown]);
+  const curves = useCurves(shownAddrs, days, view === "cards");
+
+  // Why a row has no win rate / sharpe / coins — the board's own rule, said in
+  // the place the missing number is, rather than left as a bare dash.
+  const enrichNote = `Not measured — only the top ${enrich} wallets by ${rank} get fill stats.` +
+    ` Raise "measure · top" in the filters, or rank by something this wallet is near the top of.`;
+
+  return (
+    <section className="space-y-5">
+      {/* Page heading — what this board is, and how fresh it is */}
+      <PageHead
+        title="Top traders"
+        blurb={
+          <>
+            Every wallet on the Hyperliquid leaderboard with at least $1k of equity that traded in the
+            last 24h, ranked by {days}-day return on equity
+            {coinList.length > 0 ? ` and trading ${coinList.join(" / ")}` : ""}. Fill stats are
+            measured for the top {enrich} by {rank}. Copy one outright, or pick a few and build a strat.
+          </>
+        }
+        right={
+          <Freshness loading={loading || scanning} label={
+            loading || scanning
+              ? (pct != null ? `syncing ${pct}%` : "syncing…")
+              : meta?.updated_at ? `updated ${ago(meta.updated_at)}` : "waiting for the first scan"
+          } />
+        }
+      />
+
+      {/* Filters — rides at the top of the board on scroll, and folds down to a
+          one-line summary when the table is what you're reading. Window /
+          measure depth, then score floors, then coins. */}
+      <div className="panel bg-bg/90 sticky top-16 z-20 p-3 space-y-3">
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
           <button
-            className={`btn ${seedOpen || seed.trim() ? "border-accent/40 text-accent2" : ""}`}
-            title="Seed the scan with specific wallets"
-            onClick={() => setSeedOpen((v) => !v)}>
-            seeds{seed.trim() ? " ●" : ""}
+            className={`btn !px-2.5 self-center ${filtersOpen ? "" : "!text-ink"}`}
+            title={filtersOpen ? "Fold the filters away" : "Open the filters"}
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((v) => !v)}>
+            <span className={`inline-block w-0 h-0 border-y-[4px] border-y-transparent
+              border-l-[5px] border-l-current transition-transform duration-150
+              ${filtersOpen ? "rotate-90" : ""}`} />
+            filters
           </button>
-          <span className="ml-auto flex items-center gap-2 text-[10px] text-muted whitespace-nowrap">
-            <label className="flex items-center gap-1 select-none cursor-pointer">
-              <input type="checkbox" className="accent-accent" checked={autoRefresh}
-                onChange={(e) => setAutoRefresh(e.target.checked)} />
-              auto
-            </label>
-            <span title="Only wallets that traded in the last 24h are scanned">
-              active ≤24h{updatedAt ? ` · updated ${ago(updatedAt)}` : ""}
-            </span>
-          </span>
+          {filtersOpen ? (
+            <>
+              <Field label="window" title="ROI window">
+                <div className="seg">
+                  {DAY_OPTIONS.map((d) => (
+                    <button key={d} onClick={() => setDays(d)}
+                      className={`seg-btn ${days === d ? "seg-btn-active" : ""}`}>{d}d</button>
+                  ))}
+                </div>
+              </Field>
+              <Field label="measure" title="which top wallets get fill stats — win%, sharpe, trades, coins">
+                <div className="seg">
+                  <span className="px-1.5 text-[9px] uppercase tracking-wider text-dim">top</span>
+                  {ENRICH_OPTIONS.map((n) => (
+                    <button key={n} onClick={() => setEnrich(n)}
+                      className={`seg-btn ${enrich === n ? "seg-btn-active" : ""}`}>{n}</button>
+                  ))}
+                  <span className="px-1.5 text-[9px] uppercase tracking-wider text-dim">by</span>
+                  {RANKS.map((r) => (
+                    <button key={r.k} onClick={() => setRank(r.k)} title={r.hint}
+                      className={`seg-btn ${rank === r.k ? "seg-btn-active" : ""}`}>{r.label}</button>
+                  ))}
+                </div>
+              </Field>
+              {/* Cards have no column headers to click, so the sort lives in
+                  the toolbar. It drives the same state the table's headers do,
+                  so switching views never loses the order you chose. */}
+              <Field label="order" title="how the board is sorted — the stat every card lights">
+                <div className="seg">
+                  <select className="seg-btn !text-ink bg-transparent outline-none cursor-pointer"
+                    value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
+                    {SORT_LABELS.map((s) => (
+                      <option key={s.k} value={s.k} className="bg-bg text-ink">{s.label}</option>
+                    ))}
+                  </select>
+                  <button className="seg-btn seg-btn-active"
+                    title={sortDir === "desc" ? "best first — click for worst first" : "worst first — click for best first"}
+                    onClick={() => setSortDir(sortDir === "desc" ? "asc" : "desc")}>
+                    {sortDir === "desc" ? "best first" : "worst first"}
+                  </button>
+                </div>
+              </Field>
+            </>
+          ) : (
+            // Folded: everything the board is being asked for, as pills. Click
+            // any of them to get the controls back.
+            <button className="flex flex-wrap items-center gap-1.5 self-center text-left"
+              title="Open the filters" onClick={() => setFiltersOpen(true)}>
+              <span className="pill !text-ink !border-white/20">{days}d</span>
+              <span className="pill">top {enrich} · {rank}</span>
+              {floorSummary.map((f) => (
+                <span key={f} className="pill !border-accent/40 !text-accent !bg-accent/10">{f}</span>
+              ))}
+              {coinList.length > 0 && (
+                <span className="pill !border-accent/40 !text-accent !bg-accent/10">
+                  {coinList.slice(0, 4).join(" / ")}{coinList.length > 4 ? ` +${coinList.length - 4}` : ""}
+                </span>
+              )}
+              {!floorsActive && coinList.length === 0 && (
+                <span className="text-[10px] uppercase tracking-wider text-dim">no score floors</span>
+              )}
+            </button>
+          )}
+          <div className="ml-auto flex items-center gap-2 pb-0.5">
+            <div className="seg" title="Cards show each wallet's pnl curve; the table packs more rows on screen">
+              <button onClick={() => switchView("cards")}
+                className={`seg-btn ${view === "cards" ? "seg-btn-active" : ""}`}>cards</button>
+              <button onClick={() => switchView("table")}
+                className={`seg-btn ${view === "table" ? "seg-btn-active" : ""}`}>table</button>
+            </div>
+            <Switch on={autoRefresh} onChange={setAutoRefresh} label="auto" />
+            <button
+              className={`btn ${seedOpen || seed.trim() ? "!border-accent/40 !text-accent" : ""}`}
+              title="Seed the scan with specific wallets"
+              onClick={() => { setFiltersOpen(true); setSeedOpen((v) => !v); }}>
+              seeds{seed.trim() ? " ●" : ""}
+            </button>
+            <button className="btn-primary min-w-[6.5rem]" onClick={load} disabled={loading || scanning}>
+              {loading || scanning ? (pct != null ? `syncing ${pct}%` : "syncing…") : "scan"}
+            </button>
+          </div>
         </div>
-        {seedOpen && (
+        {filtersOpen && seedOpen && (
           <input className="input w-full font-mono" autoFocus
             placeholder="seed wallets — 0xabc…, 0xdef… (comma-separated)"
             value={seed} onChange={(e) => setSeed(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && load()} />
         )}
-        {coinOptions.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="text-[9px] uppercase tracking-[0.14em] text-dim mr-1"
-              title="Only show traders who traded these coins">coins</span>
+        {filtersOpen && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-white/[0.05] pt-3">
+            <span className="eyebrow mr-1"
+              title="Score floors — applied instantly to every wallet on the board">score</span>
+            {floorInput("roi", "roi", "%", "window return on equity, percent — priced for every wallet")}
+            {floorInput("equity", "equity", "$", "account value — priced for every wallet", "w-20")}
+            {floorInput("volume", "volume", "$", "window volume — priced for every wallet", "w-20")}
+            {floorInput("sharpe", "sharpe", "1.0", "daily-PnL sharpe — only measured rows qualify")}
+            {floorInput("win", "win", "%", "win rate a row can defend at its sample size (Wilson 95% lower bound) — only measured rows qualify", "w-14")}
+            {floorInput("trades", "trades", "n", "fills in the window — only measured rows qualify", "w-14")}
+            <span title="Hide rows that haven't been measured from fills (no win% / sharpe yet)">
+              <Switch on={floors.stats} onChange={(v) => setFloors((f) => ({ ...f, stats: v }))} label="measured only" />
+            </span>
+            {floorsActive && (
+              <button className="pill hover:text-ink" onClick={() => setFloors(NO_FLOORS)}>✕ clear</button>
+            )}
+          </div>
+        )}
+        {filtersOpen && (coinOptions.length > 0 || !loading) && (
+          <div className="flex flex-wrap items-center gap-1.5 border-t border-white/[0.05] pt-3">
+            <span className="eyebrow mr-1"
+              title="Requirement: the scan keeps walking the leaderboard until it has enough wallets that traded one of these">coins</span>
             {(coinsExpanded ? coinOptions : coinOptions.slice(0, 8)).map((c) => (
               <button key={c} onClick={() => toggleCoin(c)}
                 className={`pill transition-colors ${coinFilter.has(c)
-                  ? "!border-accent/60 !text-accent !bg-accent/10" : "hover:text-ink"}`}>
+                  ? "!border-accent/60 !text-accent !bg-accent/10" : "hover:text-ink hover:border-white/20"}`}>
                 {c}
               </button>
             ))}
@@ -239,12 +505,69 @@ export default function TopTraders() {
                 ✕ clear
               </button>
             )}
+            <input className="input !py-0 !px-2 h-[22px] w-24 text-[10px] font-mono uppercase !rounded-full"
+              placeholder="+ coin" value={coinDraft} title="Require any coin — press enter"
+              onChange={(e) => setCoinDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addCoin()} onBlur={addCoin} />
           </div>
         )}
       </div>
 
+      {/* Board stats — one glance before the table */}
+      {stats && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Kpi label="Traders on board"
+            value={
+              <>
+                {fmtN(stats.count)}
+                {stats.count !== traders.length && (
+                  <span className="text-sm font-normal text-dim"> / {fmtN(traders.length)}</span>
+                )}
+              </>
+            }
+            sub={
+              coinFilter.size > 0
+                ? <span title={`top ${enrich} active wallets that traded ${coinList.join(", ")} — ${meta?.depth ?? "?"} leaderboard rows walked to find them`}>
+                    trade {coinList.join(" / ")} · walked {meta?.depth ?? "—"}
+                  </span>
+                : <span title={`every wallet on the leaderboard with ≥ $1k equity that traded in the last 24h (${fmtN(universe)}); fill stats fetched for the top ${enrich} by ${rank} only`}>
+                    <span className="text-win">{fmtN(stats.up)} up</span> · <span className="text-loss">{fmtN(stats.down)} down</span>
+                    {" · "}{floorsActive ? `of ${fmtN(universe)} active` : `stats on top ${fmtN(measuredTotal)}`}
+                  </span>
+            }>
+            <SplitBar up={stats.up} down={stats.down} />
+          </Kpi>
+
+          <Kpi label="Combined volume" value={fmtUsd(stats.vol)}
+            sub={<>{days}d window · top 3 books are {fmtPct(stats.top3Share * 100, 0)} of it</>}>
+            <SparkBars values={stats.byVol.map((t) => t.volume)}
+              titles={stats.byVol.map((t) => `${shortAddr(t.address)} · ${fmtUsd(t.volume)}`)} />
+          </Kpi>
+
+          <Kpi label="Best ROI"
+            tone={(stats.best.roi ?? 0) >= 0 ? "win" : "loss"}
+            value={stats.best.roi == null ? "—" : `${stats.best.roi >= 0 ? "+" : ""}${fmtPct(stats.best.roi, 1)}`}
+            sub={
+              <Link href={`/trader/${stats.best.address}?days=${days}`}
+                className="inline-flex items-center gap-1.5 font-mono text-ink/80 hover:text-accent transition-colors">
+                <Identicon address={stats.best.address} size={12} />
+                {shortAddr(stats.best.address)}
+              </Link>
+            }>
+            <SparkBars values={stats.byRoi.map((t) => t.roi ?? 0)} hot={0}
+              titles={stats.byRoi.map((t) => `${shortAddr(t.address)} · ${(t.roi ?? 0) >= 0 ? "+" : ""}${fmtPct(t.roi ?? 0, 1)}`)} />
+          </Kpi>
+
+          <Kpi label="Median win rate"
+            value={stats.medianWin == null ? "—" : fmtPct(stats.medianWin, 0)}
+            sub={<>across {fmtN(stats.measured)} measured trader{stats.measured === 1 ? "" : "s"}</>}>
+            <Meter pct={stats.medianWin ?? 0} />
+          </Kpi>
+        </div>
+      )}
+
       {/* Sync progress — shown while the API is actively scanning Hyperliquid */}
-      {loading && (
+      {(loading || scanning) && (
         <div className="panel p-3 space-y-2">
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-accent2">
@@ -273,7 +596,7 @@ export default function TopTraders() {
 
       {/* Selection bar */}
       {picked.size > 0 && (
-        <div className="panel p-3 flex items-center gap-3">
+        <div className="panel p-3 flex items-center gap-3 !border-accent/30 shadow-glow">
           <span className="text-xs text-accent2">{picked.size} selected</span>
           <Link href={indexBuildHref} className="btn-primary">build strat from selection</Link>
           <button className="btn" onClick={() => setPicked(new Set())}>clear</button>
@@ -282,44 +605,48 @@ export default function TopTraders() {
 
       {/* Table — horizontal scroll on narrow screens instead of crushed columns */}
       <div className="panel overflow-x-auto">
-       <div className="min-w-[640px]">
-        <div className={`${GRID} py-2 border-b border-border`}>
-          <div className="label !mb-0">trader</div>
+       <div className="min-w-[760px]">
+        <div className={`${GRID} py-2.5 table-head`}>
+          <div className="eyebrow !tracking-wider">trader</div>
           <div>{sortHeader("roi", "roi")}</div>
+          <div>{sortHeader("account_value", "equity")}</div>
           <div>{sortHeader("volume", "volume")}</div>
-          <div>{sortHeader("win_rate", "win%")}</div>
-          <div>{sortHeader("sharpe", "sharpe")}</div>
-          <div className="label !mb-0 text-right">last</div>
+          <div>{sortHeader("win_rate", "win%", "right", "ranked by the rate each row can defend at its sample size, not the headline percent")}</div>
+          <div>{sortHeader("sharpe", "sharpe", "right", "measured rows first")}</div>
+          <div className="eyebrow !tracking-wider text-right">last</div>
           <div />
         </div>
         {err && <div className="px-4 py-3 text-xs text-loss">{err}</div>}
-        {loading && sorted.length === 0 &&
+        {(loading || scanning) && sorted.length === 0 &&
           [...Array(6)].map((_, i) => (
             <div key={i} className={`${GRID} py-3 items-center table-row`}>
               <div className="skeleton h-4 w-44" />
-              {[...Array(6)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
+              {[...Array(7)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
             </div>
           ))}
-        {!err && !loading && sorted.length === 0 && (
-          <div className="px-4 py-8 text-center text-xs text-muted">
-            no traders match the filters yet — try a wider pool or longer window{coinFilter.size > 0 ? ", or clear the positions filter" : ""}.
+        {!err && !loading && !scanning && sorted.length === 0 && (
+          <div className="px-4 py-10 text-center text-xs text-muted">
+            {coinFilter.size > 0
+              ? `no active wallet in the top ${meta?.depth ?? "—"} of the leaderboard traded ${coinList.join(" / ")} in the last ${days}d — try another coin or a longer window.`
+              : floorsActive
+                ? `none of the ${fmtN(traders.length)} active wallets clear these floors — loosen a score, or raise "measure · top" so more rows are measured.`
+                : "no traders match the filters yet — try a longer window."}
           </div>
         )}
-        {sorted.map((t, i) => {
+        {shown.map((t, i) => {
           const rank = i + 1;
-          const medal = rank === 1 ? "text-warn border-warn/40 shadow-glow"
-            : rank <= 3 ? "text-accent border-accent/40" : "text-dim border-white/[0.08]";
+          const pos = (t.roi ?? 0) >= 0;
+          const isPicked = picked.has(t.address);
           return (
           <div key={t.address}
-            className={`group ${GRID} py-2 items-center table-row hover:bg-accent/[0.04]`}>
-            <div className="flex items-center gap-2 min-w-0">
-              <span className={`grid place-items-center h-5 w-5 shrink-0 rounded-md border text-[10px] font-mono font-semibold ${medal}`}>
-                {rank}
-              </span>
-              <input type="checkbox" className="accent-accent" checked={picked.has(t.address)}
+            className={`group ${GRID} py-2.5 items-center table-row hover:bg-accent/[0.04] ${isPicked ? "bg-accent/[0.05]" : ""}`}>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Medal rank={rank} />
+              <input type="checkbox" className="accent-accent" checked={isPicked}
                 onChange={() => togglePick(t.address)} />
               <Link href={`/trader/${t.address}?days=${days}`} title="view trader"
-                className="font-mono text-accent2 hover:text-accent transition-colors shrink-0">
+                className="flex items-center gap-2 font-mono text-[13px] text-ink/90 hover:text-accent transition-colors shrink-0">
+                <Identicon address={t.address} />
                 {shortAddr(t.address)}
               </Link>
               {(() => {
@@ -344,28 +671,68 @@ export default function TopTraders() {
             </div>
             <div className="text-right"
               title={t.account_value > 0 ? `on ${fmtUsd(t.account_value)} equity` : undefined}>
-              <div className={`num font-semibold ${(t.roi ?? 0) >= 0 ? "text-win" : "text-loss"}`}>
+              <div className={`num font-semibold ${pos ? "text-win" : "text-loss"}`}>
                 {t.roi == null ? "—" : `${t.roi >= 0 ? "+" : ""}${fmtPct(t.roi, 1)}`}
               </div>
               <div className={`num text-[10px] leading-tight ${t.pnl >= 0 ? "text-win/60" : "text-loss/60"}`}>
                 {fmtPnl(t.pnl)}
               </div>
+              {/* ROI as a bar against the board's largest move — the column reads at a glance. */}
+              {stats && <DataBar value={t.roi ?? 0} max={stats.maxAbsRoi} />}
             </div>
+            <div className="num text-right text-ink/80">{t.account_value > 0 ? fmtUsd(t.account_value) : "—"}</div>
             <div className="num text-right text-ink/90">{t.volume > 0 ? fmtUsd(t.volume) : "—"}</div>
-            <div className="text-right">
-              <div className="num text-ink/90">{t.win_rate < 0 ? "—" : fmtPct(t.win_rate, 0)}</div>
+            <div
+              className="text-right"
+              title={
+                !hasStats(t)
+                  ? `not measured — only the top ${enrich} by ${rank} get fill stats`
+                  : `${t.wins} win / ${t.losses} loss over ${t.closes} closes, net of fees` +
+                    ` (${t.trades} fills total; opens can neither win nor lose).` +
+                    ` Defensible rate at this sample size: ${fmtPct(winScore(t), 0)}.`
+              }
+            >
+              <div className={`num ${t.confidence === "low" ? "text-warn" : "text-ink/90"}`}>
+                {t.win_rate < 0 ? "—" : fmtPct(t.win_rate, 0)}
+              </div>
+              {/* The denominator, not the fill count. "70% · 130 tx" invites the
+                  reader to assume 130 decided trades when it may have been 9.
+                  Never substitute `trades` when `closes` is missing — that is
+                  the same substitution this whole change exists to undo. */}
               <div className="num text-[10px] leading-tight text-dim">
-                {t.win_rate < 0 ? "" : `${t.trades} tx`}
+                {t.win_rate < 0 ? "" : t.closes > 0 ? `${t.closes} closes` : `${t.trades} fills`}
               </div>
             </div>
-            <div className="num text-right text-ink/90">{t.win_rate < 0 ? "—" : t.sharpe.toFixed(2)}</div>
+            <div
+              className="num text-right text-ink/90"
+              title={
+                !hasStats(t) ? undefined
+                  : sharpeMeasured(t) ? `annualised, over ${t.sharpe_days} days`
+                  : `only ${t.sharpe_days} days of history — too few for a Sharpe ratio`
+              }
+            >
+              {!hasStats(t) || !sharpeMeasured(t) ? "—" : t.sharpe.toFixed(2)}
+            </div>
             <div className="text-right text-[11px] text-muted">{t.last_active > 0 ? ago(t.last_active) : "≤24h"}</div>
-            <div className="flex justify-end opacity-80 group-hover:opacity-100 transition-opacity">
-              <Link href={`/follows/new?leader=${t.address}`} className="btn-primary">copy</Link>
+            <div className="flex justify-end">
+              <Link href={`/follows/new?leader=${t.address}`} className="btn-ghost">copy</Link>
             </div>
           </div>
           );
         })}
+        {sorted.length > 0 && (
+          <div className="flex items-center gap-3 px-4 py-3 text-[11px] text-muted">
+            <span>showing {fmtN(shown.length)} of {fmtN(sorted.length)}</span>
+            {shown.length < sorted.length && (
+              <>
+                <button className="btn" onClick={() => setVisible((v) => v + PAGE)}>
+                  +{fmtN(Math.min(PAGE, sorted.length - shown.length))} more
+                </button>
+                <button className="btn" onClick={() => setVisible(sorted.length)}>show all</button>
+              </>
+            )}
+          </div>
+        )}
        </div>
       </div>
     </section>

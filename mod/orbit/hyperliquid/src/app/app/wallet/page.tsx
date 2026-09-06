@@ -104,7 +104,7 @@ export default function WalletPage() {
   if (!eoa) {
     return (
       <div className="max-w-xl space-y-4">
-        <h1 className="text-xl text-ink">Wallet</h1>
+        <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">Wallet</h1>
         <div className="panel p-6 text-center space-y-3">
           <p className="text-xs text-muted">
             Connect MetaMask to deposit and withdraw funds, invest in vaults and strats, and enable copy-trading.
@@ -120,7 +120,7 @@ export default function WalletPage() {
   return (
     <div className="max-w-3xl space-y-5">
       <div>
-        <h1 className="text-xl text-ink">Wallet</h1>
+        <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">Wallet</h1>
         <p className="text-xs text-muted mt-1">
           <span className="font-mono text-accent2">{shortAddr(eoa)}</span>
           {kind === "watch" && <span className="text-warn ml-2">watch-only — connect MetaMask to sign</span>}
@@ -140,8 +140,9 @@ export default function WalletPage() {
       )}
 
       <div className="grid md:grid-cols-2 gap-4">
-        {/* Deposit — cross-chain on mainnet (Ethereum/Base/Polygon/Arbitrum via
-            LI.FI bridge), plain Arbitrum USDC form on testnet. */}
+        {/* Deposit — on mainnet, one transaction from any of seven chains
+            and any token held there (LI.FI routes straight into the HL
+            account); plain Arbitrum USDC form on testnet. */}
         {cfg && !cfg.testnet ? (
           <DepositPanel wallet={wallet} cfg={cfg} eoa={eoa} canSign={canSign}
             onDone={(m) => { setMsg(m); setErr(null); refresh(); }} />

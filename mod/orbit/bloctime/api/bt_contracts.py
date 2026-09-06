@@ -30,6 +30,7 @@ MODULE_DIR = Path(__file__).parent.parent
 COMPILER = MODULE_DIR / 'scripts' / 'compile.js'
 STORE_DIR = Path(os.path.expanduser('~/.mod/bloctime'))
 STORE_PATH = STORE_DIR / 'contracts.json'
+MAX_DEPLOYMENTS = 500
 
 
 # ── Compile ──────────────────────────────────────────────────────────────
@@ -136,6 +137,8 @@ def add_deployment(name, address, abi, rpc, chain_id='', deployer='', tx_hash=''
         chain_id = str(w3.eth.chain_id)
 
     entries = _load()
+    if len(entries) >= MAX_DEPLOYMENTS:
+        raise ValueError(f"Deployment store is full ({MAX_DEPLOYMENTS} entries)")
     for e in entries:
         if e['address'].lower() == address.lower() and str(e['chainId']) == str(chain_id):
             raise ValueError(f"Already recorded as '{e['id']}'")
@@ -195,7 +198,7 @@ def deploy(abi, bytecode, args=None, rpc=None, private_key=None, gas=None):
     ctor = factory.constructor(*(args or []))
     tx = ctor.build_transaction({
         'from': account.address,
-        'nonce': w3.eth.get_transaction_count(account.address),
+        'nonce': w3.eth.get_transaction_count(account.address, 'pending'),
     })
     tx['gas'] = int(gas) if gas else int(w3.eth.estimate_gas(tx) * 1.2)
     signed = account.sign_transaction(tx)

@@ -1,0 +1,116 @@
+{
+    "name": "freetoken",
+    "version": "0.1.0",
+    "description": "A mod handle on FreeToken \u2014 the edge-native Mixture-of-Experts serving engine that runs frontier open-weight models on one consumer GPU by keeping the experts in host RAM and streaming or computing them as the machine's bandwidth dictates. The engine needs Linux, an NVIDIA card on r580+ and CUDA 13; this module needs none of that, because its whole client half is stdlib over HTTP and the box with the GPU is almost never the box you are sitting at. So it does both halves honestly: on a machine that qualifies it reports the preflight line by line, installs ft into a venv of its own (those torch and kernel pins belong nowhere near a shared environment), and supervises ft serve with a pidfile and a log. On a machine that does not, it registers the ones that do \u2014 the serve port for inference, the control-daemon port for starting and switching models \u2014 and drives them from here. Anything it can read from the engine rather than guess, it reads: the served model name comes from /v1/models, the pool table from /v1/cache/status, the bandwidth profile that chose offload over hybrid from the daemon. Then it re-serves the fleet one stable base_url on :50660 that speaks both OpenAI and Anthropic, streaming passed through chunk for chunk, so anything holding a base_url can point at a gaming PC instead of a vendor while the engine behind it moves between machines and models.",
+    "icon": "\u25e9",
+    "color": "#7dd3fc",
+    "anchor": "mod.py",
+    "protocol": "freetoken/1.0",
+    "port": 50660,
+    "app_port": 50661,
+    "gateway_port": 50660,
+    "base_path": "/freetoken",
+    "route": false,
+    "urls": {
+        "api": "http://localhost:50660",
+        "app": "http://localhost:50661/freetoken",
+        "same_origin_api": "http://localhost:50661/freetoken/_api",
+        "openai_base": "http://localhost:50660/v1",
+        "upstream": "https://github.com/FlashML-org/FreeToken",
+        "paper": "https://arxiv.org/abs/2608.16157",
+        "download": "https://www.flashml.ai/"
+    },
+    "wraps": {
+        "project": "FreeToken",
+        "org": "FlashML-org",
+        "license": "Apache-2.0",
+        "cite": "Yang et al., FreeToken: Efficient Edge-Native MoE Serving with Bandwidth-Adaptive Execution, arXiv:2608.16157 (2026)",
+        "vendored": false,
+        "how": "installed on demand into ~/.mod/freetoken/venv, or reached over HTTP where it already runs"
+    },
+    "backend": "src/api.py (FastAPI \u2014 the API, :50660)",
+    "frontend": "src/app.py (stdlib \u2014 the console at /freetoken on :50661; proxies /freetoken/_api)",
+    "state": "~/.mod/freetoken \u2014 boxes.json (0600, may hold a daemon token), logs/, venv/, models/. Nothing private is ever written into this repo.",
+    "deps": [
+        "fastapi",
+        "uvicorn"
+    ],
+    "engine_requirements": {
+        "os": "Linux x86_64",
+        "gpu": "NVIDIA, driver r580+ (native support for RTX 30/40/50)",
+        "cuda": "13, with nvcc on PATH \u2014 kernels are JIT-compiled on first use",
+        "python": ">= 3.10",
+        "note": "none of these are required to USE this module against a remote engine"
+    },
+    "ports_upstream": {
+        "serve": "1919 \u2014 ft serve: OpenAI /v1/*, Anthropic /v1/messages, /health, /v1/stats, /v1/cache/*, /v1/requests, /generate",
+        "daemon": "1900 \u2014 ft daemon: /engine/start|stop|switch|status|logs|metrics, /bench/*, /checkpoint/*; X-FT-Token when started with --token"
+    },
+    "moe_backends": {
+        "auto": "dense \u2192 fused; MoE \u2192 offload, upgraded to hybrid when a cached bench profile recommends it",
+        "fused": "experts resident on the GPU \u2014 needs the VRAM, never auto-selected",
+        "offload": "experts in host RAM, an LRU cache of expert slots on the GPU; misses stream over PCIe",
+        "cpu": "misses are computed on the CPU instead of fetched",
+        "hybrid": "fetch some misses over PCIe, compute the rest on CPU, overlapped \u2014 calibrated by ft bench bw"
+    },
+    "endpoints": {
+        "info": "GET /",
+        "health": "GET /health",
+        "preflight": "GET /preflight",
+        "install": "GET /install | POST /install (loopback) | DELETE /install | GET /install/log",
+        "boxes": "GET /boxes | POST /boxes (loopback) | DELETE /boxes/{name} | POST /boxes/{name}/use | GET /boxes/{name}/probe",
+        "models": "GET /models?box=&size=",
+        "engine": "POST /start (loopback) | POST /switch | POST /stop | GET /server?box= | GET /logs",
+        "telemetry": "GET /stats?box= | GET /cache?box= | POST /cache/rebuild | GET /requests?box= | GET /profile",
+        "inference": "POST /chat (stream=true) | POST /generate",
+        "provider": "GET /v1/models | POST /v1/chat/completions | POST /v1/completions | POST /v1/messages | POST /v1/messages/count_tokens | POST /v1/responses"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "readme",
+        "health",
+        "preflight",
+        "install",
+        "install_log",
+        "ft",
+        "boxes",
+        "add_box",
+        "drop_box",
+        "use_box",
+        "probe",
+        "models",
+        "start",
+        "switch",
+        "stop",
+        "server",
+        "logs",
+        "ask",
+        "chat",
+        "generate",
+        "count_tokens",
+        "stats",
+        "cache",
+        "resize",
+        "requests",
+        "bench",
+        "profile",
+        "checkpoint",
+        "launch",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "env": {
+        "FREETOKEN_DIR": "state directory (default ~/.mod/freetoken)",
+        "FREETOKEN_PORT": "this module's API port (default 50660)",
+        "FREETOKEN_APP_PORT": "this module's console port (default 50661)",
+        "FREETOKEN_MODELS": "colon-separated extra directories to scan for checkpoints",
+        "HF_HOME": "where the Hugging Face cache is scanned from"
+    },
+    "services": [
+        "freetoken-api",
+        "freetoken-app"
+    ],
+    "schema": "Qmb1KwdZEZE18zNaCiCBbXo8KWGekNRPf8sim6mnWKYsQM"
+}

@@ -26,6 +26,11 @@ module.exports = {
       env: {
         PORT: API_PORT,
         MOD_ORBIT_DIR: ORBIT_DIR,
+        // Peer modules the API talks to: the chain hub for the on-chain
+        // registry + its key-signed stake ledger, and bloctime for the live
+        // BLOC balance behind every wallet-signed module stake.
+        CHAIN_API_URL: process.env.CHAIN_API_URL || "http://localhost:8800",
+        BLOCTIME_API_URL: process.env.BLOCTIME_API_URL || "http://localhost:8851",
       },
     },
     {
@@ -40,6 +45,10 @@ module.exports = {
         PORT: APP_PORT,
         NEXT_PUBLIC_BASE_PATH: "/web",
         MOD_API_URL: `http://localhost:${API_PORT}`,
+        // Server-side proxy targets for {basePath}/api/chain and
+        // {basePath}/api/bloctime (see next.config.mjs).
+        CHAIN_API_URL: process.env.CHAIN_API_URL || "http://localhost:8800",
+        BLOCTIME_API_URL: process.env.BLOCTIME_API_URL || "http://localhost:8851",
       },
     },
   ],

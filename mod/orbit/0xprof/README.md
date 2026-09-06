@@ -90,6 +90,30 @@ the proof in their own tab and got `invalid` is either wrong or has caught this
 box lying, and there is no third option — so it gets its own column, and it
 never changes a status by itself.
 
+## Signing in, with or without a wallet
+
+An address is the whole account: no password, no email, nothing to register.
+There are two ways to prove you hold one and the server cannot tell them apart,
+because there is nothing there to tell apart — both end at an address recovered
+from a `personal_sign` signature.
+
+```
+wallet     an extension signs the challenge from POST /auth/challenge
+anonymous  the console generates a secp256k1 key in the tab (src/app/keys.js —
+           keccak-256 and the curve in BigInt, no dependencies) and signs the
+           same challenge with it
+token      a mod-protocol token, for anything calling from the CLI
+```
+
+An anonymous account is not a guest mode. It publishes, buys, posts bounties
+and re-verifies like any other address, its runs appear on the roster under
+their own name, and a reader can recover that address from the signature
+without this box in the room. What differs is custody: that key lives in one
+browser's `localStorage`, so clearing site data destroys the account and
+everything owed to it. The WALLET tab shows the key, copies it out and imports
+one back, and says so in those words — a key you cannot take with you is not
+really yours.
+
 ## The market
 
 - **Proofs** are the goods. The statement — the verification key and the public
@@ -101,6 +125,18 @@ never changes a status by itself.
   mechanical — a verification key (which pins the circuit) plus constraints on
   the public signals (`equals`, `min`, `max`). Whether a submission qualifies
   is decided by arithmetic, not by argument.
+- **Staked rounds** put skin on the prover's side too. A bounty posted with a
+  `stake` (a dollar, by default) runs in rounds: a prover signs in by locking
+  the stake for one numbered token — no token, no submission — and nothing
+  settles until the reset, the next UTC midnight (`settle=daily`) or the
+  seventh one out (`weekly`). At the reset every token liquidates and the
+  proof settles in one motion: among accepted submissions the lowest token
+  number wins — first to *sign*, not first to upload — and takes the reward,
+  their stake back, and the stakes of every seat that never submitted.
+  A holder who submitted anything, even a failed proof, liquidates at par.
+  An unwon round returns every stake and resets daily with the same escrow,
+  until the bounty's own TTL sends it home. Nobody — poster, winner, owner —
+  can settle early: the lock is what the stake bought.
 - **Refunds** are the guarantee that makes the rest mean anything: a proof sold
   as verified that stops verifying can be unwound against the seller's balance,
   which is allowed to go negative. Selling a bad proof and withdrawing is not a
@@ -138,6 +174,14 @@ The console is plain ES modules behind a stdlib proxy, so the app half stays up
 while the API restarts. Behind the gateway the same page works unchanged: it
 asks its own origin for `_api`.
 
+It is drawn as an 8-bit cabinet — hard edges, four-pixel drop shadows, scanlines
+over the whole tube, and Press Start 2P served from `src/app/fonts/` so the look
+does not depend on a CDN. One rule keeps it usable: **chrome is pixel, data is
+mono.** A 5×7 bitmap face cannot tell `0` from `O` or `8` from `B`, which is
+exactly the wrong property for a page full of addresses, curve points and public
+signals — so labels, tabs, buttons and headings are the pixel font, and every
+hex string stays in a face you can read a nonce out of.
+
 ## From the CLI
 
 ```bash
@@ -146,13 +190,16 @@ m 0xprof/methods                            # who can verify what, right now
 m 0xprof/verify proof=fixtures/threshold_g16_proof.json \
                 vkey=fixtures/threshold_g16_vkey.json \
                 public_signals=fixtures/threshold_g16_public.json
-m 0xprof/prove system=schnorr secret=42 context=demo
+m 0xprof/prove system=schnorr secret=42 context=demo   # also dleq, pedersen, merkle
 m 0xprof/publish proof=… vkey=… price=5 title="over the line"
 m 0xprof/recheck id=…                       # re-run the methods, signed by this box
 m 0xprof/checks id=…                        # every run on it, and who asked
 m 0xprof/verifiers                          # the people, as opposed to the methods
 m 0xprof/bounty system=groth16 reward=25 vkey=… require='[{"index":1,"min":1000}]'
-m 0xprof/test                               # 46 tests, most of them adversarial
+m 0xprof/bounty system=groth16 reward=25 vkey=… stake=1 settle=daily   # a staked round
+m 0xprof/join id=…                          # 1 credit for token #N, locked until the reset
+m 0xprof/settle id=…                        # run the reset, once the clock says so
+m 0xprof/test                               # 48 tests, most of them adversarial
 ```
 
 Paths are accepted anywhere JSON is, because the three files a prover produces

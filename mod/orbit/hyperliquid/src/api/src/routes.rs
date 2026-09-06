@@ -22,6 +22,33 @@ async fn auth_me(ext: Option<Extension<crate::auth::AuthedUser>>) -> Result<Json
     }
 }
 
+/// 400 with a sentence, not a struct dump.
+fn bad_request(msg: impl Into<String>) -> (StatusCode, Json<Value>) {
+    (StatusCode::BAD_REQUEST, Json(json!({"error": msg.into()})))
+}
+
+/// Resolve whose row this is.
+///
+/// The auth guard has already recovered the caller's address from their token
+/// and pinned any address the body names to it, so an explicit field can only
+/// ever agree — which makes it redundant. Prefer the body when present (open
+/// mode and server-to-server callers still pass it), fall back to the token,
+/// and only fail when neither exists.
+fn caller_address(
+    from_body: Option<&str>,
+    user: Option<Extension<crate::auth::AuthedUser>>,
+    field: &str,
+) -> Result<String, (StatusCode, Json<Value>)> {
+    from_body
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .map(|a| a.to_lowercase())
+        .or_else(|| user.map(|Extension(u)| u.0))
+        .ok_or_else(|| bad_request(format!(
+            "`{field}` is required — sign in, or pass the address explicitly"
+        )))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(info))
@@ -48,6 +75,8 @@ pub fn router() -> Router<AppState> {
         .route("/leaderboard", get(leaderboard))
         .route("/traders/top", get(top_traders))
         .route("/trader/:addr/analyze", get(analyze_trader))
+        .route("/trader/:addr/curve", get(trader_curve))
+        .route("/traders/curves", get(trader_curves))
         .route("/scan/progress", get(scan_progress))
 
         // ── copy-trade ──
@@ -120,9 +149,13 @@ pub fn router() -> Router<AppState> {
         .route("/live/stop", post(live_stop))
         .route("/live/status", get(live_status))
 
-        // ── MCP tool server (JSON-RPC 2.0 over Streamable HTTP) ──
+        // ── MCP tool server (JSON-RPC 2.0) ──
+        // Streamable HTTP on /mcp, plus the older HTTP+SSE pair on
+        // /sse + /messages so clients that only speak that still connect.
         .route("/mcp", post(mcp_post).get(mcp_get))
         .route("/mcp/schema", get(mcp_schema))
+        .route("/sse", get(mcp_sse))
+        .route("/messages", post(mcp_messages))
 
         // ── agent: answers questions / runs tasks through that MCP server ──
         .route("/ask", post(crate::agent::ask))
@@ -130,40 +163,161 @@ pub fn router() -> Router<AppState> {
 
         // ── generic mod-protocol passthrough ──
         .route("/forward", post(forward))
+
+        // ── the investment book (invest_routes.rs): one verb over vaults,
+        //    traders and strat baskets alike ──
+        .merge(crate::invest_routes::router())
 }
 
 // ── MCP ──
 
-/// One JSON-RPC message per POST. Tool calls re-enter this server over
-/// loopback carrying the caller's Authorization header (see mcp.rs).
+/// Streamable HTTP: one JSON-RPC message — or a batch of them — per POST.
+/// Tool calls re-enter this server over loopback carrying the caller's
+/// Authorization header (see mcp.rs).
 async fn mcp_post(
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    let msg: Value = match serde_json::from_slice(&body) {
+    let payload: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
             let err = crate::mcp::rpc_error(Value::Null, -32700, &format!("parse error: {e}"));
             return (StatusCode::BAD_REQUEST, Json(err)).into_response();
         }
     };
-    let auth = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok());
-    match crate::mcp::handle_message(&s.self_url, &msg, auth).await {
+    let auth = header_str(&headers, axum::http::header::AUTHORIZATION);
+    match crate::mcp::handle_payload(&s.self_url, &payload, auth).await {
+        // The spec lets us answer with either JSON or a stream. Prefer JSON,
+        // but a client that accepts *only* text/event-stream gets its
+        // response as a one-event stream rather than a 406.
+        Some(resp) if wants_only_sse(&headers) => sse_once(resp).into_response(),
         Some(resp) => Json(resp).into_response(),
         // Notifications carry no id and get no body — 202 per the spec.
         None => StatusCode::ACCEPTED.into_response(),
     }
 }
 
+fn header_str(headers: &axum::http::HeaderMap, name: axum::http::HeaderName) -> Option<&str> {
+    headers.get(name).and_then(|h| h.to_str().ok())
+}
+
+/// True when the client asked for an event stream and would not take JSON.
+fn wants_only_sse(headers: &axum::http::HeaderMap) -> bool {
+    let accept = header_str(headers, axum::http::header::ACCEPT).unwrap_or_default();
+    accept.contains("text/event-stream")
+        && !accept.contains("application/json")
+        && !accept.contains("*/*")
+}
+
+/// One JSON-RPC response, wrapped as a single-event SSE body.
+fn sse_once(resp: Value) -> impl axum::response::IntoResponse {
+    use axum::response::sse::{Event, Sse};
+    let stream = futures::stream::once(async move {
+        Ok::<_, std::convert::Infallible>(Event::default().event("message").data(resp.to_string()))
+    });
+    Sse::new(stream)
+}
+
+/// GET /mcp — this server keeps no server-initiated stream on the Streamable
+/// HTTP endpoint, which the spec answers with 405. Clients that want a stream
+/// use the HTTP+SSE transport at /sse instead.
 async fn mcp_get() -> (StatusCode, Json<Value>) {
     (StatusCode::METHOD_NOT_ALLOWED, Json(json!({
         "error": "POST JSON-RPC 2.0 messages to this endpoint",
         "schema": "/mcp/schema",
+        "sse_transport": "/sse",
     })))
+}
+
+/// HTTP+SSE transport, the half a client opens first. The stream's first
+/// event names where to POST messages — as a *relative* URL, so it resolves
+/// correctly whether this API is reached directly or behind the gateway's
+/// `/api/hyperliquid` prefix. Responses to those POSTs arrive here.
+async fn mcp_sse(headers: axum::http::HeaderMap) -> axum::response::Response {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use axum::response::IntoResponse;
+
+    let session = uuid::Uuid::new_v4().to_string();
+    let auth = header_str(&headers, axum::http::header::AUTHORIZATION).map(str::to_string);
+    let rx = crate::mcp::open_session(session.clone(), auth);
+
+    // Dropping the stream (client hangs up) drops this guard, which is what
+    // reaps the session — no sweeper needed.
+    struct Reap(String);
+    impl Drop for Reap {
+        fn drop(&mut self) {
+            crate::mcp::close_session(&self.0);
+        }
+    }
+
+    let endpoint = format!("messages?sessionId={session}");
+    let head = futures::stream::once(async move {
+        Ok::<_, std::convert::Infallible>(Event::default().event("endpoint").data(endpoint))
+    });
+    let reap = Reap(session);
+    let body = futures::stream::unfold((rx, reap), |(mut rx, reap)| async move {
+        let msg = rx.recv().await?;
+        Some((
+            Ok::<_, std::convert::Infallible>(Event::default().event("message").data(msg)),
+            (rx, reap),
+        ))
+    });
+
+    Sse::new(futures::StreamExt::chain(head, body))
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct SessionQuery {
+    /// Clients send `sessionId` (the name that transport's spec uses); the
+    /// snake_case alias is there for hand-written callers.
+    #[serde(rename = "sessionId", alias = "session_id")]
+    session_id: Option<String>,
+}
+
+/// HTTP+SSE transport, the half a client POSTs to. The response goes out on
+/// the matching SSE stream; this returns 202, as that transport specifies.
+async fn mcp_messages(
+    State(s): State<AppState>,
+    Query(q): Query<SessionQuery>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let Some(session) = q.session_id else {
+        return (StatusCode::BAD_REQUEST, Json(json!({
+            "error": "missing sessionId — open GET /sse first and use the endpoint it sends",
+        }))).into_response();
+    };
+    if !crate::mcp::session_exists(&session) {
+        return (StatusCode::NOT_FOUND, Json(json!({
+            "error": "unknown or closed session — reopen GET /sse",
+        }))).into_response();
+    }
+    let payload: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            let err = crate::mcp::rpc_error(Value::Null, -32700, &format!("parse error: {e}"));
+            return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+        }
+    };
+    // Credentials on the POST win; otherwise fall back to whatever the stream
+    // was opened with, since some clients only authenticate the GET.
+    let auth = header_str(&headers, axum::http::header::AUTHORIZATION)
+        .map(str::to_string)
+        .or_else(|| crate::mcp::session_authorization(&session));
+
+    if let Some(resp) = crate::mcp::handle_payload(&s.self_url, &payload, auth.as_deref()).await {
+        if !crate::mcp::session_send(&session, &resp) {
+            return (StatusCode::GONE, Json(json!({
+                "error": "the SSE stream for this session is closed",
+            }))).into_response();
+        }
+    }
+    StatusCode::ACCEPTED.into_response()
 }
 
 /// The MCP tool surface plus its mod-protocol mapping (tool → fn → route).
@@ -185,14 +339,30 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
     Json(json!({
         "name": "hyperliquid",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Hyperliquid full-stack — backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server",
+        "description": "Hyperliquid full-stack — one-transaction cross-chain deposits from seven chains, backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server",
         "protocol": "mod",
         "auth": "mod protocol-auth Bearer token (personal_sign) — public reads open, user-scoped routes gated",
+        // A refusal is part of the API, so it is documented like the rest of
+        // it. Every 401/403 carries `reason` (from this list), a `message`
+        // written for a person, and `sign_in` — whether re-signing would fix
+        // it. Clients branch on the code, show the message, and retry once
+        // when sign_in is true, instead of reprinting a status number.
+        "denials": {
+            "no_token":          {"status": 401, "sign_in": true,  "means": "no Authorization header"},
+            "expired_token":     {"status": 401, "sign_in": true,  "means": "past the session window"},
+            "bad_token":         {"status": 401, "sign_in": true,  "means": "malformed, or signature does not recover to its key"},
+            "wrong_wallet":      {"status": 403, "sign_in": false, "means": "request names an address the token does not sign for"},
+            "not_owner":         {"status": 403, "sign_in": false, "means": "the row belongs to another wallet"},
+            "unscoped_query":    {"status": 403, "sign_in": false, "means": "per-wallet list with no ?follower/?eoa scope"},
+            "payload_too_large": {"status": 413, "sign_in": false, "means": "body over 1 MiB"},
+        },
         "testnet": s.hl.testnet,
         "urls": { "app": "/hyperliquid", "api": "/api/hyperliquid" },
         "endpoints": {
-            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/indexes", "/mcp", "/mcp/schema"],
-            "gated": ["/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action"],
+            // `crate::auth::is_public` is the authority; mcp::tools() carries
+            // the same flag per tool and a test holds the two in agreement.
+            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
+            "gated": ["/auth/me", "/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action", "/deposit/quote", "POST /indexes", "PATCH|DELETE /indexes/:id"],
         },
         // The mod-protocol fn surface is also an MCP tool server; /mcp/schema
         // publishes the tool → fn → route mapping.
@@ -212,6 +382,9 @@ async fn status(State(s): State<AppState>) -> Json<Value> {
         "testnet": s.hl.testnet,
         "indexes": s.store.list_indexes().len(),
         "follows": s.store.list_follows(None).len(),
+        "mcp_tools": crate::mcp::tools().len(),
+        // Agents currently attached over the HTTP+SSE transport.
+        "mcp_sse_sessions": crate::mcp::session_count(),
     }))
 }
 
@@ -267,48 +440,188 @@ async fn leaderboard(State(s): State<AppState>) -> Result<Json<Value>, (StatusCo
 struct TopQ {
     days: Option<u32>,
     min_per_day: Option<f64>,
-    pool: Option<usize>,
+    pool: Option<String>,           // 1-1500, or `all` = every gated wallet on the leaderboard
+    enrich: Option<usize>,          // fill stats for the top N by `rank` only (default 120, max 400)
     seed: Option<String>,           // comma-separated extra wallets
+    rank: Option<String>,           // roi (default) | pnl | volume
+    active: Option<String>,         // 24h (default) | window
+    coins: Option<String>,          // comma-separated: only wallets that traded one of these
+    sort: Option<String>,           // roi | pnl | volume | equity | sharpe | win_rate | trades (default = rank)
+    // Score floors — see traders::ScoreFilter.
+    min_roi: Option<f64>,
+    min_pnl: Option<f64>,
+    min_volume: Option<f64>,
+    min_equity: Option<f64>,
+    min_sharpe: Option<f64>,
+    min_win: Option<f64>,
+    min_trades: Option<usize>,
+    with_stats: Option<bool>,
+    wait: Option<u64>,              // seconds to hold the request open for a cold scan (default 45, max 90)
 }
+
+/// How long `/traders/top` will hold a connection open waiting for a cold
+/// scan before answering `scanning: true`. Cloudflare cuts an origin request
+/// at 100s and swaps in its own error page, so the ceiling stays under that.
+const SCAN_WAIT_DEFAULT_S: u64 = 45;
+const SCAN_WAIT_MAX_S: u64 = 90;
+
 async fn top_traders(State(s): State<AppState>, Query(q): Query<TopQ>)
     -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
+    use crate::traders::{ScoreFilter, SortKey, ALL, ENRICH_CAP, ENRICH_MAX};
     let days = q.days.unwrap_or(7).clamp(1, 90);
     let min_per_day = q.min_per_day.unwrap_or(1.0).max(0.0);
-    let pool = q.pool.unwrap_or(150).clamp(1, 1500);
+    let bad = |what: &str, got: &str| (StatusCode::BAD_REQUEST, Json(json!({
+        "error": format!("unknown {what} '{got}'"),
+        "rank": ["roi", "pnl", "volume"], "active": ["24h", "window"],
+        "pool": "1-1500 or all",
+        "sort": ["roi", "pnl", "volume", "equity", "sharpe", "win_rate", "trades"],
+    })));
+    let pool_s = q.pool.unwrap_or_default();
+    let pool = match pool_s.trim().to_ascii_lowercase().as_str() {
+        "" => 150,
+        "all" | "0" | "*" => ALL,
+        n => n.parse::<usize>().map_err(|_| bad("pool", &pool_s))?.clamp(1, 1500),
+    };
+    let enrich = q.enrich.unwrap_or(ENRICH_CAP).min(ENRICH_MAX);
     let seed: Vec<String> = q.seed.unwrap_or_default()
         .split(',').filter(|x| !x.is_empty())
         .map(|x| x.trim().to_lowercase()).collect();
+    let rank_s = q.rank.unwrap_or_default();
+    let rank = crate::traders::Rank::parse(&rank_s).ok_or_else(|| bad("rank", &rank_s))?;
+    let active_s = q.active.unwrap_or_default();
+    let active = crate::traders::Active::parse(&active_s).ok_or_else(|| bad("active", &active_s))?;
+    let sort_s = q.sort.unwrap_or_default();
+    let sort = if sort_s.trim().is_empty() { None }
+        else { Some(SortKey::parse(&sort_s).ok_or_else(|| bad("sort", &sort_s))?) };
+    let filter = ScoreFilter {
+        min_roi: q.min_roi, min_pnl: q.min_pnl, min_volume: q.min_volume, min_equity: q.min_equity,
+        min_sharpe: q.min_sharpe, min_win: q.min_win, min_trades: q.min_trades,
+        with_stats: q.with_stats.unwrap_or(false),
+    };
+    // One shape for both paths: filter, then order, then report what was
+    // priced from the leaderboard vs actually measured from fills.
+    let finish = |mut traders: Vec<crate::traders::TopTrader>, depth: usize, candidates: Option<usize>,
+                  coins: Vec<String>, updated_at: i64, scanning: bool| {
+        let priced = traders.len();
+        filter.apply(&mut traders);
+        if let Some(k) = sort { k.sort(&mut traders); }
+        Json(json!({
+            "days": days, "min_per_day": min_per_day,
+            "pool": if pool == ALL { json!("all") } else { json!(pool) },
+            "all": pool == ALL, "enrich": enrich,
+            "rank": rank.as_str(), "active": active.as_str(),
+            "sort": sort.map(|k| k.as_str()).unwrap_or(rank.as_str()),
+            "filter": filter, "filtered": !filter.is_empty(),
+            "coins": coins, "depth": depth, "candidates": candidates,
+            "priced": priced, "matched": traders.len(),
+            "enriched": crate::traders::enriched_count(&traders),
+            "updated_at": updated_at,
+            // A cold board outlives any proxy timeout, so the walk runs in the
+            // background and this says so — rows here (if any) are the last
+            // good board for the window, and /scan/progress tracks the rest.
+            "scanning": scanning,
+            "progress": if scanning { json!(s.progress.snapshot()) } else { Value::Null },
+            "traders": traders,
+        }))
+    };
+    let coins = crate::traders::wanted_coins(
+        &q.coins.unwrap_or_default().split(',').map(|x| x.to_string()).collect::<Vec<_>>());
+    // A coin nobody trades would send the scan through its whole walk budget
+    // (hundreds of throttled fills fetches) to find nothing — reject unknown
+    // names up front. Builder-dex ("xyz:GOLD") and spot-index ("@123") coins
+    // aren't in the perp/spot universe by name, so they pass through.
+    for c in &coins {
+        if c.contains(':') || c.starts_with('@') { continue; }
+        if s.meta.get(c).await.is_err() {
+            return Err((StatusCode::BAD_REQUEST, Json(json!({
+                "error": format!("unknown coin '{c}' — not in the Hyperliquid perp/spot universe"),
+                "coins": coins,
+            }))));
+        }
+    }
 
     // Fast path: the background refresher keeps boards for the standard
     // windows; serve those directly instead of re-running the scan per
-    // request. Seeded requests need custom rows, so they fall through.
-    if seed.is_empty() {
-        if let Some(entry) = s.boards.get(days) {
-            if entry.pool >= pool {
+    // request. Seeded and coin-filtered requests need their own walk of the
+    // leaderboard, so they fall through.
+    // A deeper enrichment than the refresher keeps warm is a real scan, so it
+    // skips the cache too.
+    if seed.is_empty() && coins.is_empty() && enrich <= ENRICH_CAP {
+        if let Some(entry) = s.boards.get(days, rank, active) {
+            if entry.covers(pool) {
                 let mut traders = entry.traders;
-                traders.truncate(pool);
-                return Ok(Json(json!({
-                    "days": days, "min_per_day": min_per_day, "pool": pool,
-                    "updated_at": entry.updated_at,
-                    "traders": traders,
-                })));
+                if pool != ALL { traders.truncate(pool); }
+                let candidates = if entry.all { Some(entry.pool) } else { None };
+                let depth = traders.len();
+                return Ok(finish(traders, depth, candidates, vec![], entry.updated_at, false));
             }
         }
     }
 
-    let traders = crate::traders::top_traders_with_progress(
-        s.hl.clone(), days, min_per_day, pool, seed.clone(),
-        Some(s.progress.clone()),
-    ).await.map_err(err500)?;
-    if seed.is_empty() {
-        s.boards.put(days, pool, traders.clone());
+    // Nothing cached covers this request, so it needs a real walk of the
+    // leaderboard — minutes, on a cold index. Run it as a detached task and
+    // wait on it for a bounded budget: fast scans (a warm index makes a repeat
+    // ~instant) still answer inline, and a genuinely cold one answers
+    // `scanning: true` with the last good board instead of being killed at a
+    // gateway timeout and rendered as somebody else's error page.
+    let key = format!("{days}|{}|{}|{}|{enrich}|{}|{}", pool, rank.as_str(), active.as_str(),
+                      coins.join(","), seed.join(","));
+    // A coin requirement or a seed can only be answered by the walk itself —
+    // a plain cached board would show wallets that don't meet it.
+    let fallback = if seed.is_empty() && coins.is_empty() {
+        s.boards.get(days, rank, active)
+    } else { None };
+    let scanning = |entry: Option<crate::traders::BoardEntry>, coins: Vec<String>| {
+        let (rows, updated_at, candidates) = match entry {
+            Some(e) => {
+                let mut t = e.traders;
+                if pool != ALL { t.truncate(pool); }
+                let c = if e.all { Some(e.pool) } else { None };
+                (t, e.updated_at, c)
+            }
+            None => (vec![], 0, None),
+        };
+        let depth = rows.len();
+        finish(rows, depth, candidates, coins, updated_at, true)
+    };
+
+    let Some(claim) = s.scans.claim(&key) else {
+        // Someone else is already walking exactly this board; joining their
+        // scan beats starting a second one against the same rate limit.
+        return Ok(scanning(fallback, coins));
+    };
+    let (hl, index, progress) = (s.hl.clone(), s.index.clone(), s.progress.clone());
+    let (boards, coins_req) = (s.boards.clone(), coins.clone());
+    let (seed_t, coins_t) = (seed.clone(), coins.clone());
+    let seeded = !seed.is_empty();
+    let task = tokio::spawn(async move {
+        let _claim = claim; // released when the scan ends, panic included
+        let board = crate::traders::top_traders_with_progress(
+            hl, index, days, pool, seed_t, Some(progress), rank, active, coins_t, enrich,
+        ).await?;
+        // Cache what we computed under the key the refresher will keep warm —
+        // but never let a narrow live board replace a whole-leaderboard one
+        // that already covers it (a deeper `enrich` request lands here on
+        // purpose). Storing it here is also what a `scanning` caller comes
+        // back for.
+        let covered = boards.get(days, rank, active).map_or(false, |e| e.covers(pool));
+        if !seeded && board.coins.is_empty() && (pool == ALL || !covered) {
+            boards.put(days, rank, active, pool, board.traders.clone());
+        }
+        Ok::<_, anyhow::Error>(board)
+    });
+    let wait = std::time::Duration::from_secs(
+        q.wait.unwrap_or(SCAN_WAIT_DEFAULT_S).min(SCAN_WAIT_MAX_S));
+    match tokio::time::timeout(wait, task).await {
+        // Dropping the JoinHandle on timeout detaches the task, it does not
+        // cancel it — the walk finishes and lands in the board cache.
+        Err(_) => Ok(scanning(fallback, coins_req)),
+        Ok(Err(join)) => Err(err500(join)),
+        Ok(Ok(Err(e))) => Err(err500(e)),
+        Ok(Ok(Ok(board))) => Ok(finish(board.traders, board.depth, Some(board.candidates), board.coins,
+                                       chrono::Utc::now().timestamp_millis(), false)),
     }
-    Ok(Json(json!({
-        "days": days, "min_per_day": min_per_day, "pool": pool,
-        "updated_at": chrono::Utc::now().timestamp_millis(),
-        "traders": traders,
-    })))
 }
 
 async fn scan_progress(State(s): State<AppState>) -> Json<Value> {
@@ -324,6 +637,50 @@ async fn analyze_trader(State(s): State<AppState>, Path(a): Path<String>, Query(
     crate::traders::analyze(s.hl.clone(), &a, days).await.map(Json).map_err(err500)
 }
 
+/// One wallet's PnL curve for one window — the shape behind the row's number.
+///
+/// Public, and deliberately infallible: the board hovers this per row, so an
+/// upstream 429 comes back as `available: false` with a sentence rather than a
+/// status code that would paint a working row as broken.
+async fn trader_curve(State(s): State<AppState>, Path(a): Path<String>, Query(q): Query<AnalyzeQ>)
+    -> Json<Value>
+{
+    let days = q.days.unwrap_or(7).clamp(1, 90);
+    let c = crate::curve::trader_curve(s.hl.clone(), &a, days).await;
+    Json(serde_json::to_value(c).unwrap_or_else(|_| json!({"available": false})))
+}
+
+#[derive(Deserialize)]
+struct CurvesQ { addrs: Option<String>, days: Option<u32> }
+
+/// A page of curves in one request — what the trader board's cards need.
+///
+/// Every card draws the shape behind its own number, so a screenful is 30-odd
+/// curves. Asking for them one at a time is 30 round trips through the
+/// gateway before the first card is finished; asking for them together is
+/// one, and lets the API bound how many Hyperliquid calls that page is
+/// allowed to spend (`curve::MAX_BATCH` wallets, four in flight). Anything
+/// past the cap is simply not returned — the client pages, and `requested`
+/// vs `served` says so out loud rather than silently truncating.
+///
+/// Infallible per wallet, exactly like the single-curve route: one wallet
+/// Hyperliquid will not answer for arrives as `available: false` with a
+/// sentence and does not take the page down with it.
+async fn trader_curves(State(s): State<AppState>, Query(q): Query<CurvesQ>) -> Json<Value> {
+    let days = q.days.unwrap_or(7).clamp(1, 90);
+    let addrs: Vec<String> = q.addrs.unwrap_or_default()
+        .split(',').map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect();
+    let requested = addrs.len();
+    let curves = crate::curve::trader_curves(s.hl.clone(), &addrs, days).await;
+    Json(json!({
+        "days": days,
+        "requested": requested,
+        "served": curves.len(),
+        "max_batch": crate::curve::MAX_BATCH,
+        "curves": curves,
+    }))
+}
+
 // ── follows / copy ──
 
 #[derive(Deserialize)]
@@ -334,7 +691,8 @@ async fn list_follows(State(s): State<AppState>, Query(q): Query<FollowFilter>) 
 
 #[derive(Deserialize)]
 struct CreateFollow {
-    follower: String,
+    /// Optional — defaults to the signed-in wallet. See `CreateIndex::owner`.
+    follower: Option<String>,
     leader: String,
     size_pct: Option<f64>,
     max_per_trade_usd: Option<f64>,
@@ -342,13 +700,33 @@ struct CreateFollow {
     coins_deny: Option<Vec<String>>,
     vault_address: Option<String>,
 }
-async fn create_follow(State(s): State<AppState>, Json(b): Json<CreateFollow>)
-    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+/// A leader can be ANY Hyperliquid account — nothing requires it to be on a
+/// board — but it must at least be a well-formed EVM address, and you can't
+/// follow yourself (the engine would mirror its own mirrors).
+pub fn validate_follow_pair(follower: &str, leader: &str) -> Result<(String, String), String> {
+    let is_addr = |a: &str| a.len() == 42 && a.starts_with("0x")
+        && a[2..].chars().all(|c| c.is_ascii_hexdigit());
+    let follower = follower.trim().to_lowercase();
+    let leader = leader.trim().to_lowercase();
+    if !is_addr(&follower) { return Err("follower must be a 0x… address (40 hex chars)".into()); }
+    if !is_addr(&leader) { return Err("leader must be a 0x… address (40 hex chars)".into()); }
+    if follower == leader { return Err("leader and follower are the same wallet".into()); }
+    Ok((follower, leader))
+}
+
+async fn create_follow(
+    State(s): State<AppState>,
+    user: Option<Extension<crate::auth::AuthedUser>>,
+    Json(b): Json<CreateFollow>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
+    let me = caller_address(b.follower.as_deref(), user, "follower")?;
+    let (follower, leader) = validate_follow_pair(&me, &b.leader)
+        .map_err(bad_request)?;
     let f = Follow {
         id: String::new(),
-        follower: b.follower.to_lowercase(),
-        leader: b.leader.to_lowercase(),
+        follower,
+        leader,
         size_pct: b.size_pct.unwrap_or(10.0).clamp(0.0, 100.0),
         max_per_trade_usd: b.max_per_trade_usd.unwrap_or(0.0).max(0.0),
         coins_allow: b.coins_allow.unwrap_or_default(),
@@ -429,7 +807,12 @@ async fn list_indexes(State(s): State<AppState>) -> Json<Value> {
 #[derive(Deserialize)]
 struct CreateIndex {
     name: String,
-    owner: String,
+    /// Optional: the guard has already proven who is calling, so the default
+    /// owner is the signed-in wallet. Sending it is allowed (the guard pins it
+    /// to the token) but never required — a client that had to plumb its own
+    /// address through just to name itself was one stale render away from
+    /// posting a mismatch.
+    owner: Option<String>,
     description: Option<String>,
     legs: Vec<IndexLeg>,
     days_window: Option<u32>,
@@ -437,13 +820,24 @@ struct CreateIndex {
     notional_pct: Option<f64>,
     vault_address: Option<String>,
 }
-async fn create_index(State(s): State<AppState>, Json(b): Json<CreateIndex>)
-    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+async fn create_index(
+    State(s): State<AppState>,
+    user: Option<Extension<crate::auth::AuthedUser>>,
+    Json(b): Json<CreateIndex>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
+    let owner = caller_address(b.owner.as_deref(), user, "owner")?;
+    let name = b.name.trim().to_string();
+    if name.is_empty() {
+        return Err(bad_request("name is required"));
+    }
+    if b.legs.is_empty() {
+        return Err(bad_request("a strat needs at least one trader leg"));
+    }
     let idx = Index {
         id: String::new(),
-        name: b.name,
-        owner: b.owner.to_lowercase(),
+        name,
+        owner,
         description: b.description.unwrap_or_default(),
         legs: b.legs,
         days_window: b.days_window.unwrap_or(7).clamp(1, 90),
@@ -507,16 +901,18 @@ async fn index_perf(State(s): State<AppState>, Path(id): Path<String>, Query(q):
 }
 
 #[derive(Deserialize)]
-struct AutoBody { days: Option<u32>, top: Option<usize>, min_per_day: Option<f64>, pool: Option<usize> }
+struct AutoBody { days: Option<u32>, top: Option<usize>, pool: Option<usize>, rank: Option<String>, coins: Option<Vec<String>> }
 async fn auto_index_preview(State(s): State<AppState>, Json(b): Json<AutoBody>)
     -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
     let days = b.days.unwrap_or(7);
     let top = b.top.unwrap_or(10).max(1).min(50);
     let pool = b.pool.unwrap_or(150);
-    let mpd = b.min_per_day.unwrap_or(1.0);
-    let traders = crate::traders::top_traders(s.hl.clone(), days, mpd, pool, vec![])
-        .await.map_err(err500)?;
+    let rank = crate::traders::Rank::parse(b.rank.as_deref().unwrap_or("")).unwrap_or(crate::traders::Rank::Roi);
+    let traders = crate::traders::top_traders_with_progress(
+        s.hl.clone(), s.index.clone(), days, pool, vec![], None, rank, crate::traders::Active::Day,
+        b.coins.unwrap_or_default(), crate::traders::ENRICH_CAP,
+    ).await.map(|b| b.traders).map_err(err500)?;
     let legs = crate::indexes::auto_legs(&traders, top);
     Ok(Json(json!({
         "days": days, "top": top, "legs": legs,
@@ -613,9 +1009,11 @@ async fn forward(State(s): State<AppState>, Json(b): Json<ForwardBody>)
         }
         "top_traders" => {
             let days = b.payload.get("days").and_then(|x| x.as_u64()).unwrap_or(7) as u32;
-            let mpd = b.payload.get("min_per_day").and_then(|x| x.as_f64()).unwrap_or(1.0);
             let pool = b.payload.get("pool").and_then(|x| x.as_u64()).unwrap_or(150) as usize;
-            let traders = crate::traders::top_traders(s.hl.clone(), days, mpd, pool, vec![])
+            let coins: Vec<String> = b.payload.get("coins").and_then(|x| x.as_array())
+                .map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            let traders = crate::traders::top_traders(s.hl.clone(), s.index.clone(), days, pool, vec![], coins)
                 .await.map_err(err500)?;
             json!({"traders": traders})
         }
@@ -1217,4 +1615,31 @@ async fn live_status(State(s): State<AppState>, Query(q): Query<LiveStatusQ>) ->
     let cfg = s.live.config_of(&q.eoa);
     let st = s.live.status_of(&q.eoa);
     Json(json!({ "eoa": q.eoa, "config": cfg, "state": st }))
+}
+
+#[cfg(test)]
+mod follow_tests {
+    use super::validate_follow_pair;
+
+    #[test]
+    fn any_well_formed_leader_is_accepted() {
+        let f = "0x1111111111111111111111111111111111111111";
+        // a leader that's on no board at all — just a wallet
+        let l = "0xABCDEFabcdef0123456789ABCDEFabcdef012345";
+        let (a, b) = validate_follow_pair(f, l).unwrap();
+        assert_eq!(a, f);
+        assert_eq!(b, l.to_lowercase());
+        // whitespace tolerated
+        assert!(validate_follow_pair(&format!("  {f} "), l).is_ok());
+    }
+
+    #[test]
+    fn malformed_or_self_follow_is_rejected() {
+        let f = "0x1111111111111111111111111111111111111111";
+        assert!(validate_follow_pair(f, "0x123").is_err());
+        assert!(validate_follow_pair(f, "0xZZ11111111111111111111111111111111111111").is_err());
+        assert!(validate_follow_pair(f, "").is_err());
+        assert!(validate_follow_pair("nope", f).is_err());
+        assert!(validate_follow_pair(f, &f.to_uppercase().replace("0X", "0x")).is_err(), "self-follow");
+    }
 }

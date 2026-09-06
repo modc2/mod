@@ -54,6 +54,7 @@ from nycgis import prices as P
 from nycgis import rents as R
 from nycgis import sources as S
 from nycgis import tools as T
+from nycgis import traffic as TR
 
 # The five boroughs — kept from this module's original scaffold, and still the
 # right thing to hand a client that just wants to know what NYC is made of.
@@ -211,6 +212,16 @@ class Mod:
         """Individual recorded sales as map points."""
         return P.sales_points(since=since, until=until, property_type=property_type,
                               limit=int(limit), min_price=min_price, max_price=max_price)
+
+    def traffic(self, street: str = '', borough: str = '',
+                hour: Optional[int] = None, limit: int = 20) -> dict:
+        """
+        When to drive: the hour-by-hour traffic profile of DOT's count
+        locations, plus what the live speed sensors are reading right now.
+        """
+        return TR.summary(street=street, borough=borough,
+                          hour=None if hour is None else int(hour),
+                          limit=int(limit))
 
     def options(self) -> dict:
         """Everything the UI needs to build its housing controls."""

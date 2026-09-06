@@ -332,7 +332,17 @@ const server = http.createServer(async (req, res) => {
     host: "127.0.0.1", port: r.port, method: req.method,
     path: proxyPath(req.url, r.strip), headers: req.headers,
   };
-  const up = http.request(opts, (ur) => { res.writeHead(ur.statusCode, ur.headers); ur.pipe(res); });
+  const up = http.request(opts, (ur) => {
+    res.writeHead(ur.statusCode, ur.headers);
+    ur.pipe(res);
+    // pipe() does not propagate a close backwards, so a client that hangs up
+    // mid-response would leave the upstream socket established forever. On a
+    // streaming route (SSE) that means the module can never look idle, and
+    // the app behind it keeps a dead session. Take the upstream down with the
+    // client. On a normal completion `ur` has already ended, so this is a
+    // no-op.
+    res.on("close", () => { ur.destroy(); up.destroy(); });
+  });
   up.on("error", (e) => { if (!res.headersSent) res.writeHead(502); res.end(`activator: upstream error ${e.code || e.message}\n`); });
   req.pipe(up);
 });
@@ -358,6 +368,28 @@ function rebuildUpgrade(req, path) {
   return s + "\r\n";
 }
 
+// ── pinned revive ───────────────────────────────────────────────────────────
+// A pinned module that is down gets its stopped pm2 procs restarted. Backoff so
+// a module that refuses to start is retried on a widening interval instead of
+// being thrashed by every sweep (5s apart under a short idle timeout).
+const REVIVE_MIN_MS = 30 * 1000;
+const REVIVE_MAX_MS = 15 * 60 * 1000;
+const reviving = {}; // module → { next, delay }
+
+async function revivePinned(mod, info) {
+  const procs = pm2NamesFor(info.dir);
+  const down = procs.filter((p) => p.status !== "online");
+  // No pm2 entry at all → nothing to revive (the module is started some other
+  // way); fully online → back to a clean slate for the next outage.
+  if (!procs.length || !down.length) { delete reviving[mod]; return; }
+  const st = reviving[mod] || { next: 0, delay: REVIVE_MIN_MS };
+  if (now() < st.next) return;
+  log(`pinned ${mod}: ${down.map((p) => `${p.name}=${p.status}`).join(", ")} → restarting`);
+  for (const p of down) await pm2("restart", p.name);
+  lastAccess[mod] = now();
+  reviving[mod] = { next: now() + st.delay, delay: Math.min(REVIVE_MAX_MS, st.delay * 2) };
+}
+
 // ── idle sweep ──────────────────────────────────────────────────────────────
 async function sweep() {
   try {
@@ -371,7 +403,12 @@ async function sweep() {
         if (up.length) { log(`disabled ${mod}: enforcing stop`); await stopModule(mod); }
         continue;
       }
-      if (isPinned(mod)) continue; // host/env wants it always on
+      // Pinned = "always on", enforced the same way `disabled` is enforced:
+      // not merely "never slept" but actively brought back when something else
+      // stopped it — a reboot before any request arrives, a crash loop's final
+      // exit, a stray `pm2 stop`. Without this, pinning only held as long as
+      // nothing outside the activator touched the process.
+      if (isPinned(mod)) { await revivePinned(mod, info); continue; }
       const idleFor = now() - (lastAccess[mod] || 0);
       if (idleFor < idleMsNow()) continue;
       const conns = establishedConns(info.apiPort) + establishedConns(info.appPort);
@@ -414,7 +451,7 @@ async function buildState() {
       module: mod,
       apiPort: info.apiPort, appPort: info.appPort,
       running: apiUp || appUp, apiUp, appUp,
-      disabled: isDisabled(mod), pinned: isPinned(mod),
+      disabled: isDisabled(mod), pinned: isPinned(mod), pinnedByEnv: PIN.has(mod),
       idleSeconds: Math.round((now() - (lastAccess[mod] || 0)) / 1000),
     });
   }
@@ -497,6 +534,9 @@ async function handleControl(req, res) {
         case "unpin":
           setMembership(overrides.pinned, mod, false); saveOverrides(); break;
         case "sleep":   // stop now (will still wake on next request)
+          // Pinned means the sweep puts it straight back — refuse rather than
+          // stop it for five seconds or silently discard the pin.
+          if (isPinned(mod)) return send(409, { error: `${mod} is pinned always-on — unpin it first` });
           await stopModule(mod); break;
         case "wake":    // start now
           setMembership(overrides.disabled, mod, false); saveOverrides(); await wake(mod, port); break;

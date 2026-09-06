@@ -43,7 +43,8 @@
 import { PolymarketTrade, PolymarketPosition, TraderRoiStats, IndexTrader } from "../types";
 import type { TradeFilters, MomentumParams, TraderFilter, TraderMetric, SizingModel } from "../types";
 import { marketMatchesQuery } from "../marketQuery";
-import { tradeMatchesFilters, describeTradeFilters } from "../tradeFilters";
+import { tradeMatchesFilters, tradeFilterReject, describeTradeFilters } from "../tradeFilters";
+import { describeReading, describeSentiment, leanLabel, type SentimentLookup } from "../marketSentiment";
 
 // ── Shared per-trade context the strat sees ──────────────────────
 
@@ -300,9 +301,29 @@ export class Strat {
       logs so a running engine can always show its exact configuration. */
   readonly params: StratParams;
 
+  /** MARKET SENTIMENT readings for the flow this strat is being run over.
+   *
+   *  The one gate whose data is not in the trade — it asks what the market was
+   *  doing, which is price history, which is a fetch. Every hook here is
+   *  synchronous, so the fetch happens in the async layer above
+   *  (`warmSentiment`) and is attached here as a pure lookup.
+   *
+   *  Leaving it unset is always safe and never silent: a strat with no
+   *  sentiment filter never reads it, and one WITH a sentiment filter but no
+   *  book reads every market as `unknown` — which passes by default. A caller
+   *  that forgets to warm the book gets an open gate, never a closed one. */
+  sentiment?: SentimentLookup;
+
   constructor(params: StratParams = {}) {
     this.params = params;
     this.name = params.name ?? "strat";
+  }
+
+  /** Attach the readings and return `this`, so a caller can warm and run in
+      one expression: `strat.withSentiment(book.lookup)`. */
+  withSentiment(lookup: SentimentLookup | undefined): this {
+    this.sentiment = lookup;
+    return this;
   }
 
   // ── Hook 1: per-cycle BUY cap ──
@@ -340,7 +361,7 @@ export class Strat {
     // credit for a rejection, and the funnel and the LIVE panel's gate tally
     // are the same explanation of "why did this strat trade nothing".
     return (
-      tradeMatchesFilters(trade, this.params.tradeFilters ?? {}) &&
+      tradeMatchesFilters(trade, this.params.tradeFilters ?? {}, { sentiment: this.sentiment }) &&
       this.traderPassesFilter(trade.trader, history) &&
       this.freshEnough(trade) &&
       this.resolvesLateEnough(trade)
@@ -391,7 +412,20 @@ export class Strat {
       return `market "${trade.market}" doesn't match "${this.params.marketQuery}"`;
     }
     if (trade.side === "SELL") return "";
-    if (!tradeMatchesFilters(trade, this.params.tradeFilters ?? {})) {
+    const tfWhy = tradeFilterReject(trade, this.params.tradeFilters ?? {}, { sentiment: this.sentiment });
+    if (tfWhy) {
+      // Sentiment gets its own sentence. "trade filter · against the crowd"
+      // would leave the reader guessing which way the market actually went;
+      // the reading is the whole explanation, and when it is `unknown` the
+      // honest answer is that the tape could not be read, not that the market
+      // disagreed.
+      if (tfWhy.startsWith("sentiment")) {
+        const r = this.sentiment?.(trade);
+        const mood = r && r.lean !== "unknown"
+          ? `${leanLabel(r.lean)} (${describeReading(r)})`
+          : `unreadable${r?.note ? ` — ${r.note}` : ""}`;
+        return `SENTIMENT · market was ${mood}, gate wants ${describeSentiment(this.params.tradeFilters?.sentiment)}`;
+      }
       const desc = describeTradeFilters(this.params.tradeFilters) || "no filters — every trade";
       return `trade filter · ${desc}`;
     }
@@ -437,7 +471,7 @@ export class Strat {
     const addresses = history.watchlist.length > 0
       ? history.watchlist.map((t) => t.address)
       : Object.keys(history.traderStats);
-    const rows = rankTraders(addresses, history.traderStats, this.params.filter);
+    const rows = rankTraders(addresses, history.traderStats, this.params.filter, history.now);
     const kept = new Set(rows.filter((r) => r.kept).map((r) => r.address));
     this.rankCache = { history, rows, kept };
     return this.rankCache;
@@ -626,8 +660,12 @@ export class Strat {
   // move over the lookback. ENTRIES buy the outcome that rose ≥
   // minRiseCents (e.g. BTC-up going 50¢ → 60¢) inside the price band, in
   // markets not already held and not about to resolve — sub-hour markets
-  // are HFT-bot turf a polling strat structurally loses to. EXITS sell a
-  // held outcome once its own price fell ≥ exitDropCents over the window.
+  // are HFT-bot turf a polling strat structurally loses to. With
+  // `confirmMinutes` set, an entry must ALSO be intact over that shorter
+  // recent window, which is what separates a move still running from one
+  // that already peaked. EXITS sell a held outcome once its own price fell ≥
+  // exitDropCents over the window — never confirmed, always on the raw
+  // lookback.
   // Binary markets: outcomes[1]'s price is the complement of the series,
   // so a falling series IS a rising second outcome — both sides are
   // candidates and only one can qualify at a time.
@@ -639,6 +677,8 @@ export class Strat {
     const lookbackMin = mo.lookbackMinutes ?? 60;
     const minRise = (mo.minRiseCents ?? 5) / 100;
     const exitDrop = (mo.exitDropCents ?? mo.minRiseCents ?? 5) / 100;
+    // Recent-window confirmation, ENTRIES only — see MomentumParams.confirmMinutes.
+    const confirmMs = Math.max(0, mo.confirmMinutes ?? 0) * 60_000;
     // Entry floor defaults to the favorite side (≥50¢): momentum rides a
     // leader crossing toward resolution, not sub-50¢ longshots — same
     // likely-to-win bias, stated here as this strategy's own default. An
@@ -661,6 +701,13 @@ export class Strat {
     for (const s of series) {
       const m = seriesMomentum(s.points, history.now, lookbackMin * 60_000);
       if (!m) continue;
+      // The same series measured over the short confirmation window. null =
+      // the window has no point at or before its start (a market younger than
+      // `confirmMinutes`, or a tape too coarse to resolve it) — unconfirmable,
+      // which blocks the entry rather than waving it through.
+      const confirm = confirmMs > 0
+        ? seriesMomentum(s.points, history.now, confirmMs)
+        : null;
       // Holding EITHER side blocks new entries in this market — when a held
       // Yes decays, the No side reads as "rising" the same cycle, and buying
       // it before the exit fills would just lock in a hedged loss.
@@ -682,16 +729,30 @@ export class Strat {
             tokenId: s.tokenIds[idx],
             market: s.market,
             side: "SELL",
-            notional: pos.value,
+            // Size × the price we JUST measured, not the position's reported
+            // `value`: data-api's value is a snapshot that lags (and is flatly
+            // wrong for a redeemable leg), and the live engine sizes this exit
+            // as `size × pNow` (live_engine.rs `propose_momentum`). Reading
+            // `pos.value` here made the two languages quote different exits
+            // off identical inputs — pinned now by the fixture's momentumCases.
+            notional: pos.size * pNow,
             limitPrice: tickRoundPrice(pNow * 0.97),
             reason: `MOMENTUM FLIPPED · ${s.outcomes[idx]} ${cents(pThen)}¢→${cents(pNow)}¢ (−${cents(-rise)}¢) in ${lookbackMin}m`,
           });
           continue;
         }
 
-        // ENTRY candidate — rising, in band, market not held, not near
-        // resolution.
+        // ENTRY candidate — rising, still rising, in band, market not held,
+        // not near resolution.
         if (heldInMarket || rise < minRise) continue;
+        if (confirmMs > 0) {
+          // outcomes[1] moves by the complement here too.
+          const recent = confirm ? (idx === 0 ? confirm.rise : -confirm.rise) : null;
+          // `< 0`, not `<= 0`: a flat recent window is a move that paused, and
+          // pausing at 68¢ on the way to resolution is the normal shape. Only
+          // giving ground back disqualifies it.
+          if (recent === null || recent < 0) continue;
+        }
         if (pNow < minPrice || pNow > maxPrice) continue;
         if (s.endDateMs !== undefined && s.endDateMs - history.now < minCloseMs) continue;
         entries.push({ s, idx, rise, pNow, pThen });
@@ -704,8 +765,16 @@ export class Strat {
     for (const e of entries.slice(0, openSlots)) {
       // Equal-slice sizing (capital / maxPositions) clamped into the
       // user's trade band — momentum has no leader notional to scale by.
+      const limitPrice = tickRoundPrice(e.pNow + 0.02);
       const raw = c.capital / Math.max(maxPositions, 1);
-      const notional = Math.min(Math.max(raw, c.userFloor, c.clobFloor), c.userCeiling);
+      // The floor is the CLOB's floor AT THIS PRICE (5 shares × price), not
+      // the price-independent $1 the engine passes in `clobFloor` — a 68¢
+      // entry cannot be smaller than $3.40 and proposing $1 just gets rounded
+      // up at placement. Mirrors live_engine.rs `propose_momentum`.
+      const floor = Math.max(c.userFloor, clobMinNotional(limitPrice));
+      // A ceiling BELOW the floor can't be honored — live keeps the floor
+      // (the order has to be placeable), so this does too.
+      const notional = Math.min(Math.max(raw, floor), Math.max(c.userCeiling, floor));
       proposals.push({
         conditionId: e.s.conditionId,
         outcome: e.s.outcomes[e.idx],
@@ -714,7 +783,7 @@ export class Strat {
         side: "BUY",
         notional,
         // Chase up to 2¢ past the last observed price so the entry fills.
-        limitPrice: tickRoundPrice(e.pNow + 0.02),
+        limitPrice,
         reason: `MOMENTUM · ${e.s.outcomes[e.idx]} ${cents(e.pThen)}¢→${cents(e.pNow)}¢ (+${cents(e.rise)}¢) in ${lookbackMin}m`,
       });
     }
@@ -835,6 +904,14 @@ export function candleSlug(prefix: string, periodMinutes: number, nowMs: number)
   return `${prefix}-${Math.floor(nowMs / 1000 / period) * period}`;
 }
 
+/** How many of `momentum.query`'s OR-groups are actually searched. Each group
+    is one gamma request per feed refresh, in all three discovery sites
+    (copyEngine `assembleMarketPrices`, live_engine `fetch_momentum_series`,
+    momentumTape `queryTape`), so the cap is what stops a 30-coin query from
+    turning one cycle into 30 round-trips against an API that 429s. Six covers
+    the majors, which is the case this exists for. */
+export const MAX_MOMENTUM_QUERIES = 6;
+
 /** Default time-to-resolution floor for MIRRORS, in minutes. Mirror of
     live_engine.rs `default_copy_min_minutes_to_close` — 60 excludes the
     5m/15m/hourly candle games and keeps every ordinary market. */
@@ -935,9 +1012,9 @@ export function statsFromReturns(returns: number[]): {
   }
   // Epsilon guard, not `> 0`: near-identical returns leave a quantization-
   // noise stdev (float noise ~1e-17, tick-scalper noise ~1e-7) that explodes
-  // Sharpe to 1e5–1e15. Genuine dispersion is ≥1e-3; under 1e-6 → 0. Mirrors
+  // Sharpe to 1e5–1e15. Genuine dispersion is ≥1e-3; under 1e-4 → 0. Mirrors
   // live_engine.rs stats_from_returns; parity fixture pins the case.
-  const sharpe = n >= 3 && stdev > 1e-6 ? roi / stdev : 0;
+  const sharpe = n >= 3 && stdev > 1e-4 ? roi / stdev : 0;
   // Laplace-smoothed win rate: shrinks toward 50% on thin samples so a
   // 2-for-2 trader doesn't read as "100% success"; no samples ⇒ exactly 0.5.
   const successProb = (wins + 2) / (n + 4);
@@ -1024,6 +1101,12 @@ export function traderScore(
 /** Default watchlist cut when a strat sets `filter` without a `topN`. */
 export const DEFAULT_FILTER_TOP_N = 5;
 
+/** Freshness the console proposes when the FILTER is switched on: a trader
+    who hasn't traded the strat's markets in a day is not someone to mirror
+    the next tick. Only a default for the UI — an unset `maxStaleHours` means
+    NO freshness gate, so old strats keep behaving exactly as they did. */
+export const DEFAULT_MAX_STALE_HOURS = 24;
+
 /** One trader's row in a FILTER ranking. */
 export interface RankedTrader {
   /** Lowercased address. */
@@ -1033,10 +1116,53 @@ export interface RankedTrader {
   sampleSize: number;
   /** 1-based position in the ranking (thresholds don't renumber). */
   rank: number;
-  /** Survived the rank cut AND both thresholds ⇒ this trader is copied. */
+  /** Survived the rank cut AND every threshold ⇒ this trader is copied. */
   kept: boolean;
   /** Why it was cut — "" when kept. */
   reason: string;
+  /** Age of the trader's most recent trade at ranking time (ms). `Infinity`
+      when no trade is known. Rendered as the LAST column's twin. */
+  ageMs: number;
+  /** Failed the `maxStaleHours` gate — the reason this row sorted below the
+      fresh ones. Always false when the gate is off. */
+  stale: boolean;
+}
+
+/** Age (ms) of a trader's most recent trade at `nowMs`.
+
+    Three outcomes, and the difference between the last two matters:
+    - a timestamp ⇒ its age;
+    - `lastTradeAt === 0` — computed, and the window held no trade at all ⇒
+      `Infinity`, i.e. as stale as it gets;
+    - the field ABSENT ⇒ `NaN`, meaning "not computed yet". Every comparison
+      against NaN is false, so an unknown age never trips the staleness gate.
+      That case is a pre-upgrade `poly_roi_stats_*` localStorage cache, and
+      cutting on it would pause a live strat for a whole refresh cycle over
+      missing data rather than dormant traders. The Rust engine recomputes
+      stats every cycle and so always has a real number — same rule, the
+      unknown branch just can't arise there. */
+export function traderAgeMs(
+  stats: TraderRoiStats | null | undefined,
+  nowMs: number,
+): number {
+  const last = stats?.lastTradeAt;
+  if (typeof last !== "number" || Number.isNaN(last)) return NaN;
+  if (!Number.isFinite(last) || last <= 0) return Infinity;
+  return Math.max(0, nowMs - last);
+}
+
+/** "6h" / "17d" / "never" — the compact age the FILTER's cut reasons and the
+    console's LAST column both speak. */
+export function formatAgeShort(ageMs: number): string {
+  if (Number.isNaN(ageMs)) return "?";
+  if (!Number.isFinite(ageMs)) return "never";
+  const sec = Math.floor(ageMs / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h`;
+  return `${Math.floor(hr / 24)}d`;
 }
 
 /** Rank a watchlist by the filter's metric, newest stats in, decision out.
@@ -1047,21 +1173,32 @@ export interface RankedTrader {
     so a freshly added trader isn't silently invisible in the console; they
     simply sort below anyone with a proven edge and usually miss the cut.
 
+    `maxStaleHours` is the one gate that runs BEFORE the sort: stale traders
+    are pushed below every fresh one, so a roster whose top scorers went quiet
+    last week hands its top-N slots to whoever is still trading instead of
+    copying nobody.
+
     Mirror of `select_top_traders` in live_engine.rs. */
 export function rankTraders(
   addresses: string[],
   traderStats: Record<string, TraderRoiStats>,
   filter: TraderFilter | undefined | null,
+  /** Clock the staleness gate measures against — a walk-forward replay passes
+      its own window end so it never judges freshness with today's clock. */
+  nowMs: number = Date.now(),
 ): RankedTrader[] {
   const f = filter ?? {};
   const metric = f.metric ?? "score";
   const topN = f.topN === undefined ? DEFAULT_FILTER_TOP_N : f.topN;
   const minSamples = f.minSamples ?? 0;
+  const staleHours = f.maxStaleHours ?? 0;
+  const maxAgeMs = staleHours > 0 ? staleHours * 3_600_000 : Infinity;
   const rows = addresses
     .map((a) => a.toLowerCase())
     .filter((a, i, arr) => arr.indexOf(a) === i)
     .map((address) => {
       const stats = traderStats[address] ?? null;
+      const ageMs = traderAgeMs(stats, nowMs);
       return {
         address,
         score: traderScore(stats, metric),
@@ -1069,15 +1206,26 @@ export function rankTraders(
         rank: 0,
         kept: true,
         reason: "",
+        ageMs,
+        stale: staleHours > 0 && ageMs > maxAgeMs,
       };
     });
-  // Byte-order tie-break (not localeCompare): Rust's `String::cmp` is a byte
-  // compare, and the parity fixture asserts both languages break ties the
-  // same way.
-  rows.sort((a, b) => (b.score - a.score) || (a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
+  // Stale first (false < true), then score, then byte-order address. The
+  // tie-break is a byte compare (not localeCompare) because Rust's
+  // `String::cmp` is one, and the parity fixture asserts both languages break
+  // ties the same way.
+  rows.sort((a, b) =>
+    (Number(a.stale) - Number(b.stale)) ||
+    (b.score - a.score) ||
+    (a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
   rows.forEach((r, i) => {
     r.rank = i + 1;
-    if (minSamples > 0 && r.sampleSize < minSamples) {
+    if (r.stale) {
+      r.kept = false;
+      r.reason = Number.isFinite(r.ageMs)
+        ? `last trade ${formatAgeShort(r.ageMs)} ago > ${staleHours}h max`
+        : `no trade seen — needs one inside ${staleHours}h`;
+    } else if (minSamples > 0 && r.sampleSize < minSamples) {
       r.kept = false;
       r.reason = `${r.sampleSize} closed trades < ${minSamples} required`;
     } else if (f.minScore !== undefined && r.score < f.minScore) {
@@ -1098,9 +1246,12 @@ export function topTraders(
   addresses: string[],
   traderStats: Record<string, TraderRoiStats>,
   filter: TraderFilter | undefined | null,
+  nowMs: number = Date.now(),
 ): Set<string> | null {
   if (!filter) return null;
-  return new Set(rankTraders(addresses, traderStats, filter).filter((r) => r.kept).map((r) => r.address));
+  return new Set(
+    rankTraders(addresses, traderStats, filter, nowMs).filter((r) => r.kept).map((r) => r.address),
+  );
 }
 
 /** "top 5 by score" / "top 3 by sharpe · ≥3 closed · score ≥ 0" — for chips,
@@ -1112,6 +1263,7 @@ export function describeTraderFilter(filter: TraderFilter | undefined | null): s
   const parts = [topN > 0 ? `top ${topN} by ${metric}` : `ranked by ${metric}`];
   if (filter.minScore !== undefined) parts.push(`${metric} ≥ ${fmtScore(filter.minScore)}`);
   if (filter.minSamples) parts.push(`≥${filter.minSamples} closed`);
+  if (filter.maxStaleHours) parts.push(`traded ≤${filter.maxStaleHours}h ago`);
   return parts.join(" · ");
 }
 

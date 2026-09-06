@@ -15,7 +15,7 @@ path = "src/main.rs"
 # Web framework
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip", "compression-br"] }
 tokio-stream = "0.1"
 
 # Serialization

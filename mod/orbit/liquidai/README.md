@@ -68,7 +68,7 @@ own owner token from that secret — reading it already means being the operator
 
 ## Running one
 
-**In the browser.** `/run` with the BROWSER switch loads the model's ONNX build
+**In the browser.** `/chat` with the BROWSER switch loads the model's ONNX build
 into a module worker via transformers.js and generates on WebGPU (wasm where
 WebGPU is missing). The weights come from HuggingFace to the tab and are cached
 by the browser; the prompt and the tokens never reach this server. A 350M q4 is
@@ -181,23 +181,25 @@ curl -N localhost:50460/chat -H 'content-type: application/json' -d '{
 
 ## The console
 
-Four boards, all wearing copytensor's 8-bit cabinet (ten skins, same tokens,
+Three tabs, all wearing copytensor's 8-bit cabinet (ten skins, same tokens,
 same rules: nothing is round, every edge is hard, pressing moves the pixel).
 
-- **CATALOG** — every model, one line each, filtered by runtime / task /
+- **MODELS** — every model, one line each, filtered by runtime / task /
   generation, sortable, with a stat strip that answers "what is everyone
   actually pulling" before you've read a row.
-- **RUN** — the board changes with the model's task: a transcript for text and
+- **CHAT** — the board changes with the model's task: a transcript for text and
   vision (attach or paste an image), a similarity grid for embeddings, an
   upload for speech. The rail collapses (▤), turns can be edited (⚒) or forked
   (⋔), and the stats strip says where it actually ran, time to first token and
-  chunks/sec.
+  chunks/sec. The rail also carries the box: pick SERVER and it shows the
+  selected repo's disk state with PULL/LOAD/FREE inline; pick CLOUD and it
+  shows the key field. Those were a LOCAL tab until they moved next to the
+  switch that makes them matter — you only pull weights or paste a key because
+  the runtime you just chose can't run the model you just chose.
 - **ARENA** — models play scored games. A game is rounds, and a round is a
   prompt plus a check (`contains`, `equals`, `number`, `regex`, `lines`,
   `absent`) — no judge model, no rubric, which is what makes two runs
   comparable. Four ship; write your own with ✚ NEW GAME, or fork a built-in.
-- **LOCAL** — every server-runnable model with its disk state, PULL/LOAD/FREE
-  inline; the cloud key; what this box is.
 - **MODEL** — one model's formats, plus the commands to run it under
   transformers, transformers.js and llama.cpp, because this board is a front
   door, not a lock-in.
@@ -258,6 +260,6 @@ Both services run under pm2 (`liquidai-api`, `liquidai-app`) and the module is
 registered with the gateway, so `/liquidai` and `/api/liquidai` both answer.
 
 Not built: browser-side arena entries (`POST /arena/result` exists and is
-scored, but the RUN board doesn't drive a game through the tab yet), and
+scored, but the CHAT board doesn't drive a game through the tab yet), and
 speech through any Liquid audio model — that one is blocked upstream on
 `liquid-audio`, not on this module.

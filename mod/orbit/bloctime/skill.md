@@ -1,12 +1,12 @@
 # BlocTime
 
-Time-weighted staking protocol on Base Sepolia. Stake native tokens for blocks, earn BLOC tokens via duration multiplier curve. Longer locks = higher multiplier.
+Time-weighted staking protocol on Base Sepolia. Stake native tokens for a wall-clock lock measured in seconds and mint BLOC linearly: **BLOC = USD value staked × seconds locked**. The UI can display/enter locks in seconds or blocks (converted via on-chain `secondsPerBlock`, 2 on Base).
 
 ## Capabilities
 
-- **Staking** — stake ERC20 tokens with optional block-lock for multiplier boost
-- **Multiplier Curve** — owner-configurable piecewise-linear curve (e.g. 1x → 3x over 100k blocks)
-- **BLOC Token** — ERC20 reward token minted proportional to stake × time × multiplier
+- **Staking** — stake ERC20 tokens with a lock in seconds (`block.timestamp`-enforced); a blocks input converts via `params.secondsPerBlock`
+- **Linear model** — BLOC minted upfront at stake time = amount × `priceUsdMicro`/1e6 × lockSeconds. The token's USD price is owner-set (`setPriceUsd`, default $1.00). There is no per-second accrual — time enters through the lock length you commit to
+- **Multiplier Curve** — optional owner-configurable piecewise-linear boost on top of the linear model (`setPoints`, keyed on lockSeconds); the deployed default is one flat 1x point, i.e. pure USD × seconds
 - **Weekly Pot** — rewards collect in a pot (inflation mints into it, anyone can `fundPot`); every Friday at 12:00 EST the whole pot is swept to BLOC holders pro-rata. Permissionless trigger, one payout per week
 - **Unstaking** — withdraw after lock expires, BLOC balance snapshots on unstake
 - **Deploy** — deploy new BlocTime contracts via MetaMask from the app
@@ -14,7 +14,6 @@ Time-weighted staking protocol on Base Sepolia. Stake native tokens for blocks, 
 - **Marketplace** — registry of deployed BlocTime instances (`~/.mod/bloctime/registry.json`); MARKET tab browses them, USE switches the app onto any instance (reads via its RPC, writes via wallet)
 - **Self-deploy** — DEPLOY tab ships ABI+bytecode (`GET /factory`) so anyone deploys NativeToken+BlocTime from their own wallet, then auto-registers on the market
 - **Bridge** — BRIDGE tab + `/bridge/*` proxy into the bridge module (Substrate/Solana snapshot → Base claims), with activator wake-on-access fallback
-- **Version Check** — API + app detect new commits on the current git branch
 
 ## Usage
 
@@ -40,10 +39,13 @@ bt.kill()                           # stop all
 bt.compile()                        # compile Solidity via Hardhat
 bt.deploy(network='base_sepolia')   # deploy NativeToken + BlocTime
 
-# staking
-bt.stake(amount=100, lock_blocks=10000)
+# staking — locks are SECONDS (wall clock); BLOC = usd value × seconds (linear)
+bt.stake(amount=100, lock_seconds=86400)   # or lock_blocks=43200 — converted via params.secondsPerBlock
+bt.quote(amount=100, lock_seconds=86400)   # BLOC a stake would mint
 bt.unstake(stake_id=0)
-bt.get_multiplier(block_count=10000)
+bt.price()                                 # owner-set $/token feeding the model
+bt.set_price(price_usd=1.0)                # owner only
+bt.get_multiplier(lock_seconds=86400)      # optional boost curve (flat 1x by default)
 bt.get_points()
 
 # weekly pot — Friday 12:00 EST (17:00 UTC)
@@ -109,11 +111,14 @@ The app serves under basePath `/bloctime` → http://localhost:8852/bloctime.
 | GET | /health | Service health |
 | GET | /stats | Contract stats (totalBlocTime, supply, stakes) |
 | GET | /points | Multiplier curve points |
-| GET | /params | Contract params (maxLockBlocks, distributionPct) |
+| GET | /params | Contract params (maxLockSeconds, secondsPerBlock) |
+| GET | /price | Owner-set token price ($/token) for the linear model |
+| POST | /set_price | Owner: reprice the token (server-side signer) |
+| POST | /quote | BLOC minted for amount + lock_seconds (or lock_blocks) |
 | POST | /overview | Staking overview for address |
 | POST | /get_position | Single stake position by address + ID |
-| POST | /get_multiplier | Multiplier for N lock blocks |
-| POST | /stake | Stake tokens (server-side signer) |
+| POST | /get_multiplier | Multiplier at a lock length ({lock_seconds}) |
+| POST | /stake | Stake tokens ({amount, lock_seconds \| lock_blocks}, server-side signer) |
 | POST | /unstake | Unstake by ID (server-side signer) |
 | GET | /pot | Pot size, eligible supply, next/last payout, `due` |
 | POST | /fund_pot | Add BLOC to the pot (server-side signer) |
@@ -143,6 +148,16 @@ politely when the window is shut:
 Contract surface: `rewardPot()`, `distributableSupply()`, `nextDistributionTime()`,
 `distributionDue()`, `getPotInfo()`, `fundPot(uint256)`, `distributeRewards()`.
 
+Notes on trust and params:
+
+- The sweep always pays out **100%** of the pot — `distributionPercentage` is
+  stored and settable but not consulted by any contract logic today.
+- **The owner custodies staked principal**: `emergencyWithdraw(token, amount)`
+  lets the contract owner move any token held by the contract — including staked
+  NativeToken and the BLOC pot — to themselves at will. It is an escape hatch,
+  but stakers should know it exists before trusting an instance (check whether
+  ownership is renounced).
+
 ## Structure
 
 ```
@@ -152,6 +167,7 @@ bloctime/
 ├── contracts/              # Solidity contracts
 │   ├── BlocTime.sol        # Main staking contract
 │   ├── NativeToken.sol     # ERC20 staking token
+│   ├── ModStake.sol        # experimental backing/jury contract — NOT deployed, not wired to the API
 │   └── mod.py              # contracts module
 ├── api/api.py              # FastAPI backend (port 8851)
 ├── app/                    # Next.js frontend (port 8852)
@@ -174,7 +190,6 @@ bloctime/
 - Stake form with live multiplier preview + interactive SVG curve chart
 - Position table with lock status, BLOC earned, unstake button
 - Deploy tab — deploy new contract + set multiplier curve points via MetaMask
-- Update banner — checks `/check_update` on load + every 5min, shows commits behind
 - **Skins** — 11 of them (MIDNIGHT default, plus SLATE, VAULT, TERMINAL, AMBER,
   NEON, BLUEPRINT, PIXEL and the light PAPER / MINT / SOLAR), picked from the
   header. Colours, radii, fonts and backdrop are all CSS vars, so a skin is one
@@ -188,6 +203,15 @@ bloctime/
 - `PRIVATE_KEY` — server-side signer for stake/unstake endpoints
 - `NETWORK` — `testnet` | `mainnet` | `localhost` (default: `testnet`)
 - `NEXT_PUBLIC_API_URL` — app → API URL (default: `http://localhost:8851`)
+- `BLOCTIME_HOST` — API bind address for `serve()` (default: `127.0.0.1`; set
+  `0.0.0.0` to expose the port — the docker entrypoint does its own bind)
+- `BLOCTIME_API_TOKEN` — bearer token required by every endpoint that spends
+  the server signer (`/stake`, `/unstake`, `/delegate`, `/fund_pot`,
+  `/distribute_rewards`, `/contract/write`, `/deploy`, `/set_inflation_params`, …).
+  If unset and `PRIVATE_KEY` is configured, one is generated into
+  `~/.mod/bloctime/api_token` (0600). The CLI picks it up automatically; in the
+  app run `localStorage.setItem('bloctime_api_token', '<token>')` once to use
+  the server-signer fallback (the wallet path needs no token)
 
 ## Mod Protocol
 

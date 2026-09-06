@@ -1,18 +1,56 @@
 // Thin client over the Rust /hl/* proxy.
 
+/** How much evidence sits behind a row's win rate. See `stats.rs`. */
+export type Confidence = "none" | "low" | "measured";
+
 export type TopTrader = {
   address: string;
   roi: number;            // window return on equity, percent (ranking metric)
   account_value: number;  // current account equity (USD)
   volume: number;
-  pnl: number;
+  pnl: number;            // net of fees
+  /** Net-of-fee win rate, 0-100. `-1` means unmeasurable, not 0%. */
   win_rate: number;
+  /** Every fill in the window, opens included. NOT the win-rate denominator. */
   trades: number;
   coins: string[];
   avg_trade_usd: number;
   sharpe: number;
   last_active: number;
+
+  // ── the evidence behind the two ratios above ──
+  // Rows served from a board cached by an older API arrive without these;
+  // treat 0/undefined as "unknown" rather than as a real measurement.
+  /** Fills that realised PnL — the actual denominator of `win_rate`. */
+  closes: number;
+  wins: number;
+  losses: number;
+  /** Wilson 95% lower bound on `win_rate`. Rank and filter on this. */
+  win_rate_lo: number;
+  confidence: Confidence;
+  /** Days behind `sharpe`. Under 7 the ratio is noise — render "—". */
+  sharpe_days: number;
+  fees: number;
+  /** Σ wins ÷ |Σ losses|. `-1` when there were no losses (undefined, not bad). */
+  profit_factor: number;
+  worst_close: number;
 };
+
+/** Closes below which a win rate is anecdote. Mirrors `stats::MIN_CLOSES`. */
+export const MIN_CLOSES = 10;
+/** Days below which a Sharpe is noise. Mirrors `stats::MIN_SHARPE_DAYS`. */
+export const MIN_SHARPE_DAYS = 7;
+
+/** The win rate a row has earned the right to claim, or `null` if none. */
+export const defensibleWin = (t: Partial<TopTrader>): number | null => {
+  if ((t.win_rate ?? -1) < 0) return null;
+  const lo = t.win_rate_lo;
+  return lo == null || lo < 0 ? (t.win_rate as number) : lo;
+};
+
+/** True when `sharpe` rests on enough days to be worth showing at all. */
+export const sharpeMeasured = (t: Partial<TopTrader>): boolean =>
+  (t.sharpe_days ?? 0) >= MIN_SHARPE_DAYS;
 
 export type Follow = {
   id: string;
@@ -75,9 +113,113 @@ function authToken(): string | null {
   } catch { return null; }
 }
 
-async function j<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = authToken();
-  const r = await fetch(`${BASE}${path}`, {
+// ── Errors that read like sentences ───────────────────────────────────────
+//
+// The old client threw `new Error("/indexes 401 unauthorized")` and pages
+// printed it verbatim. That is a status code wearing a trench coat: it tells
+// the person who just spent two minutes picking traders nothing about what
+// went wrong or what to do. The API now answers refusals with a `message`
+// written for a human plus a stable `reason`; this carries both, and keeps
+// the route and status on the object for the console.
+export class ApiError extends Error {
+  readonly status: number;
+  readonly path: string;
+  /** Stable code from the API gate: no_token | expired_token | not_owner | … */
+  readonly reason: string | null;
+  /** The gate believes a fresh signature would fix this. */
+  readonly signIn: boolean;
+  readonly body: unknown;
+
+  constructor(o: { status: number; path: string; message: string; reason?: string | null;
+                   signIn?: boolean; body?: unknown }) {
+    super(o.message);
+    this.name = "ApiError";
+    this.status = o.status;
+    this.path = o.path;
+    this.reason = o.reason ?? null;
+    this.signIn = !!o.signIn;
+    this.body = o.body;
+  }
+
+  /** What the console logs — the human line plus where it came from. */
+  get detail(): string { return `${this.message} (${this.status} ${this.path})`; }
+}
+
+// Not every error body is ours: a proxy timing out in front of the API answers
+// with its own HTML page, and dumping that verbatim into the UI is how a 524
+// ends up rendered as a wall of markup. Prefer the API's human `message`, then
+// its `error`/`detail`, then a short readable line of whatever came back.
+function explain(status: number, body: string): { message: string; reason: string | null; signIn: boolean; parsed: unknown } {
+  let parsed: any = null;
+  try { parsed = JSON.parse(body); } catch { /* not ours */ }
+
+  if (parsed && typeof parsed === "object") {
+    const message = [parsed.message, parsed.error, parsed.detail]
+      .find((v: unknown) => typeof v === "string" && v.trim());
+    if (message) {
+      return {
+        message: String(message),
+        reason: typeof parsed.reason === "string" ? parsed.reason : null,
+        signIn: parsed.sign_in === true,
+        parsed,
+      };
+    }
+  }
+  const text = body.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return {
+    // A bare status is still better than a wall of proxy markup.
+    message: text ? (text.length > 160 ? `${text.slice(0, 160)}…` : text) : httpFallback(status),
+    reason: null,
+    signIn: status === 401,
+    parsed,
+  };
+}
+
+function httpFallback(status: number): string {
+  if (status === 401) return "Sign in with your wallet to do that.";
+  if (status === 403) return "That belongs to a different wallet.";
+  if (status === 404) return "Not found.";
+  if (status === 429) return "Too many requests right now — try again in a moment.";
+  if (status >= 500) return "The Hyperliquid API is having trouble. Try again shortly.";
+  return `Request failed (${status}).`;
+}
+
+// ── Session recovery ──────────────────────────────────────────────────────
+//
+// A mod-protocol token is a signature over a timestamp, so it expires — and
+// the only way to renew one is to ask the wallet to sign again. lib/auth.tsx
+// registers that ability here at mount, which lets a write that lands on an
+// expired session recover itself: one MetaMask prompt, then the original
+// request is replayed. It is the difference between "your session expired,
+// here is a 401" and the save simply going through.
+//
+// Three rules keep that from becoming a nuisance:
+//   1. Writes only. A background poll must never summon a signature prompt,
+//      so GETs just report the 401 and let the UI offer sign-in.
+//   2. One prompt. Concurrent 401s share a single in-flight refresh.
+//   3. One try. A retry that fails again is a real failure, not a loop.
+type Refresher = () => Promise<string | null>;
+let refresher: Refresher | null = null;
+let inFlight: Promise<string | null> | null = null;
+let lastFailureMs = 0;
+const REFRESH_COOLDOWN_MS = 10_000;
+
+export function setTokenRefresher(fn: Refresher | null) { refresher = fn; }
+
+async function refreshToken(): Promise<string | null> {
+  if (!refresher) return null;
+  if (Date.now() - lastFailureMs < REFRESH_COOLDOWN_MS) return null;
+  if (!inFlight) {
+    inFlight = refresher()
+      .catch(() => null)
+      .then((t) => { if (!t) lastFailureMs = Date.now(); return t; })
+      .finally(() => { inFlight = null; });
+  }
+  return inFlight;
+}
+
+function send(path: string, init: RequestInit | undefined, token: string | null) {
+  return fetch(`${BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -86,14 +228,35 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
     },
     cache: "no-store",
   });
+}
+
+async function j<T>(path: string, init?: RequestInit): Promise<T> {
+  const isWrite = !!init?.method && init.method.toUpperCase() !== "GET";
+  let r = await send(path, init, authToken());
+
+  if (r.status === 401 && isWrite && typeof window !== "undefined") {
+    const fresh = await refreshToken();
+    if (fresh) r = await send(path, init, fresh);
+  }
+
   if (r.status === 401 && typeof window !== "undefined") {
-    // Stale/invalid session — tell WalletProvider to drop the token so the
-    // header shows "sign in" instead of silently failing everywhere.
+    // Still refused after (at most) one re-sign — the session really is dead.
+    // Tell WalletProvider to drop the token so the header stops claiming to
+    // be signed in and starts offering the way back.
     window.dispatchEvent(new CustomEvent("hl:unauthorized"));
   }
-  if (!r.ok) throw new Error(`${path} ${r.status} ${await r.text().catch(() => "")}`);
+
+  if (!r.ok) {
+    const raw = await r.text().catch(() => "");
+    const e = explain(r.status, raw);
+    throw new ApiError({ status: r.status, path, message: e.message,
+                         reason: e.reason, signIn: e.signIn, body: e.parsed });
+  }
   return r.json() as Promise<T>;
 }
+
+/** Who the API thinks you are. 401 here means the stored token is dead. */
+export const authMe = () => j<{ ok: boolean; address: string }>(`/auth/me`);
 
 // ── market ──
 // All mid prices, coin → price string (perps by ticker; spot/dex/prediction
@@ -115,20 +278,84 @@ export type ScanProgress = {
 };
 export const fetchScanProgress = () => j<ScanProgress>(`/scan/progress`);
 
-export const fetchTopTraders = (days: number, minPerDay = 1, pool = 150, seed?: string[]) =>
-  j<{ traders: TopTrader[]; days: number; pool: number; updated_at?: number }>(
+// `coins` is a requirement, not a display filter: the API walks the ranked
+// leaderboard until it holds `pool` wallets that traded one of them, and
+// reports how deep it went as `depth`.
+export const fetchTopTraders = (days: number, minPerDay = 1, pool = 150, seed?: string[], coins?: string[]) =>
+  j<{ traders: TopTrader[]; days: number; pool: number; updated_at?: number;
+      coins?: string[]; depth?: number; candidates?: number }>(
     `/traders/top?days=${days}&min_per_day=${minPerDay}&pool=${pool}` +
-    (seed?.length ? `&seed=${encodeURIComponent(seed.join(","))}` : "")
+    (seed?.length ? `&seed=${encodeURIComponent(seed.join(","))}` : "") +
+    (coins?.length ? `&coins=${encodeURIComponent(coins.join(","))}` : "")
+  );
+
+// The whole-board fetch: `pool: "all"` = every gated wallet on the leaderboard
+// (priced from the CDN, free); `enrich` = how many top rows by `rank` get fill
+// stats (win%/sharpe/trades/coins — one throttled query each, so rationed).
+// Score floors are applied client-side on the full list, so they're instant.
+export type BoardMeta = {
+  days: number; pool: number | "all"; all: boolean; enrich: number;
+  rank: string; active: string; sort: string; coins: string[];
+  depth: number; candidates: number | null; priced: number; matched: number; enriched: number;
+  updated_at: number;
+  // A cold board is walked in the background (it outlives any proxy timeout):
+  // `scanning` means these rows are the last good board, not the answer yet.
+  scanning?: boolean;
+  progress?: ScanProgress | null;
+};
+export const fetchBoard = (o: {
+  days: number; pool: number | "all"; rank?: string; enrich?: number; seed?: string[]; coins?: string[];
+}) =>
+  j<BoardMeta & { traders: TopTrader[] }>(
+    `/traders/top?days=${o.days}&pool=${o.pool}` +
+    (o.rank ? `&rank=${o.rank}` : "") +
+    (o.enrich != null ? `&enrich=${o.enrich}` : "") +
+    (o.seed?.length ? `&seed=${encodeURIComponent(o.seed.join(","))}` : "") +
+    (o.coins?.length ? `&coins=${encodeURIComponent(o.coins.join(","))}` : "")
   );
 
 export const analyzeTrader = (addr: string, days: number) =>
   j<any>(`/trader/${addr}/analyze?days=${days}`);
 
+// The shape behind a row's number: cumulative PnL across the window, rebased
+// so the window opens at zero. Sourced from Hyperliquid's own portfolio
+// series — the same definition the leaderboard prices `pnl` with — so the
+// curve and the column agree. `available: false` carries a `note` instead of
+// throwing: this is decoration on a row that already has its numbers, and a
+// hover that errors looks like a broken row.
+export type TraderCurve = {
+  address: string;
+  days: number;
+  period: string;            // hyperliquid portfolio period backing the points
+  points: [number, number][]; // [ms epoch, cumulative pnl]
+  start_ms: number;
+  end_ms: number;
+  pnl: number;               // last point — what the drawn line ends at
+  high: number;
+  low: number;
+  max_drawdown: number;      // deepest peak → trough fall, USD (>= 0)
+  max_drawdown_pct: number;
+  available: boolean;
+  note?: string;
+};
+export const fetchTraderCurve = (addr: string, days: number) =>
+  j<TraderCurve>(`/trader/${addr}/curve?days=${days}`);
+
+// A page of curves in one request. The board draws a curve on every card, so
+// a screenful is thirty-odd of them: one round trip instead of thirty. The
+// API caps a batch (`max_batch`) and reports `requested` vs `served` rather
+// than silently truncating — the client pages against that cap.
+export const fetchTraderCurves = (addrs: string[], days: number) =>
+  j<{ days: number; requested: number; served: number; max_batch: number; curves: TraderCurve[] }>(
+    `/traders/curves?days=${days}&addrs=${encodeURIComponent(addrs.join(","))}`);
+
 // ── follows ──
 export const listFollows = (follower?: string) =>
   j<{ follows: Follow[] }>(`/follows${follower ? `?follower=${follower}` : ""}`);
 
-export const createFollow = (b: Partial<Follow> & { follower: string; leader: string }) =>
+// `follower` is optional on purpose: the API takes it from the token that
+// signed the request. A client that has to name itself can name itself wrong.
+export const createFollow = (b: Partial<Follow> & { leader: string }) =>
   j<Follow>(`/follows`, { method: "POST", body: JSON.stringify(b) });
 
 export const updateFollow = (id: string, b: Partial<Follow>) =>
@@ -153,7 +380,8 @@ export const listIndexes = () =>
 
 export const getIndex = (id: string) => j<Index>(`/indexes/${id}`);
 
-export const createIndex = (b: Partial<Index> & { name: string; owner: string; legs: IndexLeg[] }) =>
+// `owner` likewise comes from the signed-in wallet — see createFollow.
+export const createIndex = (b: Partial<Index> & { name: string; legs: IndexLeg[] }) =>
   j<Index>(`/indexes`, { method: "POST", body: JSON.stringify(b) });
 
 export const updateIndex = (id: string, b: Partial<Index>) =>
@@ -237,16 +465,36 @@ export type WalletNetConfig = {
 };
 export const walletConfig = () => j<WalletNetConfig>(`/wallet/config`);
 
-// ── cross-chain deposit (Ethereum / Base / Polygon → Arbitrum → HL) ──
+// ── cross-chain deposit: 7 chains → Hyperliquid, in one transaction ──
+export type DepositToken = {
+  symbol: string; address: string; decimals: number; native: boolean;
+};
 export type DepositChain = {
   key: string; name: string; chainId: number; chainIdHex: string;
   rpcUrl: string; explorerUrl: string; usdcAddress: string;
   nativeSymbol: string; gasReserve: number; direct: boolean;
+  tokens: DepositToken[];
 };
 export type DepositChains = {
-  testnet: boolean; toChainId: number; toUsdc: string;
+  testnet: boolean;
+  /** Where deposits land — Hyperliquid Core itself (LI.FI chain id 1337). */
+  toChainId: number; toUsdc: string;
+  /** Withdrawals still exit via Arbitrum. */
+  arbitrumChainId: number; arbitrumUsdc: string;
   minDepositUsd: number; chains: DepositChain[];
 };
+/** One spendable (chain, token) pair the wallet actually holds. */
+export type DepositSourceRow = {
+  chainKey: string; chainName: string; chainId: number;
+  symbol: string; address: string; decimals: number; native: boolean;
+  balance: number; max: number;
+  /** null when no price is available — the balance is still depositable. */
+  priceUsd: number | null; usd: number | null;
+  gasReserve: number;
+  /** USDC on Arbitrum: goes to Hyperliquid's own bridge, no router. */
+  direct: boolean;
+};
+export type DepositSource = DepositSourceRow & { chain: DepositChain };
 export type DepositBalance = {
   key: string; chainId: number; name: string; ok: boolean;
   native: { symbol: string; balance: number; usd: number; priceUsd: number; gasReserve: number };
@@ -254,22 +502,31 @@ export type DepositBalance = {
 };
 export type DepositQuote = {
   tool: string | null;
-  fromChainId: number; fromToken: string; fromAmountUnits: string;
-  toUsdc: number; toUsdcMin: number; durationSec: number;
+  fromChainId: number; fromChainName: string;
+  fromToken: string; fromSymbol: string; fromAmountUnits: string;
+  toChainId: number; toChainName: string;
+  /** true when the route ends inside the Hyperliquid account — no follow-up tx. */
+  landsOnHyperliquid: boolean;
+  toUsdc: number; toUsdcMin: number;
+  gasUsd: number; feeUsd: number; durationSec: number;
   approvalAddress: string | null;
   transactionRequest: { to: string; data: string; value?: string; gasLimit?: string; gasPrice?: string } | null;
 };
 export type DepositStatus = {
   status: "NOT_FOUND" | "INVALID" | "PENDING" | "DONE" | "FAILED";
   substatus?: string | null; substatusMessage?: string | null;
-  receivedUsdc?: number | null;
+  receivedUsdc?: number | null; receivingTxHash?: string | null;
 };
 
 export const depositChains = () => j<DepositChains>(`/deposit/chains`);
 export const depositBalances = (eoa: string) =>
-  j<{ eoa: string; chains: DepositBalance[] }>(`/deposit/balances?eoa=${encodeURIComponent(eoa)}`);
+  j<{ eoa: string; chains: DepositBalance[]; sources: DepositSourceRow[] }>(
+    `/deposit/balances?eoa=${encodeURIComponent(eoa)}`);
 export const depositQuote = (b: {
-  from_chain_id: number; token: "usdc" | "native"; amount: string; eoa: string;
+  from_chain_id: number;
+  /** "usdc", "native", a symbol, or a token address. */
+  token: string;
+  amount: string; eoa: string;
   to_chain_id?: number; to_address?: string; // withdrawals bridge Arbitrum → elsewhere
 }) =>
   j<DepositQuote>(`/deposit/quote`, { method: "POST", body: JSON.stringify(b) });
@@ -323,6 +580,45 @@ export const liveStop = (eoa: string) =>
   j<any>(`/live/stop`, { method: "POST", body: JSON.stringify({ eoa }) });
 export const liveStatus = (eoa: string) =>
   j<{ eoa: string; config: any; state: any }>(`/live/status?eoa=${encodeURIComponent(eoa)}`);
+
+// ── MCP (`/mcp/schema`) ──
+// The tool surface this module exposes to agents, and the mod-protocol fn +
+// REST route behind each tool. Public — the connect page renders it signed-out.
+export type McpTool = {
+  name: string;
+  fn: string;
+  method: string;
+  path: string;
+  public: boolean;
+  description: string;
+  inputSchema: { properties?: Record<string, any>; required?: string[] };
+};
+export type McpTransport = {
+  type: string;
+  endpoint?: string;
+  messages?: string;
+  command?: string;
+  note?: string;
+};
+export type McpSchema = {
+  name: string;
+  version: string;
+  testnet: boolean;
+  mcp: {
+    endpoint: string;
+    protocolVersion: string;
+    supportedVersions: string[];
+    auth: string;
+    instructions: string;
+    transports: McpTransport[];
+  };
+  tools: McpTool[];
+};
+export const fetchMcpSchema = () => j<McpSchema>(`/mcp/schema`);
+
+/** Absolute URL of an API path — what an external agent must be pointed at. */
+export const apiUrl = (path: string) =>
+  typeof window === "undefined" ? path : new URL(`${BASE}${path}`, window.location.origin).toString();
 
 // ── agent (`/ask`) ──
 // The agent answers only out of MCP tool calls against this same API, so it
@@ -395,7 +691,8 @@ export async function askStream(
 // ── formatting helpers ──
 export const fmtUsd = (n: number) => {
   const a = Math.abs(n);
-  const s = a >= 1e6 ? `${(a / 1e6).toFixed(2)}M`
+  const s = a >= 1e9 ? `${(a / 1e9).toFixed(2)}B`
+    : a >= 1e6 ? `${(a / 1e6).toFixed(2)}M`
     : a >= 1e3 ? `${(a / 1e3).toFixed(2)}K`
     : a.toFixed(2);
   return `${n < 0 ? "-" : ""}$${s}`;
@@ -418,3 +715,8 @@ export const ago = (ms: number) => {
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 };
+
+// The investment book's client lives in `lib/invest.ts` — it is a feature of
+// its own and does not need to grow this file. It borrows the transport, so
+// auth, the 401 → re-sign event and the basePath rewrite stay in one place.
+export const apiCall = j;

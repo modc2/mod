@@ -15,11 +15,18 @@ import requests
 from datetime import datetime
 from typing import Dict, List, Optional
 from pathlib import Path
+from urllib.parse import quote_plus
 
 try:
     import scoring
+    import curves
+    import pool as pool_mod
+    import hyperevm
 except ImportError:  # imported as a package (`src.mod`) rather than from src/
     from . import scoring
+    from . import curves
+    from . import pool as pool_mod
+    from . import hyperevm
 
 
 class Mod:
@@ -47,6 +54,7 @@ class Mod:
         self.markets_path = self.store_dir / 'markets.json'
         self.predictions_path = self.store_dir / 'predictions.json'
         self.scoring_path = self.store_dir / 'scoring.json'
+        self.functions_path = self.store_dir / 'functions.json'
 
         # Network config
         self.network = self.config.get('network', 'baseSepolia')
@@ -70,6 +78,18 @@ class Mod:
         # Price cache (5-min TTL)
         self._price_cache = {}
         self._price_cache_ttl = 300
+        # Which door the hyperliquid module answered on last, and where the
+        # last successful fetch actually came from (None = served from cache)
+        self._hl_base = None
+        self._hl_last = None
+        # Same two-door memory for the bt module (Bittensor subnets).
+        self._bt_base = None
+        self._bt_last = None
+        # And for the bloctime module (agent-play weights).
+        self._bloctime_base = None
+        # Where the last DEX read (DexScreener / GeckoTerminal) came from.
+        self._dex_last = None
+        self._pool = None
 
         self._load_deployment()
 
@@ -109,12 +129,27 @@ class Mod:
     # ── Markets ──────────────────────────────────────────────────────
 
     def add_market(self, token: str, symbol: str, fee_tier: int = 3000,
-                   source: str = 'coingecko') -> Dict:
+                   source: str = 'coingecko', hl_key: str = None,
+                   hl_kind: str = None, bt_netuid: int = None,
+                   bt_name: str = None, bt_symbol: str = None,
+                   chain: str = None, dex_pair: str = None, dex_token: str = None,
+                   dex_id: str = None, dex_name: str = None,
+                   liquidity_usd: float = None) -> Dict:
         """Add a supported asset market
 
         source picks where the price comes from: 'coingecko' (Base tokens with a
-        Uniswap pool, keyed by CG_IDS) or 'hyperliquid' (any coin in the HL
-        universe — see add_hl_market, which fills token/source for you).
+        Uniswap pool, keyed by CG_IDS), 'hyperliquid' (any pair in the HL
+        universe — see add_hl_market, which fills token/source/hl_key for you),
+        'bittensor' (a subnet's alpha token, priced in TAO through the local
+        `bt` module — see add_bt_market, which fills netuid/name for you) or
+        'dex' (a token with a pool on Solana or Base, priced per pool by
+        DexScreener — see add_dex_market, which verifies the pool clears the
+        owner's liquidity floor and fills chain/pair/token for you).
+
+        hl_key is the name Hyperliquid itself answers to, which is not always
+        the symbol: spot pairs are listed here as 'HYPE/USDC' and quoted there
+        as '@107'. Recording it at listing time is what keeps every later price
+        and settlement lookup off the universe.
         """
         if source not in self.PRICE_SOURCES:
             return {'error': f'unknown source {source} — have {list(self.PRICE_SOURCES)}'}
@@ -135,6 +170,20 @@ class Mod:
             'token': token,
             'symbol': symbol,
             'source': source,
+            **({'hl_key': hl_key} if hl_key else {}),
+            **({'hl_kind': hl_kind} if hl_kind else {}),
+            **({'bt_netuid': int(bt_netuid)} if bt_netuid is not None else {}),
+            **({'bt_name': bt_name} if bt_name else {}),
+            **({'bt_symbol': bt_symbol} if bt_symbol else {}),
+            **({'chain': chain} if chain else {}),
+            **({'dex_pair': dex_pair} if dex_pair else {}),
+            **({'dex_token': dex_token} if dex_token else {}),
+            **({'dex_id': dex_id} if dex_id else {}),
+            **({'dex_name': dex_name} if dex_name else {}),
+            **({'liquidity_usd': float(liquidity_usd)} if liquidity_usd is not None else {}),
+            # What the price is denominated in. Subnet alpha is quoted in TAO
+            # by the chain itself; everything else here is dollars.
+            'quote': 'TAO' if source == 'bittensor' else 'USD',
             'fee_tier': fee_tier,
             'active': True,
             'added_at': datetime.now().isoformat(),
@@ -149,21 +198,32 @@ class Mod:
         return {'status': 'added', 'market': market}
 
     def add_hl_market(self, coin: str) -> Dict:
-        """List a Hyperliquid perp as a market. The coin must be in the HL
-        universe — that check is the whole point, it keeps typos out of the
-        market list where they'd become unpriceable positions."""
-        coin = (coin or '').strip().upper()
-        if not coin:
+        """List a Hyperliquid pair as a market — a perp ('SOL'), a spot pair
+        ('HYPE/USDC' or just 'HYPE'), or the raw '@index' key HL quotes an
+        unnamed spot pair under.
+
+        The pair must be in the live universe. That check is the whole point:
+        it keeps typos out of the market list, where they would become
+        positions nothing can price and nothing can settle.
+        """
+        want = (coin or '').strip()
+        if not want:
             return {'error': 'coin required'}
 
-        mids = self._hl_mids()
-        if not mids:
-            return {'error': 'Hyperliquid unreachable — no asset list to verify against'}
-        if coin not in mids:
-            return {'error': f'{coin} is not a Hyperliquid perp'}
+        entry = self._hl_find(want)
+        if not entry:
+            # A miss is either a typo or a cache that predates the listing —
+            # refetch once before telling someone their coin does not exist.
+            if not self._hl_universe(force=True):
+                return {'error': 'Hyperliquid unreachable — no asset list to verify against'}
+            entry = self._hl_find(want)
+        if not entry:
+            return {'error': f'{want} is not a Hyperliquid pair'}
 
         # fee_tier is a Uniswap concept; HL markets carry 0 and the UI hides it.
-        return self.add_market(f'hl:{coin}', coin, 0, source='hyperliquid')
+        return self.add_market(f"hl:{entry['key']}", entry['coin'], 0,
+                               source='hyperliquid', hl_key=entry['key'],
+                               hl_kind=entry['kind'])
 
     # Canonical Base assets with a Uniswap V3 pool against USDC. Without at
     # least one market open_position() has nothing to trade, so a fresh install
@@ -182,14 +242,133 @@ class Mod:
             'existing': [r['market']['symbol'] for r in added if r.get('error')],
         }
 
+    def seed_hl(self, limit: int = 20, kind: str = 'all',
+                min_volume: float = 0) -> Dict:
+        """List the busiest Hyperliquid pairs in one call (idempotent).
+
+        The universe is ~880 pairs and the picker adds them one at a time,
+        which is the right shape for choosing a market and the wrong one for
+        standing a pool up. Ranked by 24h volume, because a pot on a book with
+        no volume settles against a price nobody traded at.
+
+        `limit` is the top of that ranking, not a count of new listings — so
+        seeding twice lists nothing the second time.
+        """
+        limit = max(1, int(limit or 1))
+        try:
+            floor = float(min_volume or 0)
+        except (TypeError, ValueError):
+            floor = 0.0
+
+        assets = [a for a in self.hl_assets(kind=kind, limit=0)
+                  if (a.get('volume_24h') or 0) >= floor]
+        if not assets:
+            return {'error': 'Hyperliquid unreachable — no asset list to seed from',
+                    'added': [], 'existing': []}
+
+        added, existing = [], []
+        for a in assets[:limit]:
+            if a['listed']:
+                existing.append(a['coin'])
+                continue
+            result = self.add_hl_market(a['key'])
+            (added if result.get('status') == 'added' else existing).append(a['coin'])
+        return {'added': added, 'existing': existing,
+                'markets': len(self._load_json(self.markets_path, []))}
+
+    def add_bt_market(self, subnet) -> Dict:
+        """List a Bittensor subnet's alpha token as a market — by netuid
+        ('64'), by 'SN64', by name ('lium.io') or by its alpha glyph.
+
+        The subnet must be in the live screener: the price the pool settles
+        against comes from the `bt` module's indexer, so a netuid it does not
+        snapshot could never be settled honestly.
+        """
+        want = str(subnet if subnet is not None else '').strip()
+        if not want:
+            return {'error': 'subnet required'}
+
+        entry = self._bt_find(want)
+        if not entry:
+            if not self._bt_universe(force=True):
+                return {'error': 'Bittensor unreachable — the bt module has no '
+                                 'subnet list to verify against'}
+            entry = self._bt_find(want)
+        if not entry:
+            return {'error': f'{want} is not a Bittensor subnet'}
+
+        return self.add_market(f"bt:{entry['netuid']}", entry['coin'], 0,
+                               source='bittensor', bt_netuid=entry['netuid'],
+                               bt_name=entry.get('name'),
+                               bt_symbol=entry.get('symbol'))
+
+    def seed_bt(self, limit: int = 20, min_volume: float = 0) -> Dict:
+        """List the busiest Bittensor subnets in one call (idempotent).
+
+        Ranked by 24h alpha volume in TAO, like seed_hl: a pot on a subnet
+        nobody trades settles against a price nobody paid. `limit` is the top
+        of the ranking, not a count of new listings.
+        """
+        limit = max(1, int(limit or 1))
+        try:
+            floor = float(min_volume or 0)
+        except (TypeError, ValueError):
+            floor = 0.0
+
+        assets = [a for a in self.bt_assets(limit=0)
+                  if (a.get('volume_24h') or 0) >= floor]
+        if not assets:
+            return {'error': 'Bittensor unreachable — no subnet list to seed from',
+                    'added': [], 'existing': []}
+
+        added, existing = [], []
+        for a in assets[:limit]:
+            if a['listed']:
+                existing.append(a['coin'])
+                continue
+            result = self.add_bt_market(a['netuid'])
+            (added if result.get('status') == 'added' else existing).append(a['coin'])
+        return {'added': added, 'existing': existing,
+                'markets': len(self._load_json(self.markets_path, []))}
+
     def list_markets(self) -> List[Dict]:
         """Get all supported asset markets with prices and stats"""
         markets = self._load_json(self.markets_path, [])
+        # TAO in dollars, so a subnet row can show a USD figure beside its
+        # native TAO price. Read once, only when a subnet is listed, and never
+        # required — the pool settles in TAO regardless.
+        tao_usd = None
+        if any(m.get('source') == 'bittensor' for m in markets):
+            try:
+                tao_usd = self._hl_mids().get('TAO')
+            except Exception:
+                tao_usd = None
+        # One DexScreener read prices every listed DEX token and reports the
+        # dollars in each pool — the floor the owner set is shown against it.
+        has_dex = any(m.get('source') == 'dex' for m in markets)
+        dex_quotes = self._dex_prices() if has_dex else {}
+        dex_floor = self.dex_min_liquidity() if has_dex else 0.0
         for m in markets:
+            m.setdefault('source', 'coingecko')
+            m.setdefault('quote', 'TAO' if m['source'] == 'bittensor' else 'USD')
             price = self._get_token_price(m['symbol'], m.get('source'))
             if price:
-                m['price_usd'] = price
-            m.setdefault('source', 'coingecko')
+                m['price'] = price
+                if m['quote'] == 'USD':
+                    m['price_usd'] = price
+                elif tao_usd:
+                    m['price_usd'] = price * tao_usd
+            if m['source'] == 'dex':
+                q = dex_quotes.get(m['symbol'].upper())
+                if q:
+                    m['liquidity_usd'] = q.get('liquidity_usd')
+                    m['volume_24h'] = q.get('volume_24h')
+                    m['change_24h'] = q.get('change_24h')
+                m['min_liquidity_usd'] = dex_floor
+                # Only a live reading decides eligibility — the figure stored
+                # at listing is what the pool held then, not now. No reading
+                # means "unknown", and the pool refuses stakes on unknown.
+                m['eligible'] = (q['liquidity_usd'] or 0) >= dex_floor if q else None
             total = m.get('win_count', 0) + m.get('loss_count', 0)
             m['win_rate'] = round(m.get('win_count', 0) / total * 100, 1) if total > 0 else 0
         return markets
@@ -205,12 +384,34 @@ class Mod:
     # Two sources, one interface. Everything downstream asks for a symbol and
     # gets dollars; only these helpers know where the dollars came from.
 
-    PRICE_SOURCES = ('coingecko', 'hyperliquid')
+    PRICE_SOURCES = ('coingecko', 'hyperliquid', 'bittensor', 'dex')
     HL_INFO_URL = 'https://api.hyperliquid.xyz/info'
+    # Bittensor subnets come from the `bt` module on this host — its indexer
+    # snapshots every subnet's alpha price every five minutes into SQLite, which
+    # is what makes a historical mark at a round's close possible without an
+    # archive node. There is no public fallback: the module IS the feed.
+    BT_MOD_URL = os.environ.get('PREFI_BT_API', 'http://localhost:50280')
+    BT_WAKE_URL = os.environ.get('PREFI_BT_WAKE', 'http://localhost:9000/api/bt')
+    BT_UNIVERSE_TTL = 900
     # Hyperliquid rate-limits per IP, and the `hyperliquid` module on this host
     # already holds a client against it. Ask that module first and fall back to
     # the public endpoint — one HL client per box, not one per module.
     HL_MOD_URL = os.environ.get('PREFI_HL_API', 'http://localhost:8919')
+    # The second door to that module. It is scale-to-zero behind the activator,
+    # and only a call routed through :9000 wakes it — a refused call on its own
+    # port means "asleep", not "no feed", so we knock on the activator before
+    # falling through to the public endpoint.
+    HL_WAKE_URL = os.environ.get('PREFI_HL_WAKE', 'http://localhost:9000/api/hyperliquid')
+    # The bloctime module — time-weighted staking on Base Sepolia. Agent play
+    # reads an address's lock positions off it to weigh calls by USD × seconds
+    # locked across a round. Same two-door pattern: its own port, then the
+    # activator in case it is scale-to-zero on this host.
+    BLOCTIME_MOD_URL = os.environ.get('PREFI_BLOCTIME_API', 'http://localhost:8851')
+    BLOCTIME_WAKE_URL = os.environ.get('PREFI_BLOCTIME_WAKE',
+                                       'http://localhost:9000/api/bloctime')
+    # The pair list moves when HL lists a coin, not by the second. Fifteen
+    # minutes of cache is what keeps a market-picker keystroke off the feed.
+    HL_UNIVERSE_TTL = 900
 
     # Symbols that share a CoinGecko id share a cache entry — pricing WETH
     # prices ETH too, which keeps the free tier out of rate-limit territory.
@@ -222,28 +423,58 @@ class Mod:
     }
 
     def _hl_mod_get(self, path: str, timeout: int = 10):
-        """GET from the local hyperliquid module. None if it isn't running."""
-        try:
-            resp = requests.get(f'{self.HL_MOD_URL}{path}', timeout=timeout)
-            resp.raise_for_status()
-            return resp.json()
-        except Exception:
-            return None
+        """GET from the local hyperliquid module. None if it isn't reachable.
 
-    def _hl_post(self, body: Dict, timeout: int = 10):
-        """POST to the public Hyperliquid info endpoint — no key needed"""
-        resp = requests.post(self.HL_INFO_URL, json=body, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
+        Tries its own port and then the activator in front of it, and remembers
+        which door answered — the activator hop is what wakes a slept module,
+        so it is worth the extra attempt before we go to the public API.
+        """
+        bases, seen = [], set()
+        for base in (self._hl_base, self.HL_MOD_URL, self.HL_WAKE_URL):
+            if base and base not in seen:
+                seen.add(base)
+                bases.append(base)
+        for base in bases:
+            try:
+                # Waking a slept module through the activator costs a few
+                # seconds of boot before it answers — a short read timeout
+                # there reports the feed as dead when it is merely starting.
+                wait = max(timeout, 30) if base == self.HL_WAKE_URL else timeout
+                resp = requests.get(f'{base}{path}', timeout=wait)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception:
+                continue
+            self._hl_base = self._hl_last = base
+            return data
+        return None
+
+    def _hl_post(self, body: Dict, timeout: int = 20, attempts: int = 4):
+        """POST to the public Hyperliquid info endpoint — no key needed, but it
+        429s a busy host readily, so back off and retry rather than report the
+        universe as empty."""
+        delay = 0.5
+        for attempt in range(attempts):
+            resp = requests.post(self.HL_INFO_URL, json=body, timeout=timeout)
+            if resp.status_code == 429 and attempt < attempts - 1:
+                time.sleep(delay)
+                delay = min(delay * 2, 4.0)
+                continue
+            resp.raise_for_status()
+            self._hl_last = self.HL_INFO_URL
+            return resp.json()
 
     @staticmethod
     def _hl_named(raw: Dict) -> Dict[str, float]:
-        """Spot pairs and prediction legs come back as '@1' / '#10010' indexes —
-        only named perps ('BTC', '0G') are addressable by a symbol someone would
-        type into the market list."""
+        """Every key Hyperliquid quotes a price for: named perps ('BTC', '0G')
+        and spot pairs, which it quotes under an '@index' key rather than a
+        name. Prediction legs ('#12000') are dropped — they are event odds, not
+        a pair a price call can be settled against."""
+        if not isinstance(raw, dict):
+            return {}
         out = {}
-        for k, v in (raw or {}).items():
-            if k[:1] in ('@', '#'):
+        for k, v in raw.items():
+            if k[:1] == '#':
                 continue
             try:
                 price = float(v)
@@ -272,47 +503,1002 @@ class Mod:
             self._price_cache['_hl_mids'] = {'mids': mids, 'ts': time.time()}
         return mids or (cached['mids'] if cached else {})
 
-    def hl_assets(self, search: str = '', limit: int = 50) -> List[Dict]:
-        """Browse the Hyperliquid perp universe — the pool add_hl_market draws
-        from. Delisted coins are filtered out; they have no tradeable price."""
-        cached = self._price_cache.get('_hl_universe')
-        if cached and (time.time() - cached['ts']) < 300:
-            universe = cached['universe']
+    # ── The Hyperliquid pair universe ────────────────────────────────
+    #
+    # HL quotes two kinds of pair and names them differently. Perps carry their
+    # own name ('BTC'); spot pairs are quoted under an '@index' key and only
+    # spotMeta says which token that index is. Everything below normalises the
+    # two into one row shape — `key` is the name HL speaks (allMids, candles),
+    # `coin` is the name a human types — so the rest of the module never has to
+    # know which side of the exchange a market came from.
+
+    @property
+    def hl_universe_path(self):
+        return self.store_dir / 'hl_universe.json'
+
+    def _hl_perp_meta(self) -> Optional[Dict]:
+        """Perp universe + per-asset context (24h volume, previous close)."""
+        data = self._hl_mod_get('/market/meta')
+        if data is None:
+            try:
+                data = self._hl_post({'type': 'metaAndAssetCtxs'})
+            except Exception:
+                return None
+        return self._split_meta(data)
+
+    def _hl_spot_meta(self) -> Optional[Dict]:
+        """Spot universe + context. The hyperliquid module has no spot route
+        today, so this is normally the public endpoint — asked once per cache
+        window, not once per keystroke."""
+        data = self._hl_mod_get('/market/spot_meta')
+        if data is None:
+            try:
+                data = self._hl_post({'type': 'spotMetaAndAssetCtxs'})
+            except Exception:
+                return None
+        return self._split_meta(data)
+
+    @staticmethod
+    def _split_meta(data) -> Optional[Dict]:
+        """`metaAndAssetCtxs` answers as [meta, ctxs]; the plain `meta` types
+        answer as the meta alone. Accept either and return one dict."""
+        if isinstance(data, list):
+            meta = data[0] if data else {}
+            ctxs = data[1] if len(data) > 1 else []
+        elif isinstance(data, dict):
+            meta, ctxs = data, []
         else:
-            meta = self._hl_mod_get('/market/meta')
-            if isinstance(meta, list):   # the module returns [meta, assetCtxs]
-                meta = meta[0] if meta else {}
-            if meta is None:
-                try:
-                    meta = self._hl_post({'type': 'meta'})
-                except Exception:
-                    meta = {}
-            universe = [u for u in (meta or {}).get('universe', [])
-                        if not u.get('isDelisted')]
-            if universe:
-                self._price_cache['_hl_universe'] = {'universe': universe, 'ts': time.time()}
-            elif cached:
-                universe = cached['universe']
+            return None
+        if not isinstance(meta, dict) or 'universe' not in meta:
+            return None
+        return {'universe': meta.get('universe') or [],
+                'tokens': meta.get('tokens') or [],
+                'ctxs': ctxs if isinstance(ctxs, list) else []}
 
+    @staticmethod
+    def _ctx_stats(ctx) -> Dict:
+        """24h volume and change, when the exchange reports them."""
+        if not isinstance(ctx, dict):
+            return {}
+        out = {}
+        try:
+            out['volume_24h'] = float(ctx.get('dayNtlVlm'))
+        except (TypeError, ValueError):
+            pass
+        try:
+            prev, mark = float(ctx.get('prevDayPx')), float(ctx.get('markPx') or ctx.get('midPx'))
+            if prev > 0:
+                out['change_24h'] = round((mark - prev) / prev * 100, 2)
+        except (TypeError, ValueError):
+            pass
+        return out
+
+    def _hl_build_universe(self) -> List[Dict]:
+        """One row per tradeable pair, perps first then spot, each sorted by
+        24h volume so the liquid end of a 900-pair list is what you see first.
+
+        A pair has to be in allMids to make the list: a name in the meta with
+        no quote behind it cannot be priced now or settled later, and listing
+        it would only produce a market that fails at settlement.
+        """
         mids = self._hl_mids()
-        listed = {m['symbol'].upper() for m in self._load_json(self.markets_path, [])}
-        q = (search or '').strip().upper()
+        if not mids:
+            return []
 
-        out = []
-        for u in universe:
-            name = u.get('name', '')
-            if q and q not in name.upper():
+        perps, spot = [], []
+
+        meta = self._hl_perp_meta()
+        for i, u in enumerate((meta or {}).get('universe', [])):
+            name = u.get('name') or ''
+            if not name or u.get('isDelisted') or name not in mids:
                 continue
-            if name not in mids:
-                continue
-            out.append({
-                'coin': name,
+            ctxs = (meta or {}).get('ctxs') or []
+            perps.append({
+                'coin': name, 'key': name, 'kind': 'perp',
                 'price': mids[name],
                 'max_leverage': u.get('maxLeverage'),
-                'listed': name.upper() in listed,
+                'sz_decimals': u.get('szDecimals'),
+                **self._ctx_stats(ctxs[i] if i < len(ctxs) else None),
             })
-        out.sort(key=lambda a: (a['listed'], a['coin']))
-        return out[:max(1, int(limit))]
+
+        smeta = self._hl_spot_meta()
+        tokens = {t.get('index'): t.get('name')
+                  for t in (smeta or {}).get('tokens', []) if isinstance(t, dict)}
+        named, ctx_by_coin = {}, {}
+        for c in (smeta or {}).get('ctxs', []):
+            if isinstance(c, dict) and c.get('coin'):
+                ctx_by_coin[c['coin']] = c
+        for u in (smeta or {}).get('universe', []):
+            key = u.get('name')
+            if not key:
+                continue
+            pair = u.get('tokens') or []
+            base = tokens.get(pair[0]) if len(pair) > 0 else None
+            quote = tokens.get(pair[1]) if len(pair) > 1 else None
+            named[key] = {'base': base, 'quote': quote, 'index': u.get('index')}
+
+        for key, price in mids.items():
+            if not key.startswith('@') and key not in named:
+                continue          # a named perp, already listed above
+            info = named.get(key, {})
+            base, quote = info.get('base'), info.get('quote')
+            # HL quotes ~700 spot pairs but only names ~330 of them in spotMeta.
+            # The unnamed ones stay addressable under the raw '@index' key
+            # rather than dropping off the list — they price and settle the same.
+            coin = f'{base}/{quote}' if base and quote else key
+            spot.append({
+                'coin': coin, 'key': key, 'kind': 'spot', 'price': price,
+                'base': base, 'quote': quote, 'named': bool(base and quote),
+                **self._ctx_stats(ctx_by_coin.get(key)),
+            })
+
+        by_volume = lambda a: (-(a.get('volume_24h') or 0), a['coin'])
+        perps.sort(key=by_volume)
+        spot.sort(key=by_volume)
+        return perps + spot
+
+    def _hl_universe(self, force: bool = False) -> List[Dict]:
+        """The pair universe, cached in memory for 15 minutes and on disk under
+        the store. The feed 429s a busy host, and a stale pair list is a far
+        better answer than an empty one — an empty one reads as "Hyperliquid
+        has no markets", which is never true.
+        """
+        cached = self._price_cache.get('_hl_universe')
+        if not force and cached and (time.time() - cached['ts']) < self.HL_UNIVERSE_TTL:
+            return cached['assets']
+
+        if not force and not cached:
+            disk = self._load_json(self.hl_universe_path, {})
+            if disk.get('assets') and (time.time() - disk.get('ts', 0)) < self.HL_UNIVERSE_TTL:
+                self._price_cache['_hl_universe'] = disk
+                return disk['assets']
+
+        assets = self._hl_build_universe()
+        if assets:
+            entry = {'assets': assets, 'ts': time.time()}
+            self._price_cache['_hl_universe'] = entry
+            try:
+                self._save_json(self.hl_universe_path, entry)
+            except Exception:
+                pass
+            return assets
+
+        if cached:
+            return cached['assets']
+        disk = self._load_json(self.hl_universe_path, {})
+        return disk.get('assets', [])
+
+    def _hl_index(self) -> Dict[str, Dict]:
+        """Lookup table over the universe: every name a caller might type — the
+        pair name, the HL key, and a bare base token — points at one row."""
+        assets = self._hl_universe()
+        stamp = self._price_cache.get('_hl_universe', {}).get('ts')
+        cached = self._price_cache.get('_hl_index')
+        if cached and cached.get('stamp') == stamp:
+            return cached['index']
+
+        index = {}
+        for a in assets:
+            index.setdefault(a['coin'].upper(), a)
+            index.setdefault(a['key'].upper(), a)
+        for a in assets:                       # bare token: 'HYPE' → HYPE/USDC
+            if a['kind'] == 'spot' and a.get('base'):
+                index.setdefault(a['base'].upper(), a)
+        self._price_cache['_hl_index'] = {'index': index, 'stamp': stamp}
+        return index
+
+    def _hl_find(self, name: str) -> Optional[Dict]:
+        """Resolve anything a caller might type to one universe row."""
+        want = (name or '').strip().upper()
+        return self._hl_index().get(want) if want else None
+
+    def _hl_key(self, symbol: str) -> str:
+        """The name Hyperliquid answers to for one of our market symbols.
+
+        Perps are themselves; a spot pair listed here as 'HYPE/USDC' is '@107'
+        to allMids and to candleSnapshot. Markets record the key at listing, so
+        the common path is a dict hit and never touches the feed.
+        """
+        sym = (symbol or '').strip()
+        if not sym:
+            return ''
+        cached = self._price_cache.get('_hl_keys')
+        if not cached or (time.time() - cached['ts']) > 5:
+            cached = {'keys': {m['symbol'].upper(): m['hl_key']
+                               for m in self._load_json(self.markets_path, [])
+                               if m.get('hl_key')},
+                      'ts': time.time()}
+            self._price_cache['_hl_keys'] = cached
+        if sym.upper() in cached['keys']:
+            return cached['keys'][sym.upper()]
+        entry = self._hl_find(sym)
+        return entry['key'] if entry else sym.upper()
+
+    def hl_assets(self, search: str = '', limit: int = 50,
+                  kind: str = 'all') -> List[Dict]:
+        """Browse the whole Hyperliquid universe — every perp and every spot
+        pair — which is what add_hl_market draws from.
+
+        `kind` narrows to 'perp' or 'spot'; `limit=0` returns everything.
+        Rows come back liquid end first, and carry `listed` so a picker can
+        show what this pool already trades.
+        """
+        assets = self._hl_universe()
+        markets = self._load_json(self.markets_path, [])
+        listed = {m['symbol'].upper() for m in markets}
+        listed |= {m['hl_key'].upper() for m in markets if m.get('hl_key')}
+
+        want_kind = (kind or 'all').strip().lower()
+        q = (search or '').strip().upper()
+        out = []
+        for a in assets:
+            if want_kind in ('perp', 'spot') and a['kind'] != want_kind:
+                continue
+            if q and q not in a['coin'].upper() and q not in a['key'].upper():
+                continue
+            out.append({**a, 'listed': a['coin'].upper() in listed
+                                       or a['key'].upper() in listed})
+        limit = int(limit or 0)
+        return out[:limit] if limit > 0 else out
+
+    def hl_stats(self) -> Dict:
+        """What the pair universe looks like right now — how many pairs of each
+        kind are quoted, how many this pool lists, and how old the snapshot is.
+        A picker showing 24 of 900 rows needs to say so."""
+        assets = self._hl_universe()
+        cached = self._price_cache.get('_hl_universe', {})
+        listed = self.hl_assets(kind='all', limit=0)
+        age = time.time() - cached['ts'] if cached.get('ts') else None
+        return {
+            'pairs': len(assets),
+            'perps': sum(1 for a in assets if a['kind'] == 'perp'),
+            'spot': sum(1 for a in assets if a['kind'] == 'spot'),
+            'listed': sum(1 for a in listed if a['listed']),
+            # Where these rows came from — naming an endpoint we never
+            # called would make a cached list look live.
+            'source': self._hl_last or 'cache',
+            'age_seconds': round(age) if age is not None else None,
+            'reachable': bool(assets),
+        }
+
+    # ── The Bittensor subnet universe ────────────────────────────────
+    #
+    # Every subnet has an alpha token priced in TAO by its own liquidity pool.
+    # The `bt` module's screener is the whole list in one call, served from its
+    # indexer, so the picker never touches the chain. Rows take the same shape
+    # as the Hyperliquid universe — `coin` is what a human types ('SN64'),
+    # `key` is the netuid the feed speaks — so the rest of the module does not
+    # care which exchange a market came from.
+
+    @property
+    def bt_universe_path(self):
+        return self.store_dir / 'bt_universe.json'
+
+    def _bt_call(self, tool: str, args: Dict = None, timeout: int = 15):
+        """Call one bt tool through the module's JSON API. None if the module
+        is unreachable. Its own port first, then the activator — bt can be
+        scale-to-zero, and a refused call means asleep, not dead."""
+        bases, seen = [], set()
+        for base in (self._bt_base, self.BT_MOD_URL, self.BT_WAKE_URL):
+            if base and base not in seen:
+                seen.add(base)
+                bases.append(base)
+        for base in bases:
+            try:
+                wait = max(timeout, 30) if base == self.BT_WAKE_URL else timeout
+                resp = requests.post(f'{base}/api/call',
+                                     json={'tool': tool, 'args': args or {}},
+                                     timeout=wait)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception:
+                continue
+            if not isinstance(data, dict) or not data.get('ok'):
+                # The module answered but the tool failed — that is a real
+                # answer, not a closed door; do not go knocking elsewhere.
+                self._bt_base = base
+                return None
+            self._bt_base = self._bt_last = base
+            return data.get('result')
+        return None
+
+    def _bt_prices(self) -> Dict[str, float]:
+        """Every subnet's alpha price in TAO, keyed by netuid string, cached
+        60s. One call prices the whole market list."""
+        cached = self._price_cache.get('_bt_prices')
+        if cached and (time.time() - cached['ts']) < 60:
+            return cached['prices']
+        data = self._bt_call('bt_prices_at', {})
+        prices = {}
+        for k, v in ((data or {}).get('prices') or {}).items():
+            try:
+                price = float(v)
+            except (TypeError, ValueError):
+                continue
+            if price > 0:
+                prices[str(k)] = price
+        if prices:
+            self._price_cache['_bt_prices'] = {'prices': prices, 'ts': time.time()}
+        return prices or (cached['prices'] if cached else {})
+
+    def _bt_build_universe(self) -> List[Dict]:
+        """One row per subnet from the bt screener, busiest first. Root
+        (netuid 0) is dropped: its price is 1 TAO by definition, and a call on
+        a constant is not a prediction."""
+        data = self._bt_call('bt_screener', {}, timeout=30)
+        rows = (data or {}).get('rows') if isinstance(data, dict) else None
+        if not rows:
+            return []
+        out = []
+        for r in rows:
+            try:
+                netuid = int(r.get('netuid'))
+                price = float(r.get('price') or 0)
+            except (TypeError, ValueError):
+                continue
+            if netuid == 0 or price <= 0:
+                continue
+            out.append({
+                'coin': f'SN{netuid}', 'key': str(netuid), 'netuid': netuid,
+                'kind': 'subnet', 'name': r.get('name') or '',
+                'symbol': r.get('symbol') or '',
+                'price': price, 'quote': 'TAO',
+                'market_cap': r.get('market_cap'),
+                'tao_in': r.get('tao_in'),
+                'volume_24h': r.get('vol_24h'),
+                'change_24h': r.get('change_24h'),
+                'change_7d': r.get('change_7d'),
+                'logo': r.get('logo'), 'url': r.get('url'),
+            })
+        out.sort(key=lambda a: (-(a.get('volume_24h') or 0), a['netuid']))
+        return out
+
+    def _bt_universe(self, force: bool = False) -> List[Dict]:
+        """The subnet list, cached 15 minutes in memory and on disk — same
+        reasoning as the HL universe: stale beats empty."""
+        cached = self._price_cache.get('_bt_universe')
+        if not force and cached and (time.time() - cached['ts']) < self.BT_UNIVERSE_TTL:
+            return cached['assets']
+
+        if not force and not cached:
+            disk = self._load_json(self.bt_universe_path, {})
+            if disk.get('assets') and (time.time() - disk.get('ts', 0)) < self.BT_UNIVERSE_TTL:
+                self._price_cache['_bt_universe'] = disk
+                return disk['assets']
+
+        assets = self._bt_build_universe()
+        if assets:
+            entry = {'assets': assets, 'ts': time.time()}
+            self._price_cache['_bt_universe'] = entry
+            try:
+                self._save_json(self.bt_universe_path, entry)
+            except Exception:
+                pass
+            return assets
+
+        if cached:
+            return cached['assets']
+        disk = self._load_json(self.bt_universe_path, {})
+        return disk.get('assets', [])
+
+    def _bt_index(self) -> Dict[str, Dict]:
+        """Every name a caller might type — 'SN64', '64', 'lium.io', the
+        alpha glyph — points at one row. Busiest wins a shared glyph."""
+        assets = self._bt_universe()
+        stamp = self._price_cache.get('_bt_universe', {}).get('ts')
+        cached = self._price_cache.get('_bt_index')
+        if cached and cached.get('stamp') == stamp:
+            return cached['index']
+        index = {}
+        for a in assets:
+            index.setdefault(a['coin'].upper(), a)
+            index.setdefault(a['key'], a)
+        for a in assets:
+            if a.get('name'):
+                index.setdefault(a['name'].strip().upper(), a)
+            if a.get('symbol'):
+                index.setdefault(a['symbol'].strip().upper(), a)
+        self._price_cache['_bt_index'] = {'index': index, 'stamp': stamp}
+        return index
+
+    def _bt_find(self, name) -> Optional[Dict]:
+        want = str(name if name is not None else '').strip().upper()
+        if want.startswith('BT:'):
+            want = want[3:]
+        return self._bt_index().get(want) if want else None
+
+    def _bt_netuid(self, symbol: str) -> Optional[int]:
+        """The netuid behind one of our market symbols. Markets record it at
+        listing, so the common path never touches the feed."""
+        sym = (symbol or '').strip()
+        if not sym:
+            return None
+        cached = self._price_cache.get('_bt_netuids')
+        if not cached or (time.time() - cached['ts']) > 5:
+            cached = {'ids': {m['symbol'].upper(): int(m['bt_netuid'])
+                              for m in self._load_json(self.markets_path, [])
+                              if m.get('bt_netuid') is not None},
+                      'ts': time.time()}
+            self._price_cache['_bt_netuids'] = cached
+        if sym.upper() in cached['ids']:
+            return cached['ids'][sym.upper()]
+        entry = self._bt_find(sym)
+        return entry['netuid'] if entry else None
+
+    def bt_assets(self, search: str = '', limit: int = 50) -> List[Dict]:
+        """Browse every Bittensor subnet — what add_bt_market draws from.
+        `limit=0` returns everything; rows carry `listed`."""
+        assets = self._bt_universe()
+        markets = self._load_json(self.markets_path, [])
+        listed = {int(m['bt_netuid']) for m in markets if m.get('bt_netuid') is not None}
+        q = (search or '').strip().upper()
+        out = []
+        for a in assets:
+            hay = (a['coin'], a['key'], a.get('name') or '', a.get('symbol') or '')
+            if q and not any(q in h.upper() for h in hay):
+                continue
+            out.append({**a, 'listed': a['netuid'] in listed})
+        limit = int(limit or 0)
+        return out[:limit] if limit > 0 else out
+
+    def bt_stats(self) -> Dict:
+        """How many subnets the bt indexer quotes, how many are listed here,
+        and how old the snapshot is."""
+        assets = self._bt_universe()
+        cached = self._price_cache.get('_bt_universe', {})
+        listed = self.bt_assets(limit=0)
+        age = time.time() - cached['ts'] if cached.get('ts') else None
+        return {
+            'subnets': len(assets),
+            'listed': sum(1 for a in listed if a['listed']),
+            'volume_24h_tao': round(sum(a.get('volume_24h') or 0 for a in assets), 3),
+            'source': self._bt_last or 'cache',
+            'age_seconds': round(age) if age is not None else None,
+            'reachable': bool(assets),
+        }
+
+
+    # ── DEX tokens on Solana and Base ────────────────────────────────
+    #
+    # Anything with a pool on Solana or Base is listable, which is a different
+    # shape of universe from Hyperliquid's ~880 pairs or Bittensor's ~130
+    # subnets: it is unbounded, and most of it is worthless. Two things keep
+    # it honest. A market is one *pool* — the pair address is recorded at
+    # listing and every price and settlement read is for that pool, so a
+    # token can never be quietly re-pointed at a thinner one. And the pool
+    # owner sets a dollar floor on liquidity (`min_liquidity_usd`) that a
+    # token has to clear to be listed and to take a stake: a pot on a $900
+    # pool settles against a price one trade can move.
+    #
+    # Spot comes from DexScreener (no key, per-pair liquidity and volume);
+    # history from GeckoTerminal's hourly OHLCV for the same pool, and from
+    # our own snapshots — taken every time a price is read — when it can't.
+
+    DEX_CHAINS = {'solana': 'Solana', 'base': 'Base'}
+    DEX_API = os.environ.get('PREFI_DEX_API', 'https://api.dexscreener.com')
+    GECKO_API = os.environ.get('PREFI_GECKO_API', 'https://api.geckoterminal.com/api/v2')
+    DEX_UNIVERSE_TTL = 900       # the ranked list moves slowly
+    DEX_SEARCH_TTL = 120         # a search is a keystroke — but not a feed hit each time
+    DEX_PRICE_TTL = 60
+    DEX_SNAPSHOT_GAP = 240       # seconds between two stored history points
+    DEX_HISTORY_DAYS = 30
+    DEX_UNIVERSE_PAGES = 3       # GeckoTerminal pages a chain's default list is built from
+
+    @property
+    def dex_history_path(self):
+        return self.store_dir / 'dex_history.json'
+
+    def dex_universe_path(self, chain: str):
+        return self.store_dir / f'dex_universe_{chain}.json'
+
+    def _dex_chain(self, chain) -> Optional[str]:
+        want = str(chain or '').strip().lower()
+        aliases = {'sol': 'solana', 'solana': 'solana', 'base': 'base'}
+        return aliases.get(want)
+
+    def _dex_get(self, path: str, params: Dict = None, timeout: int = 10):
+        """GET from DexScreener. None if it isn't reachable — never an
+        exception, a browser keystroke must not 500."""
+        try:
+            resp = requests.get(f'{self.DEX_API}{path}', params=params, timeout=timeout)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            return None
+        self._dex_last = 'dexscreener'
+        return data
+
+    def _gecko_get(self, path: str, params: Dict = None, timeout: int = 15):
+        """GET from GeckoTerminal — the candle feed. Same contract: None
+        when it can't answer."""
+        try:
+            resp = requests.get(f'{self.GECKO_API}{path}', params=params, timeout=timeout,
+                                headers={'accept': 'application/json'})
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            return None
+        self._dex_last = 'geckoterminal'
+        return data
+
+    @staticmethod
+    def _dex_symbol(raw) -> str:
+        """A DexScreener symbol, cleaned: '$WIF' is WIF. Anything that is not
+        a letter, digit, dot or dash goes — symbols end up in URLs and
+        signed messages."""
+        sym = ''.join(ch for ch in str(raw or '').strip().lstrip('$')
+                      if ch.isalnum() or ch in '.-')
+        # Tickers are upper-case everywhere else in the market list, and a
+        # symbol lookup ('wif') should not depend on how a deployer typed it.
+        return sym[:24].upper()
+
+    @staticmethod
+    def _num(value) -> Optional[float]:
+        try:
+            out = float(value)
+        except (TypeError, ValueError):
+            return None
+        return out if out == out else None      # NaN guard
+
+    def _dex_row(self, pair: Dict) -> Optional[Dict]:
+        """One DexScreener pair → the row shape everything else reads."""
+        if not isinstance(pair, dict):
+            return None
+        chain = self._dex_chain(pair.get('chainId'))
+        base = pair.get('baseToken') or {}
+        if not chain or not pair.get('pairAddress') or not base.get('address'):
+            return None
+        price = self._num(pair.get('priceUsd'))
+        if not price or price <= 0:
+            return None
+        return {
+            'chain': chain,
+            'key': pair['pairAddress'],
+            'coin': self._dex_symbol(base.get('symbol')) or base['address'][:6],
+            'name': (base.get('name') or '')[:48] or None,
+            'token': base['address'],
+            'dex': pair.get('dexId'),
+            'quote_symbol': self._dex_symbol((pair.get('quoteToken') or {}).get('symbol')),
+            'price': price,
+            'liquidity_usd': self._num((pair.get('liquidity') or {}).get('usd')) or 0.0,
+            'volume_24h': self._num((pair.get('volume') or {}).get('h24')) or 0.0,
+            'change_24h': self._num((pair.get('priceChange') or {}).get('h24')),
+            'url': pair.get('url'),
+        }
+
+    def _gecko_row(self, pool: Dict, chain: str) -> Optional[Dict]:
+        """One GeckoTerminal pool → the same row shape."""
+        try:
+            attrs = pool['attributes']
+            rel = pool['relationships']
+            token_id = rel['base_token']['data']['id']          # 'solana_<addr>'
+            token = token_id.split('_', 1)[1]
+            name = attrs.get('name') or ''
+            coin = self._dex_symbol(name.split(' / ')[0]) or token[:6]
+            price = self._num(attrs.get('base_token_price_usd'))
+            if not price or price <= 0 or not attrs.get('address'):
+                return None
+            return {
+                'chain': chain,
+                'key': attrs['address'],
+                'coin': coin,
+                'name': None,
+                'token': token,
+                'dex': (rel.get('dex') or {}).get('data', {}).get('id'),
+                'quote_symbol': self._dex_symbol(name.split(' / ')[1].split(' ')[0])
+                                if ' / ' in name else None,
+                'price': price,
+                'liquidity_usd': self._num(attrs.get('reserve_in_usd')) or 0.0,
+                'volume_24h': self._num((attrs.get('volume_usd') or {}).get('h24')) or 0.0,
+                'change_24h': self._num((attrs.get('price_change_percentage') or {}).get('h24')),
+                'url': None,
+            }
+        except (KeyError, TypeError, AttributeError, IndexError):
+            return None
+
+    @staticmethod
+    def _dex_best(rows: List[Dict]) -> List[Dict]:
+        """One row per token — its deepest pool. The same token trades in a
+        dozen pools; the price that matters is the one with money behind it,
+        and it is the only one a market gets pinned to."""
+        best: Dict[str, Dict] = {}
+        for r in rows:
+            if not r:
+                continue
+            k = f"{r['chain']}:{r['token'].lower()}"
+            if k not in best or (r['liquidity_usd'] or 0) > (best[k]['liquidity_usd'] or 0):
+                best[k] = r
+        return list(best.values())
+
+    def _dex_build_universe(self, chain: str) -> List[Dict]:
+        """A chain's default list: its busiest pools by 24h volume, from
+        GeckoTerminal, deduped to one pool per token."""
+        rows = []
+        for page in range(1, self.DEX_UNIVERSE_PAGES + 1):
+            data = self._gecko_get(f'/networks/{chain}/pools', {'page': page})
+            if not data:
+                break
+            got = [self._gecko_row(p, chain) for p in (data.get('data') or [])]
+            rows.extend(r for r in got if r)
+            if len(got) < 20:
+                break
+        rows = self._dex_best(rows)
+        # Stables and wrapped gas are in every top-pools list and are not a
+        # price call anyone would make.
+        boring = {'USDC', 'USDT', 'USDBC', 'DAI', 'USDE', 'USDS', 'WETH', 'WSOL', 'SOL', 'ETH',
+                  'CBBTC', 'WBTC', 'STETH', 'WSTETH', 'CBETH', 'WEETH', 'USD1', 'PYUSD', 'FDUSD'}
+        # A pool with no reserve reading is not one to show, whatever it traded.
+        rows = [r for r in rows if r['coin'].upper() not in boring and (r['liquidity_usd'] or 0) > 0]
+        rows.sort(key=lambda r: -(r['volume_24h'] or 0))
+        return rows
+
+    def _dex_universe(self, chain: str, force: bool = False) -> List[Dict]:
+        """The default list per chain, cached 15 minutes in memory and on disk
+        — a stale list beats an empty one, same as the HL universe."""
+        chain = self._dex_chain(chain)
+        if not chain:
+            return []
+        ckey = f'_dex_universe_{chain}'
+        cached = self._price_cache.get(ckey)
+        if not force:
+            if cached and (time.time() - cached['ts']) < self.DEX_UNIVERSE_TTL:
+                return cached['assets']
+            disk = self._load_json(self.dex_universe_path(chain), {})
+            if disk.get('assets') and (time.time() - disk.get('ts', 0)) < self.DEX_UNIVERSE_TTL:
+                self._price_cache[ckey] = disk
+                return disk['assets']
+
+        assets = self._dex_build_universe(chain)
+        if assets:
+            entry = {'assets': assets, 'ts': time.time()}
+            self._price_cache[ckey] = entry
+            try:
+                self._save_json(self.dex_universe_path(chain), entry)
+            except OSError:
+                pass
+            return assets
+        if cached:
+            return cached['assets']
+        disk = self._load_json(self.dex_universe_path(chain), {})
+        return disk.get('assets') or []
+
+    def dex_search(self, chain: str, query: str) -> List[Dict]:
+        """Search one chain for a token — by symbol, name or address.
+
+        Symbols go to GeckoTerminal: its search ranks the real `$WIF` first,
+        where DexScreener's returns thirty pump.fun namesakes and a "WIF"
+        with $35k behind it. Addresses go to DexScreener, which answers a
+        pool or a token address exactly. One row per token (its deepest
+        pool); exact ticker matches first, then by 24h volume — volume is
+        the one number a fake pool can't fabricate by parking tokens in it.
+        """
+        chain = self._dex_chain(chain)
+        q = (query or '').strip()
+        if not chain or not q:
+            return []
+        ckey = f'_dex_search_{chain}_{q.lower()}'
+        cached = self._price_cache.get(ckey)
+        if cached and (time.time() - cached['ts']) < self.DEX_SEARCH_TTL:
+            return cached['rows']
+
+        rows: List[Dict] = []
+        if self._looks_like_address(q):
+            hit = self._dex_lookup_address(chain, q)
+            rows = [hit] if hit else []
+        else:
+            data = self._gecko_get('/search/pools', {'query': q, 'network': chain, 'page': 1})
+            if data is not None:
+                rows = [self._gecko_row(p, chain) for p in (data.get('data') or [])]
+            else:
+                data = self._dex_get('/latest/dex/search', {'q': q}, timeout=12)
+                if data is None:
+                    return cached['rows'] if cached else []
+                rows = [self._dex_row(p) for p in (data.get('pairs') or [])]
+            rows = self._dex_best([r for r in rows if r and r['chain'] == chain])
+            want = q.upper()
+            rows.sort(key=lambda r: (r['coin'].upper() != want, -(r['volume_24h'] or 0),
+                                     -(r['liquidity_usd'] or 0)))
+        self._price_cache[ckey] = {'rows': rows, 'ts': time.time()}
+        return rows
+
+    @staticmethod
+    def _looks_like_address(text: str) -> bool:
+        t = (text or '').strip()
+        if t.startswith('0x'):
+            return len(t) == 42 and all(c in '0123456789abcdefABCDEF' for c in t[2:])
+        return 32 <= len(t) <= 44 and t.isalnum()          # base58 pubkey
+
+    def _dex_lookup_address(self, chain: str, address: str) -> Optional[Dict]:
+        """A pool address answers directly; a token address answers with its
+        deepest pool. Both through DexScreener, which is exact on addresses."""
+        data = self._dex_get(f'/latest/dex/pairs/{chain}/{address}')
+        rows = [self._dex_row(p) for p in ((data or {}).get('pairs') or [])]
+        rows = [r for r in rows if r and r['chain'] == chain]
+        if rows:
+            return rows[0]
+        data = self._dex_get(f'/token-pairs/v1/{chain}/{address}')
+        rows = [self._dex_row(p) for p in (data if isinstance(data, list) else [])]
+        rows = self._dex_best([r for r in rows if r and r['chain'] == chain])
+        return max(rows, key=lambda r: r['liquidity_usd'] or 0) if rows else None
+
+    def _dex_lookup(self, chain: str, address: str) -> Optional[Dict]:
+        """Resolve what a caller typed to one pool on one chain.
+
+        An address is exact. A plain symbol takes the busiest pool whose
+        ticker matches exactly — the response says which pool was picked,
+        and the console never sends a symbol, only the row's pool address.
+        """
+        chain = self._dex_chain(chain)
+        want = (address or '').strip()
+        if not chain or not want:
+            return None
+        if self._looks_like_address(want):
+            return self._dex_lookup_address(chain, want)
+        rows = self.dex_search(chain, want)
+        exact = [r for r in rows if r['coin'].upper() == want.upper()]
+        return (exact or [None])[0]
+
+    def dex_min_liquidity(self) -> float:
+        """The owner's floor, in dollars. Lives in the pool config because the
+        pool owner is the one whose money settles on these prices."""
+        try:
+            return float(self.pool.state()['config'].get('min_liquidity_usd') or 0)
+        except Exception:
+            return float(pool_mod.DEFAULT_CONFIG['min_liquidity_usd'])
+
+    def _dex_listed(self) -> Dict[str, Dict]:
+        return {f"{m.get('chain')}:{m.get('dex_pair', '').lower()}": m
+                for m in self._load_json(self.markets_path, [])
+                if m.get('source') == 'dex' and m.get('dex_pair')}
+
+    def _dex_market_symbol(self, row: Dict, markets: List[Dict]) -> str:
+        """'WIF.sol', 'BRETT.base' — the chain is in the name because the same
+        ticker is on Hyperliquid, on Solana and on Base at once and the pot
+        for each is a different thing. A second token with the same ticker
+        on the same chain gets the first four characters of its address."""
+        suffix = {'solana': 'sol', 'base': 'base'}[row['chain']]
+        taken = {m['symbol'].upper() for m in markets}
+        sym = f"{row['coin']}.{suffix}"
+        if sym.upper() in taken:
+            sym = f"{row['coin']}.{suffix}.{row['token'][:4]}"
+        return sym
+
+    def add_dex_market(self, chain: str, address: str) -> Dict:
+        """List a Solana or Base token as a market, by pool address, token
+        address or symbol.
+
+        Two checks, both refusable. The pool has to exist on DexScreener —
+        that is what makes it priceable — and it has to hold at least
+        `min_liquidity_usd` (the pool owner's number) right now. The market
+        records the pool, not the token: every later price and settlement
+        reads that one pool.
+        """
+        chain_id = self._dex_chain(chain)
+        if not chain_id:
+            return {'error': f"chain must be one of {sorted(self.DEX_CHAINS)} — got '{chain}'"}
+        want = (address or '').strip()
+        if not want:
+            return {'error': 'address required — a pool address, a token address or a symbol'}
+
+        row = self._dex_lookup(chain_id, want)
+        if row is None:
+            if self._dex_last is None and self._dex_get('/latest/dex/search', {'q': 'SOL'}) is None:
+                return {'error': 'DexScreener unreachable — nothing to verify the token against'}
+            return {'error': f"{want} is not a token with a pool on {self.DEX_CHAINS[chain_id]}"}
+
+        floor = self.dex_min_liquidity()
+        if row['liquidity_usd'] < floor:
+            return {'error': f"{row['coin']} on {self.DEX_CHAINS[chain_id]} has "
+                             f"${row['liquidity_usd']:,.0f} in its deepest pool ({row['dex']}) — "
+                             f"under the ${floor:,.0f} liquidity floor the pool owner set",
+                    'liquidity_usd': row['liquidity_usd'], 'min_liquidity_usd': floor,
+                    'pair': row['key']}
+
+        markets = self._load_json(self.markets_path, [])
+        listed = self._dex_listed().get(f"{chain_id}:{row['key'].lower()}")
+        if listed:
+            return {'error': f"{listed['symbol']} already listed", 'market': listed}
+        symbol = self._dex_market_symbol(row, markets)
+        out = self.add_market(f"dex:{chain_id}:{row['key']}", symbol, 0,
+                              source='dex', chain=chain_id, dex_pair=row['key'],
+                              dex_token=row['token'], dex_id=row['dex'],
+                              dex_name=row.get('name'), liquidity_usd=row['liquidity_usd'])
+        if out.get('status') == 'added':
+            out['pool'] = row
+            # First history point — a pot could open on this before anyone
+            # reads a price again.
+            self._dex_snapshot({symbol.upper(): {'price': row['price']}})
+        return out
+
+    def seed_dex(self, chain: str, limit: int = 20, min_volume: float = 0) -> Dict:
+        """List a chain's busiest tokens that clear the liquidity floor, in
+        one call (idempotent — `limit` is the top of the ranking)."""
+        chain_id = self._dex_chain(chain)
+        if not chain_id:
+            return {'error': f"chain must be one of {sorted(self.DEX_CHAINS)} — got '{chain}'"}
+        limit = max(1, int(limit or 1))
+        try:
+            vol_floor = float(min_volume or 0)
+        except (TypeError, ValueError):
+            vol_floor = 0.0
+        assets = [a for a in self.dex_assets(chain_id, limit=0)
+                  if a['eligible'] and (a.get('volume_24h') or 0) >= vol_floor]
+        if not assets:
+            return {'error': f'no {self.DEX_CHAINS[chain_id]} token clears the floor — or the '
+                             'feed is unreachable', 'added': [], 'existing': []}
+        added, existing = [], []
+        for a in assets[:limit]:
+            if a['listed']:
+                existing.append(a['coin'])
+                continue
+            result = self.add_dex_market(chain_id, a['key'])
+            (added if result.get('status') == 'added' else existing).append(a['coin'])
+        return {'added': added, 'existing': existing,
+                'markets': len(self._load_json(self.markets_path, []))}
+
+    def dex_assets(self, chain: str = 'solana', search: str = '', limit: int = 50) -> List[Dict]:
+        """Browse tokens on one chain — the busiest pools by default, a
+        DexScreener search when `search` is given. Rows carry `listed`, and
+        `eligible` against the owner's liquidity floor, so a picker can grey
+        out what cannot be listed rather than let someone find out on click."""
+        chain_id = self._dex_chain(chain)
+        if not chain_id:
+            return []
+        rows = self.dex_search(chain_id, search) if (search or '').strip() \
+            else self._dex_universe(chain_id)
+        floor = self.dex_min_liquidity()
+        listed = self._dex_listed()
+        out = []
+        for r in rows:
+            m = listed.get(f"{chain_id}:{r['key'].lower()}")
+            out.append({**r, 'listed': bool(m), 'symbol': m['symbol'] if m else None,
+                        'eligible': (r['liquidity_usd'] or 0) >= floor,
+                        'min_liquidity_usd': floor})
+        if not (search or '').strip():
+            # The busiest pools on a chain include pump.fun launches with a
+            # nine-figure day and no reserve. Listable first, then busiest —
+            # the top of the default list should be things you can add.
+            out.sort(key=lambda r: (not r['eligible'], -(r['volume_24h'] or 0)))
+        limit = int(limit or 0)
+        return out[:limit] if limit > 0 else out
+
+    def dex_stats(self, chain: str = 'solana') -> Dict:
+        """How many pools the default list ranks, how many clear the floor,
+        how many are listed here, and how old the list is."""
+        chain_id = self._dex_chain(chain)
+        if not chain_id:
+            return {'error': f"chain must be one of {sorted(self.DEX_CHAINS)}"}
+        assets = self.dex_assets(chain_id, limit=0)
+        cached = self._price_cache.get(f'_dex_universe_{chain_id}', {})
+        age = time.time() - cached['ts'] if cached.get('ts') else None
+        listed = [m for m in self._dex_listed().values() if m.get('chain') == chain_id]
+        return {
+            'chain': chain_id,
+            'label': self.DEX_CHAINS[chain_id],
+            'pools': len(assets),
+            'eligible': sum(1 for a in assets if a['eligible']),
+            'listed': len(listed),
+            'min_liquidity_usd': self.dex_min_liquidity(),
+            'source': self._dex_last or 'cache',
+            'age_seconds': round(age) if age is not None else None,
+            'reachable': bool(assets),
+        }
+
+    def _dex_prices(self) -> Dict[str, Dict]:
+        """Every listed DEX market's pool, priced in one DexScreener read per
+        chain (≤20 pools a call), cached 60s. Keyed by upper-cased market
+        symbol → {price, liquidity_usd, volume_24h, change_24h}."""
+        cached = self._price_cache.get('_dex_prices')
+        if cached and (time.time() - cached['ts']) < self.DEX_PRICE_TTL:
+            return cached['quotes']
+
+        markets = [m for m in self._load_json(self.markets_path, [])
+                   if m.get('source') == 'dex' and m.get('dex_pair') and m.get('chain')]
+        if not markets:
+            return {}
+        by_pair = {f"{m['chain']}:{m['dex_pair'].lower()}": m['symbol'].upper() for m in markets}
+        quotes: Dict[str, Dict] = {}
+        failed = False
+        for chain in sorted({m['chain'] for m in markets}):
+            pairs = sorted({m['dex_pair'] for m in markets if m['chain'] == chain})
+            for i in range(0, len(pairs), 20):
+                data = self._dex_get(f"/latest/dex/pairs/{chain}/{','.join(pairs[i:i + 20])}")
+                if data is None:
+                    failed = True
+                    continue
+                for p in data.get('pairs') or []:
+                    row = self._dex_row(p)
+                    if not row:
+                        continue
+                    sym = by_pair.get(f"{row['chain']}:{row['key'].lower()}")
+                    if sym:
+                        quotes[sym] = {'price': row['price'],
+                                       'liquidity_usd': row['liquidity_usd'],
+                                       'volume_24h': row['volume_24h'],
+                                       'change_24h': row['change_24h']}
+        if quotes:
+            if cached and failed:
+                # A partial read must not blank the markets it missed.
+                quotes = {**cached['quotes'], **quotes}
+            self._price_cache['_dex_prices'] = {'quotes': quotes, 'ts': time.time()}
+            self._dex_snapshot(quotes)
+            return quotes
+        return cached['quotes'] if cached else {}
+
+    def _dex_liquidity(self, symbol: str) -> Optional[float]:
+        """Dollars in a listed token's pool right now — the pool checks the
+        owner's floor against this before a stake goes in."""
+        q = self._dex_prices().get((symbol or '').upper())
+        return q.get('liquidity_usd') if q else None
+
+    def _dex_snapshot(self, quotes: Dict[str, Dict]):
+        """Append a history point per symbol, at most one per
+        DEX_SNAPSHOT_GAP, trimmed to DEX_HISTORY_DAYS. This is the fallback
+        oracle when GeckoTerminal can't answer for a pool at the close."""
+        if not quotes:
+            return
+        now = time.time()
+        try:
+            hist = self._load_json(self.dex_history_path, {})
+        except (OSError, ValueError):
+            hist = {}
+        changed = False
+        for sym, q in quotes.items():
+            price = (q or {}).get('price')
+            if not price:
+                continue
+            points = hist.setdefault(sym, [])
+            if points and now - points[-1][0] < self.DEX_SNAPSHOT_GAP:
+                continue
+            points.append([round(now), price])
+            cutoff = now - self.DEX_HISTORY_DAYS * 86400
+            if points and points[0][0] < cutoff:
+                hist[sym] = [pt for pt in points if pt[0] >= cutoff]
+            changed = True
+        if changed:
+            try:
+                self._save_json(self.dex_history_path, hist)
+            except OSError:
+                pass
+
+    def dex_snapshot(self) -> Dict:
+        """Take a history point for every listed DEX token now. The API runs
+        this on a timer so a pot can settle even if nobody read a price near
+        the close and GeckoTerminal is down."""
+        self._price_cache.pop('_dex_prices', None)
+        quotes = self._dex_prices()
+        return {'snapshotted': sorted(quotes), 'at': round(time.time())}
+
+    def _dex_price_at(self, symbol: str, ts: float) -> Optional[Dict]:
+        """The pool's price at `ts`: GeckoTerminal's hourly candle first
+        (the candle opening nearest ts — its open *is* the price at that
+        boundary, at most 30 minutes off), then our own snapshots within 30
+        minutes. None means the caller falls through to spot, and says so."""
+        m = self._market(symbol)
+        if not m or m.get('source') != 'dex' or not m.get('dex_pair'):
+            return None
+        want = int(ts)
+        data = self._gecko_get(
+            f"/networks/{m['chain']}/pools/{m['dex_pair']}/ohlcv/hour",
+            {'before_timestamp': want + 3600, 'limit': 3, 'currency': 'usd'})
+        candles = (((data or {}).get('data') or {}).get('attributes') or {}).get('ohlcv_list') or []
+        best = None
+        for c in candles:
+            try:
+                t, o = int(c[0]), float(c[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if o > 0 and (best is None or abs(t - want) < abs(best[0] - want)):
+                best = (t, o)
+        if best and abs(best[0] - want) <= 1800:
+            return {'price': best[1], 'mode': 'historical'}
+
+        points = self._load_json(self.dex_history_path, {}).get(symbol.upper()) or []
+        near = [p for p in points if abs(p[0] - want) <= 1800]
+        if near:
+            t, price = min(near, key=lambda p: abs(p[0] - want))
+            return {'price': float(price), 'mode': 'historical', 'via': 'snapshot'}
+        return None
 
     def _get_token_price(self, symbol: str, source: str = None) -> Optional[float]:
         """Current USD price for a symbol. `source` defaults to the one recorded
@@ -323,7 +1509,13 @@ class Mod:
             source = market.get('source', 'coingecko') if market else 'coingecko'
 
         if source == 'hyperliquid':
-            return self._hl_mids().get(symbol.upper())
+            return self._hl_mids().get(self._hl_key(symbol))
+        if source == 'bittensor':
+            netuid = self._bt_netuid(symbol)
+            return self._bt_prices().get(str(netuid)) if netuid is not None else None
+        if source == 'dex':
+            quote = self._dex_prices().get(symbol.upper())
+            return quote['price'] if quote else None
 
         cg_id = self.CG_IDS.get(symbol.upper())
         if not cg_id:
@@ -361,20 +1553,37 @@ class Mod:
         try:
             if source == 'hyperliquid':
                 start = int(ts // 3600 * 3600) * 1000
+                # Candles are keyed the way HL names the pair, not the way we
+                # list it — '@107', not 'HYPE/USDC'. The key can carry a slash
+                # ('PURR/USDC'), so it is quoted before it goes in a path.
+                coin = self._hl_key(symbol)
                 # The module only takes a lookback in hours, so ask for enough
                 # to cover ts and pick the candle that contains it.
                 hours = int((time.time() - ts) // 3600) + 2
                 candles = self._hl_mod_get(
-                    f'/candles/{symbol.upper()}?interval=1h&hours={hours}', timeout=15)
+                    f'/candles/{quote_plus(coin)}?interval=1h&hours={hours}', timeout=15)
                 if candles is None:
                     candles = self._hl_post({
                         'type': 'candleSnapshot',
-                        'req': {'coin': symbol.upper(), 'interval': '1h',
+                        'req': {'coin': coin, 'interval': '1h',
                                 'startTime': start, 'endTime': start + 3600_000},
                     })
                 match = [c for c in (candles or []) if c.get('t') == start]
                 if match:
                     return {'price': float(match[0]['c']), 'mode': 'historical'}
+            elif source == 'bittensor':
+                # The bt indexer answers "every alpha price at ts" from its own
+                # snapshots — the nearest one, five minutes apart at worst.
+                netuid = self._bt_netuid(symbol)
+                if netuid is not None:
+                    data = self._bt_call('bt_prices_at', {'ts': int(ts)}, timeout=20)
+                    price = ((data or {}).get('prices') or {}).get(str(netuid))
+                    if price:
+                        return {'price': float(price), 'mode': 'historical'}
+            elif source == 'dex':
+                hit = self._dex_price_at(symbol, ts)
+                if hit:
+                    return hit
             else:
                 cg_id = self.CG_IDS.get(symbol.upper())
                 if cg_id:
@@ -565,6 +1774,8 @@ class Mod:
         predictions = [p for p in self._load_json(self.predictions_path, [])
                        if p['predictor'].lower() == addr]
         from_predictions = sum(p.get('payout') or 0 for p in predictions if p.get('resolved'))
+        from_free = sum(p.get('payout') or 0 for p in predictions
+                        if p.get('resolved') and p.get('free'))
         burned = sum(p.get('burn', 0) for p in predictions)
         locked = sum(s['amount'] for s in self._load_json(self.stakes_path, [])
                      if s['staker'].lower() == addr and not s.get('withdrawn'))
@@ -575,6 +1786,8 @@ class Mod:
             'minted': round(minted, 6),
             'from_trades': round(from_trades, 6),
             'from_predictions': round(from_predictions, 6),
+            # Free calls mint too — this is the slice earned without spending.
+            'from_free': round(from_free, 6),
             'burned': round(burned, 6),
             'locked': round(locked, 6),
             'available': round(minted - burned - locked, 6),
@@ -582,13 +1795,18 @@ class Mod:
 
     # ── Predictions ──────────────────────────────────────────────────
 
-    def predict(self, asset: str, predicted_price: float, burn: float,
-                address: str, horizon: int = None) -> Dict:
-        """Burn PREFI to call an asset's price one horizon from now.
+    def predict(self, asset: str, predicted_price: float, burn: float = 0,
+                address: str = None, horizon: int = None) -> Dict:
+        """Call an asset's price one horizon from now — free, or with a burn.
 
-        The burn is gone the moment it is placed. What comes back at resolution
-        is freshly minted and scaled by how close the call was — see
-        `scoring.py`. Scoring params are snapshotted onto the prediction so
+        Omit `burn` (or pass 0) and the call is **free**: it costs nothing, it
+        is scored by exactly the same curve, and a good one still mints PREFI —
+        `free_payout` × score. Every address gets `free_per_day` of them per
+        rolling 24 hours, which is the only way in for someone holding none.
+
+        Burn PREFI instead and you are playing for size: the burn is gone the
+        moment it is placed, and a perfect call returns `multiplier`× it.
+        Either way the scoring params are snapshotted onto the prediction, so
         retuning them later can never re-price a bet already on the table.
         """
         if not address:
@@ -602,13 +1820,28 @@ class Mod:
 
         try:
             predicted_price = float(predicted_price)
-            burn = float(burn)
+            burn = float(burn or 0)
         except (TypeError, ValueError):
             return {'error': 'predicted_price and burn must be numbers'}
         if predicted_price <= 0:
             return {'error': 'Predicted price must be positive'}
-        if burn < params['min_burn']:
-            return {'error': f'Minimum burn is {params["min_burn"]} PREFI'}
+        if burn < 0:
+            return {'error': 'Burn cannot be negative'}
+
+        # A zero burn is the free tier, not a rejected one.
+        free = burn == 0
+        if free:
+            quota = self.free_quota(address)
+            if not quota['enabled']:
+                return {'error': 'Free predictions are off — '
+                                 f'burn at least {params["min_burn"]} PREFI'}
+            if quota['remaining'] <= 0:
+                mins = max(1, round(quota['seconds_until_reset'] / 60))
+                return {'error': f'Out of free calls — {quota["limit"]} per 24h, '
+                                 f'next one in {mins} min'}
+        elif burn < params['min_burn']:
+            return {'error': f'Minimum burn is {params["min_burn"]} PREFI '
+                             f'(or leave it empty for a free call)'}
 
         market = self._market(asset)
         if not market:
@@ -616,10 +1849,11 @@ class Mod:
         if not market.get('active'):
             return {'error': f'{asset} market not active'}
 
-        balance = self.prefi_balance(address)
-        if balance['available'] < burn:
-            return {'error': f'Insufficient PREFI — {balance["available"]} available, '
-                             f'{burn} needed'}
+        if not free:
+            balance = self.prefi_balance(address)
+            if balance['available'] < burn:
+                return {'error': f'Insufficient PREFI — {balance["available"]} available, '
+                                 f'{burn} needed'}
 
         entry_price = self._get_token_price(market['symbol'], market.get('source'))
         if not entry_price:
@@ -635,6 +1869,7 @@ class Mod:
             'entry_price': entry_price,
             'predicted_price': predicted_price,
             'burn': burn,
+            'free': free,
             'horizon': horizon,
             'created_at': now,
             'resolve_at': now + horizon,
@@ -651,21 +1886,57 @@ class Mod:
         predictions.append(prediction)
         self._save_json(self.predictions_path, predictions)
 
-        treasury = self._init_treasury()
-        treasury['total_prefi_burned'] = treasury.get('total_prefi_burned', 0) + burn
-        self._save_json(self.treasury_path, treasury)
+        if burn:
+            treasury = self._init_treasury()
+            treasury['total_prefi_burned'] = treasury.get('total_prefi_burned', 0) + burn
+            self._save_json(self.treasury_path, treasury)
 
-        return {
+        result = {
             'prediction_id': prediction['id'],
             'asset': prediction['asset'],
             'entry_price': entry_price,
             'predicted_price': predicted_price,
             'implied_move_pct': round((predicted_price - entry_price) / entry_price * 100, 2),
             'burned': burn,
-            'max_payout': scoring.payout(burn, 1.0, params),
+            'free': free,
+            'max_payout': (scoring.free_mint(1.0, params) if free
+                           else scoring.payout(burn, 1.0, params)),
             'resolves_at': datetime.fromtimestamp(prediction['resolve_at']).isoformat(),
             'model': params['model'],
             'status': 'open',
+        }
+        if free:
+            # Counted after the fact, so the number shown is what is left.
+            result['free_remaining'] = self.free_quota(address)['remaining']
+        return result
+
+    def free_quota(self, address: str) -> Dict:
+        """How many free calls this address has left, and when the next one
+        lands. The allowance is a rolling 24h window rather than a calendar
+        day — no midnight stampede, and a call frees up exactly a day after it
+        was spent."""
+        params = self.get_scoring()
+        limit = params['free_per_day']
+        now = time.time()
+        addr = (address or '').lower()
+
+        spent = sorted(p['created_at'] for p in self._load_json(self.predictions_path, [])
+                       if p.get('free') and p['predictor'].lower() == addr
+                       and p['created_at'] > now - scoring.FREE_WINDOW)
+        remaining = max(0, limit - len(spent))
+
+        # The window is freed by the oldest call still inside it.
+        resets_at = spent[0] + scoring.FREE_WINDOW if spent else None
+        return {
+            'address': address,
+            'enabled': limit > 0,
+            'limit': limit,
+            'used': len(spent),
+            'remaining': remaining,
+            'window_hours': scoring.FREE_WINDOW // 3600,
+            'free_payout': params['free_payout'],
+            'resets_at': datetime.fromtimestamp(resets_at).isoformat() if resets_at else None,
+            'seconds_until_reset': int(resets_at - now) if resets_at else 0,
         }
 
     def resolve_predictions(self) -> Dict:
@@ -689,7 +1960,9 @@ class Mod:
 
             params = p.get('params') or self.get_scoring()
             result = scoring.score(p['predicted_price'], quote['price'], params)
-            payout = scoring.payout(p['burn'], result['score'], params)
+            # A free call has no burn to scale, so it mints off `free_payout`.
+            payout = (scoring.free_mint(result['score'], params) if p.get('free')
+                      else scoring.payout(p['burn'], result['score'], params))
 
             p.update({
                 'resolved': True,
@@ -748,10 +2021,13 @@ class Mod:
             addr = p['predictor']
             row = players.setdefault(addr, {
                 'address': addr, 'predictions': 0, 'resolved': 0,
-                'total_burned': 0.0, 'total_payout': 0.0, 'score_sum': 0.0,
-                'best_score': 0.0,
+                'free_calls': 0, 'total_burned': 0.0, 'total_payout': 0.0,
+                'score_sum': 0.0, 'best_score': 0.0,
             })
             row['predictions'] += 1
+            # Accuracy is accuracy — free calls rank alongside burned ones, and
+            # the count says which is which.
+            row['free_calls'] += 1 if p.get('free') else 0
             row['total_burned'] += p.get('burn', 0)
             if p.get('resolved'):
                 row['resolved'] += 1
@@ -779,21 +2055,32 @@ class Mod:
     # ── Scoring config ───────────────────────────────────────────────
 
     def get_scoring(self) -> Dict:
-        """Active scoring params, defaults filled in"""
+        """Active scoring params, defaults filled in — including `fn`, the
+        resolved score function."""
         try:
-            return scoring.validate(self._load_json(self.scoring_path, {}))
+            return scoring.validate(self._load_json(self.scoring_path, {}), self.fns)
         except ValueError:
             # A hand-edited file with junk in it shouldn't brick predictions.
-            return dict(scoring.DEFAULT_PARAMS)
+            return scoring.validate({}, self.fns)
 
     def set_scoring(self, **params) -> Dict:
         """Retune the score. Only affects predictions placed after this call —
-        open ones carry the params they were made under."""
+        open ones carry the params they were made under. `model` is any score
+        function: a default or one from the library; `model_params` overrides
+        its other parameters (JSON)."""
         given = {k: v for k, v in params.items() if v is not None}
         if not given:
             return {'error': f'nothing to set — params are {list(scoring.DEFAULT_PARAMS)}'}
+        if isinstance(given.get('model_params'), str):
+            try:
+                given['model_params'] = json.loads(given['model_params'] or '{}')
+            except json.JSONDecodeError as e:
+                return {'error': f'model_params must be JSON: {e.msg}'}
+        current = self.get_scoring()
+        if 'model' in given and 'model_params' not in given:
+            given['model_params'] = {}          # a new function, its own defaults
         try:
-            merged = scoring.validate({**self.get_scoring(), **given})
+            merged = scoring.validate({**current, **given, 'fn': None}, self.fns)
         except ValueError as e:
             return {'error': str(e)}
         self._save_json(self.scoring_path, merged)
@@ -802,23 +2089,33 @@ class Mod:
     def scoring_models(self) -> Dict:
         """The model registry — name → what its curve does"""
         return {
-            'models': scoring.describe_models(),
+            'models': scoring.describe_models(self.fns),
             'defaults': dict(scoring.DEFAULT_PARAMS),
             'active': self.get_scoring(),
         }
 
     def score_preview(self, predicted: float, actual: float,
                       model: str = None, tolerance: float = None,
-                      burn: float = None) -> Dict:
+                      burn: float = None, model_params=None) -> Dict:
         """Score a hypothetical without placing anything — the same code path
         the resolver uses, so the number shown is the number paid."""
         params = self.get_scoring()
         if model:
             params['model'] = model
+            params['model_params'] = {}
+            params['fn'] = None
         if tolerance:
             params['tolerance'] = float(tolerance)
+        if model_params:
+            if isinstance(model_params, str):
+                try:
+                    model_params = json.loads(model_params)
+                except json.JSONDecodeError as e:
+                    return {'error': f'model_params must be JSON: {e.msg}'}
+            params['model_params'] = model_params
+            params['fn'] = None
         try:
-            params = scoring.validate(params)
+            params = scoring.validate(params, self.fns)
         except ValueError as e:
             return {'error': str(e)}
 
@@ -827,9 +2124,278 @@ class Mod:
         result['burn'] = stake
         result['payout'] = scoring.payout(stake, result['score'], params)
         result['net'] = round(result['payout'] - stake, 6)
+        # What the same call would have minted for free — nothing at risk, so
+        # the free number is always the net.
+        result['free_payout'] = scoring.free_mint(result['score'], params)
         return result
 
     # ── Staking ──────────────────────────────────────────────────────
+
+    # ── Score functions ───────────────────────────────────────────────
+    # The rule that turns a miss into a payout is a program — see curves.py.
+    # These are the protocol-facing names: list, try, save (signed), share,
+    # publish to the store, import from a code or a CID.
+
+    @staticmethod
+    def _fn_row(spec: Dict, sample: bool = True) -> Dict:
+        row = {k: spec.get(k) for k in (
+            'name', 'description', 'expr', 'params', 'author', 'owner', 'builtin',
+            'origin_cid', 'cid', 'created_at', 'updated_at')}
+        row['builtin'] = bool(row['builtin'])
+        row['digest'] = spec.get('digest') or curves.digest(spec)
+        if sample:
+            row['sample'] = curves.sample(spec)
+        return row
+
+    def fn_list(self, sample: bool = True) -> Dict:
+        """Every score function — the defaults and the library — with its
+        curve sampled, which function each layer is using, and the language."""
+        try:
+            pool_model = self.pool.config().get('model')
+        except Exception:
+            pool_model = None
+        return {
+            'functions': [self._fn_row(spec, sample) for spec in self.fns.all()],
+            'active': {'pool': pool_model, 'predict': self.get_scoring()['model']},
+            'language': curves.language(),
+        }
+
+    def fn_get(self, name: str) -> Dict:
+        """One function, its curve and its report."""
+        spec = self.fns.get(name)
+        if not spec:
+            return {'error': f'no function named `{name}`', 'have': self.fns.names()}
+        row = self._fn_row(spec)
+        row['report'] = curves.report(spec)
+        row['code'] = curves.to_code(spec)
+        return row
+
+    def fn_test(self, expr: str, params=None, name: str = None,
+                tolerance: float = None, actual: float = 100.0,
+                calls=None, stake: float = 100.0, fee_bps: int = 0) -> Dict:
+        """Run a function without saving it: validate, draw the curve, and
+        settle a mock pot with it so the split is visible before anyone adopts
+        it. `calls` is a list of prices called against `actual` (default: on
+        the nose, 0.5%, 1%, 3% and 10% off), each staked `stake`."""
+        try:
+            spec = curves.validate_spec({'name': name or 'draft', 'expr': expr,
+                                         'params': params}, name_required=False)
+            fn = curves.resolve(spec, tolerance=tolerance)
+        except (curves.ExprError, ValueError) as e:
+            return {'error': str(e)}
+        if isinstance(calls, str):
+            try:
+                calls = [float(x) for x in calls.split(',') if x.strip()]
+            except ValueError:
+                return {'error': 'calls must be numbers, comma separated'}
+        actual = float(actual)
+        calls = [float(c) for c in (calls or [actual, actual * 1.005, actual * 1.01,
+                                              actual * 0.97, actual * 1.10])]
+        entries = [{'id': i + 1, 'address': f'caller-{i + 1}', 'amount': float(stake),
+                    'predicted_price': c} for i, c in enumerate(calls)]
+        pot = pool_mod.settle_asset(entries, actual, fn, int(fee_bps or 0))
+        return {
+            'fn': fn,
+            'report': curves.report(fn),
+            'pot': {
+                'actual': actual, 'stake': float(stake), 'fee_bps': int(fee_bps or 0),
+                'mode': pot['mode'], 'gross': pot['gross'], 'pot': pot['pot'],
+                'winner': pot.get('winner'),
+                'entries': [{'called': e['predicted_price'],
+                             'miss_pct': round(abs(e['predicted_price'] - actual) / actual * 100, 3),
+                             'accuracy': e['accuracy'], 'share': e.get('share', 0.0),
+                             'payout': e['payout'], 'net': e['net']} for e in pot['entries']],
+            },
+            'code': curves.to_code({**spec, 'name': spec['name'] or 'draft'}),
+        }
+
+    @staticmethod
+    def _fn_spec(name, expr, params, description, author=None, origin_cid=None) -> Dict:
+        spec = curves.validate_spec({'name': name, 'expr': expr, 'params': params,
+                                     'description': description or ''})
+        if author:
+            spec['author'] = str(author).lower()
+        if origin_cid:
+            spec['origin_cid'] = origin_cid
+        return spec
+
+    def fn_sign(self, address: str, name: str, expr: str, params=None,
+                description: str = '') -> Dict:
+        """The message a wallet signs to save a function: its name and a hash
+        of exactly what will be stored, bound to the address's nonce."""
+        try:
+            spec = self._fn_spec(name, expr, params, description)
+        except curves.ExprError as e:
+            return {'error': str(e)}
+        return {**self.pool.sign_request('fn_save', address, name=spec['name'],
+                                         digest=curves.digest(spec)),
+                'digest': curves.digest(spec)}
+
+    def fn_save(self, address: str, name: str, expr: str, params=None,
+                description: str = '', signature: str = None, nonce: int = None,
+                origin_cid: str = None, author: str = None) -> Dict:
+        """Save a function to the library under `address`. Signed, like a free
+        call: it costs nothing, but a name in the library is public and only
+        its owner may change it. Returns the record and its share code."""
+        if not hyperevm.is_address(address):
+            return {'error': 'a valid 0x address is required'}
+        addr = hyperevm.normalize(address)
+        try:
+            spec = self._fn_spec(name, expr, params, description, author, origin_cid)
+        except curves.ExprError as e:
+            return {'error': str(e)}
+        digest = curves.digest(spec)
+        pool = self.pool
+        check = pool_mod.sigauth.verify(
+            'fn_save', addr, [('digest', digest), ('name', spec['name'])],
+            pool.nonce(addr) if nonce is None else int(nonce), signature)
+        if not check['ok']:
+            return {'error': check['error'], 'sign_message': check['message'],
+                    'nonce': pool.nonce(addr)}
+        try:
+            record = self.fns.save(spec, addr,
+                                   origin={'origin_cid': origin_cid} if origin_cid else None)
+        except curves.ExprError as e:
+            return {'error': str(e)}
+        pool._bump_nonce(addr)
+        return {'status': 'saved', 'function': self._fn_row(record),
+                'code': curves.to_code(record),
+                'note': ('the pool owner can switch the pot to it with '
+                         f"pool-set model={record['name']}; predictions with "
+                         f"set-scoring model={record['name']}")}
+
+    def fn_delete(self, address: str, name: str, signature: str = None,
+                  nonce: int = None) -> Dict:
+        """Remove a saved function — its owner only. Rounds and predictions
+        that opened under it keep their snapshot and settle unchanged."""
+        if not hyperevm.is_address(address):
+            return {'error': 'a valid 0x address is required'}
+        addr = hyperevm.normalize(address)
+        pool = self.pool
+        name = (name or '').strip().lower()
+        check = pool_mod.sigauth.verify(
+            'fn_delete', addr, [('name', name)],
+            pool.nonce(addr) if nonce is None else int(nonce), signature)
+        if not check['ok']:
+            return {'error': check['error'], 'sign_message': check['message'],
+                    'nonce': pool.nonce(addr)}
+        # A function the pool (or the predict layer) is scoring with right now
+        # stays put: the owner switches first, then it can go. Rounds already
+        # open keep their snapshot either way.
+        try:
+            in_use = pool.state()['config'].get('model') == name
+        except Exception:
+            in_use = False
+        if in_use:
+            return {'error': f'`{name}` is the pool\'s live score function — '
+                             'the pool owner must switch models first'}
+        if self.get_scoring().get('model') == name:
+            return {'error': f'`{name}` is the prediction layer\'s live score '
+                             'function — set-scoring to another model first'}
+        try:
+            gone = self.fns.delete(name, addr)
+        except curves.ExprError as e:
+            return {'error': str(e)}
+        pool._bump_nonce(addr)
+        return {'status': 'deleted', 'name': name, 'was': self._fn_row(gone, sample=False)}
+
+    def fn_share(self, name: str) -> Dict:
+        """How to hand a function to someone: a share code that works
+        anywhere PreFi runs, and the store CID if it has been published."""
+        spec = self.fns.get(name)
+        if not spec:
+            return {'error': f'no function named `{name}`', 'have': self.fns.names()}
+        out = {'name': spec['name'], 'code': curves.to_code(spec),
+               'bundle': curves.bundle(spec), 'cid': spec.get('cid')}
+        if spec.get('cid'):
+            out['url'] = f"{self._store().url}/get?cid={spec['cid']}"
+        out['import'] = (f"m prefi/fn_import source={out['cid'] or '<code>'} "
+                         "address=0x… — or paste it into the console")
+        return out
+
+    def _store(self):
+        try:
+            import store_link
+        except ImportError:
+            from . import store_link
+        return store_link.StoreLink()
+
+    def fn_publish(self, name: str, token: str = None) -> Dict:
+        """Put a function in the fleet's store as a public object; the CID is
+        the share link. The upload is made with the caller's protocol token
+        (Bearer) — the store's whitelist, quota and terms apply to *them*."""
+        try:
+            import store_link
+        except ImportError:
+            from . import store_link
+        spec = self.fns.get(name)
+        if not spec:
+            return {'error': f'no function named `{name}`', 'have': self.fns.names()}
+        if not token:
+            try:
+                token = store_link.local_token()
+            except Exception as e:
+                return {'error': 'a protocol token is needed to publish — sign in '
+                                 f'(or the host key could not mint one: {e})'}
+        payload = curves.bundle(spec)
+        payload['published_at'] = time.time()
+        try:
+            put = self._store().put_json(token, f"prefi-fn-{spec['name']}.json",
+                                         payload, public=True)
+        except store_link.StoreError as e:
+            return {'error': e.message, 'status': e.status}
+        if not spec.get('builtin'):
+            self.fns.annotate(spec['name'], cid=put['cid'], published_at=payload['published_at'])
+        return {'status': 'published', 'name': spec['name'], 'cid': put['cid'],
+                'url': put['url'], 'size': put['size'],
+                'import': f"m prefi/fn_import source={put['cid']} address=0x…"}
+
+    def fn_import(self, source: str, address: str = None, signature: str = None,
+                  nonce: int = None, name: str = None) -> Dict:
+        """Bring in a shared function from a share code or a store CID.
+
+        Without `address` it only previews (spec, curve, report) — nothing is
+        written. With one it saves, signed like `fn_save`; `name` renames it
+        when the shared name is already taken here."""
+        try:
+            import store_link
+        except ImportError:
+            from . import store_link
+        source = (source or '').strip()
+        origin_cid = None
+        try:
+            if curves.is_code(source):
+                spec = curves.from_code(source)
+            elif source.startswith('Qm') or source.startswith('ba'):
+                data = self._store().fetch_json(source)
+                spec = curves.from_bundle(data)
+                origin_cid = source
+            elif source.startswith('{'):
+                spec = curves.from_bundle(json.loads(source))
+            else:
+                return {'error': 'source must be a share code (prefi.fn.…), a store '
+                                 'CID, or a bundle'}
+        except store_link.StoreError as e:
+            return {'error': e.message, 'status': e.status}
+        except (curves.ExprError, ValueError) as e:
+            return {'error': str(e)}
+        origin_cid = origin_cid or spec.get('origin_cid')
+        if name:
+            spec['name'] = str(name).strip().lower()
+        preview = {**self._fn_row(spec), 'report': curves.report(spec),
+                   'origin_cid': origin_cid}
+        if not address:
+            taken = self.fns.get(spec['name'])
+            return {'preview': preview,
+                    'name_taken': bool(taken),
+                    'next': ('save it with fn_import address=0x… (signed); pass '
+                             'name= to rename' + (' — this name is taken' if taken else ''))}
+        out = self.fn_save(address, spec['name'], spec['expr'], spec['params'],
+                           spec.get('description', ''), signature, nonce,
+                           origin_cid=origin_cid, author=spec.get('author'))
+        if 'error' in out:
+            out['preview'] = preview
+        return out
 
     def lock_prefi(self, amount: float, duration: int, address: str) -> Dict:
         """Lock PREFI tokens for staketime
@@ -1297,6 +2863,294 @@ class Mod:
             'contracts': self.contracts,
         }
 
+    # ── Stake pool (real money, on HyperEVM) ─────────────────────────
+    #
+    # Everything above this line is PREFI — an internal token, minted and
+    # burned on this server's own say-so. Everything below holds actual USDC
+    # and USDT0 in a wallet on Hyperliquid's EVM, splits real pots by accuracy
+    # every round, and pays out on chain. The engine lives in `pool.py`; these
+    # are the protocol-facing names.
+
+    @property
+    def pool(self):
+        """Lazily built so a call that never touches the pool never opens its
+        files or resolves an RPC."""
+        if self._pool is None:
+            self._pool = pool_mod.Pool(
+                self.store_dir,
+                price_at=self._price_at,
+                price_now=self._get_token_price,
+                markets=lambda: self._load_json(self.markets_path, []),
+                on_fee=self._pool_fee_to_treasury,
+                liquidity_now=self._dex_liquidity,
+                library=self.fns,
+                bloc_weight=self._bloc_usd_seconds,
+            )
+        return self._pool
+
+    # -- bloctime (agent-play weights) ---------------------------------
+
+    def _bloctime_req(self, method: str, path: str, body: Dict = None,
+                      timeout: int = 10):
+        """One request to the local bloctime module. None if it isn't
+        reachable. Its own port first, then the activator — bloctime can be
+        scale-to-zero, and a refused direct call means asleep, not dead."""
+        bases, seen = [], set()
+        for base in (self._bloctime_base, self.BLOCTIME_MOD_URL,
+                     self.BLOCTIME_WAKE_URL):
+            if base and base not in seen:
+                seen.add(base)
+                bases.append(base)
+        for base in bases:
+            try:
+                wait = max(timeout, 30) if base == self.BLOCTIME_WAKE_URL else timeout
+                if method == 'GET':
+                    resp = requests.get(f'{base}{path}', timeout=wait)
+                else:
+                    resp = requests.post(f'{base}{path}', json=body or {},
+                                         timeout=wait)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception:
+                continue
+            self._bloctime_base = base
+            return data
+        return None
+
+    def _bloc_price_usd(self) -> float:
+        """The owner-set USD price of the staked token, cached 10 minutes.
+        Falls back to the contract's deployed default ($1) when bloctime is
+        up but the price endpoint predates priceUsdMicro."""
+        cached = self._price_cache.get('_bloc_price')
+        if cached and (time.time() - cached['ts']) < 600:
+            return cached['price']
+        data = self._bloctime_req('GET', '/price')
+        price = None
+        if isinstance(data, dict):
+            price = (data.get('result') or {}).get('priceUsd')
+        if not price or price <= 0:
+            price = cached['price'] if cached else 1.0
+        self._price_cache['_bloc_price'] = {'price': float(price), 'ts': time.time()}
+        return float(price)
+
+    def _bloc_usd_seconds(self, address: str, opens: float,
+                          closes: float) -> Optional[float]:
+        """USD·seconds of bloctime locked across [opens, closes] — the agent
+        weight. For every lock the address holds: the USD value of the locked
+        amount × the seconds its lock window overlaps the round. This is the
+        same quantity the bloctime contract mints BLOC for, scoped to the
+        period, so 'use bloctime' is literal. None = feed unreachable, which
+        the pool treats as 'cannot verify', never as zero.
+        """
+        data = self._bloctime_req('POST', '/overview', {'address': address})
+        if not isinstance(data, dict) or 'result' not in data:
+            return None
+        positions = (data.get('result') or {}).get('positions') or []
+        price = self._bloc_price_usd()
+        total = 0.0
+        for p in positions:
+            try:
+                start = float(p.get('startTime') or 0)
+                lock = float(p.get('lockSeconds') or 0)
+                amount = int(p.get('amount') or 0) / 1e18
+            except (TypeError, ValueError):
+                continue
+            overlap = min(float(closes), start + lock) - max(float(opens), start)
+            if overlap <= 0 or amount <= 0:
+                continue
+            total += amount * price * overlap
+        return round(total, 6)
+
+    @property
+    def fns(self) -> curves.Library:
+        """The score-function library, always beside whatever `store_dir` is
+        right now (tests re-point it after construction). Also registered as
+        the default the predict layer's scoring resolves names through."""
+        lib = curves.Library(self.store_dir / 'functions.json')
+        scoring.LIBRARY = lib
+        return lib
+
+    def _pool_fee_to_treasury(self, amount: float):
+        """A settled pot's protocol cut lands in the same treasury the trading
+        side feeds, so there is one number for "what the protocol earned"."""
+        treasury = self._init_treasury()
+        treasury['balance'] = treasury.get('balance', 0) + amount
+        treasury['total_captured'] = treasury.get('total_captured', 0) + amount
+        self._save_json(self.treasury_path, treasury)
+
+    # -- setup ---------------------------------------------------------
+
+    def pool_status(self) -> Dict:
+        """Pool at a glance — rules, round, TVL, vault."""
+        stats = self.pool.stats()
+        stats['config'] = self.pool.config()
+        stats['round_window'] = self.pool.window()
+        return stats
+
+    def pool_config(self) -> Dict:
+        """The live rules: interval, scoring model, tolerance, limits, fee."""
+        return self.pool.config()
+
+    def set_pool_config(self, secret: str = None, owner: str = None,
+                        signature: str = None, **params) -> Dict:
+        """Owner-only. `interval=604800` is the weekly cadence; anything in
+        pool.DEFAULT_CONFIG can be set the same way."""
+        return self.pool.set_config(secret=secret, owner=owner,
+                                    signature=signature, **params)
+
+    def pool_owner(self) -> Dict:
+        """Who owns the pool, and whether it has been claimed at all."""
+        return self.pool.owner_status()
+
+    def pool_claim_owner(self, address: str, secret: str = None) -> Dict:
+        """Claim an unowned pool, or transfer it with the owner secret."""
+        return self.pool.claim_owner(address, secret)
+
+    def pool_vault(self) -> Dict:
+        """The deposit address on HyperEVM, what it holds, and whether the
+        on-chain balance still covers everything the ledger owes."""
+        return self.pool.vault()
+
+    def pool_create_vault(self, secret: str = None, owner: str = None,
+                          signature: str = None) -> Dict:
+        """Generate the custodial hot wallet that receives deposits."""
+        return self.pool.create_vault(secret=secret, owner=owner, signature=signature)
+
+    def pool_set_vault(self, address: str, secret: str = None, owner: str = None,
+                       signature: str = None) -> Dict:
+        """Use an address you already control instead of a generated key."""
+        return self.pool.set_vault(address, secret=secret, owner=owner,
+                                   signature=signature)
+
+    def pool_tokens(self, verify: bool = False) -> Dict:
+        """Accepted stablecoins. `verify=true` reads symbol/decimals back off
+        the chain instead of trusting the registry."""
+        return self.pool.tokens(verify=verify)
+
+    def pool_add_token(self, symbol: str, address: str, secret: str = None,
+                       owner: str = None, signature: str = None) -> Dict:
+        """Register another stablecoin; decimals come from the contract."""
+        return self.pool.add_token(symbol, address, secret=secret, owner=owner,
+                                   signature=signature)
+
+    # -- money in ------------------------------------------------------
+
+    def pool_deposit(self, tx_hash: str) -> Dict:
+        """Credit a deposit from its HyperEVM transaction hash."""
+        return self.pool.deposit(tx_hash)
+
+    def pool_sync(self, max_chunks: int = 20) -> Dict:
+        """Sweep the chain for deposits nobody submitted a hash for."""
+        return self.pool.sync(max_chunks=int(max_chunks))
+
+    def pool_balance(self, address: str) -> Dict:
+        """One account: available, at stake, deposited, won, withdrawn."""
+        return self.pool.balance(address)
+
+    def pool_ledger(self, address: str = None, limit: int = 100) -> List[Dict]:
+        """Every credit and debit behind a balance, newest first."""
+        return self.pool.ledger(address, limit)
+
+    # -- staking -------------------------------------------------------
+
+    def pool_sign(self, action: str, address: str, **fields) -> Dict:
+        """The message a wallet has to sign for a spending action, and the
+        nonce it is bound to. The UI shows this, signs it, posts it back."""
+        return self.pool.sign_request(action, address, **fields)
+
+    def pool_stake(self, address: str, asset: str, predicted_price: float,
+                   amount: float, signature: str = None, nonce: int = None) -> Dict:
+        """Stake dollars on where `asset` closes this round."""
+        return self.pool.stake(address, asset, predicted_price, amount,
+                               signature=signature, nonce=nonce)
+
+    def pool_free_stake(self, address: str, asset: str, predicted_price: float,
+                        signature: str = None, nonce: int = None) -> Dict:
+        """Call a price with no money down — scored like a stake, paid nothing,
+        and told what it would have won."""
+        return self.pool.free_stake(address, asset, predicted_price,
+                                    signature=signature, nonce=nonce)
+
+    def pool_free_quota(self, address: str, index: int = None) -> Dict:
+        """Free calls this address has left in the round."""
+        return self.pool.free_quota(address, index)
+
+    def pool_free_leaderboard(self, limit: int = 50) -> List[Dict]:
+        """Free players ranked by accuracy, and by what they would have made."""
+        return self.pool.free_leaderboard(limit)
+
+    def pool_agent_stake(self, address: str, asset: str, predicted_price: float,
+                         signature: str = None, nonce: int = None) -> Dict:
+        """An agent's price call — no dollars down, weighted by bloctime
+        locked across the round (USD × seconds), paid from the fee share."""
+        return self.pool.agent_stake(address, asset, predicted_price,
+                                     signature=signature, nonce=nonce)
+
+    def pool_agent_quota(self, address: str, index: int = None) -> Dict:
+        """Agent calls left this round, plus the caller's live usd·seconds."""
+        return self.pool.agent_quota(address, index)
+
+    def pool_agent_leaderboard(self, limit: int = 50) -> List[Dict]:
+        """Agents ranked by fee dollars their locked time earned."""
+        return self.pool.agent_leaderboard(limit)
+
+    def pool_round(self, index: int = None, address: str = None) -> Dict:
+        """One round with live provisional scores — the pot table."""
+        return self.pool.round(index, address)
+
+    def pool_rounds(self, limit: int = 20) -> List[Dict]:
+        """Round history: what each pot paid and who took it."""
+        return self.pool.rounds(limit)
+
+    def pool_entries(self, address: str = None, limit: int = 100) -> List[Dict]:
+        """Stakes, newest first — all of them or one address's."""
+        return self.pool.entries(address, limit)
+
+    def pool_settle(self, force: bool = False) -> Dict:
+        """Settle every closed round. Safe to call on a cron and on read."""
+        return self.pool.settle(force=force)
+
+    def pool_settle_manual(self, index: int, asset: str, price: float,
+                           secret: str = None, owner: str = None,
+                           signature: str = None) -> Dict:
+        """Owner escape hatch for a pot the oracle cannot price."""
+        return self.pool.settle_manual(index, asset, price, secret=secret,
+                                       owner=owner, signature=signature)
+
+    def pool_leaderboard(self, limit: int = 50) -> List[Dict]:
+        """Stakers ranked by realised profit."""
+        return self.pool.leaderboard(limit)
+
+    # -- money out -----------------------------------------------------
+
+    def pool_withdraw(self, address: str, amount: float, token: str = None,
+                      signature: str = None, nonce: int = None) -> Dict:
+        """Queue (and, with auto_pay, immediately send) a payout on HyperEVM."""
+        return self.pool.withdraw(address, amount, token, signature=signature,
+                                  nonce=nonce)
+
+    def pool_withdrawals(self, address: str = None, limit: int = 50) -> List[Dict]:
+        """Withdrawal queue, newest first."""
+        return self.pool.withdrawals(address, limit)
+
+    def pool_pay_withdrawal(self, withdrawal_id: int, secret: str = None,
+                            owner: str = None, signature: str = None) -> Dict:
+        """Owner-only: release a queued withdrawal from the vault key."""
+        return self.pool.pay_withdrawal(withdrawal_id, secret=secret, owner=owner,
+                                        signature=signature)
+
+    def pool_mark_paid(self, withdrawal_id: int, tx_hash: str, secret: str = None,
+                       owner: str = None, signature: str = None) -> Dict:
+        """Owner-only: record a withdrawal you paid by hand."""
+        return self.pool.mark_paid(withdrawal_id, tx_hash, secret=secret,
+                                   owner=owner, signature=signature)
+
+    def hyperevm_status(self) -> Dict:
+        """Is the HyperEVM RPC reachable, and is it the chain we think it is?"""
+        chain = self.pool.chain()
+        return {**chain.ping(), 'chain': chain.chain['name'],
+                'chain_id': chain.chain_id, 'explorer': chain.chain['explorer']}
+
     # ── Service management ───────────────────────────────────────────
 
     LOG_DIR = Path('/tmp/prefi')
@@ -1396,6 +3250,14 @@ class Mod:
         active_stakes = [s for s in stakes if not s.get('withdrawn')]
         total_volume = sum(p.get('usdc_in', 0) for p in positions)
 
+        # Settling on read means a pot is never left hanging because nobody ran
+        # a cron; it is a no-op until a round has actually closed.
+        try:
+            self.pool.settle()
+            pool_stats = self.pool.stats()
+        except Exception as exc:
+            pool_stats = {'error': str(exc)}
+
         return {
             'service': 'prefi',
             'network': self.network,
@@ -1413,8 +3275,10 @@ class Mod:
             'total_prefi_burned': treasury.get('total_prefi_burned', 0),
             'predictions_total': len(predictions),
             'predictions_open': sum(1 for p in predictions if not p.get('resolved')),
+            'predictions_free': sum(1 for p in predictions if p.get('free')),
             'forecasters': len(set(p['predictor'] for p in predictions)) if predictions else 0,
             'scoring': self.get_scoring(),
+            'pool': pool_stats,
             'current_epoch': self._current_epoch(),
             'api_port': self.api_port,
             'app_port': self.app_port,
@@ -1752,6 +3616,39 @@ class Mod:
             port2 = self.portfolio('0xAlice')
             check('portfolio has predictions', port2['predictions']['resolved'] == 1)
 
+            # 12. Free predictions — the way in for an address holding nothing
+            print('\n12. Free predictions')
+            self._get_token_price = lambda sym, source=None: 2000.0
+            self.set_scoring(model='l2', tolerance=0.02, free_per_day=2,
+                             free_payout=1.0)
+            check('broke address has no PREFI',
+                  self.prefi_balance('0xNew')['available'] == 0)
+            gratis = self.predict('WETH', 2000.0, address='0xNew')
+            check('free call placed without a burn',
+                  gratis.get('free') is True and gratis.get('status') == 'open')
+            check('free call cost nothing', self.prefi_balance('0xNew')['burned'] == 0)
+            check('free allowance decremented',
+                  self.free_quota('0xNew')['remaining'] == 1)
+            self.predict('WETH', 2000.0, address='0xNew')
+            spent = self.predict('WETH', 2000.0, address='0xNew')
+            check('free allowance runs out', 'error' in spent)
+            check('other addresses unaffected',
+                  self.free_quota('0xOther')['remaining'] == 2)
+
+            preds = self._load_json(self.predictions_path, [])
+            for p in preds:
+                if p.get('free'):
+                    p['resolve_at'] = time.time() - 10
+            self._save_json(self.predictions_path, preds)
+            self.resolve_predictions()
+            gratis_settled = self.get_predictions('0xNew')[0]
+            check('free call scored like any other', gratis_settled['score'] == 1.0)
+            check('perfect free call mints free_payout',
+                  gratis_settled['payout'] == 1.0, f'payout={gratis_settled["payout"]}')
+            check('free minting shows in the balance',
+                  self.prefi_balance('0xNew')['from_free'] == 2.0)
+            self._get_token_price = orig_get_price
+
         finally:
             for k, v in orig.items():
                 setattr(self, k, v)
@@ -1780,15 +3677,29 @@ class Mod:
 
             markets     - List supported markets
             add-market  - Add market (token=, symbol=, fee_tier=, source=)
-            hl-assets   - Browse the Hyperliquid universe (search=, limit=)
-            add-hl      - List a Hyperliquid perp as a market (coin=)
+            hl-assets   - Browse every Hyperliquid pair (search=, limit=, kind=)
+            hl-stats    - How many pairs are quoted, and how fresh the list is
+            seed-hl     - List the busiest HL pairs at once (limit=, kind=)
+            add-hl      - List a Hyperliquid pair as a market (coin=)
+            bt-assets   - Browse every Bittensor subnet (search=, limit=)
+            bt-stats    - How many subnets are quoted, and how fresh the list is
+            seed-bt     - List the busiest subnets at once (limit=, min_volume=)
+            add-bt      - List a Bittensor subnet as a market (subnet=)
+            dex-assets  - Browse tokens on Solana or Base (chain=, search=, limit=)
+            dex-stats   - Pools ranked, eligible under the floor, listed
+            seed-dex    - List a chain's busiest eligible tokens (chain=, limit=)
+            add-dex     - List a Solana/Base token (chain=, address= pool,
+                          token or symbol) — must clear min_liquidity_usd
+            add-sol     - add-dex chain=solana
+            add-base    - add-dex chain=base
 
             open        - Open position (asset=, amount=, address=)
             close       - Close position (id=, address=)
             positions   - Get positions (address=)
 
-            predict     - Burn PREFI on a price call (asset=, price=, burn=,
-                          address=, horizon=)
+            predict     - Call a price (asset=, price=, address=, horizon=,
+                          burn= — omit burn for a FREE call)
+            free        - Free calls left today (address=)
             predictions - List predictions (address=, limit=)
             resolve     - Settle every due prediction
             forecasters - Prediction leaderboard
@@ -1796,8 +3707,16 @@ class Mod:
 
             scoring     - Active scoring params
             set-scoring - Retune (model=, tolerance=, multiplier=, horizon=,
-                          min_burn=)
+                          min_burn=, free_per_day=, free_payout=)
             models      - Available scoring models
+            functions   - Every score function (defaults + library) and the language
+            fn          - One function: name=
+            fn-test     - Try one without saving: expr= params= [tolerance= calls= stake=]
+            fn-save     - Save (signed): address= name= expr= params= description=
+            fn-delete   - Remove yours: address= name=
+            fn-share    - Share code (+ CID if published): name=
+            fn-publish  - Put it in the store, get a CID: name= [token=]
+            fn-import   - From a code or CID: source= [address= name=]
             preview     - Score a hypothetical (predicted=, actual=, model=,
                           tolerance=, burn=)
 
@@ -1818,6 +3737,47 @@ class Mod:
             price       - Single asset price (asset=)
             deployment  - Deployment info
             test        - Run test suite
+
+          Stake pool (real USDC/USDT0 on HyperEVM):
+            pool        - Pool status: rules, round, TVL, vault
+            pool-config - Live rules
+            pool-set    - Owner: interval=, model=, tolerance=, min_stake=,
+                          max_stake=, fee_bps=, entry_cutoff=, auto_pay=,
+                          free_per_round=, free_notional=,
+                          min_liquidity_usd= (DEX listing/stake floor)
+                          (auth: secret= or owner=+signature=)
+            pool-owner  - Who owns the pool
+            pool-claim  - Claim it (address=, secret= to transfer)
+
+            pool-vault  - Deposit address, holdings, solvency
+            pool-create-vault - Generate the custodial hot wallet
+            pool-set-vault    - Use an address you control (address=)
+            pool-tokens - Accepted stablecoins (verify=true to re-read on chain)
+            pool-add-token    - Register one (symbol=, address=)
+
+            deposit     - Credit a deposit by tx hash (tx=)
+            pool-sync   - Sweep the chain for deposits (chunks=)
+            pool-balance- Account balance (address=)
+            pool-ledger - Credits and debits (address=, limit=)
+
+            stake       - Stake dollars on a call (address=, asset=, price=,
+                          amount=, signature=, nonce=)
+            free-stake  - Call a price for nothing (address=, asset=, price=,
+                          signature=, nonce=) — scored, never paid
+            free-quota  - Free calls left this round (address=)
+            free-board  - Free players ranked by accuracy
+            round       - Round with live scores (round=, address=)
+            rounds      - Round history (limit=)
+            entries     - Stakes (address=, limit=)
+            settle      - Settle every closed round
+            settle-manual - Owner: settle a stuck pot (round=, asset=, price=)
+            pool-board  - Stakers ranked by profit
+
+            withdraw    - Cash out (address=, amount=, token=, signature=)
+            withdrawals - Withdrawal queue (address=)
+            pay         - Owner: send a queued withdrawal (id=)
+            mark-paid   - Owner: record one paid by hand (id=, tx=)
+            hyperevm    - RPC reachability
         """
         actions = {
             'serve': lambda: self.serve(
@@ -1840,8 +3800,43 @@ class Mod:
             'hl-assets': lambda: self.hl_assets(
                 kwargs.get('search', ''),
                 int(kwargs.get('limit', 50)),
+                kwargs.get('kind', 'all'),
+            ),
+            'hl-stats': lambda: self.hl_stats(),
+            'seed-hl': lambda: self.seed_hl(
+                int(kwargs.get('limit', 20)),
+                kwargs.get('kind', 'all'),
+                float(kwargs.get('min_volume', 0)),
             ),
             'add-hl': lambda: self.add_hl_market(kwargs.get('coin', '')),
+            'bt-assets': lambda: self.bt_assets(
+                kwargs.get('search', ''),
+                int(kwargs.get('limit', 50)),
+            ),
+            'bt-stats': lambda: self.bt_stats(),
+            'seed-bt': lambda: self.seed_bt(
+                int(kwargs.get('limit', 20)),
+                float(kwargs.get('min_volume', 0)),
+            ),
+            'add-bt': lambda: self.add_bt_market(
+                kwargs.get('subnet', kwargs.get('netuid', ''))),
+            'dex-assets': lambda: self.dex_assets(
+                kwargs.get('chain', 'solana'),
+                kwargs.get('search', ''),
+                int(kwargs.get('limit', 50)),
+            ),
+            'dex-stats': lambda: self.dex_stats(kwargs.get('chain', 'solana')),
+            'seed-dex': lambda: self.seed_dex(
+                kwargs.get('chain', 'solana'),
+                int(kwargs.get('limit', 20)),
+                float(kwargs.get('min_volume', 0)),
+            ),
+            'add-dex': lambda: self.add_dex_market(
+                kwargs.get('chain', ''), kwargs.get('address', kwargs.get('token', ''))),
+            'add-sol': lambda: self.add_dex_market(
+                'solana', kwargs.get('address', kwargs.get('token', ''))),
+            'add-base': lambda: self.add_dex_market(
+                'base', kwargs.get('address', kwargs.get('token', ''))),
 
             'open': lambda: self.open_position(
                 kwargs.get('asset', ''),
@@ -1865,6 +3860,7 @@ class Mod:
                 kwargs.get('address'),
                 int(kwargs.get('limit', 100)),
             ),
+            'free': lambda: self.free_quota(kwargs.get('address', '')),
             'resolve': lambda: self.resolve_predictions(),
             'forecasters': lambda: self.prediction_board(),
             'balance': lambda: self.prefi_balance(kwargs.get('address', '')),
@@ -1873,11 +3869,34 @@ class Mod:
             'set-scoring': lambda: self.set_scoring(
                 model=kwargs.get('model'),
                 tolerance=kwargs.get('tolerance'),
+                model_params=kwargs.get('model_params'),
                 multiplier=kwargs.get('multiplier'),
                 horizon=kwargs.get('horizon'),
                 min_burn=kwargs.get('min_burn'),
+                free_per_day=kwargs.get('free_per_day'),
+                free_payout=kwargs.get('free_payout'),
             ),
             'models': lambda: self.scoring_models(),
+            'functions': lambda: self.fn_list(sample=False),
+            'fn': lambda: self.fn_get(kwargs.get('name', '')),
+            'fn-test': lambda: self.fn_test(
+                kwargs.get('expr', ''), kwargs.get('params'), kwargs.get('name'),
+                kwargs.get('tolerance'), kwargs.get('actual', 100.0),
+                kwargs.get('calls'), kwargs.get('stake', 100.0),
+                kwargs.get('fee_bps', 0)),
+            'fn-save': lambda: self.fn_save(
+                kwargs.get('address', ''), kwargs.get('name', ''),
+                kwargs.get('expr', ''), kwargs.get('params'),
+                kwargs.get('description', ''), kwargs.get('signature'),
+                kwargs.get('nonce')),
+            'fn-delete': lambda: self.fn_delete(
+                kwargs.get('address', ''), kwargs.get('name', ''),
+                kwargs.get('signature'), kwargs.get('nonce')),
+            'fn-share': lambda: self.fn_share(kwargs.get('name', '')),
+            'fn-publish': lambda: self.fn_publish(kwargs.get('name', ''), kwargs.get('token')),
+            'fn-import': lambda: self.fn_import(
+                kwargs.get('source', ''), kwargs.get('address'),
+                kwargs.get('signature'), kwargs.get('nonce'), kwargs.get('name')),
             'preview': lambda: self.score_preview(
                 kwargs.get('predicted', 0),
                 kwargs.get('actual', 0),
@@ -1919,6 +3938,92 @@ class Mod:
             'price': lambda: self.get_asset_price(kwargs.get('asset', 'ETH')),
             'deployment': lambda: self.get_deployment_info(),
             'test': lambda: self.test(),
+
+            # ── the stake pool, on HyperEVM ──
+            'pool': lambda: self.pool_status(),
+            'pool-config': lambda: self.pool_config(),
+            'pool-set': lambda: self.set_pool_config(
+                secret=kwargs.get('secret'), owner=kwargs.get('owner'),
+                signature=kwargs.get('signature'),
+                **{k: v for k, v in kwargs.items()
+                   if k in pool_mod.DEFAULT_CONFIG}),
+            'pool-owner': lambda: self.pool_owner(),
+            'pool-claim': lambda: self.pool_claim_owner(
+                kwargs.get('address', ''), kwargs.get('secret')),
+
+            'pool-vault': lambda: self.pool_vault(),
+            'pool-create-vault': lambda: self.pool_create_vault(
+                secret=kwargs.get('secret'), owner=kwargs.get('owner'),
+                signature=kwargs.get('signature')),
+            'pool-set-vault': lambda: self.pool_set_vault(
+                kwargs.get('address', ''), secret=kwargs.get('secret'),
+                owner=kwargs.get('owner'), signature=kwargs.get('signature')),
+            'pool-tokens': lambda: self.pool_tokens(
+                verify=str(kwargs.get('verify', '')).lower() in ('1', 'true', 'yes')),
+            'pool-add-token': lambda: self.pool_add_token(
+                kwargs.get('symbol', ''), kwargs.get('address', ''),
+                secret=kwargs.get('secret'), owner=kwargs.get('owner'),
+                signature=kwargs.get('signature')),
+
+            'deposit': lambda: self.pool_deposit(kwargs.get('tx', '')),
+            'pool-sync': lambda: self.pool_sync(int(kwargs.get('chunks', 20))),
+            'pool-balance': lambda: self.pool_balance(kwargs.get('address', '')),
+            'pool-ledger': lambda: self.pool_ledger(
+                kwargs.get('address'), int(kwargs.get('limit', 100))),
+
+            'stake': lambda: self.pool_stake(
+                kwargs.get('address', ''), kwargs.get('asset', ''),
+                float(kwargs.get('price', 0)), float(kwargs.get('amount', 0)),
+                signature=kwargs.get('signature'),
+                nonce=int(kwargs['nonce']) if kwargs.get('nonce') else None),
+            'free-stake': lambda: self.pool_free_stake(
+                kwargs.get('address', ''), kwargs.get('asset', ''),
+                float(kwargs.get('price', 0)),
+                signature=kwargs.get('signature'),
+                nonce=int(kwargs['nonce']) if kwargs.get('nonce') else None),
+            'free-quota': lambda: self.pool_free_quota(
+                kwargs.get('address', ''),
+                int(kwargs['round']) if kwargs.get('round') else None),
+            'free-board': lambda: self.pool_free_leaderboard(
+                int(kwargs.get('limit', 50))),
+            'agent-stake': lambda: self.pool_agent_stake(
+                kwargs.get('address', ''), kwargs.get('asset', ''),
+                float(kwargs.get('price', 0)),
+                signature=kwargs.get('signature'),
+                nonce=int(kwargs['nonce']) if kwargs.get('nonce') else None),
+            'agent-quota': lambda: self.pool_agent_quota(
+                kwargs.get('address', ''),
+                int(kwargs['round']) if kwargs.get('round') else None),
+            'agent-board': lambda: self.pool_agent_leaderboard(
+                int(kwargs.get('limit', 50))),
+            'round': lambda: self.pool_round(
+                int(kwargs['round']) if kwargs.get('round') else None,
+                kwargs.get('address')),
+            'rounds': lambda: self.pool_rounds(int(kwargs.get('limit', 20))),
+            'entries': lambda: self.pool_entries(
+                kwargs.get('address'), int(kwargs.get('limit', 100))),
+            'settle': lambda: self.pool_settle(
+                force=str(kwargs.get('force', '')).lower() in ('1', 'true', 'yes')),
+            'settle-manual': lambda: self.pool_settle_manual(
+                int(kwargs.get('round', 0)), kwargs.get('asset', ''),
+                float(kwargs.get('price', 0)), secret=kwargs.get('secret'),
+                owner=kwargs.get('owner'), signature=kwargs.get('signature')),
+            'pool-board': lambda: self.pool_leaderboard(int(kwargs.get('limit', 50))),
+
+            'withdraw': lambda: self.pool_withdraw(
+                kwargs.get('address', ''), float(kwargs.get('amount', 0)),
+                kwargs.get('token'), signature=kwargs.get('signature'),
+                nonce=int(kwargs['nonce']) if kwargs.get('nonce') else None),
+            'withdrawals': lambda: self.pool_withdrawals(
+                kwargs.get('address'), int(kwargs.get('limit', 50))),
+            'pay': lambda: self.pool_pay_withdrawal(
+                int(kwargs.get('id', 0)), secret=kwargs.get('secret'),
+                owner=kwargs.get('owner'), signature=kwargs.get('signature')),
+            'mark-paid': lambda: self.pool_mark_paid(
+                int(kwargs.get('id', 0)), kwargs.get('tx', ''),
+                secret=kwargs.get('secret'), owner=kwargs.get('owner'),
+                signature=kwargs.get('signature')),
+            'hyperevm': lambda: self.hyperevm_status(),
         }
 
         if not action or action not in actions:

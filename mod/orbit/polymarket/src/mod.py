@@ -482,7 +482,7 @@ class Polymarket(m.Mod):
 
     # ── data passthroughs ────────────────────────────────────────
 
-    def _get(self, path: str, **params) -> Any:
+    def _get(self, path: str, timeout: float = 30, **params) -> Any:
         # The API is owner-gated (access.rs): data routes 401 without a
         # Bearer token minted via /access/verify. CLI callers export
         # POLYMARKET_ACCESS_TOKEN (copy it from the signed-in browser's
@@ -492,7 +492,7 @@ class Polymarket(m.Mod):
         tok = os.environ.get("POLYMARKET_ACCESS_TOKEN")
         if tok:
             headers["Authorization"] = f"Bearer {tok}"
-        r = requests.get(f"{self.api_url}{path}", params=params, headers=headers, timeout=30)
+        r = requests.get(f"{self.api_url}{path}", params=params, headers=headers, timeout=timeout)
         r.raise_for_status()
         return r.json()
 
@@ -508,11 +508,59 @@ class Polymarket(m.Mod):
     def events(self, limit: int = 20) -> Any:
         return self._get("/", endpoint="events", _limit=str(limit), active="true")
 
-    def active_traders(self, days: int = 7, pool: int = 2000) -> Any:
+    def active_traders(self, days: int = 7, pool: int = 2000,
+                       active_hours: float = 6, limit: int = 50,
+                       sort: str = "winRate", min_history_days: float = 0) -> Any:
+        """The leaderboard, from cache: best traders over `days`, ranked by win rate.
+
+        `winRate` is the share of positions the market SETTLED inside the
+        window that returned more than they cost, over `decidedPositions`. It
+        counts positions that expired worthless — those leave no sell and no
+        redeem in the trade feed, so a rate built from the feed alone sees
+        only winners. `-1` means nothing settled in the window (or the
+        settled book was unreachable): unknown, not zero.
+
+        `sort` parameterizes the ranking metric: winRate (default), exitEntry
+        (avg exit÷entry price over closed trades), sharpe, pnl, volume, history
+        (longest track record first).
+
+        `min_history_days` is a TRACK-RECORD floor, not a recency one: it drops
+        traders whose first-ever trade is more recent than N days. Worth setting
+        to `days` on a long window — a wallet that opened last week can top the
+        30-day board, and its 30-day numbers are mostly a flat line through days
+        it did not exist. Traders whose age hasn't been resolved yet are kept.
+
+        m polymarket/active_traders                  → top 50, traded in the last 6h
+        m polymarket/active_traders active_hours=0   → the whole board, dormants too
+        m polymarket/active_traders days=30 limit=10 → top 10 of the 30-day window
+        m polymarket/active_traders sort=exitEntry   → ranked by exit÷entry ratio
+        m polymarket/active_traders days=30 min_history_days=30
+                                                     → 30D board, 30D+ of record only
+        """
         # pool=2000 matches the background warmup's cache key, so the default
         # call returns the pre-aggregated payload instantly instead of
-        # forcing a fresh multi-minute pipeline run.
-        return self._get("/active-traders", days=str(days), pool=str(pool))
+        # forcing a fresh multi-minute pipeline run. `paged=1` keeps it that
+        # way — it answers `cold` rather than aggregating — and lets the
+        # recency filter and the row cap run server-side over the cached
+        # payload. A trader who hasn't traded in 6h isn't one to copy.
+        if sort not in ("winRate", "exitEntry", "sharpe", "pnl", "volume", "history"):
+            sort = "winRate"
+        params = {"days": str(days), "pool": str(pool), "paged": "1",
+                  "pageSize": str(max(1, min(int(limit), 100))), "page": "0",
+                  "sort": sort, "order": "desc"}
+        if active_hours and float(active_hours) > 0:
+            params["maxLastTradeHrs"] = str(active_hours)
+        if min_history_days and float(min_history_days) > 0:
+            params["minHistoryDays"] = str(min_history_days)
+        r = self._get("/active-traders", **params)
+        if isinstance(r, dict) and r.get("cold"):
+            # Nothing cached for this window yet — pay for it once. A cold
+            # aggregation of this pool is a MULTI-MINUTE pipeline run, so the
+            # default 30s read timeout turned the one call that does the work
+            # into a guaranteed ReadTimeout.
+            return self._get("/active-traders", timeout=900,
+                             days=str(days), pool=str(pool))
+        return r
 
     # ── background sync schedule ─────────────────────────────────
 
@@ -589,10 +637,19 @@ class Polymarket(m.Mod):
 
         m polymarket/mcp                 → stdio (for an MCP client to spawn)
         m polymarket/mcp http=true       → Streamable HTTP on :50092, POST /mcp
+                                           (loopback, owner Bearer token required
+                                            — mint one with `python3 src/mcp.py
+                                            --token`)
 
-        Read-only tools: markets, leaderboard, trader flow, strats, cached
-        backtests + funnels, live sessions and the live gate tally. No tool
-        can place an order.
+        Reads: markets, leaderboard, trader flow, strats, cached backtests +
+        funnels, live sessions and the live gate tally.
+
+        WRITES — these are not read-only. pm_copy_allocate / pm_copy_remove /
+        pm_copy_rebalance change the copy book, and pm_copy_start /
+        pm_copy_stop start and stop live sessions. There is no order-placing
+        tool, starting defaults to DRY RUN, and anything that touches a wallet
+        already placing real orders is refused unless the deployment sets
+        POLYMARKET_MCP_ALLOW_LIVE=1.
         """
         script = os.path.join(SRC_DIR, "mcp.py")
         argv = ["python3", script] + (["--http", "--port", str(port)] if http else [])
@@ -600,6 +657,9 @@ class Polymarket(m.Mod):
             return {"stdio": " ".join(argv),
                     "claude_code": f"claude mcp add polymarket -- python3 {script}",
                     "tools": ["pm_health", "pm_markets", "pm_top_traders", "pm_trader",
+                              "pm_copy_book", "pm_copy_allocate", "pm_copy_remove",
+                              "pm_copy_rebalance", "pm_copy_backtest", "pm_copy_trades",
+                              "pm_copy_basket", "pm_copy_start", "pm_copy_stop",
                               "pm_strats", "pm_backtests", "pm_backtest_run",
                               "pm_live_sessions", "pm_live_gates"]}
         subprocess.run(argv, check=False)

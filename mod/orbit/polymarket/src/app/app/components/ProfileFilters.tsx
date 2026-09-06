@@ -53,13 +53,17 @@ export default function ProfileFilters({
   total,
   stickyTopPx = 56,
 }: Props) {
-  // The detail rows (side / price / size / keyword / category) can be folded
-  // away for vertical room — but they default to OPEN and the topic row above
-  // them never folds. A filter you can't see is the bug this file exists for.
-  const [open, setOpen] = useState(true);
+  // Everything but the gate itself folds away, and it starts FOLDED: open, the
+  // rail was three stacked grids of the same nouns (BITCOIN topic, + bitcoin
+  // keyword, CRYPTO bucket) eating half the viewport above the trader you
+  // clicked. Collapsed it is one line — the topic box, what the gate did to the
+  // tape, and a summary chip of anything else that's on. A filter you can't see
+  // is still the bug this file exists for, so nothing active is ever silent:
+  // it's named in the chip row, not just counted on the toggle.
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     try {
-      if (localStorage.getItem(OPEN_KEY) === "0") setOpen(false);
+      if (localStorage.getItem(OPEN_KEY) === "1") setOpen(true);
     } catch {}
   }, []);
   const toggleOpen = () => {
@@ -80,6 +84,8 @@ export default function ProfileFilters({
 
   const preset = matchPreset(marketQuery);
   const editable = !!onMarketQueryChange;
+  const categoryLabel =
+    CATEGORIES.find((c) => c.slug === category)?.label ?? category.toUpperCase();
   const activeCount =
     bar.count + (category ? 1 : 0) + (marketQuery.trim() ? 1 : 0);
   const narrowing = matched < total;
@@ -95,27 +101,9 @@ export default function ProfileFilters({
       className="pixel-panel sticky z-20 bg-pixel-black/95 backdrop-blur-sm"
       style={{ top: stickyTopPx }}
     >
-      {/* ── Row 1: the market gate. Always visible. ── */}
+      {/* ── Row 1: the market gate. Always visible, always ONE line. ── */}
       <div className="flex items-center gap-1.5 flex-wrap px-3 py-2">
         <span className="text-[12px] text-pixel-gray tracking-wider w-14 shrink-0">TOPIC</span>
-        {MARKET_TYPES.map((m) => {
-          const on = preset?.label === m.label;
-          return (
-            <button
-              key={m.label}
-              disabled={!editable}
-              onClick={() => onMarketQueryChange?.(on ? "" : m.query)}
-              title={`${m.hint} — matches: ${m.query}`}
-              className={`pixel-btn text-[12px] px-2 py-0.5 transition-colors ${
-                on
-                  ? "border-green-400 text-green-400 bg-green-400/10"
-                  : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white disabled:hover:text-pixel-gray"
-              }`}
-            >
-              {m.label}
-            </button>
-          );
-        })}
         <input
           type="text"
           value={topic}
@@ -131,8 +119,13 @@ export default function ProfileFilters({
             "The gate this profile is read under, and the gate a copy would run " +
             "under. OR across commas, AND within a phrase."
           }
-          className="pixel-input-sm w-52 text-[12px] font-mono"
+          className={`pixel-input-sm w-64 text-[12px] font-mono ${
+            marketQuery.trim() ? "border-green-400 text-green-400" : ""
+          }`}
         />
+        {preset && (
+          <span className="pixel-badge border-green-400/60 text-green-400 text-[11px]">{preset.label}</span>
+        )}
         {marketQuery.trim() && (
           <button
             onClick={() => onMarketQueryChange?.("")}
@@ -141,6 +134,12 @@ export default function ProfileFilters({
           >
             ✕ ANY
           </button>
+        )}
+        {/* Anything else that's narrowing, named — not just counted. */}
+        {!open && (bar.active || category) && (
+          <span className="pixel-badge border-green-400/60 text-green-400 text-[11px] truncate max-w-[340px]">
+            {[bar.describe(), category ? categoryLabel : ""].filter(Boolean).join(" · ")}
+          </span>
         )}
 
         <span className="flex-1" />
@@ -167,32 +166,53 @@ export default function ProfileFilters({
         )}
         <button
           onClick={toggleOpen}
-          title={open ? "Fold the side / price / size rows away" : "Show every filter dimension"}
+          title={open ? "Fold the presets and bands away" : "Topic presets, side, price, size, keyword"}
           className={`pixel-btn text-[12px] px-2 py-0.5 flex items-center gap-1.5 ${
-            bar.count > 0 || category
+            bar.count > 0
               ? "border-green-400 text-green-400"
               : "border-pixel-border text-pixel-gray hover:text-pixel-white"
           }`}
         >
           {open ? "▾" : "▸"} FILTERS
-          {bar.count + (category ? 1 : 0) > 0 && (
+          {bar.count > 0 && (
             <span className="text-[11px] bg-green-400/20 text-green-400 px-1 py-px border border-green-400/40">
-              {bar.count + (category ? 1 : 0)}
+              {bar.count}
             </span>
           )}
         </button>
       </div>
 
-      {/* ── Rows 2+: the per-trade dimensions. The SAME bar the TRADES tape
-             uses, so a slice means the same thing on both screens. ── */}
-      <div className="border-t-2 border-pixel-border">
-        <TradeFilterBar
-          bar={bar}
-          open={open}
-          embedded
-          category={category}
-          onCategoryChange={onCategoryChange}
-        />
+      {/* ── Rows 2+: the presets, then the per-trade dimensions. The SAME bar
+             the TRADES tape uses, so a slice means the same thing on both
+             screens — minus its keyword chips and category buckets, which on
+             this screen only repeat the topic row below. (A category set
+             elsewhere still gates the page, still shows in the chip above, and
+             is still set/cleared from the category-mix bars further down.) ── */}
+      {open && (
+        <div className="flex items-center gap-1.5 flex-wrap px-3 py-2 border-t-2 border-pixel-border">
+          <span className="text-[12px] text-pixel-gray tracking-wider w-14 shrink-0">PRESET</span>
+          {MARKET_TYPES.map((m) => {
+            const on = preset?.label === m.label;
+            return (
+              <button
+                key={m.label}
+                disabled={!editable}
+                onClick={() => onMarketQueryChange?.(on ? "" : m.query)}
+                title={`${m.hint} — matches: ${m.query}`}
+                className={`pixel-btn text-[12px] px-2 py-0.5 transition-colors ${
+                  on
+                    ? "border-green-400 text-green-400 bg-green-400/10"
+                    : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white disabled:hover:text-pixel-gray"
+                }`}
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className={open ? "border-t-2 border-pixel-border" : ""}>
+        <TradeFilterBar bar={bar} open={open} embedded presets={false} collapsedSummary={false} />
       </div>
     </div>
   );

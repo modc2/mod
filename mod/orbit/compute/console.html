@@ -1,0 +1,1831 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>compute — every market, one desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<style>
+  /* ── THE CABINET ─────────────────────────────────────────────────────
+     Ten palettes, one console. Nothing below hard-codes a colour:
+     background, stone, gold, flame, panel and ink all come out of vars, so
+     a theme is a swatch list and nothing else. The background is a plain
+     wash — no scenery behind the data, nothing to read past.
+     ─────────────────────────────────────────────────────────────────── */
+  :root{
+    /* defaults — every palette overrides what it wants and inherits the rest */
+    --edge:#000;
+    --brick:#c84c0c; --brick-hi:#e88030; --brick-lo:#7c2c00;
+    --gold:#fcbc3c; --gold-hi:#fcd85c; --gold-lo:#e39b00;
+    --gold-ink:#5c2c00; --gold-sheen:#ffe9a8; --gold-deep:#a06000;
+    --pipe:#00a800; --pipe-hi:#58d854; --pipe-lo:#006800;
+    --bg:#0a0f1e; --bg2:#0e1730; --panel:#111a2f; --panel2:#1a2745;
+    --panel3:#16233d; --well:#05080f;
+    --ink:#ffffff; --dim:#a4b7dc; --faint:#6a7ea6;
+    --hot:#58d854; --warn:#fcd000; --bad:#e52521; --badv:#ff8878;
+    --accent:#3cbcfc; --violet:#c084fc;
+    --btn1:#22345a; --btn2:#16223c; --btn1h:#2c4271; --btn2h:#1b2947;
+    --inset:#2c3d63; --rule:#101c33; --hover:#16233d; --sel:#2a2410;
+    --scan:.05;
+    --px:'Press Start 2P','Silkscreen',ui-monospace,Menlo,monospace;
+  }
+  /* ── NIGHT · deep blue, high contrast ────────────────────────────── */
+  [data-theme=night]{
+    --brick:#2038ec; --brick-hi:#6888ff; --brick-lo:#0018a8;
+    --pipe:#007850; --pipe-hi:#30c890; --pipe-lo:#004028;
+    --bg:#04050f; --bg2:#080a20; --panel:#0a0c22; --panel2:#141a3a;
+    --panel3:#12183a; --well:#01020a;
+    --ink:#eaf0ff; --dim:#9aa8dc; --faint:#5b6598;
+    --btn1:#1a2350; --btn2:#0e1330; --btn1h:#243070; --btn2h:#141a44;
+    --inset:#26307a; --rule:#0e1330; --hover:#141a3a; --sel:#2a2410;
+    --scan:.07;
+  }
+  /* ── CASTLE · grey and amber on near-black. The default. ─────────── */
+  [data-theme=castle]{
+    --brick:#9c9c9c; --brick-hi:#d8d8d8; --brick-lo:#4c4c4c;
+    --gold:#fcbc3c; --gold-hi:#fcd85c; --gold-lo:#e39b00;
+    --pipe:#e45c10; --pipe-hi:#fc9838; --pipe-lo:#a02000;
+    --bg:#0b0b0d; --bg2:#121215; --panel:#17171b; --panel2:#26262c;
+    --panel3:#202027; --well:#050506;
+    --ink:#ffffff; --dim:#b8b8c0; --faint:#75757f;
+    --accent:#fc9838;
+    --btn1:#2c2c33; --btn2:#1c1c22; --btn1h:#3a3a44; --btn2h:#26262c;
+    --inset:#45454f; --rule:#1c1c22; --hover:#26262c; --sel:#33240c;
+    --scan:.08;
+  }
+  /* ── DMG · Game Boy, four shades of green ────────────────────────── */
+  [data-theme=dmg]{
+    --edge:#0f380f;
+    --brick:#306230; --brick-hi:#8bac0f; --brick-lo:#0f380f;
+    --gold:#8bac0f; --gold-hi:#9bbc0f; --gold-lo:#5a8a30;
+    --gold-ink:#0f380f; --gold-sheen:#c6d840; --gold-deep:#0f380f;
+    --pipe:#306230; --pipe-hi:#8bac0f; --pipe-lo:#0f380f;
+    --bg:#0f380f; --bg2:#123c12; --panel:#143d14; --panel2:#1e4d1e;
+    --panel3:#1b481b; --well:#0b2b0b;
+    --ink:#9bbc0f; --dim:#8bac0f; --faint:#5a8a30;
+    --hot:#9bbc0f; --warn:#9bbc0f; --bad:#8bac0f; --badv:#c6d840;
+    --accent:#9bbc0f; --violet:#8bac0f;
+    --btn1:#306230; --btn2:#1e4d1e; --btn1h:#3c7a3c; --btn2h:#265e26;
+    --inset:#5a8a30; --rule:#0f380f; --hover:#1e4d1e; --sel:#5a8a30;
+    --scan:.10;
+  }
+  /* ── VIRTUAL BOY · red on black, one colour only ─────────────────── */
+  [data-theme=vb]{
+    --brick:#a00000; --brick-hi:#ff3c3c; --brick-lo:#4a0000;
+    --gold:#ff2020; --gold-hi:#ff6060; --gold-lo:#a00000;
+    --gold-ink:#200000; --gold-sheen:#ff9090; --gold-deep:#600000;
+    --pipe:#d00000; --pipe-hi:#ff4040; --pipe-lo:#500000;
+    --bg:#060000; --bg2:#0f0000; --panel:#170000; --panel2:#260000;
+    --panel3:#200000; --well:#030000;
+    --ink:#ff4040; --dim:#c02020; --faint:#7a1010;
+    --hot:#ff5a5a; --warn:#ff8080; --bad:#ff2020; --badv:#ff8080;
+    --accent:#ff3c3c; --violet:#ff6060;
+    --btn1:#2a0000; --btn2:#170000; --btn1h:#3e0000; --btn2h:#230000;
+    --inset:#5a0000; --rule:#1a0000; --hover:#260000; --sel:#3e0000;
+    --scan:.13;
+  }
+  /* ── HYRULE · NES Zelda overworld ────────────────────────────────── */
+  [data-theme=zelda]{
+    --brick:#b85c00; --brick-hi:#fcbc3c; --brick-lo:#703000;
+    --gold:#fcd000; --gold-hi:#fce870; --gold-lo:#b88000;
+    --gold-ink:#3c2000; --gold-sheen:#fff4b0; --gold-deep:#8a5c00;
+    --pipe:#00a800; --pipe-hi:#58d854; --pipe-lo:#005800;
+    --bg:#071206; --bg2:#0b1c0a; --panel:#0e2010; --panel2:#16341a;
+    --panel3:#132d17; --well:#030803;
+    --ink:#f8f8d8; --dim:#b8cc98; --faint:#7a8f60;
+    --accent:#fcbc3c;
+    --btn1:#1c3a20; --btn2:#122614; --btn1h:#26502c; --btn2h:#18321c;
+    --inset:#3c6b3c; --rule:#0e2010; --hover:#16341a; --sel:#3a2c08;
+    --scan:.06;
+  }
+  /* ── BRINSTAR · Metroid purple ───────────────────────────────────── */
+  [data-theme=metroid]{
+    --brick:#7828c8; --brick-hi:#b060ff; --brick-lo:#3c0878;
+    --gold:#f8b800; --gold-hi:#ffd858; --gold-lo:#a87000;
+    --gold-ink:#2a1200; --gold-sheen:#ffe9a8; --gold-deep:#7a5000;
+    --pipe:#00b8a0; --pipe-hi:#40f0d8; --pipe-lo:#00685c;
+    --bg:#0a0418; --bg2:#120826; --panel:#170a2e; --panel2:#241245;
+    --panel3:#1f1040; --well:#04010c;
+    --ink:#eadcff; --dim:#a88fd8; --faint:#6d5a96;
+    --hot:#40f0d8; --warn:#f8b800; --bad:#ff3c78; --badv:#ff8ab0;
+    --accent:#40f0d8; --violet:#c084fc;
+    --btn1:#2b1a52; --btn2:#1b0f36; --btn1h:#3a2470; --btn2h:#241548;
+    --inset:#4d2f8a; --rule:#170a2e; --hover:#241245; --sel:#3a2408;
+    --scan:.08;
+  }
+  /* ── C64 · the two blues and that yellow ─────────────────────────── */
+  [data-theme=c64]{
+    --edge:#1a0f4a;
+    --brick:#7869c4; --brick-hi:#a89ae8; --brick-lo:#40318d;
+    --gold:#d5df7c; --gold-hi:#eff296; --gold-lo:#8a9a3c;
+    --gold-ink:#2a2e0c; --gold-sheen:#f6f8c8; --gold-deep:#6a7a2c;
+    --pipe:#4ac64a; --pipe-hi:#7bdc6e; --pipe-lo:#2e6b2e;
+    --bg:#40318d; --bg2:#453697; --panel:#4a3b9e; --panel2:#5a4bb5;
+    --panel3:#544499; --well:#302370;
+    --ink:#ffffff; --dim:#c9c2f0; --faint:#9c92d8;
+    --hot:#4ac64a; --warn:#d5df7c; --bad:#e04040; --badv:#ff9a9a;
+    --accent:#6ad0ff; --violet:#c9c2f0;
+    --btn1:#5a4bb5; --btn2:#463a96; --btn1h:#6a5ac9; --btn2h:#5040a8;
+    --inset:#8b7ed8; --rule:#3a2c80; --hover:#5a4bb5; --sel:#6a6a30;
+    --scan:.06;
+  }
+  /* ── ARCADE · amber phosphor ─────────────────────────────────────── */
+  [data-theme=arcade]{
+    --brick:#cc7000; --brick-hi:#ffb000; --brick-lo:#663000;
+    --gold:#ffb000; --gold-hi:#ffd45c; --gold-lo:#b06800;
+    --gold-ink:#1a0d00; --gold-sheen:#ffe6a8; --gold-deep:#7a4600;
+    --pipe:#cc8f00; --pipe-hi:#ffcc44; --pipe-lo:#5e3d00;
+    --bg:#050300; --bg2:#0d0800; --panel:#140c00; --panel2:#241600;
+    --panel3:#1e1200; --well:#020100;
+    --ink:#ffcc44; --dim:#cc8f22; --faint:#8a5f10;
+    --hot:#ffd45c; --warn:#ffb000; --bad:#ff5a1e; --badv:#ff9a60;
+    --accent:#ffcc44; --violet:#ffb000;
+    --btn1:#2b1a00; --btn2:#1a1000; --btn1h:#3d2600; --btn2h:#241600;
+    --inset:#6b4400; --rule:#1a1000; --hover:#241600; --sel:#3d2600;
+    --scan:.15;
+  }
+  /* ── NEON · the mall at 2am ──────────────────────────────────────── */
+  [data-theme=neon]{
+    --brick:#ff2fd0; --brick-hi:#ff8ae8; --brick-lo:#a0007a;
+    --gold:#00f0ff; --gold-hi:#b8feff; --gold-lo:#00c2dc;
+    --gold-ink:#00161c; --gold-sheen:#e6ffff; --gold-deep:#00788c;
+    --pipe:#39ff6a; --pipe-hi:#b0ffc4; --pipe-lo:#00a030;
+    --bg:#0a0118; --bg2:#12022a; --panel:#16032e; --panel2:#260a48;
+    --panel3:#200740; --well:#05010e;
+    --ink:#f6e9ff; --dim:#c39ae0; --faint:#8a63ab;
+    --hot:#39ff6a; --warn:#ffe74c; --bad:#ff2f6d; --badv:#ff8ab0;
+    --accent:#00f0ff; --violet:#ff2fd0;
+    --btn1:#2b0a52; --btn2:#18052f; --btn1h:#3d0f72; --btn2h:#220741;
+    --inset:#6a1178; --rule:#16032e; --hover:#260a48; --sel:#003a44;
+    --scan:.10;
+  }
+
+  *{box-sizing:border-box}
+  html{height:100%;image-rendering:pixelated;background:var(--bg)}
+  body{margin:0;min-height:100%;background:transparent;color:var(--ink);
+       font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+  a{color:var(--accent)}
+  ::selection{background:var(--gold);color:var(--gold-ink)}
+  ::-webkit-scrollbar{width:12px;height:12px}
+  ::-webkit-scrollbar-track{background:var(--well)}
+  ::-webkit-scrollbar-thumb{background:var(--gold);border:2px solid var(--edge)}
+
+  /* the glass: scanlines and a corner-darkened tube over the whole cabinet */
+  #crt{position:fixed;inset:0;pointer-events:none;z-index:60;
+       background:repeating-linear-gradient(180deg,
+                  rgba(0,0,0,var(--scan)) 0 2px,transparent 2px 4px);
+       box-shadow:inset 0 0 120px rgba(0,0,0,.34)}
+  [data-crt=off] #crt{display:none}
+
+  /* ── HUD ─────────────────────────────────────────────────────────── */
+  header{display:flex;align-items:center;gap:14px;padding:11px 18px;
+         border-bottom:5px solid var(--brick);position:sticky;top:0;
+         background:var(--well);box-shadow:0 5px 0 rgba(0,0,0,.55);z-index:20;flex-wrap:wrap}
+  h1{font:12px/1.6 var(--px);margin:0;letter-spacing:.06em;white-space:nowrap;
+     display:flex;align-items:center;gap:9px}
+  h1 b{color:var(--gold);text-shadow:2px 2px 0 var(--brick-lo)}
+  .qblock{display:inline-grid;place-items:center;width:24px;height:24px;
+          background:linear-gradient(180deg,var(--gold-hi) 0 42%,var(--gold-lo) 100%);
+          border:2px solid var(--edge);color:var(--gold-ink);font:11px/1 var(--px);
+          box-shadow:inset 0 3px 0 var(--gold-sheen),inset 0 -4px 0 var(--gold-deep),
+                     0 3px 0 var(--edge)}
+  header:hover .qblock{animation:bump .42s steps(4)}
+  @keyframes bump{50%{transform:translateY(-8px)}}
+  .sub{color:var(--dim);font:8px/1.6 var(--px)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .chip{border:2px solid var(--edge);background:var(--panel);padding:5px 8px;
+        font:8px/1.4 var(--px);color:var(--dim);letter-spacing:0;white-space:nowrap;
+        box-shadow:inset 0 2px 0 rgba(255,255,255,.10)}
+  .chip:before{content:'';display:inline-block;width:8px;height:11px;margin-right:7px;
+        vertical-align:-1px;border:1px solid var(--edge);
+        background:linear-gradient(90deg,var(--gold-lo) 0 2px,var(--gold) 2px 6px,
+                   var(--gold-lo) 6px 8px)}
+  .chip b{color:var(--ink);font-weight:400}
+  .chip.hot b{color:var(--hot)} .chip.warn b{color:var(--warn)} .chip.bad b{color:var(--bad)}
+  nav{margin-left:auto;display:flex;gap:5px;flex-wrap:wrap}
+  nav button{background:linear-gradient(180deg,var(--btn1),var(--btn2));
+             border:2px solid var(--edge);
+             color:var(--dim);padding:9px 13px;cursor:pointer;font:9px/1 var(--px);
+             box-shadow:inset 0 2px 0 rgba(255,255,255,.18),
+                        inset 0 -3px 0 rgba(0,0,0,.5),0 3px 0 var(--edge)}
+  nav button:hover{color:var(--ink);background:linear-gradient(180deg,var(--btn1h),var(--btn2h))}
+  nav button.on{color:var(--gold-ink);
+                background:linear-gradient(180deg,var(--gold-hi),var(--gold-lo));
+                box-shadow:inset 0 3px 0 var(--gold-sheen),
+                           inset 0 -4px 0 var(--gold-deep),0 3px 0 var(--edge)}
+  nav button:active{transform:translateY(3px);
+                    box-shadow:inset 0 2px 0 rgba(255,255,255,.18),0 0 0 var(--edge)}
+
+  /* ── the palette drawer ──────────────────────────────────────────── */
+  .themewrap{position:relative}
+  #themebtn .tsw{margin-left:7px;vertical-align:-2px}
+  #themepop{position:absolute;right:0;top:calc(100% + 9px);z-index:40;width:340px;
+            background:linear-gradient(180deg,var(--panel2),var(--panel));
+            border:3px solid var(--edge);padding:11px;
+            box-shadow:0 0 0 3px var(--brick),0 0 0 6px var(--edge),0 10px 0 rgba(0,0,0,.4)}
+  #themepop[hidden]{display:none}
+  #themepop .cap{font:8px/1.6 var(--px);color:var(--gold);margin:0 0 9px;
+                 display:flex;align-items:center;gap:8px}
+  .tgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .tcard{display:flex;flex-direction:column;gap:6px;align-items:flex-start;
+         padding:7px 8px;cursor:pointer;width:100%;text-align:left;
+         background:linear-gradient(180deg,var(--btn1),var(--btn2));
+         border:2px solid var(--edge);color:var(--dim);font:7px/1.4 var(--px);
+         box-shadow:inset 0 2px 0 rgba(255,255,255,.14),0 2px 0 var(--edge)}
+  .tcard:hover{color:var(--ink);background:linear-gradient(180deg,var(--btn1h),var(--btn2h))}
+  .tcard.on{color:var(--gold-ink);
+            background:linear-gradient(180deg,var(--gold-hi),var(--gold-lo));
+            box-shadow:inset 0 2px 0 var(--gold-sheen),0 2px 0 var(--edge)}
+  .tcard:active{transform:translateY(2px);box-shadow:inset 0 2px 0 rgba(255,255,255,.14)}
+  .tsw{display:inline-flex}
+  .tsw i{width:13px;height:11px;border:1px solid var(--edge);display:block}
+  #themepop .foot{display:flex;gap:6px;margin-top:9px;align-items:center;flex-wrap:wrap}
+
+  /* ── the room you play in ─────────────────────────────────────────── */
+  main{max-width:1560px;width:calc(100% - 60px);margin:22px auto 40px;padding:16px 18px 24px;
+       background:linear-gradient(180deg,var(--bg2),var(--bg));border:4px solid var(--edge);
+       box-shadow:0 0 0 4px var(--brick),0 0 0 8px var(--edge),0 14px 0 rgba(0,0,0,.25)}
+  section{display:none} section.on{display:block}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  input,select,textarea{background:var(--well);border:2px solid var(--edge);color:var(--ink);
+               padding:6px 8px;font:inherit;font-size:12px;min-width:90px;border-radius:0;
+               box-shadow:inset 0 0 0 2px var(--inset)}
+  input:focus,select:focus,textarea:focus{outline:none;box-shadow:inset 0 0 0 2px var(--gold)}
+  input::placeholder{color:var(--faint)}
+  input[type=checkbox]{accent-color:var(--gold);box-shadow:none;padding:0}
+  /* two numbers that mean one thing, so they live in one well */
+  .range{display:flex;align-items:center;gap:4px;background:var(--well);
+         border:2px solid var(--edge);padding:2px 8px;
+         box-shadow:inset 0 0 0 2px var(--inset)}
+  .range label{font-size:11px;color:var(--faint)}
+  .range i{font-style:normal;color:var(--faint)}
+  .range input{border:0;box-shadow:none;background:transparent;padding:4px 0;
+               min-width:0;width:62px;-moz-appearance:textfield}
+  .range input::-webkit-outer-spin-button,
+  .range input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .range input:focus{box-shadow:none;color:var(--gold)}
+  .range:focus-within{box-shadow:inset 0 0 0 2px var(--gold)}
+
+  /* buttons are blocks: gold to press, green to go elsewhere, red to break */
+  button.go{background:linear-gradient(180deg,var(--gold-hi),var(--gold-lo));
+            color:var(--gold-ink);
+            border:3px solid var(--edge);padding:10px 16px;cursor:pointer;
+            font:9px/1 var(--px);letter-spacing:0;border-radius:0;
+            box-shadow:inset 0 3px 0 var(--gold-sheen),inset 0 -4px 0 var(--gold-deep),
+                       0 4px 0 var(--edge)}
+  button.go:hover{filter:brightness(1.08)}
+  button.go:active{transform:translateY(4px);
+                   box-shadow:inset 0 3px 0 var(--gold-sheen),0 0 0 var(--edge)}
+  button.go.alt{background:linear-gradient(180deg,var(--pipe-hi),var(--pipe));
+                color:var(--well);
+                box-shadow:inset 0 3px 0 rgba(255,255,255,.45),inset 0 -4px 0 var(--pipe-lo),
+                           0 4px 0 var(--edge)}
+  button.go.alt:active{box-shadow:inset 0 3px 0 rgba(255,255,255,.45),0 0 0 var(--edge)}
+  button.go.danger{background:linear-gradient(180deg,var(--badv),var(--bad));color:var(--ink);
+                   text-shadow:2px 2px 0 rgba(0,0,0,.55);
+                   box-shadow:inset 0 3px 0 rgba(255,255,255,.4),inset 0 -4px 0 rgba(0,0,0,.45),
+                              0 4px 0 var(--edge)}
+  button.go.danger:active{box-shadow:inset 0 3px 0 rgba(255,255,255,.4),0 0 0 var(--edge)}
+  button.ghost{background:linear-gradient(180deg,var(--btn1),var(--btn2));
+               border:2px solid var(--edge);
+               color:var(--dim);padding:7px 10px;cursor:pointer;font:8px/1 var(--px);
+               box-shadow:inset 0 2px 0 rgba(255,255,255,.15),0 2px 0 var(--edge)}
+  button.ghost:hover{color:var(--ink);
+                     background:linear-gradient(180deg,var(--btn1h),var(--btn2h))}
+  button.ghost:active{transform:translateY(2px);box-shadow:inset 0 2px 0 rgba(255,255,255,.15)}
+  button.ghost.on{background:linear-gradient(180deg,var(--pipe-hi),var(--pipe));
+                  color:var(--well);
+                  box-shadow:inset 0 2px 0 rgba(255,255,255,.45),0 2px 0 var(--edge)}
+  button.ghost.badv{color:var(--badv)}
+
+  /* ── tables: the score screen ─────────────────────────────────────── */
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:var(--gold);font:8px/1.5 var(--px);letter-spacing:0;
+     border-bottom:3px solid var(--edge);padding:9px 8px;text-transform:uppercase;
+     background:linear-gradient(180deg,var(--panel2),var(--bg2))}
+  td{padding:6px 8px;border-bottom:2px solid var(--rule);vertical-align:top}
+  tr:hover td{background:var(--hover)}
+  tr:hover td:first-child{box-shadow:inset 4px 0 0 var(--gold)}
+  .p{display:inline-block;padding:2px 6px;border:2px solid var(--edge);background:var(--panel3);
+     font-size:10px;color:var(--dim)}
+  .p.badv{color:var(--badv)}
+  .price{color:var(--gold);font-weight:600;white-space:nowrap;
+         text-shadow:1px 1px 0 rgba(0,0,0,.7)}
+  /* the ladder: every row's price as a bar against the widest in view, log
+     scaled — a market where the cheapest row is 1/4000th of the dearest is
+     unreadable on a linear axis. Coins, obviously. */
+  td.price{position:relative;isolation:isolate;min-width:96px}
+  .ladder{position:absolute;left:0;top:1px;bottom:1px;z-index:0;
+          background:linear-gradient(90deg,
+                     color-mix(in srgb,var(--gold) 34%,transparent),
+                     color-mix(in srgb,var(--gold) 7%,transparent));
+          border-right:2px solid color-mix(in srgb,var(--gold) 75%,transparent)}
+  td.price span.v{position:relative;z-index:1}
+
+  /* ── distributions: where the offers sit, before you scroll.
+        Four panels over the whole catalogue: $/hr as a log histogram, then
+        market, gpu and vram as bars. Stone is everything that matched;
+        gold is what survives the picks you have made in the other panels,
+        so every panel answers "if I add this, what is left?". One hue,
+        because a count is a magnitude and not an identity. ─────────── */
+  .dist{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:stretch}
+  .dp{background:linear-gradient(180deg,var(--panel3),var(--bg2));border:3px solid var(--edge);
+      box-shadow:inset 0 2px 0 rgba(255,255,255,.08),0 3px 0 var(--edge);
+      padding:7px 10px 6px;flex:1 1 200px;min-width:0;display:flex;flex-direction:column}
+  .dp.wide{flex:2.4 1 340px}
+  .dp.full{flex:1 1 100%}   /* the world gets its own row */
+  .dp h5{margin:0 0 7px;font:8px/1.6 var(--px);color:var(--gold);display:flex;gap:8px;
+         align-items:baseline;white-space:nowrap}
+  .dp h5 span{color:var(--dim);font:10px/1.4 ui-monospace,Menlo,monospace;font-weight:400;
+              overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .dp h5 i{font-style:normal;color:var(--gold-hi);margin-left:auto;font:7px/1.8 var(--px);
+           cursor:pointer;flex:none}
+  .dp h5 i + i{margin-left:0}
+  .dp h5 i:hover{color:var(--badv)}
+  .hist{position:relative;display:flex;align-items:flex-end;flex:1;min-height:64px;
+        border-bottom:2px solid var(--inset);cursor:crosshair;user-select:none;touch-action:none}
+  .hist .c{position:relative;flex:1;height:100%;min-width:0}
+  .hist .c b{position:absolute;left:1px;right:1px;bottom:0;display:block;background:var(--inset)}
+  .hist .c b.v{background:var(--gold)}
+  .hist .c:hover b.v,.hist .c:hover b.t{filter:brightness(1.25)}
+  .hist .c.in b.t{background:color-mix(in srgb,var(--gold) 28%,var(--inset))}
+  .hist .c.in b.v{background:var(--gold-hi)}
+  .hist .c.free b.t{background:color-mix(in srgb,var(--hot) 25%,var(--inset))}
+  .hist .c.free b.v{background:var(--hot)}
+  .hist .med{position:absolute;top:0;bottom:-2px;width:2px;background:var(--hot);pointer-events:none;
+             box-shadow:0 0 5px var(--hot)}
+  .hist .med:after{content:'med';position:absolute;top:0;left:4px;font:7px/1 var(--px);color:var(--hot)}
+  .hist .med.r:after{left:auto;right:4px}
+  /* ── WHERE: the world as a landmask, a market as a square on it ───── */
+  .map{position:relative;width:100%;aspect-ratio:200/78;background:var(--well);
+    box-shadow:inset 0 0 0 1px var(--rule);overflow:hidden;touch-action:none}
+  .map canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+  .map .pin{position:absolute;transform:translate(-50%,-50%);display:block;
+    box-shadow:inset 0 0 0 1px var(--inset);cursor:pointer}
+  .map .pin b{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    display:block;background:var(--gold)}
+  .map .pin:hover{box-shadow:inset 0 0 0 1px var(--gold-hi),0 0 0 2px var(--edge)}
+  .map .pin:hover b{background:var(--gold-hi)}
+  .map .pin.on{box-shadow:inset 0 0 0 1px var(--gold-hi),0 0 0 2px var(--gold-deep)}
+  .map .pin.on b{background:var(--gold-hi)}
+  .map .pin.off b{background:var(--inset)}
+  .map .nowhere{position:absolute;right:4px;bottom:3px;font:7px/1.6 var(--px);
+    color:var(--faint);background:var(--well);padding:2px 4px;cursor:pointer;
+    box-shadow:inset 0 0 0 1px var(--rule)}
+  .map .nowhere:hover{color:var(--ink);box-shadow:inset 0 0 0 1px var(--inset)}
+  .map .nowhere.on{color:var(--gold-hi);box-shadow:inset 0 0 0 1px var(--gold-deep)}
+  .axis{display:flex;justify-content:space-between;font-size:9px;color:var(--faint);margin-top:4px}
+  .axis span:first-child.hotv{color:var(--hot)}
+  .tip{position:fixed;z-index:70;pointer-events:none;background:var(--well);border:2px solid var(--edge);
+       box-shadow:inset 0 0 0 2px var(--inset),0 3px 0 var(--edge);padding:6px 9px;font-size:10px;
+       color:var(--ink);display:none;white-space:nowrap;line-height:1.5}
+  .tip b{color:var(--gold-hi);font-weight:400}
+  .rows{display:flex;flex-direction:column;gap:1px}
+  .rows.all{max-height:236px;overflow-y:auto;scrollbar-width:thin;padding-right:2px}
+  .rows .r{display:grid;grid-template-columns:minmax(48px,40%) 1fr auto;gap:7px;align-items:center;
+           font-size:10px;line-height:1.3;color:var(--dim);cursor:pointer;padding:0 3px;border:2px solid transparent}
+  .dead{margin-top:auto;padding-top:5px;font-size:9px;color:var(--faint)}
+  .dead b{font-weight:400;color:var(--badv);cursor:help}
+  .rows .r:hover{background:var(--hover);color:var(--ink)}
+  .rows .r.on{color:var(--ink);background:var(--sel);border-color:var(--edge)}
+  .rows .r.off{color:var(--faint)}
+  .rows .r em{font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rows .r .bg{position:relative;height:8px;background:var(--well);box-shadow:inset 0 0 0 1px var(--rule)}
+  .rows .r .bg i{position:absolute;left:0;top:0;bottom:0;background:var(--inset)}
+  .rows .r .bg b{position:absolute;left:0;top:0;bottom:0;background:var(--gold)}
+  .rows .r.on .bg b{background:var(--gold-hi)}
+  .rows .r .n{font:8px/1 var(--px);color:var(--dim);min-width:30px;text-align:right}
+  .rows .r.on .n{color:var(--gold-hi)} .rows .r.off .n{color:var(--faint)}
+  .rows .r.x{cursor:default} .rows .r.x em{color:var(--badv)}
+  .rows .r.x .n{color:var(--badv);font-size:9px;font-family:inherit}
+  .rows .r.x:hover{background:transparent;color:var(--dim)}
+  .picks{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 10px}
+  .fchip{display:inline-flex;gap:7px;align-items:center;border:2px solid var(--edge);background:var(--sel);
+         padding:4px 8px;font-size:10px;color:var(--dim);cursor:pointer;
+         box-shadow:inset 0 2px 0 rgba(255,255,255,.08),0 2px 0 var(--edge)}
+  .fchip b{font-weight:400;color:var(--gold-hi)} .fchip:hover{color:var(--badv)}
+  .fchip.clear{background:linear-gradient(180deg,var(--btn1),var(--btn2))}
+  .more{margin:10px 0 0}
+  .dimtxt{color:var(--dim)} .faint{color:var(--faint)}
+  .warnv{color:var(--warn)} .badv{color:var(--badv)} .hotv{color:var(--hot)}
+
+  /* ── cards & panes: blocks you could stand on ─────────────────────── */
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px}
+  .card{background:linear-gradient(180deg,var(--panel3),var(--bg2));border:3px solid var(--edge);
+        padding:12px;border-radius:0;
+        box-shadow:inset 0 3px 0 rgba(255,255,255,.10),
+                   inset 0 -3px 0 rgba(0,0,0,.45),0 3px 0 var(--edge)}
+  .card h3{margin:0 0 8px;font:9px/1.6 var(--px);color:var(--gold)}
+  .card .row{display:flex;justify-content:space-between;gap:8px;font-size:11px;
+             color:var(--dim);padding:2px 0}
+  pre{background:var(--well);border:3px solid var(--edge);padding:12px;overflow:auto;
+      font-size:11px;max-height:60vh;white-space:pre-wrap;word-break:break-word;
+      border-radius:0;box-shadow:inset 0 0 0 2px var(--inset)}
+  .note{color:var(--dim);font-size:11px;margin:8px 0}
+  .flash{color:var(--warn);font:8px/1.6 var(--px);min-height:16px;
+         text-shadow:2px 2px 0 rgba(0,0,0,.6)}
+  .kyc-none{color:var(--hot)} .kyc-email{color:var(--warn)}
+  .kyc-account,.kyc-full{color:var(--badv)}
+  .subnav{display:flex;gap:5px;margin-bottom:12px}
+  .subnav button{background:linear-gradient(180deg,var(--btn1),var(--btn2));
+                 border:2px solid var(--edge);
+                 color:var(--dim);padding:7px 12px;cursor:pointer;font:8px/1 var(--px);
+                 box-shadow:inset 0 2px 0 rgba(255,255,255,.15),0 2px 0 var(--edge)}
+  .subnav button.on{color:var(--gold-ink);
+                    background:linear-gradient(180deg,var(--gold-hi),var(--gold-lo));
+                    box-shadow:inset 0 2px 0 var(--gold-sheen),0 2px 0 var(--edge)}
+  .sub{display:none} .sub.on{display:block}
+  header .sub{display:inline}
+
+  /* a warp pipe, for the panel that sends you somewhere else */
+  .pipe{display:inline-block;position:relative;width:24px;height:16px;margin:8px 8px 0 0;
+        vertical-align:-3px;border:2px solid var(--edge);
+        background:linear-gradient(90deg,var(--pipe-lo) 0 4px,var(--pipe-hi) 4px 9px,
+                   var(--pipe) 9px 100%)}
+  .pipe:before{content:'';position:absolute;left:-4px;right:-4px;top:-10px;height:10px;
+        border:2px solid var(--edge);border-bottom:0;
+        background:linear-gradient(90deg,var(--pipe-lo) 0 4px,var(--pipe-hi) 4px 9px,
+                   var(--pipe) 9px 100%)}
+
+  /* state dots — drawn, never a glyph, because this box has no emoji font */
+  .dot{display:inline-block;width:9px;height:9px;border:2px solid var(--edge);
+       background:var(--faint);margin-right:7px;vertical-align:middle}
+  .dot.ready{background:var(--hot);box-shadow:0 0 9px var(--hot)}
+  .dot.booting{background:var(--warn);animation:pulse .7s steps(2) infinite}
+  .dot.error,.dot.unreachable{background:var(--bad)}
+  .dot.gone{background:var(--faint)}
+  @keyframes pulse{50%{opacity:.2}}
+
+  /* ── nodes ────────────────────────────────────────────────────────── */
+  .split{display:grid;grid-template-columns:330px 1fr;gap:14px;align-items:start}
+  @media(max-width:900px){.split{grid-template-columns:1fr}}
+  .nodecard{background:linear-gradient(180deg,var(--panel3),var(--bg2));
+            border:3px solid var(--edge);
+            padding:10px 11px;margin-bottom:10px;cursor:pointer;
+            box-shadow:inset 0 3px 0 rgba(255,255,255,.10),0 3px 0 var(--edge)}
+  .nodecard:hover{background:linear-gradient(180deg,var(--panel2),var(--panel3))}
+  .nodecard.on{background:linear-gradient(180deg,var(--sel),var(--bg2));
+               box-shadow:inset 0 0 0 3px var(--gold),0 3px 0 var(--edge)}
+  .nodecard h4{margin:0 0 5px;font:9px/1.6 var(--px);color:var(--ink)}
+  .nodecard .meta{font-size:10px;color:var(--dim);display:flex;gap:8px;flex-wrap:wrap}
+  .nodecard .meta.badv{color:var(--badv)}
+  .pane{background:linear-gradient(180deg,var(--panel),var(--bg));border:3px solid var(--edge);
+        box-shadow:inset 0 3px 0 rgba(255,255,255,.08),0 3px 0 var(--edge)}
+  .pane .head{display:flex;gap:8px;align-items:center;padding:9px 11px;
+              border-bottom:3px solid var(--edge);flex-wrap:wrap;
+              background:linear-gradient(180deg,var(--panel2),var(--panel))}
+  .pane .head b{font:9px/1.6 var(--px);color:var(--gold);letter-spacing:0}
+  .pane .body{padding:12px}
+
+  /* the terminal is underground: black sky, gold prompt */
+  #term{background:var(--well);border:3px solid var(--edge);height:46vh;overflow:auto;
+        padding:10px;font-size:12px;white-space:pre-wrap;word-break:break-word;
+        box-shadow:inset 0 0 0 2px var(--inset)}
+  #term .cmd{color:var(--gold)} #term .err{color:var(--badv)} #term .sys{color:var(--faint)}
+  .termbar{display:flex;gap:6px;margin-top:8px;align-items:center}
+  .termbar span{color:var(--gold);font:10px/1 var(--px)}
+  .termbar input{flex:1;background:var(--well)}
+  .cols{display:grid;grid-template-columns:200px 240px 1fr;gap:12px;align-items:start}
+  @media(max-width:1100px){.cols{grid-template-columns:1fr}}
+  .list{max-height:52vh;overflow:auto;border:3px solid var(--edge);background:var(--well);
+        box-shadow:inset 0 0 0 2px var(--inset)}
+  .list div{padding:5px 9px;cursor:pointer;font-size:11px;border-bottom:2px solid var(--rule)}
+  .list div:hover{background:var(--hover);color:var(--gold)}
+  .list div.on{background:var(--sel);color:var(--gold);box-shadow:inset 4px 0 0 var(--gold)}
+  .steps div{display:flex;gap:10px;font-size:11px;padding:4px 0;border-bottom:2px solid var(--rule)}
+  .steps .name{width:90px;color:var(--ink)}
+  .steps .ms{width:70px;color:var(--dim);text-align:right}
+  .steps .out{color:var(--faint);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lock{cursor:pointer}
+  .grow{flex:1}
+
+  /* nobody has to watch things move to read a price table */
+  @media(prefers-reduced-motion:reduce){
+    .dot.booting,.qblock{animation:none}
+  }
+</style>
+<script>
+  /* Paint the chosen cabinet before the first frame, so switching themes and
+     reloading never flashes the castle at someone who picked Game Boy. */
+  (function(){
+    var d = document.documentElement;
+    var q = new URLSearchParams(location.search).get('theme');
+    try {
+      if (q) localStorage.setItem('compute_theme', q);
+      d.dataset.theme = q || localStorage.getItem('compute_theme') || 'castle';
+      d.dataset.crt   = localStorage.getItem('compute_crt') === '0' ? 'off' : 'on';
+    } catch { d.dataset.theme = 'castle'; d.dataset.crt = 'on' }
+  })();
+</script>
+</head>
+<body>
+<!-- the glass of the tube: scanlines and darkened corners over everything -->
+<div id="crt" aria-hidden="true"></div>
+<header>
+  <h1><span class="qblock" aria-hidden="true">&#9638;</span> <b>COMPUTE</b></h1>
+  <span class="sub">every market, one desk &mdash; and a box you can drive</span>
+  <div class="chips" id="stats"></div>
+  <button class="ghost" id="snd" onclick="toggleSound()">SOUND OFF</button>
+  <div class="themewrap">
+    <button class="ghost" id="themebtn" onclick="toggleThemes(event)"
+            title="palette — press T to cycle">THEME</button>
+    <!-- stop here: picking a card redraws the grid, so by the time the click
+         reaches the document the card is detached and reads as an outside
+         click. Swallowing it inside the drawer keeps it open to try palettes. -->
+    <div id="themepop" hidden onclick="event.stopPropagation()">
+      <p class="cap"><span class="qblock" aria-hidden="true">&#9638;</span>PICK A CABINET</p>
+      <div class="tgrid" id="tgrid"></div>
+      <div class="foot">
+        <button class="ghost" id="crtbtn" onclick="toggleCrt()">SCANLINES ON</button>
+        <span class="faint" style="font-size:10px">T cycles</span>
+      </div>
+    </div>
+  </div>
+  <nav>
+    <button data-tab="market" class="on">MARKET</button>
+    <button data-tab="nodes">NODES</button>
+    <button data-tab="running">RUNNING</button>
+    <button data-tab="providers">PROVIDERS</button>
+    <button data-tab="keys">KEYS</button>
+    <button data-tab="mcp">MCP</button>
+  </nav>
+</header>
+<main>
+
+<!-- ── MARKET ─────────────────────────────────────────────────────────── -->
+<section id="market" class="on">
+  <div class="bar">
+    <select id="q-gpu" style="width:200px" onchange="gpuPicked()"
+            title="every GPU model on the board right now"><option value="">any gpu</option></select>
+    <input id="q-gpu-text" placeholder="model, e.g. H200" style="width:130px;display:none">
+    <input id="q-gpus" type="number" min="1" placeholder="min gpus" style="width:92px">
+    <input id="q-vram" type="number" min="1" placeholder="min vram" style="width:92px">
+    <span class="range" title="a price band: leave either side empty for open-ended">
+      <label>$/hr</label>
+      <input id="q-min" type="number" step="0.01" min="0" placeholder="min">
+      <i>&mdash;</i>
+      <input id="q-max" type="number" step="0.01" min="0" placeholder="max"></span>
+    <input id="q-region" placeholder="region" style="width:92px">
+    <select id="q-kyc">
+      <option value="">any KYC</option><option value="none">no KYC only</option>
+      <option value="email">email</option><option value="account">account</option>
+    </select>
+    <select id="q-kind">
+      <option value="">gpu + cpu</option><option value="gpu">gpu</option>
+      <option value="cpu">cpu</option><option value="confidential">confidential</option>
+      <option value="all">everything</option>
+    </select>
+    <select id="q-sort"><option value="price">by price</option>
+      <option value="vram">by vram</option><option value="gpus">by gpus</option></select>
+    <button class="go" onclick="search()">SEARCH</button>
+    <span class="flash" id="m-flash"></span>
+  </div>
+  <div id="m-dist" class="dist"></div>
+  <div id="m-picks" class="picks"></div>
+  <table><thead><tr>
+    <th>$/hr</th><th>gpu</th><th>x</th><th>vram</th><th>cpu / ram</th>
+    <th>where</th><th>market</th><th>notes</th><th></th>
+  </tr></thead><tbody id="m-rows"></tbody></table>
+  <div id="m-more" class="more"></div>
+</section>
+<div class="tip" id="tip"></div>
+
+<!-- ── NODES ──────────────────────────────────────────────────────────── -->
+<section id="nodes">
+  <div class="pane" style="margin-bottom:12px">
+    <div class="head">
+      <span class="pipe" aria-hidden="true"></span><b>DEPLOY</b>
+      <span class="faint">rent or adopt a box, install the mod protocol, drive it from here</span>
+      <span class="grow"></span>
+      <span class="flash" id="d-flash"></span>
+    </div>
+    <div class="body">
+      <div class="bar">
+        <select id="d-target" onchange="deployTarget()">
+          <option value="docker">a container on this machine</option>
+          <option value="ssh">a box I can already reach (ssh)</option>
+          <option value="offer">rent an offer from the market</option>
+          <option value="instance">a rental I already have</option>
+        </select>
+        <input id="d-ref" placeholder="offer id / ssh target" style="width:260px;display:none">
+        <input id="d-name" placeholder="name (optional)" style="width:150px">
+        <input id="d-image" placeholder="image: python:3.12-slim" style="width:190px">
+        <select id="d-profile">
+          <option value="lite">lite install (~15s)</option>
+          <option value="full">full install (requirements.txt)</option>
+        </select>
+        <input id="d-ports" placeholder="ports 8000,3000" style="width:130px">
+        <label class="dimtxt" style="display:flex;align-items:center;gap:5px">
+          <input type="checkbox" id="d-confirm" style="min-width:0"> spend money</label>
+        <button class="go" onclick="deploy()">DEPLOY</button>
+      </div>
+      <p class="note" id="d-hint">Nothing is rented: a container on this box, bootstrapped
+        with mod core and reachable through <code>docker exec</code>. The same node type a
+        rented H100 becomes.</p>
+    </div>
+  </div>
+
+  <div class="split">
+    <div>
+      <div class="bar">
+        <button class="ghost" onclick="loadNodes()">REFRESH</button>
+        <span class="faint" id="n-burn"></span>
+      </div>
+      <div id="n-list"></div>
+    </div>
+    <div class="pane" id="n-pane">
+      <div class="head" id="n-head"><span class="faint">no node selected</span></div>
+      <div class="body" id="n-body">
+        <p class="note">Deploy one above, or pick a node on the left. Every node answers
+          the same four things: a shell, the modules it is running, the functions on
+          those modules, and the log of how it got installed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── RUNNING ────────────────────────────────────────────────────────── -->
+<section id="running">
+  <div class="bar">
+    <button class="go" onclick="running()">REFRESH</button>
+    <span class="flash" id="r-flash"></span>
+  </div>
+  <div id="r-burn" class="note"></div>
+  <table><thead><tr>
+    <th>id</th><th>name</th><th>state</th><th>$/hr</th><th>gpu</th><th>ssh</th><th></th>
+  </tr></thead><tbody id="r-rows"></tbody></table>
+  <p class="note">Only markets you hold a key for are polled. Stopping is what
+     ends the billing &mdash; suspending or closing this tab does not.</p>
+</section>
+
+<!-- ── PROVIDERS ──────────────────────────────────────────────────────── -->
+<section id="providers">
+  <div class="subnav">
+    <button data-sub="markets" class="on">MARKETS</button>
+    <button data-sub="mods">MODS</button>
+  </div>
+  <div id="sub-markets" class="sub on">
+    <div class="cards" id="p-cards"></div>
+  </div>
+  <div id="sub-mods" class="sub">
+    <div class="bar">
+      <button class="go" onclick="modLane(true)">REFRESH</button>
+      <label class="dimtxt" style="display:flex;align-items:center;gap:5px">
+        <input type="checkbox" id="mod-compare" checked style="min-width:0"
+               onchange="modLane(true)"> compare with the direct lane</label>
+      <span class="flash" id="mod-flash"></span>
+    </div>
+    <p class="note">Three of these markets also run as their own modules on this box.
+       This reads each market <b>through its module</b> &mdash; the same server an agent
+       drives over that module's own MCP &mdash; and sets the answer beside what this
+       module reads straight from the upstream.</p>
+    <div id="mod-cards"></div>
+  </div>
+</section>
+
+<!-- ── KEYS ───────────────────────────────────────────────────────────── -->
+<section id="keys">
+  <p class="note">Keys stay in this browser tab (sessionStorage) and ride along as an
+     <code>x-compute-keys</code> header. They are never written to the server.
+     To store one on the box instead, use <code>m compute/set_key provider=&hellip; key=&hellip;</code>.</p>
+  <div id="k-rows" class="cards"></div>
+</section>
+
+<!-- ── MCP ────────────────────────────────────────────────────────────── -->
+<section id="mcp">
+  <p class="note">Same tools an agent gets at <code>POST /mcp</code>. Client config:
+     <code>m compute/mcp_config</code>, or stdio <code>python3 mcp.py</code>.</p>
+  <div class="bar">
+    <select id="t-name" style="min-width:230px"></select>
+    <input id="t-args" placeholder='{"gpu":"H100"}' style="flex:1;min-width:250px">
+    <button class="go" onclick="callTool()">CALL</button>
+  </div>
+  <div id="t-desc" class="note"></div>
+  <pre id="t-out">&mdash;</pre>
+</section>
+
+</main>
+<script>
+const API = (location.pathname.replace(/\/$/,'') || '') + '/_api';
+const KEYS = 'compute_keys', TOK = 'compute_token';
+const keys = () => { try { return JSON.parse(sessionStorage.getItem(KEYS) || '{}') } catch { return {} } };
+const setKeys = k => sessionStorage.setItem(KEYS, JSON.stringify(k));
+let token = window.__COMPUTE_TOKEN || localStorage.getItem(TOK) || '';
+
+async function call(path, opts = {}) {
+  const h = {'content-type': 'application/json'};
+  const k = keys();
+  if (Object.keys(k).length) h['x-compute-keys'] = JSON.stringify(k);
+  if (token) h['authorization'] = 'Bearer ' + token;
+  const r = await fetch(API + path, {...opts, headers: {...h, ...(opts.headers || {})}});
+  const body = await r.json().catch(() => ({error: 'bad json from server'}));
+  if (!r.ok) throw new Error((body.error || ('http ' + r.status)) + (body.hint ? ' — ' + body.hint : ''));
+  return body;
+}
+const post = (p, b) => call(p, {method: 'POST', body: JSON.stringify(b || {})});
+const esc = s => String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+const usd = v => v == null ? '<span class="faint">-</span>' : '$' + Number(v).toFixed(v < 1 ? 3 : 2);
+const plain = v => v == null ? '-' : '$' + Number(v).toFixed(v < 1 ? 3 : 2);
+const ago = t => { if (!t) return ''; const s = Date.now()/1000 - t;
+  return s < 60 ? Math.round(s)+'s' : s < 3600 ? Math.round(s/60)+'m' : Math.round(s/3600)+'h' };
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+  ({nodes: loadNodes, running, providers, keys: keysPanel, mcp: tools}[b.dataset.tab] || (() => {}))();
+});
+document.querySelectorAll('.subnav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.subnav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.sub').forEach(s => s.classList.toggle('on', s.id === 'sub-' + b.dataset.sub));
+  if (b.dataset.sub === 'mods') modLane();
+});
+
+// ── header stats ──
+async function stats() {
+  const el = document.getElementById('stats');
+  const chips = [];
+  try {
+    const h = await call('/health');
+    chips.push(`<span class="chip hot"><b>${h.providers}</b> markets</span>`);
+    chips.push(`<span class="chip"><b>${h.tools}</b> mcp tools</span>`);
+  } catch (e) { chips.push('<span class="chip bad"><b>api</b> down</span>') }
+  try {
+    const n = await call('/nodes');
+    chips.push(`<span class="chip ${n.count ? 'hot' : ''}"><b>${n.count}</b> nodes</span>`);
+    if (n.burn_usd_hr) chips.push(`<span class="chip warn">burn <b>${plain(n.burn_usd_hr)}</b>/hr</span>`);
+    chips.push('<span class="chip hot lock" onclick="setToken()">owner <b>yes</b></span>');
+  } catch (e) {
+    chips.push('<span class="chip warn lock" onclick="setToken()">locked &mdash; <b>set token</b></span>');
+  }
+  el.innerHTML = chips.join('');
+}
+function setToken() {
+  const t = prompt('bearer token for the owner-only routes\n(`m compute/token` on the box)', token || '');
+  if (t === null) return;
+  token = t.trim(); localStorage.setItem(TOK, token); stats(); loadNodes();
+}
+
+// ── market ──
+// The whole catalogue comes down once (raw stripped, ~350 B a row); the
+// distributions and the table are views over it, so drilling in costs nothing
+// and never re-hits eleven markets.
+let ALL = [], REPORT = {}, TOOK = 0, SHOW = 120, HX = null;
+const PAGE = 120, BUCKETS = 30, TOPN = 8;
+const PICK = {price: null, place: new Set(), market: new Set(), gpu: new Set(), vram: new Set()};
+let GPU_ALL = false;   // GPU panel: top-N with an "other" bucket, or every model
+const gpuName = o => (o.gpu || o.kind || '?').replace(/^NVIDIA\s+/i, '')
+  .replace(/^GeForce\s+/i, '').replace(/\s+/g, ' ').trim() || '?';
+const TIERS = [['0-8G', 8], ['10-16G', 16], ['20-24G', 24], ['32-48G', 48], ['80G+', 1e9]];
+const vramTier = o => o.vram_gb ? TIERS.find(t => o.vram_gb <= t[1])[0] : 'unknown';
+// price bucket: -1 is free, null is unpriced, 0..BUCKETS-1 is a log-scale slot
+const bucketOf = o => o.usd_hr == null ? null : o.usd_hr <= 0 ? -1 : !HX ? null
+  : Math.min(BUCKETS - 1, Math.max(0, Math.floor((Math.log(o.usd_hr) - HX.lo) / HX.span * BUCKETS)));
+const bucketLo = i => Math.exp(HX.lo + HX.span * i / BUCKETS);
+const bucketHi = i => Math.exp(HX.lo + HX.span * (i + 1) / BUCKETS);
+const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
+
+async function search() {
+  const f = document.getElementById('m-flash');
+  f.textContent = 'searching every market...';
+  const p = new URLSearchParams();
+  const add = (k, id) => { const v = document.getElementById(id).value.trim(); if (v) p.set(k, v) };
+  const gpu = gpuWanted();
+  if (gpu) p.set('gpu', gpu);
+  add('min_gpus', 'q-gpus'); add('min_vram_gb', 'q-vram');
+  // a backwards band is a typo, not a filter — straighten it and say so
+  const lo = document.getElementById('q-min'), hi = document.getElementById('q-max');
+  let note = '';
+  if (lo.value && hi.value && +lo.value > +hi.value) {
+    [lo.value, hi.value] = [hi.value, lo.value];
+    note = ' - $/hr range was backwards, swapped';
+  }
+  add('min_usd_hr', 'q-min'); add('max_usd_hr', 'q-max');
+  add('region', 'q-region'); add('kyc', 'q-kyc');
+  add('kind', 'q-kind'); add('sort', 'q-sort');
+  p.set('limit', '2000'); p.set('raw', '0');
+  try {
+    const d = await call('/search?' + p);
+    ALL = d.offers; REPORT = d.providers; TOOK = d.took_ms; SHOW = PAGE;
+    PICK.price = null; PICK.place.clear(); PICK.market.clear(); PICK.gpu.clear(); PICK.vram.clear();
+    const priced = ALL.filter(o => o.usd_hr > 0).map(o => o.usd_hr);
+    if (priced.length) {
+      const lo = Math.log(Math.min(...priced)), hi = Math.log(Math.max(...priced));
+      HX = {lo, span: (hi - lo) || 1};
+    } else HX = null;
+    // fixed orders, computed once per search: a pick must never reshuffle the rows
+    const gc = tally(ALL, gpuName);
+    HX && (HX.gpus = [...gc.entries()].sort((a, b) => b[1] - a[1]).slice(0, TOPN).map(e => e[0]));
+    if (!HX) HX = {lo: 0, span: 1, gpus: [...gc.entries()].sort((a, b) => b[1] - a[1]).slice(0, TOPN).map(e => e[0]), empty: true};
+    blip(ALL.length ? 'coin' : 'bad');
+    if (!gpu) fillGpus(ALL);
+    refresh();
+    if (note) f.textContent += note;
+  } catch (e) { f.textContent = e.message; blip('bad') }
+}
+
+// ── the GPU dropdown is the board's own catalogue: every model actually on
+//    offer, how many rows carry it, what the cheapest one costs. Rebuilt from
+//    any search that was not already narrowed to one model, so picking H100
+//    never collapses the list to H100.
+const MODEL = /^[a-z]{0,3}\d{3,5}[a-z]{0,2}$/, NOT_MODEL = /^\d+(gb|g|mb|tb)$/;
+// "RTX 4090" and "RTX4090" are one card in two spellings, and the server
+// matches the number, so the number is the key.
+const gpuKey = o => (String(o.gpu || '').replace(/-/g, ' ').toLowerCase().split(/\s+/)
+  .find(t => t && !NOT_MODEL.test(t) && MODEL.test(t)) || '')
+  .replace(/^(rtx|gtx|gt)(?=\d)/, '') || null;
+
+// packaging, not identity: the same die ships as 80GB / SXM / PCIE / NVL rows
+// TI and SUPER go too: the filter is by model number, so a label promising
+// a 5070 Ti would be a filter that quietly also returns plain 5070s.
+const SPEC = /^(\d+(gb|g|mb|tb)|sxm\d*|pcie\d*|hbm\d*|nvl\d*|oam|community|gpu|gpus|ti|super)$/;
+const cardName = o => gpuName(o).split(/\s+/)
+  .filter((t, i) => i < 3 && (i === 0 || !SPEC.test(t.toLowerCase())))
+  .join(' ').trim();
+// the most common spelling wins; a tie goes to the more specific one
+const bestName = names => [...names.entries()]
+  .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length).map(e => e[0])[0] || '';
+
+function gpuWanted() {
+  const sel = document.getElementById('q-gpu').value;
+  return sel === '__other'
+    ? document.getElementById('q-gpu-text').value.trim() : sel;
+}
+
+function fillGpus(rows) {
+  const m = new Map();
+  for (const o of rows) {
+    const k = gpuKey(o); if (!k) continue;
+    const e = m.get(k) || {n: 0, lo: null, names: new Map()};
+    e.n++;
+    if (o.usd_hr > 0 && (e.lo == null || o.usd_hr < e.lo)) e.lo = o.usd_hr;
+    // the label is the card name the market uses most, minus the packaging
+    // tokens: "H100 80GB HBM3" and "H100 SXM" both read as H100, while
+    // "RTX 5090" keeps the brand a bare "5090" row would have lost
+    const nm = cardName(o);
+    if (nm) e.names.set(nm, (e.names.get(nm) || 0) + 1);
+    m.set(k, e);
+  }
+  if (!m.size) return;
+  const sel = document.getElementById('q-gpu'), keep = sel.value;
+  const list = [...m.entries()].sort((a, b) => b[1].n - a[1].n);
+  sel.innerHTML = '<option value="">any gpu</option>' +
+    list.map(([k, e]) => `<option value="${esc(k)}">` +
+      `${esc(bestName(e.names) || k).toUpperCase()} · ${e.n}` +
+      `${e.lo == null ? '' : ' · from ' + usd(e.lo)}</option>`).join('') +
+    '<option value="__other">type a model...</option>';
+  sel.value = keep === '__other' || m.has(keep) ? keep : '';
+}
+
+// "type a model..." keeps the free-text escape hatch for anything the board
+// has not listed yet — a model nobody has in stock today still searches.
+function gpuPicked() {
+  const sel = document.getElementById('q-gpu'), t = document.getElementById('q-gpu-text');
+  const other = sel.value === '__other';
+  t.style.display = other ? '' : 'none';
+  if (other) { t.focus(); return }
+  t.value = '';
+  search();
+}
+
+function tally(rows, key) {
+  const m = new Map();
+  for (const o of rows) { const k = key(o); m.set(k, (m.get(k) || 0) + 1) }
+  return m;
+}
+// A gpu pick is by model name; '__other' means "any model outside the top N",
+// so picks survive flipping the panel between TOP and ALL.
+const gpuHit = o => { const g = gpuName(o);
+  return PICK.gpu.has(g) || (PICK.gpu.has('__other') && !HX.gpus.includes(g)) };
+
+// every row that survives the picks — `skip` is the panel asking, which
+// sees the world without its own pick so it can show what is still open
+function passes(o, skip) {
+  if (skip !== 'price' && PICK.price) {
+    const b = bucketOf(o);
+    if (b == null || b < PICK.price[0] || b > PICK.price[1]) return false;
+  }
+  if (skip !== 'place' && PICK.place.size && !PICK.place.has(cellOf(o))) return false;
+  if (skip !== 'market' && PICK.market.size && !PICK.market.has(o.provider)) return false;
+  if (skip !== 'gpu' && PICK.gpu.size && !gpuHit(o)) return false;
+  if (skip !== 'vram' && PICK.vram.size && !PICK.vram.has(vramTier(o))) return false;
+  return true;
+}
+const view = skip => ALL.filter(o => passes(o, skip));
+const anyPick = () => PICK.price || PICK.place.size || PICK.market.size || PICK.gpu.size || PICK.vram.size;
+
+function refresh() {
+  const rows = view();
+  const f = document.getElementById('m-flash');
+  f.textContent = anyPick()
+    ? `${rows.length} of ${ALL.length} offers`
+    : `${ALL.length} offers - ${TOOK}ms`;
+  renderDist(rows);
+  renderPicks(rows);
+  renderTable(rows);
+}
+
+function renderDist(rows) {
+  const el = document.getElementById('m-dist');
+  if (!ALL.length) {
+    el.innerHTML = `<div class="dp wide"><h5>NOTHING MATCHED</h5><div class="rows">${
+      Object.entries(REPORT).map(([n, v]) => typeof v === 'number'
+        ? `<div class="r off x"><em>${n}</em><span class="bg"></span><span class="n">${v}</span></div>`
+        : `<div class="r x" title="${esc(v.error || '')}"><em>${n}</em><span class="bg"></span><span class="n">x</span></div>`).join('')
+    }</div></div>`;
+    return;
+  }
+  el.innerHTML = priceRail(rows) + placeRail(rows) + marketRail() + gpuRail() + vramRail();
+  wireHist();
+  wireMap();
+}
+
+// ── $/hr: a log histogram, because a market whose floor is 1/4000th of its
+//    ceiling is a wall on a linear axis. Drag across columns to pick a band.
+function priceRail(rows) {
+  const base = view('price');
+  const tot = new Array(BUCKETS).fill(0), cur = new Array(BUCKETS).fill(0);
+  let freeT = 0, freeC = 0, unpriced = 0;
+  for (const o of ALL) { const b = bucketOf(o); if (b == null) unpriced++; else if (b < 0) freeT++; else tot[b]++ }
+  for (const o of base) { const b = bucketOf(o); if (b == null) continue; if (b < 0) freeC++; else cur[b]++ }
+  const peak = Math.max(1, ...tot, freeT);
+  const priced = rows.filter(o => o.usd_hr > 0).map(o => o.usd_hr).sort((a, b) => a - b);
+  const med = priced.length ? priced[Math.floor(priced.length / 2)] : null;
+  const cheapest = rows.find(o => o.usd_hr > 0);
+  const p = PICK.price;
+  const inPick = i => p && i >= p[0] && i <= p[1];
+  const col = (i, t, c, cls) => `<div class="c ${cls || ''} ${inPick(i) ? 'in' : ''}" data-i="${i}">
+      <b class="t" style="height:${pct(t, peak)}%"></b><b class="v" style="height:${pct(c, peak)}%"></b></div>`;
+  const cols = (freeT ? col(-1, freeT, freeC, 'free') : '') +
+    tot.map((t, i) => col(i, t, cur[i])).join('');
+  const medX = med && !HX.empty ? ((Math.log(med) - HX.lo) / HX.span) : null;
+  const medMark = medX == null ? '' :
+    `<span class="med ${medX > .8 ? 'r' : ''}" style="left:${(Math.max(0, Math.min(1, medX)) * 100).toFixed(1)}%"></span>`;
+  const head = HX.empty ? 'no priced offers'
+    : !cheapest ? 'nothing in view — loosen a pick'
+    : `median <b>${usd(med)}</b> · from ${usd(cheapest.usd_hr)} (${cheapest.provider})` +
+      (unpriced ? ` · ${unpriced} unpriced` : '');
+  const lo = Math.exp(HX.lo), hi = Math.exp(HX.lo + HX.span);
+  const mid = Math.exp(HX.lo + HX.span / 2);
+  return `<div class="dp wide"><h5>$/HR <span>${head}</span>${p ?
+      '<i onclick="rangeFromPick()">SEARCH THIS BAND</i><i onclick="clearPick(\'price\')">CLEAR</i>' : ''}</h5>
+    <div class="hist" id="hist">${cols}${medMark}</div>
+    <div class="axis"><span class="${freeT ? 'hotv' : ''}">${freeT ? 'free · ' : ''}${usd(lo)}</span><span>${usd(mid)}</span><span>${usd(hi)} /hr</span></div>
+  </div>`;
+}
+
+function rail(title, head, items, kind, extra, cls) {
+  // items: [{key, label, tot, cur, on, off, x, title}] — bars against the panel's tallest total
+  const peak = Math.max(1, ...items.map(i => i.tot || 0));
+  const has = PICK[kind] && PICK[kind].size;
+  return `<div class="dp"><h5>${title} <span>${head}</span>${extra || ''}${has ? `<i onclick="clearPick('${kind}')">CLEAR</i>` : ''}</h5>
+    <div class="rows${cls ? ' ' + cls : ''}">${items.map(i => i.x
+      ? `<div class="r x" title="${esc(i.title || '')}"><em>${esc(i.label)}</em><span class="bg"></span><span class="n">x</span></div>`
+      : `<div class="r ${i.on ? 'on' : ''} ${!i.tot ? 'off' : ''}" onclick="togglePick('${kind}','${esc(i.key)}')" title="${esc(i.title || '')}">
+           <em>${esc(i.label)}</em>
+           <span class="bg"><i style="width:${pct(i.tot, peak)}%"></i><b style="width:${pct(i.cur, peak)}%"></b></span>
+           <span class="n">${i.cur}</span></div>`).join('')}</div></div>`;
+}
+
+function marketRail() {
+  const tot = tally(ALL, o => o.provider), cur = tally(view('market'), o => o.provider);
+  const live = [], dead = [];
+  for (const [n, v] of Object.entries(REPORT)) {
+    if (typeof v === 'number') live.push({key: n, label: n, tot: tot.get(n) || 0, cur: cur.get(n) || 0,
+                                          on: PICK.market.has(n), title: `${tot.get(n) || 0} offers from ${n}`});
+    else dead.push([n, v.error || 'unreachable']);
+  }
+  live.sort((a, b) => b.tot - a.tot);
+  const lead = live[0];
+  const head = lead && lead.tot ? `${lead.key} leads with ${pct(lead.tot, ALL.length)}%` : 'no market answered';
+  const foot = dead.length ? `<div class="dead">not asked — ${dead.map(([n, e]) =>
+    `<b title="${esc(e)}">${n}</b>`).join(' · ')} (no key)</div>` : '';
+  return rail('MARKET', head, live, 'market').replace(/<\/div><\/div>$/, foot + '</div></div>');
+}
+
+function gpuRail() {
+  const tot = tally(ALL, gpuName), cur = tally(view('gpu'), gpuName);
+  const models = tot.size;
+  let items;
+  if (GPU_ALL) {
+    items = [...tot.entries()].sort((a, b) => b[1] - a[1]).map(([g, t]) =>
+      ({key: g, label: g, tot: t, cur: cur.get(g) || 0, on: PICK.gpu.has(g)}));
+  } else {
+    items = HX.gpus.map(g => ({key: g, label: g, tot: tot.get(g) || 0, cur: cur.get(g) || 0, on: PICK.gpu.has(g)}));
+    let oT = 0, oC = 0;
+    for (const [g, t] of tot) if (!HX.gpus.includes(g)) { oT += t; oC += cur.get(g) || 0 }
+    if (oT) items.push({key: '__other', label: `other (${models - HX.gpus.length})`, tot: oT,
+                        cur: oC, on: PICK.gpu.has('__other'),
+                        title: 'every model outside the top ' + HX.gpus.length + ' — or hit ALL to list them'});
+  }
+  const flip = models > HX.gpus.length
+    ? `<i onclick="toggleGpuAll()">${GPU_ALL ? 'TOP ' + HX.gpus.length : 'ALL ' + models}</i>` : '';
+  return rail('GPU', `${models} models · top ${HX.gpus[0] || '-'}`, items, 'gpu',
+              flip, GPU_ALL ? 'all' : '');
+}
+
+function toggleGpuAll() { GPU_ALL = !GPU_ALL; blip('jump'); refresh() }
+
+function vramRail() {
+  const tot = tally(ALL, vramTier), cur = tally(view('vram'), vramTier);
+  const keys = TIERS.map(t => t[0]).concat(tot.has('unknown') ? ['unknown'] : []);
+  const items = keys.map(k => ({key: k, label: k, tot: tot.get(k) || 0, cur: cur.get(k) || 0, on: PICK.vram.has(k)}));
+  const top = items.slice().sort((a, b) => b.tot - a.tot)[0];
+  return rail('VRAM', top && top.tot ? `mostly ${top.key} (${pct(top.tot, ALL.length)}%)` : '', items, 'vram');
+}
+
+function togglePick(kind, key) {
+  const s = PICK[kind];
+  s.has(key) ? s.delete(key) : s.add(key);
+  blip('jump'); SHOW = PAGE; refresh();
+}
+function clearPick(kind) {
+  if (kind === 'price') PICK.price = null; else PICK[kind].clear();
+  blip('jump'); SHOW = PAGE; refresh();
+}
+// a band dragged on the histogram only hides rows already fetched; sending it
+// back as min/max asks every market for that band instead
+function rangeFromPick() {
+  if (!PICK.price) return;
+  const [a, b] = PICK.price;
+  const fix = v => Number(v.toPrecision(3));
+  document.getElementById('q-min').value = a < 0 ? '' : fix(bucketLo(a));
+  document.getElementById('q-max').value = fix(bucketHi(b));
+  PICK.price = null;
+  search();
+}
+
+function clearAll() {
+  PICK.price = null; PICK.place.clear(); PICK.market.clear(); PICK.gpu.clear(); PICK.vram.clear();
+  blip('jump'); SHOW = PAGE; refresh();
+}
+
+// the histogram: hover for the band, click a column for it, drag for a range,
+// click the only picked column to let go
+function wireHist() {
+  const h = document.getElementById('hist'); if (!h) return;
+  const tip = document.getElementById('tip');
+  // hit-test by geometry, not by element: a pointer between two columns or
+  // captured during a drag must still land on a column
+  const cols = [...h.querySelectorAll('.c')];
+  const colAt = e => { const r = h.getBoundingClientRect();
+    if (e.clientY < r.top - 6 || e.clientY > r.bottom + 6) return null;
+    const k = Math.floor((e.clientX - r.left) / r.width * cols.length);
+    const el = cols[Math.max(0, Math.min(cols.length - 1, k))];
+    return el && e.clientX >= r.left - 6 && e.clientX <= r.right + 6 ? Number(el.dataset.i) : null };
+  let drag = null, moved = false;
+  const paint = (a, b) => {
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    h.querySelectorAll('.c').forEach(c => { const i = Number(c.dataset.i);
+      c.classList.toggle('in', i >= lo && i <= hi) });
+  };
+  h.addEventListener('pointerdown', e => { const i = colAt(e); if (i == null) return;
+    drag = i; moved = false; h.setPointerCapture(e.pointerId); paint(i, i) });
+  h.addEventListener('pointermove', e => {
+    const i = colAt(e);
+    if (drag != null && i != null) { if (i !== drag) moved = true; paint(drag, i) }
+    if (i == null) { tip.style.display = 'none'; return }
+    const base = view('price');
+    const inB = o => bucketOf(o) === i;
+    const t = ALL.filter(inB).length, c = base.filter(inB).length;
+    const band = i < 0 ? 'free' : `${usd(bucketLo(i))} - ${usd(bucketHi(i))}`;
+    const cheap = base.filter(inB).sort((a, b) => a.usd_hr - b.usd_hr)[0];
+    tip.innerHTML = `<b>${band}</b> /hr · ${c === t ? t : c + ' of ' + t} offer${t === 1 ? '' : 's'}` +
+      (cheap ? `<br><span class="faint">${esc(gpuName(cheap))} on ${cheap.provider}</span>` : '') +
+      `<br><span class="faint">${drag != null ? 'release to pick the band' : 'click to pick · drag for a range'}</span>`;
+    tip.style.display = 'block';
+    const w = tip.offsetWidth, x = e.clientX + 14 + w > window.innerWidth ? e.clientX - w - 14 : e.clientX + 14;
+    tip.style.left = x + 'px'; tip.style.top = (e.clientY + 16) + 'px';
+  });
+  h.addEventListener('pointerleave', () => { tip.style.display = 'none' });
+  h.addEventListener('pointerup', e => {
+    if (drag == null) return;
+    const i = colAt(e) ?? drag;
+    const lo = Math.min(drag, i), hi = Math.max(drag, i);
+    const p = PICK.price;
+    PICK.price = (!moved && p && p[0] === lo && p[1] === hi) ? null : [lo, hi];
+    drag = null; tip.style.display = 'none';
+    blip('jump'); SHOW = PAGE; refresh();
+  });
+  h.addEventListener('pointercancel', () => { drag = null });
+}
+
+// ── WHERE ────────────────────────────────────────────────────────────
+// Every market that publishes a location, on one world. The land is a
+// 200x78 equirectangular landmask (Natural Earth 110m, rasterised by
+// geo/build.py and baked in here so the console still draws offline); a
+// market is a square on it, outlined by every offer there and filled by the
+// ones that survive the other picks. Click one to pick the place.
+const MASK = 'AAAAAAAAH//Av/+AAAAAAAAAAAAAAAAAAAAAAAAAA////////AABgA+AAADgAAAAAAAAAAAAAnf//////+AAf/AHAAAD/gAAAAAAAAAAAP9////////AAB/AAABAAB8AAAAAAAAAAAH/3/+H////wAAMAAA/4A//8AD/AAAAAAAD/9//gA///8AAAAAAeAD///zgewAAgAAAA//f//AP//8AAAAAAOA/////9f8AAMB//D/////+B///AAAD/AB0f///////+z3B///////+fwf//gAAB//t////////////+f///////n/D/8NQAA////////////////////////7/g/8D+AB///////////////8e////////n4H8AeAB////////////////Af//////hf8A+AAAA/3/////////////+QP//////wB9gBAAAAP+////////////7+AAPwH////A/8AAAADh/f//////////wJ4AAH4AP///+H/gAAAA4P3//////////4A+AADAAH//////+AAAA/H////////////QPgAAAAA////+//wAAAP7////////////8DgAAAAAD//////8AAAB//////////////AQAAAAAAf/////3gAAAH/////////////4AAAAAAAD//////4AAAB/////////////sAAAAAAAAf/////gAAAAH//7/////////7AAAAAAAAP/////gAAAA///8n////////94AAAAAAAD/////AAAAAP8///////////4cAAAAAAAA/////AAAAAD+N//////////+GAAAAAAAAH////gAAAAA/j9/////////3BgAAAAAAAA////wAAAAAH/+N////////+z4AAAAAAAAP///8AAAAAA/+Bn///////+P8AAAAAAAAA///+AAAAAA//5wf///////x8AAAAAAAAAH//+AAAAAAP///////////8IAAAAAAAAAB//7wAAAAAH////////////AAAAAAAAAAAP/gfAAAAAD////////////wAAAAAAAAAAB/4DwAAAAB//////v/////8AAAAAAAAAAAf8B4AAAAA///////h/////AAAAAAAYAAACfD/AAAAAP//////8P///+wAAAAAADAAAAH5w/AAAAD////+/+B/5/8AAAAAAAAQAAAB/8P8AAAA///////gP4f/DAAAAAAAAAAAAH/wAAAAAP////9/gD8D/g4AAAAAAAAAAAAL8AAAAAD//////gAeAv4OAAAAAAAAAAAAAfAgAAAA//////gAHgD+DwAAAAAAAAAAAABw/4AAAP/////+AB4A/g8AAAAAAAAAAAAAP/+AAAB//////gAOAMwfgAAAAAAAAAAAAB//wAAAP/////wABwDoN4AAAAAAAAAAAAAD//gAAB/////8AAMD8DmAAAAAAAAAAAAAA//8AAAOz///+AAAA/B4AAAAAAAAAAAAAAP//gAAAAH///AAAADz8cAAAAAAAAAAAAAH//4AAAAB///gAAAA8//AAAAAAAAAAAAAB///wAAAA///wAAAAHv+ewAAAAAAAAAAAAf///gAAAH//4AAAAA5///mAAAAAAAAAAAP///+AAAA//+AAAAAOG4f/4AAAAAAAAAAD////gAAAP//AAAAAA+AC//AAAAAAAAAAAf///4AAAB//wAAAAAD/4P4MAAAAAAAAAAD///+AAAAf/+AAAAAAA8A3DgAAAAAAAAAAf///AAAAH//hAAAAAAAPsAAAAAAAAAAAAH///gAAAD//4wAAAAAAfzgAgIAAAAAAAAA///4AAAA//++AAAAAAP+4AMGAAAAAAAAAD//+AAAAP//PAAAAAAH//ABDAAAAAAAAAA///AAAAB//jwAAAAAD//4AAAAAAAAAAAAH//wAAAAf/w4AAAAAH//+AYAAAAAAAAAAD//8AAAAH/8OAAAAAB///wCAAAAAAAAAAA//4AAAAA//DgAAAAA///+AAAAAAAAAAAAP/8AAAAAP/gQAAAAAP///wAAAAAAAAAAAD/+AAAAAD/4AAAAAAB///8AAAAAAAAAAAA//gAAAAAf8AAAAAAAf///AAAAAAAAAAAAP/wAAAAAH+AAAAAAAD///wAAAAAAAAAAAD/4AAAAAA/AAAAAAAB/D/4AIAAAAAAAAAB/8AAAAAAMAAAAAAAAOAf8AHAAAAAAAAAAf+AAAAAAAAAAAAAAAAAB/AA8AAAAAAAAAH/AAAAAAAAAAAAAAAAAAPAAPAAAAAAAAAB/AAAAAAAAAAAAAAAAAAA4AHgAAAAAAAAA/gAAAAAAAAAAAAAAAAAAOADwAAAAAAAAAPwAAAAAAAAAAAAAAAAAABAD4AAAAAAAAAH4AAAAAAAAAAAAAAAAAAAAA4AAAAAAAAAB/AAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAPgAAAAAAAAAAADAAAAAAAAAAAAAAAAAAAD4wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHwAAAAAAAAAAAAAAAAAAAAAA';
+const MW = 200, MH = 78, LAT_TOP = 84, LAT_BOT = -56;
+const mapX = lon => (Math.max(-180, Math.min(180, lon)) + 180) / 360 * 100;
+const mapY = lat => (LAT_TOP - Math.max(LAT_BOT, Math.min(LAT_TOP, lat))) / (LAT_TOP - LAT_BOT) * 100;
+// the same cell the API rolls up on — one degree, so a city keeps its own dot
+// and a country centroid does not smear across its neighbours
+const cellOf = o => o.geo ? Math.round(o.geo.lat) + ':' + Math.round(o.geo.lon) : '__none';
+
+function placeCells(rows) {
+  const cells = new Map();
+  const bump = (o, key) => {
+    if (!o.geo) return;
+    const k = cellOf(o);
+    let c = cells.get(k);
+    if (!c) cells.set(k, c = {k, lat: o.geo.lat, lon: o.geo.lon, cc: o.geo.cc,
+                              country: o.geo.country, precision: o.geo.precision,
+                              labels: new Map(), tot: 0, cur: 0, prices: [], mk: new Map()});
+    c[key]++;
+    if (key === 'tot') {
+      c.labels.set(o.geo.place, (c.labels.get(o.geo.place) || 0) + 1);
+      const RANK = ['city', 'state', 'region', 'country'];
+      if (RANK.indexOf(o.geo.precision) < RANK.indexOf(c.precision)) c.precision = o.geo.precision;
+    } else {
+      c.mk.set(o.provider, (c.mk.get(o.provider) || 0) + 1);
+      if (o.usd_hr != null) c.prices.push(o.usd_hr);
+    }
+  };
+  for (const o of ALL) bump(o, 'tot');
+  for (const o of rows) bump(o, 'cur');
+  for (const c of cells.values()) {
+    c.label = [...c.labels.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    c.prices.sort((a, b) => a - b);
+  }
+  return [...cells.values()].sort((a, b) => b.tot - a.tot);
+}
+
+function placeRail(rows) {
+  const cells = placeCells(view('place'));
+  const noneT = ALL.filter(o => !o.geo).length;
+  const noneC = view('place').filter(o => !o.geo).length;
+  const on = PICK.place;
+  if (!cells.length && !noneT) return '';
+  const peak = Math.max(1, ...cells.map(c => c.tot));
+  const ccs = new Set(cells.map(c => c.cc));
+  const cheap = cells.filter(c => c.prices.length).sort((a, b) => a.prices[0] - b.prices[0])[0];
+  const pins = cells.map(c => {
+    const side = Math.round(5 + 13 * Math.sqrt(c.tot / peak));
+    const inner = c.cur ? Math.max(2, Math.round(side * Math.sqrt(c.cur / c.tot))) : 0;
+    return `<i class="pin ${on.has(c.k) ? 'on' : ''} ${c.cur ? '' : 'off'}" data-k="${c.k}"
+      style="left:${mapX(c.lon).toFixed(2)}%;top:${mapY(c.lat).toFixed(2)}%;width:${side}px;height:${side}px"
+      ><b style="width:${inner}px;height:${inner}px"></b></i>`;
+  }).join('');
+  const none = noneT ? `<span class="nowhere ${on.has('__none') ? 'on' : ''}"
+      onclick="togglePick('place','__none')"
+      title="these markets sell a catalogue, not a located machine — they publish no region at all, so nothing here is guessed onto the map"
+      >${noneC === noneT ? noneT : noneC + ' of ' + noneT} nowhere</span>` : '';
+  const head = `${cells.length} place${cells.length === 1 ? '' : 's'} · ${ccs.size} countries` +
+    (cheap ? ` · cheapest in ${esc(cheap.label)} at ${usd(cheap.prices[0])}` : '');
+  return `<div class="dp wide full"><h5>WHERE <span>${head}</span>${
+    on.size ? '<i onclick="clearPick(\'place\')">CLEAR</i>' : ''}</h5>
+    <div class="map" id="map"><canvas width="${MW}" height="${MH}"></canvas>${pins}${none}</div>
+    <div class="axis"><span>a square is a place · outline is every offer, fill is what is left</span>
+      <span>click to pick</span></div></div>`;
+}
+
+let LAND = null;
+function landCells() {
+  if (LAND) return LAND;
+  const bin = atob(MASK);
+  LAND = [];
+  for (let i = 0; i < MW * MH; i++)
+    if (bin.charCodeAt(i >> 3) & (128 >> (i & 7))) LAND.push([i % MW, (i / MW) | 0]);
+  return LAND;
+}
+
+function drawLand() {
+  const c = document.querySelector('#map canvas');
+  if (!c) return;
+  const g = c.getContext('2d');
+  const css = getComputedStyle(document.documentElement);
+  g.clearRect(0, 0, MW, MH);
+  g.fillStyle = css.getPropertyValue('--panel2').trim() || '#26262c';
+  for (const [x, y] of landCells()) g.fillRect(x, y, 1, 1);
+}
+
+function wireMap() {
+  const m = document.getElementById('map');
+  if (!m) return;
+  drawLand();
+  const tip = document.getElementById('tip');
+  const cells = new Map(placeCells(view('place')).map(c => [c.k, c]));
+  m.addEventListener('mouseleave', () => { tip.style.display = 'none' });
+  m.addEventListener('mousemove', e => {
+    const pin = e.target.closest('.pin');
+    if (!pin) { tip.style.display = 'none'; return }
+    const c = cells.get(pin.dataset.k);
+    if (!c) return;
+    const mk = [...c.mk.entries()].sort((a, b) => b[1] - a[1])
+      .slice(0, 4).map(([n, v]) => `${n} ${v}`).join(' · ');
+    const how = {city: '', state: 'state centroid', region: 'cloud region',
+                 country: 'country centroid — this market publishes no city'}[c.precision];
+    tip.innerHTML = `<b>${esc(c.label)}</b>${c.label === c.country ? '' : ', ' + esc(c.country)}` +
+      `<br>${c.cur === c.tot ? c.tot : c.cur + ' of ' + c.tot} offer${c.tot === 1 ? '' : 's'}` +
+      (c.prices.length ? ` · from ${usd(c.prices[0])} · med ${usd(c.prices[c.prices.length >> 1])}` : '') +
+      (mk ? `<br><span class="faint">${esc(mk)}</span>` : '') +
+      (how ? `<br><span class="faint">${how}</span>` : '') +
+      `<br><span class="faint">${PICK.place.has(c.k) ? 'click to let go' : 'click to pick this place'}</span>`;
+    tip.style.display = 'block';
+    const w = tip.offsetWidth, x = e.clientX + 14 + w > window.innerWidth ? e.clientX - w - 14 : e.clientX + 14;
+    tip.style.left = x + 'px'; tip.style.top = (e.clientY + 16) + 'px';
+  });
+  m.addEventListener('click', e => {
+    const pin = e.target.closest('.pin');
+    if (pin) { tip.style.display = 'none'; togglePick('place', pin.dataset.k) }
+  });
+}
+
+// a picked cell's own name, so the chip reads "where Des Moines" and not "41:-94"
+function placeLabel(k) {
+  if (k === '__none') return 'no location published';
+  const o = ALL.find(x => cellOf(x) === k);
+  return o && o.geo ? o.geo.place : k;
+}
+
+function renderPicks(rows) {
+  const el = document.getElementById('m-picks');
+  const chips = [];
+  const chip = (label, val, fn) => chips.push(`<span class="fchip" onclick="${fn}">${label} <b>${esc(val)}</b> x</span>`);
+  if (PICK.price) {
+    const [a, b] = PICK.price;
+    const band = a < 0 && b < 0 ? 'free' : `${a < 0 ? 'free' : usd(bucketLo(a))} - ${usd(bucketHi(b))}/hr`;
+    chip('$/hr', band, "clearPick('price')");
+  }
+  for (const k of PICK.place) chip('where', placeLabel(k), `togglePick('place','${esc(k)}')`);
+  for (const m of PICK.market) chip('market', m, `togglePick('market','${esc(m)}')`);
+  for (const g of PICK.gpu) chip('gpu', g === '__other' ? 'other' : g, `togglePick('gpu','${esc(g)}')`);
+  for (const v of PICK.vram) chip('vram', v, `togglePick('vram','${esc(v)}')`);
+  if (chips.length) chips.push(`<span class="fchip clear" onclick="clearAll()">CLEAR ALL</span>`);
+  el.innerHTML = chips.join('');
+  el.style.display = chips.length ? '' : 'none';
+}
+
+function renderTable(rows) {
+  const priced = rows.filter(o => o.usd_hr > 0).map(o => o.usd_hr);
+  const top = Math.max(...priced, 0.001), bot = Math.min(...priced, top);
+  const span = Math.log(top / bot) || 1;
+  const width = v => v == null ? 0 : v <= 0 ? 2
+    : Math.max(4, Math.round(100 * Math.log(v / bot) / span)) || 4;
+  document.getElementById('m-rows').innerHTML = rows.slice(0, SHOW).map(o => `<tr>
+    <td class="price"><span class="ladder" style="width:${width(o.usd_hr)}%"></span>
+      <span class="v">${o.usd_hr === 0 ? 'free' : usd(o.usd_hr)}</span></td>
+    <td>${esc(o.gpu || o.kind)}</td>
+    <td>${o.gpus || ''}</td>
+    <td>${o.vram_gb ? o.vram_gb + 'G' : ''}</td>
+    <td class="dimtxt">${o.cpu || '?'} / ${o.ram_gb ? o.ram_gb + 'G' : '?'}</td>
+    <td class="dimtxt">${esc(o.region || '')}</td>
+    <td><span class="p">${o.provider}</span></td>
+    <td class="dimtxt" title="${esc(o.note || '')}">${esc((o.note || '').slice(0, 74))}</td>
+    <td style="white-space:nowrap">
+      <button class="ghost" onclick="quote('${o.id}')">quote</button>
+      <button class="ghost" onclick="deployOffer('${o.id}')">deploy</button></td>
+  </tr>`).join('') || `<tr><td colspan="9" class="dimtxt">${ALL.length ? 'nothing left — loosen a pick above' : 'nothing matched'}</td></tr>`;
+  const more = document.getElementById('m-more');
+  more.innerHTML = rows.length > SHOW
+    ? `<button class="ghost" onclick="SHOW+=${PAGE};renderTable(view())">SHOW ${Math.min(PAGE, rows.length - SHOW)} MORE</button>
+       <span class="faint" style="margin-left:10px;font-size:10px">${SHOW} of ${rows.length} shown — pick a band above to narrow</span>`
+    : '';
+}
+
+async function quote(id) {
+  const hours = prompt('hours?', '1'); if (hours === null) return;
+  try {
+    const q = await call(`/quote?id=${encodeURIComponent(id)}&hours=${hours}`);
+    const alt = (q.cheaper_elsewhere || []).map(a => `  ${a.id}  ${plain(a.usd_hr)}/hr  ${a.gpu || ''}`).join('\n');
+    const ok = confirm(
+      `${id}\n${q.usd_hr == null ? 'unpriced' : '$' + q.usd_hr + '/hr'}  x  ${q.hours}h  =  $${q.total_usd}\n\n` +
+      (alt ? 'cheaper elsewhere:\n' + alt + '\n\n' : 'nothing cheaper found\n\n') +
+      'Rent it? This spends your credits on that provider until you stop it.');
+    if (!ok) return;
+    const r = await post('/rent', {id, hours: Number(hours), confirm: true});
+    alert(JSON.stringify(r, null, 1).slice(0, 900));
+    running();
+  } catch (e) { alert(e.message) }
+}
+
+function deployOffer(id) {
+  document.querySelector('nav button[data-tab="nodes"]').click();
+  document.getElementById('d-target').value = 'offer';
+  deployTarget();
+  document.getElementById('d-ref').value = id;
+  document.getElementById('d-flash').textContent =
+    'tick "spend money" and press DEPLOY to rent this and install mod on it';
+}
+
+// ── nodes ──
+let NODES = [], SEL = null, TAB = 'terminal', HIST = [], HPOS = 0, POLL = null;
+
+function deployTarget() {
+  const t = document.getElementById('d-target').value;
+  const ref = document.getElementById('d-ref');
+  ref.style.display = t === 'docker' ? 'none' : '';
+  ref.placeholder = t === 'ssh' ? 'root@1.2.3.4:22' :
+                    t === 'offer' ? 'vast:46240433' : 'vast:1234567';
+  document.getElementById('d-hint').innerHTML = {
+    docker: 'Nothing is rented: a container on this box, bootstrapped with mod core and reachable through <code>docker exec</code>. The same node type a rented H100 becomes.',
+    ssh: 'Any box your SSH key opens. The public half is <code>m compute/identity</code> — put it in that box\'s authorized_keys first.',
+    offer: 'Rents the offer, hands the market this module\'s public SSH key, waits for the box, then installs. Spends money — tick the box.',
+    instance: 'A rental you already started. It is adopted as a node and bootstrapped in place.'
+  }[t];
+}
+
+async function deploy() {
+  const f = document.getElementById('d-flash');
+  const t = document.getElementById('d-target').value;
+  const ref = document.getElementById('d-ref').value.trim();
+  const body = {name: document.getElementById('d-name').value.trim() || undefined,
+                image: document.getElementById('d-image').value.trim() || undefined,
+                profile: document.getElementById('d-profile').value,
+                ports: document.getElementById('d-ports').value.trim() || undefined,
+                confirm: document.getElementById('d-confirm').checked};
+  if (t === 'docker') body.docker = true;
+  else if (t === 'ssh') body.ssh = ref;
+  else if (t === 'offer') body.id = ref;
+  else body.instance = ref;
+  if (t !== 'docker' && !ref) { f.textContent = 'needs a target'; return }
+  f.textContent = 'deploying...';
+  try {
+    const r = await post('/nodes/deploy', body);
+    if (r.needs_confirm) { f.textContent = r.why || 'over the spend guard — tick "spend money"'; return }
+    f.textContent = `${r.id || r.node} ${r.state}${r.boot_ms ? ' in ' + (r.boot_ms/1000).toFixed(1) + 's' : ''}`;
+    SEL = r.id || r.node;
+    await loadNodes();
+  } catch (e) { f.textContent = e.message }
+}
+
+async function loadNodes() {
+  let d;
+  try { d = await call('/nodes') } catch (e) {
+    document.getElementById('n-list').innerHTML =
+      `<p class="note badv">${esc(e.message)}</p>`; return;
+  }
+  NODES = d.nodes || [];
+  document.getElementById('n-burn').textContent =
+    d.count ? `${d.count} node${d.count > 1 ? 's' : ''} - burn ${plain(d.burn_usd_hr)}/hr` : '';
+  document.getElementById('n-list').innerHTML = NODES.map(n => `
+    <div class="nodecard ${n.id === SEL ? 'on' : ''}" onclick="pick('${n.id}')">
+      <h4><span class="dot ${n.state}"></span>${esc(n.name || n.id)}
+        <span class="faint" style="float:right">${esc(n.id)}</span></h4>
+      <div class="meta">
+        <span>${esc(n.state)}</span>
+        <span>${esc((n.target || {}).kind || '')}</span>
+        ${n.mod && n.mod.modules ? `<span>${n.mod.modules} mods</span>` : ''}
+        ${n.usd_hr ? `<span class="warnv">${plain(n.usd_hr)}/hr</span>` : '<span class="faint">free</span>'}
+        <span class="faint">${ago(n.created)} old</span>
+      </div>
+      ${n.error ? `<div class="meta badv">${esc(String(n.error).slice(0, 90))}</div>` : ''}
+    </div>`).join('') || '<p class="note">no nodes yet</p>';
+  if (SEL && NODES.some(n => n.id === SEL)) drawNode();
+  const booting = NODES.some(n => n.state === 'booting');
+  clearTimeout(POLL);
+  if (booting) POLL = setTimeout(loadNodes, 3000);
+  stats();
+}
+
+function pick(id) { SEL = id; TAB = TAB || 'terminal'; loadNodes(); }
+
+function node() { return NODES.find(n => n.id === SEL) || null }
+
+function drawNode() {
+  const n = node(); if (!n) return;
+  document.getElementById('n-head').innerHTML = `
+    <span class="dot ${n.state}"></span><b>${esc(n.name || n.id)}</b>
+    <span class="faint">${esc(n.id)} - ${esc((n.target || {}).kind)} - ${esc(n.state)}</span>
+    <span class="grow"></span>
+    ${['terminal','modules','boot','ports'].map(t =>
+      `<button class="ghost ${TAB === t ? 'on' : ''}" onclick="setTab('${t}')">${t.toUpperCase()}</button>`).join('')}
+    <button class="ghost" onclick="bootNode()">REINSTALL</button>
+    <button class="ghost badv" onclick="killNode()">DESTROY</button>`;
+  ({terminal: drawTerm, modules: drawMods, boot: drawBoot, ports: drawPorts}[TAB] || drawTerm)();
+}
+function setTab(t) { TAB = t; drawNode() }
+
+// terminal
+function drawTerm() {
+  const n = node();
+  document.getElementById('n-body').innerHTML = `
+    <div id="term"><span class="sys">${esc(n.name || n.id)} - ${esc((n.target||{}).kind)} - `
+      + `${n.mod && n.mod.modules ? n.mod.modules + ' modules, mod ' + esc(n.mod.version || '?') : 'mod not verified'}\n`
+      + `try: m modules | m compute/providers | nvidia-smi | python3 -V\n</span></div>
+    <div class="termbar"><span>$</span>
+      <input id="term-in" placeholder="a command on this node" autocomplete="off">
+      <button class="ghost" onclick="runCmd()">RUN</button>
+      <button class="ghost" onclick="document.getElementById('term').innerHTML=''">CLEAR</button>
+    </div>`;
+  const inp = document.getElementById('term-in');
+  inp.focus();
+  inp.onkeydown = e => {
+    if (e.key === 'Enter') runCmd();
+    else if (e.key === 'ArrowUp') { if (HPOS > 0) inp.value = HIST[--HPOS] || ''; e.preventDefault() }
+    else if (e.key === 'ArrowDown') { HPOS = Math.min(HPOS + 1, HIST.length); inp.value = HIST[HPOS] || '' }
+  };
+}
+async function runCmd() {
+  const inp = document.getElementById('term-in'), term = document.getElementById('term');
+  const cmd = inp.value.trim(); if (!cmd) return;
+  HIST.push(cmd); HPOS = HIST.length; inp.value = '';
+  term.innerHTML += `<span class="cmd">$ ${esc(cmd)}</span>\n`;
+  term.scrollTop = term.scrollHeight;
+  try {
+    const r = await post('/node/sh', {node: SEL, cmd});
+    term.innerHTML += esc(r.out || '') + (r.err ? `<span class="err">${esc(r.err)}</span>` : '')
+      + (r.code ? `<span class="err">[exit ${r.code}]</span>\n` : '');
+  } catch (e) { term.innerHTML += `<span class="err">${esc(e.message)}</span>\n` }
+  term.scrollTop = term.scrollHeight;
+}
+
+// modules
+let MODS = [], MSEL = null, FSEL = null, FNS = [];
+async function drawMods() {
+  document.getElementById('n-body').innerHTML = `
+    <div class="bar">
+      <button class="ghost" onclick="loadMods()">RELOAD</button>
+      <input id="push-mod" placeholder="push a local module, e.g. compute" style="width:230px">
+      <button class="ghost" onclick="pushMod()">PUSH</button>
+      <span class="flash" id="mods-flash"></span>
+    </div>
+    <div class="cols">
+      <div><div class="faint" style="margin-bottom:4px">MODULES ON THIS NODE</div>
+           <div class="list" id="mod-list"></div></div>
+      <div><div class="faint" style="margin-bottom:4px">FUNCTIONS</div>
+           <div class="list" id="fn-list"></div></div>
+      <div><div class="faint" style="margin-bottom:4px">CALL</div>
+           <div class="bar"><input id="call-args" placeholder='{"arg":"value"}' style="flex:1">
+             <button class="go alt" onclick="callFn()">CALL</button></div>
+           <pre id="call-out" style="max-height:44vh">-</pre></div>
+    </div>`;
+  loadMods();
+}
+async function loadMods() {
+  const f = document.getElementById('mods-flash'); f.textContent = 'asking the node...';
+  try {
+    const r = await call('/node/mods?node=' + SEL);
+    MODS = (r.mods || []).map(m => typeof m === 'string' ? m : (m.name || String(m)));
+    f.textContent = MODS.length + ' modules';
+    document.getElementById('mod-list').innerHTML = MODS.map(m =>
+      `<div class="${m === MSEL ? 'on' : ''}" onclick="pickMod('${esc(m)}')">${esc(m)}</div>`).join('');
+  } catch (e) { f.textContent = e.message }
+}
+async function pickMod(m) {
+  MSEL = m; FSEL = null;
+  document.querySelectorAll('#mod-list div').forEach(d =>
+    d.classList.toggle('on', d.textContent === m));
+  const list = document.getElementById('fn-list');
+  list.innerHTML = '<div class="faint">loading...</div>';
+  try {
+    const r = await call(`/node/fns?node=${SEL}&mod=${encodeURIComponent(m)}`);
+    FNS = r.fns || [];
+    list.innerHTML = FNS.map(fn =>
+      `<div onclick="pickFn('${esc(fn.name)}')" title="${esc(fn.doc || '')}">${esc(fn.name)}</div>`).join('');
+  } catch (e) { list.innerHTML = `<div class="badv">${esc(e.message)}</div>` }
+}
+function pickFn(fn) {
+  FSEL = fn;
+  document.querySelectorAll('#fn-list div').forEach(d => d.classList.toggle('on', d.textContent === fn));
+  const doc = (FNS.find(f => f.name === fn) || {}).doc || '';
+  document.getElementById('call-out').textContent = `${MSEL}/${fn}\n${doc}`;
+}
+async function callFn() {
+  if (!MSEL || !FSEL) { document.getElementById('call-out').textContent = 'pick a module and a function'; return }
+  const out = document.getElementById('call-out');
+  let kwargs = {};
+  const raw = document.getElementById('call-args').value.trim();
+  if (raw) { try { kwargs = JSON.parse(raw) } catch (e) { out.textContent = 'args must be JSON: ' + e.message; return } }
+  out.textContent = `calling ${MSEL}/${FSEL} on ${SEL}...`;
+  try {
+    const r = await post('/node/call', {node: SEL, mod: MSEL, fn: FSEL, kwargs});
+    out.textContent = JSON.stringify(r.result, null, 1).slice(0, 20000);
+  } catch (e) { out.textContent = e.message }
+}
+async function pushMod() {
+  const mod = document.getElementById('push-mod').value.trim();
+  const f = document.getElementById('mods-flash');
+  if (!mod) { f.textContent = 'name a local module'; return }
+  f.textContent = `sending ${mod}...`;
+  try {
+    const r = await post('/node/push', {node: SEL, mod});
+    f.textContent = `${mod} -> ${r.path} (${Math.round(r.bytes / 1024)} KiB)`;
+    loadMods();
+  } catch (e) { f.textContent = e.message }
+}
+
+// boot log
+async function drawBoot() {
+  const body = document.getElementById('n-body');
+  body.innerHTML = '<p class="note">loading the install trail...</p>';
+  try {
+    const r = await call('/node/log?node=' + SEL);
+    body.innerHTML = `<div class="steps">${(r.log || []).map(s => `
+      <div><span class="name ${s.ok ? 'hotv' : 'badv'}">${esc(s.step)}</span>
+        <span class="ms">${s.ms ? s.ms + 'ms' : ''}</span>
+        <span class="out" title="${esc((s.out || '') + (s.err || ''))}">${
+          esc(((s.err || s.out || '').split('\n').filter(Boolean).slice(-1)[0] || '').slice(0, 140))}</span></div>`).join('')
+      || '<p class="note">nothing logged yet</p>'}</div>
+      <p class="note">Every step ran over this node's own transport. Re-running the
+        install is idempotent: it verifies first and stops there if mod already imports.</p>`;
+  } catch (e) { body.innerHTML = `<p class="note badv">${esc(e.message)}</p>` }
+}
+
+// ports
+async function drawPorts() {
+  const n = node();
+  const pub = Object.entries(n.ports || {});
+  document.getElementById('n-body').innerHTML = `
+    <div class="bar">
+      <input id="tun-port" placeholder="port on the node" style="width:150px">
+      <button class="ghost" onclick="tunnel()">TUNNEL IT HERE</button>
+      <span class="flash" id="tun-flash"></span>
+    </div>
+    ${pub.length ? '<p class="note">published by docker at deploy time:</p><ul class="note">' +
+      pub.map(([h, c]) => `<li><a href="http://localhost:${h}" target="_blank">localhost:${h}</a> -> container ${c}</li>`).join('') + '</ul>' : ''}
+    <div id="listening"><p class="note">asking the node what is listening...</p></div>`;
+  try {
+    const r = await call(`/node/ctl?node=${SEL}&op=ports`);
+    document.getElementById('listening').innerHTML =
+      `<pre>${esc((r.listening || []).join('\n') || r.note || 'nothing listening')}</pre>`;
+  } catch (e) { document.getElementById('listening').innerHTML = `<p class="note badv">${esc(e.message)}</p>` }
+}
+async function tunnel() {
+  const port = document.getElementById('tun-port').value.trim();
+  const f = document.getElementById('tun-flash');
+  try {
+    const r = await post('/node/tunnel', {node: SEL, port: Number(port)});
+    f.innerHTML = `<a href="${r.url}" target="_blank">${r.url}</a> ${esc(r.note || '')}`;
+  } catch (e) { f.textContent = e.message }
+}
+
+async function bootNode() {
+  const f = document.getElementById('d-flash'); f.textContent = 'reinstalling...';
+  try { await post('/node/bootstrap', {node: SEL, force: true, wait: false}); loadNodes() }
+  catch (e) { f.textContent = e.message }
+}
+async function killNode() {
+  const n = node();
+  const release = n.instance ? confirm(
+    `${n.id} rides on rental ${n.instance}.\n\nOK = also stop the rental (ends the billing)\n` +
+    'Cancel = only tear down the container, the rental keeps costing money') : false;
+  if (!confirm('destroy ' + n.id + '?')) return;
+  try { await post('/node/rm', {node: SEL, release}); SEL = null; loadNodes() }
+  catch (e) { alert(e.message) }
+}
+
+// ── running ──
+async function running() {
+  const f = document.getElementById('r-flash'); f.textContent = 'polling...';
+  try {
+    const d = await call('/instances');
+    f.textContent = '';
+    document.getElementById('r-burn').innerHTML =
+      `<b class="${d.burn_usd_hr > 0 ? 'warnv' : 'dimtxt'}">burn ${plain(d.burn_usd_hr)}/hr</b> - ` +
+      Object.entries(d.providers || {}).map(([n, v]) => typeof v === 'number'
+        ? `<span class="p">${n} ${v}</span>` : `<span class="p badv">${n} x</span>`).join(' ') +
+      (d.note ? ` <span class="dimtxt">${esc(d.note)}</span>` : '');
+    document.getElementById('r-rows').innerHTML = (d.instances || []).map(i => `<tr>
+      <td>${esc(i.id)}</td><td>${esc(i.name || '')}</td><td>${esc(i.status || '')}</td>
+      <td class="price">${usd(i.usd_hr)}</td><td>${esc(i.gpu || '')}</td>
+      <td class="dimtxt">${esc(i.ssh || '')}</td>
+      <td style="white-space:nowrap">
+        <button class="ghost" onclick="adopt('${i.id}')">make a node</button>
+        <button class="ghost" onclick="logs('${i.id}')">logs</button>
+        <button class="ghost" onclick="stop('${i.id}')">stop</button></td>
+    </tr>`).join('') || '<tr><td colspan="7" class="dimtxt">nothing running</td></tr>';
+  } catch (e) { f.textContent = e.message }
+}
+function adopt(id) {
+  document.querySelector('nav button[data-tab="nodes"]').click();
+  document.getElementById('d-target').value = 'instance'; deployTarget();
+  document.getElementById('d-ref').value = id;
+  document.getElementById('d-flash').textContent = 'press DEPLOY to install mod on this rental';
+}
+async function logs(id) {
+  try { alert(JSON.stringify(await call('/logs?id=' + encodeURIComponent(id)), null, 1).slice(0, 3000)) }
+  catch (e) { alert(e.message) }
+}
+async function stop(id) {
+  if (!confirm('stop ' + id + '? this ends the rental and its billing.')) return;
+  try { await post('/stop', {id}); running() } catch (e) { alert(e.message) }
+}
+
+// ── providers ──
+async function providers() {
+  const d = await call('/providers');
+  document.getElementById('p-cards').innerHTML = d.providers.map(p => `<div class="card">
+    <h3>${esc(p.title)}</h3>
+    <div class="row"><span>kyc</span><b class="kyc-${p.kyc}">${p.kyc}</b></div>
+    <div class="row"><span>pays with</span><b>${esc(p.pay.join(', ') || '-')}</b></div>
+    <div class="row"><span>custody</span><b>${esc(p.custody)}</b></div>
+    <div class="row"><span>key</span><b class="${p.key === 'set' ? 'hotv' : 'dimtxt'}">${esc(p.key)}</b></div>
+    <div class="row"><span>can</span><b class="dimtxt">${esc(p.caps.join(' '))}</b></div>
+    ${p.chain ? `<div class="row"><span>settles on</span><b>${esc(p.chain)}</b></div>` : ''}
+    <div class="note">${esc(p.key_hint || '')}</div>
+    ${p.signup ? `<a href="${esc(p.signup)}" target="_blank">get a key</a>` : ''}
+  </div>`).join('');
+}
+
+async function modLane(force) {
+  const flash = document.getElementById('mod-flash');
+  const box = document.getElementById('mod-cards');
+  if (box.dataset.loaded && !force) return;
+  flash.textContent = 'reading each market through its module...';
+  try {
+    const cmp = document.getElementById('mod-compare').checked;
+    const d = await call('/mods?compare=' + (cmp ? '1' : '0'));
+    box.dataset.loaded = '1';
+    flash.textContent = `${d.took_ms || ''}ms`;
+    box.innerHTML = (d.mods || []).map(m => `<div class="card" style="margin-bottom:10px">
+      <h3>${esc(m.title || m.name)} <span class="faint">${esc(m.name)}</span></h3>
+      <div class="row"><span>module</span><b class="${m.module && m.module.installed ? 'hotv' : 'badv'}">
+        ${m.module && m.module.installed ? esc(m.module.url || 'installed') : 'not installed'}</b></div>
+      <div class="row"><span>through the module</span><b>${(m.offers || []).length} offers</b></div>
+      ${m.direct ? `<div class="row"><span>direct from the market</span><b>${m.direct.count} offers</b></div>` : ''}
+      ${m.agreement ? `<div class="row"><span>agreement</span><b class="${
+        m.agreement.same ? 'hotv' : 'warnv'}">${esc(JSON.stringify(m.agreement))}</b></div>` : ''}
+      ${m.error ? `<div class="note badv">${esc(m.error)}</div>` : ''}
+      <div class="note">${(m.offers || []).slice(0, 4).map(o =>
+        `${plain(o.usd_hr)}/hr ${esc(o.gpu || '')} x${o.gpus || 1}`).join(' - ')}</div>
+    </div>`).join('') || '<p class="note">no module lane available</p>';
+  } catch (e) { flash.textContent = e.message }
+}
+
+// ── keys ──
+async function keysPanel() {
+  const d = await call('/providers');
+  const mine = keys();
+  document.getElementById('k-rows').innerHTML = d.providers.map(p => `<div class="card">
+    <h3>${esc(p.name)} <span class="faint">${esc(p.kyc)}</span></h3>
+    <div class="row"><span>on the box</span><b class="${p.key === 'set' ? 'hotv' : 'dimtxt'}">${esc(p.key)}</b></div>
+    <div class="bar" style="margin:6px 0 0">
+      <input id="key-${p.name}" placeholder="${mine[p.name] ? 'set in this tab' : 'paste a key'}"
+             style="flex:1" type="password">
+      <button class="ghost" onclick="saveKey('${p.name}')">USE</button>
+    </div>
+    <div class="note">${esc(p.key_hint || '')}</div>
+  </div>`).join('');
+}
+function saveKey(name) {
+  const el = document.getElementById('key-' + name);
+  const k = keys();
+  if (el.value.trim()) k[name] = el.value.trim(); else delete k[name];
+  setKeys(k); el.value = ''; keysPanel();
+}
+
+// ── mcp ──
+let TOOLS = [];
+async function tools() {
+  if (TOOLS.length) return;
+  const d = await call('/tools');
+  TOOLS = d.tools;
+  document.getElementById('t-name').innerHTML = TOOLS.map(t => `<option>${t.name}</option>`).join('');
+  document.getElementById('t-name').onchange = describe; describe();
+}
+function describe() {
+  const t = TOOLS.find(x => x.name === document.getElementById('t-name').value);
+  document.getElementById('t-desc').textContent = t ? t.description : '';
+}
+async function callTool() {
+  const name = document.getElementById('t-name').value;
+  const out = document.getElementById('t-out');
+  let args = {};
+  const raw = document.getElementById('t-args').value.trim();
+  if (raw) { try { args = JSON.parse(raw) } catch (e) { out.textContent = 'args must be JSON'; return } }
+  out.textContent = 'calling ' + name + '...';
+  try {
+    const r = await fetch(API + '/mcp', {method: 'POST',
+      headers: {'content-type': 'application/json',
+                ...(token ? {authorization: 'Bearer ' + token} : {})},
+      body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'tools/call',
+                            params: {name, arguments: {...args, ...(Object.keys(keys()).length ? {keys: keys()} : {})}}})});
+    const body = await r.json();
+    out.textContent = (body.result?.content?.[0]?.text) || JSON.stringify(body, null, 1);
+  } catch (e) { out.textContent = e.message }
+}
+
+// ── coins ──────────────────────────────────────────────────────────────
+// ── THE CABINETS ───────────────────────────────────────────────────────
+// Ten palettes, the castle first because it is the default. A theme is
+// nothing but a name on <html data-theme>, so the switch is one attribute and
+// the whole console — panels, gold, ink, scanline depth — repaints from
+// CSS vars. Four swatches per card so the drawer reads as a palette and not
+// a list of words.
+const THEMES = [
+  {id:'castle',  name:'CASTLE',    sw:['#0f0f11','#9c9c9c','#fcbc3c','#e45c10']},
+  {id:'world',   name:'DAYLIGHT',  sw:['#5c94fc','#c84c0c','#fcbc3c','#58d854']},
+  {id:'night',   name:'NIGHT',     sw:['#05061a','#2038ec','#fcd000','#30c890']},
+  {id:'dmg',     name:'GAME BOY',  sw:['#0f380f','#306230','#8bac0f','#9bbc0f']},
+  {id:'vb',      name:'VIRTUAL',   sw:['#120000','#a00000','#ff2020','#ff6060']},
+  {id:'zelda',   name:'HYRULE',    sw:['#14300f','#b85c00','#fcd000','#58d854']},
+  {id:'metroid', name:'BRINSTAR',  sw:['#180030','#7828c8','#f8b800','#40f0d8']},
+  {id:'c64',     name:'C64',       sw:['#40318d','#7869c4','#d5df7c','#4ac64a']},
+  {id:'arcade',  name:'ARCADE',    sw:['#070400','#cc7000','#ffb000','#ffcc44']},
+  {id:'neon',    name:'NEON',      sw:['#0d0221','#ff2fd0','#00f0ff','#39ff6a']},
+];
+const THM = 'compute_theme', CRT = 'compute_crt';
+const themeId = () => document.documentElement.dataset.theme || 'castle';
+const swatch = t => `<span class="tsw">${t.sw.map(c =>
+  `<i style="background:${c}"></i>`).join('')}</span>`;
+
+function setTheme(id) {
+  const t = THEMES.find(x => x.id === id) || THEMES[0];
+  document.documentElement.dataset.theme = t.id;
+  try { localStorage.setItem(THM, t.id) } catch {}
+  drawThemes();
+  drawLand();   // the land is painted, not styled — it has to be repainted
+}
+function drawThemes() {
+  const cur = themeId(), t = THEMES.find(x => x.id === cur) || THEMES[0];
+  document.getElementById('themebtn').innerHTML = t.name + swatch(t);
+  document.getElementById('tgrid').innerHTML = THEMES.map(x =>
+    `<button class="tcard${x.id === cur ? ' on' : ''}" onclick="setTheme('${x.id}')">
+       ${swatch(x)}${x.name}</button>`).join('');
+}
+function toggleThemes(e) {
+  e && e.stopPropagation();
+  const p = document.getElementById('themepop');
+  p.hidden = !p.hidden;
+  if (p.hidden) return;
+  drawThemes();
+  // The drawer hangs off the right of its button, which is off-screen once
+  // the HUD wraps and the button lands on the left. Flip it if it would be.
+  p.style.left = ''; p.style.right = '';
+  if (p.getBoundingClientRect().left < 6) { p.style.left = '0'; p.style.right = 'auto' }
+}
+function toggleCrt() {
+  const d = document.documentElement;
+  const off = d.dataset.crt !== 'off';
+  d.dataset.crt = off ? 'off' : 'on';
+  try { localStorage.setItem(CRT, off ? '0' : '1') } catch {}
+  const b = document.getElementById('crtbtn');
+  b.textContent = 'SCANLINES ' + (off ? 'OFF' : 'ON');
+  b.classList.toggle('on', !off);
+}
+// T cycles cabinets, unless you are typing into one of the market's fields.
+document.addEventListener('keydown', e => {
+  if (e.key.toLowerCase() !== 't' || e.metaKey || e.ctrlKey || e.altKey) return;
+  const el = document.activeElement, tag = el && el.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  const i = THEMES.findIndex(x => x.id === themeId());
+  setTheme(THEMES[(i + 1) % THEMES.length].id);
+  blip('jump');
+});
+document.addEventListener('click', e => {
+  const p = document.getElementById('themepop');
+  if (!p.hidden && !e.target.closest('.themewrap')) p.hidden = true;
+});
+drawThemes();
+if (document.documentElement.dataset.crt === 'off') {
+  document.getElementById('crtbtn').textContent = 'SCANLINES OFF';
+} else { document.getElementById('crtbtn').classList.add('on') }
+
+// An 8-bit blip on anything you press: gold buttons pay out a coin, red ones
+// take damage, everything else jumps. Synthesised, so no asset ships. Off
+// until asked for — a market console that beeps at work is a bug.
+const SND = 'compute_sound';
+let sound = localStorage.getItem(SND) === '1', actx = null;
+function blip(kind) {
+  if (!sound) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const notes = {coin: [[988, 0], [1319, .07]],
+                   bad:  [[247, 0], [165, .09]],
+                   jump: [[523, 0], [784, .06]]}[kind];
+    for (const [hz, at] of notes) {
+      const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + at;
+      o.type = 'square'; o.frequency.setValueAtTime(hz, t);
+      g.gain.setValueAtTime(.05, t);
+      g.gain.exponentialRampToValueAtTime(.0001, t + .13);
+      o.connect(g); g.connect(actx.destination);
+      o.start(t); o.stop(t + .14);
+    }
+  } catch {}
+}
+function toggleSound() {
+  sound = !sound;
+  localStorage.setItem(SND, sound ? '1' : '0');
+  document.getElementById('snd').textContent = 'SOUND ' + (sound ? 'ON' : 'OFF');
+  document.getElementById('snd').classList.toggle('on', sound);
+  blip('coin');
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b || b.id === 'snd') return;
+  blip(b.classList.contains('danger') ? 'bad' : b.classList.contains('go') ? 'coin' : 'jump');
+});
+if (sound) { document.getElementById('snd').textContent = 'SOUND ON';
+             document.getElementById('snd').classList.add('on') }
+
+// the bar behaves like a bar: a dropdown searches when you change it, a field
+// when you press Enter. SEARCH is still there for the mouse.
+for (const id of ['q-gpu-text', 'q-gpus', 'q-vram', 'q-min', 'q-max', 'q-region']) {
+  document.getElementById(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') search();
+  });
+}
+for (const id of ['q-kyc', 'q-kind', 'q-sort']) {
+  document.getElementById(id).addEventListener('change', search);
+}
+
+deployTarget();
+stats();
+search();
+</script>
+</body>
+</html>

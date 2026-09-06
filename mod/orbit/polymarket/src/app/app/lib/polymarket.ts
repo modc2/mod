@@ -14,11 +14,21 @@ export interface TopTrader {
   buyVolume: number;     // in-window USDC on BUYs
   sellVolume: number;    // in-window USDC on SELLs
   pnl: number;
+  /** Share of SETTLED positions that made money, 0-100. `-1` = nothing
+      settled in the window (or the settled book was unreachable) — render it
+      as unknown, never as 0. Read it together with `decidedPositions`: this
+      is a percentage, and a percentage of four is not a track record. */
   winRate: number;
+  /** How many settled positions `winRate` is computed over. */
+  decidedPositions: number;
   /** Sharpe ratio over the window (per-closed-trade returns), computed
       server-side by the same `stats_from_returns` formula the live engine
       uses. Default SCORE metric in the leaderboard. */
   sharpe: number;
+  /** Average exit÷entry price ratio over the window's closed trades
+      (`1 + mean per-trade return`) — 1.0 = break-even, -1 = no closed
+      trades (same "unknown" sentinel as winRate). A SCORE preset. */
+  exitEntry: number;
   positions: number;
   marketTitles: string[];
   recentTrades: number;
@@ -29,7 +39,30 @@ export interface TopTrader {
       Surfaces "last trade Xs ago" in the leaderboard so the user can tell
       whether a high-PnL trader is firing right now vs. went silent days ago. */
   lastTradeTs?: number;
+  /** Unix-seconds of this wallet's FIRST trade ever — its track record, not
+      its window. A 30D board can be topped by an account that opened last
+      week, and the copy sim will quote it a 30-day return over 24 days of
+      flat line; this is what `HISTORY ≥` filters on. Absent = not resolved
+      yet (never treat that as "brand new"). */
+  firstTradeTs?: number;
   pnlCurve?: number[];   // ~12-point cumulative PnL over the window
+}
+
+/** Days of track record behind a trader, or `null` when unresolved.
+ *  `null` is not zero: every gate built on this fails open. */
+export function historyDays(t: { firstTradeTs?: number }, nowSec = Date.now() / 1000): number | null {
+  if (!t.firstTradeTs) return t.firstTradeTs === 0 ? 0 : null;
+  return Math.max(0, (nowSec - t.firstTradeTs) / 86_400);
+}
+
+/** "6d" / "3mo" / "1y" — how long they have been at it, for a dense column. */
+export function formatHistory(t: { firstTradeTs?: number }, nowSec = Date.now() / 1000): string {
+  const d = historyDays(t, nowSec);
+  if (d === null) return "—";
+  if (d < 1) return "<1d";
+  if (d < 60) return `${Math.floor(d)}d`;
+  if (d < 730) return `${Math.floor(d / 30)}mo`;
+  return `${(d / 365).toFixed(1)}y`;
 }
 
 // ── Formatting helpers ──────────────────────────────────────────
@@ -102,6 +135,31 @@ async function polyApi(endpoint: string, params: Record<string, string> = {}): P
   return polyApiQs(endpoint, new URLSearchParams(params));
 }
 
+/** `API 400` alone is unactionable, and the interesting failures here all
+ *  explain themselves: data-api answers a too-deep page with
+ *  `{"error":"max historical activity offset of 5000 exceeded"}`. Carry that
+ *  sentence into the thrown message so a banner can print the REASON rather
+ *  than a number. Keeps the `API <status>` prefix every caller matches on. */
+async function httpErrorMessage(res: Response): Promise<string> {
+  let detail = "";
+  try {
+    const body = await res.text();
+    if (body) {
+      try {
+        const parsed = JSON.parse(body) as { error?: unknown; message?: unknown };
+        const e = parsed?.error ?? parsed?.message;
+        if (typeof e === "string") detail = e;
+      } catch {
+        detail = body;
+      }
+    }
+  } catch {
+    // Body already consumed or unreadable — the status alone will do.
+  }
+  detail = detail.trim().slice(0, 160);
+  return detail ? `API ${res.status}: ${detail}` : `API ${res.status}`;
+}
+
 /** `polyApi` for endpoints that need a param REPEATED rather than set once —
  *  gamma's `condition_ids` is the one that matters (see
  *  `fetchMarketResolutions`). Takes the query already built. */
@@ -125,16 +183,16 @@ async function polyApiQs(endpoint: string, params: URLSearchParams): Promise<unk
       // the upstream data-api rate-limiting us — also transient, but needs a
       // LONGER pause than a blip. Any other 4xx is a real client error (bad
       // address, bad params) and won't change on retry.
-      if (!res.ok) throw new Error(`API ${res.status}`);
+      if (!res.ok) throw new Error(await httpErrorMessage(res));
       return await res.json();
     } catch (e) {
       lastErr = e;
       // Don't burn retries on a deterministic 4xx (429 excepted).
       const msg = e instanceof Error ? e.message : "";
-      if (/^API 4\d\d$/.test(msg) && msg !== "API 429") throw e;
+      if (/^API 4\d\d\b/.test(msg) && !msg.startsWith("API 429")) throw e;
       if (attempt < ATTEMPTS - 1) {
         // Rate-limit: 3s, 8s. Everything else: 300ms, 900ms.
-        const wait = msg === "API 429"
+        const wait = msg.startsWith("API 429")
           ? [3_000, 8_000][attempt]
           : 300 * 3 ** attempt;
         await new Promise((r) => setTimeout(r, wait));
@@ -151,6 +209,10 @@ export const CATEGORIES = [
   { slug: "politics", label: "POLITICS" },
   { slug: "sports", label: "SPORTS" },
   { slug: "crypto", label: "CRYPTO" },
+  // BTC is a sub-slice of CRYPTO, not a sibling — it earns its own pill
+  // because it is the module's densest market family (the 5-minute Up/Down
+  // candles) and "crypto" drags in every altcoin book alongside it.
+  { slug: "btc", label: "BTC" },
   { slug: "pop-culture", label: "CULTURE" },
   { slug: "business", label: "BUSINESS" },
   { slug: "science", label: "SCIENCE" },
@@ -164,6 +226,11 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   politics: ["election", "president", "congress", "senate", "party", "trump", "biden", "vote", "governor", "republican", "democrat", "midterm", "political"],
   sports: ["nba", "nfl", "mlb", "nhl", "soccer", "football", "basketball", "baseball", "tennis", "ufc", "championship", "playoffs", "super bowl", "world cup", "winner:", "score", "game handicap", "match", "beat the", "grand prix", "f1"],
   crypto: ["bitcoin", "btc", "eth", "ethereum", "solana", "sol", "crypto", "token", "altcoin", "defi", "nft", "bnb", "dogecoin", "xrp", "memecoin"],
+  // Bitcoin only — "btc"/"bitcoin" cover both the dated price markets
+  // ("Bitcoin above $110,000 on…") and the 5-minute candles ("Bitcoin Up or
+  // Down — 3:45pm"). Deliberately excludes ETH/SOL/alt keywords: the point of
+  // this bucket is to rank traders on BTC flow alone.
+  btc: ["bitcoin", "btc"],
   "pop-culture": ["movie", "album", "oscar", "grammy", "emmy", "celebrity", "kardashian", "taylor swift", "drake", "rihanna", "box office", "tv show", "streaming"],
   business: ["stock", "market cap", "revenue", "ipo", "company", "ceo", "acquisition", "earnings", "nasdaq", "s&p", "dow"],
   science: ["nasa", "space", "climate", "temperature", "earthquake", "hurricane", "sea ice", "starship", "asteroid", "disease"],
@@ -360,6 +427,85 @@ export async function fetchMarketBySlug(slug: string): Promise<PolymarketMarket 
   return list[0] || null;
 }
 
+/** Look up many markets by slug in one request each 20.
+ *
+ *  For the origination backtest (lib/momentumTape.ts): a recurring candle
+ *  series names its markets deterministically ("btc-updown-5m-<start>"), so a
+ *  past window's markets are addressable without any search — but one request
+ *  per candle would be 288 requests for a single day of 5-minute candles.
+ *
+ *  gamma's `slug` filter repeats like `condition_ids` does, and carries the
+ *  same two traps (see `fetchMarketResolutions`): the param must be REPEATED
+ *  rather than comma-joined, and the default filter EXCLUDES closed markets —
+ *  which is every market a backtest cares about. So each batch is asked twice,
+ *  once with `closed=true` and once without, and only slugs from the batch we
+ *  sent are trusted. */
+export async function fetchMarketsBySlugs(slugs: string[]): Promise<PolymarketMarket[]> {
+  const want = [...new Set(slugs.filter(Boolean))];
+  const out = new Map<string, PolymarketMarket>();
+  const BATCH = 20;
+  for (let i = 0; i < want.length; i += BATCH) {
+    const batch = want.slice(i, i + BATCH);
+    const inBatch = new Set(batch);
+    for (const closed of [true, false]) {
+      // Second pass only for slugs the first didn't answer — a window ending
+      // now has a live candle at its tail that `closed=true` will never return.
+      const missing = batch.filter((s) => !out.has(s));
+      if (missing.length === 0) break;
+      const qs = new URLSearchParams();
+      for (const s of missing) qs.append("slug", s);
+      if (closed) qs.set("closed", "true");
+      qs.set("limit", String(BATCH * 2));
+      let raw: unknown;
+      try {
+        raw = await polyApiQs("markets", qs);
+      } catch {
+        continue; // unanswered — the tape reports the gap as missing coverage
+      }
+      if (!Array.isArray(raw)) continue;
+      for (const m of normalizeMarkets(raw)) {
+        if (m.slug && inBatch.has(m.slug)) out.set(m.slug, m);
+      }
+    }
+  }
+  return [...out.values()];
+}
+
+/** CLOB price history over an EXPLICIT past window, at `fidelity`-minute bars.
+ *
+ *  `fetchPriceHistory` asks for an interval ending now ("6h", "1w"), which a
+ *  historical replay can't use: the window it needs closed hours or days ago.
+ *  The CLOB takes `startTs`/`endTs` (unix SECONDS) instead, and the proxy
+ *  passes both through untouched.
+ *
+ *  Fidelity 1 (1-minute bars) is the finest the CLOB serves — that is the
+ *  ceiling on how much of a 5-minute candle any backtest can see, and why
+ *  `PriceTape.fidelityMs` travels with the result. */
+export async function fetchPriceWindow(
+  tokenId: string,
+  startTsSec: number,
+  endTsSec: number,
+  fidelity = 1,
+): Promise<PricePoint[]> {
+  const cacheKey = `pw_${tokenId}_${startTsSec}_${endTsSec}_${fidelity}`;
+  const cached = getMarketCache(cacheKey);
+  if (cached) return cached as unknown as PricePoint[];
+  const raw = await polyApi("prices-history", {
+    market: tokenId,
+    startTs: String(Math.floor(startTsSec)),
+    endTs: String(Math.ceil(endTsSec)),
+    fidelity: String(fidelity),
+  }) as { history?: { t: number; p: number }[] };
+  const arr = Array.isArray(raw?.history) ? raw.history : [];
+  // prices-history stamps unix SECONDS; every series in this codebase is ms.
+  const result = arr
+    .map((x) => ({ t: Number(x.t) > 1e12 ? Number(x.t) : Number(x.t) * 1000, p: Number(x.p) }))
+    .filter((x) => Number.isFinite(x.t) && Number.isFinite(x.p))
+    .sort((a, b) => a.t - b.t);
+  if (result.length > 0) setMarketCache(cacheKey, result as unknown as unknown[]);
+  return result;
+}
+
 // ── Market RESOLUTION lookups ───────────────────────────────────
 //
 // What a market actually paid out. This is the only way a replay can know
@@ -553,6 +699,12 @@ export interface GlobalTrade {
   price: number;       // 0..1
   size: number;        // shares
   timestamp: number;   // ms
+  /** USDC that actually moved, when the endpoint reports it. That number is
+      `price x size` PLUS the taker fee on a BUY and MINUS it on a SELL, which
+      makes it the only place a fill's REAL fee can be read (lib/fees.ts
+      `observedFeeUsd`). The data-api's `/trades` does not carry it today;
+      `/activity` does, so anything mapped from there arrives priced. */
+  usdcSize?: number;
 }
 
 export async function fetchGlobalTrades(limit = 100, offset = 0): Promise<GlobalTrade[]> {
@@ -591,6 +743,7 @@ function mapDataApiTrades(raw: unknown): GlobalTrade[] {
         price: Number(t.price || 0),
         size: Number(t.size || 0),
         timestamp,
+        usdcSize: Number(t.usdcSize) > 0 ? Number(t.usdcSize) : undefined,
       };
     })
     .filter((t) => t.timestamp > 0 && t.size > 0);
@@ -631,7 +784,29 @@ export interface PagedTradersResult {
   /** Unix seconds when the underlying data was last refreshed from
       Polymarket — true source age, NOT cache hit age. 0 means unknown. */
   syncedAt?: number;
+  /** How many traders the activity floors (`maxLastTradeHrs`/`minTrades24h`)
+      removed. Lets an empty board say WHY it is empty — nobody trades this
+      topic, or everybody who does has been quiet longer than the window. */
+  activityDropped?: number;
+  /** How many the track-record floor (`minHistoryDays`) removed — counted
+      apart from `activityDropped` so an empty board can name the right
+      reason: "everybody went quiet" and "everybody is too new" want
+      different fixes. */
+  historyDropped?: number;
+  /** How many rows on the board have a resolved `firstTradeTs` at all. The
+      floor fails open on the rest, so a low number here means the filter is
+      mostly not being applied yet — the UI says so instead of implying a
+      clean cut. */
+  historyKnown?: number;
 }
+
+/** Default recency lens on every leaderboard read: only traders who have
+    traded in the last N hours. Copying is a live act — a wallet that has been
+    quiet since yesterday can look excellent on a 7-day board and still fill
+    nothing, and the desk's own measurements are full of those. Filtering runs
+    SERVER-side against the warm cache (`apply_pagination`), so this narrows
+    the whole board and its row count without costing a re-aggregation. */
+export const DEFAULT_ACTIVE_HOURS = 6;
 
 export async function fetchTradersPage(opts: {
   days?: number;
@@ -651,6 +826,16 @@ export async function fetchTradersPage(opts: {
   minTrades?: number;
   minBuyVolume?: number;
   minSellVolume?: number;
+  /** Activity floor — minimum trades in the last 24h. */
+  minTrades24h?: number;
+  /** Recency floor — hours since the trader's last trade. See
+      DEFAULT_ACTIVE_HOURS; 0/undefined disables it. */
+  maxLastTradeHrs?: number;
+  /** Track-record floor — minimum days since the trader's FIRST-EVER trade.
+      Filters on `firstTradeTs`; traders whose age hasn't been resolved are
+      kept, so this narrows a board rather than emptying it. 0/undefined
+      disables it. */
+  minHistoryDays?: number;
   /** When true, server bypasses agg + per-trader caches and runs
       a full re-aggregation from Polymarket. Used by the SYNC button. */
   force?: boolean;
@@ -672,6 +857,9 @@ export async function fetchTradersPage(opts: {
   if (opts.minTrades && opts.minTrades > 0) params.set("minTrades", String(opts.minTrades));
   if (opts.minBuyVolume && opts.minBuyVolume > 0) params.set("minBuyVolume", String(opts.minBuyVolume));
   if (opts.minSellVolume && opts.minSellVolume > 0) params.set("minSellVolume", String(opts.minSellVolume));
+  if (opts.minTrades24h && opts.minTrades24h > 0) params.set("minTrades24h", String(opts.minTrades24h));
+  if (opts.maxLastTradeHrs && opts.maxLastTradeHrs > 0) params.set("maxLastTradeHrs", String(opts.maxLastTradeHrs));
+  if (opts.minHistoryDays && opts.minHistoryDays > 0) params.set("minHistoryDays", String(opts.minHistoryDays));
 
   const res = await fetch(`${API_URL}/active-traders?${params.toString()}`, { headers: serverAuthHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}`);
@@ -689,23 +877,32 @@ export const WARMED_CANDIDATE_POOL = 2000;
 // Top-N trader addresses for the currently active filters, sorted by P&L.
 // Used to seed a new/empty strat with a sensible default instead of leaving
 // it at 0 traders — swallows errors and returns [] so callers can no-op.
+//
+// Seeds come from the DEFAULT_ACTIVE_HOURS slice of the board: a strat seeded
+// with wallets that stopped trading yesterday is a strat that places nothing.
+// If nobody clears that bar — the usual cause is a cache snapshot older than
+// the window, not an idle market — fall back to the unfiltered top N rather
+// than hand the caller an empty roster.
 export async function fetchTopTraderAddresses(
   opts: { days?: number; minPerDay?: number; category?: string; marketQuery?: string },
   n = 10,
 ): Promise<string[]> {
+  const query = {
+    days: opts.days,
+    minPerDay: opts.minPerDay,
+    pool: WARMED_CANDIDATE_POOL,
+    category: opts.category || undefined,
+    marketQuery: opts.marketQuery || undefined,
+    sort: "pnl",
+    order: "desc",
+    pageSize: n,
+    page: 0,
+  };
   try {
-    const res = await fetchTradersPage({
-      days: opts.days,
-      minPerDay: opts.minPerDay,
-      pool: WARMED_CANDIDATE_POOL,
-      category: opts.category || undefined,
-      marketQuery: opts.marketQuery || undefined,
-      sort: "pnl",
-      order: "desc",
-      pageSize: n,
-      page: 0,
-    });
-    return res.traders.slice(0, n).map((t) => t.address);
+    const active = await fetchTradersPage({ ...query, maxLastTradeHrs: DEFAULT_ACTIVE_HOURS });
+    if (active.traders.length > 0) return active.traders.slice(0, n).map((t) => t.address);
+    const any = await fetchTradersPage(query);
+    return any.traders.slice(0, n).map((t) => t.address);
   } catch {
     return [];
   }
@@ -785,8 +982,10 @@ export async function fetchTopTradersStream(
           buyVolume: Number(t.buyVolume || 0),
           sellVolume: Number(t.sellVolume || 0),
           pnl: Number(t.pnl || 0),
-          winRate: Number(t.winRate || 0),
+          winRate: Number(t.winRate ?? -1),
+          decidedPositions: Number(t.decidedPositions || 0),
           sharpe: Number(t.sharpe || 0),
+          exitEntry: typeof t.exitEntry === "number" ? t.exitEntry : -1,
           positions: Number(t.positions || 0),
           marketTitles: Array.isArray(t.marketTitles) ? (t.marketTitles as string[]) : [],
           recentTrades: Number(t.recentTrades || 0),
@@ -833,8 +1032,10 @@ export async function fetchTopTraders(
     buyVolume: Number(t.buyVolume || 0),
     sellVolume: Number(t.sellVolume || 0),
     pnl: Number(t.pnl || 0),
-    winRate: Number(t.winRate || 0),
+    winRate: Number(t.winRate ?? -1),
+    decidedPositions: Number(t.decidedPositions || 0),
     sharpe: Number(t.sharpe || 0),
+    exitEntry: typeof t.exitEntry === "number" ? t.exitEntry : -1,
     positions: Number(t.positions || 0),
     marketTitles: Array.isArray(t.marketTitles) ? (t.marketTitles as string[]) : [],
     recentTrades: Number(t.recentTrades || 0),
@@ -864,7 +1065,28 @@ export interface FetchTradesProgress {
   oldestMs: number;        // 0 if we've not seen any trade yet
   done: boolean;
   partial: PolymarketTrade[];
+  /** The walk stopped at the upstream depth ceiling rather than at the
+   *  requested cutoff — see `MAX_ACTIVITY_OFFSET`. The result is the most
+   *  RECENT slice of the window, not the whole window. */
+  depthCapped?: boolean;
 }
+
+/** data-api refuses `/activity` past offset 5000 outright:
+ *  `400 {"error":"max historical activity offset of 5000 exceeded"}`. That is
+ *  a permanent product limit, not a blip — with PAGE=500 the deepest legal
+ *  page starts at offset 5000, so a wallet is readable to 5500 activity rows
+ *  and no retry will ever produce the 5501st.
+ *
+ *  Walking into it threw mid-sync, and since the api proxy flattened every
+ *  upstream 4xx into a 502, the profile reported "TRADE SYNC FAILED (API 502)"
+ *  behind a RETRY SYNC button that could only fail the same way — on exactly
+ *  the high-frequency traders this console exists to watch, and after burning
+ *  eleven pages of upstream requests on every single page load, since a walk
+ *  that throws caches nothing. Stop AT the ceiling and report a capped feed. */
+export const MAX_ACTIVITY_OFFSET = 5000;
+
+/** How many activity rows the ceiling actually allows through. */
+export const MAX_ACTIVITY_ROWS = MAX_ACTIVITY_OFFSET + 500;
 
 export async function fetchWalletTradesUntil(
   address: string,
@@ -894,6 +1116,9 @@ export async function fetchWalletTradesUntil(
       oldestMs: oldest,
       done: true,
       partial: cached,
+      // Cached alongside the trades — a capped feed is still capped on the
+      // second visit, and a notice that vanishes on reload is worse than none.
+      depthCapped: getCached<boolean>(address, "trades_capped") === true,
     });
     return cached;
   }
@@ -905,9 +1130,30 @@ export async function fetchWalletTradesUntil(
   // positions (a different endpoint) loaded fine.
   const PAGE = 500;
   const out: PolymarketTrade[] = [];
+  const seenFills = new Set<string>();
   let oldestMs = 0;
+  // Did the walk end because it reached `untilTs` / ran out of upstream rows,
+  // or because it hit `maxTrades`? See `lastWalkReachedCutoff`.
+  let reached = false;
+  // Did the upstream depth ceiling end the walk? See `MAX_ACTIVITY_OFFSET`.
+  let depthCapped = false;
 
   for (let offset = 0; offset < maxTrades; offset += PAGE) {
+    // The next page is past what data-api will serve for ANY wallet. Asking
+    // anyway earns a deterministic 400 that kills the walk and its cache; end
+    // the walk here instead and let the caller say the feed is capped.
+    if (offset > MAX_ACTIVITY_OFFSET) {
+      depthCapped = true;
+      onProgress?.({
+        pages: offset / PAGE,
+        totalTrades: out.length,
+        oldestMs,
+        done: true,
+        partial: aggregateFills(out.slice()),
+        depthCapped: true,
+      });
+      break;
+    }
     const raw = await polyApi("activity", {
       user: address,
       limit: String(PAGE),
@@ -929,30 +1175,13 @@ export async function fetchWalletTradesUntil(
     for (const t of items) {
       const ts = Number(t.timestamp || 0);
       if (ts > 0 && ts < oldestSec) oldestSec = ts;
-      if (t.type !== "TRADE") continue;
-      const price = Number(t.price || 0);
-      const size = Number(t.size || 0);
-      if (!Number.isFinite(price) || !Number.isFinite(size) || size <= 0) continue;
-      const side = String(t.side || "BUY").toUpperCase() as "BUY" | "SELL";
-      let timestamp = 0;
-      if (typeof t.timestamp === "number") {
-        timestamp = (t.timestamp as number) > 1e12
-          ? (t.timestamp as number)
-          : (t.timestamp as number) * 1000;
-      }
-      if (timestamp <= 0) continue;
-      out.push({
-        id: String(t.transactionHash || ""),
-        market: String(t.title || t.slug || ""),
-        slug: t.slug ? String(t.slug) : undefined,
-        conditionId: String(t.conditionId || t.asset || ""),
-        side,
-        price,
-        size,
-        pnl: Number(t.pnl || 0),
-        timestamp,
-        outcome: t.outcome as string | undefined,
-      });
+      const parsed = parseActivityTrade(t);
+      if (!parsed) continue;
+      // A row this walk has already banked — see `fillFingerprint`.
+      const fp = fillFingerprint(parsed);
+      if (seenFills.has(fp)) continue;
+      seenFills.add(fp);
+      out.push(parsed);
     }
 
     if (Number.isFinite(oldestSec)) oldestMs = oldestSec * 1000;
@@ -967,20 +1196,45 @@ export async function fetchWalletTradesUntil(
       totalTrades: out.length,
       oldestMs,
       done,
-      partial: out.slice(),
+      partial: aggregateFills(out.slice()),
     });
 
-    if (done) break;
+    // The loop's own bound (`offset < maxTrades`) can end the walk with the
+    // cutoff never reached — the trader simply has more rows in the window
+    // than the cap. That is a TRUNCATED feed, and the caller has to be told,
+    // because "30 days requested" then isn't "30 days held".
+    if (done) {
+      reached = true;
+      break;
+    }
   }
 
   // ── Store in hourly cache + build CID index ──
   // Drop the last page's spillover past the 30-day ceiling before caching
   // so the stored array (and its per-CID index copies) stays bounded.
   // Empty results are cached too — see the cache-first read above.
-  const trimmed = out.filter((t) => t.timestamp >= minUntilTs * 1000);
+  // Aggregate LAST, over the whole walk: a transaction's fills can straddle a
+  // page boundary, and grouping per page would leave two partial rows sharing
+  // one id.
+  const trimmed = aggregateFills(out).filter((t) => t.timestamp >= minUntilTs * 1000);
   setTradeCache(address, trimmed);
+  setCache(address, "trades_capped", depthCapped);
+  lastWalkReachedCutoff.set(address.toLowerCase(), reached);
 
   return trimmed;
+}
+
+/** address → did the last full walk page all the way back to its cutoff?
+ *  `false` means the row cap stopped it early and the result covers less
+ *  history than was asked for. Kept beside the fetch rather than returned so
+ *  the (many) existing callers of `fetchWalletTradesUntil` are untouched; the
+ *  feed store is the one that has to record honest coverage. */
+const lastWalkReachedCutoff = new Map<string, boolean>();
+
+/** Whether the most recent full walk for `address` reached its cutoff.
+ *  `undefined` when this process has not walked that address. */
+export function walkReachedCutoff(address: string): boolean | undefined {
+  return lastWalkReachedCutoff.get(address.toLowerCase());
 }
 
 // Parse a single /activity row into a PolymarketTrade or null. Shared by the
@@ -998,18 +1252,101 @@ function parseActivityTrade(t: Record<string, unknown>): PolymarketTrade | null 
       : (t.timestamp as number) * 1000;
   }
   if (timestamp <= 0) return null;
+  const usdc = Number(t.usdcSize ?? 0);
   return {
     id: String(t.transactionHash || ""),
     market: String(t.title || t.slug || ""),
     slug: t.slug ? String(t.slug) : undefined,
     conditionId: String(t.conditionId || t.asset || ""),
+    // The token, not the market — a condition has a Yes leg and a No leg, and
+    // aggregating fills needs to tell them apart within one transaction.
+    asset: t.asset ? String(t.asset) : undefined,
     side,
     price,
     size,
+    usdcSize: Number.isFinite(usdc) && usdc > 0 ? usdc : undefined,
     pnl: Number(t.pnl || 0),
     timestamp,
     outcome: t.outcome as string | undefined,
   };
+}
+
+/** Identity of a single FILL, for spotting a row the walk has already seen.
+ *
+ *  `/activity` pages by OFFSET over a newest-first feed, so a trade landing
+ *  mid-walk shifts every row down and the next page re-serves rows the
+ *  previous one already returned. Left alone that double-counts: a real walk
+ *  came back with 41.65 shares of a sale the wallet had made once, for 20.82.
+ *  It didn't show before fills were aggregated only because the duplicate
+ *  arrived as a second row under the same id and got deduped away downstream —
+ *  the miscount was always there, just hidden by the bug above it.
+ *
+ *  Safe to key on because a fill is unique at this granularity: across 1,950
+ *  live rows there was not one exact repeat inside a page, where offset drift
+ *  is impossible by construction. */
+function fillFingerprint(t: PolymarketTrade): string {
+  return `${t.id}|${t.asset ?? t.conditionId}|${t.side}|${t.price}|${t.size}|${t.timestamp}`;
+}
+
+/** Collapse the fills of one leader action into one trade.
+ *
+ *  An `/activity` row is a FILL, not an order: a leader walking the book gets
+ *  one row per price level, all sharing a transaction hash. `id` IS that hash,
+ *  so anything that dedupes by id — the incremental sync's `seenIds`, the live
+ *  engine's `copied_ids` — silently kept the first fill and discarded the
+ *  rest. Diffed against upstream, a busy leader's stored feed was missing 6.5%
+ *  of its fills; across the whole feed store, 9.6k rows had been collapsed
+ *  onto a hash that already had one.
+ *
+ *  Aggregating (rather than giving each fill a unique id) is what keeps the
+ *  economics right: total shares and total USDC are preserved, `price` becomes
+ *  the fill-weighted average the leader actually paid, and one leader action
+ *  stays one row instead of nine sub-minimum ones.
+ *
+ *  Grouped by `(hash, token, side)`; a transaction touching two tokens is two
+ *  actions. The first group keeps the bare hash as its id, so ids already
+ *  persisted in feeds and in the engine's copied set still match — only the
+ *  extra groups get a `#n` suffix, in first-seen order.
+ *
+ *  Mirrors `aggregate_fills` in api/src/live_engine.rs. */
+export function aggregateFills(fills: PolymarketTrade[]): PolymarketTrade[] {
+  const slot = new Map<string, number>();
+  const groupsPerHash = new Map<string, number>();
+  const pxNotional: number[] = [];
+  const out: PolymarketTrade[] = [];
+
+  for (const f of fills) {
+    // `asset` is absent on rows parsed before it was carried; conditionId +
+    // outcome identifies the same token for those.
+    const token = f.asset ?? `${f.conditionId}:${f.outcome ?? ""}`;
+    const key = `${f.id}|${token}|${f.side}`;
+    const at = slot.get(key);
+    if (at !== undefined) {
+      pxNotional[at] += f.price * f.size;
+      out[at].size += f.size;
+      out[at].usdcSize = (out[at].usdcSize ?? 0) + (f.usdcSize ?? f.price * f.size);
+      out[at].pnl += f.pnl;
+      if (f.timestamp > out[at].timestamp) out[at].timestamp = f.timestamp;
+      continue;
+    }
+    const suffix = groupsPerHash.get(f.id) ?? 0;
+    groupsPerHash.set(f.id, suffix + 1);
+    slot.set(key, out.length);
+    pxNotional.push(f.price * f.size);
+    out.push({
+      ...f,
+      id: suffix > 0 ? `${f.id}#${suffix}` : f.id,
+      usdcSize: f.usdcSize ?? f.price * f.size,
+    });
+  }
+
+  for (let i = 0; i < out.length; i++) {
+    // Fill-weighted average PRICE — deliberately not `usdcSize / size`, which
+    // would fold the sell fee into a number the gates read as "the level the
+    // leader traded at".
+    if (out[i].size > 0) out[i].price = pxNotional[i] / out[i].size;
+  }
+  return out;
 }
 
 // Minimum wall-clock between two /activity syncs of the SAME trader, shared
@@ -1091,11 +1428,25 @@ async function syncWalletTrades(
     return fetchWalletTradesUntil(address, windowUntilTsSec);
   }
 
-  const seenIds = new Set(existing.map((t) => t.id));
-  const fresh: PolymarketTrade[] = [];
+  // Every FILL seen this walk, aggregated only at the end — a transaction's
+  // fills can straddle a page boundary, so grouping per page would emit two
+  // partial rows under one id.
+  //
+  // Note what is NOT here any more: the old loop skipped a row whose id was
+  // already in `existing` and treated that as "we're in known territory". Both
+  // halves were wrong once `id` is a transaction hash rather than a fill id —
+  // the skip discarded the 2nd..Nth fill of every new book-walking order, and
+  // the early break truncated the page walk on the strength of a row that was
+  // only *partly* known. Known territory is now decided purely by timestamp,
+  // which a fill can't lie about.
+  const fills: PolymarketTrade[] = [];
+  const seenFills = new Set<string>();
   const PAGE = 500;
 
   for (let page = 0; page < maxPages; page++) {
+    // Same hard ceiling the full walk stops at — a caller that raises
+    // `maxPages` must not turn every catch-up into a deterministic 400.
+    if (page * PAGE > MAX_ACTIVITY_OFFSET) break;
     const raw = await polyApi("activity", {
       user: address,
       limit: String(PAGE),
@@ -1105,34 +1456,45 @@ async function syncWalletTrades(
     const items = raw as Record<string, unknown>[];
 
     let oldestSec = Number.POSITIVE_INFINITY;
-    let hitKnown = false;
     for (const t of items) {
       const ts = Number(t.timestamp || 0);
       if (ts > 0 && ts < oldestSec) oldestSec = ts;
       const parsed = parseActivityTrade(t);
       if (!parsed) continue;
-      if (seenIds.has(parsed.id)) {
-        hitKnown = true;
-        continue;
-      }
-      fresh.push(parsed);
-      seenIds.add(parsed.id);
+      // Offset drift re-serves rows across pages — see `fillFingerprint`.
+      const fp = fillFingerprint(parsed);
+      if (seenFills.has(fp)) continue;
+      seenFills.add(fp);
+      fills.push(parsed);
     }
-    // Stop once we've paged into already-cached territory (we have everything
-    // newer) or once the API returned a short page (no more data upstream).
-    if (hitKnown || items.length < PAGE) break;
-    // Belt-and-suspenders: if oldest item in the page is already older than
-    // our newest cached trade, we're definitely in known territory.
+    // Short page — nothing older upstream.
+    if (items.length < PAGE) break;
+    // Paged past the newest trade we already hold, so everything from here
+    // down is known. `<` not `<=`: re-walking the boundary transaction is the
+    // point — it may have been stored from a partial page, and re-aggregating
+    // it replaces the undercounted row below.
     if (Number.isFinite(oldestSec) && oldestSec * 1000 < newestMs) break;
   }
 
-  if (fresh.length === 0) return existing;
+  if (fills.length === 0) return existing;
+
+  const fresh = aggregateFills(fills);
+  // Nothing new AND nothing restated — hand back the caller's own array so an
+  // unchanged feed doesn't rewrite the cache every cycle.
+  const byId = new Map(existing.map((t) => [t.id, t]));
+  if (fresh.every((t) => byId.get(t.id)?.size === t.size)) return existing;
+
+  // A re-walked transaction is more complete than the stored copy of it (which
+  // may predate aggregation, or have been cut off by a page edge), so the
+  // fresh aggregate REPLACES it rather than being deduped away.
+  const refreshed = new Set(fresh.map((t) => t.id));
+  const kept = existing.filter((t) => !refreshed.has(t.id));
 
   // Merge + persist. Newest-first ordering matches what the rest of the app
   // expects from the bulk fetch path. Trades that have aged past the global
   // 30-day ceiling fall off here so the cache can't grow without bound.
   const floorMs = Date.now() - MAX_LOOKBACK_DAYS * 86400_000;
-  const merged = [...fresh, ...existing]
+  const merged = [...fresh, ...kept]
     .filter((t) => t.timestamp >= floorMs)
     .sort((a, b) => b.timestamp - a.timestamp);
   setTradeCache(address, merged);
@@ -1371,11 +1733,18 @@ export async function fetchTraderRoiStats(
     returns.push(t.realized / entryNotional);
   }
 
+  // Most recent trade of any side — what the FILTER's staleness gate reads.
+  // A trader with nothing inside the window leaves this 0, which the gate
+  // reads as infinitely stale (correctly: they haven't traded in `windowDays`).
+  let lastTradeAt = 0;
+  for (const t of trades) if (t.timestamp > lastTradeAt) lastTradeAt = t.timestamp;
+
   return {
     address: address.toLowerCase(),
     windowDays,
     ...statsFromReturns(returns),
     cashDeployed,
+    lastTradeAt,
     syncedAt: Date.now(),
   };
 }

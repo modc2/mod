@@ -4,18 +4,24 @@ OpenHouse API — FastAPI wrapper over openhouse mod.
 Serves the OpenHouse Mod class methods as REST endpoints.
 Launched/killed via mod.py serve_api() / kill_api().
 """
+import json
 import sys
 import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
+# This directory, so `mcp_server` resolves however this module is loaded —
+# uvicorn puts it on the path via --app-dir, a test importing by path does not.
+sys.path.insert(0, str(Path(__file__).parent))
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import mod as m
+
+from mcp_server import build_router as build_mcp_router
 
 # Lazy singleton
 _openhouse = None
@@ -27,10 +33,18 @@ def get_openhouse():
     return _openhouse
 
 
+def _version():
+    try:
+        with open(Path(__file__).parent.parent / "config.json") as f:
+            return json.load(f).get("version", "0.0.0")
+    except Exception:
+        return "0.0.0"
+
+
 app = FastAPI(
     title="OpenHouse API",
     description="Collective asset ownership platform — fractional property ownership",
-    version="2.0.0",
+    version=_version(),
 )
 
 app.add_middleware(
@@ -298,6 +312,14 @@ def deploy(req: DeployRequest):
     return result
 
 
+# ── MCP ─────────────────────────────────────────────────────────
+
+# POST /mcp — the same protocol as a set of JSON-RPC tools, for LLM agents.
+# The router calls get_openhouse() per tool call, so it reads exactly what
+# the REST endpoints above read.
+app.include_router(build_mcp_router(get_openhouse, app.version))
+
+
 # ── Generic forward ─────────────────────────────────────────────
 
 @app.post("/forward")
@@ -319,5 +341,5 @@ async def forward(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "50130"))
+    port = int(os.getenv("PORT", "50132"))
     uvicorn.run(app, host="0.0.0.0", port=port)

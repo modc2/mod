@@ -1,146 +1,50 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+// /strats — RETIRED, kept as a forwarder.
+//
+// This was the console's front door: a board of saved strats, each with its
+// capital and its bench. It is gone because it was a page you had to visit to
+// set two things that the workspace already edits inline — capital lives in
+// the SETTINGS panel above the charts, and the bench is the TRADERS tab. The
+// console is three tabs now: TRADERS, BACKTEST, LIVE.
+//
+// Two link shapes still land here and both must keep working — they are in
+// bookmarks, in browser history and in every chat log the console was ever
+// linked in:
+//
+//   /strats?id=copy-<address>   →  that leader's workspace
+//   /strats                     →  the new front door
+//
+// Switching between saved strats is the copy book in the side panel
+// (components/StratSidebar.tsx), which is reachable from every screen.
+//
+// basePath ("/polymarket") is prepended automatically — pass paths WITHOUT it.
+
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import TopBar from "../components/TopBar";
-import CopyIndex from "../components/CopyIndex";
-import StratHub from "../components/StratHub";
-import ConfirmDeleteStrat from "../components/ConfirmDeleteStrat";
-import { useUrlSync } from "../context/FiltersContext";
-import { useAuth } from "../context/AuthContext";
-import { useStratManager } from "../lib/stratManager";
-import { useStratStats } from "../lib/stratStats";
-import { fetchPublicStrats, type PublicStratEntry } from "../lib/stratSync";
-import { useHubBacktests, HUB_BACKTEST_DAYS, HUB_WINDOWS } from "../lib/hubBacktest";
-import { setActiveIndexId } from "../lib/indexStore";
 
-/** Remembers the hub's backtest window across visits. */
-const HUB_DAYS_KEY = "polymarket.hub.days";
+import { addressFromStrategyId } from "../lib/identityStrat";
 
-/// /strats is two screens on one route:
-///
-///   /strats          → the STRAT HUB: every saved strat as a card, headlined
-///                      by its 1-day backtest (all cards, same window, same
-///                      engine — so they're comparable).
-///   /strats?id=<id>  → that strat's workspace: the STRAT / BACKTEST / LIVE
-///                      tabs, each with a subtab rail (STRAT → BUILD/SOURCE/
-///                      MARKET, BACKTEST → RESULTS/TRADES, LIVE → PORTFOLIO/
-///                      POSITIONS/STATS/TRADES/WALLET/HELP). Strat
-///                      select/create lives in the TopBar picker, rename/delete
-///                      in the STRAT tab, and the go-live checklist in the LIVE
-///                      tab. Wallet/token/QR pairing, trading-wallet deposit/
-///                      withdraw, bridge funds in, and legacy V1 migration all
-///                      live under the LIVE → WALLET subtab (CopyIndex).
-function StratsInner() {
-  useUrlSync();
+function StratsRedirect() {
   const router = useRouter();
-  const openId = useSearchParams().get("id");
+  const params = useSearchParams();
+  const legacyId = params?.get("id") ?? null;
+  const legacyAddress = legacyId ? addressFromStrategyId(legacyId) : null;
 
-  // CopyIndex reads the active strat out of indexStore on mount, so the URL's
-  // id has to land there BEFORE it renders — hence the gate rather than a
-  // plain effect (a child's effects run before its parent's).
-  const [ready, setReady] = useState(false);
+  // An effect rather than a server redirect: `addressFromStrategyId` reads a
+  // client-side id format, and the destination workspaces are localStorage
+  // backed, so the two can't share a render pass.
   useEffect(() => {
-    if (openId) {
-      setActiveIndexId(openId);
-      window.dispatchEvent(new Event("strat-updated"));
-    }
-    setReady(true);
-  }, [openId]);
+    router.replace(legacyAddress ? `/copy/${legacyAddress}` : "/traders");
+  }, [legacyAddress, router]);
 
-  return (
-    <div className="max-w-[1920px] mx-auto">
-      <TopBar showSearch={false} />
-      <div className="p-4">
-        {openId
-          ? ready && <CopyIndex searchFilter="" />
-          : <Hub onOpen={(id) => router.push(`/strats?id=${id}`)} />}
-      </div>
-    </div>
-  );
-}
-
-/// The hub's wiring: the shared strat manager for every mutation, the engine
-/// ledger for real money, and one N-day replay per card — saved strats and
-/// recommended templates alike — for the headline.
-function Hub({ onOpen }: { onOpen: (id: string) => void }) {
-  const {
-    indexes, activeId, select, create, createIdentity, fork, forkDefault,
-    importPublic, setVisibility,
-    requestDelete, pendingDelete, confirmDelete, cancelDelete,
-  } = useStratManager();
-  const { stats } = useStratStats();
-  const { auth } = useAuth();
-
-  // The PUBLIC shelf — every published strat, from every account. Loaded
-  // once per hub visit and refreshed after any publish/unpublish from here.
-  const [publicStrats, setPublicStrats] = useState<PublicStratEntry[]>([]);
-  const [publicLoading, setPublicLoading] = useState(true);
-  const reloadPublic = () => {
-    fetchPublicStrats().then((rows) => {
-      setPublicStrats(rows);
-      setPublicLoading(false);
-    });
-  };
-  useEffect(() => { reloadPublic(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // The window survives navigation: someone comparing strats over 7 days
-  // shouldn't be dropped back to 24h every time they open one.
-  const [days, setDays] = useState(HUB_BACKTEST_DAYS);
-  useEffect(() => {
-    const stored = Number(localStorage.getItem(HUB_DAYS_KEY));
-    if (HUB_WINDOWS.includes(stored)) setDays(stored);
-  }, []);
-  const changeDays = (d: number) => {
-    setDays(d);
-    try {
-      localStorage.setItem(HUB_DAYS_KEY, String(d));
-    } catch {
-      // Shared-origin quota — the window just won't persist.
-    }
-  };
-  const { results, pending, loading, worker, refresh } = useHubBacktests(indexes, days);
-
-  const open = (id: string) => { select(id); onOpen(id); };
-
-  return (
-    <>
-      <StratHub
-        indexes={indexes}
-        stats={stats}
-        backtests={results}
-        backtestPending={pending}
-        backtestLoading={loading}
-        worker={worker}
-        days={days}
-        onDaysChange={changeDays}
-        activeId={activeId}
-        onSelect={open}
-        onDelete={requestDelete}
-        onCreate={() => { const idx = create(); onOpen(idx.id); }}
-        // A fork exists to be changed — land in its workspace.
-        onForkSaved={(id) => { const copy = fork(id); if (copy) onOpen(copy.id); }}
-        onFork={(t) => { const idx = forkDefault(t); onOpen(idx.id); }}
-        onRefresh={refresh}
-        publicStrats={publicStrats}
-        publicLoading={publicLoading}
-        myAddress={auth.address ?? null}
-        onImportPublic={(e) => { const copy = importPublic(e); onOpen(copy.id); }}
-        onSetVisibility={(id, pub) => { void setVisibility(id, pub).then(reloadPublic); }}
-        onCreateIdentity={(addr) => { const idx = createIdentity(addr); onOpen(idx.id); }}
-      />
-      <ConfirmDeleteStrat
-        name={pendingDelete === null ? null : indexes.find((i) => i.id === pendingDelete)?.name ?? pendingDelete}
-        onConfirm={confirmDelete}
-        onCancel={cancelDelete}
-      />
-    </>
-  );
+  return <p className="p-4 text-[12px] text-pixel-gray font-mono">opening…</p>;
 }
 
 export default function StratsPage() {
   return (
     <Suspense>
-      <StratsInner />
+      <StratsRedirect />
     </Suspense>
   );
 }

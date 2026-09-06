@@ -1,0 +1,39 @@
+[package]
+name = "github-api"
+version = "0.2.0"
+edition = "2021"
+
+[[bin]]
+name = "github-api"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+parking_lot = "0.12"
+
+# GitHub REST + raw.githubusercontent.com. rustls so no OpenSSL is needed.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# mod-protocol token verification: recover the signer of a secp256k1 signature
+# over either digest the fleet produces (raw keccak, or EIP-191 personal_sign).
+k256 = { version = "0.13.4", features = ["ecdsa"] }
+tiny-keccak = { version = "2.0.2", features = ["keccak"] }
+hex = "0.4.3"
+base64 = "0.22"
+regex = "1"
+urlencoding = "2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

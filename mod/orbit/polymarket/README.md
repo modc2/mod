@@ -1,6 +1,243 @@
 # polymarket
 
-Polymarket prediction market interface with trading, data, scraping, and backtesting. Rust-powered engine with Python CLI and a modern dark Next.js terminal app (Inter / JetBrains Mono, rounded panels, live market ticker).
+**Copy a bench of traders at your own scale. You put capital behind an index of names; every trade they make is re-sized by the ratio between your money and theirs.**
+
+The console is **three tabs**, and they read left to right as one sentence:
+
+| tab | route | what you do there |
+|---|---|---|
+| **STRATS** | `/polymarket/strats` | pick a strategy, and set the capital behind it |
+| **TRADERS** | `/polymarket/traders` | put traders on its bench |
+| **TEST & LIVE** | `/polymarket/live` | replay it against history, then run it against the book |
+
+There is no fourth. Money — topping up and taking it back out — is **not a tab**: it is the MONEY block in the right-hand side panel, open from anywhere, over whatever you were looking at (`app/components/MoneyBlock.tsx`). A funding form you have to navigate to is a funding form you navigate *away from a running session* to reach.
+
+### The default strat is a TRADER INDEX
+
+You never set a dollar amount per name. You set one number — **capital** — and the index does the rest:
+
+```
+mirror$  =  their$  ×  (yourCapital × weight) / theirBankroll
+```
+
+They stake 2% of their book on something, you stake 2% of yours. Their $50,000 conviction bet and their $200 punt land on your book 250× apart, which is the only thing worth copying about a whale. `weight` is that trader's share of the bench (equal by default), and `theirBankroll` is their live net worth on Polymarket — positions at mark plus free collateral, read from the same `GET /live/bankroll` the engine divides by.
+
+That expression is `copyRatioFor(..., "bankroll")` in `app/lib/strats/strat.ts`, pinned line-for-line against the Rust engine's `copy_ratio_for`. The layer above it — naming the model, projecting it onto a real trade, and saying what it *cannot* see — is `app/lib/traderIndex.ts`, rendered by `app/components/IndexScaleCard.tsx` and covered by `npx tsx app/lib/__test_trader_index__.ts` (31 checks).
+
+**The honest part.** Bankroll sizing has a cost, and the console states it rather than papering over it. A $1,000 index against a $100,000 trader runs at 1%: their $5,000 entry becomes $50, and their $50 punt becomes 50¢ — under Polymarket's order floor (`max($1, 5 shares × price)`), so the engine refuses it as `SUB_SCALE`. It is **not** inflated to the minimum, because an index whose every order is the same $2.55 is not an index of anything. The SCALE card names the threshold ("the smallest trade of theirs that reaches you is ~$125"), names the capital that would clear it, and offers the other model — `sizing: "flow"`, which divides by the capital they *deployed this window* instead of their whole balance sheet: more coverage, smaller ratio, no longer a risk mirror.
+
+```
+   the best traders of the week                your capital
+            │                                       │
+            ▼                                       ▼
+   ┌──────────────────┐                   ┌──────────────────┐
+   │  the bench       │  ── weight ──►    │  TRADER INDEX    │
+   │  8 addresses     │                   │  one strat       │
+   └──────────────────┘                   └────────┬─────────┘
+                                                   │  ratio per leader
+                                       ┌───────────┴───────────┐
+                                       ▼                       ▼
+                              ┌─────────────────┐    ┌──────────────────┐
+                              │ TEST (backtest) │    │ LIVE (engine)    │
+                              │ same math       │    │ DRY RUN / REAL   │
+                              └─────────────────┘    └──────────────────┘
+```
+
+Everything else in this module is machinery under those three tabs: a strategy engine, a backtest worker, a live copy engine, a Rust API and an MCP server. It is documented below because when a leader isn't being copied, the answer is always in there.
+
+### The per-trader copy desk (`/copy`)
+
+The console's older unit was an **allocation**: one leader, one dollar amount, one session each — the COPY DESK. It is still there, still running, still the thing `pm_copy_*` over MCP reads and writes; it is linked from the bottom of the STRATS board and is no longer the front door. The two models coexist cleanly because they meet at the same object: an allocation is materialized into an *identity strat* (below), and a trader index is a strat with more than one name on it. Same engine, same backtest, same ledger.
+
+### The copy book
+
+`~/.mod/polymarket/copy/book.json` — server-owned, plaintext, owner-gated (`api/src/copy.rs`). One line per leader:
+
+```json
+{ "address": "0xab…", "label": "SPORTS SHARP", "allocationUsd": 250,
+  "enabled": true, "params": { "maxTrade": 40 }, "notes": "why I'm copying them" }
+```
+
+**The amount is the whole position-sizing model.** The live engine budgets against it; the backtest replays with it. Change it and you change both.
+
+It lives on the server rather than in the browser for one reason: saved strats sync **encrypted** with a key the browser never uploads (`api/src/strats.rs`), so nothing outside that one tab can read them — and an agent that cannot see what it is copying cannot reason about it. The book holds no keys and no wallet state, only addresses, dollars and a few tunables, and every route to it is already behind the owner-only access gate.
+
+### The copy book, in the sidebar
+
+The book is a right-hand column on **every page** (`app/components/UserSidebar.tsx` → `CopyPanel.tsx`), opened from the sidebar handle or the wallet chip in the top-right. It is built around a ROSTER, not a row — a desk is a set of traders with different amounts behind them, and every control here acts on as many of them as you check:
+
+1. **Select** — paste one address, or paste a whole list: every `0x…` in the blob is added, each with the amount beside it, so "copy these five" is one gesture rather than five. `▦ FIND` goes to the full desk and its market search.
+2. **Fund** — the `$` on each row *is* the sizing model. Check any number of rows and the bulk bar appears: `SET EACH $N`, `▶`, `■`, `PAUSE`, `RESUME`, `DROP`, or hand the selection to the `BASKET` screen. Desk-wide there is `BANKROLL` + `SPLIT EVEN`, and `▶ START ALL` / `■ STOP ALL` behind one TEST·LIVE switch.
+3. **BACKTEST** (was MEASURE) — `$N` over `1D · 3D · 7D · 14D · 30D`, per row, through the same `identityStrat → runBacktest` pipeline the desk cards and the live engine use.
+4. **RESULTS** — the MY COPY TRADES join (below): what the leaders did, what landed in my wallet, and the coverage number over both. The sentence box filters it, and `ARM AS GATE` turns the same sentence into the rule the checked traders copy under.
+
+Three deliberate restraints:
+
+- The block only mounts while it is **expanded**, and BACKTEST / RESULTS are separately collapsible and separately mounted. A docked column is open on every page; a book poll, a replay sweep and a wallet walk on every mount would be a request storm for something nobody is looking at.
+- The sim amount starts **blank**, meaning "each row at its own allocation" — the signature the background worker already replayed, so the default view paints from its cache. Typing an amount is what asks this browser to re-replay, an explicit act with a cost.
+- Dense controls carry `btn-xs` / `input-xs` (`globals.css`). That file loads *after* `@tailwind utilities`, so `.pixel-btn` (13px, 8×14 padding) beats a `text-[9px] px-1.5` on the same element — the two-class variants are how a 340px column gets buttons its own size instead of desk-sized ones that wrap.
+
+Everything it renders is server state (`GET /copy/book`, `POST /copy/*`), so an allocation an agent moved over MCP appears here on the next poll and vice versa.
+
+### MY COPY TRADES — did any of it actually land?
+
+`/copy/trades` (and the compact copy of the same component in the sidebar) answers the one question a backtest card and a green RUNNING dot both dodge: **of the trades the leaders made, how many are in my wallet?**
+
+Nothing upstream links the two halves. A fill is a row in my wallet's activity and carries no leader tag, so the join is inferred, in `app/lib/copyTrades.ts` — same market (conditionId, else the title), same side, my fill at or *after* theirs within `matchMinutes` (30 by default), nearest wins, and one leader trade can be claimed only once. What comes out:
+
+| | |
+|---|---|
+| `COVERAGE` | copied ÷ their trades. The headline. A desk that looks busy and copies 3 of 60 is the failure mode this module keeps re-finding. |
+| `LAG` | median seconds between their fill and mine. |
+| `SLIP` | what the lag cost, in cents signed against their price (positive = I paid up for being late). |
+| `UNATTRIBUTED` | fills of mine with **no** leader behind them — the engine's own stop-loss/take-profit exits, or hand trades from the same wallet. Reported, never quietly credited to a leader. |
+
+The full board adds a per-leader table (who I keep up with and who I don't) and `MISSED`, which is the useful half: every leader trade with no fill behind it, next to the `⊘` that says so.
+
+Cost note: the leaders' side is read out of the **worker's feed store** through `app/api/copytrades/route.ts` — the same bytes `/api/hub` and `/api/basket` replay over — so a ten-name desk costs one wallet walk, not eleven paginated `/activity` walks (see the offset ceiling). A leader nobody has fetched yet comes back in `warming`, which the screen prints as a fact about the *cache*, not about the trader.
+
+### Filtering trades the way you'd say it
+
+`app/lib/semanticFilter.ts` turns one line of English into a filter — and then back into a gate the live engine already enforces.
+
+```
+big buys on crypto under 30c        →  BUY · ≥$500 · ≤30¢ · CRYPTO
+politics, not candles               →  POLITICS · NOT CANDLES (screen-only)
+missed longshots last 3 days        →  MISSED · ≤15¢ · LAST 3D
+sports coin flips over $200         →  SPORTS · 40–60¢ · ≥$200
+big buys against the crowd          →  BUY · ≥$500 · AGAINST THE CROWD
+crypto with the crowd, 12h momentum →  CRYPTO · WITH THE CROWD · 12H WINDOW
+buying the dip on politics          →  BUY · AGAINST THE CROWD · POLITICS
+```
+
+Why it exists: the console's older `marketQuery` matches a market **title** literally, and almost no Polymarket title contains the word "crypto" — the flow is "Bitcoin above $110,000", "ETH up or down", "Will SOL…". So the parser expands a concept lexicon (crypto → btc/eth/sol/…, sports → nba/nfl/lakers/…, candles → "up or down"/5m/…) and pulls the attribute clauses out of the same sentence: a side, a price band (including `longshots`, `favorites`, `coin flips`), a notional band (`whales`, `dust`, `over $500`), a window, an outcome leg, a leader, and a `copied`/`missed` status.
+
+Two properties make it worth trusting:
+
+- **Every clause it read is a chip**, with the terms it expanded to in the tooltip. A filter that silently drops 90% of a feed is indistinguishable from a broken feed.
+- **`compileGate()` emits the engine's own dialect** — a `marketQuery` in the exact comma-OR / space-AND form `lib/marketQuery.ts` and its Rust mirror `market_matches_query` parse, plus a `TradeFilters` for the attribute half. `ARM AS GATE` writes that pair onto the checked allocations (`params.marketQuery` + `params.tradeFilters`), so the sentence you filtered your history with becomes the rule the session runs under, with no second matcher invented for the browser. A test pins that the two agree title for title.
+
+Anything that **cannot** be expressed that way — the time window, an exclusion (`not candles`), `missed`, a leader filter — comes back in `viewOnly` and is shown dashed and dimmed. The screen never implies the engine is enforcing something it isn't.
+
+### The third gate: MARKET SENTIMENT
+
+`marketQuery` says which **markets**. `tradeFilters` says which **trades** inside them. Neither can see the thing a person actually means by "don't copy that": what the **market** was doing when the leader took the trade. A $2,000 buy at 34¢ is the same row whether the crowd had been walking that outcome up all morning or dumping it since midnight, and those are not the same trade.
+
+`app/lib/marketSentiment.ts` is that dimension, defined as narrowly as the data honestly allows:
+
+```
+drift = p(at the trade) − p(N hours earlier)    on the leader's OWN outcome token
+
+  BULLISH   odds rising into their entry — with the crowd, paying up
+  BEARISH   odds falling — a contrarian entry, buying the dip
+  FLAT      moved less than the flat band (2¢) either way
+  UNKNOWN   no usable price history
+```
+
+Measuring it on the token **they** traded is what makes the sign mean one thing: positive always means the crowd was moving toward what they bought, whichever leg that is. It is price drift on one token over one window — not news, not social sentiment, not a forecast, and the card says so.
+
+**Unknown passes.** A market whose history didn't load has no mood, and a filter that silently rejected it would be this module's oldest bug (a gate nobody chose, refusing most of the flow — see the missing price floor in `tradeFilters.ts`) wearing a new name. `unknown: "block"` exists and is always an explicit choice.
+
+It runs in all four places the market gate runs, and the same way:
+
+| where | file |
+|---|---|
+| the desk — one row of four buttons, plus the receipt | `app/components/SentimentCard.tsx`, `app/lib/useSentimentBook.ts` |
+| the gate | `app/lib/tradeFilters.ts` (`TradeFilters.sentiment`) |
+| the live engine | `api/src/sentiment.rs`, applied as a batched pass over each cycle's candidates |
+| the replay | `Strat.withSentiment(lookup)` — the backtest reads each trade at **its own** timestamp, so it is the reading live would have taken, not today's mood applied to last week |
+
+The gate itself is pure and synchronous; the data behind it is one CLOB `prices-history` request per outcome token. So the fetch happens once, upstream, and arrives at the gate as a lookup — which is also why both engines apply this dimension in a second pass rather than inside their per-trade loop. Nothing is fetched at all when no sentiment filter is set.
+
+**What it costs, stated on the card.** One request per token, capped (120 in the browser, 120 per engine cycle with a 3-minute TTL), and one request can only span 14 days of history — measured against the live CLOB, which answers a 14-day `startTs`/`endTs` range and rejects a 30-day one at any fidelity. So the card always prints the split by mood, how many trades it would KEEP, and **COVERAGE**: a gate over 21% of the flow is a gate over 21% of the flow, whatever the mood button says.
+
+### The identity template
+
+An allocation is not a special kind of thing. It is materialized into an **identity strat** — an ordinary strategy whose watchlist is exactly one trader at weight 1, with `identity` set to their address — and from there it runs on the same engine, the same backtest and the same ledger as everything else in this module.
+
+Its id is **derived**, not allocated: `copy-<address without 0x>`. So the engine session key, the ledger bucket, the persisted config on disk and the backtest card all agree from the address alone, with no lookup table to fall out of sync — and "copy this trader" twice updates one allocation instead of starting a second session.
+
+The template exists in two languages, `api/src/copy.rs::identity_strat` (live engine) and `app/lib/identityStrat.ts` (browser + worker), pinned against each other by `app/lib/strats/identity.fixture.json`. Change a default on one side and the other side's tests go red. That is deliberate — a backtest card promising something the live session doesn't do is the bug class this arrangement exists to close.
+
+| default | value | why |
+|---|---|---|
+| `sizing` | `flow` | Copy the leader's **conviction** (your allocation across the capital they deployed), not their bankroll fraction. A $250 book copying a $2M whale places real orders under `flow` and *nothing at all* under `bankroll`: their 0.1%-of-net-worth bet is $2,000 of theirs and 25¢ of yours, below every floor there is. |
+| `minMinutesToClose` | `60` | Refuse markets resolving inside the hour. Sub-hour Up/Down candles resolve before a poller can react — measured, not assumed. This gate blocks most high-frequency leaders, and the funnel says so when it fires. |
+| `maxTradeAgeSec` | `300` | Never mirror a stale fill: after a fetch outage the backlog enters at prices the leader never paid. |
+| `stopLoss` / `takeProfit` | `0.75` / `0.99` | Sell at 75% of entry rather than riding to zero; liquidate anything that runs to the top tick instead of leaving capital dead until resolution. Explicit `0` turns either off — it is a value, not an absence. |
+| `pollMinutes` | `0.5` | 30s. Fast enough to reach a fill near the leader's price, slow enough not to draw 429s. The backtest aggregates at the same cadence, so it can't promise fills the engine never sees. |
+| `minTrade` / `maxTrade` | `$1` / `$100` | Order floor (the CLOB's own hard floor) and per-order ceiling. |
+
+Per-trader `params` override any of these and are a **patch** — an omitted knob keeps its current value, so an agent nudging `maxTrade` can't silently reset a stop-loss set in the browser.
+
+### Backtesting one trader
+
+Every leader on the desk gets their own card: the identity strat replayed over the window you pick, by the same background worker that replays everything else (`app/lib/server/hubWorker.ts`). The worker reads the copy book **from the API itself** each pass, so a leader added over MCP with no browser open still gets replayed on the next pass.
+
+Three numbers, in the order they matter:
+
+1. **`verdict`** — the walk-forward result: the same trader replayed over the window *before* the card's, with no knowledge of what came after. `held` is the only pass — profitable then, and profitable since. `faded` made money once. A leader ranked on P&L alone is ranked on one window.
+2. **`funnel`** — entries observed → entries copied, with the gate that blocked each of the rest. "Flat" is usually "blocked": a leader whose whole flow is gated cannot be copied whatever their own P&L says.
+3. **`pnl`** — and how much of it is `unsettled`: still open at the window's end, valued at the last observed price rather than a real resolution. A large unsettled figure makes the result a hypothesis. (Unresolved marks read *high* — leaders sell winners and let losers expire.)
+
+### Where the money is — the book as a chart
+
+Above the rows, the desk draws the book: one bar per trader, its length the dollars behind them, the share of the desk beside it, and under each bar **the backtest at exactly that amount** — the same per-row replay the rows' chips show (`useHubBacktests` over the identity strat, so the bar's number is a claim about that row, not a lookalike). LIVE / TEST / OFF / PAUSED is a text chip; the bars share one color because they encode one thing, magnitude.
+
+Click a bar and the trader opens on the right, **replayed at any amount**: a `BACKTEST $` box (defaulting to what the row holds, with `ON DESK $N` to snap back), headline tiles (net, return, ends-with, copied-of-observed, walk-forward verdict, % settled), the equity curve, and the ladder — $10 … $2,500 plus the row's own amount and whatever you typed — because copying is not linear in N. `TRY` on any rung moves the box there; `PUT $N ON THEM` writes that amount to the copy book through the same `/copy/allocations` route the row's `$` box uses (a running session is resized in place; nothing is placed until the row is started).
+
+The engine is `lib/copyLadder.ts`: the leader's feed, bankroll and market resolutions are fetched once, then `replayAtSize` runs `identityStrat → runBacktest` synchronously per rung, prior window included for the verdict. The bar's number comes from the background worker's pass over its own feed store and the panel's from a fresh pull, so they can drift as the leader trades — when they do, the panel says what the bar said rather than hiding it.
+
+### The basket — several traders, different amounts
+
+`/polymarket/copy/basket`. One trader with one amount is a row; **a set of traders with a different amount against each** is the thing you actually have when you have money and a shortlist, and it is not the sum of N per-trader backtests.
+
+Each leg is replayed on **its own capital** and the results are summed. That is not a modelling shortcut — it is what the deployment runs: one allocation is one live session with its own budget, its own ledger bucket and its own `maxOpenPositions`. A pooled replay would make every leg's number depend on the order the other leaders happened to fill in.
+
+What the basket adds over reading N cards is the arithmetic of the **split**:
+
+- **LEGS TRADING / IDLE CAPITAL** — an underfunded leg does not take a small position, it takes **no** position. Its proportional mirror lands under the CLOB's order floor, the upscale clamp refuses it (`SUB_SCALE`), and the money sits in cash for the whole window while the desk shows a green "running" pill. `$0.00 · 0 TXS` reads as break-even; it is not.
+- **FIND FLOORS** — the smallest amount at which each idle leg would trade **at all**, walked over `10 · 25 · 50 · 100 · 250 · 500 · 1000 · 2500`. `null` means that leg never trades at any size on the ladder, which is a fact about the gate, not the money.
+- **DID THE SPLIT PAY?** — the same names, the same total, the same window, divided **evenly**. If your conviction weights don't beat that, the panel says so instead of letting a good total launder a bad split.
+- **SIZE THE BASKET** — the same split at $100 … $10,000. Copying is not linear in the money on one leader and it is not on five.
+- **OVERLAP / CONCENTRATION** — two legs on one market are two real positions (the desk would place both orders), and a Herfindahl over the legs' P&L says when "the basket made money" is really "one name made money".
+
+The roster **is** the results table: the row you type an amount into is the row that tells you what that amount did. Nothing is committed until **APPLY TO DESK**, which writes each leg through the same `/copy/allocations` route the MCP tools call and starts nothing.
+
+The draft roster is browser-local (`lib/basketDraft.ts`) on purpose — it is a shopping list, not a position. `+ BASKET` on the FIND TRADERS board and on any trader's profile adds to it, carrying the amount and the gate you were looking at.
+
+```bash
+# the same replay, over HTTP (Next app port, owner Bearer)
+POST /polymarket/api/basket {"legs":[{"address":"0xab…","allocationUsd":700},
+                                     {"address":"0xcd…","allocationUsd":300}],
+                             "days":7,"compare":true,"floors":true}
+# …or replay what the desk already holds
+POST /polymarket/api/basket {"fromDesk":true,"total":2000,"days":14}
+```
+
+### Going live
+
+Starting **defaults to DRY RUN**: the engine computes every mirror it would place and places none. That default is load-bearing — the single most common "it isn't trading" report is a session that is dry-running exactly as asked. The desk labels each row `DRY RUN` / `LIVE` / `PAUSED` / `STOPPED` and totals them (`RUNNING` vs `EXECUTING`) so the distinction is never inferred.
+
+```bash
+# the desk, over HTTP (owner Bearer required — see AUTH)
+GET    /copy/book?eoa=0x…        # rows + totals, and `sessions`: what else this wallet is RUNNING outside the book
+POST   /copy/allocations         {address, allocationUsd, label?, enabled?, params?}
+DELETE /copy/allocations/{addr}?eoa=0x…
+POST   /copy/rebalance           {bankroll, mode: "equal"|"weighted"}
+POST   /copy/start               {eoa, address?, autoExecute?}   # autoExecute omitted ⇒ DRY RUN
+POST   /copy/stop                {eoa, address?}
+POST   /live/stop                {eoa, strategyId}   # stop a session the book does NOT own (from `sessions`)
+GET    /copy/strats              # the book as identity strats — what the worker replays
+
+# the BASKET (Next app port): several traders, a different amount each, one replay
+POST   /polymarket/api/basket    {legs:[{address, allocationUsd}], days, compare?, floors?}
+
+# MY COPY TRADES (Next app port): their trades joined to my fills
+GET    /polymarket/api/copytrades?days=7&q=big+buys+on+crypto+under+30c
+```
+
+`rebalance` with `mode: "weighted"` rescales the amounts you already set rather than flattening them, so conviction survives a deposit.
 
 ## Capabilities
 
@@ -8,6 +245,9 @@ Polymarket prediction market interface with trading, data, scraping, and backtes
 - **Live Price Ticker**: Slim auto-scrolling tape above every page — top 24 markets, polls every 8s, Δ since last poll with up/down arrows, paused while tab is hidden
 - **Trading**: Place limit and market orders via Polymarket CLOB (requires wallet + API credentials)
 - **Copy Trading**: Track top traders by PNL/volume, view their positions and activity
+- **Many leaders at once**: the sidebar book takes a pasted LIST of addresses (every `0x…` in the blob, one amount each), and a checkbox on every row drives a bulk bar — fund each, start, stop, pause, drop, or hand the selection to the basket sizer
+- **RESULTS** — my copy trades (`/copy/trades`, the RESULTS tab): their trades joined to my on-chain fills by market+side+time, with `COVERAGE` (what share of their flow I actually got), median `LAG`, signed `SLIP` in cents, per-leader roll-up, and every `⊘ MISSED` trade next to the reason it reads as missed
+- **Plain-language trade filter**: "big buys on crypto under 30c", "missed longshots", "politics, not candles" — a concept lexicon so `crypto` reaches a title that only ever says *Bitcoin*, chips for every clause it read, and `ARM AS GATE` to compile the enforceable half onto real allocations (`marketQuery` + `tradeFilters`)
 - **Proportional copy sizing**: mirrors are sized as `leader$ × (accountValue × weightFraction) / leaderBankroll` — the fraction of net worth the leader risked, applied to yours. `accountValue` (free cash + mark value of the strat's positions) and each leader's bankroll (their positions + free USDC) are re-read every cycle, so sizes track the account as it grows or draws down, and a $10k conviction entry copies 100× larger than a $100 punt. Guardrails, all defaulted on: `maxUpscale` 2× (a mirror that could only be placed by inflating it past the order floor is refused as `SUB_SCALE`, not silently placed at the minimum), proportional exits (leader sells 40% of their shares → the strat sells 40% of its own; leader flat → strat flat), `minMinutesToClose` 60m (sub-hour Up/Down candles resolve before a poller can react), `maxTradeAgeSec` 300s, and a BUY budget bounded by real wallet cash rather than the `capital` config. The ratio and clamps are pinned across TypeScript and Rust by `parity.fixture.json`, so the BACKTEST tab previews the sizes live will place
 - **Strategy Index** (`/strats`): Build/edit a basket of traders, set capital + rebalance cadence, then go live. A pre-flight `CHECKLIST` sits at the top of the page — wallet, CLOB auth, strategy, traders, rebalance, capital — and goes from `4/6 complete` → `6/6 · ready to go live` as the user fills each gap
 - **CLOB refresh-from-UI**: When the checklist's `CLOB AUTHENTICATED` row is unchecked, an amber `refresh` pill fires `authenticate()` (single MetaMask sig → derived API key) inline — no page hop
@@ -16,7 +256,8 @@ Polymarket prediction market interface with trading, data, scraping, and backtes
 - **Portfolio**: View positions, P&L, open orders
 - **Scraping**: Background price/trade history scraper with SQLite storage
 - **Backtesting**: Run threshold-based backtests on stored historical data
-- **Categories**: politics, sports, crypto, pop-culture, business, science, tech, ai
+- **Trader FILTER + freshness gate**: A strat ranks its own watchlist every scan (`score` = P(win)×ROI, `sharpe`, `roi`, `winRate`) and copies only the top N. `maxStaleHours` adds the other half of roster rot — a trader who simply *stopped* keeps excellent 30d numbers, so freshness is a separate cut. See [The freshness gate](#the-freshness-gate-maxstalehours)
+- **Categories**: politics, sports, crypto, **btc**, pop-culture, business, science, tech, ai — `btc` is a bitcoin-only sub-slice of `crypto` (dated price markets *and* the 5-minute Up/Down candles), so a BTC strat ranks traders on BTC flow alone instead of every altcoin book
 
 ## UI / Theme
 
@@ -71,140 +312,145 @@ Alignment + legibility pass:
 ## Usage
 
 ### Python
+
+`src/mod.py` is an OPERATOR surface — start/stop the services, read the cached
+boards, drive the background sync. It places no orders: everything that moves
+money goes through the COPY DESK in the console (owner-signed) or the `/copy/*`
+routes on the API. `m polymarket/<fn>` and `p.<fn>()` are the same functions.
+
 ```python
 import mod as m
 p = m.mod('polymarket')()
 
-# Read-only
+# Services
+p.serve()                            # API + Next app under pm2 (mode='docker' too)
+p.api(port=50091)                    # just the Rust API
+p.app(port=3091)                     # just the Next console
+p.status(); p.logs(target="api", lines=50); p.kill()
+p.build()                            # build the Rust binary + the Next bundle
+p.test()                             # hit the key endpoints and report
+
+# Reads (all proxied through the owner-gated API)
 p.search("election")
+p.markets(limit=20)
 p.trending(limit=20)
-p.markets(limit=100, order="volume")
-p.market("0x...")                   # single market by condition_id
-p.by_liquidity(limit=20)
-p.ending_soon(limit=20)
-p.events(limit=50, tag="crypto")
-p.orderbook("0x...")                # order book by token_id
-p.midpoint("0x...")                 # midpoint price
-p.tags()                            # all categories
+p.events(limit=20)
+p.active_traders(days=30, limit=50, sort="winRate", min_history_days=30)
+p.backtests(days=1)                  # the worker's cached strat cards
 
-# Trading (requires private_key)
-p = m.mod('polymarket')(private_key="0x...")
-p.auth()                            # derive CLOB API credentials
-p.buy("0x...", price=0.5, size=10)
-p.sell("0x...", price=0.7, size=10)
-p.market_buy("0x...", size=10)
-p.market_sell("0x...", size=10)
-p.positions()
-p.open_orders()
-p.cancel(order_id)
-p.cancel_all()
+# Background sync
+p.sync()                             # show the cadence
+p.sync(minutes=30); p.sync(enabled=False); p.sync(now=True)
 
-# Scraping
-p.discover(count=50)                # auto-track top markets
-p.scrape(interval=60)               # start background scraper
-p.scrape_status()
-p.stored_prices("0x...", start=0, end=9999999999)
-p.stored_trades("0x...")
-p.store_stats()
+# Build provenance
+p.build_cid(); p.publish_build(); p.build_onchain()
 
-# Backtesting
-p.backtest(start=0, end=9999999999, strategy="threshold",
-           buy_threshold=0.3, sell_threshold=0.7,
-           initial_capital=1000, position_size_pct=10)
-
-# Server
-p.serve()                           # start API + Next.js app
-p.serve(api_only=True)              # API only
-p.kill()                            # stop all services
-p.status()                          # check service status
+# MCP
+p.mcp()                              # stdio config for an MCP client
+p.mcp(http=True, port=50092)         # loopback HTTP, owner Bearer token required
 ```
+
+Reads need a token: the API is owner-gated (`access.rs`), so export
+`POLYMARKET_ACCESS_TOKEN` (copy `poly_access_token` out of the signed-in
+browser's localStorage, or mint one with `python3 src/mcp.py --token`).
 
 ### CLI
 ```bash
+m polymarket/serve
+m polymarket/status
+m polymarket/logs target=api lines=100
+m polymarket/kill
 m polymarket/search query=election
 m polymarket/markets limit=20
 m polymarket/trending limit=10
-m polymarket/by_liquidity limit=10
-m polymarket/ending_soon limit=10
-m polymarket/orderbook token_id=0x...
-m polymarket/buy token_id=0x... price=0.5 size=10
-m polymarket/sell token_id=0x... price=0.7 size=10
-m polymarket/positions
-m polymarket/open_orders
-m polymarket/backtest start=0 end=9999999999 strategy=threshold
-m polymarket/scrape interval=60
-m polymarket/scrape_stop
-m polymarket/sync hours=6
-m polymarket/serve
-m polymarket/kill
-m polymarket/status
+m polymarket/events limit=20
+m polymarket/active_traders days=30 limit=10 sort=exitEntry
+m polymarket/active_traders days=30 min_history_days=30
+m polymarket/backtests days=1
+m polymarket/sync minutes=30
+m polymarket/sync now=true
+m polymarket/mcp
 m polymarket/test
 ```
 
 ## API Endpoints
 
+Every route except `/health` and `/access/*` is behind the owner access gate —
+send `Authorization: Bearer <token>`. `config.json`'s `endpoints` block is the
+authoritative list; this is the same set with one-line descriptions.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /health | Health check |
-| GET | /markets | List markets (params: _limit, order, active, end_date_min, end_date_max) |
-| GET | /markets/{condition_id} | Get single market |
-| GET | /search | Search markets (params: q, _limit) |
-| GET | /trending | Trending by volume |
-| GET | /orderbook/{token_id} | Get order book |
-| GET | /positions | Get positions (params: user) |
-| GET | /trades | Get trade history (params: user) |
-| POST | /order | Place limit order (auth required) |
-| POST | /market-order | Place market order (auth required) |
-| POST | /backtest | Run backtest |
+| GET | /health | Liveness (public) |
+| GET | /access/info | Owner-only mode + Terms of Use text/version/hash (public) |
+| GET | /access/challenge | Sign-in challenge for `?address=` (public) |
+| POST | /access/verify | `{address, timestamp, signature}` → Bearer token (public) |
+| GET | /access/check | Is this Bearer token still valid |
+| GET | /active-traders | The leaderboard pipeline (`paged=1` answers from cache, never aggregates) |
+| GET/POST | /copy/book | The COPY BOOK: allocations + each one's live session; POST sets the bankroll |
+| POST | /copy/allocations | Add or resize a trader on the desk |
+| DELETE | /copy/allocations/{address} | Drop a trader (stops their session first) |
+| POST | /copy/rebalance | Re-split the bankroll across the book |
+| POST | /copy/start | Start a session — DRY RUN unless `autoExecute: true` |
+| POST | /copy/stop | Stop a session |
+| GET | /copy/strats | The desk's traders as runnable strats |
+| POST | /copy/signed/challenge | Bytes for the wallet to `personal_sign` for a money move |
+| POST | /copy/signed/execute | Apply a wallet-signed load / remove / drop |
+| GET | /copy/signed/receipts | The verifiable audit trail of signed actions |
+| GET | /sync/status | Background sync cadence + last/next run |
+| POST | /sync/config | Set the cadence / pause it |
+| POST | /sync/run | Run one sync cycle now |
+| GET | /?endpoint=… | Cached upstream proxy: markets, events, activity, positions, prices-history |
+| GET/PUT/DELETE | /strats, /strats/{id} | Client-encrypted strat blobs, scoped by browser token |
+| GET/PUT/DELETE | /strats/public, /strats/public/{id} | The plaintext community gallery |
+| POST | /user-strats/{id}/share | Publish a strat by CID |
+| POST | /user-strats/import | Import one back |
+
+Next-side routes (owner-token gated the same way, served by the console):
+`/polymarket/api/hub`, `/polymarket/api/basket`, `/polymarket/api/copytrades`,
+`/polymarket/api/strat-chat`.
+
+There is no `POST /order` on this API. Order placement happens inside the live
+engine (`src/api/src/live_engine.rs` → `order_place.rs`), signed by the
+per-wallet backend key, and is reachable only by starting a session.
 
 ## Structure
 
 ```
 polymarket/
-├── config.json              # mod config (ports 50091/3091)
-├── skill.md                 # this file
-├── polymarket/
-│   └── mod.py               # Python module (Polymarket class)
-└── app/                     # Next.js 14 app (Mario-themed terminal)
-    ├── app/
-    │   ├── page.tsx          # main page (markets, copy trading, portfolio tabs)
-    │   ├── docs/page.tsx     # API documentation page
-    │   ├── layout.tsx        # root layout with CRT overlay
-    │   ├── globals.css       # pixel/Mario theme CSS
-    │   ├── components/
-    │   │   ├── TopBar.tsx                # logo + nav + search + wallet chip + profile menu
-    │   │   ├── MarketTicker.tsx          # live-updating price tape (8s poll, marquee, Δ chips)
-    │   │   ├── MarketCard.tsx            # market row (question, YES/NO bars, price-flash on change)
-    │   │   ├── MarketsGrid.tsx           # paginated market list (silent 15s re-poll feeds flashes)
-    │   │   ├── TradePanel.tsx            # order placement (limit/market, YES/NO)
-    │   │   ├── CopyTrading.tsx           # top trader leaderboard
-    │   │   ├── CopyIndex.tsx             # strategy basket editor (right sidebar host)
-    │   │   ├── PreconditionChecklist.tsx # /strats top-of-page checklist + CLOB refresh button
-    │   │   ├── LivePanel.tsx             # go-live engine controls + per-cycle log
-    │   │   ├── WalletChip.tsx            # connect/disconnect + trading-ready dot
-    │   │   ├── WalletFundingPanel.tsx    # network ▾ + asset chips (each with live balance)
-    │   │   ├── PositionsTable.tsx        # portfolio positions
-    │   │   ├── PnlChart.tsx              # cumulative PnL chart
-    │   │   ├── ProfileMenu.tsx           # right-sidebar toggle ("PANEL ▶")
-    │   │   └── AuthPanel.tsx             # SIWE / CLOB auth panel
-    │   ├── context/
-    │   │   └── AuthContext.tsx # wallet + CLOB auth state
-    │   ├── lib/
-    │   │   ├── types.ts            # TypeScript interfaces
-    │   │   ├── polymarket.ts       # API helpers, categories, normalization
-    │   │   ├── useLiveMarkets.ts   # hook: interval poll + prev-price diffs (powers ticker + flashes)
-    │   │   ├── networks.ts         # multi-chain network configs + RPC fallback
-    │   │   ├── lifi.ts             # LiFi bridge quote / execute
-    │   │   ├── clobClient.ts       # L2 HMAC-signed CLOB calls (balance, orders, cancel)
-    │   │   ├── copyEngine.ts       # live trading engine (rebalance loop, fills)
-    │   │   ├── stratSync.ts        # persisted strategy CRUD
-    │   │   └── auth.ts             # EIP-712 signing, credential derivation
-    │   └── api/
-    │       ├── polymarket/route.ts # proxy to Gamma/Data API
-    │       └── clob/route.ts      # proxy to CLOB API (auth forwarding)
-    ├── tailwind.config.ts
-    ├── next.config.mjs
-    └── package.json
+├── config.json              # mod config (ports 50091 api / 3091 app / 50092 mcp)
+├── skill.md                 # the agent-facing brief
+├── README.md                # this file
+├── src/
+│   ├── mod.py               # Python operator surface (the fns above)
+│   ├── mcp.py               # MCP server — stdio, or loopback HTTP with an owner token
+│   ├── strats/              # shipped strat definitions
+│   ├── api/                 # the Rust API + live engine
+│   │   ├── start.sh         # pins POLYMARKET_DATA_DIR, rotates api.log
+│   │   └── src/
+│   │       ├── main.rs          # wiring, warmup loops, optional scheduled flatten
+│   │       ├── access.rs        # THE owner gate: challenge, token, deny-by-default guard
+│   │       ├── routes.rs        # route table
+│   │       ├── proxy.rs         # cached upstream proxy (gamma / data-api / clob)
+│   │       ├── cache.rs         # memory + disk cache
+│   │       ├── pipeline.rs      # the trader leaderboard aggregation
+│   │       ├── copy.rs          # the COPY BOOK store
+│   │       ├── copy_actions.rs  # wallet-signed desk actions + receipts
+│   │       ├── live_engine.rs   # the copy engine: gates, sizing, exits, ledger
+│   │       ├── order_place.rs   # CLOB order construction + placement
+│   │       ├── order_signing.rs # EIP-712 order signing
+│   │       ├── signer.rs        # per-EOA encrypted backend keys
+│   │       ├── strats.rs        # encrypted strat sync + public gallery
+│   │       └── …               # fees, sentiment, settled, relayer, sync, first_trade
+│   └── app/                 # Next.js 14 console
+│       └── app/
+│           ├── page.tsx, layout.tsx, globals.css
+│           ├── components/  # TopBar, MarketsGrid, CopyTrading, LivePanel, …
+│           ├── lib/         # types, polymarket client, strats/, backtest, stratSync
+│           ├── lib/server/  # hubWorker, feedStore, resolutionStore, ownerToken
+│           └── api/         # hub, basket, copytrades, strat-chat (owner-gated)
+├── Dockerfile, docker-compose.yml, docker-entrypoint.sh, Caddyfile
+└── start.sh / stop.sh / dev.sh
 ```
 
 ## Search
@@ -232,6 +478,28 @@ Search operates across two domains — **markets** and **traders** — through a
 A free-text topic filter, finer than the fixed `category` keyword buckets and — unlike `search` — never matched against the wallet address. Typing e.g. `bitcoin` or `price of bitcoin` into the **MARKET QUERY** box (traders → FILTERS) keeps only traders active in markets whose title matches *every* query token (stopwords like "of/the" dropped), and **recomputes each trader's P&L / volume / win-rate from only those markets** — so you see a trader's bitcoin-specific track record, not their overall numbers. Traders heaviest in the topic sort first. Shared matcher: `app/lib/marketQuery.ts` ↔ `src/api/src/categories.rs::market_matches_query` (keep in sync).
 
 The same `marketQuery` lives on a **strat** (`SavedIndex.marketQuery`, edited via the STRAT panel's **MARKET** box): the backtest preview, the in-browser copy engine (`CopyTrader.shouldMirror`), and the backend live engine (`EngineConfig.marketQuery`) all only act on matching markets, so a strat stays focused on one theme instead of mirroring every fill a watched trader makes. Non-matching trades are still *observed* (visible in the log/rail) but never mirrored.
+
+#### The activity lens (`maxLastTradeHrs` — default 6h)
+
+Every leaderboard read lands on traders who have **traded in the last 6 hours**. A dormant wallet's 7-day P&L, Sharpe and win rate all stay excellent — they describe trades that already closed — so an unfiltered board ranks people you cannot copy above people you can, and an allocation against one of them fills nothing. `DEFAULT_ACTIVE_HOURS` (`app/lib/polymarket.ts`) is the one place that number lives; the strat-side twin is `maxStaleHours` (see [the freshness gate](#the-freshness-gate-maxstalehours)).
+
+- **It runs on the server, over the cached aggregate.** `maxLastTradeHrs` and `minTrades24h` are `/active-traders?paged=1` parameters applied in `apply_pagination` before the sort and the page slice, so the whole board is filtered, `total` counts the rows you can actually see, and it is still a **cache read** — no re-aggregation. The response carries `activityDropped` so an empty board can say *why* it is empty.
+- **It used to be a per-page filter.** The console applied both floors to the 50 rows the server had already handed it: a full page rendered as five rows, the pager still counted the unfiltered board and offered pages that were entirely empty, and the warm-cache path disagreed with the post-sync streamed one.
+- **Where it shows up.** `LAST TRADE ≤ HRS` in traders → FILTERS (blank or `0` = the whole board); the `ACTIVE 6H` toggle in the COPY desk's FIND TRADERS panel; the seed roster a new strat forks with (`fetchTopTraderAddresses`, which falls back to the unfiltered top N rather than seed nothing); `pm_top_traders` over MCP and `m polymarket/active_traders` on the CLI, both with `active_hours=0` to switch it off.
+- **Unknown recency is not recent.** A row with no `lastTradeTs` (a pre-`lastTradeTs` disk payload) is dropped while the lens is on — the opposite of the strat-side gate, where unknown passes. Here a wrong drop costs one row on a board of thousands; there it would pause a running strat.
+- **A snapshot older than the window empties the board**, and no amount of relaxing the other filters fixes that. The console says so — it names the age and points at ↻ SYNC — but the real guard is the background warmup, which re-aggregates every 5 min by default (30 min on this deployment).
+
+#### The track-record floor (`minHistoryDays` — default off)
+
+The activity lens asks *are they trading now*. This asks *have they been trading long*, and it is the other half of making a windowed number mean something.
+
+A wallet that placed its first trade six days ago can sit at the top of the **30D** board. Every stat on that row is real — and every one of them describes six days. The copy sim on its profile will draw a 30-day curve that is flat for twenty-four days and then quote `+24.6% · 30D NET`, because the twenty-four flat days are not a quiet patch, they are the account not existing.
+
+- **It is the user's number, not the house's.** `HISTORY ≥` in the COPY desk's FIND TRADERS panel (`OFF / 7D / 14D / 30D / 90D` + a free box), `MIN HISTORY DAYS` in traders → FILTERS, `min_history_days` on `pm_top_traders` (MCP) and `m polymarket/active_traders`. Default **off**: ranking a young wallet over a long window is a legitimate thing to want to look at — it just should not happen silently.
+- **`firstTradeTs` is window-independent, and has to be.** The enrichment pull stops at the window cutoff by design, so on the 7D board the oldest trade anyone has is 7 days old and an age derived from it would report every trader as one week old. Instead `src/api/src/first_trade.rs` asks data-api for `?limit=1&sortDirection=ASC` — the oldest activity row directly, which also sidesteps the `offset > 5000` ceiling — **once per wallet, cached forever** in `<POLYMARKET_DATA_DIR>/first_trade.json`. A first trade is immutable. After the first sweep the whole filter is free; the store checkpoints every 100 new wallets so a scale-to-zero stop mid-sweep doesn't lose the lookups.
+- **Unknown age is not young.** A row with no `firstTradeTs` (pre-field disk payload, or a lookup that 429'd) is **kept**, the opposite of the recency lens. Cutting on missing data would empty the board over a data gap rather than narrow it. `historyKnown` in the response says how many rows have a resolved age, and the console says so out loud when the floor is only partly applied.
+- **`historyDropped` is counted apart from `activityDropped`.** "Everybody went quiet" and "everybody is too new" want different fixes, so an empty board names the right one.
+- **Where it shows up beyond the filter.** A `RECORD` column on the traders table and a track-record chip on each FIND TRADERS card, both **amber when the record is shorter than the window being ranked**; `sort=history` ranks longest-record-first; and the profile's copy sim prints `THIS ACCOUNT IS N DAYS OLD — younger than the {days}D window` above the headline, so the flat curve explains itself.
 
 #### Trader profile — TRADES / P&L / INFO
 
@@ -299,13 +567,34 @@ polled 1 traders · 4 new trades observed · 4 BUY(s) gated (4 price<60¢)
 
 Candidates that clear the gates and are then skipped downstream still log their own `SKIP` line (`TOO_SOON`, `SUB_SCALE`, `REBALANCE_SKIP`, …).
 
+### Why a deep window can go stale forever (a trap)
+
+The warmup rebuilds four windows — 1D, 7D, 14D, 30D — and a full pass takes about **ten minutes**. The fleet activator stops this module after ~60s with no connections ([activator sleeps](#)). Those two facts used to combine badly, because the pass ran the windows in fixed order:
+
+> every wake restarted the list at 1D, finished it in ~2 minutes, and died somewhere in 7D.
+
+The deep windows were never *reached*. 1D was re-synced every few minutes while the 30D board sat untouched for **three days**, aged past the pipeline cache's 24h disk ceiling, and the console answered *"the 30D leaderboard hasn't been aggregated yet"* — a starved queue reading as missing data. Relaxing filters, pressing SYNC, and waiting all did nothing, because each attempt restarted the same rebuild that would be killed again.
+
+Two changes, both in the "an interrupted cycle must still make progress" family:
+
+- **The warmup goes stalest-first** (`warmup_cycle`, `pipeline.rs`): combos are sorted by last `synced_at` — read through `synced_at_any_age`, which consults *disk*, because memory is empty right after the restart that caused the problem. Whatever is furthest behind goes first, so the window nobody has rebuilt is the one that gets rebuilt.
+- **A stale board beats no board** (`get_stale_disk`, `cache.rs`): when nothing is fresh enough to serve, `/active-traders` serves the old disk payload labelled `source: "stale-disk"` with its true `syncedAt`, instead of returning `cold` and kicking off a rebuild that cannot finish. The UI's data-age chip tells the truth and the warmup replaces it in the background.
+
+If a window looks empty, check the disk cache mtimes before the code — `ls -la /tmp/polymarket-active-traders-cache/` next to `grep 'warming\|warmed\|warmup cycle done' src/api/api.log` says immediately whether this is a data problem or a starvation problem.
+
 ### Warmed candidate pool (a trap)
 
 The background sync aggregates each window at **`pool=2000`**, and the pipeline cache is keyed `days:minPerDay:pool`. A *paged* request for any other pool is a different key, and a cold paged key returns `{"cold": true, "traders": []}` instead of computing — by design, so a page load can't block on a 10-minute sweep.
 
 So a leaderboard read that omits `pool` (server default 1000) gets an empty list **forever**, no matter how warm the cache is. That's what made forking a recommended strat seed zero traders. Every console read now asks for `WARMED_CANDIDATE_POOL` (`app/lib/polymarket.ts`); if you add another leaderboard call site, pass that constant.
 
-### The STRAT HUB (`/strats`)
+### The STRATS board (`/strats`)
+
+The board is the console's front door: the strat you're **on**, big, with its capital editable in place and the SCALE card underneath it; your other saved strats, small; and the recipe shelf folded away behind `⌄ MORE RECIPES`, because the default is already the card at the top. `+ NEW TRADER INDEX` forks that default and seeds it from this week's leaderboard. Everything routes through `app/lib/activeStrat.ts` — one answer to "which strat am I on, and what if there isn't one", so three screens can no longer mint three differently-named empty strats.
+
+What follows describes the card-grid hub this route used to be. Its components are archived (`src/_archive`); the backtest-per-card machinery below is still what the workspace and the worker run.
+
+#### The archived hub
 
 The front door to `/strats` is a card grid, and each card's headline is its **N-day backtest** — the same replay engine (`app/lib/backtest.ts`) the BACKTEST tab and the live engine share, run over the same window for every card, so the numbers are comparable. Cards used to print `lastPnl`, a leftover from whatever window that strat was last opened with.
 
@@ -315,7 +604,66 @@ The front door to `/strats` is a card grid, and each card's headline is its **N-
 - **Search** filters saved strats and recommendations together, over names, descriptions and filter chips (`"sports"`, `"buys only"`, `"top 5"`). Every term must match.
 - **RECOMMENDED strats are backtested too.** A template is materialized into exactly the `SavedIndex` forking it would create — seeded from today's leaderboard via `templateIndex` / `templateRoster` in `app/lib/defaultStrats.ts` — and *that* is what gets replayed, from the same cached roster the fork will use. The number on the card is the strat you actually get.
 - Those rosters are picked *by* trailing P&L over the window they're then scored on, so a recommendation's number is survivorship-biased by construction. The section header says so: **upper bound, not a forecast**. A saved strat carries no such bias — its traders were chosen before the window it's measured over.
-- A strat with nothing to copy reports the reason (`no traders to copy`, `originates its own trades`, `all 1279 entries blocked · time-to-close`) instead of a `$0` that reads as breaking even.
+- A strat with nothing to copy reports the reason (`no traders to copy`, `all 1279 entries blocked · time-to-close`, `no price tape for this window`) instead of a `$0` that reads as breaking even.
+
+### Money lives in the side panel
+
+Topping up and taking money out is the **MONEY** block of the right-hand column (`app/components/MoneyBlock.tsx` → `WalletPanel.tsx`), directly under the wallet you're signed in as. Two tiles, one amount box, one button; tap the other tile and the arrow flips, so deposit and withdraw are one flow rather than two forms. `⌄ BRING IT FROM ANOTHER CHAIN` unfolds the bridge and the legacy V1 Safe — once-ever operations that a first-time user should not meet three of at once.
+
+It used to be a `LIVE → WALLET` subtab inside the workspace, which put funding one navigation away from every screen that needed it and gave the engine's own tab rail a stop that had nothing to do with the engine. Anything that discovers it is short of funds — LIVE's `FUND NOW` banner, an engine "not enough balance" — now dispatches `OPEN_MONEY_EVENT` and the drawer opens **over** the page you were on. Device pairing (token + sign-in QR), which shared that subtab, moved to the ACCOUNT block, where it is about who you are signed in as rather than about money.
+
+### Funding several strats at once (`$ DEPOSIT`)
+
+Funding a strat is arming it: the amount becomes the strat's `capital` and its engine session is started to size against that number. Done one strat at a time through the LIVE tab — which is how it worked — nothing ever showed you the **sum** you were committing next to the money you actually have, so eight strats could each claim $1000 of a $223 wallet without a word.
+
+`$ DEPOSIT` (STRAT HUB header, and the strat sidebar's STRATS row) is that screen: tick the strats, give each an amount, and every one is allocated and armed in one pass. It is a budget screen first —
+
+- **WALLET** is free USDC in the deposit wallet, and the panel says outright that every strat trades through that one wallet: allocations are budgets against it, not transfers. Nothing moves between strats.
+- The **budget** you may commit is that free cash *plus the cost basis the selected strats already hold* (`fundingBudget` in `app/lib/multiFund.ts`) — re-arming a funded strat at its current size is not over-allocating, because that money is already its own. Every *other* running strat's money is deliberately excluded: it's committed to them.
+- Over the budget, DEPOSIT is **refused**. When the balance can't be read it **warns** instead — unknown is not zero, the same rule the sidebar's cash readout follows.
+- **SPLIT ▸ EVENLY / ALL IN** divide a number across the ticked rows to the cent (remainder cents to the earliest row, the same rule `equalWeightTraders` uses for weights).
+- **COPY DESK leaders are rows here too.** Their dollars live server-side keyed by address rather than by strat id (`api/src/copy.rs`), so funding one is a different pair of calls (`/copy/allocations` then `/copy/start` for that leader) — but it is the same decision, so it is the same list.
+- An amount above $0 means **real orders**, matching what GO LIVE does on a funded wallet. Sessions are started one after the other on purpose: ten engines launched at once each walk their watchlist's history and earn the wallet a 429 before a single mirror is placed. A row that's refused reports the engine's own words (`3 armed · 2 refused — give them dollars before starting`) instead of taking the successes down with it.
+
+### COPY TRADES — the desk, as a template
+
+The first card on the RECOMMENDED shelf is plain copy trading: mirror the 5 best traders of the last week trade for trade — their buys **and** their sells, so their exits are your exits — sized to the conviction behind each trade (`sizing: "flow"`) rather than to their net worth. It deliberately carries **no trade filters**: a side or price band would drop the leaders' SELLs and leave the strat holding positions its leaders have already closed. Every other card on the shelf is this idea with a gate on it.
+
+Its parameters are *imported* from `app/lib/identityStrat.ts`, not retyped — the same template the COPY DESK turns each per-trader allocation into, and the one `copy.rs::identity_strat` runs live. Copy trading therefore means one thing in both places, and forking the card gives you the desk's strategy as an ordinary strat: fundable from `$ DEPOSIT` alongside the others, backtested on the same wall, editable.
+
+### Strats that originate their own trades are backtested too
+
+A momentum strat has no watchlist by design: it reads a market's own price tape and buys the outcome whose odds are rising. The copy replay walks leader fills, so for years it had nothing to walk — those strats printed `originates its own trades — no copied flow to replay` and got **no backtest at all**, while their live sessions traded every cycle. That was the largest gap between backtest and live in this console, and it covered both shipped BTC templates.
+
+`app/lib/originationBacktest.ts` closes it by replaying the **engine cycle loop** instead of a fill feed. For every cycle between the window's start and its end, at the strat's own poll cadence, it:
+
+1. redeems anything that resolved since the last cycle (live: `auto_redeem`),
+2. checks take-profit then stop-loss on every hold (live: `check_stop_losses`),
+3. shows the strat **only the markets live at that instant**, with points only up to that instant (live: `fetch_candle_series` resolves one candle by its slug off the clock),
+4. calls the same `strat.propose()` hook the live engine calls,
+5. executes exits before entries, under the same cooldown / order-cap / free-capital / share-rounding rules.
+
+The tape comes from `app/lib/momentumTape.ts`. Candle strats are the honest case: `btc-updown-5m-<start>` names its markets deterministically, so a past window's candles are *enumerable* — batch them 20 slugs per gamma request, pull each candle's 1-minute price history for exactly its own lifetime, and settle on gamma's published outcome rather than a last mark. Search-mode tapes can only find markets that still exist today and say so (`survivorship-biased`).
+
+Two things it deliberately does not model, stated on the panel rather than buried: the **bid/ask spread** (the copy replay skips it too — fills book at the observed price, with the strat's limit deciding only whether the order was marketable) and **sub-minute price action** (1-minute bars are the CLOB's finest; a live session polls a 5-minute candle every 30s and also reads the midpoint). `PriceTape.fidelityMs` and the `120/289 CANDLES` chip carry both.
+
+The first honest run of BTC 5-MIN DELTA over a day: **−70% on $100 across 245 trades, `no-edge` on the walk-forward.** That result existed all along; there was just nothing measuring it.
+
+### Strat chat — say what you want, apply the patch
+
+Every strat row has an **ASK** button. You describe the change in words ("stop buying longshots", "why did this only trade four times?") and an agent answers in the strat's own terms, proposing a patch when the ask implies one:
+
+```
+PROPOSED CHANGE
+maxTrade: 10 → 3
+momentum.minRiseCents: 5 → 8
+stopLoss: 0.8 → 0.9
+[APPLY] [DISMISS]
+```
+
+Three things bound it. The route (`app/api/strat-chat/route.ts`) is **owner-gated** with the same Bearer token `/api/hub` uses. The patch is validated against `app/lib/stratPatch.ts` — a whitelist of paths, types and ranges — on the server *and* again in the browser, and anything rejected is shown (`stopLoss: 5 is above the 1 maximum`) rather than swallowed, because an agent confidently inventing a setting is the thing you want to see. And **nothing is written until you press APPLY**: the agent has no tools, cannot touch the watchlist, cannot place an order and cannot start a session.
+
+The agent is briefed from the same specs the validator enforces (so it can't be told about a field that would then be rejected) plus the strat's current settings, its latest worker backtest — funnel, walk-forward verdict, tape coverage — and its live session. That's what lets "why so few trades?" be answered with the strat's own numbers. It runs through the `claude` CLI already on the box (`POLYMARKET_CHAT_MODEL`, default `claude-opus-5`); when the CLI is missing the panel says so instead of inventing an answer.
 
 ### Is it still profitable? — the walk-forward badge
 
@@ -402,6 +750,46 @@ What this changed on this deployment, replaying the same 3-day window over the s
 
 The corrected `mrjg86gf` figure is the interesting one: $223 of capital, 257 buys totalling $2,234 of exposure over three days, $1,381 back from sells, $630 from redemptions, **24 positions expired worthless**, ending cash $0.56. That matches what actually happened to the real wallet — the old number did not.
 
+### What a trade costs (fees + gas)
+
+Every cost row in this console used to read **`$0.00 FEES · $0.00 GAS`**, because `TAKER_FEE_BPS` and `GAS_PER_TRADE_USD` were literally `0`. That was true when the constants were written. It is not true now, and a backtest that books zero friction is not a backtest of anything.
+
+`app/lib/fees.ts` is the whole model, and `api/src/fees.rs` is its Rust mirror for the live engine.
+
+**The platform fee is real, per-market, and biggest exactly where this deployment loses money.** The matcher charges the taker at match time:
+
+```
+fee = rate × p × (1 − p) × shares
+```
+
+| category | taker rate | $100 in and out at 50¢ |
+|---|---|---|
+| crypto | 7% | **$7.00** |
+| sports · economics · culture · weather · other | 5% | $5.00 |
+| politics · finance · tech · mentions | 4% | $4.00 |
+| geopolitics | 0 | free |
+
+Makers are never charged. The dollar fee is symmetric around 50¢ — a fill at 30¢ and one at 70¢ pay the same — and it **peaks at a coin flip**, which is the same 40–60¢ band the loss postmortem already identified as where this deployment's money goes. It is also zero at $0 and $1, which is why settling a resolved position costs nothing.
+
+**The rate is measured, not assumed.** The data-api reports `usdcSize`, the USDC that actually moved: `price × size` *plus* the fee on a BUY, *minus* it on a SELL. Divide the difference by `p(1−p)·shares` and the market's own rate falls out exactly, from data the console already fetched. `FeeBook` walks the leader feeds a replay is about to use and takes the **max** rate any fill paid in each market — maker fills measure 0, and a copy engine chasing a leader with a marketable order is a taker every time. Only markets with no fills to measure (the origination replay's, mostly) fall back to the category table. Over the worker's 40 busiest cached feeds — 118,868 fills, 13,517 markets — **11,948 markets are measured, 448 are genuinely fee-free, and 0 are modelled**; those feeds paid **$485,245 of real fees on $41.6M of notional, a blended 117 bps.**
+
+**Gas is per deployment, not per trade — and it is cents.** Who pays what:
+
+| | who submits it | who pays gas |
+|---|---|---|
+| CLOB fill | Polymarket's operator | Polymarket |
+| redeem | Polymarket's relayer | Polymarket |
+| withdraw | Polymarket's relayer | Polymarket |
+| proxy deploy · approvals · deposit | **you** | **you** |
+
+So the gas line is a fixed handful of cents per wallet, priced off the live Polygon base fee and the live POL price (`fetchGasQuote`) rather than invented, and labelled `(est)` until that lands. Booking $0.50/trade would have been as wrong as booking $0.
+
+**Where it shows up.** `BacktestSim.costs` is a full `CostBreakdown` — per-category/per-rate split, effective bps of notional, share of gross P&L eaten, the rebate tier the volume reaches, and how many rates were *measured* vs *modelled*. `PerfPanel` renders it behind a `COSTS` toggle on **both** the LIVE and BACKTEST tabs, off the same component, so the two can't drift. The hub cards carry `fees`/`feeBps`; `pm_backtests` and `pm_copy_backtest` return them; the ASK chat is told them explicitly, because "trade fewer coin flips in crypto" is a real answer to "why is this strat flat".
+
+**What changed in the engine, not just the display.** The order's `feeRateBps` stays **0** — Polymarket's docs are explicit that the schedule is applied at match time and the order must not carry it, and any other value gets the POST rejected as an invalid payload. What did change is everything that has to *budget* for the fee: the browser engine's EP rotation guard used to price a round trip at exactly zero and so churned positions for free, and both engines now free the notional **plus** the fee before placing, since funding exactly the notional buys an order that bounces for insufficient balance.
+
+**Still not modelled, on both sides equally:** the bid/ask spread, and limit orders that never fill. Real friction is at least what the cost row says, never less. The rebate tier the COSTS drawer reports is informational and is *not* netted into any P&L — a rebate only applies from the moment you reach the tier, so counting it in a replay would be inventing money.
+
 ### Where the flow went (the entry funnel)
 
 Every backtest now reports an **`EntryFunnel`**: each in-window leader BUY lands in exactly one bucket, so a quiet strat can always say *which* gate it was quiet because of.
@@ -430,9 +818,26 @@ The live engine refuses to mirror a BUY in a market resolving within **`minMinut
 - It is now **a per-strat setting** (`MIN CLOSE` in the strat params, `0` = off), and the LIVE gate warning that reports it offers `15M / 5M / OFF` inline — the warning used to name a setting the console had no field for.
 - **The backtest models it too.** `Strat.shouldMirror` dates the market from the trade itself: candle slugs (`btc-updown-5m-<start>`) give an exact end, an intraday title window (`… 5:45PM-5:50PM ET`) gives one to the minute, anything else is undatable and — exactly like live's unknown-end-date case — allowed through. Before this, hub cards happily counted fills a live session would refuse one-for-one.
 
+### The freshness gate (`maxStaleHours`)
+
+The trader FILTER drops leaders who start losing. It could not see the other way a watchlist rots: a leader who **stops**. A dormant trader's 30d ROI, Sharpe and win rate all stay excellent — they're a record of trades that already closed — so an unfiltered strat keeps holding a top-N slot open for someone who last traded seventeen days ago.
+
+`filter.maxStaleHours` (**FRESH ≤ Nh** in the TRADER FILTER card, presets 6h / 24h) cuts them, and it behaves differently from the other two thresholds on purpose:
+
+- **It runs before the ranking, not after.** `minScore` and `minSamples` cut a row where it stands, so a failing trader still occupies its rank. Stale traders instead sort *below every active one* — otherwise a roster whose four best scores went quiet last week would park all its top-N slots and copy nobody. A dormant #1 hands the slot to the best trader still trading.
+- **"Stale" means stale at what THIS strat trades.** `lastTradeAt` is computed from the same `marketQuery`-filtered slice as the returns, in both languages. On a `bitcoin` strat, a leader posting size in politics all morning is still stale.
+- **Any side counts.** A trader who is buying but hasn't closed anything is active; freshness is read off their most recent fill, not their last realized return.
+- **Unknown ≠ stale.** A pre-upgrade `poly_roi_stats_*` cache has no `lastTradeAt` at all; that reads as "not computed yet" and passes, because pausing a live strat over missing data is worse than one cycle of a dormant leader. An explicit `0` (computed, nothing in the window) *is* stale.
+
+Both languages are pinned by `parity.fixture.json` (`traderFilterNowMs` + per-trader `lastTradeMinutesAgo`, cases `stale-6h-promotes-fresh` / `stale-24h-with-sharpe-and-samples`), so the card's "copying 3 of 20 · 5 stale" preview is what the Rust engine enforces — it reports the same cut in its `FILTER ·` heartbeat line.
+
+Alongside it, **PRUNE N** in the watchlist toolbar is the manual twin: it *disables* (never deletes) every enabled trader past the same cutoff, so a roster that has quietly become a list of retirees is one click to clean, and one click on a dot to undo. The `LAST` column turns red at exactly that cutoff, so the column and the gate never disagree.
+
+The shipped **FILTER** template sets `maxStaleHours: 24`; **BTC SHARPS** — bitcoin markets only, ranked by Sharpe, top 3 of 20, `≤6h` — is the recipe that leans on all of it.
+
 ## MCP server
 
-The module speaks **Model Context Protocol**, so any MCP client (Claude Code / Desktop, an agent, another module) can read it:
+**The MCP server is the desk's other front end, not a mirror of it.** The `pm_copy_*` tools call the same `/copy/*` routes the browser calls — one book, two clients. Ask an agent to "put $50 on 0xab…" and it shows up on the screen at the next poll; change an amount on the screen and that is what the agent reads next.
 
 ```bash
 python3 src/mcp.py                      # stdio
@@ -440,19 +845,36 @@ python3 src/mcp.py --http --port 50092  # Streamable HTTP: POST /mcp
 m polymarket/mcp                        # same, via the module fn
 ```
 
+**The copy desk** — what an agent runs the desk with:
+
+| tool | writes | what it does |
+|---|---|---|
+| `pm_copy_book` | — | the desk: who is copied, with how much, running or not, **DRY RUN or real**, orders placed, realized P&L |
+| `pm_copy_backtest` | — | replay copying **one** trader: pnl + `walkForward.verdict` + `funnel` |
+| `pm_copy_basket` | — | size a **set** of traders against each other — a different amount per name, one portfolio, with `legsTrading`/`idleUsd` (how much of the money never traded), `floors` and the equal-split `comparison` |
+| `pm_copy_allocate` | yes | copy a trader with N dollars (or change the amount). Adds intent, places nothing |
+| `pm_copy_remove` | yes | stop copying them and drop them from the book |
+| `pm_copy_rebalance` | yes | split a bankroll across the enabled traders (`equal` \| `weighted`) |
+| `pm_copy_start` | yes | start copying — **DRY RUN by default** |
+| `pm_copy_stop` | yes | stop a session, or the whole desk |
+
+**Research and diagnosis** — the rest:
+
 | tool | what it answers |
 |---|---|
 | `pm_health` | is the module up, when did the worker last run |
 | `pm_markets` | busiest open markets, or a text search |
-| `pm_top_traders` | the leaderboard strats seed watchlists from |
+| `pm_top_traders` | the leaderboard, for finding someone to copy |
 | `pm_trader` | one leader's flow + **what share of it is sub-hour candle games** |
-| `pm_strats` | the strategies this console runs, with every gate |
-| `pm_backtests` | the worker's cached backtests **with the funnel** |
-| `pm_backtest_run` | replay every strat now |
+| `pm_live_gates` | **why a running session isn't filling** — the per-gate tally |
 | `pm_live_sessions` | what the engine is running, executing vs dry |
-| `pm_live_gates` | **why the engine isn't copying** — the per-gate tally |
+| `pm_strats` / `pm_backtests` / `pm_backtest_run` | the older multi-trader index strategies |
 
-**Read-only by design.** There is deliberately no order-placing tool: the console signs real money through the deposit wallet and a mis-prompted agent must not reach it. The one tool with a side effect (`pm_backtest_run`) spends CPU and data-api calls, nothing else. Auth is the owner token minted from `server.secret` — the server works exactly when the local owner's console works, and never accepts a caller-supplied token.
+The loop an agent is told to follow: `pm_top_traders` / `pm_trader` to find a leader and check they aren't a candle bot → `pm_copy_backtest` to replay copying *them* → `pm_copy_basket` when there is more than one name and the question is how to split the money → `pm_copy_allocate` → `pm_copy_start` → `pm_live_gates` when it runs but doesn't fill.
+
+**Safety.** There is no order-placing tool and there won't be: the console signs real money through the deposit wallet and a mis-prompted agent must not reach it. Three things *can* reach real money — `pm_copy_start` with `autoExecute: true`, and `pm_copy_allocate` / `pm_copy_rebalance` against a wallet that already has a session placing real orders (both reconfigure it live) — and all three are **refused unless the deployment sets `POLYMARKET_MCP_ALLOW_LIVE=1`**. Without it an agent can research, allocate on a dry wallet, backtest and dry-run, and a human flips the last switch in the browser. Stopping is always allowed; it only reduces exposure.
+
+**Auth.** Every forwarded call carries an owner token this process mints itself from `server.secret`, so an open port here IS the access gate. `--http` therefore binds **loopback** by default and **requires that same owner token** as `Authorization: Bearer …` on every POST — mint one with `python3 src/mcp.py --token`. There is no wildcard CORS. `GET /health` is the one unauthenticated route and reveals only that a process is listening. Widen the bind with `POLYMARKET_MCP_HTTP_HOST` only behind something that authenticates.
 
 Register it with Claude Code:
 
@@ -476,8 +898,16 @@ Parameter mapping: `search→q`, `daysAgo→days`, `category→cat`, `marketQuer
 |----------|-------------|
 | NEXT_PUBLIC_API_URL | Backend API URL (default http://localhost:50091) |
 | NEXT_PUBLIC_BASE_PATH | Base path for app routing (default /polymarket) |
-| POLYMARKET_PRIVATE_KEY | Wallet private key for trading (Python only) |
+| POLYMARKET_ACCESS_TOKEN | Owner Bearer token for CLI/Python reads (`python3 src/mcp.py --token` mints one) |
+| POLYMARKET_DATA_DIR | Where private state lives: backend signer keys, live-engine sessions, the copy book. `src/api/start.sh` pins it to `~/.mod/polymarket`; docker-compose to `/data`. **Unset, it falls back to `~/.mod/polymarket` — never leave wallet keys somewhere a reboot clears** |
+| POLYMARKET_SIGNER_MASTER_KEY | Optional 64-hex pin for the AES master key. Unset ⇒ auto-generated and persisted to `<data dir>/polymarket-signer-store/.master` (mode 0600) |
 | POLYMARKET_SYNC_INTERVAL_SECS | Initial background-sync cadence (default 300; owner setting in `~/.mod/polymarket/sync.json` overrides) |
+| POLYMARKET_LIQUIDATE_EVERY_HOURS | Scheduled **flatten**: every N hours, redeem settled winnings and sell every position the deposit wallet holds at best bid — including positions the engine never bought. **`0` (off) by default and deliberately opt-in.** Even when on, a pass only touches wallets with a RUNNING session that has `autoExecute` on |
+| POLYMARKET_LOG_MAX_BYTES | `src/api/start.sh` rotates `api.log` to `api.log.1` on start once it exceeds this (default 64MB) |
+| POLYMARKET_MCP_ALLOW_LIVE | `1` lets MCP touch real money: `pm_copy_start` with `autoExecute`, and `pm_copy_allocate`/`pm_copy_rebalance` against a wallet that is already executing. Unset (the default) ⇒ agents can only DRY RUN, and a human turns on execution from the COPY DESK |
+| POLYMARKET_MCP_HTTP_HOST | Bind address for `--http` (default `127.0.0.1`). Widen it only behind something that authenticates |
+| POLYMARKET_ACCESS_OPEN | `1` drops the owner-only restriction on the gate. Signed copy-desk actions still require a configured owner and fail closed without one |
+| STRAT_HMAC_SECRET | Body-integrity tag on the strat-sync routes. **Not a credential** — the matching key ships in the public client bundle as `NEXT_PUBLIC_STRAT_HMAC_SECRET`. The owner gate is the auth |
 
 ## Mod Protocol
 
@@ -486,4 +916,5 @@ Parameter mapping: `search→q`, `daysAgo→days`, `category→cat`, `marketQuer
 - **Serve**: `m polymarket/serve` (FastAPI + Next.js)
 - **Kill**: `m polymarket/kill`
 - **Config**: `config.json` with endpoints, fns, ports
-- **Logs**: `/tmp/polymarket/api.log`, `/tmp/polymarket/app.log`
+- **Logs**: `src/api/api.log` (rotated by `start.sh`; gitignored), `pm2 logs polymarket-app`
+- **State**: `~/.mod/polymarket/` — owner, server secret, copy book, signer keystore, live sessions

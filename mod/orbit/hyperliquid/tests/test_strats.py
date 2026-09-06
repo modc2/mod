@@ -32,9 +32,21 @@ class FakeHL:
         return {"traders": self.traders}
 
 
-def T(addr, pnl=0.0, volume=0.0, sharpe=0.0, win_rate=0.0, trades=0):
+def T(addr, pnl=0.0, volume=0.0, sharpe=0.0, win_rate=0.0, trades=0,
+      closes=None, win_rate_lo=None, sharpe_days=30):
+    """A board row.
+
+    `closes` defaults to `trades` and `win_rate_lo` to `win_rate`, which is the
+    degenerate case the real API never produces — every fill closing, and a
+    ratio with no sampling error. Tests that care about sample size pass them
+    explicitly; `sharpe_days` defaults high so Sharpe rows clear the evidence
+    gate unless a test is specifically probing it.
+    """
     return {"address": addr, "pnl": pnl, "volume": volume,
-            "sharpe": sharpe, "win_rate": win_rate, "trades": trades}
+            "sharpe": sharpe, "win_rate": win_rate, "trades": trades,
+            "closes": trades if closes is None else closes,
+            "win_rate_lo": win_rate if win_rate_lo is None else win_rate_lo,
+            "sharpe_days": sharpe_days}
 
 
 # ── Leader / StratParams ────────────────────────────────────────────────
@@ -133,11 +145,43 @@ def test_high_win_rate_gates_on_trades_and_rate():
         T("0xgood", win_rate=70, trades=100),
         T("0xbest", win_rate=80, trades=100),
     ])
-    leaders = HighWinRate(min_trades=30, min_win_rate=55).pick_leaders(hl)
+    leaders = HighWinRate(min_trades=30, min_win_rate=55, min_closes=0).pick_leaders(hl)
     assert [l.address for l in leaders] == ["0xbest", "0xgood"]
     # Edge-over-coinflip weights: (80-50):(70-50) = 30:20.
     assert leaders[0].weight == pytest.approx(0.6)
     assert leaders[1].weight == pytest.approx(0.4)
+
+
+def test_high_win_rate_is_not_fooled_by_a_perfect_tiny_sample():
+    """The bug this strat was built to avoid, and used to walk straight into.
+
+    `0xstreak` has 40 fills — clearing any `min_trades` gate — but only 4 of
+    them closed, and all 4 were green. Its headline win rate is 100%. On the
+    old ranking it sorted above every seasoned book on the board and took the
+    largest allocation.
+    """
+    hl = FakeHL([
+        T("0xstreak", win_rate=100, win_rate_lo=51.0, trades=40, closes=4),
+        T("0xreal", win_rate=90, win_rate_lo=85.0, trades=400, closes=200),
+    ])
+    leaders = HighWinRate(min_trades=30, min_win_rate=55, min_closes=20).pick_leaders(hl)
+    assert [l.address for l in leaders] == ["0xreal"], "4 closes is not a track record"
+    assert leaders[0].weight == pytest.approx(1.0)
+
+    # Even with the closes gate switched off, the lower bound must still rank
+    # the measured book first — the gate and the ranking are two defences.
+    both = HighWinRate(min_trades=30, min_win_rate=0, min_closes=0).pick_leaders(hl)
+    assert [l.address for l in both] == ["0xreal", "0xstreak"]
+
+
+def test_sharpe_strat_ignores_a_two_day_wonder():
+    """A ratio computed from two green days is not a Sharpe ratio."""
+    hl = FakeHL([
+        T("0xwonder", sharpe=13.37, volume=100_000, sharpe_days=2),
+        T("0xsteady", sharpe=2.0, volume=100_000, sharpe_days=30),
+    ])
+    leaders = Sharpe(min_sharpe=1.0, min_volume_usd=1_000, min_days=7).pick_leaders(hl)
+    assert [l.address for l in leaders] == ["0xsteady"]
 
 
 # ── Sharpe ──────────────────────────────────────────────────────────────

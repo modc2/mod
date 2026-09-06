@@ -1,0 +1,27 @@
+{
+    "name": "hello",
+    "description": "An ordinary WASI command \u2014 argv, stdin, stdout, no arena ABI at all. Proof that anything wasm runs.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "command",
+    "engine": "wasm",
+    "lang": "wasm",
+    "anchor": "mod.py",
+    "artifact": "1bf3f32a64bf656a96a292633167b8bc8093e2623592b8e60c752bbfa4022ba2",
+    "bytes": 62502,
+    "author": "arena",
+    "tags": [
+        "example",
+        "command",
+        "wasi"
+    ],
+    "defines": [
+        "memory",
+        "_start",
+        "__main_void"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/hello/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

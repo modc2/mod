@@ -22,8 +22,13 @@ export interface StratMoney {
   /** Those open positions marked to current prices (entry when unpriced). */
   openValue: number;
   unrealized: number;
-  /** Realized PnL from the engine's per-strat ledger (sells + redeems). */
+  /** Realized PnL from the engine's per-strat ledger (sells + redeems),
+      GROSS — before `fees`. */
   realized: number;
+  /** Polymarket taker fees this strat has paid. Real money, and the reason
+      `totalPnl` is not `realized + unrealized`: it is
+      `realized - fees + unrealized`. */
+  fees: number;
   totalPnl: number;
   /** totalPnl vs open cost basis; null when nothing is deployed. */
   pnlPct: number | null;
@@ -161,7 +166,7 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
         const next: Record<string, StratMoney> = {};
         const entryFor = (id: string): StratMoney =>
           (next[id] ??= {
-            moneyIn: 0, openValue: 0, unrealized: 0, realized: 0,
+            moneyIn: 0, openValue: 0, unrealized: 0, realized: 0, fees: 0,
             totalPnl: 0, pnlPct: null, pnl24h: 0, roi24h: null,
             fills: 0, openPositions: 0, lastFillAt: 0,
           });
@@ -190,6 +195,7 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
           const s = entryFor(id);
           for (const l of ledgers) {
             s.realized += num(l.realized);
+            s.fees += num(l.fees);
             s.fills += num(l.buys) + num(l.sells) + num(l.redeems);
             s.lastFillAt = Math.max(s.lastFillAt, num(l.lastFillAt));
           }
@@ -203,7 +209,9 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
         }
         for (const [id, s] of Object.entries(next)) {
           s.unrealized = s.openValue - s.moneyIn;
-          s.totalPnl = s.realized + s.unrealized;
+          // Fees are money that left the wallet — the strat's P&L is what it
+          // won MINUS what it paid Polymarket to win it.
+          s.totalPnl = s.realized - s.fees + s.unrealized;
           s.pnlPct = s.moneyIn > 0 ? (s.totalPnl / s.moneyIn) * 100 : null;
           const b = basis24h[id] ?? 0;
           s.roi24h = b > 0 ? (s.pnl24h / b) * 100 : null;

@@ -488,6 +488,8 @@ class Gate:
         'edit', 'reg', 'reg_payload', 'token', 'fork', 'new',
         'balance', 'balances', 'get_balances',
         'app_namespace', 'app_status', 'app_owner', 'is_app_owner', 'app_logs',
+        # Node integrity: anyone may read the root hash, only the owner commits it
+        'root_hash',
         'serve_app', 'kill_app', 'new_app', 'edit_app', 'remove_app',
         # Read-only module endpoints (health, status, listings)
         'health', 'status', 'owner', 'contract_info', 'info',

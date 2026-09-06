@@ -15,6 +15,7 @@ and the signed bytes go straight to the node.
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -71,6 +72,44 @@ KNOWN = {
 # fat-fingered amount or a tool call that misread a decimal point.
 SPEND_USD = float(os.environ.get('SOLANA_SPEND_USD', '25') or 25)
 UA = 'mod-solana/0.1 (+https://modc2.com/solana)'
+RPC_THROTTLE_HINT = ' — pass rpc=… with your own endpoint, or set SOLANA_RPC'
+
+# Jupiter's free tier is the module's single point of contention: prices, token
+# metadata, symbol resolution and every quote go through it, and measuring a
+# token's depth spends eight quotes on one click. Left alone a user walking
+# through a ranked list trips the public cap in under a minute and the answers
+# start failing rather than slowing down. So calls are PACED here rather than
+# rationed: a burst waits its turn for a moment, and only a wait longer than
+# anyone would sit through becomes an error.
+JUP_PER_MIN = int(os.environ.get('SOLANA_JUP_PER_MIN', '55') or 55)
+# How long a caller will be held at the door before the wait becomes an error.
+# Four seconds is the ceiling for a browser panel; a test run or a batch job
+# would rather wait a minute than fail, and sets SOLANA_JUP_WAIT.
+JUP_MAX_WAIT = float(os.environ.get('SOLANA_JUP_WAIT', '4') or 4)
+_JUP_CALLS = []
+_JUP_LOCK = threading.Lock()
+
+
+def _pace_jupiter(max_wait=None):
+    """Hold a caller at the door until there is room inside, or say there is not."""
+    if JUP_PER_MIN <= 0:
+        return
+    max_wait = JUP_MAX_WAIT if max_wait is None else max_wait
+    with _JUP_LOCK:
+        now = time.time()
+        _JUP_CALLS[:] = [t for t in _JUP_CALLS if now - t < 60]
+        wait = 0.0
+        if len(_JUP_CALLS) >= JUP_PER_MIN:
+            wait = 60 - (now - _JUP_CALLS[0]) + 0.05
+            if wait > max_wait:
+                raise SolError(
+                    f'{JUP_PER_MIN} price/quote calls in the last minute is this '
+                    f'box\'s self-imposed budget — free again in {wait:.0f}s. '
+                    'Nothing failed; this is the module refusing to get itself '
+                    'blocked.', status=429)
+        _JUP_CALLS.append(now + wait)
+    if wait:
+        time.sleep(wait)
 _CACHE = {}
 _CACHE_TTL = float(os.environ.get('SOLANA_CACHE_TTL', '60') or 60)
 
@@ -84,12 +123,14 @@ def _cached(key, ttl, produce):
     return value
 
 
-def _http(url, body=None, headers=None, timeout=30, retries=1):
+def _http(url, body=None, headers=None, timeout=30, retries=1, throttle_hint=None):
     """One request, with a single polite retry on 429.
 
-    Both upstreams are free public endpoints and both throttle, so a 429 is a
-    normal event rather than an error — but it is worth saying *which* host
-    throttled, since the RPC node and the price API fail very differently.
+    Every upstream here is a free public endpoint and all of them throttle, so
+    a 429 is a normal event rather than an error — but it is worth saying
+    *which* host threw it and what to do about that one, since a rate-limited
+    RPC node (bring your own endpoint) and a rate-limited market data API (wait)
+    call for different things. Callers that know the difference pass the hint.
     """
     host = urllib.parse.urlparse(url).netloc
     req = urllib.request.Request(
@@ -114,8 +155,7 @@ def _http(url, body=None, headers=None, timeout=30, retries=1):
                     continue
                 raise SolError(
                     f'{host} is rate-limiting this box' +
-                    (' — pass rpc=… with your own endpoint, or set SOLANA_RPC'
-                     if 'jup.ag' not in host else ' — wait a few seconds and retry'),
+                    (throttle_hint or ' — wait a few seconds and retry'),
                     status=429, detail=detail)
             raise SolError(f'{host} returned HTTP {e.code}',
                            status=e.code if e.code < 600 else 502, detail=detail)
@@ -176,7 +216,8 @@ class Client:
         success payload with an `error` key buried in it."""
         self._id += 1
         out = _http(self.rpc, {'jsonrpc': '2.0', 'id': self._id, 'method': method,
-                               'params': params or []}, timeout=self.timeout)
+                               'params': params or []}, timeout=self.timeout,
+                    throttle_hint=RPC_THROTTLE_HINT)
         if isinstance(out, dict) and out.get('error'):
             err = out['error']
             msg = err.get('message') if isinstance(err, dict) else str(err)
@@ -190,7 +231,8 @@ class Client:
             return []
         body = [{'jsonrpc': '2.0', 'id': i, 'method': m, 'params': p or []}
                 for i, (m, p) in enumerate(calls)]
-        out = _http(self.rpc, body, timeout=self.timeout)
+        out = _http(self.rpc, body, timeout=self.timeout,
+                    throttle_hint=RPC_THROTTLE_HINT)
         if isinstance(out, dict):
             raise SolError(f"batch rejected: {out.get('error') or out}", status=400)
         by_id = {r.get('id'): r for r in (out or [])}
@@ -202,6 +244,7 @@ class Client:
         if params:
             url += '?' + urllib.parse.urlencode({k: v for k, v in params.items()
                                                  if v not in (None, '')})
+        _pace_jupiter()
         return _http(url, timeout=timeout or self.timeout)
 
 

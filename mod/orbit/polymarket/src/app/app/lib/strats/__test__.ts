@@ -28,6 +28,11 @@ import {
   DEFAULT_TURNOVER,
   REBALANCE_MARGIN_PCT,
 } from "./strat";
+import {
+  identityStrat,
+  strategyIdFor,
+  addressFromStrategyId,
+} from "../identityStrat";
 import type { TraderRoiStats, PolymarketPosition } from "../types";
 
 let failed = 0;
@@ -588,6 +593,64 @@ console.log("\n── Cross-language playbook parity (parity.fixture.json) ─�
     );
   }
 
+  // ORIGINATION — the other half of what an engine cycle does, and until the
+  // backtest replayed it (lib/originationBacktest.ts) the half nothing checked.
+  // `propose_momentum` in the Rust engine must return the SAME proposals from
+  // the same tape: same side, same outcome, same notional, same limit price.
+  // Two divergences were live when these cases were written — the exit sized
+  // off the position's stale reported `value` in TS but off `size × price` in
+  // Rust, and the entry floor ignored the CLOB's per-price minimum in TS —
+  // which is exactly the class of drift this file exists to make impossible.
+  for (const c of fx.momentumCases) {
+    const s = new Strat({ momentum: c.momentum });
+    const series: MarketPriceSeries[] = c.series.map((raw: {
+      conditionId: string; market: string; outcomes: [string, string];
+      tokenIds: [string, string]; endDateMs: number; points: { t: number; p: number }[];
+    }) => ({ ...raw }));
+    const positions: PolymarketPosition[] = c.positions.map((p: {
+      conditionId: string; outcomeIndex: number; size: number; entryPrice: number; staleValue: number;
+    }) => {
+      const s0 = c.series.find((x: { conditionId: string }) => x.conditionId === p.conditionId);
+      return {
+        conditionId: p.conditionId,
+        tokenId: s0.tokenIds[p.outcomeIndex],
+        market: s0.market,
+        outcome: s0.outcomes[p.outcomeIndex],
+        size: p.size,
+        avgPrice: p.entryPrice,
+        currentPrice: p.entryPrice,
+        // Deliberately wrong: a strat that sizes its exit off this instead of
+        // off the price it just measured quotes a different order than live.
+        value: p.staleValue,
+        pnlUsd: 0,
+        negRisk: false,
+        redeemable: false,
+      };
+    });
+    const got = s.propose(
+      buildHistory({ now: c.now, marketPrices: series, positions, capital: c.capital }),
+      { userFloor: c.userFloor, userCeiling: c.userCeiling, clobFloor: 1, capital: c.capital },
+    );
+    const want = c.expected as {
+      side: string; conditionId: string; outcomeIndex: number; notional: number; limitPrice: number;
+    }[];
+    const same = got.length === want.length && got.every((g, i) => {
+      const w = want[i];
+      const s0 = c.series.find((x: { conditionId: string }) => x.conditionId === w.conditionId);
+      return g.side === w.side
+        && g.conditionId === w.conditionId
+        && (g.outcome || "Yes") === s0.outcomes[w.outcomeIndex]
+        && g.tokenId === s0.tokenIds[w.outcomeIndex]
+        && close(g.notional, w.notional)
+        && close(g.limitPrice, w.limitPrice);
+    });
+    check(
+      `momentum[${c.name}] — ${c.why}`,
+      same,
+      `got ${JSON.stringify(got.map((g) => ({ side: g.side, outcome: g.outcome, notional: g.notional, limit: g.limitPrice })))}`,
+    );
+  }
+
   // Copy ratio — the number that decides how big every mirror is. The two
   // languages agreeing on it IS the guarantee that a backtest predicts the
   // position sizes the live engine will actually take.
@@ -609,15 +672,22 @@ console.log("\n── Cross-language playbook parity (parity.fixture.json) ─�
   {
     const stats: Record<string, TraderRoiStats> = {};
     const addresses: string[] = [];
-    for (const t of fx.traderFilterTraders as { address: string; returns: number[] }[]) {
+    const nowMs: number = fx.traderFilterNowMs;
+    for (const t of fx.traderFilterTraders as
+        { address: string; returns: number[]; lastTradeMinutesAgo: number | null }[]) {
       addresses.push(t.address);
       stats[t.address] = {
         address: t.address, windowDays: 30, cashDeployed: 0, syncedAt: 0,
+        // null = never traded, which the freshness gate must read as
+        // infinitely stale rather than "no data, let them through".
+        lastTradeAt: t.lastTradeMinutesAgo === null
+          ? 0
+          : nowMs - t.lastTradeMinutesAgo * 60_000,
         ...statsFromReturns(t.returns),
       };
     }
     for (const c of fx.traderFilterCases) {
-      const rows = rankTraders(addresses, stats, c.filter);
+      const rows = rankTraders(addresses, stats, c.filter, nowMs);
       const order = rows.map((r) => r.address);
       const kept = rows.filter((r) => r.kept).map((r) => r.address);
       check(
@@ -632,6 +702,31 @@ console.log("\n── Cross-language playbook parity (parity.fixture.json) ─�
       );
     }
     check("DEFAULT_FILTER_TOP_N matches fixture", DEFAULT_FILTER_TOP_N === fx.defaults.filterTopN);
+
+    // A pre-upgrade localStorage stats cache has no `lastTradeAt` at all.
+    // That must read as "age unknown" and pass the freshness gate — cutting
+    // on it would pause a live strat over missing data instead of dormant
+    // traders. `lastTradeAt: 0` (computed, nothing in the window) still cuts.
+    {
+      const base = { address: "0xaaa", windowDays: 30, cashDeployed: 0, syncedAt: 0,
+        ...statsFromReturns([0.1, 0.2, 0.15]) };
+      const noField = { ...base } as TraderRoiStats;
+      delete (noField as { lastTradeAt?: number }).lastTradeAt;
+      const rows = rankTraders(
+        ["0xaaa", "0xbbb"],
+        { "0xaaa": noField, "0xbbb": { ...base, address: "0xbbb", lastTradeAt: 0 } },
+        { metric: "score", topN: 0, maxStaleHours: 6 },
+        nowMs,
+      );
+      const byAddr = Object.fromEntries(rows.map((r) => [r.address, r]));
+      check("unknown lastTradeAt is not cut by the freshness gate",
+        byAddr["0xaaa"].kept && !byAddr["0xaaa"].stale,
+        `got kept=${byAddr["0xaaa"].kept} stale=${byAddr["0xaaa"].stale}`);
+      check("lastTradeAt 0 (no trade in window) IS cut as stale",
+        !byAddr["0xbbb"].kept && byAddr["0xbbb"].stale &&
+        byAddr["0xbbb"].reason.includes("no trade seen"),
+        `got ${JSON.stringify(byAddr["0xbbb"])}`);
+    }
   }
 
   check("REBALANCE_MARGIN_PCT matches fixture", REBALANCE_MARGIN_PCT === fx.rebalanceMarginPct);
@@ -641,6 +736,44 @@ console.log("\n── Cross-language playbook parity (parity.fixture.json) ─�
   check("successProbability falls back to 0.5 on stale cached stats",
     successProbability({ ...buildStats(), successProb: undefined as unknown as number }) === 0.5 &&
     successProbability(null) === 0.5);
+}
+
+console.log("\n── Identity template parity (identity.fixture.json) ──");
+{
+  // The COPY DESK's template exists in TS (identityStrat.ts) and in Rust
+  // (api/src/copy.rs). This fixture is the contract; `cargo test
+  // copy::tests::identity_template_matches_the_shared_fixture` asserts the
+  // same cases from the other side, so a default changed on one side and not
+  // the other turns a suite red instead of quietly costing money.
+  const fixturePath = fileURLToPath(new URL("./identity.fixture.json", import.meta.url));
+  const fx = JSON.parse(readFileSync(fixturePath, "utf8"));
+  check("fixture has cases", Array.isArray(fx.cases) && fx.cases.length > 0);
+
+  for (const c of fx.cases) {
+    const got = identityStrat(c.allocation) as unknown as Record<string, unknown>;
+    const want = c.strat as Record<string, unknown>;
+    const diffs: string[] = [];
+    for (const key of new Set([...Object.keys(want), ...Object.keys(got)])) {
+      const a = JSON.stringify(got[key]);
+      const b = JSON.stringify(want[key]);
+      if (a !== b) diffs.push(`${key}: got ${a}, want ${b}`);
+    }
+    check(`identity template — ${c.name}`, diffs.length === 0, diffs.join("; "));
+  }
+
+  // The derived id is what makes the desk idempotent and the ledger correct.
+  check("strategyId round-trips through the address",
+    addressFromStrategyId(strategyIdFor("0xAbC0000000000000000000000000000000000001")) ===
+      "0xabc0000000000000000000000000000000000001");
+  check("an opaque hub strat id does NOT decode to an address",
+    addressFromStrategyId("mrjg86gf") === null &&
+    addressFromStrategyId("copy-not-hex") === null);
+  // stopLoss 0 means OFF. `??` not `||`, or protection silently turns back on.
+  check("explicit 0 survives the template",
+    identityStrat({
+      address: "0xabc0000000000000000000000000000000000001", allocationUsd: 10,
+      enabled: true, addedAt: 0, updatedAt: 0, params: { stopLoss: 0, turnover: 0 },
+    }).stopLoss === 0);
 }
 
 console.log(`\n${failed === 0 ? "✓ all checks passed" : `✗ ${failed} failed`}\n`);

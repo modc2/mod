@@ -64,9 +64,45 @@ impl AuthCfg {
 
 // ─── Token verification (mirrors mod/core/server/auth) ──────────────────
 
+/// Why a token failed. The distinction is the whole point: an **expired**
+/// session is one signature away from working again — the console re-mints
+/// and retries silently — while a malformed one is a bug worth showing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenError {
+    Expired(String),
+    Invalid(String),
+}
+
+impl std::fmt::Display for TokenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenError::Expired(m) | TokenError::Invalid(m) => f.write_str(m),
+        }
+    }
+}
+
+// `?` on the plain-string error paths below stays terse.
+impl From<String> for TokenError {
+    fn from(s: String) -> Self { TokenError::Invalid(s) }
+}
+impl From<&str> for TokenError {
+    fn from(s: &str) -> Self { TokenError::Invalid(s.to_string()) }
+}
+
+/// Human duration for token-age copy — "3 days", not "268241s".
+fn human_secs(s: f64) -> String {
+    let s = s.abs() as i64;
+    match s {
+        0..=90 => format!("{s}s"),
+        91..=5400 => format!("{}m", s / 60),
+        5401..=172_800 => format!("{}h", s / 3600),
+        _ => format!("{}d", s / 86_400),
+    }
+}
+
 /// Verify a protocol-auth bearer token. On success returns the signer's
-/// lowercase 0x address; on failure an error string safe for a 401 body.
-pub fn verify_token(token: &str, max_age_secs: u64) -> Result<String, String> {
+/// lowercase 0x address; on failure a typed error safe for a 401 body.
+pub fn verify_token(token: &str, max_age_secs: u64) -> Result<String, TokenError> {
     let raw = b64url_decode(token.trim()).map_err(|e| format!("bad token encoding: {e}"))?;
     let envelope: Value =
         serde_json::from_slice(&raw).map_err(|e| format!("bad token json: {e}"))?;
@@ -85,8 +121,13 @@ pub fn verify_token(token: &str, max_age_secs: u64) -> Result<String, String> {
 
     let t: f64 = time.parse().map_err(|_| "token time not a number".to_string())?;
     let now = chrono::Utc::now().timestamp() as f64;
-    if (now - t).abs() > max_age_secs as f64 {
-        return Err(format!("token is stale ({}s > {}s)", (now - t).abs() as i64, max_age_secs));
+    let age = now - t;
+    if age.abs() > max_age_secs as f64 {
+        return Err(TokenError::Expired(format!(
+            "sign-in is {} old, and sessions last {}",
+            human_secs(age),
+            human_secs(max_age_secs as f64),
+        )));
     }
 
     // Reconstruct the exact signed string: {"data":<data>,"time":"<time>"}.
@@ -116,7 +157,7 @@ pub fn verify_token(token: &str, max_age_secs: u64) -> Result<String, String> {
             }
         }
     }
-    Err("signature does not match token key".into())
+    Err(TokenError::Invalid("signature does not match token key".into()))
 }
 
 fn recover_address(prehash: &[u8; 32], signature_hex: &str) -> Result<String, String> {
@@ -143,9 +184,22 @@ fn b64url_decode(s: &str) -> Result<Vec<u8>, String> {
 
 // ─── Route classification ───────────────────────────────────────────────
 
+/// Pure computations that happen to need a request body. `/indexes/auto`
+/// ranks the **public** trader board and hands back proposed basket legs —
+/// it reads nothing private and stores nothing. Gating it meant the strat
+/// builder demanded a signature before the user had built anything worth
+/// saving, and its 401 tore down the session on the way out. A preview is a
+/// read; it is priced like one.
+fn is_public_post(path: &str) -> bool {
+    matches!(path, "/indexes/auto")
+}
+
 /// Public reads: market data, analytics, and index browsing — everything a
 /// signed-out visitor may see. All writes and all user-scoped reads are gated.
 pub fn is_public(method: &Method, path: &str) -> bool {
+    if *method == Method::POST {
+        return is_public_post(path);
+    }
     if *method != Method::GET {
         return false;
     }
@@ -158,7 +212,11 @@ pub fn is_public(method: &Method, path: &str) -> bool {
         | "/ask/status"
         // deposit GETs are on-chain-public data (chain registry, balances,
         // bridge status) — watch-mode users see them without signing in.
-        | "/deposit/chains" | "/deposit/balances" | "/deposit/status")
+        | "/deposit/chains" | "/deposit/balances" | "/deposit/status"
+        // Sizing arithmetic over a leader's PUBLIC portfolio: "what would
+        // $250 in this trader buy me?" is a read, and asking it before
+        // connecting a wallet is the whole point.
+        | "/invest/preview")
         || ["/orderbook/", "/candles/", "/user/", "/traders/", "/trader/", "/vaults/", "/indexes/"]
             .iter()
             .any(|p| path.starts_with(p))
@@ -170,6 +228,7 @@ fn required_query_key(path: &str) -> Option<&'static str> {
     match path {
         "/follows" | "/signals" => Some("follower"),
         "/live/status" | "/agent/status" => Some("eoa"),
+        "/invest" => Some("investor"),
         _ => None,
     }
 }
@@ -183,11 +242,89 @@ fn query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
     })
 }
 
-fn deny(status: StatusCode, error: &str, detail: &str) -> Response {
-    (status, Json(json!({
-        "error": error,
+// ─── Denials ────────────────────────────────────────────────────────────
+//
+// A gate that answers "401 unauthorized" and nothing else pushes its job onto
+// whoever called it: the console can only reprint the status code, and the
+// person reading it learns nothing about what to do next. Every refusal here
+// carries a stable `reason` code, a sentence written for a human, and
+// `sign_in` — whether a fresh signature would plausibly fix it. The web client
+// re-mints and retries exactly once on `sign_in`, so an expired session costs
+// one MetaMask prompt instead of a dead end.
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Denial {
+    /// No Authorization header at all — the caller is signed out.
+    NoToken,
+    /// A token that isn't a token: bad base64/JSON, or a signature that
+    /// doesn't recover to the address it claims.
+    BadToken,
+    /// A well-formed token past its freshness window.
+    ExpiredToken,
+    /// The request names an address that isn't the token's own.
+    WrongWallet,
+    /// The row exists and belongs to a different wallet.
+    NotOwner,
+    /// A user-scoped list query with no scope — would enumerate everyone.
+    Unscoped,
+    /// Body over the inspection limit.
+    OversizeBody,
+}
+
+impl Denial {
+    fn code(self) -> &'static str {
+        match self {
+            Denial::NoToken => "no_token",
+            Denial::BadToken => "bad_token",
+            Denial::ExpiredToken => "expired_token",
+            Denial::WrongWallet => "wrong_wallet",
+            Denial::NotOwner => "not_owner",
+            Denial::Unscoped => "unscoped_query",
+            Denial::OversizeBody => "payload_too_large",
+        }
+    }
+
+    fn status(self) -> StatusCode {
+        match self {
+            Denial::NoToken | Denial::BadToken | Denial::ExpiredToken => StatusCode::UNAUTHORIZED,
+            Denial::WrongWallet | Denial::NotOwner | Denial::Unscoped => StatusCode::FORBIDDEN,
+            Denial::OversizeBody => StatusCode::PAYLOAD_TOO_LARGE,
+        }
+    }
+
+    /// `true` when minting a fresh token could plausibly resolve this, which
+    /// is the client's signal to re-sign and retry once instead of failing.
+    fn sign_in(self) -> bool {
+        matches!(self, Denial::NoToken | Denial::BadToken | Denial::ExpiredToken)
+    }
+
+    /// The short line the UI shows. Says what happened and what to do.
+    fn message(self) -> &'static str {
+        match self {
+            Denial::NoToken => "Sign in with your wallet to do that.",
+            Denial::BadToken => "That sign-in couldn't be verified. Sign in again.",
+            Denial::ExpiredToken => "Your session expired. Sign in again to continue.",
+            Denial::WrongWallet => "That request names a different wallet than the one you signed in with.",
+            Denial::NotOwner => "That belongs to a different wallet.",
+            Denial::Unscoped => "This list is per-wallet — scope it to your own address.",
+            Denial::OversizeBody => "That request body is too large.",
+        }
+    }
+}
+
+/// Build the refusal. `detail` is the specific, developer-facing half;
+/// `message` is the half a person reads.
+fn deny(kind: Denial, detail: impl Into<String>) -> Response {
+    (kind.status(), Json(json!({
+        // `error` stays the coarse status word older clients match on.
+        "error": if kind.status() == StatusCode::UNAUTHORIZED { "unauthorized" }
+                 else if kind.status() == StatusCode::FORBIDDEN { "forbidden" }
+                 else { "payload too large" },
+        "reason": kind.code(),
+        "message": kind.message(),
+        "sign_in": kind.sign_in(),
         "gate": "hyperliquid-auth",
-        "detail": detail,
+        "detail": detail.into(),
     })))
         .into_response()
 }
@@ -208,8 +345,10 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
     }
     // MCP is a transport, not a privilege: `tools/list` and public tools must
     // work signed-out. Each tool call re-enters this guard as a loopback
-    // request carrying the caller's own header, so gating happens there.
-    if path == "/mcp" {
+    // request carrying the caller's own header, so gating happens there. All
+    // three MCP entrances (streamable HTTP, and the HTTP+SSE pair) are the
+    // same transport and get the same treatment.
+    if matches!(path.as_str(), "/mcp" | "/sse" | "/messages") {
         return next.run(req).await;
     }
 
@@ -222,34 +361,32 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         Some(t) => t,
         None => {
             return deny(
-                StatusCode::UNAUTHORIZED,
-                "unauthorized",
-                "sign in with your wallet — send a mod protocol-auth token as Authorization: Bearer <token>",
+                Denial::NoToken,
+                "send a mod protocol-auth token as `Authorization: Bearer <token>`",
             )
         }
     };
     let addr = match verify_token(token, state.auth.max_age) {
         Ok(a) => a,
-        Err(e) => return deny(StatusCode::UNAUTHORIZED, "unauthorized", &format!("invalid token: {e}")),
+        Err(TokenError::Expired(e)) => return deny(Denial::ExpiredToken, e),
+        Err(TokenError::Invalid(e)) => return deny(Denial::BadToken, e),
     };
 
     // Query-string identity binding.
     let query = req.uri().query().unwrap_or("").to_string();
-    for key in ["eoa", "follower", "owner"] {
+    for key in ["eoa", "follower", "owner", "investor"] {
         if let Some(v) = query_param(&query, key) {
             if !v.eq_ignore_ascii_case(&addr) {
-                return deny(StatusCode::FORBIDDEN, "forbidden", "query address does not match your signed-in wallet");
+                return deny(Denial::WrongWallet, format!(
+                    "?{key}={v} is not the wallet this token signs for ({addr})"));
             }
         }
     }
     if req.method() == Method::GET {
         if let Some(key) = required_query_key(&path) {
             if query_param(&query, key).is_none() {
-                return deny(
-                    StatusCode::FORBIDDEN,
-                    "forbidden",
-                    &format!("scope this query to your signed-in wallet with ?{key}=<your address>"),
-                );
+                return deny(Denial::Unscoped, format!(
+                    "scope this query to your signed-in wallet with ?{key}={addr}"));
             }
         }
     }
@@ -261,7 +398,7 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
             let id = rest.split('/').next().unwrap_or("");
             if let Some(f) = state.store.list_follows(None).into_iter().find(|f| f.id == id) {
                 if !f.follower.eq_ignore_ascii_case(&addr) {
-                    return deny(StatusCode::FORBIDDEN, "forbidden", "this follow belongs to a different wallet");
+                    return deny(Denial::NotOwner, format!("follow {id} is owned by {}", f.follower));
                 }
             }
         }
@@ -270,7 +407,7 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
             if id != "auto" {
                 if let Some(idx) = state.store.get_index(id) {
                     if !idx.owner.eq_ignore_ascii_case(&addr) {
-                        return deny(StatusCode::FORBIDDEN, "forbidden", "this index belongs to a different wallet");
+                        return deny(Denial::NotOwner, format!("strat {id} is owned by {}", idx.owner));
                     }
                 }
             }
@@ -282,18 +419,15 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
     let (mut parts, body) = req.into_parts();
     let bytes = match axum::body::to_bytes(body, 1 << 20).await {
         Ok(b) => b,
-        Err(_) => return deny(StatusCode::PAYLOAD_TOO_LARGE, "payload too large", "request body exceeds 1 MiB"),
+        Err(_) => return deny(Denial::OversizeBody, "request body exceeds 1 MiB"),
     };
     if !bytes.is_empty() {
         if let Ok(Value::Object(map)) = serde_json::from_slice::<Value>(&bytes) {
-            for key in ["eoa", "follower", "owner"] {
+            for key in ["eoa", "follower", "owner", "investor"] {
                 if let Some(v) = map.get(key).and_then(|v| v.as_str()) {
                     if !v.eq_ignore_ascii_case(&addr) {
-                        return deny(
-                            StatusCode::FORBIDDEN,
-                            "forbidden",
-                            &format!("body `{key}` does not match your signed-in wallet"),
-                        );
+                        return deny(Denial::WrongWallet, format!(
+                            "body `{key}` is {v}, but this token signs for {addr}"));
                     }
                 }
             }
@@ -348,6 +482,54 @@ mod tests {
         for eip191 in [true, false] {
             let token = make_token(&key, &addr, now, eip191);
             assert_eq!(verify_token(&token, 3600).unwrap(), addr.to_lowercase());
+        }
+    }
+
+    #[test]
+    fn a_preview_is_a_read() {
+        // /indexes/auto only ranks the public board. Gating it made the strat
+        // builder demand a signature before there was anything to save.
+        assert!(is_public(&Method::POST, "/indexes/auto"));
+        // …and nothing else about POST loosened up.
+        assert!(!is_public(&Method::POST, "/indexes"));
+        assert!(!is_public(&Method::POST, "/trade"));
+        assert!(!is_public(&Method::POST, "/live/start"));
+        assert!(!is_public(&Method::DELETE, "/indexes/auto"));
+        assert!(!is_public(&Method::PATCH, "/indexes/abc"));
+    }
+
+    #[test]
+    fn expiry_and_forgery_are_different_answers() {
+        let key = SigningKey::random(&mut rand::rngs::OsRng);
+        let addr = address_from_pubkey(key.verifying_key());
+        let now = chrono::Utc::now().timestamp() as f64;
+
+        // Stale → recoverable, the client re-signs.
+        match verify_token(&make_token(&key, &addr, now - 7200.0, true), 3600) {
+            Err(TokenError::Expired(_)) => {}
+            other => panic!("stale token should be Expired, got {other:?}"),
+        }
+        // Wrong signer → not recoverable by re-signing the same claim.
+        let other = "0x000000000000000000000000000000000000dead";
+        match verify_token(&make_token(&key, other, now, true), 3600) {
+            Err(TokenError::Invalid(_)) => {}
+            other => panic!("mismatched key should be Invalid, got {other:?}"),
+        }
+        match verify_token("not-a-token", 3600) {
+            Err(TokenError::Invalid(_)) => {}
+            other => panic!("garbage should be Invalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_denial_says_what_to_do() {
+        use Denial::*;
+        for d in [NoToken, BadToken, ExpiredToken, WrongWallet, NotOwner, Unscoped, OversizeBody] {
+            assert!(!d.code().is_empty());
+            assert!(d.message().ends_with('.'), "{:?}: message should read as a sentence", d);
+            // Only the 401 family is worth re-signing for; a 403 means the
+            // right wallet is a different wallet, and re-signing loops.
+            assert_eq!(d.sign_in(), d.status() == StatusCode::UNAUTHORIZED, "{d:?}");
         }
     }
 

@@ -1612,23 +1612,107 @@ async def build_project_delete(name: str, address: Optional[str] = None):
 # ── Shared projects ─────────────────────────────────────────────────────────
 #
 # A gallery: publish a project you built, anyone can fork it into their own
-# sidebar. Entries are keyed "<author>/<name>". The fleet's own contracts ship
-# as read-only entries, so the gallery is never empty and BlocTime is one click
-# away from a working editor.
+# sidebar. Entries are keyed "<author>/<name>". Every module of the fleet ships
+# as a read-only entry, so the gallery is never empty and each contract is one
+# click away from a working editor with its own tests.
+#
+# A fleet entry is laid out the way its tests expect: sources keep their
+# src/contracts/<module>/ directories under contracts/ (so imports like
+# `../tokengate/TokenGate.sol` keep resolving), tests go flat under test/, and
+# the module's README rides along. Paths are chain-module-relative and read
+# fresh on every request, so editing a fleet contract updates its gallery
+# entry without a republish.
 
-# Paths are chain-module-relative and read fresh on every request, so editing a
-# fleet contract updates its gallery entry without a republish.
-BUILTIN_SHARED = [{
-    "id": "fleet/bloctime",
-    "name": "bloctime",
-    "author": "fleet",
-    "description": "Stake an ERC20 for a block duration, mint blocTime on a multiplier curve.",
-    "sources": {
-        "contracts/BlocTime.sol": "src/contracts/bloctime/BlocTime.sol",
-        "contracts/Token.sol": "src/build/shared/bloctime/Token.sol",
-        "test/BlocTime.test.js": "src/contracts/bloctime/test/BlocTime.test.js",
-    },
-}]
+_CONTRACTS = "src/contracts"
+
+# The building blocks the modules share, named once. A module that reads a
+# price through TokenGate needs the gate and an oracle to test against; a
+# module that settles through Market needs the market on top of those.
+_TOKEN = ["token/Token.sol"]
+_ORACLES = ["oracles/IOracleAdapter.sol", "oracles/ManualPriceOracle.sol"]
+_GATE = _ORACLES + ["tokengate/TokenGate.sol"]
+_MARKET = _GATE + ["market/Market.sol"]
+_DEBIT = ["market/debit/Debit.sol"]
+_SAFE = ["safe/Enum.sol", "safe/ISafe.sol", "safe/Safe.sol",
+         "safe/SafeProxy.sol", "safe/SafeProxyFactory.sol"]
+_DEFI = ["defi/IYieldAdapter.sol", "defi/YieldVault.sol", "defi/MockYieldAdapter.sol",
+         "defi/AaveV3Adapter.sol", "defi/test/MockERC20.sol"]
+
+
+def _fleet(name: str, description: str, contracts: list, tests: list,
+           readme: Optional[str] = None) -> dict:
+    """One shipped gallery entry. `contracts` and `tests` are src/contracts-
+    relative; `readme` names the module directory whose README to include."""
+    sources = {}
+    for rel in dict.fromkeys(contracts):            # dedupe, keep order
+        sources[f"contracts/{rel}"] = f"{_CONTRACTS}/{rel}"
+    for rel in tests:
+        sources[f"test/{os.path.basename(rel)}"] = f"{_CONTRACTS}/{rel}"
+    if readme:
+        sources["README.md"] = f"{_CONTRACTS}/{readme}/README.md"
+    return {"id": f"fleet/{name}", "name": name, "author": "fleet",
+            "description": description, "sources": sources}
+
+
+_ALL_TESTS = [
+    "token/test/Token.test.js", "oracles/test/Oracles.test.js",
+    "registry/test/Registry.test.js", "perms/test/Perms.test.js",
+    "tokengate/test/TokenGate.test.js", "bloctime/test/BlocTime.test.js",
+    "treasury/test/Treasury.test.js", "market/test/Market.test.js",
+    "market/test/MarketWithdrawal.test.js", "market/test/Debit.test.js",
+    "safe/test/Safe.test.js", "safe/test/SafeDeployment.test.js",
+    "defi/test/YieldVault.test.js",
+]
+
+# Deploy order, then the pieces that sit beside the fleet, then the whole thing.
+BUILTIN_SHARED = [
+    _fleet("token",
+           "Plain ERC20 — the whole supply minted to the deployer. The fleet's USDC/USDT/native token.",
+           _TOKEN, ["token/test/Token.test.js"], readme="token"),
+    _fleet("oracle",
+           "Price-feed adapters behind one interface: manual, Chainlink and Pyth.",
+           _ORACLES + ["oracles/ChainlinkAdapter.sol", "oracles/PythAdapter.sol"] + _TOKEN,
+           ["oracles/test/Oracles.test.js"], readme="oracles"),
+    _fleet("registry",
+           "On-chain name registry: each mod has an owner, a unique name and arbitrary data.",
+           ["registry/Registry.sol"], ["registry/test/Registry.test.js"], readme="registry"),
+    _fleet("perms",
+           "Hierarchical key-value permissions with first-setter ownership.",
+           ["perms/Perms.sol"], ["perms/test/Perms.test.js"], readme="perms"),
+    _fleet("tokengate",
+           "Payment-token whitelist with a per-token oracle — what Market and Treasury price through.",
+           _GATE + _TOKEN, ["tokengate/test/TokenGate.test.js"], readme="tokengate"),
+    _fleet("bloctime",
+           "Stake an ERC20 for a block duration, mint blocTime on a multiplier curve.",
+           ["bloctime/BlocTime.sol"] + _TOKEN, ["bloctime/test/BlocTime.test.js"], readme="bloctime"),
+    _fleet("treasury",
+           "Splits whitelisted tokens across governance-token holders, gated by TokenGate.",
+           _GATE + ["treasury/Treasury.sol"] + _TOKEN,
+           ["treasury/test/Treasury.test.js"], readme="treasury"),
+    _fleet("market",
+           "Mint/credit/withdraw an 8-decimal stable credit token against oracle-priced payment tokens, plus signed Debit pulls.",
+           _MARKET + _DEBIT + _TOKEN,
+           ["market/test/Market.test.js", "market/test/MarketWithdrawal.test.js",
+            "market/test/Debit.test.js"], readme="market"),
+    _fleet("debit",
+           "EIP-712 signed debit pulls against a Market balance — the payment rail, with the market it draws on.",
+           _MARKET + _DEBIT + _TOKEN, ["market/test/Debit.test.js"], readme="market"),
+    _fleet("safe",
+           "Multisig wallet: EIP-712 threshold signatures, proxy pattern, factory deployment.",
+           _SAFE, ["safe/test/Safe.test.js"], readme="safe"),
+    _fleet("defi",
+           "Yield vault over pluggable strategy adapters (mock + Aave v3), harvest routed through Market.",
+           _DEFI + _MARKET + ["treasury/Treasury.sol"],
+           ["defi/test/YieldVault.test.js"], readme="defi"),
+    _fleet("protocol",
+           "The whole fleet in one project, every test included — ends with the Safe taking ownership of it all.",
+           _TOKEN + _ORACLES + ["oracles/ChainlinkAdapter.sol", "oracles/PythAdapter.sol",
+                                "registry/Registry.sol", "perms/Perms.sol", "tokengate/TokenGate.sol",
+                                "bloctime/BlocTime.sol", "treasury/Treasury.sol", "market/Market.sol"]
+           + _DEBIT + _SAFE + _DEFI,
+           _ALL_TESTS),
+]
+BUILTIN_SHARED[-1]["sources"]["README.md"] = "README.md"
 
 
 def _builtin_files(entry: dict) -> dict:
@@ -1853,6 +1937,10 @@ class BuiltReq(BaseModel):
     tx_hash: Optional[str] = None
     abi: list = []
     source: Optional[str] = None
+    # A contract someone else deployed that you want in your list anyway —
+    # same record, but it never claims you shipped it.
+    watched: bool = False
+    note: Optional[str] = None
 
 
 @app.post("/build/deployments")
@@ -1871,19 +1959,71 @@ async def build_record(req: BuiltReq):
 
     row = {"name": req.name, "network": req.network, "address": req.contract_address,
            "tx_hash": req.tx_hash, "abi": req.abi, "abi_cid": abi_cid,
-           "src_cid": src_cid, "deployer": req.address, "created": time.time()}
+           "src_cid": src_cid, "deployer": req.address, "created": time.time(),
+           "watched": req.watched, "note": req.note}
+    # Adding the same address on the same network twice is a re-record, not a
+    # second contract — keep one row so the list stays a registry.
+    rows[:] = [r for r in rows if not _same_deployment(r, req.network, req.contract_address)]
     rows.insert(0, row)
     _build_save("deployments.json", store)
     return {"ok": True, "deployment": row}
 
 
+def _same_deployment(row: dict, network: str, contract_address: str) -> bool:
+    return (row.get("network") == network
+            and (row.get("address") or "").lower() == (contract_address or "").lower())
+
+
 @app.get("/build/deployments")
 async def build_deployments(address: Optional[str] = None, network: Optional[str] = None):
-    """A user's wallet-signed deployments, newest first."""
+    """A user's wallet-signed deployments, newest first. No network → every one."""
     rows = _build_store("deployments.json").get(_who(address), [])
     if network:
         rows = [r for r in rows if r.get("network") == network]
     return {"deployments": rows, "count": len(rows)}
+
+
+class DeploymentEditReq(BaseModel):
+    address: Optional[str] = None      # whose list
+    network: str
+    contract_address: str
+    name: Optional[str] = None
+    note: Optional[str] = None
+
+
+@app.post("/build/deployments/edit")
+async def build_deployment_edit(req: DeploymentEditReq):
+    """Rename a recorded deployment or attach a note to it."""
+    store = _build_store("deployments.json")
+    rows = store.get(_who(req.address), [])
+    for row in rows:
+        if not _same_deployment(row, req.network, req.contract_address):
+            continue
+        if req.name is not None:
+            if not req.name.strip():
+                raise HTTPException(status_code=400, detail="name cannot be empty")
+            row["name"] = req.name.strip()
+        if req.note is not None:
+            row["note"] = req.note.strip() or None
+        _build_save("deployments.json", store)
+        return {"ok": True, "deployment": row}
+    raise HTTPException(status_code=404,
+                        detail=f"no deployment at {req.contract_address} on {req.network}")
+
+
+@app.delete("/build/deployments")
+async def build_deployment_delete(contract_address: str, network: str,
+                                  address: Optional[str] = None):
+    """Forget a deployment. The contract stays on chain — this drops the record."""
+    store = _build_store("deployments.json")
+    rows = store.get(_who(address), [])
+    kept = [r for r in rows if not _same_deployment(r, network, contract_address)]
+    if len(kept) == len(rows):
+        raise HTTPException(status_code=404,
+                            detail=f"no deployment at {contract_address} on {network}")
+    store[_who(address)] = kept
+    _build_save("deployments.json", store)
+    return {"ok": True, "removed": len(rows) - len(kept)}
 
 
 # ── ABIs in the store ───────────────────────────────────────────────────────
@@ -2146,6 +2286,163 @@ async def system_stats(top: int = 30, authorization: Optional[str] = Header(None
     return await _host_module().collect(top=max(1, min(top, 100)))
 
 
+# ── The agent (Claude Code, through orbit/agent) ────────────────────────────
+#
+# The console's AGENT tab hands the open project to Claude Code. The run does
+# not start here: it is submitted to the orbit/agent module as its shipped
+# `chain-mod` agent, which hands the run to this module's own harness runner
+# (src/agent/mod.py) — so the agent module's owner gate, task ledger and
+# console all see it, exactly like a run started from the agent console. This
+# API is the bridge: it checks the caller's token, names the project, and
+# streams the agent module's events straight back to the tab.
+
+AGENT_API_URL = os.environ.get("AGENT_API_URL", "http://localhost:50117")
+AGENT_PERSONA = "chain-mod"
+AGENT_HARNESS = "chainmod"
+AGENT_STREAM_TIMEOUT = 1800
+_agent_runner = None
+
+
+def _runner():
+    """The harness runner — this module's own, loaded once."""
+    global _agent_runner
+    if _agent_runner is None:
+        # never put src/agent on sys.path: its mod.py would shadow the mod
+        # framework for every later `import mod` in this process
+        try:
+            import mod as m
+            _agent_runner = m.mod("chain.agent")()
+        except Exception:
+            import importlib.util
+            here = os.path.dirname(os.path.abspath(__file__))
+            path = os.path.join(os.path.dirname(here), "agent", "mod.py")
+            spec = importlib.util.spec_from_file_location("chain_agent_runner", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            _agent_runner = module.Mod()
+    return _agent_runner
+
+
+def _agent_get(path: str, timeout: float = 4):
+    try:
+        r = requests.get(f"{AGENT_API_URL}{path}", timeout=timeout)
+        return r.json() if r.ok else None
+    except Exception:
+        return None
+
+
+def _token_owner(key: Optional[str]) -> Optional[str]:
+    """The address a protocol-auth token proves, or None."""
+    if not key:
+        return None
+    try:
+        import mod as m
+        return m.mod("auth")().verify(key).get("key")
+    except Exception:
+        return None
+
+
+@app.get("/agent/status")
+async def agent_status():
+    """Can the AGENT tab run here, and who may press the button."""
+    try:
+        card = _runner().harness()
+    except Exception as e:
+        card = {"name": AGENT_HARNESS, "available": False, "error": str(e)}
+    health = _agent_get("/health")
+    owner = _agent_get("/owner") or {}
+    harness = None
+    for h in (_agent_get("/harnesses") or {}).get("harnesses", []):
+        if h.get("name") == AGENT_HARNESS:
+            harness = h
+    return {
+        "available": bool(card.get("available")) and health is not None and bool(harness),
+        "cli": card.get("version"),
+        "model": card.get("model"),
+        "agent_api": AGENT_API_URL,
+        "agent_up": health is not None,
+        "agent": AGENT_PERSONA,
+        "harness": AGENT_HARNESS,
+        "registered": bool(harness),
+        # harness runs execute on this host's own Claude account, so the agent
+        # module keeps them owner-only — the tab says so instead of 403ing later
+        "owner": owner.get("owner"),
+        "owner_only": bool(owner.get("has_owner", True)),
+        "running": card.get("running", 0),
+        "concurrency": card.get("concurrency"),
+        "error": card.get("error"),
+    }
+
+
+class AgentRunReq(BaseModel):
+    key: str                          # protocol-auth token (wallet-signed)
+    query: str
+    project: Optional[str] = None
+    network: str = "testnet"
+    model: Optional[str] = None       # sonnet | opus | haiku
+    timeout: Optional[int] = None
+
+
+@app.post("/agent/run")
+async def agent_run(req: AgentRunReq):
+    """Hand the project to Claude Code via orbit/agent; SSE of its steps."""
+    from fastapi.responses import StreamingResponse
+
+    address = _token_owner(req.key)
+    if not address:
+        raise HTTPException(status_code=401, detail="sign in first — the agent needs a wallet-signed token")
+    if not (req.query or "").strip():
+        raise HTTPException(status_code=400, detail="say what the agent should do")
+    body = {
+        "query": req.query.strip(),
+        "key": req.key,
+        "agent_type": AGENT_PERSONA,
+        "harness_args": {
+            "project": (req.project or "").strip() or None,
+            "address": address,
+            "network": req.network,
+            "model": req.model or None,
+            "timeout": int(req.timeout) if req.timeout else None,
+        },
+    }
+    body["harness_args"] = {k: v for k, v in body["harness_args"].items() if v is not None}
+
+    def gen():
+        head = {"type": "start", "agent": AGENT_PERSONA, "harness": AGENT_HARNESS,
+                "address": address, "project": body["harness_args"].get("project")}
+        yield f"data: {json.dumps(head)}\n\n"
+        try:
+            with requests.post(f"{AGENT_API_URL}/run/stream", json=body, stream=True,
+                               timeout=(10, AGENT_STREAM_TIMEOUT)) as r:
+                if r.status_code != 200:
+                    detail = (r.text or "")[:500]
+                    yield f"data: {json.dumps({'type': 'error', 'error': f'agent api {r.status_code}: {detail}'})}\n\n"
+                    return
+                for raw in r.iter_lines(decode_unicode=True):
+                    if raw is None:
+                        continue
+                    line = raw if isinstance(raw, str) else raw.decode("utf-8", "replace")
+                    if line.startswith(":"):
+                        yield ": ping\n\n"
+                        continue
+                    if line.startswith("data:"):
+                        yield f"{line}\n\n"
+        except requests.RequestException as e:
+            yield f"data: {json.dumps({'type': 'error', 'error': f'agent api unreachable at {AGENT_API_URL}: {e}'})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/agent/runs")
+async def agent_runs(address: Optional[str] = None, limit: int = 20):
+    """Past agent runs on this address's projects, newest first."""
+    try:
+        return {"runs": _runner().runs(address, limit)}
+    except Exception as e:
+        return {"runs": [], "error": str(e)}
+
+
 @app.get("/info")
 async def info():
     """API info."""
@@ -2170,6 +2467,7 @@ async def info():
             "build/projects", "build/projects/{name}", "build/deployments",
             "build/shared", "build/shared/{id}",
             "build/abi", "build/abi/{cid}", "build/abis",
+            "agent/status", "agent/run", "agent/runs",
             "system/access", "system/challenge", "system/login", "system/stats",
         ],
     }

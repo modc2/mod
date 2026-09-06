@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   autoIndex, createIndex, getIndex, fetchTopTraders, IndexLeg, TopTrader, fmtPnl, shortAddr, fmtPct,
 } from "../../lib/api";
-import { useWallet } from "../../lib/wallet";
+import AuthGate from "../../components/AuthGate";
 
 export default function NewStratPage() {
   return <Suspense fallback={<div className="text-xs text-muted">loading…</div>}><Inner /></Suspense>;
@@ -14,7 +14,6 @@ export default function NewStratPage() {
 function Inner() {
   const router = useRouter();
   const sp = useSearchParams();
-  const { address } = useWallet();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -84,15 +83,16 @@ function Inner() {
   };
 
   const save = async () => {
-    if (!address) { setErr("connect wallet first"); return; }
-    if (!name.trim()) { setErr("name required"); return; }
-    if (legs.length === 0) { setErr("add at least one trader"); return; }
+    if (!name.trim()) { setErr("Give the strat a name so you can find it later."); return; }
+    if (legs.length === 0) { setErr("Add at least one trader to the basket."); return; }
     setBusy(true); setErr(null);
     try {
+      // No `owner`: the API reads it off the token that signed the request.
+      // Sending an address the page happened to be holding was how a stale
+      // render or a mid-form account switch turned into a 403.
       const idx = await createIndex({
         name: name.trim(),
         description: description.trim(),
-        owner: address,
         legs,
         days_window: days,
         notional_pct: notionalPct,
@@ -171,9 +171,17 @@ function Inner() {
           </div>
 
           {err && <div className="text-loss text-xs">{err}</div>}
-          <button className="btn-primary w-full" onClick={save} disabled={busy}>
-            {busy ? "saving…" : "publish strat"}
-          </button>
+          {/* `address` was the old test, and it is true for a watch-only
+              paste and for a wallet whose signature prompt was dismissed —
+              both sail through the form and 401 at the save. The gate asks
+              the session, and answers before the work instead of after. */}
+          <AuthGate action="publish this strat">
+            <button className="btn-primary w-full" onClick={save}
+              disabled={busy || !name.trim() || legs.length === 0}
+              title={!name.trim() ? "Name it first" : legs.length === 0 ? "Add at least one trader" : ""}>
+              {busy ? "saving…" : "publish strat"}
+            </button>
+          </AuthGate>
         </div>
 
         {/* Pool / picker */}

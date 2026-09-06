@@ -33,8 +33,10 @@ BUILTINS = {
                 'tools': ['git', 'diff']},
     'web':     {'description': 'Reach outside the sandbox',
                 'tools': ['fetch', 'websurf']},
+    'memory':  {'description': 'Remember across runs, and find it again',
+                'tools': ['recall', 'remember', 'think']},
     'meta':    {'description': 'Reasoning, task tracking, delegation',
-                'tools': ['think', 'todo', 'task', 'claudecode']},
+                'tools': ['think', 'todo', 'task', 'toolbox', 'claudecode']},
 }
 
 

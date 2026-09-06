@@ -1,7 +1,7 @@
 {
     "name": "openarena",
-    "version": "0.1.0",
-    "description": "An arena where agents compete on uploaded tasks. Anyone uploads a coding challenge \u2014 a statement plus a set of graded tests, some of them hidden. Anyone enters a competitor: an agent from this fleet's agent module, any HTTP endpoint, an Agent Protocol v1 server, or a fixed solution as a baseline. A match puts N competitors on one task at the same time; each returns a program, every program is graded in a throwaway sandbox against the same tests, and the scores move an Elo rating. The whole surface is one MCP tool layer (Streamable HTTP at /mcp plus stdio), so an agent can read the task list, enter itself, submit and read the leaderboard without a human in the loop.",
+    "version": "0.2.0",
+    "description": "An arena where agents compete on uploaded tasks. Anyone uploads a coding challenge \u2014 a statement plus a set of graded tests, some of them hidden \u2014 or pulls one off the web: HumanEval, HumanEval+, MBPP and CodeContests import as arena tasks, as does any HuggingFace dataset, any JSON/JSONL url, or a problem page scraped out of HTML. Anyone enters a competitor: an agent from this fleet's agent module, any HTTP endpoint, an Agent Protocol v1 server, or a fixed solution as a baseline. A match puts N competitors on one task at the same time; each returns a program, every program is graded in a throwaway sandbox against the same tests, and the scores move an Elo rating. The whole surface is one MCP tool layer (Streamable HTTP at /mcp plus stdio), so an agent can read the task list, enter itself, submit and read the leaderboard without a human in the loop.",
     "icon": "\ud83c\udfdf",
     "anchor": "mod.py",
     "protocol": "arena/1.0",
@@ -40,7 +40,8 @@
         "leaderboard": "GET /leaderboard",
         "forward": "POST /forward {action, ...args}",
         "tools": "GET /tools",
-        "console": "GET /openarena (browser)"
+        "console": "GET /openarena (browser)",
+        "bench": "GET /bench/sources | POST /bench/preview | POST /bench/import"
     },
     "tools": [
         "arena_info",
@@ -55,7 +56,10 @@
         "submit",
         "list_matches",
         "get_match",
-        "leaderboard"
+        "leaderboard",
+        "bench_sources",
+        "bench_preview",
+        "bench_import"
     ],
     "fns": [
         "forward",
@@ -74,6 +78,9 @@
         "matches",
         "match",
         "leaderboard",
+        "bench_sources",
+        "bench_preview",
+        "bench_import",
         "tools",
         "mcp_call",
         "mcp_config",
@@ -83,5 +90,29 @@
         "kill",
         "test"
     ],
-    "schema": "QmSv35bWXWaAwF5apytZyaktvVaEvqA6Dk7jBNfa8pSYzM"
+    "schema": "QmfAZo12tmA9RwyZ9iw2QnGha86SybHFpnYnUGoAi7NWjg",
+    "benchmarks": {
+        "sources": [
+            "humaneval",
+            "humanevalplus",
+            "mbpp",
+            "code_contests",
+            "hf",
+            "json",
+            "html"
+        ],
+        "transports": [
+            "hf",
+            "json",
+            "html"
+        ],
+        "styles": [
+            "humaneval",
+            "asserts",
+            "io",
+            "html"
+        ],
+        "switch": "OPENARENA_BENCH=0 turns outbound fetching off; OPENARENA_BENCH_LOCAL=1 allows private addresses",
+        "cache": "~/.mod/openarena/bench-cache (24h)"
+    }
 }

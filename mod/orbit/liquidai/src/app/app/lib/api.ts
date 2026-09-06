@@ -1,4 +1,6 @@
 import type {
+  CallPage,
+  CallStats,
   Catalog,
   ChatMessage,
   Embedding,
@@ -7,8 +9,10 @@ import type {
   Leaderboard,
   LocalModel,
   MatchResult,
+  McpDescriptor,
   Model,
   OwnerState,
+  ProvidersTable,
   Pull,
   Runtimes,
   Session,
@@ -28,6 +32,10 @@ export const setAuthToken = (token: string | null) => { TOKEN = token; };
 function headers(extra?: HeadersInit): HeadersInit {
   return {
     "Content-Type": "application/json",
+    // The ledger groups calls by the door they came through, and a request
+    // proxied by the Next server has lost every header that would have said
+    // "a person pressed a button". So the console says so itself.
+    "X-Liquidai-Via": "console",
     ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
     ...(extra || {}),
   };
@@ -203,4 +211,40 @@ export async function* streamChat(body: {
       } catch {}
     }
   }
+}
+
+// ── the backend board ───────────────────────────────────────────────
+
+export const fetchProviders = (windowHours = 24) =>
+  j<ProvidersTable>(`/providers?window_hours=${windowHours}`);
+
+export const fetchCalls = (params: Record<string, string> = {}) =>
+  j<CallPage>(`/calls?${new URLSearchParams(params).toString()}`);
+
+export const fetchCallStats = (windowHours = 24) =>
+  j<CallStats>(`/calls/stats?window_hours=${windowHours}`);
+
+export const fetchMcp = () => j<McpDescriptor>("/mcp");
+
+export const clearCalls = () =>
+  j<{ ok: boolean; dropped: number }>("/calls", { method: "DELETE" });
+
+// A browser run happens where this server can't see it, so the tab is the only
+// witness. Reporting is best-effort on purpose: a ledger line is never worth
+// failing someone's chat over.
+export function reportBrowserRun(body: {
+  model: string;
+  task?: string;
+  ok?: boolean;
+  error?: string;
+  elapsed_sec?: number;
+  ttft_sec?: number;
+  tokens?: number;
+  turns?: number;
+  engine?: string;
+}) {
+  return j<{ ok: boolean; recorded: string }>("/calls/report", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }).catch(() => null);
 }

@@ -47,6 +47,27 @@ MIN_POINTS = 6
 DUST_TAO = 0.5
 
 
+def leg_weight(t: Dict) -> float:
+    """The basket weight of one leg.
+
+    A leg can be sized two ways: an absolute τ sleeve (`alloc_tao` — what the
+    live engine actually deploys) or a relative `weight`. When a sleeve is
+    set it IS the size, so the replay weights by it; otherwise the relative
+    weight stands in. Mixing the two in one basket is fine — τ and weight are
+    both just numbers to normalize, and the picker keeps them in step.
+    """
+    alloc = t.get("alloc_tao")
+    try:
+        if alloc is not None and float(alloc) > 0:
+            return float(alloc)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return float(t.get("weight") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _series_points(raw: Dict) -> List[Tuple[int, float]]:
     """bt's trader_history payload → [(unix_ts, total_tao)], ascending."""
     out: List[Tuple[int, float]] = []
@@ -109,17 +130,17 @@ def backtest_basket(
     """
     picks = [
         t for t in traders
-        if t.get("enabled") is not False and float(t.get("weight") or 0) > 0
+        if t.get("enabled") is not False and leg_weight(t) > 0
     ]
-    total_w = sum(float(t["weight"]) for t in picks)
+    total_w = sum(leg_weight(t) for t in picks)
     if not picks or total_w <= 0:
         return _empty("no enabled traders with weight", hours, capital_tao)
 
     truncated = None
     if len(picks) > MAX_LEGS:
-        picks = sorted(picks, key=lambda t: float(t["weight"]), reverse=True)[:MAX_LEGS]
+        picks = sorted(picks, key=leg_weight, reverse=True)[:MAX_LEGS]
         truncated = {"kept": MAX_LEGS, "dropped": len(traders) - MAX_LEGS}
-        total_w = sum(float(t["weight"]) for t in picks)
+        total_w = sum(leg_weight(t) for t in picks)
 
     # Pull every leg first — one bad address shouldn't sink the replay.
     legs: List[Dict] = []
@@ -141,7 +162,7 @@ def backtest_basket(
         legs.append({
             "ss58": ss58,
             "label": t.get("label"),
-            "weight": float(t["weight"]) / total_w,
+            "weight": leg_weight(t) / total_w,
             "points": pts,
         })
 

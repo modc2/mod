@@ -59,22 +59,53 @@ pub struct WasmModule {
     pub runs: u64,
     #[serde(default)]
     pub created: u64,
+    /// The store module's CID for the same bytes — empty until pushed.
+    #[serde(default)]
+    pub cid: String,
+    /// Blob id of a readable source kept beside compiled bytes (the Rust a
+    /// wasm example was built from). Empty for a class: its bytes *are* the
+    /// source. Empty for a wasm upload that came without one.
+    #[serde(default)]
+    pub src: String,
+    /// The store's CID for that source, when it has one.
+    #[serde(default)]
+    pub src_cid: String,
+    /// When the store copy was last written.
+    #[serde(default)]
+    pub stored: u64,
 }
 
 impl WasmModule {
+    /// What container these bytes are: `wasm`, or `python` / `rust` for a
+    /// class. Read off the description the reader wrote, so an entry stored
+    /// before classes existed still answers `wasm`.
+    pub fn lang(&self) -> &str {
+        self.info.get("lang").and_then(|v| v.as_str()).unwrap_or("wasm")
+    }
+
     pub fn card(&self) -> Value {
         json!({
             "id": self.id,
             "short": self.short(),
             "name": self.name,
             "role": self.role,
+            "lang": self.lang(),
+            "class": self.info.get("class").and_then(|v| v.as_str()),
             "description": self.description,
             "author": self.author,
             "tags": self.tags,
             "size": self.size,
             "runs": self.runs,
-            "source": self.source,
+            // Where it came from: `example` (the pack) or `upload`. Not the code —
+            // that is `source` on get_module, present only when there is code.
+            "origin": self.source,
             "created": self.created,
+            // Two hashes of the same bytes: this registry's and the store's.
+            "sha256": self.id,
+            "cid": if self.cid.is_empty() { Value::Null } else { json!(self.cid) },
+            "store": crate::storelink::card(&self.cid),
+            "has_source": self.lang() != "wasm" || !self.src.is_empty(),
+            "src_cid": if self.src_cid.is_empty() { Value::Null } else { json!(self.src_cid) },
             "exports": self.info.get("exports").and_then(|e| e.as_array())
                 .map(|a| a.iter().filter_map(|e| e.get("name").and_then(|n| n.as_str()))
                     .map(String::from).collect::<Vec<_>>())
@@ -143,7 +174,7 @@ impl Rating {
 pub struct Player {
     pub id: String,
     pub name: String,
-    /// wasm | model | agent_mod | http | human
+    /// wasm | class | model | agent_mod | mcp | http | human
     pub kind: String,
     #[serde(default)]
     pub owner: String,
@@ -167,6 +198,12 @@ pub struct Player {
     /// A move that never arrived in time — the arena played a forfeit for it.
     #[serde(default)]
     pub timeouts: u64,
+    /// Times this player called out to an MCP server mid-match. Not a fault —
+    /// it is allowed, and the whole point of the outward door — but a player
+    /// that consulted something is not the same kind of player as one that
+    /// did not, and a leaderboard that hides the difference is lying.
+    #[serde(default)]
+    pub mcp: u64,
     #[serde(default)]
     pub move_ms_sum: u64,
     #[serde(default)]
@@ -186,6 +223,7 @@ impl Player {
         v["moves"] = json!(self.moves);
         v["illegal"] = json!(self.illegal);
         v["timeouts"] = json!(self.timeouts);
+        v["mcp"] = json!(self.mcp);
         v["illegal_rate"] = json!(if self.moves == 0 { 0.0 } else { round3(self.illegal as f64 / moves) });
         v["avg_move_ms"] = json!(if self.moves == 0 { 0 } else { self.move_ms_sum / self.moves });
         v["games_played"] = json!(self.by_game.len());
@@ -193,8 +231,28 @@ impl Player {
         if let Some(m) = self.config.get("model").and_then(|m| m.as_str()) {
             v["model"] = json!(m);
         }
+        // `module` means two different things and they must not be confused:
+        // for a wasm or class player it is a module stored *here*, by id; for
+        // an mcp player it is a module of the fleet, by name, which this arena
+        // holds no bytes for.
         if let Some(m) = self.config.get("module").and_then(|m| m.as_str()) {
-            v["module"] = json!(m);
+            match self.kind.as_str() {
+                "mcp" | "module" => v["via"] = json!(m),
+                _ => v["module"] = json!(m),
+            }
+        }
+        if self.kind == "mcp" {
+            for key in ["server", "tool", "url"] {
+                if let Some(x) = self.config.get(key).and_then(|v| v.as_str()) {
+                    v[key] = json!(x);
+                }
+            }
+        }
+        // What a server-driven player is told each move, so the players tab
+        // can say it without a click. The full template is on get_player.
+        if let Some(pc) = crate::players::prompt_card(self) {
+            v["system"] = pc["system"].clone();
+            v["brief"] = pc["brief"].clone();
         }
         v
     }
@@ -217,6 +275,9 @@ pub struct Seat {
     pub timeouts: u64,
     #[serde(default)]
     pub ms: u64,
+    /// MCP calls made from this seat during the match.
+    #[serde(default)]
+    pub mcp: u64,
     #[serde(default)]
     pub elo_before: f64,
     #[serde(default)]
@@ -241,6 +302,10 @@ pub struct Turn {
     pub ms: u64,
     #[serde(default)]
     pub note: String,
+    /// What a server-driven player was asked this turn, verbatim. Empty for
+    /// wasm/class players, which see the view directly and get no prompt.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub prompt: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -278,6 +343,7 @@ impl Match {
             "seats": self.seats.iter().map(|s| json!({
                 "seat": s.seat, "player_id": s.player_id, "player_name": s.player_name,
                 "score": s.score, "moves": s.moves, "illegal": s.illegal, "timeouts": s.timeouts,
+                "mcp": s.mcp,
                 "elo_after": round1(s.elo_after), "delta": round1(s.elo_after - s.elo_before),
                 "error": s.error,
             })).collect::<Vec<_>>(),
@@ -411,4 +477,26 @@ pub fn write<T>(f: impl FnOnce(&mut Store) -> T) -> T {
     let out = f(&mut guard);
     guard.save();
     out
+}
+
+#[cfg(test)]
+mod turn_prompt_tests {
+    use super::Turn;
+
+    /// A runner that records a prompt keeps it; one that doesn't (wasm/class
+    /// turns, older runners) still deserializes, and an empty prompt is not
+    /// written back out.
+    #[test]
+    fn prompt_round_trips_and_is_optional() {
+        let with: Turn = serde_json::from_str(
+            r#"{"turn":1,"seat":0,"view":"v","raw":"r","mv":"m","legal":true,"ms":5,"note":"","prompt":"You are seat 0."}"#,
+        ).unwrap();
+        assert_eq!(with.prompt, "You are seat 0.");
+        let json = serde_json::to_string(&with).unwrap();
+        assert!(json.contains("\"prompt\":\"You are seat 0.\""));
+
+        let without: Turn = serde_json::from_str(r#"{"turn":1,"seat":1}"#).unwrap();
+        assert_eq!(without.prompt, "");
+        assert!(!serde_json::to_string(&without).unwrap().contains("prompt"));
+    }
 }

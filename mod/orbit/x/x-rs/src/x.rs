@@ -104,6 +104,63 @@ fn from_file(f: &Value, keys: &[&str]) -> String {
     String::new()
 }
 
+/// The credential fields this server understands, in the order a setup form
+/// should ask for them: the bearer alone unlocks reads, the four OAuth 1.0a
+/// legs unlock acting as the account.
+pub const CRED_FIELDS: [&str; 5] = [
+    "bearer_token",
+    "api_key",
+    "api_secret",
+    "access_token",
+    "access_token_secret",
+];
+
+pub fn creds_path() -> Option<String> {
+    std::env::var("HOME").ok().map(|h| format!("{h}/.mod/x/credentials.json"))
+}
+
+/// Merge `patch` into `~/.mod/x/credentials.json` (0600, off-tree). An empty
+/// value removes a field. Returns the field names touched — never the values.
+/// `resolve` re-reads the file per request, so this takes effect with no
+/// restart.
+pub fn save_creds(patch: &Value) -> Result<(Vec<String>, Vec<String>), String> {
+    let path = creds_path().ok_or("no HOME — nowhere to store credentials")?;
+    let obj = patch.as_object().ok_or("expected a JSON object of credential fields")?;
+
+    if let Some(bad) = obj.keys().find(|k| !CRED_FIELDS.contains(&k.as_str())) {
+        return Err(format!("unknown credential `{bad}`; expected {CRED_FIELDS:?}"));
+    }
+
+    let mut stored = creds_file();
+    let map = stored.as_object_mut().ok_or("credentials file is not an object")?;
+    let (mut set, mut cleared) = (vec![], vec![]);
+    for (k, v) in obj {
+        let val = v.as_str().unwrap_or("").trim().to_string();
+        if val.is_empty() {
+            if map.remove(k).is_some() {
+                cleared.push(k.clone());
+            }
+        } else {
+            map.insert(k.clone(), json!(val));
+            set.push(k.clone());
+        }
+    }
+
+    if let Some(dir) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let body = serde_json::to_string_pretty(&stored).map_err(|e| e.to_string())?;
+    std::fs::write(&path, body).map_err(|e| format!("{path}: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    set.sort();
+    cleared.sort();
+    Ok((set, cleared))
+}
+
 /// Precedence per field: explicit (request header / tool arg) → env →
 /// `~/.mod/x/credentials.json` (off-tree, never committed).
 pub fn resolve(explicit_bearer: Option<&str>) -> Creds {

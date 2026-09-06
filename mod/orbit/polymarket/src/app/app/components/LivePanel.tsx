@@ -9,6 +9,10 @@ import type { ExecutionLogEntry, ObservedTrade } from "../lib/copyEngine";
 import { fetchWalletTradesUntil } from "../lib/polymarket";
 import { getOwnerAddress } from "../lib/access";
 import { startLiveSession } from "../lib/liveSessions";
+import {
+  MODE, armedDefault, autoExecuteFor, confirmGoLive, modeOf, type TradingMode,
+} from "../lib/tradingMode";
+import { ModeSwitch, ModeLegend, NotTradingBanner } from "./ModeControl";
 import { DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES, DEFAULT_MIN_MINUTES_TO_CLOSE } from "../lib/strats/strat";
 import PortfolioPanel from "./PortfolioPanel";
 import PositionsHistoryPanel from "./PositionsHistoryPanel";
@@ -216,6 +220,10 @@ function LogIcon({ type }: { type: ExecutionLogEntry["type"] }) {
     case "CYCLE_END": return <span className="text-green-400">END</span>;
     case "REDEEM": return <span className="text-amber-400">RDM</span>;
     case "WATCHLIST": return <span className="text-amber-400">WLST</span>;
+    // Order accepted by the CLOB but sitting UNFILLED on the book. Not a
+    // trade — nothing was bought or sold, and for an exit it means the
+    // position (and its stop) is still open.
+    case "RESTING": return <span className="text-amber-400">REST</span>;
     default: return <span className="text-pixel-gray">???</span>;
   }
 }
@@ -498,7 +506,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stratTick]);
 
-  // Everything this panel reads off the backend — EXECUTING/DRY RUN, the gate
+  // Everything this panel reads off the backend — TEST/LIVE mode, the gate
   // tally, per-trader sync ages — belongs to ONE session. Pin the poll to the
   // strat on screen: without this it answers for whatever session the wallet
   // last started, and the panel reports another strat's numbers under this
@@ -542,27 +550,58 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   // rebalanceMinutes only affects BACKTEST cadence and isn't a live precondition.
   const hasRebalance = true;
   const hasCapital = liveCapital > 0;
-  // Funds are NOT a start precondition. An unfunded wallet starts in
-  // dry-run so any strat can still be tested against live flow — mirrors
-  // are sized with paper capital (the strat's BACKTEST capital, $1K
-  // default) until real USDC shows up. A FUNDED wallet starts EXECUTING:
-  // GO LIVE means real orders, no separate toggle hunt (the pill still
-  // flips a running session back to dry-run).
+  // Funds are NOT a start precondition. An unfunded wallet runs in TEST so
+  // any strat can still be exercised against live flow — mirrors are sized
+  // with paper capital (the strat's BACKTEST capital, $1K default) until real
+  // USDC shows up.
   const paperCapital = (activeStrat?.capital ?? 0) > 0 ? activeStrat!.capital! : 1000;
   const effectiveCapital = hasCapital ? liveCapital : paperCapital;
+
+  // ── Mode ──
+  // The mode a STOPPED engine will start in. Null = "haven't touched it",
+  // which resolves to the capital-derived default (funded ⇒ LIVE). Same rule
+  // as the copy desk, from the same function.
+  //
+  // The important change from the old header is that this is now SHOWN before
+  // START rather than decided inside it. `GO LIVE` used to mean "start", and
+  // whether that start placed real orders was inferred silently from the
+  // wallet balance — so a funded wallet armed real money with no confirm, and
+  // an unfunded one sat in a dry run nobody had asked for.
+  //
+  // `canGoLive` is deliberately NOT `hasCapital`. `hasCapital` is a BUDGET —
+  // it starts at the $100 default and only later syncs down to the chain — so
+  // it reads true for a wallet holding nothing, and arming real money off it
+  // would offer LIVE to an empty wallet. Real money means real USDC in the
+  // trading wallet: `tradingBalance`, which is null until the chain answers.
+  // Unknown counts as unfunded; the switch says why and unlocks on the next
+  // 15s poll.
+  const canGoLive = (tradingBalance ?? 0) > 0;
+  const [armedMode, setArmedMode] = useState<TradingMode | null>(null);
+  const running = isLive || backendRunning;
+  const mode: TradingMode = running
+    ? modeOf(autoExecute)
+    : armedMode ?? armedDefault(canGoLive);
+
+  /** Mode switch. A running engine re-arms in place through /live/execution
+      (the switch has already confirmed); a stopped one only records the arm,
+      and START does the confirming. */
+  const pickMode = useCallback((m: TradingMode) => {
+    if (running) void setAutoExecute(autoExecuteFor(m));
+    else setArmedMode(m);
+  }, [running, setAutoExecute]);
 
   // Write the cadence through to the strat. `rebalanceMinutes` is canonical;
   // `livePollMinutes` is mirrored for the legacy readers. A browser-attached
   // session picks the change up through the configSig hot-restart effect
-  // below, so the user never has to STOP/GO LIVE to re-time their sync.
+  // below, so the user never has to STOP/START to re-time their sync.
   //
   // When only the BACKEND session is running (the normal state after a reload
   // without CLOB creds in hand), that effect can't fire — so re-post the
-  // config directly. `inheritExecution` keeps a deliberate DRY RUN dry.
+  // config directly. `inheritExecution` keeps a deliberate TEST session dry.
   // Edit the live strat from wherever the problem is reported: persist the
   // patch, then re-post the config so a session that's ALREADY running picks
-  // it up without a STOP/GO LIVE round trip. `inheritExecution` keeps a
-  // deliberate DRY RUN dry.
+  // it up without a STOP/START round trip. `inheritExecution` keeps a
+  // deliberate TEST session dry.
   const patchStrat = useCallback((patch: Partial<SavedIndex>) => {
     if (!activeStrat) return;
     const patched = { ...activeStrat, ...patch };
@@ -648,9 +687,12 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   }, [activeStrat, backendRunning, isLive, auth.address, effectiveCapital]);
   const canStart = hasWallet && hasCreds && hasTraders && hasRebalance;
 
-  // Direct toggle — no confirmation step. The user explicitly asked to
-  // always be able to start/stop without a confirm dialog blocking them.
-  // STOP just halts; GO LIVE starts immediately with current params.
+  // STOP is always one click — never confirmed, never blocked. START is one
+  // click too in TEST; in LIVE it goes through the same confirm as every
+  // other route to real money on this console (the desk's row switch, the
+  // desk's START ALL, the "you are not trading" banner). Stopping is the safe
+  // direction and starting a simulation is free — friction belongs on exactly
+  // one transition, and this is it.
   const handleToggle = useCallback(() => {
     if (isLive) {
       stopLive();
@@ -659,6 +701,10 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     }
 
     if (!auth.clobCreds || !auth.address || !activeStrat) return;
+
+    if (mode === "LIVE" && !confirmGoLive(activeStrat.name || "This strat", effectiveCapital)) {
+      return;
+    }
 
     startLive({
       strategyId: activeStrat.id,
@@ -708,10 +754,10 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       filter: activeStrat.filter,
       // Price-momentum origination — buys rising outcomes, no watchlist needed.
       momentum: activeStrat.momentum,
-      // Funded wallet → GO LIVE trades for real. Unfunded → dry-run paper
-      // session. Without this the server default (false) made every fresh
-      // session a silent dry-run until the DRY RUN pill was clicked.
-      autoExecute: hasCapital,
+      // Whatever the TEST|LIVE switch above the button says — never inferred
+      // here. The server's own default (false) is deliberately not relied on:
+      // an omitted flag is how a funded session ends up silently in TEST.
+      autoExecute: autoExecuteFor(mode),
     });
 
     updateIndex(activeStrat.id, {
@@ -727,7 +773,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       livePollMinutes: livePollMin,
       updatedAt: Date.now(),
     });
-  }, [isLive, auth, activeStrat, effectiveCapital, hasCapital, livePollMin, startLive, stopLive]);
+  }, [isLive, auth, activeStrat, effectiveCapital, hasCapital, livePollMin, mode, startLive, stopLive]);
 
   const status = engineState?.status || "stopped";
   const nextIn = engineState?.nextCycleAt ? engineState.nextCycleAt - now : 0;
@@ -794,7 +840,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   // reload without CLOB creds in hand): the effect above can't hot-restart an
   // engine it isn't attached to, so re-post the config instead. Without this a
   // sizing/filter edit silently applied to the backtest only, and the running
-  // engine kept its start-time config until STOP/GO LIVE.
+  // engine kept its start-time config until STOP/START.
   const lastPostedSigRef = useRef<string | null>(null);
   useEffect(() => {
     if (isLive || !backendRunning || !auth.address || !activeStrat) return;
@@ -822,7 +868,10 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
               isLive && status === "error" ? "bg-red-400 animate-pulse" :
               "bg-pixel-gray"
             }`} />
-            <span className="text-[16px] text-pixel-white tracking-wider">LIVE COPY</span>
+            {/* Not "LIVE COPY". The panel is the engine; LIVE is one of the
+                two modes it can run in, and a panel titled LIVE sitting over
+                a TEST session is the same category error the switch fixes. */}
+            <span className="text-[16px] text-pixel-white tracking-wider">COPY ENGINE</span>
             {isLive && (
               <span className={`text-[13px] font-mono px-1 py-0.5 border ${
                 status === "running" ? "border-green-400/40 text-green-400" :
@@ -853,25 +902,25 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                 manual backfill is redundant for steady-state operation.
                 The LAST/MIN/TOP/SELL_WINS settings the button controlled
                 were also noise in the top bar. If a true backfill is
-                ever needed (e.g. after a long pause), STOP + GO LIVE
+                ever needed (e.g. after a long pause), STOP + START
                 rebuilds the cursor — no separate UI needed. */}
-            {(isLive || backendRunning) && (
-              <button
-                onClick={() => { void setAutoExecute(!autoExecute); }}
-                title={
-                  autoExecute
-                    ? "LIVE EXECUTION — the engine is placing REAL orders with wallet funds. Click to fall back to dry-run (mirrors logged, nothing sent)."
-                    : "DRY RUN — mirrors are logged but NO orders are sent. Click to enable real order placement with wallet funds."
-                }
-                className={`pixel-btn text-[13px] px-1.5 py-0.5 transition-colors ${
-                  autoExecute
-                    ? "border-red-400 text-red-400 hover:bg-red-400/10"
-                    : "border-amber-400/60 text-amber-400 hover:bg-amber-400/10"
-                }`}
-              >
-                {autoExecute ? "EXECUTING ●" : "DRY RUN"}
-              </button>
-            )}
+            {/* MODE, then RUN — the same pair, in the same order, as the copy
+                desk's header and every one of its rows. The switch is present
+                whether or not the engine is up: stopped it arms what START
+                will do, running it re-arms in place. It used to appear only
+                once a session existed, which meant the single most
+                consequential setting on the console was invisible at exactly
+                the moment you were deciding it. */}
+            <ModeSwitch
+              size="sm"
+              mode={mode}
+              onPick={pickMode}
+              running={running}
+              canGoLive={canGoLive}
+              subject={activeStrat?.name || "This strat"}
+              amountUsd={effectiveCapital}
+              disabled={!isLive && !canStart}
+            />
             {isLive && status === "running" && (
               <button
                 onClick={pauseLive}
@@ -888,16 +937,21 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                 RESUME
               </button>
             )}
+            {/* Not "GO LIVE" any more. That name belonged to the OTHER axis:
+                it started the engine, and whether it went live was decided
+                elsewhere — so pressing GO LIVE could leave you in a dry run,
+                which is exactly how a funded session sat for a week placing
+                nothing. START starts; the switch to its left decides whether
+                the money is real, and says so on the button. */}
             <button
               onClick={handleToggle}
               disabled={!isLive && !canStart}
               title={
                 isLive
-                  ? "Stop the live copy engine"
+                  ? "Stop the engine. Open positions are left alone."
                   : canStart
-                    ? (hasCapital
-                        ? "Start the live copy engine — places real orders"
-                        : `Start in paper mode — wallet is unfunded, mirrors are sized against $${paperCapital} simulated capital and no real orders fill`)
+                    ? `Start the copy engine on ${MODE[mode].label} — ${MODE[mode].meaning}` +
+                      (canGoLive ? "" : `. Mirrors are sized against $${paperCapital} of simulated capital.`)
                     : "Complete the checklist above to enable"
               }
               className={`pixel-btn text-[14px] px-2.5 py-1 transition-colors ${
@@ -906,9 +960,14 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                   : "border-green-400 text-green-400 hover:bg-green-400/10 disabled:opacity-30 disabled:cursor-not-allowed"
               }`}
             >
-              {isLive ? "STOP" : "GO LIVE"}
+              {isLive ? "STOP" : `START · ${MODE[mode].label}`}
             </button>
           </div>
+        </div>
+        {/* What the two words mean, permanently, one line under the switch
+            that uses them. Same line the desk carries. */}
+        <div className="px-3 pb-1.5 -mt-0.5">
+          <ModeLegend />
         </div>
       </div>
 
@@ -1016,7 +1075,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
 
       {/* ── Preconditions ──
           Shown whenever the engine is stopped so the user knows what's
-          blocking GO LIVE. Compact pill row: each step is green-filled when
+          blocking START. Compact pill row: each step is green-filled when
           satisfied, muted when not. The summary count tells you "5/6 ready"
           at a glance. */}
       {!isLive && (() => {
@@ -1043,10 +1102,11 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
             ? [{ ok: true, label: `⌕ ${activeStrat.marketQuery.trim()}`, action: null }]
             : []),
           { ok: hasRebalance, label: "REBALANCE", action: null },
-          // Capital never blocks — with $0 on-chain the engine starts in
-          // paper sizing (strat's backtest capital) and dry-run does the
-          // rest. The pill just tells the user which mode they're in.
-          { ok: true, label: hasCapital ? "CAPITAL" : "CAPITAL·PAPER", action: null },
+          // Capital never blocks START — with $0 on-chain the engine runs in
+          // TEST against paper sizing (the strat's backtest capital). It DOES
+          // block LIVE, which is what the switch's locked segment says, so the
+          // pill names the same condition in the same words.
+          { ok: true, label: canGoLive ? "CAPITAL" : `CAPITAL — ${MODE.TEST.label} ONLY`, action: null },
         ];
         const okCount = items.filter((i) => i.ok).length;
         return (
@@ -1056,7 +1116,10 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
               <span className={`text-[12px] font-mono tracking-wider shrink-0 ${
                 okCount === items.length ? "text-green-400" : "text-amber-400"
               }`}>
-                {okCount}/{items.length} {okCount === items.length ? "· ready to go live" : "· not ready"}
+                {/* "ready to START", not "ready to go live" — the checklist
+                    gates the run axis. Whether that run is LIVE is the
+                    switch's business, and CAPITAL says so on its own pill. */}
+                {okCount}/{items.length} {okCount === items.length ? `· ready to start in ${mode}` : "· not ready"}
               </span>
               <div className="flex items-center gap-1.5 flex-wrap ml-auto">
                 {items.map((item) => (
@@ -1136,8 +1199,10 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
           </div>
           <button
             onClick={() => {
-              // Deposit/withdraw is the STRAT page's WALLET tab now — switch
-              // tabs via the parent; fall back to scrolling if unhosted.
+              // Money is the SIDE PANEL's MONEY block — the host (CopyIndex)
+              // dispatches OPEN_MONEY_EVENT so the drawer opens OVER this
+              // running session instead of navigating away from it. Fall back
+              // to scrolling when this panel is rendered unhosted.
               if (onFundNow) onFundNow();
               else document.getElementById("sidebar-wallet-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
             }}
@@ -1157,43 +1222,23 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
         </div>
       )}
 
-      {/* ── Dry run is eating every mirror ──
+      {/* ── TEST is eating every mirror ──
           The counterpart to the gate warning below, and the failure it can
           never catch: these mirrors cleared EVERY filter and were thrown away
-          because the session isn't armed. There was no standing signal for
-          this — only the DRY RUN pill in the header, one tab away — and a
-          session sat like that from 2026-08-01 to 08-08 logging hundreds of
-          "would BUY" lines a day and placing nothing. Red, not amber: unlike a
-          gate (a decision the strat made on purpose), this is almost always
-          someone forgetting to arm the session. */}
+          because the session is in TEST. There was no standing signal for
+          this — only a pill in the header, one tab away — and a session sat
+          like that from 2026-08-01 to 08-08 logging hundreds of "would BUY"
+          lines a day and placing nothing. Red, not amber: unlike a gate (a
+          decision the strat made on purpose), this is almost always someone
+          who meant to be live. Shared component so the desk can raise the
+          same warning in the same words. */}
       {(isLive || backendRunning) && !autoExecute && (backendDryRuns?.count ?? 0) > 0 && (
-        <div className="pixel-panel border-2 border-red-400/70 bg-red-400/10 p-3 flex items-start gap-3 flex-wrap">
-          <span className="text-red-400 text-xl leading-none mt-0.5">⚠</span>
-          <div className="flex-1 min-w-[240px]">
-            <div className="text-sm font-bold text-red-400">
-              DRY RUN — {backendDryRuns!.count} mirror
-              {backendDryRuns!.count === 1 ? "" : "s"} passed every filter and{" "}
-              {backendDryRuns!.count === 1 ? "was" : "were"} NOT placed. You are not trading.
-            </div>
-            <div className="text-xs text-pixel-muted mt-1">
-              Your filters are fine — the session simply isn&apos;t armed, so the engine logs
-              what it would have done instead of sending it to the CLOB. Nothing is queued:
-              these mirrors are gone, not deferred.
-            </div>
-            <div className="mt-2 flex items-center gap-2 flex-wrap">
-              <button
-                onClick={() => { void setAutoExecute(true); }}
-                title="Arm this session: mirrors start being sent to the CLOB as real orders against your wallet's USDC."
-                className="px-2.5 py-1 rounded border border-red-400/70 bg-red-400/15 text-red-300 hover:bg-red-400/25 text-[11px] font-mono tracking-[0.14em]"
-              >
-                ENABLE EXECUTION →
-              </button>
-              <span className="text-[10.5px] font-mono text-pixel-muted/70">
-                (real orders, real USDC — the header pill flips it back to DRY RUN any time)
-              </span>
-            </div>
-          </div>
-        </div>
+        <NotTradingBanner
+          count={backendDryRuns!.count}
+          subject={activeStrat?.name || "This strat"}
+          amountUsd={effectiveCapital}
+          onGoLive={() => { void setAutoExecute(true); }}
+        />
       )}
 
       {/* ── Everything gated ──
@@ -1497,10 +1542,10 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
               LEADER_DUST:
                 "your leaders' own trades are under Polymarket's order floor — there is nothing big enough to mirror.",
               SUB_SCALE:
-                "your capital makes each mirror smaller than the $1 CLOB floor. Raise capital or raise MAX UPSCALE.",
+                "your capital makes each mirror smaller than Polymarket's order floor, so proportionality can't be honored. YOUR SCALE on the STRATS board says how much capital would clear it; or raise MAX UPSCALE, or switch SIZING to conviction.",
               FILTER:
                 "your trade filters (side / price band / notional) reject this flow. Widen them in RISK.",
-              NO_CASH: "the trading wallet is empty — fund it on the WALLET tab.",
+              NO_CASH: "the trading wallet is empty — open MONEY in the side panel and top it up.",
               NO_EDGE: "the scorer found no positive edge on these trades.",
               LEADER_FLAT: "your leaders opened and closed before we could mirror them.",
               MAX_POSITIONS:
@@ -1589,7 +1634,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       {liveTab === "desk" && !(isLive && engineState) && (
         <div className="pixel-panel border-2 border-pixel-border px-3 py-1.5 text-center">
           <span className="text-[12px] text-pixel-gray tracking-wider">
-            ENGINE STOPPED — GO LIVE for engine vitals + the copied-trader feed
+            ENGINE STOPPED — press START for engine vitals + the copied-trader feed
           </span>
         </div>
       )}
@@ -1599,7 +1644,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
           each tagged with what the engine did about it — ✓ COPIED, ⊘ FILTERED
           OUT (the gate's own reason on the row) or ✗ FAILED. RIGHT: what
           actually landed in YOUR wallet — on-chain fills from the data-api,
-          ground truth that survives restarts and dry-run mode, each attributed
+          ground truth that survives restarts and TEST mode, each attributed
           back to the leader trade it mirrored.
           Reading across the two answers the only question this page exists to
           answer: of everything they did, what did I get — and what stopped the
@@ -1804,7 +1849,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
 
             {tradesView === "log" && (!engineReady ? (
               <div className="px-3 py-4 text-center text-[13px] text-pixel-gray tracking-wider">
-                ENGINE STOPPED — GO LIVE to see the engine log
+                ENGINE STOPPED — press START to see the engine log
               </div>
             ) : (() => {
               const rows = [...engineState!.log].sort((a, b) => b.timestamp - a.timestamp);
@@ -1904,7 +1949,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                   <div className="max-h-[340px] overflow-y-auto">
                     {!engineReady ? (
                       <div className="px-3 py-4 text-center text-[13px] text-pixel-gray tracking-wider">
-                        ENGINE STOPPED — GO LIVE to watch the traders you copy
+                        ENGINE STOPPED — press START to watch the traders you copy
                       </div>
                     ) : L.slice.length === 0 ? (
                       <div className="px-3 py-3 text-center text-[12px] text-pixel-gray">
@@ -2013,7 +2058,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                   <div className="px-3 py-1.5 border-b border-pixel-border/40 flex items-center gap-2 flex-wrap bg-pixel-black/20">
                     <span
                       className="text-[11px] font-mono tracking-[0.14em] text-cyan-300 shrink-0"
-                      title="My ACTUAL executed trades — on-chain fills pulled from Polymarket for the wallet the engine trades through. Ground truth: survives restarts, and stays empty in dry-run mode no matter how busy the left column looks."
+                      title="My ACTUAL executed trades — on-chain fills pulled from Polymarket for the wallet the engine trades through. Ground truth: survives restarts, and stays empty on PAPER no matter how busy the left column looks."
                     >
                       THE TRADES I MADE
                     </span>
@@ -2028,14 +2073,15 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                     </span>
                   </div>
 
-                  {/* Dry run is the #1 reason this column is empty while the
-                      left one scrolls — say it here, where it's noticed. */}
+                  {/* TEST mode is the #1 reason this column is empty while
+                      the left one scrolls — say it here, where it's noticed,
+                      in the same word the header switch uses. */}
                   {!autoExecute && (
                     <div
                       className="px-3 py-1 border-b border-pixel-border/30 text-[11px] font-mono text-amber-400"
-                      title="AUTO-EXECUTE is off — the engine ranks and logs copies but never sends an order, so no fills can appear here."
+                      title={MODE.TEST.active + ` No fills can appear here until the header switch is flipped to ${MODE.LIVE.label}.`}
                     >
-                      DRY RUN — copies are simulated, so this column stays empty
+                      {MODE.TEST.label} {MODE.TEST.dot} — copies are simulated, so this column stays empty
                     </div>
                   )}
 

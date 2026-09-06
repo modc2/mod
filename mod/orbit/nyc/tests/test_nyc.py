@@ -22,6 +22,7 @@ sys.path.insert(0, str(MODULE_DIR.parent.parent.parent))
 from nycgis import layers as L          # noqa: E402
 from nycgis import prices as P          # noqa: E402
 from nycgis import sources as S         # noqa: E402
+from nycgis import traffic as TR        # noqa: E402
 
 
 # ── geometry ────────────────────────────────────────────────────────────────
@@ -359,3 +360,273 @@ def test_trend_all_covers_many_areas_in_one_query():
     sample = next(iter(series.values()))
     years = [row['year'] for row in sample]
     assert years == sorted(years)
+
+
+# ─────────────────────────────────────────────────────────────────── MCP
+#
+# The protocol surface, exercised through the same entry point both transports
+# use. These are offline: they check the shape of the JSON-RPC contract, not
+# what the city published today.
+
+from nycgis import mcp_server as MCP    # noqa: E402
+from nycgis import tools as T           # noqa: E402
+
+
+def _rpc(method, params=None, id_=1):
+    msg = {'jsonrpc': '2.0', 'id': id_, 'method': method}
+    if params is not None:
+        msg['params'] = params
+    return MCP.handle_message(msg)
+
+
+def test_initialize_declares_what_it_actually_serves():
+    r = _rpc('initialize', {'protocolVersion': MCP.PROTOCOL_VERSION})['result']
+    assert r['protocolVersion'] == MCP.PROTOCOL_VERSION
+    assert r['serverInfo']['name'] == 'nyc'
+    # Every declared capability must answer its list method, or a client will
+    # advertise a surface to the model that then 404s on use.
+    for cap, method in (('tools', 'tools/list'), ('prompts', 'prompts/list'),
+                        ('resources', 'resources/list')):
+        assert cap in r['capabilities']
+        assert 'error' not in _rpc(method)
+
+
+def test_protocol_version_is_negotiated_not_echoed():
+    # An older version we speak is honoured...
+    assert MCP.negotiate('2024-11-05') == '2024-11-05'
+    # ...but a version we do not speak must not be parroted back, or the client
+    # is told we agreed to something we cannot do.
+    assert MCP.negotiate('1999-01-01') == MCP.PROTOCOL_VERSION
+    assert MCP.negotiate(None) == MCP.PROTOCOL_VERSION
+
+
+def test_notifications_are_never_answered():
+    assert MCP.handle_message({'jsonrpc': '2.0',
+                               'method': 'notifications/initialized'}) is None
+
+
+def test_unknown_method_is_a_jsonrpc_error():
+    assert _rpc('does/not/exist')['error']['code'] == -32601
+
+
+def test_every_tool_is_listed_with_a_schema_and_annotations():
+    listed = _rpc('tools/list')['result']['tools']
+    assert len(listed) == len(T.TOOLS)
+    for t in listed:
+        assert t['name'] and t['title'] and t['description']
+        assert t['inputSchema']['type'] == 'object'
+        # Nothing here writes; a client that trusts the hint must not be lied to.
+        assert t['annotations']['readOnlyHint'] is True
+
+
+def test_tool_failure_is_a_result_not_a_transport_error():
+    # A model has to be able to see and correct its own bad call, so a failing
+    # tool comes back as isError content rather than a JSON-RPC error.
+    r = _rpc('tools/call', {'name': 'nyc_no_such_tool', 'arguments': {}})
+    assert 'error' not in r
+    assert r['result']['isError'] is True
+    assert 'nyc_no_such_tool' in r['result']['content'][0]['text']
+
+
+def test_bad_argument_is_reported_back_to_the_caller():
+    r = _rpc('tools/call', {'name': 'nyc_borough', 'arguments': {'bogus': 1}})
+    assert r['result']['isError'] is True
+    assert 'bogus' in r['result']['content'][0]['text']
+
+
+def test_prompts_render_with_their_arguments_substituted():
+    names = {p['name'] for p in _rpc('prompts/list')['result']['prompts']}
+    assert 'neighborhood_report' in names
+    r = _rpc('prompts/get', {'name': 'neighborhood_report',
+                             'arguments': {'area': 'Bed-Stuy'}})['result']
+    text = r['messages'][0]['content']['text']
+    assert 'Bed-Stuy' in text and '{area}' not in text
+
+
+def test_prompt_missing_a_required_argument_is_rejected():
+    assert _rpc('prompts/get', {'name': 'neighborhood_report',
+                                'arguments': {}})['error']['code'] == -32602
+
+
+def test_caveats_resource_reads_without_touching_the_network():
+    r = _rpc('resources/read', {'uri': 'nyc://atlas/caveats'})['result']
+    body = r['contents'][0]['text']
+    assert r['contents'][0]['mimeType'] == 'text/markdown'
+    # The three exclusions are the whole point of the document.
+    assert '$50,000' in body and '$50–$5,000' in body
+
+
+def test_unknown_resource_is_an_error_not_an_empty_read():
+    assert _rpc('resources/read',
+                {'uri': 'nyc://atlas/nope'})['error']['code'] == -32602
+
+
+def test_advertised_resources_all_resolve():
+    for res in _rpc('resources/list')['result']['resources']:
+        assert 'uri' in res and res['mimeType']
+
+
+@pytest.mark.network
+def test_tool_call_returns_structured_content_alongside_text():
+    r = _rpc('tools/call', {'name': 'nyc_borough',
+                            'arguments': {'name': 'queens'}})['result']
+    assert r['isError'] is False
+    assert r['structuredContent']['name']
+    assert r['content'][0]['type'] == 'text'
+
+
+# ── traffic: projection ─────────────────────────────────────────────────────
+#
+# DOT publishes count locations in EPSG:2263 (state-plane feet), so the
+# unprojection is load-bearing: get it wrong and every count location lands in
+# the wrong borough while still looking like a plausible map. These fixtures
+# are real rows from the file, checked against where the street actually is.
+
+def test_state_plane_unprojects_to_the_right_place():
+    cases = [
+        # (wkt from the file, expected lng, lat, where it is)
+        ('POINT (1035363.4 185093.4)', -73.8157, 40.6746),   # 122 Pl / Sutter Av
+        ('POINT (988000 214000)', -73.9865, 40.7541),        # Times Square
+        ('POINT (1000124.7052589084 208538.8773739439)',     # Borden Av Bridge
+         -73.9427, 40.7390),
+    ]
+    for wkt, lng, lat in cases:
+        got = S.wkt_point_to_lnglat(wkt)
+        assert got is not None, wkt
+        # ~10 m of tolerance: far tighter than the counts are located to, but
+        # tight enough that a wrong parallel or a metres/feet mix-up fails.
+        assert abs(got[0] - lng) < 0.0002, (wkt, got)
+        assert abs(got[1] - lat) < 0.0002, (wkt, got)
+
+
+def test_state_plane_rejects_points_outside_the_city():
+    # A row projected from something other than state-plane feet lands in the
+    # ocean; it must be dropped rather than drawn at a plausible-looking spot.
+    assert S.wkt_point_to_lnglat('POINT (0 0)') is None
+    assert S.wkt_point_to_lnglat('POINT (5000000 5000000)') is None
+    assert S.wkt_point_to_lnglat('not wkt at all') is None
+    assert S.wkt_point_to_lnglat('') is None
+
+
+# ── traffic: speed feed ─────────────────────────────────────────────────────
+
+def test_speed_snapshot_keeps_newest_per_link_and_drops_dark_sensors():
+    line = '40.7100,-73.9900 40.7200,-73.9800'
+    rows = [
+        # same link twice — only the newer reading may survive
+        {'link_id': '1', 'speed': '45.0', 'travel_time': '60', 'status': '0',
+         'data_as_of': '2026-08-27T14:00:00.000', 'link_points': line,
+         'borough': 'Queens', 'link_name': 'LIE EB', 'owner': 'DOT'},
+        {'link_id': '1', 'speed': '5.0', 'travel_time': '600', 'status': '0',
+         'data_as_of': '2026-08-27T13:00:00.000', 'link_points': line,
+         'borough': 'Queens', 'link_name': 'LIE EB', 'owner': 'DOT'},
+        # status -101 is a sensor that is not reporting; its speed is garbage
+        {'link_id': '2', 'speed': '61.0', 'travel_time': '9', 'status': '-101',
+         'data_as_of': '2026-08-27T14:00:00.000', 'link_points': line,
+         'borough': 'Bronx', 'link_name': 'CBE WB', 'owner': 'DOT'},
+    ]
+    fc = TR._snapshot_from_rows(rows)
+    assert len(fc['features']) == 1
+    p = fc['features'][0]['properties']
+    assert p['speed'] == 45.0 and p['link'] == '1'
+    assert p['band'] == 'free' and p['direction'] == 'Eastbound'
+    assert fc['meta']['links_reporting'] == 1
+    assert fc['meta']['links_dark'] == 1
+
+
+def test_speed_bands_split_stopped_from_moving():
+    assert TR._band(0) == 'stopped'
+    assert TR._band(9.9) == 'stopped'
+    assert TR._band(10) == 'crawling'
+    assert TR._band(24.9) == 'crawling'
+    assert TR._band(25) == 'moving'
+    assert TR._band(40) == 'free'
+
+
+def test_link_points_survives_a_truncated_tail():
+    # The feed cuts this column mid-coordinate on some rows; the good pairs
+    # before the cut still make a drawable line.
+    pts = TR._parse_link_points('40.71,-73.99 40.72,-73.98 40.73,-73.9')
+    assert pts == [[-73.99, 40.71], [-73.98, 40.72], [-73.9, 40.73]]
+    assert TR._parse_link_points('garbage 40.71,-73.99') == [[-73.99, 40.71]]
+    assert TR._parse_link_points('') == []
+
+
+# ── traffic: hourly volume ──────────────────────────────────────────────────
+
+def _volume_rows(vols_by_hour, bins=(0, 15, 30, 45)):
+    """Rows shaped like the grouped SoQL response, one per (hour, bin)."""
+    return [{'segmentid': '1', 'street': 'TEST ST', 'fromst': 'A', 'tost': 'B',
+             'direction': 'NB', 'boro': 'Queens',
+             'wktgeom': 'POINT (1000124.7 208538.9)',
+             'hh': str(h), 'mm': str(mm),
+             # each bin carries an equal share of the hour's total
+             'v': str(vols_by_hour[h] / len(bins)), 'n': '10'}
+            for h in range(24) for mm in bins]
+
+
+def test_volume_sums_bins_rather_than_averaging_them():
+    # 4 bins of 100 vehicles each is 400 vehicles that hour, not 100. This is
+    # the trap: averaging `vol` understates every location by the bin count.
+    fc = TR._volume_from_rows(_volume_rows({h: 400 for h in range(24)}))
+    assert len(fc['features']) == 1
+    p = fc['features'][0]['properties']
+    assert p['profile'][0] == 400
+    assert p['daily'] == 400 * 24
+
+
+def test_volume_handles_ten_minute_bins_without_assuming_four():
+    # Six 10-minute bins summing to 600 is 600 vehicles/hour, same as four
+    # 15-minute bins would be — the maths must not hard-code 4.
+    rows = _volume_rows({h: 600 for h in range(24)}, bins=(0, 10, 20, 30, 40, 50))
+    p = TR._volume_from_rows(rows)['features'][0]['properties']
+    assert p['profile'][0] == 600
+
+
+def test_volume_finds_the_peak_and_the_lull():
+    vols = {h: 1000 for h in range(24)}
+    vols[3] = 100      # the lull
+    vols[17] = 5000    # the evening peak
+    p = TR._volume_from_rows(_volume_rows(vols))['features'][0]['properties']
+    assert p['peak_hour'] == 17 and p['peak_vph'] == 5000
+    assert p['calm_hour'] == 3 and p['calm_vph'] == 100
+    assert p['pm_peak_vph'] == 5000
+    # Quiet hours are at or under half the peak; 1000 < 2500, so all but 17.
+    assert 3 in p['quiet_hours'] and 17 not in p['quiet_hours']
+
+
+def test_volume_drops_locations_without_a_full_day():
+    # A location counted 09:00-17:00 would otherwise report 9AM as its
+    # "calmest hour" purely because the night is missing from the file.
+    rows = [r for r in _volume_rows({h: 100 for h in range(24)})
+            if 9 <= int(r['hh']) <= 17]
+    fc = TR._volume_from_rows(rows)
+    assert fc['features'] == []
+    assert fc['meta']['partial_locations'] == 1
+
+
+def test_speed_snapshot_never_goes_backwards_in_time(monkeypatch, tmp_path):
+    # Socrata answers this dataset from replicas that are out of sync: the same
+    # ordered query returns a 13:01 snapshot or a 14:36 one depending on which
+    # one takes it. A refresh must not walk the map back in time.
+    monkeypatch.setattr(S, 'CACHE_DIR', tmp_path)
+    newer = {'type': 'FeatureCollection', 'features': [],
+             'meta': {'as_of': '2026-08-27T14:36:06.000', 'links_reporting': 9}}
+    older = {'type': 'FeatureCollection', 'features': [],
+             'meta': {'as_of': '2026-08-27T13:01:07.000', 'links_reporting': 4}}
+    S.cache_write(TR.SPEED_CACHE_KEY, newer)
+    # expire the TTL so speeds() actually refetches
+    import os, time as _t
+    p = tmp_path / 'traffic-speeds.json'
+    os.utime(p, (_t.time() - 99999, _t.time() - 99999))
+
+    monkeypatch.setattr(TR, '_fetch_speeds', lambda *a, **k: older)
+    assert TR.speeds()['meta']['as_of'] == newer['meta']['as_of']
+
+    # ...but a genuinely newer reading still replaces it, so this converges
+    # on the latest rather than pinning to whatever was seen first.
+    os.utime(p, (_t.time() - 99999, _t.time() - 99999))
+    newest = {'type': 'FeatureCollection', 'features': [],
+              'meta': {'as_of': '2026-08-27T15:10:00.000', 'links_reporting': 12}}
+    monkeypatch.setattr(TR, '_fetch_speeds', lambda *a, **k: newest)
+    assert TR.speeds()['meta']['as_of'] == newest['meta']['as_of']

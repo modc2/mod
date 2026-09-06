@@ -67,15 +67,98 @@ const netFor = (chainId: string): NetworkDef | null =>
 
 const netLabel = (chainId: string) => netFor(chainId)?.label || (chainId ? `Chain ${chainId}` : 'Unknown')
 
+// ── Chain logos ─────────────────────────────────────────────────────────
+// Every mark is inline SVG in the chain's own brand colour. Nothing is
+// fetched: this console is opened on boxes with no route to a CDN, and a
+// broken <img> reads as a broken network, which is the one thing the
+// picker must never say by accident. Testnets wear the mainnet mark —
+// same chain, and the label already carries the "Sepolia".
+
+const CHAIN_MARK: Record<string, string> = {
+  '1': 'ethereum', '11155111': 'ethereum',
+  '8453': 'base', '84532': 'base',
+  '10': 'optimism',
+  '42161': 'arbitrum',
+  '137': 'polygon',
+  '1337': 'local',
+}
+
+function ChainLogo({ chainId, className = 'w-4 h-4' }: { chainId: string; className?: string }) {
+  const mark = CHAIN_MARK[chainId]
+  const common = { className, viewBox: '0 0 24 24', 'aria-hidden': true as const }
+
+  if (mark === 'base') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#0052FF" />
+      {/* The Base mark: a disc with a slot cut clean through its left side. */}
+      <path fill="#fff" d="M0 10.15h15.9v3.7H0z" />
+    </svg>
+  )
+
+  if (mark === 'ethereum') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#627EEA" />
+      <path fill="#fff" fillOpacity=".6" d="M12 3.5v6.3l5.2 2.3L12 3.5Z" />
+      <path fill="#fff" d="M12 3.5 6.8 12.1 12 9.8V3.5Z" />
+      <path fill="#fff" fillOpacity=".6" d="M12 16.4v4.1l5.2-7.3L12 16.4Z" />
+      <path fill="#fff" d="M12 20.5v-4.1l-5.2-3.2L12 20.5Z" />
+      <path fill="#fff" fillOpacity=".2" d="m12 15.4 5.2-3.3L12 9.8v5.6Z" />
+      <path fill="#fff" fillOpacity=".6" d="M6.8 12.1 12 15.4V9.8l-5.2 2.3Z" />
+    </svg>
+  )
+
+  if (mark === 'optimism') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#FF0420" />
+      <path fill="#fff" d="M8.2 15.6c-1 0-1.9-.24-2.5-.72-.63-.49-.94-1.19-.94-2.1 0-.19.02-.42.06-.7.12-.63.28-1.4.5-2.29.6-2.44 2.16-3.66 4.68-3.66.68 0 1.3.11 1.84.35.54.22.97.56 1.28 1.02.31.45.47 1 .47 1.62 0 .18-.02.4-.06.68-.13.78-.3 1.55-.5 2.28-.31 1.22-.85 2.13-1.61 2.74-.77.59-1.8.89-3.1.89Zm.19-1.93c.5 0 .93-.15 1.28-.45.36-.3.62-.75.77-1.36.21-.87.38-1.62.49-2.27.04-.19.06-.39.06-.59 0-.83-.43-1.24-1.29-1.24-.5 0-.94.15-1.3.45-.35.3-.6.75-.75 1.38-.17.62-.33 1.38-.5 2.27a2.9 2.9 0 0 0-.06.58c0 .83.44 1.23 1.3 1.23Zm5.83 1.79a.24.24 0 0 1-.19-.08.29.29 0 0 1-.03-.22l1.7-7.99c.02-.09.06-.16.14-.22a.36.36 0 0 1 .22-.08h3.27c.91 0 1.64.19 2.19.57.56.37.84.92.84 1.63 0 .2-.02.42-.08.64-.2 1-.65 1.75-1.34 2.22-.68.48-1.61.72-2.79.72h-1.66l-.57 2.7a.4.4 0 0 1-.14.22.36.36 0 0 1-.22.08h-1.34Zm4.15-4.6c.38 0 .7-.1.99-.31.28-.21.47-.51.56-.9.03-.16.04-.3.04-.42 0-.24-.07-.42-.21-.55-.14-.13-.38-.2-.72-.2h-1.47l-.5 2.38h1.31Z" />
+    </svg>
+  )
+
+  if (mark === 'arbitrum') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#213147" />
+      <path fill="#12AAFF" d="m10.9 9.9 1.6-2.7 4.3 6.7v2.7l-1.6-2.5-4.3-4.2Z" />
+      <path fill="#12AAFF" d="M17.2 15.9v-2.5l-1.6 2.5h1.6Z" />
+      <path fill="#9DCCED" d="M6.5 16.7 8.6 13l3.9 6.4-1.9 1.1-4.1-3.8Z" />
+      <path fill="#fff" d="m12.1 4.9 5.2 3v.7l-4.6 7.6-1.3-2.2 3-5-2.3-3.9v-.2Zm-.3 0-5.2 3v9.2l1.4-2.3 2.2-6.9 1.6-3Z" />
+    </svg>
+  )
+
+  if (mark === 'polygon') return (
+    <svg {...common} viewBox="0 0 38.4 33.5" className={className} aria-hidden>
+      <rect width="38.4" height="33.5" rx="8" fill="#8247E5" opacity=".16" />
+      <path fill="#8247E5" d="M29 10.2c-.7-.4-1.6-.4-2.4 0L21 13.5l-3.8 2.1-5.5 3.3c-.7.4-1.6.4-2.4 0L5 16.3c-.7-.4-1.2-1.2-1.2-2.1v-5c0-.8.4-1.6 1.2-2.1l4.3-2.5c.7-.4 1.6-.4 2.4 0L16 7.2c.7.4 1.2 1.2 1.2 2.1v3.3l3.8-2.2V7c0-.8-.4-1.6-1.2-2.1l-8-4.7c-.7-.4-1.6-.4-2.4 0L1.2 5C.4 5.4 0 6.2 0 7v9.4c0 .8.4 1.6 1.2 2.1l8.1 4.7c.7.4 1.6.4 2.4 0l5.5-3.2 3.8-2.2 5.5-3.2c.7-.4 1.6-.4 2.4 0l4.3 2.5c.7.4 1.2 1.2 1.2 2.1v5c0 .8-.4 1.6-1.2 2.1L29 28.8c-.7.4-1.6.4-2.4 0l-4.3-2.5c-.7-.4-1.2-1.2-1.2-2.1V21l-3.8 2.2v3.3c0 .8.4 1.6 1.2 2.1l8.1 4.7c.7.4 1.6.4 2.4 0l8.1-4.7c.7-.4 1.2-1.2 1.2-2.1V17c0-.8-.4-1.6-1.2-2.1L29 10.2Z" />
+    </svg>
+  )
+
+  if (mark === 'local') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="11" className="stroke-mute" strokeWidth="1.6" strokeDasharray="3 2.6" />
+      <rect x="7.5" y="8" width="9" height="3.2" rx="1" className="fill-mute" />
+      <rect x="7.5" y="12.8" width="9" height="3.2" rx="1" className="fill-mute" opacity=".55" />
+    </svg>
+  )
+
+  // Unknown chain — a filled dot in the warning hue, same silhouette as a
+  // logo so the row never reflows when the wallet lands somewhere odd.
+  return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="11" className="fill-gold/20 stroke-gold" strokeWidth="1.6" />
+      <path d="M12 7.5v6" className="stroke-gold" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="16.6" r="1.2" className="fill-gold" />
+    </svg>
+  )
+}
+
 // ── Types ───────────────────────────────────────────────────────────────
 
 interface StakePosition {
   stakeId: number
   amount: string
-  startBlock: number
-  lockBlocks: number
+  startTime: number       // unix timestamp at stake
+  lockSeconds: number
   blocTimeBalance: string
-  blocksRemaining: number
+  secondsRemaining: number
 }
 
 interface Overview {
@@ -104,6 +187,10 @@ interface PotInfo {
 
 interface Stats {
   pot: PotInfo | null
+  maxLockSeconds?: number
+  secondsPerBlock?: number
+  priceUsdMicro?: number   // micro-USD per whole token (1_000_000 = $1.00)
+  priceUsd?: number        // same thing in dollars, for display
   totalBlocTime: string
   totalSupply: string
   totalStakes: number
@@ -119,13 +206,13 @@ interface Stats {
     initialRewardPerEpoch: string
     halvingInterval: number
     minRewardPerEpoch: string
-    epochLength: number
-    startBlock: number
+    epochLength: number     // SECONDS per epoch (86400 = 1 day)
+    startTime: number       // unix timestamp when inflation began
   }
 }
 
 interface MultiplierPoint {
-  blocks: number
+  lockSeconds: number
   multiplier: number
   multiplierX: number
 }
@@ -228,9 +315,10 @@ interface FactoryKit {
   contracts: { bloctime: FactoryContract; nativeToken: FactoryContract }
   defaults: {
     initialSupply: string
-    maxLockBlocks: number
-    distributionPercentage: number
-    points: { blocks: number; multiplier: number }[]
+    maxLockSeconds: number
+    priceUsdMicro: number
+    secondsPerBlock?: number
+    points: { lockSeconds: number; multiplier: number }[]
     inflation: {
       initialRewardPerEpoch: string
       halvingInterval: number
@@ -254,9 +342,13 @@ type Tab = 'stake' | 'rewards' | 'market' | 'deploy' | 'bridge' | 'contracts'
 // ── API helper ──────────────────────────────────────────────────────────
 
 async function api(fn: string, params: Record<string, any> = {}, method = 'POST') {
+  // Server-signer endpoints require the API token (~/.mod/bloctime/api_token
+  // on the server). Paste it once: localStorage.setItem('bloctime_api_token', t)
+  const token = typeof window !== 'undefined' ? localStorage.getItem('bloctime_api_token') : null
+  const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
   const opts: RequestInit = method === 'GET'
-    ? { method: 'GET' }
-    : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) }
+    ? { method: 'GET', headers: auth }
+    : { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify(params) }
 
   const res = await fetch(`${API_URL}/${fn}`, opts)
   if (!res.ok) {
@@ -267,20 +359,106 @@ async function api(fn: string, params: Record<string, any> = {}, method = 'POST'
   return data.result !== undefined ? data.result : data
 }
 
+// v2 locks are denominated in SECONDS against block.timestamp. Blocks are
+// only a display convention now — seconds = blocks × secondsPerBlock, with
+// secondsPerBlock read from the contract's params() (2 on Base).
+const SECONDS_PER_HOUR = 3_600
+const SECONDS_PER_DAY = 86_400
+const SECONDS_PER_WEEK = SECONDS_PER_DAY * 7
+const SECONDS_PER_YEAR = SECONDS_PER_DAY * 365    // 31,536,000
+const MAX_LOCK_SECONDS = SECONDS_PER_YEAR * 8     // 252,288,000 — 8 years
+const DEFAULT_SECONDS_PER_BLOCK = 2               // Base
+
+// The lock can be entered and read in either unit; the contract call is
+// always seconds. The choice sticks across visits.
+type LockUnit = 'seconds' | 'blocks'
+const LOCK_UNIT_KEY = 'bloctime_lock_unit'
+
+// 252,288,000 reads as noise; "8y" reads as a decision. Every place that
+// prints a lock length as a duration goes through here.
+function fmtLockSpan(seconds: number): string {
+  if (!seconds || seconds <= 0) return 'no lock'
+  const days = seconds / SECONDS_PER_DAY
+  if (days >= 365) {
+    const y = days / 365
+    return `${Number.isInteger(y) ? y : y.toFixed(y < 10 ? 1 : 0)}y`
+  }
+  if (days >= 1) return `${Number.isInteger(days) ? days : days.toFixed(days < 10 ? 1 : 0)}d`
+  const hours = days * 24
+  if (hours >= 1) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`
+  const mins = hours * 60
+  if (mins >= 1) return `${Math.max(1, Math.round(mins))}m`
+  return `${Math.max(1, Math.round(seconds))}s`
+}
+
+// The raw lock figure in whichever unit is chosen: "1,000,000 s" or
+// "500,000 blk". Duration formatting is fmtLockSpan's job, not this one's.
+function fmtLockRaw(seconds: number, unit: LockUnit, spb: number): string {
+  if (unit === 'blocks') {
+    const blocks = Math.round(seconds / Math.max(1, spb))
+    return `${blocks.toLocaleString()} blk`
+  }
+  return `${Math.round(seconds).toLocaleString()} s`
+}
+
+// Compact axis labels in the chosen unit — 86400 → "86k" (seconds) or
+// "43k" (blocks at 2s each).
+function fmtLockAxis(seconds: number, unit: LockUnit, spb: number): string {
+  const v = unit === 'blocks' ? Math.round(seconds / Math.max(1, spb)) : Math.round(seconds)
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v < 10_000_000 ? 1 : 0)}M`
+  if (v >= 1_000) return `${(v / 1_000).toFixed(0)}k`
+  return String(v)
+}
+
+// Integer-bps mirror of the contract's getMultiplier — the same piecewise
+// interpolation, so the client-side quote matches what stake() will mint.
+function multiplierBpsAt(points: MultiplierPoint[], lockSeconds: number): number {
+  if (points.length === 0) return 10000
+  if (lockSeconds <= points[0].lockSeconds) return points[0].multiplier
+  const last = points[points.length - 1]
+  if (lockSeconds >= last.lockSeconds) return last.multiplier
+  for (let i = 0; i < points.length - 1; i++) {
+    if (lockSeconds >= points[i].lockSeconds && lockSeconds <= points[i + 1].lockSeconds) {
+      const range = points[i + 1].lockSeconds - points[i].lockSeconds
+      if (range === 0) return points[i].multiplier
+      const pos = lockSeconds - points[i].lockSeconds
+      const yRange = points[i + 1].multiplier - points[i].multiplier
+      return points[i].multiplier + Math.floor((yRange * pos) / range)
+    }
+  }
+  return last.multiplier
+}
+
+// BigInt-safe mirror of the contract's quoteBloc:
+//   (amountWei × priceUsdMicro / 1e6) × lockSeconds × multiplierBps / 10000
+function quoteBlocWei(amountWei: bigint, priceUsdMicro: number, lockSeconds: number, multBps: number): bigint {
+  const usdValue = (amountWei * BigInt(Math.max(0, Math.round(priceUsdMicro)))) / 1_000_000n
+  return (usdValue * BigInt(Math.max(0, Math.floor(lockSeconds))) * BigInt(multBps)) / 10_000n
+}
+
+// A "real" curve shapes the mint; the deployed default — one flat 1x point —
+// doesn't, and drawing it as a chart would just be a horizontal line.
+const hasRealCurve = (points: MultiplierPoint[]) =>
+  points.length > 1 || points.some(p => p.multiplierX > 1)
+
 // Contracts deployed before getPoints() answer /points with an empty list.
 // getMultiplier() still works one lock length at a time, so sample it — a
-// curve you can read beats a panel that says "unavailable".
-const SAMPLE_LOCKS = [0, 10_000, 50_000, 100_000, 200_000]
+// curve you can read beats a panel that says "unavailable". Sampling is a
+// fraction of the instance's own cap, never a fixed count: an instance
+// capped at 100k seconds must not be offered a 200k lock it would revert on.
+const SAMPLE_FRACTIONS = [0, 1 / 8, 1 / 4, 1 / 2, 1]
 
 // Sequential on purpose: each call is an RPC round-trip on the API side, and
 // firing all five at once gets the batch rate-limited — a half-sampled curve
 // is worse than a slightly slower one.
-async function sampleCurve(): Promise<MultiplierPoint[]> {
+async function sampleCurve(maxLock: number): Promise<MultiplierPoint[]> {
+  const cap = maxLock > 0 ? maxLock : MAX_LOCK_SECONDS
   const pts: MultiplierPoint[] = []
-  for (const blocks of SAMPLE_LOCKS) {
+  for (const f of SAMPLE_FRACTIONS) {
+    const lockSeconds = Math.floor(cap * f)
     try {
-      const r = await api('get_multiplier', { block_count: blocks })
-      pts.push({ blocks, multiplier: r.multiplier, multiplierX: r.multiplierX })
+      const r = await api('get_multiplier', { lock_seconds: lockSeconds })
+      pts.push({ lockSeconds, multiplier: r.multiplier, multiplierX: r.multiplierX })
     } catch { return [] }   // partial curves lie about the shape — drop it
   }
   return pts
@@ -388,6 +566,23 @@ async function readInstanceState(inst: Instance, kit: FactoryKit): Promise<{ sta
     c.totalBlocTime(), c.totalSupply(), c.nextStakeId(),
   ])
 
+  // v2 params() is { maxLockSeconds, secondsPerBlock }. Instances registered
+  // against the old ABI ({ maxLockBlocks, distributionPercentage }) decode as
+  // the same two uints — the second field just isn't a usable spb, so anything
+  // implausible falls back to the Base default rather than blanking the page.
+  let maxLock = 0, spb = DEFAULT_SECONDS_PER_BLOCK
+  try {
+    const prm = await c.params()
+    maxLock = Number(prm[0])
+    const rawSpb = Number(prm[1])
+    spb = rawSpb > 0 && rawSpb <= 60 ? rawSpb : DEFAULT_SECONDS_PER_BLOCK
+  } catch { /* older contract without params() */ }
+
+  // priceUsdMicro only exists on v2 — old instances revert, and a $1.00
+  // default keeps the linear quote readable instead of zeroing it.
+  let priceMicro = 1_000_000
+  try { priceMicro = Number(await c.priceUsdMicro()) || 1_000_000 } catch { /* pre-price contract */ }
+
   let infl: Stats['inflationParams'] | null = null
   let epoch = 0n, epochReward = 0n, totalDist = 0n, lastDist = 0n
   try {
@@ -401,7 +596,7 @@ async function readInstanceState(inst: Instance, kit: FactoryKit): Promise<{ sta
       halvingInterval: Number(ip[1]),
       minRewardPerEpoch: ip[2].toString(),
       epochLength: Number(ip[3]),
-      startBlock: Number(ip[4]),
+      startTime: Number(ip[4]),
     }
   } catch { /* older contract without inflation */ }
 
@@ -409,7 +604,7 @@ async function readInstanceState(inst: Instance, kit: FactoryKit): Promise<{ sta
   try {
     const raw = await c.getPoints()
     points = raw.map((p: any) => ({
-      blocks: Number(p[0]), multiplier: Number(p[1]), multiplierX: Number(p[1]) / 10000,
+      lockSeconds: Number(p[0]), multiplier: Number(p[1]), multiplierX: Number(p[1]) / 10000,
     }))
   } catch { /* older contract without getPoints */ }
 
@@ -432,6 +627,10 @@ async function readInstanceState(inst: Instance, kit: FactoryKit): Promise<{ sta
 
   const stats: Stats = {
     pot,
+    maxLockSeconds: maxLock,
+    secondsPerBlock: spb,
+    priceUsdMicro: priceMicro,
+    priceUsd: priceMicro / 1_000_000,
     totalBlocTime: totalBT.toString(),
     totalSupply: supply.toString(),
     totalStakes: Number(nextId),
@@ -455,8 +654,8 @@ async function readInstanceOverview(inst: Instance, kit: FactoryKit, addr: strin
   const positions: StakePosition[] = await Promise.all([...ids].map(async sid => {
     const p = await c.getStakePosition(addr, sid)
     return {
-      stakeId: Number(sid), amount: p[0].toString(), startBlock: Number(p[1]),
-      lockBlocks: Number(p[2]), blocTimeBalance: p[3].toString(), blocksRemaining: Number(p[4]),
+      stakeId: Number(sid), amount: p[0].toString(), startTime: Number(p[1]),
+      lockSeconds: Number(p[2]), blocTimeBalance: p[3].toString(), secondsRemaining: Number(p[4]),
     }
   }))
   let pending = 0n, vp = 0n, deleg = '', bloc = 0n
@@ -561,29 +760,29 @@ function InflationChart({ points, currentEpoch, halvingInterval }: {
 
 // ── Multiplier curve ────────────────────────────────────────────────────
 // The lock-length → BlocTime-multiplier curve, with a marker on wherever the
-// stake form currently sits. This is the one chart that answers the only
-// question the page exists to ask: how much longer do I have to lock?
+// stake form currently sits. Drawn only when the owner has shaped a real
+// curve — the deployed default is one flat 1x point, which is no chart.
 
-function MultiplierChart({ points, atBlocks, atMultiplier }: {
-  points: MultiplierPoint[], atBlocks: number, atMultiplier: number
+function MultiplierChart({ points, atSeconds, atMultiplier, unit, spb }: {
+  points: MultiplierPoint[], atSeconds: number, atMultiplier: number, unit: LockUnit, spb: number
 }) {
   const c = useThemeColors()
   const W = 600, H = 150, PAD_L = 34, PAD_R = 14, PAD_T = 16, PAD_B = 24
   const cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B
 
-  const maxB = points[points.length - 1]?.blocks || 1
+  const maxS = points[points.length - 1]?.lockSeconds || 1
   const maxM = points[points.length - 1]?.multiplierX || 1
   const minM = points[0]?.multiplierX ?? 1
   const span = maxM - minM || 1
 
-  const toX = (b: number) => PAD_L + (Math.min(b, maxB) / maxB) * cw
+  const toX = (s: number) => PAD_L + (Math.min(s, maxS) / maxS) * cw
   const toY = (m: number) => PAD_T + ch - ((m - minM) / span) * ch
 
-  const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.blocks).toFixed(1)},${toY(p.multiplierX).toFixed(1)}`).join(' ')
+  const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.lockSeconds).toFixed(1)},${toY(p.multiplierX).toFixed(1)}`).join(' ')
   const area = `${line} L${(PAD_L + cw).toFixed(1)},${(PAD_T + ch).toFixed(1)} L${PAD_L},${(PAD_T + ch).toFixed(1)} Z`
 
-  const showMarker = atBlocks > 0
-  const mx = toX(atBlocks)
+  const showMarker = atSeconds > 0
+  const mx = toX(atSeconds)
   const my = toY(Math.min(Math.max(atMultiplier, minM), maxM))
 
   return (
@@ -609,9 +808,9 @@ function MultiplierChart({ points, atBlocks, atMultiplier }: {
       <path d={line} fill="none" stroke={c.accent} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
 
       {points.map((p, i) => (
-        <text key={i} x={toX(p.blocks)} y={H - 7} textAnchor={i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle'}
+        <text key={i} x={toX(p.lockSeconds)} y={H - 7} textAnchor={i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle'}
               fill={c.faint} fontSize="8" fontFamily="var(--font-num)">
-          {p.blocks >= 1000 ? `${(p.blocks / 1000).toFixed(0)}k` : p.blocks}
+          {fmtLockAxis(p.lockSeconds, unit, spb)}
         </text>
       ))}
 
@@ -622,6 +821,93 @@ function MultiplierChart({ points, atBlocks, atMultiplier }: {
           <text x={Math.min(mx + 8, W - PAD_R - 4)} y={Math.max(my - 8, PAD_T + 8)}
                 textAnchor={mx > W * 0.75 ? 'end' : 'start'} fill={c.gold} fontSize="10" fontFamily="var(--font-num)">
             {atMultiplier.toFixed(2)}x
+          </text>
+        </g>
+      )}
+    </svg>
+  )
+}
+
+// ── Projected BLOC ──────────────────────────────────────────────────────
+// The linear model's primary chart: BLOC minted vs lock length for the
+// amount currently in the form (or 1 token when it's empty). With the flat
+// default curve this is a straight line — usd × seconds — and any owner-set
+// curve bends it upward through the same math the contract uses.
+
+function ProjectionChart({ points, amount, priceUsd, maxLock, atSeconds, unit, spb }: {
+  points: MultiplierPoint[], amount: number, priceUsd: number,
+  maxLock: number, atSeconds: number, unit: LockUnit, spb: number
+}) {
+  const c = useThemeColors()
+  const W = 600, H = 150, PAD_L = 44, PAD_R = 14, PAD_T = 16, PAD_B = 24
+  const cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B
+
+  const cap = maxLock > 0 ? maxLock : MAX_LOCK_SECONDS
+  const blocAt = (s: number) => amount * priceUsd * s * (multiplierBpsAt(points, s) / 10000)
+
+  const STEPS = 32
+  const samples = Array.from({ length: STEPS + 1 }, (_, i) => {
+    const s = (cap * i) / STEPS
+    return { s, v: blocAt(s) }
+  })
+  const maxV = samples[samples.length - 1].v || 1
+
+  const toX = (s: number) => PAD_L + (Math.min(s, cap) / cap) * cw
+  const toY = (v: number) => PAD_T + ch - (Math.min(v, maxV) / maxV) * ch
+
+  const line = samples.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.s).toFixed(1)},${toY(p.v).toFixed(1)}`).join(' ')
+  const area = `${line} L${(PAD_L + cw).toFixed(1)},${(PAD_T + ch).toFixed(1)} L${PAD_L},${(PAD_T + ch).toFixed(1)} Z`
+
+  const fmtBloc = (v: number) => {
+    if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`
+    if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`
+    if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`
+    return v >= 10 ? v.toFixed(0) : v.toFixed(2)
+  }
+
+  const showMarker = atSeconds > 0
+  const mx = toX(atSeconds)
+  const mv = blocAt(Math.min(atSeconds, cap))
+  const my = toY(mv)
+
+  const xTicks = [0, 0.25, 0.5, 0.75, 1].map(f => cap * f)
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 170 }} role="img"
+         aria-label="Projected BLOC minted by lock length">
+      <defs>
+        <linearGradient id="projGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={c.accent} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={c.accent} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+
+      {[0, 0.5, 1].map(f => (
+        <g key={f}>
+          <line x1={PAD_L} y1={PAD_T + ch * f} x2={W - PAD_R} y2={PAD_T + ch * f}
+                stroke={c.line} strokeOpacity="0.45" strokeWidth="1" />
+          <text x={PAD_L - 6} y={PAD_T + ch * f + 3} textAnchor="end" fill={c.faint} fontSize="9"
+                fontFamily="var(--font-num)">{fmtBloc(maxV * (1 - f))}</text>
+        </g>
+      ))}
+
+      <path d={area} fill="url(#projGrad)" />
+      <path d={line} fill="none" stroke={c.accent} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+
+      {xTicks.map((s, i) => (
+        <text key={i} x={toX(s)} y={H - 7} textAnchor={i === 0 ? 'start' : i === xTicks.length - 1 ? 'end' : 'middle'}
+              fill={c.faint} fontSize="8" fontFamily="var(--font-num)">
+          {fmtLockAxis(s, unit, spb)}
+        </text>
+      ))}
+
+      {showMarker && (
+        <g>
+          <line x1={mx} y1={PAD_T} x2={mx} y2={PAD_T + ch} stroke={c.gold} strokeOpacity="0.5" strokeWidth="1" strokeDasharray="3,3" />
+          <circle cx={mx} cy={my} r="4" fill={c.gold} stroke={c.panel} strokeWidth="2" />
+          <text x={Math.min(mx + 8, W - PAD_R - 4)} y={Math.max(my - 8, PAD_T + 8)}
+                textAnchor={mx > W * 0.75 ? 'end' : 'start'} fill={c.gold} fontSize="10" fontFamily="var(--font-num)">
+            {fmtBloc(mv)} BLOC
           </text>
         </g>
       )}
@@ -1015,7 +1301,7 @@ function MarketPanel({ instances, activeId, account, loading, onUse, onRefresh }
       </div>
 
       {instances.length === 0 && (
-        <div className="border border-line rounded-lg bg-panel py-16 text-center">
+        <div className="border border-line rounded-lg bg-panel py-12 text-center">
           <span className="text-xs text-mute uppercase tracking-wider">
             {loading ? 'Loading market...' : 'No instances registered yet — deploy one from the DEPLOY tab'}
           </span>
@@ -1069,7 +1355,12 @@ function MarketPanel({ instances, activeId, account, loading, onUse, onRefresh }
               </div>
 
               <div className="space-y-1 text-[10px] font-mono text-mute">
-                <p>chain <span className="text-iris">{inst.chainId || '?'}</span> · contract <span className="text-ink2">{fmtAddr(inst.bloctime)}</span></p>
+                <p className="flex items-center gap-1.5">
+                  <ChainLogo chainId={inst.chainId} className="w-3.5 h-3.5 shrink-0" />
+                  <span className="text-iris">{netLabel(inst.chainId)}</span>
+                  <span className="text-hair">·</span>
+                  <span className="text-ink2">{fmtAddr(inst.bloctime)}</span>
+                </p>
                 {inst.owner && <p>owner <span className="text-ink2">{fmtAddr(inst.owner)}</span></p>}
               </div>
 
@@ -1112,8 +1403,8 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [supply, setSupply] = useState('1000000')
-  const [maxLock, setMaxLock] = useState('100000')
-  const [distPct, setDistPct] = useState('5000')
+  const [maxLock, setMaxLock] = useState(String(MAX_LOCK_SECONDS))   // seconds
+  const [priceUsd, setPriceUsd] = useState('1.00')                   // dollars per token
   const [rpc, setRpc] = useState(known?.rpc || '')
   const [busy, setBusy] = useState(false)
   const [forkCmd, setForkCmd] = useState('m bloctime/fork name=<yourname>')
@@ -1123,8 +1414,8 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
     getFactory().then(kit => {
       if (kit.fork) setForkCmd(kit.fork)
       setSupply(kit.defaults.initialSupply)
-      setMaxLock(String(kit.defaults.maxLockBlocks))
-      setDistPct(String(kit.defaults.distributionPercentage))
+      setMaxLock(String(kit.defaults.maxLockSeconds))
+      if (kit.defaults.priceUsdMicro > 0) setPriceUsd((kit.defaults.priceUsdMicro / 1_000_000).toFixed(2))
     }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -1164,16 +1455,23 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
 
       const btFactory = new ethers.ContractFactory(
         kit.contracts.bloctime.abi as any, kit.contracts.bloctime.bytecode, signer)
-      const maxLockN = BigInt(parseInt(maxLock) || 100000)
-      const bt = await btFactory.deploy(tokenAddr, maxLockN, BigInt(parseInt(distPct) || 5000))
+      const maxLockN = BigInt(parseInt(maxLock) || MAX_LOCK_SECONDS)
+      const priceMicro = BigInt(Math.max(1, Math.round((parseFloat(priceUsd) || 1) * 1_000_000)))
+      const bt = await btFactory.deploy(tokenAddr, maxLockN, priceMicro)
       await bt.waitForDeployment()
       const btAddr = await bt.getAddress()
       setStep(step, 'done'); step = 3; setStep(step, 'active')
 
-      // Contract rejects points beyond maxLockBlocks.
-      const points = kit.defaults.points.filter(p => BigInt(p.blocks) <= maxLockN)
+      // Contract rejects points beyond maxLockSeconds.
+      const points = kit.defaults.points.filter(p => BigInt(p.lockSeconds) <= maxLockN)
       const btWrite = bt as unknown as ethers.Contract
-      await (await btWrite.setPoints(points.map(p => ({ blocks: BigInt(p.blocks), multiplier: BigInt(p.multiplier) })))).wait()
+      // The constructor already seeds the flat {0, 1x} point — writing the
+      // same thing back is a tx for nothing, so only real curves are set.
+      const isDefaultCurve = points.length === 0 ||
+        (points.length === 1 && points[0].lockSeconds === 0 && Number(points[0].multiplier) === 10000)
+      if (!isDefaultCurve) {
+        await (await btWrite.setPoints(points.map(p => ({ lockSeconds: BigInt(p.lockSeconds), multiplier: BigInt(p.multiplier) })))).wait()
+      }
       setStep(step, 'done'); step = 4; setStep(step, 'active')
 
       const infl = kit.defaults.inflation
@@ -1197,7 +1495,7 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Deploy failed')
     }
     setBusy(false)
-  }, [name, description, supply, maxLock, distPct, rpc, chainId, getFactory, onDeployed])
+  }, [name, description, supply, maxLock, priceUsd, rpc, chainId, getFactory, onDeployed])
 
   const input = "w-full text-sm px-4 py-2.5 rounded-lg border border-line bg-field text-ink focus:outline-none focus:border-line2 font-mono transition-colors placeholder:text-faint"
 
@@ -1222,17 +1520,22 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
             <input type="number" value={supply} onChange={e => setSupply(e.target.value)} className={input} />
           </div>
           <div>
-            <p className="lbl-dim mb-1">Max lock (blocks)</p>
+            <p className="lbl-dim mb-1">
+              Max lock (seconds)
+              {(parseInt(maxLock) || 0) > 0 && (
+                <span className="text-accent normal-case tracking-normal"> — {fmtLockSpan(parseInt(maxLock) || 0)}</span>
+              )}
+            </p>
             <input type="number" value={maxLock} onChange={e => setMaxLock(e.target.value)} className={input} />
           </div>
           <div>
-            <p className="lbl-dim mb-1">Distribution % (bps, 5000 = 50%)</p>
-            <input type="number" value={distPct} onChange={e => setDistPct(e.target.value)} className={input} />
+            <p className="lbl-dim mb-1">Token price (USD, e.g. 1.00)</p>
+            <input type="number" step="0.01" value={priceUsd} onChange={e => setPriceUsd(e.target.value)} className={input} />
           </div>
           <div>
             <p className="lbl-dim mb-1">Network</p>
             <div className="flex items-center gap-2 h-[42px] px-4 rounded-lg border border-hair bg-panel">
-              <span className={`w-1.5 h-1.5 rounded-full ${known ? 'bg-up' : 'bg-gold'}`} />
+              <ChainLogo chainId={chainId} className="w-4 h-4 shrink-0" />
               <span className="text-sm text-ink2">{netLabel(chainId)}</span>
               <span className="lbl-dim ml-auto">pick it up top</span>
             </div>
@@ -1405,7 +1708,10 @@ function BuildPanel({ connected, chainId, onDeployed }: {
         <div className="flex items-center gap-2">
           <CodeBracketIcon className="w-4 h-4 text-mute" />
           <span className="lbl">Deploy any contract</span>
-          <span className="ml-auto text-[10px] uppercase tracking-wider text-iris">{netLabel(chainId)}</span>
+          <span className="ml-auto flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-iris">
+            <ChainLogo chainId={chainId} className="w-3.5 h-3.5" />
+            {netLabel(chainId)}
+          </span>
         </div>
         <p className="text-[11px] text-mute">
           Write Solidity, compile it here, and deploy from <span className="text-ink2">your wallet</span>.
@@ -1689,9 +1995,9 @@ function NetworkPicker({ chainId, onSelect }: {
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <span className={`chip-dot ${known ? 'bg-up' : 'bg-gold animate-pulse-dot'}`} />
-        {/* The dot alone carries the network on a phone — the label is the
-            first thing to go when the header runs out of room. */}
+        {/* The mark alone carries the network on a phone — the label is the
+            first thing to go when the rail runs out of room. */}
+        <ChainLogo chainId={chainId} className="w-4 h-4 shrink-0" />
         <span className="normal-case tracking-normal hidden sm:inline">{netLabel(chainId)}</span>
         <ChevronDownIcon className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -1706,6 +2012,7 @@ function NetworkPicker({ chainId, onSelect }: {
               onClick={() => { setOpen(false); onSelect(net) }}
               className="menu-item"
             >
+              <ChainLogo chainId={net.chainId} className="w-4 h-4 shrink-0" />
               <span className="flex-1">{net.label}</span>
               <span className="font-mono text-faint">{net.chainId}</span>
             </button>
@@ -1728,13 +2035,77 @@ function BlocTimePageInner() {
   const [loading, setLoading] = useState(false)
   const [connected, setConnected] = useState(false)
   const [account, setAccount] = useState('')
+  const [gasBal, setGasBal] = useState<string | null>(null)
   const [chainId, setChainId] = useState(DEFAULT_CHAIN)
   const [tab, setTab] = useState<Tab>('stake')
 
-  // Stake form
+  // Stake form. The lock is stored in whichever unit the toggle says —
+  // SECONDS by default, BLOCKS as a view on the same span — and the contract
+  // call always converts to seconds at the edge. It starts empty and fills
+  // in with 30 days once stats land. Typing pins it: a poll must never
+  // rewrite a number someone is in the middle of choosing.
   const [stakeAmount, setStakeAmount] = useState('')
-  const [lockBlocks, setLockBlocks] = useState('10000')
+  const [lockUnit, setLockUnit] = useState<LockUnit>(() => {
+    if (typeof window === 'undefined') return 'seconds'
+    return localStorage.getItem(LOCK_UNIT_KEY) === 'blocks' ? 'blocks' : 'seconds'
+  })
+  const [lockValue, setLockValue] = useState('')
+  const lockTouched = useRef(false)
   const [staking, setStaking] = useState(false)
+
+  // Each instance carries its own cap in params(); the shipped default is
+  // 8 years (252,288,000 seconds). 0 means the contract predates params() —
+  // then nothing is clamped and nothing is claimed.
+  const maxLock = stats?.maxLockSeconds || 0
+  const secondsPerBlock = stats?.secondsPerBlock || DEFAULT_SECONDS_PER_BLOCK
+  const priceUsdMicro = stats?.priceUsdMicro ?? 1_000_000
+  const priceUsd = stats?.priceUsd ?? priceUsdMicro / 1_000_000
+
+  // The current lock in contract units, whatever unit is on screen.
+  const lockSeconds = useMemo(() => {
+    const n = parseInt(lockValue) || 0
+    return lockUnit === 'blocks' ? n * secondsPerBlock : n
+  }, [lockValue, lockUnit, secondsPerBlock])
+  const lockOverCap = maxLock > 0 && lockSeconds > maxLock
+
+  const setLockFromSeconds = useCallback((secs: number) => {
+    setLockValue(String(lockUnit === 'blocks'
+      ? Math.round(secs / Math.max(1, secondsPerBlock))
+      : Math.round(secs)))
+  }, [lockUnit, secondsPerBlock])
+
+  // Switching SECONDS ⇄ BLOCKS keeps the same real lock — only the number
+  // in the field changes. The choice sticks across visits.
+  const changeLockUnit = useCallback((u: LockUnit) => {
+    if (u === lockUnit) return
+    try { localStorage.setItem(LOCK_UNIT_KEY, u) } catch { /* quota */ }
+    const n = parseInt(lockValue) || 0
+    if (n > 0) {
+      const secs = lockUnit === 'blocks' ? n * secondsPerBlock : n
+      setLockValue(String(u === 'blocks' ? Math.round(secs / Math.max(1, secondsPerBlock)) : secs))
+    }
+    setLockUnit(u)
+  }, [lockUnit, lockValue, secondsPerBlock])
+
+  useEffect(() => {
+    if (lockTouched.current || !maxLock) return
+    setLockFromSeconds(Math.min(30 * SECONDS_PER_DAY, maxLock))
+  }, [maxLock, setLockFromSeconds])
+
+  // Time presets that fit under the instance's cap, plus the cap itself.
+  const timePresets = useMemo<[string, number][]>(() => {
+    const cap = maxLock > 0 ? maxLock : MAX_LOCK_SECONDS
+    const base: [string, number][] = [
+      ['1 hour', SECONDS_PER_HOUR],
+      ['1 day', SECONDS_PER_DAY],
+      ['1 week', SECONDS_PER_WEEK],
+      ['30 days', 30 * SECONDS_PER_DAY],
+      ['1 year', SECONDS_PER_YEAR],
+    ]
+    const fit = base.filter(([, s]) => s <= cap)
+    fit.push(['max', cap])
+    return fit
+  }, [maxLock])
 
   // Sort
   type SortKey = 'amount' | 'bloctime' | 'remaining'
@@ -1839,6 +2210,28 @@ function BlocTimePageInner() {
     }
   }, [])
 
+  // Native (gas) balance for the connected account on the header's chain —
+  // the number that says whether the next write can even pay for itself.
+  useEffect(() => {
+    if (!account) { setGasBal(null); return }
+    let dead = false
+    const read = async () => {
+      try {
+        const w = window as any
+        const rpc = netFor(chainId)?.rpc
+        const provider = w.ethereum
+          ? new ethers.BrowserProvider(w.ethereum)
+          : rpc ? new ethers.JsonRpcProvider(rpc) : null
+        if (!provider) return
+        const bal = await provider.getBalance(account)
+        if (!dead) setGasBal(bal.toString())
+      } catch { /* keep the last reading */ }
+    }
+    read()
+    const iv = setInterval(read, 15000)
+    return () => { dead = true; clearInterval(iv) }
+  }, [account, chainId])
+
   // ── Data fetching ─────────────────────────────────────────────────
 
   const fetchAll = useCallback(async () => {
@@ -1863,7 +2256,7 @@ function BlocTimePageInner() {
         if (statsData) setStats(statsData)
         // A curve we already have beats an empty poll — the 15s refetch must
         // never blank the chart just because one sample round came back short.
-        const pts = pointsData?.length ? pointsData : await sampleCurve()
+        const pts = pointsData?.length ? pointsData : await sampleCurve(statsData?.maxLockSeconds || 0)
         if (pts.length) setPoints(pts)
 
         if (account) {
@@ -1931,6 +2324,11 @@ function BlocTimePageInner() {
 
   const handleStake = useCallback(async () => {
     if (!stakeAmount || Number(stakeAmount) <= 0) { toast.error('Enter amount'); return }
+    // The contract reverts with "Exceeds max lock" — say it before the gas.
+    if (maxLock > 0 && lockSeconds > maxLock) {
+      toast.error(`Lock is capped at ${fmtLockRaw(maxLock, lockUnit, secondsPerBlock)} (${fmtLockSpan(maxLock)})`)
+      return
+    }
     setStaking(true)
     try {
       if (instanceMode && activeInst) {
@@ -1938,12 +2336,12 @@ function BlocTimePageInner() {
           const amt = ethers.parseEther(stakeAmount)
           const token = new ethers.Contract(activeInst.nativeToken, kit.contracts.nativeToken.abi as any, signer)
           await (await token.approve(activeInst.bloctime, amt)).wait()
-          await (await c.stake(amt, BigInt(parseInt(lockBlocks) || 0))).wait()
+          await (await c.stake(amt, BigInt(lockSeconds))).wait()
         })
       } else {
         await api('stake', {
           amount: stakeAmount,
-          lock_blocks: parseInt(lockBlocks),
+          lock_seconds: lockSeconds,
           as_ether: true,
         })
       }
@@ -1954,7 +2352,7 @@ function BlocTimePageInner() {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Stake failed')
     }
     setStaking(false)
-  }, [stakeAmount, lockBlocks, fetchAll, instanceMode, activeInst, withInstance])
+  }, [stakeAmount, lockSeconds, lockUnit, secondsPerBlock, maxLock, fetchAll, instanceMode, activeInst, withInstance])
 
   const handleUnstake = useCallback(async (stakeId: number) => {
     try {
@@ -2092,28 +2490,25 @@ function BlocTimePageInner() {
       let cmp = 0
       if (sortKey === 'amount') cmp = Number(BigInt(a.amount) - BigInt(b.amount))
       else if (sortKey === 'bloctime') cmp = Number(BigInt(a.blocTimeBalance) - BigInt(b.blocTimeBalance))
-      else if (sortKey === 'remaining') cmp = a.blocksRemaining - b.blocksRemaining
+      else if (sortKey === 'remaining') cmp = a.secondsRemaining - b.secondsRemaining
       return sortDir === 'asc' ? cmp : -cmp
     })
   }, [overview, sortKey, sortDir])
 
-  // ── Multiplier preview ─────────────────────────────────────────────
+  // ── Linear quote preview ───────────────────────────────────────────
+  // Integer-bps multiplier + BigInt quote, mirroring getMultiplier and
+  // quoteBloc exactly — what this panel promises is what stake() mints.
 
-  const currentMultiplier = useMemo(() => {
-    const blocks = parseInt(lockBlocks) || 0
-    if (points.length === 0) return 1.0
-    if (blocks <= points[0].blocks) return points[0].multiplierX
-    if (blocks >= points[points.length - 1].blocks) return points[points.length - 1].multiplierX
-    for (let i = 0; i < points.length - 1; i++) {
-      if (blocks >= points[i].blocks && blocks <= points[i + 1].blocks) {
-        const range = points[i + 1].blocks - points[i].blocks
-        const pos = blocks - points[i].blocks
-        const yRange = points[i + 1].multiplierX - points[i].multiplierX
-        return points[i].multiplierX + (yRange * pos) / range
-      }
-    }
-    return points[points.length - 1].multiplierX
-  }, [lockBlocks, points])
+  const currentMultiplierBps = useMemo(
+    () => multiplierBpsAt(points, lockSeconds), [lockSeconds, points])
+  const currentMultiplier = currentMultiplierBps / 10000
+
+  const projectedBloc = useMemo(() => {
+    try {
+      const amtWei = ethers.parseEther(stakeAmount || '0')
+      return quoteBlocWei(amtWei, priceUsdMicro, lockSeconds, currentMultiplierBps)
+    } catch { return 0n }
+  }, [stakeAmount, priceUsdMicro, lockSeconds, currentMultiplierBps])
 
   return (
     <div className="min-h-screen text-ink">
@@ -2123,23 +2518,36 @@ function BlocTimePageInner() {
       <div className="field-grid" aria-hidden />
       <div className="field-scan" aria-hidden />
 
-      {/* Header — sticky, because the network you're on and the wallet
-          you're signing with are the two facts you need at every scroll. */}
-      <header className="sticky top-0 z-30 border-b border-hair bg-base/85 backdrop-blur-xl">
-        <div className="max-w-5xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
-          <div className="w-10 h-10 shrink-0 grid place-items-center rounded-lg border border-line bg-panel2">
-            <ClockIcon className="w-5 h-5 text-accent" />
-          </div>
-          {/* Below sm the clock mark carries the brand on its own — the
-              wallet and network controls need every pixel of that row. */}
-          <div className="min-w-0 hidden sm:block">
-            <h1 className="text-lg md:text-xl font-semibold uppercase leading-none truncate" style={{ letterSpacing: '.16em' }}>
-              BlocTime
-            </h1>
-            <p className="lbl-dim mt-1.5">Time-weighted staking</p>
+      {/* Control rail — one sticky row, no brand block above it. The tabs,
+          the network and the wallet are the only things you need at every
+          scroll; the module's name is the page you're already on. */}
+      <div className="sticky top-0 z-30 border-b border-hair bg-base/85 backdrop-blur-xl">
+        <div className="max-w-5xl mx-auto px-3 md:px-5 py-1.5 flex items-center gap-2">
+          <div className="tabbar flex-1 min-w-0">
+            {([
+              ['stake', 'Stake', LockClosedIcon],
+              ['rewards', 'Rewards', GiftIcon],
+              ['market', 'Market', BuildingStorefrontIcon],
+              ['deploy', 'Deploy', RocketLaunchIcon],
+              ['bridge', 'Bridge', ArrowsRightLeftIcon],
+              ['contracts', 'Contracts', CodeBracketIcon],
+            ] as [Tab, string, any][]).map(([t, label, Icon]) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                aria-current={tab === t}
+                title={label}
+                className={`tab ${tab === t ? 'tab-on' : ''}`}
+              >
+                <Icon className={`w-3.5 h-3.5 shrink-0 ${tab === t ? 'text-accent' : ''}`} />
+                {/* Below sm the icons carry the tabs alone — the wallet and
+                    network controls share this row now. */}
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             <NetworkPicker chainId={chainId} onSelect={selectNetwork} />
             {connected ? (
               <button
@@ -2148,6 +2556,11 @@ function BlocTimePageInner() {
                 onClick={() => { navigator.clipboard.writeText(account); toast.success('Address copied') }}
               >
                 <span className="chip-dot bg-up" />
+                {gasBal !== null && (
+                  <span className={`font-mono ${gasBal === '0' ? 'text-down' : 'text-up'}`}>
+                    {fmtEth(gasBal)} {netFor(chainId)?.symbol || 'ETH'}
+                  </span>
+                )}
                 {fmtAddr(account)}
               </button>
             ) : (
@@ -2164,31 +2577,9 @@ function BlocTimePageInner() {
             <ThemePicker />
           </div>
         </div>
-      </header>
+      </div>
 
-      <div className="relative z-10 px-4 md:px-6 py-5 max-w-5xl mx-auto space-y-5">
-
-        {/* Tab Bar */}
-        <div className="tabbar">
-          {([
-            ['stake', 'Stake', LockClosedIcon],
-            ['rewards', 'Rewards', GiftIcon],
-            ['market', 'Market', BuildingStorefrontIcon],
-            ['deploy', 'Deploy', RocketLaunchIcon],
-            ['bridge', 'Bridge', ArrowsRightLeftIcon],
-            ['contracts', 'Contracts', CodeBracketIcon],
-          ] as [Tab, string, any][]).map(([t, label, Icon]) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              aria-current={tab === t}
-              className={`tab ${tab === t ? 'tab-on' : ''}`}
-            >
-              <Icon className={`w-3.5 h-3.5 ${tab === t ? 'text-accent' : ''}`} />
-              {label}
-            </button>
-          ))}
-        </div>
+      <div className="relative z-10 px-3 md:px-5 py-3 max-w-5xl mx-auto space-y-3">
 
         {/* Active market instance banner */}
         {instanceMode && activeInst && (
@@ -2230,14 +2621,14 @@ function BlocTimePageInner() {
 
         {/* ── Stake Tab ────────────────────────────────────────────────── */}
         {tab === 'stake' && (
-          <div key="stake" className="space-y-5 animate-fade-up">
+          <div key="stake" className="space-y-4 animate-fade-up">
             {/* Stake form and the curve it moves along, side by side — the
                 marker on the curve is the preview for the lock field. */}
             <div className="card">
               <div className="card-head">
                 <LockClosedIcon className="w-4 h-4 text-accent" />
                 <span className="lbl">Stake Tokens</span>
-                <span className="lbl-dim ml-auto hidden sm:inline">Longer lock, bigger multiplier</span>
+                <span className="lbl-dim ml-auto hidden sm:inline">USD locked x seconds = BLOC</span>
               </div>
 
               <div className="grid lg:grid-cols-[minmax(0,340px)_1fr] gap-4 p-4">
@@ -2253,42 +2644,91 @@ function BlocTimePageInner() {
                     />
                   </label>
 
-                  <label className="block">
-                    <span className="lbl-dim mb-1.5 block">Lock (blocks)</span>
+                  <div>
+                    {/* SECONDS / BLOCKS — one lock, two rulers. The contract
+                        only ever hears seconds. */}
+                    <span className="mb-1.5 flex items-center justify-between gap-2">
+                      <span className="lbl-dim">Lock ({lockUnit})</span>
+                      <span className="flex gap-0.5 p-0.5 rounded-md border border-line bg-panel">
+                        {(['seconds', 'blocks'] as LockUnit[]).map(u => (
+                          <button
+                            key={u}
+                            onClick={() => changeLockUnit(u)}
+                            aria-pressed={lockUnit === u}
+                            className={`px-2 py-0.5 rounded-sm text-[9px] font-bold uppercase tracking-wider transition-all
+                              ${lockUnit === u ? 'bg-panel2 text-accent' : 'text-mute hover:text-ink2'}`}
+                          >
+                            {u}
+                          </button>
+                        ))}
+                      </span>
+                    </span>
                     <input
                       type="number"
-                      placeholder="10000"
-                      value={lockBlocks}
-                      onChange={e => setLockBlocks(e.target.value)}
+                      placeholder={lockUnit === 'blocks' ? '1296000' : '2592000'}
+                      value={lockValue}
+                      onChange={e => { lockTouched.current = true; setLockValue(e.target.value) }}
                       className="input"
                     />
-                    {points.length > 0 && (
-                      <span className="flex gap-1 mt-2">
+                    <span className="flex items-center justify-between gap-2 mt-1">
+                      <span className="text-[10px] text-faint tabular-nums">
+                        {lockSeconds > 0
+                          ? `= ${fmtLockSpan(lockSeconds)} · ${fmtLockRaw(lockSeconds, lockUnit === 'seconds' ? 'blocks' : 'seconds', secondsPerBlock)}`
+                          : 'no lock'}
+                      </span>
+                      {lockOverCap && (
+                        <span className="text-[10px] text-down tabular-nums">
+                          max {fmtLockRaw(maxLock, lockUnit, secondsPerBlock)}
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex gap-1 mt-2 flex-wrap">
+                      {timePresets.map(([label, secs]) => (
+                        <button
+                          key={label}
+                          onClick={() => { lockTouched.current = true; setLockFromSeconds(secs) }}
+                          className={`btn btn-sm flex-1 px-1 ${Math.abs(lockSeconds - secs) < secondsPerBlock ? 'btn-accent' : ''}`}
+                          title={`${fmtLockRaw(secs, lockUnit, secondsPerBlock)} — ${fmtLockSpan(secs)}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </span>
+                    {/* Owner-shaped curve points double as presets — they're
+                        the corners the multiplier bends at. */}
+                    {points.length > 1 && (
+                      <span className="flex gap-1 mt-1.5 flex-wrap">
                         {points.map(pt => (
                           <button
-                            key={pt.blocks}
-                            onClick={() => setLockBlocks(String(pt.blocks))}
-                            className={`btn btn-sm flex-1 px-0 ${Number(lockBlocks) === pt.blocks ? 'btn-accent' : ''}`}
-                            title={`${pt.blocks.toLocaleString()} blocks — ${pt.multiplierX}x`}
+                            key={pt.lockSeconds}
+                            onClick={() => { lockTouched.current = true; setLockFromSeconds(pt.lockSeconds) }}
+                            className={`btn btn-sm flex-1 px-1 ${lockSeconds === pt.lockSeconds ? 'btn-accent' : ''}`}
+                            title={`${fmtLockRaw(pt.lockSeconds, lockUnit, secondsPerBlock)} — ${pt.multiplierX}x`}
                           >
-                            {pt.blocks >= 1000 ? `${(pt.blocks / 1000).toFixed(0)}k` : pt.blocks}
+                            {fmtLockSpan(pt.lockSeconds)}
                           </button>
                         ))}
                       </span>
                     )}
-                  </label>
+                  </div>
 
-                  <div className="flex items-center justify-between gap-3 p-3 rounded-md border border-hair bg-panel2">
-                    <span>
-                      <span className="lbl-dim block">You receive</span>
-                      <span className="text-lg font-semibold text-up tabular-nums">
-                        {stakeAmount ? (Number(stakeAmount) * currentMultiplier).toFixed(2) : '0.00'} BT
+                  <div className="p-3 rounded-md border border-hair bg-panel2 space-y-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span>
+                        <span className="lbl-dim block">You mint</span>
+                        <span className="text-lg font-semibold text-up tabular-nums">
+                          {'≈'} {fmtEth(projectedBloc.toString())} BLOC
+                        </span>
                       </span>
-                    </span>
-                    <span className="text-right">
-                      <span className="lbl-dim block">Multiplier</span>
-                      <span className="text-lg font-semibold text-accent tabular-nums">{currentMultiplier.toFixed(2)}x</span>
-                    </span>
+                      <span className="text-right">
+                        <span className="lbl-dim block">Multiplier</span>
+                        <span className="text-lg font-semibold text-accent tabular-nums">{currentMultiplier.toFixed(2)}x</span>
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-faint leading-relaxed">
+                      Linear model — 1 USD locked for 1 second mints 1 BLOC.
+                      Token price ${priceUsd.toFixed(2)}.
+                    </p>
                   </div>
 
                   <button
@@ -2302,13 +2742,34 @@ function BlocTimePageInner() {
                   </button>
                 </div>
 
-                {points.length > 0 ? (
+                {/* With the default flat curve the multiplier chart is a
+                    horizontal line saying nothing — the chart worth drawing
+                    is the linear model itself: BLOC minted vs lock length.
+                    A real owner-set curve gets the multiplier chart back. */}
+                {hasRealCurve(points) ? (
                   <div className="rounded-md border border-hair bg-panel2 p-3 flex flex-col justify-center">
                     <p className="lbl-dim mb-1">Multiplier curve</p>
                     <MultiplierChart
                       points={points}
-                      atBlocks={Number(lockBlocks) || 0}
+                      atSeconds={lockSeconds}
                       atMultiplier={currentMultiplier}
+                      unit={lockUnit}
+                      spb={secondsPerBlock}
+                    />
+                  </div>
+                ) : stats ? (
+                  <div className="rounded-md border border-hair bg-panel2 p-3 flex flex-col justify-center">
+                    <p className="lbl-dim mb-1">
+                      Projected BLOC · {Number(stakeAmount) > 0 ? `${stakeAmount} NTV` : '1 NTV'} by lock length
+                    </p>
+                    <ProjectionChart
+                      points={points}
+                      amount={Number(stakeAmount) > 0 ? Number(stakeAmount) : 1}
+                      priceUsd={priceUsd}
+                      maxLock={maxLock}
+                      atSeconds={lockSeconds}
+                      unit={lockUnit}
+                      spb={secondsPerBlock}
                     />
                   </div>
                 ) : (
@@ -2335,8 +2796,8 @@ function BlocTimePageInner() {
                 </div>
                 <div className="grid sm:grid-cols-3 gap-px bg-hair">
                   {([
-                    [LockClosedIcon, 'Lock', 'Stake native tokens for a number of blocks. Longer locks earn a bigger multiplier.', 'accent'],
-                    [ClockIcon, 'Accrue', 'Your stake × multiplier is minted as BLOC — time-weighted voting power you hold or delegate.', 'gold'],
+                    [LockClosedIcon, 'Lock', 'Stake native tokens for a length of time — enter it in seconds or blocks, whichever reads better.', 'accent'],
+                    [ClockIcon, 'Accrue', 'USD value × seconds locked is minted as BLOC — time-weighted voting power you hold or delegate.', 'gold'],
                     [GiftIcon, 'Collect', 'Every Friday the pot is split across BLOC holders. Anyone can trigger the payout.', 'up'],
                   ] as [any, string, string, Tone][]).map(([Icon, title, body, tone]) => (
                     <div key={title} className="p-4 bg-panel">
@@ -2384,12 +2845,12 @@ function BlocTimePageInner() {
                 ) : (
                   <div>
                     {sortedPositions.map((pos) => {
-                      const unlocked = pos.blocksRemaining === 0
+                      const unlocked = pos.secondsRemaining === 0
                       // How far through its lock this position has served —
                       // the bar under the row is the only place you can read
                       // "nearly ready" at a glance.
-                      const served = pos.lockBlocks > 0
-                        ? Math.min(1, Math.max(0, 1 - pos.blocksRemaining / pos.lockBlocks))
+                      const served = pos.lockSeconds > 0
+                        ? Math.min(1, Math.max(0, 1 - pos.secondsRemaining / pos.lockSeconds))
                         : 1
                       return (
                         <div
@@ -2403,11 +2864,12 @@ function BlocTimePageInner() {
                           <span className="text-xs font-semibold text-accent text-right tabular-nums">
                             {fmtEth(pos.blocTimeBalance)}
                           </span>
-                          <span className="text-xs text-mute text-right tabular-nums">
-                            {pos.lockBlocks.toLocaleString()} blk
+                          <span className="text-xs text-mute text-right tabular-nums" title={fmtLockSpan(pos.lockSeconds)}>
+                            {fmtLockRaw(pos.lockSeconds, lockUnit, secondsPerBlock)}
                           </span>
-                          <span className={`text-xs text-right tabular-nums ${unlocked ? 'text-up font-semibold' : 'text-ink2'}`}>
-                            {unlocked ? 'Ready' : pos.blocksRemaining.toLocaleString()}
+                          <span className={`text-xs text-right tabular-nums ${unlocked ? 'text-up font-semibold' : 'text-ink2'}`}
+                                title={unlocked ? 'Lock served' : `${pos.secondsRemaining.toLocaleString()} s left`}>
+                            {unlocked ? 'Ready' : fmtCountdown(pos.secondsRemaining)}
                           </span>
                           <div className="flex justify-center">
                             <button
@@ -2436,7 +2898,7 @@ function BlocTimePageInner() {
 
         {/* ── Rewards Tab ──────────────────────────────────────────────── */}
         {tab === 'rewards' && (
-          <div key="rewards" className="space-y-5 animate-fade-up">
+          <div key="rewards" className="space-y-4 animate-fade-up">
             {/* Epoch Stats */}
             {stats && (
               <StatGrid>
@@ -2531,7 +2993,8 @@ function BlocTimePageInner() {
                   <span className="lbl">Bitcoin-Style Inflation Curve</span>
                   {stats.inflationParams?.halvingInterval > 0 && (
                     <span className="ml-auto text-[10px] text-gold tabular-nums">
-                      Halving every {stats.inflationParams.halvingInterval} epochs (~{(stats.inflationParams.halvingInterval / 365.25).toFixed(1)} years)
+                      Halving every {stats.inflationParams.halvingInterval} epochs
+                      {' '}(~{((stats.inflationParams.halvingInterval * (stats.inflationParams.epochLength || SECONDS_PER_DAY)) / SECONDS_PER_YEAR).toFixed(1)} years)
                     </span>
                   )}
                 </div>
@@ -2649,7 +3112,7 @@ function BlocTimePageInner() {
 
         {/* ── Deploy Tab ───────────────────────────────────────────────── */}
         {tab === 'deploy' && (
-          <div key="deploy" className="space-y-5 animate-fade-up">
+          <div key="deploy" className="space-y-4 animate-fade-up">
             <DeployPanel connected={connected} chainId={chainId} getFactory={getFactory} onDeployed={handleDeployed} />
             <BuildPanel connected={connected} chainId={chainId} onDeployed={handleContractDeployed} />
           </div>
@@ -2667,14 +3130,14 @@ function BlocTimePageInner() {
           contractsMeta
             ? <div key="contracts" className="animate-fade-up"><ContractsPlayground meta={contractsMeta} connected={connected} /></div>
             : (
-              <div className="card py-16 flex items-center justify-center">
+              <div className="card py-12 flex items-center justify-center">
                 <ArrowPathIcon className="w-5 h-5 text-mute animate-spin" />
               </div>
             )
         )}
 
         {/* Footer */}
-        <footer className="flex items-center justify-center gap-2 py-6">
+        <footer className="flex items-center justify-center gap-2 py-4">
           <ClockIcon className="w-3.5 h-3.5 text-faint" />
           <span className="lbl-dim">BlocTime Module</span>
         </footer>

@@ -1,6 +1,56 @@
 {
     "name": "replit",
-    "description": "replit",
+    "description": "The Replit interface for the mod protocol \u2014 a two-way bridge between a fleet module and a Repl, and an MCP server over the mods that live on Replit. LINK registers a deployed Repl as a remote and null-calls it to cache the mod it serves, every function and every parameter; CATALOG is that index \u2014 the mods running on Replit \u2014 and `call` reaches any function on any of them. MCP (mcp.py, stdio or POST /mcp on this same port) exposes the whole bridge as tools plus one typed tool per function per linked Repl (repl_{remote}_{fn}), so an agent calls the Repl-hosted mods directly instead of driving this module. BUNDLE goes the other way: any fleet module becomes a Replit-runnable project (.replit, replit.nix, a stdlib main.py that reproduces the mod URL rule) as a zip or a one-click Run-on-Replit URL. DB browses Replit's key-value store over your own REPLIT_DB_URL, kept off-chain in ~/.mod/replit. IMPORT scaffolds a new orbit module from the GitHub repo behind a Repl. Replit ships no public API (GraphQL is persisted-query-only, exports are 403) \u2014 this module bridges what is actually reachable and says so where it isn't.",
     "version": "0.1.0",
-    "schema": "QmUCRt9vFE6BhbD3obLSTep75RQMigifyWoMDEmS3V6qpP"
+    "anchor": "mod.py",
+    "icon": "\u25b6",
+    "color": "#f26207",
+    "port": 50530,
+    "app_port": 50530,
+    "route": true,
+    "urls": {
+        "api": "https://modc2.com/api/replit",
+        "app": "https://modc2.com/replit"
+    },
+    "sources": {
+        "replit_db": "https://docs.replit.com/replit-app/database",
+        "replit_config": "https://docs.replit.com/replit-app/configuration",
+        "run_on_replit": "https://replit.com/github/{owner}/{repo}"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "status",
+        "modules",
+        "bundle",
+        "bundles",
+        "bundle_files",
+        "bundle_file",
+        "zip",
+        "run_url",
+        "remotes",
+        "link",
+        "unlink",
+        "ping",
+        "remote_info",
+        "discover",
+        "repl",
+        "catalog",
+        "call",
+        "mcp",
+        "mcp_tools",
+        "mcp_serve",
+        "connect",
+        "disconnect",
+        "account",
+        "db_keys",
+        "db_get",
+        "db_set",
+        "db_del",
+        "import_repl",
+        "serve",
+        "kill"
+    ],
+    "key": "replit",
+    "schema": "QmWcVJ9c8eBLHSePktzDopqyJNAmQDujS4vVj4bhTPXdr2"
 }

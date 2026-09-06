@@ -1,0 +1,158 @@
+{
+  "version": "1",
+  "note": "The savings desk: where the bank is willing to place a customer's stablecoins. Every venue is one audited, battle-tested contract on the bank rail, its address read back on chain (symbol()/asset()/baseToken()) before it was written down. An index fund is a weighted basket of venues in ONE asset on ONE chain, so placing it is a handful of wallet signatures. APY hints are frozen fallbacks from 2026-08-31; live numbers come from DefiLlama at request time and every response says which it is showing.",
+  "venues": {
+    "aave-v3-usdc-eth": {
+      "protocol": "Aave V3", "name": "Aave V3 · USDC", "chain": "eth",
+      "kind": "aave_v3", "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "asset": {"symbol": "USDC", "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "decimals": 6},
+      "receipt": {"symbol": "aEthUSDC", "address": "0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c", "decimals": 6},
+      "llama_pool": "aa70268e-4b52-42bf-a116-608b370f9501",
+      "since": 2020, "apy_hint": 3.3, "apy_30d_hint": 3.81,
+      "exit": {"kind": "instant", "delay_days": 0, "note": "withdraw any time the reserve has liquidity (utilisation < 100%)"},
+      "blurb": "The largest onchain lender. Your USDC joins a shared pool; borrowers post collateral and pay interest to you continuously."
+    },
+    "aave-v3-usdt-eth": {
+      "protocol": "Aave V3", "name": "Aave V3 · USDT", "chain": "eth",
+      "kind": "aave_v3", "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "asset": {"symbol": "USDT", "address": "0xdAC17F958D2ee523a2206206994597C13D831ec7", "decimals": 6},
+      "receipt": {"symbol": "aEthUSDT", "address": "0x23878914EFE38d27C4D67Ab83ed1b93A74D4086a", "decimals": 6},
+      "llama_pool": "f981a304-bb6c-45b8-b0c5-fd2f515ad23a",
+      "since": 2020, "apy_hint": 3.35, "apy_30d_hint": 3.03,
+      "exit": {"kind": "instant", "delay_days": 0, "note": "withdraw any time the reserve has liquidity (utilisation < 100%)"},
+      "blurb": "Aave's shared USDT lending pool — same pool contract, Tether market."
+    },
+    "compound-v3-usdc-eth": {
+      "protocol": "Compound V3", "name": "Compound V3 · USDC", "chain": "eth",
+      "kind": "compound_v3", "address": "0xc3d688B66703497DAA19211EEdff47f25384cdc3",
+      "asset": {"symbol": "USDC", "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "decimals": 6},
+      "receipt": {"symbol": "cUSDCv3", "address": "0xc3d688B66703497DAA19211EEdff47f25384cdc3", "decimals": 6},
+      "llama_pool": "7da72d09-56ca-4ec5-a45f-59114353e487",
+      "since": 2022, "apy_hint": 8.18, "apy_30d_hint": 4.12,
+      "exit": {"kind": "instant", "delay_days": 0, "note": "withdraw any time the market has liquidity"},
+      "blurb": "Compound's single-asset USDC market. Lenders earn what borrowers pay, one contract, no shared collateral."
+    },
+    "compound-v3-usdt-eth": {
+      "protocol": "Compound V3", "name": "Compound V3 · USDT", "chain": "eth",
+      "kind": "compound_v3", "address": "0x3Afdc9BCA9213A35503b077a6072F3D0d5AB0840",
+      "asset": {"symbol": "USDT", "address": "0xdAC17F958D2ee523a2206206994597C13D831ec7", "decimals": 6},
+      "receipt": {"symbol": "cUSDTv3", "address": "0x3Afdc9BCA9213A35503b077a6072F3D0d5AB0840", "decimals": 6},
+      "llama_pool": "f4d5b566-e815-4ca2-bb07-7bcd8bc797f1",
+      "since": 2023, "apy_hint": 3.16, "apy_30d_hint": 3.14,
+      "exit": {"kind": "instant", "delay_days": 0, "note": "withdraw any time the market has liquidity"},
+      "blurb": "Compound's USDT market — the same design, Tether-denominated."
+    },
+    "morpho-steakusdc-eth": {
+      "protocol": "Morpho", "name": "Morpho Steakhouse USDC", "chain": "eth",
+      "kind": "erc4626", "address": "0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB",
+      "asset": {"symbol": "USDC", "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "decimals": 6},
+      "receipt": {"symbol": "steakUSDC", "address": "0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB", "decimals": 18},
+      "llama_pool": "b55f43a8-f444-4cd8-a3a4-0a4e786ba566",
+      "since": 2024, "apy_hint": 3.98, "apy_30d_hint": 3.77,
+      "exit": {"kind": "instant", "delay_days": 0, "note": "ERC-4626 withdraw, subject to the vault's idle + market liquidity"},
+      "blurb": "A curated Morpho vault run by Steakhouse Financial: your USDC is lent across isolated blue-chip collateral markets they publish onchain."
+    },
+    "morpho-steakusdt-eth": {
+      "protocol": "Morpho", "name": "Morpho Steakhouse USDT", "chain": "eth",
+      "kind": "erc4626", "address": "0xbEef047a543E45807105E51A8BBEFCc5950fcfBa",
+      "asset": {"symbol": "USDT", "address": "0xdAC17F958D2ee523a2206206994597C13D831ec7", "decimals": 6},
+      "receipt": {"symbol": "steakUSDT", "address": "0xbEef047a543E45807105E51A8BBEFCc5950fcfBa", "decimals": 18},
+      "llama_pool": "ded5a855-23c1-459d-8390-ba2707fac7c5",
+      "since": 2024, "apy_hint": 2.39, "apy_30d_hint": 3.03,
+      "exit": {"kind": "instant", "delay_days": 0, "note": "ERC-4626 withdraw, subject to the vault's idle + market liquidity"},
+      "blurb": "Steakhouse's USDT vault on Morpho — the same curator, Tether-denominated."
+    },
+    "maple-syrupusdc-eth": {
+      "protocol": "Maple", "name": "Maple syrupUSDC", "chain": "eth",
+      "kind": "erc4626", "address": "0x80ac24aA929eaF5013f6436cdA2a7ba190f5Cc0b",
+      "asset": {"symbol": "USDC", "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "decimals": 6},
+      "receipt": {"symbol": "syrupUSDC", "address": "0x80ac24aA929eaF5013f6436cdA2a7ba190f5Cc0b", "decimals": 18},
+      "llama_pool": "43641cf5-a92e-416b-bce9-27113d3c0db6",
+      "since": 2021, "apy_hint": 5.04, "apy_30d_hint": 4.88,
+      "exit": {"kind": "request", "delay_days": 1, "note": "withdrawals are requested and filled from pool liquidity, usually within a day"},
+      "blurb": "Institutional credit: your USDC funds overcollateralised loans to vetted trading firms. Higher rate, and getting out is a request, not a click."
+    },
+    "sky-sdai-eth": {
+      "protocol": "Sky (MakerDAO)", "name": "Sky Savings · sDAI", "chain": "eth",
+      "kind": "erc4626", "address": "0x83F20F44975D03b1b09e64809B757c47f942BEeA",
+      "asset": {"symbol": "DAI", "address": "0x6B175474E89094C44Da98b954EedeAC495271d0F", "decimals": 18},
+      "receipt": {"symbol": "sDAI", "address": "0x83F20F44975D03b1b09e64809B757c47f942BEeA", "decimals": 18},
+      "llama_pool": "c8a24fee-ec00-4f38-86c0-9f6daebc4225",
+      "since": 2017, "apy_hint": 1.25, "apy_30d_hint": 1.25,
+      "exit": {"kind": "instant", "delay_days": 0, "note": "sDAI redeems instantly at the accrued rate, any size"},
+      "blurb": "The oldest savings rate in DeFi: DAI grows at the rate Sky governance sets. Simple, heavily audited, instantly redeemable."
+    },
+    "aave-v3-usdc-base": {
+      "protocol": "Aave V3", "name": "Aave V3 · USDC", "chain": "base",
+      "kind": "aave_v3", "address": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+      "asset": {"symbol": "USDC", "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "decimals": 6},
+      "receipt": {"symbol": "aBasUSDC", "address": "0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB", "decimals": 6},
+      "llama_pool": "7e0661bf-8cf3-45e6-9424-31916d4c7b84",
+      "since": 2023, "apy_hint": 3.38, "apy_30d_hint": 3.42,
+      "exit": {"kind": "instant", "delay_days": 0, "note": "withdraw any time the reserve has liquidity (utilisation < 100%)"},
+      "blurb": "Aave's USDC pool on Base — the same lender, on the chain where a transaction costs a cent."
+    },
+    "morpho-steakusdc-base": {
+      "protocol": "Morpho", "name": "Morpho Steakhouse USDC", "chain": "base",
+      "kind": "erc4626", "address": "0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183",
+      "asset": {"symbol": "USDC", "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "decimals": 6},
+      "receipt": {"symbol": "steakUSDC", "address": "0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183", "decimals": 18},
+      "llama_pool": "ba68527f-8ec2-4c55-827a-8f4673ae047c",
+      "since": 2024, "apy_hint": 4.45, "apy_30d_hint": 4.35,
+      "exit": {"kind": "instant", "delay_days": 0, "note": "ERC-4626 withdraw, subject to the vault's idle + market liquidity"},
+      "blurb": "Steakhouse's curated USDC vault on Base — around half a billion dollars deep."
+    },
+    "spark-usdc-base": {
+      "protocol": "Spark", "name": "Spark Savings · USDC", "chain": "base",
+      "kind": "erc4626", "address": "0x7BfA7C4f149E7415b73bdeDfe609237e29CBF34A",
+      "asset": {"symbol": "USDC", "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "decimals": 6},
+      "receipt": {"symbol": "sparkUSDC", "address": "0x7BfA7C4f149E7415b73bdeDfe609237e29CBF34A", "decimals": 18},
+      "llama_pool": "a5fab52f-73fa-4f44-9c09-9af1eb20996c",
+      "since": 2023, "apy_hint": 3.99, "apy_30d_hint": 3.88,
+      "exit": {"kind": "instant", "delay_days": 0, "note": "redeem instantly at the accrued rate"},
+      "blurb": "The Sky ecosystem's USDC savings vault on Base: deposits earn the Sky Savings Rate via Spark's liquidity layer."
+    }
+  },
+  "funds": [
+    {
+      "id": "core-usdc-eth", "name": "Core Lending", "chain": "eth", "asset": "USDC",
+      "tier": "core",
+      "strategy": "The bank's default: three of the largest, longest-running lending venues on Ethereum, every dollar withdrawable the moment you ask.",
+      "sleeves": [
+        {"venue": "aave-v3-usdc-eth", "weight": 0.4},
+        {"venue": "compound-v3-usdc-eth", "weight": 0.3},
+        {"venue": "morpho-steakusdc-eth", "weight": 0.3}
+      ]
+    },
+    {
+      "id": "core-usdc-base", "name": "Core Lending · Base", "chain": "base", "asset": "USDC",
+      "tier": "core",
+      "strategy": "The same blue-chip lending spread on Base, where placing three sleeves costs cents in gas instead of dollars.",
+      "sleeves": [
+        {"venue": "aave-v3-usdc-base", "weight": 0.35},
+        {"venue": "morpho-steakusdc-base", "weight": 0.35},
+        {"venue": "spark-usdc-base", "weight": 0.3}
+      ]
+    },
+    {
+      "id": "yield-plus-usdc-eth", "name": "Yield Plus", "chain": "eth", "asset": "USDC",
+      "tier": "established",
+      "strategy": "Reaches for more yield by lending 40% to Maple's institutional credit pool. That sleeve exits by request (usually a day), not instantly — the projection is paid for with patience.",
+      "sleeves": [
+        {"venue": "maple-syrupusdc-eth", "weight": 0.4},
+        {"venue": "morpho-steakusdc-eth", "weight": 0.3},
+        {"venue": "compound-v3-usdc-eth", "weight": 0.3}
+      ]
+    },
+    {
+      "id": "tether-usdt-eth", "name": "Tether Desk", "chain": "eth", "asset": "USDT",
+      "tier": "core",
+      "strategy": "For savings held in USDT: the same three-venue lending spread, Tether-denominated end to end — no swap in or out.",
+      "sleeves": [
+        {"venue": "aave-v3-usdt-eth", "weight": 0.4},
+        {"venue": "compound-v3-usdt-eth", "weight": 0.3},
+        {"venue": "morpho-steakusdt-eth", "weight": 0.3}
+      ]
+    }
+  ]
+}

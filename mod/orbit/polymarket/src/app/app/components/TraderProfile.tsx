@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { TopTrader, CATEGORIES, formatVolume, formatPnl, timeAgo, matchMarketCategory, CategorySlug, MAX_ACTIVITY_ROWS } from "../lib/polymarket";
+import { TopTrader, ClosedPosition, CATEGORIES, formatVolume, formatPnl, timeAgo, matchMarketCategory, CategorySlug, MAX_ACTIVITY_ROWS } from "../lib/polymarket";
 import { shortAddress } from "@/lib/auth";
 import { PolymarketTrade, PolymarketPosition, TradeFilters } from "../lib/types";
 import { tradeMatchesFilters, describeTradeFilters } from "../lib/tradeFilters";
@@ -19,6 +19,11 @@ interface Props {
   trader: TopTrader;
   trades: PolymarketTrade[];
   positions: PolymarketPosition[];
+  /** The settled book — every position the market has finished deciding,
+      with realized P&L. `null` = not loaded or the fetch failed, which must
+      render as unknown: the trade feed alone cannot answer win rate, because
+      a position that expires worthless leaves no sell and no redeem in it. */
+  settled?: ClosedPosition[] | null;
   loading: boolean;
   watching: boolean;
   onToggleWatch: () => void;
@@ -159,6 +164,7 @@ export default function TraderProfile({
   trader,
   trades,
   positions,
+  settled = null,
   loading,
   watching,
   onToggleWatch,
@@ -459,9 +465,47 @@ export default function TraderProfile({
     const avgTrade = scoredSells.length ? totalPnl / scoredSells.length : 0;
     const biggestWin = scoredSells.length ? Math.max(...scoredSells.map((t) => t.realized)) : 0;
     const biggestLoss = scoredSells.length ? Math.min(...scoredSells.map((t) => t.realized)) : 0;
-    const winRate = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : -1;
-    return { wins, losses, totalPnl, avgTrade, biggestWin, biggestLoss, winRate };
+    // `wins`/`losses` count SCORED SELLS and are rendered as exactly that.
+    // They are deliberately not turned into a rate here: a position that
+    // expired worthless was never sold, so it is in neither counter, and a
+    // percentage built from them can only read high. The WIN RATE tile uses
+    // `settledStats` below instead.
+    return { wins, losses, totalPnl, avgTrade, biggestWin, biggestLoss };
   }, [filteredTrades]);
+
+  /// Win rate off the SETTLED book: of the positions this market has finished
+  /// deciding inside the window, the share that returned more than they cost.
+  ///
+  /// This is the number the leaderboard shows. Counting exits instead — which
+  /// is all the trade feed can support — drops every loser that expired
+  /// worthless and only ever reads high; on the live board that put traders
+  /// at a flat 100%.
+  ///
+  /// Scoped by the same market-title filter as `filteredTrades`, so a
+  /// filtered profile and a filtered board agree about the record.
+  const settledStats = useMemo(() => {
+    if (!settled) return { rate: -1, wins: 0, decided: 0, known: false };
+    const titles = filterActive
+      ? new Set(filteredTrades.map((t) => t.market.toLowerCase()))
+      : null;
+    let wins = 0;
+    let decided = 0;
+    for (const p of settled) {
+      if (p.timestamp < cutoffMs) continue;
+      if (titles && !titles.has(p.market.toLowerCase())) continue;
+      if (p.totalBought <= 0 && p.realizedPnl === 0) continue;
+      decided += 1;
+      // Money decides, not the outcome: a position bought at 97¢ that
+      // resolves YES and exits at 96¢ resolved your way and still lost.
+      if (p.realizedPnl !== 0 ? p.realizedPnl > 0 : p.curPrice >= 0.99) wins += 1;
+    }
+    return {
+      rate: decided > 0 ? Math.round((wins / decided) * 100) : -1,
+      wins,
+      decided,
+      known: true,
+    };
+  }, [settled, filteredTrades, filterActive, cutoffMs]);
 
   // Per-market realized results inside the window.
   // "Closed in window" = market had SELL activity in the window AND
@@ -874,7 +918,18 @@ export default function TraderProfile({
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {([
               { label: `${dayLabel} P&L`, value: formatPnl(stats.totalPnl), tone: stats.totalPnl > 0 ? "good" : stats.totalPnl < 0 ? "bad" : "neutral" },
-              { label: "WIN RATE", value: stats.winRate < 0 ? "—" : `${stats.winRate}%`, tone: stats.winRate < 0 ? "neutral" : stats.winRate >= 50 ? "good" : "bad" },
+              {
+                label: settledStats.decided > 0 ? `WIN RATE · ${settledStats.decided}` : "WIN RATE",
+                value: settledStats.rate < 0 ? "—" : `${settledStats.rate}%`,
+                tone: settledStats.rate < 0 ? "neutral" : settledStats.rate >= 50 ? "good" : "bad",
+                hint: !settledStats.known
+                  ? "Settled book not loaded — a rate off the trade feed alone would only count winners, so this stays blank."
+                  : settledStats.decided === 0
+                    ? "Nothing this trader bought has settled inside the window yet."
+                    : `${settledStats.wins} of ${settledStats.decided} settled position(s) returned more than they cost. Includes positions that expired worthless — those leave no sell and no redeem in the trade feed.${
+                        settledStats.decided < 10 ? " Thin sample — treat as noise." : ""
+                      }`,
+              },
               { label: "TRADES", value: filterActive ? `${filteredTrades.length}/${tradesInWindow.length}` : filteredTrades.length.toString(), tone: "neutral" },
               { label: "VOLUME", value: formatVolume(filteredTrades.reduce((s, t) => s + t.size * t.price, 0)), tone: "neutral" },
               { label: "AVG TRADE", value: formatPnl(stats.avgTrade), tone: stats.avgTrade > 0 ? "good" : stats.avgTrade < 0 ? "bad" : "neutral" },
@@ -885,7 +940,11 @@ export default function TraderProfile({
                 stat.tone === "bad" ? "text-red-400" :
                 "text-pixel-white glow-green";
               return (
-                <div key={stat.label} className="pixel-panel px-3 py-2 text-center">
+                <div
+                  key={stat.label}
+                  className="pixel-panel px-3 py-2 text-center"
+                  title={"hint" in stat ? stat.hint : undefined}
+                >
                   <div className="text-[14px] text-pixel-gray tracking-wider mb-1">
                     {stat.label}
                   </div>

@@ -43,7 +43,14 @@ except ImportError:  # running the registry standalone
 
 # shipped agents — host-owned; anyone else must clone them into a custom agent
 BUILTINS = {"default", "architect", "reviewer", "debugger", "builder", "refactorer",
-            "safety", "claude-code", "codex", "claude-mod", "build-mod"}
+            "safety", "claude-code", "codex", "claude-mod", "build-mod", "chain-mod",
+            "task-builder"}
+
+# the integrations an agent is built from. An agent is one node; these are
+# the four things wired into it, and the template written below declares all
+# of them as required — the AGENTS canvas refuses to save an agent with one of
+# them unwired, and get() reports the list so the console never hardcodes it.
+REQUIRES = ("prompt", "model", "toolbox", "memory")
 
 AGENT_TEMPLATE = '''"""{name} agent - {description}"""
 
@@ -54,8 +61,13 @@ class Agent:
     icon = "{icon}"
     tools = {tools}
     model = {model}
+    memory = {memory}
     harness = {harness}
     owner = {owner}
+
+    # the integrations this agent requires wired in: its prompt, the model it
+    # calls, the toolbox it may reach, and the memory it thinks with
+    requires = ("prompt", "model", "toolbox", "memory")
 
     goal = """{goal}"""
 '''
@@ -108,9 +120,22 @@ class Agents:
             # still declare it, so it stands in when `tools` is absent
             "tools": getattr(cls, "tools", None) or getattr(cls, "skills", None),
             "model": getattr(cls, "model", None),
+            # which memory module this agent thinks with (memory/registry.py).
+            # None -> the default one, so an agent written before memory was
+            # selectable still gets memory, it just didn't choose it.
+            "memory": getattr(cls, "memory", None),
             # set -> the run is handed to an external CLI (see harness/mod.py)
             # instead of this module's own loop
             "harness": getattr(cls, "harness", None),
+            # the integrations the agent's template requires wired in. A
+            # shipped agent written before the template declared them still
+            # requires all four — that is what an agent is made of.
+            "requires": [str(r) for r in (getattr(cls, "requires", None) or REQUIRES)],
+            # False -> keep it off the arena board. An agent that writes tasks
+            # or answers questions is not a worse coder than the coding agents,
+            # it is a different job, and a permanent last place drags every
+            # rating it touches.
+            "arena": getattr(cls, "arena", True),
             "builtin": name in BUILTINS,
             # unowned -> the host owns it
             **self.identity.owner_of(getattr(cls, "owner", None)),
@@ -158,7 +183,8 @@ class Agents:
 
     def create(self, name: str, description: str = "", goal: str = "",
                icon: str = ">_", tools: list = None, model: str = None,
-               harness: str = None, key: str = None) -> Dict[str, Any]:
+               memory: str = None, harness: str = None,
+               key: str = None) -> Dict[str, Any]:
         """Create a new agent locally in agents/ directory.
 
         Signed-in callers only — the agent is filed under the address that
@@ -171,6 +197,9 @@ class Agents:
             icon: display icon
             tools: optional list of tool names to restrict to
             model: optional model override
+            memory: memory module the agent thinks with ('default',
+                    'ephemeral', or a dotted path to another mod's memory).
+                    None = the default one.
             harness: external CLI to hand the run to ('claude', 'codex'), or
                      None to run on this module's own loop
             key: caller auth token — the resolved address becomes the owner
@@ -192,6 +221,7 @@ class Agents:
             icon=icon,
             tools=repr(tools) if tools else "None",
             model=repr(model) if model else "None",
+            memory=repr(memory) if memory else "None",
             harness=repr(harness) if harness else "None",
             owner=repr(owner) if owner else "None",
             goal=goal or f"You are a {label} agent.",
@@ -205,13 +235,15 @@ class Agents:
 
     def update(self, name: str, description: str = None, goal: str = None,
                icon: str = None, tools: list = ..., model: str = ...,
-               harness: str = ..., key: str = None) -> Dict[str, Any]:
+               memory: str = ..., harness: str = ...,
+               key: str = None) -> Dict[str, Any]:
         """Update an agent in place. The owner or the host may edit it —
         for everyone else built-ins are read-only, so clone them instead.
 
         Only the fields passed are changed; the rest keep their current value.
-        tools/model/harness use `...` as the not-passed sentinel so an explicit
-        None can clear them (None = every tool / default model / own loop).
+        tools/model/memory/harness use `...` as the not-passed sentinel so an
+        explicit None can clear them (None = every tool / default model /
+        default memory / own loop).
         """
         name = name.lower().replace(" ", "-").replace("_", "-")
         agent_dir = self._dir / name
@@ -222,6 +254,7 @@ class Agents:
         current = self.get(name)
         new_tools = current.get("tools") if tools is ... else tools
         new_model = current.get("model") if model is ... else model
+        new_memory = current.get("memory") if memory is ... else memory
         new_harness = current.get("harness") if harness is ... else self._check_harness(harness)
         label = name.replace("-", " ").title()
         content = AGENT_TEMPLATE.format(
@@ -231,6 +264,7 @@ class Agents:
             icon=icon if icon is not None else current.get("icon", ">_"),
             tools=repr(new_tools) if new_tools else "None",
             model=repr(new_model) if new_model else "None",
+            memory=repr(new_memory) if new_memory else "None",
             harness=repr(new_harness) if new_harness else "None",
             # an edit never transfers ownership
             owner=repr(self._recorded_owner(name)) if self._recorded_owner(name) else "None",
@@ -449,6 +483,7 @@ class Agents:
             icon=data.get("icon", ">_"),
             tools=data.get("tools") or data.get("skills"),
             model=data.get("model"),
+            memory=data.get("memory"),
             harness=data.get("harness"),
             key=key,
         )
@@ -544,6 +579,7 @@ class Agents:
                 icon=kwargs.get("icon", ">_"),
                 tools=kwargs.get("tools", kwargs.get("skills")),
                 model=kwargs.get("model"),
+                memory=kwargs.get("memory"),
                 harness=kwargs.get("harness"),
                 key=kwargs.get("key"),
             )
@@ -555,6 +591,7 @@ class Agents:
                 icon=kwargs.get("icon"),
                 tools=kwargs.get("tools", kwargs.get("skills", ...)),
                 model=kwargs.get("model", ...),
+                memory=kwargs.get("memory", ...),
                 harness=kwargs.get("harness", ...),
                 key=kwargs.get("key"),
             )

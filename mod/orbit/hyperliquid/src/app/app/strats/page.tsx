@@ -137,7 +137,7 @@ export default function StratsPage() {
                 </div>
 
                 <div className="mt-auto pt-3 flex items-center gap-2">
-                  <span className="btn-primary !py-1 text-[11px]">view & fork →</span>
+                  <span className="btn-ghost !py-1 text-[11px]">view & fork →</span>
                   {isOwner && (
                     <button onClick={(e) => onDelete(e, idx.id)}
                       className="ml-auto text-[11px] text-loss hover:underline">delete</button>

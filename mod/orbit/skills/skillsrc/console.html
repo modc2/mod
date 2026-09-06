@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<base href="./">
+<title>skills — the agent skill marketplace</title>
+<style>
+:root{
+  --bg:#0b0d10; --panel:#14171c; --line:#232830; --ink:#dce1e8; --dim:#79838f;
+  --accent:#7ee0a8; --warn:#f0c674; --bad:#f2777a; --link:#7aa2f7;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.55 var(--mono)}
+a{color:var(--link);text-decoration:none} a:hover{text-decoration:underline}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header h1{margin:0;font-size:14px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}
+header .sub{color:var(--dim);font-size:11px}
+header .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+main{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:1px;background:var(--line);
+  min-height:calc(100vh - 45px)}
+section{background:var(--bg);padding:12px;overflow:auto;max-height:calc(100vh - 45px)}
+@media(max-width:900px){main{grid-template-columns:minmax(0,1fr)}}
+h2{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);margin:0 0 8px}
+input,textarea,select,button{font:inherit;color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);border-radius:4px;padding:6px 9px}
+input:focus,textarea:focus{outline:1px solid var(--link);border-color:var(--link)}
+button{cursor:pointer;background:#191d24} button:hover{border-color:var(--link)}
+button.go{background:#16301f;border-color:#2c6b45;color:var(--accent)}
+button.go:hover{background:#1d4029}
+button.sm{padding:3px 8px;font-size:11px}
+.row{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:9px}
+.grow{flex:1;min-width:180px}
+.tabs{display:flex;gap:4px}
+.tabs button{border-radius:4px}
+.tabs button.on{color:var(--accent);border-color:#2c6b45;background:#16221b}
+.card{border:1px solid var(--line);border-radius:5px;background:var(--panel);padding:9px 11px;
+  margin-bottom:7px;cursor:pointer}
+.card:hover{border-color:var(--link)}
+.card .t{font-weight:600;word-break:break-word}
+.card .d{color:var(--dim);font-size:11.5px;margin-top:3px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .m{margin-top:5px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.pill{display:inline-block;padding:1px 7px;border-radius:10px;border:1px solid var(--line);
+  font-size:10.5px;color:var(--dim);letter-spacing:.04em}
+.pill.src{color:var(--link);border-color:#2c4a7a}
+.pill.on{color:var(--accent);border-color:#2c6b45}
+.pill.warn{color:var(--warn);border-color:#6b5a2c}
+pre{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:10px;
+  overflow:auto;margin:0;font-size:12px;white-space:pre-wrap;word-break:break-word;
+  max-height:min(60vh,620px)}
+.muted{color:var(--dim);font-size:11.5px}
+.err{color:var(--bad);font-size:11.5px;margin:6px 0}
+.spin{color:var(--warn)}
+textarea{width:100%;min-height:200px;resize:vertical}
+label{font-size:11px;color:var(--dim);display:block;margin:8px 0 3px;letter-spacing:.08em;
+  text-transform:uppercase}
+</style>
+</head>
+<body>
+<header>
+  <h1>Skills</h1>
+  <span class="sub">a skill is a document — scraped, filed, handed to an agent. never code.</span>
+  <div class="right">
+    <span class="sub" id="stat"></span>
+    <button class="sm" onclick="showWrite()">+ write</button>
+    <button class="sm" onclick="loadInstalled()">catalog</button>
+  </div>
+</header>
+<main>
+  <section>
+    <div class="row">
+      <input class="grow" id="q" placeholder="what should the skill do?  e.g. pdf forms, code review, excel"
+             onkeydown="if(event.key==='Enter')doSearch()">
+      <button class="go" onclick="doSearch()">scan the web</button>
+      <label style="margin:0;text-transform:none"><input type="checkbox" id="fresh" style="width:auto"> fresh</label>
+    </div>
+    <div class="row tabs" id="tabs"></div>
+    <div id="msg"></div>
+    <div id="list"></div>
+  </section>
+  <section id="side">
+    <h2>skill</h2>
+    <div class="muted">Pick a result to read the SKILL.md behind it.</div>
+  </section>
+</main>
+<script>
+const API = (function () {
+  // behind the gateway this page is served at /skills, and the API answers on
+  // /skills/_api; on the bare port it is the origin itself
+  const p = location.pathname.replace(/\/+$/, '');
+  return p.endsWith('/skills') ? p + '/_api' : '';
+})();
+let SOURCES = [], PICKED = new Set(), LAST = [], MODE = 'web';
+
+const el = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  const t = await r.text();
+  let j; try { j = JSON.parse(t); } catch (e) { throw new Error(t.slice(0, 200)); }
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+
+function msg(text, cls) { el('msg').innerHTML = text ? `<div class="${cls || 'muted'}">${esc(text)}</div>` : ''; }
+
+async function boot() {
+  try {
+    const s = await api('/sources');
+    SOURCES = s.sources;
+    el('tabs').innerHTML = SOURCES.map(x =>
+      `<button class="sm" data-s="${x.id}" title="${esc(x.about)}" onclick="toggle('${x.id}')">${x.id}${x.ready ? '' : ' ·'}</button>`).join('');
+    const h = await api('/health');
+    el('stat').textContent = `${h.installed} installed · ${h.sources} sources` +
+      (h.code_search ? ' · code search on' : '');
+  } catch (e) { msg('' + e, 'err'); }
+  loadInstalled();
+}
+
+function toggle(id) {
+  PICKED.has(id) ? PICKED.delete(id) : PICKED.add(id);
+  [...el('tabs').children].forEach(b => b.classList.toggle('on', PICKED.has(b.dataset.s)));
+}
+
+async function doSearch() {
+  MODE = 'web';
+  const q = el('q').value.trim();
+  msg('scanning ' + (PICKED.size ? [...PICKED].join(', ') : 'every source') + '…', 'spin');
+  const p = new URLSearchParams({ q, limit: 40 });
+  if (PICKED.size) p.set('sources', [...PICKED].join(','));
+  if (el('fresh').checked) p.set('fresh', '1');
+  try {
+    const r = await api('/search?' + p);
+    LAST = r.results;
+    const errs = Object.entries(r.errors || {});
+    msg(`${r.total} of ${r.scanned} · ` +
+        Object.entries(r.sources).map(([k, v]) => `${k}:${v}`).join('  ') +
+        (errs.length ? '  ⚠ ' + errs.map(([k, v]) => `${k}: ${v}`).join(' · ') : ''),
+        errs.length ? 'err' : 'muted');
+    render(r.results);
+  } catch (e) { msg('' + e, 'err'); }
+}
+
+async function loadInstalled() {
+  MODE = 'catalog';
+  try {
+    const r = await api('/installed');
+    LAST = r.skills;
+    msg(r.total ? `${r.total} installed — ${r.dir}` : 'nothing installed yet — scan the web above');
+    render(r.skills.map(s => ({ ...s, id: s.name, source: s.source || 'local', installed: true })));
+  } catch (e) { msg('' + e, 'err'); }
+}
+
+function render(items) {
+  el('list').innerHTML = items.map((i, n) => `
+    <div class="card" onclick="open_(${n})">
+      <div class="t">${esc(i.title || i.name)}</div>
+      <div class="d">${esc(i.description || '')}</div>
+      <div class="m">
+        <span class="pill src">${esc(i.source || '')}</span>
+        ${(i.also || []).map(a => `<span class="pill">${esc(a)}</span>`).join('')}
+        ${i.installed ? '<span class="pill on">installed</span>' : ''}
+        ${i.stars ? `<span class="pill">★ ${i.stars}</span>` : ''}
+        ${(i.tags || []).slice(0, 3).map(t => `<span class="pill">${esc(t)}</span>`).join('')}
+      </div>
+    </div>`).join('') || '<div class="muted">no results</div>';
+}
+
+async function open_(n) {
+  const i = LAST[n];
+  const id = i.id || i.name;
+  el('side').innerHTML = `<h2>${esc(id)}</h2><div class="spin">fetching the document…</div>`;
+  try {
+    const d = await api('/skill?id=' + encodeURIComponent(id));
+    el('side').innerHTML = `
+      <h2>${esc(d.name)}</h2>
+      <div class="muted">${esc(d.description || '')}</div>
+      <div class="m" style="margin:8px 0;display:flex;gap:6px;flex-wrap:wrap">
+        <span class="pill src">${esc(d.source || '')}</span>
+        ${d.installed ? '<span class="pill on">installed</span>' : ''}
+        ${d.truncated ? '<span class="pill warn">truncated</span>' : ''}
+        <span class="pill">${d.chars} chars</span>
+        ${(d.tools || []).map(t => `<span class="pill">${esc(t)}</span>`).join('')}
+      </div>
+      <div class="row">
+        ${d.installed
+          ? `<button class="sm" onclick="rm('${esc(d.name)}')">remove</button>`
+          : `<button class="go sm" onclick="install('${esc(id)}',false)">install</button>
+             <button class="sm" onclick="install('${esc(id)}',true)">install whole repo</button>`}
+        ${d.url ? `<a class="sm" href="${esc(d.url)}" target="_blank">source ↗</a>` : ''}
+      </div>
+      <pre>${esc(d.body || '')}</pre>`;
+  } catch (e) {
+    el('side').innerHTML = `<h2>${esc(id)}</h2><div class="err">${esc('' + e)}</div>`;
+  }
+}
+
+async function install(id, all) {
+  el('side').insertAdjacentHTML('afterbegin', '<div class="spin">installing…</div>');
+  try {
+    const r = await api('/install', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, all: !!all })
+    });
+    msg('installed: ' + r.installed.join(', '));
+    boot();
+  } catch (e) { el('side').insertAdjacentHTML('afterbegin', `<div class="err">${esc('' + e)}</div>`); }
+}
+
+async function rm(name) {
+  try {
+    await api('/installed/' + encodeURIComponent(name), { method: 'DELETE' });
+    msg('removed ' + name);
+    el('side').innerHTML = '<h2>skill</h2><div class="muted">removed.</div>';
+    boot();
+  } catch (e) { msg('' + e, 'err'); }
+}
+
+function showWrite() {
+  el('side').innerHTML = `
+    <h2>write a skill</h2>
+    <div class="muted">The same format a scraped one lands in. Nothing here runs — it is
+      instructions a model reads when it picks this skill up.</div>
+    <label>name</label><input class="grow" id="wname" style="width:100%" placeholder="deploy-checklist">
+    <label>description — when should a model reach for this?</label>
+    <input id="wdesc" style="width:100%" placeholder="Ship a service safely: checks, order, rollback">
+    <label>tools it expects</label><input id="wtools" style="width:100%" placeholder="bash, read, git">
+    <label>instructions (markdown)</label>
+    <textarea id="wbody" placeholder="## When to use&#10;...&#10;&#10;## Steps&#10;1. ..."></textarea>
+    <div class="row" style="margin-top:9px"><button class="go" onclick="saveWrite()">save to catalog</button></div>
+    <div id="werr"></div>`;
+}
+
+async function saveWrite() {
+  const tools = el('wtools').value.split(/[,\s]+/).filter(Boolean);
+  try {
+    const r = await api('/write', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: el('wname').value, description: el('wdesc').value,
+        body: el('wbody').value, tools
+      })
+    });
+    msg('wrote ' + r.wrote);
+    boot();
+  } catch (e) { el('werr').innerHTML = `<div class="err">${esc('' + e)}</div>`; }
+}
+
+boot();
+</script>
+</body>
+</html>

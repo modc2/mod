@@ -4,7 +4,9 @@ pub mod proxy;
 pub mod pipeline;
 pub mod cache;
 pub mod categories;
+pub mod fees;
 pub mod types;
+pub mod first_trade;
 pub mod strats;
 pub mod auth;
 pub mod signer;
@@ -17,6 +19,10 @@ pub mod user_strats;
 pub mod share;
 pub mod live_engine;
 pub mod sync;
+pub mod copy;
+pub mod copy_actions;
+pub mod sentiment;
+pub mod settled;
 
 use std::sync::Arc;
 
@@ -29,6 +35,7 @@ pub use user_strats::UserStratStore;
 pub use share::ShareStore;
 pub use access::AccessStore;
 pub use sync::SyncSchedule;
+pub use copy::CopyBookStore;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -43,6 +50,10 @@ pub struct AppState {
     pub share: ShareStore,
     /// Cadence + status of the background trader-data sync (sync.rs).
     pub sync: Arc<SyncSchedule>,
+    /// The COPY BOOK — which traders this deployment copies and with how much
+    /// (copy.rs). Server-owned and plaintext so the console and an MCP agent
+    /// read and write the SAME desk.
+    pub copy_book: Arc<CopyBookStore>,
 }
 
 pub fn router() -> axum::Router<AppState> {

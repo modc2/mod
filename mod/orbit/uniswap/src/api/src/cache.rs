@@ -56,6 +56,14 @@ impl DiskCache {
         }
     }
 
+    /// Drop one key, so a forced re-scrape does not read its own stale row
+    /// back out of disk a moment after the memory copy was cleared.
+    pub fn remove(&self, key: &str) {
+        if let Ok(conn) = rusqlite::Connection::open(&self.path) {
+            let _ = conn.execute("DELETE FROM cache WHERE key = ?1", rusqlite::params![key]);
+        }
+    }
+
     pub fn set(&self, key: &str, data: &[TraderResult]) {
         let conn = match rusqlite::Connection::open(&self.path) {
             Ok(c) => c,

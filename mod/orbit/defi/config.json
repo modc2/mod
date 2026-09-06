@@ -1,6 +1,552 @@
 {
     "name": "defi",
-    "description": "defi",
-    "version": "0.1.0",
-    "schema": "QmPZGrjr67sKjYHMJ9rB23pvD8bhqnvW9uh6NSEdEN5iyJ"
+    "title": "DeFi \u2726 Modular Finance",
+    "version": "1.2.0",
+    "description": "Modular finance: every place money can go that gives a return is a MODULE with its own returns, liquidity and conditions \u2014 DefiLlama's pools on Ethereum, Base and Solana, Bittensor subnets through the bt module, vaults you composed, the BlocTime treasury \u2014 and one desk puts money into any of them through the module that owns the chain (eth, solana, bt), keys never here. Each module says what it pays (fees kept apart from emissions), how you get in, how fast you get out (instant, queue, cooldown, lock) and what it is subject to; a quote measures the round trip in and out today. The book keeps every position with the rate at entry beside the rate now. Underneath: the composer that builds new modules out of reusable Solidity blocks, type-checked, compiled with solc and deployed by the browser wallet; a DEX desk; DefiLlama's live APR table; and a treasury paid out every Friday 17:00 UTC split by BLOC.",
+    "port": 50500,
+    "app_port": 50501,
+    "route": true,
+    "owner": "0xD779eB61CEd815570F74AB15a52eE8378a66996f",
+    "chain_network": "testnet",
+    "icon": "\u2726",
+    "color": "#34d399",
+    "protocol": "defi/1.0",
+    "deps": [
+        "agent",
+        "store",
+        "chain",
+        "eth",
+        "solana",
+        "bt",
+        "bloctime"
+    ],
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "blocks",
+        "block",
+        "audit",
+        "audits",
+        "catalog",
+        "templates",
+        "validate",
+        "plan",
+        "compile_status",
+        "protocols",
+        "protocol",
+        "save",
+        "publish",
+        "import_protocol",
+        "prompts",
+        "prompt",
+        "import_prompt",
+        "compose",
+        "balances",
+        "swap",
+        "quote",
+        "dex_tokens",
+        "hub",
+        "hub_protocol",
+        "modules",
+        "module_facets",
+        "module",
+        "module_quote",
+        "enter",
+        "positions",
+        "exit",
+        "position_value",
+        "forget_position",
+        "yields",
+        "yield_protocols",
+        "yield_pool",
+        "yield_facets",
+        "treasury",
+        "treasury_schedule",
+        "treasury_holders",
+        "treasury_preview",
+        "treasury_onchain",
+        "treasury_choose",
+        "treasury_drop",
+        "treasury_watch",
+        "treasury_bind",
+        "treasury_lock",
+        "treasury_distribute",
+        "treasury_claim",
+        "treasury_register",
+        "test_contract",
+        "venues",
+        "agent",
+        "mcp",
+        "mcp_tools",
+        "build",
+        "serve",
+        "stop",
+        "status",
+        "test",
+        "readme"
+    ],
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness, catalog size, and whether solc has compiled the blocks yet."
+        },
+        "/config": {
+            "method": "GET",
+            "auth": false,
+            "docs": "This file."
+        },
+        "/owner": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Owner address plus whether the caller is it."
+        },
+        "/catalog": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The block catalog: port types, every block with its typed inputs, what it provides, its params, and the starter templates. Sources omitted \u2014 fetch one block for those."
+        },
+        "/catalog/{id}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "One block in full: metadata, Solidity source, and the compiled ABI + creation bytecode. Read this before you deploy something."
+        },
+        "/catalog/{id}/audit": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The agent security audit of one block: risk verdict, findings (severity, where, detail, exploit, recommendation) and safe-use guidance. 404 until a block has one. `common` is the shared base every block inherits."
+        },
+        "/audits": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Every block's audit verdict on one page, worst first, with the fleet tally by severity. Agent audits of unaudited reference code: they reduce the unknowns, they certify nothing."
+        },
+        "/templates": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Starter compositions (vault+strategy, AMM+liquidity mining, governed money market)."
+        },
+        "/compile/status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Which solc compiled the catalog, its version, contract count, warnings, and any failure."
+        },
+        "/validate": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Type-check a graph {name, nodes[], edges[]}: unknown blocks, port-type mismatches, double-wired or missing required ports, and constructor cycles. Returns issues plus the deployment order. The canvas calls this on every edit."
+        },
+        "/plan": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Validate, then return the ordered deployment plan: one deploy step per node (ABI, bytecode, resolved constructor args) followed by the post-deploy wiring calls. Args reference earlier nodes by id; the wallet substitutes addresses as it goes."
+        },
+        "/protocols": {
+            "method": [
+                "GET",
+                "POST"
+            ],
+            "auth": "GET: false, POST: true",
+            "docs": "List saved designs (public \u2014 a diagram is not a secret) or save one (signed-in wallet; only the author or the module owner can overwrite)."
+        },
+        "/protocols/{id}": {
+            "method": [
+                "GET",
+                "DELETE"
+            ],
+            "auth": "GET: false, DELETE: true",
+            "docs": "Fetch one design with its graph and recorded deployments, or delete your own."
+        },
+        "/protocols/{id}/publish": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Content-address the DESIGN (name, description, graph \u2014 never local bookkeeping) and return its CIDv1. Share the CID; anyone can import it and get the same diagram."
+        },
+        "/protocols/import": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Import a design by CID from this node's object store."
+        },
+        "/protocols/{id}/deployments": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Record where a composition actually landed: {chainId, network, addresses{nodeId: 0x\u2026}, txs[]}."
+        },
+        "/objects/{cid}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Fetch a published object by CID."
+        },
+        "/auth/challenge": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?address=0x\u2026 \u2192 the message to personal_sign. Expires in 5 minutes and is single-use."
+        },
+        "/auth/verify": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{address, signature} \u2192 a 24-hour bearer token. Verified with ecrecover; the token is a stateless HMAC, so a restart does not sign anyone out."
+        },
+        "/auth/whoami": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Who the bearer token says you are."
+        },
+        "/agent/status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Whether the agent module \u2014 the prompt library and the brain behind compose \u2014 is reachable. Everything else works without it."
+        },
+        "/agent/prompts": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Browse the agent protocol's shared prompt library. Proxied, not copied: one library, many consoles."
+        },
+        "/agent/prompts/{id}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Retrieve one prompt by id or CID."
+        },
+        "/agent/prompts/import": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Pull a prompt someone shared by CID into the agent library."
+        },
+        "/agent/compose": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{prompt, promptId?, graph?} \u2192 a protocol graph composed out of catalog blocks by the agent module, run through the same validator as a hand-drawn one. The catalog is described inline so it can only reach for blocks that exist."
+        },
+        "/mcp": {
+            "method": [
+                "GET",
+                "POST"
+            ],
+            "auth": "inherits the caller's bearer token",
+            "docs": "MCP Streamable HTTP, JSON-RPC 2.0: initialize / tools/list / tools/call / resources/*, single messages or batches. Blocks are also exposed as resources (defi://block/{id}) so an agent can read the Solidity it is about to deploy. Anonymous callers get the [public] tools."
+        },
+        "/dex/venues": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Every venue this desk trades on \u2014 Uniswap V3 on Ethereum and Base, Jupiter on Solana, the dTAO subnet pools on Bittensor \u2014 and which module signs for each. ?check=1 pings those modules."
+        },
+        "/dex/tokens": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?chain= \u2014 the tokens each venue knows by name. Anything else is still tradable by address (EVM), mint or symbol (Solana), or SN<netuid> (Bittensor)."
+        },
+        "/dex/quote": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{chain, sell, buy, amount, slippageBps?} \u2192 what the trade would really get you: the best Uniswap V3 fee tier (or a route through wrapped native), Jupiter's best route, or the subnet pool's constant product. Expected out, minimum after slippage, impact, route."
+        },
+        "/dex/swap": {
+            "method": "POST",
+            "auth": "forwarded to the chain module",
+            "docs": "{chain, sell, buy, amount, account, confirm?, dryRun?, slippageBps?, auth?} \u2014 quote, then execute through the module that holds the key: eth_write on SwapRouter02 (approving first if needed), sol_swap through Jupiter, bt_buy/bt_sell into a dTAO pool. Returns needs_confirm on a mainnet venue until confirm=true. This module adds no credential: your bearer, or auth=, is what reaches the chain module."
+        },
+        "/dex/balances": {
+            "method": "GET",
+            "auth": "forwarded to the chain module",
+            "docs": "?chain=&address= \u2014 what a wallet holds, read through eth_portfolio, sol_portfolio or bt_portfolio. The other half of a trade."
+        },
+        "/hub": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The HUB \u2014 a hand-vetted shortlist of legitimate protocols this desk is willing to point USD at (hub.json), joined LIVE with the yields index: tier (core|established|frontier), plain-language blurb, why it is credible, what it is subject to, and its USD stablecoin pools grouped per chain \u2014 multichain, each chain saying whether THIS desk can enter it (Ethereum/Base via eth, Solana via solana) or it is read-only. Query: chain (a desk id or an index chain name), min_tvl (per pool, default 1,000,000). Curated is not certified."
+        },
+        "/hub/{id}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "One hub protocol in full \u2014 the vetted card plus every USD pool it runs per chain (up to 12 each), each with the module_id that /modules/{id} and /positions take."
+        },
+        "/modules": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The finance modules: every place money can go, from every source, with returns, liquidity, conditions and an adapter (null = read-only). Query: chain (ethereum|base|solana|tao|evm), kind, q, addable, instant, min_tvl (default 100000), stable, organic, sort (score|apy|tvl|base|mean30d), limit."
+        },
+        "/modules/facets": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Chains, kinds and adapter kinds present right now, with counts and how many are addable."
+        },
+        "/modules/{id}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "One module in full \u2014 llama:<pool>, tao:sn<netuid>, own:<protocol>:<node>, treasury \u2014 with a year of rate history for index pools."
+        },
+        "/modules/{id}/quote": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{amount} \u2192 the plan of calls, the expected receipt, and what leaving TODAY would get back: round_trip_cost_pct is the liquidity restriction measured. Reads only."
+        },
+        "/modules/{id}/enter": {
+            "method": "POST",
+            "auth": "forwarded to the chain module",
+            "docs": "Same as POST /positions with the module in the path."
+        },
+        "/positions": {
+            "method": [
+                "GET",
+                "POST"
+            ],
+            "auth": "GET: false, POST: forwarded to the chain module",
+            "docs": "GET: the book \u2014 every position with apy_at_entry beside apy_now, days in, a labelled projection. POST {module, amount, account, confirm?, dryRun?, hotkey?, password?, slippageBps?, auth?}: put money in through eth (approve + deposit/supply or a Uniswap buy of the receipt), solana (Jupiter buy) or bt (stake). needs_confirm on mainnet until confirm=true; a row is written only when something was actually sent."
+        },
+        "/positions/{id}": {
+            "method": [
+                "GET",
+                "DELETE"
+            ],
+            "auth": "GET: false, DELETE: true",
+            "docs": "One position, or forget its ledger row (the chain is unaffected)."
+        },
+        "/positions/{id}/exit": {
+            "method": "POST",
+            "auth": "forwarded to the chain module",
+            "docs": "{amount|'all', account, confirm?} \u2014 sell the receipt back, withdraw/redeem the vault, Pool/Comet.withdraw, or unstake the subnet. Closes the row on 'all'."
+        },
+        "/positions/{id}/value": {
+            "method": "GET",
+            "auth": "forwarded to the chain module",
+            "docs": "What the position is worth now, read on chain where this desk can (vault shares \u2192 assets, Comet balance, receipt balance); a pointer otherwise."
+        },
+        "/yields": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Live APR per pool from DefiLlama's yields index, cached and filtered here. apy_base (fees) and apy_reward (emissions) stay apart; apy_mean_30d and apy_change_7d say how the rate has behaved. Query: chain, project, symbol, q, min_tvl (default 100000), max_apy, stable, organic, outliers, sort (apy|tvl|base|mean30d|score), limit."
+        },
+        "/yields/protocols": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The same index collapsed to one row per protocol \u2014 the APR for each DeFi protocol. The headline apy is TVL-weighted across its pools. Same filters as /yields."
+        },
+        "/yields/facets": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Which chains and projects the index knows right now, with pool counts and TVL, for building a filter that does not go stale."
+        },
+        "/yields/pool/{id}": {
+            "method": "GET",
+            "auth": false,
+            "docs": "One pool, plus up to a year of its APY and TVL history."
+        },
+        "/treasury": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The treasury desk: allocations on this node, the next four payout windows, the BLOC watch list, and the bound contract's live state. An allocation is a PLAN until its status is 'locked'."
+        },
+        "/treasury/schedule": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The next N Friday 12:00 EST windows \u2014 BlocTime's DISTRIBUTION_PERIOD and DISTRIBUTION_OFFSET, not ours \u2014 and what each would release. ?weeks=8"
+        },
+        "/treasury/holders": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Who the payout splits across and their live BLOC, read from the bloctime module. Shares are of the watched set, not of total supply; the uncovered supply is reported alongside."
+        },
+        "/treasury/preview": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Next Friday in full: the pot, and what each holder would get. Principal released is exact; the yield line is a labelled projection off the APY at the time of choosing."
+        },
+        "/treasury/onchain": {
+            "method": "GET",
+            "auth": false,
+            "docs": "summary() read off the bound ModBlocTimeTreasury through the eth module: balance, locked principal, this week's payout, registered weight and holders, next window."
+        },
+        "/treasury/allocations": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Record a choice off the yields table. Writes the ledger only \u2014 nothing moves. The APY and TVL passed in are frozen as the numbers the decision was made on."
+        },
+        "/treasury/allocations/{id}": {
+            "method": "DELETE",
+            "auth": true,
+            "docs": "Delete a PLAN. A locked allocation cannot be deleted \u2014 the principal is in a contract that will not return it early, and a ledger that forgot it would be lying."
+        },
+        "/treasury/participants": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Add or remove an address from the local BLOC watch list. Bookkeeping only \u2014 /treasury/register is what makes an address eligible on chain."
+        },
+        "/treasury/bind": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Point this node at a deployed ModBlocTimeTreasury. The first signed-in wallet may bind an unbound node; after that only the binder or the module owner can repoint it."
+        },
+        "/treasury/lock": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Approve, then lock(amount, termWeeks, returnPrincipal) on the bound treasury. THIS MOVES MONEY AND CANNOT BE RECALLED before the term. Signed by the eth module with the account you name; a non-testnet network needs confirm=true here and eth's own confirm underneath."
+        },
+        "/treasury/distribute": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Call distribute() \u2014 sweep this week's payout to the registered holders pro-rata by BLOC. Permissionless on chain; refuses early rather than paying gas for a revert."
+        },
+        "/treasury/claim": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Pull whatever the weekly splits have credited to this account."
+        },
+        "/treasury/register": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Register an address in the treasury's on-chain set, which is what makes it eligible. Registering someone else only dilutes you, so the contract lets anyone do it."
+        }
+    },
+    "urls": {
+        "api": "http://localhost:50500",
+        "app": "http://localhost:50501",
+        "mcp": "http://localhost:50500/mcp"
+    },
+    "gateway_port": 3000,
+    "mcp": {
+        "http": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
+        "protocol_version": "2025-06-18",
+        "capabilities": [
+            "tools",
+            "resources"
+        ],
+        "tools": [
+            "defi_catalog",
+            "defi_block",
+            "defi_audit",
+            "defi_templates",
+            "defi_validate",
+            "defi_plan",
+            "defi_protocols",
+            "defi_protocol",
+            "defi_save",
+            "defi_publish",
+            "defi_import",
+            "defi_prompts",
+            "defi_prompt",
+            "defi_dex_venues",
+            "defi_dex_tokens",
+            "defi_dex_quote",
+            "defi_dex_swap",
+            "defi_dex_balances",
+            "defi_compose",
+            "defi_yields",
+            "defi_yield_protocols",
+            "defi_yield_pool",
+            "defi_yields_facets",
+            "defi_treasury",
+            "defi_treasury_schedule",
+            "defi_treasury_holders",
+            "defi_treasury_preview",
+            "defi_treasury_choose",
+            "defi_treasury_bind",
+            "defi_treasury_participants",
+            "defi_treasury_lock",
+            "defi_treasury_distribute",
+            "defi_treasury_claim",
+            "defi_treasury_register",
+            "defi_treasury_onchain",
+            "defi_hub",
+            "defi_hub_protocol",
+            "defi_modules",
+            "defi_module_facets",
+            "defi_module",
+            "defi_module_quote",
+            "defi_enter",
+            "defi_positions",
+            "defi_exit",
+            "defi_position_value"
+        ]
+    },
+    "blocks": {
+        "catalog": "src/api/blocks/catalog.json",
+        "note": "A block is one .sol file plus a catalog entry. Adding one needs no Rust and no frontend change.",
+        "port_types": [
+            "erc20",
+            "vault",
+            "strategy",
+            "oracle",
+            "governor",
+            "market",
+            "sink"
+        ],
+        "tests": "src/api/blocks/tests/ \u2014 the BlocTime Treasury holds other people's money, so it has a real suite against a real EVM. `m defi/test_contract`.",
+        "audits": "src/api/blocks/audits/<id>.json \u2014 one agent audit per block (schema in audits/SCHEMA.md). Loaded at boot; a block's `audit` field in /catalog is the verdict, /catalog/{id}/audit is the report."
+    },
+    "security": {
+        "keys": "none \u2014 this service never holds a private key. Deployment transactions are built here and signed by the browser wallet; DEX trades are signed by the eth, solana or bt module, which the caller authenticates to directly.",
+        "state": "~/.mod/defi/ (server.secret 0600, protocols/, objects/)",
+        "contracts": "The catalog contracts are unaudited reference implementations. Every block ships an AGENT audit (src/api/blocks/audits/<id>.json, GET /catalog/{id}/audit, the AUDIT tab on the block page, the defi_audit MCP tool): a risk verdict and findings with exploit paths and fixes. An agent audit reduces the unknowns; it certifies nothing. Deploy to a testnet, read the source and the audit on the block page, and treat mainnet use as your own risk."
+    },
+    "schema": "QmTwitMT42gLMY7jD1tDEAiRzPV3vZdLyjSnGf6iv982DL",
+    "dex": {
+        "rule": "no keys here. Every trade is executed by the module that owns the chain, with the caller's own bearer token forwarded to it unchanged.",
+        "venues": {
+            "ethereum": "Uniswap V3 \u00b7 eth mod \u00b7 SwapRouter02 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
+            "base": "Uniswap V3 \u00b7 eth mod \u00b7 SwapRouter02 0x2626664c2603336E57B271c5C0b26F421741e481",
+            "sepolia / base-sepolia": "the same, on testnets, to rehearse a trade for free",
+            "solana": "Jupiter across every Solana DEX \u00b7 solana mod signs the route it priced",
+            "tao": "dTAO subnet pools \u00b7 bt mod \u00b7 buying is a stake, selling is an unstake"
+        },
+        "guards": "a mainnet venue returns needs_confirm until confirm=true, and the chain module's own guard (eth's confirm rule, solana's SOLANA_SPEND_USD ceiling, a locked keystore) still applies underneath.",
+        "env": {
+            "DEFI_ETH_URL": "http://localhost:50730",
+            "DEFI_SOLANA_URL": "http://localhost:50710",
+            "DEFI_BT_URL": "http://localhost:50280",
+            "DEFI_ACTIVATOR_URL": "http://localhost:9000 \u2014 knocked once to wake a slept peer"
+        }
+    },
+    "treasury": {
+        "clock": "BlocTime's, verbatim: DISTRIBUTION_PERIOD 7 days, DISTRIBUTION_OFFSET 1 day 17 hours \u2014 Friday 12:00 EST, 17:00 UTC, pinned year round. A payout here lands in the same instant BlocTime sweeps its own pot.",
+        "split": "pro-rata by BLOC balanceOf across the contract's REGISTERED set, snapshotted at the moment distribute() runs. Unregistered holders earn nothing: this contract reads the BLOC token from outside and cannot checkpoint transfers, so an open accumulator over totalSupply would pay whoever bought BLOC after the fact.",
+        "lock": "returnPrincipal=false streams the principal out in equal weekly slices and nothing comes back; true escrows it for the term and shares only the yield on top. Neither can be recalled early, and the owner's rescue() cannot touch the asset.",
+        "layers": "the LEDGER (~/.mod/defi/treasury/, local bookkeeping) \u00b7 the SCHEDULE and SPLIT (arithmetic, labelled projections) \u00b7 the CONTRACT (on-chain fact, read and written through the eth module). Every response says which one it is.",
+        "contract": "the 'treasury' block \u2014 ModBlocTimeTreasury, src/api/blocks/treasury.sol. Deploy it from the canvas like any other block; your wallet signs.",
+        "weights_from": "the bloctime module (DEFI_BLOCTIME_URL, default http://localhost:8851). This module never mints, holds or moves BLOC."
+    },
+    "yields": {
+        "source": "https://yields.llama.fi \u2014 DefiLlama's yields index, ~17k pools, refreshed hourly upstream",
+        "cache": "one fetch held for DEFI_YIELDS_TTL seconds (default 600); a stale snapshot is served with its age attached rather than replaced by an error",
+        "honesty": "apy_base and apy_reward are never merged; emissions_share says how much of a headline rate is token emissions; apy_mean_30d and apy_change_7d ride along so a quoted rate can be checked against how it behaved; the index's own outlier flag is respected by default",
+        "sort": "apy | tvl | base | mean30d | score. `score` is depth-adjusted: the rate marked down by the square root of how far the pool falls short of $10m TVL, so 400% on $120k ranks below 8% on half a billion."
+    },
+    "env": {
+        "DEFI_BLOCTIME_URL": "the bloctime module, for BLOC weights and the payout clock (default http://localhost:8851)",
+        "DEFI_YIELDS_URL": "the yields index (default https://yields.llama.fi)",
+        "DEFI_YIELDS_TTL": "how long a snapshot of it is good for, in seconds (default 600)"
+    },
+    "hub": {
+        "rule": "the curated front door for USD: a short list of protocols with a multi-year track record or >$1b deposited, a named team, public audits and a plain-stablecoin way in \u2014 Aave V3, Morpho, Sky, Spark, Compound V3, Maple, Fluid, Ethena, Kamino, Save, Curve",
+        "file": "src/api/hub.json \u2014 the names, tiers, blurbs, credentials and risks are written by hand; every number beside them is DefiLlama's, joined at request time, so a protocol whose USD pools drain shows empty chains rather than a stale story",
+        "multichain": "every chain the index sees the protocol on is listed, deepest first; ethereum, base and solana are marked as the desk's own (enterable when an adapter exists), everything else is honestly read-only \u2014 bridge first",
+        "best": "the headline pool per protocol is depth-adjusted (apy \u00d7 \u221a(tvl/$10m), capped) and prefers a chain this desk can reach",
+        "honesty": "curated is not certified. Each card carries what can go wrong beside why it is here; the tier says how much history stands behind it, not how safe it is",
+        "env": {
+            "DEFI_HUB": "path to the registry (default src/api/hub.json)"
+        }
+    },
+    "finance": {
+        "rule": "a module is anything money can go into that gives a return. Each carries RETURNS (DefiLlama's apy, apy_base, apy_reward, 30d mean), LIQUIDITY (tvl, entry, exit mode, exit_delay_days, lock_days), CONDITIONS (IL, emissions, KYC gates, outliers, mainnet confirm) and an ADAPTER \u2014 how this desk enters it through the module that owns the chain.",
+        "sources": {
+            "defillama": "Ethereum, Base, Solana pools \u2014 the yields index; terms derived from the protocol's DefiLlama category, overridden per project in adapters.json",
+            "bittensor": "every subnet via bt_subnets; a stake is the deposit, no APY quoted",
+            "composer": "vault/savings blocks you deployed and recorded \u2014 ERC-4626-shaped, entered with eth",
+            "treasury": "the BlocTime treasury \u2014 a lock, not a yield of its own"
+        },
+        "adapters": {
+            "file": "src/api/adapters.json \u2014 every address read back on chain (symbol()/asset()/baseToken()/totalAssets()) before it was written down; Solana mints resolved through Jupiter",
+            "swap_receipt": "buy the receipt token on the DEX (wstETH, rETH, weETH, JitoSOL, mSOL, JLP\u2026); exit = sell it, slippage measured live",
+            "erc4626": "approve + deposit(assets, you); exit = withdraw/redeem (sUSDS, sDAI, sUSDe, Morpho vaults pinned by pool id)",
+            "aave_v3": "approve + Pool.supply; exit = Pool.withdraw (core markets only, Ethereum + Base)",
+            "compound_v3": "approve + Comet.supply; exit = Comet.withdraw",
+            "tao_subnet": "bt_buy / bt_sell into the dTAO pool",
+            "mod_vault": "your composed ModVault / ModSavingsRate",
+            "treasury_lock": "treasury_choose then treasury_lock"
+        },
+        "ledger": "~/.mod/defi/positions/ \u2014 written only when a chain module actually sent something; apy_at_entry frozen, apy_now joined live",
+        "env": {
+            "DEFI_ADAPTERS": "path to the registry (default src/api/adapters.json)"
+        }
+    }
 }

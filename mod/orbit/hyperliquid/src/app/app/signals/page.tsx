@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { listSignals, Signal, ago, shortAddr, fmtUsd } from "../lib/api";
 import { useWallet } from "../lib/wallet";
+import { LegacyNote } from "../components/BoardBits";
 
 export default function SignalsPage() {
   const { address } = useWallet();
@@ -31,7 +32,7 @@ export default function SignalsPage() {
     <div className="space-y-4">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl text-ink">copy signals</h1>
+          <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">copy signals</h1>
           <p className="text-xs text-muted mt-1">
             Live mirror of leader fills, scaled per follow. Sign &amp; submit on Hyperliquid to execute.
           </p>
@@ -40,6 +41,11 @@ export default function SignalsPage() {
           <button className="btn" onClick={load} disabled={loading}>refresh</button>
         </div>
       </div>
+
+      <LegacyNote>
+        Intents from the follows engine — nothing here is submitted for you. For
+        positions that trade themselves, use
+      </LegacyNote>
 
       {sigs.length === 0 ? (
         <div className="panel p-6 text-xs text-muted">
