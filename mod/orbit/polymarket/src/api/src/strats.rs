@@ -442,6 +442,7 @@ mod tests {
             cache: RwLock::new(HashMap::new()),
             disk_dir: base.join("private"),
             public_dir: base.join("public"),
+            legacy_dir: base.join("legacy"),
         };
         std::fs::create_dir_all(&store.disk_dir).unwrap();
         std::fs::create_dir_all(&store.public_dir).unwrap();

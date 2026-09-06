@@ -5602,8 +5602,11 @@ pub fn stats_from_returns(returns: &[f64]) -> TraderRoiStats {
     // quantization-noise stdev (float noise ~1e-17, tick-scalper noise
     // ~1e-7) that explodes Sharpe to 1e5–1e15 and puts junk traders on
     // top of the sharpe-sorted leaderboard. Genuine per-trade return
-    // dispersion is ≥1e-3; anything under 1e-6 is degenerate → 0.
-    let sharpe = if n >= 3 && stdev > 1e-6 { roi / stdev } else { 0.0 };
+    // dispersion is ≥1e-3; anything under 1e-4 is degenerate → 0. (The
+    // guard started at 1e-6, and a 99-trade wallet with stdev 2.6e-6 —
+    // duplicated identical returns, not real dispersion — sailed through
+    // with sharpe 8e5 and topped the 30D board.)
+    let sharpe = if n >= 3 && stdev > 1e-4 { roi / stdev } else { 0.0 };
     let success_prob = (wins as f64 + 2.0) / (n as f64 + 4.0);
     // `last_trade_at` isn't derivable from a returns series — the caller that
     // has the trades stamps it.

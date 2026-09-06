@@ -1008,15 +1008,6 @@ export default function CopyTrading({
 
           {/* Right side: source + filters */}
           <div className="ml-auto flex items-center gap-2 shrink-0">
-            {source && (
-              <span
-                title={source === "fresh" ? "Pulled from Polymarket just now" : "Served from the server's cache — press ↻ SYNC for a fresh pull"}
-                className={`text-[12px] font-mono tracking-wider px-1.5 py-0.5 border ${
-                source === "fresh" ? "border-yellow-500/40 text-yellow-400" : "border-pixel-border text-pixel-gray"
-              }`}>
-                {source === "fresh" ? "FRESH" : "CACHED"}
-              </span>
-            )}
             {/* Manual SYNC button — bypasses the 60s cache by routing
                 through the streaming path so the user sees enrichment
                 progress (`enriching 1240/2000`) instead of an opaque
@@ -1033,16 +1024,13 @@ export default function CopyTrading({
                   : "Force a fresh pull from Polymarket — bypasses the cache and streams progress"
               }
             >
+              {/* Rate/ETA stay in the tooltip only — the inline suffix made the
+                  button wide enough mid-sync to wrap the whole header row. */}
               {(refreshing || loading) && progress ? (
                 <>
                   {progress.phase === "enrich"
                     ? `SYNCING ${progress.done}/${progress.total}`
                     : `SYNCING ${progress.done}/${progress.total} (leaderboard)`}
-                  {rateInfo && rateInfo.phase === progress.phase && (
-                    <span className="text-pixel-gray-light ml-1">
-                      · {rateInfo.rate.toFixed(1)}/s · ETA {formatEta(rateInfo.etaSec)}
-                    </span>
-                  )}
                 </>
               ) : refreshing || loading
                 ? "SYNCING…"
@@ -1052,22 +1040,30 @@ export default function CopyTrading({
               // Prefer the server's syncedAt — it tells the user when the data
               // was last actually pulled from Polymarket, not when the client
               // hit the cache. Falls back to lastUpdated if the server didn't
-              // expose one (old binary).
+              // expose one (old binary). Data source (FRESH/CACHED) folds into
+              // this same chip — it's the same fact (where the numbers came
+              // from and when), and one chip keeps the header on a single row.
               const stamp = syncedAt ?? lastUpdated!;
               const age = nowTick - stamp;
               const color =
                 age < 5 * 60_000 ? "text-green-400" :
                 age < 30 * 60_000 ? "text-amber-400" :
                 "text-red-400";
-              const tooltip = syncedAt
+              const stampNote = syncedAt
                 ? `Source data last synced ${new Date(stamp).toLocaleTimeString()} (Polymarket data-api)`
                 : `Client cache fetched ${new Date(stamp).toLocaleTimeString()} — server didn't expose source sync time`;
+              const sourceNote =
+                source === "fresh"
+                  ? "Pulled from Polymarket just now."
+                  : source
+                    ? "Served from the server's cache — press ↻ SYNC for a fresh pull."
+                    : null;
               return (
                 <span
                   className={`text-[11px] font-mono tracking-wider ${color}`}
-                  title={tooltip}
+                  title={sourceNote ? `${sourceNote} ${stampNote}` : stampNote}
                 >
-                  sync {formatAgo(age)}
+                  {source === "fresh" ? "FRESH" : source ? "CACHED" : "sync"} {formatAgo(age)}
                 </span>
               );
             })()}

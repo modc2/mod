@@ -297,7 +297,12 @@ pub struct PipelineCache {
 
 impl PipelineCache {
     pub fn new() -> Self {
-        let disk_dir = std::env::temp_dir().join("polymarket-active-traders-cache");
+        // Durable, NOT temp_dir(): this cache is what lets the board answer
+        // instantly after a restart, and /tmp is wiped on reboot — a reboot
+        // used to mean a cold leaderboard until the multi-minute warmup
+        // finished. Lives beside the other per-deployment state so it
+        // survives with the rest of it.
+        let disk_dir = crate::access::state_dir().join("active-traders-cache");
         std::fs::create_dir_all(&disk_dir).ok();
         Self {
             entries: RwLock::new(HashMap::new()),
@@ -410,7 +415,9 @@ impl PipelineCache {
         }
     }
 
-    fn disk_path(&self, key: &str) -> PathBuf {
+    // pub(crate) so tests that write through the REAL cache dir (it is the
+    // durable state dir now, not /tmp) can remove what they wrote.
+    pub(crate) fn disk_path(&self, key: &str) -> PathBuf {
         let safe_key = key.replace(':', "_");
         self.disk_dir.join(format!("{}.json", safe_key))
     }
@@ -496,12 +503,20 @@ impl PipelineCache {
                 payload.synced_at = mtime_secs;
             }
             // Payloads written before the Sharpe epsilon guard carry
-            // degenerate ~1e15 values (float-noise stdev on identical
-            // returns). Zero them so a stale disk cache can't put junk
-            // traders on top of the sharpe-sorted leaderboard until the
-            // next warmup recompute.
+            // degenerate values (float-noise stdev on identical returns).
+            // Zero them so a stale disk cache can't put junk traders on
+            // top of the sharpe-sorted leaderboard until the next warmup
+            // recompute. Two tests: the crude magnitude bound, and the
+            // guard's own stdev threshold reconstructed from what the
+            // payload keeps (exit_entry = 1 + roi, so stdev = roi/sharpe)
+            // — that's what catches a pre-1e-4-guard trader whose sharpe
+            // (e.g. 8e5) slid under the 1e6 bound.
             for t in &mut payload.traders {
                 if !t.sharpe.is_finite() || t.sharpe.abs() > 1e6 {
+                    t.sharpe = 0.0;
+                } else if t.sharpe != 0.0 && t.exit_entry >= 0.0
+                    && ((t.exit_entry - 1.0) / t.sharpe).abs() <= 1e-4
+                {
                     t.sharpe = 0.0;
                 }
             }

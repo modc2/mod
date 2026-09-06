@@ -1012,9 +1012,9 @@ export function statsFromReturns(returns: number[]): {
   }
   // Epsilon guard, not `> 0`: near-identical returns leave a quantization-
   // noise stdev (float noise ~1e-17, tick-scalper noise ~1e-7) that explodes
-  // Sharpe to 1e5–1e15. Genuine dispersion is ≥1e-3; under 1e-6 → 0. Mirrors
+  // Sharpe to 1e5–1e15. Genuine dispersion is ≥1e-3; under 1e-4 → 0. Mirrors
   // live_engine.rs stats_from_returns; parity fixture pins the case.
-  const sharpe = n >= 3 && stdev > 1e-6 ? roi / stdev : 0;
+  const sharpe = n >= 3 && stdev > 1e-4 ? roi / stdev : 0;
   // Laplace-smoothed win rate: shrinks toward 50% on thin samples so a
   // 2-for-2 trader doesn't read as "100% success"; no samples ⇒ exactly 0.5.
   const successProb = (wins + 2) / (n + 4);

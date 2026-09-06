@@ -533,6 +533,67 @@ class TestRounds:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  INCREMENTAL ROUNDS (unchanged task + known agent = no replay)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestIncrementalRounds:
+
+    TASKS = ['agentic/files#0', 'agentic/files#1']
+
+    def test_an_unchanged_round_plays_nothing(self, arena):
+        first = arena.run_round(tasks=self.TASKS)
+        assert first['matches'] == 6 and first['skipped'] == 0
+        again = arena.run_round(tasks=self.TASKS)
+        assert again['matches'] == 0 and again['skipped'] == 6
+
+    def test_a_newcomer_plays_alone_against_standing_scores(self, arena):
+        arena.run_round(tasks=self.TASKS)
+        arena.agents.add('delta')
+        out = arena.run_round(tasks=self.TASKS)
+        assert out['matches'] == 2               # delta x 2 tasks, nobody else
+        assert out['skipped'] == 6
+        # rated against the field's standing scores, not into a vacuum
+        assert arena._rating('delta')['wins'] + arena._rating('delta')['losses'] > 0
+
+    def test_an_edited_task_replays_everyone(self, arena):
+        spec = {'title': 'edit me', 'prompt': 'write the answer into out.txt',
+                'scorers': [{'type': 'finished'}]}
+        saved = arena.add_task(spec, owner='0xabc')
+        key = saved['key']
+        assert arena.run_round(tasks=[key])['matches'] == 3
+        assert arena.run_round(tasks=[key])['matches'] == 0
+        arena.add_task(dict(spec, prompt='write the other answer into out.txt'),
+                       slug=saved['index'])
+        replay = arena.run_round(tasks=[key])
+        assert replay['matches'] == 3 and replay['skipped'] == 0
+
+    def test_force_and_the_replay_knob_play_the_whole_field(self, arena):
+        arena.run_round(tasks=self.TASKS)
+        assert arena.run_round(tasks=self.TASKS, force=True)['matches'] == 6
+        arena.set_config(replay=True)
+        assert arena.run_round(tasks=self.TASKS)['matches'] == 6
+
+    def test_a_voided_pair_replays_next_round(self, arena):
+        arena.run_round(tasks=self.TASKS)
+        # gamma's runs error out, but an error step is a played match, not a
+        # void — fake a void by wiping its record for one task
+        del arena._rating('gamma')['per_task'][self.TASKS[0]]
+        out = arena.run_round(tasks=self.TASKS)
+        assert out['matches'] == 1 and out['results'][0]['agent'] == 'gamma'
+
+    def test_the_task_board_names_the_leader(self, arena):
+        arena.run_round(tasks=self.TASKS)
+        rows = {r['task']: r for r in arena.task_board()}
+        row = rows[self.TASKS[0]]
+        # alpha is the scripted winner, and the ranking is best-last first
+        assert row['leader'] == 'alpha'
+        assert [a['agent'] for a in row['agents']][0] == 'alpha'
+        assert len(row['agents']) == 3
+        # pool tasks nobody has played are still listed, flagged as such
+        assert any(r.get('unplayed') for r in rows.values())
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  QUALIFIERS
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -695,7 +756,13 @@ class TestForward:
     def test_run_one_match_vs_a_round(self, arena):
         one = arena.forward('run', agent='alpha', task='agentic/files#0')
         assert one['agent'] == 'alpha'
-        assert arena.forward('run')['matches'] == 6
+        # alpha already holds a score on that unchanged task, so the round
+        # skips the pair rather than replaying it…
+        rnd = arena.forward('run')
+        assert rnd['matches'] == 5
+        assert rnd['skipped'] == 1
+        # …and force plays the whole field regardless
+        assert arena.forward('run', force=True)['matches'] == 6
 
     def test_config_round_trips_to_disk(self, arena, tmpdir):
         arena.forward('config', period_hours=6, free=False)

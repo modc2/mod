@@ -55,6 +55,7 @@ Usage:
     arena.model_board()                 # the same matches, ranked by model
     arena.forward()                     # mod protocol entry point
 """
+import hashlib
 import json
 import os
 import shutil
@@ -119,6 +120,10 @@ DEFAULTS = {
     # the default because `free` already makes a round cost $0 — set it when
     # ranking on paid models, where the bill is real
     "max_tokens": 0,
+    # a round replays only what changed: an agent with a recorded score on an
+    # unchanged task keeps it, and the match is not run again. Flip this on to
+    # go back to replaying the whole field every round.
+    "replay": False,
     "harnesses": False,      # CLI-backed agents run the host's own shell — opt in
     "agents": None,          # None = every eligible agent
     "suites": None,          # None = every eval suite
@@ -461,6 +466,19 @@ class Arena:
             task["custom"] = True
             out.append(task)
         return out
+
+    @staticmethod
+    def fingerprint(task: Dict[str, Any]) -> str:
+        """What makes a task "the same task" from one round to the next: the
+        prompt, the checks, the fixture and the step budget. The title is
+        cosmetic and stays out; so does the suite, which is where it lives
+        rather than what it asks."""
+        basis = {"prompt": task.get("prompt") or "",
+                 "scorers": task.get("scorers") or [],
+                 "setup": task.get("setup") or {},
+                 "steps": task.get("steps") or 0}
+        return hashlib.sha1(json.dumps(basis, sort_keys=True,
+                                       default=str).encode()).hexdigest()[:16]
 
     @staticmethod
     def slugify(text: str) -> str:
@@ -845,6 +863,7 @@ class Arena:
             "task": spec["key"],
             "suite": spec["suite"],
             "title": spec["title"],
+            "fp": self.fingerprint(spec),
             # what actually ran, not what was asked for: FREE MODE resolves its
             # own model, and the board is only worth reading if the id on the
             # row is the id that answered
@@ -895,6 +914,10 @@ class Arena:
         per["last"] = match["score"]
         per["best"] = max(per.get("best", 0.0), match["score"])
         per["ts"] = match["ts"]
+        # the version of the task this score was earned on — an edited task
+        # invalidates the record, an unchanged one lets it stand next round
+        if match.get("fp"):
+            per["fp"] = match["fp"]
         self._mark_seen(agent)
         self._save_state()
 
@@ -944,8 +967,20 @@ class Arena:
     # ── rounds ─────────────────────────────────────────────────────
 
     def run_round(self, agents: List[str] = None, tasks: List[str] = None,
-                  reason: str = "manual") -> Dict[str, Any]:
-        """Every agent plays every task in the round, then everyone is rated.
+                  reason: str = "manual", force: bool = False) -> Dict[str, Any]:
+        """Everyone is rated on every task in the round — but only the matches
+        that can say something new actually run.
+
+        An agent with a recorded score on a task that has not changed since
+        keeps that score: replaying it burns quota to learn what the board
+        already knows. What does run is anything the record can't answer —
+        a new agent, an edited task (the fingerprint moved), a pair whose last
+        attempt was voided — and it is rated against the standing scores of
+        everyone who sat out, the same way a qualifier is. A round where
+        nothing changed plays zero matches and costs nothing.
+
+        `force=True` (or the `replay` config knob) plays the whole field
+        regardless — the old behaviour, and the right one after a scorer bug.
 
         Serialized: one round at a time, and matches inside it run one after
         the other. The point is a fair comparison, and eight agents hammering
@@ -957,16 +992,35 @@ class Arena:
             field = agents or self.subjects()
             pool = ([self.task(t) for t in tasks] if tasks else self.round_tasks())
             cfg = self.config()
+            force = bool(force) or bool(cfg.get("replay"))
             budget = int(cfg.get("max_matches", 40))
             token_cap = int(cfg.get("max_tokens", 0) or 0)
-            played, results, tokens, capped_by = [], {}, 0, None
+            fps = self._state.setdefault("task_fps", {})
+            played, results, tokens, capped_by, skipped = [], {}, 0, None, 0
+            standing: Dict[str, List[tuple]] = {}
             for spec in pool:
                 if capped_by:
                     break
+                key = spec["key"]
+                fp = self.fingerprint(spec)
+                # a fingerprint on file that no longer matches means the task
+                # was edited — every record on it is about a different task now
+                changed = key in fps and fps[key] != fp
                 # an eval can name the subjects it applies to
                 allowed = self._suite_agents(spec)
                 for agent in field:
                     if allowed and agent not in allowed:
+                        continue
+                    prev = ((self._state.get("ratings", {}).get(agent) or {})
+                            .get("per_task") or {}).get(key)
+                    # a record from before fingerprints (no fp) counts as
+                    # current — assuming unchanged beats replaying everything
+                    # once to find out
+                    if not force and not changed and prev \
+                            and prev.get("fp") in (None, fp):
+                        skipped += 1
+                        standing.setdefault(key, []).append(
+                            (agent, float(prev.get("last", 0.0))))
                         continue
                     if len(played) >= budget:
                         capped_by = "max_matches"
@@ -980,7 +1034,7 @@ class Arena:
                     played.append(match)
                     tokens += int(match.get("tokens", 0))
                     if not match["void"]:
-                        results.setdefault(spec["key"], []).append((agent, match["score"]))
+                        results.setdefault(key, []).append((agent, match["score"]))
                     elif self._rate_limited(match.get("void_reason")):
                         # the provider has closed the door for the day: every
                         # further match is the same void, and each one burns
@@ -988,8 +1042,16 @@ class Arena:
                         self._cooldown(match.get("void_reason"))
                         capped_by = "rate_limited"
                         break
+                # stamped only when every agent got their turn — a round cut
+                # off mid-task must not certify the new fingerprint, or the
+                # agents it cut off would be skipped against a task they
+                # never played
+                if not capped_by:
+                    fps[key] = fp
             for key, entries in results.items():
-                self._rate(key, entries)
+                # whoever sat the task out is rated on the score that let them
+                # sit it out — a fresh match still meets the whole field
+                self._rate(key, entries + standing.get(key, []))
 
             self._state["season"] = int(self._state.get("season", 0)) + 1
             self._state["last_round"] = _now()
@@ -1000,6 +1062,11 @@ class Arena:
                 "agents": field,
                 "tasks": [t["key"] for t in pool],
                 "matches": len(played),
+                # pairs whose standing score was kept instead of replayed — a
+                # zero-match round with a big skip count is the system working,
+                # not the system broken
+                "skipped": skipped,
+                "forced": force,
                 "tokens": tokens,
                 "capped": len(played) >= budget,
                 # which ceiling ended the round early, if either did — a short
@@ -1204,9 +1271,70 @@ class Arena:
         titles = {t["key"]: t["title"] for t in self.tasks()}
         return mb.card(self.all_matches(), model, titles=titles)
 
+    def task_leaders(self) -> Dict[str, Dict[str, Any]]:
+        """Per task, every agent's standing record on it — best last score
+        first, so [0] is the task's leader.
+
+        Read off the rating table rather than the match log: per_task is only
+        written by rated matches, so a gauntlet's model runs never crown an
+        agent, and a record outlives the log being pruned.
+        """
+        per: Dict[str, List[Dict[str, Any]]] = {}
+        for agent, r in self._state.get("ratings", {}).items():
+            for key, rec in (r.get("per_task") or {}).items():
+                per.setdefault(key, []).append({
+                    "agent": agent,
+                    "icon": self.icon(agent),
+                    "n": int(rec.get("n", 0)),
+                    "best": round(float(rec.get("best", 0.0)), 4),
+                    "last": round(float(rec.get("last", 0.0)), 4),
+                    "ts": rec.get("ts", 0),
+                })
+        out = {}
+        for key, rows in per.items():
+            rows.sort(key=lambda x: (-x["last"], -x["best"], x["agent"]))
+            out[key] = {
+                "agents": rows,
+                "leader": rows[0]["agent"],
+                "leader_icon": rows[0]["icon"],
+                "leader_score": rows[0]["last"],
+                # best agent minus worst — the agent-side twin of `spread`
+                "agent_spread": round(rows[0]["last"] - rows[-1]["last"], 4)
+                if len(rows) > 1 else 0.0,
+            }
+        return out
+
     def task_board(self) -> List[Dict[str, Any]]:
-        titles = {t["key"]: t["title"] for t in self.tasks()}
-        return mb.task_board(self.all_matches(), titles=titles)
+        """Every task, with the agents that lead it and the models that played
+        it. Three sources merged by key: the model ranking off the match log,
+        the agent ranking off the rating table, and the pool itself — so the
+        board answers "what are the tasks" and not only "what has run"."""
+        pool = self.tasks()
+        titles = {t["key"]: t["title"] for t in pool}
+        rows = mb.task_board(self.all_matches(), titles=titles)
+        leaders = self.task_leaders()
+        none = {"agents": [], "leader": None, "leader_icon": None,
+                "leader_score": 0.0, "agent_spread": 0.0}
+        seen = set()
+        for row in rows:
+            seen.add(row["task"])
+            row.update(leaders.get(row["task"], none))
+        blank = {"matches": 0, "voids": 0, "avg_score": 0.0, "pass_rate": 0.0,
+                 "avg_seconds": 0.0, "spread": 0.0, "models": [], "best": None,
+                 "last": 0}
+        # tasks with a rated record whose matches have been pruned off the log
+        for key, extra in leaders.items():
+            if key not in seen:
+                seen.add(key)
+                rows.append({"task": key, "title": titles.get(key, key),
+                             "suite": str(key).split("#", 1)[0], **blank, **extra})
+        # pool tasks nobody has played yet, listed so they are known to exist
+        for t in pool:
+            if t["key"] not in seen:
+                rows.append({"task": t["key"], "title": t["title"],
+                             "suite": t["suite"], **blank, **none,
+                             "unplayed": True})
+        return rows
 
     def models_status(self) -> Dict[str, Any]:
         """The model board plus what it took to build: how many matches are
@@ -1388,7 +1516,8 @@ class Arena:
                                       reason=kwargs.get("reason", "manual"))
             return self.run_round(agents=[agent] if agent else kwargs.get("agents"),
                                   tasks=[task] if task else kwargs.get("tasks"),
-                                  reason=kwargs.get("reason", "manual"))
+                                  reason=kwargs.get("reason", "manual"),
+                                  force=bool(kwargs.get("force", False)))
         if action == "qualify":
             return self.qualify(kwargs.get("agent", ""))
         if action in ("models", "model_board"):

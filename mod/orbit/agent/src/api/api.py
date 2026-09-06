@@ -83,7 +83,8 @@ Endpoints:
     GET  /arena/models - the same matches ranked by model: score, latency,
                          throughput, spend — plus the catalog to play
     GET  /arena/model?model= - one model's record (per-task, who it beat)
-    GET  /arena/board/tasks  - per task, the models that played it, ranked
+    GET  /arena/board/tasks  - per task: the agents that lead it, the models
+                               that played it, and the pool tasks not yet played
     POST /arena/gauntlet - admin: one agent, one task set, N models
     POST /arena/run    - admin: play a match (agent=, task=) or a whole round
     POST /arena/config - admin: the board's knobs + scheduler on/off
@@ -385,6 +386,9 @@ class ArenaRunRequest(BaseModel):
     model: Optional[str] = None
     steps: Optional[int] = None
     free: Optional[bool] = None
+    # a round replays only what changed (new agent, edited task); force=True
+    # plays every pair regardless
+    force: Optional[bool] = None
     key: Optional[str] = None
 
 class TaskDraftRequest(BaseModel):
@@ -481,6 +485,7 @@ class ArenaConfigRequest(BaseModel):
     poll_seconds: Optional[int] = None     # how fast a new agent is spotted
     tasks_per_round: Optional[int] = None
     max_matches: Optional[int] = None
+    replay: Optional[bool] = None          # replay unchanged tasks every round
     harnesses: Optional[bool] = None       # let CLI-backed agents compete
     scheduler: Optional[bool] = None       # start/stop the background process
     openarena: Optional[bool] = None       # pull openarena's tasks into the pool
@@ -2329,7 +2334,8 @@ def arena_run(req: ArenaRunRequest):
     try:
         return get_mod().forward('arena_run', key=req.key, agent=req.agent,
                                  task=req.task, model=req.model, steps=req.steps,
-                                 free=req.free, reason='manual')
+                                 free=req.free, force=bool(req.force),
+                                 reason='manual')
     except PermissionError as e:
         return {"error": str(e), "code": 403}
     except KeyError as e:

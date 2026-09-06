@@ -80,6 +80,22 @@
       }
     },
     {
+      "name": "tickNoiseDegenerate",
+      "returns": [
+        0.1,
+        0.10001,
+        0.09999
+      ],
+      "expected": {
+        "roi": 0.09999999999999999,
+        "stdev": 1.0000000000003062e-05,
+        "sharpe": 0.0,
+        "sampleSize": 3,
+        "wins": 3,
+        "successProb": 0.7142857142857143
+      }
+    },
+    {
       "name": "steadyWinner",
       "returns": [
         0.05,

@@ -89,6 +89,10 @@ type TaskRow = {
   best?: string | null; last: number
   models: { model: string; n: number; score: number; pass_rate: number
             seconds: number; tokens: number; agents: string[] }[]
+  // the agent side of the same task: everyone's standing record, leader first
+  agents: { agent: string; icon: string; n: number; best: number; last: number; ts: number }[]
+  leader?: string | null; leader_icon?: string | null; leader_score: number
+  agent_spread: number; unplayed?: boolean
 }
 // what a gauntlet may be pointed at — every provider's list, keys or no keys
 type Candidate = { model: string; provider: string; ready: boolean; free: boolean; hint?: string | null }
@@ -233,11 +237,13 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
       fetch(`${API_URL}/arena/models`, { signal }).then(r => r.json())
         .then(d => setMods(d?.error ? null : { catalog: [], models: [], ...d })).catch(() => {})
     }
-    if (view === 'tasks') {
+    // the rail's task pane wears each task's leader too, so the board is
+    // fetched for either surface that shows it
+    if (view === 'tasks' || pane === 'tasks') {
       fetch(`${API_URL}/arena/board/tasks`, { signal }).then(r => r.json())
         .then(d => setTaskRows(d.tasks || [])).catch(() => {})
     }
-  }, [view])
+  }, [view, pane])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { loadBoards() }, [loadBoards, matches.length])
@@ -320,6 +326,12 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
   }
 
   const roundKeys = useMemo(() => new Set(status?.round_tasks || []), [status])
+  // each task's board row, keyed for the rail — the leader chip reads off this
+  const leadersByTask = useMemo(() => {
+    const out: Record<string, TaskRow> = {}
+    for (const t of taskRows) out[t.task] = t
+    return out
+  }, [taskRows])
   const suites = useMemo(() => {
     const out: Record<string, Task[]> = {}
     for (const t of tasks) (out[t.suite] ||= []).push(t)
@@ -357,7 +369,7 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
       <div className="flex items-center gap-3 ml-auto text-[10px] shrink-0">
         <span className={`flex items-center gap-1.5 ${status?.scheduler?.alive ? 'text-gray-500' : 'text-amber-400'}`}
           title={status?.scheduler?.last_error || status?.scheduler?.last_action
-                 || 'the board runs itself: a new agent is qualified within a minute, the field replays daily'}>
+                 || 'the board runs itself: a new agent is qualified within a minute, and a round plays only what changed — a new agent, an edited task'}>
           <span className={`w-1.5 h-1.5 rounded-full ${
             status?.scheduler?.alive ? 'bg-emerald-400/70' : 'bg-amber-400'}`} />
           {status?.scheduler?.alive ? `auto · ${until(status?.next_round)}` : 'auto off'}
@@ -377,6 +389,7 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
               </button>
             )}
             <button disabled={busy || !!live} onClick={() => post('run', {})}
+              title="plays only what changed — new agents, edited tasks. a task's PLAY button in the rail replays it outright"
               className="lit-btn px-3 py-1.5 rounded-md uppercase tracking-wider text-[10px] disabled:opacity-40">
               {busy ? 'running…' : 'run round'}
             </button>
@@ -478,10 +491,13 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
       {[
         { k: 'enabled', label: 'board on' },
         { k: 'free', label: 'free models only' },
+        { k: 'replay', label: 'replay unchanged tasks',
+          title: 'off = a round only plays what changed: new agents, edited tasks, voided pairs. on = the whole field replays every round.' },
         { k: 'harnesses', label: 'CLI agents compete' },
         { k: 'openarena', label: 'openarena tasks play' },
       ].map(f => (
-        <label key={f.k} className="flex items-center gap-1.5 cursor-pointer pb-1">
+        <label key={f.k} title={(f as any).title}
+          className="flex items-center gap-1.5 cursor-pointer pb-1">
           <input type="checkbox" checked={!!cfg[f.k]}
             onChange={e => post('config', { [f.k]: e.target.checked })}
             className="accent-emerald-500" />
@@ -505,7 +521,7 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
     <div className="flex-1 min-w-0 overflow-y-auto no-scrollbar">
       {board.length === 0 ? (
         <Empty title="no matches yet"
-          body="the first round runs on its own — a new agent is qualified within a minute of being created, and the whole field replays daily."
+          body="the first round runs on its own — a new agent is qualified within a minute of being created. after that, a round only replays a task when it changed or someone new joined."
           hint={isHost ? 'or start one now with RUN ROUND' : undefined} />
       ) : (
         <table className="board text-[11px]">
@@ -654,21 +670,23 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
 
   // ── the task board ────────────────────────────────────────────────
   //
-  // Hardest first, and each task opens onto the models that played it. SPREAD
-  // is the column to sort a task pool by: a task every model scores the same
-  // on is a task that ranks nobody.
+  // Hardest first, with each task's LEADER — the agent with the best standing
+  // score on it — right on the row. Opening a task shows the whole agent
+  // ranking for it, then the models that played it. SPREAD is still the
+  // column to judge a task pool by: a task every model scores the same on
+  // ranks nobody.
   const taskBoard = (
     <div className="flex-1 min-w-0 overflow-y-auto no-scrollbar">
       {taskRows.length === 0 ? (
         <Empty title="nothing has been played"
-          body="this read ranks the tasks themselves, hardest first, with the models that played each one underneath. SPREAD is the column that matters: a task every model scores the same on ranks nobody."
+          body="this read lists every task with its leader — the agent holding the best score on it. open a task for the full agent ranking, and the models underneath."
           hint="the task pool is in the rail on the right" />
       ) : (
         <table className="board text-[11px]">
           <thead>
             <tr>
-              {['task', 'avg score', 'pass', 'spread', 'best model', 'matches', 'avg s'].map(h => (
-                <th key={h} className={h === 'task' ? 'text-left' : 'text-right'}>{h}</th>
+              {['task', 'leader', 'avg score', 'pass', 'spread', 'matches', 'avg s'].map(h => (
+                <th key={h} className={['task', 'leader'].includes(h) ? 'text-left' : 'text-right'}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -677,43 +695,83 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
               <Fragment key={t.task}>
                 <tr onClick={() => setOpenTask(openTask === t.task ? null : t.task)}
                   className={`row-pick ${openTask === t.task ? 'row-on' : ''}`}>
-                  <td className="max-w-[320px]">
+                  <td className="max-w-[300px]">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className={`text-gray-600 transition-transform shrink-0 ${
                         openTask === t.task ? 'rotate-90' : ''}`}>›</span>
                       <div className="min-w-0">
                         <div className="text-gray-100 truncate" title={t.title}>{t.title}</div>
-                        <div className="text-[9px] text-gray-600 truncate mt-0.5">{t.task}</div>
+                        <div className="text-[9px] text-gray-600 truncate mt-0.5">
+                          {t.task}{roundKeys.has(t.task) ? ' · this round' : ''}
+                        </div>
                       </div>
                     </div>
+                  </td>
+                  <td className="max-w-[160px]"
+                    title={t.leader ? `${t.leader} holds the best score on this task: ${pct(t.leader_score)}` : 'no rated score on this task yet'}>
+                    {t.leader ? (
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <Glyph icon={t.leader_icon || '>_'} />
+                        <span className="text-emerald-200 truncate">{t.leader}</span>
+                        <span className="text-gray-500 tabular-nums shrink-0">{pct(t.leader_score)}</span>
+                      </span>
+                    ) : (
+                      <span className="text-gray-700 text-[10px] uppercase tracking-wider">
+                        {t.unplayed ? 'not played yet' : '—'}
+                      </span>
+                    )}
                   </td>
                   <td className="text-right w-28"><Score value={t.avg_score} /></td>
                   <td className="text-right tabular-nums text-gray-500">{pct(t.pass_rate)}</td>
                   <td className="text-right tabular-nums"
-                    title="best model minus worst on this task — 0 means it separates nobody">
-                    <span className={t.spread > 0.15 ? 'text-emerald-300' : 'text-gray-600'}>
-                      {t.models.length > 1 ? pct(t.spread) : '—'}
+                    title="best agent minus worst on this task — 0 means it separates nobody">
+                    <span className={(t.agent_spread || t.spread) > 0.15 ? 'text-emerald-300' : 'text-gray-600'}>
+                      {(t.agents?.length ?? 0) > 1 ? pct(t.agent_spread)
+                        : t.models.length > 1 ? pct(t.spread) : '—'}
                     </span>
-                  </td>
-                  <td className="text-right text-gray-500 max-w-[180px] truncate" title={t.best || ''}>
-                    {t.models.length > 1 ? t.best : '—'}
                   </td>
                   <td className="text-right tabular-nums text-gray-500">{t.matches}</td>
                   <td className="text-right tabular-nums text-gray-600">{t.avg_seconds.toFixed(1)}</td>
                 </tr>
+                {openTask === t.task && (t.agents || []).map((a, i) => (
+                  <tr key={`${t.task}:agent:${a.agent}`} className="bg-white/[0.02] text-[10px]">
+                    <td className="pl-8">
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-gray-600 tabular-nums w-4 shrink-0">{i + 1}</span>
+                        <Glyph icon={a.icon} />
+                        <span className={`truncate ${i === 0 ? 'text-emerald-200' : 'text-gray-300'}`}>{a.agent}</span>
+                      </span>
+                    </td>
+                    <td className="text-gray-600 text-[9px] uppercase tracking-wider">agent</td>
+                    <td className="text-right"><Score value={a.last} /></td>
+                    <td className="text-right tabular-nums text-gray-600" title="best score it ever posted here">
+                      {pct(a.best)}
+                    </td>
+                    <td />
+                    <td className="text-right tabular-nums text-gray-500">{a.n}</td>
+                    <td className="text-right tabular-nums text-gray-600">{ago(a.ts)}</td>
+                  </tr>
+                ))}
                 {openTask === t.task && t.models.map(m => (
                   <tr key={`${t.task}:${m.model}`} className="bg-white/[0.02] text-[10px]">
                     <td className="pl-8 text-gray-400 truncate" title={`agents: ${m.agents.join(', ')}`}>
                       {m.model}
                     </td>
+                    <td className="text-gray-600 text-[9px] uppercase tracking-wider">model</td>
                     <td className="text-right"><Score value={m.score} /></td>
                     <td className="text-right tabular-nums text-gray-500">{pct(m.pass_rate)}</td>
-                    <td />
                     <td className="text-right text-gray-600 truncate">{m.agents.join(', ')}</td>
                     <td className="text-right tabular-nums text-gray-500">{m.n}</td>
                     <td className="text-right tabular-nums text-gray-600">{m.seconds.toFixed(1)}</td>
                   </tr>
                 ))}
+                {openTask === t.task && (t.agents?.length ?? 0) === 0 && t.models.length === 0 && (
+                  <tr className="bg-white/[0.02] text-[10px]">
+                    <td colSpan={7} className="pl-8 text-gray-600">
+                      in the pool, never played — it joins the rotation, or PLAY it from the rail
+                    </td>
+                  </tr>
+                )}
               </Fragment>
             ))}
           </tbody>
@@ -750,7 +808,7 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
         </span>
       ) : (
         <span className="ml-auto">
-          spread is best model minus worst on that task — the column that says whether a task ranks anybody.
+          leader = the agent holding the best score on that task. spread is best minus worst — the column that says whether a task ranks anybody.
         </span>
       )}
     </div>
@@ -1075,7 +1133,7 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
                   <span className="text-[9px] uppercase tracking-wider text-emerald-300">this round</span>
                 )}
                 {isHost && (
-                  <button disabled={busy || !!live} onClick={() => post('run', { task: t.key })}
+                  <button disabled={busy || !!live} onClick={() => post('run', { task: t.key, force: true })}
                     className="text-[9px] uppercase tracking-wider text-gray-600 hover:text-emerald-300 transition disabled:opacity-40">
                     play
                   </button>
@@ -1271,7 +1329,9 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
               <span>{suite}</span>
               <span className="text-gray-700 tracking-normal">{list.length}</span>
             </div>
-            {list.map(t => (
+            {list.map(t => {
+              const lead = leadersByTask[t.key]
+              return (
               <div key={t.key} className={`card card-hover p-2 ${roundKeys.has(t.key) ? 'card-on' : ''}`}>
                 <div className="flex items-baseline gap-2">
                   <span className="text-[10px] text-gray-200 flex-1 truncate" title={t.title}>{t.title}</span>
@@ -1280,7 +1340,8 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
                   )}
                   {isHost && (
                     <button disabled={busy || !!live}
-                      onClick={() => post('run', { task: t.key })}
+                      title="play this task now — every agent, even ones with a standing score"
+                      onClick={() => post('run', { task: t.key, force: true })}
                       className="text-[9px] uppercase tracking-wider text-gray-600 hover:text-emerald-300 transition disabled:opacity-40 shrink-0">
                       play
                     </button>
@@ -1289,8 +1350,16 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
                 <div className="text-[9px] text-gray-600 mt-0.5 truncate">
                   {t.key} · budget {t.steps || cfg.steps || 8} steps
                 </div>
+                {lead?.leader && (
+                  <div className="text-[9px] mt-0.5 flex items-center gap-1.5 min-w-0"
+                    title={`${lead.leader} holds the best score on this task — open the TASKS board for the full ranking`}>
+                    <span className="uppercase tracking-wider text-gray-600 shrink-0">leader</span>
+                    <span className="text-emerald-300/90 truncate">{lead.leader}</span>
+                    <span className="text-gray-600 tabular-nums shrink-0">{pct(lead.leader_score)}</span>
+                  </div>
+                )}
               </div>
-            ))}
+            )})}
           </div>
         ))}
 

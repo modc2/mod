@@ -159,16 +159,21 @@ export default function SyncScheduleChip() {
         className={`pixel-btn text-[11px] px-2 py-0.5 font-mono tracking-wider flex items-center gap-1 hover:bg-green-400/10 ${chipColor}`}
         title={
           sched.enabled
-            ? `Background sync every ${formatInterval(sched.intervalSecs)} on the server — runs whether or not this console is open. Click to change.`
+            ? `Background sync every ${formatInterval(sched.intervalSecs)} on the server — runs whether or not this console is open.${
+                sched.running
+                  ? " Syncing now."
+                  : secsToNext != null
+                    ? ` Next in ${formatCountdown(secsToNext)}.`
+                    : ""
+              } Click to change.`
             : "Background sync is PAUSED — click to re-enable"
         }
       >
+        {/* Countdown / "syncing" live in the tooltip + panel, not the label —
+            the collapsed chip stays a fixed narrow width so the header row
+            never wraps. The pulse dot is the running signal. */}
         {sched.running && <span className="w-1.5 h-1.5 bg-green-400 animate-pulse" />}
         AUTO {sched.enabled ? formatInterval(sched.intervalSecs) : "OFF"}
-        {sched.enabled && secsToNext != null && !sched.running && (
-          <span className="text-pixel-gray">· {formatCountdown(secsToNext)}</span>
-        )}
-        {sched.running && <span className="text-pixel-gray">· syncing</span>}
       </button>
 
       {open && (

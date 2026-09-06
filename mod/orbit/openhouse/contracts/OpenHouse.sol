@@ -16,6 +16,12 @@ pragma solidity ^0.8.20;
 ///         out yet. The two always sum to the whole house, so the quarter's total
 ///         weight is exactly homePrice x elapsed, and the fee flows back to whoever
 ///         actually left money in the deal.
+///
+///         Governance is a 2-of-2 between the owner and the BANK — a co-signing
+///         seat (an institution, or a Safe). Every lever moves by proposal: one
+///         seat opens it, the other approves it, either one can cancel it, and
+///         either one can freeze the contract alone. A stolen key can pause the
+///         money — it cannot move it.
 contract OpenHouse {
     // ─────────────────────────────────────────── The home ──
     string  public description;          // the property
@@ -120,9 +126,21 @@ contract OpenHouse {
     event HomeFullyOwned(uint256 timestamp);
     event YieldVaultSet(address indexed vault);
     event OwnerTransferred(address indexed from, address indexed to);
+    event BankSet(address indexed bank);
+    event OpProposed(uint256 indexed id, OpKind kind, address indexed by);
+    event OpCancelled(uint256 indexed id, address indexed by);
+    event OpExecuted(uint256 indexed id, OpKind kind, address indexed approvedBy);
+    event PausedBy(address indexed by);
+    event Unpaused();
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "OpenHouse: not owner");
+    /// Owner or bank — the two seats of the 2-of-2.
+    modifier onlySeat() {
+        require(msg.sender == owner || msg.sender == bank, "OpenHouse: not a seat");
+        _;
+    }
+
+    modifier notPaused() {
+        require(!paused, "OpenHouse: paused");
         _;
     }
 
@@ -131,16 +149,20 @@ contract OpenHouse {
         uint256 _homePrice,
         address _yieldVault,
         address _treasury,
+        address _bank,
         uint256 _platformFeeBps,
         uint256 _rentCreditBps
     ) {
         require(_homePrice > 0, "OpenHouse: zero price");
         require(_treasury != address(0), "OpenHouse: zero treasury");
+        require(_bank != address(0), "OpenHouse: zero bank");
+        require(_bank != msg.sender, "OpenHouse: bank is the owner");
         description = _description;
         homePrice = _homePrice;
         owner = msg.sender;
         yieldVault = _yieldVault;
         treasury = _treasury;
+        bank = _bank;
         _setTerms(_platformFeeBps, _rentCreditBps);
         quarterStart = block.timestamp;
         _totalTs = block.timestamp;
@@ -153,7 +175,7 @@ contract OpenHouse {
     ///         the home and the remainder is the owner's rent income. Principal is
     ///         routed to the owner's low-risk yield vault (lowfi) while it sits, and
     ///         it starts earning bloctime here the moment it lands.
-    function payRent() external payable {
+    function payRent() external payable notPaused {
         require(msg.value > 0, "OpenHouse: no payment");
         require(totalPrincipalPaid < homePrice, "OpenHouse: home already paid off");
 
@@ -234,7 +256,7 @@ contract OpenHouse {
 
     /// @notice Claim your share of a closed quarter's pool: the fee back, in
     ///         proportion to the dollars x seconds you had locked that quarter.
-    function claim(uint256 q) external returns (uint256 amount) {
+    function claim(uint256 q) external notPaused returns (uint256 amount) {
         require(q < quarter, "OpenHouse: quarter still open");
         require(!swept[q], "OpenHouse: quarter swept");
         require(!claimed[q][msg.sender], "OpenHouse: already claimed");
@@ -251,9 +273,10 @@ contract OpenHouse {
         if (amount > 0) _send(msg.sender, amount);
     }
 
-    /// @notice After a full year unclaimed, what's left of a quarter's pool (plus
-    ///         the wei of rounding dust every division leaves) goes to the treasury.
-    function sweepUnclaimed(uint256 q) external onlyOwner returns (uint256 amount) {
+    /// @dev After a full year unclaimed, what's left of a quarter's pool (plus the
+    ///      wei of rounding dust every division leaves) goes to the treasury. A
+    ///      sweep moves money, so it is a 2-of-2 operation: propose(Sweep, q).
+    function _sweepUnclaimed(uint256 q) internal returns (uint256 amount) {
         require(quarter > q + CLAIM_WINDOW, "OpenHouse: claim window still open");
         require(!swept[q], "OpenHouse: already swept");
         swept[q] = true;
@@ -339,33 +362,109 @@ contract OpenHouse {
     function quarterReady() external view returns (bool) { return block.timestamp >= quarterStart + QUARTER; }
     function quarterEndsAt() external view returns (uint256) { return quarterStart + QUARTER; }
 
-    // ─────────────────────────────────────── Governance ────
+    // ──────────────────────────── Governance: the 2-of-2 ───
 
-    /// @notice The owner tunes the deal: protocol take (0–5%, zero allowed) and how
-    ///         much of each payment becomes the renter's equity.
-    function setTerms(uint256 feeBps, uint256 creditBps) external onlyOwner {
-        _setTerms(feeBps, creditBps);
+    /// @notice Open a 2-of-2 operation. The proposer's signature is this call; the
+    ///         OTHER seat's `approve` executes it. Arguments are checked here so a
+    ///         doomed proposal fails at the door, and checked again at execution so
+    ///         a week of drift can't make a stale one land wrong.
+    /// @param kind what to do — see OpKind
+    /// @param addr the new treasury / vault / owner / bank, for address-shaped ops
+    /// @param a    feeBps for SetTerms, the quarter index for Sweep
+    /// @param b    creditBps for SetTerms
+    function propose(OpKind kind, address addr, uint256 a, uint256 b)
+        external onlySeat returns (uint256 id)
+    {
+        if (kind == OpKind.SetTerms) {
+            require(a <= MAX_FEE_BPS, "OpenHouse: fee out of band");
+            require(b <= 10_000, "OpenHouse: credit > 100%");
+        } else if (kind == OpKind.SetTreasury || kind == OpKind.TransferOwner || kind == OpKind.SetBank) {
+            require(addr != address(0), "OpenHouse: zero address");
+            // The two seats must never collapse into one key. Checked again at
+            // execution — a seat may have rotated while the proposal sat open.
+            if (kind == OpKind.TransferOwner) require(addr != bank, "OpenHouse: owner would be the bank");
+            if (kind == OpKind.SetBank) require(addr != owner, "OpenHouse: bank would be the owner");
+        } else if (kind == OpKind.Unpause) {
+            require(paused, "OpenHouse: not paused");
+        }
+        id = ops.length;
+        ops.push(Op({
+            kind: kind,
+            addr: addr,
+            a: a,
+            b: b,
+            proposedBy: msg.sender,
+            proposedAt: uint64(block.timestamp),
+            executed: false,
+            cancelled: false
+        }));
+        emit OpProposed(id, kind, msg.sender);
     }
 
-    function setTreasury(address _treasury) external onlyOwner {
-        require(_treasury != address(0), "OpenHouse: zero treasury");
-        treasury = _treasury;
-        emit TreasurySet(_treasury);
+    /// @notice The second signature. Must come from the seat that did NOT propose,
+    ///         inside the TTL — and executes the operation in the same breath.
+    function approve(uint256 id) external onlySeat {
+        Op storage op = _openOp(id);
+        require(msg.sender != op.proposedBy, "OpenHouse: cannot self-approve");
+        require(block.timestamp <= op.proposedAt + OP_TTL, "OpenHouse: proposal expired");
+        op.executed = true;
+        _execute(op);
+        emit OpExecuted(id, op.kind, msg.sender);
     }
 
-    function setYieldVault(address vault) external onlyOwner {
-        yieldVault = vault;
-        emit YieldVaultSet(vault);
+    /// @notice The undo. Either seat kills a pending operation — its own proposal
+    ///         on second thought, or the other seat's on first sight.
+    function cancel(uint256 id) external onlySeat {
+        Op storage op = _openOp(id);
+        op.cancelled = true;
+        emit OpCancelled(id, msg.sender);
     }
 
-    /// @dev The owner's bloctime is credited to whoever holds the seat at close, so
-    ///      settle the current holder's accrual before the seat moves.
-    function transferOwnership(address to) external onlyOwner {
-        require(to != address(0), "OpenHouse: zero address");
-        _accrue(owner);
-        _accrue(to);
-        emit OwnerTransferred(owner, to);
-        owner = to;
+    /// @notice The brake. One seat, alone, right now — a stolen key racing to move
+    ///         money loses to the honest key freezing it. Unpausing is an Unpause
+    ///         proposal, so nothing thaws until both seats agree the keys are safe.
+    function pause() external onlySeat {
+        paused = true;
+        emit PausedBy(msg.sender);
+    }
+
+    function opCount() external view returns (uint256) { return ops.length; }
+
+    function _openOp(uint256 id) internal view returns (Op storage op) {
+        require(id < ops.length, "OpenHouse: no such op");
+        op = ops[id];
+        require(!op.executed, "OpenHouse: already executed");
+        require(!op.cancelled, "OpenHouse: cancelled");
+    }
+
+    function _execute(Op storage op) internal {
+        if (op.kind == OpKind.SetTerms) {
+            _setTerms(op.a, op.b);
+        } else if (op.kind == OpKind.SetTreasury) {
+            treasury = op.addr;
+            emit TreasurySet(op.addr);
+        } else if (op.kind == OpKind.SetYieldVault) {
+            yieldVault = op.addr;
+            emit YieldVaultSet(op.addr);
+        } else if (op.kind == OpKind.TransferOwner) {
+            // The owner's bloctime is credited to whoever holds the seat at close,
+            // so settle the current holder's accrual before the seat moves.
+            require(op.addr != bank, "OpenHouse: owner would be the bank");
+            _accrue(owner);
+            _accrue(op.addr);
+            emit OwnerTransferred(owner, op.addr);
+            owner = op.addr;
+        } else if (op.kind == OpKind.SetBank) {
+            require(op.addr != owner, "OpenHouse: bank would be the owner");
+            bank = op.addr;
+            emit BankSet(op.addr);
+        } else if (op.kind == OpKind.Sweep) {
+            require(!paused, "OpenHouse: paused");
+            _sweepUnclaimed(op.a);
+        } else if (op.kind == OpKind.Unpause) {
+            paused = false;
+            emit Unpaused();
+        }
     }
 
     // ─────────────────────────────────────────── Internal ──

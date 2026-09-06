@@ -1579,6 +1579,10 @@ mod tests {
         assert_eq!(p.count, 1);
         assert_eq!(p.traders[0].address, "0xccc");
         assert_eq!(p.traders[0].pnl_curve, Some(vec![1.0, 2.0, 3.0]));
+
+        // The cache dir is the durable state dir, not /tmp — clean up or
+        // every test run leaves a test_disk_* file beside the real payloads.
+        std::fs::remove_file(cache2.disk_path(&key)).ok();
     }
 
     // ── Trader serialization roundtrip ───────────────────────────

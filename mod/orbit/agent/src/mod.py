@@ -3246,7 +3246,8 @@ class Mod(Agent):
                                                     model=kwargs.get('model'),
                                                     steps=kwargs.get('steps'),
                                                     free=kwargs.get('free'),
-                                                    reason=kwargs.get('reason', 'manual')),
+                                                    reason=kwargs.get('reason', 'manual'),
+                                                    force=bool(kwargs.get('force', False))),
             'arena_qualify': lambda: self.arena.forward('qualify', agent=kwargs.get('agent', '')),
             # a gauntlet names its models, so unlike a round it can spend on
             # paid ones — the host's call, and the host's key
