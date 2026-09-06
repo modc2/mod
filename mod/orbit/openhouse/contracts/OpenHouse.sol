@@ -24,6 +24,35 @@ contract OpenHouse {
     address public yieldVault;           // lowfi vault principal is routed to
     address public treasury;             // where unclaimed pool dust is swept, nothing else
 
+    // ─────────────────────────────────────────── The bank ──
+    /// Every lever that can move the deal — where principal is routed, where dust
+    /// is swept, who holds the owner seat, what the terms are — is behind a 2-of-2:
+    /// one seat proposes, the OTHER seat approves, and either seat can cancel a
+    /// pending operation or freeze the contract on the spot. A single stolen key
+    /// can therefore do exactly one thing alone: pause — which protects the money,
+    /// not the thief. Unpausing takes both keys, like everything else.
+    address public bank;                 // the co-signer: an institution or a Safe
+    bool    public paused;               // circuit breaker — blocks all fund movement
+
+    /// A pending 2-of-2 operation. Proposals age out so an approval given today
+    /// can never execute a forgotten op months later.
+    uint256 public constant OP_TTL = 7 days;
+
+    enum OpKind { SetTerms, SetTreasury, SetYieldVault, TransferOwner, SetBank, Sweep, Unpause }
+
+    struct Op {
+        OpKind  kind;
+        address addr;        // target address, for the address-shaped ops
+        uint256 a;           // feeBps, or the quarter index for Sweep
+        uint256 b;           // creditBps
+        address proposedBy;  // the seat that opened it — the other one must close it
+        uint64  proposedAt;
+        bool    executed;
+        bool    cancelled;
+    }
+
+    Op[] public ops;
+
     // ────────────────────────────────── Owner-set terms ────
     /// The protocol take is bounded in code, not by promise: the owner picks a
     /// number inside this band and can never widen it. The floor is zero — an
