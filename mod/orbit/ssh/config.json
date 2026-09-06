@@ -1,6 +1,6 @@
 {
     "name": "ssh",
-    "description": "SSH key vault — keys stored server-side, encrypted at rest (OpenSSH bcrypt format), decrypted per-use with your password",
+    "description": "SSH key vault \u2014 keys stored server-side, encrypted at rest (OpenSSH bcrypt format), decrypted per-use with your password",
     "version": "0.1.0",
-    "schema": "QmXAGgyFnHXqUJvwHWrPr8PjVDw8XBB2MPshUSkhTp6Lvy"
+    "schema": "QmSajBTYSMtmpLMWLajqEqmgN5Eo6z7zQaBBjG2rJj5pV5"
 }
